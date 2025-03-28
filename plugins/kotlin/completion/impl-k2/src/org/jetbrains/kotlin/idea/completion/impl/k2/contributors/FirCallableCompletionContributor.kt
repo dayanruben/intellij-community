@@ -3,6 +3,7 @@ package org.jetbrains.kotlin.idea.completion.impl.k2.contributors
 
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiEnumConstant
 import com.intellij.psi.PsiField
@@ -11,6 +12,7 @@ import com.intellij.psi.util.parents
 import com.intellij.util.containers.addIfNotNull
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.*
 import org.jetbrains.kotlin.analysis.api.lifetime.KaLifetimeOwner
 import org.jetbrains.kotlin.analysis.api.lifetime.KaLifetimeToken
@@ -38,11 +40,13 @@ import org.jetbrains.kotlin.idea.completion.impl.k2.context.getOriginalDeclarati
 import org.jetbrains.kotlin.idea.completion.lookups.CallableInsertionOptions
 import org.jetbrains.kotlin.idea.completion.lookups.CallableInsertionStrategy
 import org.jetbrains.kotlin.idea.completion.lookups.ImportStrategy
+import org.jetbrains.kotlin.idea.completion.lookups.factories.ClassifierLookupObject
 import org.jetbrains.kotlin.idea.completion.lookups.factories.FunctionInsertionHelper
 import org.jetbrains.kotlin.idea.completion.reference
 import org.jetbrains.kotlin.idea.completion.weighers.CallableWeigher.callableWeight
 import org.jetbrains.kotlin.idea.completion.weighers.WeighingContext
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.positionContext.KotlinExpressionNameReferencePositionContext
 import org.jetbrains.kotlin.idea.util.positionContext.KotlinNameReferencePositionContext
 import org.jetbrains.kotlin.idea.util.positionContext.KotlinSimpleNameReferencePositionContext
 import org.jetbrains.kotlin.kdoc.psi.impl.KDocName
@@ -50,6 +54,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.platform.isMultiPlatform
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.nextSiblingOfSameType
+import org.jetbrains.kotlin.renderer.render
 import org.jetbrains.kotlin.resolve.ArrayFqNames
 import org.jetbrains.kotlin.types.Variance
 
@@ -100,7 +105,7 @@ internal open class FirCallableCompletionContributor(
         private val _signature: KaCallableSignature<*>,
         val options: CallableInsertionOptions,
         val symbolOrigin: CompletionSymbolOrigin,
-        val itemText: @NlsSafe String? = null, // todo extract; only used for objects/enums
+        val showReceiver: Boolean = false, // todo extract; only used for objects/enums/static members
         private val _explicitReceiverTypeHint: KaType? = null, // todo extract; only used for smart casts
     ) : KaLifetimeOwner {
         override val token: KaLifetimeToken
@@ -109,6 +114,18 @@ internal open class FirCallableCompletionContributor(
         val signature: KaCallableSignature<*> get() = withValidityAssertion { _signature }
 
         val explicitReceiverTypeHint: KaType? get() = withValidityAssertion { _explicitReceiverTypeHint }
+
+        val itemText: @NlsSafe String?
+            get() {
+                val callableId = signature.takeIf { showReceiver }
+                    ?.callableId
+                    ?: return null
+
+                val className = callableId.className
+                    ?: return null
+
+                return "$className.${callableId.callableName}"
+            }
     }
 
     context(KaSession)
@@ -141,13 +158,9 @@ internal open class FirCallableCompletionContributor(
                     signature = callableWithMetadata.signature,
                     options = callableWithMetadata.options,
                     symbolOrigin = callableWithMetadata.symbolOrigin,
+                    presentableText = callableWithMetadata.itemText,
                     withTrailingLambda = withTrailingLambda,
                 ).map { builder ->
-                    val itemText = callableWithMetadata.itemText
-                        ?: return@map builder
-
-                    builder.withPresentableText(itemText)
-                }.map { builder ->
                     receiver ?: return@map builder
 
                     if (builder.callableWeight?.kind != CallableMetadataProvider.CallableKind.RECEIVER_CAST_REQUIRED)
@@ -218,7 +231,7 @@ internal open class FirCallableCompletionContributor(
         }
         availableStaticAndTopLevelNonExtensions.forEach { yield(createCallableWithMetadata(it.signature, it.scopeKind)) }
 
-        val members = sequence<KaCallableSymbol> {
+        val members = sequence {
             val prefix = prefixMatcher.prefix
             val invocationCount = parameters.invocationCount
 
@@ -280,17 +293,11 @@ internal open class FirCallableCompletionContributor(
             .filter { runCatchingNSEE { visibilityChecker.isVisible(it, positionContext) } == true }
             .map { it.asSignature() }
             .map { signature ->
-                val itemText = signature.callableId?.let { id ->
-                    id.className?.let { className ->
-                        className.asString() + "." + id.callableName.asString()
-                    }
-                }
-
                 CallableWithMetadataForCompletion(
                     _signature = signature,
                     options = getOptions(signature),
                     symbolOrigin = CompletionSymbolOrigin.Index,
-                    itemText = itemText, // todo should be only for enums
+                    showReceiver = true,
                 )
             }
         yieldAll(memberDescriptors)
@@ -309,6 +316,7 @@ internal open class FirCallableCompletionContributor(
         scopeContext: KaScopeContext,
         explicitReceiver: KtElement,
         extensionChecker: KaCompletionExtensionCandidateChecker?,
+        showReceiver: Boolean = false,
     ): Sequence<CallableWithMetadataForCompletion> {
         explicitReceiver as KtExpression
 
@@ -316,14 +324,8 @@ internal open class FirCallableCompletionContributor(
             is KaPackageSymbol -> collectDotCompletionForPackageReceiver(positionContext, symbol)
 
             else -> sequence {
-                if (symbol is KaNamedClassSymbol && symbol.hasImportantStaticMemberScope) {
-                    yieldAll(
-                        collectDotCompletionFromStaticScope(
-                            positionContext = positionContext,
-                            symbol = symbol,
-                            withCompanionScope = false,
-                        )
-                    )
+                if (symbol is KaNamedClassSymbol) {
+                    yieldAll(collectDotCompletionFromStaticScope(positionContext, symbol, showReceiver))
                 }
 
                 if (symbol !is KaNamedClassSymbol || symbol.canBeUsedAsReceiver) {
@@ -335,6 +337,51 @@ internal open class FirCallableCompletionContributor(
                             extensionChecker = extensionChecker,
                         )
                     )
+                }
+
+                if (showReceiver) return@sequence
+                if (!RegistryManager.getInstance().`is`("kotlin.k2.chain.completion.enabled")) return@sequence
+                sink.runRemainingContributors(parameters.delegate) { completionResult ->
+                    val lookupElement = completionResult.lookupElement
+                    val (_, importStrategy) = lookupElement.`object` as? ClassifierLookupObject
+                        ?: return@runRemainingContributors
+
+                    val nameToImport = when (importStrategy) {
+                        is ImportStrategy.AddImport -> importStrategy.nameToImport
+                        is ImportStrategy.InsertFqNameAndShorten -> importStrategy.fqName
+                        ImportStrategy.DoNothing -> null
+                    } ?: return@runRemainingContributors
+
+                    val expression = KtPsiFactory.contextual(explicitReceiver)
+                        .createExpression(nameToImport.render() + "." + positionContext.nameExpression.text) as KtDotQualifiedExpression
+
+                    val nameExpression = expression.selectorExpression as? KtNameReferenceExpression ?: return@runRemainingContributors
+
+                    analyze(nameExpression) {
+                        val receiverExpression = expression.receiverExpression
+
+                        val positionContext = KotlinExpressionNameReferencePositionContext(nameExpression)
+                        val weighingContext = WeighingContext.create(parameters, positionContext)
+
+                        collectDotCompletion(
+                            positionContext = positionContext,
+                            scopeContext = weighingContext.scopeContext!!,
+                            explicitReceiver = receiverExpression,
+                            extensionChecker = null,
+                            showReceiver = true,
+                        ).flatMap { callableWithMetadata ->
+                            val signature = callableWithMetadata.signature
+
+                            createCallableLookupElements(
+                                context = weighingContext,
+                                signature = signature,
+                                options = callableWithMetadata.options.copy(importingStrategy = ImportStrategy.AddImport(nameToImport)),
+                                symbolOrigin = callableWithMetadata.symbolOrigin,
+                                presentableText = callableWithMetadata.itemText,
+                                withTrailingLambda = true,
+                            )
+                        }.forEach(sink::addElement)
+                    }
                 }
             }
         }
@@ -465,22 +512,30 @@ internal open class FirCallableCompletionContributor(
     protected fun collectDotCompletionFromStaticScope(
         positionContext: KotlinNameReferencePositionContext,
         symbol: KaNamedClassSymbol,
-        withCompanionScope: Boolean,
+        showReceiver: Boolean,
     ): Sequence<CallableWithMetadataForCompletion> {
-        val staticScope = symbol.staticScope(withCompanionScope)
+        if (!symbol.hasImportantStaticMemberScope) return emptySequence()
+
         val staticScopeKind = KaScopeKinds.StaticMemberScope(CompletionSymbolOrigin.SCOPE_OUTSIDE_TOWER_INDEX)
 
         val nonExtensions = collectNonExtensionsFromScope(
             parameters = parameters,
             positionContext = positionContext,
-            scope = staticScope,
+            scope = symbol.staticScope(withCompanionScope = false),
             visibilityChecker = visibilityChecker,
             scopeNameFilter = scopeNameFilter,
         ) { filter(it) }
 
-        return nonExtensions.map { member ->
-            val options = CallableInsertionOptions(ImportStrategy.DoNothing, getInsertionStrategy(member))
-            createCallableWithMetadata(member, staticScopeKind, options = options)
+        return nonExtensions.map { signature ->
+            CallableWithMetadataForCompletion(
+                _signature = signature,
+                options = CallableInsertionOptions(
+                    importingStrategy = ImportStrategy.DoNothing,
+                    insertionStrategy = getInsertionStrategy(signature),
+                ),
+                symbolOrigin = CompletionSymbolOrigin.Scope(staticScopeKind),
+                showReceiver = showReceiver,
+            )
         }
     }
 
@@ -762,21 +817,15 @@ internal class FirCallableReferenceCompletionContributor(
         scopeContext: KaScopeContext,
         explicitReceiver: KtElement,
         extensionChecker: KaCompletionExtensionCandidateChecker?,
+        showReceiver: Boolean,
     ): Sequence<CallableWithMetadataForCompletion> {
         explicitReceiver as KtExpression
 
         return when (val symbol = explicitReceiver.reference()?.resolveToExpandedSymbol()) {
             is KaPackageSymbol -> emptySequence()
             is KaNamedClassSymbol -> sequence {
-                if (symbol.hasImportantStaticMemberScope) {
-                    yieldAll(
-                        collectDotCompletionFromStaticScope(
-                            positionContext = positionContext,
-                            symbol = symbol,
-                            withCompanionScope = false,
-                        )
-                    )
-                }
+                yieldAll(collectDotCompletionFromStaticScope(positionContext, symbol, showReceiver))
+
                 val types = collectReceiverTypesForExplicitReceiverExpression(explicitReceiver)
                 yieldAll(
                     collectDotCompletionForCallableReceiver(
@@ -864,6 +913,7 @@ internal class FirKDocCallableCompletionContributor(
         scopeContext: KaScopeContext,
         explicitReceiver: KtElement,
         extensionChecker: KaCompletionExtensionCandidateChecker?,
+        showReceiver: Boolean,
     ): Sequence<CallableWithMetadataForCompletion> = sequence {
         if (explicitReceiver !is KDocName) return@sequence
 

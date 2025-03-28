@@ -581,6 +581,7 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
                 "intentions", pattern = Patterns.forRegex("^([\\w\\-_]+)\\.(kt|kts)$"),
                 excludedDirectories = listOf(
                     "convertToMultiDollarString", // K2-only
+                    "convertFromMultiDollarToRegularString", // K2-only
                     "branched/ifWhen/ifToWhen/whenGuards", // K2-only
                     "concatenationToBuildCollection", // K2-only
                     "convertStringTemplateToBuildStringMultiDollarPrefix", // K2-only
@@ -1298,15 +1299,16 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
         }
     }
 
-    testGroup("compiler-plugins/parcelize/tests/k1", testDataPath = "../testData") {
-        testClass<AbstractParcelizeK1QuickFixTest> {
-            model("quickfix", pattern = Patterns.forRegex("^([\\w\\-_]+)\\.kt$"))
-        }
-
-        testClass<AbstractParcelizeK1CheckerTest> {
-            model("checker", pattern = KT)
-        }
-    }
+    // TODO: KTIJ-33510
+    //testGroup("compiler-plugins/parcelize/tests/k1", testDataPath = "../testData") {
+    //    testClass<AbstractParcelizeK1QuickFixTest> {
+    //        model("quickfix", pattern = Patterns.forRegex("^([\\w\\-_]+)\\.kt$"))
+    //    }
+    //
+    //    testClass<AbstractParcelizeK1CheckerTest> {
+    //        model("checker", pattern = KT)
+    //    }
+    //}
 
     testGroup("completion/tests-k1", testDataPath = "../testData", category = COMPLETION) {
         testClass<AbstractCompiledKotlinInJavaCompletionTest> {

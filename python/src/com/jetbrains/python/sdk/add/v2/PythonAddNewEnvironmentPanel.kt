@@ -6,6 +6,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.service
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.observable.properties.PropertyGraph
 import com.intellij.openapi.observable.util.and
 import com.intellij.openapi.observable.util.notEqualsTo
@@ -20,11 +21,7 @@ import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.JBColor
 import com.intellij.ui.awt.RelativePoint
-import com.intellij.ui.dsl.builder.AlignX
-import com.intellij.ui.dsl.builder.Cell
-import com.intellij.ui.dsl.builder.Panel
-import com.intellij.ui.dsl.builder.TopGap
-import com.intellij.ui.dsl.builder.bindText
+import com.intellij.ui.dsl.builder.*
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.showingScope
 import com.jetbrains.python.PyBundle.message
@@ -43,13 +40,13 @@ import com.jetbrains.python.statistics.InterpreterTarget
 import com.jetbrains.python.statistics.InterpreterType
 import com.jetbrains.python.util.ShowingMessageErrorSync
 import com.jetbrains.python.venvReader.VirtualEnvReader
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.awt.Point
 
 /**
  * If `onlyAllowedInterpreterTypes` then only these types are displayed. All types displayed otherwise
@@ -90,10 +87,15 @@ internal class PythonAddNewEnvironmentPanel(
   private lateinit var custom: PythonAddCustomInterpreter
   private lateinit var model: PythonMutableTargetAddInterpreterModel
 
-  fun buildPanel(outerPanel: Panel) {
+  fun buildPanel(outerPanel: Panel, coroutineScope: CoroutineScope) {
     //presenter = PythonAddInterpreterPresenter(state, uiContext = Dispatchers.EDT + ModalityState.current().asContextElement())
-    model = PythonLocalAddInterpreterModel(PyInterpreterModelParams(service<PythonAddSdkService>().coroutineScope,
-                                                                    Dispatchers.EDT + ModalityState.current().asContextElement(), projectPathFlows))
+    model = PythonLocalAddInterpreterModel(
+      PyInterpreterModelParams(
+        coroutineScope,
+        Dispatchers.EDT + ModalityState.current().asContextElement(),
+        projectPathFlows
+      )
+    )
     model.navigator.selectionMode = selectedMode
     //presenter.controller = model
 
@@ -210,7 +212,14 @@ internal class PythonAddNewEnvironmentPanel(
     }.getOrThrow().first
   }
 
-  override suspend fun getSdk(moduleOrProject: ModuleOrProject): com.jetbrains.python.Result<Pair<Sdk, InterpreterStatisticsInfo>, PyError> {
+  override suspend fun createPythonModuleStructure(module: Module): Result<Unit, PyError> {
+    return when (selectedMode.get()) {
+      CUSTOM -> custom.currentSdkManager.createPythonModuleStructure(module)
+      else -> Result.success(Unit)
+    }
+  }
+
+  override suspend fun getSdk(moduleOrProject: ModuleOrProject): Result<Pair<Sdk, InterpreterStatisticsInfo>, PyError> {
     model.navigator.saveLastState()
     val sdk = when (selectedMode.get()) {
       PROJECT_VENV -> {

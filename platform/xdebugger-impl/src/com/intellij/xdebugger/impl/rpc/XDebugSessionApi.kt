@@ -1,21 +1,24 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl.rpc
 
-import com.intellij.execution.runners.ExecutionEnvironment
+import com.intellij.execution.rpc.ExecutionEnvironmentProxyDto
+import com.intellij.execution.rpc.ProcessHandlerDto
 import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.ide.rpc.BackendDocumentId
 import com.intellij.ide.rpc.FrontendDocumentId
 import com.intellij.ide.ui.icons.IconId
-import com.intellij.openapi.util.NlsSafe
+import com.intellij.platform.rpc.Id
 import com.intellij.platform.rpc.RemoteApiProviderService
+import com.intellij.platform.rpc.UID
 import com.intellij.xdebugger.evaluation.EvaluationMode
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
 import com.intellij.xdebugger.impl.ui.XDebugSessionTab
 import fleet.rpc.RemoteApi
 import fleet.rpc.Rpc
 import fleet.rpc.core.RpcFlow
+import fleet.rpc.core.SendChannelSerializer
 import fleet.rpc.remoteApiDescriptor
-import fleet.util.UID
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
@@ -24,8 +27,6 @@ import org.jetbrains.annotations.ApiStatus
 @ApiStatus.Internal
 @Rpc
 interface XDebugSessionApi : RemoteApi<Unit> {
-  suspend fun currentEvaluator(sessionId: XDebugSessionId): Flow<XDebuggerEvaluatorDto?>
-
   suspend fun currentSourcePosition(sessionId: XDebugSessionId): Flow<XSourcePositionDto?>
 
   suspend fun currentSessionState(sessionId: XDebugSessionId): Flow<XDebugSessionState>
@@ -46,6 +47,16 @@ interface XDebugSessionApi : RemoteApi<Unit> {
 
   suspend fun onTabInitialized(sessionId: XDebugSessionId, tabInfo: XDebuggerSessionTabInfoCallback)
 
+  suspend fun currentExecutionStack(sessionId: XDebugSessionId): Flow<XExecutionStackDto?>
+
+  suspend fun currentStackFrame(sessionId: XDebugSessionId): Flow<XStackFrameDto?>
+
+  suspend fun setCurrentStackFrame(sessionId: XDebugSessionId, executionStackId: XExecutionStackId, frameId: XStackFrameId, isTopFrame: Boolean)
+
+  suspend fun currentSuspendContext(sessionId: XDebugSessionId): Flow<XSuspendContextDto?>
+
+  suspend fun computeExecutionStacks(suspendContextId: XSuspendContextId): Flow<XExecutionStacksEvent>
+
   companion object {
     @JvmStatic
     suspend fun getInstance(): XDebugSessionApi {
@@ -54,9 +65,13 @@ interface XDebugSessionApi : RemoteApi<Unit> {
   }
 }
 
+/**
+ * @see XDebugSessionId.findValue
+ * @see com.intellij.xdebugger.impl.XDebugSessionImpl.id
+ */
 @ApiStatus.Internal
 @Serializable
-data class XDebugSessionId(val id: UID)
+data class XDebugSessionId(override val uid: UID) : Id
 
 @ApiStatus.Internal
 @Serializable
@@ -68,7 +83,7 @@ data class XDebugSessionDto(
   val sessionEvents: RpcFlow<XDebuggerSessionEvent>,
   val sessionDataDto: XDebugSessionDataDto,
   val consoleViewData: XDebuggerConsoleViewData?,
-  val processHandlerDto: XDebuggerProcessHandlerDto,
+  val processHandlerDto: ProcessHandlerDto,
 )
 
 
@@ -76,45 +91,7 @@ data class XDebugSessionDto(
 @ApiStatus.Internal
 @Serializable
 data class KillableProcessInfo(
-  val canKillProcess: Boolean = true
-)
-
-// TODO: should be moved to platform
-@ApiStatus.Internal
-@Serializable
-data class XDebuggerProcessHandlerDto(
-  val detachIsDefault: Boolean,
-  val processHandlerEvents: RpcFlow<XDebuggerProcessHandlerEvent>,
-  val killableProcessInfo: KillableProcessInfo? = null
-)
-
-/**
- * @see com.intellij.execution.process.ProcessListener
- */
-@ApiStatus.Internal
-@Serializable
-sealed interface XDebuggerProcessHandlerEvent {
-  @Serializable
-  data class StartNotified(val eventData: XDebuggerProcessHandlerEventData) : XDebuggerProcessHandlerEvent
-
-  @Serializable
-  data class ProcessTerminated(val eventData: XDebuggerProcessHandlerEventData) : XDebuggerProcessHandlerEvent
-
-  @Serializable
-  data class ProcessWillTerminate(val eventData: XDebuggerProcessHandlerEventData, val willBeDestroyed: Boolean) : XDebuggerProcessHandlerEvent
-
-  @Serializable
-  data class OnTextAvailable(val eventData: XDebuggerProcessHandlerEventData, val key: String) : XDebuggerProcessHandlerEvent
-
-  @Serializable
-  data object ProcessNotStarted : XDebuggerProcessHandlerEvent
-}
-
-@ApiStatus.Internal
-@Serializable
-data class XDebuggerProcessHandlerEventData(
-  val text: @NlsSafe String?,
-  val exitCode: Int,
+  val canKillProcess: Boolean = true,
 )
 
 @ApiStatus.Internal
@@ -165,7 +142,8 @@ data class XDebuggerSessionTabInfo(
   val withFramesCustomization: Boolean,
   // TODO pass to frontend
   @Transient val contentToReuse: RunContentDescriptor? = null,
-  @Transient val executionEnvironment: ExecutionEnvironment? = null,
+  val executionEnvironmentProxyDto: ExecutionEnvironmentProxyDto?,
+  @Serializable(with = SendChannelSerializer::class) val tabClosedCallback: SendChannel<Unit>,
 ) : XDebuggerSessionTabAbstractInfo
 
 @ApiStatus.Internal
@@ -180,4 +158,18 @@ data class XDebuggerSessionTabDto(
 data class XDebugSessionPausedInfo(
   val pausedByUser: Boolean,
   val topFrameIsAbsent: Boolean,
+)
+
+/**
+ * @see com.intellij.xdebugger.impl.rpc.models.XSuspendContextModel
+ */
+@ApiStatus.Internal
+@Serializable
+data class XSuspendContextId(override val uid: UID) : Id
+
+@ApiStatus.Internal
+@Serializable
+data class XSuspendContextDto(
+  val id: XSuspendContextId,
+  val isStepping: Boolean,
 )

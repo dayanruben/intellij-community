@@ -1346,7 +1346,7 @@ f:com.intellij.codeInsight.CodeInsightWorkspaceSettings
 - com.intellij.openapi.components.PersistentStateComponent
 - <init>():V
 - s:getInstance(com.intellij.openapi.project.Project):com.intellij.codeInsight.CodeInsightWorkspaceSettings
-- getOptionController():com.intellij.codeInspection.options.OptionController
+- getOptionsPane():com.intellij.codeInspection.options.OptPane
 - getState():com.intellij.codeInsight.CodeInsightWorkspaceSettings
 - isOptimizeImportsOnTheFly():Z
 - loadState(com.intellij.codeInsight.CodeInsightWorkspaceSettings):V
@@ -1544,10 +1544,12 @@ c:com.intellij.codeInsight.actions.ReformatCodeAction
 - com.intellij.openapi.actionSystem.AnAction
 - com.intellij.ide.lightEdit.LightEditCompatible
 - com.intellij.openapi.project.DumbAware
+- com.intellij.platform.ide.core.permissions.RequiresPermissions
 - <init>():V
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
 - s:convertToPsiFiles(com.intellij.openapi.vfs.VirtualFile[],com.intellij.openapi.project.Project):com.intellij.psi.PsiFile[]
 - getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
+- getRequiredPermissions():java.util.Collection
 - s:reformatDirectory(com.intellij.openapi.project.Project,com.intellij.psi.PsiDirectory,com.intellij.codeInsight.actions.DirectoryFormattingOptions):V
 - s:registerFileMaskFilter(com.intellij.codeInsight.actions.AbstractLayoutCodeProcessor,java.lang.String):V
 - s:registerScopeFilter(com.intellij.codeInsight.actions.AbstractLayoutCodeProcessor,com.intellij.psi.search.SearchScope):V
@@ -3099,7 +3101,7 @@ e:com.intellij.codeInsight.editorActions.emacs.EmacsProcessingHandler$Result
 - s:valueOf(java.lang.String):com.intellij.codeInsight.editorActions.emacs.EmacsProcessingHandler$Result
 - s:values():com.intellij.codeInsight.editorActions.emacs.EmacsProcessingHandler$Result[]
 c:com.intellij.codeInsight.editorActions.enter.BaseIndentEnterHandler
-- com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegateAdapter
+- com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate
 - <init>(com.intellij.lang.Language,com.intellij.psi.tree.TokenSet,com.intellij.psi.tree.IElementType,java.lang.String,com.intellij.psi.tree.TokenSet):V
 - <init>(com.intellij.lang.Language,com.intellij.psi.tree.TokenSet,com.intellij.psi.tree.IElementType,java.lang.String,com.intellij.psi.tree.TokenSet,Z):V
 - p:getNewIndent(com.intellij.psi.PsiFile,com.intellij.openapi.editor.Document,java.lang.CharSequence):java.lang.String
@@ -3107,7 +3109,7 @@ c:com.intellij.codeInsight.editorActions.enter.BaseIndentEnterHandler
 - preprocessEnter(com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor,com.intellij.openapi.util.Ref,com.intellij.openapi.util.Ref,com.intellij.openapi.actionSystem.DataContext,com.intellij.openapi.editor.actionSystem.EditorActionHandler):com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate$Result
 - p:shouldSkipWithResult(com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor,com.intellij.openapi.actionSystem.DataContext):com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate$Result
 c:com.intellij.codeInsight.editorActions.enter.EnterAfterUnmatchedBraceHandler
-- com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegateAdapter
+- com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate
 - <init>():V
 - p:calculateOffsetToInsertClosingBrace(com.intellij.psi.PsiFile,java.lang.CharSequence,I):com.intellij.openapi.util.Pair
 - p:calculateOffsetToInsertClosingBraceInsideElement(com.intellij.psi.PsiElement):I
@@ -3133,7 +3135,7 @@ c:com.intellij.codeInsight.editorActions.enter.EnterBetweenBracesDelegate
 - p:isBracePair(C,C):Z
 - isInComment(com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor,I):Z
 c:com.intellij.codeInsight.editorActions.enter.EnterBetweenBracesFinalHandler
-- com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegateAdapter
+- com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate
 - ps:ourDefaultBetweenDelegate:com.intellij.codeInsight.editorActions.enter.EnterBetweenBracesDelegate
 - <init>():V
 - ps:getLanguageImplementation(com.intellij.lang.Language):com.intellij.codeInsight.editorActions.enter.EnterBetweenBracesDelegate
@@ -3156,8 +3158,8 @@ a:com.intellij.codeInsight.editorActions.enter.EnterBetweenBracesNoCommitDelegat
 com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - invokeInsideIndent(I,com.intellij.openapi.editor.Editor,com.intellij.openapi.actionSystem.DataContext):Z
-- a:postProcessEnter(com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor,com.intellij.openapi.actionSystem.DataContext):com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate$Result
-- a:preprocessEnter(com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor,com.intellij.openapi.util.Ref,com.intellij.openapi.util.Ref,com.intellij.openapi.actionSystem.DataContext,com.intellij.openapi.editor.actionSystem.EditorActionHandler):com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate$Result
+- postProcessEnter(com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor,com.intellij.openapi.actionSystem.DataContext):com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate$Result
+- preprocessEnter(com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor,com.intellij.openapi.util.Ref,com.intellij.openapi.util.Ref,com.intellij.openapi.actionSystem.DataContext,com.intellij.openapi.editor.actionSystem.EditorActionHandler):com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate$Result
 e:com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate$Result
 - java.lang.Enum
 - sf:Continue:com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate$Result
@@ -3178,7 +3180,7 @@ f:com.intellij.codeInsight.editorActions.enter.EnterInCommentUtil
 - s:getTodoTextOffset(java.lang.CharSequence,I,I):I
 - s:isTodoText(java.lang.CharSequence,I,I):Z
 c:com.intellij.codeInsight.editorActions.enter.EnterInStringLiteralHandler
-- com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegateAdapter
+- com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate
 - <init>():V
 - p:getJavaLikeQuoteHandler(com.intellij.openapi.editor.Editor,com.intellij.psi.PsiElement):com.intellij.codeInsight.editorActions.JavaLikeQuoteHandler
 - p:isInStringLiteral(com.intellij.openapi.editor.Editor,com.intellij.codeInsight.editorActions.JavaLikeQuoteHandler,I):Z
@@ -13117,19 +13119,16 @@ c:com.intellij.openapi.module.impl.ModuleConfigurationStateImpl
 - getModulesProvider():com.intellij.openapi.roots.ui.configuration.ModulesProvider
 - getProject():com.intellij.openapi.project.Project
 c:com.intellij.openapi.module.impl.ModuleImpl
-- com.intellij.openapi.Disposable$Parent
+- com.intellij.openapi.Disposable
 - com.intellij.openapi.components.ComponentManager
 - com.intellij.openapi.module.Module
 - com.intellij.openapi.ui.Queryable
-- com.intellij.openapi.util.UserDataHolderBase
-- com.intellij.util.messages.MessageBusOwner
 - canStoreSettings():Z
 - clearScopesCache():V
-- p:debugString(Z):java.lang.String
 - dispose():V
-- pf:findConstructorAndInstantiateClass(java.lang.invoke.MethodHandles$Lookup,java.lang.Class):java.lang.Object
-- p:getContainerDescriptor(com.intellij.ide.plugins.IdeaPluginDescriptorImpl):com.intellij.ide.plugins.ContainerDescriptor
+- f:getComponentManager():com.intellij.openapi.components.ComponentManager
 - pf:getImlFilePointer():com.intellij.openapi.vfs.pointers.VirtualFilePointer
+- getMessageBus():com.intellij.util.messages.MessageBus
 - getModuleContentScope():com.intellij.psi.search.GlobalSearchScope
 - getModuleContentWithDependenciesScope():com.intellij.psi.search.GlobalSearchScope
 - getModuleFile():com.intellij.openapi.vfs.VirtualFile
@@ -13148,12 +13147,13 @@ c:com.intellij.openapi.module.impl.ModuleImpl
 - getOptionValue(java.lang.String):java.lang.String
 - getProject():com.intellij.openapi.project.Project
 - pf:getStore():com.intellij.openapi.components.impl.stores.IComponentStore
-- getSupportedSignaturesOfLightServiceConstructors():java.util.List
+- getUserData(com.intellij.openapi.util.Key):java.lang.Object
 - init():V
 - isDisposed():Z
 - isLoaded():Z
 - markAsLoaded():V
 - putInfo(java.util.Map):V
+- putUserData(com.intellij.openapi.util.Key,java.lang.Object):V
 - rename(java.lang.String,Z):V
 - pf:setImlFilePointer(com.intellij.openapi.vfs.pointers.VirtualFilePointer):V
 - setOption(java.lang.String,java.lang.String):V
@@ -14986,7 +14986,6 @@ f:com.intellij.profile.codeInspection.ui.table.SeverityRenderer
 - com.intellij.openapi.ui.ComboBoxTableRenderer
 - s:getIcon(com.intellij.codeHighlighting.HighlightDisplayLevel):javax.swing.Icon
 - getTableCellRendererComponent(javax.swing.JTable,java.lang.Object,Z,Z,I,I):java.awt.Component
-- isCellEditable(java.util.EventObject):Z
 - onClosed(com.intellij.openapi.ui.popup.LightweightWindowEvent):V
 c:com.intellij.profile.codeInspection.ui.table.ThreeStateCheckBoxRenderer
 - com.intellij.util.ui.ThreeStateCheckBox

@@ -39,7 +39,7 @@ private class ComputationState(
    * An artifact of parallelizing the read lock. The code parallelized from the read lock
    * has no way of upgrading further, so it is safe to share read access with whole remaining computation tree.
    */
-  private val parallelizedReadPermit: ReadPermit?,
+  private val isParallelizedRead: Boolean,
 ) {
 
   companion object {
@@ -76,16 +76,23 @@ private class ComputationState(
   }
 
   fun isParallelizedReadPermit(): Boolean {
-    return parallelizedReadPermit != null
+    return isParallelizedRead
   }
 
-  fun getThisThreadPermit(): Permit? {
-    if (parallelizedReadPermit != null) {
-      return parallelizedReadPermit
+  fun getThisThreadPermit(): ParallelizablePermit? {
+    if (isParallelizedRead) {
+      return ParallelizablePermit.Read(null)
     }
     else {
-      return thisLevelPermit.get()
+      return thisLevelPermit.get()?.asParallelizablePermit()
     }
+  }
+
+  /**
+   * Fast check for read access; skips unnecessary boxing that is caused by inline classes
+   */
+  fun isReadAcquired(): Boolean {
+    return isParallelizedRead || thisLevelPermit.get() != null
   }
 
   /**
@@ -221,7 +228,7 @@ private class ComputationState(
     val existingPermit = Companion.thisLevelPermit.get()
     check(existingPermit == thisLevelPermit) { "Internal error: attempt to parallelize a foreign write-intent permit" }
     Companion.thisLevelPermit.set(null)
-    return ComputationState(lowerLevelPermits + thisLevelPermit, RWMutexIdea(), null) to object : AccessToken() {
+    return ComputationState(lowerLevelPermits + thisLevelPermit, RWMutexIdea(), false) to object : AccessToken() {
       override fun finish() {
         Companion.thisLevelPermit.set(existingPermit)
       }
@@ -232,12 +239,12 @@ private class ComputationState(
    * Starts parallelization of the write-intent permit.
    * We simply grant the read access to all computations.
    */
-  fun parallelizeRead(thisLevelReadPermit: ReadPermit): Pair<ComputationState, AccessToken> {
-    return ComputationState(lowerLevelPermits, thisLevelLock, thisLevelReadPermit) to AccessToken.EMPTY_ACCESS_TOKEN
+  fun parallelizeRead(): Pair<ComputationState, AccessToken> {
+    return ComputationState(lowerLevelPermits, thisLevelLock, true) to AccessToken.EMPTY_ACCESS_TOKEN
   }
 
   override fun toString(): String {
-    return "ComputationState(level=${level()},thisLevelLock=$thisLevelLock,isParallelizedRead=${parallelizedReadPermit != null})"
+    return "ComputationState(level=${level()},thisLevelLock=$thisLevelLock,isParallelizedRead=${isParallelizedRead})"
   }
 }
 
@@ -249,6 +256,37 @@ private class ComputationStateContextElement(val computationState: ComputationSt
 
   override fun toString(): String {
     return "$computationState"
+  }
+}
+
+/**
+ * This enum is almost in one-to-one correspondence to [Permit], except that it handles downgrades of write and write-intent permits to Read permit.
+ * I.e., for this case:
+ * ```
+ * writeAction {
+ *   readAction {
+ *     runBlockingCancellable {}
+ *   }
+ * }
+ * ```
+ * We need to parallelize the read permit, without an instance of read permit.
+ */
+private sealed interface ParallelizablePermit {
+  @JvmInline
+  value class Write(val writePermit: WritePermit) : ParallelizablePermit
+
+  @JvmInline
+  value class WriteIntent(val writeIntentPermit: WriteIntentPermit) : ParallelizablePermit
+
+  @JvmInline
+  value class Read(val readPermit: ReadPermit?) : ParallelizablePermit
+}
+
+private fun Permit.asParallelizablePermit(): ParallelizablePermit {
+  return when (this) {
+    is ReadPermit -> ParallelizablePermit.Read(this)
+    is WriteIntentPermit -> ParallelizablePermit.WriteIntent(this)
+    is WritePermit -> ParallelizablePermit.Write(this)
   }
 }
 
@@ -350,7 +388,7 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
   /**
    * The global lock that is a default choice when lock parallelization is absent
    */
-  private val zeroLevelComputationState = ComputationState(emptyArray(), RWMutexIdea(), null)
+  private val zeroLevelComputationState = ComputationState(emptyArray(), RWMutexIdea(), false)
 
   /**
    * A stack of computation states for the thread that is allowed to hold the Write-Intent lock
@@ -408,6 +446,13 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
 
     // now we need to parallelize the existing permit
     val currentPermit = currentComputationState.getThisThreadPermit()
+
+    if (isInTopmostReadAction()) {
+      // this case is identical to the branch of parallelization of read lock. Regardless of what permit is currently being held by this thread,
+      // the caller requested parallelization while being in a read action, hence we need to parallelize a read.
+      val (newComputationState, cleanup) = currentComputationState.parallelizeRead()
+      return ComputationStateContextElement(newComputationState) to cleanup
+    }
     when (currentPermit) {
       null -> {
         // this is equivalent to a pure `runBlockingCancellable` on a thread that does not hold locks
@@ -416,18 +461,18 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
         // here we do elvis expression to save an allocation
         return (currentComputationStateElement ?: ComputationStateContextElement(currentComputationState)) to AccessToken.EMPTY_ACCESS_TOKEN
       }
-      is ReadPermit -> {
+      is ParallelizablePermit.Read -> {
         // This is equivalent to `runBlockingCancellable` under `readAction`.
         // We must ensure that the computation in `runBlockingCancellable` has read access;
         // Otherwise there can be deadlocks where `runBlockingCancellable` is canceled by a pending write which cannot start
         // because some computation inside `runBlockingCancellable` waits for read access in a blocking way
-        val (newComputationState, cleanup) = currentComputationState.parallelizeRead(currentPermit)
+        val (newComputationState, cleanup) = currentComputationState.parallelizeRead()
         return ComputationStateContextElement(newComputationState) to cleanup
       }
-      is WriteIntentPermit -> {
+      is ParallelizablePermit.WriteIntent -> {
         // we are attempting to share a write-intent lock
         // it means that we are entering a new level of locking
-        val (newComputationState, cleanup) = currentComputationState.parallelizeWriteIntent(currentPermit)
+        val (newComputationState, cleanup) = currentComputationState.parallelizeWriteIntent(currentPermit.writeIntentPermit)
         statesOfWIThread.set(statesOfWIThread.get() ?: mutableListOf())
         statesOfWIThread.get()?.add(newComputationState)
 
@@ -455,7 +500,7 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
           }
         }
       }
-      is WritePermit -> {
+      is ParallelizablePermit.Write -> {
         // The parallelization of a write action is a very tricky topic.
         // It is difficult to get right, and we are not sure about the valid semantics yet.
         // Unfortunately, our old tests rely on this concept.
@@ -465,9 +510,9 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
         // the idea of write lock parallelization is that we release the **top-level** write permit,
         // capture read permit, and parallelize it.
         // so this is the parallelization of the second kind.
-        currentPermit.release()
+        currentPermit.writePermit.release()
         val newPermit = currentComputationState.acquireReadPermit()
-        val (newState, cleanup) = currentComputationState.parallelizeRead(newPermit)
+        val (newState, cleanup) = currentComputationState.parallelizeRead()
         return ComputationStateContextElement(newState) to object : AccessToken() {
           override fun finish() {
             cleanup.finish()
@@ -536,10 +581,10 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
       null -> {
         permitToRelease = computationState.acquireWriteIntentPermit()
       }
-      is ReadPermit -> {
+      is ParallelizablePermit.Read -> {
         error("WriteIntentReadAction can not be called from ReadAction")
       }
-      is WriteIntentPermit, is WritePermit -> {}
+      is ParallelizablePermit.WriteIntent, is ParallelizablePermit.Write -> {}
     }
 
     try {
@@ -559,13 +604,11 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
   override fun isWriteIntentLocked(): Boolean {
     val currentState = getComputationState()
     val currentPermit = currentState.getThisThreadPermit()
-    return currentPermit is WriteIntentPermit || currentPermit is WritePermit
+    return currentPermit is ParallelizablePermit.WriteIntent || currentPermit is ParallelizablePermit.Write
   }
 
   override fun isReadAccessAllowed(): Boolean {
-    val currentState = getComputationState()
-    val currentPermit = currentState.getThisThreadPermit()
-    return currentPermit != null
+    return getComputationState().isReadAcquired()
   }
 
   override fun <T> runUnlockingIntendedWrite(action: () -> T): T {
@@ -644,7 +687,7 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
     var readPermitToRelease: ReadPermit? = null
 
     when (currentPermit) {
-      is ReadPermit, is WritePermit, is WriteIntentPermit -> {}
+      is ParallelizablePermit.Read, is ParallelizablePermit.Write, is ParallelizablePermit.WriteIntent -> {}
       null -> {
         readPermitToRelease = smartAcquireReadPermit(computationState)
       }
@@ -690,7 +733,7 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
           return false
         }
       }
-      is ReadPermit, is WritePermit, is WriteIntentPermit -> {}
+      is ParallelizablePermit.Read, is ParallelizablePermit.Write, is ParallelizablePermit.WriteIntent -> {}
     }
 
     // For diagnostic purposes register that we in read action, even if we use stronger lock
@@ -715,7 +758,7 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
   }
 
   override fun isReadLockedByThisThread(): Boolean {
-    return getComputationState().getThisThreadPermit() is ReadPermit
+    return getComputationState().getThisThreadPermit() is ParallelizablePermit.Read
   }
 
   @ApiStatus.Internal
@@ -795,7 +838,7 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
   private fun startWrite(computationState: ComputationState, clazz: Class<*>): WriteListenerInitResult2 {
     val listener = myWriteActionListener
     // Read permit is incompatible
-    check(computationState.getThisThreadPermit() !is ReadPermit) { "WriteAction can not be called from ReadAction" }
+    check(computationState.getThisThreadPermit() !is ParallelizablePermit.Read) { "WriteAction can not be called from ReadAction" }
 
     // Check that write action is not disabled
     // NB: It is before all cancellations will be run via fireBeforeWriteActionStart
@@ -828,18 +871,18 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
           computationState.acquireWritePermit()
         }
       }
-      is ReadPermit -> {
+      is ParallelizablePermit.Read -> {
         endPendingWriteAction(computationState)
         error("WriteAction can not be called from ReadAction")
       }
-      is WriteIntentPermit -> {
+      is ParallelizablePermit.WriteIntent -> {
         shouldRelease = true
         processWriteLockAcquisition {
-          computationState.upgradeWritePermit(permit)
+          computationState.upgradeWritePermit(permit.writeIntentPermit)
         }
         checkWriteFromRead("Write", "Write Intent")
       }
-      is WritePermit -> {
+      is ParallelizablePermit.Write -> {
         checkWriteFromRead("Write", "Write")
       }
     }
@@ -885,12 +928,14 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
   override fun executeSuspendingWriteAction(action: () -> Unit) {
     val state = getComputationState()
     val permit = state.getThisThreadPermit()
-    if (permit is WriteIntentPermit) {
+    if (permit is ParallelizablePermit.WriteIntent) {
       action()
       return
     }
 
-    check(permit is WritePermit) { "Suspending write action must be called under write lock or write-intent lock" }
+    check(permit is ParallelizablePermit.Write) {
+      "Suspending write action must be called under write lock or write-intent lock"
+    }
     val prevBase = myWriteStackBase
     myWriteStackBase = myWriteActionsStack.size
     myWriteAcquired = null
@@ -902,7 +947,7 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
       it.release()
     }
     val rootWriteIntentPermit = exposedPermitData.originalWriteIntentPermit
-    permit.release()
+    permit.writePermit.release()
     state.hack_setThisLevelPermit(rootWriteIntentPermit)
     try {
       action()
@@ -947,7 +992,7 @@ internal object NestedLocksThreadingSupport : ThreadingSupport {
     logger.error("`ThreadingSupport.acquireReadActionLock` is deprecated and going to be removed soon. Use `runReadAction()` instead")
     val computationState = getComputationState()
     val currentPermit = computationState.getThisThreadPermit()
-    if (currentPermit is WritePermit) {
+    if (currentPermit is ParallelizablePermit.Write) {
       throw IllegalStateException("Write Action can not request Read Access Token")
     }
     if (currentPermit is ReadPermit || currentPermit is WriteIntentPermit) {

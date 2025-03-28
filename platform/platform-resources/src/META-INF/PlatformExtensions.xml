@@ -666,17 +666,16 @@
                  key="ide.transfer.wizard.experiment.group"/>
 
     <themeProvider id="Darcula" path="/themes/darcula.theme.json" targetUi="classic"/>
-    <themeProvider id="IntelliJ" path="/themes/intellijlaf.theme.json" parentTheme="Darcula" targetUi="classic"/>
+    <themeProvider id="IntelliJ" path="/themes/intellijlaf.theme.json" targetUi="classic"/>
 
-    <themeProvider id="JetBrainsLightTheme" path="/themes/Light.theme.json" parentTheme="IntelliJ" targetUi="classic"/>
+    <themeProvider id="JetBrainsLightTheme" path="/themes/Light.theme.json" targetUi="classic"/>
     <bundledColorScheme id="IntelliJ Light" path="themes/Light.xml"/>
 
-    <themeProvider id="ExperimentalLight" path="/themes/expUI/expUI_light.theme.json" parentTheme="IntelliJ" targetUi="new"/>
-    <themeProvider id="ExperimentalLightWithLightHeader" path="/themes/expUI/expUI_light_with_light_header.theme.json"
-                   parentTheme="ExperimentalLight" targetUi="new"/>
+    <themeProvider id="ExperimentalLight" path="/themes/expUI/expUI_light.theme.json" targetUi="new"/>
+    <themeProvider id="ExperimentalLightWithLightHeader" path="/themes/expUI/expUI_light_with_light_header.theme.json" targetUi="new"/>
     <bundledColorScheme id="Light" path="themes/expUI/expUI_lightScheme.xml"/>
 
-    <themeProvider id="ExperimentalDark" path="/themes/expUI/expUI_dark.theme.json" parentTheme="Darcula" targetUi="new"/>
+    <themeProvider id="ExperimentalDark" path="/themes/expUI/expUI_dark.theme.json" targetUi="new"/>
     <bundledColorScheme id="Dark" path="themes/expUI/expUI_darkScheme.xml"/>
     <bundledColorScheme id="Darcula Contrast" path="themes/expUI/expUI_darculaContrastScheme.xml"/>
 
@@ -1330,6 +1329,7 @@
     <applicationService serviceInterface="com.intellij.util.net.ssl.CertificateWarningDialogProvider"
                         serviceImplementation="com.intellij.net.ssl.CertificateWarningDialogProviderImpl"/>
 
+    <!--suppress PluginXmlValidity -->
     <rawEditorTypedHandler implementationClass="com.intellij.openapi.editor.impl.MyRawTypedHandler"/>
 
     <postStartupActivity implementation="com.intellij.diagnostic.AnalyzePendingSnapshotActivity"/>
@@ -1757,6 +1757,7 @@
 
     <applicationActivity implementation="com.intellij.openapi.vfs.newvfs.persistent.VFSHealthCheckServiceStarter"/>
     <applicationActivity implementation="com.intellij.diagnostic.JVMResponsivenessMonitorStarter"/>
+    <applicationActivity implementation="com.intellij.openapi.application.impl.WriteActionLoggerApplicationActivity"/>
 
     <backgroundPostStartupActivity implementation="com.intellij.openapi.vfs.newvfs.monitoring.VFSInitializationConditionsToFusReporter"/>
 
@@ -1788,7 +1789,7 @@
 
     <registryKey key="highlighting.passes.cache.file.size.limit"
                  defaultValue="500"
-                 description="Only the files with line count not bigger that the value are aviable for highlighting passes preloading"/>
+                 description="Only the files with line count not bigger that the value are available for highlighting passes preloading"/>
 
     <registryKey key="highlighting.passes.cache.size"
                  defaultValue="25"
@@ -1908,6 +1909,18 @@
                         serviceImplementation="com.intellij.platform.ide.provisioner.DefaultProvisionedServiceRegistry"/>
     <applicationService serviceInterface="com.intellij.platform.ide.provisioner.ProvisionerCompanyBrandingProvider"
                         serviceImplementation="com.intellij.platform.ide.provisioner.DefaultProvisionerCompanyBrandingProvider"/>
+
+    <applicationService serviceImplementation="com.intellij.openapi.vfs.impl.FilePermissionManagerImpl"
+                        serviceInterface="com.intellij.openapi.vfs.impl.FilePermissionManager"
+                        client="all"/>
+
+    <applicationService serviceImplementation="com.intellij.platform.ide.core.impl.permissions.NoopPermissionManager"
+                        serviceInterface="com.intellij.platform.ide.core.permissions.impl.IdePermissionManager"
+                        client="owner"/>
+
+    <diagnostic.specialPathsProvider implementation="com.intellij.diagnostic.specialPaths.ProjectSpecialPathsProvider"/>
+    <diagnostic.specialPathsProvider implementation="com.intellij.diagnostic.specialPaths.ApplicationSpecialPathsProvider"/>
+
   </extensions>
 
   <applicationListeners>

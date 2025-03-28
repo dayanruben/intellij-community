@@ -3,13 +3,20 @@ package com.intellij.java.codeInsight;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.ExternalAnnotationsManager;
+import com.intellij.codeInsight.ModCommandAwareExternalAnnotationsManager;
+import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInsight.generation.actions.CommentByLineCommentAction;
 import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.codeInsight.intention.impl.AnnotateIntentionAction;
 import com.intellij.codeInsight.intention.impl.DeannotateIntentionAction;
+import com.intellij.modcommand.ActionContext;
+import com.intellij.modcommand.ModCommand;
+import com.intellij.modcommand.ModCommandExecutor;
+import com.intellij.modcommand.ModEditOptions;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ex.PathManagerEx;
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -17,6 +24,7 @@ import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -36,6 +44,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -119,6 +128,7 @@ public class AddAnnotationFixTest extends UsefulTestCase {
     myFixture.launchAction(getAnnotateAction("NotNull"));
 
     FileDocumentManager.getInstance().saveAllDocuments();
+    NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
 
     final PsiElement psiElement = file.findElementAt(editor.getCaretModel().getOffset());
     assertNotNull(psiElement);
@@ -261,20 +271,24 @@ public class AddAnnotationFixTest extends UsefulTestCase {
                                 "content/annoMultiRoot/root2/multiRoot/annotations_after.xml", false);
   }
 
-  public void testListenerNotifiedWhenOperationsFail() {
+  public void testNoRootRegisteredPreviously() throws IOException {
     addLibrary(); // no annotation roots: all operations should fail
     myFixture.configureByFiles("lib/p/Test.java");
     final PsiMethod method = ((PsiJavaFile)myFixture.getFile()).getClasses()[0].getMethods()[0];
 
-    ExternalAnnotationsManager.getInstance(myFixture.getProject()).annotateExternally(method, AnnotationUtil.NOT_NULL, myFixture.getFile(), null);
+    var manager = ModCommandAwareExternalAnnotationsManager.getInstance(myFixture.getProject());
+    ModCommand command = manager.annotateExternallyModCommand(method, AnnotationUtil.NOT_NULL, null);
+    VirtualFile parentDir = myFixture.getFile().getVirtualFile().getParent();
+    VirtualFile annoDir =
+      WriteCommandAction.runWriteCommandAction(
+        myFixture.getProject(),
+        (ThrowableComputable<VirtualFile, IOException>)() -> parentDir.createChildDirectory(this, "anno"));
+    ModCommand withPath = ((ModEditOptions<?>)command).applyOptions(Map.of("myExternalAnnotationsRoot", annoDir.getPath()));
 
-    WriteCommandAction.runWriteCommandAction(myFixture.getProject(), () -> {
-      ExternalAnnotationsManager.getInstance(myFixture.getProject()).editExternalAnnotation(method, AnnotationUtil.NOT_NULL, null);
-    });
-
-    WriteCommandAction.runWriteCommandAction(myFixture.getProject(), () -> {
-      ExternalAnnotationsManager.getInstance(myFixture.getProject()).deannotate(method, AnnotationUtil.NOT_NULL);
-    });
+    assertFalse(NullableNotNullManager.isNotNull(method));
+    ModCommandExecutor.executeInteractively(ActionContext.from(null, myFixture.getFile()), "", null, () -> withPath);
+    NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
+    assertTrue(NullableNotNullManager.isNotNull(method));
   }
 
   public void testListenerNotifiedOnExternalChanges() throws IOException {

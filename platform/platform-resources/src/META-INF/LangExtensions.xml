@@ -355,6 +355,8 @@
 
     <projectService serviceInterface="com.intellij.facet.ProjectFacetManager"
                     serviceImplementation="com.intellij.facet.impl.ProjectFacetManagerImpl"/>
+    <projectService serviceInterface="com.intellij.facet.FacetManagerFactory"
+                    serviceImplementation="com.intellij.facet.impl.FacetManagerFactoryImpl"/>
     <projectService serviceInterface="com.intellij.facet.impl.invalid.InvalidFacetManager"
                     serviceImplementation="com.intellij.facet.impl.invalid.InvalidFacetManagerImpl"/>
     <backgroundPostStartupActivity implementation="com.intellij.facet.FacetTypeFeatureCollector"/>
@@ -755,6 +757,8 @@
 
     <codeInsight.completion.command.provider language="" implementationClass="com.intellij.codeInsight.completion.command.commands.ExtensionPointCommandProvider" />
     <codeInsight.completion.command.provider language="" implementationClass="com.intellij.codeInsight.completion.command.commands.DirectIntentionCommandProvider" order="last"/>
+    <platform.backend.documentation.lookupElementTargetProvider
+      implementation="com.intellij.codeInsight.completion.command.CommandCompletionDocumentationProvider"/>
 
     <nonWriteAccessTypedHandler implementation="com.intellij.codeInsight.completion.command.CommandCompletionNonWriteAccessTypedHandler" id="commandCompletion"/>
 
@@ -1841,14 +1845,6 @@
                  description="Replaces Indexing progress with Analyzing during dumb mode"/>
   </extensions>
 
-  <!--suppress PluginXmlDynamicPlugin -->
-  <module-components>
-    <component>
-      <interface-class>com.intellij.facet.FacetManager</interface-class>
-      <implementation-class>com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetManagerBridge</implementation-class>
-    </component>
-  </module-components>
-
   <extensions defaultExtensionNs="com.intellij.platform.backend">
     <documentation.targetProvider
       implementation="com.intellij.lang.documentation.symbol.impl.DefaultTargetSymbolDocumentationTargetProvider"/>
@@ -1888,4 +1884,7 @@
     <listener class="com.intellij.codeInsight.completion.command.CommandCompletionListener"
               topic="com.intellij.codeInsight.lookup.LookupManagerListener"/>
   </projectListeners>
+  <actions>
+    <group id="Structure.ViewOptions" searchable="false" popup="true" icon="AllIcons.Actions.GroupBy"/>
+  </actions>
 </idea-plugin>

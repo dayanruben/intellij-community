@@ -143,10 +143,7 @@ abstract class PythonAddInterpreterModel(params: PyInterpreterModelParams, priva
                                   HatchUIError.HatchExecutablePathIsNotValid(hatchExecutablePathString)
                                 )
       val hatchWorkingDirectory = if (projectPath.isDirectory()) projectPath else projectPath.parent
-      val hatchService = getHatchService(
-        workingDirectoryPath = hatchWorkingDirectory,
-        hatchExecutablePath = hatchExecutablePath,
-      ).getOr { return@withContext it }
+      val hatchService = hatchWorkingDirectory.getHatchService(hatchExecutablePath).getOr { return@withContext it }
 
       val hatchEnvironments = hatchService.findVirtualEnvironments().getOr { return@withContext it }
       val availableEnvironments = when {
@@ -210,7 +207,13 @@ abstract class PythonAddInterpreterModel(params: PyInterpreterModelParams, priva
     }
   }
 
-  open fun addInterpreter(path: String): PythonSelectableInterpreter {
+  internal fun addInterpreter(python: PythonWithLanguageLevel): PythonSelectableInterpreter {
+    val interpreter = ManuallyAddedSelectableInterpreter(python)
+    manuallyAddedInterpreters.value += interpreter
+    return interpreter
+  }
+
+  internal fun addInterpreter(path: String): PythonSelectableInterpreter {
     val languageLevel = PySdkUtil.getLanguageLevelForSdk(PythonSdkUtil.findSdkByKey(path))
     val interpreter = ManuallyAddedSelectableInterpreter(path, languageLevel)
     manuallyAddedInterpreters.value += interpreter
@@ -224,7 +227,7 @@ abstract class PythonAddInterpreterModel(params: PyInterpreterModelParams, priva
   /**
    * Given [pathToPython] returns either cleaned path (if valid) or null and reports error to [errorSink]
    */
-  suspend fun getSystemPythonFromSelection(pathToPython: String, errorSink: ErrorSink): String? {
+  suspend fun getSystemPythonFromSelection(pathToPython: String, errorSink: ErrorSink): SystemPython? {
     val result = try {
       when (val r = systemPythonService.registerSystemPython(Path(pathToPython))) {
         is com.jetbrains.python.Result.Failure -> com.jetbrains.python.errorProcessing.failure(r.error)
@@ -236,7 +239,7 @@ abstract class PythonAddInterpreterModel(params: PyInterpreterModelParams, priva
     }
 
     return when (result) {
-      is com.jetbrains.python.Result.Success -> result.result.pythonBinary.pathString
+      is com.jetbrains.python.Result.Success -> result.result
       is com.jetbrains.python.Result.Failure -> {
         errorSink.emit(result.error)
         null
@@ -372,7 +375,9 @@ class DetectedSelectableInterpreter(override val homePath: String, override val 
   }
 }
 
-class ManuallyAddedSelectableInterpreter(override val homePath: String, override val languageLevel: LanguageLevel) : PythonSelectableInterpreter()
+class ManuallyAddedSelectableInterpreter(override val homePath: String, override val languageLevel: LanguageLevel) : PythonSelectableInterpreter() {
+  constructor(python: PythonWithLanguageLevel) : this(python.pythonBinary.pathString, python.languageLevel)
+}
 
 class InstallableSelectableInterpreter(val sdk: PySdkToInstall) : PythonSelectableInterpreter() {
   override suspend fun isBasePython(): Boolean = true

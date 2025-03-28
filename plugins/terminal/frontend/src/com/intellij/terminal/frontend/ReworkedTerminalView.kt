@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.terminal.frontend
 
+import com.intellij.codeInsight.highlighting.BackgroundHighlightingUtil
 import com.intellij.find.SearchReplaceComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -11,11 +12,12 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.ex.util.EditorUtil
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.editor.impl.SoftWrapModelImpl
 import com.intellij.openapi.editor.impl.softwrap.EmptySoftWrapPainter
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.observable.util.addFocusListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -99,6 +101,8 @@ internal class ReworkedTerminalView(
 
     outputEditor = createOutputEditor(settings, parentDisposable = this)
     val outputModel = TerminalOutputModelImpl(outputEditor.document, maxOutputLength = TerminalUiUtils.getDefaultMaxOutputLength())
+    updatePsiOnOutputModelChange(project, outputModel, coroutineScope.childScope("TerminalOutputPsiUpdater"))
+
     val scrollingModel = TerminalOutputScrollingModelImpl(outputEditor, outputModel, sessionModel, coroutineScope.childScope("TerminalOutputScrollingModel"))
     outputEditor.putUserData(TerminalOutputScrollingModel.KEY, scrollingModel)
 
@@ -284,12 +288,15 @@ internal class ReworkedTerminalView(
   }
 
   private fun createOutputEditor(settings: JBTerminalSystemSettingsProviderBase, parentDisposable: Disposable): EditorEx {
-    val document = DocumentImpl("", true)
+    val document = createDocument(withLanguage = true)
     val editor = createEditor(document, settings, parentDisposable)
     editor.putUserData(TerminalDataContextUtils.IS_OUTPUT_MODEL_EDITOR_KEY, true)
     editor.settings.isUseSoftWraps = true
     editor.useTerminalDefaultBackground(parentDisposable = this)
     CopyOnSelectionHandler(settings).install(editor)
+
+    editor.putUserData(BackgroundHighlightingUtil.IGNORE_EDITOR, true)
+    TextEditorProvider.putTextEditor(editor, TerminalOutputTextEditor(editor))
 
     Disposer.register(parentDisposable) {
       EditorFactory.getInstance().releaseEditor(editor)
@@ -298,7 +305,7 @@ internal class ReworkedTerminalView(
   }
 
   private fun createAlternateBufferEditor(settings: JBTerminalSystemSettingsProviderBase, parentDisposable: Disposable): EditorEx {
-    val document = DocumentImpl("", true)
+    val document = createDocument(withLanguage = false)
     val editor = createEditor(document, settings, parentDisposable)
     editor.putUserData(TerminalDataContextUtils.IS_ALTERNATE_BUFFER_MODEL_EDITOR_KEY, true)
     editor.useTerminalDefaultBackground(parentDisposable = this)
@@ -334,6 +341,13 @@ internal class ReworkedTerminalView(
     TerminalFontOptions.getInstance().addListener(fontSettingsListener, parentDisposable)
 
     return result
+  }
+
+  private fun createDocument(withLanguage: Boolean): Document {
+    return if (withLanguage) {
+      FileDocumentManager.getInstance().getDocument(TerminalOutputVirtualFile())!!
+    }
+    else DocumentImpl("", true)
   }
 
   override fun dispose() {}

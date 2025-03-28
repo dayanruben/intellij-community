@@ -258,14 +258,16 @@ public class HighlightInfo implements Segment {
   @NotNull
   @ApiStatus.Internal
   private synchronized Segment getFixTextRange() {
-    if (fixMarker != null) {
-      if (fixMarker == FIX_MARKER_SAME_AS_HIGHLIGHTER) {
-        if (highlighter != null) {
-          return highlighter;
+    RangeMarker myFixMarker = fixMarker;
+    if (myFixMarker != null) {
+      if (myFixMarker == FIX_MARKER_SAME_AS_HIGHLIGHTER) {
+        RangeHighlighterEx myHighlighter = highlighter;
+        if (myHighlighter != null && myHighlighter.isValid()) {
+          return myHighlighter;
         }
       }
-      else {
-        return fixMarker;
+      else if (myFixMarker.isValid()) {
+        return myFixMarker;
       }
     }
     return TextRangeScalarUtil.create(fixRange);
@@ -1114,7 +1116,7 @@ public class HighlightInfo implements Segment {
     myIntentionActionDescriptors = List.copyOf(result);
     updateFields(getIntentionActionDescriptors(), document);
   }
-  synchronized void updatePsiTimeStamp(long psiTimeStamp) {
+  synchronized void updateLazyFixesPsiTimeStamp(long psiTimeStamp) {
     List<LazyFixDescription> newFixes = ContainerUtil.map(myLazyQuickFixes,
                                                      d -> d.psiModificationStamp() == 0
                                                           ? new LazyFixDescription(d.fixesComputer(), psiTimeStamp, d.future())
@@ -1448,5 +1450,18 @@ public class HighlightInfo implements Segment {
   synchronized List<? extends @NotNull Consumer<? super QuickFixActionRegistrar>>
   getLazyQuickFixes() {
     return ContainerUtil.map(myLazyQuickFixes, p -> p.fixesComputer());
+  }
+
+  @NotNull
+  HighlightInfo copy() {
+    HighlightInfo info =
+      new HighlightInfo(forcedTextAttributes, forcedTextAttributesKey, type, startOffset, endOffset, description, toolTip, severity,
+                        isAfterEndOfLine(), needUpdateOnTyping(), isFileLevelAnnotation(), navigationShift, myProblemGroup, toolId,
+                        gutterIconRenderer, group, hasHint(), List.of());
+    info.myIntentionActionDescriptors = myIntentionActionDescriptors;
+    info.myLazyQuickFixes = myLazyQuickFixes;
+    info.myFlags = myFlags;
+    info.fixMarker = fixMarker;
+    return info;
   }
 }

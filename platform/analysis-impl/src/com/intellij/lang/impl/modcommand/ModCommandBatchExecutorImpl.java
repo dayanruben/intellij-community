@@ -31,6 +31,7 @@ import org.jetbrains.annotations.*;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 
 import static com.intellij.openapi.util.text.HtmlChunk.tag;
@@ -116,6 +117,9 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
     if (command instanceof ModShowConflicts) {
       return Result.CONFLICTS;
     }
+    if (command instanceof ModEditOptions<?> editOptions) {
+      return bypassEditOptions(editOptions, context);
+    }
     if (command instanceof ModDisplayMessage message) {
       if (message.kind() == ModDisplayMessage.MessageKind.ERROR) {
         return new Error(message.messageText());
@@ -123,6 +127,11 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
       return Result.INTERACTIVE;
     }
     throw new IllegalArgumentException("Unknown command: " + command);
+  }
+
+  private <T extends OptionContainer> BatchExecutionResult bypassEditOptions(@NotNull ModEditOptions<T> options, @NotNull ActionContext context) {
+    if (!options.canUseDefaults()) return Result.INTERACTIVE;
+    return doExecuteInBatch(context, options.nextCommand().apply(options.containerSupplier().get()));
   }
 
   private BatchExecutionResult executeChooseInBatch(@NotNull ActionContext context, ModChooseAction chooser) {
@@ -155,7 +164,8 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
     FutureVirtualFile target = file.targetFile();
     VirtualFile parent = actualize(target.getParent());
     return WriteAction.compute(() -> {
-      if (parent != null && !parent.equals(source.getParent())) {
+      VirtualFile origParent = source.getParent();
+      if (parent != null && !parent.equals(origParent)) {
         try {
           source.move(this, parent);
         }
@@ -169,7 +179,16 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
           source.rename(this, target.getName());
         }
         catch (IOException e) {
-          return AnalysisBundle.message("modcommand.executor.cannot.move.file",
+          if (origParent != null && !origParent.equals(parent)) {
+            try {
+              // Try to rollback 'move' in case if rename failed
+              source.move(this, origParent);
+            }
+            catch (IOException ignored) {
+              // Ignore move exception 
+            }
+          }
+          return AnalysisBundle.message("modcommand.executor.cannot.rename.file",
                                         source.getPath(), target.getName(), e.getLocalizedMessage());
         }
       }
@@ -312,6 +331,9 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
       else if (command instanceof ModChooseAction target) {
         return getChoosePreview(context, target);
       }
+      else if (command instanceof ModEditOptions<?> target) {
+        return getEditOptionsPreview(context, target);
+      }
       else if (command instanceof ModChooseMember target) {
         return getPreview(target.nextCommand().apply(target.defaultSelection()), context);
       }
@@ -346,13 +368,24 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
         navigateInfo = preview.isEmpty() ? IntentionPreviewInfo.EMPTY : new IntentionPreviewInfo.Html(preview);
       }
     }
+    customDiffList.sort(Comparator.comparing(diff -> diff.fileName() != null));
     return customDiffList.isEmpty() ? navigateInfo :
            customDiffList.size() == 1 ? customDiffList.get(0) :
            new IntentionPreviewInfo.MultiFileDiff(customDiffList);
   }
 
+  private @NotNull <T extends OptionContainer> IntentionPreviewInfo getEditOptionsPreview(@NotNull ActionContext context,
+                                                                                          @NotNull ModEditOptions<T> target) {
+    return getPreview(target.nextCommand().apply(target.containerSupplier().get()), context);
+  }
+
   protected @NotNull String getFileNamePresentation(Project project, VirtualFile file) {
-    return file.getName();
+    StringBuilder presentation = new StringBuilder(file.getName());
+    while (file.getParent() instanceof FutureVirtualFile parent) {
+      presentation.insert(0, parent.getName() + "/");
+      file = parent;
+    }
+    return presentation.toString();
   }
 
   private static @NotNull IntentionPreviewInfo getChoosePreview(@NotNull ActionContext context, @NotNull ModChooseAction target) {

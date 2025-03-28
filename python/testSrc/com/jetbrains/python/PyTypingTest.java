@@ -1959,6 +1959,22 @@ public class PyTypingTest extends PyTestCase {
              if issubclass(a, str | dict | int):
                  expr = a""");
   }
+  
+  // PY-79861
+  public void testWalrusIsSubclass() {
+    doTest("Type[str | dict | int]",
+           """
+             if issubclass(a := list, str | dict | int):
+                 expr = a""");
+  }
+
+  // PY-79861
+  public void testWalrusCallable() {
+    doTest("Type[Callable]",
+           """
+             if callable(a := 42):
+                 expr = a""");
+  }
 
   // PY-44974
   public void testBitwiseOrUnionIsInstanceIntNone() {
@@ -1975,6 +1991,14 @@ public class PyTypingTest extends PyTestCase {
            """
              a = [42]
              if isinstance(a, None | int):
+                 expr = a""");
+  }
+
+  // PY-79861
+  public void testWalrusIsInstance() {
+    doTest("int",
+           """
+             if isinstance((a := [42]), int):
                  expr = a""");
   }
 
@@ -6398,6 +6422,42 @@ public class PyTypingTest extends PyTestCase {
           def some_method(self):
               expr = self._some_var
       """);
+  }
+
+  // PY-43122
+  public void testPropertyOfImportedClass() {
+    doMultiFileStubAwareTest("str",
+                             """
+                               from mod import A, B
+                               
+                               a = A()
+                               b = B(a)
+                               expr = b.b_attr
+                               """);
+  }
+
+  // PY-43122
+  public void testPropertyOfClass() {
+    doTest("str",
+                             """
+                               class A:
+                                   def __init__(self) -> None:
+                                       pass
+                               
+                                   @property
+                                   def a_property(self) -> str:
+                                       return 'foo'
+                               
+                               
+                               class B:
+                                   def __init__(self, a: A) -> None:
+                                       self.b_attr = a.a_property
+                               
+                               
+                               a = A()
+                               b = B(a)
+                               expr = b.b_attr
+                               """);
   }
 
   private void doTestNoInjectedText(@NotNull String text) {

@@ -8,7 +8,6 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts
-import com.intellij.platform.project.asProject
 import com.intellij.xdebugger.XDebuggerBundle
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator.XEvaluationCallback
@@ -16,39 +15,34 @@ import com.intellij.xdebugger.frame.XValue
 import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.evaluate.quick.XDebuggerDocumentOffsetEvaluator
 import com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType
-import com.intellij.xdebugger.impl.rhizome.XDebuggerEvaluatorEntity
-import com.intellij.xdebugger.impl.rhizome.XValueEntity
-import com.intellij.xdebugger.impl.rhizome.XValueMarkerDto
+import com.intellij.xdebugger.impl.rpc.models.BackendXValueModel
+import com.intellij.xdebugger.impl.rpc.models.BackendXValueModelsManager
+import com.intellij.xdebugger.impl.rpc.XValueMarkerDto
 import com.intellij.xdebugger.impl.rpc.*
-import com.jetbrains.rhizomedb.entity
-import fleet.kernel.change
-import fleet.kernel.rete.collect
-import fleet.kernel.rete.query
-import fleet.kernel.tryWithEntities
-import fleet.kernel.withEntities
+import com.intellij.xdebugger.impl.rpc.models.XStackFrameModel
+import com.intellij.xdebugger.impl.rpc.models.findValue
+import fleet.rpc.core.RpcFlow
 import fleet.rpc.core.toRpc
-import fleet.util.UID
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.future.asDeferred
 import kotlinx.coroutines.future.await
 import org.jetbrains.concurrency.asDeferred
 
 internal class BackendXDebuggerEvaluatorApi : XDebuggerEvaluatorApi {
-  override suspend fun evaluate(evaluatorId: XDebuggerEvaluatorId, expression: String, position: XSourcePositionDto?): Deferred<XEvaluationResult> {
-    return evaluate(evaluatorId) { project, evaluator, callback ->
+  override suspend fun evaluate(frameId: XStackFrameId, expression: String, position: XSourcePositionDto?): Deferred<XEvaluationResult> {
+    return evaluate(frameId) { project, evaluator, callback ->
       evaluator.evaluate(expression, callback, position?.sourcePosition())
     }
   }
 
-  override suspend fun evaluateXExpression(evaluatorId: XDebuggerEvaluatorId, expression: XExpressionDto, position: XSourcePositionDto?): Deferred<XEvaluationResult> {
-    return evaluate(evaluatorId) { project, evaluator, callback ->
+  override suspend fun evaluateXExpression(frameId: XStackFrameId, expression: XExpressionDto, position: XSourcePositionDto?): Deferred<XEvaluationResult> {
+    return evaluate(frameId) { project, evaluator, callback ->
       evaluator.evaluate(expression.xExpression(), callback, position?.sourcePosition())
     }
   }
 
-  override suspend fun evaluateInDocument(evaluatorId: XDebuggerEvaluatorId, documentId: DocumentId, offset: Int, type: ValueHintType): Deferred<XEvaluationResult> {
-    return evaluate(evaluatorId) { project, evaluator, callback ->
+  override suspend fun evaluateInDocument(frameId: XStackFrameId, documentId: DocumentId, offset: Int, type: ValueHintType): Deferred<XEvaluationResult> {
+    return evaluate(frameId) { project, evaluator, callback ->
       val document = documentId.document()!!
       if (evaluator is XDebuggerDocumentOffsetEvaluator) {
         evaluator.evaluate(document, offset, type, callback)
@@ -60,12 +54,14 @@ internal class BackendXDebuggerEvaluatorApi : XDebuggerEvaluatorApi {
   }
 
   private suspend fun evaluate(
-    evaluatorId: XDebuggerEvaluatorId,
+    frameId: XStackFrameId,
     evaluateFun: suspend (Project, XDebuggerEvaluator, XEvaluationCallback) -> Unit,
   ): Deferred<XEvaluationResult> {
-    val evaluatorEntity = entity(XDebuggerEvaluatorEntity.EvaluatorId, evaluatorId)
+    val stackFrameModel = frameId.findValue()
                           ?: return CompletableDeferred(XEvaluationResult.EvaluationError(XDebuggerBundle.message("xdebugger.evaluate.stack.frame.has.no.evaluator.id")))
-    val evaluator = evaluatorEntity.evaluator
+    val evaluator = stackFrameModel.stackFrame.evaluator
+                    ?: return CompletableDeferred(XEvaluationResult.EvaluationError(XDebuggerBundle.message("xdebugger.evaluate.stack.frame.has.no.evaluator.id")))
+    val session = stackFrameModel.session
     val evaluationResult = CompletableDeferred<XValue>()
 
     withContext(Dispatchers.EDT) {
@@ -78,7 +74,7 @@ internal class BackendXDebuggerEvaluatorApi : XDebuggerEvaluatorApi {
           evaluationResult.completeExceptionally(EvaluationException(errorMessage))
         }
       }
-      evaluateFun(evaluatorEntity.sessionEntity.projectEntity.asProject(), evaluator, callback)
+      evaluateFun(session.project, evaluator, callback)
     }
     val evaluationCoroutineScope = EvaluationCoroutineScopeProvider.getInstance().cs
 
@@ -89,8 +85,8 @@ internal class BackendXDebuggerEvaluatorApi : XDebuggerEvaluatorApi {
       catch (e: EvaluationException) {
         return@async XEvaluationResult.EvaluationError(e.errorMessage)
       }
-      val xValueEntity = newXValueEntity(xValue, evaluatorEntity)
-      val xValueDto = xValueEntity.toXValueDto()
+      val xValueModel = newXValueModel(stackFrameModel, xValue, session)
+      val xValueDto = xValueModel.toXValueDto()
       XEvaluationResult.Evaluated(xValueDto)
     }
   }
@@ -98,19 +94,13 @@ internal class BackendXDebuggerEvaluatorApi : XDebuggerEvaluatorApi {
   private class EvaluationException(val errorMessage: @NlsContexts.DialogMessage String) : Exception(errorMessage)
 }
 
-internal suspend fun XValueEntity.toXValueDto(): XValueDto {
-  val xValueEntity = this
+internal suspend fun BackendXValueModel.toXValueDto(): XValueDto {
+  val xValueModel = this
   val xValue = this.xValue
-  val valueMarkupFlow = channelFlow<XValueMarkerDto?> {
-    tryWithEntities(xValueEntity) {
-      query { xValueEntity.marker }.collect {
-        send(it)
-      }
-    }
-  }.toRpc()
+  val valueMarkupFlow: RpcFlow<XValueMarkerDto?> = xValueModel.marker.toRpc()
 
   return XValueDto(
-    xValueId,
+    xValueModel.id,
     xValue.xValueDescriptorAsync?.asDeferred(),
     canNavigateToSource = xValue.canNavigateToSource(),
     canNavigateToTypeSource = xValue.canNavigateToTypeSourceAsync().asDeferred(),
@@ -119,53 +109,34 @@ internal suspend fun XValueEntity.toXValueDto(): XValueDto {
   )
 }
 
-private suspend fun newXValueEntity(
+internal fun newXValueModel(
+  stackFrameModel: XStackFrameModel,
   xValue: XValue,
-  evaluatorEntity: XDebuggerEvaluatorEntity,
-): XValueEntity {
-  val xValueEntity = change {
-    XValueEntity.new {
-      it[XValueEntity.XValueId] = XValueId(UID.random())
-      it[XValueEntity.XValueAttribute] = xValue
-      it[XValueEntity.SessionEntity] = evaluatorEntity.sessionEntity
-    }
-  }
-  return xValueEntity.apply {
+  session: XDebugSessionImpl,
+): BackendXValueModel {
+  val xValueModel = BackendXValueModelsManager.getInstance(session.project).createXValueModel(stackFrameModel.coroutineScope, session, xValue)
+  return xValueModel.apply {
     setInitialMarker()
   }
 }
 
-internal suspend fun newChildXValueEntity(
+internal fun newChildXValueModel(
   xValue: XValue,
-  parentXValue: XValueEntity,
-): XValueEntity {
-  val xValueEntity = change {
-    XValueEntity.new {
-      it[XValueEntity.XValueId] = XValueId(UID.random())
-      it[XValueEntity.XValueAttribute] = xValue
-      it[XValueEntity.SessionEntity] = parentXValue.sessionEntity
-      it[XValueEntity.ParentXValue] = parentXValue
-    }
-  }
-  return xValueEntity.apply {
+  parentCoroutineScope: CoroutineScope,
+  session: XDebugSessionImpl,
+): BackendXValueModel {
+  val xValueModel = BackendXValueModelsManager.getInstance(session.project).createXValueModel(parentCoroutineScope, session, xValue)
+  return xValueModel.apply {
     setInitialMarker()
   }
 }
 
-private fun XValueEntity.setInitialMarker() {
-  val xValueEntity = this
-  val session = sessionEntity.session
-  (session as XDebugSessionImpl).coroutineScope.launch {
-    withEntities(xValueEntity) {
-      xValue.isReady.await()
-      val markers = session.valueMarkers
-      val marker = markers?.getMarkup(xValue) ?: return@withEntities
-      change {
-        xValueEntity.update {
-          it[XValueEntity.Marker] = XValueMarkerDto(marker.text, marker.color, marker.toolTipText)
-        }
-      }
-    }
+private fun BackendXValueModel.setInitialMarker() {
+  cs.launch {
+    xValue.isReady.await()
+    val markers = session.valueMarkers
+    val marker = markers?.getMarkup(xValue) ?: return@launch
+    setMarker(marker)
   }
 }
 

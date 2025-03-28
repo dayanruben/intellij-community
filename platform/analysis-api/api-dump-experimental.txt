@@ -51,6 +51,8 @@
 - a:getName():java.lang.String
 - getPriority():java.lang.Integer
 - supportsReadOnly():Z
+*:com.intellij.codeInsight.completion.command.CompletionCommandWithPreview
+- a:getPreview():com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
 *f:com.intellij.codeInsight.completion.command.HighlightInfoLookup
 - <init>(com.intellij.openapi.util.TextRange,com.intellij.openapi.editor.colors.TextAttributesKey,I):V
 - f:component1():com.intellij.openapi.util.TextRange
@@ -150,10 +152,12 @@ com.intellij.lang.annotation.AnnotationBuilder
 - com.intellij.testFramework.LightVirtualFile
 - <init>(com.intellij.openapi.vfs.VirtualFile,java.lang.String,com.intellij.openapi.fileTypes.FileType):V
 - getParent():com.intellij.openapi.vfs.VirtualFile
+- isDirectory():Z
 *f:com.intellij.modcommand.ModChooseMember
 - java.lang.Record
 - com.intellij.modcommand.ModCommand
 - <init>(java.lang.String,java.util.List,java.util.List,com.intellij.modcommand.ModChooseMember$SelectionMode,java.util.function.Function):V
+- andThen(com.intellij.modcommand.ModCommand):com.intellij.modcommand.ModCommand
 - defaultSelection():java.util.List
 - elements():java.util.List
 - f:equals(java.lang.Object):Z

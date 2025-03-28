@@ -36,16 +36,15 @@ jvm_library(
     "@lib//:kotlinx-coroutines-core",
     "@lib//:kotlinx-serialization-core",
     "@lib//:kotlinx-serialization-json",
-    "@lib//:caffeine",
     "//platform/util/coroutines",
-    "//platform/util/kmp",
+    "//platform/util/multiplatform",
     ":troveCompileOnly_provided",
   ],
   exports = [
     "@lib//:jetbrains-annotations",
     "//platform/util-rt",
     "//platform/util/base",
-    "//platform/util/kmp",
+    "//platform/util/multiplatform",
   ],
   runtime_deps = [
     ":util_resources",

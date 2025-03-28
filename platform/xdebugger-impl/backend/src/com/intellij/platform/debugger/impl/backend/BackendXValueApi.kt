@@ -13,13 +13,12 @@ import com.intellij.xdebugger.frame.*
 import com.intellij.xdebugger.frame.XFullValueEvaluator.XFullValueEvaluationCallback
 import com.intellij.xdebugger.frame.presentation.XValuePresentation
 import com.intellij.xdebugger.frame.presentation.XValuePresentation.XValueTextRenderer
-import com.intellij.xdebugger.impl.rhizome.XValueEntity
+import com.intellij.xdebugger.impl.XDebugSessionImpl
+import com.intellij.xdebugger.impl.rpc.models.BackendXValueModel
 import com.intellij.xdebugger.impl.rpc.*
 import com.intellij.xdebugger.impl.rpc.XFullValueEvaluatorDto.FullValueEvaluatorLinkAttributes
 import com.intellij.xdebugger.impl.ui.CustomComponentEvaluator
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeEx
-import com.jetbrains.rhizomedb.entity
-import fleet.kernel.change
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
@@ -32,11 +31,10 @@ import javax.swing.Icon
 
 internal class BackendXValueApi : XValueApi {
   override suspend fun computePresentation(xValueId: XValueId, xValuePlace: XValuePlace): Flow<XValuePresentationEvent>? {
-    val xValueEntity = entity(XValueEntity.XValueId, xValueId) ?: return emptyFlow()
-    val xValue = xValueEntity.xValue
+    val xValueModel = BackendXValueModel.findById(xValueId) ?: return emptyFlow()
+    val xValue = xValueModel.xValue
     val presentations = Channel<XValuePresentationEvent>(capacity = Int.MAX_VALUE)
     return channelFlow {
-      val channelCs = this@channelFlow as CoroutineScope
       var isObsolete = false
 
       val valueNode = object : XValueNodeEx {
@@ -64,27 +62,18 @@ internal class BackendXValueApi : XValueApi {
             // TODO[IJPL-160146]: support CustomComponentEvaluator
             return
           }
-
-          // TODO[IJPL-160146]: data race with multiple setFullValueEvaluator calls
-          channelCs.launch {
-            change {
-              xValueEntity.update {
-                it[XValueEntity.FullValueEvaluator] = fullValueEvaluator
-              }
-            }
-
-            presentations.trySend(
-              XValuePresentationEvent.SetFullValueEvaluator(
-                XFullValueEvaluatorDto(
-                  fullValueEvaluator.linkText,
-                  fullValueEvaluator.isEnabled,
-                  fullValueEvaluator.isShowValuePopup,
-                  fullValueEvaluator.linkAttributes?.let {
-                    FullValueEvaluatorLinkAttributes(it.linkIcon?.rpcId(), it.linkTooltipText, it.shortcutSupplier?.get())
-                  }
-                ))
-            )
-          }
+          xValueModel.setFullValueEvaluator(fullValueEvaluator)
+          presentations.trySend(
+            XValuePresentationEvent.SetFullValueEvaluator(
+              XFullValueEvaluatorDto(
+                fullValueEvaluator.linkText,
+                fullValueEvaluator.isEnabled,
+                fullValueEvaluator.isShowValuePopup,
+                fullValueEvaluator.linkAttributes?.let {
+                  FullValueEvaluatorLinkAttributes(it.linkIcon?.rpcId(), it.linkTooltipText, it.shortcutSupplier?.get())
+                }
+              ))
+          )
         }
 
         override fun getXValue(): XValue {
@@ -92,15 +81,8 @@ internal class BackendXValueApi : XValueApi {
         }
 
         override fun clearFullValueEvaluator() {
-          // TODO[IJPL-160146]: data race with setFullValueEvaluator
-          channelCs.launch {
-            change {
-              xValueEntity.update {
-                it[XValueEntity.FullValueEvaluator] = null
-              }
-            }
-            presentations.send(XValuePresentationEvent.ClearFullValueEvaluator)
-          }
+          xValueModel.setFullValueEvaluator(null)
+          presentations.trySend(XValuePresentationEvent.ClearFullValueEvaluator)
         }
       }
       xValue.computePresentation(valueNode, xValuePlace)
@@ -120,79 +102,17 @@ internal class BackendXValueApi : XValueApi {
     }
   }
 
-  override suspend fun computeChildren(xValueId: XValueId): Flow<XValueComputeChildrenEvent>? {
-    val xValueEntity = entity(XValueEntity.XValueId, xValueId) ?: return emptyFlow()
-    val xValue = xValueEntity.xValue
-    val rawEvents = Channel<RawComputeChildrenEvent>(capacity = Int.MAX_VALUE)
-
-    return channelFlow {
-      val addNextChildrenCallbackHandler = AddNextChildrenCallbackHandler(this@channelFlow)
-
-      var isObsolete = false
-      val xCompositeBridgeNode = object : XCompositeNode {
-        override fun isObsolete(): Boolean {
-          return isObsolete
-        }
-
-        override fun addChildren(children: XValueChildrenList, last: Boolean) {
-          rawEvents.trySend(RawComputeChildrenEvent.AddChildren(children, last))
-        }
-
-        override fun tooManyChildren(remaining: Int) {
-          rawEvents.trySend(RawComputeChildrenEvent.TooManyChildren(remaining, null, addNextChildrenCallbackHandler))
-        }
-
-        override fun tooManyChildren(remaining: Int, addNextChildren: Runnable) {
-          rawEvents.trySend(RawComputeChildrenEvent.TooManyChildren(remaining, addNextChildren, addNextChildrenCallbackHandler))
-        }
-
-        override fun setAlreadySorted(alreadySorted: Boolean) {
-          rawEvents.trySend(RawComputeChildrenEvent.SetAlreadySorted(alreadySorted))
-        }
-
-        override fun setErrorMessage(errorMessage: String) {
-          rawEvents.trySend(RawComputeChildrenEvent.SetErrorMessage(errorMessage, null))
-        }
-
-        override fun setErrorMessage(errorMessage: String, link: XDebuggerTreeNodeHyperlink?) {
-          rawEvents.trySend(RawComputeChildrenEvent.SetErrorMessage(errorMessage, link))
-        }
-
-        override fun setMessage(message: String, icon: Icon?, attributes: SimpleTextAttributes, link: XDebuggerTreeNodeHyperlink?) {
-          rawEvents.trySend(RawComputeChildrenEvent.SetMessage(message, icon, attributes, link))
-        }
-      }
-
-      xValue.computeChildren(xCompositeBridgeNode)
-
-      // mark xCompositeBridgeNode as obsolete when the channel collection is canceled
-      launch {
-        try {
-          awaitCancellation()
-        }
-        finally {
-          isObsolete = true
-        }
-      }
-
-      for (event in rawEvents) {
-        send(event.convertToRpcEvent(xValueEntity))
-      }
-    }
+  override suspend fun computeChildren(xValueId: XValueId): Flow<XValueComputeChildrenEvent> {
+    val xValueModel = BackendXValueModel.findById(xValueId) ?: return emptyFlow()
+    return computeContainerChildren(xValueModel.cs, xValueModel.xValue, xValueModel.session)
   }
 
-
   override suspend fun disposeXValue(xValueId: XValueId) {
-    val xValueEntity = entity(XValueEntity.XValueId, xValueId) ?: return
-    withContext(NonCancellable) {
-      change {
-        xValueEntity.delete()
-      }
-    }
+    BackendXValueModel.findById(xValueId)?.delete()
   }
 
   override suspend fun evaluateFullValue(xValueId: XValueId): Deferred<XFullValueEvaluatorResult> {
-    val xFullValueEvaluator = entity(XValueEntity.XValueId, xValueId)?.fullValueEvaluator
+    val xFullValueEvaluator = BackendXValueModel.findById(xValueId)?.fullValueEvaluator?.value
                               ?: return CompletableDeferred(XFullValueEvaluatorResult.EvaluationError(XDebuggerBundle.message("xdebugger.evaluate.full.value.evaluator.not.available")))
 
     val result = CompletableDeferred<XFullValueEvaluatorResult>()
@@ -269,90 +189,152 @@ internal class BackendXValueApi : XValueApi {
       _parts.add(XValueAdvancedPresentationPart.Error(error))
     }
   }
+}
 
+private class AddNextChildrenCallbackHandler(cs: CoroutineScope) {
+  private val cs = cs.childScope("AddNextChildrenCallbackHandler")
+  private var currentChannelSubscription: Job? = null
 
-  private class AddNextChildrenCallbackHandler(cs: CoroutineScope) {
-    private val cs = cs.childScope("AddNextChildrenCallbackHandler")
-    private var currentChannelSubscription: Job? = null
-
-    /**
-     * Returns Channel which may be passed to frontend, so later on frontend may trigger backend's callbacks
-     *
-     * This method should be called sequentially
-     */
-    fun setAddNextChildrenCallback(callback: Runnable?): SendChannel<Unit>? {
-      if (callback == null) {
-        currentChannelSubscription?.cancel()
-        currentChannelSubscription = null
-        return null
-      }
-
-      val newChannel = Channel<Unit>(capacity = 1)
-
-      val newChannelSubscription = cs.launch {
-        launch {
-          try {
-            awaitCancellation()
-          }
-          finally {
-            newChannel.close()
-          }
-        }
-
-        for (addNextChildrenRequest in newChannel) {
-          callback.run()
-        }
-      }
-
+  /**
+   * Returns Channel which may be passed to frontend, so later on frontend may trigger backend's callbacks
+   *
+   * This method should be called sequentially
+   */
+  fun setAddNextChildrenCallback(callback: Runnable?): SendChannel<Unit>? {
+    if (callback == null) {
       currentChannelSubscription?.cancel()
-      currentChannelSubscription = newChannelSubscription
+      currentChannelSubscription = null
+      return null
+    }
 
-      return newChannel
+    val newChannel = Channel<Unit>(capacity = 1)
+
+    val newChannelSubscription = cs.launch {
+      launch {
+        try {
+          awaitCancellation()
+        }
+        finally {
+          newChannel.close()
+        }
+      }
+
+      for (addNextChildrenRequest in newChannel) {
+        callback.run()
+      }
+    }
+
+    currentChannelSubscription?.cancel()
+    currentChannelSubscription = newChannelSubscription
+
+    return newChannel
+  }
+}
+
+internal fun computeContainerChildren(
+  parentCs: CoroutineScope,
+  xValueContainer: XValueContainer,
+  session: XDebugSessionImpl,
+): Flow<XValueComputeChildrenEvent> {
+  val rawEvents = Channel<RawComputeChildrenEvent>(capacity = Int.MAX_VALUE)
+
+  return channelFlow {
+    val addNextChildrenCallbackHandler = AddNextChildrenCallbackHandler(this@channelFlow)
+
+    var isObsolete = false
+    val xCompositeBridgeNode = object : XCompositeNode {
+      override fun isObsolete(): Boolean {
+        return isObsolete
+      }
+
+      override fun addChildren(children: XValueChildrenList, last: Boolean) {
+        rawEvents.trySend(RawComputeChildrenEvent.AddChildren(children, last))
+      }
+
+      override fun tooManyChildren(remaining: Int) {
+        rawEvents.trySend(RawComputeChildrenEvent.TooManyChildren(remaining, null, addNextChildrenCallbackHandler))
+      }
+
+      override fun tooManyChildren(remaining: Int, addNextChildren: Runnable) {
+        rawEvents.trySend(RawComputeChildrenEvent.TooManyChildren(remaining, addNextChildren, addNextChildrenCallbackHandler))
+      }
+
+      override fun setAlreadySorted(alreadySorted: Boolean) {
+        rawEvents.trySend(RawComputeChildrenEvent.SetAlreadySorted(alreadySorted))
+      }
+
+      override fun setErrorMessage(errorMessage: String) {
+        rawEvents.trySend(RawComputeChildrenEvent.SetErrorMessage(errorMessage, null))
+      }
+
+      override fun setErrorMessage(errorMessage: String, link: XDebuggerTreeNodeHyperlink?) {
+        rawEvents.trySend(RawComputeChildrenEvent.SetErrorMessage(errorMessage, link))
+      }
+
+      override fun setMessage(message: String, icon: Icon?, attributes: SimpleTextAttributes, link: XDebuggerTreeNodeHyperlink?) {
+        rawEvents.trySend(RawComputeChildrenEvent.SetMessage(message, icon, attributes, link))
+      }
+    }
+
+    xValueContainer.computeChildren(xCompositeBridgeNode)
+
+    // mark xCompositeBridgeNode as obsolete when the channel collection is canceled
+    launch {
+      try {
+        awaitCancellation()
+      }
+      finally {
+        isObsolete = true
+      }
+    }
+
+    for (event in rawEvents) {
+      send(event.convertToRpcEvent(parentCs, session))
+    }
+  }
+}
+
+private sealed interface RawComputeChildrenEvent {
+  suspend fun convertToRpcEvent(parentCoroutineScope: CoroutineScope, session: XDebugSessionImpl): XValueComputeChildrenEvent
+
+  data class AddChildren(val children: XValueChildrenList, val last: Boolean) : RawComputeChildrenEvent {
+    override suspend fun convertToRpcEvent(parentCoroutineScope: CoroutineScope, session: XDebugSessionImpl): XValueComputeChildrenEvent {
+      val names = (0 until children.size()).map { children.getName(it) }
+      val childrenXValues = (0 until children.size()).map { children.getValue(it) }
+      val childrenXValueEntities = childrenXValues.map { childXValue ->
+        newChildXValueModel(childXValue, parentCoroutineScope, session)
+      }
+      val childrenXValueDtos = childrenXValueEntities.map { childXValueEntity ->
+        childXValueEntity.toXValueDto()
+      }
+      return XValueComputeChildrenEvent.AddChildren(names, childrenXValueDtos, last)
     }
   }
 
-  private sealed interface RawComputeChildrenEvent {
-    suspend fun convertToRpcEvent(parentXValueEntity: XValueEntity): XValueComputeChildrenEvent
-
-    data class AddChildren(val children: XValueChildrenList, val last: Boolean) : RawComputeChildrenEvent {
-      override suspend fun convertToRpcEvent(parentXValueEntity: XValueEntity): XValueComputeChildrenEvent {
-        val names = (0 until children.size()).map { children.getName(it) }
-        val childrenXValues = (0 until children.size()).map { children.getValue(it) }
-        val childrenXValueEntities = childrenXValues.map { childXValue ->
-          newChildXValueEntity(childXValue, parentXValueEntity)
-        }
-        val childrenXValueDtos = childrenXValueEntities.map { childXValueEntity ->
-          childXValueEntity.toXValueDto()
-        }
-        return XValueComputeChildrenEvent.AddChildren(names, childrenXValueDtos, last)
-      }
+  data class SetAlreadySorted(val value: Boolean) : RawComputeChildrenEvent {
+    override suspend fun convertToRpcEvent(parentCoroutineScope: CoroutineScope, session: XDebugSessionImpl): XValueComputeChildrenEvent {
+      return XValueComputeChildrenEvent.SetAlreadySorted(value)
     }
+  }
 
-    data class SetAlreadySorted(val value: Boolean) : RawComputeChildrenEvent {
-      override suspend fun convertToRpcEvent(parentXValueEntity: XValueEntity): XValueComputeChildrenEvent {
-        return XValueComputeChildrenEvent.SetAlreadySorted(value)
-      }
+  data class SetErrorMessage(val message: String, val link: XDebuggerTreeNodeHyperlink?) : RawComputeChildrenEvent {
+    override suspend fun convertToRpcEvent(parentCoroutineScope: CoroutineScope, session: XDebugSessionImpl): XValueComputeChildrenEvent {
+      // TODO[IJPL-160146]: support XDebuggerTreeNodeHyperlink serialization
+      return XValueComputeChildrenEvent.SetErrorMessage(message, link)
     }
+  }
 
-    data class SetErrorMessage(val message: String, val link: XDebuggerTreeNodeHyperlink?) : RawComputeChildrenEvent {
-      override suspend fun convertToRpcEvent(parentXValueEntity: XValueEntity): XValueComputeChildrenEvent {
-        // TODO[IJPL-160146]: support XDebuggerTreeNodeHyperlink serialization
-        return XValueComputeChildrenEvent.SetErrorMessage(message, link)
-      }
+  data class SetMessage(val message: String, val icon: Icon?, val attributes: SimpleTextAttributes?, val link: XDebuggerTreeNodeHyperlink?) : RawComputeChildrenEvent {
+    override suspend fun convertToRpcEvent(parentCoroutineScope: CoroutineScope, session: XDebugSessionImpl): XValueComputeChildrenEvent {
+      // TODO[IJPL-160146]: support SimpleTextAttributes serialization
+      // TODO[IJPL-160146]: support XDebuggerTreeNodeHyperlink serialization
+      return XValueComputeChildrenEvent.SetMessage(message, icon?.rpcId(), attributes, link)
     }
+  }
 
-    data class SetMessage(val message: String, val icon: Icon?, val attributes: SimpleTextAttributes?, val link: XDebuggerTreeNodeHyperlink?) : RawComputeChildrenEvent {
-      override suspend fun convertToRpcEvent(parentXValueEntity: XValueEntity): XValueComputeChildrenEvent {
-        // TODO[IJPL-160146]: support SimpleTextAttributes serialization
-        // TODO[IJPL-160146]: support XDebuggerTreeNodeHyperlink serialization
-        return XValueComputeChildrenEvent.SetMessage(message, icon?.rpcId(), attributes, link)
-      }
-    }
-
-    data class TooManyChildren(val remaining: Int, val addNextChildren: Runnable?, val addNextChildrenCallbackHandler: AddNextChildrenCallbackHandler) : RawComputeChildrenEvent {
-      override suspend fun convertToRpcEvent(parentXValueEntity: XValueEntity): XValueComputeChildrenEvent {
-        return XValueComputeChildrenEvent.TooManyChildren(remaining, addNextChildrenCallbackHandler.setAddNextChildrenCallback(addNextChildren))
-      }
+  data class TooManyChildren(val remaining: Int, val addNextChildren: Runnable?, val addNextChildrenCallbackHandler: AddNextChildrenCallbackHandler) : RawComputeChildrenEvent {
+    override suspend fun convertToRpcEvent(parentCoroutineScope: CoroutineScope, session: XDebugSessionImpl): XValueComputeChildrenEvent {
+      return XValueComputeChildrenEvent.TooManyChildren(remaining, addNextChildrenCallbackHandler.setAddNextChildrenCallback(addNextChildren))
     }
   }
 }

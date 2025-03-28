@@ -2,6 +2,7 @@
 package com.intellij.platform.debugger.impl.frontend
 
 import com.intellij.execution.process.ProcessHandler
+import com.intellij.execution.runners.ExecutionEnvironmentProxy
 import com.intellij.execution.ui.ConsoleView
 import com.intellij.ide.ui.icons.icon
 import com.intellij.openapi.Disposable
@@ -13,9 +14,15 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.platform.debugger.impl.frontend.evaluate.quick.FrontendXDebuggerEvaluator
 import com.intellij.platform.debugger.impl.frontend.evaluate.quick.FrontendXValue
-import com.intellij.platform.debugger.impl.frontend.evaluate.quick.createFrontendXDebuggerEvaluator
+import com.intellij.platform.debugger.impl.frontend.frame.FrontendXExecutionStack
+import com.intellij.platform.debugger.impl.frontend.frame.FrontendXStackFrame
+import com.intellij.platform.debugger.impl.frontend.frame.FrontendXSuspendContext
+import com.intellij.platform.execution.impl.frontend.createFrontendProcessHandler
+import com.intellij.platform.execution.impl.frontend.executionEnvironment
 import com.intellij.platform.util.coroutines.childScope
+import com.intellij.util.AwaitCancellationAndInvoke
 import com.intellij.util.EventDispatcher
+import com.intellij.util.awaitCancellationAndInvoke
 import com.intellij.xdebugger.XDebugSessionListener
 import com.intellij.xdebugger.XDebuggerBundle
 import com.intellij.xdebugger.XSourcePosition
@@ -42,21 +49,7 @@ internal class FrontendXDebuggerSession private constructor(
   private val cs = scope.childScope("Session ${sessionDto.id}")
   private val localEditorsProvider = sessionDto.editorsProviderDto.editorsProvider
   private val eventsDispatcher = EventDispatcher.create(XDebugSessionListener::class.java)
-  val id = sessionDto.id
-  val evaluator: StateFlow<FrontendXDebuggerEvaluator?> =
-    channelFlow {
-      XDebugSessionApi.getInstance().currentEvaluator(id).collectLatest { evaluatorDto ->
-        if (evaluatorDto == null) {
-          send(null)
-          return@collectLatest
-        }
-        supervisorScope {
-          val evaluator = createFrontendXDebuggerEvaluator(project, this, evaluatorDto)
-          send(evaluator)
-          awaitCancellation()
-        }
-      }
-    }.stateIn(cs, SharingStarted.Eagerly, null)
+  override val id: XDebugSessionId = sessionDto.id
 
   val sourcePosition: StateFlow<XSourcePosition?> =
     channelFlow {
@@ -79,11 +72,62 @@ internal class FrontendXDebuggerSession private constructor(
       }
     }.stateIn(cs, SharingStarted.Eagerly, sessionDto.initialSessionState)
 
+  private val suspendContext: StateFlow<FrontendXSuspendContext?> =
+    channelFlow {
+      XDebugSessionApi.getInstance().currentSuspendContext(id).collectLatest { suspendContextDto ->
+        if (suspendContextDto == null) {
+          send(null)
+          return@collectLatest
+        }
+        supervisorScope {
+          send(FrontendXSuspendContext(suspendContextDto, project, this))
+          awaitCancellation()
+        }
+      }
+    }.stateIn(cs, SharingStarted.Eagerly, null)
+
+  private val currentExecutionStack: StateFlow<XExecutionStack?> =
+    channelFlow {
+      XDebugSessionApi.getInstance().currentExecutionStack(id).collectLatest { executionStackDto ->
+        if (executionStackDto == null) {
+          send(null)
+          return@collectLatest
+        }
+        supervisorScope {
+          send(FrontendXExecutionStack(executionStackDto, project, this))
+          awaitCancellation()
+        }
+      }
+    }.stateIn(cs, SharingStarted.Eagerly, null)
+
+  private val currentStackFrame: StateFlow<XStackFrame?> =
+    channelFlow {
+      XDebugSessionApi.getInstance().currentStackFrame(id).collectLatest { stackFrameDto ->
+        if (stackFrameDto == null) {
+          send(null)
+          return@collectLatest
+        }
+        supervisorScope {
+          send(FrontendXStackFrame(stackFrameDto, project, this))
+          awaitCancellation()
+        }
+      }
+    }.stateIn(cs, SharingStarted.Eagerly, null)
+
+  val evaluator: StateFlow<FrontendXDebuggerEvaluator?> =
+    currentStackFrame.map { frame ->
+      val frameEvaluator = frame?.evaluator ?: return@map null
+      frameEvaluator as FrontendXDebuggerEvaluator
+    }.stateIn(cs, SharingStarted.Eagerly, null)
+
   override val isStopped: Boolean
     get() = sessionState.value.isStopped
 
   override val isPaused: Boolean
     get() = sessionState.value.isPaused
+
+  override val environmentProxy: ExecutionEnvironmentProxy?
+    get() = null // TODO: implement!
 
   val isReadOnly: Boolean
     get() = sessionState.value.isReadOnly
@@ -114,7 +158,7 @@ internal class FrontendXDebuggerSession private constructor(
     get() = emptyList() // TODO
   override val extraStopActions: List<AnAction>
     get() = emptyList() // TODO
-  override val processHandler: ProcessHandler = createProcessHandler(project, id, sessionDto.processHandlerDto)
+  override val processHandler: ProcessHandler = createFrontendProcessHandler(project, sessionDto.processHandlerDto)
   override val coroutineScope: CoroutineScope = cs
   override val currentStateMessage: String
     get() = if (isStopped) XDebuggerBundle.message("debugger.state.message.disconnected") else XDebuggerBundle.message("debugger.state.message.connected") // TODO
@@ -131,7 +175,16 @@ internal class FrontendXDebuggerSession private constructor(
           is XDebuggerSessionEvent.SessionResumed -> eventsDispatcher.multicaster.sessionResumed()
           is XDebuggerSessionEvent.SessionStopped -> eventsDispatcher.multicaster.sessionStopped()
           is XDebuggerSessionEvent.SettingsChanged -> eventsDispatcher.multicaster.settingsChanged()
-          is XDebuggerSessionEvent.StackFrameChanged -> eventsDispatcher.multicaster.stackFrameChanged()
+          is XDebuggerSessionEvent.StackFrameChanged -> {
+            // Do nothing, use stack frame update as the source of truth instead
+          }
+        }
+      }
+    }
+    cs.launch {
+      currentStackFrame.collectLatest {
+        withContext(Dispatchers.EDT) {
+          eventsDispatcher.multicaster.stackFrameChanged()
         }
       }
     }
@@ -144,6 +197,7 @@ internal class FrontendXDebuggerSession private constructor(
     }
   }
 
+  @OptIn(AwaitCancellationAndInvoke::class)
   private fun initTabInfo(tabDto: XDebuggerSessionTabDto) {
     val (tabInfo, pausedFlow) = tabDto
     cs.launch {
@@ -151,11 +205,14 @@ internal class FrontendXDebuggerSession private constructor(
 
       val proxy = this@FrontendXDebuggerSession
       withContext(Dispatchers.EDT) {
-        XDebugSessionTab.create(proxy, tabInfo.iconId?.icon(), tabInfo.executionEnvironment, tabInfo.contentToReuse,
+        XDebugSessionTab.create(proxy, tabInfo.iconId?.icon(), tabInfo.executionEnvironmentProxyDto?.executionEnvironment(project, cs), tabInfo.contentToReuse,
                                 tabInfo.forceNewDebuggerUi, tabInfo.withFramesCustomization).apply {
           _sessionTab = this
           proxy.onTabInitialized(this)
           showTab()
+          runContentDescriptor?.coroutineScope?.awaitCancellationAndInvoke {
+            tabInfo.tabClosedCallback.send(Unit)
+          }
           pausedFlow.toFlow().collectLatest { paused ->
             if (paused == null) return@collectLatest
             withContext(Dispatchers.EDT) {
@@ -174,27 +231,31 @@ internal class FrontendXDebuggerSession private constructor(
   }
 
   override fun getCurrentExecutionStack(): XExecutionStack? {
-    TODO("Not yet implemented")
+    return currentExecutionStack.value
   }
 
   override fun getCurrentStackFrame(): XStackFrame? {
-    TODO("Not yet implemented")
+    return currentStackFrame.value
   }
 
   override fun setCurrentStackFrame(executionStack: XExecutionStack, frame: XStackFrame, isTopFrame: Boolean) {
-    TODO("Not yet implemented")
+    cs.launch {
+      XDebugSessionApi.getInstance().setCurrentStackFrame(id, (executionStack as FrontendXExecutionStack).id,
+                                                          (frame as FrontendXStackFrame).id, isTopFrame)
+    }
   }
 
   override fun hasSuspendContext(): Boolean {
-    TODO("Not yet implemented")
+    return suspendContext.value != null
   }
 
   override fun isSteppingSuspendContext(): Boolean {
-    TODO("Not yet implemented")
+    val currentContext = suspendContext.value ?: return false
+    return currentContext.isStepping
   }
 
   override fun computeExecutionStacks(provideContainer: () -> XSuspendContext.XExecutionStackContainer) {
-    TODO("Not yet implemented")
+    suspendContext.value?.computeExecutionStacks(provideContainer())
   }
 
   override fun createTabLayouter(): XDebugTabLayouter {
@@ -230,8 +291,6 @@ internal class FrontendXDebuggerSession private constructor(
       XDebugSessionApi.getInstance().onTabInitialized(id, XDebuggerSessionTabInfoCallback(tab))
     }
   }
-
-  override suspend fun sessionId(): XDebugSessionId = id
 
   fun closeScope() {
     cs.cancel()

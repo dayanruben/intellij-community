@@ -10,29 +10,25 @@ import com.intellij.openapi.editor.impl.EditorId
 import com.intellij.openapi.editor.impl.findEditorOrNull
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
-import com.intellij.platform.project.findProject
 import com.intellij.psi.util.PsiEditorUtil
 import com.intellij.xdebugger.XSourcePosition
-import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.actions.handlers.XDebuggerEvaluateActionHandler
-import com.intellij.xdebugger.impl.rhizome.XDebuggerEvaluatorEntity
-import com.intellij.xdebugger.impl.rhizome.XValueEntity
-import com.intellij.xdebugger.impl.rpc.XDebuggerEvaluatorId
+import com.intellij.xdebugger.impl.rpc.models.BackendXValueModel
 import com.intellij.xdebugger.impl.rpc.XDebuggerLuxApi
+import com.intellij.xdebugger.impl.rpc.XStackFrameId
 import com.intellij.xdebugger.impl.rpc.XValueId
+import com.intellij.xdebugger.impl.rpc.models.findValue
 import com.intellij.xdebugger.impl.ui.tree.XInspectDialog
 import com.intellij.xdebugger.impl.ui.tree.actions.ShowReferringObjectsAction
-import com.jetbrains.rhizomedb.entity
 import kotlinx.coroutines.*
 import org.jetbrains.concurrency.await
 
 internal class BackendXDebuggerLuxApi : XDebuggerLuxApi {
-  override suspend fun showLuxEvaluateDialog(evaluatorId: XDebuggerEvaluatorId, editorId: EditorId?, fileId: VirtualFileId?, xValueId: XValueId?) {
-    val evaluatorEntity = entity(XDebuggerEvaluatorEntity.EvaluatorId, evaluatorId) ?: return
-    val sessionEntity = evaluatorEntity.sessionEntity
-    val session = sessionEntity.session
-    val project = sessionEntity.projectEntity.projectId.findProject()
-    val evaluator = evaluatorEntity.evaluator
+  override suspend fun showLuxEvaluateDialog(frameId: XStackFrameId, editorId: EditorId?, fileId: VirtualFileId?, xValueId: XValueId?) {
+    val stackFrameModel = frameId.findValue() ?: return
+    val evaluator = stackFrameModel.stackFrame.evaluator ?: return
+    val session = stackFrameModel.session
+    val project = session.project
     val editor = editorId?.findEditorOrNull()
 
     val editorVirtualFile = editor?.document?.let { FileDocumentManager.getInstance().getFile(it) }
@@ -40,7 +36,7 @@ internal class BackendXDebuggerLuxApi : XDebuggerLuxApi {
 
     val psiFile = editor?.let { PsiEditorUtil.getPsiFile(it) }
 
-    val selectedValue = xValueId?.let { entity(XValueEntity.XValueId, it)?.xValue }
+    val selectedValue = xValueId?.let { BackendXValueModel.findById(it)?.xValue }
 
     val expressionPromise = XDebuggerEvaluateActionHandler.getSelectedExpressionAsync(project, evaluator, editor, psiFile, selectedValue)
 
@@ -55,17 +51,16 @@ internal class BackendXDebuggerLuxApi : XDebuggerLuxApi {
   }
 
   override suspend fun showLuxInspectDialog(xValueId: XValueId, nodeName: String) {
-    val xValueEntity = entity(XValueEntity.XValueId, xValueId) ?: return
-    val sessionEntity = xValueEntity.sessionEntity
-    val session = sessionEntity.session
-    val project = sessionEntity.projectEntity.projectId.findProject()
-    val xValue = xValueEntity.xValue
+    val xValueModel = BackendXValueModel.findById(xValueId) ?: return
+    val session = xValueModel.session
+    val project = session.project
+    val xValue = xValueModel.xValue
     val sourcePositionDeferred = CompletableDeferred<XSourcePosition?>()
     xValue.computeSourcePosition {
       sourcePositionDeferred.complete(it)
     }
     val editorsProvider = session.debugProcess.editorsProvider
-    val valueMarkers = (session as? XDebugSessionImpl)?.valueMarkers
+    val valueMarkers = session.valueMarkers
 
     project.service<BackendXDebuggerLuxApiCoroutineScope>().cs.launch {
       val sourcePosition = sourcePositionDeferred.await()
@@ -78,16 +73,15 @@ internal class BackendXDebuggerLuxApi : XDebuggerLuxApi {
   }
 
   override suspend fun showReferringObjectsDialog(xValueId: XValueId, nodeName: String) {
-    val xValueEntity = entity(XValueEntity.XValueId, xValueId) ?: return
-    val sessionEntity = xValueEntity.sessionEntity
-    val session = sessionEntity.session
-    val project = sessionEntity.projectEntity.projectId.findProject()
-    val xValue = xValueEntity.xValue
+    val xValueModel = BackendXValueModel.findById(xValueId) ?: return
+    val session = xValueModel.session
+    val project = session.project
+    val xValue = xValueModel.xValue
     val sourcePositionDeferred = CompletableDeferred<XSourcePosition?>()
     xValue.computeSourcePosition {
       sourcePositionDeferred.complete(it)
     }
-    val valueMarkers = (session as? XDebugSessionImpl)?.valueMarkers
+    val valueMarkers = session.valueMarkers
 
     project.service<BackendXDebuggerLuxApiCoroutineScope>().cs.launch {
       val sourcePosition = sourcePositionDeferred.await()

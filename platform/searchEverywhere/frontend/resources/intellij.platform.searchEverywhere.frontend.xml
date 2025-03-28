@@ -11,17 +11,16 @@
   </actions>
 
   <extensionPoints>
-    <extensionPoint name="searchEverywhere.tabProvider"
-                    interface="com.intellij.platform.searchEverywhere.frontend.SeTabProvider"
+    <extensionPoint name="searchEverywhere.tabFactory"
+                    interface="com.intellij.platform.searchEverywhere.frontend.SeTabFactory"
                     dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
-    <searchEverywhere.tabProvider implementation="com.intellij.platform.searchEverywhere.frontend.providers.actions.SeActionsTabProvider"/>
-    <searchEverywhere.tabProvider implementation="com.intellij.platform.searchEverywhere.frontend.providers.files.SeFilesTabProvider"/>
-    <searchEverywhere.tabProvider implementation="com.intellij.platform.searchEverywhere.frontend.providers.mocks.SeTabProviderMockAlphaLocal"/>
-    <searchEverywhere.tabProvider implementation="com.intellij.platform.searchEverywhere.frontend.providers.mocks.SeTabProviderMockBetaLocal"/>
-    <searchEverywhere.tabProvider implementation="com.intellij.platform.searchEverywhere.frontend.providers.mocks.SeTabProviderMockCharlieRemote"/>
-    <searchEverywhere.tabProvider implementation="com.intellij.platform.searchEverywhere.frontend.providers.mocks.SeTabProviderMockDeltaMixed"/>
+    <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.all.SeAllTabFactory"/>
+    <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.classes.SeClassesTabFactory"/>
+    <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.files.SeFilesTabFactory"/>
+    <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.symbols.SeSymbolsTabFactory"/>
+    <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.actions.SeActionsTabFactory"/>
   </extensions>
 </idea-plugin>

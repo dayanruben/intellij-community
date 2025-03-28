@@ -3,6 +3,7 @@ package com.intellij.codeInsight;
 
 import com.intellij.codeInsight.intention.preview.IntentionPreviewUtils;
 import com.intellij.modcommand.ModCommand;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -20,6 +21,11 @@ import java.util.Set;
 
 public class ModCommandAwareExternalAnnotationsManager extends ReadableExternalAnnotationsManager {
   public ModCommandAwareExternalAnnotationsManager(PsiManager psiManager) { super(psiManager); }
+
+  @SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
+  public static ModCommandAwareExternalAnnotationsManager getInstance(@NotNull Project project) {
+    return (ModCommandAwareExternalAnnotationsManager)ExternalAnnotationsManager.getInstance(project);
+  }
 
   protected @Nullable List<XmlFile> findExternalAnnotationsXmlFiles(@NotNull PsiModifierListOwner listOwner) {
     List<PsiFile> psiFiles = findExternalAnnotationsFiles(listOwner);
@@ -62,6 +68,12 @@ public class ModCommandAwareExternalAnnotationsManager extends ReadableExternalA
         }
       }
     });
+  }
+
+  public @NotNull ModCommand annotateExternallyModCommand(@NotNull PsiModifierListOwner listOwner,
+                                                          @NotNull String annotationFQName,
+                                                          PsiNameValuePair @Nullable [] value) {
+    throw new UnsupportedOperationException("annotateExternallyModCommand is not implemented in " + getClass().getName());
   }
 
   protected static @NotNull List<XmlTag> getTagsToProcess(@NotNull XmlFile file, @NotNull PsiModifierListOwner listOwner, @NotNull String annotationFQN) {

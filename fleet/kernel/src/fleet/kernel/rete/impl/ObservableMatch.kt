@@ -2,19 +2,38 @@
 package fleet.kernel.rete.impl
 
 import fleet.kernel.rete.*
+import fleet.multiplatform.shims.AtomicRef
 import fleet.util.causeOfType
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.*
-import kotlinx.coroutines.selects.select
 import kotlin.coroutines.coroutineContext
 
 internal class ObservableMatch<T>(
   internal val observerId: NodeId,
   internal val match: Match<T>,
-  internal val validity: CompletableJob,
 ) : Match<T> {
+
+  private val validity: CompletableJob = Job()
+
+  private val invalidated: AtomicRef<Boolean> = AtomicRef(false)
+
   override val value: T
     get() = match.value
+
+  /*
+   * Rete network has already marked this match as invalidated in one of the snapshots it observed
+   */
+  val wasInvalidated: Boolean get() = invalidated.get()
+
+  internal fun onInvalidation(handler: () -> Unit): DisposableHandle =
+    validity.invokeOnCompletion {
+      handler()
+    }
+
+  internal fun invalidate() {
+    validity.complete()
+    invalidated.set(true)
+  }
 
   override fun validate(): ValidationResultEnum =
     match.validate()
@@ -28,67 +47,63 @@ internal class ObservableMatch<T>(
 internal suspend fun <U> withObservableMatches(
   matches: Sequence<ObservableMatch<*>>,
   body: suspend CoroutineScope.() -> U,
-): WithMatchResult<U> =
-  try {
-    val contextMatches = coroutineContext[ContextMatches]?.matches ?: persistentListOf()
+): WithMatchResult<U> {
+  val contextMatches = coroutineContext[ContextMatches]?.matches ?: persistentListOf()
 
-    @Suppress("NAME_SHADOWING")
-    val matches = run {
-      val set = contextMatches.toSet()
-      matches.filter { it !in set }.toList()
-    }
-    when {
-      matches.isEmpty() -> coroutineScope { WithMatchResult.Success(body()) }
-      else ->
-        withReteDbSource {
-          withContext(ContextMatches(contextMatches.addAll(matches))) {
-            val def = async(start = CoroutineStart.UNDISPATCHED) {
-              val inactiveMatch = matches.firstOrNull { !it.validity.isActive }
-              when {
-                inactiveMatch == null -> WithMatchResult.Success(body())
-                else -> WithMatchResult.Failure(CancellationReason("match terminated by rete", inactiveMatch))
-              }
-            }
-            select {
-              for (m in matches) {
-                m.validity.onJoin {
-                  val reason = CancellationReason("match terminated by rete", m)
-                  def.cancel(UnsatisfiedMatchException(reason))
-                  WithMatchResult.Failure(reason)
-                }
-              }
-              def.onAwait { res -> res }
+  @Suppress("NAME_SHADOWING")
+  val matches = run {
+    val set = contextMatches.toSet()
+    matches.filter { it !in set }.toList()
+  }
+  return when {
+    matches.isEmpty() -> WithMatchResult.Success(coroutineScope(body))
+    else ->
+      withReteDbSource {
+        val def = async(context = ContextMatches(contextMatches.addAll(matches)),
+                        start = CoroutineStart.UNDISPATCHED) {
+          val self = this
+          // setup invalidation handles before launching [body]
+          // if any of the matches is invalidated, [body] might catch a poison, the job should not be active at this point
+          val handles = matches.map { m ->
+            m.onInvalidation {
+              val reason = CancellationReason("match terminated by rete", m)
+              self.cancel(UnsatisfiedMatchException(reason))
             }
           }
+          try {
+            WithMatchResult.Success(coroutineScope(body))
+          }
+          finally {
+            handles.forEach { it.dispose() }
+          }
         }
-    }
+        try {
+          def.await()
+        }
+        catch (ex: CancellationException) {
+          val cause = ex.causeOfType<UnsatisfiedMatchException>()
+          when {
+            cause != null && cause.reason.match in matches -> WithMatchResult.Failure(cause.reason)
+            else -> throw ex
+          }
+        }
+      }
   }
-  catch (ex: CancellationException) {
-    val cause = ex.causeOfType<UnsatisfiedMatchException>()
-    when {
-      cause != null && cause.reason.match in matches -> WithMatchResult.Failure(cause.reason)
-      else -> throw ex
-    }
-  }
+}
 
 internal fun <T> Query<T>.observable(terminalId: NodeId): Query<T> =
   Query {
     val observableMatches = adaptiveMapOf<Match<T>, ObservableMatch<T>>()
     onDispose {
       // when the terminal is retracted from the network for other reasons, make sure jobs of Matches served by the terminal are cancelled:
-      if (observableMatches.isNotEmpty()) {
-        val ex = RuntimeException("the match is no longer being tracked")
-        // use java forEach, entryset is not implemented for AdaptiveMap
-        @Suppress("JavaMapForEach")
-        observableMatches.forEach { _, a ->
-          a.validity.completeExceptionally(ex)
-        }
+      observableMatches.forEach { (_, a) ->
+        a.invalidate()
       }
     }
     producer().transform { token, emit ->
       when (token.added) {
         true -> {
-          val observableMatch = ObservableMatch(terminalId, token.match, Job())
+          val observableMatch = ObservableMatch(terminalId, token.match)
           observableMatches[token.match] = observableMatch
           emit(Token(true, observableMatch))
         }
@@ -100,7 +115,7 @@ internal fun <T> Query<T>.observable(terminalId: NodeId): Query<T> =
               }
             }
             else -> {
-              observableMatch.validity.complete()
+              observableMatch.invalidate()
               emit(Token(false, observableMatch))
             }
           }
