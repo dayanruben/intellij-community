@@ -600,7 +600,8 @@
     <editorNotificationProvider implementation="com.intellij.codeInsight.daemon.impl.AttachSourcesNotificationProvider"/>
     <editorNotificationProvider implementation="com.intellij.codeInsight.daemon.impl.LibrarySourceNotificationProvider"/>
 
-    <registryKey defaultValue="true" description="Make Java usage inlays computation single-threaded" key="java.telescope.usages.single.threaded"/>
+    <registryKey key="java.telescope.usages.single.threaded" defaultValue="true" description="Make Java usage inlays computation single-threaded"/>
+    <registryKey key="compiler.process.new.session" defaultValue="true" description="Runs the build process in a new session on Linux via setsid(1)"/>
 
     <projectSdkSetupValidator id="javaSdk" implementation="com.intellij.codeInsight.daemon.impl.JavaProjectSdkSetupValidator"/>
 
@@ -1839,7 +1840,7 @@
                      shortName="ClassCanBeRecord" enabledByDefault="true" level="WEAK WARNING"
                      groupBundle="messages.InspectionsBundle" groupKey="group.names.language.level.specific.issues.and.migration.aids16"
                      bundle="messages.JavaBundle" key="class.can.be.record.display.name"
-                     implementationClass="com.intellij.codeInspection.classCanBeRecord.ClassCanBeRecordInspection"/>
+                     implementationClass="com.intellij.codeInspection.classCanBeRecord.ClassCanBeRecordInspection" cleanupTool="true"/>
     <localInspection groupPath="Java" language="JAVA" shortName="EndlessStream"
                      groupBundle="messages.InspectionsBundle"
                      groupKey="group.names.probable.bugs" enabledByDefault="true" level="WARNING"

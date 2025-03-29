@@ -5,8 +5,8 @@ package org.jetbrains.bazel.jvm.jps.java
 
 import com.intellij.openapi.util.NlsSafe
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet
-import org.jetbrains.bazel.jvm.emptySet
-import org.jetbrains.bazel.jvm.jps.impl.BazelCompileContext
+import org.jetbrains.bazel.jvm.util.emptySet
+import org.jetbrains.bazel.jvm.worker.core.BazelCompileContext
 import org.jetbrains.jps.incremental.java.CustomOutputDataListener
 import org.jetbrains.jps.incremental.messages.BuildMessage
 import org.jetbrains.jps.javac.DiagnosticOutputConsumer

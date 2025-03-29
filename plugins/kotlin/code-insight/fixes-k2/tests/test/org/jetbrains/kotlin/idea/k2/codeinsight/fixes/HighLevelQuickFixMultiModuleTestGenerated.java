@@ -842,6 +842,11 @@ public abstract class HighLevelQuickFixMultiModuleTestGenerated extends Abstract
             runTest("../../../idea/tests/testData/multiModuleQuickFix/createExpect/companion/");
         }
 
+        @TestMetadata("conflictingFunction")
+        public void testConflictingFunction() throws Exception {
+            runTest("../../../idea/tests/testData/multiModuleQuickFix/createExpect/conflictingFunction/");
+        }
+
         @TestMetadata("createWithImport")
         public void testCreateWithImport() throws Exception {
             runTest("../../../idea/tests/testData/multiModuleQuickFix/createExpect/createWithImport/");
@@ -912,6 +917,11 @@ public abstract class HighLevelQuickFixMultiModuleTestGenerated extends Abstract
             runTest("../../../idea/tests/testData/multiModuleQuickFix/createExpect/function2/");
         }
 
+        @TestMetadata("functionAlreadyExists")
+        public void testFunctionAlreadyExists() throws Exception {
+            runTest("../../../idea/tests/testData/multiModuleQuickFix/createExpect/functionAlreadyExists/");
+        }
+
         @TestMetadata("functionInInterface")
         public void testFunctionInInterface() throws Exception {
             runTest("../../../idea/tests/testData/multiModuleQuickFix/createExpect/functionInInterface/");
@@ -955,6 +965,11 @@ public abstract class HighLevelQuickFixMultiModuleTestGenerated extends Abstract
         @TestMetadata("innerEnum")
         public void testInnerEnum() throws Exception {
             runTest("../../../idea/tests/testData/multiModuleQuickFix/createExpect/innerEnum/");
+        }
+
+        @TestMetadata("internalFunction")
+        public void testInternalFunction() throws Exception {
+            runTest("../../../idea/tests/testData/multiModuleQuickFix/createExpect/internalFunction/");
         }
 
         @TestMetadata("memberFunctionAndNestedClass")

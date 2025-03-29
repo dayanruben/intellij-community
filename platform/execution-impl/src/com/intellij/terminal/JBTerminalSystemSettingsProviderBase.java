@@ -4,6 +4,7 @@ package com.intellij.terminal;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.actions.ShowContentAction;
 import com.intellij.idea.ActionsBundle;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.actionSystem.KeyboardShortcut;
@@ -25,6 +26,7 @@ import com.jediterm.terminal.ui.TerminalAction;
 import com.jediterm.terminal.ui.TerminalActionPresentation;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import org.intellij.lang.annotations.Language;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,8 +51,15 @@ public class JBTerminalSystemSettingsProviderBase extends DefaultSettingsProvide
     myUiSettingsManager = TerminalUiSettingsManager.getInstance();
   }
 
-  @NotNull TerminalUiSettingsManager getUiSettingsManager() {
+  @ApiStatus.Internal
+  @NotNull
+  protected Disposable getDisposable() {
     return myUiSettingsManager;
+  }
+
+  @ApiStatus.Internal
+  public void addUiSettingsListener(@NotNull TerminalUiSettingsListener listener) {
+    myUiSettingsManager.addListener(listener);
   }
 
   @NotNull EditorColorsScheme getColorsScheme() {
@@ -241,6 +250,25 @@ public class JBTerminalSystemSettingsProviderBase extends DefaultSettingsProvide
   @Override
   public float getTerminalFontSize() {
     return (float)myUiSettingsManager.getFontSize();
+  }
+
+  /**
+   * Same as getTerminalFontSize() but without rounding.
+   * @return the raw font size value
+   */
+  @ApiStatus.Internal
+  public float getTerminalFontSize2D() {
+    return myUiSettingsManager.getFontSize2D();
+  }
+
+  @ApiStatus.Internal
+  public void setTerminalFontSize(float fontSize) {
+    myUiSettingsManager.setFontSize(fontSize);
+  }
+
+  @ApiStatus.Internal
+  public void resetTerminalFontSize() {
+    myUiSettingsManager.resetFontSize();
   }
 
   @Override

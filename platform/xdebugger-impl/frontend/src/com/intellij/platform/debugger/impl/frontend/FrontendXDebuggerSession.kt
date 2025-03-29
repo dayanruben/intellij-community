@@ -27,6 +27,7 @@ import com.intellij.xdebugger.XDebugSessionListener
 import com.intellij.xdebugger.XDebuggerBundle
 import com.intellij.xdebugger.XSourcePosition
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
+import com.intellij.xdebugger.evaluation.XDebuggerEvaluator
 import com.intellij.xdebugger.frame.XExecutionStack
 import com.intellij.xdebugger.frame.XStackFrame
 import com.intellij.xdebugger.frame.XSuspendContext
@@ -72,53 +73,20 @@ internal class FrontendXDebuggerSession private constructor(
       }
     }.stateIn(cs, SharingStarted.Eagerly, sessionDto.initialSessionState)
 
-  private val suspendContext: StateFlow<FrontendXSuspendContext?> =
-    channelFlow {
-      XDebugSessionApi.getInstance().currentSuspendContext(id).collectLatest { suspendContextDto ->
-        if (suspendContextDto == null) {
-          send(null)
-          return@collectLatest
-        }
-        supervisorScope {
-          send(FrontendXSuspendContext(suspendContextDto, project, this))
-          awaitCancellation()
-        }
-      }
-    }.stateIn(cs, SharingStarted.Eagerly, null)
+  private val suspendContext = MutableStateFlow<FrontendXSuspendContext?>(null)
+  private val currentExecutionStack = MutableStateFlow<FrontendXExecutionStack?>(null)
+  private val currentStackFrame = MutableStateFlow<FrontendXStackFrame?>(null)
 
-  private val currentExecutionStack: StateFlow<XExecutionStack?> =
-    channelFlow {
-      XDebugSessionApi.getInstance().currentExecutionStack(id).collectLatest { executionStackDto ->
-        if (executionStackDto == null) {
-          send(null)
-          return@collectLatest
-        }
-        supervisorScope {
-          send(FrontendXExecutionStack(executionStackDto, project, this))
-          awaitCancellation()
-        }
-      }
-    }.stateIn(cs, SharingStarted.Eagerly, null)
-
-  private val currentStackFrame: StateFlow<XStackFrame?> =
-    channelFlow {
-      XDebugSessionApi.getInstance().currentStackFrame(id).collectLatest { stackFrameDto ->
-        if (stackFrameDto == null) {
-          send(null)
-          return@collectLatest
-        }
-        supervisorScope {
-          send(FrontendXStackFrame(stackFrameDto, project, this))
-          awaitCancellation()
-        }
-      }
-    }.stateIn(cs, SharingStarted.Eagerly, null)
-
-  val evaluator: StateFlow<FrontendXDebuggerEvaluator?> =
+  // TODO Actually session could have a global evaluator, see
+  //  com.intellij.xdebugger.XDebugProcess.getEvaluator overrides
+  private val evaluator: StateFlow<FrontendXDebuggerEvaluator?> =
     currentStackFrame.map { frame ->
       val frameEvaluator = frame?.evaluator ?: return@map null
       frameEvaluator as FrontendXDebuggerEvaluator
     }.stateIn(cs, SharingStarted.Eagerly, null)
+
+  override val currentEvaluator: XDebuggerEvaluator?
+    get() = evaluator.value
 
   override val isStopped: Boolean
     get() = sessionState.value.isStopped
@@ -129,13 +97,13 @@ internal class FrontendXDebuggerSession private constructor(
   override val environmentProxy: ExecutionEnvironmentProxy?
     get() = null // TODO: implement!
 
-  val isReadOnly: Boolean
+  override val isReadOnly: Boolean
     get() = sessionState.value.isReadOnly
 
   val isPauseActionSupported: Boolean
     get() = sessionState.value.isPauseActionSupported
 
-  val isSuspended: Boolean
+  override val isSuspended: Boolean
     get() = sessionState.value.isSuspended
 
   override val editorsProvider: XDebuggerEditorsProvider = localEditorsProvider
@@ -168,16 +136,9 @@ internal class FrontendXDebuggerSession private constructor(
   init {
     cs.launch {
       sessionDto.sessionEvents.toFlow().collect { event ->
-        when (event) {
-          is XDebuggerSessionEvent.BeforeSessionResume -> eventsDispatcher.multicaster.beforeSessionResume()
-          is XDebuggerSessionEvent.BreakpointsMuted -> eventsDispatcher.multicaster.breakpointsMuted(event.muted)
-          is XDebuggerSessionEvent.SessionPaused -> eventsDispatcher.multicaster.sessionPaused()
-          is XDebuggerSessionEvent.SessionResumed -> eventsDispatcher.multicaster.sessionResumed()
-          is XDebuggerSessionEvent.SessionStopped -> eventsDispatcher.multicaster.sessionStopped()
-          is XDebuggerSessionEvent.SettingsChanged -> eventsDispatcher.multicaster.settingsChanged()
-          is XDebuggerSessionEvent.StackFrameChanged -> {
-            // Do nothing, use stack frame update as the source of truth instead
-          }
+        with(event) {
+          updateCurrents()
+          dispatch()
         }
       }
     }
@@ -193,6 +154,52 @@ internal class FrontendXDebuggerSession private constructor(
         if (tabDto == null) return@collectLatest
         initTabInfo(tabDto)
         this.cancel() // Only one tab expected
+      }
+    }
+  }
+
+
+  private suspend fun XDebuggerSessionEvent.updateCurrents() {
+    when (this) {
+      is XDebuggerSessionEvent.SessionPaused -> {
+        val pauseData = pauseData.await()
+        if (pauseData != null) {
+          val (suspendContextDto, executionStackDto, stackFrameDto) = pauseData
+          suspendContext.value = FrontendXSuspendContext(suspendContextDto, project, cs)
+          executionStackDto?.let {
+            currentExecutionStack.value = FrontendXExecutionStack(executionStackDto, project, cs).also {
+              suspendContext.value?.activeExecutionStack = it
+            }
+          }
+          stackFrameDto?.let {
+            currentStackFrame.value = FrontendXStackFrame(it, project, cs)
+          }
+        }
+      }
+      is XDebuggerSessionEvent.SessionResumed,
+      is XDebuggerSessionEvent.BeforeSessionResume,
+        -> {
+        suspendContext.value = null
+        currentExecutionStack.value = null
+        currentStackFrame.value = null
+      }
+      is XDebuggerSessionEvent.SessionStopped -> {
+        cs.cancel()
+      }
+      else -> {}
+    }
+  }
+
+  private fun XDebuggerSessionEvent.dispatch() {
+    when (this) {
+      is XDebuggerSessionEvent.BeforeSessionResume -> eventsDispatcher.multicaster.beforeSessionResume()
+      is XDebuggerSessionEvent.BreakpointsMuted -> eventsDispatcher.multicaster.breakpointsMuted(muted)
+      is XDebuggerSessionEvent.SessionPaused -> eventsDispatcher.multicaster.sessionPaused()
+      is XDebuggerSessionEvent.SessionResumed -> eventsDispatcher.multicaster.sessionResumed()
+      is XDebuggerSessionEvent.SessionStopped -> eventsDispatcher.multicaster.sessionStopped()
+      is XDebuggerSessionEvent.SettingsChanged -> eventsDispatcher.multicaster.settingsChanged()
+      is XDebuggerSessionEvent.StackFrameChanged -> {
+        // Do nothing, use stack frame update as the source of truth instead
       }
     }
   }
@@ -290,10 +297,6 @@ internal class FrontendXDebuggerSession private constructor(
     cs.launch {
       XDebugSessionApi.getInstance().onTabInitialized(id, XDebuggerSessionTabInfoCallback(tab))
     }
-  }
-
-  fun closeScope() {
-    cs.cancel()
   }
 
   companion object {

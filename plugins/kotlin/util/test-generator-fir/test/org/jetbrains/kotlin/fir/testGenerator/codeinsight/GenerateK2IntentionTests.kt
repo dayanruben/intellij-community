@@ -68,7 +68,6 @@ internal fun MutableTWorkspace.generateK2IntentionTests() {
             model("${idea}intentions/changeVisibility", pattern = pattern)
 
             //
-            model("${idea}intentions/addJvmOverloads", pattern = pattern, isIgnored = true)
             model("${idea}intentions/changeVisibility", pattern = pattern, isIgnored = true)
             model("${idea}intentions/evaluateCompileTimeExpression", pattern = pattern)
             model("${idea}intentions/simplifyBooleanWithConstants", pattern = pattern, isIgnored = true)
@@ -77,7 +76,7 @@ internal fun MutableTWorkspace.generateK2IntentionTests() {
             model("${idea}intentions/convertTryFinallyToUseCall", pattern = pattern, isIgnored = true)
             model("${idea}intentions/conventionNameCalls", pattern = pattern, isIgnored = true)
             model("${idea}intentions/mergeIfs", pattern = pattern, isIgnored = false)
-            model("${idea}intentions/convertTrimIndentToTrimMargin", pattern = pattern, isIgnored = true)
+            model("${idea}intentions/convertTrimIndentToTrimMargin", pattern = pattern)
             model("${idea}intentions/iterateExpression", pattern = pattern)
             model("${idea}intentions/objectLiteralToLambda", pattern = pattern, isIgnored = true)
             model("${idea}intentions/infixCallToOrdinary", pattern = pattern, isIgnored = true)
@@ -87,7 +86,7 @@ internal fun MutableTWorkspace.generateK2IntentionTests() {
             model("${idea}intentions/implementAsConstructorParameter", pattern = pattern)
             model("${idea}intentions/insertCurlyBracesToTemplate", pattern = pattern)
             model("${idea}intentions/replaceUntilWithRangeTo", pattern = pattern, isIgnored = true)
-            model("${idea}intentions/convertLateinitPropertyToNullable", pattern = pattern, isIgnored = true)
+            model("${idea}intentions/convertLateinitPropertyToNullable", pattern = pattern)
             model("${idea}intentions/swapStringEqualsIgnoreCase", pattern = pattern, isIgnored = true)
             model("${idea}intentions/replaceExplicitFunctionLiteralParamWithIt", pattern = pattern)
             model("${idea}intentions/nullableBooleanEqualityCheckToElvis", pattern = pattern)
