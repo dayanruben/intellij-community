@@ -2,6 +2,7 @@
 package com.intellij.platform.debugger.impl.frontend.frame
 
 import com.intellij.openapi.project.Project
+import com.intellij.platform.debugger.impl.frontend.evaluate.quick.childCoroutineScope
 import com.intellij.xdebugger.frame.XExecutionStack
 import com.intellij.xdebugger.frame.XSuspendContext
 import com.intellij.xdebugger.impl.rpc.XDebugSessionApi
@@ -27,15 +28,15 @@ internal class FrontendXSuspendContext(
   }
 
   override fun computeExecutionStacks(container: XExecutionStackContainer) {
-    cs.launch {
+    container.childCoroutineScope(cs, "FrontendXSuspendContext#computeExecutionStacks").launch {
+      val executionStacksCs = this
       XDebugSessionApi.getInstance().computeExecutionStacks(id).collect { executionStackEvent ->
         when (executionStackEvent) {
           is XExecutionStacksEvent.ErrorOccurred -> {
             container.errorOccurred(executionStackEvent.errorMessage)
           }
           is XExecutionStacksEvent.NewExecutionStacks -> {
-            // TODO[IJPL-177087] narrower scope?
-            val feStacks = executionStackEvent.stacks.map { FrontendXExecutionStack(it, project, cs) }
+            val feStacks = executionStackEvent.stacks.map { FrontendXExecutionStack(it, project, executionStacksCs) }
             container.addExecutionStack(feStacks, executionStackEvent.last)
           }
         }
