@@ -32,6 +32,8 @@ import com.intellij.xdebugger.frame.XExecutionStack
 import com.intellij.xdebugger.frame.XStackFrame
 import com.intellij.xdebugger.frame.XSuspendContext
 import com.intellij.xdebugger.impl.frame.XDebugSessionProxy
+import com.intellij.xdebugger.impl.frame.XDebuggerFramesList
+import com.intellij.xdebugger.impl.frame.XStackFramesListColorsCache
 import com.intellij.xdebugger.impl.frame.XValueMarkers
 import com.intellij.xdebugger.impl.rpc.*
 import com.intellij.xdebugger.impl.ui.XDebugSessionData
@@ -39,9 +41,13 @@ import com.intellij.xdebugger.impl.ui.XDebugSessionTab
 import com.intellij.xdebugger.ui.XDebugTabLayouter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
 import javax.swing.event.HyperlinkListener
 
-internal class FrontendXDebuggerSession private constructor(
+@VisibleForTesting
+@ApiStatus.Internal
+class FrontendXDebuggerSession private constructor(
   override val project: Project,
   scope: CoroutineScope,
   sessionDto: XDebugSessionDto,
@@ -54,18 +60,10 @@ internal class FrontendXDebuggerSession private constructor(
   override val id: XDebugSessionId = sessionDto.id
 
   val sourcePosition: StateFlow<XSourcePosition?> =
-    channelFlow {
-      XDebugSessionApi.getInstance().currentSourcePosition(id).collectLatest { sourcePositionDto ->
-        if (sourcePositionDto == null) {
-          send(null)
-          return@collectLatest
-        }
-        supervisorScope {
-          send(sourcePositionDto.sourcePosition())
-          awaitCancellation()
-        }
-      }
-    }.stateIn(cs, SharingStarted.Eagerly, null)
+    cs.createPositionFlow { XDebugSessionApi.getInstance().currentSourcePosition(id) }
+
+  private val topSourcePosition: StateFlow<XSourcePosition?> =
+    cs.createPositionFlow { XDebugSessionApi.getInstance().topSourcePosition(id) }
 
   private val sessionState: StateFlow<XDebugSessionState> =
     channelFlow {
@@ -101,7 +99,7 @@ internal class FrontendXDebuggerSession private constructor(
   override val isReadOnly: Boolean
     get() = sessionState.value.isReadOnly
 
-  val isPauseActionSupported: Boolean
+  override val isPauseActionSupported: Boolean
     get() = sessionState.value.isPauseActionSupported
 
   override val isSuspended: Boolean
@@ -185,6 +183,9 @@ internal class FrontendXDebuggerSession private constructor(
       }
       is XDebuggerSessionEvent.SessionStopped -> {
         cs.cancel()
+        suspendContext.value = null
+        currentExecutionStack.value = null
+        currentStackFrame.value = null
       }
       else -> {}
     }
@@ -233,6 +234,8 @@ internal class FrontendXDebuggerSession private constructor(
 
   override fun getCurrentPosition(): XSourcePosition? = sourcePosition.value
 
+  override fun getTopFramePosition(): XSourcePosition? = topSourcePosition.value
+
   override fun getFrameSourcePosition(frame: XStackFrame): XSourcePosition? {
     TODO("Not yet implemented")
   }
@@ -247,8 +250,10 @@ internal class FrontendXDebuggerSession private constructor(
 
   override fun setCurrentStackFrame(executionStack: XExecutionStack, frame: XStackFrame, isTopFrame: Boolean) {
     cs.launch {
-      XDebugSessionApi.getInstance().setCurrentStackFrame(id, (executionStack as FrontendXExecutionStack).id,
-                                                          (frame as FrontendXStackFrame).id, isTopFrame)
+      currentExecutionStack.value = executionStack as FrontendXExecutionStack
+      currentStackFrame.value = frame as FrontendXStackFrame
+      XDebugSessionApi.getInstance().setCurrentStackFrame(id, executionStack.id,
+                                                          frame.id, isTopFrame)
     }
   }
 
@@ -299,6 +304,10 @@ internal class FrontendXDebuggerSession private constructor(
     }
   }
 
+  override fun createFileColorsCache(framesList: XDebuggerFramesList): XStackFramesListColorsCache {
+    return FrontendXStackFramesListColorsCache(this, framesList)
+  }
+
   companion object {
     private val LOG = thisLogger()
 
@@ -310,9 +319,7 @@ internal class FrontendXDebuggerSession private constructor(
       val processHandler = createFrontendProcessHandler(project, sessionDto.processHandlerDto)
       val consoleView = sessionDto.consoleViewData?.consoleView(processHandler)
 
-      return FrontendXDebuggerSession(project, scope, sessionDto, processHandler, consoleView).also {
-        processHandler.setReady()
-      }
+      return FrontendXDebuggerSession(project, scope, sessionDto, processHandler, consoleView)
     }
   }
 }
@@ -320,3 +327,17 @@ internal class FrontendXDebuggerSession private constructor(
 // TODO pass breakpoints muted flow
 private fun FrontendXDebuggerSession.createFeSessionData(sessionDto: XDebugSessionDto): XDebugSessionData =
   XDebugSessionData(project, sessionDto.sessionDataDto.configurationName)
+
+private fun CoroutineScope.createPositionFlow(dtoFlow: suspend () -> Flow<XSourcePositionDto?>): StateFlow<XSourcePosition?> = channelFlow {
+  dtoFlow().collectLatest { sourcePositionDto ->
+    if (sourcePositionDto == null) {
+      send(null)
+      return@collectLatest
+    }
+    supervisorScope {
+      send(sourcePositionDto.sourcePosition())
+      awaitCancellation()
+    }
+  }
+}.stateIn(this, SharingStarted.Eagerly, null)
+

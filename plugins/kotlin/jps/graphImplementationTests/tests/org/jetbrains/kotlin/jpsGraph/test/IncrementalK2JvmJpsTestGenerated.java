@@ -770,6 +770,16 @@ public class IncrementalK2JvmJpsTestGenerated extends AbstractIncrementalK2JvmJp
             runTest("pureKotlin/traitClassObjectConstantChanged/");
         }
 
+        @TestMetadata("typealiasNameClash2_SinceK2")
+        public void testTypealiasNameClash2_SinceK2() throws Exception {
+            runTest("pureKotlin/typealiasNameClash2_SinceK2/");
+        }
+
+        @TestMetadata("typealiasNameClash_SinceK2")
+        public void testTypealiasNameClash_SinceK2() throws Exception {
+            runTest("pureKotlin/typealiasNameClash_SinceK2/");
+        }
+
         @TestMetadata("valAddCustomAccessor")
         public void testValAddCustomAccessor() throws Exception {
             runTest("pureKotlin/valAddCustomAccessor/");
@@ -778,6 +788,16 @@ public class IncrementalK2JvmJpsTestGenerated extends AbstractIncrementalK2JvmJp
         @TestMetadata("valRemoveCustomAccessor")
         public void testValRemoveCustomAccessor() throws Exception {
             runTest("pureKotlin/valRemoveCustomAccessor/");
+        }
+
+        @TestMetadata("wrapJvmFieldInJvmNameWithObject")
+        public void testWrapJvmFieldInJvmNameWithObject() throws Exception {
+            runTest("pureKotlin/wrapJvmFieldInJvmNameWithObject/");
+        }
+
+        @TestMetadata("unwrapJvmFieldInJvmNameFromObject")
+        public void testUnwrapJvmFieldInJvmNameFromObject() throws Exception {
+            runTest("pureKotlin/unwrapJvmFieldInJvmNameFromObject/");
         }
     }
 

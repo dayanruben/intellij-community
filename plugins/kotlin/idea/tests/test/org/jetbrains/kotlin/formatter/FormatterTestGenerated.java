@@ -854,6 +854,11 @@ public abstract class FormatterTestGenerated extends AbstractFormatterTest {
                 runTest("testData/formatter/CommentInFunctionLiteral.after.kt");
             }
 
+            @TestMetadata("ContextParameterModifiers.after.kt")
+            public void testContextParameterModifiers() throws Exception {
+                runTest("testData/formatter/ContextParameterModifiers.after.kt");
+            }
+
             @TestMetadata("ContextParameterMultiline.after.kt")
             public void testContextParameterMultiline() throws Exception {
                 runTest("testData/formatter/ContextParameterMultiline.after.kt");
@@ -1407,6 +1412,11 @@ public abstract class FormatterTestGenerated extends AbstractFormatterTest {
             @TestMetadata("Semicolon.after.kt")
             public void testSemicolon() throws Exception {
                 runTest("testData/formatter/Semicolon.after.kt");
+            }
+
+            @TestMetadata("SemicolonNoSpace.after.kt")
+            public void testSemicolonNoSpace() throws Exception {
+                runTest("testData/formatter/SemicolonNoSpace.after.kt");
             }
 
             @TestMetadata("SingleLineFunctionLiteral.after.kt")

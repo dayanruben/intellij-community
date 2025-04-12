@@ -37,6 +37,7 @@ import com.intellij.openapi.actionSystem.impl.PresentationFactory
 import com.intellij.openapi.actionSystem.impl.canUnloadActionGroup
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.application.impl.LaterInvocator
 import com.intellij.openapi.components.ComponentManagerEx
@@ -79,6 +80,7 @@ import com.intellij.ui.IconDeferrer
 import com.intellij.ui.mac.touchbar.TouchbarSupport
 import com.intellij.util.CachedValuesManagerImpl
 import com.intellij.util.MemoryDumpHelper
+import com.intellij.util.ObjectUtils
 import com.intellij.util.ReflectionUtil
 import com.intellij.util.SystemProperties
 import com.intellij.util.containers.WeakList
@@ -86,6 +88,8 @@ import com.intellij.util.messages.impl.DynamicPluginUnloaderCompatibilityLayer
 import com.intellij.util.messages.impl.MessageBusEx
 import com.intellij.util.ref.GCWatcher
 import com.intellij.util.xmlb.clearPropertyCollectorCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.Nls
 import java.awt.KeyboardFocusManager
 import java.awt.Window
@@ -290,7 +294,7 @@ object DynamicPlugins {
       }
     }
 
-    val epNameToExtensions = module.miscExtensions
+    val epNameToExtensions = module.extensions
     if (!epNameToExtensions.isEmpty()) {
       doCheckExtensionsCanUnloadWithoutRestart(
         extensions = epNameToExtensions,
@@ -400,7 +404,7 @@ object DynamicPlugins {
    */
   @JvmStatic
   fun allowLoadUnloadSynchronously(module: IdeaPluginDescriptorImpl): Boolean {
-    val extensions = (module.miscExtensions.takeIf { it.isNotEmpty() } ?: module.appContainerDescriptor.extensions)
+    val extensions = module.extensions.takeIf { it.isNotEmpty() } ?: emptyMap()
     if (!extensions.all { it.key == UIThemeProvider.EP_NAME.name || it.key == BundledKeymapBean.EP_NAME.name || it.key == LanguageBundleEP.EP_NAME.name}) {
       return false
     }
@@ -438,20 +442,33 @@ object DynamicPlugins {
                                          pluginDescriptor: IdeaPluginDescriptorImpl,
                                          options: UnloadPluginOptions): Boolean {
     var result = false
+    val modalOwner = project?.let { ModalTaskOwner.project(it) } ?: ModalTaskOwner.guess()
     if (options.save) {
       runInAutoSaveDisabledMode {
         FileDocumentManager.getInstance().saveAllDocuments()
-        runWithModalProgressBlocking(project?.let { ModalTaskOwner.project(it) } ?: ModalTaskOwner.guess(), "") {
+        runWithModalProgressBlocking(modalOwner, "") {
           saveProjectsAndApp(true)
         }
       }
     }
-    val indicator = PotemkinProgress(IdeBundle.message("plugins.progress.unloading.plugin.title", pluginDescriptor.name),
-                                     project,
-                                     parentComponent,
-                                     null)
-    indicator.runInSwingThread {
-      result = unloadPluginWithoutProgress(pluginDescriptor, options.withSave(false))
+    // We are doing a very bad thing here: we are using `PotemkinProgress` with a non-modal state.
+    // We cannot properly replace it with the classic modal progress, because the function inside frequently uses write actions,
+    // and we need to update the progress bar.
+    // The problem here is that because of the non-modal state,
+    // any dialog can appear on top of PotemkinProgress. But PotemkinProgress blocks input events if they are not related to the appeared dialog,
+    // hence the user cannot interact with the dialog.
+    // We are using an ad-hoc modality here to block any attempts to initiate a modal dialog stemming from a non-modal state.
+    // A proper fix would be to transfer the inner write actions to background, and show normal running modal progress dialog instead of Potemkin; see IJPL-182690
+    runWithModalProgressBlocking(modalOwner, IdeBundle.message("plugins.progress.unloading.plugin.title", pluginDescriptor.name)) {
+      withContext(Dispatchers.EDT) {
+        val indicator = PotemkinProgress(IdeBundle.message("plugins.progress.unloading.plugin.title", pluginDescriptor.name),
+                                         project,
+                                         parentComponent,
+                                         null)
+        indicator.runInSwingThread {
+          result = unloadPluginWithoutProgress(pluginDescriptor, options.withSave(false))
+        }
+      }
     }
     return result
   }
@@ -769,26 +786,11 @@ object DynamicPlugins {
     val appExtensionArea = app.extensionArea
     val priorityUnloadListeners = mutableListOf<Runnable>()
     val unloadListeners = mutableListOf<Runnable>()
-    unregisterUnknownLevelExtensions(module.miscExtensions, module, appExtensionArea, openedProjects,
+    unregisterUnknownLevelExtensions(module.extensions, module, appExtensionArea, openedProjects,
                                      priorityUnloadListeners, unloadListeners)
-    for (epName in module.appContainerDescriptor.extensions.keys) {
-      appExtensionArea.unregisterExtensions(extensionPointName = epName,
-                                            pluginDescriptor = module,
-                                            priorityListenerCallbacks = priorityUnloadListeners,
-                                            listenerCallbacks = unloadListeners)
-    }
-    for (epName in module.projectContainerDescriptor.extensions.keys) {
-      for (project in openedProjects) {
-        (project.extensionArea as ExtensionsAreaImpl).unregisterExtensions(extensionPointName = epName,
-                                                                           pluginDescriptor = module,
-                                                                           priorityListenerCallbacks = priorityUnloadListeners,
-                                                                           listenerCallbacks = unloadListeners)
-      }
-    }
-
-    // not an error - unsorted goes to module level, see registerExtensions
-    unregisterUnknownLevelExtensions(module.moduleContainerDescriptor.extensions, module, appExtensionArea, openedProjects,
-                                     priorityUnloadListeners, unloadListeners)
+    // note: here was a dead code for unregistering appContainer.extensions, but the map was always empty
+    // note: here was a dead code for unregistering project level extensions, but it is already handled by a call above
+    // note: here was a dead code for unregistering unknown level extensions with `moduleContainer.extensions` but the latter was always empty
 
     for (priorityUnloadListener in priorityUnloadListeners) {
       priorityUnloadListener.run()
@@ -832,13 +834,13 @@ object DynamicPlugins {
     createDisposeTreePredicate(module)?.let { Disposer.disposeChildren(ApplicationManager.getApplication(), it) }
   }
 
-  private fun unregisterUnknownLevelExtensions(extensionMap: Map<String, List<ExtensionDescriptor>>?,
+  private fun unregisterUnknownLevelExtensions(extensionMap: Map<String, List<ExtensionDescriptor>>,
                                                pluginDescriptor: IdeaPluginDescriptorImpl,
                                                appExtensionArea: ExtensionsAreaImpl,
                                                openedProjects: List<Project>,
                                                priorityUnloadListeners: MutableList<Runnable>,
                                                unloadListeners: MutableList<Runnable>) {
-    for (epName in (extensionMap?.keys ?: return)) {
+    for (epName in extensionMap.keys) {
       val isAppLevelEp = appExtensionArea.unregisterExtensions(epName, pluginDescriptor, priorityUnloadListeners,
                                                                unloadListeners)
       if (isAppLevelEp) {
@@ -1218,12 +1220,12 @@ private fun processDependenciesOnPlugin(
         }
       }
 
-      for (item in module.dependenciesV2.modules) {
+      for (item in module.moduleDependencies.modules) {
         if (wantedIds.contains(item.name) && !processor(plugin, module)) {
           return
         }
       }
-      for (item in module.dependenciesV2.plugins) {
+      for (item in module.moduleDependencies.plugins) {
         if (dependencyPlugin.pluginId == item.id && !processor(plugin, module)) {
           return
         }
@@ -1398,13 +1400,13 @@ private fun findLoadedPluginExtensionPointRecursive(pluginDescriptor: IdeaPlugin
 private inline fun processDirectDependencies(module: IdeaPluginDescriptorImpl,
                                              pluginSet: PluginSet,
                                              processor: (IdeaPluginDescriptorImpl) -> Unit) {
-   for (item in module.dependenciesV2.modules) {
+   for (item in module.moduleDependencies.modules) {
      val descriptor = pluginSet.findEnabledModule(item.name)
      if (descriptor != null) {
        processor(descriptor)
     }
   }
-  for (item in module.dependenciesV2.plugins) {
+  for (item in module.moduleDependencies.plugins) {
     val descriptor = pluginSet.findEnabledPlugin(item.id)
     if (descriptor != null) {
       processor(descriptor)

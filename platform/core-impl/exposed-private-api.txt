@@ -2,7 +2,6 @@ com/intellij/concurrency/JobLauncher
 com/intellij/diagnostic/Activity
 com/intellij/diagnostic/ActivityCategory
 com/intellij/ide/plugins/DescriptorListLoadingContext
-com/intellij/ide/plugins/ModuleDependenciesDescriptor
 com/intellij/ide/plugins/PluginLoadingResult
 com/intellij/ide/plugins/PluginManagerState
 com/intellij/lang/impl/PsiBuilderImpl$MyTreeStructure
@@ -16,5 +15,4 @@ com/intellij/psi/stubs/StubBuilderType
 com/intellij/psi/stubs/StubInconsistencyReporter$EnforcedInconsistencyType
 com/intellij/psi/stubs/StubInconsistencyReporter$SourceOfCheck
 com/intellij/util/CachedValuesFactory
-com/intellij/util/messages/ListenerDescriptor
 com/intellij/util/pico/DefaultPicoContainer

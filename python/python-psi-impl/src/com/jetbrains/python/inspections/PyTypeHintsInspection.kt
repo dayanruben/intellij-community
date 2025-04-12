@@ -1550,10 +1550,10 @@ class PyTypeHintsInspection : PyInspection() {
           }
           else {
             val type = Ref.deref(PyTypingTypeProvider.getType(referenceExpression, context))
-            return type is PyTypingNewType || type is PyTypedDictType
+            return type is PyClassLikeType
           }
         }
-        is PyTypeParameter, is PyClass -> true
+        is PyTypeParameter, is PyClass, is PyTypeAliasStatement -> true
         is PyFunction -> resolvedElement.qualifiedName?.let {
           it.endsWith("ParamSpec.args") || it.endsWith("ParamSpec.kwargs")
         } == true

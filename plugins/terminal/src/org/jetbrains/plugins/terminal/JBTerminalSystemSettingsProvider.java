@@ -1,38 +1,27 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.terminal;
 
-import com.intellij.ide.ui.UISettingsListener;
-import com.intellij.ide.ui.UISettingsUtils;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.editor.colors.FontPreferences;
+import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.options.advanced.AdvancedSettings;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase;
-import com.intellij.terminal.TerminalUiSettingsListener;
+import com.intellij.terminal.TerminalFontSizeProvider;
 import com.intellij.util.containers.ContainerUtil;
 import com.jediterm.terminal.HyperlinkStyle;
 import com.jediterm.terminal.model.TerminalTypeAheadSettings;
 import com.jediterm.terminal.ui.TerminalActionPresentation;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.terminal.action.TerminalNewTabAction;
-import org.jetbrains.plugins.terminal.settings.TerminalOsSpecificOptions;
 
 import java.awt.*;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 public final class JBTerminalSystemSettingsProvider extends JBTerminalSystemSettingsProviderBase {
-
-  private final @NotNull CopyOnWriteArrayList<TerminalUiSettingsListener> myListeners = new CopyOnWriteArrayList<>();
-
-  private @Nullable Float fontSize;
-
-  public JBTerminalSystemSettingsProvider() {
-    var connection = ApplicationManager.getApplication().getMessageBus().connect(getDisposable());
-    connection.subscribe(UISettingsListener.TOPIC, uiSettings -> {
-      resetTerminalFontSize(); // presentation mode, Zoom IDE...
-    });
+  @Override
+  protected @NotNull TerminalFontSizeProvider createFontSizeProvider() {
+    return TerminalFontSizeProviderImpl.getInstance();
   }
 
   @Override
@@ -48,26 +37,8 @@ public final class JBTerminalSystemSettingsProvider extends JBTerminalSystemSett
   }
 
   @Override
-  public void addUiSettingsListener(@NotNull TerminalUiSettingsListener listener) {
-    // A bit complicated:
-    // we delegate the cursor part to the parent
-    // but do the font size part here.
-    var cursorListener = new TerminalUiSettingsListener() {
-      @Override
-      public void cursorChanged() {
-        listener.cursorChanged();
-      }
-
-      @Override
-      public void fontChanged() { }
-
-      @Override
-      public void dispose() { }
-    };
-    Disposer.register(listener, cursorListener); // unsubscribe the cursor listener when the provided one is disposed
-    super.addUiSettingsListener(cursorListener); // subscribe to cursor changes
-    myListeners.add(listener); // subscribe to font changes
-    Disposer.register(listener, () -> myListeners.remove(listener));
+  public FontPreferences getFontPreferences() {
+    return TerminalFontOptions.getInstance().getFontPreferences();
   }
 
   @Override
@@ -77,39 +48,6 @@ public final class JBTerminalSystemSettingsProvider extends JBTerminalSystemSett
 
   private static @NotNull String getFontFamily() {
     return TerminalFontOptions.getInstance().getSettings().getFontFamily();
-  }
-
-  @Override
-  public float getTerminalFontSize() {
-    return Math.round(getTerminalFontSize2D());
-  }
-
-  @Override
-  public float getTerminalFontSize2D() {
-    if (fontSize == null) {
-      fontSize = getScaledFontSize();
-    }
-    return fontSize;
-  }
-
-  @Override
-  public void setTerminalFontSize(float fontSize) {
-    var oldFontSize = this.fontSize;
-    this.fontSize = fontSize;
-    if (oldFontSize == null || !TerminalFontOptionsKt.sameFontSizes(oldFontSize, fontSize)) {
-      for (var listener : myListeners) {
-        listener.fontChanged();
-      }
-    }
-  }
-
-  @Override
-  public void resetTerminalFontSize() {
-    setTerminalFontSize(getScaledFontSize());
-  }
-
-  private static float getScaledFontSize() {
-    return UISettingsUtils.getInstance().scaleFontSize(TerminalFontOptions.getInstance().getSettings().getFontSize());
   }
 
   @Override
@@ -134,7 +72,9 @@ public final class JBTerminalSystemSettingsProvider extends JBTerminalSystemSett
 
   @Override
   public boolean copyOnSelect() {
-    return TerminalOsSpecificOptions.getInstance().getCopyOnSelection();
+    return (CopyPasteManager.getInstance().isSystemSelectionSupported()
+            || TerminalOptionsProvider.getInstance().getCopyOnSelection())
+           && Registry.is("editor.caret.update.primary.selection");
   }
 
   @Override

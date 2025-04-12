@@ -4,7 +4,9 @@ import fleet.buildtool.jpms.withJavaSourceSet
 // IMPORT__MARKER_END
 plugins {
   alias(libs.plugins.kotlin.multiplatform)
+  id("fleet-module")
   id("fleet.project-module-conventions")
+  id("fleet.multiplatform-module-conventions")
   id("fleet.toolchain-conventions")
   id("fleet.module-publishing-conventions")
   id("fleet.sdk-repositories-publishing-conventions")
@@ -12,6 +14,7 @@ plugins {
   id("fleet-build-jps-module-plugin")
   alias(libs.plugins.dokka)
   // GRADLE_PLUGINS__MARKER_START
+  alias(jps.plugins.expects)
   // GRADLE_PLUGINS__MARKER_END
 }
 
@@ -25,20 +28,21 @@ jpsModule {
 
 kotlin {
   // KOTLIN__MARKER_START
+  compilerOptions.freeCompilerArgs = listOf(
+    "-Xlambdas=class",
+  )
   pluginManager.withPlugin("fleet-build-jps-module-plugin") {
+    tasks.named("syncCommonMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { destinationDirectory.set(layout.buildDirectory.dir("copiedSources/commonMain")) }
+    tasks.named("syncCommonMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { sources.add(layout.projectDirectory.dir("../srcCommonMain")) }
+    sourceSets.commonMain.configure { kotlin.srcDir(layout.buildDirectory.dir("copiedSources/commonMain/kotlin")) }
     tasks.named("syncJvmMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { destinationDirectory.set(layout.buildDirectory.dir("copiedSources/jvmMain")) }
-    tasks.named("syncJvmMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { sources.add(layout.projectDirectory.dir("../src")) }
-    sourceSets.jvmMain.configure { kotlin.srcDir(layout.buildDirectory.dir("copiedSources/jvmMain/kotlin")) }
-    configureAtMostOneJvmTargetOrThrow { compilations.named("main") { withJavaSourceSet { javaSourceSet -> javaSourceSet.java.srcDir(layout.buildDirectory.dir("copiedSources/jvmMain/java")) } } }
     tasks.named("syncJvmMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { sources.add(layout.projectDirectory.dir("../srcJvmMain")) }
     sourceSets.jvmMain.configure { kotlin.srcDir(layout.buildDirectory.dir("copiedSources/jvmMain/kotlin")) }
     configureAtMostOneJvmTargetOrThrow { compilations.named("main") { withJavaSourceSet { javaSourceSet -> javaSourceSet.java.srcDir(layout.buildDirectory.dir("copiedSources/jvmMain/java")) } } }
-    tasks.named("syncCommonMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { destinationDirectory.set(layout.buildDirectory.dir("copiedSources/commonMain")) }
     tasks.named("syncCommonTestJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { destinationDirectory.set(layout.buildDirectory.dir("copiedSources/commonTest")) }
     tasks.named("syncJvmTestJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { destinationDirectory.set(layout.buildDirectory.dir("copiedSources/jvmTest")) }
     tasks.named("syncWasmJsMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { destinationDirectory.set(layout.buildDirectory.dir("copiedSources/wasmJsMain")) }
     tasks.named("syncWasmJsTestJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { destinationDirectory.set(layout.buildDirectory.dir("copiedSources/wasmJsTest")) }
-    sourceSets.commonMain.configure { kotlin.srcDir(layout.projectDirectory.dir("../srcCommonMain")) }
     sourceSets.commonTest.configure { kotlin.srcDir(layout.projectDirectory.dir("../testCommonTest")) }
     sourceSets.jvmTest.configure { kotlin.srcDir(layout.projectDirectory.dir("../testJvmTest")) }
     configureAtMostOneJvmTargetOrThrow { compilations.named("test") { withJavaSourceSet { javaSourceSet -> javaSourceSet.java.srcDir(layout.projectDirectory.dir("../testJvmTest")) } } }
@@ -52,21 +56,16 @@ kotlin {
     sourceSets.wasmJsTest.configure { resources.srcDir(layout.projectDirectory.dir("../testResourcesWasmJsTest")) }
   }
   sourceSets.commonMain.dependencies {
-    implementation(jps.org.jetbrains.kotlin.kotlin.stdlib1993400674.get().let { "${it.group}:${it.name}:${it.version}" }) {
+    api(jps.org.jetbrains.kotlin.kotlin.stdlib1993400674.get().let { "${it.group}:${it.name}:${it.version}" }) {
       exclude(group = "org.jetbrains", module = "annotations")
     }
-    api(jps.org.slf4j.slf4j.api2013636515.get().let { "${it.group}:${it.name}:${it.version}" }) {
-      isTransitive = false
-      exclude(group = "org.slf4j", module = "slf4j-jdk14")
-    }
-    implementation(jps.com.intellij.platform.kotlinx.coroutines.core.jvm134738847.get().let { "${it.group}:kotlinx-coroutines-core:${it.version}" }) {
+    api(jps.com.intellij.platform.kotlinx.coroutines.core.jvm134738847.get().let { "${it.group}:kotlinx-coroutines-core:${it.version}" }) {
       isTransitive = false
     }
+    compileOnly(project(":util-multiplatform"))
   }
-  sourceSets.jvmMain.dependencies {
-    api(jps.com.intellij.platform.kotlinx.coroutines.slf4j1899700727.get().let { "${it.group}:${it.name}:${it.version}" }) {
-      isTransitive = false
-    }
+  sourceSets.wasmJsMain.dependencies {
+    api(project(":util-multiplatform"))
   }
   // KOTLIN__MARKER_END
 }

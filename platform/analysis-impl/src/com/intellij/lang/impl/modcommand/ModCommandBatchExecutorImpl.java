@@ -14,6 +14,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.HtmlBuilder;
 import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
@@ -293,6 +294,8 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
     PsiFile file = context.file();
     List<IntentionPreviewInfo.CustomDiff> customDiffList = new ArrayList<>();
     IntentionPreviewInfo navigateInfo = IntentionPreviewInfo.EMPTY;
+    List<@NlsSafe String> createdDirs = new ArrayList<>();
+    List<HtmlChunk> fsActions = new ArrayList<>();
     for (ModCommand command : modCommand.unpack()) {
       if (command instanceof ModUpdateFileText modFile) {
         VirtualFile vFile = modFile.file();
@@ -308,7 +311,7 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
       else if (command instanceof ModCreateFile createFile) {
         VirtualFile vFile = createFile.file();
         if (createFile.content() instanceof ModCreateFile.Directory) {
-          navigateInfo = new IntentionPreviewInfo.Html(text(AnalysisBundle.message("preview.create.directory", vFile.getPath())));
+          createdDirs.add(getFileNamePresentation(project, vFile));
         } else {
           String content =
             createFile.content() instanceof ModCreateFile.Text text ? text.text() : AnalysisBundle.message("preview.binary.content");
@@ -357,11 +360,13 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
       }
       else if (command instanceof ModMoveFile moveFile) {
         FutureVirtualFile targetFile = moveFile.targetFile();
+        IntentionPreviewInfo.Html html;
         if (targetFile.getName().equals(moveFile.file().getName())) {
-          navigateInfo = IntentionPreviewInfo.moveToDirectory(moveFile.file(), targetFile.getParent());
+          html = (IntentionPreviewInfo.Html)IntentionPreviewInfo.moveToDirectory(moveFile.file(), targetFile.getParent());
         } else {
-          navigateInfo = IntentionPreviewInfo.rename(moveFile.file(), targetFile.getName());
+          html = (IntentionPreviewInfo.Html)IntentionPreviewInfo.rename(moveFile.file(), targetFile.getName());
         }
+        fsActions.add(html.content());
       }
       else if (command instanceof ModUpdateSystemOptions options) {
         HtmlChunk preview = createOptionsPreview(context, options);
@@ -369,8 +374,30 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
       }
     }
     customDiffList.sort(Comparator.comparing(diff -> diff.fileName() != null));
-    return customDiffList.isEmpty() ? navigateInfo :
-           customDiffList.size() == 1 ? customDiffList.get(0) :
+    if (customDiffList.isEmpty()) {
+      HtmlBuilder builder = new HtmlBuilder();
+      if (!createdDirs.isEmpty()) {
+        if (createdDirs.size() == 1) {
+          builder.append(AnalysisBundle.message("preview.create.directory", createdDirs.get(0))).br();
+        } else {
+          builder.append(tag("p").addText(AnalysisBundle.message("preview.create.directories")).children(
+              ContainerUtil.map(createdDirs, text -> new HtmlBuilder().br()
+                .appendRaw("&bull; ") //NON-NLS
+                .append(text)
+                .toFragment()))
+          );
+        }
+      }
+      if (!fsActions.isEmpty()) {
+        if (!builder.isEmpty()) builder.br();
+        fsActions.forEach(builder::append);
+      }
+      if (!builder.isEmpty()) {
+        return new IntentionPreviewInfo.Html(builder.toFragment());
+      }
+      return navigateInfo;
+    }
+    return customDiffList.size() == 1 ? customDiffList.get(0) :
            new IntentionPreviewInfo.MultiFileDiff(customDiffList);
   }
 
@@ -449,6 +476,9 @@ public class ModCommandBatchExecutorImpl implements ModCommandExecutor {
       List<?> oldList = (List<?>)option.oldValue();
       //noinspection unchecked
       return IntentionPreviewInfo.addListOption((List<String>)list, optList.label().label(), value -> !oldList.contains(value)).content();
+    }
+    if (newValue == null) {
+      throw new IllegalStateException("Null value is not supported");
     }
     throw new IllegalStateException("Value of type " + newValue.getClass() + " is not supported");
   }

@@ -20,48 +20,35 @@ import kotlin.io.path.invariantSeparatorsPathString
 private val TOUCH_OPTIONS = EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
 private const val UNMODIFIED_MARK_FILE_NAME: String = ".unmodified"
 
-fun createMarkFile(file: Path): Boolean {
-  try {
-    Files.newByteChannel(file, TOUCH_OPTIONS)
-    return true
-  }
-  catch (_: NoSuchFileException) {
-    return false
-  }
-  catch (_: FileAlreadyExistsException) {
-    return true
-  }
-}
-
-internal fun createSourceAndCacheStrategyList(sources: List<Source>, productionClassOutDir: Path): List<SourceAndCacheStrategy> {
-  return sources
-    .map { source ->
-      when (source) {
-        is DirSource -> {
-          val dir = source.dir
-          if (dir.startsWith(productionClassOutDir)) {
-            ModuleOutputSourceAndCacheStrategy(source = source, name = productionClassOutDir.relativize(dir).toString())
-          }
-          else if (dir.startsWith(productionClassOutDir.resolveSibling("test"))) {
-            ModuleOutputSourceAndCacheStrategy(source = source, name = productionClassOutDir.resolveSibling("test").relativize(dir).toString())
-          }
-          else {
-            throw UnsupportedOperationException("$source is not supported")
-          }
+internal fun createSourceAndCacheStrategyList(sources: Collection<Source>, productionClassOutDir: Path): List<SourceAndCacheStrategy> {
+  return sources.map { source ->
+    when (source) {
+      is DirSource -> {
+        val dir = source.dir
+        if (dir.startsWith(productionClassOutDir)) {
+          ModuleOutputSourceAndCacheStrategy(source = source, name = productionClassOutDir.relativize(dir).toString())
         }
-        is InMemoryContentSource -> InMemorySourceAndCacheStrategy(source)
-        is FileSource -> FileSourceCacheStrategy(source)
-        is ZipSource -> {
-          if (source.file.startsWith(MAVEN_REPO)) {
-            MavenJarSourceAndCacheStrategy(source)
-          }
-          else {
-            NonMavenJarSourceAndCacheStrategy(source)
-          }
+        else if (dir.startsWith(productionClassOutDir.resolveSibling("test"))) {
+          ModuleOutputSourceAndCacheStrategy(source = source, name = productionClassOutDir.resolveSibling("test").relativize(dir).toString())
         }
-        is LazySource -> LazySourceAndCacheStrategy(source)
+        else {
+          throw UnsupportedOperationException("$source is not supported")
+        }
       }
+      is InMemoryContentSource -> InMemorySourceAndCacheStrategy(source)
+      is FileSource -> FileSourceCacheStrategy(source)
+      is ZipSource -> {
+        if (source.file.startsWith(MAVEN_REPO)) {
+          MavenJarSourceAndCacheStrategy(source)
+        }
+        else {
+          NonMavenJarSourceAndCacheStrategy(source)
+        }
+      }
+      is LazySource -> LazySourceAndCacheStrategy(source)
+      is UnpackedZipSource -> throw UnsupportedOperationException("UnpackedZipSource is expected to be wrapped into LazySourceAndCacheStrategy")
     }
+  }
 }
 
 internal sealed interface SourceAndCacheStrategy {
@@ -87,18 +74,18 @@ private class MavenJarSourceAndCacheStrategy(override val source: ZipSource) : S
   override fun updateAssetDigest(digest: HashStream64) {
     val relativePath = MAVEN_REPO.relativize(source.file).invariantSeparatorsPathString
     hash = Hashing.xxh3_64().hashCharsToLong(relativePath)
-    digest.putString(relativePath)
+    digest.putLong(hash).putInt(relativePath.length)
   }
 }
 
 private class LazySourceAndCacheStrategy(override val source: LazySource) : SourceAndCacheStrategy {
-  override fun getHash() = source.hash
+  override fun getHash() = source.precomputedHash
 
   override fun getSize() = 0L
 
   override fun updateAssetDigest(digest: HashStream64) {
     digest.putString(source.name)
-    digest.putLong(source.hash)
+    digest.putLong(source.precomputedHash)
   }
 }
 
@@ -183,13 +170,11 @@ internal fun computeHashForModuleOutput(source: DirSource): Long {
     return Files.getLastModifiedTime(markFile).toMillis()
   }
   catch (_: NoSuchFileException) {
-    if (createMarkFile(markFile)) {
-      return Files.getLastModifiedTime(markFile).toMillis()
+    try {
+      Files.newByteChannel(markFile, TOUCH_OPTIONS)
     }
-    else {
-      source.exist = false
-      // module doesn't exist at all
-      return 0
+    catch (_: FileAlreadyExistsException) {
     }
+    return Files.getLastModifiedTime(markFile).toMillis()
   }
 }

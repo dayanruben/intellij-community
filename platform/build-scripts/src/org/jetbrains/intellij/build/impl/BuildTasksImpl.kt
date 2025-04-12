@@ -378,13 +378,12 @@ private suspend fun createDistributionState(context: BuildContext): Distribution
 
   return spanBuilder("collecting compatible plugins").use {
     val providedModuleFile = context.paths.artifactDir.resolve("${context.applicationInfo.productCode}-builtinModules.json")
-    val platform = createPlatformLayout(context)
     val builtinModuleData = spanBuilder("build provided module list").use {
       Files.deleteIfExists(providedModuleFile)
       // start the product in headless mode using com.intellij.ide.plugins.BundledPluginsLister
       context.createProductRunner().runProduct(listOf("listBundledPlugins", providedModuleFile.toString()))
 
-      context.productProperties.customizeBuiltinModules(context, builtinModulesFile = providedModuleFile)
+      context.productProperties.customizeBuiltinModules(context = context, builtinModulesFile = providedModuleFile)
       try {
         val builtinModuleData = readBuiltinModulesFile(providedModuleFile)
         context.builtinModule = builtinModuleData
@@ -394,7 +393,9 @@ private suspend fun createDistributionState(context: BuildContext): Distribution
         throw IllegalStateException("Failed to build provided modules list: $providedModuleFile doesn't exist")
       }
     }
+
     context.notifyArtifactBuilt(providedModuleFile)
+
     if (productLayout.buildAllCompatiblePlugins) {
       collectCompatiblePluginsToPublish(builtinModuleData, pluginsToPublish, context)
       filterPluginsToPublish(pluginsToPublish, context)
@@ -403,6 +404,7 @@ private suspend fun createDistributionState(context: BuildContext): Distribution
       distributionState(pluginsToPublish, projectLibrariesUsedByPlugins, getEnabledPluginModules(pluginsToPublish, context), context)
     }
     else {
+      val platform = createPlatformLayout(context)
       buildProjectArtifacts(platform, enabledPluginModules, context)
       DistributionBuilderState(platform, pluginsToPublish, context)
     }
@@ -652,7 +654,6 @@ private fun checkProductLayout(context: BuildContext) {
     checkBaseLayout(plugin, "'${plugin.mainModule}' plugin", context)
   }
   checkPlatformSpecificPluginResources(pluginLayouts, layout.pluginModulesToPublish)
-  checkPluginModulesToPublish(context)
 }
 
 private fun checkBaseLayout(layout: BaseLayout, description: String, context: BuildContext) {
@@ -745,29 +746,6 @@ private fun checkPluginModules(pluginModules: Collection<String>?, fieldName: St
   check(unknownBundledPluginModules.isEmpty()) {
     "The following modules from $fieldName don't contain META-INF/plugin.xml file and aren't specified as optional plugin modules" +
     "in productProperties.productLayout.pluginLayouts: ${unknownBundledPluginModules.joinToString()}."
-  }
-}
-
-private fun checkPluginModulesToPublish(context: BuildContext) {
-  if (!context.productProperties.productLayout.buildAllCompatiblePlugins) return
-  if (context.pluginAutoPublishList.config.none()) return
-  val pluginModulesToPublish = context.productProperties.productLayout.pluginModulesToPublish
-  val misconfigured = pluginModulesToPublish.filterNot { pluginToPublish ->
-    val layout = context.productProperties.productLayout.pluginLayouts.singleOrNull {
-      it.mainModule == pluginToPublish
-    } ?: PluginLayout.plugin(pluginToPublish)
-    context.pluginAutoPublishList.test(layout)
-  }
-  val errorMessage = "productProperties.productLayout.pluginModulesToPublish should be empty " +
-                     "if productProperties.productLayout.buildAllCompatiblePlugins is set to true, " +
-                     "see the property docs"
-  check(misconfigured.none()) {
-    errorMessage + ".\n" +
-    "Also, productProperties.productLayout.pluginModulesToPublish contains modules " +
-    "that aren't included in ${context.pluginAutoPublishList}: $misconfigured"
-  }
-  check(pluginModulesToPublish.none()) {
-    "$errorMessage: $pluginModulesToPublish"
   }
 }
 
@@ -896,7 +874,7 @@ private suspend fun checkClassFiles(root: Path, context: BuildContext, isDistAll
 }
 
 private fun checkPlatformSpecificPluginResources(pluginLayouts: List<PluginLayout>, pluginModulesToPublish: Set<String>) {
-  val offenders = pluginLayouts.filter { it.platformResourceGenerators.isNotEmpty() && it.mainModule in pluginModulesToPublish }
+  val offenders = pluginLayouts.filter { it.hasPlatformSpecificResources && it.mainModule in pluginModulesToPublish }
   check(offenders.isEmpty()) {
     "Non-bundled plugins are not allowed yet to specify platform-specific resources. Offenders:\n  ${offenders.joinToString("  \n")}"
   }

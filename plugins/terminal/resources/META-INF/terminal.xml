@@ -16,9 +16,10 @@
     <applicationService serviceImplementation="org.jetbrains.plugins.terminal.TerminalOptionsProvider"/>
     <applicationService serviceInterface="org.jetbrains.plugins.terminal.settings.TerminalLocalOptions"
                         serviceImplementation="org.jetbrains.plugins.terminal.settings.impl.TerminalLocalOptionsImpl"/>
-    <applicationService serviceInterface="org.jetbrains.plugins.terminal.settings.TerminalOsSpecificOptions"
-                        serviceImplementation="org.jetbrains.plugins.terminal.settings.impl.TerminalOsSpecificOptionsImpl"/>
     <applicationService serviceImplementation="org.jetbrains.plugins.terminal.TerminalFontOptions"/>
+
+    <projectService serviceInterface="org.jetbrains.plugins.terminal.block.reworked.TerminalPortForwardingUiProvider"
+                    serviceImplementation="org.jetbrains.plugins.terminal.block.reworked.TerminalNoPortForwardingUiProvider"/>
 
     <rdct.remoteSettingProvider implementation="org.jetbrains.plugins.terminal.TerminalRemoteSettingsInfoProvider"/>
     <applicationSettings service="org.jetbrains.plugins.terminal.block.BlockTerminalOptions"/>
@@ -66,6 +67,8 @@
     <registryKey key="terminal.use.EelApi" defaultValue="false"
                  description="Use EelApi to launch a shell process. Launching a local shell works the same as before.
                   For WSL environments, the shell process in WSL will be launched via IJEnt instead of using wsl.exe."/>
+    <registryKey key="terminal.new.ui.completion.popup" defaultValue="false"
+                 description="Disabled completion popUp for reworked terminal for development time"/>
 
     <experimentalFeature id="terminal.shell.command.handling" percentOfUsers="100"/>
     <terminal.shellCommandHandler implementation="org.jetbrains.plugins.terminal.RunAnythingTerminalBridge"/>

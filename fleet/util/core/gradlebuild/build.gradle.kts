@@ -6,6 +6,7 @@ plugins {
   alias(libs.plugins.kotlin.multiplatform)
   id("fleet.project-module-conventions")
   id("fleet.toolchain-conventions")
+  id("fleet.multiplatform-module-conventions")
   id("fleet.module-publishing-conventions")
   id("fleet.sdk-repositories-publishing-conventions")
   id("fleet.open-source-module-conventions")
@@ -29,12 +30,10 @@ kotlin {
   // KOTLIN__MARKER_START
   compilerOptions.freeCompilerArgs = listOf(
     "-Xjvm-default=all",
+    "-Xlambdas=class",
   )
   pluginManager.withPlugin("fleet-build-jps-module-plugin") {
     tasks.named("syncJvmMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { destinationDirectory.set(layout.buildDirectory.dir("copiedSources/jvmMain")) }
-    tasks.named("syncJvmMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { sources.add(layout.projectDirectory.dir("../src")) }
-    sourceSets.jvmMain.configure { kotlin.srcDir(layout.buildDirectory.dir("copiedSources/jvmMain/kotlin")) }
-    configureAtMostOneJvmTargetOrThrow { compilations.named("main") { withJavaSourceSet { javaSourceSet -> javaSourceSet.java.srcDir(layout.buildDirectory.dir("copiedSources/jvmMain/java")) } } }
     tasks.named("syncJvmMainJpsSources", fleet.buildtool.jps.module.plugin.SyncJpsSourcesTask::class.java) { sources.add(layout.projectDirectory.dir("../srcJvmMain")) }
     sourceSets.jvmMain.configure { kotlin.srcDir(layout.buildDirectory.dir("copiedSources/jvmMain/kotlin")) }
     configureAtMostOneJvmTargetOrThrow { compilations.named("main") { withJavaSourceSet { javaSourceSet -> javaSourceSet.java.srcDir(layout.buildDirectory.dir("copiedSources/jvmMain/java")) } } }
@@ -84,7 +83,10 @@ kotlin {
     implementation(project(":reporting-shared"))
     api(project(":multiplatform-shims"))
     api(project(":fastutil"))
-    implementation(project(":util-multiplatform"))
+    compileOnly(project(":util-multiplatform"))
+  }
+  sourceSets.wasmJsMain.dependencies {
+    api(project(":util-multiplatform"))
   }
   // KOTLIN__MARKER_END
 }

@@ -4,6 +4,7 @@ package com.intellij.structuralsearch;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.CommonClassNames;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.tools.ide.metrics.benchmark.Benchmark;
 import org.jetbrains.annotations.NotNull;
@@ -1535,6 +1536,7 @@ public class StructuralReplaceTest extends StructuralReplaceTestCase {
 
   public void testClassReplacement9() throws IOException {
     String s1 = loadFile("before1.java");
+    getCurrentCodeStyleSettings().getCustomSettings(JavaCodeStyleSettings.class).JD_KEEP_EMPTY_LINES = false;
     String s2 = """
       class 'A extends '_TestCaseCass:[regex( .*TestCase ) ] {
         '_OtherStatement*;
@@ -2083,7 +2085,7 @@ public class StructuralReplaceTest extends StructuralReplaceTestCase {
     }
   }
 
-  public void _testReformatAndShortenClassRefPerformance() throws IOException {
+  public void testReformatAndShortenClassRefPerformance() throws IOException {
     options.setToReformatAccordingToStyle(true);
 
     final String source = loadFile("ReformatAndShortenClassRefPerformance_source.java");

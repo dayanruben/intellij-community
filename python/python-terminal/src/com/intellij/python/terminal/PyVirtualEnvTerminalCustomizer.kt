@@ -7,6 +7,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.UnnamedConfigurable
 import com.intellij.openapi.project.Project
@@ -19,6 +20,7 @@ import com.jetbrains.python.sdk.PySdkUtil
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
 import com.jetbrains.python.sdk.PythonSdkUtil
 import com.jetbrains.python.sdk.flavors.conda.PyCondaFlavorData
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.LocalTerminalCustomizer
 import org.jetbrains.plugins.terminal.TerminalOptionsProvider
 import java.io.File
@@ -30,7 +32,15 @@ import kotlin.io.path.exists
 import kotlin.io.path.isExecutable
 import kotlin.io.path.name
 
+
 class PyVirtualEnvTerminalCustomizer : LocalTerminalCustomizer() {
+  private companion object {
+    const val JEDITERM_SOURCE = "JEDITERM_SOURCE"
+    const val JEDITERM_SOURCE_ARGS = "JEDITERM_SOURCE_ARGS"
+    const val JEDITERM_SOURCE_SINGLE_ARG = "JEDITERM_SOURCE_SINGLE_ARG"
+    val logger = fileLogger()
+  }
+
   private fun generatePowerShellActivateScript(sdk: Sdk, sdkHomePath: VirtualFile): String? {
     // TODO: This should be migrated to Targets API: each target provides terminal
     val condaData = (sdk.sdkAdditionalData as? PythonSdkAdditionalData)?.flavorAndData?.data as? PyCondaFlavorData
@@ -102,13 +112,18 @@ class PyVirtualEnvTerminalCustomizer : LocalTerminalCustomizer() {
           val shellName = Path(shellPath).name
           if (isPowerShell(shellName)) {
             generatePowerShellActivateScript(sdk, sdkHomePath)?.let {
-              envs.put("JEDITERM_SOURCE", it)
+              envs.put(JEDITERM_SOURCE, it)
             }
           }
           else {
             findActivateScript(sdkHomePath.path, shellPath)?.let { activate ->
-              envs.put("JEDITERM_SOURCE", activate.first)
-              envs.put("JEDITERM_SOURCE_ARGS", activate.second ?: "")
+              envs.put(JEDITERM_SOURCE, activate.first)
+              envs.put(JEDITERM_SOURCE_ARGS, activate.second ?: "")
+              // **nix shell integration scripts split arguments;
+              // since a path may contain spaces, we do not want it to be split into several arguments.
+              if (activate.second != null) {
+                envs.put(JEDITERM_SOURCE_SINGLE_ARG, "1")
+              }
             }
           }
         }
@@ -123,6 +138,7 @@ class PyVirtualEnvTerminalCustomizer : LocalTerminalCustomizer() {
       }
     }
 
+    logger.debug("Running ${command.joinToString(" ")} with ${envs.entries.joinToString("\n")}")
     return command
   }
 
@@ -140,6 +156,7 @@ class PyVirtualEnvTerminalCustomizer : LocalTerminalCustomizer() {
 
   private fun isPowerShell(shellName: String): Boolean = shellName in arrayOf("powershell.exe", "pwsh.exe")
 
+  @ApiStatus.Internal
   override fun getConfigurable(project: Project): UnnamedConfigurable = object : UnnamedConfigurable {
     val settings = PyVirtualEnvTerminalSettings.getInstance(project)
 
@@ -161,13 +178,15 @@ class PyVirtualEnvTerminalCustomizer : LocalTerminalCustomizer() {
 
 }
 
-class SettingsState {
+@ApiStatus.Internal
+internal class SettingsState {
   var virtualEnvActivate: Boolean = true
 }
 
 @Service(Service.Level.PROJECT)
 @State(name = "PyVirtualEnvTerminalCustomizer", storages = [(Storage("python-terminal.xml"))])
-class PyVirtualEnvTerminalSettings : PersistentStateComponent<SettingsState> {
+@ApiStatus.Internal
+internal class PyVirtualEnvTerminalSettings : PersistentStateComponent<SettingsState> {
   private var myState: SettingsState = SettingsState()
 
   var virtualEnvActivate: Boolean

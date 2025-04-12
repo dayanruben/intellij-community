@@ -45,8 +45,10 @@ import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.containers.UList
 import com.intellij.util.messages.*
 import com.intellij.util.messages.impl.MessageBusEx
+import com.intellij.util.messages.impl.PluginListenerDescriptor
 import com.intellij.util.messages.impl.MessageBusImpl
 import com.intellij.util.messages.impl.MessageDeliveryListener
+import com.intellij.util.messages.impl.listenerClassName
 import com.intellij.util.runSuppressing
 import kotlinx.coroutines.*
 import kotlinx.coroutines.internal.intellij.IntellijCoroutines
@@ -323,7 +325,7 @@ abstract class ComponentManagerImpl(
                               listenerCallbacks: MutableList<in Runnable>? = null) {
     val activityNamePrefix = activityNamePrefix()
 
-    var map: ConcurrentMap<String, MutableList<ListenerDescriptor>>? = null
+    var listenersByTopicName: ConcurrentMap<String, MutableList<PluginListenerDescriptor>>? = null
     val isHeadless = app == null || app.isHeadlessEnvironment
     val isUnitTestMode = app?.isUnitTestMode ?: false
 
@@ -338,24 +340,18 @@ abstract class ComponentManagerImpl(
         registerServices(containerDescriptor.services, module)
         registerComponents(pluginDescriptor = module, containerDescriptor = containerDescriptor, headless = isHeadless)
 
-        containerDescriptor.listeners.let { listeners ->
-          var m = map
-          if (m == null) {
-            m = ConcurrentHashMap()
-            map = m
+        if (listenersByTopicName == null) {
+          listenersByTopicName = ConcurrentHashMap()
+        }
+        for (listener in containerDescriptor.listeners) {
+          if ((isUnitTestMode && !listener.activeInTestMode) || (isHeadless && !listener.activeInHeadlessMode)) {
+            continue
           }
-          for (listener in listeners) {
-            if ((isUnitTestMode && !listener.activeInTestMode) || (isHeadless && !listener.activeInHeadlessMode)) {
-              continue
-            }
-
-            if (listener.os != null && !listener.os.isSuitableForOs()) {
-              continue
-            }
-
-            listener.pluginDescriptor = module
-            m.computeIfAbsent(listener.topicClassName) { ArrayList() }.add(listener)
+          if (listener.os != null && !listener.os!!.isSuitableForOs()) {
+            continue
           }
+          listenersByTopicName.computeIfAbsent(listener.topicClassName) { ArrayList() }
+            .add(PluginListenerDescriptor(listener, module))
         }
 
         if (extensionPoints != null && containerDescriptor.extensionPoints.isNotEmpty()) {
@@ -377,7 +373,6 @@ abstract class ComponentManagerImpl(
       for (rootModule in modules) {
         executeRegisterTask(rootModule) { module ->
           module.registerExtensions(nameToPoint = extensionPoints,
-                                    containerDescriptor = getContainerDescriptor(module),
                                     listenerCallbacks = listenerCallbacks)
         }
       }
@@ -396,7 +391,7 @@ abstract class ComponentManagerImpl(
     // ensuring that `messageBus` is created, regardless of the lazy listener map state
     if (isMessageBusSupported) {
       val messageBus = getOrCreateMessageBusUnderLock()
-      map?.let {
+      listenersByTopicName?.let {
         (messageBus as MessageBusEx).setLazyListeners(it)
       }
     }
@@ -961,7 +956,7 @@ abstract class ComponentManagerImpl(
     }
   }
 
-  final override fun createListener(descriptor: ListenerDescriptor): Any {
+  final override fun createListener(descriptor: PluginListenerDescriptor): Any {
     val pluginDescriptor = descriptor.pluginDescriptor
     val aClass = try {
       doLoadClass(descriptor.listenerClassName, pluginDescriptor)

@@ -80,6 +80,11 @@ public class HighLevelMultiFileJvmBasicCompletionTestGenerated extends AbstractH
         runTest("../../completion/testData/basic/multifile/ConstructorReferenceNotImported/");
     }
 
+    @TestMetadata("CovarianceExtensionFunction")
+    public void testCovarianceExtensionFunction() throws Exception {
+        runTest("../../completion/testData/basic/multifile/CovarianceExtensionFunction/");
+    }
+
     @TestMetadata("DoNotCompleteWithConstraints")
     public void testDoNotCompleteWithConstraints() throws Exception {
         runTest("../../completion/testData/basic/multifile/DoNotCompleteWithConstraints/");
@@ -103,6 +108,11 @@ public class HighLevelMultiFileJvmBasicCompletionTestGenerated extends AbstractH
     @TestMetadata("EnumEntry")
     public void testEnumEntry() throws Exception {
         runTest("../../completion/testData/basic/multifile/EnumEntry/");
+    }
+
+    @TestMetadata("EnumEntryExpectedPreferredJava")
+    public void testEnumEntryExpectedPreferredJava() throws Exception {
+        runTest("../../completion/testData/basic/multifile/EnumEntryExpectedPreferredJava/");
     }
 
     @TestMetadata("EnumValuesMethodJavaUsualPriorityWhenFeatureDisabled")

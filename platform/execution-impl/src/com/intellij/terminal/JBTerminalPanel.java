@@ -136,7 +136,7 @@ public class JBTerminalPanel extends TerminalPanel implements FocusListener, Ter
 
     addFocusListener(this);
 
-    mySettingsProvider.addUiSettingsListener(this);
+    mySettingsProvider.addUiSettingsListener(this, this);
     setDefaultCursorShape(settingsProvider.getCursorShape());
     myEscapeKeyListener = new TerminalEscapeKeyListener(this);
   }
@@ -334,7 +334,7 @@ public class JBTerminalPanel extends TerminalPanel implements FocusListener, Ter
     }
     FontInfo fontInfo = ComplementaryFontsRegistry.getFontAbleToDisplay(
       text, start, end, fontStyle,
-      mySettingsProvider.getColorsScheme().getConsoleFontPreferences(),
+      mySettingsProvider.getFontPreferences(),
       null);
     return fontInfo.getFont().deriveFont(mySettingsProvider.getTerminalFontSize());
   }

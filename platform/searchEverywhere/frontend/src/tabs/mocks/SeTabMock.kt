@@ -2,10 +2,10 @@
 package com.intellij.platform.searchEverywhere.frontend.tabs.mocks
 
 import com.intellij.openapi.actionSystem.DataContext
-import com.intellij.openapi.options.ObservableOptionEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.searchEverywhere.*
+import com.intellij.platform.searchEverywhere.frontend.SeFilterEditor
 import com.intellij.platform.searchEverywhere.frontend.SeTab
 import com.intellij.platform.searchEverywhere.frontend.resultsProcessing.SeTabDelegate
 import fleet.kernel.DurableRef
@@ -17,11 +17,12 @@ class SeTabMock(override val name: String,
                 private val delegate: SeTabDelegate
 ): SeTab {
   override val shortName: String = name
+  override val id: String = name
 
   override fun getItems(params: SeParams): Flow<SeResultEvent> =
     delegate.getItems(params)
 
-  override fun getFilterEditor(): ObservableOptionEditor<SeFilterState>? = null
+  override fun getFilterEditor(): SeFilterEditor? = null
 
   override suspend fun itemSelected(item: SeItemData, modifiers: Int, searchText: String): Boolean {
     println("Item selected: ${item.presentation.text}")

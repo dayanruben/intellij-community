@@ -4,9 +4,9 @@
     <module name="intellij.platform.searchEverywhere"/>
   </dependencies>
   <actions>
-    <action id="SeInitiatorAction"
-            class="com.intellij.platform.searchEverywhere.frontend.actions.SeInitiatorAction"
-            text="Search Actions in SE 2.0"
+    <action id="SeNewSearchToggleAction"
+            class="com.intellij.platform.searchEverywhere.frontend.actions.SeNewSearchToggleAction"
+            text="Toggle Search Everywhere Implementation"
             internal="true"/>
   </actions>
 
@@ -17,10 +17,15 @@
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
+    <searchEverywhere.manager implementation="com.intellij.platform.searchEverywhere.frontend.RemDevFriendlySearchEverywhereManager"/>
+
+    <searchEverywhere.itemsProviderFactory implementation="com.intellij.platform.searchEverywhere.frontend.providers.actions.SeActionsProviderFactory"/>
+
     <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.all.SeAllTabFactory"/>
     <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.classes.SeClassesTabFactory"/>
     <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.files.SeFilesTabFactory"/>
     <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.symbols.SeSymbolsTabFactory"/>
     <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.actions.SeActionsTabFactory"/>
+    <searchEverywhere.tabFactory implementation="com.intellij.platform.searchEverywhere.frontend.tabs.text.SeTextTabFactory"/>
   </extensions>
 </idea-plugin>

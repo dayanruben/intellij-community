@@ -5,7 +5,6 @@ import com.intellij.diagnostic.ActivityCategory;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.client.ClientKind;
-import com.intellij.openapi.components.ComponentManager;
 import com.intellij.openapi.components.ComponentManagerEx;
 import com.intellij.openapi.components.ServiceDescriptor;
 import com.intellij.openapi.extensions.PluginDescriptor;
@@ -18,10 +17,10 @@ import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.util.ExceptionUtilRt;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.messages.ListenerDescriptor;
 import com.intellij.util.messages.MessageBus;
 import com.intellij.util.messages.MessageBusOwner;
 import com.intellij.util.messages.impl.MessageBusFactoryImpl;
+import com.intellij.util.messages.impl.PluginListenerDescriptor;
 import com.intellij.util.pico.DefaultPicoContainer;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function1;
@@ -191,8 +190,9 @@ public class MockComponentManager extends UserDataHolderBase implements Componen
     return Conditions.alwaysFalse();
   }
 
+  @Internal
   @Override
-  public @NotNull Object createListener(@NotNull ListenerDescriptor descriptor) {
+  public @NotNull Object createListener(@NotNull PluginListenerDescriptor descriptor) {
     throw new UnsupportedOperationException();
   }
 

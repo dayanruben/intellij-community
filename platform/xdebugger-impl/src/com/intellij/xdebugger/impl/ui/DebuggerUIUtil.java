@@ -48,12 +48,11 @@ import com.intellij.xdebugger.breakpoints.XBreakpointManager;
 import com.intellij.xdebugger.frame.XFullValueEvaluator;
 import com.intellij.xdebugger.frame.XValue;
 import com.intellij.xdebugger.frame.XValueModifier;
-import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.impl.XDebuggerUtilImpl;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase;
 import com.intellij.xdebugger.impl.breakpoints.ui.BreakpointsDialogFactory;
 import com.intellij.xdebugger.impl.breakpoints.ui.XLightBreakpointPropertiesPanel;
-import com.intellij.xdebugger.impl.frame.CurrentXDebugSessionProxyProvider;
+import com.intellij.xdebugger.impl.frame.XDebugManagerProxy;
 import com.intellij.xdebugger.impl.frame.XDebugSessionProxy;
 import com.intellij.xdebugger.impl.frame.XWatchesView;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
@@ -412,9 +411,9 @@ public final class DebuggerUIUtil {
     XWatchesView view = e.getData(XWatchesView.DATA_KEY);
     Project project = e.getProject();
     if (view == null && project != null) {
-      XDebugSession session = getSession(e);
-      if (session != null) {
-        XDebugSessionTab tab = ((XDebugSessionImpl)session).getSessionTab();
+      XDebugSessionProxy proxy = getSessionProxy(e);
+      if (proxy != null) {
+        XDebugSessionTab tab = proxy.getSessionTab();
         if (tab != null) {
           return tab.getWatchesView();
         }
@@ -526,7 +525,7 @@ public final class DebuggerUIUtil {
     if (session != null) return session;
     Project project = e.getProject();
     if (project == null) return null;
-    return CurrentXDebugSessionProxyProvider.getCurrentSessionProxy(project);
+    return XDebugManagerProxy.getInstance().getCurrentSessionProxy(project);
   }
 
 

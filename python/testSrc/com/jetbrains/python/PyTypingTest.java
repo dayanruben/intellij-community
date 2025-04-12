@@ -591,6 +591,15 @@ public class PyTypingTest extends PyTestCase {
              x = f()
              expr = x.foo
              """);
+    doTest("tuple[Any, Any]", """
+      from typing import Any
+      
+      class A[T]:
+          v: T
+
+      def f(a1: A[Any], a2: A):
+          expr = a1.v, a2.v
+      """);
   }
 
   // PY-18427 PY-76243
@@ -1959,7 +1968,7 @@ public class PyTypingTest extends PyTestCase {
              if issubclass(a, str | dict | int):
                  expr = a""");
   }
-  
+
   // PY-79861
   public void testWalrusIsSubclass() {
     doTest("Type[str | dict | int]",
@@ -6367,60 +6376,6 @@ public class PyTypingTest extends PyTestCase {
       
       for x in C.f():
           expr = x
-      """);
-  }
-
-  // PY-79480
-  public void testInheritedAttributeWithTypeAnnotationInParentConstructor() {
-    doTest("str | None", """
-      import typing
-
-      class FakeBase:
-          def __init__(self):
-              self._some_var: typing.Optional[str] = ""
-
-      class Fake(FakeBase):
-          def __init__(self):
-              super().__init__()
-              self._some_var = None
-
-          def some_method(self):
-              expr = self._some_var
-      """);
-  }
-
-  public void testInheritedAttributeWithTypeAnnotationInParent() {
-    doTest("str | None", """
-      import typing
-
-      class FakeBase:
-          _some_var: typing.Optional[str]
-
-      class Fake(FakeBase):
-          def __init__(self):
-              super().__init__()
-              self._some_var = None
-
-          def some_method(self):
-              expr = self._some_var
-      """);
-  }
-
-  public void testInheritedAttributeWithTypeAnnotationInChild() {
-    doTest("str | None", """
-      import typing
-
-      class FakeBase:
-          def __init__(self):
-              self._some_var = 1
-
-      class Fake(FakeBase):
-          def __init__(self):
-              super().__init__()
-              self._some_var: typing.Optional[str] = None
-
-          def some_method(self):
-              expr = self._some_var
       """);
   }
 

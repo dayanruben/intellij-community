@@ -1,24 +1,40 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.completion.command
 
+import com.intellij.codeInsight.CodeInsightSettings
+import com.intellij.codeInsight.documentation.actions.ShowQuickDocInfoAction
 import com.intellij.codeInsight.intention.impl.preview.IntentionPreviewDiffResult
 import com.intellij.codeInsight.intention.impl.preview.IntentionPreviewDiffResult.HighlightingType
+import com.intellij.codeInsight.intention.impl.preview.LookupPreviewHandler
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo.Html
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementPresentation
+import com.intellij.codeInsight.lookup.LookupEvent
+import com.intellij.codeInsight.lookup.LookupListener
+import com.intellij.codeInsight.lookup.impl.LookupImpl
+import com.intellij.lang.Language
+import com.intellij.lang.documentation.DocumentationSettings
+import com.intellij.lang.documentation.ide.impl.DocumentationToolWindowManager
 import com.intellij.model.Pointer
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.ex.AnActionListener
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diff.DiffColors
 import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.ex.EditorSettingsExternalizable
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.editor.richcopy.HtmlSyntaxInfoUtil
 import com.intellij.openapi.editor.richcopy.SyntaxInfoBuilder
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.HtmlChunk
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.platform.backend.documentation.DocumentationContent
 import com.intellij.platform.backend.documentation.DocumentationResult
 import com.intellij.platform.backend.documentation.DocumentationTarget
@@ -29,10 +45,13 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.createSmartPointer
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.DeferredIcon
+import com.intellij.ui.LayeredIcon
 import com.intellij.ui.RowIcon
 import com.intellij.ui.icons.CachedImageIcon
+import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.VisibleForTesting
+import java.util.function.Function
 
 
 class CommandCompletionDocumentationProvider : LookupElementDocumentationTargetProvider {
@@ -47,11 +66,14 @@ class CommandCompletionDocumentationProvider : LookupElementDocumentationTargetP
 }
 
 private class CommandCompletionDocumentationTarget(
-  val psiElement: PsiElement,
+  psiElement: PsiElement,
   val completionLookupElement: CommandCompletionLookupElement,
 ) : DocumentationTarget {
+  private val myProject: Project = psiElement.project
+  private val myLanguage: Language = psiElement.language
+  private val elementPtr = psiElement.createSmartPointer()
+
   override fun createPointer(): Pointer<out DocumentationTarget> {
-    val elementPtr = psiElement.createSmartPointer()
     return Pointer {
       val element = elementPtr.dereference() ?: return@Pointer null
       CommandCompletionDocumentationTarget(element, completionLookupElement)
@@ -67,11 +89,10 @@ private class CommandCompletionDocumentationTarget(
   }
 
   override fun computeDocumentation(): DocumentationResult? {
-    val command = completionLookupElement.command
-    if (command !is CompletionCommandWithPreview) return null
+    if (!completionLookupElement.hasPreview) return null
     return DocumentationResult.asyncDocumentation {
       readAction {
-        val previewResult = command.getPreview() ?: return@readAction null
+        val previewResult = completionLookupElement.preview ?: return@readAction null
         render(postprocess(previewResult))
       }
     }
@@ -90,28 +111,49 @@ private class CommandCompletionDocumentationTarget(
 
   private fun createContext(content: HtmlChunk): DocumentationContent {
     val html = content.toString()
-    val regex = """<icon src="(.*?)"/>""".toRegex()
+    val regexIcons = """<icon src="(.*?)"/>""".toRegex()
     var updatedContent = html
 
-    regex.findAll(html).forEach {
+    regexIcons.findAll(html).forEach {
       val iconTag = it.value.substring(11, it.value.length - 3)
       val iconPath = findIconPath(iconTag, content)
-      val newValue = if (iconPath != null) """<icon src="$iconPath"/>""" else iconTag
-      @Suppress("HardCodedStringLiteral")
+      val newValue = if (iconPath != null) """<icon src="$iconPath"/>""" else ""
       updatedContent = updatedContent.replace(it.value, newValue)
     }
 
+    var updatedClearedContent = updatedContent
+    val regexSettings = """<a href="settings:(.*?)</a>""".toRegex()
+    regexSettings.findAll(updatedContent).forEach {
+      val path = it.value.substring(9, it.value.length - 4)
+      val openClosed = path.indexOf(">")
+      if (openClosed != -1 && openClosed + 1 < path.length) {
+        val newValue = path.substring(openClosed + 1)
+        @Suppress("HardCodedStringLiteral")
+        updatedClearedContent = updatedClearedContent.replace(it.value, "<b>$newValue</b>")
+      }
+    }
 
-    return DocumentationContent.content(updatedContent)
+    return DocumentationContent.content(updatedClearedContent)
   }
 
   private fun findIconPath(iconId: String, content: HtmlChunk): String? {
     var icon = content.findIcon(iconId) ?: return null
-    if (icon is RowIcon) {
-      icon = icon.allIcons.firstOrNull() ?: return null
-    }
-    if (icon is DeferredIcon) {
-      icon = icon.baseIcon
+    var changed = true
+    var i = 1
+    while (i < 10 && changed) {
+      i++
+      changed = false
+      if (icon is RowIcon) {
+        changed = true
+        icon = icon.allIcons.firstOrNull() ?: return null
+      }
+      if (icon is DeferredIcon) {
+        changed = true
+        icon = icon.baseIcon
+      }
+      if (icon is LayeredIcon) {
+        return null
+      }
     }
     if (icon is CachedImageIcon) {
       val coords = icon.getCoords() ?: return null
@@ -144,7 +186,7 @@ private class CommandCompletionDocumentationTarget(
       if (textHandler != null) {
         properties = properties.textHandler(textHandler)
       }
-      HtmlSyntaxInfoUtil.HtmlCodeSnippetBuilder(builder, psiElement.project, psiElement.language)
+      HtmlSyntaxInfoUtil.HtmlCodeSnippetBuilder(builder, myProject, myLanguage)
         .additionalIterator(additionalHighlighting)
         .codeSnippet(codeSnippet)
         .properties(properties)
@@ -157,7 +199,10 @@ private class CommandCompletionDocumentationTarget(
     val defaultBackground = scheme.defaultBackground
     val lineSpacing = scheme.lineSpacing
     val backgroundColor = ColorUtil.toHtmlColor(defaultBackground)
-    return "<div style=\"min-width: 150px; max-width: 250px;\"> " + "<div style=\"width: 95%; background-color:#$backgroundColor; line-height: ${lineSpacing * 1.1}\">" + "$builder<br/>" + "</div>" + "</div>"
+    return """
+      <div style="min-width: 150px; max-width: 250px; padding: 0; margin: 0;"> 
+      <div style="width: 95%; background-color:$backgroundColor; line-height: ${lineSpacing * 1.1}">$builder<br/>
+      </div></div>""".trimIndent()
   }
 
   private fun createLineNumberTextHandler(
@@ -294,3 +339,68 @@ fun combineFragments(
   }
   return combinedFragments
 }
+
+/**
+ * Installs a listener on the provided lookup that enables preview functionality for intentions
+ * if certain user settings allow it. The preview displays additional context or suggestions
+ * for relevant completion items when the lookup selection changes.
+ *
+ * @param lookup the instance of `LookupImpl` for which the preview listener is to be installed
+ */
+internal fun installLookupIntentionPreviewListener(lookup: LookupImpl) {
+  if (!EditorSettingsExternalizable.getInstance().isShowIntentionPreview) return
+  val project = lookup.project
+  if (showJavaDocPreview(project)) return
+  val previewHandler =
+    LookupPreviewHandler(
+      project, lookup,
+      Function { element ->
+        return@Function element as? LookupElement
+      },
+      Function { element ->
+        val commandElement = element.`as`(CommandCompletionLookupElement::class.java)
+        if (commandElement != null && commandElement.hasPreview) {
+          commandElement.preview
+        }
+        else {
+          IntentionPreviewInfo.EMPTY
+        }
+      }
+    )
+
+  val listener = object : LookupListener {
+    override fun currentItemChanged(event: LookupEvent) {
+      val currentItem = event.lookup.currentItem
+      val element = currentItem
+        ?.`as`(CommandCompletionLookupElement::class.java)
+      if (element != null) {
+        previewHandler.showInitially()
+      }
+    }
+
+    override fun itemSelected(event: LookupEvent): Unit = stopPreview()
+    override fun lookupCanceled(event: LookupEvent): Unit = stopPreview()
+    fun stopPreview() {
+      previewHandler.close()
+      lookup.removeLookupListener(this)
+    }
+  }
+
+  lookup.addLookupListener(listener)
+
+  val connection: MessageBusConnection = ApplicationManager.getApplication().getMessageBus().connect(lookup)
+  connection.subscribe(AnActionListener.TOPIC, object : AnActionListener {
+    override fun beforeActionPerformed(action: AnAction, event: AnActionEvent) {
+      if (action !is ShowQuickDocInfoAction) {
+        return
+      }
+      listener.stopPreview()
+    }
+  })
+}
+
+internal fun showJavaDocPreview(project: Project): Boolean =
+  CodeInsightSettings.getInstance().AUTO_POPUP_JAVADOC_INFO ||
+  DocumentationSettings.autoShowQuickDocInModalDialogs() ||
+  ToolWindowManager.getInstance(project)
+    .getToolWindow(DocumentationToolWindowManager.TOOL_WINDOW_ID)?.isVisible == true

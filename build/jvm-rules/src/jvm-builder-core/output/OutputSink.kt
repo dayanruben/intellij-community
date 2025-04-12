@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.io.AddDirEntriesMode
 import org.jetbrains.intellij.build.io.PackageIndexBuilder
 import org.jetbrains.intellij.build.io.ZipArchiveOutputStream
-import org.jetbrains.intellij.build.io.writeZipUsingTempFile
+import org.jetbrains.intellij.build.io.writeZipWithoutChecksumUsingTempFile
 import org.jetbrains.kotlin.backend.common.output.OutputFile
 import org.jetbrains.kotlin.build.GeneratedFile
 import java.io.File
@@ -171,8 +171,8 @@ class OutputSink internal constructor(
   }
 
   fun writeToZip(outJar: Path) {
-    val packageIndexBuilder = PackageIndexBuilder(writeCrc32 = false)
-    writeZipUsingTempFile(outJar, packageIndexBuilder.indexWriter) { stream ->
+    val packageIndexBuilder = PackageIndexBuilder(AddDirEntriesMode.NONE, writeCrc32 = false)
+    writeZipWithoutChecksumUsingTempFile(outJar, packageIndexBuilder) { stream ->
       doWriteToZip(
         oldZipFile = oldZipFile,
         fileToData = fileToData,
@@ -185,8 +185,6 @@ class OutputSink internal constructor(
       fileToData.clear()
       // now, close the old file, before writing to it
       oldZipFile?.close()
-
-      packageIndexBuilder.writePackageIndex(stream = stream, addDirEntriesMode = AddDirEntriesMode.RESOURCE_ONLY)
     }
   }
 
@@ -228,22 +226,17 @@ internal inline fun doWriteToZip(
   crossinline newDataProcessor: (ByteArray, String, ByteArray) -> Unit,
 ) {
   for ((path, info) in fileToData.entries) {
-    packageIndexBuilder?.addFile(name = path, addClassDir = false)
+    packageIndexBuilder?.addFile(name = path)
     val name = path.toByteArray()
     if (info is ImmutableZipEntry) {
       val hashMapZipFile = oldZipFile!!
       val data = info.getByteBuffer(hashMapZipFile, null)
-      stream.write(name, estimatedSize = data.remaining()) { buffer ->
-        buffer.writeBytes(data)
-      }
-
+      stream.uncompressedData(name, data, null)
       oldDataProcessor(path, name)
     }
     else {
       val data = info as ByteArray
-      stream.write(name, estimatedSize = data.size) { buffer ->
-        buffer.writeBytes(data)
-      }
+      stream.uncompressedData(name, data, null)
       newDataProcessor(data, path, name)
     }
   }

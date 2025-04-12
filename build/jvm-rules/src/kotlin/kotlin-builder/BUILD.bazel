@@ -8,10 +8,7 @@ kt_jvm_library(
     srcs = glob(["**/*.kt"]),
     kotlinc_opts = "//:rules_jvm_bootstrap_kotlinc_options",
     deps = [
-        "@lib//:kotlin-stdlib",
-        "@lib//:kotlinx-collections-immutable",
         "//:collection",
-        "@lib//:fastutil-min",
         "//zip",
         "//:opentelemetry-api",
         "//src/worker-util",
@@ -24,13 +21,11 @@ kt_jvm_library(
         # before kotlin-jps-plugin
         "//:kotlin-compiler",
         "//:kotlin-jps-plugin",
-        "@lib//:hash4j",
-        "@lib//:mvstore",
         "//:arrow-vector",
         "//:arrow-memory-netty",
         "//:arrow-memory-core",
-        "@lib//:jps-javac-extension",
-        "@lib//:caffeine",
+        "//:jps-javac-extension",
+        "//:caffeine",
     ],
     runtime_deps = [
         "//:kotlin-build-tools-api",

@@ -3,6 +3,7 @@
 
 package com.intellij.openapi.application.impl
 
+import com.intellij.idea.IJIgnore
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ReadAction.CannotReadException
 import com.intellij.openapi.application.ex.ApplicationEx
@@ -468,6 +469,64 @@ class BlockingSuspendingReadActionTest : SuspendingReadActionTest() {
     }
   }
 
+  @Test
+  fun `pending read action is cancellable`(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
+    val job = Job()
+    launch {
+      writeAction {
+        job.asCompletableFuture().get()
+      }
+    }
+    delay(100)
+    val readHandle = launch {
+      application.runReadAction {
+      }
+    }
+    delay(100)
+    assertTrue(readHandle.isActive)
+    readHandle.cancelAndJoin()
+    assertFalse(readHandle.isActive)
+    job.complete()
+    // checking sanity that cancellation did not break anything
+    repeat(100) {
+      launch {
+        readAction {
+        }
+      }
+      launch { writeAction { } }
+    }
+  }
+
+  @Test
+  fun `pending write action is cancellable`(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
+    val job = Job()
+    launch {
+      readAction {
+        job.asCompletableFuture().get()
+      }
+    }
+    delay(100)
+    val writeHandle = launch {
+      application.runWriteAction {
+      }
+    }
+    delay(100)
+    assertTrue(writeHandle.isActive)
+    writeHandle.cancelAndJoin()
+    assertFalse(writeHandle.isActive)
+    job.complete()
+    val x = 1
+
+    // checking sanity that cancellation did not break anything
+    repeat(100) {
+      launch {
+        readAction {
+        }
+      }
+      launch { writeAction { } }
+    }
+  }
+  @IJIgnore(issue = "IDEA-370400")
   @Test
   fun `RA does not lead to leaking read access`(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
     val waJob = Job()

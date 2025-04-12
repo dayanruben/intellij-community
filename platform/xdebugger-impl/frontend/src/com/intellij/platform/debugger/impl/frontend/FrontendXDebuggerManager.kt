@@ -1,13 +1,12 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.debugger.impl.frontend
 
+import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.platform.project.projectId
 import com.intellij.xdebugger.impl.FrontendXDebuggerManagerListener
-import com.intellij.xdebugger.impl.frame.CurrentXDebugSessionProxyProvider
-import com.intellij.xdebugger.impl.frame.XDebugSessionProxy
 import com.intellij.xdebugger.impl.rpc.XDebugSessionDto
 import com.intellij.xdebugger.impl.rpc.XDebugSessionId
 import com.intellij.xdebugger.impl.rpc.XDebuggerManagerApi
@@ -17,9 +16,13 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
 
+@VisibleForTesting
+@ApiStatus.Internal
 @Service(Service.Level.PROJECT)
-internal class FrontendXDebuggerManager(private val project: Project, private val cs: CoroutineScope) {
+class FrontendXDebuggerManager(private val project: Project, private val cs: CoroutineScope) {
   private val sessions = MutableStateFlow<List<FrontendXDebuggerSession>>(listOf())
   private val synchronousExecutor = Channel<suspend () -> Unit>(capacity = Integer.MAX_VALUE)
 
@@ -36,6 +39,8 @@ internal class FrontendXDebuggerManager(private val project: Project, private va
         }
       }
     }.stateIn(cs, SharingStarted.Eagerly, null)
+
+  internal val breakpointsManager = FrontendXBreakpointManager(project, cs)
 
   init {
     cs.launch {
@@ -88,6 +93,10 @@ internal class FrontendXDebuggerManager(private val project: Project, private va
     }
   }
 
+  internal fun getSessionIdByContentDescriptor(descriptor: RunContentDescriptor): XDebugSessionId? {
+    return sessions.value.firstOrNull { it.sessionTab?.runContentDescriptor === descriptor }?.id
+  }
+
   private suspend fun createDebuggerSession(sessionDto: XDebugSessionDto) {
     val newSession = FrontendXDebuggerSession.create(project, cs, sessionDto)
     val old = sessions.getAndUpdate {
@@ -99,11 +108,5 @@ internal class FrontendXDebuggerManager(private val project: Project, private va
   companion object {
     @JvmStatic
     fun getInstance(project: Project): FrontendXDebuggerManager = project.service()
-  }
-}
-
-private class FrontendCurrentSessionProxyProvider : CurrentXDebugSessionProxyProvider {
-  override fun provideCurrentSessionProxy(project: Project): XDebugSessionProxy? {
-    return FrontendXDebuggerManager.getInstance(project).currentSession.value
   }
 }

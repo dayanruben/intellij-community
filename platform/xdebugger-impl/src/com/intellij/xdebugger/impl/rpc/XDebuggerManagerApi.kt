@@ -23,6 +23,12 @@ interface XDebuggerManagerApi : RemoteApi<Unit> {
 
   suspend fun reshowInlays(projectId: ProjectId, editorId: EditorId?)
 
+  suspend fun getBreakpoints(projectId: ProjectId): Flow<Set<XBreakpointDto>>
+
+  suspend fun sessionTabSelected(projectId: ProjectId, sessionId: XDebugSessionId?)
+
+  suspend fun sessionTabClosed(sessionId: XDebugSessionId)
+
   companion object {
     @JvmStatic
     suspend fun getInstance(): XDebuggerManagerApi {

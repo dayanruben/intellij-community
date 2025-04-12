@@ -2,12 +2,13 @@
 package org.jetbrains.intellij.build.dependencies
 
 import com.github.luben.zstd.ZstdInputStreamNoFinalizer
-import com.google.common.hash.Hashing
-import com.google.common.util.concurrent.Striped
 import io.opentelemetry.api.trace.Tracer
 import io.opentelemetry.api.trace.TracerProvider
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
+import org.jetbrains.intellij.build.StripedMutex
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesUtil.cleanDirectory
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesUtil.extractTarBz2
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesUtil.extractTarGz
@@ -23,29 +24,36 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
-import java.nio.file.*
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
+import java.security.MessageDigest
+import java.security.Provider
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.logging.Logger
-import kotlin.concurrent.withLock
+
+private val LOG = Logger.getLogger(BuildDependenciesDownloader::class.java.name)
+private val fileLocks = StripedMutex(1024)
+private val cleanupFlag = AtomicBoolean(false)
+
+// increment on semantic changes in extract code to invalidate all current caches
+private const val EXTRACT_CODE_VERSION = 5
+
+// increment on semantic changes in download code to invalidate all current caches,
+// e.g., when some issues in extraction code were fixed
+private const val DOWNLOAD_CODE_VERSION = 3
+
+private val extractCount = AtomicInteger()
 
 @ApiStatus.Internal
 object BuildDependenciesDownloader {
-  data class Credentials(val username: String, val password: String)
-
-  private val LOG = Logger.getLogger(BuildDependenciesDownloader::class.java.name)
-  private val fileLocks = Striped.lock(1024)
-  private val cleanupFlag = AtomicBoolean(false)
-
-  // increment on semantic changes in extract code to invalidate all current caches
-  private const val EXTRACT_CODE_VERSION = 5
-
-  // increment on semantic changes in download code to invalidate all current caches,
-  // e.g., when some issues in extraction code were fixed
-  private const val DOWNLOAD_CODE_VERSION = 3
+  data class Credentials(@JvmField val username: String, @JvmField val password: String)
 
   /**
    * Sets a tracer to get telemetry. E.g., it is set for build scripts to get opentelemetry events.
@@ -56,8 +64,9 @@ object BuildDependenciesDownloader {
   fun getDependencyProperties(communityRoot: BuildDependenciesCommunityRoot): DependenciesProperties = DependenciesProperties(communityRoot)
 
   @JvmStatic
-  fun getUriForMavenArtifact(mavenRepository: String, groupId: String, artifactId: String, version: String, packaging: String): URI =
-    getUriForMavenArtifact(mavenRepository, groupId, artifactId, version, classifier = null, packaging)
+  fun getUriForMavenArtifact(mavenRepository: String, groupId: String, artifactId: String, version: String, packaging: String): URI {
+    return getUriForMavenArtifact(mavenRepository = mavenRepository, groupId = groupId, artifactId = artifactId, version = version, classifier = null, packaging = packaging)
+  }
 
   @JvmStatic
   fun getUriForMavenArtifact(
@@ -74,8 +83,9 @@ object BuildDependenciesDownloader {
     return URI.create("${base}/${groupStr}/${artifactId}/${version}/${artifactId}-${version}${classifierStr}.${packaging}")
   }
 
-  private fun getProjectLocalDownloadCache(communityRoot: BuildDependenciesCommunityRoot): Path =
-    Files.createDirectories(communityRoot.communityRoot.resolve("build/download"))
+  private fun getProjectLocalDownloadCache(communityRoot: BuildDependenciesCommunityRoot): Path {
+    return Files.createDirectories(communityRoot.communityRoot.resolve("build/download"))
+  }
 
   private fun getDownloadCachePath(communityRoot: BuildDependenciesCommunityRoot): Path {
     val path: Path = if (TeamCityHelper.isUnderTeamCity) {
@@ -89,12 +99,14 @@ object BuildDependenciesDownloader {
   }
 
   @JvmStatic
-  fun downloadFileToCacheLocation(communityRoot: BuildDependenciesCommunityRoot, uri: URI): Path =
-    downloadFileToCacheLocationSync(uri.toString(), communityRoot)
+  fun downloadFileToCacheLocation(communityRoot: BuildDependenciesCommunityRoot, uri: URI): Path {
+    return downloadFileToCacheLocationSync(uri.toString(), communityRoot)
+  }
 
   @JvmStatic
-  fun downloadFileToCacheLocation(communityRoot: BuildDependenciesCommunityRoot, uri: URI, credentialsProvider: () -> Credentials): Path =
-    downloadFileToCacheLocationSync(uri.toString(), communityRoot, credentialsProvider)
+  fun downloadFileToCacheLocation(communityRoot: BuildDependenciesCommunityRoot, uri: URI, credentialsProvider: () -> Credentials): Path {
+    return downloadFileToCacheLocationSync(uri.toString(), communityRoot, credentialsProvider)
+  }
 
   fun getTargetFile(communityRoot: BuildDependenciesCommunityRoot, uriString: String): Path {
     val lastNameFromUri = uriString.substring(uriString.lastIndexOf('/') + 1)
@@ -117,9 +129,6 @@ object BuildDependenciesDownloader {
     extractFileWithFlagFileLocation(archiveFile, targetDirectory, flagFile, options)
     return targetDirectory
   }
-
-  private fun hashString(s: String): String =
-    BigInteger(1, Hashing.sha256().hashString(s, StandardCharsets.UTF_8).asBytes()).toString(36)
 
   private fun getExpectedFlagFileContent(
     archiveFile: Path,
@@ -237,14 +246,21 @@ options:${getExtractOptionsShortString(options)}
     }
   }
 
-  fun extractFile(
+  @Deprecated("Use BuildDependenciesDownloader.extractFile(communityRoot, archiveFile, options)", level = DeprecationLevel.ERROR)
+  fun extractFileSync(archiveFile: Path, target: Path, communityRoot: BuildDependenciesCommunityRoot) {
+    runBlocking {
+      extractFile(archiveFile, target, communityRoot)
+    }
+  }
+
+  suspend fun extractFile(
     archiveFile: Path,
     target: Path,
     communityRoot: BuildDependenciesCommunityRoot,
     vararg options: BuildDependenciesExtractOptions,
   ) {
     cleanUpIfRequired(communityRoot)
-    fileLocks.get(target).withLock {
+    fileLocks.getLock(target.toString()).withLock {
       // Extracting different archive files into the same target should overwrite the target each time.
       // That's why `flagFile` should be dependent only on the target location.
       val hash = hashString(target.toString()).substring(0, 6)
@@ -273,27 +289,46 @@ options:${getExtractOptionsShortString(options)}
     }
   }
 
-  private fun getExtractOptionsShortString(options: Array<out BuildDependenciesExtractOptions>): String {
-    if (options.isEmpty()) {
-      return ""
-    }
-    val sb = StringBuilder()
-    for (option in options) {
-      if (option === BuildDependenciesExtractOptions.STRIP_ROOT) {
-        sb.append("s")
-      }
-      else {
-        throw IllegalStateException("Unhandled case: $option")
-      }
-    }
-    return sb.toString()
-  }
-
-  private val extractCount = AtomicInteger()
-
   @TestOnly fun getExtractCount(): Int = extractCount.get()
 
   class HttpStatusException(message: String, @JvmField val statusCode: Int, val url: String) : IllegalStateException(message) {
     override fun toString(): String = "HttpStatusException(status=${statusCode}, url=${url}, message=${message})"
+  }
+}
+
+private fun getExtractOptionsShortString(options: Array<out BuildDependenciesExtractOptions>): String {
+  if (options.isEmpty()) {
+    return ""
+  }
+  val sb = StringBuilder()
+  for (option in options) {
+    if (option === BuildDependenciesExtractOptions.STRIP_ROOT) {
+      sb.append("s")
+    }
+    else {
+      throw IllegalStateException("Unhandled case: $option")
+    }
+  }
+  return sb.toString()
+}
+
+internal val sha2_256 by lazy(LazyThreadSafetyMode.PUBLICATION) { getMessageDigest("SHA-256") }
+private val sunSecurityProvider: Provider = java.security.Security.getProvider("SUN")
+private fun getMessageDigest(@Suppress("SameParameterValue") algorithm: String): MessageDigest {
+  return MessageDigest.getInstance(algorithm, sunSecurityProvider)
+}
+
+private fun hashString(s: String): String = BigInteger(1, cloneDigest(sha2_256).digest(s.toByteArray())).toString(36)
+
+/**
+ * Digest cloning is faster than requesting a new one from [MessageDigest.getInstance].
+ * This approach is used in Guava as well.
+ */
+internal fun cloneDigest(digest: MessageDigest): MessageDigest {
+  try {
+    return digest.clone() as MessageDigest
+  }
+  catch (_: CloneNotSupportedException) {
+    throw IllegalArgumentException("Message digest is not cloneable: $digest")
   }
 }

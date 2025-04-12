@@ -2,33 +2,26 @@
 package com.intellij.platform.searchEverywhere.frontend.tabs.actions
 
 import com.intellij.ide.IdeBundle
-import com.intellij.openapi.options.ObservableOptionEditor
+import com.intellij.ide.actions.searcheverywhere.CheckBoxSearchEverywhereToggleAction
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.util.Disposer
-import com.intellij.platform.searchEverywhere.SeFilterState
 import com.intellij.platform.searchEverywhere.SeItemData
 import com.intellij.platform.searchEverywhere.SeParams
 import com.intellij.platform.searchEverywhere.SeResultEvent
-import com.intellij.platform.searchEverywhere.frontend.SeTab
+import com.intellij.platform.searchEverywhere.frontend.*
+import com.intellij.platform.searchEverywhere.frontend.providers.actions.SeActionsFilter
 import com.intellij.platform.searchEverywhere.frontend.resultsProcessing.SeTabDelegate
-import com.intellij.platform.searchEverywhere.providers.actions.SeActionsFilterData
-import com.intellij.ui.dsl.builder.panel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import org.jetbrains.annotations.ApiStatus
-import javax.swing.JComponent
 
 @ApiStatus.Internal
 class SeActionsTab(private val delegate: SeTabDelegate): SeTab {
-  override val name: String
-    get() = IdeBundle.message("search.everywhere.group.name.actions")
-
-  override val shortName: String
-    get() = name
+  override val name: String get() = IdeBundle.message("search.everywhere.group.name.actions")
+  override val shortName: String get() = name
+  override val id: String get() = "ActionSearchEverywhereContributor"
 
   override fun getItems(params: SeParams): Flow<SeResultEvent> = delegate.getItems(params)
-  override fun getFilterEditor(): ObservableOptionEditor<SeFilterState> = SeActionsFilterEditor()
+  override fun getFilterEditor(): SeFilterEditor = SeActionsFilterEditor()
 
   override suspend fun itemSelected(item: SeItemData, modifiers: Int, searchText: String): Boolean {
     return delegate.itemSelected(item, modifiers, searchText)
@@ -39,30 +32,20 @@ class SeActionsTab(private val delegate: SeTabDelegate): SeTab {
   }
 }
 
-@ApiStatus.Internal
-class SeActionsFilterEditor : ObservableOptionEditor<SeFilterState> {
-  private var current: SeActionsFilterData? = null
-
-  private val _resultFlow: MutableStateFlow<SeFilterState?> = MutableStateFlow(current?.toFilterData())
-  override val resultFlow: StateFlow<SeFilterState?> = _resultFlow.asStateFlow()
-
-  override fun getComponent(): JComponent {
-    return panel {
-      row {
-        val checkBox = checkBox(IdeBundle.message("checkbox.disabled.included"))
-
-        checkBox.component.model.isSelected = current?.includeDisabled ?: false
-        checkBox.onChanged {
-          if (current?.includeDisabled != it.isSelected) {
-            current = SeActionsFilterData(it.isSelected)
-            _resultFlow.value = current?.toFilterData()
+private class SeActionsFilterEditor : SeFilterEditorBase<SeActionsFilter>(SeActionsFilter(false)) {
+  override fun getPresentation(): SeFilterPresentation {
+    return object : SeFilterActionsPresentation {
+      override fun getActions(): List<AnAction> {
+        return listOf<AnAction>(object : CheckBoxSearchEverywhereToggleAction(IdeBundle.message("checkbox.disabled.included")) {
+          override fun isEverywhere(): Boolean {
+            return filterValue.includeDisabled
           }
-        }
+
+          override fun setEverywhere(state: Boolean) {
+            filterValue = SeActionsFilter(state)
+          }
+        })
       }
     }
-  }
-
-  override fun result(): SeFilterState {
-    return resultFlow.value ?: SeFilterState.Empty
   }
 }

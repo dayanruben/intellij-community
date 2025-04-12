@@ -4,7 +4,6 @@ package com.intellij.java.codeInsight;
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.ExternalAnnotationsManager;
 import com.intellij.codeInsight.ModCommandAwareExternalAnnotationsManager;
-import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInsight.generation.actions.CommentByLineCommentAction;
 import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.codeInsight.intention.impl.AnnotateIntentionAction;
@@ -20,6 +19,8 @@ import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
@@ -125,9 +126,10 @@ public class AddAnnotationFixTest extends UsefulTestCase {
     final PsiFile file = myFixture.getFile();
     final Editor editor = myFixture.getEditor();
 
-    myFixture.launchAction(getAnnotateAction("NotNull"));
+    myFixture.launchAction(getAnnotateAction("NotNull").asIntention());
 
-    FileDocumentManager.getInstance().saveAllDocuments();
+    // Two ModChooseActions -- first for annotation name, second for annotation root; hence two times async task completion 
+    NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
     NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
 
     final PsiElement psiElement = file.findElementAt(editor.getCaretModel().getOffset());
@@ -153,7 +155,10 @@ public class AddAnnotationFixTest extends UsefulTestCase {
     assertNotAvailable("NotNull");
 
     assertFalse(((PsiMethod)getOwner()).isDeprecated());
-    myFixture.launchAction(getAnnotateAction("Deprecated"));
+    myFixture.launchAction(getAnnotateAction("Deprecated").asIntention());
+    // Two ModChooseActions -- first for annotation name, second for annotation root; hence two times async task completion 
+    NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
+    NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
     assertTrue(((PsiMethod)getOwner()).isDeprecated());
   }
 
@@ -276,19 +281,21 @@ public class AddAnnotationFixTest extends UsefulTestCase {
     myFixture.configureByFiles("lib/p/Test.java");
     final PsiMethod method = ((PsiJavaFile)myFixture.getFile()).getClasses()[0].getMethods()[0];
 
-    var manager = ModCommandAwareExternalAnnotationsManager.getInstance(myFixture.getProject());
+    Project project = myFixture.getProject();
+    var manager = ModCommandAwareExternalAnnotationsManager.getInstance(project);
     ModCommand command = manager.annotateExternallyModCommand(method, AnnotationUtil.NOT_NULL, null);
     VirtualFile parentDir = myFixture.getFile().getVirtualFile().getParent();
-    VirtualFile annoDir =
-      WriteCommandAction.runWriteCommandAction(
-        myFixture.getProject(),
-        (ThrowableComputable<VirtualFile, IOException>)() -> parentDir.createChildDirectory(this, "anno"));
+    VirtualFile annoDir = WriteCommandAction.runWriteCommandAction(
+      project,
+      (ThrowableComputable<VirtualFile, IOException>)() -> parentDir.createChildDirectory(this, "anno"));
     ModCommand withPath = ((ModEditOptions<?>)command).applyOptions(Map.of("myExternalAnnotationsRoot", annoDir.getPath()));
 
-    assertFalse(NullableNotNullManager.isNotNull(method));
+    assertNull(DumbService.getInstance(project)
+                 .computeWithAlternativeResolveEnabled(() -> manager.findExternalAnnotation(method, AnnotationUtil.NOT_NULL)));
     ModCommandExecutor.executeInteractively(ActionContext.from(null, myFixture.getFile()), "", null, () -> withPath);
     NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
-    assertTrue(NullableNotNullManager.isNotNull(method));
+    assertNotNull(DumbService.getInstance(project)
+                 .computeWithAlternativeResolveEnabled(() -> manager.findExternalAnnotation(method, AnnotationUtil.NOT_NULL)));
   }
 
   public void testListenerNotifiedOnExternalChanges() throws IOException {

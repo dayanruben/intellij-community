@@ -2,19 +2,25 @@ package com.intellij.terminal.backend
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import com.intellij.platform.kernel.ids.findValueById
-import com.intellij.platform.kernel.ids.storeValueGlobally
+import com.intellij.platform.kernel.backend.delete
+import com.intellij.platform.kernel.backend.findValueEntity
+import com.intellij.platform.kernel.backend.newValueEntity
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.terminal.session.TerminalCloseEvent
+import com.intellij.terminal.session.TerminalSession
 import com.intellij.util.AwaitCancellationAndInvoke
 import com.intellij.util.awaitCancellationAndInvoke
+import com.jediterm.core.util.TermSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.jetbrains.plugins.terminal.JBTerminalSystemSettingsProvider
 import org.jetbrains.plugins.terminal.ShellStartupOptions
 import org.jetbrains.plugins.terminal.block.reworked.session.TerminalSessionTab
+import org.jetbrains.plugins.terminal.block.reworked.session.rpc.TerminalPortForwardingId
 import org.jetbrains.plugins.terminal.block.reworked.session.rpc.TerminalSessionId
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -46,6 +52,7 @@ internal class TerminalTabsManager(private val project: Project, private val cor
       isUserDefinedName = false,
       shellCommand = null,
       sessionId = null,
+      portForwardingId = null,
     )
     updateTabsAndStore { tabs ->
       tabs[newTab.id] = newTab
@@ -54,20 +61,21 @@ internal class TerminalTabsManager(private val project: Project, private val cor
     return newTab
   }
 
-  suspend fun startTerminalSessionForTab(tabId: Int, options: ShellStartupOptions): TerminalSessionId {
+  suspend fun startTerminalSessionForTab(tabId: Int, options: ShellStartupOptions): TerminalSessionTab {
     return updateTabsAndStore { tabs ->
       val tab = tabs[tabId] ?: error("No TerminalSessionTab with ID: $tabId")
       val existingSessionId = tab.sessionId
       if (existingSessionId != null) {
-        return@updateTabsAndStore existingSessionId
+        return@updateTabsAndStore tab
       }
 
       val scope = coroutineScope.childScope("TerminalSession")
-      val (sessionId, configuredOptions) = startTerminalSession(options, scope)
+      val result = startTerminalSession(options, scope)
 
       val updatedTab = tab.copy(
-        shellCommand = configuredOptions.shellCommand,
-        sessionId = sessionId
+        shellCommand = result.configuredOptions.shellCommand,
+        sessionId = result.sessionId,
+        portForwardingId = result.portForwardingId,
       )
       tabs[tabId] = updatedTab
 
@@ -77,7 +85,7 @@ internal class TerminalTabsManager(private val project: Project, private val cor
         }
       }
 
-      sessionId
+      updatedTab
     }
   }
 
@@ -86,7 +94,7 @@ internal class TerminalTabsManager(private val project: Project, private val cor
       val tab = tabs[tabId] ?: return@updateTabsAndStore  // Already removed or never existed
       val sessionId = tab.sessionId
       if (sessionId != null) {
-        val session = findValueById(sessionId, type = TerminalSessionValueIdType)
+        val session = sessionId.eid.findValueEntity<TerminalSession>()?.value
         if (session == null) {
           // If the session is already removed, it means that close event was already sent to the session.
           // It's coroutine scope cancellation is in progress: we already removed the entity, but still not removed the tab.
@@ -115,13 +123,32 @@ internal class TerminalTabsManager(private val project: Project, private val cor
   /**
    * Returns ID of started terminal session and final options used for session start.
    */
-  private fun startTerminalSession(options: ShellStartupOptions, scope: CoroutineScope): Pair<TerminalSessionId, ShellStartupOptions> {
-    val (session, configuredOptions) = startTerminalSession(project, options, JBTerminalSystemSettingsProvider(), scope)
+  private suspend fun startTerminalSession(options: ShellStartupOptions, scope: CoroutineScope): TerminalSessionStartResult {
+    val termSize = options.initialTermSize ?: run {
+      LOG.warn("No initial terminal size provided, using default 80x24. $options")
+      TermSize(80, 24)
+    }
+    val optionsWithSize = options.builder().initialTermSize(termSize).build()
+
+    val (ttyConnector, configuredOptions) = startTerminalProcess(project, optionsWithSize)
+    val observableTtyConnector = ObservableTtyConnector(ttyConnector)
+    val session = createTerminalSession(project, observableTtyConnector, termSize, JBTerminalSystemSettingsProvider(), scope)
     val stateAwareSession = StateAwareTerminalSession(session)
 
-    val sessionId = storeValueGlobally(scope, stateAwareSession, type = TerminalSessionValueIdType)
+    val sessionEntity = newValueEntity(stateAwareSession)
 
-    return sessionId to configuredOptions
+    scope.awaitCancellationAndInvoke {
+      sessionEntity.delete()
+    }
+
+    val portForwardingScope = scope.childScope("PortForwarding")
+    val portForwardingId = TerminalPortForwardingManager.getInstance(project).setupPortForwarding(observableTtyConnector, portForwardingScope)
+
+    return TerminalSessionStartResult(
+      sessionId = TerminalSessionId(sessionEntity.id),
+      configuredOptions,
+      portForwardingId
+    )
   }
 
   private suspend fun <T> updateTabsAndStore(action: suspend (MutableMap<Int, TerminalSessionTab>) -> T): T {
@@ -151,13 +178,22 @@ internal class TerminalTabsManager(private val project: Project, private val cor
       isUserDefinedName = isUserDefinedName,
       shellCommand = shellCommand,
       sessionId = null,
+      portForwardingId = null,
     )
   }
+
+  private data class TerminalSessionStartResult(
+    val sessionId: TerminalSessionId,
+    val configuredOptions: ShellStartupOptions,
+    val portForwardingId: TerminalPortForwardingId?,
+  )
 
   companion object {
     @JvmStatic
     fun getInstance(project: Project): TerminalTabsManager {
       return project.service()
     }
+
+    private val LOG: Logger = logger<TerminalTabsManager>()
   }
 }

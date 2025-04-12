@@ -5,7 +5,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.util.SystemInfo
-import com.intellij.platform.eel.executeProcess
+import com.intellij.platform.eel.execute
 import com.intellij.platform.eel.getOrThrow
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.utils.readWholeText
@@ -44,11 +44,11 @@ import kotlin.time.Duration.Companion.minutes
 class SystemPythonServiceShowCaseTest {
 
   @Test
-  fun testListPythons(): Unit = timeoutRunBlocking {
+  fun testListPythons(): Unit = timeoutRunBlocking(10.minutes) {
     for (systemPython in SystemPythonService().findSystemPythons(forceRefresh = true)) {
       fileLogger().info("Python found: $systemPython")
       val eelApi = systemPython.pythonBinary.getEelDescriptor().upgrade()
-      val process = eelApi.exec.executeProcess(systemPython.pythonBinary.pathString, "--version").getOrThrow()
+      val process = eelApi.exec.execute(systemPython.pythonBinary.pathString, "--version").getOrThrow()
       val output = async {
         (if (systemPython.languageLevel.isPy3K) process.stdout else process.stderr).readWholeText().getOrThrow()
       }
@@ -59,18 +59,23 @@ class SystemPythonServiceShowCaseTest {
   }
 
   @Test
-  fun testCustomPythonRainyDay(): Unit = timeoutRunBlocking {
+  fun testCustomPythonRainyDay(): Unit = timeoutRunBlocking(10.minutes) {
     SystemPythonService().registerSystemPython(randomBinary).assertFail()
   }
 
   @Test
-  fun testCustomPythonSunnyDay(@PythonBinaryPath python: Path, @TempDir venvPath: Path): Unit = timeoutRunBlocking {
+  fun testCustomPythonSunnyDay(@PythonBinaryPath python: Path, @TempDir venvPath: Path): Unit = timeoutRunBlocking(10.minutes) {
     createVenv(python, venvPath).getOrThrow()
     val python = VirtualEnvReader.Instance.findPythonInPythonRoot(venvPath) ?: error("no python in $venvPath")
     val newPython = SystemPythonService().registerSystemPython(python).orThrow()
     var allPythons = SystemPythonService().findSystemPythons()
     assertThat("No newly registered python returned", allPythons, hasItem(newPython))
-    python.deleteExisting()
+    if (SystemInfo.isWindows) {
+      deleteCheckLocking(python)
+    }
+    else {
+      python.deleteExisting()
+    }
 
     allPythons = SystemPythonService().findSystemPythons(forceRefresh = true)
     assertThat("Broken python returned", allPythons, not(hasItem(newPython)))
@@ -81,7 +86,7 @@ class SystemPythonServiceShowCaseTest {
   }
 
   @Test
-  fun testRefresh(@TestDisposable disposable: Disposable): Unit = timeoutRunBlocking {
+  fun testRefresh(@TestDisposable disposable: Disposable): Unit = timeoutRunBlocking(10.minutes) {
     val mockProvider = mockk<SystemPythonProvider>()
     coEvery { mockProvider.findSystemPythons(any()) } returns Result.failure(java.lang.AssertionError("..."))
     coEvery { mockProvider.uiCustomization } returns null
@@ -98,7 +103,7 @@ class SystemPythonServiceShowCaseTest {
 
   @RegistryKey("python.system.refresh.minutes", "0")
   @Test
-  fun testDisableCache(@TestDisposable disposable: Disposable): Unit = timeoutRunBlocking {
+  fun testDisableCache(@TestDisposable disposable: Disposable): Unit = timeoutRunBlocking(10.minutes) {
     val timesToRepeat = 5
     val mockProvider = mockk<SystemPythonProvider>()
     coEvery { mockProvider.findSystemPythons(any()) } returns Result.success(emptySet())

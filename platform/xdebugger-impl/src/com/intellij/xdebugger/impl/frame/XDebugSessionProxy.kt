@@ -14,7 +14,6 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.xdebugger.XDebugSession
 import com.intellij.xdebugger.XDebugSessionListener
-import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.xdebugger.XSourcePosition
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator
@@ -53,6 +52,7 @@ interface XDebugSessionProxy {
   val isPaused: Boolean
   val isSuspended: Boolean
   val isReadOnly: Boolean
+  val isPauseActionSupported: Boolean
 
   val environmentProxy: ExecutionEnvironmentProxy?
 
@@ -62,6 +62,7 @@ interface XDebugSessionProxy {
   val currentEvaluator: XDebuggerEvaluator?
 
   fun getCurrentPosition(): XSourcePosition?
+  fun getTopFramePosition(): XSourcePosition?
   fun getFrameSourcePosition(frame: XStackFrame): XSourcePosition?
   fun getCurrentExecutionStack(): XExecutionStack?
   fun getCurrentStackFrame(): XStackFrame?
@@ -76,6 +77,7 @@ interface XDebugSessionProxy {
   fun putKey(sink: DataSink)
   fun updateExecutionPosition()
   fun onTabInitialized(tab: XDebugSessionTab)
+  fun createFileColorsCache(framesList: XDebuggerFramesList): XStackFramesListColorsCache
 
   companion object {
     @JvmField
@@ -83,6 +85,8 @@ interface XDebugSessionProxy {
 
     @JvmStatic
     fun useFeProxy(): Boolean = Registry.`is`("xdebugger.toolwindow.split")
+
+    fun showFeWarnings(): Boolean = Registry.`is`("xdebugger.toolwindow.split.warnings")
   }
 
   // TODO WeakReference<XDebugSession>?
@@ -123,6 +127,8 @@ interface XDebugSessionProxy {
       get() = (session as? XDebugSessionImpl)?.isReadOnly ?: false
     override val isSuspended: Boolean
       get() = session.isSuspended
+    override val isPauseActionSupported: Boolean
+      get() = (session as? XDebugSessionImpl)?.isPauseActionSupported() ?: false
 
     override val currentStateHyperlinkListener: HyperlinkListener?
       get() = session.debugProcess.currentStateHyperlinkListener
@@ -135,6 +141,10 @@ interface XDebugSessionProxy {
 
     override fun getCurrentPosition(): XSourcePosition? {
       return session.currentPosition
+    }
+
+    override fun getTopFramePosition(): XSourcePosition? {
+      return session.topFramePosition
     }
 
     override fun getFrameSourcePosition(frame: XStackFrame): XSourcePosition? {
@@ -190,12 +200,9 @@ interface XDebugSessionProxy {
     override fun onTabInitialized(tab: XDebugSessionTab) {
       (session as? XDebugSessionImpl)?.tabInitialized(tab)
     }
-  }
-}
 
-private class MonolithCurrentSessionProxyProvider : CurrentXDebugSessionProxyProvider {
-  override fun provideCurrentSessionProxy(project: Project): XDebugSessionProxy? {
-    val session = XDebuggerManager.getInstance(project)?.currentSession ?: return null
-    return XDebugSessionProxyKeeper.getInstance(project).getOrCreateProxy(session)
+    override fun createFileColorsCache(framesList: XDebuggerFramesList): XStackFramesListColorsCache {
+      return XStackFramesListColorsCache.Monolith(session as XDebugSessionImpl, framesList)
+    }
   }
 }

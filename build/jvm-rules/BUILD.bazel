@@ -56,11 +56,17 @@ jvm_import(
     jar = "@jps-standalone_http//file",
     source_jar = "@jps-standalone_http//file",
     visibility = [
-      "//src/jps-builder:__subpackages__",
+      "//src/jvm-builder:__subpackages__",
       "//src/jvm-builder-core:__subpackages__",
       "//src/jps-shadow:__subpackages__",
       "//src/kotlin/kotlin-builder:__subpackages__",
     ],
+)
+
+jvm_import(
+    name = "jps-javac-extension",
+    jar = "@jps-javac-extension//file",
+    visibility = ["//visibility:public"],
 )
 
 # jvm_import(
@@ -161,9 +167,61 @@ jvm_import(
 )
 
 jvm_import(
+    name = "hash4j",
+    jar = "@hash4j//file",
+    source_jar = "@hash4j-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "jackson-core",
+    jar = "@jackson-core//file",
+    source_jar = "@jackson-core-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "jackson-annotations",
+    jar = "@jackson-annotations//file",
+    source_jar = "@jackson-annotations-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "jackson-databind",
+    jar = "@jackson-databind//file",
+    source_jar = "@jackson-databind-sources//file",
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        ":jackson-annotations"
+    ],
+)
+
+jvm_import(
+    name = "caffeine",
+    jar = "@caffeine//file",
+    source_jar = "@caffeine-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
     name = "flatbuffers-java",
     jar = "@flatbuffers-java//file",
     source_jar = "@flatbuffers-java-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "h2-mvstore",
+    jar = "@h2-mvstore//file",
+    source_jar = "@h2-mvstore-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "qdox",
+    jar = "@qdox//file",
+    source_jar = "@qdox-sources//file",
     visibility = ["//visibility:public"],
 )
 
@@ -206,6 +264,48 @@ jvm_import(
     name = "arrow-memory-netty-buffer-patch",
     jar = "@arrow-memory-netty-buffer-patch//file",
     source_jar = "@arrow-memory-netty-buffer-patch-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "assertj-core",
+    jar = "@assertj-core//file",
+    source_jar = "@assertj-core-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "annotations",
+    jar = "@annotations//file",
+    source_jar = "@annotations-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "kotlin-stdlib",
+    jar = "@kotlin-stdlib//file",
+    source_jar = "@kotlin-stdlib-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "kotlinx-collections-immutable",
+    jar = "@kotlinx-collections-immutable-jvm//file",
+    source_jar = "@kotlinx-collections-immutable-jvm-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "slf4j-api",
+    jar = "@slf4j-api//file",
+    source_jar = "@slf4j-api-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "log4j-over-slf4j",
+    jar = "@log4j-over-slf4j//file",
+    source_jar = "@log4j-over-slf4j-sources//file",
     visibility = ["//visibility:public"],
 )
 
@@ -347,9 +447,30 @@ jvm_import(
 )
 
 jvm_import(
+    name = "kotlinx-coroutines-core",
+    jar = "@kotlinx-coroutines-core-jvm//file",
+    source_jar = "@kotlinx-coroutines-core-jvm-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
     name = "expects-compiler-plugin",
     jar = "@expects-compiler-plugin//file",
     source_jar = "@expects-compiler-plugin-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "asm-all",
+    jar = "@asm-all//file",
+    source_jar = "@asm-all-sources//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "intellij-deps-fastutil",
+    jar = "@intellij-deps-fastutil//file",
+    source_jar = "@intellij-deps-fastutil-sources//file",
     visibility = ["//visibility:public"],
 )
 

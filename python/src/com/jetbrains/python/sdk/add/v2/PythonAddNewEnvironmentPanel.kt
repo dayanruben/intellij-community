@@ -5,7 +5,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
-import com.intellij.openapi.components.service
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.observable.properties.PropertyGraph
 import com.intellij.openapi.observable.util.and
@@ -14,14 +13,12 @@ import com.intellij.openapi.observable.util.or
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.openapi.ui.popup.Balloon
-import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.validation.WHEN_PROPERTY_CHANGED
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
-import com.intellij.ui.JBColor
-import com.intellij.ui.awt.RelativePoint
+import com.intellij.ui.GotItTooltip
 import com.intellij.ui.dsl.builder.*
+import com.intellij.ui.dsl.builder.components.SegmentedButtonComponent
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.showingScope
 import com.jetbrains.python.PyBundle.message
@@ -47,6 +44,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import javax.swing.JComponent
+import javax.swing.JPanel
 
 /**
  * If `onlyAllowedInterpreterTypes` then only these types are displayed. All types displayed otherwise
@@ -103,8 +102,6 @@ internal class PythonAddNewEnvironmentPanel(
 
     val validationRequestor = WHEN_PROPERTY_CHANGED(selectedMode)
 
-
-
     with(outerPanel) {
       if (allowedInterpreterTypes.size > 1) { // No need to show control with only one selection
         row(message("sdk.create.interpreter.type")) {
@@ -159,41 +156,37 @@ internal class PythonAddNewEnvironmentPanel(
     model.scope.launch(Dispatchers.EDT + modalityState) {
       initMutex.withLock {
         if (!initialized) {
-          model.initialize()
+          model.initialize(null)
           pythonBaseVersionComboBox.setItems(model.baseInterpreters)
           custom.onShown()
           updateVenvLocationHint()
           model.navigator.restoreLastState(allowedInterpreterTypes)
           initialized = true
 
-          val state = PythonAddNewEnvironmentState.getInstance()
+          val customButton = popupAnchor
+            .component
+            .parent
+            .components
+            ?.find { it is SegmentedButtonComponent<*> }
+            ?.let { it as JPanel }
+            ?.components[2] as? JComponent
 
-          if (state.isFirstVisit) {
-            JBPopupFactory.getInstance()
-              .createHtmlTextBalloonBuilder(
-                message("sdk.create.custom.uv.promo"),
-                null,
-                JBColor.namedColor("GotItTooltip.foreground"),
-                JBColor.namedColor("GotItTooltip.background"),
-                null,
-              )
-              .setBorderColor(JBColor.namedColor("GotItTooltip.borderColor"))
-              .setFadeoutTime(15_000)
-              .setClickHandler(
-                {
-                  selectedMode.set(CUSTOM)
-                  custom.newInterpreterManager.set(UV)
-                },
-                true
-              )
-              .createBalloon()
-              .show(
-                RelativePoint.getCenterOf(popupAnchor.component),
-                Balloon.Position.atRight
-              )
-
-            state.isFirstVisit = false
+          if (customButton == null) {
+            return@withLock
           }
+
+          lateinit var popup: GotItTooltip
+          popup = GotItTooltip("python.uv.promo.tooltip", message("sdk.create.custom.uv.promo.text"))
+            .withShowCount(1)
+            .withLink(message("sdk.create.custom.uv.promo.link")) {
+              selectedMode.set(CUSTOM)
+              custom.newInterpreterManager.set(UV)
+              popup.gotIt()
+              popup.hidePopup()
+            }
+            .withTimeout(15_000)
+
+          popup.show(customButton, GotItTooltip.BOTTOM_MIDDLE)
         }
       }
     }

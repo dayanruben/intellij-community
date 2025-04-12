@@ -6,8 +6,7 @@ kt_jvm_library(
     srcs = glob(["**/*.kt"]),
     kotlinc_opts = "//:rules_jvm_bootstrap_kotlinc_options",
     deps = [
-        "@lib//:kotlin-stdlib",
-        "@lib//:kotlinx-coroutines-core",
+        "//:kotlinx-coroutines-core",
         "//:opentelemetry-api",
         "//:opentelemetry-context",
         "//:collection",
@@ -15,7 +14,7 @@ kt_jvm_library(
         "//zip",
         "//:arrow-vector",
         "//:arrow-memory-core",
-        "@lib//:jetbrains-annotations",
+        "//:annotations",
     ],
     visibility = ["//visibility:public"],
 )

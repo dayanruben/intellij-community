@@ -7,6 +7,7 @@ import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.ide.rpc.BackendDocumentId
 import com.intellij.ide.rpc.FrontendDocumentId
 import com.intellij.ide.ui.icons.IconId
+import com.intellij.ide.vfs.VirtualFileId
 import com.intellij.platform.rpc.Id
 import com.intellij.platform.rpc.RemoteApiProviderService
 import com.intellij.platform.rpc.UID
@@ -29,6 +30,8 @@ import org.jetbrains.annotations.ApiStatus
 interface XDebugSessionApi : RemoteApi<Unit> {
   suspend fun currentSourcePosition(sessionId: XDebugSessionId): Flow<XSourcePositionDto?>
 
+  suspend fun topSourcePosition(sessionId: XDebugSessionId): Flow<XSourcePositionDto?>
+
   suspend fun currentSessionState(sessionId: XDebugSessionId): Flow<XDebugSessionState>
 
   suspend fun createDocument(frontendDocumentId: FrontendDocumentId, sessionId: XDebugSessionId, expression: XExpressionDto, sourcePosition: XSourcePositionDto?, evaluationMode: EvaluationMode): BackendDocumentId?
@@ -41,6 +44,12 @@ interface XDebugSessionApi : RemoteApi<Unit> {
 
   suspend fun stepOver(sessionId: XDebugSessionId, ignoreBreakpoints: Boolean)
 
+  suspend fun stepOut(sessionId: XDebugSessionId)
+
+  suspend fun forceStepInto(sessionId: XDebugSessionId)
+
+  suspend fun runToPosition(sessionId: XDebugSessionId, sourcePositionDto: XSourcePositionDto, ignoreBreakpoints: Boolean)
+
   suspend fun triggerUpdate(sessionId: XDebugSessionId)
 
   suspend fun updateExecutionPosition(sessionId: XDebugSessionId)
@@ -50,6 +59,11 @@ interface XDebugSessionApi : RemoteApi<Unit> {
   suspend fun setCurrentStackFrame(sessionId: XDebugSessionId, executionStackId: XExecutionStackId, frameId: XStackFrameId, isTopFrame: Boolean)
 
   suspend fun computeExecutionStacks(suspendContextId: XSuspendContextId): Flow<XExecutionStacksEvent>
+
+  suspend fun getFileColorsFlow(sessionId: XDebugSessionId): Flow<XFileColorDto>
+  suspend fun scheduleFileColorComputation(sessionId: XDebugSessionId, virtualFileId: VirtualFileId)
+
+  suspend fun showExecutionPoint(sessionId: XDebugSessionId)
 
   companion object {
     @JvmStatic

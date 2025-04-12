@@ -3,33 +3,25 @@ package com.intellij.platform.eel.provider.utils
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
-import com.intellij.platform.eel.EelResult
-import com.intellij.platform.eel.LocalEelApi
 import com.intellij.platform.eel.fs.createTemporaryDirectory
 import com.intellij.platform.eel.fs.createTemporaryFile
-import com.intellij.platform.eel.getOrThrow
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.platform.eel.provider.getEelDescriptor
-import com.intellij.platform.eel.provider.upgradeBlocking
-import com.intellij.platform.eel.provider.utils.EelPathUtils.calculateFileHashUsingMetadata
-import com.intellij.util.awaitCancellationAndInvoke
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import java.io.IOException
 import java.net.URI
 import java.nio.ByteBuffer
@@ -37,6 +29,7 @@ import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption.*
 import java.nio.file.attribute.BasicFileAttributeView
 import java.nio.file.attribute.BasicFileAttributes
@@ -140,132 +133,111 @@ object EelPathUtils {
   }
 
   /**
-   * Transfers contents of a directory or file at [source] to [sink].
-   * This function works efficiently when [source] and [sink] located on different environments.
+   * Represents a target location for transferring content.
    *
-   * @param sink the required location for the file. If it is `null`, then a temporary directory will be created.
-   * @return the path which contains the transferred data. Sometimes this value can coincide with [source] if the [sink]
+   * Implementations:
+   * - [TransferTarget.Explicit]: A target defined by an explicit [Path].
+   * - [TransferTarget.Temporary]: A target that is generated as a temporary location based on an [EelDescriptor].
    */
-  @JvmStatic
-  fun transferContentsIfNonLocal(eel: EelApi, source: Path, sink: Path? = null): Path {
-    if (eel is LocalEelApi) return source
-    if (source.getEelDescriptor() !is LocalEelDescriptor) {
-      if (sink != null && source.getEelDescriptor() != sink.getEelDescriptor()) {
-        throw UnsupportedOperationException("Transferring between different Eels is not supported yet")
-      }
-      return source
-    }
-    // todo: intergrate checksums here so that files could be refreshed in case of changes
+  sealed interface TransferTarget {
+    /**
+     * Represents an explicit target for content transfer.
+     *
+     * @property path The explicit [Path] where the content should be transferred.
+     */
+    data class Explicit(val path: Path) : TransferTarget
 
-    if (sink != null) {
-      if (!Files.exists(sink)) {
-        walkingTransfer(source, sink, false, true)
-      }
-      return sink
-    }
-    else {
-      val temp = runBlockingMaybeCancellable { eel.createTempFor(source, false) }
-
-      walkingTransfer(source, temp, false, true)
-
-      return temp
-    }
+    /**
+     * Represents a temporary target for content transfer.
+     *
+     * The target is determined based on the provided [EelDescriptor]. A temporary location will be created
+     * in the remote environment using the descriptor information.
+     *
+     * @property descriptor The [EelDescriptor] to be used for creating a temporary target.
+     */
+    data class Temporary(val descriptor: EelDescriptor) : TransferTarget
   }
 
   /**
-   * Transfers a local file to a remote temporary environment if required.
+   * @deprecated Use [transferLocalContentToRemote] instead.
+   */
+  @ApiStatus.Obsolete
+  @JvmStatic
+  @JvmOverloads
+  fun transferContentsIfNonLocal(
+    eel: EelApi,
+    source: Path,
+    sink: Path? = null,
+    fileAttributesStrategy: FileTransferAttributesStrategy = FileTransferAttributesStrategy.Copy,
+  ): Path {
+    return transferLocalContentToRemote(source, if (sink != null) TransferTarget.Explicit(sink) else TransferTarget.Temporary(eel.descriptor), fileAttributesStrategy)
+  }
+
+  /**
+   * Synchronizes (transfers) local content from [source] to a remote environment.
    *
-   * This function is useful for transferring files that are located on the local machine
-   * to a remote environment. It can be particularly helpful for files stored in plugin
-   * resources, such as:
+   * If the source is already non-local, no transfer is performed and the original [source] is returned.
+   * For a local source, content is transferred based on the [target]:
+   * - If [target] is [TransferTarget.Temporary], a temporary location is created in the remote environment.
+   * - If [target] is [TransferTarget.Explicit], content is transferred to the explicit target [Path].
    *
-   * ```kotlin
-   * Path.of(PathManager.getPluginsPath()).resolve(pluginId)
-   * ```
+   * The file attributes are managed according to [fileAttributesStrategy].
    *
-   * ### Behavior:
-   * - If the file is **not local**, an exception will be thrown.
-   * - If the `eel` is a local environment (`LocalEelApi`), the function directly returns the source as an [EelPath].
-   * - If the file needs to be transferred to a remote environment:
-   *   - A temporary directory is created on the remote environment.
-   *   - The file is transferred into the temporary directory.
-   *   - The temporary directory will be automatically deleted upon exit.
-   *
-   * ### Hash Calculation:
-   * - **Purpose:** A SHA-256 hash is computed for the source file to determine whether its content has changed,
-   *   thereby avoiding unnecessary transfers.
-   * - **Mechanism:** The hash is computed using [calculateFileHashUsingMetadata], which calculates a SHA-256 digest
-   *   based solely on the file's metadata (including file size, last modified time, creation time, and file key).
-   *   This fast, metadata-based approach minimizes I/O overhead while detecting meaningful changes.
-   * - A hash cache is maintained to map source files to their computed hashes, reducing redundant transfers.
-   *
-   * ### Parameters:
-   * @param eel the [EelApi] instance representing the target environment (local or remote).
-   * @param source the [Path] of the file to be transferred.
-   *
-   * ### Returns:
-   * An [EelPath] representing the source file's location in the target environment.
-   *
-   * ### Exceptions:
-   * - Throws [IllegalStateException] if the source file is not local.
-   *
-   * ### Example:
-   * ```kotlin
-   * val eel: EelApi = ...
-   * val sourcePath = Path.of("/path/to/local/file.txt")
-   *
-   * val eelPath = transferLocalContentToRemoteTempIfNeeded(eel, sourcePath)
-   * println("File transferred to: $eelPath")
-   * ```
-   *
-   * ### Internal Details:
-   * The function uses the [TransferredContentHolder] to manage caching and file transfers.
-   * The file hash is computed using [calculateFileHashUsingMetadata] to detect changes based on metadata,
-   * thereby minimizing unnecessary transfers.
-   *
-   * ### See Also:
-   * - [TransferredContentHolder]: For detailed caching and transfer mechanisms.
-   * - [MessageDigest]: For hash calculation.
+   * @param source the local source [Path] whose content is to be synchronized.
+   * @param target the transfer target, which can be explicit ([TransferTarget.Explicit]) or temporary ([TransferTarget.Temporary]).
+   * @param fileAttributesStrategy strategy for handling file attributes during transfer (default is [FileTransferAttributesStrategy.Copy]).
+   * @return a [Path] pointing to the location of the synchronized content in the remote environment.
    */
   @JvmStatic
   @JvmOverloads
-  fun transferLocalContentToRemoteTempIfNeeded(
-    eel: EelApi,
+  fun transferLocalContentToRemote(
     source: Path,
+    target: TransferTarget,
     fileAttributesStrategy: FileTransferAttributesStrategy = FileTransferAttributesStrategy.Copy,
-  ): EelPath {
-    val sourceDescriptor = source.getEelDescriptor()
-
-    check(sourceDescriptor is LocalEelDescriptor)
-
-    if (eel is LocalEelApi) {
-      return source.asEelPath()
+  ): Path {
+    if (source.getEelDescriptor() !== LocalEelDescriptor) {
+      return source
     }
 
-    return runBlockingMaybeCancellable {
-      service<TransferredContentHolder>().transferIfNeeded(eel, source, fileAttributesStrategy).asEelPath()
-    }
-  }
+    return when (target) {
+      is TransferTarget.Temporary -> {
+        if (target.descriptor === LocalEelDescriptor) {
+          return source
+        }
 
-  @JvmStatic
-  fun transferFileIfNonLocal(source: Path, remotePath: Path) {
-    val sourceDescriptor = source.getEelDescriptor()
-
-    check(sourceDescriptor is LocalEelDescriptor)
-
-    val sourceHash = calculateFileHashUsingPartialContent(source)
-
-    val remoteHash = if (Files.exists(remotePath)) {
-      calculateFileHashUsingPartialContent(remotePath)
-    }
-    else {
-      ""
-    }
-    if (sourceHash != remoteHash) {
-      if (remoteHash.isNotEmpty()) {
-        Files.delete(remotePath)
+        runBlockingMaybeCancellable {
+          service<TransferredContentHolder>().transferIfNeeded(target.descriptor.upgrade(), source, fileAttributesStrategy)
+        }
       }
-      transferContentsIfNonLocal(remotePath.getEelDescriptor().upgradeBlocking(), source, remotePath)
+      is TransferTarget.Explicit -> {
+        val sink = target.path
+
+        if (source.isDirectory()) { // todo: use checksums for directories?
+          if (!Files.exists(sink)) {
+            walkingTransfer(source, sink, false, fileAttributesStrategy)
+          }
+
+          sink
+        }
+        else {
+          val remoteHash = if (Files.exists(sink)) calculateFileHashUsingPartialContent(sink) else ""
+          val sourceHash = calculateFileHashUsingPartialContent(source)
+
+          if (sourceHash != remoteHash) {
+            val tempSink = sink.resolveSibling(sink.fileName.toString() + ".part")
+
+            try {
+              walkingTransfer(source, tempSink, false, fileAttributesStrategy)
+              Files.move(tempSink, sink, StandardCopyOption.REPLACE_EXISTING)
+            }
+            finally {
+              Files.delete(tempSink)
+            }
+          }
+
+          sink
+        }
+      }
     }
   }
 
@@ -432,6 +404,7 @@ object EelPathUtils {
     return someEelPath.asNioPath()
   }
 
+  @Internal
   @RequiresBackgroundThread
   fun walkingTransfer(sourceRoot: Path, targetRoot: Path, removeSource: Boolean, copyAttributes: Boolean) {
     val fileAttributesStrategy = if (copyAttributes) FileTransferAttributesStrategy.Copy else FileTransferAttributesStrategy.Skip
@@ -466,7 +439,7 @@ object EelPathUtils {
   }
 
   @RequiresBackgroundThread
-  fun walkingTransfer(sourceRoot: Path, targetRoot: Path, removeSource: Boolean, fileAttributesStrategy: FileTransferAttributesStrategy) {
+  private fun walkingTransfer(sourceRoot: Path, targetRoot: Path, removeSource: Boolean, fileAttributesStrategy: FileTransferAttributesStrategy) {
     val shouldObtainExtendedAttributes = when (fileAttributesStrategy) {
       FileTransferAttributesStrategy.Skip -> false
       is FileTransferAttributesStrategy.SourceAware -> true
@@ -688,36 +661,6 @@ object EelPathUtils {
       from.lastAccessTime(),
       from.creationTime(),
     )
-  }
-
-  suspend fun maybeUploadPath(scope: CoroutineScope, path: Path, target: EelDescriptor): EelPath {
-    val originalPath = path.asEelPath()
-
-    if (originalPath.descriptor == target) {
-      return originalPath
-    }
-
-    val eelApi = target.upgrade()
-
-    val tmpDir = eelApi.fs.createTemporaryDirectory()
-      .prefix(path.fileName.toString())
-      .suffix("eel")
-      .deleteOnExit(true)
-      .getOrThrow()
-    val referencedPath = tmpDir.resolve(path.name)
-
-    withContext(Dispatchers.IO) {
-      walkingTransfer(path, referencedPath.asNioPath(), removeSource = false, copyAttributes = true)
-    }
-
-    scope.awaitCancellationAndInvoke {
-      when (val result = eelApi.fs.delete(tmpDir, true)) {
-        is EelResult.Ok -> Unit
-        is EelResult.Error -> thisLogger().warn("Failed to delete temporary directory $tmpDir: ${result.error}")
-      }
-    }
-
-    return referencedPath
   }
 }
 

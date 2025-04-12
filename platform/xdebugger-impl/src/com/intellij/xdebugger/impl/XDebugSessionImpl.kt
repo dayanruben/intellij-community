@@ -52,6 +52,8 @@ import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointUtil.getShortText
 import com.intellij.xdebugger.impl.breakpoints.XDependentBreakpointListener
 import com.intellij.xdebugger.impl.evaluate.ValueLookupManagerController
+import com.intellij.xdebugger.impl.frame.FileColorsComputer
+import com.intellij.xdebugger.impl.frame.XDebugSessionProxy.Companion.showFeWarnings
 import com.intellij.xdebugger.impl.frame.XDebugSessionProxy.Companion.useFeProxy
 import com.intellij.xdebugger.impl.frame.XDebugSessionProxyKeeper
 import com.intellij.xdebugger.impl.frame.XValueMarkers
@@ -111,8 +113,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
   private var myAlternativeSourceHandler: XAlternativeSourceHandler? = null
   private var myIsTopFrame = false
 
-  @Volatile
-  private var myTopStackFrame: XStackFrame? = null
+  private val myTopStackFrame = MutableStateFlow<XStackFrame?>(null)
   private val myPaused = MutableStateFlow<Boolean>(false)
   private var myValueMarkers: XValueMarkers<*, *>? = null
   private val mySessionName: @Nls String = sessionName
@@ -137,6 +138,8 @@ class XDebugSessionImpl @JvmOverloads constructor(
   private val myIcon: Icon? = icon
   private val myCurrentStackFrameManager = XDebugSessionCurrentStackFrameManager()
   private val executionStackFlow = MutableStateFlow<Ref<XExecutionStack?>>(Ref.create(null))
+  @get:ApiStatus.Internal
+  val fileColorsComputer: FileColorsComputer = FileColorsComputer(project, coroutineScope)
 
   var currentExecutionStack: XExecutionStack?
     get() = executionStackFlow.value.get()
@@ -190,8 +193,12 @@ class XDebugSessionImpl @JvmOverloads constructor(
   val tabInitDataFlow: Flow<XDebuggerSessionTabAbstractInfo?>
     get() = myTabInitDataFlow
 
+  @get:ApiStatus.Internal
+  val topFrameFlow: Flow<XStackFrame?>
+    get() = myTopStackFrame
+
   override fun getRunContentDescriptor(): RunContentDescriptor {
-    if (useFeProxy()) {
+    if (useFeProxy() && showFeWarnings()) {
       LOG.error("RunContentDescriptor should not be used in split mode from XDebugSession")
     }
     val descriptor = myRunContentDescriptor
@@ -320,7 +327,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
   }
 
   override fun getTopFramePosition(): XSourcePosition? {
-    return getFrameSourcePosition(myTopStackFrame)
+    return getFrameSourcePosition(myTopStackFrame.value)
   }
 
   fun getFrameSourcePosition(frame: XStackFrame?): XSourcePosition? {
@@ -406,7 +413,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
 
   val sessionTab: XDebugSessionTab?
     get() {
-      if (useFeProxy()) {
+      if (useFeProxy() && showFeWarnings()) {
         LOG.error("Debug tab should not be used in split mode from XDebugSession")
       }
       return mySessionTab
@@ -710,7 +717,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
     suspendContextFlow.value = null
     this.currentExecutionStack = null
     myCurrentStackFrameManager.setCurrentStackFrame(null)
-    myTopStackFrame = null
+    myTopStackFrame.value = null
     clearActiveNonLineBreakpoint()
     updateExecutionPosition()
   }
@@ -986,7 +993,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
     val newCurrentStackFrame = if (this.currentExecutionStack != null) currentExecutionStack!!.getTopFrame() else null
     myCurrentStackFrameManager.setCurrentStackFrame(newCurrentStackFrame)
     myIsTopFrame = true
-    myTopStackFrame = newCurrentStackFrame
+    myTopStackFrame.value = newCurrentStackFrame
     val topFramePosition = getTopFramePosition()
 
     val isSteppingSuspendContext = suspendContext is XSteppingSuspendContext

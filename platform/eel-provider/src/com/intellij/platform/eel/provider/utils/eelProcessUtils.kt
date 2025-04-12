@@ -62,10 +62,6 @@ suspend fun EelProcess.awaitProcessResult(): EelProcessExecutionResult {
   }
 }
 
-suspend fun EelExecApi.where(exe: String): EelPath? {
-  return this.findExeFilesInPath(exe).firstOrNull()
-}
-
 /**
  * Given [this] is a binary, executes it with [args] and returns either [EelExecApi.ExecuteProcessError] (couldn't execute) or
  * [ProcessOutput] as a result of the execution.
@@ -78,7 +74,7 @@ suspend fun EelExecApi.where(exe: String): EelPath? {
 @ApiStatus.Experimental
 suspend fun Path.exec(vararg args: String, timeout: Duration = Int.MAX_VALUE.days): EelResult<EelProcessExecutionResult, EelExecApi.ExecuteProcessError?> {
 
-  val process = getEelDescriptor().upgrade().exec.executeProcess(pathString, *args).getOr { return it }
+  val process = getEelDescriptor().upgrade().exec.execute(pathString, *args).eelIt().getOr { return it }
   val output = withTimeoutOrNull(timeout) {
     process.awaitProcessResult()
   }

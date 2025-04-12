@@ -4,28 +4,45 @@ package com.intellij.platform.debugger.impl.backend
 import com.intellij.ide.rpc.BackendDocumentId
 import com.intellij.ide.rpc.FrontendDocumentId
 import com.intellij.ide.rpc.bindToFrontend
+import com.intellij.ide.ui.colors.rpcId
+import com.intellij.ide.ui.icons.IconId
 import com.intellij.ide.ui.icons.rpcId
+import com.intellij.ide.vfs.VirtualFileId
+import com.intellij.ide.vfs.rpcId
+import com.intellij.ide.vfs.virtualFile
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.ui.ColoredTextContainer
+import com.intellij.ui.SimpleTextAttributes
 import com.intellij.xdebugger.evaluation.EvaluationMode
 import com.intellij.xdebugger.frame.XExecutionStack
 import com.intellij.xdebugger.frame.XStackFrame
 import com.intellij.xdebugger.frame.XSuspendContext
+import com.intellij.xdebugger.impl.frame.ColorState
+import com.intellij.xdebugger.impl.frame.XDebuggerFramesList
 import com.intellij.xdebugger.impl.rpc.*
 import com.intellij.xdebugger.impl.rpc.models.findValue
-import com.intellij.xdebugger.impl.rpc.models.storeGlobally
+import com.intellij.xdebugger.impl.rpc.models.getOrStoreGlobally
 import fleet.rpc.core.toRpc
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
+import javax.swing.Icon
 
 internal class BackendXDebugSessionApi : XDebugSessionApi {
   override suspend fun currentSourcePosition(sessionId: XDebugSessionId): Flow<XSourcePositionDto?> {
     val session = sessionId.findValue() ?: return emptyFlow()
     return session.getCurrentPositionFlow().map { sourcePosition ->
       sourcePosition?.toRpc()
+    }
+  }
+
+  override suspend fun topSourcePosition(sessionId: XDebugSessionId): Flow<XSourcePositionDto?> {
+    val session = sessionId.findValue() ?: return emptyFlow()
+    return session.topFrameFlow.map {
+      session.topFramePosition?.toRpc()
     }
   }
 
@@ -78,6 +95,27 @@ internal class BackendXDebugSessionApi : XDebugSessionApi {
     }
   }
 
+  override suspend fun stepOut(sessionId: XDebugSessionId) {
+    val session = sessionId.findValue() ?: return
+    withContext(Dispatchers.EDT) {
+      session.stepOut()
+    }
+  }
+
+  override suspend fun forceStepInto(sessionId: XDebugSessionId) {
+    val session = sessionId.findValue() ?: return
+    withContext(Dispatchers.EDT) {
+      session.forceStepInto()
+    }
+  }
+
+  override suspend fun runToPosition(sessionId: XDebugSessionId, sourcePositionDto: XSourcePositionDto, ignoreBreakpoints: Boolean) {
+    val session = sessionId.findValue() ?: return
+    withContext(Dispatchers.EDT) {
+      session.runToPosition(sourcePositionDto.sourcePosition(), ignoreBreakpoints)
+    }
+  }
+
   override suspend fun triggerUpdate(sessionId: XDebugSessionId) {
     val session = sessionId.findValue() ?: return
     withContext(Dispatchers.EDT) {
@@ -116,7 +154,7 @@ internal class BackendXDebugSessionApi : XDebugSessionApi {
         override fun addExecutionStack(executionStacks: List<XExecutionStack>, last: Boolean) {
           val session = suspendContextModel.session
           val stacks = executionStacks.map { stack ->
-            val id = stack.storeGlobally(suspendContextModel.coroutineScope, session)
+            val id = stack.getOrStoreGlobally(suspendContextModel.coroutineScope, session)
             XExecutionStackDto(id, stack.displayName, stack.icon?.rpcId())
           }
           trySend(XExecutionStacksEvent.NewExecutionStacks(stacks, last))
@@ -132,6 +170,35 @@ internal class BackendXDebugSessionApi : XDebugSessionApi {
       awaitClose()
     }.buffer(Channel.UNLIMITED)
   }
+
+  override suspend fun getFileColorsFlow(sessionId: XDebugSessionId): Flow<XFileColorDto> {
+    val session = sessionId.findValue() ?: return emptyFlow()
+    return channelFlow {
+      session.fileColorsComputer.fileColors.collect { (virtualFile, colorState) ->
+        val serializedState = when (colorState) {
+          is ColorState.Computed -> SerializedColorState.Computed(colorState.color.rpcId())
+          ColorState.Computing -> SerializedColorState.Computing
+          ColorState.NoColor -> SerializedColorState.NoColor
+        }
+        // TODO[IJPL-177087]: send in batches to optimize throughput?
+        send(XFileColorDto(virtualFile.rpcId(), serializedState))
+      }
+    }
+  }
+
+  override suspend fun scheduleFileColorComputation(sessionId: XDebugSessionId, virtualFileId: VirtualFileId) {
+    val session = sessionId.findValue() ?: return
+    val file = virtualFileId.virtualFile() ?: return
+    // TODO[IJPL-177087]: collect in batches to optimize throughput?
+    session.fileColorsComputer.sendRequest(file)
+  }
+
+  override suspend fun showExecutionPoint(sessionId: XDebugSessionId) {
+    val session = sessionId.findValue() ?: return
+    withContext(Dispatchers.EDT) {
+      session.showExecutionPoint()
+    }
+  }
 }
 
 internal fun createXStackFrameDto(frame: XStackFrame, id: XStackFrameId): XStackFrameDto {
@@ -142,5 +209,47 @@ internal fun createXStackFrameDto(frame: XStackFrame, id: XStackFrameId): XStack
   }
   val canEvaluateInDocument = frame.isDocumentEvaluator
   val evaluatorDto = XDebuggerEvaluatorDto(canEvaluateInDocument)
-  return XStackFrameDto(id, frame.sourcePosition?.toRpc(), serializedEqualityObject, evaluatorDto)
+  return XStackFrameDto(id, frame.sourcePosition?.toRpc(), serializedEqualityObject, evaluatorDto, frame.initialPresentation(),
+                        frame.captionInfo(), frame.customBackgroundInfo())
 }
+
+private fun XStackFrame.captionInfo(): XStackFrameCaptionInfo {
+  return if (this is XDebuggerFramesList.ItemWithSeparatorAbove) {
+    XStackFrameCaptionInfo(hasSeparatorAbove(), captionAboveOf)
+  }
+  else {
+    XStackFrameCaptionInfo.noInfo
+  }
+}
+
+private fun XStackFrame.customBackgroundInfo(): XStackFrameCustomBackgroundInfo? {
+  if (this !is XDebuggerFramesList.ItemWithCustomBackgroundColor) {
+    return null
+  }
+  return XStackFrameCustomBackgroundInfo(backgroundColor?.rpcId())
+}
+
+private fun XStackFrame.initialPresentation(): XStackFramePresentation {
+  val parts = mutableListOf<XStackFramePresentationFragment>()
+  var iconId: IconId? = null
+  var tooltip: String? = null
+  customizePresentation(object : ColoredTextContainer {
+    override fun append(fragment: @NlsContexts.Label String, attributes: SimpleTextAttributes) {
+      parts += XStackFramePresentationFragment(fragment, attributes.toRpc())
+    }
+
+    override fun setIcon(icon: Icon?) {
+      iconId = icon?.rpcId()
+    }
+
+    override fun setToolTipText(text: @NlsContexts.Tooltip String?) {
+      tooltip = text
+    }
+  })
+  return XStackFramePresentation(parts, iconId, tooltip)
+}
+
+private fun SimpleTextAttributes.toRpc() = SerializableSimpleTextAttributes(bgColor?.rpcId(),
+                                                                            fgColor?.rpcId(),
+                                                                            waveColor?.rpcId(),
+                                                                            style)

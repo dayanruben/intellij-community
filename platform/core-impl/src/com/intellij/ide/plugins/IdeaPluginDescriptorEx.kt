@@ -9,8 +9,10 @@ import org.jetbrains.annotations.ApiStatus
 @ApiStatus.Internal
 interface IdeaPluginDescriptorEx : IdeaPluginDescriptorImplPublic {
   val moduleLoadingRule: ModuleLoadingRule?
-  val useCoreClassLoader: Boolean
-  val isIndependentFromCoreClassLoader: Boolean
+
+  /**
+   * Ids of plugins which this plugin declares to be incompatible with.
+   */
   val incompatiblePlugins: List<PluginId>
 
   val pluginAliases: List<PluginId>
@@ -18,11 +20,19 @@ interface IdeaPluginDescriptorEx : IdeaPluginDescriptorImplPublic {
   val actions: List<ActionElement>
 
   /**
-   * Extension point name -> list of extension descriptors.
+   * Qualified extension point name -> list of extension descriptors.
    *
-   * Note that it does not contain some scoped extensions (such as listeners, services, extension points)
+   * This map contains extensions whose scope may be determined by extension points from other plugins, hence it is not part of a scoped elements container.
    */
-  val miscExtensions: Map<String, List<ExtensionDescriptor>>
+  val extensions: Map<String, List<ExtensionDescriptor>>
+
+  val useCoreClassLoader: Boolean
+
+  /**
+   * If false, the classloader of this descriptor uses core (platform) classloader as a fallback, otherwise, the system classloader is used instead.
+   * TODO seems to be unused currently: there are no production plugin descriptor files with this attribute specified
+   */
+  val isIndependentFromCoreClassLoader: Boolean
 }
 
 internal val IdeaPluginDescriptorEx.isRequiredContentModule: Boolean

@@ -2748,6 +2748,16 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
                 runTest("testData/intentions/branched/elvisToIfThen/longSafeCast.kt");
             }
 
+            @TestMetadata("qualifiedExpr.kt")
+            public void testQualifiedExpr() throws Exception {
+                runTest("testData/intentions/branched/elvisToIfThen/qualifiedExpr.kt");
+            }
+
+            @TestMetadata("safeCallExpr.kt")
+            public void testSafeCallExpr() throws Exception {
+                runTest("testData/intentions/branched/elvisToIfThen/safeCallExpr.kt");
+            }
+
             @TestMetadata("safeCast.kt")
             public void testSafeCast() throws Exception {
                 runTest("testData/intentions/branched/elvisToIfThen/safeCast.kt");
@@ -4682,6 +4692,11 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("outerScopeMutableListOf.kt")
         public void testOuterScopeMutableListOf() throws Exception {
             runTest("testData/intentions/convertArgumentToSet/outerScopeMutableListOf.kt");
+        }
+
+        @TestMetadata("outerScopeMutableListOfCall.kt")
+        public void testOuterScopeMutableListOfCall() throws Exception {
+            runTest("testData/intentions/convertArgumentToSet/outerScopeMutableListOfCall.kt");
         }
 
         @TestMetadata("shadowedFunctionName.kt")
@@ -9144,14 +9159,34 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
             runTest("testData/intentions/convertToRawStringTemplate/consecutiveBreaks.kt");
         }
 
-        @TestMetadata("KTIJ-30275.kt")
-        public void testKTIJ_30275() throws Exception {
-            runTest("testData/intentions/convertToRawStringTemplate/KTIJ-30275.kt");
-        }
-
         @TestMetadata("multiDollar.kt")
         public void testMultiDollar() throws Exception {
             runTest("testData/intentions/convertToRawStringTemplate/multiDollar.kt");
+        }
+
+        @TestMetadata("multiDollarEscapedChars.kt")
+        public void testMultiDollarEscapedChars() throws Exception {
+            runTest("testData/intentions/convertToRawStringTemplate/multiDollarEscapedChars.kt");
+        }
+
+        @TestMetadata("multiDollarEscapedNewLine.kt")
+        public void testMultiDollarEscapedNewLine() throws Exception {
+            runTest("testData/intentions/convertToRawStringTemplate/multiDollarEscapedNewLine.kt");
+        }
+
+        @TestMetadata("multiDollarSimpleNameEntriesNeedEscaping.kt")
+        public void testMultiDollarSimpleNameEntriesNeedEscaping() throws Exception {
+            runTest("testData/intentions/convertToRawStringTemplate/multiDollarSimpleNameEntriesNeedEscaping.kt");
+        }
+
+        @TestMetadata("multiDollarSimpleNameEntryLast.kt")
+        public void testMultiDollarSimpleNameEntryLast() throws Exception {
+            runTest("testData/intentions/convertToRawStringTemplate/multiDollarSimpleNameEntryLast.kt");
+        }
+
+        @TestMetadata("multiDollarTrailingDollars.kt")
+        public void testMultiDollarTrailingDollars() throws Exception {
+            runTest("testData/intentions/convertToRawStringTemplate/multiDollarTrailingDollars.kt");
         }
 
         @TestMetadata("octalEscape.kt")
@@ -9906,16 +9941,6 @@ public abstract class K1IntentionTestGenerated extends AbstractK1IntentionTest {
         @TestMetadata("invalidChar.kt")
         public void testInvalidChar() throws Exception {
             runTest("testData/intentions/convertToStringTemplate/invalidChar.kt");
-        }
-
-        @TestMetadata("KTIJ-30491.kt")
-        public void testKTIJ_30491() throws Exception {
-            runTest("testData/intentions/convertToStringTemplate/KTIJ-30491.kt");
-        }
-
-        @TestMetadata("KTIJ-30491-2.kt")
-        public void testKTIJ_30491_2() throws Exception {
-            runTest("testData/intentions/convertToStringTemplate/KTIJ-30491-2.kt");
         }
 
         @TestMetadata("KT-11295.kt")
