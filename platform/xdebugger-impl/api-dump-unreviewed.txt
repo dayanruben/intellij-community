@@ -305,6 +305,7 @@ c:com.intellij.xdebugger.impl.actions.RunToCursorAction
 c:com.intellij.xdebugger.impl.actions.StepIntoAction
 - com.intellij.xdebugger.impl.actions.XDebuggerActionBase
 - <init>():V
+- actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
 - p:getHandler(com.intellij.xdebugger.impl.DebuggerSupport):com.intellij.xdebugger.impl.actions.DebuggerActionHandler
 c:com.intellij.xdebugger.impl.actions.StepOutAction
 - com.intellij.xdebugger.impl.actions.XDebuggerActionBase
@@ -338,7 +339,8 @@ a:com.intellij.xdebugger.impl.actions.XDebuggerActionBase
 a:com.intellij.xdebugger.impl.actions.XDebuggerSuspendedActionHandler
 - com.intellij.xdebugger.impl.actions.handlers.XDebuggerActionHandler
 - <init>():V
-- s:isEnabled(com.intellij.xdebugger.XDebugSession):Z
+- sf:isEnabled(com.intellij.xdebugger.XDebugSession):Z
+- p:isEnabled(com.intellij.xdebugger.XDebugSession,com.intellij.openapi.actionSystem.DataContext):Z
 a:com.intellij.xdebugger.impl.actions.handlers.XDebuggerActionHandler
 - com.intellij.xdebugger.impl.actions.DebuggerActionHandler
 - <init>():V

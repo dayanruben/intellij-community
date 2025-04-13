@@ -31,10 +31,7 @@ import com.intellij.xdebugger.evaluation.XDebuggerEvaluator
 import com.intellij.xdebugger.frame.XExecutionStack
 import com.intellij.xdebugger.frame.XStackFrame
 import com.intellij.xdebugger.frame.XSuspendContext
-import com.intellij.xdebugger.impl.frame.XDebugSessionProxy
-import com.intellij.xdebugger.impl.frame.XDebuggerFramesList
-import com.intellij.xdebugger.impl.frame.XStackFramesListColorsCache
-import com.intellij.xdebugger.impl.frame.XValueMarkers
+import com.intellij.xdebugger.impl.frame.*
 import com.intellij.xdebugger.impl.rpc.*
 import com.intellij.xdebugger.impl.ui.XDebugSessionData
 import com.intellij.xdebugger.impl.ui.XDebugSessionTab
@@ -131,6 +128,13 @@ class FrontendXDebuggerSession private constructor(
   override val currentStateHyperlinkListener: HyperlinkListener?
     get() = null // TODO
 
+  override val smartStepIntoHandlerEntry: XSmartStepIntoHandlerEntry? = sessionDto.smartStepIntoHandlerDto?.let {
+    object : XSmartStepIntoHandlerEntry {
+      override val popupTitle: String
+        get() = it.title
+    }
+  }
+
   init {
     cs.launch {
       sessionDto.sessionEvents.toFlow().collect { event ->
@@ -186,6 +190,11 @@ class FrontendXDebuggerSession private constructor(
         suspendContext.value = null
         currentExecutionStack.value = null
         currentStackFrame.value = null
+      }
+      is XDebuggerSessionEvent.StackFrameChanged -> {
+        stackFrame?.let {
+          currentStackFrame.value = FrontendXStackFrame(it, project, cs)
+        }
       }
       else -> {}
     }

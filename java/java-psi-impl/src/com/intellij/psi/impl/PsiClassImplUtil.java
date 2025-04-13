@@ -186,9 +186,19 @@ public final class PsiClassImplUtil {
   }
 
   private static MemberCache getMap(@NotNull PsiClass aClass, @NotNull GlobalSearchScope scope) {
+    JavaPsiFacade javaPsiFacade = JavaPsiFacade.getInstance(aClass.getProject());
+    if (javaPsiFacade instanceof JavaPsiFacadeEx && ((JavaPsiFacadeEx)javaPsiFacade).temporaryScopeCachesEnabled()) {
+      MemberCache cache = CachedValuesManager.getProjectPsiDependentCache(aClass, c ->
+        ConcurrentFactoryMap.create(
+          (GlobalSearchScope s) -> new MemberCache(c, s),
+          CollectionFactory::createConcurrentWeakKeyWeakValueMap).get(scope));
+      if (cache == null) {
+        cache = new MemberCache(aClass, scope);
+      }
+      return cache;
+    }
     return CachedValuesManager.getProjectPsiDependentCache(aClass, c ->
-      ConcurrentFactoryMap.create((GlobalSearchScope s) -> new MemberCache(c, s),
-                                         CollectionFactory::createConcurrentSoftMap)).get(scope);
+      ConcurrentFactoryMap.createMap((GlobalSearchScope s) -> new MemberCache(c, s))).get(scope);
   }
 
   private static final class ClassIconRequest {
