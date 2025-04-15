@@ -7,6 +7,7 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.util.parentOfType
 import org.editorconfig.EditorConfigRegistry
 import org.editorconfig.language.EditorConfigLanguage
 import org.editorconfig.language.psi.EditorConfigElementTypes
@@ -20,16 +21,13 @@ import org.editorconfig.language.util.core.EditorConfigPsiTreeUtilCore
 import kotlin.math.max
 
 object EditorConfigPsiTreeUtil {
-  inline fun <reified T : PsiElement> PsiElement.getParentOfType(strict: Boolean = false, vararg stopAt: Class<out PsiElement>) =
+  inline fun <reified T : PsiElement> PsiElement.getParentOfType(strict: Boolean = false, vararg stopAt: Class<out PsiElement>): T? =
     PsiTreeUtil.getParentOfType(this, T::class.java, strict, *stopAt)
 
-  inline fun <reified T : PsiElement> PsiElement.hasParentOfType() =
-    getParentOfType<T>() != null
+  inline fun <reified T : PsiElement> PsiElement.hasParentOfType(): Boolean =
+    parentOfType<T>(withSelf = true) != null
 
-  inline fun <reified T : PsiElement> getRequiredParent(element: PsiElement): T =
-    PsiTreeUtil.getParentOfType(element, T::class.java, false) ?: throw IllegalStateException()
-
-  fun containsErrors(element: PsiElement) =
+  fun containsErrors(element: PsiElement): Boolean =
     SyntaxTraverser.psiTraverser(element).traverse().filter(PsiErrorElement::class.java).isNotEmpty
 
   fun findShadowingSections(section: EditorConfigSection): List<EditorConfigSection> {
@@ -57,13 +55,13 @@ object EditorConfigPsiTreeUtil {
   /**
    * [element] is **not** included
    */
-  inline fun <reified T : PsiElement> iterateTypedSiblingsForward(element: T, action: (T) -> Unit) =
+  inline fun <reified T : PsiElement> iterateTypedSiblingsForward(element: T, action: (T) -> Unit): Unit =
     element.parent.children.mapNotNull { it as? T }.dropWhile { element != it }.drop(1).forEach(action)
 
   /**
    * [element] is **not** included
    */
-  inline fun <reified T : PsiElement> iterateTypedSiblingsBackward(element: T, action: (T) -> Unit) =
+  inline fun <reified T : PsiElement> iterateTypedSiblingsBackward(element: T, action: (T) -> Unit): Unit =
     element.parent.children.mapNotNull { it as? T }.takeWhile { element != it }.reversed().forEach(action)
 
   fun findRemovableRange(element: PsiElement): IntRange =
@@ -193,6 +191,6 @@ object EditorConfigPsiTreeUtil {
     }
   }
 
-  inline fun <reified T : PsiFile> getOriginalFile(file: T?) =
+  inline fun <reified T : PsiFile> getOriginalFile(file: T?): T? =
     EditorConfigPsiTreeUtilCore.getOriginalFile(file, T::class)
 }

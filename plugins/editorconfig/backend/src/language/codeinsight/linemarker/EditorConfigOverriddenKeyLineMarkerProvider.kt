@@ -11,6 +11,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.psi.PsiElement
 import org.editorconfig.language.messages.EditorConfigBundle
 import org.editorconfig.language.psi.EditorConfigFlatOptionKey
+import org.editorconfig.language.psi.reference.findChildren
 import java.awt.event.MouseEvent
 
 class EditorConfigOverriddenKeyLineMarkerProvider : LineMarkerProvider, DumbAware {
@@ -21,9 +22,7 @@ class EditorConfigOverriddenKeyLineMarkerProvider : LineMarkerProvider, DumbAwar
       if (element !is EditorConfigFlatOptionKey) continue
       val identifier = element.firstChild ?: continue
       if (identifier.firstChild != null) continue
-      val reference = element.reference
-      val children = reference
-        .findChildren()
+      val children = element.findChildren()
         .toTypedArray()
 
       if (children.isEmpty()) continue

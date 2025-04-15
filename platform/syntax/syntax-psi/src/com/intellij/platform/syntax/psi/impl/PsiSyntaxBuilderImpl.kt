@@ -39,6 +39,8 @@ import com.intellij.util.text.CharArrayUtil
 import org.jetbrains.annotations.NonNls
 import java.util.*
 import kotlin.math.max
+import kotlin.jvm.JvmStatic
+import kotlin.jvm.JvmField
 
 internal class PsiSyntaxBuilderImpl(
   internal var file: PsiFile?,

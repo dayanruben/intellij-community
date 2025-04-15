@@ -9,11 +9,12 @@ import org.editorconfig.language.codeinsight.quickfixes.EditorConfigRemoveOption
 import org.editorconfig.language.messages.EditorConfigBundle
 import org.editorconfig.language.psi.EditorConfigVisitor
 import org.editorconfig.language.psi.interfaces.EditorConfigDescribableElement
+import org.editorconfig.language.schema.descriptors.getDescriptor
 import org.editorconfig.language.schema.descriptors.impl.EditorConfigDeclarationDescriptor
 import org.editorconfig.language.util.EditorConfigIdentifierUtil
 
 class EditorConfigUnusedDeclarationInspection : LocalInspectionTool() {
-  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) = object : EditorConfigVisitor() {
+  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): EditorConfigVisitor = object : EditorConfigVisitor() {
     override fun visitPsiElement(element: PsiElement) {
       if (element !is EditorConfigDescribableElement) return
       val descriptor = element.getDescriptor(false) as? EditorConfigDeclarationDescriptor ?: return

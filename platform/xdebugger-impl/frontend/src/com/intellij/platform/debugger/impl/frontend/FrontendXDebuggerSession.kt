@@ -17,6 +17,8 @@ import com.intellij.platform.debugger.impl.frontend.evaluate.quick.FrontendXValu
 import com.intellij.platform.debugger.impl.frontend.frame.FrontendXExecutionStack
 import com.intellij.platform.debugger.impl.frontend.frame.FrontendXStackFrame
 import com.intellij.platform.debugger.impl.frontend.frame.FrontendXSuspendContext
+import com.intellij.platform.debugger.impl.frontend.storage.FrontendXStackFramesStorage
+import com.intellij.platform.debugger.impl.frontend.storage.getOrCreateStack
 import com.intellij.platform.execution.impl.frontend.createFrontendProcessHandler
 import com.intellij.platform.execution.impl.frontend.executionEnvironment
 import com.intellij.platform.util.coroutines.childScope
@@ -102,8 +104,14 @@ class FrontendXDebuggerSession private constructor(
   override val isSuspended: Boolean
     get() = sessionState.value.isSuspended
 
-  override val editorsProvider: XDebuggerEditorsProvider = localEditorsProvider
-                                                           ?: FrontendXDebuggerEditorsProvider(id, sessionDto.editorsProviderDto.fileTypeId)
+  override val editorsProvider: XDebuggerEditorsProvider =
+    localEditorsProvider
+    ?: FrontendXDebuggerEditorsProvider(sessionDto.editorsProviderDto.fileTypeId,
+                                        documentIdProvider = { frontendDocumentId, expression, position, mode ->
+                                          XDebugSessionApi.getInstance().createDocument(frontendDocumentId, id, expression, position, mode)
+                                        })
+
+  override val isLibraryFrameFilterSupported: Boolean = sessionDto.isLibraryFrameFilterSupported
 
   override val valueMarkers: XValueMarkers<FrontendXValue, XValueMarkerId> = FrontendXValueMarkers(project)
 
@@ -167,21 +175,26 @@ class FrontendXDebuggerSession private constructor(
         val pauseData = pauseData.await()
         if (pauseData != null) {
           val (suspendContextDto, executionStackDto, stackFrameDto) = pauseData
-          suspendContext.value = FrontendXSuspendContext(suspendContextDto, project, cs)
+          val suspendContextLifetimeScope = cs.childScope("${cs.coroutineContext[CoroutineName]} (context ${suspendContextDto.id})",
+                                                          FrontendXStackFramesStorage())
+          val currentSuspendContext = FrontendXSuspendContext(suspendContextDto, project, suspendContextLifetimeScope)
+          suspendContext.value = currentSuspendContext
           executionStackDto?.let {
-            currentExecutionStack.value = FrontendXExecutionStack(executionStackDto, project, cs).also {
+            currentExecutionStack.value = FrontendXExecutionStack(executionStackDto, project, suspendContextLifetimeScope).also {
               suspendContext.value?.activeExecutionStack = it
             }
           }
           stackFrameDto?.let {
-            currentStackFrame.value = FrontendXStackFrame(it, project, cs)
+            currentStackFrame.value = suspendContextLifetimeScope.getOrCreateStack(it, project)
           }
         }
       }
       is XDebuggerSessionEvent.SessionResumed,
       is XDebuggerSessionEvent.BeforeSessionResume,
         -> {
+        val context = suspendContext.value
         suspendContext.value = null
+        context?.cancel()
         currentExecutionStack.value = null
         currentStackFrame.value = null
       }

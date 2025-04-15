@@ -11,12 +11,13 @@ import org.editorconfig.language.psi.EditorConfigFlatOptionKey
 import org.editorconfig.language.psi.EditorConfigOption
 import org.editorconfig.language.psi.EditorConfigOptionValueIdentifier
 import org.editorconfig.language.psi.EditorConfigVisitor
+import org.editorconfig.language.psi.reference.findParents
 
 class EditorConfigOptionRedundancyInspection : LocalInspectionTool() {
-  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) = object : EditorConfigVisitor() {
+  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): EditorConfigVisitor = object : EditorConfigVisitor() {
     override fun visitFlatOptionKey(flatOptionKey: EditorConfigFlatOptionKey) {
       val option = flatOptionKey.option
-      val parents = flatOptionKey.reference.findParents()
+      val parents = flatOptionKey.findParents()
       if (parents.isEmpty()) return
       val parentOptions = parents.map(EditorConfigFlatOptionKey::option)
       if (!parentOptions.all { haveEqualValues(option, it) }) return

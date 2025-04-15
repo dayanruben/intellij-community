@@ -33,9 +33,6 @@ section ::= header option* {
   recoverWhile=not_header
   mixin="org.editorconfig.language.psi.base.EditorConfigSectionBase"
   implements="com.intellij.psi.NavigatablePsiElement"
-  methods = [
-    containsKey
-  ]
 }
 
 // ---- ---- Root declaration ---- ----
@@ -45,9 +42,6 @@ root_declaration ::= root_declaration_key SEPARATOR root_declaration_list (COLON
   recoverWhile=not_next_entry
   mixin="org.editorconfig.language.psi.base.EditorConfigRootDeclarationBase"
   implements="com.intellij.psi.NavigatablePsiElement"
-  methods=[
-    isValidRootDeclaration
-  ]
 }
 
 private root_declaration_list ::= root_declaration_value (COMMA root_declaration_value)*
@@ -63,9 +57,6 @@ header ::= L_BRACKET pattern_aux? R_BRACKET {
   recoverWhile=not_next_entry
   mixin="org.editorconfig.language.psi.base.EditorConfigHeaderBase"
   implements="org.editorconfig.language.psi.interfaces.EditorConfigHeaderElement"
-  methods=[
-    isValidGlob
-  ]
 }
 
 fake pattern ::= {
@@ -138,9 +129,6 @@ option ::= option_with_raw_value | simple_option {
   methods=[
     getKeyParts
     getAnyValue
-
-    // Cannot be deleted since it declares a different return type
-    getDescriptor
   ]
 }
 
@@ -176,11 +164,6 @@ qualified_key_part ::= IDENTIFIER {
 flat_option_key ::= IDENTIFIER {
   mixin="org.editorconfig.language.psi.base.EditorConfigFlatOptionKeyBase"
   implements="org.editorconfig.language.psi.interfaces.EditorConfigIdentifierElement"
-  methods=[
-    definesSameOption
-    // Cannot be deleted since it declares a different return type
-    getReference
-  ]
 }
 
 // ---- ---- Value ---- ----
@@ -192,8 +175,6 @@ option_value_pair ::= (option_value_list | option_value_identifier) COLON (optio
   methods=[
     getFirst
     getSecond
-
-    getDescriptor
   ]
 }
 
@@ -202,9 +183,6 @@ private option_value_standalone_list ::= option_value_list <<followedByNewLineOr
 option_value_list ::= COMMA* option_value_identifier (COMMA option_value_identifier !(DOT | SEPARATOR) | COMMA)+ {
   mixin="org.editorconfig.language.psi.base.EditorConfigDescribableElementBase"
   implements="org.editorconfig.language.psi.interfaces.EditorConfigDescribableElement"
-  methods=[
-    getDescriptor
-  ]
 }
 
 private option_value_standalone_identifier ::= option_value_identifier <<followedByNewLineOrEndOfFile>>

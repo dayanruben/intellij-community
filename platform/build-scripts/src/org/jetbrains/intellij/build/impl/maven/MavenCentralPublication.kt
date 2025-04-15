@@ -6,9 +6,13 @@ import com.intellij.util.io.DigestUtil.md5
 import com.intellij.util.io.DigestUtil.sha1
 import com.intellij.util.io.DigestUtil.sha256
 import com.intellij.util.io.DigestUtil.sha512
-import com.intellij.util.xml.dom.readXmlAsModel
 import io.opentelemetry.api.trace.Span
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -18,6 +22,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.intellij.build.BuildContext
@@ -26,9 +31,20 @@ import org.jetbrains.intellij.build.impl.Checksums
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
 import java.nio.file.Path
-import java.util.*
+import java.util.Base64
 import java.util.concurrent.TimeUnit
-import kotlin.io.path.*
+import kotlin.io.path.ExperimentalPathApi
+import kotlin.io.path.PathWalkOption
+import kotlin.io.path.deleteIfExists
+import kotlin.io.path.exists
+import kotlin.io.path.inputStream
+import kotlin.io.path.isDirectory
+import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.name
+import kotlin.io.path.readLines
+import kotlin.io.path.relativeTo
+import kotlin.io.path.walk
+import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.minutes
 
 /**
@@ -41,6 +57,7 @@ import kotlin.time.Duration.Companion.minutes
  * See https://youtrack.jetbrains.com/articles/IJPL-A-611 internal article for more details
  */
 @ApiStatus.Internal
+@OptIn(ExperimentalPathApi::class)
 class MavenCentralPublication(
   private val context: BuildContext,
   private val workDir: Path,
@@ -50,14 +67,47 @@ class MavenCentralPublication(
   private val dryRun: Boolean = context.options.isInDevelopmentMode,
   private val sign: Boolean = !dryRun,
 ) {
-  private companion object {
+  companion object {
     /**
      * See https://central.sonatype.com/api-doc
      */
-    const val URI_BASE = "https://central.sonatype.com/api/v1/publisher"
-    const val UPLOADING_URI_BASE = "$URI_BASE/upload"
-    const val STATUS_URI_BASE = "$URI_BASE/status"
-    val JSON = Json { ignoreUnknownKeys = true }
+    private const val URI_BASE = "https://central.sonatype.com/api/v1/publisher"
+    private const val UPLOADING_URI_BASE = "$URI_BASE/upload"
+    private const val STATUS_URI_BASE = "$URI_BASE/status"
+    private val JSON = Json { ignoreUnknownKeys = true }
+
+    /**
+     * See https://central.sonatype.org/publish/requirements/#required-pom-metadata
+     */
+    fun loadAndValidatePomXml(pom: Path): MavenCoordinates {
+      val pomModel = pom.inputStream().bufferedReader().use {
+        MavenXpp3Reader().read(it, true)
+      }
+      val coordinates = MavenCoordinates(
+        groupId = pomModel.groupId ?: error("$pom doesn't contain <groupId>"),
+        artifactId = pomModel.artifactId ?: error("$pom doesn't contain <artifactId>"),
+        version = pomModel.version ?: error("$pom doesn't contain <version>"),
+      )
+      check(!pomModel.name.isNullOrBlank()) {
+        "$pom doesn't contain <name>"
+      }
+      check(!pomModel.description.isNullOrBlank()) {
+        "$pom doesn't contain <description>"
+      }
+      check(!pomModel.url.isNullOrBlank()) {
+        "$pom doesn't contain <url>"
+      }
+      check(pomModel.licenses.any()) {
+        "$pom doesn't contain <licenses>"
+      }
+      check(pomModel.developers.any()) {
+        "$pom doesn't contain <developers>"
+      }
+      check(pomModel.scm != null) {
+        "$pom doesn't contain <scm>"
+      }
+      return coordinates
+    }
   }
 
   enum class PublishingType {
@@ -75,24 +125,53 @@ class MavenCentralPublication(
     val distributionFiles: List<Path> = listOf(jar, pom, javadoc, sources)
 
     val signatures: List<Path>
-      get() = if (sign) files(extension = "asc") else emptyList()
+      get() = distributionFiles.asSequence()
+        .map { it.resolveSibling("${it.fileName}.asc") }
+        .onEach {
+          check(sign || dryRun || it.exists()) {
+            "Signature file $it is expected to present"
+          }
+        }.filter {
+          it.exists()
+        }.toList()
 
     val checksums: List<Path>
-      get() = files("md5") +
-              files("sha1") +
-              files("sha256") +
-              files("sha512")
+      get() = distributionFiles.asSequence().flatMap {
+        sequenceOf(
+          it.resolveSibling("${it.fileName}.md5"),
+          it.resolveSibling("${it.fileName}.sha1"),
+          it.resolveSibling("${it.fileName}.sha256"),
+          it.resolveSibling("${it.fileName}.sha512"),
+        )
+      }.onEach {
+        check(it.exists()) {
+          "Checksum file $it is expected to present"
+        }
+      }.toList()
+  }
+
+  private fun Path.listDirectoryEntriesRecursively(glob: String): List<Path> {
+    val matchingFiles = walk(PathWalkOption.INCLUDE_DIRECTORIES)
+      .filter { it.isDirectory() }
+      .flatMap { it.listDirectoryEntries(glob = glob) }
+      .toList()
+    check(matchingFiles.size == matchingFiles.distinctBy { it.name }.size) {
+      matchingFiles.joinToString(prefix = "Duplicate files found in $this:\n", separator = "\n") {
+        it.relativeTo(this).toString()
+      }
+    }
+    return matchingFiles
   }
 
   private fun file(name: String): Path {
-    val matchingFiles = workDir.listDirectoryEntries(glob = name)
+    val matchingFiles = workDir.listDirectoryEntriesRecursively(glob = name)
     return requireNotNull(matchingFiles.singleOrNull()) {
       "A single $name file is expected to be present in $workDir but found: $matchingFiles"
     }
   }
 
   private fun files(extension: String): List<Path> {
-    val matchingFiles = workDir.listDirectoryEntries(glob = "*.$extension")
+    val matchingFiles = workDir.listDirectoryEntriesRecursively(glob = "*.$extension")
     require(matchingFiles.any()) {
       "No *.$extension files in $workDir"
     }
@@ -101,15 +180,7 @@ class MavenCentralPublication(
 
   private val artifacts: List<MavenArtifacts> by lazy {
     files(extension = "pom").map { pom ->
-      val project = readXmlAsModel(pom)
-      check(project.name == "project") {
-        "$pom doesn't contain <project> root element"
-      }
-      val coordinates = MavenCoordinates(
-        groupId = project.getChild("groupId")?.content ?: error("$pom doesn't contain <groupId> element"),
-        artifactId = project.getChild("artifactId")?.content ?: error("$pom doesn't contain <artifactId> element"),
-        version = project.getChild("version")?.content ?: error("$pom doesn't contain <version> element"),
-      )
+      val coordinates = loadAndValidatePomXml(pom)
       val jar = file(coordinates.getFileName(packaging = "jar"))
       val sources = file(coordinates.getFileName(classifier = "sources", packaging = "jar"))
       val javadoc = file(coordinates.getFileName(classifier = "javadoc", packaging = "jar"))
@@ -178,6 +249,7 @@ class MavenCentralPublication(
   private suspend fun bundle(): Path {
     return spanBuilder("creating a bundle").use {
       val bundle = workDir.resolve("bundle.zip")
+      bundle.deleteIfExists()
       Compressor.Zip(bundle).use { zip ->
         for (artifact in artifacts) {
           artifact.distributionFiles.asSequence()
@@ -258,13 +330,19 @@ class MavenCentralPublication(
             it.post("{}".toRequestBody("application/json".toMediaType()))
           }, action = {
             val response = it.body.string()
+            context.messages.info(response)
             span.addEvent(response)
             parseDeploymentState(response)
           })
           when {
-            deploymentState == DeploymentState.FAILED -> error("$deploymentId status is $deploymentState")
-            deploymentState == DeploymentState.VALIDATED && type == PublishingType.USER_MANAGED ||
-            deploymentState == DeploymentState.PUBLISHED && type == PublishingType.AUTOMATIC -> break
+            deploymentState == DeploymentState.FAILED -> context.messages.error("$deploymentId status is $deploymentState")
+            deploymentState == DeploymentState.VALIDATED && type == PublishingType.USER_MANAGED -> break
+            deploymentState == DeploymentState.PUBLISHED && type == PublishingType.AUTOMATIC -> {
+              artifacts.forEach {
+                context.messages.info("Expected to be available in https://repo1.maven.org/maven2/${it.coordinates.directoryPath} shortly")
+              }
+              break
+            }
             else -> delay(TimeUnit.SECONDS.toMillis(15))
           }
         }

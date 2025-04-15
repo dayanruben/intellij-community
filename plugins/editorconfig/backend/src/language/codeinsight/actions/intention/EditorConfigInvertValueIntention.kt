@@ -5,20 +5,22 @@ import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
+import com.intellij.psi.util.parentOfType
 import org.editorconfig.language.messages.EditorConfigBundle
 import org.editorconfig.language.psi.interfaces.EditorConfigDescribableElement
 import org.editorconfig.language.schema.descriptors.EditorConfigDescriptor
+import org.editorconfig.language.schema.descriptors.getDescriptor
 import org.editorconfig.language.schema.descriptors.impl.EditorConfigConstantDescriptor
 import org.editorconfig.language.schema.descriptors.impl.EditorConfigUnionDescriptor
 import org.editorconfig.language.schema.descriptors.impl.EditorConfigUnsetValueDescriptor
 import org.editorconfig.language.util.EditorConfigPsiTreeUtil
-import org.editorconfig.language.util.EditorConfigPsiTreeUtil.getParentOfType
 import org.editorconfig.language.util.EditorConfigTextMatchingUtil
+import org.jetbrains.annotations.Nls
 
 class EditorConfigInvertValueIntention : IntentionAction {
-  override fun getText() = EditorConfigBundle.get("intention.invert-option-value")
+  override fun getText(): @Nls String = EditorConfigBundle.get("intention.invert-option-value")
   override fun getFamilyName(): String = EditorConfigBundle.get("intention.invert-option-value")
-  override fun startInWriteAction() = true
+  override fun startInWriteAction(): Boolean = true
 
   override fun isAvailable(project: Project, editor: Editor, file: PsiFile): Boolean {
     val value = getDescribableElement(editor, file) ?: return false
@@ -50,7 +52,7 @@ class EditorConfigInvertValueIntention : IntentionAction {
   }
 
   private fun getDescribableElement(editor: Editor, file: PsiFile): EditorConfigDescribableElement? =
-    EditorConfigPsiTreeUtil.findIdentifierUnderCaret(editor, file)?.getParentOfType()
+    EditorConfigPsiTreeUtil.findIdentifierUnderCaret(editor, file)?.parentOfType(withSelf = true)
 
   private fun getText(descriptor: EditorConfigDescriptor): String? {
     if (descriptor !is EditorConfigConstantDescriptor) return null

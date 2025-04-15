@@ -2,7 +2,7 @@
 package org.jetbrains.plugins.terminal;
 
 import com.intellij.execution.process.LocalPtyOptions;
-import com.intellij.execution.process.ProcessService;
+import com.intellij.execution.process.LocalProcessService;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
@@ -125,17 +125,14 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
         process = startProcess(List.of(command), envs, workingDirPath, Objects.requireNonNull(initialTermSize));
       }
       else {
-        process = (PtyProcess)ProcessService.getInstance().startPtyProcess(
-          command,
+        process = (PtyProcess)LocalProcessService.getInstance().startPtyProcess(
+          List.of(command),
           workingDir,
           envs,
           LocalPtyOptions.defaults().builder()
             .initialColumns(initialTermSize != null ? initialTermSize.getColumns() : -1)
             .initialRows(initialTermSize != null ? initialTermSize.getRows() : -1)
             .build(),
-          null,
-          false,
-          false,
           false
         );
       }

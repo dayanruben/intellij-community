@@ -8,9 +8,10 @@ import org.editorconfig.language.codeinsight.quickfixes.EditorConfigRemoveUnexpe
 import org.editorconfig.language.messages.EditorConfigBundle
 import org.editorconfig.language.psi.EditorConfigOptionValueList
 import org.editorconfig.language.psi.EditorConfigVisitor
+import org.editorconfig.language.schema.descriptors.getDescriptor
 
 class EditorConfigListAcceptabilityInspection : LocalInspectionTool() {
-  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) = object : EditorConfigVisitor() {
+  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): EditorConfigVisitor = object : EditorConfigVisitor() {
     override fun visitOptionValueList(list: EditorConfigOptionValueList) {
       if (list.getDescriptor(false) != null) return
       list.describableParent?.getDescriptor(false) ?: return

@@ -7,6 +7,7 @@ import com.intellij.platform.syntax.Logger
 import org.jetbrains.annotations.NonNls
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.time.measureTime
 
 internal class TokenSequence(
   internal val lexStarts: IntArray,
@@ -15,8 +16,8 @@ internal class TokenSequence(
   override val tokenizedText: CharSequence,
 ) : TokenList {
   init {
-    assert(tokenCount < lexStarts.size)
-    assert(tokenCount < lexTypes.size)
+    require(tokenCount < lexStarts.size)
+    require(tokenCount < lexTypes.size)
   }
 
   fun assertMatches(
@@ -26,10 +27,10 @@ internal class TokenSequence(
     logger: Logger?,
   ) {
     val sequence = Builder(text, lexer, cancellationProvider, logger).performLexing()
-    assert(tokenCount == sequence.tokenCount)
+    check(tokenCount == sequence.tokenCount)
     for (j in 0..tokenCount) {
       if (sequence.lexStarts[j] != lexStarts[j] || sequence.lexTypes[j] !== lexTypes[j]) {
-        assert(false)
+        check(false)
       }
     }
   }
@@ -67,10 +68,10 @@ internal class TokenListLexerImpl(
       return
     }
 
-    val start = System.currentTimeMillis()
-    start(buffer, startOffset, endOffset, initialState)
-    val startDuration = System.currentTimeMillis() - start
-    if (startDuration > LEXER_START_THRESHOLD) {
+    val startDuration = measureTime {
+      start(buffer, startOffset, endOffset, initialState)
+    }
+    if (startDuration.inWholeMilliseconds > LEXER_START_THRESHOLD) {
       logger.debug("Starting lexer took: $startDuration; at $startOffset - $endOffset; state: $initialState; text: ${buffer.shortenTextWithEllipsis(1024, 500)}")
     }
   }
@@ -84,10 +85,10 @@ internal class TokenListLexerImpl(
   }
 
   override fun start(buffer: CharSequence, startOffset: Int, endOffset: Int, initialState: Int) {
-    assert(equal(buffer, tokens.tokenizedText))
-    assert(startOffset == 0)
-    assert(endOffset == buffer.length)
-    assert(initialState == 0)
+    require(equal(buffer, tokens.tokenizedText))
+    require(startOffset == 0)
+    require(endOffset == buffer.length)
+    require(initialState == 0)
     state = 0
   }
 
@@ -223,7 +224,7 @@ private fun CharSequence.shortenTextWithEllipsis(
   }
 
   val prefixLength = maxLength - suffixLength - symbol.length
-  assert(prefixLength >= 0)
+  check(prefixLength >= 0)
   return substring(0, prefixLength) + symbol + substring(textLength - suffixLength)
 }
 

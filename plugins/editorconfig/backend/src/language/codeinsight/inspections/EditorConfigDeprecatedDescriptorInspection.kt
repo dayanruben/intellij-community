@@ -10,10 +10,11 @@ import org.editorconfig.language.codeinsight.quickfixes.EditorConfigRemoveOption
 import org.editorconfig.language.psi.EditorConfigVisitor
 import org.editorconfig.language.psi.interfaces.EditorConfigDescribableElement
 import org.editorconfig.language.psi.interfaces.EditorConfigIdentifierElement
+import org.editorconfig.language.schema.descriptors.getDescriptor
 import java.text.MessageFormat
 
 class EditorConfigDeprecatedDescriptorInspection : LocalInspectionTool() {
-  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) = object : EditorConfigVisitor() {
+  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): EditorConfigVisitor = object : EditorConfigVisitor() {
     override fun visitDescribableElement(element: EditorConfigDescribableElement) {
       val descriptor = element.getDescriptor(true) ?: return
       val deprecation = descriptor.deprecation ?: return

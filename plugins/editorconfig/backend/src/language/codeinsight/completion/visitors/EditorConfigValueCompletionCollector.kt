@@ -9,11 +9,8 @@ import org.editorconfig.language.codeinsight.completion.withSuffix
 import org.editorconfig.language.psi.EditorConfigOptionValueList
 import org.editorconfig.language.psi.EditorConfigOptionValuePair
 import org.editorconfig.language.psi.interfaces.EditorConfigDescribableElement
-import org.editorconfig.language.schema.descriptors.EditorConfigDescriptorVisitor
-import org.editorconfig.language.schema.descriptors.collectDescriptorMappings
+import org.editorconfig.language.schema.descriptors.*
 import org.editorconfig.language.schema.descriptors.impl.*
-import org.editorconfig.language.schema.descriptors.isLeftInPair
-import org.editorconfig.language.schema.descriptors.isRightInPair
 import org.editorconfig.language.util.EditorConfigIdentifierUtil
 import org.editorconfig.language.util.EditorConfigPsiTreeUtil.hasParentOfType
 
@@ -25,7 +22,7 @@ class EditorConfigValueCompletionCollector(
   private val cachedMappings = collectDescriptorMappings(childElement, childElement.option)
   private val insertSuffixes: Stack<String> = Stack()
 
-  override fun visitOption(option: EditorConfigOptionDescriptor) = throw IllegalStateException()
+  override fun visitOption(option: EditorConfigOptionDescriptor): Nothing = throw IllegalStateException()
 
   override fun visitList(list: EditorConfigListDescriptor) {
     if (list.allowRepetitions) {
@@ -50,7 +47,7 @@ class EditorConfigValueCompletionCollector(
     }
   }
 
-  override fun visitReference(reference: EditorConfigReferenceDescriptor) =
+  override fun visitReference(reference: EditorConfigReferenceDescriptor): Unit =
     EditorConfigIdentifierUtil
       .findDeclarations(childElement.section, reference.id)
       .asSequence()
@@ -66,7 +63,7 @@ class EditorConfigValueCompletionCollector(
     results.addElement(elementWithSuffix)
   }
 
-  override fun visitUnion(union: EditorConfigUnionDescriptor) =
+  override fun visitUnion(union: EditorConfigUnionDescriptor): Unit =
     union.children.forEach { it.accept(this) }
 
   override fun visitPair(pair: EditorConfigPairDescriptor) {

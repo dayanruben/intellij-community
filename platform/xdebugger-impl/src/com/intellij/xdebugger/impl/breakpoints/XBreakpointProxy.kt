@@ -7,6 +7,11 @@ import com.intellij.pom.Navigatable
 import com.intellij.xdebugger.XExpression
 import com.intellij.xdebugger.XSourcePosition
 import com.intellij.xdebugger.breakpoints.SuspendPolicy
+import com.intellij.xdebugger.breakpoints.XBreakpoint
+import com.intellij.xdebugger.breakpoints.XBreakpointProperties
+import com.intellij.xdebugger.breakpoints.XBreakpointType
+import com.intellij.xdebugger.breakpoints.XLineBreakpoint
+import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
 import org.jetbrains.annotations.ApiStatus
 import javax.swing.Icon
 
@@ -17,6 +22,7 @@ interface XBreakpointProxy {
   val project: Project
 
   fun getDisplayText(): @NlsSafe String
+  fun getShortText(): @NlsSafe String
   fun getUserDescription(): @NlsSafe String?
   fun getGroup(): String?
   fun getIcon(): Icon
@@ -28,17 +34,50 @@ interface XBreakpointProxy {
   fun canNavigateToSource(): Boolean
   fun isDefaultBreakpoint(): Boolean
   fun getSuspendPolicy(): SuspendPolicy
+  fun setSuspendPolicy(suspendPolicy: SuspendPolicy)
+
   fun isLogMessage(): Boolean
   fun isLogStack(): Boolean
+
+  fun isConditionEnabled(): Boolean
+  fun setConditionEnabled(enabled: Boolean)
+
   fun getLogExpressionObject(): XExpression?
+
   fun getConditionExpression(): XExpression?
+  fun setConditionExpression(condition: XExpression?)
+
+  fun getConditionExpressionInt(): XExpression?
+
+  @NlsSafe
+  fun getGeneralDescription(): String
+
+  fun haveSameState(other: XBreakpointProxy, ignoreTimestamp: Boolean): Boolean
+
+  fun isLogExpressionEnabled(): Boolean
+
+  fun getLogExpression(): String?
+  fun getLogExpressionObjectInt(): XExpression?
+
+  fun setLogMessage(enabled: Boolean)
+  fun setLogStack(enabled: Boolean)
+  fun setLogExpressionEnabled(enabled: Boolean)
+  fun setLogExpressionObject(logExpression: XExpression?)
+
+  fun getEditorsProvider(): XDebuggerEditorsProvider?
+
+  fun isTemporary(): Boolean
+
+  // Supported only for line breakpoints
+  fun setTemporary(isTemporary: Boolean)
 
   class Monolith(override val breakpoint: XBreakpointBase<*, *, *>) : XBreakpointProxy {
-    override val type: XBreakpointTypeProxy = XBreakpointTypeProxy.Monolith(breakpoint.getType())
+    override val type: XBreakpointTypeProxy = XBreakpointTypeProxy.Monolith(breakpoint.project, breakpoint.getType())
 
     override val project: Project = breakpoint.project
 
     override fun getDisplayText(): String = XBreakpointUtil.getShortText(breakpoint)
+    override fun getShortText(): @NlsSafe String = XBreakpointUtil.getShortText(breakpoint)
 
     override fun getUserDescription(): String? = breakpoint.userDescription
 
@@ -51,7 +90,7 @@ interface XBreakpointProxy {
     override fun isEnabled(): Boolean = breakpoint.isEnabled()
 
     override fun setEnabled(enabled: Boolean) {
-      breakpoint.setEnabled(enabled)
+      breakpoint.isEnabled = enabled
     }
 
     override fun getSourcePosition(): XSourcePosition? = breakpoint.getSourcePosition()
@@ -67,14 +106,81 @@ interface XBreakpointProxy {
       return breakpointManager.isDefaultBreakpoint(breakpoint)
     }
 
-    override fun getSuspendPolicy(): SuspendPolicy = breakpoint.getSuspendPolicy()
+    override fun getSuspendPolicy(): SuspendPolicy = breakpoint.suspendPolicy
 
-    override fun isLogMessage(): Boolean = breakpoint.isLogMessage()
+    override fun setSuspendPolicy(suspendPolicy: SuspendPolicy) {
+      breakpoint.suspendPolicy = suspendPolicy
+    }
 
-    override fun isLogStack(): Boolean = breakpoint.isLogStack()
+    override fun isLogMessage(): Boolean = breakpoint.isLogMessage
 
-    override fun getLogExpressionObject(): XExpression? = breakpoint.getLogExpressionObject()
+    override fun isLogStack(): Boolean = breakpoint.isLogStack
+    override fun isConditionEnabled(): Boolean = breakpoint.isConditionEnabled
 
-    override fun getConditionExpression(): XExpression? = breakpoint.getConditionExpression()
+    override fun setConditionEnabled(enabled: Boolean) {
+      breakpoint.isConditionEnabled = enabled
+    }
+
+    override fun getLogExpressionObject(): XExpression? = breakpoint.logExpressionObject
+
+    override fun getConditionExpression(): XExpression? = breakpoint.conditionExpression
+    override fun setConditionExpression(condition: XExpression?) {
+      breakpoint.conditionExpression = condition
+    }
+
+    override fun getConditionExpressionInt(): XExpression? = breakpoint.conditionExpressionInt
+
+    override fun getGeneralDescription(): String = XBreakpointUtil.getGeneralDescription(breakpoint)
+
+    override fun haveSameState(other: XBreakpointProxy, ignoreTimestamp: Boolean): Boolean {
+      if (other is Monolith) {
+        return XBreakpointManagerImpl.statesAreDifferent(breakpoint.state, other.breakpoint.state, ignoreTimestamp)
+      }
+      return false
+    }
+
+    override fun getEditorsProvider(): XDebuggerEditorsProvider? {
+      return getEditorsProvider(breakpoint.type, breakpoint, project)
+    }
+
+    override fun isLogExpressionEnabled(): Boolean = breakpoint.isLogExpressionEnabled
+
+    override fun getLogExpression(): String? = breakpoint.logExpression
+
+    override fun getLogExpressionObjectInt(): XExpression? = breakpoint.logExpressionObjectInt
+
+    override fun setLogMessage(enabled: Boolean) {
+      breakpoint.isLogMessage = enabled
+    }
+
+    override fun setLogStack(enabled: Boolean) {
+      breakpoint.isLogStack = enabled
+    }
+
+    override fun setLogExpressionEnabled(enabled: Boolean) {
+      breakpoint.isLogExpressionEnabled = enabled
+    }
+
+    override fun setLogExpressionObject(logExpression: XExpression?) {
+      breakpoint.logExpressionObject = logExpression
+    }
+
+    override fun isTemporary(): Boolean = (breakpoint as? XLineBreakpoint<*>)?.isTemporary ?: false
+
+    override fun setTemporary(isTemporary: Boolean) {
+      if (breakpoint is XLineBreakpoint<*>) {
+        breakpoint.isTemporary = isTemporary
+      }
+    }
+
+    companion object {
+      @ApiStatus.Internal
+      @Suppress("UNCHECKED_CAST")
+      fun <B : XBreakpoint<P>, P : XBreakpointProperties<*>> getEditorsProvider(
+        breakpointType: XBreakpointType<B, P>,
+        breakpoint: XBreakpoint<*>,
+        project: Project,
+      ): XDebuggerEditorsProvider? = breakpointType.getEditorsProvider(breakpoint as B, project)
+    }
   }
 }

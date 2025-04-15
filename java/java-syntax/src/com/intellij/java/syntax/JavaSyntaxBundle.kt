@@ -6,12 +6,21 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.PropertyKey
+import kotlin.jvm.JvmStatic
 
 @ApiStatus.Internal
 object JavaSyntaxBundle {
   const val BUNDLE: @NonNls String = "messages.JavaSyntaxBundle"
 
-  val resourceBundle: ResourceBundle = ResourceBundle("com.intellij.java.syntax.JavaSyntaxBundle", BUNDLE, this)
+  val resourceBundle: ResourceBundle = run {
+    val defaultMapping by lazy { DefaultJavaSyntaxResources.mappings }
+    ResourceBundle(
+      bundleClass = "com.intellij.java.syntax.JavaSyntaxBundle",
+      pathToBundle = BUNDLE,
+      self = this,
+      defaultMapping = defaultMapping
+    )
+  }
 
   @JvmStatic
   fun message(key: @PropertyKey(resourceBundle = BUNDLE) String, vararg params: Any): @Nls String {

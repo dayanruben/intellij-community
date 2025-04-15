@@ -12,9 +12,10 @@ import org.editorconfig.language.psi.EditorConfigEnumerationPattern
 import org.editorconfig.language.psi.EditorConfigPattern
 import org.editorconfig.language.psi.EditorConfigVisitor
 import org.editorconfig.language.util.isSubcaseOf
+import org.editorconfig.language.util.isValidGlob
 
 class EditorConfigPatternRedundancyInspection : LocalInspectionTool() {
-  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) = object : EditorConfigVisitor() {
+  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): EditorConfigVisitor = object : EditorConfigVisitor() {
     override fun visitPattern(pattern: EditorConfigPattern) {
       if (!pattern.header.isValidGlob) return
       val otherPatterns = findOtherPatterns(pattern)

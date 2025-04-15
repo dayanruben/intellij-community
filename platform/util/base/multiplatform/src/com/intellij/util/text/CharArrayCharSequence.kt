@@ -5,6 +5,8 @@ import com.intellij.openapi.util.text.CharSequenceWithStringHash
 import com.intellij.openapi.util.text.stringHashCode
 import com.intellij.util.text.CharArrayUtilKmp.regionMatches
 import kotlin.math.min
+import kotlin.jvm.JvmField
+import kotlin.jvm.Transient
 
 open class CharArrayCharSequence(
   @JvmField protected val myChars: CharArray,
@@ -37,7 +39,7 @@ open class CharArrayCharSequence(
   }
 
   override fun toString(): String {
-    return String(myChars, myStart, myEnd - myStart) //TODO StringFactory
+    return myChars.concatToString(myStart, myEnd) //TODO StringFactory
   }
 
   override val chars: CharArray

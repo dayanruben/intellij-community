@@ -13,20 +13,21 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.Processor
 import org.editorconfig.language.psi.interfaces.EditorConfigDescribableElement
+import org.editorconfig.language.schema.descriptors.getDescriptor
 import org.editorconfig.language.schema.descriptors.impl.EditorConfigDeclarationDescriptor
 import org.editorconfig.language.schema.descriptors.impl.EditorConfigReferenceDescriptor
 import org.editorconfig.language.util.EditorConfigTextMatchingUtil.textMatchesToIgnoreCase
 import org.editorconfig.language.util.EditorConfigVfsUtil
 
 class EditorConfigFindVariableUsagesHandler(element: EditorConfigDescribableElement) : FindUsagesHandler(element) {
-  override fun processElementUsages(element: PsiElement, processor: Processor<in UsageInfo>, options: FindUsagesOptions) =
+  override fun processElementUsages(element: PsiElement, processor: Processor<in UsageInfo>, options: FindUsagesOptions): Boolean =
     runReadAction {
       getId(element)?.let { id -> findAllUsages(element, id) }
         ?.map(::UsageInfo)
         ?.all(processor::process) == true
     }
 
-  override fun findReferencesToHighlight(target: PsiElement, searchScope: SearchScope) =
+  override fun findReferencesToHighlight(target: PsiElement, searchScope: SearchScope): List<PsiReference> =
     runReadAction {
       if (searchScope !is LocalSearchScope) return@runReadAction emptyList<PsiReference>()
       val id = getId(target) ?: return@runReadAction emptyList<PsiReference>()

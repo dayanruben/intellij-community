@@ -8,9 +8,10 @@ import org.editorconfig.language.codeinsight.quickfixes.EditorConfigReplaceWithV
 import org.editorconfig.language.messages.EditorConfigBundle
 import org.editorconfig.language.psi.EditorConfigRootDeclaration
 import org.editorconfig.language.psi.EditorConfigVisitor
+import org.editorconfig.language.util.isValidRootDeclaration
 
 class EditorConfigRootDeclarationCorrectnessInspection : LocalInspectionTool() {
-  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) = object : EditorConfigVisitor() {
+  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): EditorConfigVisitor = object : EditorConfigVisitor() {
     override fun visitRootDeclaration(declaration: EditorConfigRootDeclaration) {
       if (declaration.isValidRootDeclaration) return
       val message = EditorConfigBundle.get("inspection.root-declaration.correctness.message")

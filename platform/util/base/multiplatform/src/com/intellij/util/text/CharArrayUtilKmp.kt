@@ -4,6 +4,8 @@ package com.intellij.util.text
 import fleet.util.multiplatform.linkToActual
 import org.jetbrains.annotations.ApiStatus
 import kotlin.math.min
+import kotlin.jvm.JvmStatic
+import kotlin.jvm.JvmOverloads
 
 @ApiStatus.Experimental
 object CharArrayUtilKmp {
@@ -35,7 +37,7 @@ object CharArrayUtilKmp {
   @JvmStatic
   fun fromSequence(seq: CharSequence): CharArray {
     val underlying: CharArray? = fromSequenceWithoutCopying(seq)
-    return underlying?.clone() ?: seq.fromSequence(0, seq.length)
+    return underlying?.copyOf() ?: seq.fromSequence(0, seq.length)
   }
 
   /**
@@ -75,7 +77,7 @@ object CharArrayUtilKmp {
         return
       }
       if (this is StringBuilder) {
-        this.getChars(srcOffset, srcOffset + len, dst, dstOffset)
+        this.toCharArray(dst, dstOffset, srcOffset, srcOffset + len)
         return
       }
 

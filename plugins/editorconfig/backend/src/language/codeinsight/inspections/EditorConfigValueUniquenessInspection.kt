@@ -8,10 +8,11 @@ import org.editorconfig.language.messages.EditorConfigBundle
 import org.editorconfig.language.psi.EditorConfigOptionValueList
 import org.editorconfig.language.psi.EditorConfigVisitor
 import org.editorconfig.language.schema.descriptors.EditorConfigDescriptor
+import org.editorconfig.language.schema.descriptors.getDescriptor
 import org.editorconfig.language.schema.descriptors.impl.EditorConfigListDescriptor
 
 class EditorConfigValueUniquenessInspection : LocalInspectionTool() {
-  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) = object : EditorConfigVisitor() {
+  override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): EditorConfigVisitor = object : EditorConfigVisitor() {
     override fun visitOptionValueList(list: EditorConfigOptionValueList) {
       val values = list.optionValueIdentifierList
       val listDescriptor = list.getDescriptor(false) as? EditorConfigListDescriptor ?: return

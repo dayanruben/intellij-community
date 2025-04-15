@@ -8,6 +8,7 @@ import com.intellij.platform.syntax.CancellationProvider
 import com.intellij.platform.syntax.Logger
 import com.intellij.platform.syntax.SyntaxElementType
 import com.intellij.platform.syntax.SyntaxElementTypeSet
+import kotlin.jvm.JvmName
 import org.jetbrains.annotations.ApiStatus
 
 /**
@@ -62,7 +63,7 @@ fun performLexing(
       // prevent clients like PsiBuilder from modifying shared token types
       return TokenSequence(
         lexStarts = existing.lexStarts,
-        lexTypes = existing.lexTypes.clone(),
+        lexTypes = existing.lexTypes.copyOf(),
         tokenCount = existing.tokenCount,
         tokenizedText = text
       ) as TokenList
