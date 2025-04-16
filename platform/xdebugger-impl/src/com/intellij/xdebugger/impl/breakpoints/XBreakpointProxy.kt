@@ -12,11 +12,13 @@ import com.intellij.xdebugger.breakpoints.XBreakpointProperties
 import com.intellij.xdebugger.breakpoints.XBreakpointType
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
+import com.intellij.xdebugger.impl.rpc.XBreakpointId
 import org.jetbrains.annotations.ApiStatus
 import javax.swing.Icon
 
 @ApiStatus.Internal
-interface XBreakpointProxy {
+interface XBreakpointProxy : Comparable<XBreakpointProxy> {
+  val id: XBreakpointId
   val breakpoint: Any
   val type: XBreakpointTypeProxy
   val project: Project
@@ -35,6 +37,8 @@ interface XBreakpointProxy {
   fun isDefaultBreakpoint(): Boolean
   fun getSuspendPolicy(): SuspendPolicy
   fun setSuspendPolicy(suspendPolicy: SuspendPolicy)
+
+  fun getTimestamp(): Long
 
   fun isLogMessage(): Boolean
   fun isLogStack(): Boolean
@@ -71,7 +75,11 @@ interface XBreakpointProxy {
   // Supported only for line breakpoints
   fun setTemporary(isTemporary: Boolean)
 
+  fun getCustomizedPresentation(): CustomizedBreakpointPresentation?
+
   class Monolith(override val breakpoint: XBreakpointBase<*, *, *>) : XBreakpointProxy {
+    override val id: XBreakpointId = breakpoint.breakpointId
+
     override val type: XBreakpointTypeProxy = XBreakpointTypeProxy.Monolith(breakpoint.project, breakpoint.getType())
 
     override val project: Project = breakpoint.project
@@ -111,6 +119,8 @@ interface XBreakpointProxy {
     override fun setSuspendPolicy(suspendPolicy: SuspendPolicy) {
       breakpoint.suspendPolicy = suspendPolicy
     }
+
+    override fun getTimestamp(): Long = breakpoint.timeStamp
 
     override fun isLogMessage(): Boolean = breakpoint.isLogMessage
 
@@ -173,6 +183,31 @@ interface XBreakpointProxy {
       }
     }
 
+    override fun getCustomizedPresentation(): CustomizedBreakpointPresentation? {
+      return breakpoint.customizedPresentation
+    }
+
+    override fun equals(other: Any?): Boolean {
+      if (this === other) return true
+      if (other !is Monolith) return false
+
+      if (id != other.id) return false
+
+      return true
+    }
+
+    override fun hashCode(): Int {
+      return id.hashCode()
+    }
+
+    override fun compareTo(other: XBreakpointProxy): Int {
+      if (other !is Monolith) {
+        return 1
+      }
+
+      return compare(breakpoint, other.breakpoint)
+    }
+
     companion object {
       @ApiStatus.Internal
       @Suppress("UNCHECKED_CAST")
@@ -181,6 +216,12 @@ interface XBreakpointProxy {
         breakpoint: XBreakpoint<*>,
         project: Project,
       ): XDebuggerEditorsProvider? = breakpointType.getEditorsProvider(breakpoint as B, project)
+
+      @Suppress("UNCHECKED_CAST")
+      private fun <B : XBreakpoint<P>, P : XBreakpointProperties<*>> compare(
+        breakpoint1: XBreakpointBase<B, P, *>,
+        breakpoint2: XBreakpoint<*>,
+      ): Int = breakpoint1.compareTo(breakpoint2 as B)
     }
   }
 }

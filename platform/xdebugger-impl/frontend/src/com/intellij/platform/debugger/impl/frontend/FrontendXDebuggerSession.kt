@@ -33,6 +33,8 @@ import com.intellij.xdebugger.evaluation.XDebuggerEvaluator
 import com.intellij.xdebugger.frame.XExecutionStack
 import com.intellij.xdebugger.frame.XStackFrame
 import com.intellij.xdebugger.frame.XSuspendContext
+import com.intellij.xdebugger.impl.breakpoints.CustomizedBreakpointPresentation
+import com.intellij.xdebugger.impl.breakpoints.XBreakpointProxy
 import com.intellij.xdebugger.impl.frame.*
 import com.intellij.xdebugger.impl.rpc.*
 import com.intellij.xdebugger.impl.ui.XDebugSessionData
@@ -166,8 +168,19 @@ class FrontendXDebuggerSession private constructor(
         this.cancel() // Only one tab expected
       }
     }
-  }
 
+    cs.launch(Dispatchers.EDT) {
+      sessionDto.sessionDataDto.breakpointsMutedFlow.toFlow().collectLatest {
+        sessionData.isBreakpointsMuted = it
+      }
+    }
+
+    cs.launch {
+      sessionState.collectLatest { state ->
+        sessionData.isPauseSupported = state.isPauseActionSupported
+      }
+    }
+  }
 
   private suspend fun XDebuggerSessionEvent.updateCurrents() {
     when (this) {
@@ -330,6 +343,20 @@ class FrontendXDebuggerSession private constructor(
     return FrontendXStackFramesListColorsCache(this, framesList)
   }
 
+  override fun areBreakpointsMuted(): Boolean {
+    return sessionData.isBreakpointsMuted
+  }
+
+  override fun isInactiveSlaveBreakpoint(breakpoint: XBreakpointProxy): Boolean {
+    // TODO: support dependent manager
+    return false
+  }
+
+  override fun getBreakpointPresentation(breakpoint: XBreakpointProxy): CustomizedBreakpointPresentation? {
+    // TODO: support passing breakpoint presentation from backend
+    return null
+  }
+
   companion object {
     private val LOG = thisLogger()
 
@@ -346,9 +373,11 @@ class FrontendXDebuggerSession private constructor(
   }
 }
 
-// TODO pass breakpoints muted flow
-private fun FrontendXDebuggerSession.createFeSessionData(sessionDto: XDebugSessionDto): XDebugSessionData =
-  XDebugSessionData(project, sessionDto.sessionDataDto.configurationName)
+private fun FrontendXDebuggerSession.createFeSessionData(sessionDto: XDebugSessionDto): XDebugSessionData {
+  val sessionData = XDebugSessionData(project, sessionDto.sessionDataDto.configurationName)
+  sessionData.isBreakpointsMuted = sessionDto.sessionDataDto.initialBreakpointsMuted
+  return sessionData
+}
 
 private fun CoroutineScope.createPositionFlow(dtoFlow: suspend () -> Flow<XSourcePositionDto?>): StateFlow<XSourcePosition?> = channelFlow {
   dtoFlow().collectLatest { sourcePositionDto ->

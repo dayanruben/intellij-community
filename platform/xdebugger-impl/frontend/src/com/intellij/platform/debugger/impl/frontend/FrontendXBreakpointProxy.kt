@@ -1,20 +1,23 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.debugger.impl.frontend
 
-import com.intellij.ide.ui.icons.icon
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.pom.Navigatable
 import com.intellij.xdebugger.XExpression
 import com.intellij.xdebugger.XSourcePosition
 import com.intellij.xdebugger.breakpoints.SuspendPolicy
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
+import com.intellij.xdebugger.impl.breakpoints.CustomizedBreakpointPresentation
+import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase.calculateIcon
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointProxy
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointTypeProxy
 import com.intellij.xdebugger.impl.rpc.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
@@ -25,11 +28,13 @@ import javax.swing.Icon
 @ApiStatus.Internal
 class FrontendXBreakpointProxy(
   override val project: Project,
-  private val cs: CoroutineScope,
+  parentCs: CoroutineScope,
   private val dto: XBreakpointDto,
   private val onBreakpointChange: () -> Unit,
 ) : XBreakpointProxy {
-  val id: XBreakpointId = dto.id
+  override val id: XBreakpointId = dto.id
+
+  private val cs = parentCs.childScope("FrontendXBreakpointProxy#$id")
 
   override val breakpoint: Any = this
 
@@ -69,7 +74,10 @@ class FrontendXBreakpointProxy(
 
   override fun getGroup(): String? = _state.value.group
 
-  override fun getIcon(): Icon = _state.value.iconId.icon()
+  override fun getIcon(): Icon {
+    // TODO: do we need to cache icon like it is done in XBreakpointBase
+    return calculateIcon(this)
+  }
 
   override fun isEnabled(): Boolean = _state.value.enabled
 
@@ -106,6 +114,8 @@ class FrontendXBreakpointProxy(
       XBreakpointApi.getInstance().setSuspendPolicy(id, suspendPolicy)
     }
   }
+
+  override fun getTimestamp(): Long = _state.value.timestamp
 
   override fun isLogMessage(): Boolean = _state.value.logMessage
 
@@ -214,6 +224,23 @@ class FrontendXBreakpointProxy(
     }
   }
 
+  override fun getCustomizedPresentation(): CustomizedBreakpointPresentation? {
+    // TODO: support customized presentation
+    return null
+  }
+
+  internal fun dispose() {
+    cs.cancel()
+  }
+
+  override fun compareTo(other: XBreakpointProxy): Int {
+    if (other !is FrontendXBreakpointProxy) {
+      return 1
+    }
+    // TODO: do we need to pass XBreakpointType.getBreakpointComparator somehow?
+    //  it always uses timestamps, so it seems like we can keep comparing by timestamps.
+    return getTimestamp().compareTo(other.getTimestamp())
+  }
 
   override fun equals(other: Any?): Boolean {
     if (this === other) return true
