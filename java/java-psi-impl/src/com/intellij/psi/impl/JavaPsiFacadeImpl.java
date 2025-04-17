@@ -32,7 +32,6 @@ import com.intellij.util.containers.ConcurrentFactoryMap;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBus;
 import kotlinx.coroutines.CoroutineScope;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -51,10 +50,6 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
   private final JavaFileManager myFileManager;
   private final NotNullLazyValue<JvmFacadeImpl> myJvmFacade;
   private final JvmPsiConversionHelper myConversionHelper;
-
-  private final ThreadLocal<Boolean> myTemporaryScopeCacheEnabled = ThreadLocal.withInitial(() -> Boolean.FALSE);
-  @SuppressWarnings("SSBasedInspection")
-  private final ThreadLocal<Set<GlobalSearchScope>> myCachedTemporaryScopes = ThreadLocal.withInitial(() -> new HashSet<>());
 
   public JavaPsiFacadeImpl(@NotNull Project project, @Nullable CoroutineScope coroutineScope) {
     myProject = project;
@@ -84,9 +79,6 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
   public PsiClass findClass(final @NotNull String qualifiedName, @NotNull GlobalSearchScope scope) {
     ProgressIndicatorProvider.checkCanceled(); // We hope this method is being called often enough to cancel daemon processes smoothly
 
-    if (myTemporaryScopeCacheEnabled.get() && myClassCache.get(scope) == null) {
-      myCachedTemporaryScopes.get().add(scope);
-    }
     Map<String, Optional<PsiClass>> map = myClassCache.computeIfAbsent(scope, scope1 -> CollectionFactory.createConcurrentWeakValueMap());
     Optional<PsiClass> result = map.get(qualifiedName);
     if (result == null) {
@@ -508,27 +500,5 @@ public final class JavaPsiFacadeImpl extends JavaPsiFacadeEx {
   @Override
   public @NotNull PsiElementFactory getElementFactory() {
     return PsiElementFactory.getInstance(myProject);
-  }
-
-  @ApiStatus.Internal
-  @Override
-  public <T, E extends Throwable> T withTemporaryScopeCaches(@NotNull ThrowableComputable<T, E> computation) throws E {
-    Boolean previousValue = myTemporaryScopeCacheEnabled.get();
-    myTemporaryScopeCacheEnabled.set(Boolean.TRUE);
-    try {
-      return computation.compute();
-    }
-    finally {
-      for (GlobalSearchScope scope : myCachedTemporaryScopes.get()) {
-        myClassCache.remove(scope);
-      }
-      myCachedTemporaryScopes.remove();
-      myTemporaryScopeCacheEnabled.set(previousValue);
-    }
-  }
-
-  @Override
-  public boolean temporaryScopeCachesEnabled() {
-    return myTemporaryScopeCacheEnabled.get();
   }
 }

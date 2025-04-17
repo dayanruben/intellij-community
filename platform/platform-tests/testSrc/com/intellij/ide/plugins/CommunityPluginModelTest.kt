@@ -14,9 +14,12 @@ class CommunityPluginModelTest {
     val communityPath = PlatformTestUtil.getCommunityPath()
     val options = PluginValidationOptions(
       skipUnresolvedOptionalContentModules = true,
+      referencedPluginIdsOfExternalPlugins = setOf(
+        "com.intellij.modules.python-in-mini-ide-capable", //defined in the ultimate part
+        "com.intellij.modules.rider", //defined in the ultimate part
+      ),
       modulesToSkip = setOf(
         "intellij.android.device-explorer",
-        "intellij.platform.syntax.psi", /* syntax.psi is not yet a real module because it's a part of Core */
       ),
       pathsIncludedFromLibrariesViaXiInclude = setOf(
         "META-INF/analysis-api/analysis-api-fe10.xml",

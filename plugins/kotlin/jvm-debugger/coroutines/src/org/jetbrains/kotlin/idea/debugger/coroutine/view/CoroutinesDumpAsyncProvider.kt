@@ -12,15 +12,14 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.unscramble.DumpItem
 import com.intellij.unscramble.IconsCache
-import com.intellij.util.ui.UIUtil
+import com.intellij.unscramble.MergeableDumpItem
+import com.intellij.unscramble.MergeableToken
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.idea.debugger.coroutine.data.CoroutineInfoData
 import org.jetbrains.kotlin.idea.debugger.coroutine.data.State
 import org.jetbrains.kotlin.idea.debugger.coroutine.proxy.CoroutineDebugProbesProxy
-import java.awt.Color
 import java.util.*
 import javax.swing.Icon
-import com.intellij.unscramble.MergeableToken
 
 /**
  * Provides the dump of coroutines in the Debug mode.
@@ -40,7 +39,7 @@ class CoroutinesDumpAsyncProvider : ThreadDumpItemsProviderFactory() {
 
         override val requiresEvaluation get() = enabled
 
-        override fun getItems(suspendContext: SuspendContextImpl?): List<DumpItem> {
+        override fun getItems(suspendContext: SuspendContextImpl?): List<MergeableDumpItem> {
             if (!enabled) return emptyList()
 
             val coroutinesCache = CoroutineDebugProbesProxy(suspendContext!!).dumpCoroutines()
@@ -49,7 +48,7 @@ class CoroutinesDumpAsyncProvider : ThreadDumpItemsProviderFactory() {
     }
 }
 
-private class CoroutineDumpItem(private val info: CoroutineInfoData) : DumpItem {
+private class CoroutineDumpItem(private val info: CoroutineInfoData) : MergeableDumpItem {
 
     override val name: String = info.name + ":" + info.id
 
@@ -64,6 +63,12 @@ private class CoroutineDumpItem(private val info: CoroutineInfoData) : DumpItem 
         else -> stackTrace.count { it == '\n' }
     }
 
+    override val isDeadLocked: Boolean
+        get() = false
+
+    override val awaitingDumpItems: Set<DumpItem>
+        get() = emptySet()
+
     override val icon: Icon =
         IconsCache.getIconWithVirtualOverlay(
             when (info.state) {
@@ -77,10 +82,6 @@ private class CoroutineDumpItem(private val info: CoroutineInfoData) : DumpItem 
         State.SUSPENDED -> DumpItem.SLEEPING_ATTRIBUTES
         State.RUNNING -> DumpItem.RUNNING_ATTRIBUTES
         State.CREATED, State.UNKNOWN -> DumpItem.UNINTERESTING_ATTRIBUTES
-    }
-
-    override fun getBackgroundColor(selectedItem: DumpItem?): Color? {
-        return UIUtil.getListBackground()
     }
 
     override val mergeableToken: MergeableToken get() = CoroutinesMergeableToken()

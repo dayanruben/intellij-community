@@ -3,7 +3,6 @@
 package org.jetbrains.kotlin.idea.k2.codeinsight.inspections
 
 import com.intellij.codeInsight.intention.LowPriorityAction
-import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.codeInspection.util.InspectionMessage
 import com.intellij.codeInspection.util.IntentionFamilyName
@@ -24,8 +23,8 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinMo
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
+import org.jetbrains.kotlin.psi.psiUtil.getOutermostParenthesizerOrThis
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfTypes
-import org.jetbrains.kotlin.psi.psiUtil.getTopmostParentOfType
 
 internal class ReplaceNotNullAssertionWithElvisReturnInspection :
     KotlinApplicableInspectionBase.Simple<KtPostfixExpression, ReplaceNotNullAssertionWithElvisReturnInspection.Context>() {
@@ -44,7 +43,7 @@ internal class ReplaceNotNullAssertionWithElvisReturnInspection :
         val operationReference = element.operationReference
         if (operationReference.getReferencedNameElementType() != KtTokens.EXCLEXCL) return false
 
-        if ((element.getTopmostParentOfType<KtParenthesizedExpression>() ?: element).parent is KtReturnExpression) return false
+        if ((element.getOutermostParenthesizerOrThis()).parent is KtReturnExpression) return false
 
         return element.getParentOfTypes(
             strict = true,
@@ -69,12 +68,16 @@ internal class ReplaceNotNullAssertionWithElvisReturnInspection :
             }
         ) return null
 
-        val (isNullable, returnLabelName) = when (parent) {
+        return when (parent) {
             is KtNamedFunction -> {
                 val returnType = parent.getReturnType(analysisSession = this) ?: return null
                 val isNullable = returnType.canBeNull
                 if (!returnType.isUnitType && !isNullable) return null
-                isNullable to null
+
+                Context(
+                    returnNull = isNullable,
+                    returnLabelName = null,
+                )
             }
 
             is KtLambdaExpression -> {
@@ -82,24 +85,21 @@ internal class ReplaceNotNullAssertionWithElvisReturnInspection :
                 val returnType = functionLiteral.getReturnType(analysisSession = this) ?: return null
                 if (!returnType.isUnitType) return null
                 val lambdaLabelName = functionLiteral.bodyBlockExpression?.getParentLambdaLabelName() ?: return null
-                false to lambdaLabelName
+
+                Context(
+                    returnNull = false,
+                    returnLabelName = lambdaLabelName,
+                )
             }
 
-            else -> return null
+            else -> null
         }
-
-        return Context(isNullable, returnLabelName)
     }
 
     override fun getProblemDescription(
         element: KtPostfixExpression,
         context: Context,
     ): @InspectionMessage String = KotlinBundle.message("replace.with.return")
-
-    override fun getProblemHighlightType(
-        element: KtPostfixExpression,
-        context: Context,
-    ): ProblemHighlightType = ProblemHighlightType.GENERIC_ERROR_OR_WARNING
 
     override fun createQuickFix(
         element: KtPostfixExpression,

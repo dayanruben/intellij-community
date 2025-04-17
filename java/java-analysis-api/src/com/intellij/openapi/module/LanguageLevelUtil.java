@@ -55,19 +55,13 @@ public final class LanguageLevelUtil {
   }
 
   /**
+   * @deprecated Please use {@link LanguageLevel#next()} instead.
    * @param languageLevel The language level to get the next from.
    * @return Next {@link LanguageLevel} that is not in preview or null if there is no language level.
    */
+  @Deprecated(forRemoval = true)
   public static @Nullable LanguageLevel getNextLanguageLevel(@NotNull LanguageLevel languageLevel) {
-    return LanguageLevel.forFeature(languageLevel.feature() + 1);
-  }
-
-  /**
-   * @param languageLevel The language level to get the previous from.
-   * @return Previous {@link LanguageLevel} that is not in preview or null if there is no language level.
-   */
-  public static @Nullable LanguageLevel getPrevLanguageLevel(@NotNull LanguageLevel languageLevel) {
-    return LanguageLevel.forFeature(languageLevel.feature() - 1);
+    return languageLevel.next();
   }
 
   /**
@@ -91,13 +85,13 @@ public final class LanguageLevelUtil {
    */
   @Deprecated(forRemoval = true)
   public static @Nullable LanguageLevel getLastIncompatibleLanguageLevel(@NotNull PsiMember member, @NotNull LanguageLevel languageLevel) {
-    LanguageLevel firstCompatibleLanguageLevel = JdkApiCompatibilityCache.getInstance().firstCompatibleLanguageLevel(member, languageLevel);
+    LanguageLevel firstCompatibleLanguageLevel = JdkApiCompatibilityService.getInstance().firstCompatibleLanguageLevel(member, languageLevel);
     if (firstCompatibleLanguageLevel == null) return null;
-    return getPrevLanguageLevel(firstCompatibleLanguageLevel);
+    return firstCompatibleLanguageLevel.previous();
   }
 
   /**
-   * @deprecated Please use {@link JdkApiCompatibilityCache} to check for incompatible APIs.
+   * @deprecated Please use {@link JdkApiCompatibilityService} to check for incompatible APIs.
    */
   @Deprecated(forRemoval = true)
   public static Set<String> loadSignatureList(@NotNull URL resource) {
@@ -113,10 +107,10 @@ public final class LanguageLevelUtil {
   /**
    * For serialization of forbidden api.
    *
-   * @deprecated Please don't use this, this API was moved to {@link JdkApiCompatibilityCache} and is for internal use only.
+   * @deprecated Please don't use this, this API was moved to {@link JdkApiCompatibilityService} and is for internal use only.
    */
   @Deprecated(forRemoval = true)
   public static @Nullable String getSignature(@Nullable PsiMember member) {
-    return JdkApiCompatibilityCache.getInstance().getSignature(member);
+    return JdkApiCompatibilityService.getInstance().getSignature(member);
   }
 }

@@ -880,7 +880,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-24445
   public void testIsSubclassInsideListComprehension() {
-    doTest("list[Type[A]]",
+    doTest("list[type[A]]",
            "class A: pass\n" +
            "expr = [e for e in [] if issubclass(e, A)]");
   }
@@ -3501,6 +3501,67 @@ public class Py3TypeTest extends PyTestCase {
           finally:
               pass
       expr = f()
+      """);
+  }
+
+  public void testMetaclassHavingDunderCall() {
+    doTest("object", """
+      from typing import Self
+      
+      
+      class Meta(type):
+          def call(cls, *args, **kwargs) -> object: ...
+      
+          __call__ = call
+      
+      
+      class MyClass(metaclass=Meta):
+          def __new__(cls, p) -> Self: ...
+      
+      
+      expr = MyClass()
+      """);
+    doTest("MyClass", """
+      from typing import Self
+      
+      
+      class Meta(type):
+          def __call__(cls): ...
+      
+      
+      class MyClass(metaclass=Meta):
+          def __new__(cls, p: int) -> Self: ...
+      
+      
+      expr = MyClass(1)
+      """);
+    doTest("MyClass", """
+      from typing import Self
+      
+      
+      class Meta(type):
+          def __call__[T](cls: type[T], *args, **kwargs) -> T: ...
+      
+      
+      class MyClass(metaclass=Meta):
+          def __new__(cls, p) -> Self: ...
+      
+      
+      expr = MyClass(1)
+      """);
+    doTest("int", """
+      from typing import Self
+      
+      
+      class Meta(type):
+          def __call__[T](cls, x: T) -> T: ...
+      
+      
+      class MyClass(metaclass=Meta):
+          def __new__(cls, p1, p2) -> Self: ...
+      
+      
+      expr = MyClass(1)
       """);
   }
 

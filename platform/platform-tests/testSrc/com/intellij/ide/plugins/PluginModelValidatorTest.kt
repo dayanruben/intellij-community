@@ -78,13 +78,7 @@ class PluginModelValidatorTest {
 
     val errors = validatePluginModel(modules)
       .errors
-      .joinToString { it.message!! }
-    assertThat(errors).isEqualTo("""
-      Do not add dependency on a parent plugin (
-        entry=PluginDependency(pluginId=plugin),
-        referencingDescriptorFile=/intellij.plugin.module/intellij.plugin.module.xml
-      )
-    """.trimIndent())
+    assertThat(errors).isEmpty()
   }
 
   @Test
@@ -140,7 +134,9 @@ class PluginModelValidatorTest {
     val modules = producePluginWithContentModule {
       it.replace("</dependencies>", "</dependencies><depends>com.intellij.modules.lang</depends>")
     }
-    val result = validatePluginModel(modules)
+    val result = validatePluginModel(modules, PluginValidationOptions(
+      referencedPluginIdsOfExternalPlugins = setOf("com.intellij.modules.lang")
+    ))
     assertThat(result.errors.joinToString { it.message!! }).isEqualTo("""
       Old format must be not used for a module but `depends` tag is used (
         descriptorFile=/intellij.plugin.module/intellij.plugin.module.xml,

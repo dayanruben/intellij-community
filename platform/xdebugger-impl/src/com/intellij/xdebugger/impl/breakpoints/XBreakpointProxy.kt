@@ -4,6 +4,7 @@ package com.intellij.xdebugger.impl.breakpoints
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.pom.Navigatable
+import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.xdebugger.XExpression
 import com.intellij.xdebugger.XSourcePosition
 import com.intellij.xdebugger.breakpoints.SuspendPolicy
@@ -12,6 +13,7 @@ import com.intellij.xdebugger.breakpoints.XBreakpointProperties
 import com.intellij.xdebugger.breakpoints.XBreakpointType
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
+import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.rpc.XBreakpointId
 import org.jetbrains.annotations.ApiStatus
 import javax.swing.Icon
@@ -26,6 +28,7 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
   fun getDisplayText(): @NlsSafe String
   fun getShortText(): @NlsSafe String
   fun getUserDescription(): @NlsSafe String?
+  fun setUserDescription(description: String?)
   fun getGroup(): String?
   fun getIcon(): Icon
   fun isEnabled(): Boolean
@@ -77,6 +80,8 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
 
   fun getCustomizedPresentation(): CustomizedBreakpointPresentation?
 
+  fun getCustomizedPresentationForCurrentSession(): CustomizedBreakpointPresentation?
+
   class Monolith(override val breakpoint: XBreakpointBase<*, *, *>) : XBreakpointProxy {
     override val id: XBreakpointId = breakpoint.breakpointId
 
@@ -88,6 +93,10 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
     override fun getShortText(): @NlsSafe String = XBreakpointUtil.getShortText(breakpoint)
 
     override fun getUserDescription(): String? = breakpoint.userDescription
+    
+    override fun setUserDescription(description: String?) {
+      breakpoint.userDescription = description
+    }
 
     override fun getGroup(): String? {
       return breakpoint.group
@@ -185,6 +194,10 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
 
     override fun getCustomizedPresentation(): CustomizedBreakpointPresentation? {
       return breakpoint.customizedPresentation
+    }
+
+    override fun getCustomizedPresentationForCurrentSession(): CustomizedBreakpointPresentation? {
+      return (XDebuggerManager.getInstance(project).currentSession as? XDebugSessionImpl)?.getBreakpointPresentation(breakpoint)
     }
 
     override fun equals(other: Any?): Boolean {
