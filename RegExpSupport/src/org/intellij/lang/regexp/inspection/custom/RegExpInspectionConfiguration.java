@@ -7,6 +7,8 @@ import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.UnknownFileType;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.SmartList;
+import org.intellij.lang.regexp.RegExpBundle;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -14,6 +16,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 /**
  * @author Bas Leijdekkers
@@ -156,17 +160,46 @@ public class RegExpInspectionConfiguration implements Comparable<RegExpInspectio
     return result;
   }
 
+  enum RegExpFlags {
+    UNIX_LINES(Pattern.UNIX_LINES, 'd', RegExpBundle.messagePointer("regexp.dialog.flag.unix.lines")),
+    CASE_INSENSITIVE(Pattern.CASE_INSENSITIVE, 'i', RegExpBundle.messagePointer("regexp.dialog.flag.case.insensitive")),
+    COMMENTS(Pattern.COMMENTS, 'x', RegExpBundle.messagePointer("regexp.dialog.flag.comments")),
+    MULTILINE(Pattern.MULTILINE, 'm', RegExpBundle.messagePointer("regexp.dialog.flag.multiline")),
+    LITERAL(Pattern.LITERAL, null, RegExpBundle.messagePointer("regexp.dialog.flag.literal")),
+    DOTALL(Pattern.DOTALL, 's', RegExpBundle.messagePointer("regexp.dialog.flag.dotall")),
+    UNICODE_CASE(Pattern.UNICODE_CASE, 'u', RegExpBundle.messagePointer("regexp.dialog.flag.unicode.case")),
+    CANON_EQ(Pattern.CANON_EQ, null, RegExpBundle.messagePointer("regexp.dialog.flag.canonical.equivalence")),
+    UNICODE_CHARACTER_CLASS(Pattern.UNICODE_CHARACTER_CLASS, 'U', RegExpBundle.messagePointer("regexp.dialog.flag.unicode.character.class"));
+
+    public final int id;
+    public final @Nullable Character mnemonic;
+    private final  @NotNull Supplier<@Nls String> myMessagePointer;
+
+    RegExpFlags(int id, @Nullable Character mnemonic, @NotNull Supplier<@Nls String> supplier) {
+      this.id = id;
+      this.mnemonic = mnemonic;
+      this.myMessagePointer = supplier;
+    }
+
+    @Nls
+    public @NotNull String getText() {
+      return myMessagePointer.get();
+    }
+  }
+
   public static final class InspectionPattern {
-    public static final InspectionPattern EMPTY_REPLACE_PATTERN = new InspectionPattern("", null, FindModel.SearchContext.ANY, "");
+    public static final InspectionPattern EMPTY_REPLACE_PATTERN = new InspectionPattern("", null, 0, FindModel.SearchContext.ANY, "");
     public @NotNull String regExp;
     private @Nullable FileType fileType;
     public @Nullable String _fileType;
     public @NotNull FindModel.SearchContext searchContext;
     public @Nullable String replacement;
+    public int flags;
 
     public InspectionPattern(
       @NotNull String regExp,
       @Nullable FileType fileType,
+      int flags,
       @NotNull FindModel.SearchContext searchContext,
       @Nullable String replacement
     ) {
@@ -175,6 +208,7 @@ public class RegExpInspectionConfiguration implements Comparable<RegExpInspectio
       if (this.fileType != null) {
         _fileType = this.fileType.getName();
       }
+      this.flags = flags;
       this.searchContext = searchContext;
       this.replacement = replacement;
     }
@@ -187,6 +221,7 @@ public class RegExpInspectionConfiguration implements Comparable<RegExpInspectio
       regExp = copy.regExp;
       fileType = copy.fileType;
       _fileType = copy._fileType;
+      flags = copy.flags;
       searchContext = copy.searchContext;
       replacement = copy.replacement;
     }
@@ -224,13 +259,14 @@ public class RegExpInspectionConfiguration implements Comparable<RegExpInspectio
       var that = (InspectionPattern)obj;
       return Objects.equals(regExp, that.regExp) &&
              Objects.equals(fileType, that.fileType) &&
+             Objects.equals(flags, that.flags) &&
              Objects.equals(searchContext, that.searchContext) &&
              Objects.equals(replacement, that.replacement);
     }
 
     @Override
     public int hashCode() {
-      return Objects.hash(regExp, fileType, searchContext, replacement);
+      return Objects.hash(regExp, fileType, flags, searchContext, replacement);
     }
 
     @Override
@@ -238,6 +274,7 @@ public class RegExpInspectionConfiguration implements Comparable<RegExpInspectio
       return "InspectionPattern[" +
              "regExp=" + regExp + ", " +
              "fileType=" + fileType + ", " +
+             "flags=" + flags + ", " +
              "searchContext=" + searchContext + ", " +
              "replacement=" + replacement + ']';
     }

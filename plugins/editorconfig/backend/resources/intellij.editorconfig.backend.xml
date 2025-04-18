@@ -2,6 +2,7 @@
 <idea-plugin>
   <dependencies>
     <plugin id="com.intellij.modules.lang"/>
+    <module name="intellij.platform.backend"/>
     <module name="intellij.editorconfig.common"/>
   </dependencies>
   <actions resource-bundle="messages.EditorConfigBundle">
@@ -28,11 +29,8 @@
     <editorNotificationProvider implementation="org.editorconfig.configmanagement.editor.EditorConfigEditorNotificationProvider"/>
 
     <!-- Language support -->
-    <colorSettingsPage implementation="org.editorconfig.language.highlighting.EditorConfigColorSettingsPage"/>
-    <annotator
-        language="EditorConfig"
-        implementationClass="org.editorconfig.language.codeinsight.annotators.EditorConfigAnnotator"/>
-    <enterHandlerDelegate implementation="org.editorconfig.language.codeinsight.actions.EnterInEditorConfigFileHandler"/>
+    <annotator language="EditorConfig"
+               implementationClass="org.editorconfig.language.codeinsight.annotators.EditorConfigDescriptorAnnotator"/>
     <vetoRenameCondition implementation="org.editorconfig.language.codeinsight.refactoring.EditorConfigVetoRenameCondition"/>
     <completion.contributor
         language="EditorConfig"
@@ -45,14 +43,9 @@
         order="last"
         implementationClass="org.editorconfig.configmanagement.completion.EditorConfigUnsetCompletionContributor"/>
     <langCodeStyleSettingsProvider implementation="org.editorconfig.language.codestyle.EditorConfigLanguageCodeStyleSettingsProvider"/>
-    <statementUpDownMover implementation="org.editorconfig.language.codeinsight.actions.EditorConfigStatementUpDownMover"/>
-    <moveLeftRightHandler
-        language="EditorConfig"
-        implementationClass="org.editorconfig.language.codeinsight.actions.EditorConfigMoveElementLeftRightHandler"/>
     <spellchecker.support
         language="EditorConfig"
         implementationClass="org.editorconfig.language.spellchecker.EditorConfigSpellcheckerStrategy"/>
-    <typedHandler implementation="org.editorconfig.language.codeinsight.actions.EditorConfigTypedHandlerDelegate"/>
     <findUsagesHandlerFactory implementation="org.editorconfig.language.codeinsight.findusages.EditorConfigFindUsagesHandlerFactory"/>
     <breadcrumbsInfoProvider implementation="org.editorconfig.language.breadcrumbs.EditorConfigBreadcrumbsProvider"/>
     <renameHandler implementation="org.editorconfig.language.codeinsight.refactoring.EditorConfigRenameHandler"/>
@@ -412,21 +405,6 @@
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij.lang">
-    <syntaxHighlighterFactory
-        language="EditorConfig"
-        implementationClass="org.editorconfig.language.highlighting.EditorConfigSyntaxHighlighterFactory"/>
-    <braceMatcher
-        language="EditorConfig"
-        implementationClass="org.editorconfig.language.codeinsight.EditorConfigBraceMatcher"/>
-    <commenter
-        language="EditorConfig"
-        implementationClass="org.editorconfig.language.codeinsight.EditorConfigCommenter"/>
-    <foldingBuilder
-        language="EditorConfig"
-        implementationClass="org.editorconfig.language.codeinsight.EditorConfigFoldingBuilder"/>
-    <formatter
-        language="EditorConfig"
-        implementationClass="org.editorconfig.language.formatting.EditorConfigFormattingModelBuilder"/>
     <psiStructureViewFactory
         language="EditorConfig"
         implementationClass="org.editorconfig.language.structureview.EditorConfigStructureViewFactory"/>

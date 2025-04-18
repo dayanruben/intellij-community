@@ -13358,8 +13358,8 @@ c:com.intellij.ui.FilteringSpeedSearch
 - iterate(javax.swing.tree.DefaultMutableTreeNode,Z,Z):java.util.Iterator
 - noHits():V
 - p:onMatchingChecked(java.lang.Object,java.lang.Iterable,com.intellij.ui.FilteringTree$Matching):V
-- p:onSearchFieldUpdated(java.lang.String):V
-- p:onUpdatePattern(java.lang.String):V
+- p:onSearchPatternUpdated(java.lang.String):V
+- refilter(java.lang.String):V
 - select(javax.swing.tree.DefaultMutableTreeNode):V
 - update():V
 - updateSelection():V
@@ -13751,7 +13751,6 @@ c:com.intellij.ui.LanguageTextField$SimpleDocumentCreator
 - createDocument(java.lang.String,com.intellij.lang.Language,com.intellij.openapi.project.Project):com.intellij.openapi.editor.Document
 - customizePsiFile(com.intellij.psi.PsiFile):V
 f:com.intellij.ui.LicensingFacade
-- s:INSTANCE:com.intellij.ui.LicensingFacade
 - ai_enabled:Z
 - confirmationStamps:java.util.Map
 - expirationDate:java.util.Date
@@ -13766,6 +13765,7 @@ f:com.intellij.ui.LicensingFacade
 - productLicenses:java.util.Map
 - restrictions:java.util.List
 - subType:java.lang.String
+- userBucket:java.lang.String
 - <init>():V
 - s:fromJson(java.lang.String):com.intellij.ui.LicensingFacade
 - getConfirmationStamp(java.lang.String):java.lang.String

@@ -7,6 +7,7 @@ import com.intellij.ide.dnd.TransferableList
 import com.intellij.ide.dnd.aware.DnDAwareTree
 import com.intellij.ide.util.treeView.TreeState
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.components.*
 import com.intellij.openapi.progress.util.BackgroundTaskUtil
@@ -20,13 +21,13 @@ import com.intellij.psi.codeStyle.MinusculeMatcher
 import com.intellij.psi.codeStyle.NameUtil
 import com.intellij.ui.*
 import com.intellij.ui.hover.TreeHoverListener
-import com.intellij.ui.speedSearch.SpeedSearch
 import com.intellij.ui.speedSearch.SpeedSearchSupply
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.containers.FList
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StatusText
 import com.intellij.util.ui.UIUtil
+import com.intellij.util.ui.launchOnShow
 import com.intellij.util.ui.tree.TreeUtil
 import com.intellij.util.ui.update.Activatable
 import com.intellij.util.ui.update.UiNotifyConnector
@@ -46,6 +47,13 @@ import git4idea.ui.branch.popup.createIncomingLabel
 import git4idea.ui.branch.popup.createOutgoingLabel
 import git4idea.ui.branch.popup.updateIncomingCommitLabel
 import git4idea.ui.branch.popup.updateOutgoingCommitLabel
+import git4idea.ui.branch.tree.GitBranchesTreeUtil
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.NonNls
 import java.awt.Dimension
 import java.awt.Graphics
@@ -57,7 +65,6 @@ import javax.swing.JTree
 import javax.swing.TransferHandler
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeExpansionListener
-import javax.swing.tree.TreePath
 
 internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
 
@@ -254,8 +261,6 @@ internal class FilteringBranchesTree(
 
   private var initialUpdateDone = false
 
-  private val expandedPaths = HashSet<TreePath>()
-
   private val treeStateProvider = BranchesTreeStateProvider(this, disposable)
 
   private val treeStateHolder: BranchesTreeStateHolder get() =
@@ -277,41 +282,14 @@ internal class FilteringBranchesTree(
   private fun setupTreeListeners() {
     component.addTreeExpansionListener(object : TreeExpansionListener {
       override fun treeExpanded(event: TreeExpansionEvent) {
-        expandedPaths.add(event.path)
         treeStateHolder.setStateProvider(treeStateProvider)
       }
 
       override fun treeCollapsed(event: TreeExpansionEvent) {
-        expandedPaths.remove(event.path)
         treeStateHolder.setStateProvider(treeStateProvider)
       }
     })
     component.addTreeSelectionListener { treeStateHolder.setStateProvider(treeStateProvider) }
-  }
-
-  private fun restorePreviouslyExpandedPaths() {
-    TreeUtil.restoreExpandedPaths(component, expandedPaths.toList())
-  }
-
-  override fun expandTreeOnSearchUpdateComplete(pattern: String?) {
-    restorePreviouslyExpandedPaths()
-  }
-
-  override fun onSpeedSearchUpdateComplete(pattern: String?) {
-    updateSpeedSearchBackground()
-  }
-
-  private fun updateSpeedSearchBackground() {
-    val speedSearch = searchModel.speedSearch as? SpeedSearch ?: return
-    val textEditor = component.searchField?.textEditor ?: return
-    if (isEmptyModel()) {
-      textEditor.isOpaque = true
-      speedSearch.noHits()
-    }
-    else {
-      textEditor.isOpaque = false
-      textEditor.background = UIUtil.getTextFieldBackground()
-    }
   }
 
   fun update(initial: Boolean, repaint: Boolean) {
@@ -417,37 +395,72 @@ internal class BranchesTreeStateProvider(tree: FilteringBranchesTree, disposable
   }
 }
 
-private class BranchesFilteringSpeedSearch(private val tree: FilteringBranchesTreeBase, searchTextField: SearchTextField):
-  FilteringSpeedSearch<BranchTreeNode, BranchNodeDescriptor>(tree, searchTextField) {
-  private var matcher = BranchesTreeMatcher(searchTextField.text)
+@OptIn(FlowPreview::class)
+private class BranchesFilteringSpeedSearch(
+  private val tree: FilteringBranchesTreeBase,
+  private val searchTextField: SearchTextField,
+) : FilteringSpeedSearch<BranchTreeNode, BranchNodeDescriptor>(tree, searchTextField) {
+  // null is the initial state - actual value is usually a non-null string
+  private val filterPattern = MutableStateFlow<String?>(null)
+
   private var bestMatch: BestMatch? = null
+
+  init {
+    tree.tree.launchOnShow("Branches Tree Filterer") {
+      // need EDT because of RA in TreeUtil.promiseVisit
+      withContext(Dispatchers.EDT) {
+        filterPattern.filterNotNull().debounce(GitBranchesTreeUtil.FILTER_DEBOUNCE_MS).collect(::refilter)
+      }
+    }
+  }
 
   override fun checkMatching(node: BranchTreeNode): FilteringTree.Matching =
     if (node.getNodeDescriptor() is BranchNodeDescriptor.Group) FilteringTree.Matching.NONE
     else super.checkMatching(node)
 
   override fun onMatchingChecked(userObject: BranchNodeDescriptor, matchingFragments: Iterable<TextRange>?, result: FilteringTree.Matching) {
+    val matcher = matcher ?: return
     if (result == FilteringTree.Matching.NONE) return
     val text = tree.getText(userObject) ?: return
     val singleMatch = matchingFragments?.singleOrNull() ?: return
 
-    val matchingDegree = matcher.matchingDegree(text, valueStartCaseMatch = false, fragments = FList.singleton(singleMatch))
+    val matchingDegree = matcher.matchingDegree(text, false, FList.singleton(singleMatch))
     if (matchingDegree > (bestMatch?.matchingDegree ?: 0)) {
       val node = tree.searchModel.getNode(userObject)
       bestMatch = BestMatch(matchingDegree, node)
     }
   }
 
-  override fun getMatcher(): MinusculeMatcher = matcher
+  override fun createNewMatcher(searchText: String?): MinusculeMatcher = BranchesTreeMatcher(searchText)
 
-  override fun updatePattern(string: String?) {
-    super.updatePattern(string)
-    onUpdatePattern(string)
+  override fun getMatcher(): MinusculeMatcher? = super.getMatcher() as MinusculeMatcher?
+
+  override fun onSearchPatternUpdated(pattern: String?) {
+    filterPattern.tryEmit(pattern.orEmpty())
+  }
+
+  override fun refilter(pattern: String?) {
+    bestMatch = null
+    super.refilter(pattern)
+    updateSpeedSearchBackground()
+  }
+
+  private fun updateSpeedSearchBackground() {
+    val textEditor = searchTextField.textEditor ?: return
+    if (tree.isEmptyModel()) {
+      textEditor.isOpaque = true
+      noHits()
+    }
+    else {
+      textEditor.isOpaque = false
+      textEditor.background = UIUtil.getTextFieldBackground()
+    }
   }
 
   override fun updateSelection() {
+    val matcher = matcher
     val bestMatch = bestMatch
-    if (bestMatch == null) {
+    if (matcher == null || bestMatch == null) {
       super.updateSelection()
     }
     else {
@@ -466,11 +479,6 @@ private class BranchesFilteringSpeedSearch(private val tree: FilteringBranchesTr
   private fun scrollToSelected() {
     val innerTree = tree.tree
     innerTree.selectionPath?.let { TreeUtil.scrollToVisible(innerTree, it, false) }
-  }
-
-  override fun onUpdatePattern(text: String?) {
-    matcher = BranchesTreeMatcher(text)
-    bestMatch = null
   }
 }
 
