@@ -186,6 +186,9 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(AbstractSuperCallFixFactories.errorFixFactory)
         registerFactory(AbstractSuperCallFixFactories.warningFactory)
         registerFactory(JavaClassOnCompanionFixFactories.factory)
+        registerFactory(ChangeTypeQuickFixFactories.implicitNothingReturnTypeFixFactory)
+        registerFactory(ChangeTypeQuickFixFactories.implicitNothingPropertyTypeFixFactory)
+        registerFactory(InapplicableJvmFieldFixFactories.removeAnnotationFixFactory)
     }
 
     private val addAbstract = KtQuickFixesListBuilder.registerPsiQuickFix {
