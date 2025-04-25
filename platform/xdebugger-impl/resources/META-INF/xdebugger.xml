@@ -60,7 +60,6 @@
     <ide.dynamicPluginVetoer implementation="com.intellij.xdebugger.impl.XDebuggerManagerImpl$XDebuggerPluginVetoer"/>
 
     <projectService serviceImplementation="com.intellij.xdebugger.impl.inline.DebuggerInlayListener"/>
-    <projectService serviceImplementation="com.intellij.xdebugger.impl.XDebuggerLineChangeIconProvider"/>
 
     <pathMacroFilter implementation="com.intellij.xdebugger.impl.XDebuggerHistoryManager$XDebuggerHistoryPathMacroFilter"/>
 
@@ -164,6 +163,10 @@
     <registryKey defaultValue="false"
                  description="Debugger implementation for split mode. Enable it in monolith as well to have the same experience as in RD."
                  key="xdebugger.toolwindow.split"/>
+
+    <registryKey defaultValue="false"
+                 description="Use LUXed evaluation debugger popup"
+                 key="xdebugger.lux.evaluation.popup"/>
 
     <registryKey defaultValue="false"
                  description="Throw warnings and errors about misusages of frontend components on the backend (and vice versa)"

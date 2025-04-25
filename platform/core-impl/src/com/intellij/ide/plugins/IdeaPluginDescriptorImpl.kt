@@ -75,7 +75,7 @@ class IdeaPluginDescriptorImpl private constructor(
     ContentModuleDescriptor,
 
     /**
-     * Descriptor instantiated as a sub-descriptor of some [PluginMainDescriptor] _or_ another [DependsSubDescriptor] in [resolvePluginDependencies]. See [createSub].
+     * Descriptor instantiated as a sub-descriptor of some [PluginMainDescriptor] _or_ another [DependsSubDescriptor] in [loadPluginDependencyDescriptors]. See [createSub].
      *
      * `descriptorPath` is _not_ null, `moduleName` and `moduleLoadingRule` properties are `null`.
      */
@@ -268,17 +268,15 @@ class IdeaPluginDescriptorImpl private constructor(
   internal fun createSub(
     subBuilder: PluginDescriptorBuilder,
     descriptorPath: String,
-    getDefaultVersion: () -> String?,
-    recordDescriptorPath: ((IdeaPluginDescriptorImpl, RawPluginDescriptor, String) -> Unit)?,
     module: PluginContentDescriptor.ModuleItem?,
   ): IdeaPluginDescriptorImpl {
     subBuilder.id = id.idString
     subBuilder.name = name
     subBuilder.vendor = vendor
     if (subBuilder.version != null && subBuilder.version != version) {
-      LOG.warn("Sub descriptor version redefinition for plugin $id. Original value: ${subBuilder.version}, inherited value: ${version ?: getDefaultVersion()}")
+      LOG.warn("Sub descriptor version redefinition for plugin $id. Original value: ${subBuilder.version}, inherited value: ${version}")
     }
-    subBuilder.version = version ?: getDefaultVersion()
+    subBuilder.version = version
     if (module == null) { // resource bundle is inherited for v1 sub-descriptors only
       if (subBuilder.resourceBundleBaseName == null) {
         subBuilder.resourceBundleBaseName = resourceBundleBaseName
@@ -298,47 +296,37 @@ class IdeaPluginDescriptorImpl private constructor(
       useCoreClassLoader = useCoreClassLoader,
       isIndependentFromCoreClassLoader = raw.isIndependentFromCoreClassLoader,
       descriptorPath = descriptorPath)
-    recordDescriptorPath?.invoke(result, raw, descriptorPath)
     return result
   }
 
-  internal fun initialize(getBuildNumber: () -> BuildNumber, isPluginDisabled: (PluginId) -> Boolean, isPluginBroken: (PluginId, version: String?) -> Boolean): PluginLoadingError? {
+  fun initialize(context: PluginInitializationContext): PluginNonLoadReason? {
     assert(type == Type.PluginMainDescriptor)
-    if (isPluginDisabled(id)) {
-      return onInitError(PluginLoadingError(plugin = this, detailedMessageSupplier = null, shortMessageSupplier = PluginLoadingError.DISABLED))
+    if (context.isPluginDisabled(id)) {
+      return onInitError(PluginIsMarkedDisabled(this))
     }
-    checkCompatibility(getBuildNumber, isPluginBroken)?.let {
+    checkCompatibility(context::productBuildNumber, context::isPluginBroken)?.let {
       return it
     }
-
-    fun requiredDependencyIsDisabled(disabledDependency: PluginId) = onInitError(PluginLoadingError(
-      plugin = this,
-      detailedMessageSupplier = null,
-      shortMessageSupplier = { CoreBundle.message("plugin.loading.error.short.depends.on.disabled.plugin", disabledDependency) },
-      isNotifyUser = false,
-      disabledDependency
-    ))
-
     for (dependency in pluginDependencies) { // FIXME: likely we actually have to recursively traverse these after they are resolved
-      if (isPluginDisabled(dependency.pluginId) && !dependency.isOptional) {
-        return requiredDependencyIsDisabled(dependency.pluginId)
+      if (context.isPluginDisabled(dependency.pluginId) && !dependency.isOptional) {
+        return onInitError(PluginDependencyIsDisabled(this, dependency.pluginId, false))
       }
     }
     for (pluginDependency in moduleDependencies.plugins) {
-      if (isPluginDisabled(pluginDependency.id)) {
-        return requiredDependencyIsDisabled(pluginDependency.id)
+      if (context.isPluginDisabled(pluginDependency.id)) {
+        return onInitError(PluginDependencyIsDisabled(this, pluginDependency.id, false))
       }
     }
     return null
   }
 
-  internal fun resolvePluginDependencies(context: DescriptorListLoadingContext, pathResolver: PathResolver, dataLoader: DataLoader): Unit =
-    resolvePluginDependencies(context, pathResolver, dataLoader, ArrayList(3))
+  internal fun loadPluginDependencyDescriptors(loadingContext: PluginDescriptorLoadingContext, pathResolver: PathResolver, dataLoader: DataLoader): Unit =
+    loadPluginDependencyDescriptors(loadingContext, pathResolver, dataLoader, ArrayList(3))
 
-  private fun resolvePluginDependencies(context: DescriptorListLoadingContext,
-                                        pathResolver: PathResolver,
-                                        dataLoader: DataLoader,
-                                        visitedFiles: MutableList<String>) {
+  private fun loadPluginDependencyDescriptors(context: PluginDescriptorLoadingContext,
+                                              pathResolver: PathResolver,
+                                              dataLoader: DataLoader,
+                                              visitedFiles: MutableList<String>) {
     for (dependency in pluginDependencies) {
       // because of https://youtrack.jetbrains.com/issue/IDEA-206274, configFile maybe not only for optional dependencies
       val configFile = dependency.configFile ?: continue
@@ -379,8 +367,8 @@ class IdeaPluginDescriptorImpl private constructor(
       checkCycle(configFile, visitedFiles)
       visitedFiles.add(configFile)
       try {
-        val subDescriptor = createSub(raw, configFile, context, module = null)
-        subDescriptor.resolvePluginDependencies(context, pathResolver, dataLoader, visitedFiles)
+        val subDescriptor = createSub(raw, configFile, module = null)
+        subDescriptor.loadPluginDependencyDescriptors(context, pathResolver, dataLoader, visitedFiles)
         dependency.setSubDescriptor(subDescriptor)
       } finally {
         visitedFiles.removeLast()
@@ -388,21 +376,16 @@ class IdeaPluginDescriptorImpl private constructor(
     }
   }
 
-  private fun onInitError(error: PluginLoadingError): PluginLoadingError {
+  private fun onInitError(error: PluginNonLoadReason): PluginNonLoadReason {
     isMarkedForLoading = false
     return error
   }
 
-  private fun checkCompatibility(getBuildNumber: () -> BuildNumber, isPluginBroken: (PluginId, version: String?) -> Boolean): PluginLoadingError? {
+  private fun checkCompatibility(getBuildNumber: () -> BuildNumber, isPluginBroken: (PluginId, version: String?) -> Boolean): PluginNonLoadReason? {
     if (isPluginWhichDependsOnKotlinPluginAndItsIncompatibleWithIt(this)) {
       // disable plugins which are incompatible with the Kotlin Plugin K1/K2 Modes KTIJ-24797, KTIJ-30474
       val mode = if (isKotlinPluginK1Mode()) CoreBundle.message("plugin.loading.error.k1.mode") else CoreBundle.message("plugin.loading.error.k2.mode")
-      return onInitError(PluginLoadingError(
-        plugin = this,
-        detailedMessageSupplier = { CoreBundle.message("plugin.loading.error.long.kotlin.incompatible", getName(), mode) },
-        shortMessageSupplier = { CoreBundle.message("plugin.loading.error.short.kotlin.incompatible", mode) },
-        isNotifyUser = false,
-      ))
+      return onInitError(PluginIsIncompatibleWithKotlinMode(this, mode))
     }
 
     if (isBundled) {
@@ -410,12 +393,7 @@ class IdeaPluginDescriptorImpl private constructor(
     }
 
     if (AppMode.isDisableNonBundledPlugins()) {
-      return onInitError(PluginLoadingError(
-        plugin = this,
-        detailedMessageSupplier = { CoreBundle.message("plugin.loading.error.long.custom.plugin.loading.disabled", getName()) },
-        shortMessageSupplier = { CoreBundle.message("plugin.loading.error.short.custom.plugin.loading.disabled") },
-        isNotifyUser = false
-      ))
+      return onInitError(NonBundledPluginsAreExplicitlyDisabled(this))
     }
 
     PluginManagerCore.checkBuildNumberCompatibility(this, getBuildNumber())?.let {
@@ -424,11 +402,7 @@ class IdeaPluginDescriptorImpl private constructor(
 
     // "Show broken plugins in Settings | Plugins so that users can uninstall them and resolve 'Plugin Error' (IDEA-232675)"
     if (isPluginBroken(id, version)) {
-      return onInitError(PluginLoadingError(
-        plugin = this,
-        detailedMessageSupplier = { CoreBundle.message("plugin.loading.error.long.marked.as.broken", name, version) },
-        shortMessageSupplier = { CoreBundle.message("plugin.loading.error.short.marked.as.broken") }
-      ))
+      return onInitError(PluginIsMarkedBroken(this))
     }
     return null
   }
@@ -691,36 +665,12 @@ class IdeaPluginDescriptorImpl private constructor(
 }
 
 @ApiStatus.Internal
-fun IdeaPluginDescriptorImpl.initialize(context: DescriptorListLoadingContext): PluginLoadingError? = initialize(
-  context.productBuildNumber,
-  context::isPluginDisabled,
-  context::isPluginBroken,
-)
-
-internal fun IdeaPluginDescriptorImpl.createSub(
-  subBuilder: PluginDescriptorBuilder,
-  descriptorPath: String,
-  context: DescriptorListLoadingContext,
-  module: PluginContentDescriptor.ModuleItem?,
-): IdeaPluginDescriptorImpl = createSub(
-  subBuilder,
-  descriptorPath,
-  context::defaultVersion,
-  context.debugData?.let {
-    { desc, raw, path -> it.recordDescriptorPath(desc, raw, path) }
-  },
-  module
-)
-
-@ApiStatus.Internal
 @TestOnly
 fun IdeaPluginDescriptorImpl.createSubInTest(
   subBuilder: PluginDescriptorBuilder,
   descriptorPath: String,
-  getDefaultVersion: () -> String?,
-  recordDescriptorPath: ((IdeaPluginDescriptorImpl, RawPluginDescriptor, String) -> Unit)?,
   module: PluginContentDescriptor.ModuleItem?,
-): IdeaPluginDescriptorImpl = createSub(subBuilder, descriptorPath, getDefaultVersion, recordDescriptorPath, module)
+): IdeaPluginDescriptorImpl = createSub(subBuilder, descriptorPath, module)
 
 @get:ApiStatus.Internal
 val IdeaPluginDescriptorImpl.isMainPluginDescriptor: Boolean get() = type == Type.PluginMainDescriptor

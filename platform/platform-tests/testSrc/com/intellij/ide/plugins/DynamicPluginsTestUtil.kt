@@ -23,17 +23,19 @@ internal fun loadAndInitDescriptorInTest(
   PluginManagerCore.getAndClearPluginLoadingErrors()
 
   val buildNumber = BuildNumber.fromString("2042.42")!!
-  val context = DescriptorListLoadingContext(
-    customBrokenPluginVersions = emptyMap(),
-    productBuildNumber = { buildNumber },
-    customDisabledPlugins = disabledPlugins.mapTo(LinkedHashSet(), PluginId::getId),
-    customEssentialPlugins = emptyList(),
-    customExpiredPlugins = emptySet()
+  val loadingContext = PluginDescriptorLoadingContext(
+    getBuildNumberForDefaultDescriptorVersion = { buildNumber }
+  )
+  val initContext = PluginInitializationContext.build(
+    disabledPlugins = disabledPlugins.mapTo(LinkedHashSet(), PluginId::getId),
+    expiredPlugins = emptySet(),
+    brokenPluginVersions = emptyMap(),
+    getProductBuildNumber = { buildNumber }
   )
   val result = runBlocking {
     loadDescriptorFromFileOrDirInTests(
       file = dir,
-      context = context,
+      loadingContext = loadingContext,
       isBundled = isBundled,
     )
   }
@@ -41,7 +43,7 @@ internal fun loadAndInitDescriptorInTest(
     assertThat(PluginManagerCore.getAndClearPluginLoadingErrors()).isNotEmpty()
     throw AssertionError("Cannot load plugin from $dir")
   }
-  result.initialize(context = context)
+  result.initialize(context = initContext)
   return result
 }
 

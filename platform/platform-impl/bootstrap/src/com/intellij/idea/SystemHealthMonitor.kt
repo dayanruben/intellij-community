@@ -32,10 +32,10 @@ import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.platform.ide.bootstrap.eel.MultiRoutingFileSystemVmOptionsSetter
 import com.intellij.platform.ide.bootstrap.shellEnvDeferred
 import com.intellij.platform.ide.customization.ExternalProductResourceUrls
+import com.intellij.platform.ide.impl.wsl.ijent.nio.toggle.IjentWslNioFsToggler
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.TaskCancellation
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
-import com.intellij.platform.ide.impl.wsl.ijent.nio.toggle.IjentWslNioFsToggler
 import com.intellij.util.SystemProperties
 import com.intellij.util.currentJavaVersion
 import com.intellij.util.system.CpuArch
@@ -64,9 +64,10 @@ internal object SystemHealthMonitor {
 
     checkCorruptedVmOptionsFile()
     checkIdeDirectories()
+    checkRuntimeArch()
 
     withContext(Dispatchers.IO) {
-      checkRuntime()
+      checkRuntimeVersion()
     }
 
     checkReservedCodeCacheSize()
@@ -135,7 +136,7 @@ internal object SystemHealthMonitor {
     }
   }
 
-  private suspend fun checkRuntime() {
+  private fun checkRuntimeArch() {
     if (!CpuArch.isEmulated()) {
       return
     }
@@ -149,8 +150,10 @@ internal object SystemHealthMonitor {
       }
       showNotification("bundled.jre.m1.arch.message", suppressable = true, downloadAction, ApplicationNamesInfo.getInstance().fullProductName)
     }
-    var jreHome = SystemProperties.getJavaHome()
+  }
 
+  private suspend fun checkRuntimeVersion() {
+    val jreHome = SystemProperties.getJavaHome()
     if (PathManager.isUnderHomeDirectory(jreHome) || isModernJBR()) {
       return
     }
@@ -159,8 +162,7 @@ internal object SystemHealthMonitor {
     var switchAction: NotificationAction? = null
     val directory = PathManager.getCustomOptionsDirectory()
     if (directory != null && (SystemInfo.isWindows || SystemInfo.isMac || SystemInfo.isLinux) && isJbrOperational()) {
-      val scriptName = ApplicationNamesInfo.getInstance().scriptName
-      val configName = scriptName + (if (!SystemInfo.isWindows) "" else if (CpuArch.isIntel64()) "64.exe" else ".exe") + ".jdk"
+      val configName = "${ApplicationNamesInfo.getInstance().scriptName}${if (SystemInfo.isWindows) "64.exe" else ""}.jdk"
       val configFile = Path.of(directory, configName)
       if (Files.isRegularFile(configFile)) {
         switchAction = NotificationAction.createSimpleExpiring(IdeBundle.message("action.SwitchToJBR.text")) {
@@ -178,12 +180,12 @@ internal object SystemHealthMonitor {
         }
       }
     }
-    jreHome = jreHome.removeSuffix("/Contents/Home")
-    showNotification("bundled.jre.version.message", suppressable = false, switchAction,
-                     currentJavaVersion(), System.getProperty("java.vendor"), jreHome)
+    showNotification(
+      "bundled.jre.version.message", suppressable = false, switchAction,
+      currentJavaVersion(), System.getProperty("java.vendor"), shorten(jreHome.removeSuffix("/Contents/Home"))
+    )
   }
 
-  // when can't detect a JBR version, give a user the benefit of the doubt
   private fun isModernJBR(): Boolean {
     if (!SystemInfo.isJetBrainsJvm) {
       return false

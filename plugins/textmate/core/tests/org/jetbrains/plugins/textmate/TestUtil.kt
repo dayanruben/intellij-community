@@ -1,14 +1,12 @@
 package org.jetbrains.plugins.textmate
 
-import com.intellij.openapi.application.PathManager
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.plugins.textmate.bundles.*
 import org.jetbrains.plugins.textmate.bundles.BundleType.Companion.detectBundleType
 import org.jetbrains.plugins.textmate.language.syntax.lexer.TextMateScope
-import java.nio.file.Path
-import kotlin.io.path.exists
-import kotlin.io.path.inputStream
-import kotlin.jvm.JvmStatic
+import org.jetbrains.plugins.textmate.plist.JsonOrXmlPlistReader
+import org.jetbrains.plugins.textmate.plist.JsonPlistReader
+import org.jetbrains.plugins.textmate.plist.PlistReader
 
 object TestUtil {
   const val BAT: @NonNls String = "bat"
@@ -45,32 +43,18 @@ object TestUtil {
   const val GIT: @NonNls String = "git-base"
   const val RESTRUCTURED_TEXT: @NonNls String = "restructuredtext"
 
-  @JvmStatic
-  fun getBundleDirectory(bundleName: String): Path {
-    val bundleDirectory = Path.of(PathManager.getCommunityHomePath()).resolve("plugins/textmate/testData/bundles").resolve(bundleName)
-    return if (bundleDirectory.exists()) {
-      bundleDirectory
-    }
-    else {
-      return Path.of(PathManager.getCommunityHomePath()).resolve("plugins/textmate/lib/bundles").resolve(bundleName)
-    }
-  }
-
-  @JvmStatic
-  fun readBundle(bundleName: String): TextMateBundleReader {
-    val bundleDirectory = getBundleDirectory(bundleName)
-    val bundleType = detectBundleType(bundleDirectory)
+  fun readBundle(bundleName: String, xmlPlistReader: PlistReader): TextMateBundleReader {
+    val resourceReader = TestUtilMultiplatform.getResourceReader(bundleName)
+    val bundleType = detectBundleType(resourceReader, bundleName)
+    val plistReader = JsonOrXmlPlistReader(jsonReader = JsonPlistReader(), xmlReader = xmlPlistReader)
     return when (bundleType) {
-      BundleType.TEXTMATE -> readTextMateBundle(bundleDirectory)
-      BundleType.SUBLIME -> readSublimeBundle(bundleDirectory)
-      BundleType.VSCODE -> readVSCBundle { relativePath ->
-        bundleDirectory.resolve(relativePath).inputStream().buffered()
-      } ?: error("Cannot read VSCBundle from $bundleDirectory")
+      BundleType.TEXTMATE -> readTextMateBundle(bundleName, plistReader, resourceReader)
+      BundleType.SUBLIME -> readSublimeBundle(bundleName, plistReader, resourceReader)
+      BundleType.VSCODE -> readVSCBundle(plistReader, resourceReader) ?: error("Cannot read VSCBundle")
       BundleType.UNDEFINED -> error("Unknown bundle type: $bundleName")
     }
   }
 
-  @JvmStatic
   fun scopeFromString(scopeString: String): TextMateScope {
     return scopeString.split(' ').dropLastWhile { it.isEmpty() }.fold(TextMateScope.EMPTY) { acc, i -> acc.add(i) }
   }

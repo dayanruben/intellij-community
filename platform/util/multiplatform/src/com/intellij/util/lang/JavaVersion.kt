@@ -1,30 +1,22 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:ApiStatus.Internal
-@file:JvmName("JavaVersionConstructor")
-
 package com.intellij.util.lang
 
 import com.intellij.util.currentJavaVersionPlatformSpecific
-import org.jetbrains.annotations.ApiStatus
-import kotlin.jvm.JvmName
 import kotlin.jvm.JvmField
-import kotlin.jvm.JvmOverloads
 import kotlin.jvm.JvmStatic
+import kotlin.jvm.JvmOverloads
 
 /**
- *
  * A class representing a version of some Java platform - e.g. the runtime the class is loaded into, or some installed JRE.
- *
  *
  * Based on [JEP 322 "Time-Based Release Versioning"](http://openjdk.org/jeps/322) (Java 10+), but also supports JEP 223
  * "New Version-String Scheme" (Java 9), as well as earlier version's formats.
  *
- *
  * See [.parse] for examples of supported version strings.
  *
- * @implNote the class is used in bootstrap - please use only JDK API
+ * @implNote the class is used in bootstrap - please only use runtime API
  */
-class JavaVersion internal constructor(
+class JavaVersion private constructor(
   /**
    * The major version.
    * Corresponds to the first number of the 9+ format (**9**.0.1) / the second number of the 1.x format (1.**8**.0_60).
@@ -68,28 +60,23 @@ class JavaVersion internal constructor(
     require(build >= 0)
   }
 
-  override fun compareTo(o: JavaVersion): Int {
-    var diff = feature - o.feature
+  override fun compareTo(other: JavaVersion): Int {
+    var diff = feature - other.feature
     if (diff != 0) return diff
-    diff = minor - o.minor
+    diff = minor - other.minor
     if (diff != 0) return diff
-    diff = update - o.update
+    diff = update - other.update
     if (diff != 0) return diff
-    diff = build - o.build
+    diff = build - other.build
     if (diff != 0) return diff
-    return (if (ea) 0 else 1) - (if (o.ea) 0 else 1)
+    return (if (ea) 0 else 1) - (if (other.ea) 0 else 1)
   }
 
-  fun isAtLeast(feature: Int): Boolean {
-    return this.feature >= feature
-  }
+  fun isAtLeast(feature: Int): Boolean = this.feature >= feature
 
-  override fun equals(o: Any?): Boolean {
-    if (this === o) return true
-    if (o !is JavaVersion) return false
-    val other = o
-    return feature == other.feature && minor == other.minor && update == other.update && build == other.build && ea == other.ea
-  }
+  override fun equals(other: Any?): Boolean =
+    this === other ||
+    other is JavaVersion && feature == other.feature && minor == other.minor && update == other.update && build == other.build && ea == other.ea
 
   override fun hashCode(): Int {
     var hash = feature
@@ -103,21 +90,14 @@ class JavaVersion internal constructor(
   /**
    * @return feature version string, e.g. **1.8** or **11**
    */
-  fun toFeatureString(): String {
-    return formatVersionTo(true, true)
-  }
+  fun toFeatureString(): String = formatVersionTo(upToFeature = true, upToUpdate = true)
 
   /**
-   * @return feature, minor and update components of the version string, e.g.
-   * **1.8.0_242** or **11.0.5**
+   * @return feature, minor and update components of the version string, e.g., **1.8.0_242** or **11.0.5**
    */
-  fun toFeatureMinorUpdateString(): String {
-    return formatVersionTo(false, true)
-  }
+  fun toFeatureMinorUpdateString(): String = formatVersionTo(upToFeature = false, upToUpdate = true)
 
-  override fun toString(): String {
-    return formatVersionTo(false, false)
-  }
+  override fun toString(): String = formatVersionTo(upToFeature = false, upToUpdate = false)
 
   private fun formatVersionTo(upToFeature: Boolean, upToUpdate: Boolean): String {
     val sb = StringBuilder()
@@ -163,16 +143,14 @@ class JavaVersion internal constructor(
      * The method attempts to parse `"java.runtime.version"` system property first (usually, it is more complete),
      * and falls back to `"java.version"` if the former is invalid or differs in [.feature] or [.minor] numbers.
      */
-    @Deprecated("Use CurrentJavaVersion.current() instead", ReplaceWith("com.intellij.util.lang.CurrentJavaVersion.current()"))
+    @Deprecated("Use CurrentJavaVersion.currentJavaVersion() instead", ReplaceWith("com.intellij.util.lang.CurrentJavaVersion.currentJavaVersion()"))
     @JvmStatic
     fun current(): JavaVersion = currentJavaVersionPlatformSpecific()
 
     private const val MAX_ACCEPTED_VERSION = 50 // sanity check
 
     /**
-     *
      * Parses a Java version string.
-     *
      *
      * Supports various sources, including (but not limited to):<br></br>
      * - `"java.*version"` system properties (a version number without any decoration)<br></br>
@@ -181,7 +159,6 @@ class JavaVersion internal constructor(
      * - a second line of the above command (something like to "Java(TM) SE Runtime Environment (build $VERSION)")<br></br>
      * - output of "`java --full-version`" ("java $VERSION")<br></br>
      * - a line of "release" file ("JAVA_VERSION=\"$VERSION\"")
-     *
      *
      * See com.intellij.util.lang.JavaVersionTest for examples.
      *
@@ -192,10 +169,11 @@ class JavaVersion internal constructor(
     fun parse(versionString: String): JavaVersion {
       // trimming
       var str = versionString.trim { it <= ' ' }
-      val trimmingMap = mutableMapOf<String, String>() // "substring to detect" to "substring from which to trim"
-      trimmingMap.put("Runtime Environment", "(build ")
-      trimmingMap.put("OpenJ9", "version ")
-      trimmingMap.put("GraalVM", "Java ")
+      val trimmingMap = mapOf( // "substring to detect" to "substring from which to trim"
+        "Runtime Environment" to "(build ",
+        "OpenJ9" to "version ",
+        "GraalVM" to "Java "
+      )
       for (keyToDetect in trimmingMap.keys) {
         if (str.contains(keyToDetect)) {
           val p = str.indexOf(trimmingMap[keyToDetect]!!)
@@ -226,7 +204,7 @@ class JavaVersion internal constructor(
           var build = 0
           var ea = false
 
-          if (feature >= 5 && feature < MAX_ACCEPTED_VERSION) {
+          if (feature in 5..<MAX_ACCEPTED_VERSION) {
             // Java 9+; Java 5+ (short format)
             p = 1
             while (p < separators.size && "." == separators[p]) p++
@@ -281,9 +259,8 @@ class JavaVersion internal constructor(
       throw IllegalArgumentException(versionString)
     }
 
-    private fun startsWithWord(s: String, word: String): Boolean {
-      return s.startsWith(word) && (s.length == word.length || !s[word.length].isLetterOrDigit())
-    }
+    private fun startsWithWord(s: String, word: String): Boolean =
+      s.startsWith(word) && (s.length == word.length || !s[word.length].isLetterOrDigit())
 
     /**
      * A safe version of [.parse] - returns `null` when unable to parse a version string.
@@ -302,4 +279,3 @@ class JavaVersion internal constructor(
     }
   }
 }
-

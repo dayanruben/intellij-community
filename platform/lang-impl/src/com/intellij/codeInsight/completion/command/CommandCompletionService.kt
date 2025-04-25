@@ -2,6 +2,7 @@
 package com.intellij.codeInsight.completion.command
 
 import com.intellij.codeInsight.CodeInsightBundle
+import com.intellij.codeInsight.completion.command.configuration.ApplicationCommandCompletionService
 import com.intellij.codeInsight.daemon.impl.HintRenderer
 import com.intellij.codeInsight.editorLineStripeHint.EditorLineStripeTextRenderer
 import com.intellij.codeInsight.highlighting.HighlightManager
@@ -16,7 +17,6 @@ import com.intellij.lang.Language
 import com.intellij.lang.LanguageExtension
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -88,7 +88,7 @@ internal class CommandCompletionService(
       val offsetOfFullIndex = lookup.lookupOriginalStart - index
       if (index == 0 || offsetOfFullIndex < 0 ||
           offsetOfFullIndex >= editor.document.textLength ||
-          editor.document.immutableCharSequence.substring(offsetOfFullIndex, lookup.lookupOriginalStart) != fullSuffix) {
+          !editor.document.immutableCharSequence.substring(offsetOfFullIndex, editor.caretModel.offset).startsWith(fullSuffix)) {
         if (installed != true) return
         lookup.removeUserData(INSTALLED_ADDITIONAL_MATCHER_KEY)
         lookup.arranger.registerAdditionalMatcher { true }
@@ -137,7 +137,7 @@ internal class CommandCompletionService(
     if (endOffset - startOffset != 1) return
     if (lookup.items.none { it.`as`(CommandCompletionLookupElement::class.java) != null }) return
     if (editor.inlayModel.getInlineElementsInRange(startOffset, endOffset).isNotEmpty()) return
-    val applicationCommandCompletionService = ApplicationManager.getApplication().getService(ApplicationCommandCompletionService::class.java)
+    val applicationCommandCompletionService = ApplicationCommandCompletionService.getInstance()
     val state = applicationCommandCompletionService.state
     if (state.showCounts > 5) return
     state.showCounts += 1
@@ -173,7 +173,7 @@ private const val PROMPT_LAYER = HighlighterLayer.ERROR + 10
 internal class CommandCompletionListener : LookupManagerListener {
 
   override fun activeLookupChanged(oldLookup: Lookup?, newLookup: Lookup?) {
-    if (!commandCompletionEnabled()) return
+    if (!ApplicationCommandCompletionService.getInstance().commandCompletionEnabled()) return
     var editor = newLookup?.editor ?: return
     val originalEditor = editor.getUserData(ORIGINAL_EDITOR)
     var psiFile = newLookup.psiFile ?: return
@@ -233,10 +233,15 @@ private class CommandCompletionHighlightingListener(
   override fun uiRefreshed() {
     completionService?.addFilters(lookup, nonWrittenFiles, psiFile, editor)
     val item = lookup.currentItemOrEmpty
+    if (updateItem(item)) return
+    super.uiRefreshed()
+  }
+
+  private fun updateItem(item: LookupElement?): Boolean {
     val element = item?.`as`(CommandCompletionLookupElement::class.java)
     if (element == null) {
       clear(lookup.editor)
-      return
+      return true
     }
 
     if (element.useLookupString) {
@@ -246,7 +251,7 @@ private class CommandCompletionHighlightingListener(
       clearPromptHighlighting(lookup.editor)
     }
     updateHighlighting(lookup, element)
-    super.uiRefreshed()
+    return false
   }
 
   override fun lookupCanceled(event: LookupEvent) {
@@ -307,18 +312,8 @@ private class CommandCompletionHighlightingListener(
     if (lookup !is LookupImpl) return
     completionService?.setHint(lookup, editor, nonWrittenFiles)
     val item = event.item
-    val element = item?.`as`(CommandCompletionLookupElement::class.java)
-    if (element == null) {
-      clear(lookup.editor)
-      return
-    }
-    if (element.useLookupString) {
-      updatePromptHighlighting(lookup, element)
-    }
-    else {
-      clearPromptHighlighting(lookup.editor)
-    }
-    updateHighlighting(lookup, element)
+    if (updateItem(item)) return
+    val element = item?.`as`(CommandCompletionLookupElement::class.java) ?: return
     updateIcon(lookup, element)
     super.currentItemChanged(event)
   }
@@ -360,7 +355,7 @@ private class CommandCompletionHighlightingListener(
 @ApiStatus.Internal
 internal class CommandCompletionCharFilter : CharFilter() {
   override fun acceptChar(c: Char, prefixLength: Int, lookup: Lookup?): Result? {
-    if (!commandCompletionEnabled()) return null
+    if (!ApplicationCommandCompletionService.getInstance().commandCompletionEnabled()) return null
     if (lookup !is LookupImpl) return null
     val completionService = lookup.project.service<CommandCompletionService>()
     val installedHint = lookup.removeUserData(INSTALLED_HINT)
@@ -399,7 +394,7 @@ internal class CommandCompletionCharFilter : CharFilter() {
 @ApiStatus.Internal
 internal class CommandCompletionLookupCustomizer : LookupCustomizer {
   override fun customizeLookup(lookupImpl: LookupImpl) {
-    if (!commandCompletionEnabled()) return
+    if (!ApplicationCommandCompletionService.getInstance().commandCompletionEnabled()) return
     val project = lookupImpl.project
     val service = project.service<CommandCompletionService>()
     val editor = lookupImpl.editor

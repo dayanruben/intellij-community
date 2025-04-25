@@ -13,7 +13,6 @@ class PluginSetTestBuilder(private val path: Path) {
   private var disabledPluginIds = mutableSetOf<PluginId>()
   private var expiredPluginIds = mutableSetOf<PluginId>()
   private var brokenPlugins = mutableMapOf<PluginId, MutableSet<String?>>()
-  private var essentialPlugins = mutableListOf<PluginId>()
   private var productBuildNumber = PluginManagerCore.buildNumber
 
   fun withDisabledPlugins(vararg disabledPluginIds: String) = apply {
@@ -28,10 +27,6 @@ class PluginSetTestBuilder(private val path: Path) {
     brokenPlugins.computeIfAbsent(PluginId.getId(pluginId), { mutableSetOf() }).addAll(versions)
   }
 
-  fun withEssentialPlugins(vararg ids: String) = apply {
-    essentialPlugins.addAll(ids.map(PluginId::getId))
-  }
-
   fun withProductBuildNumber(productBuildNumber: BuildNumber) = apply {
     this.productBuildNumber = productBuildNumber
   }
@@ -42,31 +37,29 @@ class PluginSetTestBuilder(private val path: Path) {
       productBuildNumber = BuildNumber.fromString(value)!!
     }
 
-  fun buildLoadingContext(): DescriptorListLoadingContext {
+  fun buildInitContext(): PluginInitializationContext {
     // copy just in case
     val buildNumber = productBuildNumber
-    return DescriptorListLoadingContext(
-      customDisabledPlugins = disabledPluginIds.toSet(),
-      customExpiredPlugins = expiredPluginIds.toSet(),
-      customBrokenPluginVersions = brokenPlugins.mapValues { it.value.toSet() }.toMap(),
-      customEssentialPlugins = essentialPlugins.toList(),
-      productBuildNumber = { buildNumber },
+    return PluginInitializationContext.build(
+      disabledPlugins = disabledPluginIds.toSet(),
+      expiredPlugins = expiredPluginIds.toSet(),
+      brokenPluginVersions = brokenPlugins.mapValues { it.value.toSet() }.toMap(),
+      getProductBuildNumber = { buildNumber },
     )
   }
 
-  fun buildLoadingResult(context: DescriptorListLoadingContext? = null): PluginLoadingResult {
-    val context = context ?: buildLoadingContext()
+  fun buildLoadingResult(initContext: PluginInitializationContext? = null): PluginLoadingResult {
+    val initContext = initContext ?: buildInitContext()
+    val loadingContext = PluginDescriptorLoadingContext(getBuildNumberForDefaultDescriptorVersion = { productBuildNumber })
     val result = PluginLoadingResult(checkModuleDependencies = false)
     // constant order in tests
     val paths: List<Path> = path.directoryStreamIfExists { it.sorted() }!!
-    context.use {
+    loadingContext.use {
       runBlocking {
         result.initAndAddAll(
-          descriptors = paths.asSequence().mapNotNull { path -> loadDescriptor(path, context, ZipFilePoolImpl()) },
+          descriptors = paths.asSequence().mapNotNull { path -> loadDescriptor(path, loadingContext, ZipFilePoolImpl()) },
           overrideUseIfCompatible = false,
-          productBuildNumber = context.productBuildNumber(),
-          isPluginDisabled = context::isPluginDisabled,
-          isPluginBroken = context::isPluginBroken,
+          initContext = initContext,
         )
       }
     }
@@ -74,14 +67,17 @@ class PluginSetTestBuilder(private val path: Path) {
   }
 
   fun build(): PluginSet {
-    val context = buildLoadingContext()
-    val loadingResult = buildLoadingResult(context)
+    val initContext = buildInitContext()
+    val loadingContext = PluginDescriptorLoadingContext(getBuildNumberForDefaultDescriptorVersion = { productBuildNumber })
+    val loadingResult = buildLoadingResult(initContext)
     return PluginManagerCore.initializePlugins(
-      /* context = */ context,
-      /* loadingResult = */ loadingResult,
-      /* coreLoader = */ UrlClassLoader.build().get(),
-      /* checkEssentialPlugins = */ false,
-      /* parentActivity = */ null,
+      loadingContext = loadingContext,
+      initContext = initContext,
+      loadingResult = loadingResult,
+      coreLoader = UrlClassLoader.build().get(),
+      checkEssentialPlugins = false,
+      getEssentialPlugins = ::emptyList,
+      parentActivity = null,
     ).pluginSet
   }
 }

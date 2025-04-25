@@ -4,6 +4,7 @@ package com.intellij.ide.plugins
 import com.intellij.ide.plugins.DisabledPluginsState.Companion.saveDisabledPluginsAndInvalidate
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.IoTestUtil
@@ -14,13 +15,13 @@ import com.intellij.platform.plugins.parser.impl.ReadModuleContext
 import com.intellij.platform.plugins.parser.impl.XIncludeLoader.LoadedXIncludeReference
 import com.intellij.platform.plugins.parser.impl.consume
 import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.TestDataPath
 import com.intellij.testFramework.UsefulTestCase
 import com.intellij.testFramework.rules.TempDirectory
 import com.intellij.util.TriConsumer
 import com.intellij.util.xml.dom.XmlElement
 import com.intellij.util.xml.dom.readXmlAsModel
 import org.assertj.core.api.Assertions
-import org.easymock.EasyMock
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
@@ -30,12 +31,14 @@ import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.Map
 import javax.xml.stream.XMLOutputFactory
 import javax.xml.stream.XMLStreamException
 import javax.xml.stream.XMLStreamWriter
 
 class PluginManagerTest {
+  @TestDataPath("\$CONTENT_ROOT/testData/plugins/sort") @Suppress("unused")
+  private class TestDataRef // for easy navigation
+
   @Rule
   @JvmField
   val tempDir: TempDirectory = TempDirectory()
@@ -225,7 +228,16 @@ class PluginManagerTest {
 
     private fun assertPluginPreInstalled(expectedPluginId: PluginId?, vararg descriptors: IdeaPluginDescriptorImpl) {
       val loadingResult = createPluginLoadingResult()
-      loadingResult.initAndAddAll(descriptors.toList(), isPluginDisabled = { false }, isPluginBroken = { _, _ -> false }) // TODO refactor the test
+      loadingResult.initAndAddAll(
+        descriptors = descriptors.asSequence(),
+        overrideUseIfCompatible = false,
+        initContext = PluginInitializationContext.build(
+          disabledPlugins = emptySet(), // TODO refactor the test
+          expiredPlugins = emptySet(),
+          brokenPluginVersions = emptyMap(),
+          getProductBuildNumber = { BuildNumber.fromString("2042.42")!! }
+        )
+      )
       Assert.assertTrue("Plugin should be pre installed", loadingResult.shadowedBundledIds.contains(expectedPluginId))
     }
 
@@ -256,30 +268,34 @@ class PluginManagerTest {
       Assert.assertNotNull(checkCompatibility(ideVersion, sinceBuild, untilBuild))
     }
 
-    private fun checkCompatibility(ideVersion: String?, sinceBuild: String?, untilBuild: String?): PluginLoadingError? {
-      val mock = EasyMock.niceMock<IdeaPluginDescriptor>(IdeaPluginDescriptor::class.java)
-      EasyMock.expect<String?>(mock.getSinceBuild()).andReturn(sinceBuild).anyTimes()
-      EasyMock.expect<String?>(mock.getUntilBuild()).andReturn(untilBuild).anyTimes()
-      EasyMock.expect<MutableList<IdeaPluginDependency?>?>(mock.getDependencies()).andReturn(
-        mutableListOf()).anyTimes()
-      EasyMock.replay(mock)
-
-      return PluginManagerCore.checkBuildNumberCompatibility(mock, BuildNumber.fromString(ideVersion)!!)
+    private fun checkCompatibility(ideVersion: String?, sinceBuild: String?, untilBuild: String?): PluginNonLoadReason? {
+      val desc = object : TestIdeaPluginDescriptorEx() {
+        override fun getPluginId(): PluginId = PluginId.getId("test")
+        override fun getName(): @NlsSafe String? = pluginId.idString
+        override fun getSinceBuild(): @NlsSafe String? = sinceBuild
+        override fun getUntilBuild(): @NlsSafe String? = untilBuild
+        override fun getVersion(): @NlsSafe String? = null
+        override fun getDependencies(): List<IdeaPluginDependency> = listOf()
+      }
+      return PluginManagerCore.checkBuildNumberCompatibility(desc, BuildNumber.fromString(ideVersion)!!)
     }
 
     private fun checkCompatibility(platformId: String): Boolean {
-      val platformDependencyMock = EasyMock.niceMock<IdeaPluginDependency>(IdeaPluginDependency::class.java)
-      EasyMock.expect(platformDependencyMock.pluginId).andReturn(PluginId.getId(platformId))
-      EasyMock.replay(platformDependencyMock)
-
-      val mock = EasyMock.niceMock<IdeaPluginDescriptor>(IdeaPluginDescriptor::class.java)
-      EasyMock.expect<String?>(mock.getSinceBuild()).andReturn(null).anyTimes()
-      EasyMock.expect<String?>(mock.getUntilBuild()).andReturn(null).anyTimes()
-      EasyMock.expect<MutableList<IdeaPluginDependency?>?>(mock.getDependencies()).andReturn(
-        mutableListOf(platformDependencyMock)).anyTimes()
-      EasyMock.replay(mock)
-
-      return PluginManagerCore.checkBuildNumberCompatibility(mock, BuildNumber.fromString("145")!!) == null
+      val desc = object : TestIdeaPluginDescriptorEx() {
+        override fun getPluginId(): PluginId = PluginId.getId("test")
+        override fun getName(): @NlsSafe String? = pluginId.idString
+        override fun getSinceBuild(): @NlsSafe String? = null
+        override fun getUntilBuild(): @NlsSafe String? = null
+        override fun getVersion(): @NlsSafe String? = null
+        override fun getDependencies(): List<IdeaPluginDependency> = listOf(
+          object : IdeaPluginDependency {
+            override val pluginId: PluginId = PluginId.getId(platformId)
+            override val isOptional: Boolean
+              get() = throw AssertionError("unexpected call")
+          }
+        )
+      }
+      return PluginManagerCore.checkBuildNumberCompatibility(desc, BuildNumber.fromString("145")!!) == null
     }
 
     private fun assertCompatible(ideVersion: String?, sinceBuild: String?, untilBuild: String?) {
@@ -289,11 +305,16 @@ class PluginManagerTest {
     @Throws(IOException::class, XMLStreamException::class)
     private fun loadAndInitializeDescriptors(testDataName: String, isBundled: Boolean): PluginManagerState {
       val file = Path.of(testDataPath, testDataName)
-      val buildNumber = BuildNumber.fromString("2042.42")
-      val parentContext = DescriptorListLoadingContext(mutableSetOf<PluginId>(), mutableSetOf<PluginId>(),
-                                                       Map.of<PluginId, MutableSet<String?>>(), mutableListOf<PluginId>(),
-                                                       { buildNumber!! }, false, false, false)
-
+      val buildNumber = BuildNumber.fromString("2042.42")!!
+      val loadingContext = PluginDescriptorLoadingContext(
+        getBuildNumberForDefaultDescriptorVersion = { buildNumber }
+      )
+      val initContext = PluginInitializationContext.build(
+        disabledPlugins = emptySet(),
+        expiredPlugins = emptySet(),
+        brokenPluginVersions = emptyMap(),
+        getProductBuildNumber = { buildNumber }
+      )
       val root = readXmlAsModel(Files.newInputStream(file))
       val autoGenerateModuleDescriptor = Ref<Boolean>(false)
       val moduleMap = HashMap<String?, XmlElement?>()
@@ -380,14 +401,26 @@ class PluginManagerTest {
           pluginPath = Path.of(Strings.trimStart(url, "file://"))
         }
         val descriptor = readAndInitDescriptorFromBytesForTest(
-          pluginPath, isBundled, elementAsBytes(element), parentContext, pathResolver!!, LocalFsDataLoader(pluginPath))
+          pluginPath, isBundled, elementAsBytes(element), loadingContext, initContext, pathResolver!!, LocalFsDataLoader(pluginPath))
         list.add(descriptor)
         descriptor.jarFiles = mutableListOf<Path>()
       }
-      parentContext.close()
+      loadingContext.close()
       val result = PluginLoadingResult(false)
-      result.initAndAddAll(list, isPluginDisabled = parentContext::isPluginDisabled, isPluginBroken = parentContext::isPluginBroken)
-      return PluginManagerCore.initializePlugins(parentContext, result, PluginManagerTest::class.java.getClassLoader(), false, null)
+      result.initAndAddAll(
+        descriptors = list.asSequence(),
+        overrideUseIfCompatible = false,
+        initContext = initContext
+      )
+      return PluginManagerCore.initializePlugins(
+        loadingContext = loadingContext,
+        initContext = initContext,
+        loadingResult = result,
+        coreLoader = PluginManagerTest::class.java.getClassLoader(),
+        checkEssentialPlugins = false,
+        getEssentialPlugins = { emptyList() },
+        parentActivity = null
+      )
     }
 
     @Throws(XMLStreamException::class)

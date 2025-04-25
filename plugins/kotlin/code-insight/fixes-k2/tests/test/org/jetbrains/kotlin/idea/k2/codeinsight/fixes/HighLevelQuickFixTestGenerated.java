@@ -5822,6 +5822,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/typeMismatch/unresolvableTypeParams.kt");
         }
 
+        @TestMetadata("unresolvedTypes.kt")
+        public void testUnresolvedTypes() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/typeMismatch/unresolvedTypes.kt");
+        }
+
         @TestMetadata("variableInitializedWithNull.kt")
         public void testVariableInitializedWithNull() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/typeMismatch/variableInitializedWithNull.kt");
@@ -11958,6 +11963,16 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/removeUnused/deledage.kt");
         }
 
+        @TestMetadata("implicitlyUsedContextParameters.kt")
+        public void testImplicitlyUsedContextParameters() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/removeUnused/implicitlyUsedContextParameters.kt");
+        }
+
+        @TestMetadata("implicitlyUsedContextParameters1.kt")
+        public void testImplicitlyUsedContextParameters1() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/removeUnused/implicitlyUsedContextParameters1.kt");
+        }
+
         @TestMetadata("importEnumValues.kt")
         public void testImportEnumValues() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/removeUnused/importEnumValues.kt");
@@ -12006,6 +12021,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("unusedConstructor.kt")
         public void testUnusedConstructor() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/removeUnused/unusedConstructor.kt");
+        }
+
+        @TestMetadata("unusedContextParameters.kt")
+        public void testUnusedContextParameters() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/removeUnused/unusedContextParameters.kt");
         }
 
         @TestMetadata("unusedDelegatedConstructor.kt")

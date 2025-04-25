@@ -13,6 +13,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ex.ProjectEx;
 import com.intellij.openapi.project.impl.ProjectImpl;
+import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager;
@@ -39,8 +40,8 @@ import java.util.*;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+@TestOnly
 public final class LeakHunter {
-
   @TestOnly
   private static @NotNull String getCreationPlace(@NotNull Project project) {
     String creationTrace = project instanceof ProjectEx ? ((ProjectEx)project).getCreationTrace() : null;
@@ -112,24 +113,16 @@ public final class LeakHunter {
    * Checks if there is a memory leak if an object of type {@code suspectClass} is strongly accessible via references from the {@code root} object.
    */
   @TestOnly
-  public static <T> void processLeaks(@NotNull Supplier<? extends Map<Object, String>> rootsSupplier,
+  public static <T> boolean processLeaks(@NotNull Supplier<? extends Map<Object, String>> rootsSupplier,
                                       @NotNull Class<T> suspectClass,
                                       @Nullable Predicate<? super T> isReallyLeak,
                                       @Nullable Predicate<? super DebugReflectionUtil.BackLink<?>> leakBackLinkProcessor,
                                       @NotNull PairProcessor<? super T, Object> processor) throws AssertionError {
-    waitForIndicesToUpdate();
-    if (SwingUtilities.isEventDispatchThread()) {
-      UIUtil.dispatchAllInvocationEvents();
-    }
-    else {
-      UIUtil.pump();
-    }
-    PersistentEnumeratorCache.clearCacheForTests();
-    flushTelemetry();
-    GCUtil.tryGcSoftlyReachableObjects();
-    Runnable runnable = () -> {
+    tryClearingNonReachableObjects();
+
+    Computable<Boolean> runnable = () -> {
       try (AccessToken ignored = ProhibitAWTEvents.start("checking for leaks")) {
-        DebugReflectionUtil.walkObjects(10000, rootsSupplier.get(), suspectClass, __ -> true, (leaked, backLink) -> {
+        return DebugReflectionUtil.walkObjects(10000, rootsSupplier.get(), suspectClass, __ -> true, (leaked, backLink) -> {
           if (leakBackLinkProcessor != null && leakBackLinkProcessor.test(backLink)) {
             return true;
           }
@@ -141,12 +134,7 @@ public final class LeakHunter {
       }
     };
     Application application = ApplicationManager.getApplication();
-    if (application == null) {
-      runnable.run();
-    }
-    else {
-      application.runReadAction(runnable);
-    }
+    return application == null ? runnable.compute() : application.runReadAction(runnable);
   }
 
   // we want to avoid walking heap during indexing, because zillions of UpdateOp and other transient indexing requests stored in the temp queue could OOME
@@ -183,13 +171,6 @@ public final class LeakHunter {
   @TestOnly
   public static @NotNull Supplier<Map<Object, String>> allRoots() {
     return () -> {
-      ClassLoader classLoader = LeakHunter.class.getClassLoader();
-      // inspect static fields of all loaded classes
-      Collection<?> allLoadedClasses = ReflectionUtil.getField(classLoader.getClass(), classLoader, Vector.class, "classes");
-
-      // Remove expired invocations, so they are not used as object roots.
-      LaterInvocator.purgeExpiredItems();
-
       Map<Object, String> result = new IdentityHashMap<>();
       Application application = ApplicationManager.getApplication();
       if (application != null) {
@@ -199,11 +180,35 @@ public final class LeakHunter {
       result.put(IdeEventQueue.getInstance(), "IdeEventQueue.getInstance()");
       result.put(LaterInvocator.getLaterInvocatorEdtQueue(), "LaterInvocator.getLaterInvocatorEdtQueue()");
       result.put(ThreadLeakTracker.getThreads().values(), "all live threads");
+      ClassLoader classLoader = LeakHunter.class.getClassLoader();
+      // inspect static fields of all loaded classes
+      Collection<?> allLoadedClasses = ReflectionUtil.getField(classLoader.getClass(), classLoader, Vector.class, "classes");
       if (allLoadedClasses != null) {
         result.put(allLoadedClasses, "all loaded classes statics");
       }
       return result;
     };
+  }
+
+  // perform as many magic tricks as possible to clear the memory of stale objects:
+  // index update queues, caches, references to dangling threads/coroutines/invokeLaters, etc
+  @TestOnly
+  private static void tryClearingNonReachableObjects() {
+    // avoid walking heap during indexes rebuilding because they allocate huge queues with a lot of short-lived transient UpdateOp objects during the process,
+    // which then are stored in the leak-hunter own queue even though they are no longer reachable
+    waitForIndicesToUpdate();
+
+    if (SwingUtilities.isEventDispatchThread()) {
+      UIUtil.dispatchAllInvocationEvents();
+      // Remove expired invocations, so they are not used as object roots.
+      LaterInvocator.purgeExpiredItems();
+    }
+    else {
+      UIUtil.pump();
+    }
+    PersistentEnumeratorCache.clearCacheForTests();
+    flushTelemetry();
+    GCUtil.tryGcSoftlyReachableObjects();
   }
 
   @TestOnly
@@ -264,7 +269,6 @@ public final class LeakHunter {
   // although we know that they be cleared after a certain finite period of time.
   // Here we forcibly flush the batch and avoid a leak of component managers.
   private static void flushTelemetry() {
-    //noinspection TestOnlyProblems
     TelemetryManager.getInstance().forceFlushMetricsBlocking();
   }
 }

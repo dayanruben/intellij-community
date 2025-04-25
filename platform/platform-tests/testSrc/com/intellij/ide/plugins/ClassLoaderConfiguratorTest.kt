@@ -31,8 +31,6 @@ internal class ClassLoaderConfiguratorTest {
     val kotlinGradleJava = kotlin.createSubInTest(
       subBuilder = emptyBuilder,
       descriptorPath = "",
-      getDefaultVersion = { null },
-      recordDescriptorPath = null,
       module = PluginContentDescriptor.ModuleItem(name = "kotlin.gradle.gradle-java",
                                                   loadingRule = ModuleLoadingRule.OPTIONAL,
                                                   configFile = null,
@@ -40,8 +38,6 @@ internal class ClassLoaderConfiguratorTest {
     val kotlinCompilerGradle = kotlin.createSubInTest(
       subBuilder = emptyBuilder,
       descriptorPath = "",
-      getDefaultVersion = { null },
-      recordDescriptorPath = null,
       module = PluginContentDescriptor.ModuleItem(name = "kotlin.compiler-plugins.annotation-based-compiler-support.gradle",
                                                   loadingRule = ModuleLoadingRule.OPTIONAL,
                                                   configFile = null,
@@ -64,8 +60,6 @@ internal class ClassLoaderConfiguratorTest {
       return plugin.createSubInTest(
         subBuilder = PluginDescriptorBuilder.builder().apply { `package` = name },
         descriptorPath = "",
-        getDefaultVersion = { null },
-        recordDescriptorPath = null,
         module = PluginContentDescriptor.ModuleItem(name = name, configFile = null, descriptorContent = null, loadingRule = ModuleLoadingRule.OPTIONAL),
       )
     }
@@ -159,18 +153,22 @@ internal class ClassLoaderConfiguratorTest {
 internal fun loadDescriptors(dir: Path): PluginLoadingResult {
   val buildNumber = BuildNumber.fromString("2042.0")!!
   val result = PluginLoadingResult()
-  val context = DescriptorListLoadingContext(customDisabledPlugins = emptySet(),
-                                             customBrokenPluginVersions = emptyMap(),
-                                             productBuildNumber = { buildNumber })
+  val initContext = PluginInitializationContext.build(
+    disabledPlugins = emptySet(),
+    expiredPlugins = emptySet(),
+    brokenPluginVersions = emptyMap(),
+    getProductBuildNumber = { buildNumber }
+  )
+  val loadingContext = PluginDescriptorLoadingContext(getBuildNumberForDefaultDescriptorVersion = { buildNumber })
 
   // constant order in tests
   val paths = dir.directoryStreamIfExists { it.sorted() }!!
-  context.use {
-    result.initAndAddAll(descriptors = paths.asSequence().mapNotNull { loadDescriptor(file = it, parentContext = context, pool = ZipFilePoolImpl()) },
-                         overrideUseIfCompatible = false,
-                         productBuildNumber = buildNumber,
-                         isPluginDisabled = context::isPluginDisabled,
-                         isPluginBroken = context::isPluginBroken)
+  loadingContext.use {
+    result.initAndAddAll(
+      descriptors = paths.asSequence().mapNotNull { loadDescriptor(file = it, loadingContext = loadingContext, pool = ZipFilePoolImpl()) },
+      overrideUseIfCompatible = false,
+      initContext = initContext
+    )
   }
   return result
 }

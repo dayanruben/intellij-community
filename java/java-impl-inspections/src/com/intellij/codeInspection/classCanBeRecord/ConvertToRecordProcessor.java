@@ -7,6 +7,7 @@ import com.intellij.codeInspection.classCanBeRecord.ConvertToRecordFix.FieldAcce
 import com.intellij.codeInspection.classCanBeRecord.ConvertToRecordFix.RecordCandidate;
 import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
@@ -50,6 +51,8 @@ import static com.intellij.codeInspection.classCanBeRecord.ConvertToRecordFix.Re
  * Responsible for converting a single {@link RecordCandidate} that is {@link RecordCandidate#isValid valid}.
  */
 final class ConvertToRecordProcessor extends BaseRefactoringProcessor {
+  private static final Logger LOG = Logger.getInstance(ConvertToRecordProcessor.class);
+
   private static final CallMatcher OBJECT_EQUALS = CallMatcher
     .instanceCall(CommonClassNames.JAVA_LANG_OBJECT, "equals")
     .parameterTypes(CommonClassNames.JAVA_LANG_OBJECT);
@@ -94,8 +97,11 @@ final class ConvertToRecordProcessor extends BaseRefactoringProcessor {
     RecordConstructorCandidate ctorCandidate = myRecordCandidate.getCanonicalConstructorCandidate();
     if (ctorCandidate == null) return;
 
+    LOG.debug("rename of ctor params: started");
+
     ctorCandidate.getCtorParamsToFields().forEach((ctorParam, field) -> {
       if (!ctorParam.getName().equals(field.getName())) {
+        LOG.debug("renaming of ctor params: rename parameter '" + ctorParam.getName() + "' to field name '" + field.getName() + "'");
         RenameRefactoring renameRefactoring = RefactoringFactory.getInstance(myProject).createRename(ctorParam, field.getName());
         renameRefactoring.setPreviewUsages(false);
         renameRefactoring.setSearchInComments(false);
@@ -104,6 +110,8 @@ final class ConvertToRecordProcessor extends BaseRefactoringProcessor {
         renameRefactoring.setInteractive(null);
         renameRefactoring.run();
       }
+
+      LOG.debug("rename of ctor params: done");
     });
   }
 
@@ -111,9 +119,9 @@ final class ConvertToRecordProcessor extends BaseRefactoringProcessor {
     List<FieldAccessorCandidate> accessorsToRename = getAccessorsToRename();
 
     for (var fieldAccessorCandidate : accessorsToRename) {
-      String backingFieldName = fieldAccessorCandidate.getBackingField().getName();
+      String backingFieldName = fieldAccessorCandidate.backingField().getName();
 
-      List<PsiMethod> methods = substituteWithSuperMethodsIfPossible(fieldAccessorCandidate.getAccessor());
+      List<PsiMethod> methods = substituteWithSuperMethodsIfPossible(fieldAccessorCandidate.method());
       RenamePsiElementProcessor methodRenameProcessor = RenamePsiElementProcessor.forElement(methods.get(0));
 
       methods.forEach(method -> {
@@ -137,9 +145,9 @@ final class ConvertToRecordProcessor extends BaseRefactoringProcessor {
     List<FieldAccessorCandidate> accessorsToRename = getAccessorsToRename();
 
     for (var fieldAccessorCandidate : accessorsToRename) {
-      String backingFieldName = fieldAccessorCandidate.getBackingField().getName();
+      String backingFieldName = fieldAccessorCandidate.backingField().getName();
 
-      List<PsiMethod> methods = substituteWithSuperMethodsIfPossible(fieldAccessorCandidate.getAccessor());
+      List<PsiMethod> methods = substituteWithSuperMethodsIfPossible(fieldAccessorCandidate.method());
       methods.forEach(method -> {
         UsageInfo[] methodUsages = RenameUtil.findUsages(method, backingFieldName, false, false, myAllRenames);
         usages.addAll(Arrays.asList(methodUsages));
@@ -147,8 +155,8 @@ final class ConvertToRecordProcessor extends BaseRefactoringProcessor {
     }
 
     for (var fieldAccessorCandidate : accessorsToRename) {
-      String backingFieldName = fieldAccessorCandidate.getBackingField().getName();
-      usages.add(new RenameMethodUsageInfo(fieldAccessorCandidate.getAccessor(), backingFieldName));
+      String backingFieldName = fieldAccessorCandidate.backingField().getName();
+      usages.add(new RenameMethodUsageInfo(fieldAccessorCandidate.method(), backingFieldName));
     }
 
     usages.addAll(findConflicts(myRecordCandidate));
@@ -161,7 +169,7 @@ final class ConvertToRecordProcessor extends BaseRefactoringProcessor {
   private @NotNull @Unmodifiable List<@NotNull FieldAccessorCandidate> getAccessorsToRename() {
     List<FieldAccessorCandidate> list = ContainerUtil.filter(
       myRecordCandidate.getFieldsToAccessorCandidates().values(),
-      fieldAccessorCandidate -> fieldAccessorCandidate != null && !fieldAccessorCandidate.isRecordStyleNaming()
+      fieldAccessorCandidate -> fieldAccessorCandidate != null && !fieldAccessorCandidate.usesRecordStyleNaming()
     );
     return list;
   }
@@ -195,7 +203,7 @@ final class ConvertToRecordProcessor extends BaseRefactoringProcessor {
         }
       }
       else {
-        PsiMethod accessor = fieldAccessorCandidate.getAccessor();
+        PsiMethod accessor = fieldAccessorCandidate.method();
         if (firstHasWeakerAccess(recordCandidate.getPsiClass(), accessor)) {
           result.add(new BrokenEncapsulationUsageInfo(accessor, JavaRefactoringBundle
             .message("convert.to.record.accessor.more.accessible",
@@ -535,6 +543,6 @@ final class ConvertToRecordProcessor extends BaseRefactoringProcessor {
 
   private static @Nullable FieldAccessorCandidate getFieldAccessorCandidate(@NotNull Map<PsiField, @Nullable FieldAccessorCandidate> fieldAccessors,
                                                                             @NotNull PsiMethod psiMethod) {
-    return ContainerUtil.find(fieldAccessors.values(), value -> value != null && psiMethod.equals(value.getAccessor()));
+    return ContainerUtil.find(fieldAccessors.values(), value -> value != null && psiMethod.equals(value.method()));
   }
 }

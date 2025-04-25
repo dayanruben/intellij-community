@@ -2,16 +2,26 @@
 package com.intellij.platform.debugger.impl.backend
 
 import com.intellij.ide.ui.icons.rpcId
+import com.intellij.openapi.application.readAction
+import com.intellij.openapi.editor.impl.EditorId
+import com.intellij.openapi.editor.impl.findEditorOrNull
 import com.intellij.openapi.extensions.ExtensionPointAdapter
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.blockingContextToIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.project.findProject
+import com.intellij.platform.project.findProjectOrNull
+import com.intellij.util.DocumentUtil
 import com.intellij.xdebugger.XDebuggerManager
+import com.intellij.xdebugger.XDebuggerUtil
 import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XBreakpointType
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointCustomPropertiesPanel
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointManagerImpl
+import com.intellij.xdebugger.impl.breakpoints.XBreakpointUtil
 import com.intellij.xdebugger.impl.rpc.*
 import fleet.rpc.core.toRpc
 import kotlinx.coroutines.flow.buffer
@@ -35,6 +45,43 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
       initialTypes,
       typesFlow.toRpc()
     )
+  }
+
+  override suspend fun getAvailableBreakpointTypesForLine(projectId: ProjectId, editorId: EditorId, line: Int): List<XBreakpointTypeId> {
+    val project = projectId.findProjectOrNull() ?: return emptyList()
+    val editor = editorId.findEditorOrNull() ?: return emptyList()
+    val types = readAction {
+      blockingContextToIndicator {
+        val position = XDebuggerUtil.getInstance().createPosition(FileDocumentManager.getInstance().getFile(editor.document), line)
+                       ?: return@blockingContextToIndicator emptyList<XBreakpointType<*, *>>()
+        XBreakpointUtil.getAvailableLineBreakpointTypes(project, position, editor)
+      }
+    }
+    return types.map { XBreakpointTypeId(it.id) }
+  }
+
+  override suspend fun getAvailableBreakpointTypesForEditor(projectId: ProjectId, editorId: EditorId, start: Int, endInclusive: Int): List<List<XBreakpointTypeId>>? {
+    val project = projectId.findProjectOrNull() ?: return null
+    val editor = editorId.findEditorOrNull() ?: return null
+    return readAction {
+      blockingContextToIndicator {
+        val editorBreakpointTypes = mutableListOf<List<XBreakpointTypeId>>()
+        for (line in start..endInclusive) {
+          if (!DocumentUtil.isValidLine(line, editor.document)) {
+            continue
+          }
+          ProgressManager.checkCanceled()
+          val position = XDebuggerUtil.getInstance().createPosition(FileDocumentManager.getInstance().getFile(editor.document), line)
+          if (position == null) {
+            editorBreakpointTypes.add(emptyList())
+            continue
+          }
+          val lineBreakpointTypes = XBreakpointUtil.getAvailableLineBreakpointTypes(project, position, editor)
+          editorBreakpointTypes.add(lineBreakpointTypes.map { XBreakpointTypeId(it.id) })
+        }
+        editorBreakpointTypes
+      }
+    }
   }
 
   private fun getCurrentBreakpointTypeDtos(project: Project): List<XBreakpointTypeDto> {

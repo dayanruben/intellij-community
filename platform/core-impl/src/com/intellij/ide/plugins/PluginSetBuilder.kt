@@ -87,9 +87,9 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<IdeaPluginDescriptorIm
     return sorted
   }
 
-  internal fun computeEnabledModuleMap(disabler: ((IdeaPluginDescriptorImpl) -> Boolean)? = null): List<PluginLoadingError> {
+  internal fun computeEnabledModuleMap(disabler: ((IdeaPluginDescriptorImpl) -> Boolean)? = null): List<PluginNonLoadReason> {
     val logMessages = ArrayList<String>()
-    val loadingErrors = ArrayList<PluginLoadingError>()
+    val loadingErrors = ArrayList<PluginNonLoadReason>()
     val enabledRequiredContentModules = HashMap<String, IdeaPluginDescriptorImpl>()
     val disabledModuleToProblematicPlugin = HashMap<String, PluginId>()
     val moduleIncompatibleWithCurrentMode = getModuleIncompatibleWithCurrentProductMode()
@@ -154,16 +154,7 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<IdeaPluginDescriptorIm
           isDisabledDueToPackagePrefixConflict.put(module.moduleName ?: module.pluginId.idString, alreadyRegistered)
           logMessages.add("Module ${module.moduleName ?: module.pluginId} is not enabled because package prefix ${module.packagePrefix} is already used by " +
                           "${alreadyRegistered.moduleName ?: alreadyRegistered.pluginId}")
-          loadingErrors.add(PluginLoadingError(
-            module,
-            detailedMessageSupplier = message("plugin.loading.error.long.package.prefix.conflict",
-                                              module.name, alreadyRegistered.name,
-                                              module.pluginId, alreadyRegistered.moduleName ?: alreadyRegistered.pluginId),
-            shortMessageSupplier = message("plugin.loading.error.short.package.prefix.conflict",
-                                           module.name, alreadyRegistered.name,
-                                           module.pluginId, alreadyRegistered.moduleName ?: alreadyRegistered.pluginId),
-            isNotifyUser = true,
-          ))
+          loadingErrors.add(PluginPackagePrefixConflict(module, module, alreadyRegistered))
           continue@m
         }
       }
@@ -175,16 +166,7 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<IdeaPluginDescriptorIm
               module.isMarkedForLoading = false
               if (isDisabledDueToPackagePrefixConflict.containsKey(contentModule.name)) {
                 val alreadyRegistered = isDisabledDueToPackagePrefixConflict[contentModule.name]!!
-                loadingErrors.add(PluginLoadingError(
-                  module,
-                  detailedMessageSupplier = message("plugin.loading.error.long.package.prefix.conflict",
-                                                    module.name, alreadyRegistered.name,
-                                                    contentModule.name, alreadyRegistered.moduleName ?: alreadyRegistered.pluginId),
-                  shortMessageSupplier = message("plugin.loading.error.short.package.prefix.conflict",
-                                                 module.name, alreadyRegistered.name,
-                                                 contentModule.name, alreadyRegistered.moduleName ?: alreadyRegistered.pluginId),
-                  isNotifyUser = true,
-                ))
+                loadingErrors.add(PluginPackagePrefixConflict(module, contentModule.requireDescriptor(), alreadyRegistered))
               } else {
                 registerLoadingError(module, contentModule)
               }
@@ -295,100 +277,54 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<IdeaPluginDescriptorIm
     idMap: Map<PluginId, IdeaPluginDescriptorImpl>,
     fullIdMap: Map<PluginId, IdeaPluginDescriptorImpl>,
     isPluginDisabled: (PluginId) -> Boolean,
-    errors: MutableMap<PluginId, PluginLoadingError>,
-  ): PluginLoadingError? {
+    errors: MutableMap<PluginId, PluginNonLoadReason>,
+  ): PluginNonLoadReason? {
     val isNotifyUser = !descriptor.isImplementationDetail && !pluginRequiresUltimatePluginButItsDisabled(descriptor.pluginId, fullIdMap)
     for (incompatibleId in descriptor.incompatiblePlugins) {
       if (!enabledPluginIds.containsKey(incompatibleId) || isPluginDisabled(incompatibleId)) {
         continue
       }
-
-      val presentableName = incompatibleId.idString
-      return PluginLoadingError(
-        plugin = descriptor,
-        detailedMessageSupplier = message("plugin.loading.error.long.ide.contains.conflicting.module", descriptor.name, presentableName),
-        shortMessageSupplier = message("plugin.loading.error.short.ide.contains.conflicting.module", presentableName),
-        isNotifyUser = isNotifyUser,
-      )
+      return PluginIsIncompatibleWithAnotherPlugin(descriptor, enabledPluginIds[incompatibleId]!!, isNotifyUser)
     }
 
     getAllPluginDependencies(descriptor)
       .firstOrNull { it !in enabledPluginIds }
       ?.let { dependencyPluginId ->
         return idMap.get(dependencyPluginId)?.let {
-          createTransitivelyDisabledError(descriptor, it, isNotifyUser)
+          // FIXME this is not precise reason type and may confuse user
+          PluginDependencyIsDisabled(descriptor, it.pluginId, isNotifyUser)
         } ?: createCannotLoadError(descriptor, dependencyPluginId, errors, isNotifyUser)
       }
 
-    return descriptor.moduleDependencies.modules.asSequence().map { it.name }
-      .firstOrNull { it !in enabledModuleV2Ids }
-      ?.let {
-        PluginLoadingError(
-          plugin = descriptor,
-          detailedMessageSupplier = message("plugin.loading.error.long.depends.on.not.installed.plugin", descriptor.name, it),
-          shortMessageSupplier = message("plugin.loading.error.short.depends.on.not.installed.plugin", it),
-          isNotifyUser = isNotifyUser,
-        )
-      }
+    return descriptor.moduleDependencies.modules
+      .firstOrNull { it.name !in enabledModuleV2Ids }
+      ?.let { PluginModuleDependencyCannotBeLoadedOrMissing(plugin = descriptor, moduleDependency = it, shouldNotifyUser = isNotifyUser) }
   }
 }
 
 private fun createCannotLoadError(
   descriptor: IdeaPluginDescriptorImpl,
   dependencyPluginId: PluginId,
-  errors: Map<PluginId, PluginLoadingError>,
+  errors: Map<PluginId, PluginNonLoadReason>,
   isNotifyUser: Boolean,
-): PluginLoadingError {
+): PluginNonLoadReason {
   val dependencyIdString = dependencyPluginId.idString
   val dependency = errors.get(dependencyPluginId)?.plugin
-
-  val detailedMessageSupplier = dependency?.let {
-    message(
-      "plugin.loading.error.long.depends.on.failed.to.load.plugin",
-      descriptor.name,
-      it.name ?: dependencyIdString,
-    )
-  } ?: message(
-    "plugin.loading.error.long.depends.on.not.installed.plugin",
-    descriptor.name,
-    dependencyIdString,
-  )
-
-  val shortMessageSupplier = dependency?.let {
-    message("plugin.loading.error.short.depends.on.failed.to.load.plugin", dependencyIdString)
-  } ?: message("plugin.loading.error.short.depends.on.not.installed.plugin", dependencyIdString)
-
-  return PluginLoadingError(
-    plugin = descriptor,
-    detailedMessageSupplier = detailedMessageSupplier,
-    shortMessageSupplier = shortMessageSupplier,
-    isNotifyUser = isNotifyUser,
-  )
-}
-
-private fun createTransitivelyDisabledError(
-  descriptor: IdeaPluginDescriptorImpl,
-  dependency: IdeaPluginDescriptorImpl,
-  isNotifyUser: Boolean,
-): PluginLoadingError {
-  val dependencyName = dependency.name
-  return PluginLoadingError(
-    plugin = descriptor,
-    detailedMessageSupplier = message("plugin.loading.error.long.depends.on.disabled.plugin", descriptor.name, dependencyName),
-    shortMessageSupplier = message("plugin.loading.error.short.depends.on.disabled.plugin", dependencyName),
-    isNotifyUser = isNotifyUser,
-    disabledDependency = dependency.pluginId,
-  )
+  return if (dependency != null) {
+    PluginDependencyCannotBeLoaded(descriptor, dependency.name ?: dependencyIdString, isNotifyUser)
+  } else {
+    PluginDependencyIsNotInstalled(descriptor, dependencyIdString, isNotifyUser)
+  }
 }
 
 private fun message(key: @PropertyKey(resourceBundle = CoreBundle.BUNDLE) String, vararg params: Any): @Nls Supplier<String> {
   return Supplier { CoreBundle.message(key, *params) }
 }
 
-private fun getAllPluginDependencies(ideaPluginDescriptorImpl: IdeaPluginDescriptorImpl): Sequence<PluginId> {
-  return ideaPluginDescriptorImpl.dependencies.asSequence()
+private fun getAllPluginDependencies(plugin: IdeaPluginDescriptorImpl): Sequence<PluginId> {
+  return plugin.dependencies.asSequence()
            .filterNot { it.isOptional }
            .map { it.pluginId } +
-         ideaPluginDescriptorImpl.moduleDependencies.plugins.asSequence()
+         plugin.moduleDependencies.plugins.asSequence()
            .map { it.id }
 }
