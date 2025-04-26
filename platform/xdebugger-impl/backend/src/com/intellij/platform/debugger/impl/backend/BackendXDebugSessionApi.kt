@@ -276,13 +276,29 @@ internal class BackendXDebugSessionApi : XDebugSessionApi {
       session.setBreakpointMuted(muted)
     }
   }
+
+  override suspend fun canDrop(sessionId: XDebugSessionId, stackFrameId: XStackFrameId): Boolean {
+    val session = sessionId.findValue() ?: return false
+    val stack = stackFrameId.findValue() ?: return false
+    return withContext(Dispatchers.EDT) {
+      session.debugProcess.dropFrameHandler?.canDrop(stack.stackFrame) ?: false
+    }
+  }
+
+  override suspend fun dropFrame(sessionId: XDebugSessionId, stackFrameId: XStackFrameId) {
+    val session = sessionId.findValue() ?: return
+    val stack = stackFrameId.findValue() ?: return
+    withContext(Dispatchers.EDT) {
+      session.debugProcess.dropFrameHandler?.drop(stack.stackFrame)
+    }
+  }
 }
 
 internal suspend fun XDebugSessionImpl.suspendData(): SuspendData? {
   val suspendContext = suspendContext ?: return null
   val suspendScope = currentSuspendCoroutineScope ?: return null
   val suspendContextId = coroutineScope {
-    suspendContext.storeGlobally(suspendScope, this@suspendData)
+    suspendContext.getOrStoreGlobally(suspendScope, this@suspendData)
   }
   val suspendContextDto = XSuspendContextDto(suspendContextId, suspendContext is XSteppingSuspendContext)
   val executionStackDto = suspendContext.activeExecutionStack?.let {
@@ -308,7 +324,7 @@ internal fun createXStackFrameDto(frame: XStackFrame, coroutineScope: CoroutineS
   val canEvaluateInDocument = frame.isDocumentEvaluator
   val evaluatorDto = XDebuggerEvaluatorDto(canEvaluateInDocument)
   return XStackFrameDto(id, frame.sourcePosition?.toRpc(), serializedEqualityObject, evaluatorDto, frame.initialPresentation(),
-                        frame.captionInfo(), frame.customBackgroundInfo())
+                        frame.captionInfo(), frame.customBackgroundInfo(), frame.canDrop(session))
 }
 
 private fun XStackFrame.captionInfo(): XStackFrameCaptionInfo {
@@ -325,6 +341,10 @@ private fun XStackFrame.customBackgroundInfo(): XStackFrameCustomBackgroundInfo?
     return null
   }
   return XStackFrameCustomBackgroundInfo(backgroundColor?.rpcId())
+}
+
+private fun XStackFrame.canDrop(session: XDebugSessionImpl): Boolean {
+  return session.debugProcess.dropFrameHandler?.canDrop(this) ?: false
 }
 
 private fun XStackFrame.initialPresentation(): XStackFramePresentation {

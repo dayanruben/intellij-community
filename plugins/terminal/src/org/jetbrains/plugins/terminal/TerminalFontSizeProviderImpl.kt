@@ -15,7 +15,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 class TerminalFontSizeProviderImpl : TerminalFontSizeProvider, Disposable {
   private val listeners = CopyOnWriteArrayList<TerminalFontSizeProvider.Listener>()
 
-  private var fontSize: Float? = null
+  private var fontSize: TerminalFontSize? = null
 
   init {
     val connection = ApplicationManager.getApplication().getMessageBus().connect(this)
@@ -23,8 +23,8 @@ class TerminalFontSizeProviderImpl : TerminalFontSizeProvider, Disposable {
       resetFontSize() // presentation mode, Zoom IDE...
     })
 
-    TerminalFontOptions.getInstance().addListener(object : TerminalFontOptionsListener {
-      override fun fontOptionsChanged() {
+    TerminalFontSettingsService.getInstance().addListener(object : TerminalFontSettingsListener {
+      override fun fontSettingsChanged() {
         resetFontSize()
       }
     }, disposable = this)
@@ -33,16 +33,16 @@ class TerminalFontSizeProviderImpl : TerminalFontSizeProvider, Disposable {
   override fun getFontSize(): Float {
     var size = fontSize
     if (size == null) {
-      size = getDefaultScaledFontSize().floatValue
+      size = getDefaultScaledFontSize()
       fontSize = size
     }
-    return size
+    return size.floatValue
   }
 
   override fun setFontSize(newSize: Float) {
     val oldSize = fontSize
-    if (oldSize == null || TerminalFontSize.ofFloat(oldSize) != TerminalFontSize.ofFloat(newSize)) {
-      fontSize = newSize
+    if (oldSize != TerminalFontSize.ofFloat(newSize)) {
+      fontSize = TerminalFontSize.ofFloat(newSize)
       for (listener in listeners) {
         listener.fontChanged()
       }
@@ -54,7 +54,7 @@ class TerminalFontSizeProviderImpl : TerminalFontSizeProvider, Disposable {
   }
 
   internal fun getDefaultScaledFontSize(): TerminalFontSize {
-    return TerminalFontOptions.getInstance().getSettings().fontSize.scale()
+    return TerminalFontSettingsService.getInstance().getSettings().fontSize.scale()
   }
 
   override fun addListener(parentDisposable: Disposable, listener: TerminalFontSizeProvider.Listener) {

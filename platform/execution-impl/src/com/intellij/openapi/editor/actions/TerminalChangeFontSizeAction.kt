@@ -54,7 +54,7 @@ internal sealed interface TerminalChangeFontHandler {
   fun resetTerminalFontSize()
 }
 
-internal class ClassicTerminalChangeFontHandler(private val widget: JBTerminalWidget) : TerminalChangeFontHandler {
+private class ClassicTerminalChangeFontHandler(private val widget: JBTerminalWidget) : TerminalChangeFontHandler {
   override fun changeSize(step: Float) {
     val settingsProvider = widget.settingsProvider
     val newFontSize = settingsProvider.terminalFontSize + step
@@ -68,8 +68,9 @@ internal class ClassicTerminalChangeFontHandler(private val widget: JBTerminalWi
   }
 }
 
-internal class ReworkedTerminalChangeFontHandler(private val provider: TerminalFontSizeProvider) : TerminalChangeFontHandler {
+private class ReworkedTerminalChangeFontHandler(private val provider: TerminalFontSizeProvider) : TerminalChangeFontHandler {
   override fun changeSize(step: Float) {
+    // no range check here because the provider implementation takes care of it
     provider.setFontSize(provider.getFontSize() + step)
   }
 

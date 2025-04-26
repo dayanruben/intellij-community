@@ -26,13 +26,14 @@ internal sealed class TerminalChangeEngineAction(private val engine: TerminalEng
   }
 
   override fun setSelected(e: AnActionEvent, state: Boolean) {
+    val project = e.project ?: return
     if (state) {
-      TerminalOptionsProvider.instance.terminalEngine = engine
+      TerminalOptionsProvider.instance.switchTerminalEngine(engine, project)
       // Call save manually, because otherwise this change will be synced to backend only at some time later.
       saveSettingsForRemoteDevelopment(application)
 
       val startupFusInfo = TerminalStartupFusInfo(TerminalOpeningWay.SWITCH_ENGINE)
-      TerminalToolWindowManager.getInstance(e.project!!).createNewSession(startupFusInfo)
+      TerminalToolWindowManager.getInstance(project).createNewSession(startupFusInfo)
     }
   }
 
@@ -48,10 +49,6 @@ internal sealed class TerminalChangeEngineAction(private val engine: TerminalEng
                                           // show this option as well to avoid strange behavior when nothing is selected in the popup.
                                           TerminalOptionsProvider.instance.terminalEngine == TerminalEngine.NEW_TERMINAL)
     e.presentation.keepPopupOnPerform = KeepPopupOnPerform.IfRequested
-
-    if (engine == TerminalEngine.REWORKED) {
-      e.presentation.putClientProperty(ActionUtil.SECONDARY_ICON, AllIcons.General.Beta)
-    }
   }
 
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT

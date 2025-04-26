@@ -13,31 +13,44 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.psi.*
+import java.util.*
 import com.intellij.lang.Language as PlatformLanguage
 
 fun interface GeneratedCodeIntegrator {
-  suspend fun integrate(project: Project, method: String): String
+  suspend fun integrate(project: Project, method: String, imports: List<String>): String
 }
 
 class InEditorGeneratedCodeIntegrator : GeneratedCodeIntegrator {
-  override suspend fun integrate(project: Project, method: String): String {
+  override suspend fun integrate(
+    project: Project,
+    method: String,
+    imports: List<String>,
+  ): String {
     return readAction {
       val editorManager = FileEditorManager.getInstance(project)
       val editor = editorManager.selectedTextEditor!!
       val text = editor.document.text
       val caret = editor.caretModel.currentCaret.offset
-      text.substring(0, caret) + method + "\n" + text.substring(caret)
+
+      val packageEnd = text.indexOf("package").let { if (it >= 0) text.indexOf('\n', it) + 1 else 0 }
+      val importSection = if (imports.isNotEmpty()) imports.joinToString("\n") + "\n\n" else ""
+
+      text.substring(0, packageEnd) + importSection + text.substring(packageEnd, caret) + method + "\n" + text.substring(caret)
     }
   }
 }
 
 class JavaApiCallExtractor(private val generatedCodeIntegrator: GeneratedCodeIntegrator) : ApiCallExtractor {
-  override suspend fun extractApiCalls(code: String, project: Project, tokenProperties: TokenProperties): List<String> {
+  override suspend fun extractApiCalls(code: String, allCodeSnippets: List<String>, project: Project, tokenProperties: TokenProperties): List<String> {
     val methodName = tokenProperties.additionalProperty(METHOD_NAME_PROPERTY) ?: return emptyList()
     val psiFileWithGeneratedCode = edtWriteAction { createPsiFile(code, project, "dummy1.java") }
     val method = extractMethodFromGeneratedSnippet(project, psiFileWithGeneratedCode, methodName) ?: return emptyList()
 
-    val integratedCode = generatedCodeIntegrator.integrate(project, method)
+    val imports = allCodeSnippets.flatMap {
+      val tempPsifileWithImports = edtWriteAction { createPsiFile(it, project, UUID.randomUUID().toString() + ".java") }
+      extractImportsFromGeneratedSnippet(project, tempPsifileWithImports)
+    }
+    val integratedCode = generatedCodeIntegrator.integrate(project, method, imports)
     val psiFileWithIntegratedCode = edtWriteAction { createPsiFile(integratedCode, project, "dummy2.java") }
 
     return smartReadActionBlocking(project) {
@@ -53,6 +66,13 @@ class JavaApiCallExtractor(private val generatedCodeIntegrator: GeneratedCodeInt
       PlatformLanguage.findLanguageByID("JAVA")!!,
       code,
     )
+  }
+
+  private suspend fun extractImportsFromGeneratedSnippet(project: Project, psiFileWithGeneratedCode: PsiFile): List<String> {
+    return smartReadActionBlocking(project) {
+      val importList = psiFileWithGeneratedCode.children.filterIsInstance<PsiImportList>().firstOrNull()
+      importList?.children?.filterIsInstance<PsiImportStatement>()?.mapNotNull { it.text } ?: emptyList()
+    }
   }
 
   private suspend fun extractMethodFromGeneratedSnippet(

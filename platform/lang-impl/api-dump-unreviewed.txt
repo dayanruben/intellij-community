@@ -879,20 +879,6 @@ f:com.intellij.application.options.codeStyle.arrangement.util.IntObjectMap
 - set(I,java.lang.Object):V
 - shiftKeys(I,I):V
 - size():I
-f:com.intellij.application.options.colors.fileStatus.FileStatusColorsTableModel
-- javax.swing.table.AbstractTableModel
-- <init>(com.intellij.openapi.vcs.FileStatus[],com.intellij.openapi.editor.colors.EditorColorsScheme):V
-- apply():V
-- containsCustomSettings():Z
-- getColumnClass(I):java.lang.Class
-- getColumnCount():I
-- getColumnName(I):java.lang.String
-- getRowCount():I
-- getValueAt(I,I):java.lang.Object
-- isModified():Z
-- reset():V
-- resetToDefault(I):V
-- setValueAt(java.lang.Object,I,I):V
 f:com.intellij.application.options.editor.AutoImportOptionsConfigurable
 - com.intellij.openapi.options.BoundCompositeConfigurable
 - com.intellij.application.options.editor.EditorOptionsProvider
@@ -1541,8 +1527,8 @@ c:com.intellij.codeInsight.actions.RearrangeCodeProcessor
 - getRangesToFormat(com.intellij.psi.PsiFile,Z):java.util.Collection
 - p:prepareTask(com.intellij.psi.PsiFile,Z):java.util.concurrent.FutureTask
 c:com.intellij.codeInsight.actions.ReformatCodeAction
-- com.intellij.openapi.actionSystem.AnAction
 - com.intellij.ide.lightEdit.LightEditCompatible
+- com.intellij.openapi.actionSystem.AnAction
 - com.intellij.openapi.project.DumbAware
 - com.intellij.platform.ide.core.permissions.RequiresPermissions
 - <init>():V
@@ -8098,7 +8084,6 @@ c:com.intellij.ide.actions.CopyReferencePopup
 - com.intellij.ide.actions.NonTrivialActionGroup
 - <init>():V
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
-- beforeActionPerformedUpdate(com.intellij.openapi.actionSystem.AnActionEvent):V
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
 f:com.intellij.ide.actions.CopyReferenceUtil
 - <init>():V

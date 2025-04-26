@@ -1,10 +1,8 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.terminal
 
-import com.intellij.application.options.EditorFontsConstants
 import com.intellij.codeWithMe.ClientId
 import com.intellij.execution.configuration.EnvironmentVariablesTextFieldWithBrowseButton
-import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
 import com.intellij.openapi.application.ApplicationBundle
 import com.intellij.openapi.client.ClientKind
@@ -38,7 +36,6 @@ import org.jetbrains.plugins.terminal.block.BlockTerminalOptions
 import org.jetbrains.plugins.terminal.block.prompt.TerminalPromptStyle
 import org.jetbrains.plugins.terminal.runner.LocalTerminalStartCommandBuilder
 import java.awt.Color
-import java.util.*
 import javax.swing.JComponent
 import javax.swing.JTextField
 import javax.swing.UIManager
@@ -73,14 +70,14 @@ internal class TerminalOptionsConfigurable(private val project: Project) : Bound
 
           val renderer = listCellRenderer<TerminalEngine?> {
             text(value?.presentableName ?: "")
-            if (value == TerminalEngine.REWORKED) {
-              icon(AllIcons.General.Beta)
-            }
           }
 
           terminalEngineComboBox = comboBox(values, renderer)
             .label(message("settings.terminal.engine"))
-            .bindItem(optionsProvider::terminalEngine.toNullableProperty())
+            .bindItem(
+              getter = { TerminalOptionsProvider.instance.terminalEngine },
+              setter = { TerminalOptionsProvider.instance.switchTerminalEngine(it!!, project) },
+            )
             .component
         }
         indent {
@@ -129,7 +126,7 @@ internal class TerminalOptionsConfigurable(private val project: Project) : Bound
       }
 
       group(message("settings.terminal.font.settings")) {
-        var fontSettings = TerminalFontOptions.getInstance().getSettings()
+        var fontSettings = TerminalFontSettingsService.getInstance().getSettings()
         row(message("settings.font.name")) {
           cell(fontComboBox())
             .bind(
@@ -147,27 +144,27 @@ internal class TerminalOptionsConfigurable(private val project: Project) : Bound
             .label(message("settings.font.size"))
             .columns(4)
             .bindText(
-              getter = { fontSettings.fontSize.fontSizeToString() },
-              setter = { fontSettings = fontSettings.copy(fontSize = it.parseFontSize()) },
+              getter = { fontSettings.fontSize.toFormattedString() },
+              setter = { fontSettings = fontSettings.copy(fontSize = TerminalFontSize.parse(it)) },
             )
           textField()
             .label(message("settings.line.height"))
             .columns(4)
             .bindText(
-              getter = { fontSettings.lineSpacing.spacingToString() },
-              setter = { fontSettings = fontSettings.copy(lineSpacing = it.parseLineSpacing()) },
+              getter = { fontSettings.lineSpacing.toFormattedString() },
+              setter = { fontSettings = fontSettings.copy(lineSpacing = TerminalLineSpacing.parse(it)) },
             )
           textField()
             .label(message("settings.column.width"))
             .columns(4)
             .bindText(
-              getter = { fontSettings.columnSpacing.spacingToString() },
-              setter = { fontSettings = fontSettings.copy(columnSpacing = it.parseColumnSpacing()) },
+              getter = { fontSettings.columnSpacing.toFormattedString() },
+              setter = { fontSettings = fontSettings.copy(columnSpacing = TerminalColumnSpacing.parse(it)) },
             )
         }
 
         onApply {
-          TerminalFontOptions.getInstance().setSettings(fontSettings)
+          TerminalFontSettingsService.getInstance().setSettings(fontSettings)
         }
       }
 
@@ -331,35 +328,6 @@ private fun fontComboBox(): FontComboBox = FontComboBox().apply {
   }
   isMonospacedOnly = true
 }
-
-private fun TerminalFontSize.fontSizeToString(): String = floatValue.formatWithOneDecimalDigit()
-
-private fun String.parseFontSize(): TerminalFontSize = TerminalFontSize.ofFloat(
-  try {
-    toFloat().coerceIn(EditorFontsConstants.getMinEditorFontSize().toFloat()..EditorFontsConstants.getMaxEditorFontSize().toFloat())
-  }
-  catch (_: Exception) {
-    EditorFontsConstants.getDefaultEditorFontSize().toFloat()
-  }
-)
-
-private fun TerminalLineSpacing.spacingToString(): String = floatValue.formatWithOneDecimalDigit()
-private fun TerminalColumnSpacing.spacingToString(): String = floatValue.formatWithOneDecimalDigit()
-
-private fun String.parseLineSpacing(): TerminalLineSpacing = TerminalLineSpacing.ofFloat(parseSpacing())
-private fun String.parseColumnSpacing(): TerminalColumnSpacing = TerminalColumnSpacing.ofFloat(parseSpacing())
-
-private fun Float.formatWithOneDecimalDigit(): String = String.format(Locale.ROOT, "%.1f", this)
-
-// We only have getMin/MaxEditorLineSpacing(), and nothing for column spacing,
-// but using the same values for column spacing seems reasonable.
-private fun String.parseSpacing(): Float =
-  try {
-    toFloat().coerceIn(EditorFontsConstants.getMinEditorLineSpacing()..EditorFontsConstants.getMaxEditorLineSpacing())
-  }
-  catch (_: Exception) {
-    1.0f
-  }
 
 /**
  * [TerminalOptionsConfigurable] is created on backend under local [ClientId].

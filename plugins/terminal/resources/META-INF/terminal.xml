@@ -16,7 +16,7 @@
     <applicationService serviceImplementation="org.jetbrains.plugins.terminal.TerminalOptionsProvider"/>
     <applicationService serviceInterface="org.jetbrains.plugins.terminal.settings.TerminalLocalOptions"
                         serviceImplementation="org.jetbrains.plugins.terminal.settings.impl.TerminalLocalOptionsImpl"/>
-    <applicationService serviceImplementation="org.jetbrains.plugins.terminal.TerminalFontOptions"/>
+    <applicationService serviceImplementation="org.jetbrains.plugins.terminal.TerminalFontSettingsService"/>
 
     <projectService serviceInterface="org.jetbrains.plugins.terminal.block.reworked.TerminalPortForwardingUiProvider"
                     serviceImplementation="org.jetbrains.plugins.terminal.block.reworked.TerminalNoPortForwardingUiProvider"/>
@@ -24,7 +24,7 @@
     <rdct.remoteSettingProvider implementation="org.jetbrains.plugins.terminal.TerminalRemoteSettingsInfoProvider"/>
     <applicationSettings service="org.jetbrains.plugins.terminal.block.BlockTerminalOptions"/>
     <applicationSettings service="org.jetbrains.plugins.terminal.TerminalOptionsProvider"/>
-    <applicationSettings service="org.jetbrains.plugins.terminal.TerminalFontOptions"/>
+    <applicationSettings service="org.jetbrains.plugins.terminal.TerminalFontSettingsService"/>
 
     <applicationService serviceImplementation="org.jetbrains.plugins.terminal.arrangement.TerminalCommandHistoryManager"/>
     <statistics.counterUsagesCollector implementationClass="org.jetbrains.plugins.terminal.fus.TerminalUsageTriggerCollector"/>
@@ -42,7 +42,7 @@
      -->
     <registryKey key="terminal.new.ui" defaultValue="false"
                  description="No-op, use Terminal Engine option in Terminal settings instead"/>
-    <registryKey key="terminal.new.ui.reworked" defaultValue="true"
+    <registryKey key="terminal.new.ui.reworked" defaultValue="false"
                  description="No-op, use Terminal Engine option in Terminal settings instead"/>
 
     <registryKey key="terminal.new.ui.option.visible" defaultValue="false"
@@ -104,7 +104,7 @@
              id="terminalCommandSpec"
              order="before stats"
              implementationClass="org.jetbrains.plugins.terminal.block.completion.ShellCommandSpecCompletionWeigher"/>
-    <feedback.idleFeedbackSurvey implementation="org.jetbrains.plugins.terminal.block.feedback.BlockTerminalFeedbackSurvey"/>
+    <feedback.idleFeedbackSurvey implementation="org.jetbrains.plugins.terminal.block.feedback.ReworkedTerminalFeedbackSurvey"/>
 
     <lang.fileViewProviderFactory language="Terminal Prompt"
                                   implementationClass="org.jetbrains.plugins.terminal.block.prompt.lang.TerminalPromptFileViewProviderFactory"/>
@@ -153,6 +153,11 @@
     <extensionPoint qualifiedName="org.jetbrains.plugins.terminal.terminalWidgetProvider" dynamic="true"
                     interface="org.jetbrains.plugins.terminal.TerminalWidgetProvider"/>
   </extensionPoints>
+
+  <applicationListeners>
+    <listener class="org.jetbrains.plugins.terminal.TerminalNewUserTracker"
+              topic="com.intellij.ide.AppLifecycleListener"/>
+  </applicationListeners>
 
   <projectListeners>
     <listener class="org.jetbrains.plugins.terminal.block.prompt.TerminalLookupManagerListener"

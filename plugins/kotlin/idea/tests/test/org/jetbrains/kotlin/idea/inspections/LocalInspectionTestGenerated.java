@@ -9835,6 +9835,21 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
             runTest("testData/inspectionsLocal/redundantElvisReturnNull/basic.kt");
         }
 
+        @TestMetadata("basic_explicitLabel_lhs.kt")
+        public void testBasic_explicitLabel_lhs() throws Exception {
+            runTest("testData/inspectionsLocal/redundantElvisReturnNull/basic_explicitLabel_lhs.kt");
+        }
+
+        @TestMetadata("basic_explicitLabel_rhs.kt")
+        public void testBasic_explicitLabel_rhs() throws Exception {
+            runTest("testData/inspectionsLocal/redundantElvisReturnNull/basic_explicitLabel_rhs.kt");
+        }
+
+        @TestMetadata("nonElvisBinaryOperator.kt")
+        public void testNonElvisBinaryOperator() throws Exception {
+            runTest("testData/inspectionsLocal/redundantElvisReturnNull/nonElvisBinaryOperator.kt");
+        }
+
         @TestMetadata("notInReturn.kt")
         public void testNotInReturn() throws Exception {
             runTest("testData/inspectionsLocal/redundantElvisReturnNull/notInReturn.kt");
@@ -9843,6 +9858,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
         @TestMetadata("notReturnNull.kt")
         public void testNotReturnNull() throws Exception {
             runTest("testData/inspectionsLocal/redundantElvisReturnNull/notReturnNull.kt");
+        }
+
+        @TestMetadata("unrelatedReturn.kt")
+        public void testUnrelatedReturn() throws Exception {
+            runTest("testData/inspectionsLocal/redundantElvisReturnNull/unrelatedReturn.kt");
         }
 
         @TestMetadata("uselessElvis.kt")
@@ -10968,6 +10988,16 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
         @TestMetadata("isClassWhenEntry.kt")
         public void testIsClassWhenEntry() throws Exception {
             runTest("testData/inspectionsLocal/redundantObjectTypeCheck/isClassWhenEntry.kt");
+        }
+
+        @TestMetadata("isDataObject.kt")
+        public void testIsDataObject() throws Exception {
+            runTest("testData/inspectionsLocal/redundantObjectTypeCheck/isDataObject.kt");
+        }
+
+        @TestMetadata("isNotDataObject.kt")
+        public void testIsNotDataObject() throws Exception {
+            runTest("testData/inspectionsLocal/redundantObjectTypeCheck/isNotDataObject.kt");
         }
 
         @TestMetadata("isNotObject.kt")
