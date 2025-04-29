@@ -3,6 +3,7 @@ package com.intellij.xdebugger.impl.rpc
 
 import com.intellij.ide.ui.icons.IconId
 import com.intellij.ide.ui.icons.rpcId
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.xdebugger.breakpoints.SuspendPolicy
@@ -54,13 +55,20 @@ data class XBreakpointDtoState(
   val isConditionEnabled: Boolean,
   val conditionExpressionInt: XExpressionDto?,
   val generalDescription: String,
+  val tooltipDescription: String,
   val isLogExpressionEnabled: Boolean,
   val logExpression: String?,
   val logExpressionObjectInt: XExpressionDto?,
-  val isTemporary: Boolean,
   val timestamp: Long,
   val currentSessionCustomPresentation: XBreakpointCustomPresentationDto?,
   val customPresentation: XBreakpointCustomPresentationDto?,
+  val lineBreakpointInfo: XLineBreakpointInfo?,
+)
+
+@ApiStatus.Internal
+@Serializable
+data class XLineBreakpointInfo(
+  val isTemporary: Boolean,
 )
 
 @ApiStatus.Internal
@@ -86,17 +94,6 @@ data class XBreakpointTypeIcons(
   val pendingIcon: IconId?,
   val inactiveDependentIcon: IconId,
   val temporaryIcon: IconId?,
-)
-
-
-// TODO: LUXify it for remote dev?
-@ApiStatus.Internal
-@Serializable
-data class XBreakpointTypeCustomPanels(
-  @Transient val customPropertiesPanelProvider: (() -> XBreakpointCustomPropertiesPanel<XBreakpoint<*>>?)? = null,
-  @Transient val customConditionsPanelProvider: (() -> XBreakpointCustomPropertiesPanel<XBreakpoint<*>>?)? = null,
-  @Transient val customRightPropertiesPanelProvider: (() -> XBreakpointCustomPropertiesPanel<XBreakpoint<*>>?)? = null,
-  @Transient val customTopPropertiesPanelProvider: (() -> XBreakpointCustomPropertiesPanel<XBreakpoint<*>>?)? = null,
 )
 
 @ApiStatus.Internal
@@ -148,13 +145,18 @@ private suspend fun XBreakpointBase<*, *, *>.getDtoState(): XBreakpointDtoState 
       isConditionEnabled = isConditionEnabled,
       conditionExpressionInt = conditionExpressionInt?.toRpc(),
       generalDescription = XBreakpointUtil.getGeneralDescription(breakpoint),
+      tooltipDescription = readAction { description },
       isLogExpressionEnabled = isLogExpressionEnabled,
       logExpression = logExpression,
       logExpressionObjectInt = logExpressionObjectInt?.toRpc(),
-      isTemporary = (breakpoint as? XLineBreakpoint<*>)?.isTemporary ?: false,
       timestamp = timeStamp,
       currentSessionCustomPresentation = (XDebuggerManager.getInstance(project).currentSession as? XDebugSessionImpl)?.getBreakpointPresentation(breakpoint)?.toRpc(),
-      customPresentation = breakpoint.customizedPresentation?.toRpc()
+      customPresentation = breakpoint.customizedPresentation?.toRpc(),
+      lineBreakpointInfo = (breakpoint as? XLineBreakpoint<*>)?.getInfo()
     )
   }
+}
+
+private fun XLineBreakpoint<*>.getInfo(): XLineBreakpointInfo {
+  return XLineBreakpointInfo(isTemporary)
 }

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl.breakpoints
 
 import com.intellij.execution.impl.ConsoleViewUtil
@@ -93,7 +93,10 @@ class XLineBreakpointManager(private val project: Project, coroutineScope: Corou
     }
 
     // Check if two or more breakpoints occurred at the same position and remove duplicates.
-    val (valid, invalid) = breakpoints.partition { it.isValid }
+    val (valid, invalid) = breakpoints.partition {
+      val highlighter = it.highlighter
+      highlighter != null && highlighter.isValid
+    }
     removeBreakpoints(invalid)
     val areInlineBreakpoints = XDebuggerUtil.areInlineBreakpointsEnabled(FileDocumentManager.getInstance().getFile(document))
     val duplicates = valid
@@ -137,6 +140,14 @@ class XLineBreakpointManager(private val project: Project, coroutineScope: Corou
     }
   }
 
+  fun queueBreakpointUpdateCallback(breakpoint: XLineBreakpointImpl<*>?, callback: Runnable) {
+    breakpointUpdateQueue.queue(object : Update(breakpoint) {
+      override fun run() {
+        callback.run()
+      }
+    })
+  }
+
   // Skip waiting 300ms in myBreakpointsUpdateQueue (good for sync updates like enable/disable or create new breakpoint)
   private fun updateBreakpointNow(breakpoint: XLineBreakpointImpl<*>) {
     queueBreakpointUpdate(breakpoint)
@@ -146,7 +157,9 @@ class XLineBreakpointManager(private val project: Project, coroutineScope: Corou
   private fun queueBreakpointUpdate(breakpoint: XLineBreakpointImpl<*>, callOnUpdate: Runnable? = null) {
     breakpointUpdateQueue.queue(object : Update(breakpoint) {
       override fun run() {
-        breakpoint.doUpdateUI(callOnUpdate ?: EmptyRunnable.INSTANCE)
+        breakpoint.asProxy().doUpdateUI {
+          callOnUpdate?.run()
+        }
       }
     })
   }
@@ -154,7 +167,7 @@ class XLineBreakpointManager(private val project: Project, coroutineScope: Corou
   fun queueAllBreakpointsUpdate() {
     breakpointUpdateQueue.queue(object : Update("all breakpoints") {
       override fun run() {
-        myBreakpoints.values().forEach { it.doUpdateUI(EmptyRunnable.INSTANCE) }
+        myBreakpoints.values().forEach { it.asProxy().doUpdateUI() }
       }
     })
     // skip waiting

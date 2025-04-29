@@ -4,6 +4,8 @@ package com.intellij.platform.debugger.impl.frontend
 import com.intellij.ide.ui.icons.icon
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.markup.GutterDraggableObject
+import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.util.coroutines.childScope
@@ -16,29 +18,44 @@ import com.intellij.xdebugger.impl.breakpoints.CustomizedBreakpointPresentation
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase.calculateIcon
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointProxy
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointTypeProxy
+import com.intellij.xdebugger.impl.breakpoints.XLineBreakpointTypeProxy
 import com.intellij.xdebugger.impl.rpc.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.jetbrains.annotations.ApiStatus
 import javax.swing.Icon
 
-@ApiStatus.Internal
-class FrontendXBreakpointProxy(
+internal fun createXBreakpointProxy(
+  project: Project,
+  parentCs: CoroutineScope,
+  dto: XBreakpointDto,
+  type: XBreakpointTypeProxy,
+  onBreakpointChange: () -> Unit,
+): XBreakpointProxy {
+  return if (type is XLineBreakpointTypeProxy) {
+    FrontendXLineBreakpointProxy(project, parentCs, dto, type, onBreakpointChange)
+  }
+  else {
+    FrontendXBreakpointProxy(project, parentCs, dto, type, onBreakpointChange)
+  }
+}
+
+internal open class FrontendXBreakpointProxy(
   override val project: Project,
   parentCs: CoroutineScope,
   private val dto: XBreakpointDto,
   override val type: XBreakpointTypeProxy,
-  private val onBreakpointChange: () -> Unit,
+  protected val onBreakpointChange: () -> Unit,
 ) : XBreakpointProxy {
   override val id: XBreakpointId = dto.id
 
   private val cs = parentCs.childScope("FrontendXBreakpointProxy#$id")
 
-  private val _state: MutableStateFlow<XBreakpointDtoState> = MutableStateFlow(dto.initialState)
+  protected val _state: MutableStateFlow<XBreakpointDtoState> = MutableStateFlow(dto.initialState)
 
   private val editorsProvider = dto.localEditorsProvider ?: createFrontendEditorsProvider()
 
@@ -79,6 +96,10 @@ class FrontendXBreakpointProxy(
   }
 
   override fun getGroup(): String? = _state.value.group
+
+  override fun setGroup(group: String?) {
+    // TODO IJPL-185322
+  }
 
   override fun getIcon(): Icon {
     // TODO: do we need to cache icon like it is done in XBreakpointBase
@@ -160,6 +181,10 @@ class FrontendXBreakpointProxy(
     return _state.value.generalDescription
   }
 
+  override fun getTooltipDescription(): @NlsSafe String {
+    return _state.value.tooltipDescription
+  }
+
   override fun haveSameState(other: XBreakpointProxy, ignoreTimestamp: Boolean): Boolean {
     if (other !is FrontendXBreakpointProxy) {
       return false
@@ -218,18 +243,6 @@ class FrontendXBreakpointProxy(
     return editorsProvider
   }
 
-  override fun isTemporary(): Boolean {
-    return _state.value.isTemporary
-  }
-
-  override fun setTemporary(isTemporary: Boolean) {
-    _state.update { it.copy(isTemporary = isTemporary) }
-    onBreakpointChange()
-    project.service<FrontendXBreakpointProjectCoroutineService>().cs.launch {
-      XBreakpointApi.getInstance().setTemporary(id, isTemporary)
-    }
-  }
-
   override fun getCustomizedPresentation(): CustomizedBreakpointPresentation? {
     // TODO: let's convert it once on state change rather then on every getCustomizedPresentation call
     return _state.value.customPresentation?.toPresentation()
@@ -238,6 +251,24 @@ class FrontendXBreakpointProxy(
   override fun getCustomizedPresentationForCurrentSession(): CustomizedBreakpointPresentation? {
     // TODO: let's convert it once on state change rather then on every getCustomizedPresentation call
     return _state.value.currentSessionCustomPresentation?.toPresentation()
+  }
+
+  override fun isDisposed(): Boolean {
+    return !cs.isActive
+  }
+
+  override fun updateIcon() {
+    // TODO IJPL-185322 does nothing since we calculate icon for each getIcon request
+  }
+
+  override fun createGutterIconRenderer(): GutterIconRenderer? {
+    // TODO IJPL-185322 implement create gutter icon renderer
+    return null
+  }
+
+  override fun getGutterIconRenderer(): GutterIconRenderer? {
+    // TODO IJPL-185322
+    return null
   }
 
   private fun XBreakpointCustomPresentationDto.toPresentation(): CustomizedBreakpointPresentation {
@@ -249,8 +280,12 @@ class FrontendXBreakpointProxy(
     }
   }
 
-  internal fun dispose() {
+  override fun dispose() {
     cs.cancel()
+  }
+
+  override fun createBreakpointDraggableObject(): GutterDraggableObject? {
+    return null
   }
 
   override fun compareTo(other: XBreakpointProxy): Int {
@@ -277,4 +312,4 @@ class FrontendXBreakpointProxy(
 }
 
 @Service(Service.Level.PROJECT)
-private class FrontendXBreakpointProjectCoroutineService(val cs: CoroutineScope)
+internal class FrontendXBreakpointProjectCoroutineService(val cs: CoroutineScope)

@@ -24,10 +24,7 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.content.impl.ContentImpl
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
-import com.intellij.util.ui.ColorIcon
-import com.intellij.util.ui.JBSwingUtilities
-import com.intellij.util.ui.StartupUiUtil
-import com.intellij.util.ui.UIUtil
+import com.intellij.util.ui.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -287,27 +284,27 @@ private fun createThemeColorList(): JBList<ThemeColorInfo> {
 }
 
 private fun getColorId(color: Color): String {
-  if (color is JBColor) {
-    val name = color.name
+  if (color is PresentableColor) {
+    val name = color.getPresentableName()
     if (name != null) {
       return name
     }
 
     // Check if it's one of the static constants
-    when (color) {
-      JBColor.RED -> return "JBColor.RED"
-      JBColor.BLUE -> return "JBColor.BLUE"
-      JBColor.WHITE -> return "JBColor.WHITE"
-      JBColor.BLACK -> return "JBColor.BLACK"
-      JBColor.GRAY -> return "JBColor.GRAY"
-      JBColor.LIGHT_GRAY -> return "JBColor.LIGHT_GRAY"
-      JBColor.DARK_GRAY -> return "JBColor.DARK_GRAY"
-      JBColor.PINK -> return "JBColor.PINK"
-      JBColor.ORANGE -> return "JBColor.ORANGE"
-      JBColor.YELLOW -> return "JBColor.YELLOW"
-      JBColor.GREEN -> return "JBColor.GREEN"
-      JBColor.MAGENTA -> return "JBColor.MAGENTA"
-      JBColor.CYAN -> return "JBColor.CYAN"
+    when {
+      color === JBColor.RED -> return "JBColor.RED"
+      color === JBColor.BLUE -> return "JBColor.BLUE"
+      color === JBColor.WHITE -> return "JBColor.WHITE"
+      color === JBColor.BLACK -> return "JBColor.BLACK"
+      color === JBColor.GRAY -> return "JBColor.GRAY"
+      color === JBColor.LIGHT_GRAY -> return "JBColor.LIGHT_GRAY"
+      color === JBColor.DARK_GRAY -> return "JBColor.DARK_GRAY"
+      color === JBColor.PINK -> return "JBColor.PINK"
+      color === JBColor.ORANGE -> return "JBColor.ORANGE"
+      color === JBColor.YELLOW -> return "JBColor.YELLOW"
+      color === JBColor.GREEN -> return "JBColor.GREEN"
+      color === JBColor.MAGENTA -> return "JBColor.MAGENTA"
+      color === JBColor.CYAN -> return "JBColor.CYAN"
     }
   }
 

@@ -1,6 +1,8 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl.breakpoints
 
+import com.intellij.openapi.editor.markup.GutterDraggableObject
+import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.pom.Navigatable
@@ -11,7 +13,6 @@ import com.intellij.xdebugger.breakpoints.SuspendPolicy
 import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XBreakpointProperties
 import com.intellij.xdebugger.breakpoints.XBreakpointType
-import com.intellij.xdebugger.breakpoints.XLineBreakpoint
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
 import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.rpc.XBreakpointId
@@ -29,6 +30,7 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
   fun getUserDescription(): @NlsSafe String?
   fun setUserDescription(description: String?)
   fun getGroup(): String?
+  fun setGroup(group: String?)
   fun getIcon(): Icon
   fun isEnabled(): Boolean
   fun setEnabled(enabled: Boolean)
@@ -57,6 +59,7 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
 
   @NlsSafe
   fun getGeneralDescription(): String
+  fun getTooltipDescription(): @NlsSafe String
 
   fun haveSameState(other: XBreakpointProxy, ignoreTimestamp: Boolean): Boolean
 
@@ -72,27 +75,37 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
 
   fun getEditorsProvider(): XDebuggerEditorsProvider?
 
-  fun isTemporary(): Boolean
-
-  // Supported only for line breakpoints
-  fun setTemporary(isTemporary: Boolean)
-
   fun getCustomizedPresentation(): CustomizedBreakpointPresentation?
 
   fun getCustomizedPresentationForCurrentSession(): CustomizedBreakpointPresentation?
+  fun isDisposed(): Boolean
+  fun updateIcon()
 
-  class Monolith(val breakpoint: XBreakpointBase<*, *, *>) : XBreakpointProxy {
-    override val id: XBreakpointId = breakpoint.breakpointId
+  fun dispose()
 
-    override val type: XBreakpointTypeProxy = XBreakpointTypeProxy.Monolith(breakpoint.project, breakpoint.getType())
+  fun createGutterIconRenderer(): GutterIconRenderer?
+  fun getGutterIconRenderer(): GutterIconRenderer?
 
-    override val project: Project = breakpoint.project
+  fun createBreakpointDraggableObject(): GutterDraggableObject?
+
+  open class Monolith @Deprecated("Use breakpoint.asProxy() instead") internal constructor(breakpointBase: XBreakpointBase<*, *, *>) : XBreakpointProxy {
+    open val breakpoint: XBreakpointBase<*, *, *> = breakpointBase
+
+    override val id: XBreakpointId get() = breakpoint.breakpointId
+
+    override val type: XBreakpointTypeProxy get() = breakpoint.type.asProxy(breakpoint.project)
+
+    override val project: Project get() = breakpoint.project
+
+    override fun createBreakpointDraggableObject(): GutterDraggableObject? {
+      return null
+    }
 
     override fun getDisplayText(): String = XBreakpointUtil.getShortText(breakpoint)
     override fun getShortText(): @NlsSafe String = XBreakpointUtil.getShortText(breakpoint)
 
     override fun getUserDescription(): String? = breakpoint.userDescription
-    
+
     override fun setUserDescription(description: String?) {
       breakpoint.userDescription = description
     }
@@ -101,9 +114,13 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
       return breakpoint.group
     }
 
+    override fun setGroup(group: String?) {
+      breakpoint.group = group
+    }
+
     override fun getIcon(): Icon = breakpoint.getIcon()
 
-    override fun isEnabled(): Boolean = breakpoint.isEnabled()
+    override fun isEnabled(): Boolean = breakpoint.isEnabled
 
     override fun setEnabled(enabled: Boolean) {
       breakpoint.isEnabled = enabled
@@ -150,6 +167,10 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
 
     override fun getGeneralDescription(): String = XBreakpointUtil.getGeneralDescription(breakpoint)
 
+    override fun getTooltipDescription(): @NlsSafe String {
+      return breakpoint.description
+    }
+
     override fun haveSameState(other: XBreakpointProxy, ignoreTimestamp: Boolean): Boolean {
       if (other is Monolith) {
         return XBreakpointManagerImpl.statesAreDifferent(breakpoint.state, other.breakpoint.state, ignoreTimestamp)
@@ -183,20 +204,31 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
       breakpoint.logExpressionObject = logExpression
     }
 
-    override fun isTemporary(): Boolean = (breakpoint as? XLineBreakpoint<*>)?.isTemporary ?: false
-
-    override fun setTemporary(isTemporary: Boolean) {
-      if (breakpoint is XLineBreakpoint<*>) {
-        breakpoint.isTemporary = isTemporary
-      }
-    }
-
     override fun getCustomizedPresentation(): CustomizedBreakpointPresentation? {
       return breakpoint.customizedPresentation
     }
 
     override fun getCustomizedPresentationForCurrentSession(): CustomizedBreakpointPresentation? {
       return (XDebuggerManager.getInstance(project).currentSession as? XDebugSessionImpl)?.getBreakpointPresentation(breakpoint)
+    }
+
+    override fun isDisposed(): Boolean = breakpoint.isDisposed
+    
+    override fun updateIcon() {
+      breakpoint.updateIcon()
+    }
+
+    override fun dispose() {
+      breakpoint.dispose()
+    }
+
+    override fun createGutterIconRenderer(): GutterIconRenderer? {
+      return breakpoint.createGutterIconRenderer()
+    }
+
+    override fun getGutterIconRenderer(): GutterIconRenderer? {
+      val lineBreakpoint = breakpoint as? XLineBreakpointImpl<*> ?: return null
+      return lineBreakpoint.highlighter?.getGutterIconRenderer()
     }
 
     override fun equals(other: Any?): Boolean {
@@ -237,3 +269,17 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
     }
   }
 }
+
+@Suppress("DEPRECATION")
+@ApiStatus.Internal
+fun <T : XBreakpointBase<*, *, *>> T.asProxy(): XBreakpointProxy {
+  return if (this is XLineBreakpointImpl<*>) {
+    this.asProxy()
+  }
+  else {
+    XBreakpointProxy.Monolith(this)
+  }
+}
+
+@ApiStatus.Internal
+fun <T : XLineBreakpointImpl<*>> T.asProxy(): XLineBreakpointProxy = XLineBreakpointProxy.Monolith(this)

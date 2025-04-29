@@ -7,12 +7,16 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.project.projectId
 import com.intellij.platform.util.coroutines.childScope
+import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XBreakpointType
+import com.intellij.xdebugger.breakpoints.XLineBreakpoint
 import com.intellij.xdebugger.impl.breakpoints.*
 import com.intellij.xdebugger.impl.breakpoints.ui.BreakpointItem
 import com.intellij.xdebugger.impl.rpc.XBreakpointApi
+import com.intellij.xdebugger.impl.rpc.XBreakpointDto
 import com.intellij.xdebugger.impl.rpc.XBreakpointId
 import com.intellij.xdebugger.impl.rpc.XDebuggerManagerApi
 import kotlinx.coroutines.CoroutineScope
@@ -28,7 +32,7 @@ private val LOG = logger<FrontendXBreakpointManager>()
 internal class FrontendXBreakpointManager(private val project: Project, private val cs: CoroutineScope) : XBreakpointManagerProxy {
   private val breakpointsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
-  private val breakpoints: ConcurrentMap<XBreakpointId, FrontendXBreakpointProxy> = ConcurrentCollectionFactory.createConcurrentMap()
+  private val breakpoints: ConcurrentMap<XBreakpointId, XBreakpointProxy> = ConcurrentCollectionFactory.createConcurrentMap()
 
   private var _breakpointsDialogSettings: XBreakpointsDialogState? = null
 
@@ -54,17 +58,32 @@ internal class FrontendXBreakpointManager(private val project: Project, private 
 
         val newBreakpoints = breakpointDtos.filter { it.id !in breakpoints }
         for (breakpointDto in newBreakpoints) {
-          val type = breakpointTypesManager.getTypeById(breakpointDto.typeId)
-          if (type == null) {
-            LOG.error("Breakpoint type with id ${breakpointDto.typeId} not found")
-            continue
-          }
-          breakpoints[breakpointDto.id] = FrontendXBreakpointProxy(project, cs, breakpointDto, type, onBreakpointChange = {
-            breakpointsChanged.tryEmit(Unit)
-          })
+          addBreakpoint(breakpointTypesManager, breakpointDto)
         }
       }
     }
+  }
+
+  private fun addBreakpoint(
+    breakpointTypesManager: FrontendXBreakpointTypesManager,
+    breakpointDto: XBreakpointDto,
+  ): XBreakpointProxy? {
+    val currentBreakpoint = breakpoints[breakpointDto.id]
+    if (currentBreakpoint != null) {
+      return currentBreakpoint
+    }
+    val type = breakpointTypesManager.getTypeById(breakpointDto.typeId)
+    if (type == null) {
+      LOG.error("Breakpoint type with id ${breakpointDto.typeId} not found")
+      return null
+    }
+    val newBreakpoint = createXBreakpointProxy(project, cs, breakpointDto, type, onBreakpointChange = {
+      breakpointsChanged.tryEmit(Unit)
+    })
+    val previousBreakpoint = breakpoints.put(breakpointDto.id, newBreakpoint)
+    previousBreakpoint?.dispose()
+    breakpointsChanged.tryEmit(Unit)
+    return newBreakpoint
   }
 
   private fun removeBreakpoints(breakpointsToRemove: Collection<XBreakpointId>) {
@@ -72,6 +91,10 @@ internal class FrontendXBreakpointManager(private val project: Project, private 
       val removedBreakpoint = breakpoints.remove(breakpointToRemove)
       removedBreakpoint?.dispose()
     }
+  }
+
+  fun getBreakpointById(breakpointId: XBreakpointId): XBreakpointProxy? {
+    return breakpoints[breakpointId]
   }
 
   override fun setBreakpointsDialogSettings(settings: XBreakpointsDialogState) {
@@ -82,14 +105,23 @@ internal class FrontendXBreakpointManager(private val project: Project, private 
     // TODO: implement groups
   }
 
+  override suspend fun addBreakpoint(breakpointDto: XBreakpointDto): XBreakpointProxy? {
+    val breakpointTypesManager = FrontendXBreakpointTypesManager.getInstanceSuspending(project)
+    return addBreakpoint(breakpointTypesManager, breakpointDto)
+  }
+
   override fun getAllBreakpointItems(): List<BreakpointItem> {
     return breakpoints.values.map { proxy ->
       XBreakpointItem(proxy, this)
     }
   }
 
-  override fun getAllBreakpointTypes(): List<XBreakpointType<*, *>> {
-    return listOf() // TODO: implement breakpoint types
+  override fun getAllBreakpointTypes(): List<XBreakpointTypeProxy> {
+    return FrontendXBreakpointTypesManager.getInstance(project).getBreakpointTypes()
+  }
+
+  override fun getLineBreakpointTypes(): List<XLineBreakpointTypeProxy> {
+    return FrontendXBreakpointTypesManager.getInstance(project).getLineBreakpointTypes()
   }
 
   override fun subscribeOnBreakpointsChanges(disposable: Disposable, listener: () -> Unit) {
@@ -110,8 +142,15 @@ internal class FrontendXBreakpointManager(private val project: Project, private 
 
   override fun removeBreakpoint(breakpoint: XBreakpointProxy) {
     removeBreakpoints(setOf(breakpoint.id))
+    breakpointsChanged.tryEmit(Unit)
     cs.launch {
       XBreakpointApi.getInstance().removeBreakpoint(breakpoint.id)
+    }
+  }
+
+  override fun findBreakpointAtLine(type: XLineBreakpointTypeProxy, file: VirtualFile, line: Int): XLineBreakpointProxy? {
+    return breakpoints.values.filterIsInstance<XLineBreakpointProxy>().firstOrNull {
+      it.type == type && it.getFile()?.url == file.url && it.getLine() == line
     }
   }
 }

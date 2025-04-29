@@ -5,20 +5,55 @@ import com.intellij.ide.ui.icons.icon
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.project.projectId
 import com.intellij.xdebugger.breakpoints.SuspendPolicy
 import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XBreakpointType.StandardPanels
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointCustomPropertiesPanel
+import com.intellij.xdebugger.impl.breakpoints.XBreakpointProxy
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointTypeProxy
+import com.intellij.xdebugger.impl.breakpoints.XLineBreakpointTypeProxy
+import com.intellij.xdebugger.impl.frame.XDebugManagerProxy
 import com.intellij.xdebugger.impl.rpc.XBreakpointApi
+import com.intellij.xdebugger.impl.rpc.XBreakpointTypeApi
 import com.intellij.xdebugger.impl.rpc.XBreakpointTypeDto
+import com.intellij.xdebugger.impl.rpc.XLineBreakpointTypeInfo
 import com.intellij.xdebugger.impl.rpc.standardPanel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import javax.swing.Icon
 
-internal class FrontendXBreakpointType(
+internal fun createFrontendXBreakpointType(
+  project: Project,
+  dto: XBreakpointTypeDto,
+): XBreakpointTypeProxy {
+  val lineTypeInfo = dto.lineTypeInfo
+  return if (lineTypeInfo != null) {
+    FrontendXLineBreakpointType(project, dto, lineTypeInfo)
+  }
+  else {
+    FrontendXBreakpointType(project, dto)
+  }
+}
+
+private class FrontendXLineBreakpointType(
+  project: Project,
+  dto: XBreakpointTypeDto,
+  lineTypeInfo: XLineBreakpointTypeInfo,
+) : FrontendXBreakpointType(project, dto), XLineBreakpointTypeProxy {
+  override val temporaryIcon: Icon? = dto.icons.temporaryIcon?.icon()
+
+  override val priority: Int = lineTypeInfo.priority
+
+  override fun canPutAt(file: VirtualFile, line: Int, project: Project): Boolean {
+    // TODO IJPL-185322 implement it through cached breakpoint editor map
+    return true
+  }
+}
+
+
+private open class FrontendXBreakpointType(
   private val project: Project,
   private val dto: XBreakpointTypeDto,
 ) : XBreakpointTypeProxy {
@@ -33,11 +68,7 @@ internal class FrontendXBreakpointType(
   override val mutedDisabledIcon: Icon = dto.icons.mutedDisabledIcon.icon()
   override val pendingIcon: Icon? = dto.icons.pendingIcon?.icon()
   override val inactiveDependentIcon: Icon = dto.icons.inactiveDependentIcon.icon()
-  override val temporaryIcon: Icon? = dto.icons.temporaryIcon?.icon()
-
-  override val isLineBreakpoint: Boolean = dto.lineTypeInfo != null
   override val isSuspendThreadSupported: Boolean = dto.suspendThreadSupported
-  override val priority: Int? = dto.lineTypeInfo?.priority
 
   // TODO: should we support changes from the backend (so we need to subscribe on them)
   private var _defaultSuspendPolicy = dto.defaultSuspendPolicy
@@ -60,20 +91,44 @@ internal class FrontendXBreakpointType(
   }
 
   override fun createCustomPropertiesPanel(project: Project): XBreakpointCustomPropertiesPanel<XBreakpoint<*>>? {
-    return dto.customPanels.customPropertiesPanelProvider?.invoke()
+    return null
   }
 
   override fun createCustomConditionsPanel(): XBreakpointCustomPropertiesPanel<XBreakpoint<*>>? {
-    return dto.customPanels.customConditionsPanelProvider?.invoke()
+    return null
   }
 
   override fun createCustomRightPropertiesPanel(project: Project): XBreakpointCustomPropertiesPanel<XBreakpoint<*>>? {
-    return dto.customPanels.customRightPropertiesPanelProvider?.invoke()
+    return null
   }
 
   override fun createCustomTopPropertiesPanel(project: Project): XBreakpointCustomPropertiesPanel<XBreakpoint<*>>? {
-    return dto.customPanels.customTopPropertiesPanelProvider?.invoke()
+    return null
   }
+
+  override fun isAddBreakpointButtonVisible(): Boolean {
+    return dto.isAddBreakpointButtonVisible
+  }
+
+  override suspend fun addBreakpoint(project: Project): XBreakpointProxy? {
+    val breakpointDto = XBreakpointTypeApi.getInstance().addBreakpointThroughLux(project.projectId(), dto.id).await() ?: return null
+    return XDebugManagerProxy.getInstance().getBreakpointManagerProxy(project).addBreakpoint(breakpointDto)
+  }
+
+  override fun equals(other: Any?): Boolean {
+    if (this === other) return true
+    if (other !is FrontendXBreakpointType) return false
+
+    if (id != other.id) return false
+
+    return true
+  }
+
+  override fun hashCode(): Int {
+    return id.hashCode()
+  }
+
+
 }
 
 @Service(Service.Level.PROJECT)

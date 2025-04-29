@@ -6,6 +6,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.platform.project.projectId
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointTypeProxy
+import com.intellij.xdebugger.impl.breakpoints.XLineBreakpointTypeProxy
 import com.intellij.xdebugger.impl.rpc.XBreakpointTypeApi
 import com.intellij.xdebugger.impl.rpc.XBreakpointTypeDto
 import com.intellij.xdebugger.impl.rpc.XBreakpointTypeId
@@ -20,8 +21,12 @@ import org.jetbrains.annotations.ApiStatus
 @ApiStatus.Internal
 interface FrontendXBreakpointTypesManager {
   fun getTypeById(id: XBreakpointTypeId): XBreakpointTypeProxy?
+  fun getBreakpointTypes(): List<XBreakpointTypeProxy>
+  fun getLineBreakpointTypes(): List<XLineBreakpointTypeProxy>
 
   companion object {
+    fun getInstance(project: Project): FrontendXBreakpointTypesManager = project.service<FrontendXBreakpointTypesManagerService>()
+
     suspend fun getInstanceSuspending(project: Project): FrontendXBreakpointTypesManager {
       return project.service<FrontendXBreakpointTypesManagerService>().also {
         it.awaitInitialized()
@@ -38,7 +43,7 @@ private class FrontendXBreakpointTypesManagerService(
 ) : FrontendXBreakpointTypesManager {
   private val initialized = CompletableDeferred<Unit>()
 
-  private val types = ConcurrentHashMap<XBreakpointTypeId, FrontendXBreakpointType>()
+  private val types = ConcurrentHashMap<XBreakpointTypeId, XBreakpointTypeProxy>()
 
   init {
     cs.launch {
@@ -58,7 +63,7 @@ private class FrontendXBreakpointTypesManagerService(
 
   private fun handleBreakpointTypesFromBackend(breakpointTypes: List<XBreakpointTypeDto>) {
     for (dto in breakpointTypes) {
-      types.putIfAbsent(dto.id, FrontendXBreakpointType(project, dto))
+      types.putIfAbsent(dto.id, createFrontendXBreakpointType(project, dto))
     }
     val typesToRemove = types.keys - breakpointTypes.map { it.id }.toSet()
     for (typeToRemove in typesToRemove) {
@@ -67,7 +72,15 @@ private class FrontendXBreakpointTypesManagerService(
   }
 
 
-  override fun getTypeById(id: XBreakpointTypeId): FrontendXBreakpointType? {
+  override fun getTypeById(id: XBreakpointTypeId): XBreakpointTypeProxy? {
     return types[id]
+  }
+
+  override fun getBreakpointTypes(): List<XBreakpointTypeProxy> {
+    return types.values.toList()
+  }
+
+  override fun getLineBreakpointTypes(): List<XLineBreakpointTypeProxy> {
+    return types.values.filterIsInstance<XLineBreakpointTypeProxy>()
   }
 }

@@ -29,6 +29,8 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 
+import static com.intellij.xdebugger.impl.breakpoints.XBreakpointProxyKt.asProxy;
+
 @ApiStatus.Internal
 public class XBreakpointItem extends BreakpointItem {
   private final XBreakpointProxy myBreakpointProxy;
@@ -36,7 +38,7 @@ public class XBreakpointItem extends BreakpointItem {
   private XLightBreakpointPropertiesPanel myPropertiesPanel;
 
   public XBreakpointItem(XBreakpointBase<?, ?, ?> breakpoint, XBreakpointManagerProxy breakpointManagerProxy) {
-    myBreakpointProxy = new XBreakpointProxy.Monolith(breakpoint);
+    myBreakpointProxy = asProxy(breakpoint);
     myBreakpointManagerProxy = breakpointManagerProxy;
   }
 
@@ -135,7 +137,7 @@ public class XBreakpointItem extends BreakpointItem {
     TextAttributes attributes =
       EditorColorsManager.getInstance().getGlobalScheme().getAttributes(DebuggerColors.BREAKPOINT_ATTRIBUTES);
 
-    boolean isLineBreakpoint = myBreakpointProxy.getType().isLineBreakpoint();
+    boolean isLineBreakpoint = myBreakpointProxy.getType() instanceof XLineBreakpointTypeProxy;
     DetailView.PreviewEditorState state =
       DetailView.PreviewEditorState.create(virtualFile, line, isLineBreakpoint ? null : attributes);
 

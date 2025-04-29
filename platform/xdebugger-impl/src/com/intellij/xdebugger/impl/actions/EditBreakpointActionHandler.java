@@ -24,7 +24,7 @@ import java.awt.*;
 @ApiStatus.Internal
 public abstract class EditBreakpointActionHandler extends DebuggerActionHandler {
 
-  protected abstract void doShowPopup(Project project, JComponent component, Point whereToShow, XBreakpoint<?> breakpoint);
+  protected abstract void doShowPopup(Project project, JComponent component, Point whereToShow, XBreakpointProxy breakpoint);
 
   @Override
   public void perform(@NotNull Project project, @NotNull AnActionEvent event) {
@@ -32,9 +32,9 @@ public abstract class EditBreakpointActionHandler extends DebuggerActionHandler 
     Editor editor = CommonDataKeys.EDITOR.getData(dataContext);
     if (editor == null) return;
 
-    final Pair<GutterIconRenderer, XBreakpoint<?>> pair = XBreakpointUtil.findSelectedBreakpoint(project, editor);
+    final Pair<GutterIconRenderer, XBreakpointProxy> pair = XBreakpointUtil.findSelectedBreakpointProxy(project, editor);
 
-    XBreakpoint<?> breakpoint = pair.second;
+    XBreakpointProxy breakpoint = pair.second;
     GutterIconRenderer breakpointGutterRenderer = pair.first;
 
     if (breakpointGutterRenderer == null) return;
@@ -43,7 +43,7 @@ public abstract class EditBreakpointActionHandler extends DebuggerActionHandler 
 
   public void editBreakpoint(@NotNull Project project,
                              @NotNull Editor editor,
-                             @NotNull XBreakpoint<?> breakpoint,
+                             @NotNull XBreakpointProxy breakpoint,
                              @NotNull GutterIconRenderer breakpointGutterRenderer) {
     if (BreakpointsDialogFactory.getInstance(project).popupRequested(breakpoint)) {
       return;
@@ -57,10 +57,11 @@ public abstract class EditBreakpointActionHandler extends DebuggerActionHandler 
     doShowPopup(project, gutterComponent, point, breakpoint);
   }
 
-  public void editBreakpoint(@NotNull Project project, @NotNull JComponent parent, @NotNull Point whereToShow, @NotNull BreakpointItem breakpoint) {
+  public void editBreakpoint(@NotNull Project project,
+                             @NotNull JComponent parent,
+                             @NotNull Point whereToShow,
+                             @NotNull BreakpointItem breakpoint) {
     XBreakpointProxy breakpointProxy = breakpoint.getBreakpoint();
-    if (breakpointProxy instanceof XBreakpointProxy.Monolith) {
-      doShowPopup(project, parent, whereToShow, ((XBreakpointProxy.Monolith)breakpointProxy).getBreakpoint());
-    }
+    doShowPopup(project, parent, whereToShow, breakpointProxy);
   }
 }

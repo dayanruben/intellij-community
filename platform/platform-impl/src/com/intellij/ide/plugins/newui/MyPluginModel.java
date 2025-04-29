@@ -74,7 +74,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   private SortedSet<String> myTags;
 
   private static final Set<IdeaPluginDescriptor> myInstallingPlugins = new HashSet<>();
-  private static final Set<IdeaPluginDescriptor> myInstallingWithUpdatesPlugins = new HashSet<>();
+  private static final Set<PluginId> myInstallingWithUpdatesPlugins = new HashSet<>();
   static final Map<PluginId, InstallPluginInfo> myInstallingInfos = new HashMap<>();
 
   public boolean needRestart;
@@ -378,8 +378,12 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     return myInstallingPlugins;
   }
 
+  public static boolean isInstallingOrUpdate(PluginId pluginId) {
+    return myInstallingWithUpdatesPlugins.contains(pluginId);
+  }
+
   static boolean isInstallingOrUpdate(@NotNull IdeaPluginDescriptor descriptor) {
-    return myInstallingWithUpdatesPlugins.contains(descriptor);
+    return myInstallingWithUpdatesPlugins.contains(descriptor.getPluginId());
   }
 
   void installOrUpdatePlugin(@Nullable JComponent parentComponent,
@@ -593,7 +597,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     if (myInstallingWithUpdatesPlugins.isEmpty()) {
       myTopController.showProgress(true);
     }
-    myInstallingWithUpdatesPlugins.add(descriptor);
+    myInstallingWithUpdatesPlugins.add(descriptor.getPluginId());
     if (info.install) {
       myInstallingPlugins.add(descriptor);
     }
@@ -750,7 +754,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   static @NotNull InstallPluginInfo finishInstall(@NotNull IdeaPluginDescriptor descriptor) {
     InstallPluginInfo info = myInstallingInfos.remove(descriptor.getPluginId());
     info.close();
-    myInstallingWithUpdatesPlugins.remove(descriptor);
+    myInstallingWithUpdatesPlugins.remove(descriptor.getPluginId());
     if (info.install) {
       myInstallingPlugins.remove(descriptor);
     }
@@ -876,7 +880,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
       myTags = new TreeSet<>(String::compareToIgnoreCase);
 
       for (IdeaPluginDescriptor descriptor : getInstalledDescriptors()) {
-        myTags.addAll(PluginManagerConfigurable.getTags(descriptor));
+        myTags.addAll(PluginUtilsKt.getTags(descriptor));
       }
     }
     return Collections.unmodifiableSortedSet(myTags);

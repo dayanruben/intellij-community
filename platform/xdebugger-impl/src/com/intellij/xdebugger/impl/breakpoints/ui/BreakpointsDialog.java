@@ -313,8 +313,17 @@ public class BreakpointsDialog extends DialogWrapper {
     registerEditSourceAction(tree);
 
     List<AddXBreakpointAction> breakpointTypeActions = getBreakpointManager().getAllBreakpointTypes().stream()
-      .filter(XBreakpointType::isAddBreakpointButtonVisible)
-      .map(AddXBreakpointAction::new)
+      .filter(XBreakpointTypeProxy::isAddBreakpointButtonVisible)
+      .map(type -> new AddXBreakpointAction(
+        myProject, type,
+        () -> {
+          saveCurrentItem();
+          return Unit.INSTANCE;
+        },
+        (breakpointId) -> {
+          selectBreakpoint(breakpointId, true);
+          return Unit.INSTANCE;
+        }))
       .toList();
 
     ToolbarDecorator decorator = ToolbarDecorator.createDecorator(tree).
@@ -431,25 +440,6 @@ public class BreakpointsDialog extends DialogWrapper {
     }
   }
 
-  private class AddXBreakpointAction extends AnAction implements DumbAware {
-    private final XBreakpointType<?, ?> myType;
-
-    AddXBreakpointAction(XBreakpointType<?, ?> type) {
-      myType = type;
-      getTemplatePresentation().setIcon(type.getEnabledIcon());
-      getTemplatePresentation().setText(type.getTitle());
-    }
-
-    @Override
-    public void actionPerformed(@NotNull AnActionEvent e) {
-      saveCurrentItem();
-      XBreakpoint<?> breakpoint = myType.addBreakpoint(myProject, null);
-      if (breakpoint instanceof XBreakpointBase<?, ?, ?>) {
-        selectBreakpoint(((XBreakpointBase<?, ?, ?>)breakpoint).getBreakpointId(), true);
-      }
-    }
-  }
-
   @Override
   public void toFront() {
     Window window = getWindow();
@@ -502,8 +492,8 @@ public class BreakpointsDialog extends DialogWrapper {
       }
       for (BreakpointItem item : myTreeController.getSelectedBreakpoints(true)) {
         XBreakpointProxy breakpoint = item.getBreakpoint();
-        if (breakpoint instanceof XBreakpointProxy.Monolith) {
-          (((XBreakpointProxy.Monolith)breakpoint).getBreakpoint()).setGroup(groupName);
+        if (breakpoint != null) {
+          breakpoint.setGroup(groupName);
         }
       }
       myTreeController.rebuildTree(myBreakpointItems);
