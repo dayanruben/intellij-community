@@ -38,6 +38,9 @@ import java.awt.dnd.DnDConstants;
 import java.awt.dnd.DragSource;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
+
+import static com.intellij.xdebugger.impl.frame.XDebugSessionProxy.useFeLineBreakpointProxy;
 
 @ApiStatus.Internal
 public class XBreakpointVisualRepresentation {
@@ -47,16 +50,20 @@ public class XBreakpointVisualRepresentation {
     AppExecutorUtil.createBoundedApplicationPoolExecutor("XLineBreakpointImpl Inlay Redraw", 1);
   private final Project myProject;
   private final Consumer<Runnable> myQueueBreakpointUpdateCallback;
+  private final boolean myIsEnabled;
 
   private @Nullable RangeMarker myRangeMarker;
 
-  XBreakpointVisualRepresentation(
+  @ApiStatus.Internal
+  public XBreakpointVisualRepresentation(
     XLineBreakpointProxy xBreakpoint,
+    boolean isEnabled,
     Consumer<Runnable> queueBreakpointUpdateCallback
   ) {
     myBreakpoint = xBreakpoint;
     myProject = xBreakpoint.getProject();
     myQueueBreakpointUpdateCallback = queueBreakpointUpdateCallback;
+    myIsEnabled = isEnabled;
   }
 
   public @Nullable RangeMarker getRangeMarker() {
@@ -67,16 +74,21 @@ public class XBreakpointVisualRepresentation {
     return myRangeMarker instanceof RangeHighlighter ? (RangeHighlighter)myRangeMarker : null;
   }
 
-  void updateUI() {
+  @ApiStatus.Internal
+  public void updateUI() {
     myQueueBreakpointUpdateCallback.accept(() -> {
       doUpdateUI(() -> {
       });
     });
   }
 
+  @ApiStatus.Internal
   @RequiresBackgroundThread
-  void doUpdateUI(@NotNull Runnable callOnUpdate) {
+  public void doUpdateUI(@NotNull Runnable callOnUpdate) {
     if (myBreakpoint.isDisposed() || ApplicationManager.getApplication().isUnitTestMode()) {
+      return;
+    }
+    if (!myIsEnabled) {
       return;
     }
 
@@ -192,7 +204,7 @@ public class XBreakpointVisualRepresentation {
     }).executeSynchronously();
   }
 
-  void removeHighlighter() {
+  public void removeHighlighter() {
     if (getHighlighter() != null) {
       try {
         getHighlighter().dispose();
@@ -208,7 +220,7 @@ public class XBreakpointVisualRepresentation {
     redrawInlineInlays(myBreakpoint.getFile(), myBreakpoint.getLine());
   }
 
-  void redrawInlineInlays(@Nullable VirtualFile file, int line) {
+  public void redrawInlineInlays(@Nullable VirtualFile file, int line) {
     if (file == null) return;
     if (!XDebuggerUtil.areInlineBreakpointsEnabled(file)) return;
 
@@ -230,26 +242,25 @@ public class XBreakpointVisualRepresentation {
       });
   }
 
-  protected @NotNull GutterDraggableObject createBreakpointDraggableObject() {
+  @ApiStatus.Internal
+  public @NotNull GutterDraggableObject createBreakpointDraggableObject() {
     return new GutterDraggableObject() {
       @Override
       public boolean copy(int line, VirtualFile file, int actionId) {
         if (canMoveTo(line, file)) {
           XDebuggerManagerImpl debuggerManager = (XDebuggerManagerImpl)XDebuggerManager.getInstance(myProject);
           XBreakpointManagerImpl breakpointManager = debuggerManager.getBreakpointManager();
-          // TODO IJPL-185322 support gutter DnD
-          if (myBreakpoint instanceof XLineBreakpointProxy.Monolith monolithBreakpointProxy) {
-            XLineBreakpointImpl<?> monolithBreakpoint = monolithBreakpointProxy.getBreakpoint();
-            if (isCopyAction(actionId)) {
-              breakpointManager.copyLineBreakpoint(monolithBreakpoint, file.getUrl(), line);
-            }
-            else {
-              myBreakpoint.setFileUrl(file.getUrl());
-              myBreakpoint.setLine(line);
-              XDebugSessionImpl session = debuggerManager.getCurrentSession();
-              if (session != null) {
-                session.checkActiveNonLineBreakpointOnRemoval(monolithBreakpoint);
-              }
+          if (isCopyAction(actionId) && myBreakpoint instanceof XLineBreakpointProxy.Monolith monolithBreakpointProxy) {
+            // TODO IJPL-185322 support copy through gutter DnD
+            breakpointManager.copyLineBreakpoint(monolithBreakpointProxy.getBreakpoint(), file.getUrl(), line);
+          }
+          else {
+            myBreakpoint.setFileUrl(file.getUrl());
+            myBreakpoint.setLine(line);
+            XDebugSessionImpl session = debuggerManager.getCurrentSession();
+            if (session != null && myBreakpoint instanceof XLineBreakpointProxy.Monolith monolithBreakpointProxy) {
+              // TODO IJPL-185322 support active breakpoint update on DnD
+              session.checkActiveNonLineBreakpointOnRemoval(monolithBreakpointProxy.getBreakpoint());
             }
             return true;
           }
@@ -279,12 +290,15 @@ public class XBreakpointVisualRepresentation {
 
   private boolean canMoveTo(int line, VirtualFile file) {
     if (file != null && myBreakpoint.getType().canPutAt(file, line, myProject)) {
-      // TODO IJPL-185322 support canMoveTo for DnD
       if (myBreakpoint instanceof XLineBreakpointProxy.Monolith monolithBreakpointProxy) {
         XLineBreakpointImpl<?> monolithBreakpoint = monolithBreakpointProxy.getBreakpoint();
         XLineBreakpoint<?> existing =
           monolithBreakpoint.getBreakpointManager().findBreakpointAtLine(monolithBreakpoint.getType(), file, line);
         return existing == null || existing == monolithBreakpoint;
+      }
+      else {
+        // TODO IJPL-185322 support findBreakpointAtLine check for split
+        return true;
       }
     }
     return false;

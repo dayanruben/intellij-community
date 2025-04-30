@@ -15,7 +15,7 @@ import com.intellij.ui.dsl.builder.components.validationTooltip
 import com.intellij.util.ui.showingScope
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.errorProcessing.ErrorSink
-import com.jetbrains.python.errorProcessing.PyError
+import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.errorProcessing.failure
 import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
 import com.jetbrains.python.newProjectWizard.collector.PythonNewProjectWizardCollector
@@ -88,7 +88,7 @@ class EnvironmentCreatorVenv(model: PythonMutableTargetAddInterpreterModel) : Py
               if (!textField.isVisible) return@addInputRule null // We are hidden, hence valid
               locationValidationFailed.set(false)
               val locationPath = when (val path = validatePath(textField.text)) {
-                is com.jetbrains.python.Result.Failure -> return@addInputRule ValidationInfo(path.error) // Path is invalid
+                is com.jetbrains.python.Result.Failure -> return@addInputRule ValidationInfo(path.error.message) // Path is invalid
                 is com.jetbrains.python.Result.Success -> path.result
               }
               val pathExists = locationPath.exists()
@@ -155,7 +155,7 @@ class EnvironmentCreatorVenv(model: PythonMutableTargetAddInterpreterModel) : Py
     return currentName.removeSuffix(digitSuffix) + newSuffix
   }
 
-  override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): com.jetbrains.python.Result<Sdk, PyError> =
+  override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): PyResult<Sdk> =
     // todo remove project path, or move to controller
     try {
       val venvPath = Path.of(model.state.venvPath.get())

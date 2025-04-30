@@ -3,6 +3,7 @@ package com.jetbrains.python.sdk.add.v2
 
 import com.intellij.execution.target.TargetEnvironmentConfiguration
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.fileChooser.FileChooser
@@ -24,9 +25,8 @@ import com.intellij.python.hatch.getHatchService
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.errorProcessing.ErrorSink
-import com.jetbrains.python.errorProcessing.PyError
+import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.errorProcessing.emit
-import com.jetbrains.python.failure
 import com.jetbrains.python.getOrNull
 import com.jetbrains.python.isFailure
 import com.jetbrains.python.newProjectWizard.projectPath.ProjectPathFlows
@@ -52,6 +52,8 @@ import kotlin.io.path.Path
 import kotlin.io.path.isDirectory
 import kotlin.io.path.pathString
 
+private val LOG: Logger = fileLogger()
+
 @OptIn(ExperimentalCoroutinesApi::class)
 abstract class PythonAddInterpreterModel(
   params: PyInterpreterModelParams,
@@ -75,7 +77,7 @@ abstract class PythonAddInterpreterModel(
   val manuallyAddedInterpreters: MutableStateFlow<List<PythonSelectableInterpreter>> = MutableStateFlow(emptyList())
   private var installable: List<PythonSelectableInterpreter> = emptyList()
   val condaEnvironments: MutableStateFlow<List<PyCondaEnv>> = MutableStateFlow(emptyList())
-  val hatchEnvironmentsResult: MutableStateFlow<com.jetbrains.python.Result<List<HatchVirtualEnvironment>, PyError>?> = MutableStateFlow(
+  val hatchEnvironmentsResult: MutableStateFlow<PyResult<List<HatchVirtualEnvironment>>?> = MutableStateFlow(
     null)
 
   var allInterpreters: StateFlow<List<PythonSelectableInterpreter>> = combine(knownInterpreters, detectedInterpreters,
@@ -117,7 +119,7 @@ abstract class PythonAddInterpreterModel(
       val executor = targetEnvironmentConfiguration.toExecutor()
       val suggestedCondaPath = runCatching {
         suggestCondaPath(targetCommandExecutor = executor)
-      }.getOrLogException(PythonAddInterpreterPresenter.LOG)
+      }.getOrLogException(LOG)
       val suggestedCondaLocalPath = suggestedCondaPath?.toLocalPathOn(targetEnvironmentConfiguration)
       withContext(uiContext) {
         state.condaExecutable.set(suggestedCondaLocalPath?.toString().orEmpty())
@@ -145,7 +147,7 @@ abstract class PythonAddInterpreterModel(
 
   suspend fun detectHatchEnvironments(
     hatchExecutablePathString: String,
-  ): com.jetbrains.python.Result<List<HatchVirtualEnvironment>, PyError> {
+  ): PyResult<List<HatchVirtualEnvironment>> {
     val environmentsResult = withContext(Dispatchers.IO) {
       val projectPath = myProjectPathFlows.projectPathWithDefault.first()
       val hatchExecutablePath = NioFiles.toPath(hatchExecutablePathString)
@@ -481,7 +483,7 @@ internal suspend fun PythonAddInterpreterModel.detectCondaEnvironmentsOrError(er
 internal suspend fun PythonAddInterpreterModel.getBaseCondaOrError(): Result<PyCondaEnv> {
   var baseConda = state.baseCondaEnv.get()
   if (baseConda != null) return Result.success(baseConda)
-  detectCondaEnvironments()?.let { return failure(it) }
+  detectCondaEnvironments()?.let { return com.jetbrains.python.failure(it) }
   baseConda = state.baseCondaEnv.get()
-  return if (baseConda != null) Result.success(baseConda) else failure(message("python.sdk.conda.no.base.env.error"))
+  return if (baseConda != null) Result.success(baseConda) else com.jetbrains.python.failure(message("python.sdk.conda.no.base.env.error"))
 }

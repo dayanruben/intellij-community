@@ -26,7 +26,7 @@ internal class ShowLibraryFramesAction : ToggleAction(), FrontendOtherwiseBacken
 
   init {
     templatePresentation.apply {
-      text = XDebuggerBundle.message("show.all.frames.tooltip")
+      text = XDebuggerBundle.message("hide.library.frames.tooltip")
       description = ""
       icon = AllIcons.General.Filter
     }
@@ -58,6 +58,9 @@ internal class ShowLibraryFramesAction : ToggleAction(), FrontendOtherwiseBacken
   }
 
   override fun setSelected(e: AnActionEvent, enabled: Boolean) {
+    // update on frontend optimistically
+    XDebuggerSettingManagerImpl.getInstanceImpl().dataViewSettings.isShowLibraryStackFrames = !enabled
+
     e.project?.service<ShowLibraryFramesActionCoroutineScope>()?.toggle(!enabled)
   }
 
@@ -93,9 +96,6 @@ internal class ShowLibraryFramesActionCoroutineScope(private val project: Projec
   init {
     cs.launch {
       toggleFlow.debounce(30.milliseconds).collectLatest { show ->
-        // update on frontend optimistically
-        XDebuggerSettingManagerImpl.getInstanceImpl().dataViewSettings.isShowLibraryStackFrames = show
-
         XDebuggerManagerApi.getInstance().showLibraryFrames(show)
         XDebuggerUtilImpl.rebuildAllSessionsViews(project)
       }

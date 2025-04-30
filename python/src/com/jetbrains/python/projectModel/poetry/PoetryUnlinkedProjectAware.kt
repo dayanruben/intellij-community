@@ -3,7 +3,6 @@ package com.jetbrains.python.projectModel.poetry
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
-import com.intellij.openapi.extensions.ExtensionNotApplicableException
 import com.intellij.openapi.externalSystem.autolink.ExternalSystemProjectLinkListener
 import com.intellij.openapi.externalSystem.autolink.ExternalSystemUnlinkedProjectAware
 import com.intellij.openapi.externalSystem.model.ProjectSystemId
@@ -14,16 +13,12 @@ import com.intellij.openapi.vfs.VirtualFile
 import java.nio.file.Path
 
 class PoetryUnlinkedProjectAware : ExternalSystemUnlinkedProjectAware {
-  init {
-    if (!Registry.`is`("python.project.model.poetry")) {
-      throw ExtensionNotApplicableException.create()
-    }
-  }
+  private val openProvider = PoetryOpenProvider()
   
   override val systemId: ProjectSystemId = PoetryConstants.SYSTEM_ID
 
   override fun isBuildFile(project: Project, buildFile: VirtualFile): Boolean {
-    return buildFile.name == PoetryConstants.PYPROJECT_TOML
+    return Registry.`is`("python.project.model.poetry") && openProvider.canOpenProject(buildFile)
   }
 
   override fun isLinkedProject(project: Project, externalProjectPath: String): Boolean {
@@ -39,10 +34,10 @@ class PoetryUnlinkedProjectAware : ExternalSystemUnlinkedProjectAware {
   }
 
   override suspend fun linkAndLoadProjectAsync(project: Project, externalProjectPath: String) {
-    PoetryOpenProvider().linkToExistingProjectAsync(externalProjectPath, project)
+    openProvider.linkToExistingProjectAsync(externalProjectPath, project)
   }
 
   override suspend fun unlinkProject(project: Project, externalProjectPath: String) {
-    PoetryOpenProvider().unlinkProject(project, externalProjectPath)
+    openProvider.unlinkProject(project, externalProjectPath)
   }
 }

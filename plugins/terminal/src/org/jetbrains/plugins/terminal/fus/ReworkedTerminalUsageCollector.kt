@@ -2,8 +2,13 @@
 package org.jetbrains.plugins.terminal.fus
 
 import com.intellij.execution.filters.HyperlinkInfo
+import com.intellij.internal.statistic.collectors.fus.actions.persistence.ToolWindowCollector
 import com.intellij.internal.statistic.eventLog.EventLogGroup
 import com.intellij.internal.statistic.eventLog.events.EventFields
+import com.intellij.internal.statistic.eventLog.events.StringEventField
+import com.intellij.internal.statistic.eventLog.validator.ValidationResultType
+import com.intellij.internal.statistic.eventLog.validator.rules.EventContext
+import com.intellij.internal.statistic.eventLog.validator.rules.impl.CustomValidationRule
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Version
@@ -20,7 +25,7 @@ private const val GROUP_ID = "terminal"
 object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
   override fun getGroup(): EventLogGroup = GROUP
 
-  private val GROUP = EventLogGroup(GROUP_ID, 5)
+  private val GROUP = EventLogGroup(GROUP_ID, 6)
 
   private val OS_VERSION_FIELD = EventFields.StringValidatedByRegexpReference("os-version", "version")
   private val SHELL_STR_FIELD = EventFields.String("shell", KNOWN_SHELLS.toList())
@@ -31,6 +36,14 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
   private val TEXT_LENGTH_FIELD = EventFields.Int("text_length")
   private val HYPERLINK_INFO_CLASS = EventFields.Class("hyperlink_info_class")
   private val TERMINAL_OPENING_WAY = EventFields.Enum<TerminalOpeningWay>("opening_way")
+  private val TABS_COUNT = EventFields.Int("tab_count")
+  private val FOCUS = StringEventField.ValidatedByCustomValidationRule("counterpart", TerminalFocusRule::class.java)
+
+  private val tabOpenedEvent = GROUP.registerEvent("tab.opened", TABS_COUNT)
+
+  private val focusGainedEvent = GROUP.registerEvent("focus.gained", FOCUS)
+
+  private val focusLostEvent = GROUP.registerEvent("focus.lost", FOCUS)
 
   private val localShellStartedEvent = GROUP.registerEvent("local.exec",
                                                            OS_VERSION_FIELD,
@@ -47,6 +60,8 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
                                                                TerminalCommandUsageStatistics.subCommandField,
                                                                EXIT_CODE_FIELD,
                                                                EXECUTION_TIME_FIELD)
+
+  private val sessionRestoredEvent = GROUP.registerEvent("session.restored", TABS_COUNT)
 
   private val hyperlinkFollowedEvent = GROUP.registerEvent("hyperlink.followed", HYPERLINK_INFO_CLASS)
 
@@ -117,6 +132,21 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
   )
 
   @JvmStatic
+  fun logTabOpened(project: Project, tabCount: Int) {
+    tabOpenedEvent.log(project, tabCount)
+  }
+
+  @JvmStatic
+  fun logFocusGained(previousFocus: String) {
+    focusGainedEvent.log(previousFocus)
+  }
+
+  @JvmStatic
+  fun logFocusLost(nextFocus: String) {
+    focusLostEvent.log(nextFocus)
+  }
+
+  @JvmStatic
   fun logLocalShellStarted(project: Project, shellCommand: Array<String>) {
     localShellStartedEvent.log(project,
                                osVersion,
@@ -138,6 +168,10 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
                              EXECUTION_TIME_FIELD with executionTime.inWholeMilliseconds)
   }
 
+  @JvmStatic
+  fun logSessionRestored(project: Project, tabCount: Int) {
+    sessionRestoredEvent.log(project, tabCount)
+  }
 
   fun logFrontendTypingLatency(inputEventId: Int, duration: Duration) {
     frontendTypingLatencyEvent.log(
@@ -213,5 +247,28 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
       TERMINAL_OPENING_WAY with openingWay,
       DURATION_FIELD with duration,
     )
+  }
+}
+
+@ApiStatus.Internal
+enum class TerminalNonToolWindowFocus {
+  EDITOR,
+  OTHER_COMPONENT,
+  OTHER_APPLICATION,
+}
+
+internal class TerminalFocusRule : CustomValidationRule() {
+  private val toolWindowRule = ToolWindowCollector.ToolWindowUtilValidator()
+  private val nonToolWindowValues = TerminalNonToolWindowFocus.entries.map { it.name }
+
+  override fun getRuleId(): String = "terminal_focus"
+
+  override fun doValidate(data: String, context: EventContext): ValidationResultType {
+    if (data in nonToolWindowValues) {
+      return ValidationResultType.ACCEPTED
+    }
+    else {
+      return toolWindowRule.validate(data, context)
+    }
   }
 }

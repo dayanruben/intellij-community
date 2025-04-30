@@ -6,18 +6,15 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.extensions.ExtensionNotApplicableException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.backend.observation.ActivityKey
 import com.intellij.platform.backend.observation.launchTracked
 import com.intellij.platform.backend.observation.trackActivityBlocking
-import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.projectModel.poetry.PoetryLinkAction.CoroutineScopeService.Companion.coroutineScope
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.Nls
-import java.nio.file.Path
 
 /**
  * Discovers and links as managed by Poetry all relevant project roots and saves them in `.idea/poetry.xml`.
@@ -26,14 +23,10 @@ import java.nio.file.Path
 class PoetryLinkAction : AnAction() {
   override fun actionPerformed(e: AnActionEvent) {
     val project = e.project ?: return
-    val poetrySettings = project.service<PoetrySettings>()
     val basePath = project.basePath ?: return
     project.trackActivityBlocking(PoetryLinkActivityKey) {
       project.coroutineScope.launchTracked {
-        val allProjectRoots = withBackgroundProgress(project = project, title = PyBundle.message("python.project.model.progress.title.discovering.poetry.projects")) {
-          readProjectModelGraph(Path.of(basePath)).roots.map { it.root }
-        }
-        poetrySettings.setLinkedProjects(allProjectRoots)
+        PoetryProjectModelService.linkAllProjectModelRoots(project, basePath)
       }
     }
   }

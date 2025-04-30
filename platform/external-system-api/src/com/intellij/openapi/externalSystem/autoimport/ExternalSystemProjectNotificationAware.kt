@@ -38,6 +38,11 @@ interface ExternalSystemProjectNotificationAware {
   fun isNotificationVisible(): Boolean
 
   /**
+   * Checks that notifications should be shown with defined [systemId].
+   */
+  fun isNotificationVisible(systemId: ProjectSystemId): Boolean
+
+  /**
    * Gets list of project ids which should be reloaded.
    */
   fun getSystemIds(): Set<ProjectSystemId>
@@ -60,22 +65,12 @@ interface ExternalSystemProjectNotificationAware {
       return project.getService(ExternalSystemProjectNotificationAware::class.java)
     }
 
-    fun isNotificationVisible(project: Project): Boolean {
-      return getInstance(project).getSystemIds().isNotEmpty()
-    }
-
-    fun isNotificationVisible(project: Project, systemId: ProjectSystemId): Boolean {
-      return systemId in getInstance(project).getSystemIds()
-    }
-
-    /**
-     * Function for simple subscription onto notification change events
-     * @see ExternalSystemProjectNotificationAware.Listener.onNotificationChanged
-     */
+    @Deprecated("Use ExternalSystemProjectNotificationAware#TOPIC directly")
     fun whenNotificationChanged(project: Project, listener: () -> Unit) {
       whenNotificationChanged(project, null, listener)
     }
 
+    @Deprecated("Use ExternalSystemProjectNotificationAware#TOPIC directly")
     fun whenNotificationChanged(project: Project, parentDisposable: Disposable?, listener: () -> Unit) {
       val aProject = project
       val messageBus = ApplicationManager.getApplication().messageBus
@@ -92,7 +87,7 @@ interface ExternalSystemProjectNotificationAware {
     @Deprecated("Use ExternalSystemProjectNotificationAware.isNotificationVisible instead")
     fun isNotificationVisibleProperty(project: Project, systemId: ProjectSystemId): ObservableProperty<Boolean> {
       return object : ObservableProperty<Boolean> {
-        override fun get() = isNotificationVisible(project, systemId)
+        override fun get() = getInstance(project).isNotificationVisible(systemId)
         override fun afterChange(parentDisposable: Disposable?, listener: (Boolean) -> Unit) {
           whenNotificationChanged(project, parentDisposable) {
             listener(get())

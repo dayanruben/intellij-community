@@ -24,7 +24,7 @@ interface XBreakpointManagerProxy {
 
   fun setDefaultGroup(group: String)
 
-  suspend fun addBreakpoint(breakpointDto: XBreakpointDto): XBreakpointProxy?
+  fun addBreakpoint(breakpointDto: XBreakpointDto): XBreakpointProxy?
 
   fun getAllBreakpointItems(): List<BreakpointItem>
 
@@ -35,7 +35,9 @@ interface XBreakpointManagerProxy {
   fun getLastRemovedBreakpoint(): XBreakpointProxy?
 
   fun removeBreakpoint(breakpoint: XBreakpointProxy)
-  fun findBreakpointAtLine(type: XLineBreakpointTypeProxy, file: VirtualFile, line: Int): XLineBreakpointProxy?
+  fun findBreakpointAtLine(type: XLineBreakpointTypeProxy, file: VirtualFile, line: Int): XLineBreakpointProxy? =
+    findBreakpointsAtLine(type, file, line).firstOrNull()
+  fun findBreakpointsAtLine(type: XLineBreakpointTypeProxy, file: VirtualFile, line: Int): List<XLineBreakpointProxy>
 
   class Monolith(val breakpointManager: XBreakpointManagerImpl) : XBreakpointManagerProxy {
     override val breakpointsDialogSettings: XBreakpointsDialogState?
@@ -54,7 +56,7 @@ interface XBreakpointManagerProxy {
       breakpointManager.defaultGroup = group
     }
 
-    override suspend fun addBreakpoint(breakpointDto: XBreakpointDto): XBreakpointProxy? {
+    override fun addBreakpoint(breakpointDto: XBreakpointDto): XBreakpointProxy? {
       LOG.error("addBreakpoint with Dto should not be called for monolith")
       return null
     }
@@ -101,6 +103,10 @@ interface XBreakpointManagerProxy {
         return breakpoint.asProxy()
       }
       return null
+    }
+
+    override fun findBreakpointsAtLine(type: XLineBreakpointTypeProxy, file: VirtualFile, line: Int): List<XLineBreakpointProxy> {
+      return breakpointManager.findBreakpointsAtLine((type as XLineBreakpointTypeProxy.Monolith).breakpointType, file, line).map { it.asProxy() }
     }
   }
 }
