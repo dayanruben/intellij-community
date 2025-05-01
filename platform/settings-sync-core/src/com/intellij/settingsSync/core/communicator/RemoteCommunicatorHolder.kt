@@ -3,35 +3,38 @@ package com.intellij.settingsSync.core.communicator
 import com.intellij.icons.AllIcons
 import com.intellij.ide.plugins.DynamicPlugins.loadPlugin
 import com.intellij.ide.plugins.PluginInstaller
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.PluginXmlPathResolver
 import com.intellij.ide.plugins.loadDescriptor
 import com.intellij.ide.plugins.loadAndInitDescriptorFromArtifact
 import com.intellij.ide.plugins.marketplace.MarketplaceRequests
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.updateSettings.impl.PluginDownloader
+import com.intellij.openapi.util.Disposer
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.TaskCancellation
 import com.intellij.platform.ide.progress.withModalProgress
 import com.intellij.settingsSync.core.RestartForPluginInstall
-import com.intellij.settingsSync.core.RestartReason
 import com.intellij.settingsSync.core.SettingsSyncBundle
 import com.intellij.settingsSync.core.SettingsSyncEventListener
 import com.intellij.settingsSync.core.SettingsSyncEvents
 import com.intellij.settingsSync.core.SettingsSyncLocalSettings
 import com.intellij.settingsSync.core.SettingsSyncRemoteCommunicator
+import com.intellij.settingsSync.core.SettingsSyncSettings
 import com.intellij.settingsSync.core.auth.SettingsSyncAuthService
+import com.intellij.util.ResettableLazy
 import com.intellij.util.resettableLazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Component
 import java.nio.file.Path
+import kotlin.math.log
 
 @ApiStatus.Internal
 object RemoteCommunicatorHolder : SettingsSyncEventListener {
@@ -39,19 +42,31 @@ object RemoteCommunicatorHolder : SettingsSyncEventListener {
   const val DEFAULT_PROVIDER_CODE = "jba"
   const val DEFAULT_USER_ID = "jba"
 
-  // pair userId:remoteCommunicator
-  private val communicatorLazy = resettableLazy {
-    createRemoteCommunicator()
+  init {
+    SettingsSyncEvents.getInstance().addListener(this)
   }
 
-  fun getRemoteCommunicator(): SettingsSyncRemoteCommunicator? = communicatorLazy.value ?: createRemoteCommunicator()
+  // pair userId:remoteCommunicator
+  @Volatile
+  private var currentCommunicator: SettingsSyncRemoteCommunicator? = null
+
+  fun getRemoteCommunicator(): SettingsSyncRemoteCommunicator? = currentCommunicator ?: run {
+    currentCommunicator = createRemoteCommunicator()
+    return@run currentCommunicator
+  }
 
   fun getAuthService() = getCurrentProvider()?.authService
 
-  fun isAvailable() = communicatorLazy.value != null
+  fun isAvailable() = currentCommunicator != null
 
-  fun invalidateCommunicator() = communicatorLazy.reset().also {
-    logger.warn("Invalidating remote communicator")
+  fun invalidateCommunicator() {
+    currentCommunicator?.let {
+      logger.info("Invalidating remote communicator")
+      if (it is Disposable) {
+        Disposer.dispose(it)
+      }
+    }
+    currentCommunicator = null
   }
 
   fun getCurrentUserData(): SettingsSyncUserData? {
@@ -70,22 +85,37 @@ object RemoteCommunicatorHolder : SettingsSyncEventListener {
     invalidateCommunicator()
   }
 
-  fun createRemoteCommunicator(provider: SettingsSyncCommunicatorProvider, userId: String): SettingsSyncRemoteCommunicator? {
-    return provider.createCommunicator(userId)
+  override fun enabledStateChanged(syncEnabled: Boolean) {
+    if (!syncEnabled) {
+      invalidateCommunicator()
+    }
+  }
+
+  fun createRemoteCommunicator(provider: SettingsSyncCommunicatorProvider,
+                               userId: String,
+                               parentDisposable: Disposable? = null): SettingsSyncRemoteCommunicator? {
+    val communicator: SettingsSyncRemoteCommunicator = provider.createCommunicator(userId) ?: return null
+    if (parentDisposable != null && communicator is Disposable) {
+      Disposer.register(parentDisposable, communicator)
+    }
+    return communicator
   }
 
   private fun createRemoteCommunicator(): SettingsSyncRemoteCommunicator? {
     val provider: SettingsSyncCommunicatorProvider = getCurrentProvider() ?: run {
       logger.warn("Attempting to create remote communicator without active provider")
+      resetLoginData()
       return null
     }
     val userId = SettingsSyncLocalSettings.getInstance().userId ?: run {
       logger.warn("Empty current userId. Communicator will not be created.")
+      resetLoginData()
       return null
     }
 
-    val currentUserData = provider.authService.getUserData(userId) ?: run {
-      logger.warn("Empty current user data. Communicator will not be created.")
+    val currentUserData: SettingsSyncUserData = provider.authService.getUserData(userId) ?: run {
+      logger.warn("Cannot find user data for user '$userId' in provider '${provider.providerCode}. Resetting the data'")
+      resetLoginData()
       return null
     }
     val communicator: SettingsSyncRemoteCommunicator = provider.createCommunicator(currentUserData.id) ?: run {
@@ -93,6 +123,13 @@ object RemoteCommunicatorHolder : SettingsSyncEventListener {
       return null
     }
     return communicator
+  }
+
+  private fun resetLoginData() {
+    logger.warn("Backup & Sync will be disabled.")
+    SettingsSyncSettings.getInstance().syncEnabled = false
+    SettingsSyncLocalSettings.getInstance().providerCode = null
+    SettingsSyncLocalSettings.getInstance().userId = null
   }
 
   fun getAvailableProviders(): List<SettingsSyncCommunicatorProvider> {

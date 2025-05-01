@@ -1709,6 +1709,7 @@ e:com.intellij.openapi.progress.util.TooManyUsagesStatus$Status
 com.intellij.openapi.roots.PackageDirectoryCache
 - s:createCache(java.util.List):com.intellij.openapi.roots.PackageDirectoryCache
 - a:getDirectoriesByPackageName(java.lang.String):java.util.List
+- a:getFilesByPackageName(java.lang.String):java.util.List
 - a:getSubpackageNames(java.lang.String,com.intellij.psi.search.GlobalSearchScope):java.util.Set
 c:com.intellij.openapi.vfs.impl.LightFilePointer
 - com.intellij.openapi.vfs.pointers.VirtualFilePointer
@@ -2098,8 +2099,8 @@ a:com.intellij.psi.filters.position.PositionElementFilter
 - setFilter(com.intellij.psi.filters.ElementFilter):V
 a:com.intellij.psi.impl.AbstractModificationTracker
 - com.intellij.psi.impl.PsiTreeChangePreprocessor
-- <init>(com.intellij.psi.impl.PsiManagerImpl):V
-- getPsiManager():com.intellij.psi.impl.PsiManagerImpl
+- <init>(com.intellij.psi.impl.PsiManagerEx):V
+- getPsiManager():com.intellij.psi.impl.PsiManagerEx
 - p:initTracker():V
 - pa:isInsideCodeBlock(com.intellij.psi.PsiElement):Z
 - p:processOutOfCodeBlockModification(com.intellij.psi.impl.PsiTreeChangeEventImpl):V
@@ -2600,7 +2601,7 @@ c:com.intellij.psi.impl.file.PsiBinaryFileImpl
 - com.intellij.psi.PsiBinaryFile
 - com.intellij.psi.impl.PsiFileEx
 - java.lang.Cloneable
-- <init>(com.intellij.psi.impl.PsiManagerImpl,com.intellij.psi.FileViewProvider):V
+- <init>(com.intellij.psi.impl.PsiManagerEx,com.intellij.psi.FileViewProvider):V
 - accept(com.intellij.psi.PsiElementVisitor):V
 - add(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
 - addAfter(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
@@ -2659,7 +2660,7 @@ c:com.intellij.psi.impl.file.PsiDirectoryImpl
 - com.intellij.psi.impl.PsiElementBase
 - com.intellij.openapi.ui.Queryable
 - com.intellij.psi.PsiDirectory
-- <init>(com.intellij.psi.impl.PsiManagerImpl,com.intellij.openapi.vfs.VirtualFile):V
+- <init>(com.intellij.psi.impl.PsiManagerEx,com.intellij.openapi.vfs.VirtualFile):V
 - accept(com.intellij.psi.PsiElementVisitor):V
 - add(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
 - addAfter(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
@@ -3832,7 +3833,6 @@ a:com.intellij.psi.stubs.StubTreeLoader
 - a:build(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,com.intellij.psi.PsiFile):com.intellij.psi.stubs.ObjectStubTree
 - a:canHaveStub(com.intellij.openapi.vfs.VirtualFile):Z
 - s:getFileViewProviderMismatchDiagnostics(com.intellij.psi.FileViewProvider):java.lang.String
-- p:getIndexingStampInfo(com.intellij.openapi.vfs.VirtualFile):com.intellij.psi.stubs.IndexingStampInfo
 - s:getInstance():com.intellij.psi.stubs.StubTreeLoader
 - p:hasPsiInManyProjects(com.intellij.openapi.vfs.VirtualFile):Z
 - p:isTooLarge(com.intellij.openapi.vfs.VirtualFile):Z

@@ -11,6 +11,7 @@ import com.intellij.platform.project.projectId
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.xdebugger.impl.breakpoints.*
 import com.intellij.xdebugger.impl.breakpoints.ui.BreakpointItem
+import com.intellij.xdebugger.impl.frame.XDebugSessionProxy.Companion.useFeLineBreakpointProxy
 import com.intellij.xdebugger.impl.rpc.XBreakpointApi
 import com.intellij.xdebugger.impl.rpc.XBreakpointDto
 import com.intellij.xdebugger.impl.rpc.XBreakpointId
@@ -30,6 +31,8 @@ internal class FrontendXBreakpointManager(private val project: Project, private 
   private val breakpoints: ConcurrentMap<XBreakpointId, XBreakpointProxy> = ConcurrentCollectionFactory.createConcurrentMap()
 
   private var _breakpointsDialogSettings: XBreakpointsDialogState? = null
+
+  private val lineBreakpointManager = XLineBreakpointManager(project, cs, isEnabled = useFeLineBreakpointProxy())
 
   // TODO[IJPL-160384]: support persistance between sessions
   override val breakpointsDialogSettings: XBreakpointsDialogState?
@@ -52,7 +55,7 @@ internal class FrontendXBreakpointManager(private val project: Project, private 
         breakpointDtos
       }.collectLatest { breakpointDtos ->
         val breakpointsToRemove = breakpoints.keys - breakpointDtos.map { it.id }.toSet()
-        removeBreakpoints(breakpointsToRemove)
+        removeBreakpointsLocally(breakpointsToRemove)
 
         val newBreakpoints = breakpointDtos.filter { it.id !in breakpoints }
         for (breakpointDto in newBreakpoints) {
@@ -71,19 +74,28 @@ internal class FrontendXBreakpointManager(private val project: Project, private 
     if (type == null) {
       return null
     }
-    val newBreakpoint = createXBreakpointProxy(project, cs, breakpointDto, type, onBreakpointChange = {
+    val newBreakpoint = createXBreakpointProxy(project, cs, breakpointDto, type, this, onBreakpointChange = {
       breakpointsChanged.tryEmit(Unit)
+      if (it is XLineBreakpointProxy) {
+        lineBreakpointManager.breakpointChanged(it)
+      }
     })
     val previousBreakpoint = breakpoints.put(breakpointDto.id, newBreakpoint)
+    if (newBreakpoint is XLineBreakpointProxy) {
+      lineBreakpointManager.registerBreakpoint(newBreakpoint, true)
+    }
     previousBreakpoint?.dispose()
     breakpointsChanged.tryEmit(Unit)
     return newBreakpoint
   }
 
-  private fun removeBreakpoints(breakpointsToRemove: Collection<XBreakpointId>) {
+  private fun removeBreakpointsLocally(breakpointsToRemove: Collection<XBreakpointId>) {
     for (breakpointToRemove in breakpointsToRemove) {
       val removedBreakpoint = breakpoints.remove(breakpointToRemove)
       removedBreakpoint?.dispose()
+      if (removedBreakpoint is XLineBreakpointProxy) {
+        lineBreakpointManager.unregisterBreakpoint(removedBreakpoint)
+      }
     }
   }
 
@@ -103,6 +115,10 @@ internal class FrontendXBreakpointManager(private val project: Project, private 
     return breakpoints.values.map { proxy ->
       XBreakpointItem(proxy, this)
     }
+  }
+
+  override fun getLineBreakpointManager(): XLineBreakpointManager {
+    return lineBreakpointManager
   }
 
   override fun getAllBreakpointTypes(): List<XBreakpointTypeProxy> {
@@ -130,10 +146,16 @@ internal class FrontendXBreakpointManager(private val project: Project, private 
   }
 
   override fun removeBreakpoint(breakpoint: XBreakpointProxy) {
-    removeBreakpoints(setOf(breakpoint.id))
+    removeBreakpointsLocally(setOf(breakpoint.id))
     breakpointsChanged.tryEmit(Unit)
     cs.launch {
       XBreakpointApi.getInstance().removeBreakpoint(breakpoint.id)
+    }
+  }
+
+  override fun removeBreakpoints(breakpoints: Collection<XBreakpointProxy>) {
+    for (breakpoint in breakpoints) {
+      removeBreakpoint(breakpoint)
     }
   }
 

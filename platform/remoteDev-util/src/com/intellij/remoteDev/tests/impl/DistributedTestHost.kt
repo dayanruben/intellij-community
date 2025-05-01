@@ -246,7 +246,7 @@ open class DistributedTestHost(coroutineScope: CoroutineScope) {
           }
         }
 
-        session.isResponding.setSuspend(sessionBgtDispatcher) { _, _ ->
+        session.isResponding.setSuspend(sessionBgtDispatcher + NonCancellable) { _, _ ->
           LOG.info("Answering for session is responding...")
           true
         }
@@ -389,7 +389,7 @@ open class DistributedTestHost(coroutineScope: CoroutineScope) {
     else {
       val frameName = "frame '${projectIdeFrame.name}'"
 
-      return if ((projectIdeFrame.isFocusAncestor() || projectIdeFrame.isFocused)) {
+      return if ((projectIdeFrame.isFocusAncestor() || projectIdeFrame.isFocused) && KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner != null) {
         LOG.info("Frame '$frameName' is already focused")
         true
       }

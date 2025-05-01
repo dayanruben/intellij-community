@@ -30,6 +30,7 @@ import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.TerminalFontSizeProvider
 import com.intellij.terminal.frontend.fus.TerminalFocusFusService
 import com.intellij.terminal.frontend.fus.TerminalFusCursorPainterListener
+import com.intellij.terminal.frontend.fus.TerminalFusFirstOutputListener
 import com.intellij.terminal.session.TerminalSession
 import com.intellij.ui.components.JBLayeredPane
 import com.intellij.util.asDisposable
@@ -40,6 +41,7 @@ import kotlinx.coroutines.*
 import org.jetbrains.plugins.terminal.TerminalFontSettingsListener
 import org.jetbrains.plugins.terminal.TerminalFontSettingsService
 import org.jetbrains.plugins.terminal.TerminalFontSizeProviderImpl
+import org.jetbrains.plugins.terminal.TerminalPanelMarker
 import org.jetbrains.plugins.terminal.block.TerminalContentView
 import org.jetbrains.plugins.terminal.block.output.TerminalOutputEditorInputMethodSupport
 import org.jetbrains.plugins.terminal.block.output.TerminalTextHighlighter
@@ -53,7 +55,6 @@ import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
 import org.jetbrains.plugins.terminal.util.terminalProjectScope
 import java.awt.Component
 import java.awt.Dimension
-import java.awt.Point
 import java.awt.event.*
 import java.util.concurrent.CompletableFuture
 import javax.swing.JComponent
@@ -98,10 +99,12 @@ internal class ReworkedTerminalView(
 
     terminalInput = TerminalInput(sessionFuture, sessionModel, startupFusInfo, coroutineScope.childScope("TerminalInput"))
 
-    // Use the same instance of the cursor painting listener for both editors to report the metric only once.
-    // Usually, the cursor will be painted in the output editor first because it is shown by default on a new session opening.
+    // Use the same instance of the listeners for both editors to report the metrics only once.
+    // Usually, the cursor is painted or output received first in the output editor
+    // because it is shown by default on a new session opening.
     // But in the case of session restoration in RemDev, there can be an alternate buffer.
     val fusCursorPaintingListener = startupFusInfo?.let { TerminalFusCursorPainterListener(it) }
+    val fusFirstOutputListener = startupFusInfo?.let { TerminalFusFirstOutputListener(it) }
 
     alternateBufferEditor = createAlternateBufferEditor(settings, parentDisposable = this)
     val alternateBufferModel = TerminalOutputModelImpl(alternateBufferEditor.document, maxOutputLength = 0)
@@ -116,6 +119,7 @@ internal class ReworkedTerminalView(
       coroutineScope.childScope("TerminalAlternateBufferModel"),
       scrollingModel = null,
       fusCursorPaintingListener,
+      fusFirstOutputListener,
       withTopAndBottomInsets = false,
     )
 
@@ -138,6 +142,7 @@ internal class ReworkedTerminalView(
       coroutineScope.childScope("TerminalOutputModel"),
       scrollingModel,
       fusCursorPaintingListener,
+      fusFirstOutputListener,
       withTopAndBottomInsets = true,
     )
 
@@ -281,6 +286,7 @@ internal class ReworkedTerminalView(
     coroutineScope: CoroutineScope,
     scrollingModel: TerminalOutputScrollingModel?,
     fusCursorPainterListener: TerminalFusCursorPainterListener?,
+    fusFirstOutputListener: TerminalFusFirstOutputListener?,
     withTopAndBottomInsets: Boolean,
   ) {
     val parentDisposable = coroutineScope.asDisposable() // same lifecycle as `this@ReworkedTerminalView`
@@ -288,17 +294,21 @@ internal class ReworkedTerminalView(
     // Document modifications can change the scroll position.
     // Mark them with the corresponding flag to indicate that this change is not caused by the explicit user action.
     model.addListener(parentDisposable, object : TerminalOutputModelListener {
-      override fun beforeContentChanged() {
+      override fun beforeContentChanged(model: TerminalOutputModel) {
         editor.isTerminalOutputScrollChangingActionInProgress = true
       }
 
-      override fun afterContentChanged(startOffset: Int) {
+      override fun afterContentChanged(model: TerminalOutputModel, startOffset: Int) {
         editor.isTerminalOutputScrollChangingActionInProgress = false
 
         // Also repaint the changed part of the document to ensure that highlightings are properly painted.
         editor.repaint(startOffset, editor.document.textLength)
       }
     })
+
+    if (fusFirstOutputListener != null) {
+      model.addListener(parentDisposable, fusFirstOutputListener)
+    }
 
     editor.highlighter = TerminalTextHighlighter { model.getHighlightings() }
 
@@ -396,21 +406,17 @@ internal class ReworkedTerminalView(
 
     TerminalFontSizeProviderImpl.getInstance().addListener(parentDisposable, object : TerminalFontSizeProvider.Listener {
       override fun fontChanged() {
-        result.setFontSize(TerminalFontSizeProviderImpl.getInstance().getFontSize(), result.bottomLeftCornerOrNull(), true)
+        result.setFontSize(
+          TerminalFontSizeProviderImpl.getInstance().getFontSize(),
+          ChangeTerminalFontSizeStrategy.preferredZoomPointRelative(result),
+          true
+        )
         result.resizeIfShowing()
       }
     })
 
     return result
   }
-
-  private fun EditorImpl.bottomLeftCornerOrNull(): Point? =
-    if (component.isShowing) {
-      Point(0, scrollingModel.visibleArea.height)
-    }
-    else {
-      null
-    }
 
   private fun EditorImpl.resizeIfShowing() {
     if (component.isShowing) { // to avoid sending the resize event twice, for the regular and alternate buffer editors
@@ -435,7 +441,7 @@ internal class ReworkedTerminalView(
     terminalPanel.addFocusListener(parentDisposable, listener)
   }
 
-  private inner class TerminalPanel(initialContent: Editor) : BorderLayoutPanel(), UiDataProvider {
+  private inner class TerminalPanel(initialContent: Editor) : BorderLayoutPanel(), UiDataProvider, TerminalPanelMarker {
     private val layeredPane = TerminalLayeredPane(initialContent)
     private var curEditor: Editor = initialContent
 

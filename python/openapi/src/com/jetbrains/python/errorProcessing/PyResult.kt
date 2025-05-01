@@ -8,6 +8,10 @@ import com.jetbrains.python.packaging.PyExecutionException
  * Use it instead of exceptions and Kotlin Result.
  */
 typealias PyResult<T> = com.jetbrains.python.Result<T, PyError>
+/**
+ * Like [PyResult] but error is always [ExecError]
+ */
+typealias PyExecResult<T> = com.jetbrains.python.Result<T, ExecError>
 
 inline fun <reified T : PyError> failure(pyError: T): com.jetbrains.python.Result.Failure<T> = com.jetbrains.python.Result.Companion.failure(pyError)
 
@@ -23,3 +27,12 @@ fun <T> Result<T>.asPythonResult(): com.jetbrains.python.Result<T, PyError> =
     }
   }
   )
+
+@Deprecated("Use python result, not kotlin result")
+fun <S> PyResult<S>.asKotlinResult(): Result<S> = when (this) {
+  is com.jetbrains.python.Result.Success -> {
+    Result.success(result)
+  }
+  is com.jetbrains.python.Result.Failure -> Result.failure(PyExecutionException(error))
+}
+

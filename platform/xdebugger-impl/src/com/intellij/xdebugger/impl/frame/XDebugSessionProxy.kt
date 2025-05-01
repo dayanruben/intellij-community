@@ -99,10 +99,16 @@ interface XDebugSessionProxy {
     val DEBUG_SESSION_PROXY_KEY: DataKey<XDebugSessionProxy> = DataKey.create("XDebugSessionProxy")
 
     @JvmStatic
-    fun useFeProxy(): Boolean = Registry.`is`("xdebugger.toolwindow.split")
+    fun useFeProxy(): Boolean {
+      val testProperty = System.getProperty("xdebugger.toolwindow.split.for.tests")
+      if (testProperty != null) {
+        return testProperty.toBoolean()
+      }
+      return Registry.`is`("xdebugger.toolwindow.split")
+    }
 
     @JvmStatic
-    fun useFeLineBreakpointProxy(): Boolean = useFeProxy() && Registry.`is`("xdebugger.line.breakpoints.split")
+    fun useFeLineBreakpointProxy(): Boolean = useFeProxy()
 
     fun showFeWarnings(): Boolean = Registry.`is`("xdebugger.toolwindow.split.warnings")
   }

@@ -504,13 +504,15 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
             val modifierList = element.modifierList
             if (modifierList != null) {
                 val contextReceiverList = modifierList.contextReceiverList
-                if (contextReceiverList == null) {
-                    modifierList.add(newModifierList.contextReceiverList!!)
+                val contextReceivers = if (contextReceiverList == null) {
+                    modifierList.addBefore(newModifierList.contextReceiverList!!, modifierList.firstChild)
                 } else {
                     contextReceiverList.replace(newModifierList.contextReceiverList!!)
                 }
+                shortenReferences(contextReceivers as KtElement)
             } else {
                 element.setModifierList(newModifierList)
+                shortenReferences(element.modifierList!!)
             }
         } else {
             (element as? KtTypeParameterListOwnerStub<*>)?.contextReceiverList?.delete()

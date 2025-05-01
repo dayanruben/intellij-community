@@ -18,6 +18,7 @@ import kotlinx.datetime.LocalDate
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.TerminalBundle
 import org.jetbrains.plugins.terminal.TerminalEngine
+import org.jetbrains.plugins.terminal.TerminalOptionsProvider
 import org.jetbrains.plugins.terminal.block.reworked.TerminalUsageLocalStorage
 import org.jetbrains.plugins.terminal.fus.TerminalFeedbackMoment
 import org.jetbrains.plugins.terminal.fus.TerminalFeedbackMoment.AFTER_USAGE
@@ -56,7 +57,8 @@ internal class ReworkedTerminalFeedbackSurvey : FeedbackSurvey() {
   override val feedbackSurveyType: FeedbackSurveyType<*> = InIdeFeedbackSurveyType(ReworkedTerminalSurveyConfig)
 }
 
-internal object ReworkedTerminalSurveyConfig : InIdeFeedbackSurveyConfig {
+@ApiStatus.Internal
+object ReworkedTerminalSurveyConfig : InIdeFeedbackSurveyConfig {
   override val surveyId: String = "reworked_terminal"
 
   override fun createFeedbackDialog(project: Project, forTest: Boolean): BlockBasedFeedbackDialog<out SystemDataJsonSerializable> {
@@ -79,6 +81,11 @@ internal object ReworkedTerminalSurveyConfig : InIdeFeedbackSurveyConfig {
              usageStorage.state.enterKeyPressedTimes >= 15 ||
              usageStorage.state.enterKeyPressedTimes > 0 && getFeedbackMoment(project) == ON_DISABLING
            )
+  }
+
+  override fun checkExtraConditionSatisfiedForExplicitUserAction(project: Project): Boolean {
+    // Explicitly sending feedback is only enabled when the reworked terminal is enabled.
+    return TerminalOptionsProvider.instance.terminalEngine == TerminalEngine.REWORKED
   }
 
   override fun createNotification(project: Project, forTest: Boolean): RequestFeedbackNotification {

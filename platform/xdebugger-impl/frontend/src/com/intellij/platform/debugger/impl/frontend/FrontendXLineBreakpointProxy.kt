@@ -3,20 +3,21 @@ package com.intellij.platform.debugger.impl.frontend
 
 import com.intellij.ide.vfs.virtualFile
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.RangeMarker
 import com.intellij.openapi.editor.markup.GutterDraggableObject
+import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.xdebugger.impl.breakpoints.XBreakpointVisualRepresentation
-import com.intellij.xdebugger.impl.breakpoints.XLineBreakpointProxy
-import com.intellij.xdebugger.impl.breakpoints.XLineBreakpointTypeProxy
+import com.intellij.xdebugger.XDebuggerUtil
+import com.intellij.xdebugger.XSourcePosition
+import com.intellij.xdebugger.impl.breakpoints.*
 import com.intellij.xdebugger.impl.frame.XDebugSessionProxy.Companion.useFeLineBreakpointProxy
 import com.intellij.xdebugger.impl.rpc.XBreakpointApi
 import com.intellij.xdebugger.impl.rpc.XBreakpointDto
 import com.intellij.xdebugger.impl.rpc.XLineBreakpointInfo
 import com.intellij.xdebugger.impl.rpc.toTextRange
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -25,33 +26,15 @@ internal class FrontendXLineBreakpointProxy(
   parentCs: CoroutineScope,
   dto: XBreakpointDto,
   override val type: XLineBreakpointTypeProxy,
-  onBreakpointChange: () -> Unit,
+  manager: XBreakpointManagerProxy,
+  onBreakpointChange: (XBreakpointProxy) -> Unit,
 ) : FrontendXBreakpointProxy(project, parentCs, dto, type, onBreakpointChange), XLineBreakpointProxy {
+  private var lineSourcePosition: XSourcePosition? = null
 
-  private val visualRepresentation = XBreakpointVisualRepresentation(
-    this,
-    useFeLineBreakpointProxy(),
-  ) { callback ->
-    FrontendXLineBreakpointUpdatesManager.getInstance(project).queueBreakpointUpdate(this@FrontendXLineBreakpointProxy) {
-      callback.run()
-    }
-  }
+  private val visualRepresentation = XBreakpointVisualRepresentation(this, useFeLineBreakpointProxy(), manager)
 
   private val lineBreakpointInfo: XLineBreakpointInfo
     get() = _state.value.lineBreakpointInfo!!
-
-  init {
-    cs.launch(Dispatchers.Default) {
-      visualRepresentation.updateUI()
-    }
-  }
-
-  override fun onBreakpointChange() {
-    super.onBreakpointChange()
-    cs.launch(Dispatchers.Default) {
-      visualRepresentation.doUpdateUI {}
-    }
-  }
 
   override fun isTemporary(): Boolean {
     return lineBreakpointInfo.isTemporary
@@ -65,12 +48,23 @@ internal class FrontendXLineBreakpointProxy(
     }
   }
 
+  override fun getSourcePosition(): XSourcePosition? {
+    if (lineSourcePosition != null) {
+      return lineSourcePosition
+    }
+    lineSourcePosition = super.getSourcePosition()
+    if (lineSourcePosition == null) {
+      lineSourcePosition = XDebuggerUtil.getInstance().createPosition(getFile(), getLine())
+    }
+    return lineSourcePosition
+  }
+
 
   override fun getFile(): VirtualFile? {
     return lineBreakpointInfo.file?.virtualFile()
   }
 
-  private fun getFileUrl(): String? {
+  override fun getFileUrl(): String {
     return lineBreakpointInfo.fileUrl
   }
 
@@ -82,8 +76,7 @@ internal class FrontendXLineBreakpointProxy(
     if (getFileUrl() != url) {
       val oldFile = getFile()
       updateLineBreakpointState { it.copy(fileUrl = url) }
-      // TODO IJPL-185322 support source position?
-      // mySourcePosition = null
+      lineSourcePosition = null
       visualRepresentation.removeHighlighter()
       visualRepresentation.redrawInlineInlays(oldFile, getLine())
       visualRepresentation.redrawInlineInlays(getFile(), getLine())
@@ -96,13 +89,18 @@ internal class FrontendXLineBreakpointProxy(
   }
 
   override fun setLine(line: Int) {
+    return setLine(line, true)
+  }
+
+  fun setLine(line: Int, visualLineMightBeChanged: Boolean) {
     if (getLine() != line) {
       // TODO IJPL-185322 support type.lineShouldBeChanged()
       val oldLine = getLine()
       updateLineBreakpointState { it.copy(line = line) }
-      // TODO IJPL-185322 support source position?
-      // mySourcePosition = null
-      visualRepresentation.removeHighlighter()
+      lineSourcePosition = null
+      if (visualLineMightBeChanged) {
+        visualRepresentation.removeHighlighter()
+      }
 
       // We try to redraw inlays every time,
       // due to lack of synchronization between inlay redrawing and breakpoint changes.
@@ -119,6 +117,18 @@ internal class FrontendXLineBreakpointProxy(
 
   override fun getHighlightRange(): TextRange? {
     return lineBreakpointInfo.highlightingRange?.toTextRange()
+  }
+
+  override fun updatePosition() {
+    val highlighter: RangeMarker? = visualRepresentation.rangeMarker
+    if (highlighter != null && highlighter.isValid()) {
+      lineSourcePosition = null // reset the source position even if the line number has not changed, as the offset may be cached inside
+      setLine(highlighter.getDocument().getLineNumber(highlighter.getStartOffset()), visualLineMightBeChanged = false)
+    }
+  }
+
+  override fun getHighlighter(): RangeHighlighter? {
+    return visualRepresentation.highlighter
   }
 
   override fun dispose() {

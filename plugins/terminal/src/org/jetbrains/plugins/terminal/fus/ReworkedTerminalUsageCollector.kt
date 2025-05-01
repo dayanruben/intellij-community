@@ -25,7 +25,7 @@ private const val GROUP_ID = "terminal"
 object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
   override fun getGroup(): EventLogGroup = GROUP
 
-  private val GROUP = EventLogGroup(GROUP_ID, 6)
+  private val GROUP = EventLogGroup(GROUP_ID, 7)
 
   private val OS_VERSION_FIELD = EventFields.StringValidatedByRegexpReference("os-version", "version")
   private val SHELL_STR_FIELD = EventFields.String("shell", KNOWN_SHELLS.toList())
@@ -124,9 +124,14 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
     DURATION_FIELD,
   )
 
-  /** The time until the shell process is started, and we can send user's input to it */
-  private val startupTypingAbilityLatency = GROUP.registerVarargEvent(
-    "startup.typing.ability.latency",
+  private val startupShellStartingLatency = GROUP.registerVarargEvent(
+    "startup.shell.starting.latency",
+    TERMINAL_OPENING_WAY,
+    DURATION_FIELD,
+  )
+
+  private val startupFirstOutputLatency = GROUP.registerVarargEvent(
+    "startup.first.output.latency",
     TERMINAL_OPENING_WAY,
     DURATION_FIELD,
   )
@@ -242,8 +247,15 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
     )
   }
 
-  fun logStartupTypingAbilityLatency(openingWay: TerminalOpeningWay, duration: Duration) {
-    startupTypingAbilityLatency.log(
+  fun logStartupShellStartingLatency(openingWay: TerminalOpeningWay, duration: Duration) {
+    startupShellStartingLatency.log(
+      TERMINAL_OPENING_WAY with openingWay,
+      DURATION_FIELD with duration,
+    )
+  }
+
+  fun logStartupFirstOutputLatency(openingWay: TerminalOpeningWay, duration: Duration) {
+    startupFirstOutputLatency.log(
       TERMINAL_OPENING_WAY with openingWay,
       DURATION_FIELD with duration,
     )

@@ -48,6 +48,8 @@ import java.util.function.Function;
 
 import static com.intellij.util.progress.CancellationUtil.withLockMaybeCancellable;
 import static com.intellij.xdebugger.impl.CoroutineUtilsKt.createMutableStateFlow;
+import static com.intellij.xdebugger.impl.breakpoints.XBreakpointProxyKt.asProxy;
+import static com.intellij.xdebugger.impl.frame.XDebugSessionProxy.useFeLineBreakpointProxy;
 
 @ApiStatus.Internal
 public final class XBreakpointManagerImpl implements XBreakpointManager {
@@ -79,7 +81,7 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
     myDebuggerManager = debuggerManager;
     myCoroutineScope = coroutineScope;
     myDependentBreakpointManager = new XDependentBreakpointManager(this, messageBusConnection);
-    myLineBreakpointManager = new XLineBreakpointManager(project, coroutineScope);
+    myLineBreakpointManager = new XLineBreakpointManager(project, coroutineScope, !useFeLineBreakpointProxy());
 
     XBreakpointType.EXTENSION_POINT_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
       @SuppressWarnings("unchecked")
@@ -210,7 +212,7 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
       updatedBreakpoints.add(breakpoint);
       myAllBreakpoints.setValue(updatedBreakpoints);
       if (breakpoint instanceof XLineBreakpointImpl) {
-        myLineBreakpointManager.registerBreakpoint((XLineBreakpointImpl)breakpoint, initUI);
+        myLineBreakpointManager.registerBreakpoint(asProxy((XLineBreakpointImpl)breakpoint), initUI);
       }
     });
     sendBreakpointEvent(type, listener -> listener.breakpointAdded(breakpoint));
@@ -234,7 +236,7 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
   public void fireBreakpointChanged(XBreakpointBase<?, ?, ?> breakpoint) {
     if (isRegistered(breakpoint)) {
       if (breakpoint instanceof XLineBreakpointImpl) {
-        myLineBreakpointManager.breakpointChanged((XLineBreakpointImpl)breakpoint);
+        myLineBreakpointManager.breakpointChanged(asProxy((XLineBreakpointImpl<?>)breakpoint));
       }
       sendBreakpointEvent(breakpoint.getType(), listener -> listener.breakpointChanged(breakpoint));
     }
@@ -297,7 +299,7 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
       updatedBreakpoints.remove(breakpointBase);
       myAllBreakpoints.setValue(updatedBreakpoints);
       if (breakpointBase instanceof XLineBreakpointImpl) {
-        myLineBreakpointManager.unregisterBreakpoint((XLineBreakpointImpl)breakpointBase);
+        myLineBreakpointManager.unregisterBreakpoint(asProxy((XLineBreakpointImpl<?>)breakpointBase));
       }
     });
 
