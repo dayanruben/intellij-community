@@ -24,6 +24,7 @@ import com.intellij.openapi.actionSystem.impl.ActionMenu.Companion.isAlignedInGr
 import com.intellij.openapi.actionSystem.util.ActionSystem
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationManagerEx
+import com.intellij.openapi.application.impl.getGlobalThreadingSupport
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.ex.EditorGutterComponentEx
@@ -286,7 +287,7 @@ object Utils {
     val fastTrackTime = getFastTrackMaxTime(fastTrack, group, place, asyncDataContext, uiKind is ActionUiKind.Toolbar, true)
     val edtDispatcher =
       if (fastTrackTime > 0) AltEdtDispatcher.apply { switchToQueue() }
-      else Dispatchers.EDT[CoroutineDispatcher]!!
+      else Dispatchers.ui(UiDispatcherKind.RELAX)[CoroutineDispatcher]!!
     val updater = ActionUpdater(presentationFactory, asyncDataContext, place, uiKind, edtDispatcher)
     val deferred = async(edtDispatcher, CoroutineStart.UNDISPATCHED) {
       updater.runUpdateSession(updaterContext(place, fastTrackTime, uiKind)) {
@@ -908,7 +909,7 @@ object Utils {
   @JvmStatic
   fun initUpdateSession(e: AnActionEvent) {
     if (e.updateSession !== UpdateSession.EMPTY) return
-    val edtDispatcher = Dispatchers.EDT[CoroutineDispatcher]!!
+    val edtDispatcher = Dispatchers.ui(UiDispatcherKind.RELAX)[CoroutineDispatcher]!!
     val actionUpdater = ActionUpdater(PresentationFactory(), e.dataContext, e.place, e.uiKind, edtDispatcher)
     e.updateSession = actionUpdater.asUpdateSession()
   }
@@ -916,7 +917,7 @@ object Utils {
   suspend fun <R> withSuspendingUpdateSession(e: AnActionEvent, factory: PresentationFactory,
                                               actionFilter: (AnAction) -> Boolean,
                                               block: suspend CoroutineScope.(SuspendingUpdateSession) -> R): R = coroutineScope {
-    val edtDispatcher = Dispatchers.EDT[CoroutineDispatcher]!!
+    val edtDispatcher = Dispatchers.ui(UiDispatcherKind.RELAX)[CoroutineDispatcher]!!
     val dataContext = createAsyncDataContext(e.dataContext)
     checkAsyncDataContext(dataContext, "withSuspendingUpdateSession")
     val updater = ActionUpdater(factory, dataContext, e.place, e.uiKind, edtDispatcher, actionFilter)
@@ -928,8 +929,8 @@ object Utils {
 
   fun <R> runWithInputEventEdtDispatcher(contextComponent: Component?, block: suspend CoroutineScope.() -> R): R? {
     val applicationEx = ApplicationManagerEx.getApplicationEx()
-    if (ProgressIndicatorUtils.isWriteActionRunningOrPending(applicationEx)) {
-      LOG.error("Actions cannot be updated when write-action is running or pending")
+    if (ProgressIndicatorUtils.isWriteActionRunningOrPending(applicationEx) && !applicationEx.isBackgroundWriteActionRunningOrPending) {
+      LOG.error("Actions cannot be updated when write-action is running or pending on EDT")
       return null
     }
     if (ourInUpdateSessionForInputEventEDTLoop) {
@@ -1272,8 +1273,22 @@ private object AltEdtDispatcher : CoroutineDispatcher() {
 internal inline fun <R> runBlockingForActionExpand(context: CoroutineContext = EmptyCoroutineContext,
                                                    noinline block: suspend CoroutineScope.() -> R): R = prepareThreadContext { ctx ->
   try {
-    @Suppress("RAW_RUN_BLOCKING")
-    runBlocking(ctx + context + Context.current().asContextElement(), block)
+    // read actions inside this `runBlocking` would be stuck if there is a pending background write action.
+    // here we enter a new parallelization layer for the acquired write-intent lock so that inner read actions would ignore the pending background wa.
+    // sometimes, this code runs under read action, so the parallelization here may just grant read access to the whole `block`
+    // without a new parallelization layer
+    val (lockContextElement, cleanup) = getGlobalThreadingSupport().getPermitAsContextElement(ctx, true)
+    cleanup.use {
+      @Suppress("RAW_RUN_BLOCKING")
+      runBlocking(ctx +
+                  context +
+                  lockContextElement +
+                  // sometimes action update runs inside a read action
+                  // Platform forbids switching to EDT under runBlocking and read action, but action subsystem handles it in its own way
+                  SafeForRunBlockingUnderReadAction +
+                  Context.current().asContextElement(),
+                  block)
+    }
   }
   catch (pce : ProcessCanceledException) {
     throw pce

@@ -7,8 +7,8 @@ import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.impl.LaterInvocator;
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
 import com.intellij.openapi.project.DumbService;
-import com.intellij.openapi.project.DumbServiceImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ex.ProjectEx;
@@ -36,6 +36,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
+import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -114,15 +115,15 @@ public final class LeakHunter {
    */
   @TestOnly
   public static <T> boolean processLeaks(@NotNull Supplier<? extends Map<Object, String>> rootsSupplier,
-                                      @NotNull Class<T> suspectClass,
-                                      @Nullable Predicate<? super T> isReallyLeak,
-                                      @Nullable Predicate<? super DebugReflectionUtil.BackLink<?>> leakBackLinkProcessor,
-                                      @NotNull PairProcessor<? super T, Object> processor) throws AssertionError {
+                                         @NotNull Class<T> suspectClass,
+                                         @Nullable Predicate<? super T> isReallyLeak,
+                                         @Nullable Predicate<? super DebugReflectionUtil.BackLink<?>> leakBackLinkProcessor,
+                                         @NotNull PairProcessor<? super T, Object> processor) throws AssertionError {
     tryClearingNonReachableObjects();
 
     Computable<Boolean> runnable = () -> {
       try (AccessToken ignored = ProhibitAWTEvents.start("checking for leaks")) {
-        return DebugReflectionUtil.walkObjects(10000, rootsSupplier.get(), suspectClass, __ -> true, (leaked, backLink) -> {
+        return DebugReflectionUtil.walkObjects(10000, 10_000_000, rootsSupplier.get(), suspectClass, __ -> true, (leaked, backLink) -> {
           if (leakBackLinkProcessor != null && leakBackLinkProcessor.test(backLink)) {
             return true;
           }
@@ -144,8 +145,8 @@ public final class LeakHunter {
     if (SwingUtilities.isEventDispatchThread()) {
       UIUtil.dispatchAllInvocationEvents();
       for (Project project : projectManager == null ? new Project[0] : projectManager.getOpenProjects()) {
-        while (DumbServiceImpl.getInstance(project).isDumb()) {
-          DumbServiceImpl.getInstance(project).waitForSmartMode(100L);
+        while (DumbService.getInstance(project).isDumb()) {
+          DumbService.getInstance(project).waitForSmartMode(100L);
           UIUtil.dispatchAllInvocationEvents();
         }
         FileBasedIndex.getInstance().ensureUpToDate(StubUpdatingIndex.INDEX_ID, project, GlobalSearchScope.allScope(project));
@@ -202,9 +203,19 @@ public final class LeakHunter {
       UIUtil.dispatchAllInvocationEvents();
       // Remove expired invocations, so they are not used as object roots.
       LaterInvocator.purgeExpiredItems();
+      NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
     }
     else {
       UIUtil.pump();
+      try {
+        SwingUtilities.invokeAndWait(() -> {
+          LaterInvocator.purgeExpiredItems();
+          NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
+        });
+      }
+      catch (InterruptedException | InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
     }
     PersistentEnumeratorCache.clearCacheForTests();
     flushTelemetry();

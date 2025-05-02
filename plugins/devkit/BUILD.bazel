@@ -1,3 +1,36 @@
+### auto-generated section `build intellij.devkit` start
+load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_jvm//:jvm.bzl", "jvm_resources")
+
+jvm_resources(
+  name = "devkit_resources",
+  files = glob(["resources/**/*"]),
+  strip_prefix = "resources"
+)
+
+java_library(
+  name = "devkit",
+  visibility = ["//visibility:public"],
+  runtime_deps = [":devkit_resources"]
+)
+### auto-generated section `build intellij.devkit` end
+
+### auto-generated section `build intellij.devkit.plugin.main` start
+load("@rules_java//java:defs.bzl", "java_library")
+
+java_library(
+  name = "devkit-plugin-main",
+  visibility = ["//visibility:public"],
+  runtime_deps = [
+    "//plugins/devkit:devkit-plugin-main-noKotlin",
+    "//plugins/devkit/intellij.kotlin.devkit:kotlin-devkit",
+    "//plugins/devkit/intellij.kotlin.devkit/k1:kotlin-devkit-k1",
+    "//plugins/devkit/intellij.kotlin.devkit/k2:kotlin-devkit-k2",
+    "//plugins/devkit/intellij.devkit.workspaceModel:workspaceModel",
+  ]
+)
+### auto-generated section `build intellij.devkit.plugin.main` end
+
 ### auto-generated section `build intellij.devkit.plugin.main.noKotlin` start
 load("@rules_java//java:defs.bzl", "java_library")
 
@@ -5,7 +38,7 @@ java_library(
   name = "devkit-plugin-main-noKotlin",
   visibility = ["//visibility:public"],
   runtime_deps = [
-    "//plugins/devkit/intellij.devkit:devkit",
+    "//plugins/devkit",
     "//plugins/devkit/devkit-core:core",
     "//plugins/devkit/intellij.devkit.debugger:debugger",
     "//plugins/devkit/intellij.devkit.git:git",
