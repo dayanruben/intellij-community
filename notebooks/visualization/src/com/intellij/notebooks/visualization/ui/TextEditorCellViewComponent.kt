@@ -6,6 +6,7 @@ import com.intellij.notebooks.ui.afterDistinctChange
 import com.intellij.notebooks.ui.bind
 import com.intellij.notebooks.ui.editor.actions.command.mode.NotebookEditorMode
 import com.intellij.notebooks.ui.editor.actions.command.mode.setMode
+import com.intellij.notebooks.ui.visualization.NotebookUtil.notebookAppearance
 import com.intellij.notebooks.visualization.NotebookVisualizationCoroutine
 import com.intellij.notebooks.visualization.UpdateContext
 import com.intellij.notebooks.visualization.ui.providers.scroll.NotebookEditorScrollEndDetector
@@ -13,7 +14,6 @@ import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.InlayProperties
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.impl.FoldingModelImpl
-import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
@@ -89,7 +89,7 @@ class TextEditorCellViewComponent(private val cell: EditorCell) : EditorCellView
     val highlighter = markupModel.addRangeHighlighter(
       startOffset,
       endOffset,
-      HighlighterLayer.FIRST - 100,
+      editor.notebookAppearance.cellBackgroundHighlightLayer,
       TextAttributes(),
       HighlighterTargetArea.LINES_IN_RANGE
     )
@@ -173,10 +173,6 @@ class TextEditorCellViewComponent(private val cell: EditorCell) : EditorCellView
     presentationToInlay.remove(presentation)?.let { inlay -> Disposer.dispose(inlay) }
   }
 
-  override fun doGetInlays(): Sequence<Inlay<*>> {
-    return presentationToInlay.values.asSequence()
-  }
-
   override fun doCheckAndRebuildInlays() {
     if (isInlaysBroken()) {
       val presentations = presentationToInlay.keys.toList()
@@ -186,7 +182,8 @@ class TextEditorCellViewComponent(private val cell: EditorCell) : EditorCellView
   }
 
   private fun isInlaysBroken(): Boolean {
-    val offset = editor.document.getLineEndOffset(cell.interval.lines.last)
+    val interval = cell.intervalOrNull ?: return true
+    val offset = editor.document.getLineEndOffset(interval.lines.last)
     for (inlay in presentationToInlay.values) {
       if (!inlay.isValid || inlay.offset != offset) {
         return true

@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage
 
+import com.intellij.codeInsight.Nullability
 import com.intellij.codeInsight.daemon.QuickFixBundle
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
@@ -11,6 +12,8 @@ import com.intellij.lang.jvm.JvmModifier
 import com.intellij.lang.jvm.actions.AnnotationRequest
 import com.intellij.lang.jvm.actions.CreateFieldRequest
 import com.intellij.lang.jvm.actions.EP_NAME
+import com.intellij.lang.jvm.actions.ExpectedTypeWithNullability
+import com.intellij.lang.jvm.types.JvmPrimitiveType
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
@@ -94,9 +97,14 @@ object K2CreatePropertyFromUsageBuilder {
         var static = false
 
         val (defaultContainerPsi, receiverExpression) = when {
-          qualifiedElement == ref -> {
-              ref.parentOfType<KtClassOrObject>() to null
-          }
+            qualifiedElement == ref -> {
+                PsiTreeUtil.getParentOfType(
+                    /* element = */ ref,
+                    /* aClass = */ KtClassOrObject::class.java,
+                    /* strict = */ true,
+                    /* ...stopAt = */ KtSuperTypeList::class.java, KtPrimaryConstructor::class.java, KtConstructorDelegationCall::class.java, KtAnnotationEntry::class.java
+                ) to null
+            }
           qualifiedElement is KtQualifiedExpression && qualifiedElement.selectorExpression == ref -> {
               val receiverExpression = qualifiedElement.receiverExpression
               static = receiverExpression.mainReference?.resolveToSymbol() is KaClassSymbol
@@ -141,7 +149,8 @@ object K2CreatePropertyFromUsageBuilder {
             }
         } else {
             val jvmModifiers = createModifiers(ref, containingKtFile, isExtension = receiverExpression != null, static = true, isAbstract = false)
-            requests.add(wrapperForKtFile to CreatePropertyFromKotlinUsageRequest(ref, jvmModifiers, receiverType, isExtension = receiverExpression != null))
+            val mustBeConst = ref.parentOfType<KtAnnotationEntry>() != null
+            requests.add(wrapperForKtFile to CreatePropertyFromKotlinUsageRequest(ref, jvmModifiers, receiverType, isExtension = receiverExpression != null, isConst = mustBeConst))
         }
         return requests
     }
@@ -197,12 +206,20 @@ object K2CreatePropertyFromUsageBuilder {
                         .filter { it != JvmModifier.PUBLIC && it != JvmModifier.ABSTRACT }
                         .mapNotNullTo(this, CreateFromUsageUtil::jvmModifierToKotlin)
 
-                    if (lateinit && !(request is CreatePropertyFromKotlinUsageRequest && request.isExtension)) {
+                    if (lateinit && isLateinitAllowed()) {
                         this += KtTokens.LATEINIT_KEYWORD
                     } else if (request.isConstant) {
                         this += KtTokens.CONST_KEYWORD
                     }
                 }.takeUnless { it.isEmpty() }
+
+        private fun isLateinitAllowed(): Boolean {
+            if (request is CreatePropertyFromKotlinUsageRequest &&
+                request.fieldType.all { it.theType is JvmPrimitiveType || (it as? ExpectedTypeWithNullability)?.nullability == Nullability.NULLABLE }) {
+                return false
+            }
+            return request !is CreatePropertyFromKotlinUsageRequest || !request.isExtension
+        }
 
         override fun getText(): String {
             return if (request is CreatePropertyFromKotlinUsageRequest) {

@@ -5958,6 +5958,21 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/simple/smartCastWithNullCheck.kt");
                     }
 
+                    @TestMetadata("topLevelFunFromConstructorDefaultParameterValue.kt")
+                    public void testTopLevelFunFromConstructorDefaultParameterValue() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/simple/topLevelFunFromConstructorDefaultParameterValue.kt");
+                    }
+
+                    @TestMetadata("topLevelFunFromConstructorDelegation.kt")
+                    public void testTopLevelFunFromConstructorDelegation() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/simple/topLevelFunFromConstructorDelegation.kt");
+                    }
+
+                    @TestMetadata("topLevelFunFromDelegate.kt")
+                    public void testTopLevelFunFromDelegate() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/simple/topLevelFunFromDelegate.kt");
+                    }
+
                     @TestMetadata("topLevelFunNoReceiver.kt")
                     public void testTopLevelFunNoReceiver() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/simple/topLevelFunNoReceiver.kt");
@@ -7190,6 +7205,16 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                     runTest("testData/quickfix/createFromUsage/createVariable/primaryParameter/destructuring.kt");
                 }
 
+                @TestMetadata("fromCallExpression.kt")
+                public void testFromCallExpression() throws Exception {
+                    runTest("testData/quickfix/createFromUsage/createVariable/primaryParameter/fromCallExpression.kt");
+                }
+
+                @TestMetadata("fromEnumConstant.kt")
+                public void testFromEnumConstant() throws Exception {
+                    runTest("testData/quickfix/createFromUsage/createVariable/primaryParameter/fromEnumConstant.kt");
+                }
+
                 @TestMetadata("insideInterface.kt")
                 public void testInsideInterface() throws Exception {
                     runTest("testData/quickfix/createFromUsage/createVariable/primaryParameter/insideInterface.kt");
@@ -7395,6 +7420,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createVariable/property/callableRef.kt");
                     }
 
+                    @TestMetadata("fromParameterDefaultValue.kt")
+                    public void testFromParameterDefaultValue() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createVariable/property/fromParameterDefaultValue.kt");
+                    }
+
                     @TestMetadata("inBinaryOperation.kt")
                     public void testInBinaryOperation() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createVariable/property/inBinaryOperation.kt");
@@ -7438,6 +7468,16 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                     @TestMetadata("memberWithTypeParameterAsReceiver.kt")
                     public void testMemberWithTypeParameterAsReceiver() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createVariable/property/memberWithTypeParameterAsReceiver.kt");
+                    }
+
+                    @TestMetadata("noLateinitForNullable.kt")
+                    public void testNoLateinitForNullable() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createVariable/property/noLateinitForNullable.kt");
+                    }
+
+                    @TestMetadata("noLateinitForPrimitive.kt")
+                    public void testNoLateinitForPrimitive() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createVariable/property/noLateinitForPrimitive.kt");
                     }
 
                     @TestMetadata("nonAbstractInInterface.kt")
@@ -7513,6 +7553,26 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                     @TestMetadata("thisInNestedClass2.kt")
                     public void testThisInNestedClass2() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createVariable/property/thisInNestedClass2.kt");
+                    }
+
+                    @TestMetadata("topLevelPropertyFromAnnotationArg.kt")
+                    public void testTopLevelPropertyFromAnnotationArg() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createVariable/property/topLevelPropertyFromAnnotationArg.kt");
+                    }
+
+                    @TestMetadata("topLevelPropertyFromConstructorDefaultParameterValue.kt")
+                    public void testTopLevelPropertyFromConstructorDefaultParameterValue() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createVariable/property/topLevelPropertyFromConstructorDefaultParameterValue.kt");
+                    }
+
+                    @TestMetadata("topLevelPropertyFromConstructorDelegation.kt")
+                    public void testTopLevelPropertyFromConstructorDelegation() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createVariable/property/topLevelPropertyFromConstructorDelegation.kt");
+                    }
+
+                    @TestMetadata("topLevelPropertyFromDelegate.kt")
+                    public void testTopLevelPropertyFromDelegate() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createVariable/property/topLevelPropertyFromDelegate.kt");
                     }
 
                     @TestMetadata("topLevelValNoReceiver.kt")

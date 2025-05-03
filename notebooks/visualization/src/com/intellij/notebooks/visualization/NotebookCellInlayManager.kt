@@ -11,7 +11,6 @@ import com.intellij.notebooks.visualization.ui.endInlay.EditorNotebookEndInlayPr
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runInEdt
-import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.FoldRegion
 import com.intellij.openapi.editor.colors.EditorColorsListener
@@ -32,7 +31,6 @@ import java.awt.Point
 
 class NotebookCellInlayManager private constructor(
   val editor: EditorImpl,
-  private val shouldCheckInlayOffsets: Boolean,
   val notebook: EditorNotebook,
 ) : Disposable, NotebookIntervalPointerFactory.ChangeListener {
 
@@ -143,6 +141,7 @@ class NotebookCellInlayManager private constructor(
     return cur
 
   }
+
   private fun updateUI(events: List<EditorCellEvent>) {
     update {
       for (event in events) {
@@ -180,7 +179,7 @@ class NotebookCellInlayManager private constructor(
     cell: EditorCell,
     ctx: UpdateContext,
   ) {
-    val view = EditorCellView(editor, notebookCellLines, cell, this)
+    val view = EditorCellView(cell)
     Disposer.register(cell, view)
     view.updateCellFolding(ctx)
     views[cell] = view
@@ -290,7 +289,6 @@ class NotebookCellInlayManager private constructor(
   companion object {
     fun install(
       editor: EditorImpl,
-      shouldCheckInlayOffsets: Boolean,
       editorNotebookPostprocessors: List<EditorNotebookPostprocessor> = listOf(),
     ): NotebookCellInlayManager {
       EditorEmbeddedComponentContainer(editor as EditorEx)
@@ -299,7 +297,6 @@ class NotebookCellInlayManager private constructor(
       val notebook = createNotebook(editor, editorNotebookPostprocessors)
       val notebookCellInlayManager = NotebookCellInlayManager(
         editor,
-        shouldCheckInlayOffsets,
         notebook
       ).also { Disposer.register(editor.disposable, it) }
 
@@ -351,6 +348,11 @@ class NotebookCellInlayManager private constructor(
             change.subsequentPointers.forEach {
               addCell(it.pointer)
             }
+            //After insert we need fix ranges of previous cell
+            change.subsequentPointers.forEach {
+              val prevCell = getCellOrNull(it.interval.ordinal - 1)
+              prevCell?.checkAndRebuildInlays()
+            }
           }
           is NotebookIntervalPointersEvent.OnRemoved -> {
             change.subsequentPointers.reversed().forEach {
@@ -366,6 +368,10 @@ class NotebookCellInlayManager private constructor(
             secondCell.intervalPointer = first
             firstCell.update(ctx)
             secondCell.update(ctx)
+            firstCell.checkAndRebuildInlays()
+            secondCell.checkAndRebuildInlays()
+            getCellOrNull(firstCell.interval.ordinal - 1)?.checkAndRebuildInlays()
+            getCellOrNull(secondCell.interval.ordinal - 1)?.checkAndRebuildInlays()
           }
         }
       }
@@ -374,27 +380,6 @@ class NotebookCellInlayManager private constructor(
       }
     }
 
-    checkInlayOffsets()
-  }
-
-  private fun checkInlayOffsets() {
-    if (!shouldCheckInlayOffsets) return
-
-    val inlaysOffsets = buildSet {
-      for (cell in notebook.cells) {
-        add(editor.document.getLineStartOffset(cell.interval.lines.first))
-        add(editor.document.getLineEndOffset(cell.interval.lines.last))
-      }
-    }
-
-    val wronglyPlacedInlays = notebook.cells.asSequence()
-      .mapNotNull { it.view }
-      .flatMap { it.getInlays() }
-      .filter { it.offset !in inlaysOffsets }
-      .toSet()
-    if (wronglyPlacedInlays.isNotEmpty()) {
-      thisLogger().error("Expected offsets: $inlaysOffsets. Wrongly placed offsets: ${wronglyPlacedInlays.map { it.offset }} of inlays $wronglyPlacedInlays, for file = '${editor.virtualFile?.name}'")
-    }
   }
 
   private fun fixInlaysOffsetsAfterNewCellInsert(change: NotebookIntervalPointersEvent.OnInserted, ctx: UpdateContext) {
@@ -447,9 +432,5 @@ class NotebookCellInlayManager private constructor(
 
   fun getCell(pointer: NotebookIntervalPointer): EditorCell {
     return getCell(pointer.get()!!)
-  }
-
-  internal fun getInputFactories(): Sequence<NotebookCellInlayController.InputFactory> {
-    return NotebookCellInlayController.InputFactory.EP_NAME.extensionList.asSequence()
   }
 }

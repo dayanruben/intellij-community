@@ -249,7 +249,7 @@ class EditorCellOutputsView(
     outerComponent,
     isRelatedToPrecedingText = true,
     showAbove = false,
-    priority = editor.notebookAppearance.NOTEBOOK_OUTPUT_INLAY_PRIORITY,
+    priority = editor.notebookAppearance.cellOutputToolbarInlayPriority,
     offset = computeInlayOffset(editor.document, cell.interval.lines),
   ).also { inlay ->
     Disposer.register(this, inlay)
@@ -298,12 +298,13 @@ class EditorCellOutputsView(
     override fun next(): Pair<A, B> = this@zip.next() to other.next()
   }
 
-  override fun doGetInlays(): Sequence<Inlay<*>> {
-    return inlay?.let { sequenceOf(it) } ?: emptySequence()
-  }
-
   override fun doCheckAndRebuildInlays() {
-    val offset = computeInlayOffset(editor.document, cell.interval.lines)
+    val interval = cell.intervalOrNull ?: let {
+      inlay?.let { Disposer.dispose(it) }
+      inlay = null
+      return
+    }
+    val offset = computeInlayOffset(editor.document, interval.lines)
     inlay?.let { currentInlay ->
       if (!currentInlay.isValid || currentInlay.offset != offset) {
         currentInlay.let { Disposer.dispose(it) }

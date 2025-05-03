@@ -12,6 +12,7 @@ import com.dynatrace.hash4j.hashing.Hashing
 import org.jetbrains.annotations.Unmodifiable
 import org.jetbrains.bazel.jvm.kotlin.JvmBuilderFlags
 import org.jetbrains.bazel.jvm.kotlin.configureCommonCompilerArgs
+import org.jetbrains.bazel.jvm.kotlin.getJvmTargetLevel
 import org.jetbrains.bazel.jvm.util.ArgMap
 import org.jetbrains.bazel.jvm.worker.core.BazelConfigurationHolder
 import org.jetbrains.bazel.jvm.worker.state.TargetConfigurationDigestContainer
@@ -63,7 +64,7 @@ private val javaHome = Path.of(System.getProperty("java.home")).normalize() ?: e
 
 private val KOTLINC_VERSION_HASH = Hashing.xxh3_64().hashBytesToLong((KotlinCompilerVersion.getVersion() ?: "@snapshot@").toByteArray())
 
-private const val TOOL_VERSION: Long = 52
+private const val TOOL_VERSION: Long = 53
 
 internal fun loadJpsModel(
   sources: List<Path>,
@@ -86,8 +87,7 @@ internal fun loadJpsModel(
   )
   val jpsJavaModuleExtension = JpsJavaExtensionService.getInstance().getOrCreateModuleExtension(module)
 
-  val languageLevelEnumName = "JDK_" + args.mandatorySingle(JvmBuilderFlags.JVM_TARGET).let { if (it == "8") "1_8" else it }
-  val langLevel = LanguageLevel.valueOf(languageLevelEnumName)
+  val langLevel = LanguageLevel.valueOf("JDK_" + getJvmTargetLevel(args).replace('.', '_'))
   jpsJavaModuleExtension.languageLevel = langLevel
 
   for (source in sources) {

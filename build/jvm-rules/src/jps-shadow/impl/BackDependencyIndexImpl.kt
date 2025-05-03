@@ -80,28 +80,30 @@ abstract class BackDependencyIndexImpl protected constructor(
     }
 
     val deltaMap = deltaIndex.map
-    val sequence: Sequence<Long> = if (depsToRemove.isEmpty()) {
-      deltaMap.keys.asSequence()
+    if (depsToRemove.isEmpty()) {
+      for (idHash in deltaMap.keys) {
+        map.appendValues(idHash, deltaMap.get(idHash))
+      }
     }
     else {
-      sequence {
-        yieldAll(deltaMap.keys)
-        depsToRemove.forEachKey {
-          yield(it)
+      // iterate through the deltaMap keys first
+      @Suppress("UNCHECKED_CAST")
+      (deltaMap as MemoryMultiMaplet<Long, ReferenceID, MutableCollection<ReferenceID>>).map.forEach { idHash, toAdd ->
+        val toRemove = depsToRemove.remove(idHash)
+        if (toRemove != null) {
+          toRemove.removeAll(toAdd)
+          if (toRemove.isNotEmpty()) {
+            map.removeValues(idHash, toRemove)
+          }
         }
+
+        map.appendValues(idHash, toAdd)
       }
-        .distinct()
-    }
-    for (idHash in sequence) {
-      val toRemove = depsToRemove.get(idHash)
-      val toAdd = deltaMap.get(idHash)
-      if (toRemove != null && !toRemove.isEmpty()) {
-        toRemove.removeAll(toAdd)
-        if (toRemove.isNotEmpty()) {
-          map.removeValues(idHash, toRemove)
-        }
+
+      // iterate the rest of depsToRemove (that were not deleted, so, they are not present in the deltaMap)
+      depsToRemove.forEach { idHash, toRemove ->
+        map.removeValues(idHash, toRemove)
       }
-      map.appendValues(idHash, toAdd)
     }
   }
 
@@ -120,7 +122,7 @@ private fun refToMapKey(id: ReferenceID): Long = (id as JvmNodeReferenceID).hash
 class NodeDependenciesIndex(
   mapletFactory: MvStoreContainerFactory,
   isInMemory: Boolean,
-) : BackDependencyIndexImpl("node-backward-dependencies", mapletFactory, isInMemory) {
+) : BackDependencyIndexImpl(name = "node-backward-dependencies", mapletFactory = mapletFactory, isInMemory = isInMemory) {
   override fun processIndexedDependencies(node: Node<*, *>, processor: (ReferenceID) -> Unit) {
     val referentId = node.referenceID
     val visited = MutableScatterSet<ReferenceID>()

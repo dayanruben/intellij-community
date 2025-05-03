@@ -1,13 +1,12 @@
 package com.intellij.notebooks.visualization.ui
 
-import com.intellij.notebooks.visualization.NotebookCellInlayController
 import com.intellij.notebooks.visualization.NotebookCellInlayManager
 import com.intellij.notebooks.visualization.NotebookCellLines.CellType
 import com.intellij.notebooks.visualization.NotebookCellLines.Interval
 import com.intellij.notebooks.visualization.NotebookIntervalPointer
 import com.intellij.notebooks.visualization.UpdateContext
 import com.intellij.notebooks.visualization.outputs.NotebookOutputDataKey
-import com.intellij.notebooks.visualization.ui.cell.frame.EditorCellFrameManager
+import com.intellij.notebooks.visualization.ui.providers.frame.EditorCellFrameManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.editor.impl.EditorImpl
@@ -78,42 +77,18 @@ class EditorCell(
     source.set(interval.getContentText(editor))
   }
 
+  fun checkAndRebuildInlays() {
+    view?.checkAndRebuildInlays()
+  }
+
   fun onViewportChange() {
     view?.onViewportChanges()
-  }
-
-  inline fun <reified T : NotebookCellInlayController> getController(): T? {
-    val lazyFactory = getLazyFactory(T::class)
-    if (lazyFactory != null) {
-      createLazyControllers(lazyFactory)
-    }
-    return view?.getExtension<T>()
-  }
-
-  @PublishedApi
-  internal fun createLazyControllers(factory: NotebookCellInlayController.LazyFactory) {
-    factory.cellOrdinalsInCreationBlock.add(interval.ordinal)
-    editor.updateManager.update { ctx ->
-      update(ctx)
-    }
-    factory.cellOrdinalsInCreationBlock.remove(interval.ordinal)
-  }
-
-  @PublishedApi
-  internal fun <T : NotebookCellInlayController> getLazyFactory(type: KClass<T>): NotebookCellInlayController.LazyFactory? {
-    return NotebookCellInlayController.Factory.EP_NAME.extensionList
-      .filterIsInstance<NotebookCellInlayController.LazyFactory>()
-      .firstOrNull { it.getControllerClass() == type.java }
   }
 
   fun updateOutputs(): Unit = editor.updateManager.update {
     outputs.updateOutputs()
   }
 
-
-  fun requestCaret() {
-    view?.requestCaret()
-  }
 
   inline fun <reified T : EditorCellExtension> getExtension(): T? {
     return getExtension(T::class)

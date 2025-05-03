@@ -36,7 +36,6 @@ import org.jetbrains.jps.dependency.NodeSource
 import org.jetbrains.jps.dependency.ReferenceID
 import org.jetbrains.jps.dependency.impl.DependencyGraphImpl
 import org.jetbrains.jps.dependency.impl.DifferentiateParametersBuilder
-import org.jetbrains.jps.dependency.impl.NodeDependenciesIndex
 import org.jetbrains.jps.dependency.impl.memoryFactory
 import org.jetbrains.jps.dependency.java.DiffCapableHashStrategy
 import org.jetbrains.jps.dependency.java.SubclassesIndex
@@ -108,6 +107,8 @@ internal suspend fun checkDependencies(
     deletedSources = toSourceSet(deletedNodes),
     depGraph = graph,
   )
+
+  // compute delta indexes - it is used for graph.differentiate (some differentiation rules can use delta indexes)
   tracer.span("associate dependencies") {
     changedOrAddedNodes.forEach { source, item ->
       delta.associateNodes(source, item.newNode!!)
@@ -158,26 +159,17 @@ internal suspend fun checkDependencies(
   }
 
   coroutineContext.ensureActive()
-
   try {
-    withContext(NonCancellable) {
-      launch(Dispatchers.IO) {
-        Files.createDirectories(usedAbiDir)
-        filesToCopy.forEach { (newFile, oldFile) ->
-          launch {
-            if (!isRebuild) {
-              Files.deleteIfExists(oldFile)
-            }
-            Files.createLink(oldFile, newFile)
+    withContext(Dispatchers.IO + NonCancellable) {
+      Files.createDirectories(usedAbiDir)
+      filesToCopy.forEach { (newFile, oldFile) ->
+        launch {
+          if (!isRebuild) {
+            Files.deleteIfExists(oldFile)
           }
+          Files.createLink(oldFile, newFile)
         }
       }
-
-      graph.integrateDeltaWithExternalStorage(deletedNodes = diffResult.deletedNodes, updatedNodes = sequence {
-        changedOrAddedNodes.forEachValue {
-          yield(it.oldNode ?: return@forEachValue)
-        }
-      }.asIterable(), delta = delta)
     }
   }
   catch (e: CancellationException) {
@@ -189,6 +181,10 @@ internal suspend fun checkDependencies(
 }
 
 private fun toSourceSet(changedOrAddedNodes: MutableScatterMap<AbiJarSource, NodeUpdateItem>): Set<NodeSource> {
+  if (changedOrAddedNodes.isEmpty()) {
+    return emptySet()
+  }
+
   return ObjectOpenHashSet<NodeSource>(changedOrAddedNodes.size).also { result ->
     changedOrAddedNodes.forEachKey { result.add(it) }
   }
@@ -200,23 +196,16 @@ private class AbiDeltaImpl(
   private val changedOrAddedNodes: MutableScatterMap<AbiJarSource, NodeUpdateItem>,
   private val depGraph: Graph,
 ) : Graph, Delta {
-  // nodeId -> nodes referencing the nodeId
-  private val dependencyIndex: BackDependencyIndex
-  private val indices: List<BackDependencyIndex>
+  private val subclassesIndex = SubclassesIndex(mapletFactory = memoryFactory, isInMemory = true)
+  private val indices: List<BackDependencyIndex> = java.util.List.of(subclassesIndex)
 
   private val nodeIdToSourcesMap = MutableScatterMap<ReferenceID, ObjectOpenHashSet<NodeSource>>()
 
-  init {
-    val subclassesIndex = SubclassesIndex(cFactory = memoryFactory, isInMemory = true)
-    dependencyIndex = NodeDependenciesIndex(mapletFactory = memoryFactory, isInMemory = true)
-    indices = java.util.List.of(dependencyIndex, subclassesIndex)
-  }
-
-  override fun getDependingNodes(id: ReferenceID): Iterable<ReferenceID> = dependencyIndex.getDependencies(id)
+  override fun getDependingNodes(id: ReferenceID): Iterable<ReferenceID> = emptyList()
 
   override fun getIndices(): List<BackDependencyIndex> = indices
 
-  override fun getIndex(name: String) = indices.find { it.name == name }
+  override fun getIndex(name: String) = if (name == SubclassesIndex.NAME) subclassesIndex else null
 
   override fun getSources(id: ReferenceID): Iterable<NodeSource> {
     return nodeIdToSourcesMap.get(id) ?: emptySet()
@@ -241,10 +230,8 @@ private class AbiDeltaImpl(
   fun associateNodes(source: NodeSource, node: Node<*, *>) {
     nodeIdToSourcesMap.compute(node.referenceID) { _, v -> v ?: ObjectOpenHashSet() }.add(source)
 
-    // deduce dependencies
-    for (index in indices) {
-      index.indexNode(node)
-    }
+    // deduce dependencies - only subclassesIndex because lib node never has usages
+    subclassesIndex.indexNode(node)
   }
 }
 

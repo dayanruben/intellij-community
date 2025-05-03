@@ -41,7 +41,7 @@ internal class EditorCellActionsToolbarController(
   }
 
   private val targetComponent: JComponent?
-    get() = (cell.view?.selfManagedControllers?.firstOrNull { it is DataProviderComponent } as? DataProviderComponent)?.retrieveDataProvider()
+    get() = (cell.view?.controllers?.firstOrNull { it is DataProviderComponent } as? DataProviderComponent)?.retrieveDataProvider()
 
   init {
     coroutineScope.launch {
@@ -65,7 +65,7 @@ internal class EditorCellActionsToolbarController(
     updateToolbarVisibility()
   }
 
-  override fun selfUpdate() {
+  override fun checkAndRebuildInlays() {
     val component = targetComponent ?: return
     updateToolbarPosition(component)
   }
