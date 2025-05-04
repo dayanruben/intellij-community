@@ -658,6 +658,10 @@
     <fileBasedIndex implementation="com.intellij.psi.search.FileTypeIndexImpl"/>
 
     <fileBasedIndex implementation="com.intellij.find.ngrams.TrigramIndex"/>
+    <registryKey key="ide.index.trigram.enable.exclude.extensions" defaultValue="false"
+                 description="TrigramIndex doesn't index .java-files in libraries (plain un-indexed search will be used to search in libraries then)"
+                 restartRequired="true"/>
+
 
     <fileBasedIndex implementation="com.intellij.psi.impl.include.FileIncludeIndex"/>
 
@@ -1859,6 +1863,8 @@
               topic="com.intellij.openapi.wm.ex.ToolWindowManagerListener"/>
     <listener class="com.intellij.ide.GeneratedSourceFileChangeTrackerImpl$MyProjectManagerListener"
               topic="com.intellij.openapi.project.ProjectManagerListener"/>
+    <listener class="com.intellij.find.ngrams.TrigramIndexRegistryValueListener"
+              topic="com.intellij.openapi.util.registry.RegistryValueListener"/>
   </applicationListeners>
   <projectListeners>
     <listener class="com.intellij.openapi.fileEditor.impl.FileEditorVirtualFileAppearanceListener"

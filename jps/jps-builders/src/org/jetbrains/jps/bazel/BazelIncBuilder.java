@@ -2,18 +2,19 @@
 package org.jetbrains.jps.bazel;
 
 import com.intellij.openapi.util.Pair;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.bazel.impl.*;
 import org.jetbrains.jps.bazel.runner.BytecodeInstrumenter;
 import org.jetbrains.jps.bazel.runner.CompilerRunner;
 import org.jetbrains.jps.bazel.runner.RunnerFactory;
-import org.jetbrains.jps.dependency.Delta;
-import org.jetbrains.jps.dependency.DependencyGraph;
-import org.jetbrains.jps.dependency.Node;
-import org.jetbrains.jps.dependency.NodeSource;
+import org.jetbrains.jps.dependency.*;
+import org.jetbrains.jps.dependency.impl.DependencyGraphImpl;
 import org.jetbrains.jps.dependency.impl.GraphDataOutputImpl;
 import org.jetbrains.jps.dependency.impl.PathSource;
+import org.jetbrains.jps.dependency.impl.PersistentMVStoreMapletFactory;
 import org.jetbrains.jps.dependency.java.JVMClassNode;
 
+import java.io.Closeable;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -21,7 +22,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
@@ -30,6 +33,7 @@ import static org.jetbrains.jps.javac.Iterators.*;
 
 public class BazelIncBuilder {
   private static final String SOURCE_SNAPSHOT_FILE_NAME = "src-snapshot.dat";
+  private static final String DEP_GRAPH_FILE_NAME = "dep-graph.mv";
 
   private static final List<RunnerFactory<? extends CompilerRunner>> ourCompilers = List.of(
     ResourcesCopy::new
@@ -41,27 +45,44 @@ public class BazelIncBuilder {
     NotNullInstrumenter::new, FormsInstrumenter::new
   );
 
+  private static GraphConfiguration setupGraphConfiguration(BuildContext context) throws IOException {
+    DependencyGraphImpl graph = new DependencyGraphImpl(
+      new PersistentMVStoreMapletFactory(getDepGraphStoreFile(context).toString(), Math.min(8, Runtime.getRuntime().availableProcessors()))
+    );
+    return GraphConfiguration.create(graph, context.getPathMapper());
+  }
+
   public ExitCode build(BuildContext context) {
     // todo: support cancellation checks
-
-    SourceSnapshotDelta snapshotDelta;
-    if (context.isRebuild()) {
-      snapshotDelta = new SourceSnapshotDeltaImpl(context.getSources());
-      snapshotDelta.markRecompileAll();
-    }
-    else {
-      snapshotDelta = new SourceSnapshotDeltaImpl(getOldSourceSnapshot(context), context.getSources());
-    }
+    // todo: additional diagnostics, if necessary
 
     GraphUpdater graphUpdater = new GraphUpdater(context.getTargetName());
     DiagnosticSink diagnostic = context;
     ZipOutputBuilder outputBuilder = null;
+    SourceSnapshotDelta snapshotDelta = null;
+    DependencyGraph depGraph = null;
+    ConfigurationState presentState = ConfigurationState.create(context);
     try {
-      DependencyGraph depGraph = context.getGraphConfig().getGraph();
-      if (snapshotDelta.isRecompileAll()) {
-        context.cleanBuildState();
+      if (context.isRebuild()) {
+        snapshotDelta = new SourceSnapshotDeltaImpl(context.getSources());
+        snapshotDelta.markRecompileAll(); // force rebuild
       }
       else {
+        ConfigurationState pastState = loadConfigurationState(context);
+        snapshotDelta = new SourceSnapshotDeltaImpl(pastState.getSourceSnapshot(), context.getSources());
+        if (!snapshotDelta.isRecompileAll() && !pastState.getClasspathStructureDigest().equals(presentState.getClasspathStructureDigest())) {
+          snapshotDelta.markRecompileAll();
+        }
+      }
+
+      if (snapshotDelta.isRecompileAll()) {
+        cleanBuildState(context);
+      }
+
+      GraphConfiguration graphConfig = setupGraphConfiguration(context);
+      depGraph = graphConfig.getGraph();
+
+      if (!snapshotDelta.isRecompileAll()) {
         // todo: process changes in libs
 
         // expand compile scope
@@ -107,19 +128,7 @@ public class BazelIncBuilder {
 
         if (!diagnostic.hasErrors()) {
           // delete outputs corresponding to deleted or recompiled sources
-
-          List<String> deletedPaths = new ArrayList<>();
-
-          for (Node<?,?> node : flat(map(flat(snapshotDelta.getDeleted(), snapshotDelta.getModified()), depGraph::getNodes))) {
-            if (node instanceof JVMClassNode) {
-              String outputPath = ((JVMClassNode<?, ?>) node).getOutFilePath();
-              if (outputBuilder.deleteEntry(outputPath)) {
-                deletedPaths.add(outputPath);
-              }
-            }
-          }
-
-          logDeletedPaths(context, deletedPaths);
+          cleanCompiledFiles(context, snapshotDelta, depGraph, outputBuilder);
 
           for (CompilerRunner runner : roundCompilers) {
             List<NodeSource> toCompile = collect(filter(snapshotDelta.getModified(), runner::canCompile), new ArrayList<>());
@@ -179,17 +188,54 @@ public class BazelIncBuilder {
         // report postponed errors, if necessary
         ((PostponedDiagnosticSink)diagnostic).drainTo(context);
       }
-      saveSourceSnapshot(context, snapshotDelta.asSnapshot());
+      if (snapshotDelta != null) {
+        saveConfigurationState(context, presentState.derive(snapshotDelta.asSnapshot()));
+      }
       // todo: save abi-jar
-      if (outputBuilder != null) {
-        try {
-          outputBuilder.close(true);
-        }
-        catch (IOException e) {
-          diagnostic.report(Message.create(null, e));
+      safeClose(outputBuilder, diagnostic);
+      safeClose(depGraph, diagnostic);
+    }
+  }
+
+  private static void cleanBuildState(BuildContext context) throws IOException {
+    Path output = context.getOutputZip();
+    Path abiOutput = context.getAbiOutputZip();
+    Path srcSnapshot = getSourceSnapshotStoreFile(context);
+
+    BuildProcessLogger logger = context.getBuildLogger();
+    if (logger.isEnabled() && !context.isRebuild()) {
+      // need this for tests
+      Set<String> deleted = new HashSet<>();
+      for (Path outPath : abiOutput != null? List.of(output, abiOutput) : List.of(output)) {
+        try (var out = new ZipOutputBuilderImpl(outPath)) {
+          collect(out.getEntryNames(), deleted);
         }
       }
-      // todo: close graph and save all caches
+      logDeletedPaths(context, deleted);
+    }
+    
+    Files.deleteIfExists(output);
+    if (abiOutput != null) {
+      Files.deleteIfExists(abiOutput);
+    }
+    Files.deleteIfExists(srcSnapshot);
+    Files.deleteIfExists(getDepGraphStoreFile(context));
+  }
+
+  private static void cleanCompiledFiles(BuildContext context, SourceSnapshotDelta snapshotDelta, DependencyGraph depGraph, ZipOutputBuilder outputBuilder) {
+    for (Iterable<@NotNull NodeSource> sourceGroup : List.of(snapshotDelta.getDeleted(), snapshotDelta.getModified())) {
+      if (isEmpty(sourceGroup)) {
+        continue;
+      }
+      // separately logging deleted outputs for 'deleted' and 'modified' sources to adjust for existing test data
+      List<String> deletedPaths = new ArrayList<>();
+      for (Node<?, ?> node : filter(flat(map(sourceGroup, depGraph::getNodes)), n -> n instanceof JVMClassNode)) {
+        String outputPath = ((JVMClassNode<?, ?>) node).getOutFilePath();
+        if (outputBuilder.deleteEntry(outputPath)) {
+          deletedPaths.add(outputPath);
+        }
+      }
+      logDeletedPaths(context, deletedPaths);
     }
   }
 
@@ -210,24 +256,88 @@ public class BazelIncBuilder {
     return delta;
   }
 
-  private static void saveSourceSnapshot(BuildContext context, SourceSnapshot snapshot) {
-    Path snapshotPath = context.getBaseDir().resolve(SOURCE_SNAPSHOT_FILE_NAME);
+
+  private static void saveConfigurationState(BuildContext context, ConfigurationState state) {
+    Path snapshotPath = getSourceSnapshotStoreFile(context);
     try (var stream = new DataOutputStream(new DeflaterOutputStream(Files.newOutputStream(snapshotPath), new Deflater(Deflater.BEST_SPEED)))) {
-      snapshot.write(new GraphDataOutputImpl(stream));
+      stream.writeUTF(state.getClasspathStructureDigest());
+      state.getSourceSnapshot().write(new GraphDataOutputImpl(stream));
     }
     catch (Throwable e) {
       context.report(Message.create(null, e));
     }
   }
 
-  private static SourceSnapshot getOldSourceSnapshot(BuildContext context) {
-    Path oldSnapshot = context.getBaseDir().resolve(SOURCE_SNAPSHOT_FILE_NAME);
+  private static ConfigurationState loadConfigurationState(BuildContext context) {
+    Path oldSnapshot = getSourceSnapshotStoreFile(context);
     try (var stream = new DataInputStream(new InflaterInputStream(Files.newInputStream(oldSnapshot, StandardOpenOption.READ)))) {
-      return new SourceSnapshotImpl(stream, PathSource::new);
+      String depsDigest = stream.readUTF();
+      return ConfigurationState.create(new SourceSnapshotImpl(stream, PathSource::new), depsDigest);
     }
     catch (Throwable e) {
       context.report(Message.create(null, e));
-      return SourceSnapshot.EMPTY;
+      return ConfigurationState.EMPTY;
+    }
+  }
+
+  private static @NotNull Path getSourceSnapshotStoreFile(BuildContext context) {
+    return context.getDataDir().resolve(SOURCE_SNAPSHOT_FILE_NAME);
+  }
+
+  private static @NotNull Path getDepGraphStoreFile(BuildContext context) {
+    return context.getDataDir().resolve(DEP_GRAPH_FILE_NAME);
+  }
+
+  private static boolean isAbiJar(Path path) {
+    return path.toString().endsWith("-abi.jar"); // todo: better criterion?
+  }
+
+  private static void safeClose(Closeable cl, DiagnosticSink diagnostic) {
+    if (cl == null) {
+      return;
+    }
+    try {
+      cl.close();
+    }
+    catch (Throwable e) {
+      diagnostic.report(Message.create(null, e));
+    }
+  }
+
+  private interface ConfigurationState {
+    ConfigurationState EMPTY = create(SourceSnapshot.EMPTY, "");
+    
+    SourceSnapshot getSourceSnapshot();
+
+    // tracks names and order of classpath entries as well as content digests of all third-party dependencies
+    String getClasspathStructureDigest();
+
+    default ConfigurationState derive(SourceSnapshot snapshot) {
+      return create(snapshot, getClasspathStructureDigest());
+    }
+
+    static ConfigurationState create(SourceSnapshot snapshot, String depsDigest) {
+      return new ConfigurationState() {
+        @Override
+        public SourceSnapshot getSourceSnapshot() {
+          return snapshot;
+        }
+
+        @Override
+        public String getClasspathStructureDigest() {
+          return depsDigest;
+        }
+      };
+    }
+
+    static ConfigurationState create(BuildContext context) {
+      PathSnapshot deps = context.getBinaryDependencies();
+
+      // digest name, count and order of classpath entries as well as content digests of all non-abi deps
+      Function<@NotNull Path, Iterable<String>> digestMapper =
+        path -> isAbiJar(path)? List.of(path.toString()) : List.of(path.toString(), deps.getDigest(path));
+      
+      return create(context.getSources(), Utils.digest(flat(map(deps.getElements(), digestMapper))));
     }
   }
 }

@@ -13,7 +13,6 @@ import org.jetbrains.jps.bazel.runner.CompilerDataSink;
 import org.jetbrains.jps.bazel.runner.CompilerRunner;
 import org.jetbrains.jps.bazel.runner.OutputSink;
 import org.jetbrains.jps.builders.impl.java.JavacCompilerTool;
-import org.jetbrains.jps.dependency.GraphConfiguration;
 import org.jetbrains.jps.dependency.NodeSource;
 import org.jetbrains.jps.dependency.NodeSourcePathMapper;
 import org.jetbrains.jps.incremental.BinaryContent;
@@ -50,14 +49,12 @@ public class JavaCompilerRunner implements CompilerRunner {
   );
 
   private final BuildContext myContext;
-  private final GraphConfiguration myGraphConfig;
   private final List<String> myOptions;
   private final ModulePath myModulePath;
   private final Collection<File> myClassPath;
 
   public JavaCompilerRunner(BuildContext context) {
     myContext = context;
-    myGraphConfig = context.getGraphConfig();
     myOptions = getFilteredOptions(context);
 
     Collection<File> classpath = collect(map(context.getBinaryDependencies().getElements(), Path::toFile), new ArrayList<>()); // todo: convert relative path to abs path
@@ -106,12 +103,11 @@ public class JavaCompilerRunner implements CompilerRunner {
   // todo: install javac ast listener and consume data like in JpsReferenceDependenciesRegistrar
   @Override
   public ExitCode compile(Iterable<NodeSource> sources, DiagnosticSink diagnosticSink, OutputSink outSink) {
-
-    NodeSourcePathMapper pathMapper = myGraphConfig.getPathMapper();
+    NodeSourcePathMapper pathMapper = myContext.getPathMapper();
     OutputCollector outCollector = new OutputCollector(this, pathMapper, diagnosticSink, outSink);
     JavacCompilerTool javacTool = new JavacCompilerTool();
     // set non-null output, pointing to a non-existent dir. Need this to enable JavacFileManager creating OutputFileObjects
-    Map<File, Set<File>> outputDir = Map.of(myContext.getOutputZip().getParent().toFile(), Set.of());
+    Map<File, Set<File>> outputDir = Map.of(myContext.getDataDir().resolve("__temp__").toFile(), Set.of());
 
     // always empty in the current implementation
     List<File> platformCp = List.of();
@@ -136,7 +132,7 @@ public class JavaCompilerRunner implements CompilerRunner {
   private static File findModuleInfo(BuildContext context) {
     @Nullable
     NodeSource moduleInfo = find(context.getSources().getElements(), ns -> ns.toString().endsWith(MODULE_INFO_FILE_SUFFIX));
-    return moduleInfo != null? context.getGraphConfig().getPathMapper().toPath(moduleInfo).toFile() : null;
+    return moduleInfo != null? context.getPathMapper().toPath(moduleInfo).toFile() : null;
   }
 
   private static class OutputCollector implements DiagnosticOutputConsumer, OutputFileConsumer {
