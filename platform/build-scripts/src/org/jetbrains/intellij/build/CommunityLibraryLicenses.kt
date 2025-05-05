@@ -431,6 +431,10 @@ object CommunityLibraryLicenses {
       .newBsd("https://github.com/hamcrest/JavaHamcrest/blob/master/LICENSE")
       .suppliedByPersons("Joe Walnes", "Nat Pryce", "Steve Freeman"),
 
+    LibraryLicense("Hamcrest More Matchers", libraryName = "github.seregamorph.hamcrest.more.matchers", url = "https://github.com/seregamorph/hamcrest-more-matchers")
+      .apache("https://github.com/seregamorph/hamcrest-more-matchers/blob/master/LICENSE")
+      .suppliedByPersons("Sergey Chernov"),
+
     LibraryLicense(libraryName = "hash4j", url = "https://github.com/dynatrace-oss/hash4j")
       .apache("https://github.com/dynatrace-oss/hash4j/blob/main/LICENSE"),
 
@@ -718,6 +722,10 @@ object CommunityLibraryLicenses {
       .mit("https://github.com/weisJ/jsvg/blob/master/LICENSE")
       .suppliedByPersons("Jannis Weis"),
 
+    LibraryLicense("JUnit Pioneer", libraryName = "JUnit5Pioneer", url = "https://junit-pioneer.org")
+      .eplV2("https://github.com/junit-pioneer/junit-pioneer/blob/main/LICENSE.md")
+      .suppliedByPersons("Nicolai Parlog", "Matthias Bünger", "Simon Schrottner", "Mihály Verhás", "Daniel Kraus"),
+
     LibraryLicense(libraryName = "JUnit3", url = "https://github.com/stefanbirkner/junit3")
       .license("CPL 1.0", "https://github.com/stefanbirkner/junit3/blob/master/cpl-v10.html")
       .suppliedByPersons("Marc Philipp", "David Saff", "Kevin Cooney", "Stefan Birkner"),
@@ -734,6 +742,9 @@ object CommunityLibraryLicenses {
       .eplV2("https://github.com/junit-team/junit5/blob/main/LICENSE.md"),
 
     LibraryLicense("JUnit5Launcher", libraryName = "JUnit5Launcher", url = "https://junit.org/junit5/")
+      .eplV2("https://github.com/junit-team/junit5/blob/main/LICENSE.md"),
+
+    LibraryLicense("JUnit5Params", libraryName = "JUnit5Params", url = "https://junit.org/junit5/")
       .eplV2("https://github.com/junit-team/junit5/blob/main/LICENSE.md"),
 
     LibraryLicense("JUnit5Vintage", libraryName = "JUnit5Vintage", url = "https://junit.org/junit5/")
@@ -1186,6 +1197,10 @@ object CommunityLibraryLicenses {
     LibraryLicense("swingx", libraryName = "swingx", url = "https://central.sonatype.com/artifact/org.swinglabs/swingx-core/1.6.2-2")
       .lgpl21("https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html")
       .suppliedByOrganizations("Sun Microsystems, Inc."),
+
+    LibraryLicense("Testcontainers Core", libraryName = "testcontainers", url = "https://java.testcontainers.org")
+      .mit("https://github.com/testcontainers/testcontainers-java/blob/main/LICENSE")
+      .suppliedByPersons("Richard North"),
 
     LibraryLicense(libraryName = "TestNG", url = "https://testng.org/")
       .apache("https://github.com/cbeust/testng/blob/master/LICENSE.txt"),

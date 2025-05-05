@@ -9,7 +9,6 @@ import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.assertions.Assertions.assertThat
-import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -26,30 +25,28 @@ internal fun loadAndInitDescriptorInTest(
   val loadingContext = PluginDescriptorLoadingContext(
     getBuildNumberForDefaultDescriptorVersion = { buildNumber }
   )
-  val initContext = PluginInitializationContext.build(
+  val initContext = PluginInitializationContext.buildForTest(
+    essentialPlugins = emptySet(),
     disabledPlugins = disabledPlugins.mapTo(LinkedHashSet(), PluginId::getId),
     expiredPlugins = emptySet(),
     brokenPluginVersions = emptyMap(),
-    getProductBuildNumber = { buildNumber }
+    getProductBuildNumber = { buildNumber },
+    requirePlatformAliasDependencyForLegacyPlugins = false,
+    checkEssentialPlugins = false,
+    explicitPluginSubsetToLoad = null,
+    disablePluginLoadingCompletely = false,
   )
-  val result = runBlocking {
-    loadDescriptorFromFileOrDirInTests(
-      file = dir,
-      loadingContext = loadingContext,
-      isBundled = isBundled,
-    )
-  }
+  val result = loadDescriptorFromFileOrDirInTests(
+    file = dir,
+    loadingContext = loadingContext,
+    isBundled = isBundled,
+  )
   if (result == null) {
     assertThat(PluginManagerCore.getAndClearPluginLoadingErrors()).isNotEmpty()
     throw AssertionError("Cannot load plugin from $dir")
   }
   result.initialize(context = initContext)
   return result
-}
-
-@JvmOverloads
-internal fun createPluginLoadingResult(checkModuleDependencies: Boolean = false): PluginLoadingResult {
-  return PluginLoadingResult(checkModuleDependencies = checkModuleDependencies)
 }
 
 @JvmOverloads

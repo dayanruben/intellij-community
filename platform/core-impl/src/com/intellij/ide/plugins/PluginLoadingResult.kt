@@ -3,17 +3,13 @@
 package com.intellij.ide.plugins
 
 import com.intellij.openapi.extensions.PluginId
-import com.intellij.util.PlatformUtils
 import com.intellij.util.text.VersionComparatorUtil
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
 
-// https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html
-// If a plugin does not include any module dependency tags in its plugin.xml,
-// it's assumed to be a legacy plugin and is loaded only in IntelliJ IDEA.
 @ApiStatus.Internal
-class PluginLoadingResult(private val checkModuleDependencies: Boolean = !PlatformUtils.isIntelliJ()) {
+class PluginLoadingResult {
   private val incompletePlugins = HashMap<PluginId, IdeaPluginDescriptorImpl>()
 
   @JvmField
@@ -62,26 +58,30 @@ class PluginLoadingResult(private val checkModuleDependencies: Boolean = !Platfo
     }
   }
 
-  /**
-   * @see [com.intellij.openapi.project.ex.ProjectManagerEx]
-   */
   fun initAndAddAll(
-    descriptors: Sequence<IdeaPluginDescriptorImpl>,
-    overrideUseIfCompatible: Boolean,
+    descriptorLoadingResult: PluginDescriptorLoadingResult,
     initContext: PluginInitializationContext,
   ) {
-    for (descriptor in descriptors) {
-      initAndAdd(descriptor = descriptor, overrideUseIfCompatible = overrideUseIfCompatible, initContext = initContext)
+    for (pluginList in descriptorLoadingResult.discoveredPlugins) {
+      for (descriptor in pluginList.plugins) {
+        // plugins added via property shouldn't be overridden to avoid plugin root detection issues when running external plugin tests
+        initAndAdd(descriptor = descriptor, overrideUseIfCompatible = pluginList.source is PluginsSourceContext.SystemPropertyProvided, initContext = initContext)
+      }
     }
   }
 
   private fun initAndAdd(descriptor: IdeaPluginDescriptorImpl, overrideUseIfCompatible: Boolean, initContext: PluginInitializationContext) {
+    initContext.pluginsPerProjectConfig?.let { conf ->
+      if (conf.isMainProcess && descriptor.pluginId !in initContext.essentialPlugins) {
+        return
+      }
+    }
     descriptor.initialize(initContext)?.let { error ->
       addIncompletePlugin(plugin = descriptor, error = error.takeIf { it !is PluginIsMarkedDisabled })
       return
     }
 
-    if (checkModuleDependencies && isCheckingForImplicitDependencyNeeded(descriptor)) {
+    if (initContext.requirePlatformAliasDependencyForLegacyPlugins && PluginCompatibilityUtils.isLegacyPluginWithoutPlatformAliasDependencies(descriptor)) {
       addIncompletePlugin(descriptor, PluginIsCompatibleOnlyWithIntelliJIDEA(descriptor))
       return
     }
@@ -133,29 +133,4 @@ class PluginLoadingResult(private val checkModuleDependencies: Boolean = !Platfo
     list.add(descriptor)
     duplicateModuleMap!!.put(id, list)
   }
-}
-
-// skip our plugins as expected to be up to date whether bundled or not
-internal fun isCheckingForImplicitDependencyNeeded(descriptor: IdeaPluginDescriptorImpl): Boolean {
-  return !descriptor.isBundled &&
-         descriptor.packagePrefix == null &&
-         !descriptor.isImplementationDetail &&
-         descriptor.content.modules.isEmpty() &&
-         descriptor.moduleDependencies.modules.isEmpty() &&
-         descriptor.moduleDependencies.plugins.isEmpty() &&
-         descriptor.pluginId != PluginManagerCore.CORE_ID &&
-         descriptor.pluginId != PluginManagerCore.JAVA_PLUGIN_ID &&
-         !hasJavaOrPlatformAliasDependency(descriptor)
-}
-
-private fun hasJavaOrPlatformAliasDependency(descriptor: IdeaPluginDescriptorImpl): Boolean {
-  for (dependency in descriptor.dependencies) {
-    val dependencyPluginId = dependency.pluginId
-    if (PluginManagerCore.JAVA_PLUGIN_ID == dependencyPluginId ||
-        PluginManagerCore.JAVA_MODULE_ID == dependencyPluginId ||
-        PluginManagerCore.looksLikePlatformPluginAlias(dependencyPluginId)) {
-      return true
-    }
-  }
-  return false
 }

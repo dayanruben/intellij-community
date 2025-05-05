@@ -1080,7 +1080,7 @@ private fun saveMemorySnapshot(pluginId: PluginId): Boolean {
 private fun processImplementationDetailDependenciesOnPlugin(pluginDescriptor: IdeaPluginDescriptorImpl,
                                                             pluginSet: PluginSet,
                                                             processor: (descriptor: IdeaPluginDescriptorImpl) -> Boolean) {
-  processDependenciesOnPlugin(dependencyPlugin = pluginDescriptor,
+  processDependenciesOnPlugin(dependencyTarget = pluginDescriptor,
                               pluginSet = pluginSet,
                               loadStateFilter = LoadStateFilter.ANY,
                               onlyOptional = false) { _, module ->
@@ -1114,7 +1114,7 @@ private fun optionalDependenciesOnPlugin(
   }
 
   // 2. sort topologically
-  val topologicalComparator = PluginSetBuilder(dependentPluginsAndItsModule.map { it.first }).topologicalComparator
+  val topologicalComparator = PluginSetBuilder(dependentPluginsAndItsModule.map { it.first }.toSet()).topologicalComparator
   dependentPluginsAndItsModule.sortWith(Comparator { o1, o2 -> topologicalComparator.compare(o1.first, o2.first) })
 
   return dependentPluginsAndItsModule
@@ -1166,7 +1166,7 @@ private fun processOptionalDependenciesOnPlugin(
   processor: (pluginDescriptor: IdeaPluginDescriptorImpl, moduleDescriptor: IdeaPluginDescriptorImpl) -> Boolean,
 ) {
   processDependenciesOnPlugin(
-    dependencyPlugin = dependencyPlugin,
+    dependencyTarget = dependencyPlugin,
     pluginSet = pluginSet,
     onlyOptional = true,
     loadStateFilter = if (isLoaded) LoadStateFilter.LOADED else LoadStateFilter.NOT_LOADED,
@@ -1175,29 +1175,29 @@ private fun processOptionalDependenciesOnPlugin(
 }
 
 private fun processDependenciesOnPlugin(
-  dependencyPlugin: IdeaPluginDescriptorImpl,
+  dependencyTarget: IdeaPluginDescriptorImpl,
   pluginSet: PluginSet,
   loadStateFilter: LoadStateFilter,
   onlyOptional: Boolean,
   processor: (pluginDescriptor: IdeaPluginDescriptorImpl, moduleDescriptor: IdeaPluginDescriptorImpl) -> Boolean,
 ) {
-  val wantedIds = HashSet<String>(1 + dependencyPlugin.content.modules.size)
-  wantedIds.add(dependencyPlugin.pluginId.idString)
-  for (module in dependencyPlugin.content.modules) {
+  val wantedIds = HashSet<String>(1 + dependencyTarget.content.modules.size)
+  wantedIds.add(dependencyTarget.pluginId.idString)
+  for (module in dependencyTarget.content.modules) {
     wantedIds.add(module.name)
   }
   // FIXME plugin aliases probably missing?
 
   for (plugin in pluginSet.enabledPlugins) {
-    if (plugin === dependencyPlugin) {
+    if (plugin === dependencyTarget) {
       continue
     }
 
-    if (!processOptionalDependenciesInOldFormatOnPlugin(dependencyPluginId = dependencyPlugin.pluginId,
-                                                        mainDescriptor = plugin,
-                                                        loadStateFilter = loadStateFilter,
-                                                        onlyOptional = onlyOptional,
-                                                        processor = processor)) {
+    if (!processPluginDependenciesOnPlugin(dependencyTargetId = dependencyTarget.pluginId,
+                                           mainDescriptor = plugin,
+                                           loadStateFilter = loadStateFilter,
+                                           onlyOptional = onlyOptional,
+                                           processor = processor)) {
       return
     }
 
@@ -1217,7 +1217,7 @@ private fun processDependenciesOnPlugin(
         }
       }
       for (item in module.moduleDependencies.plugins) {
-        if (dependencyPlugin.pluginId == item.id && !processor(plugin, module)) {
+        if (dependencyTarget.pluginId == item.id && !processor(plugin, module)) {
           return
         }
       }
@@ -1229,40 +1229,38 @@ private enum class LoadStateFilter {
   LOADED, NOT_LOADED, ANY
 }
 
-private fun processOptionalDependenciesInOldFormatOnPlugin(
-  dependencyPluginId: PluginId,
+private fun processPluginDependenciesOnPlugin(
+  dependencyTargetId: PluginId,
   mainDescriptor: IdeaPluginDescriptorImpl,
   loadStateFilter: LoadStateFilter,
   onlyOptional: Boolean,
   processor: (main: IdeaPluginDescriptorImpl, sub: IdeaPluginDescriptorImpl) -> Boolean
 ): Boolean {
   for (dependency in mainDescriptor.dependencies) {
-    if (!dependency.isOptional) {
-      if (!onlyOptional && dependency.pluginId == dependencyPluginId && !processor(mainDescriptor, mainDescriptor)) {
+    if (dependency.isOptional) {
+      val subDescriptor = dependency.subDescriptor ?: continue
+      if (loadStateFilter != LoadStateFilter.ANY) {
+        val isModuleLoaded = subDescriptor.pluginClassLoader != null
+        if (isModuleLoaded != (loadStateFilter == LoadStateFilter.LOADED)) {
+          continue
+        }
+      }
+      if (dependency.pluginId == dependencyTargetId && !processor(mainDescriptor, subDescriptor)) {
         return false
       }
-      continue
-    }
-
-    val subDescriptor = dependency.subDescriptor ?: continue
-    if (loadStateFilter != LoadStateFilter.ANY) {
-      val isModuleLoaded = subDescriptor.pluginClassLoader != null
-      if (isModuleLoaded != (loadStateFilter == LoadStateFilter.LOADED)) {
-        continue
+      if (!processPluginDependenciesOnPlugin(
+          dependencyTargetId = dependencyTargetId,
+          mainDescriptor = subDescriptor,
+          loadStateFilter = loadStateFilter,
+          onlyOptional = onlyOptional,
+          processor = processor)) {
+        return false
       }
     }
-
-    if (dependency.pluginId == dependencyPluginId && !processor(mainDescriptor, subDescriptor)) {
-      return false
-    }
-
-    if (!processOptionalDependenciesInOldFormatOnPlugin(
-        dependencyPluginId = dependencyPluginId,
-        mainDescriptor = subDescriptor,
-        loadStateFilter = loadStateFilter,
-        onlyOptional = onlyOptional,
-        processor = processor)) {
-      return false
+    else {
+      if (!onlyOptional && dependency.pluginId == dependencyTargetId && !processor(mainDescriptor, mainDescriptor)) {
+        return false
+      }
     }
   }
   return true

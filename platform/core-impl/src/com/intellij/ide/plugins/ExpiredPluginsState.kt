@@ -40,7 +40,7 @@ class ExpiredPluginsState : PluginEnabler {
         synchronized(ExpiredPluginsState::class.java) {
           var result = expiredPluginIds_
           if (result == null) {
-            result = LinkedHashSet(tryReadPluginIdsFromFile(defaultFilePath, logger))
+            result = LinkedHashSet(PluginStringSetFile.readIdsSafe(defaultFilePath, logger))
             expiredPluginIds_ = result
           }
           return result
@@ -56,7 +56,7 @@ class ExpiredPluginsState : PluginEnabler {
 
       val expiredPluginIds = expiredPluginIds as MutableSet
       return (if (expired) expiredPluginIds.addAll(pluginIds) else expiredPluginIds.removeAll(pluginIds))
-             && PluginManagerCore.tryWritePluginIdsToFile(defaultFilePath, expiredPluginIds, logger)
+             && PluginStringSetFile.writeIdsSafe(defaultFilePath, expiredPluginIds, logger)
     }
   }
 

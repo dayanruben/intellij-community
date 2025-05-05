@@ -13,11 +13,16 @@ import java.nio.file.Path
 
 fun readAndInitDescriptorFromBytesForTest(path: Path, isBundled: Boolean, input: ByteArray, id: PluginId? = null): IdeaPluginDescriptorImpl {
   val loadingContext = PluginDescriptorLoadingContext()
-  val initContext = PluginInitializationContext.build(
+  val initContext = PluginInitializationContext.buildForTest(
+    essentialPlugins = emptySet(),
     disabledPlugins = emptySet(),
     expiredPlugins = emptySet(),
     brokenPluginVersions = emptyMap(),
-    getProductBuildNumber = { PluginManagerCore.buildNumber }
+    getProductBuildNumber = { PluginManagerCore.buildNumber },
+    requirePlatformAliasDependencyForLegacyPlugins = false,
+    checkEssentialPlugins = false,
+    explicitPluginSubsetToLoad = null,
+    disablePluginLoadingCompletely = false,
   )
   val pathResolver = PluginXmlPathResolver.DEFAULT_PATH_RESOLVER
   val dataLoader = object : DataLoader {

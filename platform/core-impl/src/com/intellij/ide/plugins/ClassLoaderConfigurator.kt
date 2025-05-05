@@ -6,6 +6,7 @@ import com.intellij.diagnostic.PluginException
 import com.intellij.ide.plugins.cl.PluginClassLoader
 import com.intellij.ide.plugins.cl.ResolveScopeManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.util.lang.ClassPath
 import com.intellij.util.lang.ResourceFile
@@ -32,7 +33,7 @@ class ClassLoaderConfigurator(
   @Suppress("JoinDeclarationAndAssignment")
   private val resourceFileFactory: Function<Path, ResourceFile>?
 
-  private val mainToClassPath = IdentityHashMap<PluginId, MainInfo>()
+  private val mainToClassPath = IdentityHashMap<PluginId, MainPluginDescriptorClassPathInfo>()
 
   init {
     resourceFileFactory = try {
@@ -44,7 +45,7 @@ class ClassLoaderConfigurator(
       null
     }
     catch (e: Throwable) {
-      log.error(e)
+      LOG.error(e)
       null
     }
   }
@@ -57,7 +58,7 @@ class ClassLoaderConfigurator(
 
     // class cast fails in case IU is running from sources, IDEA-318252
     (mainDescriptor.pluginClassLoader as? PluginClassLoader)?.let {
-      mainToClassPath.put(pluginId, MainInfo(classLoader = it))
+      mainToClassPath.put(pluginId, MainPluginDescriptorClassPathInfo(classLoader = it))
     }
 
     if (mainDescriptor.dependencies.find { it.subDescriptor === moduleDescriptor && it.isOptional } != null) {
@@ -68,8 +69,7 @@ class ClassLoaderConfigurator(
       }
       val mainDependentClassLoader = mainDescriptor.pluginClassLoader
       assert(mainDependentClassLoader != null) { "plugin $mainDescriptor is not yet enabled"}
-      moduleDescriptor.pluginClassLoader = mainDependentClassLoader!!
-      configureDependenciesInOldFormat(moduleDescriptor, mainDependentClassLoader)
+      setClassLoaderForModuleAndDependsSubDescriptors(moduleDescriptor, mainDependentClassLoader!!)
       return true
     }
 
@@ -87,7 +87,7 @@ class ClassLoaderConfigurator(
 
     if (module.isMainPluginDescriptor) {
       if (module.useCoreClassLoader || module.pluginId == PluginManagerCore.CORE_ID) {
-        setPluginClassLoaderForModuleAndOldSubDescriptors(module, coreLoader)
+        setClassLoaderForModuleAndDependsSubDescriptors(module, coreLoader)
       }
       else {
         configureMainPluginModule(module)
@@ -108,7 +108,9 @@ class ClassLoaderConfigurator(
     assert(module.dependencies.isEmpty()) { "Module $module shouldn't have plugin dependencies: ${module.dependencies}" }
     val dependencies = getSortedDependencies(module)
     // if the module depends on an unavailable plugin, it will not be loaded
-    if (dependencies.any { it.pluginClassLoader == null }) {
+    val missingDependency = dependencies.find { it.pluginClassLoader == null }
+    if (missingDependency != null) {
+      LOG.debug { "content module $module is missing dependency $missingDependency" }
       return false
     }
 
@@ -188,21 +190,22 @@ class ClassLoaderConfigurator(
     return dependencies
   }
 
-  private fun configureMainPluginModule(module: IdeaPluginDescriptorImpl): MainInfo {
-    val exisingMainInfo = mainToClassPath.get(module.pluginId)
+  private fun configureMainPluginModule(mainDescriptor: IdeaPluginDescriptorImpl): MainPluginDescriptorClassPathInfo {
+    assert(mainDescriptor.isMainPluginDescriptor)
+    val exisingMainInfo = mainToClassPath.get(mainDescriptor.pluginId)
     if (exisingMainInfo != null) {
       return exisingMainInfo
     } 
 
-    var mainModuleFiles = module.jarFiles
+    var mainModuleFiles = mainDescriptor.jarFiles
     if (mainModuleFiles == null) {
-      if (!module.isUseIdeaClassLoader) {
-        log.error("jarFiles is not set for $module")
+      if (!mainDescriptor.isUseIdeaClassLoader) {
+        LOG.error("jarFiles is not set for $mainDescriptor")
       }
       mainModuleFiles = emptyList()
     }
     var allFiles: MutableSet<Path>? = null
-    for (contentModule in module.content.modules) {
+    for (contentModule in mainDescriptor.content.modules) {
       if (contentModule.loadingRule == ModuleLoadingRule.EMBEDDED) {
         val customJarFiles = contentModule.requireDescriptor().jarFiles
         if (customJarFiles != null) {
@@ -215,50 +218,50 @@ class ClassLoaderConfigurator(
     }
 
     var libDirectories = Collections.emptyList<Path>()
-    val libDir = module.pluginPath.resolve("lib")
+    val libDir = mainDescriptor.pluginPath.resolve("lib")
     if (Files.exists(libDir)) {
       libDirectories = Collections.singletonList(libDir)
     }
 
-    val mimicJarUrlConnection = !module.isBundled && module.vendor != "JetBrains"
+    val mimicJarUrlConnection = !mainDescriptor.isBundled && mainDescriptor.vendor != "JetBrains"
     val files = allFiles?.toList() ?: mainModuleFiles
     val pluginClassPath = ClassPath(/* files = */ files,
                                     /* configuration = */ DEFAULT_CLASSLOADER_CONFIGURATION,
                                     /* resourceFileFactory = */ resourceFileFactory,
                                     /* mimicJarUrlConnection = */ mimicJarUrlConnection)
-    val mainDependentClassLoader = if (module.isUseIdeaClassLoader) {
-      configureUsingIdeaClassloader(files, module)
+    val mainClassLoader = if (mainDescriptor.isUseIdeaClassLoader) {
+      configureUsingIdeaClassloader(files, mainDescriptor)
     }
     else {
-      createPluginClassLoader(module = module, dependencies = getSortedDependencies(module), classPath = pluginClassPath, libDirectories = libDirectories)
+      createPluginClassLoader(module = mainDescriptor, dependencies = getSortedDependencies(mainDescriptor), classPath = pluginClassPath, libDirectories = libDirectories)
     }
-    val mainInfo = MainInfo(classPath = pluginClassPath, libDirectories = libDirectories, mainClassLoader = mainDependentClassLoader)
-    mainToClassPath.put(module.pluginId, mainInfo)
-    module.pluginClassLoader = mainDependentClassLoader
-    configureDependenciesInOldFormat(module, mainDependentClassLoader)
+    val mainInfo = MainPluginDescriptorClassPathInfo(classPath = pluginClassPath, libDirectories = libDirectories, mainClassLoader = mainClassLoader)
+    mainToClassPath.put(mainDescriptor.pluginId, mainInfo)
+    setClassLoaderForModuleAndDependsSubDescriptors(mainDescriptor, mainClassLoader)
     return mainInfo
   }
 
-  private fun configureDependenciesInOldFormat(module: IdeaPluginDescriptorImpl, mainDependentClassLoader: ClassLoader) {
+  private fun setClassLoaderForModuleAndDependsSubDescriptors(module: IdeaPluginDescriptorImpl, mainDependentClassLoader: ClassLoader) {
+    module.pluginClassLoader = mainDependentClassLoader
     for (dependency in module.dependencies) {
       val subDescriptor = dependency.subDescriptor ?: continue
-      if (!isKotlinPlugin(module.pluginId) &&
-          isKotlinPlugin(dependency.pluginId) &&
-          isIncompatibleWithKotlinPlugin(module)
-        ) {
-        // disable dependencies which optionally deepened on Kotlin plugin which are incompatible with Kotlin Plugin K2 mode KTIJ-24797
-        continue
-      }
       if (pluginSet.findEnabledPlugin(dependency.pluginId)?.takeIf { it !== module } == null) {
         continue
       }
-      // classLoader must be set - otherwise sub descriptor considered as inactive
-      subDescriptor.pluginClassLoader = mainDependentClassLoader
-      configureDependenciesInOldFormat(subDescriptor, mainDependentClassLoader)
+      if (!isKotlinPlugin(module.pluginId) &&
+          isKotlinPlugin(dependency.pluginId) &&
+          isIncompatibleWithKotlinPlugin(module)
+      ) {
+        LOG.error("unexpected condition $module") // TODO drop this branch, probably dead code, should be handled by plugin init
+        // disable dependencies which optionally deepened on Kotlin plugin which are incompatible with Kotlin Plugin K2 mode KTIJ-24797
+        continue
+      }
+      setClassLoaderForModuleAndDependsSubDescriptors(subDescriptor, mainDependentClassLoader)
     }
   }
 
   private fun configureCorePluginContentModuleClassLoader(module: IdeaPluginDescriptorImpl, deps: Array<IdeaPluginDescriptorImpl>) {
+    assert(module.isContentModuleDescriptor)
     val jarFiles = module.jarFiles
     if (jarFiles != null) {
       module.pluginClassLoader = PluginClassLoader(
@@ -275,7 +278,8 @@ class ClassLoaderConfigurator(
 
     val coreUrlClassLoader = getCoreUrlClassLoaderIfPossible()
     if (coreUrlClassLoader == null) {
-      setPluginClassLoaderForModuleAndOldSubDescriptors(module, coreLoader)
+      assert(module.dependencies.isEmpty())
+      module.pluginClassLoader = coreLoader
       return
     }
 
@@ -304,16 +308,6 @@ class ClassLoaderConfigurator(
     }
 
     return coreUrlClassLoader
-  }
-
-  private fun setPluginClassLoaderForModuleAndOldSubDescriptors(rootDescriptor: IdeaPluginDescriptorImpl, classLoader: ClassLoader) {
-    rootDescriptor.pluginClassLoader = classLoader
-    for (dependency in rootDescriptor.dependencies) {
-      val subDescriptor = dependency.subDescriptor
-      if (subDescriptor != null && pluginSet.isPluginEnabled(dependency.pluginId)) {
-        setPluginClassLoaderForModuleAndOldSubDescriptors(subDescriptor, classLoader)
-      }
-    }
   }
 
   private fun checkPackagePrefixUniqueness(module: IdeaPluginDescriptorImpl) {
@@ -361,11 +355,6 @@ class ClassLoaderConfigurator(
                              libDirectories = libDirectories)
   }
 }
-
-// do not use class reference here
-@Suppress("SSBasedInspection")
-private val log: Logger
-  get() = Logger.getInstance("#com.intellij.ide.plugins.PluginManager")
 
 private fun createModuleResolveScopeManager(): ResolveScopeManager {
   return object : ResolveScopeManager {
@@ -508,7 +497,7 @@ internal val canExtendIdeaClassLoader: Boolean by lazy {
 }
 
 private fun configureUsingIdeaClassloader(classPath: List<Path>, descriptor: IdeaPluginDescriptorImpl): ClassLoader {
-  log.warn("${descriptor.pluginId} uses deprecated `use-idea-classloader` attribute")
+  LOG.warn("deprecated `use-idea-classloader` attribute used by $descriptor")
   val loader = ClassLoaderConfigurator::class.java.classLoader
   try {
     // `UrlClassLoader#addPath` can't be invoked directly, because the core classloader is created at bootstrap in a "lost" branch
@@ -544,7 +533,7 @@ fun sortDependenciesInPlace(dependencies: Array<IdeaPluginDescriptorImpl>) {
   }
 }
 
-private class MainInfo(
+private class MainPluginDescriptorClassPathInfo(
   @JvmField val classPath: ClassPath,
   @JvmField val libDirectories: List<Path>,
   @JvmField val mainClassLoader: ClassLoader,
@@ -552,3 +541,7 @@ private class MainInfo(
   constructor(classLoader: PluginClassLoader) 
     : this(classPath = classLoader.classPath, libDirectories = classLoader.getLibDirectories(), mainClassLoader = classLoader)
 }
+
+@Suppress("SSBasedInspection") // do not use class reference here
+private val LOG: Logger
+  get() = Logger.getInstance("#com.intellij.ide.plugins.ClassLoaderConfigurator")

@@ -5,7 +5,6 @@ import com.intellij.AbstractBundle
 import com.intellij.DynamicBundle
 import com.intellij.core.CoreBundle
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl.Type
-import com.intellij.ide.plugins.ModuleLoadingRule.Companion.fromElementValue
 import com.intellij.idea.AppMode
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.ExtensionDescriptor
@@ -120,9 +119,15 @@ class IdeaPluginDescriptorImpl private constructor(
   override val pluginAliases: List<PluginId> = raw.pluginAliases.map(PluginId::getId)
     .let(::addCorePluginAliases)
 
+  /**
+   * this is an implementation detail required during descriptor loading, use [contentModules] instead
+   */
   val content: PluginContentDescriptor =
     raw.contentModules.takeIf { it.isNotEmpty() }?.let { PluginContentDescriptor(convertContentModules(it)) }
     ?: PluginContentDescriptor.EMPTY
+
+  override val contentModules: List<ContentModule>
+    get() = content.modules
   override val moduleDependencies: ModuleDependencies = raw.dependencies.let(::convertDependencies)
   override val packagePrefix: String? = raw.`package`
 
@@ -299,27 +304,6 @@ class IdeaPluginDescriptorImpl private constructor(
     return result
   }
 
-  fun initialize(context: PluginInitializationContext): PluginNonLoadReason? {
-    assert(type == Type.PluginMainDescriptor)
-    if (context.isPluginDisabled(id)) {
-      return onInitError(PluginIsMarkedDisabled(this))
-    }
-    checkCompatibility(context::productBuildNumber, context::isPluginBroken)?.let {
-      return it
-    }
-    for (dependency in pluginDependencies) { // FIXME: likely we actually have to recursively traverse these after they are resolved
-      if (context.isPluginDisabled(dependency.pluginId) && !dependency.isOptional) {
-        return onInitError(PluginDependencyIsDisabled(this, dependency.pluginId, false))
-      }
-    }
-    for (pluginDependency in moduleDependencies.plugins) {
-      if (context.isPluginDisabled(pluginDependency.id)) {
-        return onInitError(PluginDependencyIsDisabled(this, pluginDependency.id, false))
-      }
-    }
-    return null
-  }
-
   internal fun loadPluginDependencyDescriptors(loadingContext: PluginDescriptorLoadingContext, pathResolver: PathResolver, dataLoader: DataLoader): Unit =
     loadPluginDependencyDescriptors(loadingContext, pathResolver, dataLoader, ArrayList(3))
 
@@ -376,9 +360,26 @@ class IdeaPluginDescriptorImpl private constructor(
     }
   }
 
-  private fun onInitError(error: PluginNonLoadReason): PluginNonLoadReason {
-    isMarkedForLoading = false
-    return error
+  fun initialize(context: PluginInitializationContext): PluginNonLoadReason? {
+    assert(type == Type.PluginMainDescriptor)
+    content.modules.forEach { it.requireDescriptor() }
+    if (context.isPluginDisabled(id)) {
+      return onInitError(PluginIsMarkedDisabled(this))
+    }
+    checkCompatibility(context::productBuildNumber, context::isPluginBroken)?.let {
+      return it
+    }
+    for (dependency in pluginDependencies) { // FIXME: likely we actually have to recursively traverse these after they are resolved
+      if (context.isPluginDisabled(dependency.pluginId) && !dependency.isOptional) {
+        return onInitError(PluginDependencyIsDisabled(this, dependency.pluginId, false))
+      }
+    }
+    for (pluginDependency in moduleDependencies.plugins) {
+      if (context.isPluginDisabled(pluginDependency.id)) {
+        return onInitError(PluginDependencyIsDisabled(this, pluginDependency.id, false))
+      }
+    }
+    return null
   }
 
   private fun checkCompatibility(getBuildNumber: () -> BuildNumber, isPluginBroken: (PluginId, version: String?) -> Boolean): PluginNonLoadReason? {
@@ -405,6 +406,11 @@ class IdeaPluginDescriptorImpl private constructor(
       return onInitError(PluginIsMarkedBroken(this))
     }
     return null
+  }
+
+  private fun onInitError(error: PluginNonLoadReason): PluginNonLoadReason {
+    isMarkedForLoading = false
+    return error
   }
 
   @ApiStatus.Internal
@@ -609,7 +615,7 @@ class IdeaPluginDescriptorImpl private constructor(
             val configFile: String? = if (index != -1) {
               "${elem.name.substring(0, index)}.${elem.name.substring(index + 1)}.xml"
             } else null
-            PluginContentDescriptor.ModuleItem(elem.name, configFile, elem.embeddedDescriptorContent, elem.loadingRule.fromElementValue())
+            PluginContentDescriptor.ModuleItem(elem.name, configFile, elem.embeddedDescriptorContent, elem.loadingRule.convert())
           }
           else -> {
             LOG.error("Unknown content element: $elem")

@@ -79,8 +79,10 @@ internal class ClassLoaderConfiguratorTest {
       .get(1)
     assertThat(plugin.content.modules.get(0).requireDescriptor().pluginClassLoader).isInstanceOf(PluginAwareClassLoader::class.java)
 
-    val scope = createPluginDependencyAndContentBasedScope(plugin, PluginSetBuilder(
-      loadingResult.enabledPlugins).createPluginSetWithEnabledModulesMap())!!
+    val scope = createPluginDependencyAndContentBasedScope(
+      plugin,
+      PluginSetBuilder(loadingResult.enabledPlugins.toSet()).createPluginSetWithEnabledModulesMap()
+    )!!
     assertThat(scope.isDefinitelyAlienClass(name = "dd", packagePrefix = "dd", force = false)).isNull()
     assertThat(scope.isDefinitelyAlienClass(name = "com.example.extraSupportedFeature.Foo", packagePrefix = "com.example.extraSupportedFeature.", force = false))
       .isEqualToIgnoringWhitespace("Class com.example.extraSupportedFeature.Foo must not be requested from main classloader of p_dependent plugin. " +
@@ -116,7 +118,7 @@ internal class ClassLoaderConfiguratorTest {
     val barPlugin = plugins.get(1)
     assertThat(barPlugin.pluginId.idString).isEqualTo("2-bar")
 
-    val classLoaderConfigurator = ClassLoaderConfigurator(PluginSetBuilder(plugins).createPluginSetWithEnabledModulesMap())
+    val classLoaderConfigurator = ClassLoaderConfigurator(PluginSetBuilder(plugins.toSet()).createPluginSetWithEnabledModulesMap())
     classLoaderConfigurator.configure()
 
     assertThat((barPlugin.pluginClassLoader as PluginClassLoader)._getParents().map { it.descriptorPath })
@@ -144,7 +146,7 @@ internal class ClassLoaderConfiguratorTest {
     val plugins = loadResult.enabledPlugins
     assertThat(plugins).hasSize(2)
 
-    val classLoaderConfigurator = ClassLoaderConfigurator(PluginSetBuilder(plugins).createPluginSetWithEnabledModulesMap())
+    val classLoaderConfigurator = ClassLoaderConfigurator(PluginSetBuilder(plugins.toSet()).createPluginSetWithEnabledModulesMap())
     classLoaderConfigurator.configure()
     return loadResult
   }
@@ -153,20 +155,24 @@ internal class ClassLoaderConfiguratorTest {
 internal fun loadDescriptors(dir: Path): PluginLoadingResult {
   val buildNumber = BuildNumber.fromString("2042.0")!!
   val result = PluginLoadingResult()
-  val initContext = PluginInitializationContext.build(
+  val initContext = PluginInitializationContext.buildForTest(
+    essentialPlugins = emptySet(),
     disabledPlugins = emptySet(),
     expiredPlugins = emptySet(),
     brokenPluginVersions = emptyMap(),
-    getProductBuildNumber = { buildNumber }
+    getProductBuildNumber = { buildNumber },
+    requirePlatformAliasDependencyForLegacyPlugins = false,
+    checkEssentialPlugins = false,
+    explicitPluginSubsetToLoad = null,
+    disablePluginLoadingCompletely = false,
   )
   val loadingContext = PluginDescriptorLoadingContext(getBuildNumberForDefaultDescriptorVersion = { buildNumber })
-
   // constant order in tests
   val paths = dir.directoryStreamIfExists { it.sorted() }!!
+  val descriptors = paths.mapNotNull { loadDescriptor(file = it, loadingContext = loadingContext, pool = ZipFilePoolImpl()) }
   loadingContext.use {
     result.initAndAddAll(
-      descriptors = paths.asSequence().mapNotNull { loadDescriptor(file = it, loadingContext = loadingContext, pool = ZipFilePoolImpl()) },
-      overrideUseIfCompatible = false,
+      descriptorLoadingResult = PluginDescriptorLoadingResult.build(listOf(DiscoveredPluginsList(descriptors, PluginsSourceContext.Custom))),
       initContext = initContext
     )
   }
