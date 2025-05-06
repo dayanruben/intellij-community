@@ -9552,9 +9552,19 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/fromCallExpression.kt");
             }
 
+            @TestMetadata("fromDelegationCall.kt")
+            public void testFromDelegationCall() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/fromDelegationCall.kt");
+            }
+
             @TestMetadata("fromEnumConstant.kt")
             public void testFromEnumConstant() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/fromEnumConstant.kt");
+            }
+
+            @TestMetadata("fromParameterDefaultValue.kt")
+            public void testFromParameterDefaultValue() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/fromParameterDefaultValue.kt");
             }
 
             @TestMetadata("insideInterface.kt")
@@ -10019,6 +10029,21 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("explicitReceiverOfContainingClass.kt")
             public void testExplicitReceiverOfContainingClass() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/abstract/explicitReceiverOfContainingClass.kt");
+            }
+
+            @TestMetadata("fromDelegate.kt")
+            public void testFromDelegate() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/abstract/fromDelegate.kt");
+            }
+
+            @TestMetadata("fromPrimaryConstructorDefaultValue.kt")
+            public void testFromPrimaryConstructorDefaultValue() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/abstract/fromPrimaryConstructorDefaultValue.kt");
+            }
+
+            @TestMetadata("fromSuperList.kt")
+            public void testFromSuperList() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/abstract/fromSuperList.kt");
             }
 
             @TestMetadata("inAbstractSuperclass.kt")
@@ -13134,6 +13159,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("function.kt")
         public void testFunction() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/inlineTypeParameterFix/function.kt");
+        }
+
+        @TestMetadata("nullableTypeParam.kt")
+        public void testNullableTypeParam() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineTypeParameterFix/nullableTypeParam.kt");
         }
 
         @TestMetadata("typeConstraint.kt")

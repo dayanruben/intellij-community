@@ -1,7 +1,7 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "int_flag")
 load("@rules_java//java:defs.bzl", "java_import")
 load("@rules_kotlin//kotlin:core.bzl", _kt_kotlinc_options = "kt_kotlinc_options")
-load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_import", "kt_jvm_library")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_import")
 load("//:jvm.bzl", "jvm_import", "jvm_provided_library", "kt_kotlinc_options")
 
 label_flag(
@@ -13,7 +13,6 @@ label_flag(
 label_flag(
     name = "worker-impl",
     build_setting_default = "//src/misc:worker-jvm",
-    # build_setting_default = "//src/misc:worker-native",
     visibility = ["//visibility:public"],
 )
 
@@ -22,9 +21,9 @@ kt_kotlinc_options(
     visibility = ["//visibility:public"],
 )
 
-# --@rules_jvm//:kt_trace
+# --@rules_jvm//:trace
 bool_flag(
-    name = "kt_trace",
+    name = "trace",
     build_setting_default = False,
 )
 

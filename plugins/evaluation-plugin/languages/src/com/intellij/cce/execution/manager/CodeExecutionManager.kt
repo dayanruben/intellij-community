@@ -31,12 +31,12 @@ abstract class CodeExecutionManager {
 
   val collectedInfo: MutableMap<String, Any> = mutableMapOf()
 
-  abstract fun removeEnvironment()
+  abstract fun removeEnvironment(basePath: String)
 
 
   protected abstract fun getGeneratedCodeFile(basePath: String, code: String): Path
   protected abstract fun compileGeneratedCode(): ProcessExecutionLog
-  abstract fun setupEnvironment(project: Project, sdk: Sdk?)
+  abstract fun setupEnvironment(project: Project, sdk: Sdk?, setupCommands: List<String>)
   protected abstract fun executeGeneratedCode(target: String, basePath: String, codeFilePath: Path, sdk: Sdk?, unitUnderTest: PsiNamedElement?): ProcessExecutionLog
 
   // Protected since there can be language-specific metrics

@@ -233,11 +233,24 @@ class KotlinFirChangeSignatureTest :
     }
 
     fun testToContextParameterClassFunctionFromReceiver() = doTest {
-        this.newParameters[0].isContextParameter = true
+        newParameters[0].isContextParameter = true
+        receiverParameterInfo = null
+    }
+
+    fun testToContextParameterFromReceiverWithUnqualifiedThisInFunctionalLiteral() = doTest {
+        newParameters[0].isContextParameter = true
         receiverParameterInfo = null
     }
 
     fun testFromContextParameterClassFunction() = doTest {
+        newParameters[0].isContextParameter = false
+    }
+
+    fun testFromContextParameterClassFunctionSubtyping() = doTest {
+        newParameters[0].isContextParameter = false
+    }
+
+    fun testFromContextParameterInsideAnotherContextFunction() = doTest {
         newParameters[0].isContextParameter = false
     }
 
@@ -253,5 +266,21 @@ class KotlinFirChangeSignatureTest :
 
     fun testDeleteUsedContextParameter() = doTestConflict {
         removeParameter(0)
+    }
+
+    fun testChangingTypeOfContextParameter() = doTest {
+        newParameters[0].setType("kotlin.String")
+    }
+
+    fun testChangingContextParametersOrder() = doTest {
+        swapParameters(0, 1)
+    }
+
+    fun testConflictingRenameContextParameter() = doTestConflict {
+        newParameters[0].name = "a"
+    }
+
+    fun testRenameContextParameter() = doTest {
+        newParameters[0].name = "a"
     }
 }

@@ -40,11 +40,17 @@ object CreateParameterUtil {
                         varExpected
                     )
 
+                    it is KtPrimaryConstructor -> Pair(it, if (varExpected) ValVar.VAR else ValVar.VAL)
+
                     it is KtAnonymousInitializer -> Pair(it.parents.match(KtClassBody::class, last = KtClass::class), ValVar.NONE)
                     it is KtSuperTypeListEntry -> {
                         val klass = it.getStrictParentOfType<KtClassOrObject>()
                         if (klass is KtClass && klass.isInterface() || klass is KtEnumEntry) toxicPill else // couldn't add param to enum entry or interface
                             Pair(if (klass is KtClass) klass else null, ValVar.NONE)
+                    }
+
+                    it is KtConstructorDelegationCall -> {
+                        Pair(it.getStrictParentOfType<KtClassOrObject>(), ValVar.NONE)
                     }
 
                     it is KtClassBody -> {

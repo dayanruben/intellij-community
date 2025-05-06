@@ -320,7 +320,7 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
                 val offset = if (element.receiverTypeReference != null) 1 else 0
                 val parameterTypes = mutableMapOf<KtParameter, KtTypeReference>()
                 for ((paramIndex, parameter) in parameterList.parameters.withIndex()) {
-                    val parameterInfo = changeInfo.newParameters[paramIndex + offset]
+                    val parameterInfo = changeInfo.newParameters.filterNot { it.isContextParameter }[paramIndex + offset]
                     if (!(element.isEffectivelyActual() && changeInfo.method is KtNamedDeclaration && (changeInfo.method as KtNamedDeclaration).isExpectDeclaration())) {
                         parameter.setValOrVar(if (element.isExpectDeclaration()) KotlinValVar.None else parameterInfo.valOrVar)
                     }
@@ -342,6 +342,11 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
                 //update all types together not to break inference during `createType` for dependent type changes
                 parameterTypes.forEach { (param, typeRef) -> param.typeReference = typeRef }
             }
+        }
+
+        if (!isCaller && element !is KtFunctionLiteral) {
+            val contextParams = changeInfo.newParameters.filter { it.isContextParameter }
+            updateContextParametersList(contextParams, element, changeInfo.method, isInherited, psiFactory)
         }
 
         if (changeInfo.isReceiverTypeChanged()) {
@@ -417,11 +422,6 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
         val parametersCount = changeInfo.newParameters.count { it != changeInfo.receiverParameterInfo && !it.isContextParameter }
         val isLambda = element is KtFunctionLiteral
         var canReplaceEntireList = false
-
-        if (!isCaller && !isLambda) {
-            val contextParams = changeInfo.newParameters.filter { it.isContextParameter }
-            updateContextParametersList(contextParams, element, baseFunction, isInherited, psiFactory)
-        }
 
         var newParameterList: KtParameterList? = null
         if (isLambda) {

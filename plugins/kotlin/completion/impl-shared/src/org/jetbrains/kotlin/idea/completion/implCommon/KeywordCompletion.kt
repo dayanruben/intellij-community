@@ -53,7 +53,8 @@ open class KeywordLookupObject {
 
 class KeywordCompletion() {
     companion object {
-        private val ALL_KEYWORDS = (KEYWORDS.types + SOFT_KEYWORDS.types)
+        // workaround for the all keyword can be removed after KT-77099
+        private val ALL_KEYWORDS = (KEYWORDS.types + SOFT_KEYWORDS.types + ALL_KEYWORD)
             .map { it as KtKeywordToken }
 
         private val INCOMPATIBLE_KEYWORDS_AROUND_SEALED = setOf(
@@ -287,7 +288,6 @@ class KeywordCompletion() {
             CommentFilter(),
             ParentFilter(ClassFilter(KtLiteralStringTemplateEntry::class.java)),
             ParentFilter(ClassFilter(KtConstantExpression::class.java)),
-            FileFilter(ClassFilter(KtTypeCodeFragment::class.java)),
             LeftNeighbour(TextFilter(".")),
             LeftNeighbour(TextFilter("?."))
         )
@@ -307,17 +307,6 @@ class KeywordCompletion() {
         override fun isAcceptable(element: Any?, context: PsiElement?): Boolean {
             val parent = (element as? PsiElement)?.parent
             return parent != null && (filter?.isAcceptable(parent, context) ?: true)
-        }
-    }
-
-    private class FileFilter(filter: ElementFilter) : PositionElementFilter() {
-        init {
-            setFilter(filter)
-        }
-
-        override fun isAcceptable(element: Any?, context: PsiElement?): Boolean {
-            val file = (element as? PsiElement)?.containingFile
-            return file != null && (filter?.isAcceptable(file, context) ?: true)
         }
     }
 
@@ -676,6 +665,7 @@ class KeywordCompletion() {
     ): Boolean {
         val feature = when (keyword) {
             TYPE_ALIAS_KEYWORD -> LanguageFeature.TypeAliases
+            ALL_KEYWORD -> LanguageFeature.AnnotationAllUseSiteTarget
             EXPECT_KEYWORD, ACTUAL_KEYWORD -> LanguageFeature.MultiPlatformProjects
             SUSPEND_KEYWORD -> LanguageFeature.Coroutines
             FIELD_KEYWORD -> {

@@ -1,4 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("ReplacePutWithAssignment")
+
 package org.jetbrains.intellij.build.bazel
 
 import com.intellij.openapi.util.NlsSafe
@@ -30,8 +32,8 @@ internal class ModuleList(
   @JvmField val ultimate: List<ModuleDescriptor>,
   val skippedModules: List<String>,
 ) {
-  val deps = IdentityHashMap<ModuleDescriptor, ModuleDeps>()
-  val testDeps = IdentityHashMap<ModuleDescriptor, ModuleDeps>()
+  @JvmField val deps = IdentityHashMap<ModuleDescriptor, ModuleDeps>()
+  @JvmField val testDeps = IdentityHashMap<ModuleDescriptor, ModuleDeps>()
 }
 
 @Suppress("ReplaceGetOrSet")
@@ -485,22 +487,29 @@ internal class BazelBuildFileGenerator(
       else -> "//${bazelModuleRelativePath}"
     }
 
-    val jarOutputDirectory = if (moduleDescriptor.isCommunity) {
-      "out/bazel-out/community+/\${CONF}/bin/$bazelModuleRelativePath"
-    }
-    else {
-      "out/bazel-bin/$bazelModuleRelativePath"
+    val jarOutputDirectory = when {
+      moduleDescriptor.module.name == "intellij.idea.community.build.zip" -> "out/bazel-out/rules_jvm+/\${CONF}/bin/zip"
+      moduleDescriptor.isCommunity -> "out/bazel-out/community+/\${CONF}/bin/$bazelModuleRelativePath"
+      else -> "out/bazel-bin/$bazelModuleRelativePath"
     }
 
     fun addPackagePrefix(target: String): String =
       if (target.startsWith("//") || target.startsWith("@")) target else "$packagePrefix:$target"
 
+    fun getJarLocation(jarName: String) = when {
+      // full target name instead of just jar for intellij.dotenv.*
+      // like @community//plugins/env-files-support:dotenv-go_resources
+      jarName.startsWith("@community//") ->
+        "out/bazel-out/community+/\${CONF}/bin/${jarName.substringAfter("@community//").replace(':', '/')}.jar"
+      else -> "$jarOutputDirectory/$jarName.jar"
+    }
+
     return ModuleTargets(
       moduleDescriptor = moduleDescriptor,
       productionTargets = productionCompileTargets.map { addPackagePrefix(it) },
-      productionJars = productionCompileJars.map { "$jarOutputDirectory/$it.jar" },
+      productionJars = productionCompileJars.map { getJarLocation(it) },
       testTargets = testCompileTargets.map { addPackagePrefix(it) },
-      testJars = testCompileTargets.map { "$jarOutputDirectory/$it.jar" },
+      testJars = testCompileTargets.map { getJarLocation(it) },
     )
   }
 
@@ -520,10 +529,10 @@ internal class BazelBuildFileGenerator(
     module: ModuleDescriptor,
     forTests: Boolean,
   ): GenerateResourcesResult {
-    if (module.sources.isEmpty() && !(module.module.dependenciesList.dependencies.none {
-        when (it) {  // -- require
+    if (module.sources.isEmpty() && module.testSources.isEmpty() && !(module.module.dependenciesList.dependencies.none { element ->
+        when (element) {
           is JpsModuleDependency, is JpsLibraryDependency -> {
-            val scope = javaExtensionService.getDependencyExtension(it)?.scope
+            val scope = javaExtensionService.getDependencyExtension(element)?.scope
             scope != JpsJavaDependencyScope.TEST && scope != JpsJavaDependencyScope.RUNTIME
           }
           else -> false
@@ -659,7 +668,7 @@ private fun extraResourceTarget(
     .mapNotNull { sourceRoot ->
       val sourceRootDir = sourceRoot.path
       val metaInf = sourceRootDir.resolve("META-INF")
-      if (!Files.exists(metaInf)) {
+      if (Files.notExists(metaInf)) {
         return@mapNotNull null
       }
 

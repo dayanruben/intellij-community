@@ -113,6 +113,8 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspectionsLocal/replaceGuardClauseWithFunctionCall")
             model("${idea}/inspectionsLocal/convertNaNEquality")
             model("${idea}/inspectionsLocal/javaCollectionsWithNullableTypes")
+            model("${idea}/inspectionsLocal/redundantNullableReturnType")
+            model("${idea}/inspectionsLocal/copyWithoutNamedArguments")
 
             // There is no `RemoveExplicitTypeArgumentsIntention` in K2 because `RemoveExplicitTypeArgumentsInspection` is available
             // and the inspection can have the "No highlighting (fix available)" severity.
@@ -177,7 +179,6 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/quickfix/optIn", pattern = pattern)
             model("${idea}/quickfix/removeUseSiteTarget", pattern = pattern)
             model("${idea}/quickfix/protectedInFinal", pattern = pattern)
-            model("${idea}/quickfix/createFromUsage/createFunction/call/abstract", pattern = pattern)
             model("${idea}/quickfix/typeMismatch/convertCollection", pattern = pattern)
             model("${idea}/quickfix/typeMismatch/wrapWithCollectionLiteral", pattern = pattern)
             model("${idea}/quickfix/redundantInterpolationPrefix", pattern = pattern)

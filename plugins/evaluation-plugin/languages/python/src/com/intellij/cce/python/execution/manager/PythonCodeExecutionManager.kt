@@ -19,12 +19,16 @@ import com.jetbrains.python.sdk.PythonSdkType
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readText
+import kotlin.io.path.writeText
 
 open class PythonCodeExecutionManager() : CodeExecutionManager() {
   override val language = Language.PYTHON
   override val executionMode = ExecutionMode.LOCAL
 
   private val defaultTestFilePath = "/tests/eval-plugin-test.py"
+
+  private val setupFileName = "setup_tests.sh"
+  private val runFileName = "run_tests.sh"
 
   override fun getGeneratedCodeFile(basePath: String, code: String): Path {
     extractCodeDirectory(code)?.let {
@@ -36,18 +40,41 @@ open class PythonCodeExecutionManager() : CodeExecutionManager() {
     return Path.of(basePath + defaultTestFilePath)
   }
 
-  override fun setupEnvironment(project: Project, sdk: Sdk?) {
+  override fun setupEnvironment(project: Project, sdk: Sdk?, setupCommands: List<String>) {
     val basePath = project.basePath
 
     basePath ?: return
 
+    constructScriptFiles(basePath, setupCommands)
+
     if (sdk?.sdkType !is PythonSdkType) return
 
-    val setupFile = Path.of("$basePath/setup_tests.sh")
+    val setupFile = Path.of("$basePath/$setupFileName")
     if (!setupFile.exists()) return
     val executionLog = runPythonProcess(basePath, ProcessBuilder("/bin/bash", setupFile.toString()), sdk)
 
     if (executionLog.exitCode != 0) throw IllegalStateException("Setup was not successful")
+  }
+
+  protected fun constructScriptFiles(basePath: String, setupCommands: List<String>) {
+    // Create a setup script with provided commands for test environment initialization
+    val setupFile = Path.of("$basePath/$setupFileName")
+    setupFile.writeText(buildString {
+      appendLine("#!/bin/bash")
+      appendLine("if [ -d ./venv ]; then rm -rf ./venv ; fi")
+      appendLine("PYTHON_ENV=\${PYTHON:-\"python3\"}")
+      appendLine("\"\$PYTHON_ENV\" -m venv ./venv")
+      appendLine("source \"./venv/bin/activate\"")
+      setupCommands.forEach { appendLine(it) }
+    })
+
+    // Create a run script for test execution
+    val runFile = Path.of("$basePath/$runFileName")
+    runFile.writeText(buildString {
+      appendLine("#!/bin/bash")
+      appendLine("source \"./venv/bin/activate\"")
+      appendLine("PYTHONPATH=. pytest -v \"\$1.py\" --rootdir=. --junit-xml=\$1-junit --cov=\"\$2\" --cov-branch --cov-report json:\$1-coverage")
+    })
   }
 
   private fun extractCodeDirectory(code: String): String? {
@@ -70,7 +97,7 @@ open class PythonCodeExecutionManager() : CodeExecutionManager() {
   override fun executeGeneratedCode(target: String, basePath: String, codeFilePath: Path, sdk: Sdk?, unitUnderTest: PsiNamedElement?): ProcessExecutionLog {
     if (sdk?.sdkType !is PythonSdkType) return ProcessExecutionLog("", "Python SDK not found", -1)
 
-    val runFile = Path.of("$basePath/run_tests.sh")
+    val runFile = Path.of("$basePath/$runFileName")
 
     if (!runFile.exists()) return ProcessExecutionLog("", "Bash script file not found", -1)
     if (!codeFilePath.exists()) return ProcessExecutionLog("", "The Python test file does not exist", -1)
@@ -86,7 +113,11 @@ open class PythonCodeExecutionManager() : CodeExecutionManager() {
     val coverageFilePath = "$basePath/$testName-coverage"
     val junitFilePath = "$basePath/$testName-junit"
     try {
-      val executionLog = runPythonProcess(basePath, ProcessBuilder("/bin/bash", runFile.toString(), testName, target), sdk)
+      // Drop '.py' extension and replace path separator with module separator
+      val targetModule = target.dropLast(3).replace('/', '.')
+
+      // Execute coverage for the test and target module
+      val executionLog = runPythonProcess(basePath, ProcessBuilder("/bin/bash", runFile.toString(), testName, targetModule), sdk)
 
       // Collect success ratio
       val junitFile = Path.of(junitFilePath)
@@ -131,5 +162,13 @@ open class PythonCodeExecutionManager() : CodeExecutionManager() {
     return ProcessExecutionLog(output, error, exitCode)
   }
 
-  override fun removeEnvironment() {}
+  protected fun removeScriptFiles(basePath: String) {
+    // Remove setup and run scripts
+    ProcessBuilder("rm", "-f", "$basePath/$setupFileName").start().waitFor()
+    ProcessBuilder("rm", "-f", "$basePath/$runFileName").start().waitFor()
+  }
+
+  override fun removeEnvironment(basePath: String) {
+    removeScriptFiles(basePath)
+  }
 }
