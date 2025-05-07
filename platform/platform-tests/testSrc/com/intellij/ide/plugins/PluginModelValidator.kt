@@ -14,6 +14,7 @@ import com.intellij.platform.plugins.parser.impl.elements.DependenciesElement
 import com.intellij.platform.plugins.parser.impl.elements.ModuleLoadingRule
 import com.intellij.platform.plugins.parser.impl.elements.OS
 import com.intellij.project.IntelliJProjectConfiguration
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.junit5.NamedFailure
 import com.intellij.util.io.jackson.array
 import com.intellij.util.io.jackson.obj
@@ -48,6 +49,15 @@ val COMMUNITY_CORE_PLUGINS = listOf(
   CorePluginDescription(mainModuleName = "intellij.pycharm.community", rootPluginXmlName = "PyCharmCorePlugin.xml"),
 )
 
+/**
+ * Defines a variant of a plugin with a custom value of system property used in `includeUnless`/`includeIf` directives. 
+ */
+data class PluginVariantWithDynamicIncludes(
+  val mainModuleName: String,
+  val systemPropertyName: String,
+  val systemPropertyValue: String,
+)
+
 data class PluginValidationOptions(
   val skipUnresolvedOptionalContentModules: Boolean = false,
   val reportDependsTagInPluginXmlWithPackageAttribute: Boolean = true,
@@ -71,7 +81,9 @@ data class PluginValidationOptions(
    * Set of modules where a descriptor file named after the module is placed in META-INF directory, not in the resource root.
    */
   val modulesWithIncorrectlyPlacedModuleDescriptor: Set<String> = emptySet(),
-  )
+
+  val pluginVariantsWithDynamicIncludes: List<PluginVariantWithDynamicIncludes> = emptyList(),
+)
 
 fun validatePluginModel(projectPath: Path, validationOptions: PluginValidationOptions = PluginValidationOptions()): PluginValidationResult {
   val project = IntelliJProjectConfiguration.loadIntelliJProject(projectPath.toString())
@@ -174,6 +186,7 @@ class PluginModelValidator(
     }
 
     // 2. process plugins - process content to collect modules
+    val allMainModulesOfPlugins = ArrayList<ModuleInfo>()
     for ((sourceModuleName, moduleMetaInfo) in sourceModuleNameToFileInfo) {
       // interested only in plugins
       val descriptor = moduleMetaInfo.pluginDescriptor ?: continue
@@ -181,8 +194,6 @@ class PluginModelValidator(
 
       val id = descriptor.id
                ?: descriptor.name
-               // can't specify 'com.intellij', because there is an ultimate plugin with the same ID
-               ?: if (sourceModuleName == "intellij.idea.community.customization") "com.intellij.community" else null
       if (id == null) {
         reportError(
           "Plugin id is not specified",
@@ -202,6 +213,7 @@ class PluginModelValidator(
         packageName = descriptor.`package`,
         descriptor = descriptor,
       )
+      allMainModulesOfPlugins.add(moduleInfo)
       if (sourceModuleName !in alternativeCorePluginMainModules && sourceModuleName !in validationOptions.mainModulesOfAlternativePluginVariants) {
         val prev = pluginIdToInfo.put(id, moduleInfo)
         // todo how do we can exclude it automatically
@@ -216,20 +228,55 @@ class PluginModelValidator(
           )
         }
       }
+    }
 
+    for (pluginVariant in validationOptions.pluginVariantsWithDynamicIncludes) {
+      PlatformTestUtil.withSystemProperty<Throwable>(pluginVariant.systemPropertyName, pluginVariant.systemPropertyValue) {
+        val sourceModule = sourceModuleNameToFileInfo[pluginVariant.mainModuleName]?.sourceModule
+                           ?: error("Cannot find source module '${pluginVariant.mainModuleName}' specified in 'pluginVariantsWithDynamicIncludes'")
+        val pluginModuleInfo = createFileInfo(sourceModule)
+        if (pluginModuleInfo == null) {
+          reportError("Failed to load descriptor for '${sourceModule.name}'", sourceModule)
+          return@withSystemProperty
+        }
+        
+        val pluginDescriptor = pluginModuleInfo.pluginDescriptor
+        val pluginDescriptorFile = pluginModuleInfo.pluginDescriptorFile
+        if (pluginDescriptor == null || pluginDescriptorFile == null) {
+          reportError("Plugin descriptor is not found in '${pluginModuleInfo.sourceModule.name}'", sourceModule)
+          return@withSystemProperty
+        }
+
+        allMainModulesOfPlugins.add(ModuleInfo(
+          pluginId = pluginDescriptor.id,
+          name = pluginVariant.mainModuleName,
+          sourceModule = sourceModule,
+          descriptorFile = pluginDescriptorFile,
+          packageName = pluginDescriptor.`package`,
+          descriptor = pluginDescriptor,
+        ))
+      }
+    }
+    
+    for (pluginInfo in allMainModulesOfPlugins) {
       checkContent(
-        contentElements = descriptor.contentModules,
-        referencingModuleInfo = moduleInfo,
+        contentElements = pluginInfo.descriptor.contentModules,
+        referencingModuleInfo = pluginInfo,
         sourceModuleNameToFileInfo = sourceModuleNameToFileInfo,
         moduleNameToInfo = moduleNameToInfo,
       )
     }
 
+    val registeredContentModules = allMainModulesOfPlugins.flatMapTo(HashSet()) { pluginInfo ->
+      pluginInfo.content.mapNotNull { it.name } 
+    }
+
     // 3. check dependencies - we are aware about all modules now
-    for (pluginInfo in pluginIdToInfo.values) {
+    for (pluginInfo in allMainModulesOfPlugins) {
       val descriptor = pluginInfo.descriptor
 
-      checkDependencies(descriptor.dependencies, pluginInfo, pluginInfo, moduleNameToInfo, sourceModuleNameToFileInfo)
+      checkDependencies(descriptor.dependencies, pluginInfo, pluginInfo, moduleNameToInfo, sourceModuleNameToFileInfo,
+                        registeredContentModules)
 
       // in the end, after processing content and dependencies
       if (validationOptions.reportDependsTagInPluginXmlWithPackageAttribute && pluginInfo.packageName != null) {
@@ -253,6 +300,7 @@ class PluginModelValidator(
           referencingPluginInfo = pluginInfo,
           moduleNameToInfo = moduleNameToInfo,
           sourceModuleNameToFileInfo = sourceModuleNameToFileInfo,
+          registeredContentModules = registeredContentModules,
         )
 
         if (contentModuleInfo.descriptor.depends.isNotEmpty()) {
@@ -276,7 +324,8 @@ class PluginModelValidator(
     referencingModuleInfo: ModuleInfo,
     referencingPluginInfo: ModuleInfo,
     moduleNameToInfo: Map<String, ModuleInfo>,
-    sourceModuleNameToFileInfo: Map<String, ModuleDescriptorFileInfo>
+    sourceModuleNameToFileInfo: Map<String, ModuleDescriptorFileInfo>,
+    registeredContentModules: Set<String>
   ) {
     val moduleDependenciesCount = dependenciesElements.count { 
       it is DependenciesElement.ModuleDependency || it is DependenciesElement.PluginDependency && it.pluginId.startsWith("com.intellij.modules.")
@@ -356,6 +405,12 @@ class PluginModelValidator(
               }
             }
             registerError("Module not found: $moduleName")
+            continue
+          }
+          
+          if (moduleName !in registeredContentModules) {
+            registerError("Module '$moduleName' is not registered as a content module, but used as a dependency." +
+                          "Either convert it to a content module, or use dependency on the plugin which includes it instead.")
             continue
           }
 

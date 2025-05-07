@@ -7,7 +7,6 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.platform.searchEverywhere.SeActionItemPresentation
-import com.intellij.platform.searchEverywhere.SeSimpleItemPresentation
 import com.intellij.platform.searchEverywhere.SeTargetItemPresentation
 import com.intellij.platform.searchEverywhere.SeTextSearchItemPresentation
 import com.intellij.platform.searchEverywhere.frontend.tabs.actions.SeActionItemPresentationRenderer
@@ -16,7 +15,6 @@ import com.intellij.platform.searchEverywhere.frontend.tabs.text.SeTextSearchIte
 import com.intellij.platform.searchEverywhere.frontend.vm.SePopupVm
 import com.intellij.platform.searchEverywhere.frontend.vm.SeResultListStopEvent
 import com.intellij.platform.searchEverywhere.frontend.vm.SeResultListUpdateEvent
-import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.ScrollingUtil
 import com.intellij.ui.WindowMoveListener
 import com.intellij.ui.components.JBList
@@ -25,7 +23,6 @@ import com.intellij.ui.dsl.gridLayout.GridLayout
 import com.intellij.ui.dsl.gridLayout.HorizontalAlign
 import com.intellij.ui.dsl.gridLayout.VerticalAlign
 import com.intellij.ui.dsl.gridLayout.builders.RowsGridBuilder
-import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
 import com.intellij.util.bindTextOnShow
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.JBUI
@@ -61,17 +58,7 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
     val actionListCellRenderer = SeActionItemPresentationRenderer(resultList).get { textField.text ?: "" }
     val targetListCellRenderer = SeTargetItemPresentationRenderer().get()
     val textSearchItemListCellRenderer = SeTextSearchItemPresentationRenderer().get()
-    val defaultRenderer = listCellRenderer<SeResultListRow> {
-      when (val value = value) {
-        is SeResultListItemRow -> {
-          when (val presentation = value.item.presentation) {
-            is SeSimpleItemPresentation -> text(presentation.text)
-            else ->  throw IllegalStateException("Item is not handled: $presentation")
-          }
-        }
-        is SeResultListMoreRow -> icon(AnimatedIcon.Default.INSTANCE)
-      }
-    }
+    val defaultRenderer = SeDefaultListItemRenderer().get()
 
     resultList.setCellRenderer(ListCellRenderer { list, value, index, isSelected, cellHasFocus ->
       if (value is SeResultListItemRow && value.item.presentation is SeActionItemPresentation) {

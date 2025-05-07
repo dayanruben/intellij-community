@@ -4,12 +4,18 @@ package com.intellij.xdebugger.impl.breakpoints
 import com.intellij.ide.vfs.virtualFile
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.xdebugger.XDebuggerUtil
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType
+import com.intellij.xdebugger.impl.XDebuggerUtilImpl.toggleAndReturnLineBreakpointProxy
+import com.intellij.xdebugger.impl.XLineBreakpointInstallationInfo
 import com.intellij.xdebugger.impl.breakpoints.ui.BreakpointItem
 import com.intellij.xdebugger.impl.rpc.XBreakpointDto
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.future.asDeferred
 import org.jetbrains.annotations.ApiStatus
 
 private val LOG = logger<XBreakpointManagerProxy>()
@@ -45,6 +51,11 @@ interface XBreakpointManagerProxy {
     findBreakpointsAtLine(type, file, line).firstOrNull()
 
   fun findBreakpointsAtLine(type: XLineBreakpointTypeProxy, file: VirtualFile, line: Int): List<XLineBreakpointProxy>
+
+  @RequiresReadLock
+  fun canToggleLightBreakpoint(editor: Editor, info: XLineBreakpointInstallationInfo): Boolean
+
+  fun toggleLightBreakpoint(editor: Editor, installationInfo: XLineBreakpointInstallationInfo): Deferred<XLineBreakpointProxy?>
 
   class Monolith(val breakpointManager: XBreakpointManagerImpl) : XBreakpointManagerProxy {
     override val breakpointsDialogSettings: XBreakpointsDialogState?
@@ -142,6 +153,17 @@ interface XBreakpointManagerProxy {
       return breakpointManager.findBreakpointsAtLine(breakpointType, file, line)
         .filterIsInstance<XLineBreakpointImpl<*>>()
         .map { it.asProxy() }
+    }
+
+    override fun canToggleLightBreakpoint(editor: Editor, info: XLineBreakpointInstallationInfo): Boolean {
+      return false
+    }
+
+    override fun toggleLightBreakpoint(editor: Editor, installationInfo: XLineBreakpointInstallationInfo): Deferred<XLineBreakpointProxy?> {
+      return toggleAndReturnLineBreakpointProxy(
+        breakpointManager.project, installationInfo.types,
+        installationInfo.position, false, installationInfo.isTemporary, editor, installationInfo.canRemoveBreakpoint(), installationInfo.isTemporary, installationInfo.condition
+      ).asDeferred()
     }
   }
 }

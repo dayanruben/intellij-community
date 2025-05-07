@@ -6,7 +6,8 @@ import com.intellij.ide.*
 import com.intellij.ide.impl.ProjectUtilCore
 import com.intellij.ide.plugins.newui.ListPluginComponent
 import com.intellij.openapi.actionSystem.*
-import com.intellij.openapi.actionSystem.ex.ActionUtil
+import com.intellij.openapi.actionSystem.impl.PresentationFactory
+import com.intellij.openapi.actionSystem.impl.Utils
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
@@ -17,15 +18,19 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.wm.impl.ExpandableComboAction
+import com.intellij.openapi.wm.impl.LEFT_ICONS_KEY
 import com.intellij.openapi.wm.impl.ToolbarComboButton
 import com.intellij.openapi.wm.impl.ToolbarComboButtonModel
-import com.intellij.ui.*
-import com.intellij.ui.AnimatedIcon
+import com.intellij.ui.ClientProperty
+import com.intellij.ui.GroupHeaderSeparator
+import com.intellij.ui.IdeUICustomization
 import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.EmptySpacingConfiguration
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
+import com.intellij.ui.popup.ActionPopupOptions
+import com.intellij.ui.popup.ActionPopupStep
 import com.intellij.ui.popup.PopupFactoryImpl
 import com.intellij.ui.popup.list.ListPopupModel
 import com.intellij.ui.popup.list.SelectablePanel
@@ -35,7 +40,6 @@ import com.intellij.util.ui.*
 import com.intellij.util.ui.accessibility.AccessibleContextUtil
 import kotlinx.coroutines.awaitCancellation
 import java.awt.BorderLayout
-import java.awt.Color
 import java.awt.Component
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -44,6 +48,7 @@ import java.awt.event.HierarchyEvent
 import java.beans.PropertyChangeListener
 import java.util.function.Function
 import java.util.function.Predicate
+import java.util.function.Supplier
 import javax.swing.*
 
 private const val MAX_RECENT_COUNT = 100
@@ -59,11 +64,8 @@ internal class DefaultOpenProjectSelectionPredicateSupplier : OpenProjectSelecti
 
 class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
 
-  private val lefIconsKey = Key<List<Icon>>("leftIcons")
-
   override fun createPopup(event: AnActionEvent): JBPopup? {
-    val widget = event.getData(PlatformCoreDataKeys.CONTEXT_COMPONENT) as? ToolbarComboButton?
-    val step = createStep(createActionGroup(event), event.dataContext, widget)
+    val step = createStep(createActionGroup(event), event.dataContext)
     return event.project?.let { createPopup(it = it, step = step) }
   }
 
@@ -89,10 +91,9 @@ class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
   override fun createToolbarComboButton(model: ToolbarComboButtonModel): ToolbarComboButton {
     return object : ToolbarComboButton(model) {
       override fun updateFromPresentation(presentation: Presentation) {
-        text = presentation.text
-        toolTipText = presentation.description
-        leftIcons = presentation.getClientProperty(lefIconsKey) ?: emptyList()
-        rightIcons = listOfNotNull(presentation.getClientProperty(ActionUtil.SECONDARY_ICON))
+        super.updateFromPresentation(presentation)
+        // Doesn't work for remdev because it uses BackendToolbarComboButton, maybe this should be a client property as well?
+        // Or just make it the default?
         betweenIconsGap = 9
       }
     }
@@ -120,10 +121,10 @@ class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
         add(customizer.getProjectIcon(project))
       }
     }
-    e.presentation.putClientProperty(lefIconsKey, icons)
+    e.presentation.putClientProperty(LEFT_ICONS_KEY, icons)
   }
 
-  private fun createPopup(it: Project, step: ListPopupStep<Any>): ListPopup {
+  private fun createPopup(it: Project, step: ListPopupStep<PopupFactoryImpl.ActionItem>): ListPopup {
     val widgetRenderer = ProjectWidgetRenderer()
     val renderer = Function<ListCellRenderer<Any>, ListCellRenderer<out Any>> { base ->
       ListCellRenderer<PopupFactoryImpl.ActionItem> { list, value, index, isSelected, cellHasFocus ->
@@ -178,9 +179,13 @@ class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     return result
   }
 
-  private fun createStep(actionGroup: ActionGroup, context: DataContext, widget: JComponent?): ListPopupStep<Any> {
-    return JBPopupFactory.getInstance().createActionsStep(actionGroup, context, ActionPlaces.PROJECT_WIDGET_POPUP, false, true,
-                                                          null, widget, false, 0, false)
+  private fun createStep(actionGroup: ActionGroup, context: DataContext): ListPopupStep<PopupFactoryImpl.ActionItem> {
+    val presentationFactory = PresentationFactory()
+    val asyncDataContext: DataContext = Utils.createAsyncDataContext(context)
+    val options = ActionPopupOptions.showDisabled()
+      .withSpeedSearchFilter(ProjectWidgetSpeedsearchFilter())
+    return ActionPopupStep.createActionsStep(null, actionGroup, asyncDataContext, ActionPlaces.PROJECT_WIDGET_POPUP, presentationFactory,
+                                             Supplier { asyncDataContext }, options)
   }
 }
 
@@ -249,6 +254,14 @@ private class WidgetPositionListeners(private val widget: ToolbarComboButton, pr
       SwingUtilities.convertPoint(it.parent, it.x, it.y, widget.rootPane).x.toFloat() + it.margin.left.toFloat() + projectIconWidth / 2
     }
     project?.service<ProjectWidgetGradientLocationService>()?.setProjectWidgetIconCenterRelativeToRootPane(offset)
+  }
+}
+
+private class ProjectWidgetSpeedsearchFilter : SpeedSearchFilter<PopupFactoryImpl.ActionItem> {
+  override fun getIndexedString(value: PopupFactoryImpl.ActionItem): String? {
+    val action = value.action as? ProjectToolbarWidgetPresentable
+    if (action == null) return value.text
+    return action.projectNameToDisplay + " " + action.projectPathToDisplay.orEmpty() + " " + action.providerPathToDisplay.orEmpty()
   }
 }
 

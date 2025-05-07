@@ -1911,12 +1911,10 @@ f:com.intellij.ide.actions.AboutDialog
 - s:getBuildInfo(com.intellij.openapi.application.ApplicationInfo):com.intellij.openapi.util.Pair
 - getExtendedAboutText():java.lang.String
 c:com.intellij.ide.actions.ActivateToolWindowAction
-- com.intellij.openapi.actionSystem.ex.MainMenuPresentationAware
 - com.intellij.openapi.project.DumbAwareAction
 - sf:Companion:com.intellij.ide.actions.ActivateToolWindowAction$Companion
 - p:<init>(java.lang.String):V
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
-- alwaysShowIconInMainMenu():Z
 - p:createEmptyState(com.intellij.openapi.project.Project):V
 - sf:getActionIdForToolWindow(java.lang.String):java.lang.String
 - getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -5937,11 +5935,7 @@ c:com.intellij.openapi.actionSystem.impl.ActionButtonWithText
 - updateUI():V
 f:com.intellij.openapi.actionSystem.impl.ActionMenu
 - com.intellij.ui.components.JBMenu
-- sf:ALWAYS_VISIBLE:com.intellij.openapi.util.Key
 - sf:Companion:com.intellij.openapi.actionSystem.impl.ActionMenu$Companion
-- sf:KEYBOARD_SHORTCUT_SUFFIX:com.intellij.openapi.util.Key
-- sf:SECONDARY_ICON:com.intellij.openapi.util.Key
-- sf:SUPPRESS_SUBMENU:com.intellij.openapi.util.Key
 - <init>(com.intellij.openapi.actionSystem.DataContext,java.lang.String,com.intellij.openapi.actionSystem.ActionGroup,com.intellij.openapi.actionSystem.impl.PresentationFactory,Z,Z,Z):V
 - b:<init>(com.intellij.openapi.actionSystem.DataContext,java.lang.String,com.intellij.openapi.actionSystem.ActionGroup,com.intellij.openapi.actionSystem.impl.PresentationFactory,Z,Z,Z,I,kotlin.jvm.internal.DefaultConstructorMarker):V
 - f:clearItems():V
@@ -5952,7 +5946,7 @@ f:com.intellij.openapi.actionSystem.impl.ActionMenu
 - sf:isAlignedInGroup():Z
 - f:isMainMenuPlace():Z
 - sf:isShowNoIcons():Z
-- sf:isShowNoIcons(com.intellij.openapi.actionSystem.AnAction):Z
+- sf:isShowNoIcons(com.intellij.openapi.actionSystem.AnAction,com.intellij.openapi.actionSystem.Presentation):Z
 - menuSelectionChanged(Z):V
 - removeNotify():V
 - setDisplayedMnemonicIndex(I):V
@@ -5965,7 +5959,7 @@ f:com.intellij.openapi.actionSystem.impl.ActionMenu$Companion
 - f:isAligned():Z
 - f:isAlignedInGroup():Z
 - f:isShowNoIcons():Z
-- f:isShowNoIcons(com.intellij.openapi.actionSystem.AnAction):Z
+- f:isShowNoIcons(com.intellij.openapi.actionSystem.AnAction,com.intellij.openapi.actionSystem.Presentation):Z
 - f:shouldConvertIconToDarkVariant():Z
 - f:showDescriptionInStatusBar(Z,java.awt.Component,java.lang.String):V
 f:com.intellij.openapi.actionSystem.impl.ActionMenuItem
@@ -15766,21 +15760,23 @@ c:com.intellij.ui.popup.AbstractPopup$MyContentPanel
 - setDataProvider(com.intellij.openapi.actionSystem.UiDataProvider):V
 - uiDataSnapshot(com.intellij.openapi.actionSystem.DataSink):V
 f:com.intellij.ui.popup.ActionPopupOptions
-- autoSelectionEnabled():Z
-- s:create(Z,Z,Z,Z,I,Z,com.intellij.openapi.util.Condition):com.intellij.ui.popup.ActionPopupOptions
-- s:empty():com.intellij.ui.popup.ActionPopupOptions
-- s:forStep(Z,Z,Z,com.intellij.openapi.util.Condition):com.intellij.ui.popup.ActionPopupOptions
-- s:forStepAndItems(Z,Z,Z,Z,Z,com.intellij.openapi.util.Condition,I):com.intellij.ui.popup.ActionPopupOptions
-- getDefaultIndex():I
-- getMaxRowCount():I
-- getPreselectCondition():com.intellij.openapi.util.Condition
-- honorActionMnemonics():Z
-- s:honorMnemonics():com.intellij.ui.popup.ActionPopupOptions
-- s:mnemonicsAndDisabled():com.intellij.ui.popup.ActionPopupOptions
-- s:showDisabled():com.intellij.ui.popup.ActionPopupOptions
-- showDisabledActions():Z
-- showNumbers():Z
-- useAlphaAsNumbers():Z
+- sf:Companion:com.intellij.ui.popup.ActionPopupOptions$Companion
+- sf:create(Z,Z,Z,Z,I,Z,com.intellij.openapi.util.Condition):com.intellij.ui.popup.ActionPopupOptions
+- sf:empty():com.intellij.ui.popup.ActionPopupOptions
+- sf:forStep(Z,Z,Z,com.intellij.openapi.util.Condition):com.intellij.ui.popup.ActionPopupOptions
+- sf:forStepAndItems(Z,Z,Z,Z,Z,com.intellij.openapi.util.Condition,I):com.intellij.ui.popup.ActionPopupOptions
+- sf:honorMnemonics():com.intellij.ui.popup.ActionPopupOptions
+- sf:mnemonicsAndDisabled():com.intellij.ui.popup.ActionPopupOptions
+- sf:showDisabled():com.intellij.ui.popup.ActionPopupOptions
+- f:withSpeedSearchFilter(com.intellij.openapi.ui.popup.SpeedSearchFilter):com.intellij.ui.popup.ActionPopupOptions
+f:com.intellij.ui.popup.ActionPopupOptions$Companion
+- f:create(Z,Z,Z,Z,I,Z,com.intellij.openapi.util.Condition):com.intellij.ui.popup.ActionPopupOptions
+- f:empty():com.intellij.ui.popup.ActionPopupOptions
+- f:forStep(Z,Z,Z,com.intellij.openapi.util.Condition):com.intellij.ui.popup.ActionPopupOptions
+- f:forStepAndItems(Z,Z,Z,Z,Z,com.intellij.openapi.util.Condition,I):com.intellij.ui.popup.ActionPopupOptions
+- f:honorMnemonics():com.intellij.ui.popup.ActionPopupOptions
+- f:mnemonicsAndDisabled():com.intellij.ui.popup.ActionPopupOptions
+- f:showDisabled():com.intellij.ui.popup.ActionPopupOptions
 c:com.intellij.ui.popup.ActionPopupStep
 - com.intellij.openapi.ui.popup.ListPopupStepEx
 - com.intellij.openapi.ui.popup.MnemonicNavigationFilter
@@ -15808,7 +15804,6 @@ c:com.intellij.ui.popup.ActionPopupStep
 - getSelectedIconFor(com.intellij.ui.popup.PopupFactoryImpl$ActionItem):javax.swing.Icon
 - getSeparatorAbove(com.intellij.ui.popup.PopupFactoryImpl$ActionItem):com.intellij.openapi.ui.popup.ListSeparator
 - getSpeedSearchFilter():com.intellij.openapi.ui.popup.SpeedSearchFilter
-- p:getSubStep(com.intellij.openapi.actionSystem.ActionGroup,com.intellij.openapi.actionSystem.DataContext,java.lang.String,com.intellij.openapi.actionSystem.impl.PresentationFactory,Z,Z,Z,java.lang.String,Z,Z,java.util.function.Supplier,com.intellij.openapi.util.Condition,I):com.intellij.openapi.ui.popup.ListPopupStep
 - getTextFor(com.intellij.ui.popup.PopupFactoryImpl$ActionItem):java.lang.String
 - getTitle():java.lang.String
 - getTooltipTextFor(com.intellij.ui.popup.PopupFactoryImpl$ActionItem):java.lang.String
@@ -15866,7 +15861,6 @@ f:com.intellij.ui.popup.HeavyWeightPopup
 - getWindow():java.awt.Window
 - hide():V
 - show():V
-com.intellij.ui.popup.KeepingPopupOpenAction
 c:com.intellij.ui.popup.LocalPopupComponentFactory
 - <init>():V
 - createPopupComponent(com.intellij.ui.popup.PopupComponentFactory$PopupType,java.awt.Component,java.awt.Component,I,I,com.intellij.openapi.ui.popup.JBPopup):com.intellij.ui.popup.PopupComponent
@@ -16172,6 +16166,7 @@ c:com.intellij.ui.popup.list.PopupListElementRenderer
 - p:getBackground():java.awt.Color
 - p:getDelegateAccessibleName():java.lang.String
 - getPopup():com.intellij.ui.popup.list.ListPopupImpl
+- getTextInTests():java.lang.String
 - p:isShowSecondaryIcon():Z
 - p:isShowSecondaryText():Z
 - p:layoutComponent(javax.swing.JComponent):javax.swing.JComponent

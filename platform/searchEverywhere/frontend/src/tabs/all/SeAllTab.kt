@@ -22,6 +22,7 @@ import com.intellij.platform.searchEverywhere.frontend.tabs.utils.SeFilterEditor
 import com.intellij.platform.searchEverywhere.providers.SeEverywhereFilter
 import com.intellij.ui.IdeUICustomization
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import java.util.function.Function
@@ -37,6 +38,8 @@ class SeAllTab(private val delegate: SeTabDelegate): SeTab {
   override val id: String get() = ID
 
   override fun getItems(params: SeParams): Flow<SeResultEvent> {
+    if (params.inputQuery.isEmpty()) return emptyFlow()
+
     val allTabFilter = SeEverywhereFilter.from(params.filter)
     return delegate.getItems(params, allTabFilter.disabledProviderIds)
   }
@@ -78,10 +81,11 @@ private class SeAllFilterEditor(private val providersIdToName: Map<SeProviderId,
     val namesMap = providersIdToName.map { it.key.value to it.value }.toMap()
 
     val configuration = SearchEverywhereConfiguration.getInstance()
-    val persistentFilter = PersistentSearchEverywhereContributorFilter(namesMap.keys.toList(),
-                                                                       configuration,
-                                                                       Function { key: String? -> namesMap[key] },
-                                                                       Function { c: String? -> null })
+    val persistentFilter =
+      PersistentSearchEverywhereContributorFilter(namesMap.keys.toList().sortedWith { a, b -> namesMap[a]!!.compareTo(namesMap[b]!!) },
+                                                  configuration,
+                                                  Function { key: String? -> namesMap[key] },
+                                                  Function { c: String? -> null })
 
     return SearchEverywhereFiltersAction(persistentFilter) {
       filterValue = filterValue.cloneWith(disabledProviders)

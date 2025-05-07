@@ -2,8 +2,10 @@
 package com.intellij.xdebugger.impl
 
 import com.intellij.ide.ui.icons.icon
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.platform.project.projectId
@@ -17,10 +19,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.launch
+import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.CompletableFuture
 import javax.swing.Icon
 
-internal interface FrontendXLineBreakpointVariant {
+@ApiStatus.Internal
+interface FrontendXLineBreakpointVariant {
   val text: String
   val icon: Icon?
   val highlightRange: TextRange?
@@ -28,7 +32,8 @@ internal interface FrontendXLineBreakpointVariant {
   val useAsInlineVariant: Boolean
 }
 
-internal data class XLineBreakpointInstallationInfo(
+@ApiStatus.Internal
+data class XLineBreakpointInstallationInfo(
   val types: List<XLineBreakpointTypeProxy>,
   val position: XSourcePosition,
   val isTemporary: Boolean,
@@ -36,10 +41,11 @@ internal data class XLineBreakpointInstallationInfo(
   val condition: String?,
   private val canRemove: Boolean,
 ) {
-  fun canRemoveBreakpoint() = canRemove && !isTemporary
+  fun canRemoveBreakpoint(): Boolean = canRemove && !isTemporary
 }
 
-private fun XLineBreakpointInstallationInfo.toRequest(hasOneBreakpoint: Boolean) = XLineBreakpointInstallationRequest(
+@ApiStatus.Internal
+fun XLineBreakpointInstallationInfo.toRequest(hasOneBreakpoint: Boolean): XLineBreakpointInstallationRequest = XLineBreakpointInstallationRequest(
   types.map { XBreakpointTypeId(it.id) },
   position.toRpc(),
   isTemporary,
@@ -69,6 +75,7 @@ internal class VariantChoiceData(
 
 internal fun computeBreakpointProxy(
   project: Project,
+  editor: Editor?,
   info: XLineBreakpointInstallationInfo,
   onVariantsChoice: (VariantChoiceData) -> Unit,
 ): CompletableFuture<XLineBreakpointProxy?> {
@@ -76,6 +83,12 @@ internal fun computeBreakpointProxy(
   val result = CompletableFuture<XLineBreakpointProxy?>()
   project.service<FrontendXLineBreakpointVariantService>().cs.launch {
     try {
+      val breakpointManager = XDebugManagerProxy.getInstance().getBreakpointManagerProxy(project)
+      if (editor != null && readAction { breakpointManager.canToggleLightBreakpoint(editor, info) }) {
+        val breakpoint = breakpointManager.toggleLightBreakpoint(editor, info).await()
+        result.complete(breakpoint)
+        return@launch
+      }
       val singleBreakpoint = XDebuggerUtilImpl.findBreakpointsAtLine(project, info).singleOrNull()
       val response = XBreakpointTypeApi.getInstance().toggleLineBreakpoint(project.projectId(), info.toRequest(singleBreakpoint != null))
                      ?: throw kotlin.coroutines.cancellation.CancellationException()
@@ -133,7 +146,8 @@ private fun createBreakpoint(
   return breakpointManagerProxy.addBreakpoint(breakpointDto) as? XLineBreakpointProxy
 }
 
-private class FrontendXLineBreakpointVariantImpl(private val dto: XLineBreakpointVariantDto) : FrontendXLineBreakpointVariant {
+@ApiStatus.Internal
+class FrontendXLineBreakpointVariantImpl(private val dto: XLineBreakpointVariantDto) : FrontendXLineBreakpointVariant {
   override val text: String get() = dto.text
   override val icon: Icon? get() = dto.icon?.icon()
   override val highlightRange: TextRange? get() = dto.highlightRange?.toTextRange()

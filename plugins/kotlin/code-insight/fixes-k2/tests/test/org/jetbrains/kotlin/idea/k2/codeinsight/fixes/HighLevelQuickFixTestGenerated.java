@@ -9622,6 +9622,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/unresolvedRight.kt");
             }
 
+            @TestMetadata("valInInterfaceFunction.kt")
+            public void testValInInterfaceFunction() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/valInInterfaceFunction.kt");
+            }
+
             @TestMetadata("valOnCompanionObject.kt")
             public void testValOnCompanionObject() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/valOnCompanionObject.kt");
@@ -9635,6 +9640,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("valOnUserType.kt")
             public void testValOnUserType() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/valOnUserType.kt");
+            }
+
+            @TestMetadata("varInInterfaceFunction.kt")
+            public void testVarInInterfaceFunction() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/varInInterfaceFunction.kt");
             }
 
             @TestMetadata("varOnUserType.kt")
@@ -9672,6 +9682,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 @TestMetadata("interfaceNoExplicitReceiver.kt")
                 public void testInterfaceNoExplicitReceiver() throws Exception {
                     runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/property/abstract/interfaceNoExplicitReceiver.kt");
+                }
+
+                @TestMetadata("noLateinitInAbstract.kt")
+                public void testNoLateinitInAbstract() throws Exception {
+                    runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/property/abstract/noLateinitInAbstract.kt");
                 }
 
                 @TestMetadata("notAbstractClass.kt")
@@ -14396,6 +14411,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("companionViaImport3.kt")
         public void testCompanionViaImport3() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/removeUnused/companionViaImport3.kt");
+        }
+
+        @TestMetadata("contextParametersInInterface.kt")
+        public void testContextParametersInInterface() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/removeUnused/contextParametersInInterface.kt");
         }
 
         @TestMetadata("deledage.kt")
