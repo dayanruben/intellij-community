@@ -2499,8 +2499,8 @@ f:com.intellij.ide.actions.UndoAction
 - com.intellij.ide.lightEdit.LightEditCompatible
 - <init>():V
 a:com.intellij.ide.actions.UndoRedoAction
-- com.intellij.openapi.project.DumbAwareAction
 - com.intellij.ide.lightEdit.LightEditCompatible
+- com.intellij.openapi.project.DumbAwareAction
 - sf:IGNORE_SWING_UNDO_MANAGER:com.intellij.openapi.util.Key
 - <init>():V
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
@@ -3476,21 +3476,12 @@ f:com.intellij.ide.plugins.InstalledPluginsState
 - sf:RESTART_REQUIRED_MESSAGE:java.lang.String
 - <init>():V
 - s:addPreInstalledPlugin(com.intellij.ide.plugins.IdeaPluginDescriptor):V
-- clearShutdownCallback():V
 - getInstalledPlugins():java.util.Collection
 - s:getInstance():com.intellij.ide.plugins.InstalledPluginsState
 - s:getInstanceIfLoaded():com.intellij.ide.plugins.InstalledPluginsState
 - getUpdatedPlugins():java.util.Collection
 - hasNewerVersion(com.intellij.openapi.extensions.PluginId):Z
 - isRestartRequired():Z
-- onDescriptorDownload(com.intellij.ide.plugins.IdeaPluginDescriptor):V
-- onPluginInstall(com.intellij.ide.plugins.IdeaPluginDescriptor,Z,Z):V
-- onPluginUninstall(com.intellij.ide.plugins.IdeaPluginDescriptor,Z):V
-- resetChangesAppliedWithoutRestart():V
-- runShutdownCallback():V
-- setRestartRequired(Z):V
-- setShutdownCallback(java.lang.Runnable):V
-- trackPluginInstallation(java.lang.Runnable):V
 - wasInstalled(com.intellij.openapi.extensions.PluginId):Z
 - wasInstalledWithoutRestart(com.intellij.openapi.extensions.PluginId):Z
 - wasUninstalledWithoutRestart(com.intellij.openapi.extensions.PluginId):Z
@@ -5732,19 +5723,6 @@ com.intellij.openapi.actionSystem.AnActionExtensionProvider
 - a:actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
 - a:isActive(com.intellij.openapi.actionSystem.AnActionEvent):Z
 - a:update(com.intellij.openapi.actionSystem.AnActionEvent):V
-a:com.intellij.openapi.actionSystem.ComputableActionGroup
-- com.intellij.openapi.actionSystem.ActionGroup
-- com.intellij.openapi.project.DumbAware
-- p:<init>():V
-- p:<init>(Z):V
-- pa:createChildrenProvider(com.intellij.openapi.actionSystem.ActionManager):com.intellij.psi.util.CachedValueProvider
-- f:getChildren(com.intellij.openapi.actionSystem.AnActionEvent):com.intellij.openapi.actionSystem.AnAction[]
-a:com.intellij.openapi.actionSystem.ComputableActionGroup$Simple
-- com.intellij.openapi.actionSystem.ComputableActionGroup
-- p:<init>():V
-- p:<init>(Z):V
-- pa:computeChildren(com.intellij.openapi.actionSystem.ActionManager):com.intellij.openapi.actionSystem.AnAction[]
-- pf:createChildrenProvider(com.intellij.openapi.actionSystem.ActionManager):com.intellij.psi.util.CachedValueProvider
 c:com.intellij.openapi.actionSystem.ExtendableAction
 - com.intellij.openapi.actionSystem.AnAction
 - <init>(com.intellij.openapi.extensions.ExtensionPointName):V
@@ -6165,7 +6143,7 @@ f:com.intellij.openapi.command.impl.StartMarkAction$AlreadyStartedException
 - <init>(java.lang.String,com.intellij.openapi.editor.Document,com.intellij.openapi.command.undo.DocumentReference[]):V
 - getAffectedDocuments():com.intellij.openapi.command.undo.DocumentReference[]
 - getDocument():com.intellij.openapi.editor.Document
-f:com.intellij.openapi.command.impl.UndoManagerImpl
+c:com.intellij.openapi.command.impl.UndoManagerImpl
 - com.intellij.openapi.command.undo.UndoManager
 - s:ourNeverAskUser:Z
 - addAffectedFiles(com.intellij.openapi.vfs.VirtualFile[]):V
@@ -8687,37 +8665,6 @@ f:com.intellij.openapi.fileEditor.impl.HTMLEditorProvider$Request
 f:com.intellij.openapi.fileEditor.impl.HTMLEditorProvider$Request$Companion
 - f:html(java.lang.String):com.intellij.openapi.fileEditor.impl.HTMLEditorProvider$Request
 - f:url(java.lang.String):com.intellij.openapi.fileEditor.impl.HTMLEditorProvider$Request
-c:com.intellij.openapi.fileEditor.impl.IdeUiServiceImpl
-- com.intellij.ide.ui.IdeUiService
-- <init>():V
-- askForUnlock(com.intellij.openapi.project.Project,java.util.List):com.intellij.openapi.fileEditor.UnlockOption
-- browse(java.lang.String):V
-- browse(java.net.URL):V
-- chooseFile(com.intellij.openapi.fileChooser.FileChooserDescriptor,javax.swing.JComponent,com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.vfs.VirtualFile
-- chooseFiles(com.intellij.openapi.fileChooser.FileChooserDescriptor,com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.vfs.VirtualFile[]
-- createAsyncDataContext(com.intellij.openapi.actionSystem.DataContext):com.intellij.openapi.actionSystem.DataContext
-- createCustomizedDataContext(com.intellij.openapi.actionSystem.DataContext,com.intellij.openapi.actionSystem.DataProvider):com.intellij.openapi.actionSystem.DataContext
-- createUiDataContext(java.awt.Component):com.intellij.openapi.actionSystem.DataContext
-- getComponentFromRecentMouseEvent():java.awt.Component
-- getPlainProxyPassword():java.lang.String
-- getProxyList(java.net.URL):java.util.List
-- getProxyLogin():java.lang.String
-- getSslContext():javax.net.ssl.SSLContext
-- getSslSocketFactory():javax.net.ssl.SSLSocketFactory
-- initUpdateSession(com.intellij.openapi.actionSystem.AnActionEvent):V
-- isFileRecentlyChanged(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):Z
-- isProxyAuth():Z
-- isUseSafeWrite():Z
-- logIdeScriptUsageEvent(java.lang.Class):V
-- notifyByBalloon(com.intellij.openapi.project.Project,java.lang.String,com.intellij.openapi.ui.MessageType,java.lang.String,javax.swing.Icon,javax.swing.event.HyperlinkListener):Z
-- openHttpConnection(java.lang.String):java.net.URLConnection
-- performActionDumbAwareWithCallbacks(com.intellij.openapi.actionSystem.AnAction,com.intellij.openapi.actionSystem.AnActionEvent):V
-- prepareURL(java.lang.String):V
-- revealFile(java.nio.file.Path):V
-- showErrorDialog(java.lang.String,java.lang.String):Z
-- showErrorHint(com.intellij.openapi.editor.Editor,java.lang.String):V
-- showRefactoringMessageDialog(java.lang.String,java.lang.String,java.lang.String,java.lang.String,Z,com.intellij.openapi.project.Project):V
-- systemNotify(java.lang.String,java.lang.String):V
 f:com.intellij.openapi.fileEditor.impl.JComponentEditorProviderUtils
 - sf:INSTANCE:com.intellij.openapi.fileEditor.impl.JComponentEditorProviderUtils
 - f:openEditor(com.intellij.openapi.project.Project,java.lang.String,javax.swing.JComponent,com.intellij.openapi.fileTypes.FileType):com.intellij.openapi.fileEditor.FileEditor[]

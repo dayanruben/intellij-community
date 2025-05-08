@@ -10,7 +10,6 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.util.Key
@@ -24,7 +23,6 @@ import com.intellij.util.KeyedLazyInstance
 import com.intellij.util.SmartList
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.containers.ConcurrentFactoryMap
-import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.concurrency.AsyncPromise
 import org.jetbrains.concurrency.Promise
@@ -317,14 +315,6 @@ open class DataManagerImpl : DataManager() {
         // add "injected" data-key for rules like "usageTarget"
         InjectedDataKeys.injectedKey(dataKey)
       }
-    }
-
-    @JvmStatic
-    fun validateEditor(editor: Editor?, contextComponent: Component?): Editor? {
-      if (contextComponent is JComponent) {
-        if (contextComponent.getClientProperty(UIUtil.HIDE_EDITOR_FROM_DATA_CONTEXT_PROPERTY) != null) return null
-      }
-      return editor
     }
   }
 }

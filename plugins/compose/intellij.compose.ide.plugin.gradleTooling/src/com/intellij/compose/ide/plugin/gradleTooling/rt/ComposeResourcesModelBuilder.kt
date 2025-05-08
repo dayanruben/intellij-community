@@ -28,6 +28,10 @@ class ComposeResourcesExtension private constructor(extension: Any) {
     }.toMap()
   }
 
+  val isPublicResClass: Boolean by lazy { extension("getPublicResClass") as? Boolean ?: false }
+
+  val nameOfResClass: String by lazy { extension("getNameOfResClass") as? String ?: "Res" }
+
   companion object {
     val Project.composeResourcesExtension: ComposeResourcesExtension?
       get() = (this.extensions.findByName("compose") as? ExtensionAware)?.extensions?.findByName("resources")?.let(::ComposeResourcesExtension)
@@ -49,7 +53,10 @@ class ComposeResourcesModelBuilder : ModelBuilderService {
 
   override fun buildAll(modelName: String, project: Project): ComposeResourcesModel? {
     val resourcesExtension = project.composeResourcesExtension ?: return null
-    val customComposeResourcesDirectories = resourcesExtension.customComposeResourcesDirectories
-    return ComposeResourcesModelImpl(customComposeResourcesDirs = customComposeResourcesDirectories)
+    return ComposeResourcesModelImpl(
+      customComposeResourcesDirs = resourcesExtension.customComposeResourcesDirectories,
+      isPublicResClass = resourcesExtension.isPublicResClass,
+      nameOfResClass = resourcesExtension.nameOfResClass,
+    )
   }
 }
