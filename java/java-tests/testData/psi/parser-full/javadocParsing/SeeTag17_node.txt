@@ -10,12 +10,12 @@ java.FILE
       DOC_TAG
         DOC_TAG_NAME
         WHITE_SPACE
-        MODULE_REFERENCE
-          DOC_TAG_VALUE_TOKEN
-        DOC_TAG_VALUE_DIV_TOKEN
-        WHITE_SPACE
         DOC_TAG_VALUE_ELEMENT
-          DOC_COMMENT_END
+          MODULE_REFERENCE
+            DOC_TAG_VALUE_TOKEN
+          DOC_TAG_VALUE_SLASH
+      WHITE_SPACE
+      DOC_COMMENT_END
     WHITE_SPACE
     MODIFIER_LIST
       <empty list>

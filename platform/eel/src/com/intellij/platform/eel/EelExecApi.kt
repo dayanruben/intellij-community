@@ -1,13 +1,15 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.eel
 
+import com.intellij.platform.eel.EelExecApi.ExecuteProcessError
+import com.intellij.platform.eel.EelExecApi.ExecuteProcessOptions
 import com.intellij.platform.eel.path.EelPath
 import org.jetbrains.annotations.CheckReturnValue
 
 /**
  * Methods related to process execution: start a process, collect stdin/stdout/stderr of the process, etc.
  */
-interface EelExecApi {
+sealed interface EelExecApi {
 
   val descriptor: EelDescriptor
 
@@ -111,11 +113,27 @@ interface EelExecApi {
   data object RedirectStdErr : PtyOrStdErrSettings
 }
 
+interface EelExecPosixApi : EelExecApi {
+  @CheckReturnValue
+  override suspend fun execute(@GeneratedBuilder generatedBuilder: ExecuteProcessOptions): EelResult<EelPosixProcess, ExecuteProcessError>
+}
+
+interface EelExecWindowsApi : EelExecApi {
+  @CheckReturnValue
+  override suspend fun execute(@GeneratedBuilder generatedBuilder: ExecuteProcessOptions): EelResult<EelWindowsProcess, ExecuteProcessError>
+}
+
 suspend fun EelExecApi.where(exe: String): EelPath? {
   return this.findExeFilesInPath(exe).firstOrNull()
 }
 
 fun EelExecApi.execute(exe: String, vararg args: String): EelExecApiHelpers.Execute =
+  execute(exe).args(*args)
+
+fun EelExecPosixApi.execute(exe: String, vararg args: String): EelExecPosixApiHelpers.Execute =
+  execute(exe).args(*args)
+
+fun EelExecWindowsApi.execute(exe: String, vararg args: String): EelExecWindowsApiHelpers.Execute =
   execute(exe).args(*args)
 
 /**

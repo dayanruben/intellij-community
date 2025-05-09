@@ -1,15 +1,14 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.ui.branch.tree
 
-import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.psi.codeStyle.MinusculeMatcher
+import com.intellij.vcs.git.shared.repo.GitRepositoriesFrontendHolder
 import git4idea.branch.GitBranchType
 import git4idea.branch.GitBranchUtil
 import git4idea.branch.GitRefType
 import git4idea.branch.GitTagType
 import git4idea.repo.GitRepository
-import git4idea.ui.branch.GitBranchManager
 import git4idea.ui.branch.popup.GitBranchesTreePopupBase
 import javax.swing.tree.TreePath
 
@@ -51,7 +50,7 @@ internal class GitBranchesTreeMultiRepoFilteringModel(
         branchesTreeCache
           .getOrPut(parent) {
             getTreeNodes(parent.type, parent.prefix, parent.repository)
-              .sortedWith(getSubTreeComparator(project.service<GitBranchManager>().getFavoriteBranches(parent.type), repositories))
+              .sortedWith(getSubTreeComparator())
           }
       }
       is RefTypeUnderRepository -> {
@@ -132,12 +131,10 @@ internal class GitBranchesTreeMultiRepoFilteringModel(
   private inner class LazyRepositoryBranchesHolder {
     private val repositoryNodes = repositories.map { RepositoryNode(it, isLeaf = false) }
 
-    private val tree by lazy {
-      if (repositories.size > 1) hashMapOf(*repositories.map { it to LazyRepositoryBranchesSubtreeHolder(it) }.toTypedArray())
-      else hashMapOf()
-    }
+    private val tree: Map<GitRepository, LazyRepositoryBranchesSubtreeHolder> =
+      repositories.associateWith { LazyRepositoryBranchesSubtreeHolder(it) }
 
-    operator fun get(repository: GitRepository) = tree.getOrPut(repository) { LazyRepositoryBranchesSubtreeHolder(repository) }
+    operator fun get(repository: GitRepository) = tree[repository] ?: error("Repository $repository is not present in the model")
 
     fun isLocalBranchesEmpty() = tree.values.all { it.localBranches.isEmpty() }
     fun isLocalBranchesEmpty(repository: GitRepository) = tree[repository]?.localBranches?.isEmpty() ?: true
@@ -151,24 +148,29 @@ internal class GitBranchesTreeMultiRepoFilteringModel(
   }
 
   private inner class LazyRepositoryBranchesSubtreeHolder(repository: GitRepository) {
+    private val repoModel = GitRepositoriesFrontendHolder.getInstance(project).get(repository.rpcId)
+
     val localBranches by lazy {
-      LazyRefsSubtreeHolder(listOf(repository),
-                            repository.localBranchesOrCurrent,
-                            project.service<GitBranchManager>().getFavoriteBranches(GitBranchType.LOCAL), nameMatcher,
-                            ::isPrefixGrouping)
+      LazyRefsSubtreeHolder(
+        repository.localBranchesOrCurrent,
+        nameMatcher,
+        ::isPrefixGrouping,
+        refComparatorGetter = { getRefComparator(listOf(repoModel)) })
     }
     val remoteBranches by lazy {
-      LazyRefsSubtreeHolder(listOf(repository),
-                            repository.branches.remoteBranches,
-                            project.service<GitBranchManager>().getFavoriteBranches(GitBranchType.REMOTE), nameMatcher,
-                            ::isPrefixGrouping)
+      LazyRefsSubtreeHolder(
+        repository.branches.remoteBranches,
+        nameMatcher,
+        ::isPrefixGrouping,
+        refComparatorGetter = { getRefComparator(listOf(repoModel)) })
     }
 
     val tags by lazy {
-      LazyRefsSubtreeHolder(listOf(repository),
-                            repository.tagHolder.getTags().keys,
-                            project.service<GitBranchManager>().getFavoriteBranches(GitTagType), nameMatcher,
-                            ::isPrefixGrouping)
+      LazyRefsSubtreeHolder(
+        repository.tagHolder.getTags().keys,
+        nameMatcher,
+        ::isPrefixGrouping,
+        refComparatorGetter = { getRefComparator(listOf(repoModel)) })
     }
   }
 }
