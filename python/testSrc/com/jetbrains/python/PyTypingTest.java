@@ -5937,6 +5937,17 @@ public class PyTypingTest extends PyTestCase {
       """);
   }
 
+  public void testDataclassTransformDecoratedFunctionType() {
+    doTest("(cls: Any) -> None","""
+             from typing import dataclass_transform
+             
+             @dataclass_transform()
+             def my_dataclass(cls): ...
+             
+             expr = my_dataclass
+             """);
+  }
+
   // PY-76076
   public void testGenericAliasUnderVersionGuard() {
     doMultiFileStubAwareTest("list[str]", """
@@ -6467,6 +6478,12 @@ public class PyTypingTest extends PyTestCase {
           def some_method(self):
               expr = self._some_var
       """);
+  }
+
+  // PY-80427
+  public void testNoneTypeType() {
+    doTest("type[None]",
+           "expr = type(None)");
   }
 
   private void doTestNoInjectedText(@NotNull String text) {

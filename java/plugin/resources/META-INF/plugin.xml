@@ -15,13 +15,14 @@
     <plugin id="com.intellij.modules.xdebugger"/>
     <plugin id="com.intellij.modules.xml"/>
     <plugin id="com.intellij.modules.java-capable"/>
+    <module name="intellij.platform.vcs.impl.lang"/>
   </dependencies>
 
   <depends optional="true" config-file="java-copyright.xml">com.intellij.copyright</depends>
 
   <xi:include href="/META-INF/JavaPlugin.xml"/>
 
-  <!-- todo: these files are present in Java plugin for IDEA Ultimate only, they should be extract to a different plugin.xml -->
+  <!-- todo: these files are present in Java plugin for IDEA Ultimate only, they should be converted to content modules -->
   <xi:include href="intellij.java.duplicates.analysis.xml">
     <xi:fallback/>
   </xi:include>

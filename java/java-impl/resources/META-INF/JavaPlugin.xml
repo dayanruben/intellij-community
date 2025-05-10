@@ -839,6 +839,7 @@
     <internalFileTemplate name="Interface"/>
     <internalFileTemplate name="Enum"/>
     <internalFileTemplate name="Record"/>
+    <internalFileTemplate name="SimpleSourceFile"/>
     <internalFileTemplate name="AnnotationType" subject="@interface"/>
     <internalFileTemplate name="Exception"/>
     <internalFileTemplate name="package-info"/>
@@ -1051,6 +1052,7 @@
     <liveTemplateSubstitutor implementation="com.intellij.codeInsight.template.impl.JavaTemplateSubstitutor"/>
     <defaultLiveTemplates file="liveTemplates/Java"/>
     <defaultLiveTemplates file="liveTemplates/JavaImplicitClass"/>
+    <defaultLiveTemplates file="liveTemplates/JavaNormalClassesWithInstanceMain"/>
     <treeStructureProvider id="ClassesTreeStructureProvider" implementation="com.intellij.ide.projectView.impl.ClassesTreeStructureProvider"
                            order="last, after NestingTreeStructureProvider"/>
     <importFilteringRule implementation="com.intellij.usages.impl.rules.ImportFilteringRule"/>
@@ -1197,8 +1199,10 @@
                          implementation="com.intellij.codeInsight.template.JavaCodeContextType$Declaration"/>
     <liveTemplateContext contextId="JAVA_IMPLICIT_CLASS_DECLARATION" baseContextId="JAVA_CODE"
                          implementation="com.intellij.codeInsight.template.JavaCodeContextType$ImplicitClassDeclaration"/>
-    <liveTemplateContext contextId="JAVA_NORMAL_CLASS_DECLARATION" baseContextId="JAVA_CODE"
-                         implementation="com.intellij.codeInsight.template.JavaCodeContextType$NormalClassDeclaration"/>
+    <liveTemplateContext contextId="JAVA_NORMAL_CLASS_DECLARATION_WITHOUT_INSTANCE_MAIN" baseContextId="JAVA_CODE"
+                         implementation="com.intellij.codeInsight.template.JavaCodeContextType$NormalClassDeclarationBeforeShortMainMethod"/>
+    <liveTemplateContext contextId="JAVA_NORMAL_CLASS_DECLARATION_WITH_INSTANCE_MAIN" baseContextId="JAVA_CODE"
+                         implementation="com.intellij.codeInsight.template.JavaCodeContextType$NormalClassDeclarationAfterShortMainMethod"/>
     <liveTemplateContext contextId="JAVA_COMMENT" baseContextId="JAVA_CODE"
                          implementation="com.intellij.codeInsight.template.JavaCommentContextType"/>
     <liveTemplateContext contextId="JAVA_STRING" baseContextId="JAVA_CODE"
@@ -1462,7 +1466,8 @@
                             implementationClass="com.intellij.codeInsight.completion.RefactoringCompletionContributor"/>
     <completion.contributor language="JAVA" id="JShell" order="before javaLegacy"
                             implementationClass="com.intellij.codeInsight.completion.JShellCompletionContributor"/>
-
+    <completion.contributor language="JAVA" id="mainArgsString"
+                            implementationClass="com.intellij.codeInsight.completion.JavaMainStringArgsContributor"/>
     <completion.contributor language="JAVA" id="jvmLogger"
                             implementationClass="com.intellij.codeInsight.completion.JvmLoggerCompletionContributor"/>
     <completion.contributor language="JAVA" id="jigsaw"

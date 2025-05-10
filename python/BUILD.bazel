@@ -173,6 +173,9 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["src/**/*.kt", "src/**/*.java", "gen/**/*.kt", "gen/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/editor-ui-api:editor-ui",
+    "//platform/refactoring",
+    "//platform/usageView-impl",
     "//python/openapi:community",
     "//platform/ide-core-impl",
     "//platform/platform-impl:ide-impl",
@@ -342,6 +345,8 @@ jvm_library(
   srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
   associates = ["//python:python-community-impl"],
   deps = [
+    "//platform/editor-ui-api:editor-ui",
+    "//platform/refactoring",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
     "//python/python-psi-api:psi",
@@ -514,6 +519,7 @@ jvm_library(
     "//platform/xdebugger-api:debugger",
     "@lib//:xml_r_p_c",
     "@lib//:guava",
+    "//platform/editor-ui-api:editor-ui",
     "//platform/util",
     "@lib//:kotlin-stdlib",
     "@lib//:x_stream",

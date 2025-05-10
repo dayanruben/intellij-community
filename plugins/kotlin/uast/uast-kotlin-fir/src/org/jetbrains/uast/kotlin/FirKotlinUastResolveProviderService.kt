@@ -19,6 +19,7 @@ import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeMappingMode
 import org.jetbrains.kotlin.analysis.api.types.KaTypeNullability
+import org.jetbrains.kotlin.analysis.api.types.symbol
 import org.jetbrains.kotlin.asJava.toLightAnnotation
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.idea.references.mainReference
@@ -34,6 +35,7 @@ import org.jetbrains.uast.*
 import org.jetbrains.uast.analysis.KotlinExtensionConstants.LAMBDA_THIS_PARAMETER_NAME
 import org.jetbrains.uast.kotlin.internal.*
 import org.jetbrains.uast.kotlin.psi.UastFakeDeserializedSymbolAnnotation
+import org.jetbrains.uast.kotlin.psi.UastFakeLightMethodBase
 import org.jetbrains.uast.kotlin.psi.UastKotlinPsiParameterBase
 
 interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderService {
@@ -354,7 +356,8 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
         analyzeForUast(ktCallElement) {
             val resolvedAnnotationConstructorSymbol =
                 ktCallElement.resolveToCall()?.singleConstructorCallOrNull()?.symbol ?: return null
-            return resolvedAnnotationConstructorSymbol.containingClassId
+            val type = resolvedAnnotationConstructorSymbol.returnType.fullyExpandedType
+            return type.symbol?.classId
                 ?.asSingleFqName()
                 ?.toString()
         }
@@ -488,6 +491,12 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
                 resolvedTargetElement is PsiPackageImpl ||
                 !isKotlin(resolvedTargetElement)
             ) {
+                return resolvedTargetElement
+            }
+
+            // If the resolution result is "fake" PSI, it doesn't belong to any module.
+            // Before falling to the following module lookup, bail out here.
+            if (resolvedTargetElement is UastFakeLightMethodBase) {
                 return resolvedTargetElement
             }
 
