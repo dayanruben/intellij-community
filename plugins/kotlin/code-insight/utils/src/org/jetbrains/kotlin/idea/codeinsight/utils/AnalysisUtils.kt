@@ -134,20 +134,40 @@ context(KaSession)
 @get:ApiStatus.Internal
 val KtTypeReference.typeIfSafeToResolve: KaType?
     get() {
-        val typeElement = this.typeElement?.unwrapNullability() ?: return null
-
-        if (typeElement !is KtUserType) {
-            // We currently do a generous assumption that only `KtUserType`s are really fragile.
-            // If proved otherwise, this condition should become more restrictive.
-            return this.type
-        }
-
-        val typeNameExpression = typeElement.referenceExpression
-
-        if (typeNameExpression?.mainReference?.resolveToSymbols().isNullOrEmpty()) {
-            // resolveToSymbols failed, no point in calling type, it may produce/log exceptions 
-            return null
-        }
+        if (!this.isSafeToResolve) return null
 
         return this.type
+    }
+
+context(KaSession)
+private val KtTypeReference.isSafeToResolve: Boolean
+    get() {
+        val typeElement = this.typeElement?.unwrapNullability() ?: return false
+
+        return when (typeElement) {
+            is KtFunctionType -> {
+                val childrenTypeReferences = typeElement.typeArgumentsAsTypes
+                childrenTypeReferences.all { it.isSafeToResolve }
+            }
+            
+            is KtIntersectionType -> {
+                val intersectedTypeReferences = listOfNotNull(
+                    typeElement.getLeftTypeRef(),
+                    typeElement.getRightTypeRef(),
+                )
+                intersectedTypeReferences.all { it.isSafeToResolve }
+            }
+            
+            is KtUserType -> {
+                val typeNameExpression = typeElement.referenceExpression
+
+                // N.B. Currently, the `resolveToSymbols` function is less fragile 
+                // with incomplete types, that's why we rely on it here
+                typeNameExpression?.mainReference?.resolveToSymbols()?.isNotEmpty() == true
+            }
+            
+            // We currently assume that other `KtTypeElement`s are safe to resolve.
+            // If proved otherwise, this condition should become more restrictive.
+            else -> true
+        }
     }
