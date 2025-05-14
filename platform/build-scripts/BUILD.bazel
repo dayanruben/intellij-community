@@ -31,7 +31,7 @@ jvm_library(
     "//jps/model-impl",
     "//platform/util/xmlDom",
     "//jps/jps-builders:build",
-    "//jps/jps-builders-6:build-javac-rt",
+    "@rules_jvm//jps-builders-6:build-javac-rt",
     "//jps/model-serialization",
     "//platform/runtime/repository",
     "//platform/testFramework/core",
