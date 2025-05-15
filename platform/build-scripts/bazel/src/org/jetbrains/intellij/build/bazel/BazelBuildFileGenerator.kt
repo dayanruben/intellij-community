@@ -56,7 +56,7 @@ internal val customModules: Map<String, CustomModuleDescription> = listOf(
   CustomModuleDescription(moduleName = "intellij.platform.jps.build.dependencyGraph", bazelPackage = "@rules_jvm//dependency-graph", bazelTargetName = "dependency-graph",
                           outputDirectory = "out/bazel-out/rules_jvm+/\${CONF}/bin/dependency-graph"),
   CustomModuleDescription(moduleName = "intellij.platform.jps.build.javac.rt", bazelPackage = "@rules_jvm//jps-builders-6", bazelTargetName = "build-javac-rt",
-                          outputDirectory = "out/bazel-out/rules_jvm+/\${CONF}/bin/build-javac-rt"),
+                          outputDirectory = "out/bazel-out/rules_jvm+/\${CONF}/bin/jps-builders-6"),
 ).associateBy { it.moduleName }
 
 @Suppress("ReplaceGetOrSet")
@@ -756,8 +756,8 @@ private fun jpsModuleNameToBazelBuildName(module: JpsModule, baseBuildDir: Path,
     return customModule.bazelTargetName
   }
 
-  val baseDirFilename = baseBuildDir.fileName.toString()
-  if (baseDirFilename != "resources" &&
+  val baseDirFilename = if (baseBuildDir == projectDir) null else baseBuildDir.fileName.toString()
+  if (baseDirFilename != null && baseDirFilename != "resources" &&
       (moduleName.endsWith(".$baseDirFilename") || (camelToSnakeCase(moduleName, '-')).endsWith(".$baseDirFilename"))) {
     return baseDirFilename
   }
@@ -767,9 +767,9 @@ private fun jpsModuleNameToBazelBuildName(module: JpsModule, baseBuildDir: Path,
     .removePrefix("intellij.idea.community.")
     .removePrefix("intellij.")
 
-  val parentDirDirName = if (baseBuildDir.parent == projectDir) "idea" else baseBuildDir.parent.fileName
+  val parentDirDirName = if (baseBuildDir == projectDir) null else if (baseBuildDir.parent == projectDir) "idea" else baseBuildDir.parent.fileName.toString()
   return result
-    .removePrefix("$parentDirDirName.")
+    .let { if (parentDirDirName != null) it.removePrefix("$parentDirDirName.") else it }
     .replace('.', '-')
 }
 

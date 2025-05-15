@@ -194,10 +194,6 @@
                         serviceImplementation="com.intellij.execution.wsl.WslDistributionManagerImpl"/>
     <applicationService serviceInterface="com.intellij.execution.wsl.WslIjentAvailabilityService"
                         serviceImplementation="com.intellij.execution.wsl.DummyWslIjentAvailabilityService"/>
-    <applicationService serviceInterface="com.intellij.execution.wsl.WslIjentManager"
-                        serviceImplementation="com.intellij.platform.ide.impl.wsl.ProductionWslIjentManager"/>
-
-    <eelProvider implementation="com.intellij.platform.ide.impl.wsl.WslEelProvider" os="windows"/>
 
     <executionTargetType implementation="com.intellij.execution.wsl.target.WslTargetType" os="windows"/>
 
@@ -1784,6 +1780,8 @@
     <initProjectActivity implementation="com.intellij.openapi.roots.impl.ProjectRootManagerInitProjectActivity"/>
 
     <idePerformanceListener implementation="com.intellij.diagnostic.FusFreezeReporter"/>
+
+    <backgroundPostStartupActivity implementation="com.intellij.internal.DumpPluginDescriptorsOnProjectOpenTrigger"/>
 
     <registryKey key="search.everywhere.footer.extended.info"
                  defaultValue="true"
