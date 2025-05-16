@@ -10,6 +10,7 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.registry.RegistryManager
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.components.KaScopeKind
 import org.jetbrains.kotlin.analysis.api.signatures.KaCallableSignature
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
@@ -23,7 +24,6 @@ import org.jetbrains.kotlin.idea.completion.KOTLIN_CAST_REQUIRED_COLOR
 import org.jetbrains.kotlin.idea.completion.KotlinFirCompletionParameters
 import org.jetbrains.kotlin.idea.completion.checkers.CompletionVisibilityChecker
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.CallableMetadataProvider
-import org.jetbrains.kotlin.idea.completion.contributors.helpers.CompletionSymbolOrigin
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.KtSymbolWithOrigin
 import org.jetbrains.kotlin.idea.completion.doPostponedOperationsAndUnblockDocument
 import org.jetbrains.kotlin.idea.completion.impl.k2.ImportStrategyDetector
@@ -77,17 +77,19 @@ internal abstract class FirCompletionContributorBase<C : KotlinRawPositionContex
         context: WeighingContext,
         signature: KaCallableSignature<*>,
         options: CallableInsertionOptions,
-        symbolOrigin: CompletionSymbolOrigin,
+        scopeKind: KaScopeKind? = null,
         presentableText: @NlsSafe String? = null, // TODO decompose
         withTrailingLambda: Boolean = false, // TODO find a better solution
     ): Sequence<LookupElementBuilder> {
-        val namedSymbol = when (val symbol = signature.symbol) {
-            is KaNamedSymbol -> symbol
-            is KaConstructorSymbol -> symbol.containingDeclaration as? KaNamedClassSymbol
+        val callableSymbol = signature.symbol
+        val namedSymbol = when (callableSymbol) {
+            is KaNamedSymbol -> callableSymbol
+            is KaConstructorSymbol -> callableSymbol.containingDeclaration as? KaNamedClassSymbol
             else -> null
         } ?: return emptySequence()
 
         val shortName = namedSymbol.name
+        val symbolWithOrigin = KtSymbolWithOrigin(callableSymbol, scopeKind)
 
         return sequence {
             KotlinFirLookupElementFactory.createCallableLookupElement(
@@ -124,14 +126,14 @@ internal abstract class FirCompletionContributorBase<C : KotlinRawPositionContex
             if (!context.isPositionInsideImportOrPackageDirective) {
                 lookup.callableWeight = CallableMetadataProvider.getCallableMetadata(
                     signature = signature,
-                    symbolOrigin = symbolOrigin,
+                    scopeKind = scopeKind,
                     actualReceiverTypes = context.actualReceiverTypes,
-                    isFunctionalVariableCall = signature.symbol is KaVariableSymbol
+                    isFunctionalVariableCall = callableSymbol is KaVariableSymbol
                             && lookup.`object` is FunctionCallLookupObject,
                 )
             }
 
-            lookup.applyWeighs(context, KtSymbolWithOrigin(signature.symbol, symbolOrigin))
+            lookup.applyWeighs(context, symbolWithOrigin)
             lookup.applyKindToPresentation()
         }
     }

@@ -3,17 +3,20 @@ package com.intellij.platform.searchEverywhere.frontend.providers.actions
 
 import com.intellij.ide.actions.searcheverywhere.ActionSearchEverywhereContributor
 import com.intellij.ide.actions.searcheverywhere.CheckBoxSearchEverywhereToggleAction
+import com.intellij.ide.util.gotoByName.GotoActionModel.MatchedValue
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.searchEverywhere.SeItem
 import com.intellij.platform.searchEverywhere.SeItemsProvider
 import com.intellij.platform.searchEverywhere.SeParams
+import com.intellij.platform.searchEverywhere.providers.getExtendedDescription
 import kotlinx.coroutines.coroutineScope
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 
 
 @Internal
-class SeActionsAdaptedProvider(private val legacyContributor: ActionSearchEverywhereContributor): SeItemsProvider {
+class SeActionsAdaptedProvider(private val legacyContributor: ActionSearchEverywhereContributor) : SeItemsProvider {
   override val id: String get() = ID
   override val displayName: @Nls String
     get() = legacyContributor.fullGroupName
@@ -29,7 +32,7 @@ class SeActionsAdaptedProvider(private val legacyContributor: ActionSearchEveryw
 
     coroutineScope {
       legacyContributor.fetchWeightedElements(this, inputQuery) {
-        collector.put(SeActionItem(it.item))
+        collector.put(SeActionItem(it.item, getExtendedDescription(it.item)))
       }
     }
   }
@@ -37,6 +40,10 @@ class SeActionsAdaptedProvider(private val legacyContributor: ActionSearchEveryw
   override suspend fun itemSelected(item: SeItem, modifiers: Int, searchText: String): Boolean {
     val legacyItem = (item as? SeActionItem)?.matchedValue ?: return false
     return legacyContributor.processSelectedItem(legacyItem, modifiers, searchText)
+  }
+
+  fun getExtendedDescription(item: MatchedValue): String? {
+    return legacyContributor.getExtendedDescription(item)
   }
 
   override fun dispose() {

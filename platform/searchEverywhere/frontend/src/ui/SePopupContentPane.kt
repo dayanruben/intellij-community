@@ -2,6 +2,8 @@
 package com.intellij.platform.searchEverywhere.frontend.ui
 
 import com.intellij.icons.AllIcons
+import com.intellij.ide.actions.searcheverywhere.ExtendedInfo
+import com.intellij.ide.actions.searcheverywhere.footer.ExtendedInfoComponent
 import com.intellij.ide.ui.laf.darcula.ui.TextFieldWithPopupHandlerUI
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
@@ -9,6 +11,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListItemDescriptorAdapter
 import com.intellij.openapi.util.NlsContexts
@@ -44,25 +47,30 @@ import com.intellij.util.ui.launchOnShow
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus.Internal
+import java.awt.BorderLayout
 import java.awt.Point
 import java.awt.event.*
 import java.util.function.Supplier
 import javax.swing.*
+import javax.swing.event.ListSelectionEvent
 import javax.swing.text.Document
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
 @OptIn(ExperimentalAtomicApi::class, ExperimentalCoroutinesApi::class)
 @Internal
-class SePopupContentPane(private val vm: SePopupVm) : JPanel(), Disposable {
+class SePopupContentPane(private val project: Project?, private val vm: SePopupVm) : JPanel(), Disposable {
   val preferableFocusedComponent: JComponent get() = textField
   val searchFieldDocument: Document get() = textField.document
 
   private val headerPane: SePopupHeaderPane = SePopupHeaderPane(vm.tabVms.map { it.name }, vm.currentTabIndex, vm.coroutineScope)
   private val textField: SeTextField = SeTextField()
 
-  private val resultListModel = SeResultListModel()
+  private val resultListModel = SeResultListModel { resultList.selectionModel }
   private val resultList: JBList<SeResultListRow> = JBList(resultListModel)
   private val resultsScrollPane = createListPane(resultList)
+
+  private val extendedInfoContainer: JComponent = JPanel(BorderLayout())
+  private var extendedInfoComponent: ExtendedInfoComponent? = null
 
   init {
     layout = GridLayout()
@@ -89,10 +97,13 @@ class SePopupContentPane(private val vm: SePopupVm) : JPanel(), Disposable {
 
     resultList.setFocusable(false)
 
+    updateExtendedInfoContainer()
+
     RowsGridBuilder(this)
       .row().cell(headerPane, horizontalAlign = HorizontalAlign.FILL, resizableColumn = true)
       .row().cell(textField, horizontalAlign = HorizontalAlign.FILL, resizableColumn = true)
       .row(resizable = true).cell(resultsScrollPane, horizontalAlign = HorizontalAlign.FILL, verticalAlign = VerticalAlign.FILL, resizableColumn = true)
+      .row().cell(extendedInfoContainer, horizontalAlign = HorizontalAlign.FILL, resizableColumn = true)
 
     textField.launchOnShow("Search Everywhere text field text binding") {
       withContext(Dispatchers.EDT) {
@@ -178,11 +189,11 @@ class SePopupContentPane(private val vm: SePopupVm) : JPanel(), Disposable {
     }
 
     vm.coroutineScope.launch {
-      vm.currentTabFlow.collectLatest {  tabVm ->
+      vm.currentTabFlow.collectLatest { tabVm ->
         coroutineScope {
           combine(isScrolledAlmostToAnEnd, resultListModel.isValidState) {
             it[0] to it[1]
-          }.collect {  (isScrolledAlmostToAnEnd, isValidList) ->
+          }.collect { (isScrolledAlmostToAnEnd, isValidList) ->
             tabVm.shouldLoadMore = isScrolledAlmostToAnEnd || !isValidList
           }
         }
@@ -293,6 +304,13 @@ class SePopupContentPane(private val vm: SePopupVm) : JPanel(), Disposable {
   private fun installScrollingActions() {
     ScrollingUtil.installMoveUpAction(resultList, textField)
     ScrollingUtil.installMoveDownAction(resultList, textField)
+
+    resultList.addListSelectionListener { e: ListSelectionEvent ->
+      val index = resultList.selectedIndex
+      if (index != -1) {
+        extendedInfoComponent?.updateElement(resultList.selectedValue, this@SePopupContentPane)
+      }
+    }
   }
 
   private fun initSearchActions() {
@@ -328,9 +346,11 @@ class SePopupContentPane(private val vm: SePopupVm) : JPanel(), Disposable {
 
     val nextTabAction: (AnActionEvent) -> Unit = { _ ->
       vm.selectNextTab()
+      updateExtendedInfoContainer()
     }
     val prevTabAction: (AnActionEvent) -> Unit = { _ ->
       vm.selectPreviousTab()
+      updateExtendedInfoContainer()
     }
 
     registerAction(SeActions.SWITCH_TO_NEXT_TAB, nextTabAction)
@@ -339,10 +359,10 @@ class SePopupContentPane(private val vm: SePopupVm) : JPanel(), Disposable {
     registerAction(IdeActions.ACTION_PREVIOUS_TAB, prevTabAction)
     registerAction(IdeActions.ACTION_SWITCHER) { e ->
       if (e.inputEvent?.isShiftDown == true) {
-        vm.selectPreviousTab()
+        prevTabAction
       }
       else {
-        vm.selectNextTab()
+        nextTabAction
       }
     }
     registerAction(SeActions.NAVIGATE_TO_NEXT_GROUP) { _ ->
@@ -476,6 +496,24 @@ class SePopupContentPane(private val vm: SePopupVm) : JPanel(), Disposable {
       .show(relativePoint)
   }
 
+  private fun createExtendedInfoComponent(): ExtendedInfoComponent? {
+    if (isExtendedInfoEnabled()) {
+      val leftText = fun(element: Any): String? {
+        val leftText = (element as? SeResultListItemRow)?.item?.presentation?.extendedDescription
+        extendedInfoContainer.isVisible = !leftText.isNullOrEmpty()
+        return leftText
+      }
+      return ExtendedInfoComponent(project, ExtendedInfo(leftText) { null })
+    }
+    return null
+  }
+
+  private fun updateExtendedInfoContainer() {
+    extendedInfoContainer.removeAll()
+    extendedInfoComponent = createExtendedInfoComponent()
+    extendedInfoComponent?.let { extendedInfoContainer.add(it.component) }
+  }
+
   private fun closePopup() {
     vm.closePopup()
   }
@@ -485,7 +523,7 @@ class SePopupContentPane(private val vm: SePopupVm) : JPanel(), Disposable {
   companion object {
     const val DEFAULT_FROZEN_COUNT: Int = 10
     const val DEFAULT_FREEZING_DELAY_MS: Long = 800
-    const val DEFAULT_RESULT_THROTTLING_MS: Long = 2000
+    const val DEFAULT_RESULT_THROTTLING_MS: Long = 900
     const val DEFAULT_RESULT_COUNT_TO_STOP_THROTTLING: Int = 15
 
     @JvmStatic

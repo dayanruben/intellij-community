@@ -31,7 +31,7 @@ import kotlin.math.min
 class DecoratedEditor private constructor(
   private val editorImpl: EditorImpl,
   private val manager: NotebookCellInlayManager,
-) : NotebookEditor, Disposable {
+) : NotebookEditor, Disposable.Default {
   override val hoveredCell: AtomicProperty<EditorCell?> = AtomicProperty(null)
   override val singleFileDiffMode: AtomicProperty<Boolean> = AtomicProperty(false)
 
@@ -39,21 +39,15 @@ class DecoratedEditor private constructor(
     Disposer.register(this, it)
   }
 
-
   init {
     wrapEditorComponent(editorImpl)
     notebookEditorKey.set(editorImpl, this)
-  }
-
-  override fun dispose() {
   }
 
   private fun wrapEditorComponent(editor: EditorImpl) {
     val nestedScrollingSupport = NestedScrollingSupportImpl()
 
     NotebookAWTMouseDispatcher(editor.scrollPane).apply {
-
-
       eventDispatcher.addListener { event ->
         if (event is MouseWheelEvent) {
           nestedScrollingSupport.processMouseWheelEvent(event)
@@ -81,11 +75,8 @@ class DecoratedEditor private constructor(
           if (editorImpl.getMouseEventArea(event) != EditorMouseEventArea.EDITING_AREA) {
             editorImpl.setMode(NotebookEditorMode.COMMAND)
           }
-          val shouldConsumeEvent = updateSelectionAfterClick(hoveredCell.interval, event.isCtrlPressed(),
-                                                             event.isShiftPressed(), event.button)
-          if (shouldConsumeEvent) {
-            event.consume()
-          }
+          updateSelectionAfterClick(hoveredCell.interval, event.isCtrlPressed(),
+                                    event.isShiftPressed(), event.button)
         }
       }
 
@@ -101,6 +92,8 @@ class DecoratedEditor private constructor(
     private val editorViewport: JViewport,
     component: Component,
   ) : JPanel(BorderLayout()) {
+
+    // The only need to use JLayer here is our frame borders around notebook cells.
     private val layeredPane: JLayer<JPanel>
     private val overlayLines = mutableListOf<Pair<Line2D, Color>>()
 
@@ -116,24 +109,22 @@ class DecoratedEditor private constructor(
         add(viewportWrapper, BorderLayout.CENTER)
       }
 
-      layeredPane = JLayer(editorPanel).apply {
-        setUI(object : LayerUI<JPanel>() {
-          override fun paint(graphics: Graphics, component: JComponent) {
-            super.paint(graphics, component)
+      layeredPane = JLayer(editorPanel, object : LayerUI<JPanel>() {
+        override fun paint(graphics: Graphics, component: JComponent) {
+          super.paint(graphics, component)
 
-            val g2d = graphics.create() as Graphics2D
-            try {
-              for ((line, color) in overlayLines) {
-                g2d.color = color
-                g2d.draw(line)
-              }
-            }
-            finally {
-              g2d.dispose()
+          val g2d = graphics.create() as Graphics2D
+          try {
+            for ((line, color) in overlayLines) {
+              g2d.color = color
+              g2d.draw(line)
             }
           }
-        })
-      }
+          finally {
+            g2d.dispose()
+          }
+        }
+      })
 
       add(layeredPane, BorderLayout.CENTER)
     }
@@ -157,16 +148,12 @@ class DecoratedEditor private constructor(
     }
   }
 
-
   override fun inlayClicked(clickedCell: NotebookCellLines.Interval, ctrlPressed: Boolean, shiftPressed: Boolean, mouseButton: Int) {
     editorImpl.setMode(NotebookEditorMode.COMMAND)
     updateSelectionAfterClick(clickedCell, ctrlPressed, shiftPressed, mouseButton)
   }
 
-  /**
-   * Return should event be consumed.
-   */
-  fun updateSelectionAfterClick(clickedCell: NotebookCellLines.Interval, ctrlPressed: Boolean, shiftPressed: Boolean, mouseButton: Int): Boolean {
+  fun updateSelectionAfterClick(clickedCell: NotebookCellLines.Interval, ctrlPressed: Boolean, shiftPressed: Boolean, mouseButton: Int) {
     val model = editorImpl.cellSelectionModel!!
     when {
       ctrlPressed -> {
@@ -203,10 +190,8 @@ class DecoratedEditor private constructor(
       }
       mouseButton == MouseEvent.BUTTON1 && !model.isSelectedCell(clickedCell) -> {
         model.selectSingleCell(clickedCell)
-        return false
       }
     }
-    return false
   }
 
   companion object {

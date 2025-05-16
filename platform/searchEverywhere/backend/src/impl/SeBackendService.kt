@@ -162,7 +162,7 @@ class SeBackendService(val project: Project, private val coroutineScope: Corouti
     providerIds: List<SeProviderId>,
   ): Map<SeProviderId, @Nls String> {
     val allProviders = getProviders(sessionRef, dataContextId)
-    return allProviders.filter { providerIds.contains(it.key) }.mapValues { it.value.displayName}
+    return allProviders.filter { providerIds.contains(it.key) }.mapValues { it.value.displayName }
   }
 
   companion object {
