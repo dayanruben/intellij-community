@@ -4720,7 +4720,6 @@ f:com.intellij.vcs.commit.ChangesViewCommitPanel
 - getIncludedUnversionedFiles():java.util.List
 - getInclusionModel():com.intellij.openapi.vcs.changes.InclusionModel
 - isActive():Z
-- f:isToolbarHorizontal():Z
 - refreshChangesViewBeforeCommit(kotlin.coroutines.Continuation):java.lang.Object
 - f:registerRootComponent(javax.swing.JComponent):V
 - select(java.lang.Object):V
@@ -4728,7 +4727,6 @@ f:com.intellij.vcs.commit.ChangesViewCommitPanel
 - setCompletionContext(java.util.List):V
 - setEditedCommit(com.intellij.vcs.commit.EditedCommitPresentation):V
 - setInclusionModel(com.intellij.openapi.vcs.changes.InclusionModel):V
-- f:setToolbarHorizontal(Z):V
 com.intellij.vcs.commit.ChangesViewCommitWorkflowUi
 - com.intellij.vcs.commit.NonModalCommitWorkflowUi
 - a:deactivate(Z):V
@@ -4840,7 +4838,7 @@ c:com.intellij.vcs.commit.CommitProgressPanel
 - com.intellij.openapi.editor.event.DocumentListener
 - com.intellij.openapi.vcs.changes.InclusionListener
 - com.intellij.vcs.commit.CommitProgressUi
-- <init>():V
+- <init>(com.intellij.openapi.project.Project):V
 - addCommitCheckFailure(com.intellij.vcs.commit.CommitCheckFailure):V
 - p:buildErrorText():java.lang.String
 - clearCommitCheckFailures():V
@@ -4987,11 +4985,9 @@ f:com.intellij.vcs.commit.NonModalAmendCommitHandler
 a:com.intellij.vcs.commit.NonModalCommitPanel
 - com.intellij.openapi.editor.colors.EditorColorsListener
 - com.intellij.openapi.ui.ComponentContainer
-- com.intellij.util.ui.components.BorderLayoutPanel
 - com.intellij.vcs.commit.CommitAuthorTracker
 - com.intellij.vcs.commit.NonModalCommitWorkflowUi
 - sf:Companion:com.intellij.vcs.commit.NonModalCommitPanel$Companion
-- p:bottomPanel:javax.swing.JPanel
 - <init>(com.intellij.openapi.project.Project,com.intellij.vcs.commit.CommitActionsPanel,com.intellij.vcs.commit.CommitAuthorComponent):V
 - b:<init>(com.intellij.openapi.project.Project,com.intellij.vcs.commit.CommitActionsPanel,com.intellij.vcs.commit.CommitAuthorComponent,I,kotlin.jvm.internal.DefaultConstructorMarker):V
 - addCommitAuthorListener(com.intellij.vcs.commit.CommitAuthorListener,com.intellij.openapi.Disposable):V
@@ -5001,11 +4997,9 @@ a:com.intellij.vcs.commit.NonModalCommitPanel
 - dispose():V
 - endBeforeCommitChecks(com.intellij.vcs.commit.CommitChecksResult):V
 - pf:fireInclusionChanged():V
-- pf:getBottomPanel():javax.swing.JPanel
 - pf:getCenterPanel():com.intellij.util.ui.components.BorderLayoutPanel
 - f:getCommitActionsPanel():com.intellij.vcs.commit.CommitActionsPanel
 - getCommitAuthor():com.intellij.vcs.log.VcsUser
-- f:getCommitAuthorComponent():com.intellij.vcs.commit.CommitAuthorComponent
 - getCommitAuthorDate():java.util.Date
 - f:getCommitMessage():com.intellij.openapi.vcs.ui.CommitMessage
 - getCommitMessageUi():com.intellij.vcs.commit.CommitMessageUi
@@ -5013,22 +5007,22 @@ a:com.intellij.vcs.commit.NonModalCommitPanel
 - getDefaultCommitActionName():java.lang.String
 - getPreferredFocusableComponent():javax.swing.JComponent
 - f:getProject():com.intellij.openapi.project.Project
+- pf:getStatusComponent():com.intellij.vcs.commit.CommitStatusPanel
 - f:getToolbar():com.intellij.openapi.actionSystem.ActionToolbar
 - globalSchemeChange(com.intellij.openapi.editor.colors.EditorColorsScheme):V
 - isDefaultCommitActionEnabled():Z
-- pf:setBottomPanel(javax.swing.JPanel):V
 - setCommitAuthor(com.intellij.vcs.log.VcsUser):V
 - setCommitAuthorDate(java.util.Date):V
 - setCustomCommitActions(java.util.List):V
 - setDefaultCommitActionEnabled(Z):V
 - setDefaultCommitActionName(java.lang.String):V
 - setPrimaryCommitActions(java.util.List):V
+- pf:setProgressComponent(com.intellij.vcs.commit.CommitProgressPanel):V
 - p:showCommitOptions(com.intellij.openapi.ui.popup.JBPopup,Z,com.intellij.openapi.actionSystem.DataContext):V
 - showCommitOptions(com.intellij.vcs.commit.CommitOptions,java.lang.String,Z,com.intellij.openapi.actionSystem.DataContext):V
 - startBeforeCommitChecks():V
 - uiDataSnapshot(com.intellij.openapi.actionSystem.DataSink):V
 - f:uiDataSnapshotFromProviders(com.intellij.openapi.actionSystem.DataSink):V
-- updateUI():V
 f:com.intellij.vcs.commit.NonModalCommitPanel$Companion
 - f:showAbove(com.intellij.openapi.ui.popup.JBPopup,javax.swing.JComponent):V
 a:com.intellij.vcs.commit.NonModalCommitWorkflow

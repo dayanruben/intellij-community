@@ -86,7 +86,7 @@ internal open class FirClassifierCompletionContributor(
                         val reference = receiverExpression.reference()
                             ?: return@runChainCompletion emptySequence()
 
-                        // TODO val weighingContext = WeighingContext.create(parameters, positionContext)
+                        val weighingContext = WeighingContext.create(parameters, positionContext)
                         reference.resolveToSymbols()
                             .asSequence()
                             .mapNotNull { it.staticScope }
@@ -158,7 +158,7 @@ internal open class FirClassifierCompletionContributor(
                 positionContext = positionContext,
                 parameters = parameters,
                 symbolProvider = symbolFromIndexProvider,
-                scopeNameFilter = scopeNameFilter,
+                scopeNameFilter = getIndexNameFilter(),
                 visibilityChecker = visibilityChecker,
             ).filter { it !in availableFromScope && filterClassifiers(it) }
                 .flatMap { classifierSymbol ->

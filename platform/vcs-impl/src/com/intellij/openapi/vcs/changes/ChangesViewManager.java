@@ -663,7 +663,7 @@ public class ChangesViewManager implements ChangesViewEx,
 
         ChangesViewCommitPanel newCommitPanel = (ChangesViewCommitPanel)newWorkflowHandler.getUi();
         newCommitPanel.registerRootComponent(this);
-        myCommitPanelSplitter.setSecondComponent(newCommitPanel);
+        myCommitPanelSplitter.setSecondComponent(newCommitPanel.getComponent());
 
         myCommitWorkflowHandler = newWorkflowHandler;
         myCommitPanel = newCommitPanel;
@@ -690,7 +690,6 @@ public class ChangesViewManager implements ChangesViewEx,
     private void configureToolbars() {
       boolean isToolbarHorizontal = CommitModeManager.getInstance(myProject).getCurrentCommitMode().useCommitToolWindow();
       myChangesPanel.setToolbarHorizontal(isToolbarHorizontal);
-      if (myCommitPanel != null) myCommitPanel.setToolbarHorizontal(isToolbarHorizontal);
     }
 
     @Override
