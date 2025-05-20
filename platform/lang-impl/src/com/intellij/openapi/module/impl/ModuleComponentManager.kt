@@ -8,17 +8,22 @@ import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.client.ClientKind
 import com.intellij.openapi.components.ComponentConfig
+import com.intellij.openapi.components.PathMacroManager
+import com.intellij.openapi.components.ServiceDescriptor
+import com.intellij.openapi.components.impl.stores.ComponentStoreOwner
 import com.intellij.openapi.components.impl.stores.IComponentStore
-import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.module.Module
 import com.intellij.serviceContainer.ComponentManagerImpl
 import com.intellij.serviceContainer.PrecomputedExtensionModel
 import com.intellij.serviceContainer.emptyConstructorMethodType
 import com.intellij.serviceContainer.findConstructorOrNull
+import com.intellij.workspaceModel.ide.impl.legacyBridge.module.ModuleBridgeImpl
 import org.jetbrains.annotations.ApiStatus
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
@@ -84,7 +89,8 @@ class ModuleComponentManager(parent: ComponentManagerImpl) : ComponentManagerImp
 
   override fun dispose() {
     runCatching {
-      serviceIfCreated<IComponentStore>()?.release()
+      // TODO (IJPL-188338): this should better be moved to ModuleBridgeImpl.dispose(). But at the moment dispose() method is not invoked for modules.
+      (module as ModuleBridgeImpl).resetModuleStore()
     }.getOrLogException(LOG)
     super.dispose()
   }
@@ -108,4 +114,38 @@ class ModuleComponentManager(parent: ComponentManagerImpl) : ComponentManagerImp
       unregisterComponent(DeprecatedModuleOptionManager::class.java)
     }
   }
+
+  override fun registerService(serviceInterface: Class<*>, implementation: Class<*>, pluginDescriptor: PluginDescriptor, override: Boolean, clientKind: ClientKind?) {
+    if (serviceInterface == IComponentStore::class.java) {
+      LOG.error("Don't register IComponentStore as a module service. " +
+                "Override project service ModuleStoreFactory as a temporary solution if default store override is needed.")
+    }
+    else if (serviceInterface == PathMacroManager::class.java) {
+      LOG.error("Don't use PathMacroManager as a module service. Please submit (vote for existing) YT ticket if you need " +
+                "to customize module-level macroses. " +
+                "(macroses needs to be expanded before module instance is initialized, existing service override didn't work well anyway)")
+    }
+    super.registerService(serviceInterface, implementation, pluginDescriptor, override, clientKind)
+  }
+
+  override fun isServiceSuitable(descriptor: ServiceDescriptor): Boolean {
+    return when (descriptor.serviceInterface) {
+      "com.intellij.openapi.components.impl.stores.IComponentStore" -> {
+        LOG.error("Don't use IComponentStore as a module service. Use extension function ComponentManager.stateStore instead.")
+        false
+      }
+      "com.intellij.openapi.components.PathMacroManager" -> {
+        LOG.error("Don't use PathMacroManager as a module service. Please submit (vote for existing) YT ticket if you need " +
+                  "to customize module-level macroses. " +
+                  "(macroses needs to be expanded before module instance is initialized, existing service override didn't work well anyway)")
+        false
+      }
+      else -> {
+        super.isServiceSuitable(descriptor)
+      }
+    }
+  }
+
+  override val componentStore: IComponentStore
+    get() = (module as ComponentStoreOwner).componentStore
 }

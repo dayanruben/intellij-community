@@ -1,22 +1,24 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.legacyBridge.module
 
+import com.intellij.configurationStore.DefaultModuleStoreFactory
+import com.intellij.configurationStore.ModuleStoreFactory
 import com.intellij.configurationStore.RenameableStateStorageManager
 import com.intellij.facet.Facet
 import com.intellij.facet.FacetManager
 import com.intellij.facet.FacetManagerFactory
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.components.ComponentManager
 import com.intellij.openapi.components.PathMacroManager
 import com.intellij.openapi.components.impl.ModulePathMacroManager
+import com.intellij.openapi.components.impl.stores.ComponentStoreOwner
 import com.intellij.openapi.components.impl.stores.IComponentStore
+import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.impl.ModuleImpl
-import com.intellij.openapi.module.impl.NonPersistentModuleStore
 import com.intellij.openapi.project.Project
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.diagnostic.telemetry.helpers.Milliseconds
@@ -26,12 +28,14 @@ import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.VersionedEntityStorage
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.serviceContainer.PrecomputedExtensionModel
+import com.intellij.util.application
 import com.intellij.workspaceModel.ide.impl.VirtualFileUrlBridge
 import com.intellij.workspaceModel.ide.impl.jpsMetrics
 import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge
 import com.intellij.workspaceModel.ide.toPath
 import io.opentelemetry.api.metrics.Meter
 import org.jetbrains.annotations.ApiStatus
+import java.util.concurrent.atomic.AtomicReference
 
 @Suppress("OVERRIDE_DEPRECATION")
 @ApiStatus.Internal
@@ -48,7 +52,7 @@ class ModuleBridgeImpl(
   project = project,
   virtualFilePointer = virtualFileUrl as? VirtualFileUrlBridge,
   componentManager = componentManager
-), ModuleBridge {
+), ModuleBridge, ComponentStoreOwner {
   override fun rename(newName: String, newModuleFileUrl: VirtualFileUrl?, notifyStorage: Boolean) {
     imlFilePointer = newModuleFileUrl as VirtualFileUrlBridge
     rename(newName, notifyStorage)
@@ -62,21 +66,11 @@ class ModuleBridgeImpl(
   override fun onImlFileMoved(newModuleFileUrl: VirtualFileUrl) {
     // There are some cases when `ModuleBridgeImpl` starts saving data into the IML (e.g., new Gradle import), so we
     // need to reregister `IComponentStore` from `NonPersistentModuleStore` to `ModuleStoreImpl`
-    if (imlFilePointer == null && store is NonPersistentModuleStore) {
-      val plugins = PluginManagerCore.getPluginSet().getEnabledModules()
-      val corePluginDescriptor = plugins.find { it.pluginId == PluginManagerCore.CORE_ID }
-                                 ?: error("Core plugin with id: ${PluginManagerCore.CORE_ID} should be available")
-
-      val classLoader = javaClass.classLoader
-      val moduleStoreImpl = classLoader.loadClass("com.intellij.configurationStore.ModuleStoreImpl")
-      getModuleComponentManager().registerService(
-        serviceInterface = IComponentStore::class.java,
-        implementation = moduleStoreImpl,
-        pluginDescriptor = corePluginDescriptor,
-        override = true
-      )
-    }
+    val shouldResetModuleStore = (imlFilePointer == null)
     imlFilePointer = newModuleFileUrl as VirtualFileUrlBridge
+    if (shouldResetModuleStore) {
+      resetModuleStore()
+    }
     val imlPath = newModuleFileUrl.toPath()
     (store.storageManager as? RenameableStateStorageManager)?.pathRenamed(imlPath, null)
     store.setPath(imlPath)
@@ -202,4 +196,34 @@ class ModuleBridgeImpl(
       setupOpenTelemetryReporting(jpsMetrics.meter)
     }
   }
+
+  internal fun resetModuleStore() {
+    val existingStore = componentStoreRef.getAndSet(null)
+    existingStore?.release()
+  }
+
+  private val componentStoreRef = AtomicReference<IComponentStore?>()
+
+  override val componentStore: IComponentStore
+    get() {
+      while (true) {
+        val existing = componentStoreRef.get()
+        if (existing != null) {
+          return existing
+        }
+
+        val newInstance = if (isPersistent) {
+          application.service<ModuleStoreFactory>().createModuleStore(this)
+        }
+        else {
+          DefaultModuleStoreFactory.createNonPersistentStore(this)
+        }
+        if (componentStoreRef.compareAndSet(null, newInstance)) {
+          return newInstance
+        }
+        else {
+          newInstance.release()
+        }
+      }
+    }
 }

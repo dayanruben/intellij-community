@@ -3,9 +3,11 @@
 
 package com.intellij.openapi.module.impl
 
+import com.intellij.configurationStore.NonPersistentModuleStore
 import com.intellij.configurationStore.RenameableStateStorageManager
 import com.intellij.ide.highlighter.ModuleFileType
 import com.intellij.openapi.components.*
+import com.intellij.openapi.components.impl.stores.ComponentStoreOwner
 import com.intellij.openapi.components.impl.stores.IComponentStore
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
@@ -14,6 +16,7 @@ import com.intellij.openapi.roots.ExternalProjectSystemRegistry
 import com.intellij.openapi.roots.ProjectModelElement
 import com.intellij.openapi.roots.ProjectModelExternalSource
 import com.intellij.openapi.ui.Queryable
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.SimpleModificationTracker
 import com.intellij.openapi.vfs.VirtualFile
@@ -73,19 +76,11 @@ open class ModuleImpl(
     // because there are a lot of modules and no need to measure each one
     val moduleComponentManager = getModuleComponentManager()
     moduleComponentManager.registerComponents()
-    if (!isPersistent) {
-      moduleComponentManager.registerService(
-        serviceInterface = IComponentStore::class.java,
-        implementation = NonPersistentModuleStore::class.java,
-        pluginDescriptor = fakeCorePluginDescriptor,
-        override = true,
-      )
-    }
     @Suppress("DEPRECATION")
     moduleComponentManager.createComponents()
   }
 
-  private val isPersistent: Boolean
+  protected val isPersistent: Boolean
     get() = imlFilePointer != null
 
   override val delegateComponentManager: ComponentManagerEx
@@ -109,12 +104,16 @@ open class ModuleImpl(
   }
 
   protected val store: IComponentStore
-    get() = componentManager.getService(IComponentStore::class.java)!!
+    get() = (this as ComponentStoreOwner).componentStore
 
   final override fun canStoreSettings(): Boolean = store !is NonPersistentModuleStore
 
   override fun getModuleNioFile(): Path {
-    return if (isPersistent) store.storageManager.expandMacro(StoragePathMacros.MODULE_FILE) else Path.of("")
+    // FIXME (IJPL-188482): we have a race: saving a project collect save sessions, which have reference to PathMacroManager.
+    //  PathMacroManager might be disposed (together with the module) by the moment when save sessions are actually committed to the disk.
+    //  Reproducer: com.intellij.workspaceModel.integrationTests.tests.aggregator.maven.changes.MavenMultiModulesProjectAddTwoModulesTest.mavenMultiModulesProjectAddTwoModules
+    val isDisposed = Disposer.isDisposed(this)
+    return if (!isDisposed && isPersistent) store.storageManager.expandMacro(StoragePathMacros.MODULE_FILE) else Path.of("")
   }
 
   @Synchronized

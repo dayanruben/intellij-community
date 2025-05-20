@@ -16,7 +16,7 @@ import static org.jetbrains.jps.util.Iterators.collect;
 import static org.jetbrains.jps.util.Iterators.filter;
 
 public class AbiJarBuilder extends ZipOutputBuilderImpl {
-  private static final String PACKAGE_INDEX_STORAGE_ENTRY_NAME = "__abi_package_index__";
+  private static final String PACKAGE_INDEX_STORAGE_ENTRY_NAME = "__package_index__";
 
   private final Map<String, Long> myPackageIndex = new TreeMap<>(); // directoryEntryName -> digestOf(content entries)
   private boolean myPackageIndexChanged;
@@ -24,12 +24,16 @@ public class AbiJarBuilder extends ZipOutputBuilderImpl {
   @Nullable
   private final InstrumentationClassFinder myClassFinder;
 
-  public AbiJarBuilder(Path outputZip) throws IOException {
-    this(outputZip, null);
+  public AbiJarBuilder(Path zipPath) throws IOException {
+    this(zipPath, zipPath);
   }
 
-  public AbiJarBuilder(Path outputZip, @Nullable InstrumentationClassFinder classFinder) throws IOException {
-    super(outputZip);
+  public AbiJarBuilder(Path readZipPath, Path writeZipPath) throws IOException {
+    this(readZipPath, writeZipPath, null);
+  }
+
+  public AbiJarBuilder(Path readZipPath, Path writeZipPath, @Nullable InstrumentationClassFinder classFinder) throws IOException {
+    super(readZipPath, writeZipPath);
     myClassFinder = classFinder;
     byte[] content = getContent(PACKAGE_INDEX_STORAGE_ENTRY_NAME);
     if (content != null) {
@@ -87,7 +91,7 @@ public class AbiJarBuilder extends ZipOutputBuilderImpl {
 
   @Override
   public void putEntry(String entryName, byte[] content) {
-    byte[] filtered = filterAbiJarContent(content);
+    byte[] filtered = filterAbiJarContent(entryName, content);
     if (filtered != null) {
       super.putEntry(entryName, filtered);
       myPackageIndexChanged |= myPackageIndex.remove(getParentEntryName(entryName)) != null;
@@ -97,9 +101,13 @@ public class AbiJarBuilder extends ZipOutputBuilderImpl {
     }
   }
 
-  private byte @Nullable [] filterAbiJarContent(byte[] content) {
+  private byte @Nullable [] filterAbiJarContent(String entryName, byte[] content) {
     if (myClassFinder == null) {
       return content; // no instrumentation, if class finder is not specified
+    }
+
+    if (entryName.endsWith(".kotlin_module")) {
+      return content; // don't apply filtering on kotlin module, todo: check if we need this in abi jar
     }
     // todo: check content and instrument it before adding
     // todo: for java use JavaAbiClassVisitor, for kotlin-generated classes use KotlinAnnotationVisitor, abiMetadataProcessor

@@ -5,8 +5,8 @@ import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.*
-import com.intellij.openapi.components.impl.stores.IComponentStore
 import com.intellij.openapi.components.impl.stores.ModuleStore
+import com.intellij.openapi.components.impl.stores.stateStore
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.debug
@@ -492,11 +492,8 @@ abstract class ModuleManagerBridgeImpl(
         listenerCallbacks = null
       )
 
-      if (moduleFileUrl == null) {
-        registerNonPersistentModuleStore(module)
-      }
-      else {
-        val moduleStore = module.getService(IComponentStore::class.java) as ModuleStore
+      if (moduleFileUrl != null) {
+        val moduleStore = module.stateStore as ModuleStore
         moduleStore.setPath(path = moduleFileUrl.toPath(), virtualFile = null, isNew = isNew)
       }
     }
@@ -519,8 +516,6 @@ abstract class ModuleManagerBridgeImpl(
     module.callCreateComponents()
     return@addMeasuredTime module
   }
-
-  open fun registerNonPersistentModuleStore(module: ModuleBridge) {}
 
   abstract fun loadModuleToBuilder(moduleName: String, filePath: String, diff: MutableEntityStorage): ModuleEntity
 

@@ -499,6 +499,13 @@
                      level="ERROR"
                      implementationClass="org.jetbrains.idea.devkit.inspections.PotentialDeadlockInServiceInitializationInspection"/>
 
+    <localInspection language="UAST" shortName="PathAnnotationInspection"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.code"
+                     enabledByDefault="false" level="WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.path.PathAnnotationInspection"
+                     key="inspection.path.annotation.display.name"/>
+
     <localInspection language="JVM"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.code"
@@ -649,7 +656,7 @@
                  This results in better stack traces when generated assertions throw exceptions, but might slow down the compilation."/>
     <registryKey key="kotlin.commit.message.validation.enabled" defaultValue="true"
                  description="Enables commit messages validation for kotlin plugin"/>
-    <registryKey key="kotlin.build.tools.code.ownership.commit.message.enabled" defaultValue="false"
+    <registryKey key="kotlin.build.tools.code.ownership.commit.message.enabled" defaultValue="true"
                  description="Enables commit messages validation for Kotlin Build Tools code ownership"/>
     <codeInsight.declarativeInlayProvider
       providerId="devkit.threading"

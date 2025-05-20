@@ -11,8 +11,8 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.components.impl.ModulePathMacroManager
 import com.intellij.openapi.components.impl.ProjectPathMacroManager
 import com.intellij.openapi.components.impl.stores.ComponentStorageUtil
-import com.intellij.openapi.components.impl.stores.IComponentStore
 import com.intellij.openapi.components.impl.stores.IProjectStore
+import com.intellij.openapi.components.impl.stores.stateStore
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.getExternalConfigurationDir
@@ -24,6 +24,7 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.backend.workspace.WorkspaceModelCache
 import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
 import com.intellij.platform.workspace.jps.JpsProjectConfigLocation
@@ -74,6 +75,7 @@ open class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(proje
     projectSessionManager: ProjectSaveSessionProducerManager
   ) {
     projectSessionManager as ProjectWithModulesSaveSessionProducerManager
+    val workspaceModel = project.serviceAsync<WorkspaceModel>()
 
     val moduleManager = project.serviceAsync<ModuleManager>()
     val writer = if (shouldWriteExternalFilesDirectly()) {
@@ -83,7 +85,7 @@ open class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(proje
       DelegatingJpsStorageContentWriter(session = projectSessionManager, store = this, project = project)
     }
 
-    project.serviceAsync<JpsProjectModelSynchronizer>().saveChangedProjectEntities(writer)
+    project.serviceAsync<JpsProjectModelSynchronizer>().saveChangedProjectEntities(writer, workspaceModel)
     (project.serviceAsync<WorkspaceModelCache>() as WorkspaceModelCacheImpl).doCacheSavingOnProjectClose()
 
     for (module in moduleManager.modules) {
@@ -91,7 +93,7 @@ open class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(proje
         continue
       }
 
-      val moduleStore = module.serviceAsync<IComponentStore>() as? ComponentStoreImpl ?: continue
+      val moduleStore = module.stateStore as? ComponentStoreImpl ?: continue
       val moduleSessionManager = moduleStore.createSaveSessionProducerManager()
       moduleStore.commitComponents(isForce = forceSavingAllSettings, sessionManager = moduleSessionManager, saveResult = saveResult)
       projectSessionManager.commitComponents(moduleStore = moduleStore, moduleSaveSessionManager = moduleSessionManager)
