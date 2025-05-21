@@ -41,6 +41,7 @@ import com.intellij.openapi.util.*
 import com.intellij.platform.instanceContainer.internal.*
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.concurrency.ThreadingAssertions
+import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.containers.UList
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusFactory
@@ -317,10 +318,11 @@ abstract class ComponentManagerImpl(
     registerComponents(modules = PluginManagerCore.getPluginSet().getEnabledModules(), app = getApplication())
   }
 
-  open fun registerComponents(modules: List<IdeaPluginDescriptorImpl>,
-                              app: Application?,
-                              precomputedExtensionModel: PrecomputedExtensionModel? = null,
-                              listenerCallbacks: MutableList<in Runnable>? = null) {
+  open fun registerComponents(
+    modules: List<IdeaPluginDescriptorImpl>,
+    app: Application?,
+    listenerCallbacks: MutableList<in Runnable>? = null
+  ) {
     val activityNamePrefix = activityNamePrefix()
 
     var listenersByTopicName: ConcurrentMap<String, MutableList<PluginListenerDescriptor>>? = null
@@ -331,7 +333,7 @@ abstract class ComponentManagerImpl(
 
     // register services before registering extensions because plugins can access services in their extensions,
     // which can be invoked right away if the plugin is loaded dynamically
-    val extensionPoints = if (precomputedExtensionModel == null) HashMap(extensionArea.nameToPointMap) else null
+    val extensionPoints = HashMap(extensionArea.nameToPointMap)
     for (rootModule in modules) {
       executeRegisterTask(rootModule) { module ->
         val containerDescriptor = getContainerDescriptor(module)
@@ -352,7 +354,7 @@ abstract class ComponentManagerImpl(
             .add(PluginListenerDescriptor(listener, module))
         }
 
-        if (extensionPoints != null && containerDescriptor.extensionPoints.isNotEmpty()) {
+        if (containerDescriptor.extensionPoints.isNotEmpty()) {
           createExtensionPoints(points = containerDescriptor.extensionPoints,
                                 componentManager = this,
                                 result = extensionPoints,
@@ -365,18 +367,12 @@ abstract class ComponentManagerImpl(
       activity = activity.endAndStart("${activityNamePrefix}extension registration")
     }
 
-    if (precomputedExtensionModel == null) {
-      extensionArea.reset(extensionPoints!!)
+    extensionArea.reset(extensionPoints)
 
-      for (rootModule in modules) {
-        executeRegisterTask(rootModule) { module ->
-          module.registerExtensions(nameToPoint = extensionPoints,
-                                    listenerCallbacks = listenerCallbacks)
-        }
+    for (rootModule in modules) {
+      executeRegisterTask(rootModule) { module ->
+        module.registerExtensions(nameToPoint = extensionPoints, listenerCallbacks = listenerCallbacks)
       }
-    }
-    else {
-      registerExtensionPointsAndExtensionByPrecomputedModel(precomputedExtensionModel, listenerCallbacks)
     }
 
     activity?.end()
@@ -395,9 +391,7 @@ abstract class ComponentManagerImpl(
     }
   }
 
-  private fun registerExtensionPointsAndExtensionByPrecomputedModel(precomputedExtensionModel: PrecomputedExtensionModel,
-                                                                    listenerCallbacks: MutableList<in Runnable>?) {
-    val extensionArea = extensionArea
+  protected fun registerExtensionPointsAndExtensionByPrecomputedModel(precomputedExtensionModel: PrecomputedExtensionModel) {
     if (precomputedExtensionModel.extensionPoints.isEmpty()) {
       return
     }
@@ -407,13 +401,14 @@ abstract class ComponentManagerImpl(
       createExtensionPoints(points = points, componentManager = this, result = result, pluginDescriptor = pluginDescriptor)
     }
 
+    val extensionArea = extensionArea
     assert(extensionArea.nameToPointMap.isEmpty())
     extensionArea.reset(result)
 
     for ((name, item) in precomputedExtensionModel.nameToExtensions) {
       val point = result.get(name) ?: continue
       for ((pluginDescriptor, extensions) in item) {
-        point.registerExtensions(descriptors = extensions, pluginDescriptor = pluginDescriptor, listenerCallbacks = listenerCallbacks)
+        point.registerExtensions(descriptors = extensions, pluginDescriptor = pluginDescriptor, listenerCallbacks = null)
       }
     }
   }
@@ -486,22 +481,18 @@ abstract class ComponentManagerImpl(
     }
   }
 
+  fun markContainerAsCreated() {
+    check(containerState.compareAndSet(ContainerState.PRE_INIT, ContainerState.COMPONENT_CREATED))
+  }
+
   @Suppress("DuplicatedCode")
   @Deprecated(message = "Use createComponentsNonBlocking")
-  protected open fun createComponents() {
+  @RequiresBlockingContext
+  protected fun doCreateComponents() {
     LOG.assertTrue(containerState.get() == ContainerState.PRE_INIT)
-
-    val activity = when (val activityNamePrefix = activityNamePrefix()) {
-      null -> null
-      else -> StartUpMeasurer.startActivity("$activityNamePrefix${StartUpMeasurer.Activities.CREATE_COMPONENTS_SUFFIX}")
-    }
-
     runBlockingInitialization {
       componentContainer.preloadAllInstances()
     }
-
-    activity?.end()
-
     LOG.assertTrue(containerState.compareAndSet(ContainerState.PRE_INIT, ContainerState.COMPONENT_CREATED))
   }
 
@@ -544,6 +535,10 @@ abstract class ComponentManagerImpl(
   }
 
   protected fun registerServices(services: List<ServiceDescriptor>, pluginDescriptor: IdeaPluginDescriptor) {
+    if (services.isEmpty()) {
+      return
+    }
+
     LOG.trace { "${pluginDescriptor.pluginId} - registering services" }
     try {
       registerServices2Inner(services, pluginDescriptor)
@@ -561,9 +556,6 @@ abstract class ComponentManagerImpl(
   }
 
   private fun registerServices2Inner(services: List<ServiceDescriptor>, pluginDescriptor: IdeaPluginDescriptor) {
-    if (services.isEmpty()) {
-      return
-    }
     val pluginClassLoader = pluginDescriptor.pluginClassLoader
     val registrationScope = if (pluginClassLoader is PluginAwareClassLoader) {
       pluginClassLoader.pluginCoroutineScope
@@ -571,7 +563,6 @@ abstract class ComponentManagerImpl(
     else {
       null
     }
-    val keyClassNames = ArrayList<String>()
     val registrar = serviceContainer.startRegistration(registrationScope)
     val app = getApplication()!!
     for (descriptor in services) {
@@ -587,8 +578,7 @@ abstract class ComponentManagerImpl(
         else -> descriptor.serviceImplementation
       }
 
-      val key = descriptor.serviceInterface
-                ?: implementation
+      val key = descriptor.serviceInterface ?: implementation
       if (descriptor.overrides) {
         registrar.overrideInitializer(
           keyClassName = key,
@@ -596,32 +586,30 @@ abstract class ComponentManagerImpl(
             null
           }
           else {
-            keyClassNames.add(key)
             ServiceDescriptorInstanceInitializer(
               keyClassName = key,
               instanceClassName = implementation,
               componentManager = this,
-              pluginDescriptor,
+              pluginDescriptor = pluginDescriptor,
               serviceDescriptor = descriptor,
             )
           }
         )
       }
       else {
-        keyClassNames.add(key)
         registrar.registerInitializer(
           keyClassName = key,
           initializer = ServiceDescriptorInstanceInitializer(
             keyClassName = key,
             instanceClassName = checkNotNull(implementation),
             componentManager = this,
-            pluginDescriptor,
+            pluginDescriptor = pluginDescriptor,
             serviceDescriptor = descriptor,
           ),
         )
       }
     }
-    val handle: UnregisterHandle? = registrar.complete()
+    val handle = registrar.complete()
     if (handle != null) {
       pluginServicesStore.putServicesUnregisterHandle(pluginDescriptor, handle)
     }
@@ -1476,8 +1464,7 @@ internal fun doLoadClass(name: String, pluginDescriptor: PluginDescriptor, check
   }
 }
 
-private inline fun executeRegisterTask(mainPluginDescriptor: IdeaPluginDescriptorImpl,
-                                       crossinline task: (IdeaPluginDescriptorImpl) -> Unit) {
+private fun executeRegisterTask(mainPluginDescriptor: IdeaPluginDescriptorImpl, task: (IdeaPluginDescriptorImpl) -> Unit) {
   task(mainPluginDescriptor)
   executeRegisterTaskForOldContent(mainPluginDescriptor, task)
 }

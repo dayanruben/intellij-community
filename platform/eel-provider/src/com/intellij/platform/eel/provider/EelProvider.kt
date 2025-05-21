@@ -11,7 +11,6 @@ import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.eel.*
-import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.utils.toEelArch
 import com.intellij.platform.util.coroutines.forEachConcurrent
 import com.intellij.util.system.CpuArch
@@ -79,9 +78,12 @@ val localEel: LocalEelApi by lazy {
   if (SystemInfo.isWindows) ApplicationManager.getApplication().service<LocalWindowsEelApi>() else ApplicationManager.getApplication().service<LocalPosixEelApi>()
 }
 
-fun EelDescriptor.upgradeBlocking(): EelApi {
+@Deprecated("Use toEelApiBlocking() instead", ReplaceWith("toEelApiBlocking()"))
+fun EelDescriptor.upgradeBlocking(): EelApi = toEelApiBlocking()
+
+fun EelDescriptor.toEelApiBlocking(): EelApi {
   if (this === LocalEelDescriptor) return localEel
-  return runBlockingMaybeCancellable { upgrade() }
+  return runBlockingMaybeCancellable { toEelApi() }
 }
 
 data object LocalEelDescriptor : EelDescriptor {
@@ -102,7 +104,7 @@ data object LocalEelDescriptor : EelDescriptor {
     }
   }
 
-  override suspend fun upgrade(): EelApi {
+  override suspend fun toEelApi(): EelApi {
     return localEel
   }
 }

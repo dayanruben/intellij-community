@@ -14,7 +14,7 @@ import org.jetbrains.annotations.Nls
 
 @Serializable
 @ApiStatus.Internal
-class GitRepositoryState(
+data class GitRepositoryState(
   val currentRef: GitCurrentRef?,
   @NlsSafe
   val revision: GitHash?,
@@ -27,6 +27,13 @@ class GitRepositoryState(
   private val trackingInfo: Map<String, GitStandardRemoteBranch>,
 ) {
   val currentBranch: GitStandardLocalBranch? get() = (currentRef as? GitCurrentRef.LocalBranch)?.branch
+
+  /**
+   * For a fresh repository a list of local branches is empty.
+   * However, it still makes sense to show the current branch in the UI.
+   */
+  val localBranchesOrCurrent: Set<GitStandardLocalBranch>
+    get() = refs.localBranches.ifEmpty { setOfNotNull(currentBranch) }
 
   fun isCurrentRef(ref: GitReference): Boolean = currentRef != null && currentRef.matches(ref)
 

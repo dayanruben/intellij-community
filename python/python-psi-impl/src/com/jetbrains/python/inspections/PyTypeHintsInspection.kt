@@ -57,6 +57,8 @@ class PyTypeHintsInspection : PyInspection() {
   private class Visitor(holder: ProblemsHolder, context: TypeEvalContext) : PyInspectionVisitor(holder, context) {
 
     private val genericQName = QualifiedName.fromDottedString(PyTypingTypeProvider.GENERIC)
+    private val protocolQName = QualifiedName.fromDottedString(PyTypingTypeProvider.PROTOCOL)
+    private val protocolExtQName = QualifiedName.fromDottedString(PyTypingTypeProvider.PROTOCOL_EXT)
 
     override fun visitPyCallExpression(node: PyCallExpression) {
       super.visitPyCallExpression(node)
@@ -810,8 +812,8 @@ class PyTypeHintsInspection : PyInspection() {
 
     private fun checkGenericCompleteness(cls: PyClass) {
       var seenGeneric = false
-      val genericTypeVars = linkedSetOf<PsiElement>()
-      val nonGenericTypeVars = linkedSetOf<PsiElement>()
+      val genericTypeVars = linkedSetOf<PyTargetExpression>()
+      val nonGenericTypeVars = linkedSetOf<PyTargetExpression>()
 
       cls.superClassExpressions.forEach { superClass ->
         val generics = collectGenerics(superClass)
@@ -827,31 +829,24 @@ class PyTypeHintsInspection : PyInspection() {
       if (seenGeneric && (nonGenericTypeVars - genericTypeVars).isNotEmpty()) {
         val nonGenericTypeVarsNames = nonGenericTypeVars
           .asSequence()
-          .filterIsInstance<PyTargetExpression>()
-          .mapNotNull { it.name }
-          .joinToString(", ")
-
-        val genericTypeVarsNames = genericTypeVars
-          .asSequence()
-          .filterIsInstance<PyTargetExpression>()
           .mapNotNull { it.name }
           .joinToString(", ")
 
         registerProblem(cls.superClassExpressionList,
-                        PyPsiBundle.message("INSP.type.hints.some.type.variables.are.not.listed.in.generic",
-                                            nonGenericTypeVarsNames, genericTypeVarsNames),
+                        PyPsiBundle.message("INSP.type.hints.generic.or.protocol.should.list.all.type.variables",
+                                            nonGenericTypeVarsNames),
                         ProblemHighlightType.GENERIC_ERROR)
       }
     }
 
-    private fun collectGenerics(superClassExpression: PyExpression): Pair<Set<PsiElement>?, Set<PsiElement>> {
+    private fun collectGenerics(superClassExpression: PyExpression): Pair<Set<PyTargetExpression>?, Set<PyTargetExpression>> {
       val resolvedSuperClass =
         if (superClassExpression is PyReferenceExpression) multiFollowAssignmentsChain(superClassExpression)
         else listOf(superClassExpression)
 
       var seenGeneric = false
-      val genericTypeVars = linkedSetOf<PsiElement>()
-      val nonGenericTypeVars = linkedSetOf<PsiElement>()
+      val genericTypeVars = linkedSetOf<PyTargetExpression>()
+      val nonGenericTypeVars = linkedSetOf<PyTargetExpression>()
 
       resolvedSuperClass
         .asSequence()
@@ -861,7 +856,9 @@ class PyTypeHintsInspection : PyInspection() {
           val operand = superSubscription.operand
           val generic =
             operand is PyReferenceExpression &&
-            genericQName in PyResolveUtil.resolveImportedElementQNameLocally(operand)
+            PyResolveUtil.resolveImportedElementQNameLocally(operand).any {
+              it in listOf(genericQName, protocolQName, protocolExtQName)
+            }
 
           val index = superSubscription.indexExpression
           val parameters = (index as? PyTupleExpression)?.elements ?: arrayOf(index)
@@ -938,7 +935,8 @@ class PyTypeHintsInspection : PyInspection() {
 
       qNames.forEach {
         when (it) {
-          genericQName -> checkTypingGenericParameters(node)
+          genericQName -> checkTypingGenericParameters(node, false)
+          protocolQName, protocolExtQName -> checkTypingGenericParameters(node, true)
           literalQName, literalExtQName -> checkLiteralParameter(index)
           annotatedQName, annotatedExtQName -> checkAnnotatedParameter(index)
           typeAliasQName, typeAliasExtQName -> reportParameterizedTypeAlias(index)
@@ -1108,7 +1106,7 @@ class PyTypeHintsInspection : PyInspection() {
       return typeArgumentTypes
     }
 
-    private fun checkTypingGenericParameters(node: PySubscriptionExpression) {
+    private fun checkTypingGenericParameters(node: PySubscriptionExpression, isProtocol: Boolean) {
       val indexExpression = node.indexExpression ?: return
       val typeExpressions = (indexExpression as? PyTupleExpression)?.elements ?: arrayOf(indexExpression)
       val typeParams = mutableSetOf<PyTypeParameterType>()
@@ -1118,13 +1116,17 @@ class PyTypeHintsInspection : PyInspection() {
 
       for (typeExpr in typeExpressions) {
         if (typeExpr !is PyReferenceExpression && typeExpr !is PyStarExpression && typeExpr !is PySubscriptionExpression) {
-          registerProblem(typeExpr, PyPsiBundle.message("INSP.type.hints.parameters.to.generic.must.all.be.type.variables"),
+          registerProblem(typeExpr,
+                          PyPsiBundle.message("INSP.type.hints.parameters.to.generic.must.all.be.type.variables",
+                                              if (isProtocol) 1 else 0),
                           ProblemHighlightType.GENERIC_ERROR)
           continue
         }
         val typeParameterType = Ref.deref(PyTypingTypeProvider.getType(typeExpr, myTypeEvalContext))
         if (typeParameterType !is PyTypeParameterType) {
-          registerProblem(typeExpr, PyPsiBundle.message("INSP.type.hints.parameters.to.generic.must.all.be.type.variables"),
+          registerProblem(typeExpr,
+                          PyPsiBundle.message("INSP.type.hints.parameters.to.generic.must.all.be.type.variables",
+                                              if (isProtocol) 1 else 0),
                           ProblemHighlightType.GENERIC_ERROR)
           continue
         }

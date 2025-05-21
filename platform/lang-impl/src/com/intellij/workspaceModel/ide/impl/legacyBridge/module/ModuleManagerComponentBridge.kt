@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.legacyBridge.module
 
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.debug
@@ -30,6 +29,7 @@ import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.serviceContainer.getComponentManagerImpl
 import com.intellij.serviceContainer.precomputeModuleLevelExtensionModel
 import com.intellij.workspaceModel.ide.getJpsProjectConfigLocation
+import com.intellij.workspaceModel.ide.impl.VirtualFileUrlBridge
 import com.intellij.workspaceModel.ide.impl.jps.serialization.BaseIdeSerializationContext
 import com.intellij.workspaceModel.ide.impl.jps.serialization.CachingJpsFileContentReader
 import com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetEntityChangeListener
@@ -49,7 +49,6 @@ import kotlin.coroutines.coroutineContext
 
 private val LOG = logger<ModuleManagerComponentBridge>()
 
-
 private class ModuleManagerInitProjectActivity : InitProjectActivity {
   override suspend fun run(project: Project) {
     val modules = (project.serviceAsync<ModuleManager>() as ModuleManagerComponentBridge).modules().toList()
@@ -57,10 +56,8 @@ private class ModuleManagerInitProjectActivity : InitProjectActivity {
     span("firing modules_added event") {
       fireModulesAdded(project, modules)
     }
-    span("deprecated module component moduleAdded calling") {
-      for (module in modules) {
-        module.markAsLoaded()
-      }
+    for (module in modules) {
+      module.markAsLoaded()
     }
   }
 }
@@ -68,10 +65,8 @@ private class ModuleManagerInitProjectActivity : InitProjectActivity {
 @ApiStatus.Internal
 open class ModuleManagerComponentBridge(private val project: Project, coroutineScope: CoroutineScope)
   : ModuleManagerBridgeImpl(project = project, coroutineScope = coroutineScope, moduleRootListenerBridge = ModuleRootListenerBridgeImpl) {
-  private val virtualFileManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
-
   init {
-    // default project doesn't have facets
+    // a default project doesn't have facets
     if (!project.isDefault) {
       // Instantiate facet change listener as early as possible
       project.service<FacetEntityChangeListener>()
@@ -99,15 +94,11 @@ open class ModuleManagerComponentBridge(private val project: Project, coroutineS
     val moduleChanges = (event[ModuleEntity::class.java] as? List<EntityChange<ModuleEntity>>) ?: emptyList()
     LOG.debug { "Starting initialize bridges for ${moduleChanges.size} modules" }
 
-    // Theoretically, the module initialization can be parallelized using fork-join approach, see IJPL-149482
-    //   This approach is used in ModuleManagerBridgeImpl.loadModules
-    // However, simple use of Dispatchers.Default while being inside write action, may cause threading issues, see IDEA-355596
-    val precomputedModel = if (moduleChanges.isNotEmpty()) {
-      precomputeModuleLevelExtensionModel()
+    if (moduleChanges.isEmpty()) {
+      return
     }
-    else {
-      null
-    }
+
+    val precomputedModel = precomputeModuleLevelExtensionModel()
     for (change in moduleChanges) {
       if (change !is EntityChange.Added<ModuleEntity>) {
         continue
@@ -117,17 +108,13 @@ open class ModuleManagerComponentBridge(private val project: Project, coroutineS
       }
 
       LOG.debug { "Creating module instance for ${change.newEntity.name}" }
-      val plugins = PluginManagerCore.getPluginSet().getEnabledModules()
       val bridge = createModuleInstanceWithoutCreatingComponents(
         moduleEntity = change.newEntity,
         versionedStorage = entityStore,
         diff = builder,
         isNew = true,
-        precomputedExtensionModel = precomputedModel!!,
-        plugins = plugins,
+        precomputedExtensionModel = precomputedModel,
       )
-      LOG.debug { "Creating components ${change.newEntity.name}" }
-      bridge.callCreateComponents()
 
       LOG.debug { "${change.newEntity.name} module initialized" }
       builder.mutableModuleMap.addMapping(change.newEntity, bridge)
@@ -152,7 +139,8 @@ open class ModuleManagerComponentBridge(private val project: Project, coroutineS
   override fun loadModuleToBuilder(moduleName: String, filePath: String, diff: MutableEntityStorage): ModuleEntity {
     val builder = MutableEntityStorage.create()
     var errorMessage: String? = null
-    val configLocation = getJpsProjectConfigLocation(project)!!
+    val virtualFileManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
+    val configLocation = getJpsProjectConfigLocation(project, virtualFileManager)!!
     val context = SingleImlSerializationContext(virtualFileManager, CachingJpsFileContentReader(configLocation))
     JpsProjectEntitiesLoader.loadModule(Path.of(filePath), configLocation, builder, object : ErrorReporter {
       override fun reportError(message: String, file: VirtualFileUrl) {
@@ -177,6 +165,10 @@ open class ModuleManagerComponentBridge(private val project: Project, coroutineS
     return moduleEntity
   }
 
+  final override fun initFacets(modules: Collection<Pair<ModuleEntity, ModuleBridge>>) {
+    ModuleBridgeImpl.initFacets(modules, project, coroutineScope)
+  }
+
   override fun createModule(
     symbolicId: ModuleId,
     name: String,
@@ -186,18 +178,18 @@ open class ModuleManagerComponentBridge(private val project: Project, coroutineS
     init: (ModuleBridge) -> Unit,
   ): ModuleBridge {
     val componentManager = ModuleComponentManager(project.getComponentManagerImpl())
-    return ModuleBridgeImpl(
+    val moduleBridge = ModuleBridgeImpl(
       moduleEntityId = symbolicId,
       name = name,
       project = project,
-      virtualFileUrl = virtualFileUrl,
+      virtualFileUrl = virtualFileUrl as? VirtualFileUrlBridge,
       entityStorage = entityStorage,
       diff = diff,
       componentManager = componentManager,
-    ).also {
-      componentManager.initForModule(it)
-      init(it)
-    }
+    )
+    componentManager.initForModule(moduleBridge)
+    init(moduleBridge)
+    return moduleBridge
   }
 }
 

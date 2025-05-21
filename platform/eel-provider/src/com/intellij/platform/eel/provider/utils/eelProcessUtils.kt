@@ -4,8 +4,11 @@
 package com.intellij.platform.eel.provider.utils
 
 import com.intellij.openapi.util.IntellijInternalApi
-import com.intellij.platform.eel.*
+import com.intellij.platform.eel.EelExecApi
+import com.intellij.platform.eel.EelProcess
+import com.intellij.platform.eel.ExecuteProcessException
 import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.eel.spawnProcess
 import com.intellij.util.io.computeDetached
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.coroutineScope
@@ -79,7 +82,7 @@ suspend fun EelProcess.awaitProcessResult(): EelProcessExecutionResult {
 @ApiStatus.Internal
 @ApiStatus.Experimental
 suspend fun Path.exec(vararg args: String, timeout: Duration = Int.MAX_VALUE.days): EelProcessExecutionResult {
-  val process = getEelDescriptor().upgrade().exec.spawnProcess(pathString, *args).eelIt()
+  val process = getEelDescriptor().toEelApi().exec.spawnProcess(pathString, *args).eelIt()
   return withTimeoutOrNull(timeout) {
     process.awaitProcessResult()
   } ?: run {

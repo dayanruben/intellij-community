@@ -115,12 +115,15 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
   // PY-28227
   public void testGenericParametersTypes() {
     doTestByText("""
-                   from typing import Generic, TypeVar
+                   from typing import Generic, Protocol, TypeVar
 
                    class A1(Generic[<error descr="Parameters to 'Generic[...]' must all be type variables">0</error>]):
                        pass
 
                    class B1(Generic[<error descr="Parameters to 'Generic[...]' must all be type variables">int</error>]):
+                       pass
+                   
+                   class B11(Protocol[<error descr="Parameters to 'Protocol[...]' must all be type variables">int</error>]):
                        pass
 
                    class A2(Generic[<error descr="Parameters to 'Generic[...]' must all be type variables">0</error>, <error descr="Parameters to 'Generic[...]' must all be type variables">0</error>]):
@@ -209,17 +212,20 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
   // PY-28227
   public void testGenericCompleteness() {
     doTestByText("""
-                   from typing import Generic, TypeVar, Iterable
+                   from typing import Generic, TypeVar, Iterable, Protocol
 
                    T = TypeVar('T')
                    S = TypeVar('S')
 
-                   class C<error descr="Some type variables (S) are not listed in 'Generic[T]'">(Generic[T], Iterable[S])</error>:
+                   class C<error descr="'Generic[...]' or 'Protocol[...]' should list all type variables (S)">(Generic[T], Iterable[S])</error>:
+                       pass
+                   
+                   class P<error descr="'Generic[...]' or 'Protocol[...]' should list all type variables (S)">(Iterable[S], Protocol[T])</error>:
                        pass
 
                    B = Generic
                    D = T
-                   class A<error descr="Some type variables (S) are not listed in 'Generic[T]'">(B[<error descr="Parameters to 'Generic[...]' must all be type variables">D</error>], Iterable[S])</error>:
+                   class A<error descr="'Generic[...]' or 'Protocol[...]' should list all type variables (S)">(B[<error descr="Parameters to 'Generic[...]' must all be type variables">D</error>], Iterable[S])</error>:
                        pass
 
                    class E(Generic[T], Iterable[T]):
@@ -229,7 +235,8 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
                        pass
                    
                    class G(Iterable[T]):
-                       pass""");
+                       pass
+                   """);
   }
 
   // PY-31147

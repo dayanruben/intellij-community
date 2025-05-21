@@ -8,18 +8,18 @@ import com.intellij.openapi.client.ClientAppSession;
 import com.intellij.openapi.client.ClientProjectSession;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
-import com.intellij.openapi.command.undo.DocumentReference;
-import com.intellij.openapi.command.undo.DocumentReferenceManager;
-import com.intellij.openapi.command.undo.UndoManager;
-import com.intellij.openapi.command.undo.UndoableAction;
+import com.intellij.openapi.command.undo.*;
 import com.intellij.openapi.components.ComponentManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.impl.CurrentEditorProvider;
+import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts.Command;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.ExternalChangeAction;
 import org.jetbrains.annotations.NotNull;
@@ -37,11 +37,15 @@ final class UndoClientState implements Disposable {
   private static final int COMMAND_TO_RUN_COMPACT = 20;
   private static final int FREE_QUEUES_LIMIT = 30;
 
-  private final UndoManagerImpl undoManager;
-  private final ClientId clientId;
-  private final CommandMerger commandMerger;
-  private final UndoRedoStacksHolder undoStacksHolder;
-  private final UndoRedoStacksHolder redoStacksHolder;
+  private final @Nullable Project project;
+  private final @NotNull ClientId clientId;
+  private final @NotNull CommandMerger commandMerger;
+  private final @NotNull UndoRedoStacksHolder undoStacksHolder;
+  private final @NotNull UndoRedoStacksHolder redoStacksHolder;
+
+  private final @NotNull SharedAdjustableUndoableActionsHolder adjustableUndoableActionsHolder;
+  private final @NotNull SharedUndoRedoStacksHolder sharedUndoStacksHolder;
+  private final @NotNull SharedUndoRedoStacksHolder sharedRedoStacksHolder;
 
   private OperationInProgress currentOperation = OperationInProgress.NONE;
   private CommandMerger currentCommandMerger = null;
@@ -61,17 +65,26 @@ final class UndoClientState implements Disposable {
   }
 
   private UndoClientState(@NotNull UndoManagerImpl undoManager, @NotNull ClientId clientId) {
-    this.undoManager = undoManager;
+    this.project = undoManager.getProject();
     this.clientId = clientId;
-    this.commandMerger = new CommandMerger(this);
-    this.undoStacksHolder = new UndoRedoStacksHolder(true, undoManager.getAdjustableUndoableActionsHolder());
-    this.redoStacksHolder = new UndoRedoStacksHolder(false, undoManager.getAdjustableUndoableActionsHolder());
+    this.adjustableUndoableActionsHolder = undoManager.getAdjustableUndoableActionsHolder();
+    this.sharedUndoStacksHolder = undoManager.getSharedUndoStacksHolder();
+    this.sharedRedoStacksHolder = undoManager.getSharedRedoStacksHolder();
+    this.undoStacksHolder = new UndoRedoStacksHolder(true, adjustableUndoableActionsHolder);
+    this.redoStacksHolder = new UndoRedoStacksHolder(false, adjustableUndoableActionsHolder);
+    this.commandMerger = new CommandMerger(project, false);
   }
 
   @Override
   public void dispose() {
     Set<DocumentReference> affected = clearStacks();
-    undoManager.trimSharedStacks(affected);
+    sharedRedoStacksHolder.trimStacks(affected);
+    sharedUndoStacksHolder.trimStacks(affected);
+  }
+
+  boolean isActive() {
+    return Comparing.equal(project, currentProject) ||
+           project == null && currentProject.isDefault();
   }
 
   boolean isUndoRedoAvailable(@Nullable FileEditor editor, boolean isUndo) {
@@ -85,6 +98,40 @@ final class UndoClientState implements Disposable {
     }
     UndoRedoStacksHolder stacksHolder = isUndo ? undoStacksHolder : redoStacksHolder;
     return stacksHolder.canBeUndoneOrRedone(docRefs);
+  }
+
+  void undoOrRedo(
+    @Nullable FileEditor editor,
+    @Nullable @Command String commandName,
+    @NotNull Runnable beforeUndoRedoStarted,
+    boolean undo
+  ) {
+    currentOperation = undo ? OperationInProgress.UNDO : OperationInProgress.REDO;
+    try {
+      RuntimeException[] exception = new RuntimeException[1];
+      CommandProcessor.getInstance().executeCommand(
+        project,
+        () -> {
+          try {
+            beforeUndoRedoStarted.run();
+            CopyPasteManager.getInstance().stopKillRings();
+            undoOrRedo(editor, undo);
+          }
+          catch (RuntimeException ex) {
+            exception[0] = ex;
+          }
+        },
+        commandName,
+        null,
+        commandMerger.getUndoConfirmationPolicy()
+      );
+      if (exception[0] != null) {
+        throw exception[0];
+      }
+    }
+    finally {
+      currentOperation = OperationInProgress.NONE;
+    }
   }
 
   long getNextNanoTime(@NotNull FileEditor editor, boolean isUndo) {
@@ -111,28 +158,30 @@ final class UndoClientState implements Disposable {
   }
 
   void commandStarted(
-    @Nullable Project project,
+    @Nullable Project commandProject,
     @NotNull CurrentEditorProvider editorProvider,
     UndoConfirmationPolicy undoConfirmationPolicy,
     boolean recordOriginalReference
   ) {
     if (!isInsideCommand()) {
       boolean isTransparent = CommandProcessor.getInstance().isUndoTransparentActionInProgress();
-      currentCommandMerger = new CommandMerger(this, isTransparent);
-      if (project != null && recordOriginalReference) {
+      currentCommandMerger = new CommandMerger(project, isTransparent);
+      if (commandProject != null) {
+        currentProject = commandProject;
+      }
+      if (project != null && project == commandProject && recordOriginalReference) {
         originatorReference = UndoDocumentUtil.getDocReference(project, editorProvider);
       }
     }
-    LOG.assertTrue(currentCommandMerger != null);
-    currentCommandMerger.setBeforeState(EditorAndState.getStateFor(project, editorProvider));
+    currentCommandMerger.setEditorStateBefore(EditorAndState.getStateFor(project, editorProvider));
     currentCommandMerger.mergeUndoConfirmationPolicy(undoConfirmationPolicy);
     commandLevel++;
+    LOG.assertTrue(commandProject == null || !(currentProject instanceof DummyProject));
   }
 
   void commandFinished(
-    @Nullable Project project,
     @NotNull CurrentEditorProvider editorProvider,
-    @NlsContexts.Command String commandName,
+    @Command String commandName,
     @Nullable Object groupId
   ) {
     if (!isInsideCommand()) {
@@ -143,6 +192,7 @@ final class UndoClientState implements Disposable {
     if (isInsideCommand()) {
       return;
     }
+    CommandMerger currentCommandMerger = this.currentCommandMerger; // compactIfNeeded can null the reference
     if (project != null &&
         currentCommandMerger.hasActions() &&
         !currentCommandMerger.isTransparent() &&
@@ -151,9 +201,22 @@ final class UndoClientState implements Disposable {
       addDocumentAsAffected(originatorReference);
     }
     originatorReference = null;
-    currentCommandMerger.setAfterState(EditorAndState.getStateFor(project, editorProvider));
+    currentCommandMerger.setEditorStateAfter(EditorAndState.getStateFor(project, editorProvider));
+    // we do not want to spoil redo stack in situation, when some 'transparent' actions occurred right after undo.
+    if (!currentCommandMerger.isTransparent() && currentCommandMerger.hasActions()) {
+      clearRedoStacks(currentCommandMerger);
+    }
+    if (!commandMerger.shouldMerge(groupId, currentCommandMerger)) {
+      flushCurrentCommand();
+      compactIfNeeded();
+    }
     commandMerger.commandFinished(commandName, groupId, currentCommandMerger);
-    resetCurrentCommandMerger();
+    currentProject = DummyProject.getInstance();
+    this.currentCommandMerger = null;
+  }
+
+  void flushCurrentCommand() {
+    commandMerger.flushCurrentCommand(undoStacksHolder, nextCommandTimestamp());
   }
 
   boolean isInsideCommand() {
@@ -195,11 +258,7 @@ final class UndoClientState implements Disposable {
     currentCommandMerger.addAdditionalAffectedDocuments(refs);
   }
 
-  void addUndoableAction(
-    @Nullable Project project,
-    @NotNull CurrentEditorProvider editorProvider,
-    @NotNull UndoableAction action
-  ) {
+  void addUndoableAction(@NotNull CurrentEditorProvider editorProvider, @NotNull UndoableAction action) {
     if (isUndoOrRedoInProgress()) {
       return;
     }
@@ -208,22 +267,22 @@ final class UndoClientState implements Disposable {
       if (isRefresh()) {
         originatorReference = null;
       }
-      currentCommandMerger.addAction(action);
+      addUndoableAction(action);
     } else {
       LOG.assertTrue(
         action instanceof NonUndoableAction,
         "Undoable actions allowed inside commands only (see com.intellij.openapi.command.CommandProcessor.executeCommand())"
       );
-      commandStarted(project, editorProvider, UndoConfirmationPolicy.DEFAULT, false);
-      currentCommandMerger.addAction(action);
-      commandFinished(project, editorProvider, "", null);
+      commandStarted(null, editorProvider, UndoConfirmationPolicy.DEFAULT, false);
+      addUndoableAction(action);
+      commandFinished(editorProvider, "", null);
     }
   }
 
   void addDocumentAsAffected(@NotNull DocumentReference docRef) {
     if (currentCommandMerger != null && !currentCommandMerger.hasChangesOf(docRef, true)) {
       DocumentReference[] refs = {docRef};
-      currentCommandMerger.addAction(new MentionOnlyUndoableAction(refs));
+      addUndoableAction(new MentionOnlyUndoableAction(refs));
     }
   }
 
@@ -240,14 +299,6 @@ final class UndoClientState implements Disposable {
     return ++commandTimestamp;
   }
 
-  void startUndoOrRedo(boolean undo) {
-    currentOperation = undo ? OperationInProgress.UNDO : OperationInProgress.REDO;
-  }
-
-  void finishUndoOrRedo() {
-    currentOperation = OperationInProgress.NONE;
-  }
-
   boolean isUndoInProgress() {
     return currentOperation == OperationInProgress.UNDO;
   }
@@ -256,10 +307,26 @@ final class UndoClientState implements Disposable {
     return currentOperation == OperationInProgress.REDO;
   }
 
-  void compactIfNeeded() {
+  private void addActionToSharedStack(@NotNull UndoableAction action) {
+    if (action instanceof AdjustableUndoableAction adjustable) {
+      DocumentReference[] affected = action.getAffectedDocuments();
+      if (affected == null) {
+        return;
+      }
+      adjustableUndoableActionsHolder.addAction(adjustable);
+      for (DocumentReference reference : affected) {
+        for (MutableActionChangeRange changeRange : adjustable.getChangeRanges(reference)) {
+          sharedUndoStacksHolder.addToStack(reference, changeRange.toImmutable(false));
+          sharedRedoStacksHolder.addToStack(reference, changeRange.toImmutable(true));
+        }
+      }
+    }
+  }
+
+  private void compactIfNeeded() {
     if (!isUndoOrRedoInProgress() && commandTimestamp % COMMAND_TO_RUN_COMPACT == 0) {
       Set<DocumentReference> docsOnStacks = collectReferencesWithoutMergers();
-      docsOnStacks.removeIf(doc -> UndoDocumentUtil.isDocumentOpened(undoManager.getProject(), doc));
+      docsOnStacks.removeIf(doc -> UndoDocumentUtil.isDocumentOpened(project, doc));
       if (docsOnStacks.size() > FREE_QUEUES_LIMIT) {
         DocumentReference[] docsBackSorted = docsOnStacks.toArray(DocumentReference.EMPTY_ARRAY);
         Arrays.sort(docsBackSorted, Comparator.comparingInt(doc -> getLastCommandTimestamp(doc)));
@@ -269,22 +336,30 @@ final class UndoClientState implements Disposable {
             break;
           }
           clearUndoRedoQueue(doc);
-          undoManager.trimSharedStacks(doc);
+          sharedRedoStacksHolder.trimStacks(Collections.singleton(doc));
+          sharedUndoStacksHolder.trimStacks(Collections.singleton(doc));
         }
       }
     }
   }
 
   void clearUndoRedoQueue(@NotNull DocumentReference docRef) {
-    commandMerger.flushCurrentCommand();
-    resetCurrentCommandMerger();
+    LOG.assertTrue(!isInsideCommand());
+    flushCurrentCommand();
+    currentCommandMerger = null;
     undoStacksHolder.clearStacks(false, Set.of(docRef));
     redoStacksHolder.clearStacks(false, Set.of(docRef));
   }
 
+  void clearDocumentReferences(@NotNull Document document) {
+    undoStacksHolder.clearDocumentReferences(document);
+    redoStacksHolder.clearDocumentReferences(document);
+    commandMerger.clearDocumentReferences(document);
+  }
+
   @Nullable PerClientLocalUndoRedoSnapshot getUndoRedoSnapshotForDocument(
-    DocumentReference reference,
-    SharedAdjustableUndoableActionsHolder adjustableUndoableActionsHolder
+    @NotNull DocumentReference reference,
+    @NotNull SharedAdjustableUndoableActionsHolder adjustableUndoableActionsHolder
   ) {
     CommandMerger currentMerger = currentCommandMerger;
     if (currentMerger != null && currentMerger.hasActions()) {
@@ -315,33 +390,19 @@ final class UndoClientState implements Disposable {
     return true;
   }
 
-  // TODO: remove getter
-  void setCurrentProject(Project currentProject) {
-    this.currentProject = currentProject;
-  }
-
-  // TODO: remove getter
-  Project getCurrentProject() {
-    return currentProject;
-  }
-
-  UndoManagerImpl getUndoManager() {
-    return undoManager;
-  }
-
-  ClientId getClientId() {
+  @NotNull ClientId getClientId() {
     return clientId;
   }
 
-  UndoRedoStacksHolder getUndoStacksHolder() {
+  @NotNull UndoRedoStacksHolder getUndoStacksHolder() {
     return undoStacksHolder;
   }
 
-  UndoRedoStacksHolder getRedoStacksHolder() {
+  @NotNull UndoRedoStacksHolder getRedoStacksHolder() {
     return redoStacksHolder;
   }
 
-  CommandMerger getCommandMerger() {
+  @NotNull CommandMerger getCommandMerger() {
     return commandMerger;
   }
 
@@ -381,6 +442,83 @@ final class UndoClientState implements Disposable {
     );
   }
 
+  private void undoOrRedo(@Nullable FileEditor editor, boolean isUndo) {
+    flushCurrentCommand();
+
+    // here we _undo_ (regardless 'isUndo' flag) and drop all 'transparent' actions made right after undoRedo/redo.
+    // Such actions should not get into redo/undoRedo stacks.  Note that 'transparent' actions that have been merged with normal actions
+    // are not dropped, since this means they did not occur after undo/redo
+    UndoRedo undoRedo;
+    while ((undoRedo = createUndoOrRedo(editor, true)) != null) {
+      if (!undoRedo.isTemporary()) break;
+      if (!undoRedo.execute(true, false)) return;
+      if (!undoRedo.hasMoreActions()) break;
+    }
+
+    while ((undoRedo = createUndoOrRedo(editor, isUndo)) != null) {
+      if (!undoRedo.isTransparent()) break;
+      if (!undoRedo.execute(false, false)) return;
+      if (!undoRedo.hasMoreActions()) break;
+    }
+
+    boolean isInsideStartFinishGroup = false;
+    while ((undoRedo = createUndoOrRedo(editor, isUndo)) != null) {
+      if (editor != null && undoRedo.isBlockedByOtherChanges()) {
+        UndoRedo blockingChange = createUndoOrRedo(null, isUndo);
+        if (blockingChange != null && !blockingChange.isSameUndoableGroup(undoRedo)) {
+          if (undoRedo.confirmSwitchTo(blockingChange)) {
+            blockingChange.execute(false, true);
+          }
+          break;
+        }
+
+        // if undo is block by other global command, trying to split global command and undo only local change in editor
+        if (isUndo && undoRedo.isGlobal() && Registry.is("ide.undo.fallback")) {
+          if (undoRedo.splitGlobalCommand()) {
+            var splittedUndo = createUndoOrRedo(editor, true);
+            if (splittedUndo != null) {
+              undoRedo = splittedUndo;
+            }
+          }
+        }
+      }
+      if (!undoRedo.execute(false, isInsideStartFinishGroup)) {
+        return;
+      }
+
+      if (editor != null && !isUndo && Registry.is("ide.undo.fallback")){
+        undoRedo.gatherGlobalCommand();
+      }
+
+      isInsideStartFinishGroup = undoRedo.isInsideStartFinishGroup(isInsideStartFinishGroup);
+      if (isInsideStartFinishGroup) {
+        continue;
+      }
+      boolean shouldRepeat = undoRedo.isTransparent() && undoRedo.hasMoreActions();
+      if (!shouldRepeat) {
+        break;
+      }
+    }
+  }
+
+  private @Nullable UndoRedo createUndoOrRedo(@Nullable FileEditor editor, boolean isUndo) {
+    if (!isUndoRedoAvailable(editor, isUndo)) {
+      return null;
+    }
+    return isUndo
+           ? new Undo(project, editor, undoStacksHolder, redoStacksHolder, sharedUndoStacksHolder, sharedRedoStacksHolder)
+           : new Redo(project, editor, undoStacksHolder, redoStacksHolder, sharedUndoStacksHolder, sharedRedoStacksHolder);
+  }
+
+  private void addUndoableAction(@NotNull UndoableAction action) {
+    addActionToSharedStack(action);
+    currentCommandMerger.addAction(action);
+  }
+
+  private void clearRedoStacks(@NotNull CommandMerger nextMerger) {
+    redoStacksHolder.clearStacks(nextMerger.isGlobal(), nextMerger.getAllAffectedDocuments());
+  }
+
   private @NotNull String dumpStack(@NotNull DocumentReference doc, boolean isUndo) {
     String name = isUndo ? "UndoStack" : "RedoStack";
     UndoRedoList<UndoableGroup> stack = isUndo ? undoStacksHolder.getStack(doc) : redoStacksHolder.getStack(doc);
@@ -404,7 +542,7 @@ final class UndoClientState implements Disposable {
       return null;
     }
     if (isUndo) {
-      commandMerger.flushCurrentCommand();
+      flushCurrentCommand();
     }
     UndoRedoStacksHolder stack = isUndo ? undoStacksHolder : redoStacksHolder;
     return stack.getLastAction(refs);
@@ -417,14 +555,9 @@ final class UndoClientState implements Disposable {
     return result;
   }
 
-  private void resetCurrentCommandMerger() {
-    LOG.assertTrue(!isInsideCommand());
-    currentCommandMerger = null;
-  }
-
   private @NotNull Set<DocumentReference> clearStacks() {
     var affected = new HashSet<DocumentReference>();
-    commandMerger.flushCurrentCommand(nextCommandTimestamp(), undoStacksHolder);
+    commandMerger.flushCurrentCommand(undoStacksHolder, nextCommandTimestamp());
     redoStacksHolder.collectAllAffectedDocuments(affected);
     redoStacksHolder.clearStacks(true, affected);
     undoStacksHolder.collectAllAffectedDocuments(affected);

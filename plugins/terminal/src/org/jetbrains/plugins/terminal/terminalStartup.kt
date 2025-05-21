@@ -10,7 +10,6 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.registry.Registry.Companion.`is`
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelExecApi
-import com.intellij.platform.eel.EelExecApi.ExecuteProcessError
 import com.intellij.platform.eel.ExecuteProcessException
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.getEelDescriptor
@@ -89,12 +88,12 @@ private suspend fun getEelApi(
     val wslDistribNameFromWorkingDirectory = WslPath.parseWindowsUncPath(workingDirectory.toString())?.distributionId
     if (wslDistribNameFromCommandline != wslDistribNameFromWorkingDirectory) {
       val wslRootPath = WSLDistribution(wslDistribNameFromCommandline).getUNCRootPath()
-      val eelApi = wslRootPath.getEelDescriptor().upgrade()
+      val eelApi = wslRootPath.getEelDescriptor().toEelApi()
       val userHome = runCatching { eelApi.exec.fetchLoginShellEnvVariables()["HOME"] }.getOrNull()
       return eelApi to wslRootPath.resolve(userHome ?: ".")
     }
   }
-  return workingDirectory.getEelDescriptor().upgrade() to workingDirectory
+  return workingDirectory.getEelDescriptor().toEelApi() to workingDirectory
 }
 
 private fun getWslDistributionNameFromCommand(command: List<String>): String? {
@@ -119,7 +118,7 @@ private suspend fun doStartProcess(
     .args(command.takeLast(command.size - 1))
     .env(envs)
     .workingDirectory(workingDirectory.asEelPath())
-    .ptyOrStdErrSettings(EelExecApi.Pty(initialTermSize.columns, initialTermSize.rows, true))
+    .interactionOptions(EelExecApi.Pty(initialTermSize.columns, initialTermSize.rows, true))
   return try {
     execOptions.eelIt().convertToJavaProcess() as PtyProcess
   } catch (e : ExecuteProcessException) {

@@ -108,7 +108,7 @@ class WslEelProvider(private val coroutineScope: CoroutineScope) : EelProvider {
 
     descriptor.distribution.roots.forEachGuaranteed { localRoot ->
       register(localRoot, descriptor, descriptor.distribution.id, false, false) { underlyingProvider, _ ->
-        val fileSystemProvider = providersCache.computeIfAbsent(distro.id) {
+        val fileSystemProvider = providersCache.computeIfAbsent(localRoot) {
           if (Registry.`is`("wsl.use.new.filesystem")) {
             IjentEphemeralRootAwareFileSystemProvider(
               root = Path(localRoot),
@@ -151,7 +151,7 @@ class WslEelProvider(private val coroutineScope: CoroutineScope) : EelProvider {
 
 data class WslEelDescriptor(val distribution: WSLDistribution, override val platform: EelPlatform) : EelDescriptor {
 
-  override suspend fun upgrade(): EelApi {
+  override suspend fun toEelApi(): EelApi {
     return distribution.getIjent()
   }
 

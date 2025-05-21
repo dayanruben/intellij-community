@@ -18,12 +18,12 @@ import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.popup.ActionPopupOptions
 import com.intellij.ui.popup.ActionPopupStep
 import com.intellij.ui.popup.PopupFactoryImpl
-import git4idea.GitBranch
+import com.intellij.vcs.git.shared.actions.GitDataKeys
+import com.intellij.vcs.git.shared.repo.GitRepositoriesFrontendHolder
 import git4idea.GitReference
-import git4idea.GitTag
 import git4idea.GitVcs
 import git4idea.actions.branch.GitBranchActionsDataKeys
-import git4idea.actions.branch.GitBranchActionsUtil.userWantsSyncControl
+import git4idea.config.GitVcsSettings
 import git4idea.repo.GitRefUtil
 import git4idea.repo.GitRepository
 import git4idea.ui.branch.GIT_SINGLE_REF_ACTION_GROUP
@@ -67,15 +67,18 @@ internal class GitBranchesTreePopupStep(
     private set
 
   override fun createTreeModel(filterActive: Boolean): GitBranchesTreeModel {
+    val holder = GitRepositoriesFrontendHolder.getInstance(project)
+    val repositoriesFrontendModel = repositories.map { holder.get(it.rpcId) }
+
     val model = when {
-      !filterActive && repositories.size > 1 && !userWantsSyncControl(project) && selectedRepository != null -> {
-        GitBranchesTreeSelectedRepoModel(project, selectedRepository, repositories, topLevelItems)
+      !filterActive && repositories.size > 1 && !GitVcsSettings.getInstance(project).shouldExecuteOperationsOnAllRoots() && selectedRepository != null -> {
+        GitBranchesTreeSelectedRepoModel(project, holder.get(selectedRepository.rpcId), repositoriesFrontendModel, topLevelItems)
       }
       filterActive && repositories.size > 1 -> {
-        GitBranchesTreeMultiRepoFilteringModel(project, repositories, topLevelItems)
+        GitBranchesTreeMultiRepoFilteringModel(project, repositoriesFrontendModel, topLevelItems)
       }
-      !filterActive && repositories.size > 1 -> GitBranchesTreeMultiRepoModel(project, repositories, topLevelItems)
-      else -> GitBranchesTreeSingleRepoModel(project, repositories.first(), topLevelItems)
+      !filterActive && repositories.size > 1 -> GitBranchesTreeMultiRepoModel(project, repositoriesFrontendModel, topLevelItems)
+      else -> GitBranchesTreeSingleRepoModel(project, repositoriesFrontendModel.first(), topLevelItems)
     }
     return model.apply(GitBranchesTreeModel::init)
   }
@@ -134,7 +137,7 @@ internal class GitBranchesTreePopupStep(
   fun isBranchesDiverged(): Boolean {
     return repositories.size > 1
            && getCommonName(repositories) { GitRefUtil.getCurrentReference(it)?.fullName ?: return@getCommonName null } == null
-           && userWantsSyncControl(project)
+           && GitVcsSettings.getInstance(project).shouldExecuteOperationsOnAllRoots()
   }
 
   companion object {
@@ -193,12 +196,7 @@ internal class GitBranchesTreePopupStep(
         sink[CommonDataKeys.PROJECT] = project
         sink[GitBranchActionsDataKeys.AFFECTED_REPOSITORIES] = repositories
         sink[GitBranchActionsDataKeys.SELECTED_REPOSITORY] = selectedRepository
-        if (reference is GitBranch) {
-          sink[GitBranchActionsDataKeys.BRANCHES] = listOf(reference)
-        }
-        else if (reference is GitTag) {
-          sink[GitBranchActionsDataKeys.TAGS] = listOf(reference)
-        }
+        sink[GitDataKeys.SELECTED_REF] = reference
       }
   }
 }

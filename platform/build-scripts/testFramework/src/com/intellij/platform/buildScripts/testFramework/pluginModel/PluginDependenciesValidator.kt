@@ -20,6 +20,7 @@ import com.intellij.platform.plugins.parser.impl.XIncludeLoader
 import com.intellij.platform.plugins.parser.impl.consume
 import com.intellij.platform.plugins.testFramework.PluginSetTestBuilder
 import com.intellij.platform.plugins.testFramework.ValidationReadModuleContext
+import com.intellij.platform.runtime.product.ProductMode
 import com.intellij.util.lang.UrlClassLoader
 import com.intellij.util.xml.dom.createNonCoalescingXmlStreamReader
 import org.jetbrains.jps.model.JpsProject
@@ -37,6 +38,7 @@ import kotlin.io.path.pathString
 class PluginDependenciesValidator private constructor(
   private val tempDir: Path,
   project: JpsProject,
+  private val productMode: ProductMode,
   pluginLayoutProvider: PluginLayoutProvider,
   private val missingDependenciesToIgnore: List<Pair<String, String>>,
   private val pathsIncludedFromLibrariesViaXiInclude: Set<String>,
@@ -44,12 +46,13 @@ class PluginDependenciesValidator private constructor(
   companion object {
     fun validatePluginDependencies(
       project: JpsProject,
+      productMode: ProductMode,
       pluginLayoutProvider: PluginLayoutProvider,
       tempDir: Path,
       missingDependenciesToIgnore: List<Pair<String, String>>,
       pathsIncludedFromLibrariesViaXiInclude: Set<String>,
     ): List<PluginModuleConfigurationError> {
-      val validator = PluginDependenciesValidator(tempDir, project, pluginLayoutProvider, missingDependenciesToIgnore, pathsIncludedFromLibrariesViaXiInclude)
+      val validator = PluginDependenciesValidator(tempDir, project, productMode, pluginLayoutProvider, missingDependenciesToIgnore, pathsIncludedFromLibrariesViaXiInclude)
       validator.verifyClassLoaderConfigurations()
       return validator.errors
     }
@@ -250,6 +253,7 @@ class PluginDependenciesValidator private constructor(
         } 
       }
     }
+      .withProductMode(productMode)
       .withCustomCoreLoader(UrlClassLoader.build().files(corePluginDescription.jpsModulesInClasspath.map { getModuleOutputDir(it) }).get())
     
     return pluginSetBuilder.build()
@@ -258,7 +262,7 @@ class PluginDependenciesValidator private constructor(
   private fun createPluginDescriptor(pluginLayout: PluginLayoutDescription, loadingContext: PluginDescriptorLoadingContext): IdeaPluginDescriptorImpl {
     val mainModule = jpsModules[pluginLayout.mainJpsModule] ?: error("Cannot find module ${pluginLayout.mainJpsModule}")
     val pluginDir = tempDir.resolve("plugin").resolve(mainModule.name)
-    val pluginDescriptorPath = findResourceFile(mainModule, "META-INF/plugin.xml")
+    val pluginDescriptorPath = findResourceFile(mainModule, pluginLayout.pluginDescriptorPath)
     require(pluginDescriptorPath != null) { "Cannot find plugin descriptor file in '${mainModule.name}' module" }
     val xIncludeLoader = PluginMainModuleFromSourceXIncludeLoader(pluginLayout)
     val descriptor = IdeaPluginDescriptorImpl(

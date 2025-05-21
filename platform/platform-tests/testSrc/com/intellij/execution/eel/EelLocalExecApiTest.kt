@@ -20,7 +20,6 @@ import org.hamcrest.CoreMatchers.anyOf
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.MatcherAssert.assertThat
 import org.junit.jupiter.api.*
-import java.io.IOException
 import java.nio.ByteBuffer
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -95,7 +94,7 @@ class EelLocalExecApiTest {
 
   private suspend fun testOutputImpl(ptyManagement: PTYManagement, exitType: ExitType) {
     val builder = executor.createBuilderToExecuteMain(localEel.exec)
-    builder.ptyOrStdErrSettings(when (ptyManagement) {
+    builder.interactionOptions(when (ptyManagement) {
                                   PTYManagement.NO_PTY -> null
                                   PTYManagement.PTY_SIZE_FROM_START -> Pty(PTY_COLS, PTY_ROWS, true)
                                   PTYManagement.PTY_RESIZE_LATER -> Pty(PTY_COLS - 1, PTY_ROWS - 1, true) // wrong tty size: will resize in the test
