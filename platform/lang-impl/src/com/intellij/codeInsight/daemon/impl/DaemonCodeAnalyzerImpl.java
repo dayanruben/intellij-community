@@ -562,7 +562,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     FileStatusMap fileStatusMap = getFileStatusMap();
     fileStatusMap.runAllowingDirt(canChangeDocument, () -> {
       for (int ignoreId : passesToIgnore) {
-        fileStatusMap.markFileUpToDate(document, context, ignoreId);
+        fileStatusMap.markFileUpToDate(document, context, ignoreId, null);
       }
       ThrowableRunnable<Exception> doRunPasses = () -> doRunPasses(textEditor, passesToIgnore, canChangeDocument, callbackWhileWaiting);
       if (isDebugMode) {
@@ -579,6 +579,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
                            int @NotNull [] passesToIgnore,
                            boolean canChangeDocument,
                            @Nullable Runnable callbackWhileWaiting) throws Exception {
+    ThreadingAssertions.assertEventDispatchThread();
     ((CoreProgressManager)ProgressManager.getInstance()).suppressAllDeprioritizationsDuringLongTestsExecutionIn(() -> {
       VirtualFile virtualFile = textEditor.getFile();
       Document document = FileDocumentManager.getInstance().getDocument(virtualFile);
@@ -601,6 +602,8 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       try {
         long start = System.currentTimeMillis();
         waitInOtherThread(600_000, canChangeDocument, () -> {
+          NonBlockingReadActionImpl.waitForAsyncTaskCompletion();//auto-imports use non-blocking read actions
+          NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
           progress.checkCanceled();
           if (callbackWhileWaiting != null) {
             callbackWhileWaiting.run();
@@ -626,6 +629,8 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
         ((HighlightingSessionImpl)session).applyFileLevelHighlightsRequests();
         EDT.dispatchAllInvocationEvents();
         EDT.dispatchAllInvocationEvents();
+        NonBlockingReadActionImpl.waitForAsyncTaskCompletion();//auto-imports use non-blocking read actions
+        NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
         assert progress.isCanceled();
       }
       catch (Throwable e) {
@@ -931,7 +936,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
                                             @NotNull @NonNls String reason) {
     cancelIndicator(indicator, true, cause, reason);
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Stopping my process. reason: '", reason, "'; myDisposed:", myDisposed);
+      LOG.debug("Stopping my process: "+indicator+". reason: '", reason, "'; myDisposed:", myDisposed);
     }
     if (!myDisposed) {
       scheduleIfNotRunning();
@@ -1362,6 +1367,9 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     List<String> result = new SmartList<>();
     Map<Pair<Document, Class<? extends ProgressableTextEditorHighlightingPass>>, ProgressableTextEditorHighlightingPass> mainDocumentPasses = new ConcurrentHashMap<>();
     try {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("runUpdate activeEditors: ("+activeEditors.size()+"): "+ContainerUtil.map(activeEditors, e->e+"("+e.getClass()+") for file "+e.getFile()));
+      }
       for (FileEditor fileEditor : activeEditors) {
         if (fileEditor instanceof TextEditor textEditor && !textEditor.isEditorLoaded()) {
           // make sure the highlighting is restarted when the editor is finally loaded, because otherwise some crazy things happen,
@@ -1385,8 +1393,11 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
           if (session != null) {
             createdIndicators.add(session.getProgressIndicator());
           }
-          result.add("submit fileEditor: "+fileEditor+" submitted="+submitted);
+          result.add("submit fileEditor: "+fileEditor+" submitted="+submitted+(session==null? "" : " under "+session.getProgressIndicator()));
         }
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("runUpdate submitted activeEditors: ("+activeEditors.size()+"): "+ContainerUtil.map(activeEditors, e->e+"("+e.getClass()+") for file "+e.getFile())+"; indicators: "+createdIndicators);
       }
     }
     catch (ProcessCanceledException e) {
