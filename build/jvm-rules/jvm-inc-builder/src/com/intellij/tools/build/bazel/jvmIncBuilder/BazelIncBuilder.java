@@ -13,7 +13,6 @@ import org.jetbrains.jps.dependency.java.JvmClassNodeBuilder;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Predicate;
@@ -123,9 +122,14 @@ public class BazelIncBuilder {
           modifiedLibraries = ElementSnapshot.derive(context.getBinaryDependencies(), ns -> DataPaths.isLibraryTracked(ns.toString())).getElements();
           deletedLibraries = Set.of();
         }
+        else {
+          if (isInitialRound) {
+            storageManager.cleanTrashDir();
+          }
+        }
 
         diagnostic = isInitialRound? new PostponedDiagnosticSink() : context; // for initial round postpone error reporting
-        OutputSinkImpl outSink = new OutputSinkImpl(diagnostic, storageManager.getOutputBuilder(), storageManager.getAbiOutputBuilder(), instrumenters);
+        OutputSinkImpl outSink = new OutputSinkImpl(diagnostic, storageManager, instrumenters);
 
         if (isInitialRound) {
           if (!srcSnapshotDelta.isRecompileAll()) {
@@ -157,7 +161,9 @@ public class BazelIncBuilder {
         if (!diagnostic.hasErrors()) {
           if (!srcSnapshotDelta.isRecompileAll()) {
             // delete outputs corresponding to deleted or recompiled sources
-            cleanCompiledFiles(context, srcSnapshotDelta, storageManager.getGraph(), outSink);
+            for (CompilerRunner compiler : roundCompilers) {
+              cleanOutputsForCompiledFiles(context, srcSnapshotDelta, storageManager.getGraph(), compiler, outSink);
+            }
           }
 
           for (CompilerRunner runner : roundCompilers) {
@@ -226,33 +232,25 @@ public class BazelIncBuilder {
       }
 
       try { // backup current deps content
-        Files.createDirectories(DataPaths.getDependenciesBackupStoreDir(context));
-
-        List<Path> toBackup = collect(map(modifiedLibraries, context.getPathMapper()::toPath), new ArrayList<>());
-        toBackup.add(context.getOutputZip());
+        Set<Path> presentPaths = collect(filter(map(modifiedLibraries, context.getPathMapper()::toPath), Files::exists), new HashSet<>());
+        Set<Path> deletedPaths = collect(map(deletedLibraries, context.getPathMapper()::toPath), new HashSet<>());
+        Path outputZip = context.getOutputZip();
+        if (Files.exists(outputZip)) {
+          presentPaths.add(outputZip);
+        }
+        else {
+          deletedPaths.add(outputZip);
+        }
         Path abiOut = context.getAbiOutputZip();
         if (abiOut != null) {
-          toBackup.add(abiOut);
-        }
-
-        for (Path path : flat(map(deletedLibraries, context.getPathMapper()::toPath), toBackup)) {
-          Path backup = DataPaths.getJarBackupStoreFile(context, path);
-          Files.deleteIfExists(backup);
-        }
-
-        for (Path path : toBackup) {
-          Path backup = DataPaths.getJarBackupStoreFile(context, path);
-          try {
-            Files.createLink(backup, path);
+          if (Files.exists(abiOut)) {
+            presentPaths.add(abiOut);
           }
-          catch (NoSuchFileException ignored) {
-          }
-          catch (Throwable e) {
-            context.report(Message.create(null, Message.Kind.WARNING, e));
-            // fallback to copy
-            //Files.copy(path, backup, StandardCopyOption.REPLACE_EXISTING);
+          else {
+            deletedPaths.add(abiOut);
           }
         }
+        StorageManager.backupDependencies(context, deletedPaths, presentPaths);
       }
       catch (IOException e) {
         context.report(Message.create(null, e));
@@ -260,21 +258,37 @@ public class BazelIncBuilder {
     }
   }
 
-  private static void cleanCompiledFiles(BuildContext context, NodeSourceSnapshotDelta snapshotDelta, DependencyGraph depGraph, OutputSink outSink) {
-    for (Iterable<@NotNull NodeSource> sourceGroup : List.of(snapshotDelta.getDeleted(), snapshotDelta.getModified())) {
-      if (isEmpty(sourceGroup)) {
-        continue;
-      }
-      // separately logging deleted outputs for 'deleted' and 'modified' sources to adjust for existing test data
-      List<String> deletedPaths = new ArrayList<>();
-      for (Node<?, ?> node : filter(flat(map(sourceGroup, depGraph::getNodes)), n -> n instanceof JVMClassNode)) {
-        String outputPath = ((JVMClassNode<?, ?>) node).getOutFilePath();
-        if (outSink.deletePath(outputPath)) {
-          deletedPaths.add(outputPath);
+  private static void cleanOutputsForCompiledFiles(BuildContext context, NodeSourceSnapshotDelta snapshotDelta, DependencyGraph depGraph, CompilerRunner compiler, OutputSink outSink) {
+    // separately logging deleted outputs for 'deleted' and 'modified' sources to adjust for existing test data
+    Collection<String> cleanedOutputsOfDeletedSources = deleteCompilerOutputs(
+      depGraph, filter(snapshotDelta.getDeleted(), compiler::canCompile), outSink, new ArrayList<>()
+    );
+    logDeletedPaths(context, cleanedOutputsOfDeletedSources);
+
+    Collection<String> cleanedOutputsOfModifiedSources = deleteCompilerOutputs(
+      depGraph, filter(snapshotDelta.getModified(), compiler::canCompile), outSink, new ArrayList<>()
+    );
+    if (!cleanedOutputsOfDeletedSources.isEmpty() || !cleanedOutputsOfModifiedSources.isEmpty()) {
+      // delete additional paths only if there are any changes in the output caused by changes in sources
+      for (String toDelete : compiler.getOutputPathsToDelete()) {
+        if (outSink.deletePath(toDelete)) {
+          cleanedOutputsOfModifiedSources.add(toDelete);
         }
       }
-      logDeletedPaths(context, deletedPaths);
     }
+    logDeletedPaths(context, cleanedOutputsOfModifiedSources);
+  }
+
+  private static Collection<String> deleteCompilerOutputs(
+    DependencyGraph depGraph, Iterable<@NotNull NodeSource> sourcesToCompile, OutputSink outSink, Collection<String> deletedPathsAcc
+  ) {
+    for (Node<?, ?> node : filter(flat(map(sourcesToCompile, depGraph::getNodes)), n -> n instanceof JVMClassNode)) {
+      String outputPath = ((JVMClassNode<?, ?>) node).getOutFilePath();
+      if (outSink.deletePath(outputPath)) {
+        deletedPathsAcc.add(outputPath);
+      }
+    }
+    return deletedPathsAcc;
   }
 
   private static void logDeletedPaths(BuildContext context, Iterable<String> deletedPaths) {

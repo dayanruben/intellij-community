@@ -20,8 +20,6 @@ kt_jvm_library(
     "//dependency-graph",
     "//jps-builders-6:build-javac-rt",
     "//:jps-javac-extension",
-    "//src/worker-framework",
-    "//src/worker-util",
     "//:annotations",
     "//:h2-mvstore",
     "//:hash4j",
@@ -30,10 +28,12 @@ kt_jvm_library(
     "//:caffeine",
     "//:intellij-deps-fastutil",
     "//:qdox",
+    "//:jps", # temporary dep for instrumentation-util and instrumenters, must be the last dep in classpath
+    "//src/worker-framework",
+    "//src/worker-util",
     "patched-kotlin-compiler-for-bazel",
     "//:kotlin-compose-compiler-plugin",
     "//:kotlin-serialization-compiler-plugin",
-    "//:jps", # temporary dep for instrumentation-util and instrumenters, must be the last dep in classpath
   ]
 )
 
@@ -85,11 +85,11 @@ java_library(
   name = "patched-kotlin-compiler-for-bazel",
   visibility = ["//visibility:private"],
   exports = [
-    ":kotlin-compiler-2_2_20-dev-2951_http_import",
-    ":kotlin-stdlib-jdk8-2_2_20-dev-2951_http_import",
-    ":kotlin-stdlib-2_2_20-dev-2951_http_import",
-    ":kotlin-stdlib-jdk7-2_2_20-dev-2951_http_import",
-    ":kotlin-script-runtime-2_2_20-dev-2951_http_import",
+    ":kotlin-compiler-2_2_20-dev-3919_http_import",
+    ":kotlin-stdlib-jdk8-2_2_20-dev-3919_http_import",
+    ":kotlin-stdlib-2_2_20-dev-3919_http_import",
+    ":kotlin-stdlib-jdk7-2_2_20-dev-3919_http_import",
+    ":kotlin-script-runtime-2_2_20-dev-3919_http_import",
     ":kotlin-reflect-1_6_10_http_import",
     #":kotlinx-coroutines-core-jvm-1_8_0_http_import",
     #":annotations-23_0_0_http_import",
@@ -109,28 +109,28 @@ jvm_import(
 )
 
 jvm_import(
-    name = "kotlin-compiler-2_2_20-dev-2951_http_import",
-    jar = "@kotlin-compiler-2_2_20-dev-2951_http//file",
+    name = "kotlin-compiler-2_2_20-dev-3919_http_import",
+    jar = "@kotlin-compiler-2_2_20-dev-3919_http//file",
 )
 
 jvm_import(
-    name = "kotlin-stdlib-jdk8-2_2_20-dev-2951_http_import",
-    jar = "@kotlin-stdlib-jdk8-2_2_20-dev-2951_http//file",
+    name = "kotlin-stdlib-jdk8-2_2_20-dev-3919_http_import",
+    jar = "@kotlin-stdlib-jdk8-2_2_20-dev-3919_http//file",
 )
 
 jvm_import(
-    name = "kotlin-stdlib-2_2_20-dev-2951_http_import",
-    jar = "@kotlin-stdlib-2_2_20-dev-2951_http//file",
+    name = "kotlin-stdlib-2_2_20-dev-3919_http_import",
+    jar = "@kotlin-stdlib-2_2_20-dev-3919_http//file",
 )
 
 jvm_import(
-    name = "kotlin-stdlib-jdk7-2_2_20-dev-2951_http_import",
-    jar = "@kotlin-stdlib-jdk7-2_2_20-dev-2951_http//file",
+    name = "kotlin-stdlib-jdk7-2_2_20-dev-3919_http_import",
+    jar = "@kotlin-stdlib-jdk7-2_2_20-dev-3919_http//file",
 )
 
 jvm_import(
-    name = "kotlin-script-runtime-2_2_20-dev-2951_http_import",
-    jar = "@kotlin-script-runtime-2_2_20-dev-2951_http//file",
+    name = "kotlin-script-runtime-2_2_20-dev-3919_http_import",
+    jar = "@kotlin-script-runtime-2_2_20-dev-3919_http//file",
 )
 
 jvm_import(

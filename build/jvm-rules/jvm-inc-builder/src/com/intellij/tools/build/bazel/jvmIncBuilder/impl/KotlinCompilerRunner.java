@@ -10,9 +10,11 @@ import com.intellij.util.containers.ContainerUtil;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function1;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.dependency.NodeSource;
 import org.jetbrains.jps.dependency.NodeSourcePathMapper;
 import org.jetbrains.jps.dependency.java.LookupNameUsage;
+import org.jetbrains.kotlin.backend.common.output.OutputFile;
 import org.jetbrains.kotlin.backend.common.output.OutputFileCollection;
 import org.jetbrains.kotlin.build.GeneratedFile;
 import org.jetbrains.kotlin.build.GeneratedJvmClass;
@@ -37,6 +39,7 @@ import org.jetbrains.kotlin.progress.CompilationCanceledException;
 import org.jetbrains.kotlin.progress.CompilationCanceledStatus;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
 import java.util.function.Consumer;
 
@@ -58,6 +61,10 @@ public class KotlinCompilerRunner implements CompilerRunner {
   private EnumWhenTrackerImpl enumWhenTracker;
   private ImportTrackerImpl importTracker;
   private final @NotNull Map<@NotNull String, @NotNull String> myPluginIdToPluginClasspath = new HashMap<>();
+  private final List<String> myJavaSources;
+
+  private final @Nullable String myModuleEntryPath;
+  private byte @Nullable [] myLastGoodModuleEntryContent;
 
   public KotlinCompilerRunner(BuildContext context, StorageManager storageManager)  {
     myContext = context;
@@ -70,6 +77,23 @@ public class KotlinCompilerRunner implements CompilerRunner {
     for (String pluginId : CLFlags.PLUGIN_ID.getValue(flags)) {
       myPluginIdToPluginClasspath.put(pluginId, pluginCp.hasNext()? pluginCp.next() : "");
     }
+
+    myJavaSources = collect(
+      map(filter(context.getSources().getElements(), ns -> ns.toString().endsWith(".java")), ns -> myPathMapper.toPath(ns).toString()), new ArrayList<>()
+    );
+    
+    String moduleEntryPath = null;
+    try {
+      ZipOutputBuilderImpl outBuilder = storageManager.getOutputBuilder();
+      moduleEntryPath = find(outBuilder.listEntries("META-INF/"), n -> n.endsWith(DataPaths.KOTLIN_MODULE_EXTENSION));
+      if (moduleEntryPath != null) {
+        myLastGoodModuleEntryContent = outBuilder.getContent(moduleEntryPath);
+      }
+    }
+    catch (IOException e) {
+      context.report(Message.create(this, e));
+    }
+    myModuleEntryPath = moduleEntryPath;
   }
 
   @Override
@@ -83,18 +107,29 @@ public class KotlinCompilerRunner implements CompilerRunner {
   }
 
   @Override
+  public Iterable<String> getOutputPathsToDelete() {
+    return myModuleEntryPath != null? List.of(myModuleEntryPath) : List.of();
+  }
+
+  @Override
   public ExitCode compile(Iterable<NodeSource> sources, Iterable<NodeSource> deletedSources, DiagnosticSink diagnostic, OutputSink out) {
     try {
       K2JVMCompilerArguments kotlinArgs = buildKotlinCompilerArguments(myContext, sources);
-      KotlinIncrementalCacheImpl incCache = new KotlinIncrementalCacheImpl(myStorageManager, flat(deletedSources, sources));
+      KotlinIncrementalCacheImpl incCache = new KotlinIncrementalCacheImpl(myStorageManager, flat(deletedSources, sources), myModuleEntryPath, myLastGoodModuleEntryContent);
       Services services = buildServices(kotlinArgs.getModuleName(), incCache);
       MessageCollector messageCollector = new KotlinMessageCollector(diagnostic, this);
       // todo: make sure if we really need to process generated outputs after the compilation and not "in place"
       List<GeneratedClass> generatedClasses = new ArrayList<>();
       AbstractCliPipeline<K2JVMCompilerArguments> pipeline = createPipeline(out, generatedFile -> {
-        if (generatedFile instanceof GeneratedJvmClass jvmClass) {
-          String jvmClassName = jvmClass.getOutputClass().getClassName().getInternalName();
-          for (File sourceFile : jvmClass.getSourceFiles()) {
+        String jvmClassName = null;
+        if (generatedFile instanceof KotlinJvmGeneratedFile jvmClass) {
+          jvmClassName = jvmClass.getOutputClass().getClassName().getInternalName();
+        }
+        else if (generatedFile instanceof GeneratedJvmClass jvmClass) {
+          jvmClassName = jvmClass.getOutputClass().getClassName().getInternalName();
+        }
+        if (jvmClassName != null) {
+          for (File sourceFile : generatedFile.getSourceFiles()) {
             generatedClasses.add(new GeneratedClass(jvmClassName, sourceFile));
           }
         }
@@ -102,18 +137,30 @@ public class KotlinCompilerRunner implements CompilerRunner {
 
       boolean completedOk = false;
       try {
+        logCompiledFiles(myContext, sources);
+
         org.jetbrains.kotlin.cli.common.ExitCode exitCode = pipeline.execute(kotlinArgs, services, messageCollector);
+
+        //if (diagnostic.hasErrors()) {
+        //  diagnostic.report(Message.create(this, Message.Kind.INFO, "Kotlin build options: " + myContext.getBuilderOptions().getKotlinOptions()));
+        //}
+
         completedOk = exitCode == OK;
         return completedOk? ExitCode.OK : ExitCode.ERROR;
       }
       finally {
         processTrackers(out, generatedClasses);
-        if (!completedOk || diagnostic.hasErrors()) {
-          String moduleEntryPath = incCache.getModuleEntryPath();
-          if (moduleEntryPath != null) {
-            // ensure the output contains last known good value
-            byte[] lastGoodModuleData = incCache.getModuleMappingData();
-            myStorageManager.getOutputBuilder().putEntry(moduleEntryPath, lastGoodModuleData);
+        if (myModuleEntryPath != null) {
+          if (!completedOk || diagnostic.hasErrors()) {
+            byte[] content = myLastGoodModuleEntryContent;
+            // ensure the output contains the last known good value
+            myStorageManager.getCompositeOutputBuilder().putEntry(myModuleEntryPath, content);
+          }
+          else {
+            byte[] updated = myStorageManager.getOutputBuilder().getContent(myModuleEntryPath);
+            if (updated != null) {
+              myLastGoodModuleEntryContent = updated;
+            }
           }
         }
       }
@@ -254,42 +301,32 @@ public class KotlinCompilerRunner implements CompilerRunner {
 
   private @NotNull Function1<? super @NotNull OutputFileCollection, @NotNull Unit> createOutputConsumer(OutputSink outputSink, Consumer<GeneratedFile> clsCollector) {
     return outputCollection -> {
-      outputCollection.asList().iterator().forEachRemaining(
-        generatedOutput -> {
-          String relativePath = generatedOutput.getRelativePath().replace(File.separatorChar, '/');
-          GeneratedFile file;
-          byte[] outputByteArray = generatedOutput.asByteArray();
+      for (OutputFile generatedOutput : outputCollection.asList()) {
+        String relativePath = generatedOutput.getRelativePath().replace(File.separatorChar, '/');
+        byte[] outputByteArray = generatedOutput.asByteArray();
 
-          if (relativePath.endsWith(".class")) {
-            file = new KotlinJvmGeneratedFile(
-              generatedOutput.getSourceFiles(),
-              new File(relativePath),
-              outputByteArray,
-              MetadataVersion.INSTANCE
-            );
-          }
-          else {
-            file = new GeneratedFile(
-              generatedOutput.getSourceFiles(),
-              new File(relativePath)
-            );
-          }
-          clsCollector.accept(file);
-
-          OutputSink.OutputFile.Kind kind =
-            relativePath.endsWith(".class")? OutputSink.OutputFile.Kind.bytecode : OutputSink.OutputFile.Kind.other;
-
-          outputSink.addFile(
-            new OutputFileImpl(relativePath, kind, outputByteArray, false), map(generatedOutput.getSourceFiles(), myPathMapper::toNodeSource)
-          );
+        OutputSink.OutputFile.Kind kind;
+        GeneratedFile file;
+        if (relativePath.endsWith(".class")) {
+          kind = OutputSink.OutputFile.Kind.bytecode;
+          file = new KotlinJvmGeneratedFile(generatedOutput.getSourceFiles(), new File(relativePath), outputByteArray, MetadataVersion.INSTANCE);
         }
-      );
+        else {
+          kind = OutputSink.OutputFile.Kind.other;
+          file = new GeneratedFile(generatedOutput.getSourceFiles(), new File(relativePath));
+        }
+        clsCollector.accept(file);
+
+        outputSink.addFile(
+          new OutputFileImpl(relativePath, kind, outputByteArray, false), map(generatedOutput.getSourceFiles(), myPathMapper::toNodeSource)
+        );
+      }
 
       return Unit.INSTANCE;
     };
   }
 
-  private static K2JVMCompilerArguments buildKotlinCompilerArguments(BuildContext context, Iterable<NodeSource> sources) {
+  private K2JVMCompilerArguments buildKotlinCompilerArguments(BuildContext context, Iterable<NodeSource> sources) {
     // todo: hash compiler configuration
     K2JVMCompilerArguments arguments = new K2JVMCompilerArguments();
     parseCommandLineArguments(context.getBuilderOptions().getKotlinOptions(), arguments, true);
@@ -311,7 +348,7 @@ public class KotlinCompilerRunner implements CompilerRunner {
       arguments.setFriendPaths(ensureCollection(map(friends, p -> context.getBaseDir().resolve(p).normalize().toString())).toArray(String[]::new));
     }
     NodeSourcePathMapper pathMapper = context.getPathMapper();
-    arguments.setFreeArgs(collect(map(sources, ns -> pathMapper.toPath(ns).toString()), new ArrayList<>()));
+    arguments.setFreeArgs(collect(flat(map(sources, ns -> pathMapper.toPath(ns).toString()), myJavaSources), new ArrayList<>()));
     return arguments;
   }
 

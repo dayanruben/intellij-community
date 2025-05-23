@@ -12,6 +12,7 @@ import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.command.impl.DummyProject
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.externalSystem.util.environment.Environment
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.progress.*
@@ -27,6 +28,7 @@ import com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkPredicate
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.roots.ex.ProjectRootManagerEx
 import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable
+import com.intellij.openapi.util.io.toCanonicalPath
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.LocalEelApi
@@ -129,10 +131,14 @@ object MavenEelUtil {
   }
 
   fun EelApi.findMavenDistribution(): MavenInSpecificPath? {
-    return tryMavenRootFromEnvironment()
-           ?: fs.tryMavenRoot("/usr/share/maven")
-           ?: fs.tryMavenRoot("/usr/share/maven2")
-           ?: tryMavenFromPath()
+    return runCatching {
+      tryMavenRootFromEnvironment()
+      ?: fs.tryMavenRoot("/usr/share/maven")
+      ?: fs.tryMavenRoot("/usr/share/maven2")
+      ?: tryMavenFromPath()
+    }.getOrLogException {
+      MavenLog.LOG.error("Unable to resolve a Maven distribution. An error occurred", it)
+    }
   }
 
   @JvmStatic
@@ -484,9 +490,12 @@ object MavenEelUtil {
   }
 
   private fun EelApi.tryMavenFromPath(): MavenInSpecificPath? {
-    val path = runBlockingMaybeCancellable { exec.where("mvn") } ?: return null
-    val mavenHome = path.asNioPathOrNull()?.parent?.parent?.toString() ?: return null
-    return fs.tryMavenRoot(mavenHome)
+    val eelPath = runBlockingMaybeCancellable { exec.where("mvn") } ?: return null
+    val pathOnTarget = Path.of(eelPath.toString())
+    // it is necessary to convert the path to the canonical representation
+    // otherwise WindowsPath would turn the path into the non-absolute representation of the path
+    val mavenHomeCanonicalPath = pathOnTarget.parent?.parent?.toCanonicalPath() ?: return null
+    return fs.tryMavenRoot(mavenHomeCanonicalPath)
   }
 
   private fun EelFileSystemApi.tryMavenRoot(path: String): MavenInSpecificPath? {

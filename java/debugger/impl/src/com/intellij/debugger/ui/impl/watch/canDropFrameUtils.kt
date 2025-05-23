@@ -4,6 +4,7 @@ package com.intellij.debugger.ui.impl.watch
 import com.intellij.debugger.engine.evaluation.EvaluateException
 import com.intellij.debugger.engine.withDebugContext
 import com.intellij.debugger.impl.DebuggerUtilsAsync
+import com.intellij.debugger.impl.wrapIncompatibleThreadStateException
 import com.intellij.util.ThreeState
 import com.sun.jdi.Method
 import kotlinx.coroutines.Dispatchers
@@ -12,7 +13,7 @@ import kotlinx.coroutines.future.future
 import java.util.concurrent.CompletableFuture
 
 internal fun StackFrameDescriptorImpl.canDropFrameSync(): ThreeState {
-  return isSafeToDropFrame(uiIndex, unsureIfPreviousFrameAbsent = true) { i ->
+  return isSafeToDropFrame(uiIndex, unsureIfCallerFrameAbsent = true) { i ->
     methodOccurrence.getMethodOccurrence(i)?.method
   }
 }
@@ -21,28 +22,30 @@ internal fun StackFrameDescriptorImpl.canDropFrameAsync(): CompletableFuture<Boo
   val managerThread = frameProxy.virtualMachine.debugProcess.managerThread
   return managerThread.coroutineScope.future(Dispatchers.Default) {
     withDebugContext(managerThread) {
-      val frames = try {
-        frameProxy.threadProxy().frames()
-      }
-      catch (_: EvaluateException) {
-        return@withDebugContext false
-      }
+      wrapIncompatibleThreadStateException {
+        val frames = try {
+          frameProxy.threadProxy().frames()
+        }
+        catch (_: EvaluateException) {
+          return@withDebugContext false
+        }
 
-      isSafeToDropFrame(uiIndex, unsureIfPreviousFrameAbsent = false) { i ->
-        val frame = frames.getOrNull(i) ?: return@withDebugContext false
+        isSafeToDropFrame(uiIndex, unsureIfCallerFrameAbsent = false) { i ->
+          val frame = frames.getOrNull(i) ?: return@withDebugContext false
 
-        val location = frame.locationAsync().await()
-        DebuggerUtilsAsync.method(location).await()
-      }.toBoolean()
-    }
+          val location = frame.locationAsync().await()
+          DebuggerUtilsAsync.method(location).await()
+        }.toBoolean()
+      }
+    } ?: false
   }
 }
 
-private inline fun isSafeToDropFrame(frameIndex: Int, unsureIfPreviousFrameAbsent: Boolean, methodProvider: (Int) -> Method?): ThreeState {
+private inline fun isSafeToDropFrame(frameIndex: Int, unsureIfCallerFrameAbsent: Boolean, methodProvider: (Int) -> Method?): ThreeState {
   for (i in 0..frameIndex + 1) {
     val method = methodProvider(i)
     if (method == null) {
-      if (unsureIfPreviousFrameAbsent && i == frameIndex + 1) {
+      if (unsureIfCallerFrameAbsent && i == frameIndex + 1) {
         return ThreeState.UNSURE
       }
       return ThreeState.NO

@@ -53,7 +53,7 @@ public class BuildContextImpl implements BuildContext {
     String abiPath = CLFlags.ABI_OUT.getOptionalScalarValue(flags);
     myAbiJar = abiPath != null? baseDir.resolve(abiPath).normalize() : null;
 
-    myDataDir = myOutJar.resolveSibling(truncateExtension(myOutJar.getFileName().toString()) + "-ic");
+    myDataDir = myOutJar.resolveSibling(truncateExtension(myOutJar.getFileName().toString()) + DataPaths.DATA_DIR_NAME_SUFFIX);
     
     myIsRebuild = CLFlags.NON_INCREMENTAL.isFlagSet(flags);
 
@@ -142,6 +142,9 @@ public class BuildContextImpl implements BuildContext {
   private static @NotNull List<String> buildJavaOptions(Map<CLFlags, List<String>> flags) {
     // for now, only options available in the flags map can be specified in the build configuration
     List<String> options = new ArrayList<>();
+    options.add("-encoding"); // todo: for now hardcoded
+    options.add("UTF-8");
+
     String jvmTarget = CLFlags.JVM_TARGET.getOptionalScalarValue(flags);
     if (jvmTarget != null) {
       options.add("-source");
