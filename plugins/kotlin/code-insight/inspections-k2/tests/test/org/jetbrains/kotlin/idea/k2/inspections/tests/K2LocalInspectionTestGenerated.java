@@ -11811,6 +11811,130 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/inspectionsLocal/replaceContains")
+        public static class ReplaceContains extends AbstractK2LocalInspectionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K2;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("asTopLevelFunctions.kt")
+            public void testAsTopLevelFunctions() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/asTopLevelFunctions.kt");
+            }
+
+            @TestMetadata("containsFromJava.kt")
+            public void testContainsFromJava() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/containsFromJava.kt");
+            }
+
+            @TestMetadata("containsInExpression.kt")
+            public void testContainsInExpression() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/containsInExpression.kt");
+            }
+
+            @TestMetadata("extensionFunction.kt")
+            public void testExtensionFunction() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/extensionFunction.kt");
+            }
+
+            @TestMetadata("functionLiteralArgument.kt")
+            public void testFunctionLiteralArgument() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/functionLiteralArgument.kt");
+            }
+
+            @TestMetadata("functionLiteralArgumentAfterSemicolon.kt")
+            public void testFunctionLiteralArgumentAfterSemicolon() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/functionLiteralArgumentAfterSemicolon.kt");
+            }
+
+            @TestMetadata("functionLiteralArgumentAtStartOfBlock.kt")
+            public void testFunctionLiteralArgumentAtStartOfBlock() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/functionLiteralArgumentAtStartOfBlock.kt");
+            }
+
+            @TestMetadata("functionLiteralArgumentInExpression.kt")
+            public void testFunctionLiteralArgumentInExpression() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/functionLiteralArgumentInExpression.kt");
+            }
+
+            @TestMetadata("invalidArgument.kt")
+            public void testInvalidArgument() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/invalidArgument.kt");
+            }
+
+            @TestMetadata("missingArgument.kt")
+            public void testMissingArgument() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/missingArgument.kt");
+            }
+
+            @TestMetadata("missingDefaultArgument.kt")
+            public void testMissingDefaultArgument() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/missingDefaultArgument.kt");
+            }
+
+            @TestMetadata("multipleArguments.kt")
+            public void testMultipleArguments() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/multipleArguments.kt");
+            }
+
+            @TestMetadata("notContains.kt")
+            public void testNotContains() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/notContains.kt");
+            }
+
+            @TestMetadata("qualifier.kt")
+            public void testQualifier() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/qualifier.kt");
+            }
+
+            @TestMetadata("simpleArgument.kt")
+            public void testSimpleArgument() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/simpleArgument.kt");
+            }
+
+            @TestMetadata("simpleStringLiteral.kt")
+            public void testSimpleStringLiteral() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/simpleStringLiteral.kt");
+            }
+
+            @TestMetadata("super.kt")
+            public void testSuper() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/super.kt");
+            }
+
+            @TestMetadata("twoArgsContainsFromJava.kt")
+            public void testTwoArgsContainsFromJava() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/twoArgsContainsFromJava.kt");
+            }
+
+            @TestMetadata("typeArguments.kt")
+            public void testTypeArguments() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/typeArguments.kt");
+            }
+
+            @TestMetadata("unacceptableVararg1.kt")
+            public void testUnacceptableVararg1() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/unacceptableVararg1.kt");
+            }
+
+            @TestMetadata("unacceptableVararg2.kt")
+            public void testUnacceptableVararg2() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/unacceptableVararg2.kt");
+            }
+
+            @TestMetadata("withoutOperatorModifier.kt")
+            public void testWithoutOperatorModifier() throws Exception {
+                runTest("testData/inspectionsLocal/replaceContains/withoutOperatorModifier.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/inspectionsLocal/replaceSizeCheckWithIsNotEmpty")
         public static class ReplaceSizeCheckWithIsNotEmpty extends AbstractK2LocalInspectionTest {
             @java.lang.Override
@@ -13447,6 +13571,55 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/mapGetWithNotNullAssertionOperator")
+    public static class MapGetWithNotNullAssertionOperator extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("get.kt")
+        public void testGet() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mapGetWithNotNullAssertionOperator/get.kt");
+        }
+
+        @TestMetadata("getValue.kt")
+        public void testGetValue() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mapGetWithNotNullAssertionOperator/getValue.kt");
+        }
+
+        @TestMetadata("indexedAccess.kt")
+        public void testIndexedAccess() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mapGetWithNotNullAssertionOperator/indexedAccess.kt");
+        }
+
+        @TestMetadata("list.kt")
+        public void testList() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mapGetWithNotNullAssertionOperator/list.kt");
+        }
+
+        @TestMetadata("noNotNullAssersion.kt")
+        public void testNoNotNullAssersion() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mapGetWithNotNullAssertionOperator/noNotNullAssersion.kt");
+        }
+
+        @TestMetadata("replaceWithElvisError.kt")
+        public void testReplaceWithElvisError() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mapGetWithNotNullAssertionOperator/replaceWithElvisError.kt");
+        }
+
+        @TestMetadata("replaceWithGetOrElse.kt")
+        public void testReplaceWithGetOrElse() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mapGetWithNotNullAssertionOperator/replaceWithGetOrElse.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/inspectionsLocal/replaceSubstring")
     public abstract static class ReplaceSubstring extends AbstractK2LocalInspectionTest {
         @RunWith(JUnit3RunnerWithInners.class)
@@ -13706,6 +13879,35 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("uppercase.kt")
         public void testUppercase() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithIgnoreCaseEquals/uppercase.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/replaceToWithInfixForm")
+    public static class ReplaceToWithInfixForm extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("base.kt")
+        public void testBase() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceToWithInfixForm/base.kt");
+        }
+
+        @TestMetadata("nonPair.kt")
+        public void testNonPair() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceToWithInfixForm/nonPair.kt");
+        }
+
+        @TestMetadata("typeArguments.kt")
+        public void testTypeArguments() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceToWithInfixForm/typeArguments.kt");
         }
     }
 

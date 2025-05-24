@@ -6,6 +6,7 @@ import com.intellij.debugger.engine.withDebugContext
 import com.intellij.debugger.impl.DebuggerUtilsAsync
 import com.intellij.debugger.impl.wrapIncompatibleThreadStateException
 import com.intellij.util.ThreeState
+import com.intellij.util.suspendingLazy
 import com.sun.jdi.Method
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.await
@@ -21,23 +22,28 @@ internal fun StackFrameDescriptorImpl.canDropFrameSync(): ThreeState {
 internal fun StackFrameDescriptorImpl.canDropFrameAsync(): CompletableFuture<Boolean> {
   val managerThread = frameProxy.virtualMachine.debugProcess.managerThread
   return managerThread.coroutineScope.future(Dispatchers.Default) {
-    withDebugContext(managerThread) {
-      wrapIncompatibleThreadStateException {
-        val frames = try {
+    val lazyFrames = suspendingLazy {
+      withDebugContext(managerThread) {
+        try {
           frameProxy.threadProxy().frames()
         }
         catch (_: EvaluateException) {
-          return@withDebugContext false
+          null
         }
-
-        isSafeToDropFrame(uiIndex, unsureIfCallerFrameAbsent = false) { i ->
-          val frame = frames.getOrNull(i) ?: return@withDebugContext false
-
-          val location = frame.locationAsync().await()
-          DebuggerUtilsAsync.method(location).await()
-        }.toBoolean()
       }
-    } ?: false
+    }
+
+    suspend fun computeMethod(frameIndex: Int): Method? = wrapIncompatibleThreadStateException {
+      val frame = lazyFrames.getValue()?.getOrNull(frameIndex) ?: return null
+      withDebugContext(managerThread) {
+        val location = frame.locationAsync().await()
+        DebuggerUtilsAsync.method(location).await()
+      }
+    }
+
+    isSafeToDropFrame(uiIndex, unsureIfCallerFrameAbsent = false) { i ->
+      methodOccurrence.getMethodOccurrence(i)?.method ?: computeMethod(i)
+    }.toBoolean()
   }
 }
 
