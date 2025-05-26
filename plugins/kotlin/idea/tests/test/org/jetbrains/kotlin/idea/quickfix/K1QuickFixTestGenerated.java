@@ -5639,6 +5639,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/member/doNotStripPrefix.kt");
                     }
 
+                    @TestMetadata("fromExtensionFunction.kt")
+                    public void testFromExtensionFunction() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/member/fromExtensionFunction.kt");
+                    }
+
                     @TestMetadata("funExtraArgs.kt")
                     public void testFunExtraArgs() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/member/funExtraArgs.kt");
@@ -5737,6 +5742,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                     @TestMetadata("inconsistentTypes.kt")
                     public void testInconsistentTypes() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createFunction/call/member/inconsistentTypes.kt");
+                    }
+
+                    @TestMetadata("innerClass.kt")
+                    public void testInnerClass() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createFunction/call/member/innerClass.kt");
                     }
 
                     @TestMetadata("propertyOnUserType.kt")
@@ -7238,6 +7248,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 @TestMetadata("fromCallExpression.kt")
                 public void testFromCallExpression() throws Exception {
                     runTest("testData/quickfix/createFromUsage/createVariable/primaryParameter/fromCallExpression.kt");
+                }
+
+                @TestMetadata("fromDefaultValuePositionWithComma.kt")
+                public void testFromDefaultValuePositionWithComma() throws Exception {
+                    runTest("testData/quickfix/createFromUsage/createVariable/primaryParameter/fromDefaultValuePositionWithComma.kt");
                 }
 
                 @TestMetadata("fromDelegationCall.kt")
@@ -9144,6 +9159,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @TestMetadata("addImplicitReceiverNested.kt")
             public void testAddImplicitReceiverNested() throws Exception {
                 runTest("testData/quickfix/deprecatedSymbolUsage/addImplicitReceiverNested.kt");
+            }
+
+            @TestMetadata("ambiguousCall.kt")
+            public void testAmbiguousCall() throws Exception {
+                runTest("testData/quickfix/deprecatedSymbolUsage/ambiguousCall.kt");
             }
 
             @TestMetadata("annotationWithErrorReplacement.kt")

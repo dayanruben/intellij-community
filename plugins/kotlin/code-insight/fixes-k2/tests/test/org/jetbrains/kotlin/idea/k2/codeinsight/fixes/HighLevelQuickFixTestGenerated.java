@@ -9577,6 +9577,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/fromCallExpression.kt");
             }
 
+            @TestMetadata("fromDefaultValuePositionWithComma.kt")
+            public void testFromDefaultValuePositionWithComma() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/fromDefaultValuePositionWithComma.kt");
+            }
+
             @TestMetadata("fromDelegationCall.kt")
             public void testFromDelegationCall() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/primaryParameter/fromDelegationCall.kt");
@@ -10279,6 +10284,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/member/doNotStripPrefix.kt");
             }
 
+            @TestMetadata("fromExtensionFunction.kt")
+            public void testFromExtensionFunction() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/member/fromExtensionFunction.kt");
+            }
+
             @TestMetadata("funExtraArgs.kt")
             public void testFunExtraArgs() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/member/funExtraArgs.kt");
@@ -10377,6 +10387,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("inconsistentTypes.kt")
             public void testInconsistentTypes() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/member/inconsistentTypes.kt");
+            }
+
+            @TestMetadata("innerClass.kt")
+            public void testInnerClass() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/member/innerClass.kt");
             }
 
             @TestMetadata("propertyOnUserType.kt")
@@ -12002,6 +12017,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("addImplicitReceiverNested.kt")
             public void testAddImplicitReceiverNested() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/deprecatedSymbolUsage/addImplicitReceiverNested.kt");
+            }
+
+            @TestMetadata("ambiguousCall.kt")
+            public void testAmbiguousCall() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/deprecatedSymbolUsage/ambiguousCall.kt");
             }
 
             @TestMetadata("annotationWithErrorReplacement.kt")
