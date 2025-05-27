@@ -303,7 +303,7 @@ object PluginManagerCore {
       for (descriptor in getPluginSet().allPlugins) {
         if (pluginIds.contains(descriptor.getPluginId())) {
           descriptor.isMarkedForLoading = enabled
-          if (descriptor.moduleName == null) {
+          if (descriptor !is ContentModuleDescriptor) {
             descriptors.add(descriptor)
           }
         }
@@ -603,10 +603,10 @@ object PluginManagerCore {
     val corePlugin = idMap[CORE_ID]
     if (corePlugin != null) {
       val disabledModulesOfCorePlugin =
-        corePlugin.content.modules
-          .filter { it.loadingRule.required && !it.requireDescriptor().isMarkedForLoading }
+        corePlugin.contentModules
+          .filter { it.moduleLoadingRule.required && !it.isMarkedForLoading }
       if (disabledModulesOfCorePlugin.isNotEmpty()) {
-        throw EssentialPluginMissingException(disabledModulesOfCorePlugin.map { it.name })
+        throw EssentialPluginMissingException(disabledModulesOfCorePlugin.map { it.moduleName })
       }
     }
     var missing: MutableList<String>? = null
@@ -750,8 +750,8 @@ object PluginManagerCore {
       }
       for (contentModule in plugin.contentModules) {
         // plugin aliases in content modules are resolved as plugin id references
-        for (pluginAlias in contentModule.descriptor.pluginAliases) {
-          pluginIdResolutionMap.computeIfAbsent(pluginAlias) { ArrayList() }.add(contentModule.descriptor)
+        for (pluginAlias in contentModule.pluginAliases) {
+          pluginIdResolutionMap.computeIfAbsent(pluginAlias) { ArrayList() }.add(contentModule)
         }
       }
     }
@@ -851,9 +851,8 @@ object PluginManagerCore {
   fun dependsOnUltimateOptionally(pluginDescriptor: IdeaPluginDescriptor?): Boolean {
     if (pluginDescriptor == null || pluginDescriptor !is IdeaPluginDescriptorImpl || !isDisabled(ULTIMATE_PLUGIN_ID)) return false
     val idMap = buildPluginIdMap()
-    return pluginDescriptor.content.modules.any {
-      val descriptor = it.requireDescriptor()
-      !it.loadingRule.required && !processAllNonOptionalDependencies(descriptor, idMap) { descriptorImpl ->
+    return pluginDescriptor.contentModules.any { contentModule ->
+      !contentModule.moduleLoadingRule.required && !processAllNonOptionalDependencies(contentModule, idMap) { descriptorImpl ->
         when (descriptorImpl.pluginId) {
           ULTIMATE_PLUGIN_ID -> FileVisitResult.TERMINATE
           else -> FileVisitResult.CONTINUE

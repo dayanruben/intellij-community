@@ -965,7 +965,7 @@ class InfoAndProgressPanel internal constructor(private val statusBar: IdeStatus
       progressIcon.setBorder(JBUI.CurrentTheme.StatusBar.Widget.border())
       progressIcon.setToolTipText(ActionsBundle.message("action.ShowProcessWindow.double.click"))
 
-      counterIcon = CounterIcon.createRoundIcon(1, JBColor.WHITE, JBUI.CurrentTheme.ProgressBar.PROGRESS)
+      counterIcon = CounterIcon.createRoundIcon(1, JBColor.WHITE, JBUI.CurrentTheme.StatusBar.Progresses.COUNTER)
       val label = JBLabel("", counterIcon, SwingConstants.RIGHT)
       label.addMouseListener(object : MouseAdapter() {
         override fun mouseClicked(e: MouseEvent) {
@@ -992,12 +992,10 @@ class InfoAndProgressPanel internal constructor(private val statusBar: IdeStatus
           if (indicator != null) {
             addVisibleToPreferred(indicator!!.component, withGap = false)
           }
-          addVisibleToPreferred(multiProcessLink, withGap = true)
+          val componentToAdd: JComponent = if (showCounterInsteadOfMultiProcessLink) counterLabel else multiProcessLink
+          addVisibleToPreferred(componentToAdd, withGap = true, enforceOnInvisible = true)
           if (progressIcon.isVisible) {
             result.height = max(result.height, progressIcon.getPreferredSize().height)
-          }
-          if (showCounterInsteadOfMultiProcessLink) {
-            addVisibleToPreferred(counterLabel, withGap = true, enforceOnInvisible = true)
           }
           JBInsets.addTo(result, parent.insets)
           return result

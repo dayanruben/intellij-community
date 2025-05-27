@@ -9,6 +9,7 @@ import com.intellij.codeWithMe.asContextElement
 import com.intellij.concurrency.ContextAwareRunnable
 import com.intellij.diagnostic.ActivityCategory
 import com.intellij.diagnostic.StartUpMeasurer
+import com.intellij.idea.AppMode
 import com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsageCounterCollector
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
@@ -97,7 +98,7 @@ open class EditorComposite internal constructor(
   val file: VirtualFile,
   model: Flow<EditorCompositeModel>,
   @JvmField internal val project: Project,
-  @JvmField internal val coroutineScope: CoroutineScope,
+  @JvmField @Internal val coroutineScope: CoroutineScope,
 ) : FileEditorComposite, Disposable {
   private val clientId: ClientId = ClientId.current
 
@@ -131,12 +132,14 @@ open class EditorComposite internal constructor(
     private set
 
   @JvmField
-  internal val initDeferred = CompletableDeferred<Unit>()
+  @Internal
+  val initDeferred: CompletableDeferred<Unit> = CompletableDeferred<Unit>()
 
   init {
     EDT.assertIsEdt()
 
     if (model is PrecomputedFlow) {
+      LOG.warn("Blocking handling is used. The overall file composite performance will experience a significant slowdown")
       if (model.fireFileOpened) {
         blockingHandleModel2(model.model)
       }
@@ -175,16 +178,14 @@ open class EditorComposite internal constructor(
     fileEditorWithProviders.firstOrNull { it !== INITIAL_EMPTY }
   }
 
+  @Internal
+  protected open suspend fun beforeFileOpen(scope: CoroutineScope, model: EditorCompositeModel) {}
+  @Internal
+  protected open suspend fun afterFileOpen(scope: CoroutineScope, model: EditorCompositeModel) {}
+
   private suspend fun handleModel(model: EditorCompositeModel) {
     val fileEditorWithProviders = model.fileEditorAndProviderList
-
-    for (editorWithProvider in fileEditorWithProviders) {
-      val editor = editorWithProvider.fileEditor
-      FileEditor.FILE_KEY.set(editor, file)
-      if (!clientId.isLocal) {
-        assignClientId(editor, clientId)
-      }
-    }
+    fileEditorWithProviders.assignEditorProperties()
 
     // TODO comment this and log a warning or log something
     if (fileEditorWithProviders.isEmpty()) {
@@ -204,7 +205,8 @@ open class EditorComposite internal constructor(
       }
       val beforePublisher = project.messageBus.syncAndPreloadPublisher(FileEditorManagerListener.Before.FILE_EDITOR_MANAGER)
 
-      val selectedFileEditor = getSelectedEditor(fileEditorWithProviders, model.state)
+      // There is no selected editor on the backend: they should be managed by `GuestFileEditorManager`
+      val selectedFileEditor = if (!AppMode.isRemoteDevHost()) getSelectedEditor(fileEditorWithProviders, model.state) else null
 
       // read not in EDT
       val states = fileEditorWithProviders.map { (_, provider) ->
@@ -212,9 +214,11 @@ open class EditorComposite internal constructor(
       }
 
       val fileEditorManager = project.serviceAsync<FileEditorManager>()
+
+      beforeFileOpen(this, model)
       // cannot be before use as fileOpenedSync by contract should be called in the same EDT event
       val (goodPublisher, deprecatedPublisher) = deferredPublishers.await()
-      span("file opening in EDT and repaint", Dispatchers.EDT) {
+      span("file opening in EDT and repaint", Dispatchers.ui(UiDispatcherKind.RELAX)) {
         span("beforeFileOpened event executing") {
           blockingContext {
             computeOrLogException(
@@ -229,6 +233,7 @@ open class EditorComposite internal constructor(
           fileEditorWithProviders = fileEditorWithProviders,
           selectedFileEditorProvider = selectedFileEditor,
         )
+        afterFileOpen(this, model)
 
         writeIntentReadAction {
           goodPublisher.fileOpenedSync(fileEditorManager, file, fileEditorWithProviders)
@@ -245,10 +250,9 @@ open class EditorComposite internal constructor(
         coroutineScope = coroutineScope,
       )
 
-      val publisher = project.messageBus.syncAndPreloadPublisher(FileEditorManagerListener.FILE_EDITOR_MANAGER)
       span("fileOpened event executing", Dispatchers.ui(UiDispatcherKind.RELAX)) {
         writeIntentReadAction {
-          publisher.fileOpened(fileEditorManager, file)
+          deprecatedPublisher.fileOpened(fileEditorManager, file)
         }
       }
     }
@@ -258,17 +262,12 @@ open class EditorComposite internal constructor(
   @RequiresEdt
   private fun blockingHandleModel(model: EditorCompositeModel) {
     val fileEditorWithProviders = model.fileEditorAndProviderList
-    for (editorWithProvider in fileEditorWithProviders) {
-      val editor = editorWithProvider.fileEditor
-      FileEditor.FILE_KEY.set(editor, file)
-      if (!clientId.isLocal) {
-        assignClientId(editor, clientId)
-      }
-    }
+    fileEditorWithProviders.assignEditorProperties()
 
     val states = oldBadForRemoteDevGetStates(fileEditorWithProviders = fileEditorWithProviders, state = model.state)
     applyFileEditorsInEdt(fileEditorWithProviders = fileEditorWithProviders, selectedFileEditorProvider = null, states = states)
   }
+  private fun List<FileEditorWithProvider>.assignEditorProperties(): Unit = forEach { it.fileEditor.assignProperties() }
 
   private fun oldBadForRemoteDevGetStates(
     fileEditorWithProviders: List<FileEditorWithProvider>,
@@ -291,14 +290,7 @@ open class EditorComposite internal constructor(
   @RequiresEdt
   private fun blockingHandleModel2(model: EditorCompositeModel) {
     val fileEditorWithProviders = model.fileEditorAndProviderList
-
-    for (editorWithProvider in fileEditorWithProviders) {
-      val editor = editorWithProvider.fileEditor
-      FileEditor.FILE_KEY.set(editor, file)
-      if (!clientId.isLocal) {
-        assignClientId(editor, clientId)
-      }
-    }
+    fileEditorWithProviders.assignEditorProperties()
 
     // TODO comment this and log a warning or log something
     if (fileEditorWithProviders.isEmpty()) {
@@ -306,10 +298,6 @@ open class EditorComposite internal constructor(
       _selectedEditorWithProvider.value = null
       return
     }
-
-    val messageBus = project.messageBus
-    val deferredPublishers = messageBus.syncAndPreloadPublisher(FileOpenedSyncListener.TOPIC) to
-      messageBus.syncAndPreloadPublisher(FileEditorManagerListener.FILE_EDITOR_MANAGER)
 
     val beforePublisher = project.messageBus.syncAndPreloadPublisher(FileEditorManagerListener.Before.FILE_EDITOR_MANAGER)
 
@@ -319,14 +307,6 @@ open class EditorComposite internal constructor(
 
     val states = oldBadForRemoteDevGetStates(fileEditorWithProviders = fileEditorWithProviders, state = model.state)
     applyFileEditorsInEdt(fileEditorWithProviders = fileEditorWithProviders, selectedFileEditorProvider = null, states = states)
-
-    val (goodPublisher, deprecatedPublisher) = deferredPublishers
-    goodPublisher.fileOpenedSync(fileEditorManager, file, fileEditorWithProviders)
-    @Suppress("DEPRECATION")
-    deprecatedPublisher.fileOpenedSync(fileEditorManager, file, fileEditorWithProviders)
-
-    val publisher = project.messageBus.syncAndPreloadPublisher(FileEditorManagerListener.FILE_EDITOR_MANAGER)
-    publisher.fileOpened(fileEditorManager, file)
   }
 
   @RequiresEdt
@@ -443,7 +423,8 @@ open class EditorComposite internal constructor(
   override val allProviders: List<FileEditorProvider>
     get() = providerSequence.toList()
 
-  internal val providerSequence: Sequence<FileEditorProvider>
+  @get:Internal
+  val providerSequence: Sequence<FileEditorProvider>
     get() = fileEditorWithProviders.value.asSequence().map { it.provider }
 
   private fun createTabbedPaneWrapper(
@@ -699,10 +680,7 @@ open class EditorComposite internal constructor(
   fun addEditor(editor: FileEditor, provider: FileEditorProvider) {
     val editorWithProvider = FileEditorWithProvider(editor, provider)
     fileEditorWithProviders.update { it + editorWithProvider }
-    FileEditor.FILE_KEY.set(editor, file)
-    if (!clientId.isLocal) {
-      assignClientId(editor, clientId)
-    }
+    editor.assignProperties()
 
     when {
       fileEditorWithProviders.value.size == 1 -> {
@@ -725,6 +703,13 @@ open class EditorComposite internal constructor(
       preferredFocusedComponent?.requestFocusInWindow()
     }
     dispatcher.multicaster.editorAdded(editorWithProvider)
+  }
+
+  private fun FileEditor.assignProperties() {
+    FileEditor.FILE_KEY.set(this, file)
+    if (!clientId.isLocal) {
+      assignClientId(this, clientId)
+    }
   }
 
   @RequiresEdt

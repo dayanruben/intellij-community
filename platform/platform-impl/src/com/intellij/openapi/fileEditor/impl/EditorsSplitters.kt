@@ -106,7 +106,7 @@ private const val IDE_FINGERPRINT: @NonNls String = "ideFingerprint"
 @DirtyUI
 open class EditorsSplitters internal constructor(
   @Internal val manager: FileEditorManagerImpl,
-  @JvmField internal val coroutineScope: CoroutineScope,
+  @Internal @JvmField val coroutineScope: CoroutineScope,
 ) : JPanel(BorderLayout()), UISettingsListener {
   companion object {
     const val SPLITTER_KEY: @NonNls String = "EditorsSplitters"
@@ -799,7 +799,9 @@ open class EditorsSplitters internal constructor(
 
   @JvmOverloads
   @RequiresEdt
-  fun openInRightSplit(file: VirtualFile, requestFocus: Boolean = true): EditorWindow? {
+  fun openInRightSplit(file: VirtualFile, requestFocus: Boolean = true): EditorWindow? = openInRightSplit(file, requestFocus, null)
+
+  internal fun openInRightSplit(file: VirtualFile, requestFocus: Boolean = true, explicitlySetCompositeProvider: (() -> EditorComposite?)?): EditorWindow? {
     val window = currentWindow ?: return null
     val parent = window.component.parent
     if (parent is Splitter) {
@@ -810,7 +812,7 @@ open class EditorsSplitters internal constructor(
           manager.openFile(
             file = file,
             window = rightSplitWindow,
-            options = FileEditorOpenOptions(requestFocus = requestFocus, waitForCompositeOpen = false),
+            options = FileEditorOpenOptions(requestFocus = requestFocus, waitForCompositeOpen = false, explicitlyOpenCompositeProvider = explicitlySetCompositeProvider),
           )
           return rightSplitWindow
         }

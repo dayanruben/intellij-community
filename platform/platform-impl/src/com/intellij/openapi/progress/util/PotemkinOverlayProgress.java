@@ -15,10 +15,12 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.wm.IdeGlassPane;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.KeyStrokeAdapter;
+import com.intellij.ui.paint.PaintUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.TimeoutUtil;
 import com.intellij.util.ui.EDT;
 import com.intellij.util.ui.GraphicsUtil;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.ApiStatus.Obsolete;
 import org.jetbrains.annotations.NotNull;
@@ -29,6 +31,7 @@ import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
 import java.util.List;
 
 @ApiStatus.Internal
@@ -41,7 +44,7 @@ public final class PotemkinOverlayProgress extends AbstractProgressIndicatorBase
     KeyStroke.getKeyStroke(KeyEvent.VK_D, (SystemInfo.isMac ? InputEvent.META_DOWN_MASK : InputEvent.CTRL_DOWN_MASK)), null);
 
   private final Component myComponent;
-  private final PotemkinProgress.EventStealer myEventStealer;
+  private final EventStealer myEventStealer;
   private final long myCreatedAt = System.nanoTime();
   private int myDelayInMillis = DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS * 10;
   private long myLastUiUpdate = myCreatedAt;
@@ -144,7 +147,7 @@ public final class PotemkinOverlayProgress extends AbstractProgressIndicatorBase
     return null;
   }
 
-  public List<InputEvent> drainUndispatchedInputEvents() {
+  private List<InputEvent> drainUndispatchedInputEvents() {
     return myEventStealer.drainUndispatchedInputEvents();
   }
 
@@ -160,17 +163,24 @@ public final class PotemkinOverlayProgress extends AbstractProgressIndicatorBase
     String text = (cancellable ? KeymapUtil.getShortcutText(CANCEL_SHORTCUT) + " to cancel, " : "") +
                   KeymapUtil.getShortcutText(DUMP_SHORTCUT) + " to dump threads (" +
                   NlsMessages.formatDurationApproximateNarrow(roundedDuration) + ")";
-    Graphics graphics = GraphicsUtil.safelyGetGraphics(rootPane);
-    GraphicsUtil.setupAAPainting(graphics);
+    Graphics originalGraphics = GraphicsUtil.safelyGetGraphics(rootPane);
     Rectangle viewR = rootPane.getBounds(), iconR = new Rectangle(), textR = new Rectangle();
-    FontMetrics fm = graphics.getFontMetrics();
+    FontMetrics fm = originalGraphics.getFontMetrics();
     SwingUtilities.layoutCompoundLabel(fm, text, null, 0, 0, 0, 0, viewR, iconR, textR, 0);
-    graphics.translate(textR.x, textR.y);
-    graphics.setColor(JBColor.GRAY);
     int border = 10;
-    graphics.fillRoundRect(-border, -border, textR.width + 2 * border, textR.height + 2 * border, border, border);
+
+    BufferedImage backBuffer = UIUtil.createImage(rootPane.getGraphicsConfiguration(), textR.width + 2 * border, textR.height + 2 * border,
+                                                  BufferedImage.TYPE_INT_ARGB, PaintUtil.RoundingMode.ROUND);
+    Graphics graphics = backBuffer.createGraphics();
+    GraphicsUtil.setupAAPainting(originalGraphics);
+    graphics.setColor(JBColor.GRAY);
+    graphics.fillRoundRect(0, 0, textR.width + 2 * border, textR.height + 2 * border, border, border);
     graphics.setColor(JBColor.WHITE);
-    graphics.drawString(text, 0, fm.getAscent());
+    graphics.drawString(text, border, border + fm.getAscent());
+
+    originalGraphics.translate(textR.x - border, textR.y - border);
+    UIUtil.drawImage(originalGraphics, backBuffer, 0, 0, null);
     graphics.dispose();
+    originalGraphics.dispose();
   }
 }

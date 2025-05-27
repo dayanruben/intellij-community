@@ -94,6 +94,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.future.asCompletableFuture
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.TestOnly
@@ -190,7 +191,8 @@ open class FileEditorManagerImpl(
   @JvmField
   internal val editorPropertyChangeListener: PropertyChangeListener = MyEditorPropertyChangeListener()
 
-  private data class EditorCompositeEntry(
+  @Internal
+  protected data class EditorCompositeEntry(
     @JvmField val composite: EditorComposite,
     // non-volatile - that's ok
     @JvmField var delayedState: FileEntry?,
@@ -198,7 +200,8 @@ open class FileEditorManagerImpl(
 
   private var contentFactory: DockableEditorContainerFactory? = null
 
-  private val openedCompositeEntries = CopyOnWriteArrayList<EditorCompositeEntry>()
+  @Internal
+  protected val openedCompositeEntries = CopyOnWriteArrayList<EditorCompositeEntry>()
 
   private val openedComposites: Sequence<EditorComposite>
     get() = openedCompositeEntries.asSequence().map { it.composite }
@@ -917,7 +920,7 @@ open class FileEditorManagerImpl(
     }
     else if (mode == OpenMode.RIGHT_SPLIT) {
       withContext(Dispatchers.EDT) {
-        openInRightSplit(file, options.requestFocus)
+        openInRightSplit(file, options.requestFocus, explicitlySetCompositeProvider = options.explicitlyOpenCompositeProvider)
       }?.let { composite ->
         if (composite is EditorComposite) {
           composite.waitForAvailable()
@@ -963,7 +966,8 @@ open class FileEditorManagerImpl(
     return composite
   }
 
-  private fun getWindowToOpen(
+  @ApiStatus.Internal
+  protected fun getWindowToOpen(
     options: FileEditorOpenOptions,
     file: VirtualFile,
   ): EditorWindow {
@@ -1039,7 +1043,11 @@ open class FileEditorManagerImpl(
   }
 
   @RequiresEdt
-  private fun openInRightSplit(file: VirtualFile, requestFocus: Boolean): FileEditorComposite? {
+  private fun openInRightSplit(
+    file: VirtualFile,
+    requestFocus: Boolean,
+    explicitlySetCompositeProvider: (() -> EditorComposite?)? = null
+  ): FileEditorComposite? {
     val window = splitters.currentWindow ?: return null
     if (window.inSplitter()) {
       val composite = window.siblings().lastOrNull()?.composites()?.firstOrNull { it.file == file }
@@ -1052,7 +1060,7 @@ open class FileEditorManagerImpl(
         return composite
       }
     }
-    return window.owner.openInRightSplit(file)?.composites()?.firstOrNull { it.file == file }
+    return window.owner.openInRightSplit(file, explicitlySetCompositeProvider = explicitlySetCompositeProvider)?.composites()?.firstOrNull { it.file == file }
   }
 
   @Suppress("DeprecatedCallableAddReplaceWith")
@@ -1241,7 +1249,10 @@ open class FileEditorManagerImpl(
       var composite = if (forceCompositeCreation) null else window.getComposite(file)
       val isNewEditor = composite == null
       if (composite == null) {
-        composite = createCompositeAndModel(file = file, window = window, fileEntry = fileEntry) ?: return@Computable null
+        // IJPL-183875: Explicitly set a composite to open a backend supplied composite
+        composite = options.explicitlyOpenCompositeProvider?.invoke()?.also { LOG.info("doOpenInEdt: Using explicitly selected composite for file=${file.name}")}
+                    ?: createCompositeAndModel(file = file, window = window, fileEntry = fileEntry)
+                    ?: return@Computable null
         openedCompositeEntries.add(EditorCompositeEntry(composite = composite, delayedState = null))
       }
 
@@ -1356,7 +1367,7 @@ open class FileEditorManagerImpl(
   }
 
   @RequiresEdt
-  protected fun createCompositeInstance(
+  protected open fun createCompositeInstance(
     file: VirtualFile,
     model: Flow<EditorCompositeModel>,
     coroutineScope: CoroutineScope,

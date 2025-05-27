@@ -10,7 +10,7 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.IoTestUtil
 import com.intellij.platform.plugins.parser.impl.PluginDescriptorBuilder
 import com.intellij.platform.plugins.parser.impl.PluginDescriptorFromXmlStreamConsumer
-import com.intellij.platform.plugins.parser.impl.ReadModuleContext
+import com.intellij.platform.plugins.parser.impl.PluginDescriptorReaderContext
 import com.intellij.platform.plugins.parser.impl.XIncludeLoader.LoadedXIncludeReference
 import com.intellij.platform.plugins.parser.impl.consume
 import com.intellij.platform.runtime.product.ProductMode
@@ -257,7 +257,7 @@ class PluginManagerTest {
       val text = StringBuilder()
       for (descriptor in loadPluginResult.pluginSet.getEnabledModules()) {
         text.append(if (descriptor.isEnabled()) "+ " else "  ").append(descriptor.getPluginId().idString)
-        if (descriptor.moduleName != null) {
+        if (descriptor is ContentModuleDescriptor) {
           text.append(" | ").append(descriptor.moduleName)
         }
         text.append('\n')
@@ -278,7 +278,7 @@ class PluginManagerTest {
     }
 
     private fun checkCompatibility(ideVersion: String?, sinceBuild: String?, untilBuild: String?): PluginNonLoadReason? {
-      val desc = object : TestIdeaPluginDescriptorEx() {
+      val desc = object : TestIdeaPluginDescriptor() {
         override fun getPluginId(): PluginId = PluginId.getId("test")
         override fun getName(): @NlsSafe String? = pluginId.idString
         override fun getSinceBuild(): @NlsSafe String? = sinceBuild
@@ -290,7 +290,7 @@ class PluginManagerTest {
     }
 
     private fun checkCompatibility(platformId: String): Boolean {
-      val desc = object : TestIdeaPluginDescriptorEx() {
+      val desc = object : TestIdeaPluginDescriptor() {
         override fun getPluginId(): PluginId = PluginId.getId("test")
         override fun getName(): @NlsSafe String? = pluginId.idString
         override fun getSinceBuild(): @NlsSafe String? = null
@@ -342,7 +342,7 @@ class PluginManagerTest {
         }
       }
 
-      val list = ArrayList<IdeaPluginDescriptorImpl>()
+      val list = ArrayList<PluginMainDescriptor>()
       for (element in root.children) {
         if (element.name != "idea-plugin") {
           continue
@@ -398,13 +398,13 @@ class PluginManagerTest {
       override fun loadXIncludeReference(dataLoader: DataLoader, path: String): LoadedXIncludeReference? = throw UnsupportedOperationException()
 
       override fun resolvePath(
-        readContext: ReadModuleContext,
+        readContext: PluginDescriptorReaderContext,
         dataLoader: DataLoader,
         relativePath: String,
       ): PluginDescriptorBuilder {
         for (child in root.children) {
           if (child.name == "config-file-idea-plugin") {
-            val url = child.getAttributeValue("url")!!
+            val url = child.getAttributeValue("descriptor-url")!!
             if (url.endsWith("/$relativePath")) {
               try {
                 val reader = PluginDescriptorFromXmlStreamConsumer(readContext, this.toXIncludeLoader(dataLoader))
@@ -421,7 +421,7 @@ class PluginManagerTest {
       }
 
       override fun resolveModuleFile(
-        readContext: ReadModuleContext,
+        readContext: PluginDescriptorReaderContext,
         dataLoader: DataLoader,
         path: String,
       ): PluginDescriptorBuilder {

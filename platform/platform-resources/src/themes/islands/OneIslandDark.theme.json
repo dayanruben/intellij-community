@@ -1,9 +1,9 @@
 {
-  "name": "Many Islands Darker",
+  "name": "One Island Dark",
   "dark": true,
   "author": "JetBrains",
   "parentTheme": "ExperimentalDark",
-  "editorScheme": "One Island Darker",
+  "editorScheme": "Island Dark",
   "colors": {
     "Gray3": "#393B40",
     "Gray2.5": "#323438",
@@ -19,25 +19,26 @@
 
     "BackgroundDark": "Gray0.75",
     "BackgroundMid": "Gray1.5",
-    "BackgroundLight": "Gray1.5",
-    "BackgroundLightest": "Gray2.5",
+    "BackgroundLight": "Gray2.5",
+    "BackgroundLightest": "Gray3",
 
-    "BorderDark": "Gray1.5",
-    "BorderLight": "Gray2.5",
+    "BorderDark": "Gray0.25",
+    "BorderLight": "Gray3",
     "BorderTransparent": "#00000000",
 
-    "ToolWindowBackground": "Gray0.75",
-    "PanelBackground": "Gray0.75",
-    "InputBackground": "Gray0.75",
-    "ComboboxBackground": "Gray1.5",
-    "ComponentBorder": "Gray4",
+    "PanelBackground": "Gray1.5",
+    "InputBackground": "Gray1.5",
+    "ComboboxBackground": "Gray2.5",
+    "ComponentBorder": "Gray5",
 
     "PopupBackground": "Gray1.5",
-    "PopupBackgroundLight": "Gray1.5",
-    "PopupBorder": "Gray2.5",
+    "PopupBackgroundLight": "Gray2.5",
+    "PopupBorder": "Gray3",
 
-    "TooltipBackground": "Gray2.5",
-    "TooltipBorder": "Gray2.5",
+    "TooltipBackground": "Gray3",
+    "TooltipBorder": "Gray3",
+
+
 
     "HoverBackgroundMid": "Gray3",
     "HoverBackgroundLight": "Gray4",
@@ -57,14 +58,9 @@
       "selectionInactiveBackground": "SelectionInactive"
     },
 
-    "Island": {
-      "arc": 20,
-      "border1.insets": "6,6,6,6"
-    },
+    "Island.arc": 20,
 
     "MainWindow.background": "BackgroundLight",
-    "List.background": "BackgroundDark",
-
     "Borders.color": "BorderDark",
     "Borders.ContrastBorderColor": "BorderDark",
     "MainWindow.Tab.background": "#131314",
@@ -82,11 +78,11 @@
     },
 
     "ToolWindow": {
-      "background": "ToolWindowBackground",
+      "background": "BackgroundMid",
       "borderColor": "BorderDark",
       "Header": {
-        "background": "ToolWindowBackground",
-        "inactiveBackground": "ToolWindowBackground",
+        "background": "BackgroundMid",
+        "inactiveBackground": "BackgroundMid",
         "borderColor": "BorderDark"
       },
       "HeaderTab": {
@@ -103,10 +99,10 @@
     "EditorTabs": {
       "background": "BackgroundDark",
       "underTabsBorderColor": "BackgroundLight",
-      "underlinedBorder": "Blue3",
-      "inactiveUnderlinedTabBorder": "Gray1.5",
+      "underlinedBorderColor": "Blue3",
       "underlinedTabBackground": "Blue1",
-      "inactiveUnderlinedTabBackground": "Gray1.5",
+      "inactiveUnderlinedTabBorderColor": "Gray4",
+      "inactiveUnderlinedTabBackground": "Gray2",
       "hoverBackground": "Gray2",
 
       "tabInsets": "-7,8,-7,8",
@@ -122,14 +118,15 @@
       }
     },
 
+
     "Code.Block": {
       "borderColor": "BorderLight",
       "EditorPane.borderColor": "BorderLight"
     },
 
     "FileColor": {
-      "Yellow": "#291f1c",
-      "Green": "#1c261c"
+      "Yellow": "#362924",
+      "Green": "#223023"
     },
 
     "NavBar.borderColor": "BorderTransparent",
@@ -230,17 +227,15 @@
       }
     },
 
-    "RecentProject.Color1.MainToolbarGradientStart": "#332d29",
-    "RecentProject.Color2.MainToolbarGradientStart": "#2e2b22",
-    "RecentProject.Color3.MainToolbarGradientStart": "#272b23",
-    "RecentProject.Color4.MainToolbarGradientStart": "#212c30",
-    "RecentProject.Color5.MainToolbarGradientStart": "#262b38",
-    "RecentProject.Color6.MainToolbarGradientStart": "#2e292e",
-    "RecentProject.Color7.MainToolbarGradientStart": "#2d2833",
-    "RecentProject.Color8.MainToolbarGradientStart": "#1e2929",
-    "RecentProject.Color9.MainToolbarGradientStart": "#242b25",
-
-
+    "RecentProject.Color1.MainToolbarGradientStart": "#4d382a",
+    "RecentProject.Color2.MainToolbarGradientStart": "#403520",
+    "RecentProject.Color3.MainToolbarGradientStart": "#313826",
+    "RecentProject.Color4.MainToolbarGradientStart": "#2c424a",
+    "RecentProject.Color5.MainToolbarGradientStart": "#303957",
+    "RecentProject.Color6.MainToolbarGradientStart": "#4a304a",
+    "RecentProject.Color7.MainToolbarGradientStart": "#403552",
+    "RecentProject.Color8.MainToolbarGradientStart": "#294040",
+    "RecentProject.Color9.MainToolbarGradientStart": "#263b28",
 
     "TrialWidget": {
       "Default.background": "#27282E",

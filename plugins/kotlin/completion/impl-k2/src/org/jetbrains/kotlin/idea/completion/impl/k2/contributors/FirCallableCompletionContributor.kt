@@ -27,7 +27,6 @@ import org.jetbrains.kotlin.idea.base.analysis.api.utils.*
 import org.jetbrains.kotlin.idea.base.psi.isInsideAnnotationEntryArgumentList
 import org.jetbrains.kotlin.idea.codeinsight.utils.canBeUsedAsExtension
 import org.jetbrains.kotlin.idea.codeinsight.utils.isEnum
-import org.jetbrains.kotlin.idea.completion.KotlinFirCompletionParameters
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.*
 import org.jetbrains.kotlin.idea.completion.impl.k2.LookupElementSink
 import org.jetbrains.kotlin.idea.completion.impl.k2.checkers.ApplicableExtension
@@ -55,11 +54,10 @@ import org.jetbrains.kotlin.utils.exceptions.KotlinIllegalArgumentExceptionWithA
 private val NOT_PROPERTIES = NotPropertiesService.DEFAULT.toSet()
 
 internal open class FirCallableCompletionContributor(
-    parameters: KotlinFirCompletionParameters,
     sink: LookupElementSink,
     priority: Int = 0,
     private val withTrailingLambda: Boolean = false, // TODO find a better solution
-) : FirCompletionContributorBase<KotlinNameReferencePositionContext>(parameters, sink, priority) {
+) : FirCompletionContributorBase<KotlinNameReferencePositionContext>(sink, priority) {
 
     context(KaSession)
     protected open fun getImportStrategy(signature: KaCallableSignature<*>, isImportDefinitelyNotRequired: Boolean): ImportStrategy =
@@ -168,8 +166,6 @@ internal open class FirCallableCompletionContributor(
                     )
                 }
             }.forEach(sink::addElement)
-
-        logger<FirCallableCompletionContributor>().debug("Suspicious calculations took ${sink.duration}")
     }
 
     context(KaSession)
@@ -808,10 +804,9 @@ internal open class FirCallableCompletionContributor(
 }
 
 internal class FirCallableReferenceCompletionContributor(
-    parameters: KotlinFirCompletionParameters,
     sink: LookupElementSink,
     priority: Int,
-) : FirCallableCompletionContributor(parameters, sink, priority) {
+) : FirCallableCompletionContributor(sink, priority) {
 
     context(KaSession)
     override fun getImportStrategy(signature: KaCallableSignature<*>, isImportDefinitelyNotRequired: Boolean): ImportStrategy {
@@ -881,10 +876,9 @@ internal class FirCallableReferenceCompletionContributor(
 }
 
 internal class FirInfixCallableCompletionContributor(
-    parameters: KotlinFirCompletionParameters,
     sink: LookupElementSink,
     priority: Int = 0,
-) : FirCallableCompletionContributor(parameters, sink, priority) {
+) : FirCallableCompletionContributor(sink, priority) {
 
     override fun getInsertionStrategy(signature: KaCallableSignature<*>): CallableInsertionStrategy =
         infixCallableInsertionStrategy
@@ -913,10 +907,9 @@ internal class FirInfixCallableCompletionContributor(
 }
 
 internal class FirKDocCallableCompletionContributor(
-    parameters: KotlinFirCompletionParameters,
     sink: LookupElementSink,
     priority: Int = 0,
-) : FirCallableCompletionContributor(parameters, sink, priority) {
+) : FirCallableCompletionContributor(sink, priority) {
 
     override fun getInsertionStrategy(signature: KaCallableSignature<*>): CallableInsertionStrategy =
         CallableInsertionStrategy.AsIdentifier

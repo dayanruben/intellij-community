@@ -4,6 +4,7 @@ package com.intellij.platform.recentFiles.backend
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.recentFiles.shared.FileChangeKind
 import com.intellij.platform.recentFiles.shared.RecentFileKind
 
 /**
@@ -28,6 +29,13 @@ internal object BackendRecentFileEventsController {
           BackendRecentFileEventsModel.getInstance(project).scheduleApplyBackendChanges(filesKind, changeKind, relevantUpdates)
         }
       }
+    }
+  }
+
+  fun updateAllExistingFilesInModel(project: Project) {
+    for (filesKind in RecentFileKind.entries) {
+      val knownFilesByKind = BackendRecentFilesModel.getInstance(project).getFilesByKind(filesKind).takeIf { it.isNotEmpty() } ?: continue
+      BackendRecentFileEventsModel.getInstance(project).scheduleApplyBackendChanges(filesKind, FileChangeKind.UPDATED, knownFilesByKind)
     }
   }
 }

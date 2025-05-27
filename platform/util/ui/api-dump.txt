@@ -419,6 +419,7 @@ f:com.intellij.icons.AllIcons$FileTypes
 - sf:Hprof:javax.swing.Icon
 - sf:Htaccess:javax.swing.Icon
 - sf:Html:javax.swing.Icon
+- sf:Http:javax.swing.Icon
 - sf:I18n:javax.swing.Icon
 - sf:Idl:javax.swing.Icon
 - sf:Image:javax.swing.Icon
@@ -4608,6 +4609,8 @@ com.intellij.util.ui.JBUI$CurrentTheme$StatusBar$Breadcrumbs
 - s:itemInsets():com.intellij.util.ui.JBInsets
 - s:navBarInsets():java.awt.Insets
 - s:navBarInsetsKey():java.lang.String
+com.intellij.util.ui.JBUI$CurrentTheme$StatusBar$Progresses
+- sf:COUNTER:java.awt.Color
 com.intellij.util.ui.JBUI$CurrentTheme$StatusBar$Widget
 - sf:FOREGROUND:java.awt.Color
 - sf:HOVER_BACKGROUND:java.awt.Color
