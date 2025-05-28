@@ -29,8 +29,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-import static com.intellij.openapi.editor.impl.FoldingKeys.ZOMBIE_BITTEN_KEY;
-import static com.intellij.openapi.editor.impl.FoldingKeys.ZOMBIE_REGION_KEY;
+import static com.intellij.openapi.editor.impl.FoldingKeys.*;
 
 final class UpdateFoldRegionsOperation implements Runnable {
   enum ApplyDefaultStateMode { YES, EXCEPT_CARET_REGION, NO }
@@ -38,9 +37,9 @@ final class UpdateFoldRegionsOperation implements Runnable {
   private static final Logger LOG = Logger.getInstance(UpdateFoldRegionsOperation.class);
   private static final Key<Boolean> CAN_BE_REMOVED_WHEN_COLLAPSED = Key.create("canBeRemovedWhenCollapsed");
   static final Key<Boolean> COLLAPSED_BY_DEFAULT = Key.create("collapsedByDefault");
-  static final Key<String> SIGNATURE = FoldingKeys.SIGNATURE;
+  static final Key<String> SIGNATURE = Key.create("signature");
   static final Key<Boolean> UPDATE_REGION = Key.create("update");
-  static final String NO_SIGNATURE = FoldingKeys.NO_SIGNATURE;
+  static final String NO_SIGNATURE = "no signature";
 
   private static final Comparator<PsiElement> COMPARE_BY_OFFSET_REVERSED = (element, element1) -> {
     int startOffsetDiff = element1.getTextRange().getStartOffset() - element.getTextRange().getStartOffset();
@@ -356,7 +355,7 @@ final class UpdateFoldRegionsOperation implements Runnable {
     if (!(foldingModel instanceof FoldingModelImpl foldingModelImpl) ||
         (foldingModelImpl.getIsZombieRaised().compareAndSet(true, false))) {
       for (FoldRegion region : foldingModel.getAllFoldRegions()) {
-        if (region.getUserData(ZOMBIE_REGION_KEY) != null) {
+        if (region.getUserData(ZOMBIE_REGION_KEY) != null && region.getUserData(AUTO_CREATED_ZOMBIE) == null) {
           if (zombieMap == null) {
             zombieMap = new HashMap<>();
             zombies = new ArrayList<>();

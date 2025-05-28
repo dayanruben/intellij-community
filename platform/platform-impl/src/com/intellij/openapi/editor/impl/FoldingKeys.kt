@@ -17,13 +17,10 @@ object FoldingKeys {
   val ZOMBIE_BITTEN_KEY: Key<Boolean> = Key.create("zombie.bitten.region")
 
   @JvmField
-  val HIDE_GUTTER_RENDERER_FOR_COLLAPSED: Key<Boolean> = Key.create("FoldRegion.HIDE_GUTTER_RENDERER_FOR_COLLAPSED")
+  val AUTO_CREATED_ZOMBIE: Key<Boolean> = Key.create("zombie.backend.created")
 
-  @ApiStatus.Internal
   @JvmField
-  val SIGNATURE: Key<String> = Key.create("folding.signature")
-  @ApiStatus.Internal
-  const val NO_SIGNATURE: String = "folding.no.signature"
+  val HIDE_GUTTER_RENDERER_FOR_COLLAPSED: Key<Boolean> = Key.create("FoldRegion.HIDE_GUTTER_RENDERER_FOR_COLLAPSED")
 
 
   /**

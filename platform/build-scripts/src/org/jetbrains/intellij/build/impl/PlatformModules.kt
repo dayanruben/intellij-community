@@ -13,7 +13,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jdom.CDATA
 import org.jdom.Element
-import org.jetbrains.intellij.build.*
+import org.jetbrains.intellij.build.BuildContext
+import org.jetbrains.intellij.build.FrontendModuleFilter
+import org.jetbrains.intellij.build.PLATFORM_LOADER_JAR
+import org.jetbrains.intellij.build.ProductModulesLayout
+import org.jetbrains.intellij.build.UTIL_8_JAR
+import org.jetbrains.intellij.build.UTIL_JAR
+import org.jetbrains.intellij.build.UTIL_RT_JAR
 import org.jetbrains.intellij.build.impl.PlatformJarNames.PRODUCT_CLIENT_JAR
 import org.jetbrains.intellij.build.impl.PlatformJarNames.PRODUCT_JAR
 import org.jetbrains.intellij.build.impl.PlatformJarNames.TEST_FRAMEWORK_JAR
@@ -23,7 +29,7 @@ import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import org.jetbrains.jps.model.module.JpsModuleReference
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.*
+import java.util.SortedSet
 
 @Suppress("RemoveRedundantQualifierName")
 private val PLATFORM_API_MODULES = java.util.List.of(
@@ -65,12 +71,11 @@ private val PLATFORM_IMPLEMENTATION_MODULES = java.util.List.of(
   "intellij.platform.scriptDebugger.ui",
   "intellij.platform.smRunner",
   "intellij.platform.structureView.impl",
-  "intellij.platform.tasks.impl",
+  "intellij.platform.tasks",
   "intellij.platform.testRunner",
   "intellij.platform.rd.community",
   "intellij.remoteDev.util",
   "intellij.platform.feedback",
-  "intellij.platform.warmup",
   "intellij.platform.usageView.impl",
   "intellij.platform.buildScripts.downloader",
   "intellij.platform.ml.impl",
@@ -538,6 +543,7 @@ private val excludedPaths = java.util.Set.of(
   "/META-INF/unattendedHost.xml",
   "/META-INF/cwmBackendConnection.xml",
   "/META-INF/cwmConnectionFrontend.xml",
+  "/META-INF/clientUltimate.xml",
 )
 
 private val COMMUNITY_IMPL_EXTENSIONS = setOf(
