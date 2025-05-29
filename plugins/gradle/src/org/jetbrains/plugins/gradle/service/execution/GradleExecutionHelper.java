@@ -40,6 +40,7 @@ import org.jetbrains.plugins.gradle.jvmcompat.GradleJvmSupportMatrix;
 import org.jetbrains.plugins.gradle.properties.GradlePropertiesFile;
 import org.jetbrains.plugins.gradle.service.execution.cmd.GradleCommandLineOptionsProvider;
 import org.jetbrains.plugins.gradle.service.project.GradleExecutionHelperExtension;
+import org.jetbrains.plugins.gradle.service.project.GradleProjectResolver;
 import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
 import org.jetbrains.plugins.gradle.util.cmd.node.GradleCommandLine;
@@ -50,12 +51,25 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 
+/**
+ * This is the low-level Gradle execution API that connects and interacts with the Gradle daemon using the Gradle tooling API.
+ * <p>
+ * Consider using the high-level Gradle execution APIs instead:
+ * <ul>
+ * <li>{@link com.intellij.openapi.externalSystem.util.ExternalSystemUtil#runTask}</li>
+ * <li>{@link com.intellij.openapi.externalSystem.util.task.TaskExecutionUtil#runTask}</li>
+ * </ul>
+ *
+ * @see <a href="https://docs.gradle.org/current/userguide/tooling_api.html">Gradle tooling API</a>
+ */
+@ApiStatus.Internal
 public final class GradleExecutionHelper {
 
   /**
    * @deprecated Use helper methods without object instantiation.
-   * All method is this class is static.
+   * All methods in this class are static.
    */
   @Deprecated
   public GradleExecutionHelper() { }
@@ -116,7 +130,7 @@ public final class GradleExecutionHelper {
   }
 
   /**
-   * @deprecated Use instead the static variant of this method.
+   * @deprecated use the {@link GradleExecutionHelper#execute} function with {@link GradleExecutionContext} instead
    */
   @Deprecated
   public <T> T execute(
@@ -127,6 +141,10 @@ public final class GradleExecutionHelper {
     return execute(projectPath, settings, null, null, null, f);
   }
 
+  /**
+   * @deprecated use the {@link GradleExecutionHelper#execute} function with {@link GradleExecutionContext} instead
+   */
+  @Deprecated
   public static <T> T execute(
     @NotNull String projectPath,
     @Nullable GradleExecutionSettings settings,
@@ -171,14 +189,50 @@ public final class GradleExecutionHelper {
     });
   }
 
-  @ApiStatus.Internal
+  public static <T> T execute(
+    @NotNull GradleExecutionContextImpl context,
+    @NotNull java.util.function.Function<? super ProjectConnection, ? extends T> action
+  ) {
+    return execute(
+      context.getProjectPath(), context.getSettings(), context.getTaskId(), context.getListener(), context.getCancellationToken(),
+      connection -> {
+        BuildEnvironment buildEnvironment = null;
+        try {
+          buildEnvironment = getBuildEnvironment(connection, context);
+          context.setBuildEnvironment(buildEnvironment);
+          return action.apply(connection);
+        }
+        catch (CancellationException ce) {
+          throw ce;
+        }
+        catch (Exception ex) {
+          throw GradleProjectResolver.createProjectResolverChain()
+            .getUserFriendlyError(buildEnvironment, ex, context.getProjectPath(), null);
+        }
+      });
+  }
+
+  public static void prepareForExecution(
+    @NotNull LongRunningOperation operation,
+    @NotNull GradleExecutionContext context
+  ) {
+    prepareForExecution(
+      operation,
+      context.getCancellationToken(), context.getTaskId(), context.getSettings(), context.getListener(), context.getBuildEnvironment()
+    );
+  }
+
+  /**
+   * @deprecated use the {@link GradleExecutionHelper#prepareForExecution} function with {@link GradleExecutionContext} instead
+   */
+  @Deprecated
   public static void prepareForExecution(
     @NotNull LongRunningOperation operation,
     @NotNull CancellationToken cancellationToken,
     @NotNull ExternalSystemTaskId id,
     @NotNull GradleExecutionSettings settings,
     @NotNull ExternalSystemTaskNotificationListener listener,
-    @Nullable BuildEnvironment buildEnvironment
+    @NotNull BuildEnvironment buildEnvironment
   ) {
     clearSystemProperties(operation);
 
@@ -258,7 +312,6 @@ public final class GradleExecutionHelper {
     }
   }
 
-  @ApiStatus.Internal
   @VisibleForTesting
   public static void setupJvmArguments(
     @NotNull LongRunningOperation operation,
@@ -364,7 +417,6 @@ public final class GradleExecutionHelper {
     }
   }
 
-  @ApiStatus.Internal
   @VisibleForTesting
   public static void setupLogging(
     @NotNull GradleExecutionSettings settings,
@@ -435,16 +487,32 @@ public final class GradleExecutionHelper {
     operation.setEnvironmentVariables(effectiveEnvironment);
   }
 
-  public static @Nullable BuildEnvironment getBuildEnvironment(@NotNull ProjectConnection connection,
-                                                               @NotNull ExternalSystemTaskId taskId,
-                                                               @NotNull ExternalSystemTaskNotificationListener listener,
-                                                               @Nullable CancellationToken cancellationToken,
-                                                               @Nullable GradleExecutionSettings settings) {
+  private static @NotNull BuildEnvironment getBuildEnvironment(
+    @NotNull ProjectConnection connection,
+    @NotNull GradleExecutionContext context
+  ) {
+    return getBuildEnvironment(
+      connection, context.getTaskId(), context.getListener(), context.getCancellationToken(), context.getSettings()
+    );
+  }
+
+  /**
+   * @deprecated use the {@link GradleExecutionHelper#execute} function with {@link GradleExecutionContext} instead.
+   * The {@link BuildEnvironment} model will be automatically provided to {@link GradleExecutionContext}.
+   */
+  @Deprecated
+  public static @NotNull BuildEnvironment getBuildEnvironment(
+    @NotNull ProjectConnection connection,
+    @NotNull ExternalSystemTaskId taskId,
+    @NotNull ExternalSystemTaskNotificationListener listener,
+    @Nullable CancellationToken cancellationToken,
+    @Nullable GradleExecutionSettings settings
+  ) {
     Span span = ExternalSystemTelemetryUtil.getTracer(GradleConstants.SYSTEM_ID)
       .spanBuilder("GetBuildEnvironment")
       .startSpan();
     try (Scope ignore = span.makeCurrent()) {
-      BuildEnvironment buildEnvironment = null;
+      BuildEnvironment buildEnvironment;
       try {
         ModelBuilder<BuildEnvironment> modelBuilder = connection.model(BuildEnvironment.class);
         if (cancellationToken != null) {
@@ -463,15 +531,21 @@ public final class GradleExecutionHelper {
 
         buildEnvironment = modelBuilder.get();
       }
-      catch (Throwable t) {
-        span.recordException(t);
-        span.setStatus(StatusCode.ERROR);
-        LOG.warn("Failed to obtain build environment from Gradle daemon.", t);
+      catch (Exception ex) {
+        throw new RuntimeException("Failed to obtain build environment from Gradle daemon.", ex);
       }
-      if (buildEnvironment != null) {
-        checkThatGradleBuildEnvironmentIsSupportedByIdea(buildEnvironment);
-      }
+
+      checkThatGradleBuildEnvironmentIsSupportedByIdea(buildEnvironment);
+
       return buildEnvironment;
+    }
+    catch (CancellationException ce) {
+      throw ce;
+    }
+    catch (Exception ex) {
+      span.recordException(ex);
+      span.setStatus(StatusCode.ERROR);
+      throw ex;
     }
     finally {
       span.end();
@@ -531,7 +605,6 @@ public final class GradleExecutionHelper {
     }
   }
 
-  @ApiStatus.Internal
   @VisibleForTesting
   public static @NotNull List<String> obfuscatePasswordParameters(@NotNull List<String> commandLineArguments) {
     List<String> replaced = new ArrayList<>(commandLineArguments.size());

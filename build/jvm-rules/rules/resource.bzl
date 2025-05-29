@@ -30,7 +30,6 @@ def _jvm_resources_impl(ctx):
         },
         env = {
             "LC_CTYPE": "en_US.UTF-8",
-            "MALLOC_ARENA_MAX": "2",
         },
     )
     return [
