@@ -27,10 +27,10 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 @ApiStatus.Internal
 class SeProvidersHolder(
-  private val allTabProviders: Map<SeProviderId, SeItemDataProvider>,
-  private val separateTabProviders: Map<SeProviderId, SeItemDataProvider>,
+  private val allTabProviders: Map<SeProviderId, SeLocalItemDataProvider>,
+  private val separateTabProviders: Map<SeProviderId, SeLocalItemDataProvider>,
 ) : Disposable {
-  fun get(providerId: SeProviderId, isSeparateTab: Boolean): SeItemDataProvider? =
+  fun get(providerId: SeProviderId, isSeparateTab: Boolean): SeLocalItemDataProvider? =
     if (isSeparateTab) separateTabProviders[providerId] ?: allTabProviders[providerId]
     else allTabProviders[providerId]
 
@@ -54,8 +54,8 @@ class SeProvidersHolder(
 
       val dataContext = initEvent.dataContext
 
-      val providers = mutableMapOf<SeProviderId, SeItemDataProvider>()
-      val separateTabProviders = mutableMapOf<SeProviderId, SeItemDataProvider>()
+      val providers = mutableMapOf<SeProviderId, SeLocalItemDataProvider>()
+      val separateTabProviders = mutableMapOf<SeProviderId, SeLocalItemDataProvider>()
 
       SeItemsProviderFactory.EP_NAME.extensionList.filter {
         providerIds == null || SeProviderId(it.id) in providerIds
@@ -63,11 +63,15 @@ class SeProvidersHolder(
         val provider: SeItemsProvider?
         val separateTabProvider: SeItemsProvider?
 
+        val providerFactoryId = providerFactory.id.let {
+          if (it.startsWith(SeProviderIdUtils.TOP_HIT_ID)) SeProviderIdUtils.TOP_HIT_ID else it
+        }
+
         if (providerFactory is SeWrappedLegacyContributorItemsProviderFactory) {
-          provider = allContributors[providerFactory.id]?.let {
+          provider = allContributors[providerFactoryId]?.let {
             providerFactory.getItemsProviderCatchingOrNull(project, it)
           }
-          separateTabProvider = separateTabContributors[providerFactory.id]?.let {
+          separateTabProvider = separateTabContributors[providerFactoryId]?.let {
             providerFactory.getItemsProviderCatchingOrNull(project,it)
           }
         }

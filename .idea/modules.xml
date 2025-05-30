@@ -152,6 +152,7 @@
       <module fileurl="file://$PROJECT_DIR$/android/gradle-tooling/studio-gradle-tooling-api/intellij.android.gradle-tooling.api.iml" filepath="$PROJECT_DIR$/android/gradle-tooling/studio-gradle-tooling-api/intellij.android.gradle-tooling.api.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/gradle-tooling/studio-gradle-tooling-impl/intellij.android.gradle-tooling.impl.iml" filepath="$PROJECT_DIR$/android/gradle-tooling/studio-gradle-tooling-impl/intellij.android.gradle-tooling.impl.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/gradle-declarative-lang/intellij.android.gradle.declarative.lang.iml" filepath="$PROJECT_DIR$/android/gradle-declarative-lang/intellij.android.gradle.declarative.lang.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android/gradle-declarative-lang-flags/intellij.android.gradle.declarative.lang.flags.iml" filepath="$PROJECT_DIR$/android/gradle-declarative-lang-flags/intellij.android.gradle.declarative.lang.flags.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/gradle-declarative-lang-ide/intellij.android.gradle.declarative.lang.ide.iml" filepath="$PROJECT_DIR$/android/gradle-declarative-lang-ide/intellij.android.gradle.declarative.lang.ide.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/gradle-declarative-lang-ide/intellij.android.gradle.declarative.lang.ide.tests.iml" filepath="$PROJECT_DIR$/android/gradle-declarative-lang-ide/intellij.android.gradle.declarative.lang.ide.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/gradle-declarative-lang-sync/intellij.android.gradle.declarative.lang.sync.iml" filepath="$PROJECT_DIR$/android/gradle-declarative-lang-sync/intellij.android.gradle.declarative.lang.sync.iml" />
@@ -199,7 +200,6 @@
       <module fileurl="file://$PROJECT_DIR$/android/ml-api/intellij.android.ml-api-tests.iml" filepath="$PROJECT_DIR$/android/ml-api/intellij.android.ml-api-tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/mlkit/intellij.android.mlkit.iml" filepath="$PROJECT_DIR$/android/mlkit/intellij.android.mlkit.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/mlkit/intellij.android.mlkit.tests.iml" filepath="$PROJECT_DIR$/android/mlkit/intellij.android.mlkit.tests.iml" />
-      <module fileurl="file://$PROJECT_DIR$/android/motion-editor/intellij.android.motion-editor.iml" filepath="$PROJECT_DIR$/android/motion-editor/intellij.android.motion-editor.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/native-symbolizer/intellij.android.native-symbolizer.iml" filepath="$PROJECT_DIR$/android/native-symbolizer/intellij.android.native-symbolizer.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/native-symbolizer/gradle/intellij.android.native-symbolizer.gradle.iml" filepath="$PROJECT_DIR$/android/native-symbolizer/gradle/intellij.android.native-symbolizer.gradle.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/native-symbolizer/intellij.android.native-symbolizer.tests.iml" filepath="$PROJECT_DIR$/android/native-symbolizer/intellij.android.native-symbolizer.tests.iml" />
@@ -943,6 +943,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/junit5/highlighting/intellij.platform.testFramework.junit5.highlighting.iml" filepath="$PROJECT_DIR$/platform/testFramework/junit5/highlighting/intellij.platform.testFramework.junit5.highlighting.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/junit5.jimfs/intellij.platform.testFramework.junit5.jimfs.iml" filepath="$PROJECT_DIR$/platform/testFramework/junit5.jimfs/intellij.platform.testFramework.junit5.jimfs.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/junit5/projectStructure/intellij.platform.testFramework.junit5.projectStructure.iml" filepath="$PROJECT_DIR$/platform/testFramework/junit5/projectStructure/intellij.platform.testFramework.junit5.projectStructure.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/testFramework/monorepo/intellij.platform.testFramework.monorepo.iml" filepath="$PROJECT_DIR$/platform/testFramework/monorepo/intellij.platform.testFramework.monorepo.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/teamCity/intellij.platform.testFramework.teamCity.iml" filepath="$PROJECT_DIR$/platform/testFramework/teamCity/intellij.platform.testFramework.teamCity.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/ui/intellij.platform.testFramework.ui.iml" filepath="$PROJECT_DIR$/platform/testFramework/ui/intellij.platform.testFramework.ui.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testRunner/intellij.platform.testRunner.iml" filepath="$PROJECT_DIR$/platform/testRunner/intellij.platform.testRunner.iml" />

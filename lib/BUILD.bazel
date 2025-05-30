@@ -8435,8 +8435,8 @@ jvm_import(
 
 jvm_import(
   name = "pty4j",
-  jar = "@pty4j-0_13_4_http//file",
-  source_jar = "@pty4j-0_13_4-sources_http//file",
+  jar = "@pty4j-0_13_5_http//file",
+  source_jar = "@pty4j-0_13_5-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -8744,8 +8744,8 @@ jvm_import(
 
 jvm_import(
   name = "studio-platform",
-  jar = "@studio-platform-2025_1_1-alpha03-256_http//file",
-  source_jar = "@studio-platform-2025_1_1-alpha03-256-sources_http//file",
+  jar = "@studio-platform-2025_1_1-alpha07-261_http//file",
+  source_jar = "@studio-platform-2025_1_1-alpha07-261-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -8758,8 +8758,8 @@ java_library(
 
 jvm_import(
   name = "studio-test-platform",
-  jar = "@studio-test-platform-2025_1_1-alpha03-256_http//file",
-  source_jar = "@studio-test-platform-2025_1_1-alpha03-256-sources_http//file",
+  jar = "@studio-test-platform-2025_1_1-alpha07-261_http//file",
+  source_jar = "@studio-test-platform-2025_1_1-alpha07-261-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -9043,7 +9043,7 @@ jvm_import(
 java_library(
   name = "x_stream",
   exports = [
-    ":xstream-1_4_20_http_import",
+    ":xstream-1_4_21_http_import",
     ":mxparser-1_2_2_http_import",
     ":xmlpull-1_1_3_1_http_import",
   ],
@@ -9051,9 +9051,9 @@ java_library(
 )
 
 jvm_import(
-  name = "xstream-1_4_20_http_import",
-  jar = "@xstream-1_4_20_http//file",
-  source_jar = "@xstream-1_4_20-sources_http//file"
+  name = "xstream-1_4_21_http_import",
+  jar = "@xstream-1_4_21_http//file",
+  source_jar = "@xstream-1_4_21-sources_http//file"
 )
 
 jvm_import(

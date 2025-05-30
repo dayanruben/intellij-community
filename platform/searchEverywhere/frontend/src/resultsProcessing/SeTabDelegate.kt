@@ -10,20 +10,19 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.project.projectId
 import com.intellij.platform.searchEverywhere.*
-import com.intellij.platform.searchEverywhere.frontend.SeFrontendItemDataProvider
-import com.intellij.platform.searchEverywhere.utils.initAsync
+import com.intellij.platform.searchEverywhere.equalityProviders.SeEqualityChecker
+import com.intellij.platform.searchEverywhere.frontend.SeFrontendItemDataProvidersFacade
 import com.intellij.platform.searchEverywhere.impl.SeRemoteApi
+import com.intellij.platform.searchEverywhere.providers.SeLocalItemDataProvider
 import com.intellij.platform.searchEverywhere.providers.SeLog
 import com.intellij.platform.searchEverywhere.providers.SeLog.ITEM_EMIT
 import com.intellij.platform.searchEverywhere.providers.SeProvidersHolder
 import com.intellij.platform.searchEverywhere.providers.target.SeTypeVisibilityStatePresentation
+import com.intellij.platform.searchEverywhere.utils.initAsync
 import fleet.kernel.DurableRef
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 
@@ -37,49 +36,36 @@ class SeTabDelegate(
   private val initEvent: AnActionEvent,
   val scope: CoroutineScope
 ) : Disposable {
-  private val providers = initAsync(scope) { initializeProviders(project, providerIds, initEvent, sessionRef, logLabel, this) }
+  private val providers = initAsync(scope) {
+    initializeProviders(project, providerIds, initEvent, sessionRef, logLabel, this)
+  }
   private val providersAndLimits = providerIds.associateWith { Int.MAX_VALUE }
 
-  suspend fun getProvidersIdToName(): Map<SeProviderId, @Nls String> = providers.getValue().mapValues { it.value.displayName }
+  suspend fun getProvidersIdToName(): Map<SeProviderId, @Nls String> = providers.getValue().getProvidersIdToName()
 
   fun getItems(params: SeParams, disabledProviders: List<SeProviderId>? = null): Flow<SeResultEvent> {
     val accumulator = SeResultsAccumulator(providersAndLimits)
 
     return flow {
-      val providers = providers.getValue()
-      val enabledProviders = (disabledProviders?.let { providers.filterKeys { it !in disabledProviders } } ?: providers).values
-
-      enabledProviders.asFlow().flatMapMerge { provider ->
-        provider.getItems(params).mapNotNull {
-          SeLog.log(ITEM_EMIT) { "Tab delegate for ${logLabel} emits: ${it.presentation.text}" }
-          accumulator.add(it)
-        }
-      }.buffer(0, onBufferOverflow = BufferOverflow.SUSPEND).collect {
+      providers.getValue().getItems(params, disabledProviders ?: emptyList()) {
+        SeLog.log(ITEM_EMIT) { "Tab delegate for ${logLabel} emits: ${it.presentation.text}" }
+        accumulator.add(it)
+      }.collect {
         emit(it)
       }
-    }.buffer(0, onBufferOverflow = BufferOverflow.SUSPEND)
+    }
   }
 
   suspend fun getSearchScopesInfos(): List<SeSearchScopesInfo> {
-    return providers.getValue().values.mapNotNull { it.getSearchScopesInfo() }
+    return providers.getValue().getSearchScopesInfos()
   }
 
   suspend fun getTypeVisibilityStates(): List<SeTypeVisibilityStatePresentation> {
-    return providers.getValue().values.flatMap { it.getTypeVisibilityStates() ?: emptyList() }
+    return providers.getValue().getTypeVisibilityStates()
   }
 
   suspend fun itemSelected(itemData: SeItemData, modifiers: Int, searchText: String): Boolean {
-    val provider = providers.getValue()[itemData.providerId] ?: return false
-
-    val presentation = itemData.presentation
-    if (presentation is SeActionItemPresentation) {
-      withContext(Dispatchers.EDT) {
-        // TODO: We have to find a way to keep the presentation immutable and still toggle the switch in UI
-        presentation.commonData.toggleStateIfSwitcher()
-      }
-    }
-
-    return provider.itemSelected(itemData, modifiers, searchText)
+    return providers.getValue().itemSelected(itemData, modifiers, searchText)
   }
 
   fun getProvidersIds(): List<SeProviderId> = providerIds
@@ -88,10 +74,76 @@ class SeTabDelegate(
    * Defines if results can be shown in <i>Find</i> toolwindow.
    */
   suspend fun canBeShownInFindResults(): Boolean {
-    return providers.getValue().values.any { it.canBeShownInFindResults() }
+    return providers.getValue().canBeShownInFindResults()
   }
 
   override fun dispose() {}
+
+  private class Providers(private val localProviders: Map<SeProviderId, SeLocalItemDataProvider>,
+                          private val frontendProvidersFacade: SeFrontendItemDataProvidersFacade?) {
+
+    fun getProvidersIdToName(): Map<SeProviderId, @Nls String> = localProviders.mapValues { it.value.displayName } +
+                                                                 (frontendProvidersFacade?.idsWithDisplayNames ?: emptyMap())
+
+    suspend fun getSearchScopesInfos(): List<SeSearchScopesInfo> {
+      return localProviders.values.mapNotNull { it.getSearchScopesInfo() } +
+             (frontendProvidersFacade?.getSearchScopesInfos()?.values ?: emptyList())
+    }
+
+    suspend fun canBeShownInFindResults(): Boolean {
+      return localProviders.values.any { it.canBeShownInFindResults() } || frontendProvidersFacade?.canBeShownInFindResults() == true
+    }
+
+    suspend fun getTypeVisibilityStates(): List<SeTypeVisibilityStatePresentation> {
+      return localProviders.values.flatMap { it.getTypeVisibilityStates() ?: emptyList() } +
+             (frontendProvidersFacade?.getTypeVisibilityStates() ?: emptyList())
+    }
+
+    fun getItems(params: SeParams, disabledProviders: List<SeProviderId>, mapToResultEvent: suspend (SeItemData) -> SeResultEvent?): Flow<SeResultEvent> {
+      return channelFlow {
+
+        launch {
+          val equalityChecker = SeEqualityChecker()
+          val localProviders = localProviders.filterKeys { !disabledProviders.contains(it) }.values
+
+          localProviders.asFlow().flatMapMerge { provider ->
+            provider.getItems(params, equalityChecker).mapNotNull {
+              mapToResultEvent(it)
+            }
+          }.buffer(0, onBufferOverflow = BufferOverflow.SUSPEND).collect {
+            send(it)
+          }
+        }
+
+        if (frontendProvidersFacade != null) {
+          launch {
+            frontendProvidersFacade.getItems(params, disabledProviders).mapNotNull {
+              mapToResultEvent(it)
+            }.collect {
+              send(it)
+            }
+          }
+        }
+      }.buffer(0, onBufferOverflow = BufferOverflow.SUSPEND)
+    }
+
+    suspend fun itemSelected(itemData: SeItemData, modifiers: Int, searchText: String): Boolean {
+      if (!localProviders.keys.contains(itemData.providerId) &&
+          !(frontendProvidersFacade?.hasId(itemData.providerId) ?: false)) return false
+
+      val presentation = itemData.presentation
+      if (presentation is SeActionItemPresentation) {
+        withContext(Dispatchers.EDT) {
+          // TODO: We have to find a way to keep the presentation immutable and still toggle the switch in UI
+          presentation.commonData.toggleStateIfSwitcher()
+        }
+      }
+
+      return localProviders[itemData.providerId]?.itemSelected(itemData, modifiers, searchText) ?: run {
+        frontendProvidersFacade?.itemSelected(itemData, modifiers, searchText) ?: false
+      }
+    }
+  }
 
   companion object {
     private suspend fun initializeProviders(
@@ -101,7 +153,7 @@ class SeTabDelegate(
       sessionRef: DurableRef<SeSessionEntity>,
       logLabel: String,
       parentDisposable: Disposable,
-    ): Map<SeProviderId, SeItemDataProvider> {
+    ): Providers {
       val dataContextId = readAction {
         initEvent.dataContext.rpcId()
       }
@@ -124,20 +176,18 @@ class SeTabDelegate(
         }
       }.toMap()
 
-      val frontendProviders = if (project != null) {
+      val frontendProvidersFacade = if (project != null) {
         val remoteProviderIdToName =
           SeRemoteApi.getInstance().getDisplayNameForProviders(project.projectId(), sessionRef, dataContextId, remoteProviderIds.toList())
 
-        remoteProviderIdToName.map { (providerId, name) ->
-          SeFrontendItemDataProvider(project.projectId(), providerId, name, sessionRef, dataContextId)
-        }.associateBy { it.id }
+        if (remoteProviderIdToName.isEmpty()) null
+        else SeFrontendItemDataProvidersFacade(project.projectId(), remoteProviderIdToName, sessionRef, dataContextId)
       }
-      else emptyMap()
+      else null
 
-      val providers = frontendProviders + localProviders
-      providers.values.forEach { Disposer.register(parentDisposable, it) }
+      localProviders.values.forEach { Disposer.register(parentDisposable, it) }
 
-      return providers
+      return Providers(localProviders, frontendProvidersFacade)
     }
   }
 }

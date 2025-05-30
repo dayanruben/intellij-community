@@ -285,8 +285,11 @@ interface WebSymbol : WebSymbolsScope, Symbol, NavigatableSymbol, WebSymbolsPrio
    * rendering for the symbol. Default implementation will use [createDocumentation]
    * to render the documentation.
    */
-  fun getDocumentationTarget(location: PsiElement?): DocumentationTarget =
-    WebSymbolDocumentationTargetImpl(this, location)
+  fun getDocumentationTarget(location: PsiElement?): DocumentationTarget? =
+    if (properties[PROP_NO_DOC] != true)
+      WebSymbolDocumentationTargetImpl(this, location)
+    else
+      null
 
   /**
    * Returns [WebSymbolDocumentation] - an interface holding information required to render documentation for the symbol.
@@ -380,6 +383,7 @@ interface WebSymbol : WebSymbolsScope, Symbol, NavigatableSymbol, WebSymbolsPrio
 
     val JS_EVENTS: WebSymbolQualifiedKind = WebSymbolQualifiedKind(NAMESPACE_JS, KIND_JS_EVENTS)
     val JS_PROPERTIES: WebSymbolQualifiedKind = WebSymbolQualifiedKind(NAMESPACE_JS, KIND_JS_PROPERTIES)
+    val JS_KEYWORDS: WebSymbolQualifiedKind = WebSymbolQualifiedKind(NAMESPACE_JS, "keywords")
     val JS_SYMBOLS: WebSymbolQualifiedKind = WebSymbolQualifiedKind(NAMESPACE_JS, KIND_JS_SYMBOLS)
     val JS_STRING_LITERALS: WebSymbolQualifiedKind = WebSymbolQualifiedKind(NAMESPACE_JS, KIND_JS_STRING_LITERALS)
 
@@ -424,6 +428,11 @@ interface WebSymbol : WebSymbolsScope, Symbol, NavigatableSymbol, WebSymbolsPrio
      * By default, JS symbol is treated as [WebSymbolJsKind.Variable].
      **/
     const val PROP_JS_SYMBOL_KIND: String = "js-symbol-kind"
+
+    /**
+     * Don't provide documentation for the symbol
+     */
+    const val PROP_NO_DOC: String = "ij-no-doc"
 
     /**
      * Text attributes key of an IntelliJ ColorScheme.

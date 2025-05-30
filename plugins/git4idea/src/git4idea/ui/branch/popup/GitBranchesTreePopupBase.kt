@@ -3,10 +3,12 @@ package git4idea.ui.branch.popup
 
 import com.intellij.collaboration.async.cancelledWith
 import com.intellij.dvcs.branch.BranchType
-import com.intellij.dvcs.branch.DvcsBranchSyncPolicyUpdateNotifier
 import com.intellij.ide.util.treeView.TreeState
 import com.intellij.navigation.ItemPresentation
-import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionToolbar
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
@@ -18,6 +20,7 @@ import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.TreePopup
 import com.intellij.openapi.util.*
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.platform.project.projectId
 import com.intellij.ui.*
 import com.intellij.ui.components.TextComponentEmptyText
 import com.intellij.ui.popup.NextStepHandler
@@ -37,20 +40,18 @@ import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.accessibility.ScreenReader
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.util.ui.tree.TreeUtil
+import com.intellij.vcs.git.shared.rpc.GitUiSettingsApi
 import com.intellij.vcs.git.shared.widget.GitWidgetUpdate
 import com.intellij.vcs.git.shared.widget.GitWidgetUpdatesNotifier
+import com.intellij.vcs.git.shared.widget.actions.GitBranchesWidgetActions
 import com.intellij.vcs.git.shared.widget.actions.GitBranchesWidgetKeys
 import com.intellij.vcs.git.shared.widget.popup.GitBranchesWidgetPopup
 import git4idea.GitBranch
 import git4idea.GitDisposable
 import git4idea.GitReference
-import git4idea.GitVcs
-import git4idea.actions.branch.GitBranchActionsDataKeys
 import git4idea.branch.GitBranchType
 import git4idea.config.GitVcsSettings
-import git4idea.config.GitVcsSettings.getInstance
 import git4idea.i18n.GitBundle
-import git4idea.repo.GitRepositoryManager
 import git4idea.ui.branch.tree.GitBranchesTreeModel.*
 import git4idea.ui.branch.tree.GitBranchesTreeRenderer
 import git4idea.ui.branch.tree.GitBranchesTreeSingleRepoModel
@@ -123,13 +124,12 @@ internal abstract class GitBranchesTreePopupBase<T : GitBranchesTreePopupStepBas
       setSpeedSearchAlwaysShown()
       if (!isNewUI) installTitleToolbar()
       installResizeListener()
-      DvcsBranchSyncPolicyUpdateNotifier(project, GitVcs.getInstance(project),
-                                         GitVcsSettings.getInstance(project), GitRepositoryManager.getInstance(project))
-        .initBranchSyncPolicyIfNotInitialized()
     }
+
     setUiDataProvider { sink ->
       sink[GitBranchesWidgetKeys.POPUP] = this@GitBranchesTreePopupBase
-      sink[GitBranchActionsDataKeys.AFFECTED_REPOSITORIES] = treeStep.repositories
+      sink[GitBranchesWidgetKeys.AFFECTED_REPOSITORIES] = treeStep.affectedRepositories
+      sink[GitBranchesWidgetKeys.SELECTED_REPOSITORY] = treeStep.selectedRepository
     }
 
     GitDisposable.getInstance(project).childScope("Git Branches Tree Popup").cancelledWith(this).also { scope ->
@@ -138,6 +138,12 @@ internal abstract class GitBranchesTreePopupBase<T : GitBranchesTreePopupStepBas
           withContext(Dispatchers.EDT) {
             applySearchPattern(pattern)
           }
+        }
+      }
+
+      if (!isNestedPopup()) {
+        scope.launch {
+          GitUiSettingsApi.getInstance().initBranchSyncPolicyIfNotInitialized(project.projectId())
         }
       }
 
@@ -271,11 +277,11 @@ internal abstract class GitBranchesTreePopupBase<T : GitBranchesTreePopupStepBas
         }
 
         val nodeToExpand = when {
-          node is GitBranch && isNestedPopup() && treeStep.affectedRepositories.any { it.currentBranch == node } -> node
-          node is GitBranch && !isNestedPopup() && treeStep.affectedRepositories.all { it.currentBranch == node } -> node
+          node is GitBranch && isNestedPopup() && treeStep.affectedRepositories.any { it.state.isCurrentRef(node) } -> node
+          node is GitBranch && !isNestedPopup() && treeStep.affectedRepositories.all { it.state.isCurrentRef(node) } -> node
           node is GitBranch && treeStep.affectedRepositories.any {
-            node in if (!getInstance(it.project).showRecentBranches()) emptyList()
-            else it.branches.recentCheckoutBranches
+            node in if (!GitVcsSettings.getInstance (project).showRecentBranches()) emptyList()
+            else it.state.recentBranches
           } -> node
           node is RefUnderRepository && node.repository.state.isCurrentRef(node.ref) -> node
           node is RefTypeUnderRepository -> node
@@ -363,13 +369,14 @@ internal abstract class GitBranchesTreePopupBase<T : GitBranchesTreePopupStepBas
         }
       }
       val resultContext = GitBranchesTreePopupStep.createDataContext(
-        project, contextComponent, treeStep.selectedRepository, treeStep.affectedRepositories)
+        project, treeStep.selectedRepository, treeStep.affectedRepositories, component = contextComponent,
+      )
       val actionPlace = getShortcutActionPlace()
       ActionUtil.invokeAction(action, resultContext, actionPlace, null, afterActionPerformed)
     }
   }
 
-  protected open fun getShortcutActionPlace(): String = TOP_LEVEL_ACTION_PLACE
+  protected open fun getShortcutActionPlace(): String = GitBranchesWidgetActions.MAIN_POPUP_ACTION_PLACE
 
   private fun configureTreePresentation(tree: JTree) = with(tree) {
     val topBorder = if (step.title.isNullOrEmpty()) JBUIScale.scale(5) else 0
@@ -728,8 +735,6 @@ internal abstract class GitBranchesTreePopupBase<T : GitBranchesTreePopupStepBas
   }
 
   companion object {
-    internal val TOP_LEVEL_ACTION_PLACE = ActionPlaces.getPopupPlace("GitBranchesPopup.TopLevel.Branch.Actions")
-
     private const val SPEED_SEARCH_DEFAULT_ACTIONS_GROUP = "Git.Branches.Popup.SpeedSearch"
 
     private inline val isNewUI

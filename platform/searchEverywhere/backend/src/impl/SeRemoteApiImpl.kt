@@ -29,43 +29,47 @@ class SeRemoteApiImpl: SeRemoteApi {
     projectId: ProjectId,
     sessionRef: DurableRef<SeSessionEntity>,
     dataContextId: DataContextId,
-    providerId: SeProviderId,
+    providerIds: List<SeProviderId>,
   ): Boolean {
     val project = projectId.findProjectOrNull() ?: return false
-    return SeBackendService.getInstance(project).canBeShownInFindResults(sessionRef, dataContextId, providerId)
+    return SeBackendService.getInstance(project).canBeShownInFindResults(sessionRef, dataContextId, providerIds)
   }
 
   override suspend fun getItems(
     projectId: ProjectId,
     sessionRef: DurableRef<SeSessionEntity>,
-    providerId: SeProviderId,
+    providerIds: List<SeProviderId>,
     params: SeParams,
     dataContextId: DataContextId?,
     requestedCountChannel: ReceiveChannel<Int>,
   ): Flow<SeItemData> {
     val project = projectId.findProjectOrNull() ?: return emptyFlow()
     return SeBackendService.getInstance(project)
-      .getItems(sessionRef, providerId, params, dataContextId, requestedCountChannel)
+      .getItems(sessionRef, providerIds, params, dataContextId, requestedCountChannel)
   }
 
   override suspend fun getAvailableProviderIds(): List<SeProviderId> {
     return SeItemsProviderFactory.EP_NAME.extensionList.map { SeProviderId(it.id) }
   }
 
-  override suspend fun getSearchScopesInfoForProvider(projectId: ProjectId,
-                                                      sessionRef: DurableRef<SeSessionEntity>,
-                                                      dataContextId: DataContextId,
-                                                      providerId: SeProviderId): SeSearchScopesInfo? {
-    val project = projectId.findProjectOrNull() ?: return null
-    return SeBackendService.getInstance(project).getSearchScopesInfoForProvider(sessionRef, dataContextId, providerId)
+  override suspend fun getSearchScopesInfoForProviders(
+    projectId: ProjectId,
+    sessionRef: DurableRef<SeSessionEntity>,
+    dataContextId: DataContextId,
+    providerIds: List<SeProviderId>,
+  ): Map<SeProviderId, SeSearchScopesInfo> {
+    val project = projectId.findProjectOrNull() ?: return emptyMap()
+    return SeBackendService.getInstance(project).getSearchScopesInfoForProviders(sessionRef, dataContextId, providerIds)
   }
 
-  override suspend fun getTypeVisibilityStatesForProvider(projectId: ProjectId,
-                                                          sessionRef: DurableRef<SeSessionEntity>,
-                                                          dataContextId: DataContextId,
-                                                          providerId: SeProviderId): List<SeTypeVisibilityStatePresentation>? {
-    val project = projectId.findProjectOrNull() ?: return null
-    return SeBackendService.getInstance(project).getTypeVisibilityStatesForProvider(sessionRef, dataContextId, providerId)
+  override suspend fun getTypeVisibilityStatesForProviders(
+    projectId: ProjectId,
+    sessionRef: DurableRef<SeSessionEntity>,
+    dataContextId: DataContextId,
+    providerIds: List<SeProviderId>,
+  ): List<SeTypeVisibilityStatePresentation> {
+    val project = projectId.findProjectOrNull() ?: return emptyList()
+    return SeBackendService.getInstance(project).getTypeVisibilityStatesForProviders(sessionRef, dataContextId, providerIds)
   }
 
   override suspend fun getDisplayNameForProviders(

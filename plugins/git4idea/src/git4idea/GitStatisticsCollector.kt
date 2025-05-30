@@ -49,7 +49,7 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 
 internal class GitStatisticsCollector : ProjectUsagesCollector() {
-  private val GROUP = EventLogGroup("git.configuration", 19)
+  private val GROUP = EventLogGroup("git.configuration", 20)
 
   override fun getGroup(): EventLogGroup = GROUP
 
@@ -289,6 +289,7 @@ internal class GitStatisticsCollector : ProjectUsagesCollector() {
   private val FILTER_BY_REPOSITORY_IN_POPUP = GROUP.registerVarargEvent("filterByRepositoryInPopup", EventFields.Enabled)
 
   private val ALL_IDE_CONFIG_NAMES = listOf(
+    ".air",
     ".fleet",
     ".idea",
     ".project",
