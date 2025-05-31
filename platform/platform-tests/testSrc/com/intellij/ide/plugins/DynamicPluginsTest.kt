@@ -11,9 +11,8 @@ import com.intellij.codeInspection.ex.InspectionToolRegistrar
 import com.intellij.ide.actions.ContextHelpAction
 import com.intellij.ide.plugins.cl.PluginClassLoader
 import com.intellij.ide.plugins.testPluginSrc.ExclusionClassLoader
-import com.intellij.ide.plugins.testPluginSrc.DynamicPluginTestHandle
-import com.intellij.ide.plugins.testPluginSrc.optionalPluginDepLoading.bar.BarService
-import com.intellij.ide.plugins.testPluginSrc.optionalPluginDepLoading.foo.FooBarService
+import com.intellij.ide.plugins.testPluginSrc.bar.BarService
+import com.intellij.ide.plugins.testPluginSrc.foo.bar.FooBarService
 import com.intellij.ide.startup.impl.StartupManagerImpl
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsListener
@@ -45,6 +44,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.use
 import com.intellij.platform.testFramework.*
+import com.intellij.platform.testFramework.plugins.*
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.EdtRule
 import com.intellij.testFramework.ProjectRule
@@ -422,23 +422,21 @@ class DynamicPluginsTest {
     }
   }
 
-  // FIXME in-memory fs does not work, ZipFile wants .toFile()
+  // FIXME in-memory fs does not work, NonShareableJavaZipFilePool wants .toFile()
   @Test
   fun `optional plugin dependency loading`() {
     val fooJar = tempDir.root.toPath().resolve("foo.jar")
     val barJar = tempDir.root.toPath().resolve("bar.jar")
-    PluginBuilder().id("foo")
-      .depends("bar", PluginBuilder().extensions("""
-        <applicationService serviceImplementation="${FooBarService::class.qualifiedName}" />"
-      """.trimIndent()))
-      .includePackageClassFiles<FooBarService>()
-      .buildMainJar(fooJar)
-    PluginBuilder().id("bar")
-      .extensions("""
-        <applicationService serviceImplementation="${BarService::class.qualifiedName}" />"
-      """.trimIndent())
-      .includePackageClassFiles<BarService>()
-      .buildMainJar(barJar)
+    plugin("foo") {
+      depends("bar", "bar.xml") {
+        appService<FooBarService>()
+      }
+      includePackageClassFiles<FooBarService>()
+    }.buildMainJar(fooJar)
+    plugin("bar") {
+      appService<BarService>()
+      includePackageClassFiles<BarService>()
+    }.buildMainJar(barJar)
 
     val filteredCore = ExclusionClassLoader(this::class.java.classLoader) {
       !it.startsWith(BarService::class.java.`package`.name) && !it.startsWith(FooBarService::class.java.`package`.name)
@@ -450,7 +448,7 @@ class DynamicPluginsTest {
       try {
         // FIXME perhaps it should return false to indicate that restart is needed to load more stuff
         assertThat(DynamicPlugins.loadPluginInTest(barDescriptor, filteredCore)).isTrue()
-        val barService = application.getService(barDescriptor.pluginClassLoader!!.loadClass(BarService::class.qualifiedName)) as DynamicPluginTestHandle
+        val barService = application.getService(barDescriptor.pluginClassLoader!!.loadClass(BarService::class.qualifiedName)) as PluginTestHandle
         barService.test()
         val fooBarClass = fooDescriptor.pluginClassLoader!!.loadClass(FooBarService::class.qualifiedName) // loaded because packed into the same jar with the main descriptor
         assertThat(application.getService(fooBarClass)).isNull()

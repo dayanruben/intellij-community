@@ -98,7 +98,7 @@ public final class PsiTypeNullabilityTest extends LightJavaCodeInsightFixtureTes
         T foo = "";
       }
       """);
-    assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+    assertEquals("NOT_NULL (inherited @NotNull)", type.getNullability().toString());
   }
 
   public void testTypeParameterTwoSupertypes() {
@@ -109,7 +109,7 @@ public final class PsiTypeNullabilityTest extends LightJavaCodeInsightFixtureTes
         T foo = "";
       }
       """);
-    assertEquals("NOT_NULL ([@NotNull, @NotNull])", type.getNullability().toString());
+    assertEquals("NOT_NULL (inherited [@NotNull, @NotNull])", type.getNullability().toString());
   }
 
   public void testTypeParameterTwoSupertypesDifferentNullability() {
@@ -121,7 +121,7 @@ public final class PsiTypeNullabilityTest extends LightJavaCodeInsightFixtureTes
         T foo = "";
       }
       """);
-    assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+    assertEquals("NOT_NULL (inherited @NotNull)", type.getNullability().toString());
   }
 
   public void testTypeParameterSupertypeRecursive() {
@@ -164,6 +164,74 @@ public final class PsiTypeNullabilityTest extends LightJavaCodeInsightFixtureTes
     assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
   }
 
+  public void testSubstitutorOnTypeParameter() {
+    PsiType type = configureAndGetExpressionType("""
+      import org.jetbrains.annotations.NotNull;
+      import org.jetbrains.annotations.Nullable;
+      
+      class X<T> {
+        native @NotNull T foo();
+      
+        static void test(X<@Nullable String> x) {
+          x.foo(<caret>);
+        }
+      }
+      """);
+    assertEquals("java.lang.String", type.getCanonicalText());
+    assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+  }
+
+  public void testSubstitutorOnTypeParameterArray() {
+    PsiType type = configureAndGetExpressionType("""
+      import org.jetbrains.annotations.NotNull;
+      import org.jetbrains.annotations.Nullable;
+      
+      class X<T> {
+        native @NotNull T foo();
+      
+        static void test(X<@Nullable String[]> x) {
+          x.foo(<caret>);
+        }
+      }
+      """);
+    assertEquals("java.lang.String[]", type.getCanonicalText());
+    assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+  }
+
+  public void testWildcard() {
+    PsiType type = configureAndGetExpressionType("""
+      import org.jetbrains.annotations.NotNull;
+      import org.jetbrains.annotations.Nullable;
+      
+      class X<T> {
+        native X<@NotNull T> foo();
+      
+        static void test(X<? extends @Nullable CharSequence> x) {
+          <caret>x;
+        }
+      }
+      """);
+    assertEquals("X<? extends java.lang.CharSequence>", type.getCanonicalText());
+    assertEquals("NULLABLE (@Nullable)", ((PsiClassType)type).getParameters()[0].getNullability().toString());
+  }
+  
+  public void testSubstitutorOnTypeParameterUnknown() {
+    PsiType type = configureAndGetExpressionType("""
+      import org.jetbrains.annotations.UnknownNullability;
+      import org.jetbrains.annotations.Nullable;
+      
+      class X<T> {
+        native @UnknownNullability T foo();
+      
+        static void test(X<@Nullable String> x) {
+          x.foo(<caret>);
+        }
+      }
+      """);
+    assertEquals("java.lang.String", type.getCanonicalText());
+    assertEquals("UNKNOWN (@UnknownNullability)", type.getNullability().toString());
+  }
+
   public void testSubstitutorOuter() {
     PsiType type = configureAndGetExpressionType("""
       import org.jetbrains.annotations.NotNull;
@@ -178,5 +246,109 @@ public final class PsiTypeNullabilityTest extends LightJavaCodeInsightFixtureTes
       """);
     assertEquals("X<java.lang.String>", type.getCanonicalText());
     assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+  }
+
+  public void testVariableTypeByExpressionType() {
+    PsiType type = configureAndGetExpressionType("""
+      import org.jetbrains.annotations.Nullable;
+      import org.jetbrains.annotations.NotNull;
+      
+      final class X<T> {
+        static void test(@Nullable String @NotNull [] x) {
+          <caret>x;
+        }
+      }
+      """);
+    assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+    assertEquals("NULLABLE (@Nullable)", type.getDeepComponentType().getNullability().toString());
+    type = GenericsUtil.getVariableTypeByExpressionType(type);
+    assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+    assertEquals("NULLABLE (@Nullable)", type.getDeepComponentType().getNullability().toString());
+  }
+
+  public void testEliminateWildcards() {
+    PsiType type = configureAndGetFieldType("""
+      import org.jetbrains.annotations.Nullable;
+      import org.jetbrains.annotations.NotNull;
+      import java.util.List;
+      
+      final class X<T> {
+        @NotNull List<? extends @Nullable CharSequence> x = List.of();
+      }
+      """);
+    assertEquals("java.util.List<? extends java.lang.CharSequence>", type.getCanonicalText());
+    assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+    assertEquals("NULLABLE (@Nullable)", ((PsiClassType)type).getParameters()[0].getNullability().toString());
+    type = GenericsUtil.eliminateWildcards(type);
+    assertEquals("java.util.List<java.lang.CharSequence>", type.getCanonicalText());
+    assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+    assertEquals("NULLABLE (@Nullable)", ((PsiClassType)type).getParameters()[0].getNullability().toString());
+  }
+
+  public void testEliminateWildcardsArray() {
+    PsiType type = configureAndGetFieldType("""
+      import org.jetbrains.annotations.Nullable;
+      import org.jetbrains.annotations.NotNull;
+      
+      final class X<T> {
+        @NotNull String @Nullable [] x = {};
+      }
+      """);
+    assertEquals("NULLABLE (@Nullable)", type.getNullability().toString());
+    assertEquals("NOT_NULL (@NotNull)", type.getDeepComponentType().getNullability().toString());
+    type = GenericsUtil.eliminateWildcards(type);
+    assertEquals("NULLABLE (@Nullable)", type.getNullability().toString());
+    assertEquals("NOT_NULL (@NotNull)", type.getDeepComponentType().getNullability().toString());
+  }
+
+  public void testNotNullInstantiationOnNullableFromDeclaration() {
+    PsiType type = configureAndGetExpressionType("""
+      import org.jetbrains.annotations.Nullable;
+      import org.jetbrains.annotations.NotNull;
+      
+      final class X<T> {
+        native @Nullable T m();
+
+        static void test(X<@NotNull String> x) {>) {
+          x.m(<caret>);
+        }
+      }
+      """);
+    assertEquals("NULLABLE (@Nullable)",
+                 ((PsiJavaFile)myFixture.getFile()).getClasses()[0].getMethods()[0].getReturnType().getNullability().toString());
+    assertEquals("NULLABLE (@Nullable)", type.getNullability().toString());
+  }
+
+  public void testNotNullInstantiationOnNullableFromSupertype() {
+    PsiType type = configureAndGetExpressionType("""
+      import org.jetbrains.annotations.Nullable;
+      import org.jetbrains.annotations.NotNull;
+      
+      final class X<T extends @Nullable Object> {
+        native T m();
+
+        static void test(X<@NotNull String> x) {>) {
+          x.m(<caret>);
+        }
+      }
+      """);
+    assertEquals("NULLABLE (inherited @Nullable)",
+                 ((PsiJavaFile)myFixture.getFile()).getClasses()[0].getMethods()[0].getReturnType().getNullability().toString());
+    assertEquals("NOT_NULL (@NotNull)", type.getNullability().toString());
+  }
+  
+  public void testLocalTopLevelIgnoreContainer() {
+    PsiType type = configureAndGetExpressionType("""
+      import org.jetbrains.annotations.NotNull;
+      import org.jetbrains.annotations.NotNullByDefault;
+
+      @NotNullByDefault
+      final class X {
+        static void test() {
+          String s = "";
+          <caret>s;
+    """);
+    assertEquals("java.lang.String", type.getCanonicalText());
+    assertEquals("UNKNOWN (NONE)", type.getNullability().toString());
   }
 }

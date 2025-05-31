@@ -695,13 +695,13 @@
     <themeProvider id="JetBrainsHighContrastTheme" path="/themes/HighContrast.theme.json"/>
     <bundledColorScheme id="High contrast" path="themes/highContrastScheme.xml"/>
 
-    <themeProvider id="One Island Light" path="/themes/islands/OneIslandLight.theme.json" targetUi="island"/>
+    <themeProvider id="One Island Light" path="/themes/islands/OneIslandLight.theme.json" targetUi="island" restartRequired="true"/>
 
-    <themeProvider id="One Island Dark" path="/themes/islands/OneIslandDark.theme.json" targetUi="island"/>
+    <themeProvider id="One Island Dark" path="/themes/islands/OneIslandDark.theme.json" targetUi="island" restartRequired="true"/>
     <bundledColorScheme id="Island Dark" path="/themes/islands/IslandSchemeDark.xml"/>
 
-    <themeProvider id="Many Islands Dark" path="/themes/islands/ManyIslandsDark.theme.json" targetUi="islands"/>
-    <themeProvider id="Many Islands Light" path="/themes/islands/ManyIslandsLight.theme.json" targetUi="islands"/>
+    <themeProvider id="Many Islands Dark" path="/themes/islands/ManyIslandsDark.theme.json" targetUi="islands" restartRequired="true"/>
+    <themeProvider id="Many Islands Light" path="/themes/islands/ManyIslandsLight.theme.json" targetUi="islands" restartRequired="true"/>
 
     <themeMetadataProvider path="/themes/metadata/IntelliJPlatform.themeMetadata.json"/>
     <themeMetadataProvider path="/themes/metadata/JDK.themeMetadata.json"/>
@@ -1927,6 +1927,9 @@
     <registryKey key="progresses.show.counter.icon.instead.of.show.link"
                  defaultValue="false"
                  description="Progresses would be shown with an icon with their number in status bar instead of Show All link"/>
+    <registryKey key="progresses.support.secondary.progresses"
+                 defaultValue="false"
+                 description="Support option to avoid showing some progresses in status bar fully, only in popup and progress count. Needs `progresses.show.counter.icon.instead.of.show.link` enabled."/>
 
    <usagePresentationProvider implementation="com.intellij.find.impl.UsageInfo2UsageAdapterPresentationProvider"/>
 
