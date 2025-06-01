@@ -13,13 +13,16 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.DirectoryProjectGenerator
 import com.intellij.platform.ProjectGeneratorPeer
+import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import com.jetbrains.python.PyBundle
 import com.jetbrains.python.Result
 import com.jetbrains.python.newProjectWizard.collector.PyProjectTypeGenerator
 import com.jetbrains.python.newProjectWizard.collector.PythonNewProjectWizardCollector.logPythonNewProjectGenerated
 import com.jetbrains.python.newProjectWizard.impl.PyV3GeneratorPeer
 import com.jetbrains.python.newProjectWizard.impl.PyV3UIServicesProd
 import com.jetbrains.python.newProjectWizard.projectPath.ProjectPathFlows.Companion.validatePath
+import com.jetbrains.python.onFailure
 import com.jetbrains.python.sdk.add.v2.PythonInterpreterSelectionMode
 import com.jetbrains.python.statistics.version
 import kotlinx.coroutines.CoroutineScope
@@ -90,7 +93,11 @@ abstract class PyV3ProjectBaseGenerator<TYPE_SPECIFIC_SETTINGS : PyV3ProjectType
       // Either base settings (which create venv) might generate some or type-specific settings (like Django) may.
       // So we expand it right after SDK generation, but if there are no files yet, we do it again after project generation
       uiServices.expandProjectTreeView(project)
-      typeSpecificSettings.generateProject(module, baseDir, sdk, uiServices.errorSink)
+      withBackgroundProgress(project, PyBundle.message("python.project.model.progress.title.generating"), cancellable = true) {
+        typeSpecificSettings.generateProject(module, baseDir, sdk).onFailure {
+          uiServices.errorSink.emit(it)
+        }
+      }
       uiServices.expandProjectTreeView(project)
     }
   }
