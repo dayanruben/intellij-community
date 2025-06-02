@@ -1,5 +1,5 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package git4idea.ui.branch.popup
+package com.intellij.vcs.git.shared.widget.popup
 
 import com.intellij.dvcs.branch.DvcsBranchesDivergedBanner
 import com.intellij.dvcs.ui.DvcsBundle
@@ -13,24 +13,22 @@ import com.intellij.ui.popup.WizardPopup
 import com.intellij.util.ui.tree.TreeUtil
 import com.intellij.vcs.git.shared.ref.GitReferenceName
 import com.intellij.vcs.git.shared.repo.GitRepositoriesFrontendHolder
+import com.intellij.vcs.git.shared.repo.GitRepositoryFrontendModel
 import com.intellij.vcs.git.shared.rpc.GitRepositoryApi
 import com.intellij.vcs.git.shared.widget.actions.GitBranchesTreePopupFilterByAction
 import com.intellij.vcs.git.shared.widget.actions.GitBranchesTreePopupFilterByRepository
 import com.intellij.vcs.git.shared.widget.actions.GitBranchesWidgetActions
+import com.intellij.vcs.git.shared.widget.tree.GitBranchesTreeModel.RefUnderRepository
+import com.intellij.vcs.git.shared.widget.tree.GitBranchesTreeRenderer
 import git4idea.GitReference
-import git4idea.config.GitVcsSettings
 import git4idea.i18n.GitBundle
-import git4idea.repo.GitRepository
-import git4idea.ui.branch.tree.GitBranchesTreeModel.RefUnderRepository
-import git4idea.ui.branch.tree.GitBranchesTreeRenderer
 import org.intellij.lang.annotations.Language
-import org.jetbrains.annotations.VisibleForTesting
 import java.awt.event.ActionEvent
 import javax.swing.AbstractAction
 import javax.swing.JComponent
 import javax.swing.KeyStroke
 
-internal class GitBranchesTreePopup(
+internal class GitBranchesTreePopup private constructor(
   project: Project,
   step: GitBranchesTreePopupStep,
   parent: JBPopup? = null,
@@ -126,35 +124,11 @@ internal class GitBranchesTreePopup(
   companion object {
     private const val DIMENSION_SERVICE_KEY = "Git.Branch.Popup"
 
-    /**
-     * @param selectedRepository - Selected repository:
-     * e.g. [git4idea.branch.GitBranchUtil.guessRepositoryForOperation] or [git4idea.branch.GitBranchUtil.guessWidgetRepository]
-     */
-    @JvmStatic
-    fun show(project: Project, selectedRepository: GitRepository?) {
-      create(project, selectedRepository).showCenteredInCurrentWindow(project)
-    }
-
-    /**
-     * @param selectedRepository - Selected repository:
-     * e.g. [git4idea.branch.GitBranchUtil.guessRepositoryForOperation] or [git4idea.branch.GitBranchUtil.guessWidgetRepository]
-     */
-    @JvmStatic
-    fun create(project: Project, selectedRepository: GitRepository?): JBPopup {
-      return GitBranchesTreePopup(project, createBranchesTreePopupStep(project, selectedRepository))
-        .apply { setIsMovable(true) }
-    }
-
-    @VisibleForTesting
-    internal fun createBranchesTreePopupStep(project: Project, selectedRepository: GitRepository?): GitBranchesTreePopupStep {
-      val holder = GitRepositoriesFrontendHolder.getInstance(project)
-      val repositories = holder.getAll().sorted()
-
-      val selectedRepoIfNeeded =
-        if (GitVcsSettings.getInstance(project).shouldExecuteOperationsOnAllRoots()) null
-        else selectedRepository?.rpcId?.let { holder.get(it) }
-
-      return GitBranchesTreePopupStep(project, selectedRepoIfNeeded, repositories, true)
+    fun create(project: Project, selectedRepository: GitRepositoryFrontendModel?): GitBranchesTreePopup {
+      val repositories = GitRepositoriesFrontendHolder.getInstance(project).getAll().sorted()
+      return GitBranchesTreePopup(project, GitBranchesTreePopupStep.create(project, selectedRepository, repositories)).also {
+        it.setIsMovable(true)
+      }
     }
   }
 }
@@ -162,6 +136,7 @@ internal class GitBranchesTreePopup(
 private object GitBranchesTreePopupActions {
   @Language("devkit-action-id")
   const val HEADER_SETTINGS_GROUP = "Git.Branches.Popup.Settings"
+
   @Language("devkit-action-id")
   const val FETCH = "Git.Branches.Popup.Fetch"
 }

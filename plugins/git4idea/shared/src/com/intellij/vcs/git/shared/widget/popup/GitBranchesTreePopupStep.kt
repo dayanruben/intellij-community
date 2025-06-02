@@ -1,5 +1,5 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package git4idea.ui.branch.popup
+package com.intellij.vcs.git.shared.widget.popup
 
 import com.intellij.dvcs.ui.DvcsBundle
 import com.intellij.ide.DataManager
@@ -22,12 +22,14 @@ import com.intellij.vcs.git.shared.ref.GitRefUtil
 import com.intellij.vcs.git.shared.repo.GitRepositoryFrontendModel
 import com.intellij.vcs.git.shared.widget.actions.GitBranchesWidgetActions
 import com.intellij.vcs.git.shared.widget.actions.GitBranchesWidgetKeys
+import com.intellij.vcs.git.shared.widget.tree.*
 import git4idea.GitReference
 import git4idea.config.GitVcsSettings
-import git4idea.ui.branch.tree.*
+import org.jetbrains.annotations.ApiStatus
 import javax.swing.JComponent
 
-internal class GitBranchesTreePopupStep(
+@ApiStatus.Internal
+class GitBranchesTreePopupStep private constructor(
   project: Project,
   selectedRepository: GitRepositoryFrontendModel?,
   repositories: List<GitRepositoryFrontendModel>,
@@ -80,7 +82,7 @@ internal class GitBranchesTreePopupStep(
 
   override fun onChosen(selectedValue: Any?, finalChoice: Boolean): PopupStep<out Any>? {
     if (selectedValue is GitBranchesTreeModel.RepositoryNode) {
-      return GitBranchesTreePopupStep(project, selectedValue.repository, listOf(selectedValue.repository), false)
+      return createPopupStepForSelectedRepo(project, selectedValue.repository)
     }
 
     val refUnderRepository = selectedValue as? GitBranchesTreeModel.RefUnderRepository
@@ -129,6 +131,18 @@ internal class GitBranchesTreePopupStep(
   }
 
   companion object {
+    fun create(
+      project: Project,
+      selectedRepository: GitRepositoryFrontendModel?,
+      repositories: List<GitRepositoryFrontendModel>,
+    ): GitBranchesTreePopupStep = GitBranchesTreePopupStep(project, selectedRepository, repositories, true)
+
+    /**
+     * 2nd-level popup shown on repository click
+     */
+    private fun createPopupStepForSelectedRepo(project: Project, repository: GitRepositoryFrontendModel): GitBranchesTreePopupStep =
+      GitBranchesTreePopupStep(project, repository, listOf(repository), false)
+
     private fun createActionStep(actionGroup: ActionGroup,
                                  project: Project,
                                  selectedRepository: GitRepositoryFrontendModel?,

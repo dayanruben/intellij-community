@@ -1559,6 +1559,12 @@ public final class PyTypingTypeProvider extends PyTypeProviderWithCustomContext<
     return null;
   }
 
+  @ApiStatus.Internal
+  public static @Nullable PyTypeParameterType getTypeParameterTypeFromTypeParameter(@NotNull PyTypeParameter typeParameter,
+                                                                                    @NotNull TypeEvalContext context) {
+    return staticWithCustomContext(context, c -> getTypeParameterTypeFromTypeParameter(typeParameter, c));
+  }
+
   private static @Nullable PyTypeParameterType getTypeParameterTypeFromTypeParameter(@NotNull PsiElement element, @NotNull Context context) {
     if (element instanceof PyTypeParameter typeParameter) {
       String name = typeParameter.getName();
@@ -1566,15 +1572,12 @@ public final class PyTypingTypeProvider extends PyTypeProviderWithCustomContext<
         return null;
       }
 
-      PyTypeParameterListOwner typeParameterOwner = PsiTreeUtil.getStubOrPsiParentOfType(element, PyTypeParameterListOwner.class);
+      ScopeOwner typeParameterOwner = ScopeUtil.getScopeOwner(typeParameter);
       PyQualifiedNameOwner scopeOwner = typeParameterOwner instanceof PyQualifiedNameOwner qualifiedNameOwner ? qualifiedNameOwner : null;
 
       String defaultExpressionText = typeParameter.getDefaultExpressionText();
       PyExpression defaultExpression = defaultExpressionText != null
-                                       ? PyUtil.createExpressionFromFragment(defaultExpressionText,
-                                                                             typeParameterOwner != null
-                                                                             ? typeParameterOwner
-                                                                             : typeParameter.getContainingFile())
+                                       ? PyUtil.createExpressionFromFragment(defaultExpressionText, typeParameter)
                                        : null;
       Ref<PyType> defaultType = null;
       if (defaultExpression != null) {
@@ -1592,8 +1595,7 @@ public final class PyTypingTypeProvider extends PyTypeProviderWithCustomContext<
           PyType boundType = null;
           String boundExpressionText = typeParameter.getBoundExpressionText();
           PyExpression boundExpression = boundExpressionText != null
-                                         ? PyPsiUtils.flattenParens(PyUtil.createExpressionFromFragment(boundExpressionText,
-                                                                                                        typeParameter.getContainingFile()))
+                                         ? PyPsiUtils.flattenParens(PyUtil.createExpressionFromFragment(boundExpressionText, typeParameter))
                                          : null;
           if (boundExpression instanceof PyTupleExpression tupleExpression) {
             constraints = ContainerUtil.map(tupleExpression.getElements(), expr -> Ref.deref(getTypePreventingRecursion(expr, context)));
@@ -1624,7 +1626,7 @@ public final class PyTypingTypeProvider extends PyTypeProviderWithCustomContext<
   }
 
   private static @Nullable Ref<PyType> getTypePreventingRecursion(@NotNull PyExpression expression, @NotNull Context context) {
-    return doPreventingRecursion(context, false, () -> getType(expression, context));
+    return doPreventingRecursion(expression, false, () -> getType(expression, context));
   }
 
   // See https://peps.python.org/pep-0484/#scoping-rules-for-type-variables
@@ -1686,6 +1688,9 @@ public final class PyTypingTypeProvider extends PyTypeProviderWithCustomContext<
     // While evaluating type hints of enclosing functions' parameters, resolving to the same TypeVar
     // definition shouldn't trigger the protection against recursive aliases, so we manually remove
     // it from the top for the time being.
+    if (context.getTypeAliasStack().isEmpty()) {
+      return null;
+    }
     PyQualifiedNameOwner typeVarDeclaration = context.getTypeAliasStack().pop();
     assert typeVarDeclaration instanceof PyTargetExpression;
     try {

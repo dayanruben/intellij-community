@@ -10,14 +10,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
-import com.intellij.platform.vcs.impl.shared.rpc.RepositoryId
 import com.intellij.ui.util.maximumWidth
 import com.intellij.vcs.git.shared.isRdBranchWidgetEnabled
 import com.intellij.vcs.git.shared.widget.GitToolbarWidgetActionBase
 import git4idea.branch.GitBranchUtil
 import git4idea.i18n.GitBundle
-import git4idea.repo.GitRepositoryManager
-import git4idea.ui.branch.popup.GitBranchesTreePopup
+import git4idea.ui.branch.popup.GitBranchesTreePopupOnBackend
 import org.jetbrains.annotations.ApiStatus
 import javax.swing.JComponent
 
@@ -26,11 +24,6 @@ import javax.swing.JComponent
  */
 @ApiStatus.Internal
 class GitToolbarWidgetAction : GitToolbarWidgetActionBase() {
-  override fun getPopupForRepo(project: Project, repositoryId: RepositoryId): JBPopup? {
-    val repo = GitRepositoryManager.getInstance(project).repositories.find { it.rpcId == repositoryId } ?: return null
-    return GitBranchesTreePopup.create(project, repo)
-  }
-
   override fun getPopupForUnknownGitRepo(project: Project, event: AnActionEvent): JBPopup? {
     val repo = runWithModalProgressBlocking(project, GitBundle.message("action.Git.Loading.Branches.progress")) {
       project.serviceAsync<VcsRepositoryManager>().ensureUpToDate()
@@ -39,7 +32,7 @@ class GitToolbarWidgetAction : GitToolbarWidgetActionBase() {
       }
     }
 
-    return if (repo != null) GitBranchesTreePopup.create(project, repo) else null
+    return if (repo != null) GitBranchesTreePopupOnBackend.create(project, repo) else null
   }
 
   override fun createCustomComponent(presentation: Presentation, place: String): JComponent {
