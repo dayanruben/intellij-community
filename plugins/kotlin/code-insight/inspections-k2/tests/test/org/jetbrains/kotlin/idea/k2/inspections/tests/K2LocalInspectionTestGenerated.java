@@ -13865,6 +13865,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("../../../idea/tests/testData/inspectionsLocal/replaceSubstring/withTake/replaceWithTakeChainCall.kt");
             }
 
+            @TestMetadata("replaceWithTakeChainCallString.kt")
+            public void testReplaceWithTakeChainCallString() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/replaceSubstring/withTake/replaceWithTakeChainCallString.kt");
+            }
+
             @TestMetadata("replaceWithTakeNotAvailable.kt")
             public void testReplaceWithTakeNotAvailable() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/replaceSubstring/withTake/replaceWithTakeNotAvailable.kt");
@@ -15853,6 +15858,40 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("withReceiver.kt")
         public void testWithReceiver() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithOperatorAssignment/withReceiver.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/unusedLambdaExpressionBody")
+    public static class UnusedLambdaExpressionBody extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("inEnumEntry.kt")
+        public void testInEnumEntry() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedLambdaExpressionBody/inEnumEntry.kt");
+        }
+
+        @TestMetadata("simple.kt")
+        public void testSimple() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedLambdaExpressionBody/simple.kt");
+        }
+
+        @TestMetadata("withArrow.kt")
+        public void testWithArrow() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedLambdaExpressionBody/withArrow.kt");
+        }
+
+        @TestMetadata("withBody.kt")
+        public void testWithBody() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedLambdaExpressionBody/withBody.kt");
         }
     }
 

@@ -7,6 +7,7 @@ import com.intellij.ide.IdeEventQueue
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.impl.getGlobalThreadingSupport
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.progress.impl.fus.FreezeUiUsageCollector
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.util.ui.AsyncProcessIcon
@@ -39,7 +40,7 @@ import javax.swing.SwingUtilities
  * If the freeze lasts too long, the IDE will show a "modal" progress indicator and drop accumulated input events.
  *
  * The name of this class is an allusion to [PotemkinProgress] (which in turn was named after [Potemkin villages](https://en.wikipedia.org/wiki/Potemkin_village)).
- * However, the name of this class alludes to the occupation of both Grigory Potemkin and Alexander Suvorov.
+ * It is named after Alexander Suvorov, who shared the same occupation as Grigory Potemkin
  */
 @ApiStatus.Internal
 object SuvorovProgress {
@@ -59,6 +60,8 @@ object SuvorovProgress {
     if (awaitedValue.isCompleted) {
       return
     }
+
+    FreezeUiUsageCollector.reportUiFreezePopupVisible(showingDelay)
 
     val value = if (!LoadingState.COMPONENTS_LOADED.isOccurred) {
       "None"

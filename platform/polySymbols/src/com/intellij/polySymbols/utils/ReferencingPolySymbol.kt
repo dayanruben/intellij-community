@@ -2,20 +2,21 @@
 package com.intellij.polySymbols.utils
 
 import com.intellij.model.Pointer
-import com.intellij.polySymbols.*
+import com.intellij.polySymbols.PolySymbol
+import com.intellij.polySymbols.PolySymbolOrigin
+import com.intellij.polySymbols.PolySymbolQualifiedKind
+import com.intellij.polySymbols.PolySymbolQualifiedName
 import com.intellij.polySymbols.patterns.ComplexPatternOptions
 import com.intellij.polySymbols.patterns.PolySymbolsPattern
 import com.intellij.polySymbols.patterns.PolySymbolsPatternFactory
 import com.intellij.polySymbols.patterns.PolySymbolsPatternReferenceResolver
-import java.util.Objects
 
 /**
  * A utility [PolySymbol], which allows to reference
  * symbols from other namespace or kind.
  */
 class ReferencingPolySymbol private constructor(
-  override val namespace: SymbolNamespace,
-  override val kind: SymbolKind,
+  override val qualifiedKind: PolySymbolQualifiedKind,
   override val name: String,
   override val origin: PolySymbolOrigin,
   vararg references: PolySymbolQualifiedKind,
@@ -35,8 +36,7 @@ class ReferencingPolySymbol private constructor(
       location: List<PolySymbolQualifiedName> = emptyList(),
     ): ReferencingPolySymbol =
       ReferencingPolySymbol(
-        qualifiedKind.namespace, qualifiedKind.kind, name,
-        origin, *qualifiedKinds, priority = priority, location = location
+        qualifiedKind, name, origin, *qualifiedKinds, priority = priority, location = location
       )
   }
 
@@ -59,16 +59,22 @@ class ReferencingPolySymbol private constructor(
   override fun equals(other: Any?): Boolean =
     other === this ||
     other is ReferencingPolySymbol
-    && other.namespace == namespace
-    && other.kind == kind
+    && other.qualifiedKind == qualifiedKind
     && other.name == name
     && other.origin == origin
     && other.priority == priority
     && other.location == location
     && other.references == references
 
-  override fun hashCode(): Int =
-    Objects.hash(namespace, kind, name, origin, priority, location, references)
+  override fun hashCode(): Int {
+    var result = qualifiedKind.hashCode()
+    result = 31 * result + name.hashCode()
+    result = 31 * result + origin.hashCode()
+    result = 31 * result + priority.hashCode()
+    result = 31 * result + location.hashCode()
+    result = 31 * result + references.hashCode()
+    return result
+  }
 
   override fun createPointer(): Pointer<out PolySymbol> =
     Pointer.hardPointer(this)

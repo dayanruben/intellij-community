@@ -4,7 +4,7 @@ package com.intellij.polySymbols.customElements.json
 import com.intellij.polySymbols.PolySymbol
 import com.intellij.polySymbols.PolySymbolApiStatus
 import com.intellij.polySymbols.PolySymbolQualifiedName
-import com.intellij.polySymbols.PolySymbolTypeSupport
+import com.intellij.polySymbols.utils.PolySymbolTypeSupport
 import com.intellij.polySymbols.customElements.CustomElementsJsonOrigin
 import com.intellij.polySymbols.customElements.CustomElementsManifestScopeBase
 import com.intellij.polySymbols.customElements.CustomElementsSymbol
@@ -27,9 +27,9 @@ private fun Reference.createQueryPathList(origin: CustomElementsJsonOrigin): Lis
   val module = module ?: ""
   val refName = name ?: return null
   return listOf(
-    PolySymbolQualifiedName(CustomElementsSymbol.NAMESPACE_CUSTOM_ELEMENTS_MANIFEST, CustomElementsSymbol.KIND_CEM_PACKAGES, pkg),
-    PolySymbolQualifiedName(CustomElementsSymbol.NAMESPACE_CUSTOM_ELEMENTS_MANIFEST, CustomElementsSymbol.KIND_CEM_MODULES, module),
-    PolySymbolQualifiedName(CustomElementsSymbol.NAMESPACE_CUSTOM_ELEMENTS_MANIFEST, CustomElementsSymbol.KIND_CEM_DECLARATIONS, refName)
+    PolySymbolQualifiedName(CustomElementsSymbol.CEM_PACKAGES, pkg),
+    PolySymbolQualifiedName(CustomElementsSymbol.CEM_MODULES, module),
+    PolySymbolQualifiedName(CustomElementsSymbol.CEM_DECLARATIONS, refName)
   )
 }
 

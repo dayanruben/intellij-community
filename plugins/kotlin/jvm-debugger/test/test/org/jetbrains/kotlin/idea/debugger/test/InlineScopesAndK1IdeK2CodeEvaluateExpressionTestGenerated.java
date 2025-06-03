@@ -1968,11 +1968,6 @@ public abstract class InlineScopesAndK1IdeK2CodeEvaluateExpressionTestGenerated 
                 runTest("testData/evaluation/singleBreakpoint/inlineFunctionBreakpointVariants.kt");
             }
 
-            @TestMetadata("inlineFunctionClassFileLoading.kt")
-            public void testInlineFunctionClassFileLoading() throws Exception {
-                runTest("testData/evaluation/singleBreakpoint/inlineFunctionClassFileLoading.kt");
-            }
-
             @TestMetadata("inlineFunctionDeepInlining.kt")
             public void testInlineFunctionDeepInlining() throws Exception {
                 runTest("testData/evaluation/singleBreakpoint/inlineFunctionDeepInlining.kt");
@@ -2136,6 +2131,11 @@ public abstract class InlineScopesAndK1IdeK2CodeEvaluateExpressionTestGenerated 
             @TestMetadata("localClass.kt")
             public void testLocalClass() throws Exception {
                 runTest("testData/evaluation/singleBreakpoint/localClass.kt");
+            }
+
+            @TestMetadata("localFunRefCapturingLocalVar.kt")
+            public void testLocalFunRefCapturingLocalVar() throws Exception {
+                runTest("testData/evaluation/singleBreakpoint/localFunRefCapturingLocalVar.kt");
             }
 
             @TestMetadata("localFunctionCapturedLocalVariable.kt")
@@ -2876,9 +2876,19 @@ public abstract class InlineScopesAndK1IdeK2CodeEvaluateExpressionTestGenerated 
                 runTest("testData/evaluation/jvmMultiModule/inlineFunWithSamFromOtherModule.kt");
             }
 
+            @TestMetadata("inlineFunctionClassFileLoading.kt")
+            public void testInlineFunctionClassFileLoading() throws Exception {
+                runTest("testData/evaluation/jvmMultiModule/inlineFunctionClassFileLoading.kt");
+            }
+
             @TestMetadata("inlineInternal.kt")
             public void testInlineInternal() throws Exception {
                 runTest("testData/evaluation/jvmMultiModule/inlineInternal.kt");
+            }
+
+            @TestMetadata("inlineInternalDelegate.kt")
+            public void testInlineInternalDelegate() throws Exception {
+                runTest("testData/evaluation/jvmMultiModule/inlineInternalDelegate.kt");
             }
 
             @TestMetadata("inlineInternalWithDefaultParams.kt")

@@ -5,6 +5,7 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.tools.build.bazel.jvmIncBuilder.*;
 import com.intellij.tools.build.bazel.jvmIncBuilder.runner.CompilerDataSink;
 import com.intellij.tools.build.bazel.jvmIncBuilder.runner.CompilerRunner;
+import com.intellij.tools.build.bazel.jvmIncBuilder.runner.OutputOrigin;
 import com.intellij.tools.build.bazel.jvmIncBuilder.runner.OutputSink;
 import com.intellij.util.containers.ContainerUtil;
 import kotlin.Unit;
@@ -307,20 +308,21 @@ public class KotlinCompilerRunner implements CompilerRunner {
         String relativePath = generatedOutput.getRelativePath().replace(File.separatorChar, '/');
         byte[] outputByteArray = generatedOutput.asByteArray();
 
-        OutputSink.OutputFile.Kind kind;
+        com.intellij.tools.build.bazel.jvmIncBuilder.runner.OutputFile.Kind kind;
         GeneratedFile file;
         if (relativePath.endsWith(".class")) {
-          kind = OutputSink.OutputFile.Kind.bytecode;
+          kind = com.intellij.tools.build.bazel.jvmIncBuilder.runner.OutputFile.Kind.bytecode;
           file = new KotlinJvmGeneratedFile(generatedOutput.getSourceFiles(), new File(relativePath), outputByteArray, MetadataVersion.INSTANCE);
         }
         else {
-          kind = OutputSink.OutputFile.Kind.other;
+          kind = com.intellij.tools.build.bazel.jvmIncBuilder.runner.OutputFile.Kind.other;
           file = new GeneratedFile(generatedOutput.getSourceFiles(), new File(relativePath));
         }
         clsCollector.accept(file);
 
         outputSink.addFile(
-          new OutputFileImpl(relativePath, kind, outputByteArray, false), map(generatedOutput.getSourceFiles(), myPathMapper::toNodeSource)
+          new OutputFileImpl(relativePath, kind, outputByteArray, false),
+          OutputOrigin.create(OutputOrigin.Kind.kotlin, collect(map(generatedOutput.getSourceFiles(), myPathMapper::toNodeSource), new ArrayList<>()))
         );
       }
 
@@ -339,8 +341,17 @@ public class KotlinCompilerRunner implements CompilerRunner {
     arguments.setSkipPrereleaseCheck(true);
     arguments.setAllowUnstableDependencies(true);
     arguments.setDisableStandardScript(true);
-    arguments.setApiVersion("2.1");     // todo: find a way to configure this in input parameters
-    arguments.setLanguageVersion("2.1"); // todo: find a way to configure this in input parameters
+    if (arguments.getLanguageVersion() == null && arguments.getApiVersion() == null) {
+      // defaults
+      arguments.setApiVersion("2.2");     // todo: find a way to configure this in input parameters
+      arguments.setLanguageVersion("2.2"); // todo: find a way to configure this in input parameters
+    }
+    else if (arguments.getLanguageVersion() == null) {
+      arguments.setLanguageVersion(arguments.getApiVersion());
+    }
+    else if (arguments.getApiVersion() == null) {
+      arguments.setApiVersion(arguments.getLanguageVersion());
+    }
     arguments.setAllowKotlinPackage(CLFlags.ALLOW_KOTLIN_PACKAGE.isFlagSet(flags));
     arguments.setWhenGuards(CLFlags.WHEN_GUARDS.isFlagSet(flags));
     arguments.setLambdas(CLFlags.LAMBDAS.getOptionalScalarValue(flags));

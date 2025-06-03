@@ -255,16 +255,9 @@ public final class InspectorWindow extends JDialog implements Disposable {
     myComponents.addAll(components);
     myInfo = null;
     Component showingComponent = components.get(0);
-
-    List<UiInspectorAccessibilityInspection> failedInspections = Collections.emptyList();
-    TreePath path = myHierarchyTree.getSelectionPath();
-    if (path != null && path.getLastPathComponent() instanceof HierarchyTree.ComponentNode node) {
-      failedInspections = node.getFailedInspections();
-    }
-
     setTitle(showingComponent.getClass().getName());
     Disposer.dispose(myInspectorTable);
-    myInspectorTable = new InspectorTable(showingComponent, myProject, failedInspections);
+    myInspectorTable = new InspectorTable(showingComponent, myProject, getFailedAccessibilityInspections());
     myWrapperPanel.setContent(myInspectorTable);
     myNavBarPanel.setSelectedComponent(showingComponent);
   }
@@ -273,15 +266,8 @@ public final class InspectorWindow extends JDialog implements Disposable {
     myComponents.clear();
     myInfo = clickInfo;
     setTitle("Click Info");
-
-    List<UiInspectorAccessibilityInspection> failedInspections = Collections.emptyList();
-    TreePath path = myHierarchyTree.getSelectionPath();
-    if (path != null && path.getLastPathComponent() instanceof HierarchyTree.ComponentNode node) {
-      failedInspections = node.getFailedInspections();
-    }
-
     Disposer.dispose(myInspectorTable);
-    myInspectorTable = new InspectorTable(clickInfo, myProject, failedInspections);
+    myInspectorTable = new InspectorTable(clickInfo, myProject, getFailedAccessibilityInspections());
     myWrapperPanel.setContent(myInspectorTable);
   }
 
@@ -493,6 +479,15 @@ public final class InspectorWindow extends JDialog implements Disposable {
     return false;
   }
 
+  private @NotNull List<UiInspectorAccessibilityInspection> getFailedAccessibilityInspections() {
+    List<UiInspectorAccessibilityInspection> failedInspections = Collections.emptyList();
+    TreePath path = myHierarchyTree.getSelectionPath();
+    if (path != null && path.getLastPathComponent() instanceof HierarchyTree.ComponentNode node) {
+      failedInspections = node.getFailedInspections();
+    }
+    return failedInspections;
+  }
+
   private class MyRootPane extends JRootPane implements UiDataProvider {
     @Override
     public void uiDataSnapshot(@NotNull DataSink sink) {
@@ -540,7 +535,7 @@ public final class InspectorWindow extends JDialog implements Disposable {
     }
   }
 
-  private final class ShowAccessibilityIssuesAction extends MyTextAction {
+  private final class ShowAccessibilityIssuesAction extends MyTextAction implements Toggleable {
     private final boolean isAccessibilityAuditEnabled = Registry.is("ui.inspector.accessibility.audit", false);
     public static final String SHOW_ACCESSIBILITY_ISSUES_KEY = "ui.inspector.show.accessibility.issues.key";
     private boolean showAccessibilityIssues;
@@ -560,7 +555,10 @@ public final class InspectorWindow extends JDialog implements Disposable {
     }
 
     @Override
-    public void update(@NotNull AnActionEvent e) { e.getPresentation().setEnabledAndVisible(isAccessibilityAuditEnabled); }
+    public void update(@NotNull AnActionEvent e) {
+      e.getPresentation().setEnabledAndVisible(isAccessibilityAuditEnabled);
+      Toggleable.setSelected(e.getPresentation(), showAccessibilityIssues);
+    }
 
     @Override
     public @NotNull ActionUpdateThread getActionUpdateThread() { return ActionUpdateThread.BGT; }
