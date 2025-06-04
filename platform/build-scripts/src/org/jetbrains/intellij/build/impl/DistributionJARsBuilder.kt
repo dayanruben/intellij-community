@@ -826,7 +826,7 @@ private suspend fun patchKeyMapWithAltClickReassignedToMultipleCarets(moduleOutp
 
   val moduleName = "intellij.platform.resources"
   val relativePath = "keymaps/\$default.xml"
-  val sourceFileContent = context.getModuleOutputFileContent(context.findRequiredModule(moduleName), relativePath)
+  val sourceFileContent = context.readFileContentFromModuleOutput(context.findRequiredModule(moduleName), relativePath)
                           ?: error("Not found '$relativePath' in module $moduleName output")
   var text = String(sourceFileContent, StandardCharsets.UTF_8)
   text = text.replace("<mouse-shortcut keystroke=\"alt button1\"/>", "<mouse-shortcut keystroke=\"to be alt shift button1\"/>")
@@ -1369,7 +1369,7 @@ suspend fun createIdeClassPath(platformLayout: PlatformLayout, context: BuildCon
       is ModuleOutputEntry -> {
         classPath.add(context.getModuleOutputDir(context.findRequiredModule(entry.moduleName)))
         for (classpathPluginEntry in pluginLayouts.firstOrNull { it.mainModule == entry.moduleName }?.scrambleClasspathPlugins ?: emptyList()) {
-          context.getModuleOutputDir(context.findRequiredModule(classpathPluginEntry.pluginMainModuleName)).toString()
+          classPath.add(context.getModuleOutputDir(context.findRequiredModule(classpathPluginEntry.pluginMainModuleName)))
         }
       }
       is LibraryFileEntry -> classPath.add(entry.libraryFile!!)

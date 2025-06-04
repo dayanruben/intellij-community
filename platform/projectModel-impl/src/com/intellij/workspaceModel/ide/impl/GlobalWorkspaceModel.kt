@@ -58,8 +58,8 @@ class GlobalWorkspaceModel(
    * 1. Prevent entities from one environment from appearing for another one;
    * 2. Ensure that the namespace of "global" entities (such as SDKs and global libraries) is local to each environment.
    */
-  val eelDescriptor: EelDescriptor,
-  val internalEnvironmentName: GlobalWorkspaceModelCache.InternalEnvironmentName,
+  private val eelDescriptor: EelDescriptor,
+  private val internalEnvironmentName: GlobalWorkspaceModelCache.InternalEnvironmentName,
 ) : Disposable {
 
   /**
@@ -336,6 +336,10 @@ class GlobalWorkspaceModel(
       return ApplicationManager.getApplication().service<GlobalWorkspaceModelRegistry>().getGlobalModel(descriptor)
     }
 
+    suspend fun getInstanceAsync(descriptor: EelDescriptor): GlobalWorkspaceModel {
+      return ApplicationManager.getApplication().serviceAsync<GlobalWorkspaceModelRegistry>().getGlobalModel(descriptor)
+    }
+
     suspend fun getInstanceByInternalName(name: GlobalWorkspaceModelCache.InternalEnvironmentName): GlobalWorkspaceModel {
       return ApplicationManager.getApplication().serviceAsync<GlobalWorkspaceModelRegistry>().getGlobalModelByDescriptorName(name)
     }
@@ -378,8 +382,9 @@ class GlobalWorkspaceModel(
 
 private fun VirtualFileUrl.createCopyAtManager(manager: VirtualFileUrlManager): VirtualFileUrl = manager.getOrCreateFromUrl(url)
 
-private fun ExcludeUrlEntity.copy(entitySource: EntitySource, manager: VirtualFileUrlManager): ExcludeUrlEntity.Builder =
-  ExcludeUrlEntity(url.createCopyAtManager(manager), entitySource)
+private fun ExcludeUrlEntity.copy(entitySource: EntitySource, manager: VirtualFileUrlManager): ExcludeUrlEntity.Builder {
+  return ExcludeUrlEntity(url.createCopyAtManager(manager), entitySource)
+}
 
 private fun LibraryPropertiesEntity.copy(entitySource: EntitySource): LibraryPropertiesEntity.Builder {
   val originalPropertiesXmlTag = propertiesXmlTag
@@ -388,8 +393,9 @@ private fun LibraryPropertiesEntity.copy(entitySource: EntitySource): LibraryPro
   }
 }
 
-private fun JpsGlobalFileEntitySource.copy(manager: VirtualFileUrlManager): JpsGlobalFileEntitySource =
-  JpsGlobalFileEntitySource(file.createCopyAtManager(manager))
+private fun JpsGlobalFileEntitySource.copy(manager: VirtualFileUrlManager): JpsGlobalFileEntitySource {
+  return JpsGlobalFileEntitySource(file.createCopyAtManager(manager))
+}
 
 @ApiStatus.Internal
 @VisibleForTesting
@@ -398,7 +404,8 @@ class GlobalWorkspaceModelRegistry {
   companion object {
     const val GLOBAL_WORKSPACE_MODEL_LOCAL_CACHE_ID: String = "Local"
   }
-  private val environmentToModel: MutableMap<EelDescriptor, GlobalWorkspaceModel> = ConcurrentHashMap()
+
+  private val environmentToModel = ConcurrentHashMap<EelDescriptor, GlobalWorkspaceModel>()
 
   fun getGlobalModel(descriptor: EelDescriptor): GlobalWorkspaceModel {
     val protectedDescriptor = if (Registry.`is`("ide.workspace.model.per.environment.model.separation")) descriptor else LocalEelDescriptor

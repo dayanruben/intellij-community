@@ -91,10 +91,7 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
     if (currentBreakpoint != null) {
       return currentBreakpoint
     }
-    val type = FrontendXBreakpointTypesManager.getInstance(project).getTypeById(breakpointDto.typeId)
-    if (type == null) {
-      return null
-    }
+    val type = FrontendXBreakpointTypesManager.getInstance(project).getTypeById(breakpointDto.typeId) ?: return null
     val newBreakpoint = createXBreakpointProxy(project, cs, breakpointDto, type, this, onBreakpointChange = {
       breakpointsChanged.tryEmit(Unit)
       if (it is XLineBreakpointProxy) {
@@ -131,81 +128,49 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
       val lightBreakpointPosition = LightBreakpointPosition(installationInfo.position.file, installationInfo.position.line)
       val type = installationInfo.types.firstOrNull() ?: return@async null
 
-      if (LOG.isDebugEnabled) {
-        LOG.debug("[$requestId] Toggling light breakpoint at ${lightBreakpointPosition.file.path}:${lightBreakpointPosition.line}, type: ${type.id}")
+      LOG.info("[$requestId] Toggling light breakpoint at ${lightBreakpointPosition.file.path}:${lightBreakpointPosition.line}, type: ${type.id}")
+
+      val lightBreakpoint: FrontendXLightLineBreakpoint? = lightBreakpoints.computeIfAbsent(lightBreakpointPosition) {
+        FrontendXLightLineBreakpoint(project, this@async, type, installationInfo, this@FrontendXBreakpointManager)
       }
+      val alreadyHadLightBreakpoint = lightBreakpoint == null
 
-      val lightBreakpoint = FrontendXLightLineBreakpoint(project, this@async, type, installationInfo, this@FrontendXBreakpointManager)
+      LOG.info("[$requestId] Sending toggle request for breakpoint at ${lightBreakpointPosition.file.path}:${lightBreakpointPosition.line}, hasExisting: ${alreadyHadLightBreakpoint}")
+
       try {
-        val oldBreakpoint = lightBreakpoints.putIfAbsent(lightBreakpointPosition, lightBreakpoint)
-        if (oldBreakpoint != null) {
-          if (LOG.isDebugEnabled) {
-            LOG.debug("[$requestId] Found existing light breakpoint at ${lightBreakpointPosition.file.path}:${lightBreakpointPosition.line}, disposing new one")
-          }
-          lightBreakpoint.dispose()
-        }
+        val response = XBreakpointTypeApi.getInstance().toggleLineBreakpoint(project.projectId(), installationInfo.toRequest(alreadyHadLightBreakpoint))
 
-        if (LOG.isDebugEnabled) {
-          LOG.debug("[$requestId] Sending toggle request for breakpoint at ${lightBreakpointPosition.file.path}:${lightBreakpointPosition.line}, hasExisting: ${oldBreakpoint != null}")
-        }
-
-        val response = XBreakpointTypeApi.getInstance().toggleLineBreakpoint(project.projectId(), installationInfo.toRequest(oldBreakpoint != null))
-
-        if (LOG.isDebugEnabled) {
-          LOG.debug("[$requestId] Received response for toggle request: ${response?.javaClass?.simpleName}")
-        }
+        LOG.info("[$requestId] Received response for toggle request: ${response?.javaClass?.simpleName}")
 
         withContext(Dispatchers.EDT + NonCancellable) {
           lightBreakpoints.remove(lightBreakpointPosition, lightBreakpoint)
-          lightBreakpoint.dispose()
+          lightBreakpoint?.dispose()
           when (response) {
             is XLineBreakpointInstalledResponse -> {
               val breakpointDto = response.breakpoint
-              if (LOG.isDebugEnabled) {
-                LOG.debug("[$requestId] Processing XLineBreakpointInstalledResponse, breakpointDto: ${breakpointDto?.id}")
-              }
-              if (breakpointDto != null) {
-                val result = addBreakpoint(breakpointDto) as? XLineBreakpointProxy
-                if (LOG.isDebugEnabled) {
-                  LOG.debug("[$requestId] Added breakpoint: ${result?.id}, at line: ${result?.getLine()}")
-                }
-                result
-              }
-              else {
-                if (LOG.isDebugEnabled) {
-                  LOG.debug("[$requestId] No breakpoint DTO in response, returning null")
-                }
-                null
-              }
+              LOG.info("[$requestId] Processing XLineBreakpointInstalledResponse, breakpointDto: ${breakpointDto.id}")
+              val result = addBreakpoint(breakpointDto) as? XLineBreakpointProxy
+              LOG.info("[$requestId] Added breakpoint: ${result?.id}, at line: ${result?.getLine()}")
+              result
             }
             XRemoveBreakpointResponse -> {
-              if (LOG.isDebugEnabled) {
-                LOG.debug("[$requestId] Processing XRemoveBreakpointResponse")
-              }
+              LOG.info("[$requestId] Processing XRemoveBreakpointResponse")
               val breakpoint = XDebuggerUtilImpl.findBreakpointsAtLine(project, installationInfo).singleOrNull()
-              if (LOG.isDebugEnabled) {
-                LOG.debug("[$requestId] Found breakpoint to remove: ${breakpoint?.id}")
-              }
+              LOG.info("[$requestId] Found breakpoint to remove: ${breakpoint?.id}")
               if (breakpoint != null) {
                 XDebuggerUtilImpl.removeBreakpointIfPossible(project, installationInfo, breakpoint)
-                if (LOG.isDebugEnabled) {
-                  LOG.debug("[$requestId] Removed breakpoint: ${breakpoint.id}")
-                }
               }
               null
             }
-            else -> {
-              if (LOG.isDebugEnabled) {
-                LOG.debug("[$requestId] Unknown response type: ${response?.javaClass?.name}")
-              }
-              null
-            }
+            is XLineBreakpointMultipleVariantResponse -> error("Should not happen for light breakpoint: $response")
+            XNoBreakpointPossibleResponse -> error("Should not happen for light breakpoint: $response")
+            null -> null
           }
         }
       }
       finally {
         lightBreakpoints.remove(lightBreakpointPosition, lightBreakpoint)
-        lightBreakpoint.dispose()
+        lightBreakpoint?.dispose()
       }
     }
   }

@@ -397,7 +397,7 @@ class RecentProjectFilteringTree(
       }
       private val projectBranchNameLabel = ComponentPanelBuilder.createNonWrappingCommentComponent("").apply {
         foreground = NamedColorUtil.getInactiveTextColor()
-        icon = AllIcons.Vcs.Branch
+        icon = IconUtil.colorize(AllIcons.Vcs.Branch, UIUtil.getInactiveTextColor(), keepGray = false, keepBrightness = false)
       }
       private val projectIconLabel = JLabel()
       private val projectActions = ActionsButton().apply {
@@ -506,7 +506,7 @@ class RecentProjectFilteringTree(
         providerPathLabel.apply {
           text = providerPath ?: ""
           isVisible = providerPath != null
-          icon = providerIcon
+          icon = providerIcon ?: AllIcons.Welcome.RecentProjects.RemoteProject
           verticalTextPosition = SwingConstants.CENTER
         }
         projectPathLabel.apply {

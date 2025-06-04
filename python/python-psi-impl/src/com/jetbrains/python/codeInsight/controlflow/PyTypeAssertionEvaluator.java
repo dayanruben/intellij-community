@@ -201,6 +201,7 @@ public class PyTypeAssertionEvaluator extends PyRecursiveElementVisitor {
                                                           @Nullable PyType suggested,
                                                           boolean positive,
                                                           @NotNull TypeEvalContext context) {
+    if (suggested == null) return null;
     if (positive) {
       List<PyType> initialSubtypes = PyTypeUtil.toStream(initial)
         .filter(initialSubtype -> match(suggested, initialSubtype, context))
@@ -219,7 +220,7 @@ public class PyTypeAssertionEvaluator extends PyRecursiveElementVisitor {
         return Ref.create(excludeFromUnion(unionType, suggested, context));
       }
       if (match(suggested, initial, context)) {
-        return Ref.create(PyNeverType.INSTANCE);
+        return Ref.create(PyNeverType.NEVER);
       }
       Ref<@Nullable PyType> diff = trySubtract(initial, suggested, context);
       return diff != null ? diff : Ref.create(initial);
@@ -240,7 +241,7 @@ public class PyTypeAssertionEvaluator extends PyRecursiveElementVisitor {
       }
     }
     if (members.isEmpty()) {
-      return PyNeverType.INSTANCE;
+      return PyNeverType.NEVER;
     }
     return PyUnionType.union(members);
   }
@@ -261,7 +262,7 @@ public class PyTypeAssertionEvaluator extends PyRecursiveElementVisitor {
       List<PyLiteralType> enumMembers = PyStdlibTypeProvider.getEnumMembers(classType1.getPyClass(), context).toList();
       List<PyType> filteredEnumMembers = ContainerUtil.filter(enumMembers, m -> !PyTypeChecker.match(type2, m, context));
       if (filteredEnumMembers.isEmpty()) {
-        return Ref.create(PyNeverType.INSTANCE);
+        return Ref.create(PyNeverType.NEVER);
       }
       PyType type = enumMembers.size() == filteredEnumMembers.size() ? type1 : PyUnionType.union(filteredEnumMembers);
       return Ref.create(type);

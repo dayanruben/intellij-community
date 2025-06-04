@@ -13,9 +13,9 @@ import org.jetbrains.concurrency.Promise
 interface GitBranchesWidgetPopup: JBPopup {
   val userResized: Boolean
 
-  fun restoreDefaultSize()
+  var groupByPrefix: Boolean
 
-  fun setGroupingByPrefix(groupByPrefix: Boolean)
+  fun restoreDefaultSize()
 
   @TestOnly
   fun promiseExpandTree(): Promise<*>
@@ -24,7 +24,7 @@ interface GitBranchesWidgetPopup: JBPopup {
   fun getExpandedPathsSize(): Int
 
   companion object {
-    fun createPopup(project: Project, selectedRepository: GitRepositoryFrontendModel?): GitBranchesWidgetPopup =
-      GitBranchesTreePopup.create(project, selectedRepository)
+    fun createPopup(project: Project, preferredSelection: GitRepositoryFrontendModel?): GitBranchesWidgetPopup =
+      GitBranchesTreePopup.create(project, preferredSelection)
   }
 }

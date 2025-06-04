@@ -334,7 +334,7 @@ private class ProjectWidgetRenderer : ListCellRenderer<PopupFactoryImpl.ActionIt
                 providerPathLbl = label(providerPath)
                   .customize(rowGaps)
                   .applyToComponent {
-                    icon = action.providerIcon ?: AllIcons.Nodes.Console
+                    icon = action.providerIcon ?: AllIcons.Welcome.RecentProjects.RemoteProject
                     font = JBFont.smallOrNewUiMedium()
                     foreground = UIUtil.getLabelInfoForeground()
                   }.component
@@ -356,7 +356,7 @@ private class ProjectWidgetRenderer : ListCellRenderer<PopupFactoryImpl.ActionIt
                 label(it)
                   .customize(rowGaps)
                   .applyToComponent {
-                    icon = AllIcons.Vcs.Branch
+                    icon = IconUtil.colorize(AllIcons.Vcs.Branch, UIUtil.getLabelInfoForeground(), keepGray = false, keepBrightness = false)
                     font = JBFont.smallOrNewUiMedium()
                     foreground = UIUtil.getLabelInfoForeground()
                   }.component

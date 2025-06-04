@@ -360,8 +360,8 @@ class CompilationContextImpl private constructor(
     return org.jetbrains.intellij.build.impl.findFileInModuleSources(module, relativePath)
   }
 
-  override suspend fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String): ByteArray? {
-    val file = getModuleOutputDir(module).resolve(relativePath)
+  override suspend fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray? {
+    val file = getModuleOutputDir(module, forTests).resolve(relativePath)
     try {
       return Files.readAllBytes(file)
     }
@@ -591,46 +591,6 @@ suspend fun CompilationContext.hasModuleOutputPath(module: JpsModule, relativePa
       }
     }
     return found
-  }
-  else {
-    throw IllegalStateException("Module '${module.name}' output is neither directory, nor jar $output")
-  }
-}
-
-@Internal
-suspend fun CompilationContext.getModuleOutputFileContent(module: JpsModule, relativePath: String, forTests: Boolean = false): ByteArray? {
-  val output = getModuleOutputDir(module = module, forTests = forTests)
-  val attributes = try {
-    Files.readAttributes(output, BasicFileAttributes::class.java)
-  }
-  catch (_: FileSystemException) {
-    return null
-  }
-
-  if (attributes.isDirectory) {
-    val file = output.resolve(relativePath)
-    try {
-      return Files.readAllBytes(file)
-    }
-    catch (_: NoSuchFileException) {
-      return null
-    }
-  }
-  else if (attributes.isRegularFile && output.toString().endsWith("jar")) {
-    var content: ByteArray? = null
-    readZipFile(output) { name, dataSupplier ->
-      if (name == relativePath) {
-        val buffer = dataSupplier()
-        val array = ByteArray(buffer.remaining())
-        buffer.get(array)
-        content = array
-        ZipEntryProcessorResult.STOP
-      }
-      else {
-        ZipEntryProcessorResult.CONTINUE
-      }
-    }
-    return content
   }
   else {
     throw IllegalStateException("Module '${module.name}' output is neither directory, nor jar $output")

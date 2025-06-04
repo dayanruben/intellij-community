@@ -2,7 +2,10 @@
 package com.intellij.platform.eel
 
 import com.intellij.platform.eel.EelExecApi.ExecuteProcessOptions
+import com.intellij.platform.eel.channels.EelReceiveChannel
+import com.intellij.platform.eel.channels.EelSendChannel
 import com.intellij.platform.eel.path.EelPath
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.CheckReturnValue
 
 /**
@@ -108,6 +111,68 @@ sealed interface EelExecApi {
    *
    */
   suspend fun findExeFilesInPath(binaryName: String): List<EelPath>
+
+  /**
+   * Represents a callback script which can be called from command-line tools like `git`.
+   * The script passes its input data to the IDE and then passes back the answer.
+   *
+   * It's important to call [ExternalCliEntrypoint.delete] after the process which could call the script finishes
+   * to avoid resource leak.
+   */
+  interface ExternalCliEntrypoint {
+    /**
+     * Path to the callback script which can be passed to the tools like git.
+     */
+    val path: EelPath
+
+    /**
+     * Listens to the invocations of the script and lets [processor] to answer the cli requests.
+     * Never exits normally, so should be canceled externally when not needed.
+     */
+    suspend fun consumeInvocations(processor: suspend (ExternalCliProcess) -> Int): Nothing
+  }
+
+  interface ExternalCliProcess {
+    val workingDir: EelPath
+    val executableName: EelPath
+
+    /**
+     * Arguments passed to the script, `args[0]` is expected to be the name of the executable.
+     */
+    val args: List<String>
+
+    /**
+     * Only the environment variables which are mentioned explicitly in [ExecuteProcessOptions.env] are guaranteed to be here.
+     */
+    val environment: Map<String, String>
+    val pid: EelApi.Pid
+
+    val stdin: EelReceiveChannel
+    val stdout: EelSendChannel
+    val stderr: EelSendChannel
+
+    /**
+     * Stop the callback script with exit code [exitCode].
+     * Should be called exactly once, after calling it [stdin] [stdout] and [stderr] should not be used.
+     */
+    fun exit(exitCode: Int)
+  }
+
+  interface ExternalCliOptions {
+    val filePrefix: String
+    val envVariablesToCapture: List<String>
+  }
+
+  @ApiStatus.Internal
+  // TODO remove when local implementation will implement the api properly
+  interface LocalExternalCliOptions : ExternalCliOptions {
+    val mainClass: Class<*>
+    val useBatchFile: Boolean
+  }
+
+  // TODO Generate builder?
+  @CheckReturnValue
+  suspend fun createExternalCli(options: ExternalCliOptions): ExternalCliEntrypoint
 
   @Deprecated("Use spawnProcess instead")
   interface ExecuteProcessError : EelError {

@@ -70,7 +70,7 @@ class LinuxDistributionBuilder(
     get() = OsFamily.LINUX
 
   override suspend fun copyFilesForOsDistribution(targetPath: Path, arch: JvmArchitecture) {
-    spanBuilder("copy files for os distribution").setAttribute("os", targetOs.osName).setAttribute("arch", arch.name).use {
+    spanBuilder("copy files for os distribution").setAttribute("os", targetOs.osName).setAttribute("arch", arch.name).setAttribute("targetLibcImpl", targetLibcImpl.name).use {
       withContext(Dispatchers.IO) {
         val distBinDir = targetPath.resolve("bin")
         val sourceBinDir = context.paths.communityHomeDir.resolve("bin/linux")
@@ -106,12 +106,13 @@ class LinuxDistributionBuilder(
     val targetLibcImpl = this.targetLibcImpl
     val executableFileMatchers = generateExecutableFilesMatchers(includeRuntime = true, arch, targetLibcImpl).keys
     updateExecutablePermissions(osAndArchSpecificDistPath, executableFileMatchers)
-    context.executeStep(spanBuilder("Build Linux artifacts").setAttribute("arch", arch.name), BuildOptions.LINUX_ARTIFACTS_STEP) {
+    context.executeStep(spanBuilder("Build Linux artifacts").setAttribute("arch", arch.name).setAttribute("targetLibcImpl", targetLibcImpl.name), BuildOptions.LINUX_ARTIFACTS_STEP) {
       if (customizer.buildArtifactWithoutRuntime) {
         launch(Dispatchers.IO + CoroutineName("Build Linux $arch .tar.gz without bundled Runtime")) {
           context.executeStep(
             spanBuilder("Build Linux .tar.gz without bundled Runtime")
               .setAttribute("arch", arch.name)
+              .setAttribute("targetLibcImpl", targetLibcImpl.name)
               .setAttribute("runtimeDir", ""),
             BuildOptions.LINUX_TAR_GZ_WITHOUT_BUNDLED_RUNTIME_STEP
           ) { span ->
@@ -119,7 +120,7 @@ class LinuxDistributionBuilder(
               span.addEvent("skip")
             }
             else {
-              buildTarGz(arch, runtimeDir = null, osAndArchSpecificDistPath, NO_RUNTIME_SUFFIX + suffix(arch))
+              buildTarGz(arch, runtimeDir = null, osAndArchSpecificDistPath, NO_RUNTIME_SUFFIX + suffix(arch, targetLibcImpl))
             }
           }
         }
@@ -130,11 +131,11 @@ class LinuxDistributionBuilder(
       val tarGzPath: Path? = context.executeStep(
         spanBuilder("Build Linux .tar.gz with bundled Runtime")
           .setAttribute("arch", arch.name)
-          .setAttribute("libcImpl", targetLibcImpl.name)
+          .setAttribute("targetLibcImpl", targetLibcImpl.name)
           .setAttribute("runtimeDir", runtimeDir.toString()),
         "linux_tar_gz_${arch.name}"
       ) { _ ->
-        val suffix = suffix(arch) + if (targetLibcImpl == LinuxLibcImpl.MUSL) "-musl" else ""
+        val suffix = suffix(arch, targetLibcImpl)
         buildTarGz(arch, runtimeDir, osAndArchSpecificDistPath, suffix)
       }
 
@@ -205,6 +206,7 @@ class LinuxDistributionBuilder(
 
     spanBuilder("build Linux tar.gz")
       .setAttribute("runtimeDir", runtimeDir?.toString() ?: "")
+      .setAttribute("targetLibcImpl", targetLibcImpl.name)
       .use(Dispatchers.IO) {
         val executableFileMatchers = generateExecutableFilesMatchers(includeRuntime = runtimeDir != null, arch, this@LinuxDistributionBuilder.targetLibcImpl).keys
         tar(tarPath, tarRoot, dirs, executableFileMatchers, context.options.buildDateInSeconds)
@@ -332,7 +334,7 @@ class LinuxDistributionBuilder(
   }
 
   override fun distributionFilesBuilt(arch: JvmArchitecture): List<Path> {
-    val archSuffix = suffix(arch)
+    val archSuffix = suffix(arch, targetLibcImpl)
     return sequenceOf("${archSuffix}.tar.gz", "${NO_RUNTIME_SUFFIX}${archSuffix}.tar.gz")
       .map { suffix -> context.productProperties.getBaseArtifactName(context) + suffix }
       .plus(getSnapArtifactName(arch))
@@ -466,5 +468,9 @@ class LinuxDistributionBuilder(
     val vmOptions = VmOptionsGenerator.generate(context).asSequence() + sequenceOf("-Dsun.tools.attach.tmp.only=true", "-Dawt.lock.fair=true")
     VmOptionsGenerator.writeVmOptions(vmOptionsPath, vmOptions, separator = "\n")
     return vmOptionsPath
+  }
+
+  private fun suffix(arch: JvmArchitecture, targetLibcImpl: LinuxLibcImpl): String {
+    return suffix(arch) + if (targetLibcImpl == LinuxLibcImpl.MUSL) "-musl" else ""
   }
 }

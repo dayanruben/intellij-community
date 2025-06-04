@@ -105,6 +105,12 @@ abstract class GitBranchesTreePopupBase<T : GitBranchesTreePopupStepBase>(
   final override var userResized: Boolean
     private set
 
+  final override var groupByPrefix: Boolean
+    get() = treeStep.treeModel.isPrefixGrouping
+    set(value) {
+      treeStep.treeModel.isPrefixGrouping = value
+    }
+
   private val expandedPaths = HashSet<TreePath>()
 
   protected val am = ActionManager.getInstance()
@@ -323,7 +329,7 @@ abstract class GitBranchesTreePopupBase<T : GitBranchesTreePopupStepBase>(
       speedSearch.updatePattern(textInEditor)
       onSpeedSearchPatternChanged()
     }
-    val group = am.getAction(SPEED_SEARCH_DEFAULT_ACTIONS_GROUP) as DefaultActionGroup
+    val group = am.getAction(GitBranchesWidgetActions.SPEED_SEARCH_ACTION_GROUP) as DefaultActionGroup
     for (action in group.getChildren(am)) {
       registerAction(am.getId(action),
                      KeymapUtil.getKeyStroke(action.shortcutSet),
@@ -704,12 +710,6 @@ abstract class GitBranchesTreePopupBase<T : GitBranchesTreePopupStepBase>(
     }
   }
 
-  override fun setGroupingByPrefix(groupByPrefix: Boolean) {
-    if (isDisposed) return
-
-    treeStep.setPrefixGrouping(groupByPrefix)
-  }
-
   private fun runPreservingTreeState(action: () -> Unit) {
     val state = TreeState.createOn(tree)
     action()
@@ -736,8 +736,6 @@ abstract class GitBranchesTreePopupBase<T : GitBranchesTreePopupStepBase>(
   }
 
   companion object {
-    private const val SPEED_SEARCH_DEFAULT_ACTIONS_GROUP = "Git.Branches.Popup.SpeedSearch"
-
     private inline val isNewUI
       get() = ExperimentalUI.isNewUI()
 
