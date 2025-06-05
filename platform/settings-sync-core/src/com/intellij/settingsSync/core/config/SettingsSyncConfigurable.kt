@@ -236,6 +236,7 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
                 } else {
                   userDropDownLink.selectedItem = null
                 }
+                syncStatusChanged()
               }
               .onIsModified {
                 enableCheckbox.isSelected != SettingsSyncSettings.getInstance().syncEnabled
@@ -312,15 +313,14 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
           SettingsSyncEventsStatistics.ManualDisableMethod.DISABLED_AND_REMOVED_DATA_FROM_SERVER)
       }
       DisableSyncType.DISABLE -> {
-        syncStatusChanged()
         SettingsSyncEventsStatistics.DISABLED_MANUALLY.log(SettingsSyncEventsStatistics.ManualDisableMethod.DISABLED_ONLY)
       }
       else -> {
-        syncStatusChanged()
         SettingsSyncEventsStatistics.DISABLED_MANUALLY.log(SettingsSyncEventsStatistics.ManualDisableMethod.DISABLED_ONLY)
       }
     }
     disableSyncOption.set(DisableSyncType.DISABLE)
+    syncStatusChanged()
   }
 
   private fun enableButtonAction(){
@@ -367,7 +367,7 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
         }
       }
     }
-    else {
+    else if (SettingsSyncSettings.getInstance().syncEnabled) {
       val syncDisableOption = showDisableSyncDialog()
       if (syncDisableOption != DisableSyncType.DONT_DISABLE) {
         disableSyncOption.set(syncDisableOption)
@@ -376,32 +376,47 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
       } else {
         enableCheckbox.isSelected = true
       }
+    } else {
+      syncStatusChanged()
     }
   }
 
   private fun showDisableSyncDialog(): Int {
     @Suppress("DialogTitleCapitalization")
     val providerName = userDropDownLink.selectedItem?.providerName ?: ""
-    return Messages.showCheckboxMessageDialog( // TODO<rv>: Use AlertMessage instead
-      message("disable.dialog.text", providerName),
-      message("disable.dialog.title"),
-      arrayOf(Messages.getCancelButton(), message("disable.dialog.disable.button")),
-      message("disable.dialog.remove.data.box", providerName),
-      false,
-      1,
-      1,
-      Messages.getInformationIcon()
-    ) { index: Int, checkbox: JCheckBox ->
-      if (index == 1) {
-        if (checkbox.isSelected) DisableSyncType.DISABLE_AND_REMOVE_DATA else DisableSyncType.DISABLE
-      }
-      else {
-        0
+    if (SettingsSyncStatusTracker.getInstance().currentStatus is SettingsSyncStatusTracker.SyncStatus.ActionRequired)
+      return Messages.showDialog( // TODO<rv>: Use AlertMessage instead
+        message("disable.dialog.text", providerName),
+        message("disable.dialog.title"),
+        arrayOf(Messages.getCancelButton(), message("disable.dialog.disable.button")),
+        //message("disable.dialog.remove.data.box", providerName),
+        //false,
+        1,
+        1,
+        Messages.getInformationIcon(), null
+      )
+    else {
+      return Messages.showCheckboxMessageDialog( // TODO<rv>: Use AlertMessage instead
+        message("disable.dialog.text", providerName),
+        message("disable.dialog.title"),
+        arrayOf(Messages.getCancelButton(), message("disable.dialog.disable.button")),
+        message("disable.dialog.remove.data.box", providerName),
+        false,
+        1,
+        1,
+        Messages.getInformationIcon()
+      ) { index: Int, checkbox: JCheckBox ->
+        if (index == 1) {
+          if (checkbox.isSelected) DisableSyncType.DISABLE_AND_REMOVE_DATA else DisableSyncType.DISABLE
+        }
+        else {
+          0
+        }
       }
     }
   }
 
-  private fun disableCurrentSyncDialog() {
+  private fun disableCurrentSyncDialog() : Boolean {
     val code = MessagesService.getInstance().showMessageDialog(
       null, null, message("disable.active.sync.message"), message("disable.active.sync.title"),
       arrayOf(Messages.getCancelButton(), message("disable.dialog.disable.button")),
@@ -411,6 +426,9 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
       enableCheckbox.isSelected = false
       disableSyncOption.set(DisableSyncType.DISABLE)
       handleDisableSync()
+      return true
+    } else {
+      return false
     }
   }
 
@@ -524,15 +542,18 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
   }
 
   private fun tryChangeAccount(selectedValue: UserProviderHolder) {
-    if (enableCheckbox.isSelected || SettingsSyncSettings.getInstance().syncEnabled) {
-      disableCurrentSyncDialog()
-    } else if (selectedValue == UserProviderHolder.addAccount) {
+    if (selectedValue == UserProviderHolder.addAccount) {
+      if (!disableCurrentSyncDialog()) {
+        return
+      }
       val syncTypeDialog = AddAccountDialog(configPanel)
       if (syncTypeDialog.showAndGet()) {
         val providerCode = syncTypeDialog.providerCode
         val provider = RemoteCommunicatorHolder.getProvider(providerCode) ?: return
         login(provider, syncConfigPanel)
       }
+    } else if (enableCheckbox.isSelected || SettingsSyncSettings.getInstance().syncEnabled) {
+      disableCurrentSyncDialog()
     } else {
       userDropDownLink.selectedItem = selectedValue
     }
@@ -607,40 +628,47 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
     if (!::cellDropDownLink.isInitialized)
       return
     updateUserAccountsList()
+    refreshActionRequired()
     if (!enableCheckbox.isSelected) {
       //statusLabel.icon = icons.SettingsSyncIcons.StatusDisabled
       cellDropDownLink.comment?.text = "" //message("sync.status.disabled.message")
       return
     }
-    val currentStatus = SettingsSyncStatusTracker.getInstance().currentStatus
-    actionRequired.set(currentStatus is SettingsSyncStatusTracker.SyncStatus.ActionRequired)
     if (SettingsSyncSettings.getInstance().syncEnabled) {
-
-      if (currentStatus is SettingsSyncStatusTracker.SyncStatus.ActionRequired) {
-        actionRequiredAction = { currentStatus.execute(syncConfigPanel) }
-        actionRequiredLabel.text = currentStatus.message
-        actionRequiredButton.text = currentStatus.actionTitle
-        cellDropDownLink.comment?.text = message("sync.status.action.required.comment", currentStatus.actionTitle, currentStatus.message)
-      } else {
-        cellDropDownLink.comment?.text = ""
-        actionRequiredAction = null
-        actionRequiredLabel.text = ""
-        actionRequiredButton.text = ""
-        if (currentStatus == SettingsSyncStatusTracker.SyncStatus.Success) {
-          val lastSyncTime = SettingsSyncStatusTracker.getInstance().getLastSyncTime()
-          if (lastSyncTime > 0) {
-            cellDropDownLink.comment?.text = "<icon src='AllIcons.General.GreenCheckmark'>&nbsp;" + message("sync.status.last.sync.message", DateFormatUtil.formatPrettyDateTime(lastSyncTime))
-          } else {
-            cellDropDownLink.comment?.text = message("sync.status.enabled")
-          }
-        } else if (currentStatus is SettingsSyncStatusTracker.SyncStatus.Error) {
-          cellDropDownLink.comment?.text = message("sync.status.failed", currentStatus.errorMessage)
+      val currentStatus = SettingsSyncStatusTracker.getInstance().currentStatus
+      if (currentStatus == SettingsSyncStatusTracker.SyncStatus.Success) {
+        val lastSyncTime = SettingsSyncStatusTracker.getInstance().getLastSyncTime()
+        if (lastSyncTime > 0) {
+          cellDropDownLink.comment?.text = "<icon src='AllIcons.General.GreenCheckmark'>&nbsp;" + message("sync.status.last.sync.message", DateFormatUtil.formatPrettyDateTime(lastSyncTime))
         }
+        else {
+          cellDropDownLink.comment?.text = message("sync.status.enabled")
+        }
+      }
+      else if (currentStatus is SettingsSyncStatusTracker.SyncStatus.Error) {
+        cellDropDownLink.comment?.text = message("sync.status.failed", currentStatus.errorMessage)
       }
     }
     else {
       //statusLabel.icon = icons.SettingsSyncIcons.StatusNotRun
       cellDropDownLink.comment?.text = ""
+    }
+  }
+
+  private fun refreshActionRequired() {
+    val currentStatus = SettingsSyncStatusTracker.getInstance().currentStatus
+    actionRequired.set(currentStatus is SettingsSyncStatusTracker.SyncStatus.ActionRequired)
+    if (currentStatus is SettingsSyncStatusTracker.SyncStatus.ActionRequired) {
+      actionRequiredAction = { currentStatus.execute(syncConfigPanel) }
+      actionRequiredLabel.text = currentStatus.message
+      actionRequiredButton.text = currentStatus.actionTitle
+      cellDropDownLink.comment?.text = message("sync.status.action.required.comment", currentStatus.actionTitle, currentStatus.message)
+    }
+    else {
+      cellDropDownLink.comment?.text = ""
+      actionRequiredAction = null
+      actionRequiredLabel.text = ""
+      actionRequiredButton.text = ""
     }
   }
 

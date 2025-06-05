@@ -13,6 +13,7 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["src/**/*.kt", "src/**/*.java", "src/**/*.form"], allow_empty = True),
   deps = [
+    "//platform/analysis-api:analysis",
     "//platform/editor-ui-api:editor-ui",
     "//platform/foldings",
     "//platform/indexing-api:indexing",
@@ -38,7 +39,6 @@ jvm_library(
     "//platform/editor-ui-ex:editor-ex",
     "@lib//:fastutil-min",
     "//platform/core-ui",
-    "//spellchecker",
     "//xml/dom-openapi:dom",
     "//platform/polySymbols",
     "//platform/code-style-impl:codeStyle-impl",

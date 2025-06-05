@@ -9,6 +9,7 @@
     <module name="intellij.platform.collaborationTools"/>
     <module name="intellij.platform.tasks"/>
     <module name="intellij.platform.tasks.impl"/>
+    <module name="intellij.platform.ml.impl"/>
     <module name="intellij.libraries.microba"/>
     <module name="intellij.libraries.skiko"/>
     <module name="intellij.platform.compose"/>
@@ -26,7 +27,12 @@
     <module name="intellij.platform.diagnostic.freezes"/>
     <module name="intellij.platform.warmup"/>
     <module name="intellij.settingsSync.core"/>
+    
+    <module name="intellij.libraries.lucene.common"/>
+    <module name="intellij.libraries.ai.grazie.spell.gec.engine.local"/>
+    <module name="intellij.spellchecker"/>
     <module name="intellij.spellchecker.xml"/>
+    
     <module name="intellij.emojipicker"/>
     <module name="intellij.platform.ide.impl.wsl"/>
   </content>

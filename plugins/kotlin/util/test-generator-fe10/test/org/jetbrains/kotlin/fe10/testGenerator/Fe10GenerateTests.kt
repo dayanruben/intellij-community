@@ -607,7 +607,11 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
     testGroup("idea/tests", category = INSPECTIONS) {
         testClass<AbstractInspectionTest> {
             model("intentions", pattern = Patterns.forRegex("^(inspections\\.test)$"), flatten = true)
-            model("inspections", pattern = Patterns.forRegex("^(inspections\\.test)$"), flatten = true)
+            model("inspections", pattern = Patterns.forRegex("^(inspections\\.test)$"), flatten = true,
+                  excludedDirectories = listOf(
+                      "canConvertToMultiDollarString", // K2-only
+                  )
+            )
             model("inspectionsLocal", pattern = Patterns.forRegex("^(inspections\\.test)$"), flatten = true)
         }
 
@@ -1096,7 +1100,9 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K1) {
         }
 
         testClass<AbstractKotlinLambdasHintsProvider> {
-            model("codeInsight/hints/lambda")
+            model("codeInsight/hints/lambda", excludedDirectories = listOf(
+                "context", // K2
+            ))
         }
         testClass<AbstractKotlinValuesHintsProviderTest> {
             model("codeInsight/hints/values")

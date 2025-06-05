@@ -13,7 +13,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.project.findProjectOrNull
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
-import com.intellij.vcs.git.shared.repo.GitRepositoriesFrontendHolder
+import com.intellij.vcs.git.shared.repo.GitRepositoriesHolder
 import com.intellij.vcs.git.shared.rpc.GitWidgetApi
 import com.intellij.vcs.git.shared.rpc.GitWidgetState
 import git4idea.GitDisposable
@@ -36,9 +36,7 @@ internal class GitWidgetApiImpl : GitWidgetApi {
   override suspend fun getWidgetState(projectId: ProjectId, selectedFile: VirtualFileId?): Flow<GitWidgetState> {
     val project = projectId.findProjectOrNull() ?: return emptyFlow()
     val file = selectedFile?.virtualFile()
-    val scope = GitDisposable.getInstance(project).childScope("Git widget update scope")
-
-    return flowWithMessageBus(project, scope) { connection ->
+    return flowWithMessageBus(project, GitDisposable.getInstance(project).coroutineScope) { connection ->
       fun trySendNewState() {
         val widgetState = getWidgetState(project, file)
         if (widgetState is GitWidgetState.OnRepository) {
@@ -80,7 +78,7 @@ internal class GitWidgetApiImpl : GitWidgetApi {
     @RequiresBackgroundThread
     fun getWidgetState(project: Project, selectedFile: VirtualFile?): GitWidgetState {
       val vcsManager = ProjectLevelVcsManager.getInstance(project)
-      if (!vcsManager.areVcsesActivated() || !GitRepositoriesFrontendHolder.getInstance(project).initialized) return GitWidgetState.DoNotShow
+      if (!vcsManager.areVcsesActivated() || !GitRepositoriesHolder.getInstance(project).initialized) return GitWidgetState.DoNotShow
 
       val gitRepository = GitBranchUtil.guessWidgetRepository(project, selectedFile)
       if (gitRepository != null) {

@@ -152,6 +152,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspections/publicApiImplicitType", pattern = pattern)
             model("${idea}/inspections/replaceArrayEqualityOpWithArraysEquals", pattern = pattern)
             model("${idea}/inspections/memberVisibilityCanBePrivate", pattern = pattern)
+            model("${idea}/inspections/canConvertToMultiDollarString", pattern = pattern)
             model("${idea}/intentions/removeExplicitTypeArguments", pattern = pattern)
         }
 
@@ -187,8 +188,6 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/quickfix/optIn", pattern = pattern)
             model("${idea}/quickfix/removeUseSiteTarget", pattern = pattern)
             model("${idea}/quickfix/protectedInFinal", pattern = pattern)
-            model("${idea}/quickfix/typeMismatch/convertCollection", pattern = pattern)
-            model("${idea}/quickfix/typeMismatch/wrapWithCollectionLiteral", pattern = pattern)
             model("${idea}/quickfix/redundantInterpolationPrefix", pattern = pattern)
             model("${idea}/quickfix/addInterpolationPrefixUnresolvedReference", pattern = pattern)
             model("${idea}/quickfix/unsupportedFeature", pattern = pattern)

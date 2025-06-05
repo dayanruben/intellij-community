@@ -20,6 +20,7 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.searchEverywhere.SeActionItemPresentation
 import com.intellij.platform.searchEverywhere.SeTargetItemPresentation
 import com.intellij.platform.searchEverywhere.SeTextSearchItemPresentation
+import com.intellij.platform.searchEverywhere.frontend.AutoToggleAction
 import com.intellij.platform.searchEverywhere.frontend.tabs.actions.SeActionItemPresentationRenderer
 import com.intellij.platform.searchEverywhere.frontend.tabs.files.SeTargetItemPresentationRenderer
 import com.intellij.platform.searchEverywhere.frontend.tabs.text.SeTextSearchItemPresentationRenderer
@@ -143,7 +144,17 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
             withContext(Dispatchers.EDT) {
               SeLog.log(SeLog.THROTTLING) { "Throttled flow completed" }
               resultListModel.removeLoadingItem()
+
+              if (!resultListModel.isValid || resultListModel.isEmpty) {
+                val action = vm.currentTab.getSearchEverywhereToggleAction()
+                if (!textField.text.isEmpty() && (action as? AutoToggleAction)?.autoToggle(true) ?: false) {
+                  headerPane.updateToolbarActions()
+                  return@withContext
+                }
+              }
+
               if (!resultListModel.isValid) resultListModel.reset()
+
               if (resultListModel.isEmpty) {
                 textField.setSearchInProgress(false)
                 updateEmptyStatus()
