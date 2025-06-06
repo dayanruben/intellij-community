@@ -2,6 +2,7 @@
 package com.intellij.tools.build.bazel.jvmIncBuilder.impl;
 
 import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.tools.build.bazel.jvmIncBuilder.*;
 import com.intellij.tools.build.bazel.jvmIncBuilder.runner.CompilerDataSink;
 import com.intellij.tools.build.bazel.jvmIncBuilder.runner.CompilerRunner;
@@ -63,7 +64,6 @@ public class KotlinCompilerRunner implements CompilerRunner {
   private EnumWhenTrackerImpl enumWhenTracker;
   private ImportTrackerImpl importTracker;
   private final @NotNull Map<@NotNull String, @NotNull String> myPluginIdToPluginClasspath = new HashMap<>();
-  private final List<String> myJavaSources;
 
   private final @Nullable String myModuleEntryPath;
   private byte @Nullable [] myLastGoodModuleEntryContent;
@@ -80,10 +80,6 @@ public class KotlinCompilerRunner implements CompilerRunner {
       myPluginIdToPluginClasspath.put(pluginId, pluginCp.hasNext()? pluginCp.next() : "");
     }
 
-    myJavaSources = collect(
-      map(filter(context.getSources().getElements(), ns -> ns.toString().endsWith(".java")), ns -> myPathMapper.toPath(ns).toString()), new ArrayList<>()
-    );
-    
     String moduleEntryPath = null;
     try {
       ZipOutputBuilderImpl outBuilder = storageManager.getOutputBuilder();
@@ -105,7 +101,15 @@ public class KotlinCompilerRunner implements CompilerRunner {
 
   @Override
   public boolean canCompile(NodeSource src) {
+    return isKotlinSource(src) || isJavaSource(src);
+  }
+
+  private static boolean isKotlinSource(NodeSource src) {
     return src.toString().endsWith(".kt");
+  }
+  
+  private static boolean isJavaSource(NodeSource src) {
+    return src.toString().endsWith(".java");
   }
 
   @Override
@@ -116,13 +120,17 @@ public class KotlinCompilerRunner implements CompilerRunner {
   @Override
   public ExitCode compile(Iterable<NodeSource> sources, Iterable<NodeSource> deletedSources, DiagnosticSink diagnostic, OutputSink out) throws Exception {
     try {
+      if (find(sources, KotlinCompilerRunner::isKotlinSource) == null) {
+        return ExitCode.OK;  // nothing to do
+      }
       K2JVMCompilerArguments kotlinArgs = buildKotlinCompilerArguments(myContext, sources);
-      KotlinIncrementalCacheImpl incCache = new KotlinIncrementalCacheImpl(myStorageManager, flat(deletedSources, sources), myModuleEntryPath, myLastGoodModuleEntryContent);
-      Services services = buildServices(kotlinArgs.getModuleName(), incCache);
+      KotlinIncrementalCacheImpl incCache = new KotlinIncrementalCacheImpl(myStorageManager, filter(flat(deletedSources, sources), KotlinCompilerRunner::isKotlinSource), myModuleEntryPath, myLastGoodModuleEntryContent);
+      OutputFileSystem outputFileSystem = new OutputFileSystem(new KotlinVirtualFileProvider(out));
+      Services services = buildServices(kotlinArgs.getModuleName(), incCache, outputFileSystem.root);
       MessageCollector messageCollector = new KotlinMessageCollector(diagnostic, this);
       // todo: make sure if we really need to process generated outputs after the compilation and not "in place"
       List<GeneratedClass> generatedClasses = new ArrayList<>();
-      AbstractCliPipeline<K2JVMCompilerArguments> pipeline = createPipeline(out, generatedFile -> {
+      AbstractCliPipeline<K2JVMCompilerArguments> pipeline = createPipeline(out, outputFileSystem.root, generatedFile -> {
         String jvmClassName = null;
         if (generatedFile instanceof KotlinJvmGeneratedFile jvmClass) {
           jvmClassName = jvmClass.getOutputClass().getClassName().getInternalName();
@@ -253,7 +261,7 @@ public class KotlinCompilerRunner implements CompilerRunner {
     }
   }
 
-  private Services buildServices(String moduleName, IncrementalCache cacheImpl) {
+  private Services buildServices(String moduleName, IncrementalCache cacheImpl, VirtualFile outputRoot) {
     Services.Builder builder = new Services.Builder();
     lookupTracker = new LookupTrackerImpl(LookupTracker.DO_NOTHING.INSTANCE);
     inlineConstTracker = new InlineConstTrackerImpl();
@@ -266,7 +274,7 @@ public class KotlinCompilerRunner implements CompilerRunner {
     builder.register(ImportTracker.class, importTracker);
     builder.register(
       IncrementalCompilationComponents.class,
-      new KotlinIncrementalCompilationComponents(moduleName, cacheImpl)
+      new KotlinIncrementalCompilationComponents(moduleName, cacheImpl, outputRoot)
     );
 
     builder.register(CompilationCanceledStatus.class, new CompilationCanceledStatus() {
@@ -281,15 +289,14 @@ public class KotlinCompilerRunner implements CompilerRunner {
     return builder.build();
   }
 
-  private AbstractCliPipeline<K2JVMCompilerArguments> createPipeline(OutputSink out, Consumer<GeneratedFile> outputItemCollector) throws IOException {
-    return new BazelJvmCliPipeline(createCompilerConfigurationUpdater(out), createOutputConsumer(out, outputItemCollector));
+  private AbstractCliPipeline<K2JVMCompilerArguments> createPipeline(OutputSink out, VirtualFile outputRoot, Consumer<GeneratedFile> outputItemCollector) throws IOException {
+    return new BazelJvmCliPipeline(createCompilerConfigurationUpdater(outputRoot), createOutputConsumer(out, outputItemCollector));
   }
 
-  private @NotNull Function1<? super @NotNull CompilerConfiguration, @NotNull Unit> createCompilerConfigurationUpdater(OutputSink out) throws IOException {
+  private @NotNull Function1<? super @NotNull CompilerConfiguration, @NotNull Unit> createCompilerConfigurationUpdater(VirtualFile outputRoot) throws IOException {
     var abiConsumer = createAbiOutputConsumer(myStorageManager.getAbiOutputBuilder());
     return configuration -> {
-      OutputFileSystem outputFileSystem = new OutputFileSystem(new KotlinVirtualFileProvider(out));
-      configuration.add(CLIConfigurationKeys.CONTENT_ROOTS, new VirtualJvmClasspathRoot(outputFileSystem.root, false, true));
+      configuration.add(CLIConfigurationKeys.CONTENT_ROOTS, new VirtualJvmClasspathRoot(outputRoot, false, true));
       configurePlugins(myPluginIdToPluginClasspath, myContext.getBaseDir(), abiConsumer, registeredPluginInfo -> {
         CompilerPluginRegistrar registrar = Objects.requireNonNull(registeredPluginInfo.getCompilerPluginRegistrar());
         configuration.add(CompilerPluginRegistrar.Companion.getCOMPILER_PLUGIN_REGISTRARS(), registrar);
@@ -343,7 +350,7 @@ public class KotlinCompilerRunner implements CompilerRunner {
     };
   }
 
-  private K2JVMCompilerArguments buildKotlinCompilerArguments(BuildContext context, Iterable<NodeSource> sources) {
+  private static K2JVMCompilerArguments buildKotlinCompilerArguments(BuildContext context, Iterable<NodeSource> sources) {
     // todo: hash compiler configuration
     K2JVMCompilerArguments arguments = new K2JVMCompilerArguments();
     parseCommandLineArguments(context.getBuilderOptions().getKotlinOptions(), arguments, true);
@@ -376,7 +383,7 @@ public class KotlinCompilerRunner implements CompilerRunner {
       arguments.setFriendPaths(ensureCollection(map(friends, p -> context.getBaseDir().resolve(p).normalize().toString())).toArray(String[]::new));
     }
     NodeSourcePathMapper pathMapper = context.getPathMapper();
-    arguments.setFreeArgs(collect(flat(map(sources, ns -> pathMapper.toPath(ns).toString()), myJavaSources), new ArrayList<>()));
+    arguments.setFreeArgs(collect(map(sources, ns -> pathMapper.toPath(ns).toString()), new ArrayList<>()));
     return arguments;
   }
 

@@ -40,6 +40,8 @@ object KotlinPluginBuilder {
     "kotlin.base.project-structure",
     "kotlin.base.external-build-system",
     "kotlin.base.scripting",
+    "kotlin.base.scripting.k1",
+    "kotlin.base.scripting.k2",
     "kotlin.base.analysis-api-platform",
     "kotlin.base.analysis",
     "kotlin.base.code-insight",

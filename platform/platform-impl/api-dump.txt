@@ -230,6 +230,13 @@ com.intellij.ide.plugins.auth.PluginRepositoryAuthProvider
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:canHandle(java.lang.String):Z
 - a:getAuthHeaders(java.lang.String):java.util.Map
+bf:com.intellij.ide.plugins.marketplace.IdeCompatibleUpdate$$serializer
+- kotlinx.serialization.internal.GeneratedSerializer
+- sf:INSTANCE:com.intellij.ide.plugins.marketplace.IdeCompatibleUpdate$$serializer
+- f:childSerializers():kotlinx.serialization.KSerializer[]
+- f:deserialize(kotlinx.serialization.encoding.Decoder):com.intellij.ide.plugins.marketplace.IdeCompatibleUpdate
+- f:getDescriptor():kotlinx.serialization.descriptors.SerialDescriptor
+- f:serialize(kotlinx.serialization.encoding.Encoder,com.intellij.ide.plugins.marketplace.IdeCompatibleUpdate):V
 com.intellij.ide.startup.StartupActionScriptManager$ActionCommand
 - a:execute():V
 com.intellij.ide.trustedProjects.TrustedProjectsLocator

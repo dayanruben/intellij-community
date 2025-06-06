@@ -2816,10 +2816,10 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
     doTestByText("""
                from typing import TypeVarTuple, Unpack
                
-               t1: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or tuple">tuple[*tuple[str, ...], *tuple[int, ...]]</warning>
-               t2: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or tuple">tuple[*tuple[str, *tuple[str, ...]], *tuple[int, ...]]</warning>
-               t3: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or tuple">tuple[Unpack[tuple[str, ...]], Unpack[tuple[int, ...]]]</warning>
-               t4: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or tuple">tuple[Unpack[tuple[str, Unpack[tuple[str, ...]]]], Unpack[tuple[int, ...]]]</warning>
+               t1: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or unbounded tuple">tuple[*tuple[str, ...], *tuple[int, ...]]</warning>
+               t2: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or unbounded tuple">tuple[*tuple[str, *tuple[str, ...]], *tuple[int, ...]]</warning>
+               t3: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or unbounded tuple">tuple[Unpack[tuple[str, ...]], Unpack[tuple[int, ...]]]</warning>
+               t4: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or unbounded tuple">tuple[Unpack[tuple[str, Unpack[tuple[str, ...]]]], Unpack[tuple[int, ...]]]</warning>
                
                # > An unpacked TypeVarTuple counts as an unbounded tuple in the context of this rule
                
@@ -2828,7 +2828,7 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
                
                def func(t: tuple[*Ts]):
                    t5: tuple[*tuple[str], *Ts]
-                   t6: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or tuple">tuple[*tuple[str, ...], *Ts]</warning>
+                   t6: <warning descr="Type argument list can have at most one unpacked TypeVarTuple or unbounded tuple">tuple[*tuple[str, ...], *Ts]</warning>
                """);
   }
 
@@ -2860,6 +2860,44 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
                    
                    class Foo(Generic[T_co]):
                       def dosmth(self, x: T_contra) -> <warning descr="Contravariant type variable cannot be used in function return type">T_contra</warning>: ...
+                   """);
+  }
+
+  // PY-76862
+  public void testCheckCircularReferences() {
+    doTestByText("""
+                   from typing import TypeAlias
+                   class ClassA:
+                       ...
+                   
+                   type ClassB = str
+                   
+                   ClassC = int
+                   
+                   ClassD: TypeAlias = bool
+                   
+                   circular: <error descr="Circular reference">"circular"</error> = None
+                   
+                   class Test:
+                       ClassA: "ClassA"  # OK
+                       ClassB: "ClassB"  # OK
+                       ClassC: "ClassC"  # OK
+                       ClassD: "ClassD"  # OK
+                   
+                       ClassE: <error descr="Circular reference">"ClassE"</error>  # E: circular reference
+                   
+                       ClassG: <error descr="Circular reference">"ClassG"</error> = None  # E: circular reference
+                   
+                       def foo(self):
+                          Test: "Test"
+                          ClassA: "ClassA"  # OK
+                          ClassB: "ClassB"  # OK
+                          ClassC: "ClassC"  # OK
+                          str: "str"  # OK
+                          def int(self) -> None:
+                                  ...
+                          x: "int" = 0 # OK
+                          var: <error descr="Circular reference">"var"</error> = None  # E: circular reference
                    """);
   }
 

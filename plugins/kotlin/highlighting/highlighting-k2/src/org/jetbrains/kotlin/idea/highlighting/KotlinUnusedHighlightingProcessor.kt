@@ -20,9 +20,6 @@ import com.intellij.openapi.util.Predicates
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import com.intellij.psi.createSmartPointer
-import com.intellij.psi.util.CachedValueProvider
-import com.intellij.psi.util.CachedValuesManager
 import com.intellij.refactoring.safeDelete.SafeDeleteHandler
 import org.jetbrains.annotations.Nls
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
@@ -30,8 +27,8 @@ import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.resolution.*
 import org.jetbrains.kotlin.analysis.api.symbols.*
-import org.jetbrains.kotlin.idea.base.analysis.KotlinUastOutOfCodeBlockModificationTracker
 import org.jetbrains.kotlin.idea.base.highlighting.KotlinBaseHighlightingBundle
+import org.jetbrains.kotlin.idea.codeinsights.impl.base.isExplicitlyIgnoredByName
 import org.jetbrains.kotlin.idea.highlighting.analyzers.isCalleeExpression
 import org.jetbrains.kotlin.idea.highlighting.analyzers.isConstructorCallReference
 import org.jetbrains.kotlin.idea.inspections.describe
@@ -168,19 +165,22 @@ internal class KotlinUnusedHighlightingProcessor(private val ktFile: KtFile) {
         val namedElements: MutableList<KtNamedDeclaration> = mutableListOf()
         val namedElementVisitor = object : KtVisitorVoid() {
             override fun visitNamedDeclaration(declaration: KtNamedDeclaration) {
+                if (declaration.isExplicitlyIgnoredByName()) return
                 namedElements.add(declaration)
             }
         }
         for (declaration in psiElements) {
             declaration.accept(namedElementVisitor)
         }
-        JobLauncher.getInstance()
-            .invokeConcurrentlyUnderProgress(namedElements, ProgressManager.getGlobalProgressIndicator()) { declaration ->
+        JobLauncher.getInstance().invokeConcurrentlyUnderProgress(namedElements, ProgressManager.getGlobalProgressIndicator()) { declaration ->
+            analyze(declaration) {
                 handleDeclaration(declaration, deadCodeInspection!!, deadCodeInfoType!!, deadCodeKey!!, holder)
-                true
             }
+            true
+        }
     }
 
+    context(KaSession)
     private fun handleDeclaration(declaration: KtNamedDeclaration,
                                   deadCodeInspection: LocalInspectionTool,
                                   deadCodeInfoType: HighlightInfoType.HighlightInfoTypeImpl,
@@ -197,26 +197,19 @@ internal class KotlinUnusedHighlightingProcessor(private val ktFile: KtFile) {
         if (SuppressionUtil.inspectionResultSuppressed(declaration, deadCodeInspection)) {
             return
         }
+        if (K2UnusedSymbolUtil.isHiddenFromResolution(declaration)) return
+        val nameIdentifier = declaration.nameIdentifier
         val problemPsiElement =
-            CachedValuesManager.getCachedValue(declaration) {
-                val element = analyze(declaration) {
-                    if (K2UnusedSymbolUtil.isHiddenFromResolution(declaration)) return@analyze null
-                    val nameIdentifier = declaration.nameIdentifier
-                    if (mustBeLocallyReferenced
-                        && declaration.annotationEntries.isEmpty() //instead of slow implicit usages checks
-                        && declaration !is KtClass // look globally for private classes too, since they could be referenced from some fancy .xml
-                        && (((declaration as? KtParameter)?.parent?.parent as? KtAnnotated)?.annotationEntries?.isEmpty() != false)
-                    ) {
-                        nameIdentifier ?: (declaration as? KtConstructor<*>)?.getConstructorKeyword() ?: declaration
-                    } else {
-                        K2UnusedSymbolUtil.getPsiToReportProblem(declaration, javaInspection)
-                    }?.createSmartPointer()
-                }
-                CachedValueProvider.Result.create(
-                    element,
-                    KotlinUastOutOfCodeBlockModificationTracker.getInstance(project = declaration.project)
-                )
-            }?.element ?: return
+            if (mustBeLocallyReferenced
+                && declaration.annotationEntries.isEmpty() //instead of slow implicit usages checks
+                && declaration !is KtClass // look globally for private classes too, since they could be referenced from some fancy .xml
+                && (((declaration as? KtParameter)?.parent?.parent as? KtAnnotated)?.annotationEntries?.isEmpty() != false)
+        ) {
+            nameIdentifier ?: (declaration as? KtConstructor<*>)?.getConstructorKeyword() ?: declaration
+        } else {
+            K2UnusedSymbolUtil.getPsiToReportProblem(declaration, javaInspection)
+        }
+        if (problemPsiElement == null) return
         val description = declaration.describe() ?: return
         val message = KotlinBaseHighlightingBundle.message("inspection.message.never.used", description)
         val builder = UnusedSymbolUtil.createUnusedSymbolInfoBuilder(problemPsiElement, message, deadCodeInfoType, null)
