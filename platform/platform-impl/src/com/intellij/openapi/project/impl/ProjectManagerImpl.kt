@@ -55,7 +55,6 @@ import com.intellij.openapi.project.*
 import com.intellij.openapi.project.ex.ProjectEx
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.project.impl.ProjectImpl.Companion.PROJECT_PATH
-import com.intellij.openapi.project.impl.ProjectImpl.Companion.schedulePreloadServices
 import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
@@ -337,7 +336,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     @Suppress("TestOnlyProblems")
     if (isLight(project)) {
       // if we close the project at the end of the test, mark it closed;
-      // if we are shutting down the entire test framework, proceed to full dispose
+      // If we are shutting down the entire test framework, make sure to fully dispose of it
       val projectImpl = project as ProjectImpl
       if (!projectImpl.isTemporarilyDisposed) {
         @Suppress("ForbiddenInSuspectContextMethod")
@@ -663,7 +662,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
               )
             }
             result = project
-            // must be under try-catch to dispose project on beforeOpen or preparedToOpen callback failures
+            // must be under try-catch to dispose a project on beforeOpen or preparedToOpen callback failures
             if (options.project == null) {
               val beforeOpen = options.beforeOpen
               if (beforeOpen != null && !beforeOpen(project)) {
@@ -1304,15 +1303,13 @@ private suspend fun initProject(
   LOG.assertTrue(!project.isDefault)
 
   try {
-    coroutineContext.ensureActive()
-
     val registerComponentActivity = createActivity(project) {
       "project ${StartUpMeasurer.Activities.REGISTER_COMPONENTS_SUFFIX}"
     }
 
     project.putUserDataIfAbsent(PROJECT_PATH, file)
 
-    ProjectEntitiesStorage.getInstance().createEntity(project)
+    serviceAsync<ProjectEntitiesStorage>().createEntity(project)
 
     project.registerComponents()
     registerComponentActivity?.end()
@@ -1423,7 +1420,7 @@ internal fun isCorePlugin(descriptor: PluginDescriptor): Boolean {
 }
 
 /**
- * Initializes project services as part of project init after service container is configured
+ * Initializes project services as part of project init after the service container is configured
  * Can be marked essential to be executed as part of project init before component creation
  *
  * Usage requires IJ Platform team approval (including plugin into allowlist).
@@ -1477,7 +1474,7 @@ interface ProjectServiceContainerCustomizer {
 }
 
 /**
- * Checks if the project path is trusted, and shows the Trust Project dialog if needed.
+ * Checks if the project path is trusted and shows the Trust Project dialog if needed.
  *
  * @return true, if we should proceed with project opening, false if the process of project opening should be canceled.
  */
@@ -1490,3 +1487,17 @@ internal suspend fun checkTrustedState(projectStoreBaseDir: Path): Boolean {
 }
 
 internal class ProjectLoadingCancelled(reason: String) : CancellationException(reason)
+
+// for light projects, preload only services that are essential
+// ("await" means "project component loading activity is completed only when all such services are completed")
+internal fun CoroutineScope.schedulePreloadServices(project: ProjectImpl) {
+  launch(CoroutineName("project service preloading (sync)")) {
+    project.preloadServices(
+      modules = PluginManagerCore.getPluginSet().getEnabledModules(),
+      activityPrefix = "project ",
+      syncScope = this,
+      onlyIfAwait = project.isLight,
+      asyncScope = project.asyncPreloadServiceScope,
+    )
+  }
+}

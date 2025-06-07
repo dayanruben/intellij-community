@@ -161,21 +161,15 @@ public class KotlinCompilerRunner implements CompilerRunner {
       }
       finally {
         processTrackers(out, generatedClasses);
-        if (myModuleEntryPath != null) {
-          if (!completedOk || messageCollector.hasErrors()) {
-            byte[] content = myLastGoodModuleEntryContent;
-            // ensure the output contains the last known good value
-            myStorageManager.getCompositeOutputBuilder().putEntry(myModuleEntryPath, content);
+        if (myModuleEntryPath != null && completedOk && !messageCollector.hasErrors()) {
+          byte[] updated = myStorageManager.getOutputBuilder().getContent(myModuleEntryPath);
+          if (updated == null) {
+            // report probable error
+            diagnostic.report(Message.info(this, "Module entry \"" + myModuleEntryPath +"\" has not been generated for target \"" + myContext.getTargetName() + "\""));
           }
-          else {
-            byte[] updated = myStorageManager.getOutputBuilder().getContent(myModuleEntryPath);
-            if (updated != null) {
-              myLastGoodModuleEntryContent = updated;
-            }
-          }
+          myLastGoodModuleEntryContent = updated; // save the updated state for the next round
         }
       }
-      
     }
     catch (ProcessCanceledException ce) {
       throw ce;
