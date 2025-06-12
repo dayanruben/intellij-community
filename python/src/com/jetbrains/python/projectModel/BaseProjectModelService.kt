@@ -1,12 +1,12 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.projectModel
 
+import com.intellij.openapi.externalSystem.model.project.ContentRootData
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.workspace.jps.entities.*
-import com.intellij.platform.workspace.jps.entities.ModuleDependency
 import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.MutableEntityStorage
@@ -15,15 +15,16 @@ import com.jetbrains.python.PyBundle
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.SystemIndependent
 import java.nio.file.Path
+import kotlin.io.path.div
 import kotlin.reflect.KClass
 
 /**
  * Syncs the project model described in pyproject.toml files with the IntelliJ project model.
  */
-abstract class BaseProjectModelService<E : EntitySource> {
+abstract class BaseProjectModelService<E : EntitySource, P : ExternalProject> {
   abstract val systemName: @NlsSafe String
 
-  abstract val projectModelResolver: PythonProjectModelResolver
+  abstract val projectModelResolver: PythonProjectModelResolver<P>
 
   abstract fun getSettings(project: Project): ProjectModelSettings
 
@@ -78,7 +79,7 @@ abstract class BaseProjectModelService<E : EntitySource> {
       if (graph.isEmpty()) {
         return
       }
-      val allModules = graph.flatMap { it.modules }
+      val allModules = graph.flatMap { it.projects }
       val storage = createProjectModel(project, allModules, source)
       project.workspaceModel.update("$systemName sync at ${projectRoot}") { mutableStorage ->
         // Fake module entity is added by default if nothing was discovered
@@ -95,27 +96,35 @@ abstract class BaseProjectModelService<E : EntitySource> {
 
   private fun createProjectModel(
     project: Project,
-    graph: List<ModuleDescriptor>,
+    graph: List<ExternalProject>,
     source: EntitySource,
   ): EntityStorage {
     val fileUrlManager = project.workspaceModel.getVirtualFileUrlManager()
     val storage = MutableEntityStorage.create()
-    for (module in graph) {
+    for (extProject in graph) {
       val existingModuleEntity = project.workspaceModel.currentSnapshot
         .entitiesBySource { it == source }
         .filterIsInstance<ModuleEntity>()
-        .find { it.name == module.name }
+        .find { it.name == extProject.name }
       val existingSdkEntity = existingModuleEntity
         ?.dependencies
         ?.find { it is SdkDependency } as? SdkDependency
       val sdkDependency = existingSdkEntity ?: InheritedSdkDependency
-      storage addEntity ModuleEntity(module.name, emptyList(), source) {
+      storage addEntity ModuleEntity(extProject.name, emptyList(), source) {
         dependencies += sdkDependency
         dependencies += ModuleSourceDependency
-        for (moduleName in module.moduleDependencies) {
+        for (moduleName in extProject.dependencies) {
           dependencies += ModuleDependency(ModuleId(moduleName.name), true, DependencyScope.COMPILE, false)
         }
-        contentRoots = listOf(ContentRootEntity(module.root.toVirtualFileUrl(fileUrlManager), emptyList(), source))
+        contentRoots = listOf(ContentRootEntity(extProject.root.toVirtualFileUrl(fileUrlManager), emptyList(), source) {
+          sourceRoots = extProject.sourceRoots.map { srcRoot ->
+            SourceRootEntity(srcRoot.toVirtualFileUrl(fileUrlManager), PYTHON_SOURCE_ROOT_TYPE, source)
+          }
+        })
+        exModuleOptions = ExternalSystemModuleOptionsEntity(source) {
+          externalSystem = systemName          
+          linkedProjectId = extProject.fullName
+        }
       }
     }
     return storage
@@ -143,4 +152,9 @@ abstract class BaseProjectModelService<E : EntitySource> {
   
   private val Project.baseNioPath: Path?
     get() = basePath?.let { Path.of(it) }
+  
+  companion object {
+    // For the time being mark them as java-sources to indicate that in the Project tool window
+    val PYTHON_SOURCE_ROOT_TYPE: SourceRootTypeId = SourceRootTypeId("java-source")
+  }
 }

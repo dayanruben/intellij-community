@@ -10,6 +10,7 @@ import com.intellij.openapi.application.ApplicationBundle
 import com.intellij.openapi.client.ClientKind
 import com.intellij.openapi.client.ClientSystemInfo
 import com.intellij.openapi.client.sessions
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.BoundSearchableConfigurable
@@ -20,22 +21,25 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.text.Strings
 import com.intellij.terminal.TerminalUiSettingsManager
-import com.intellij.ui.DocumentAdapter
-import com.intellij.ui.ExperimentalUI
-import com.intellij.ui.FontComboBox
-import com.intellij.ui.FontInfoRenderer
-import com.intellij.ui.TextFieldWithHistoryWithBrowseButton
+import com.intellij.ui.*
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.components.textFieldWithHistoryWithBrowseButton
 import com.intellij.ui.dsl.builder.*
+import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.ui.layout.selectedValueIs
 import com.intellij.ui.layout.selectedValueMatches
 import com.intellij.util.execution.ParametersListUtil
+import com.intellij.util.ui.launchOnceOnShow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.TerminalBundle.message
 import org.jetbrains.plugins.terminal.block.BlockTerminalOptions
@@ -44,6 +48,7 @@ import org.jetbrains.plugins.terminal.block.prompt.TerminalPromptStyle
 import org.jetbrains.plugins.terminal.runner.LocalTerminalStartCommandBuilder
 import java.awt.Color
 import java.awt.Component
+import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JComponent
 import javax.swing.JTextField
 import javax.swing.UIManager
@@ -213,8 +218,7 @@ internal class TerminalOptionsConfigurable(private val project: Project) : Bound
       group(message("settings.terminal.application.settings")) {
         row(message("settings.shell.path")) {
           cell(createShellPathField())
-            .setupDefaultValue({ childComponent.textEditor }, projectOptionsProvider.defaultShellPath())
-            .bindText(projectOptionsProvider::shellPath)
+            .setupShellField(project)
             .align(AlignX.FILL)
         }
         row(message("settings.tab.name")) {
@@ -345,15 +349,55 @@ private fun <T : JComponent> Cell<T>.setupDefaultValue(
 ): Cell<T> = apply {
   if (!defaultValue.isNullOrEmpty()) {
     val component = this.component.textComponent()
+    val updateForeground = {
+      component.foreground = if (component.text == defaultValue) getDefaultValueColor() else getChangedValueColor()
+    }
     component.document.addDocumentListener(object : DocumentAdapter() {
-      override fun textChanged(e: DocumentEvent) {
-        component.foreground = if (component.text == defaultValue) getDefaultValueColor() else getChangedValueColor()
-      }
+      override fun textChanged(e: DocumentEvent) = updateForeground()
     })
+    updateForeground()
     if (component is JBTextField) {
       component.emptyText.text = defaultValue
     }
   }
+}
+
+private fun Cell<TextFieldWithHistoryWithBrowseButton>.setupShellField(project: Project): Cell<TextFieldWithHistoryWithBrowseButton> = apply {
+  val cell = this
+  val textEditor: JTextField = this.component.childComponent.textEditor
+  if (textEditor is JBTextField) {
+    textEditor.emptyText.text = message("settings.shell.path.detecting.default")
+  }
+  val projectOptionsProvider = TerminalProjectOptionsProvider.getInstance(project)
+  val defaultShellPathRef = AtomicReference<String>()
+  this.component.launchOnceOnShow("Terminal (default shell path detection)") {
+    val defaultShellPath: String? = withContext(Dispatchers.Default) {
+      try {
+        projectOptionsProvider.defaultShellPath().also {
+          defaultShellPathRef.set(it)
+          LOG.debug { "Detected default shell path: $it" }
+        }
+      }
+      catch (e: Exception) {
+        currentCoroutineContext().ensureActive()
+        // the coroutine is alive => the exception was thrown by `projectOptionsProvider.defaultShellPath()`
+        LOG.warn("Cannot determine default shell path", e)
+        null
+      }
+    }
+    if (textEditor is JBTextField) {
+      textEditor.emptyText.clear()
+    }
+    if (defaultShellPath != null && textEditor.text.isEmpty()) {
+      textEditor.text = defaultShellPath
+    }
+    cell.setupDefaultValue({ childComponent.textEditor }, defaultShellPath)
+  }
+  cell.bindText(getter = {
+    projectOptionsProvider.shellPathWithoutDefault ?: defaultShellPathRef.get().orEmpty()
+  }, setter = { value ->
+    projectOptionsProvider.shellPathWithoutDefault = Strings.nullize(value, defaultShellPathRef.get())
+  })
 }
 
 private fun newUiPredicate(): ComponentPredicate {

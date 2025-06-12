@@ -53,9 +53,8 @@ object CommunityLibraryLicenses {
 
     androidDependency("Android Studio Platform", libraryName = "studio-platform"),
 
-    LibraryLicense("ANTLR 4.9 Runtime", libraryName = "antlr4-runtime-4.9", url = "https://www.antlr.org")
-      .newBsd("https://www.antlr.org/license.html")
-      .suppliedByPersons("Terence Parr"),
+    LibraryLicense("antlr4-runtime", libraryName = "antlr4-runtime", url = "https://github.com/antlr/antlr4")
+      .newBsd("https://github.com/antlr/antlr4/blob/dev/LICENSE.txt"),
 
     LibraryLicense(libraryName = "apache.logging.log4j.to.slf4j", url = "https://ant.apache.org/")
       .apache("https://logging.apache.org/log4j/log4j-2.2/license.html")
@@ -722,10 +721,6 @@ object CommunityLibraryLicenses {
     LibraryLicense("JUnit Pioneer", libraryName = "JUnit5Pioneer", url = "https://junit-pioneer.org")
       .eplV2("https://github.com/junit-pioneer/junit-pioneer/blob/main/LICENSE.md")
       .suppliedByPersons("Nicolai Parlog", "Matthias Bünger", "Simon Schrottner", "Mihály Verhás", "Daniel Kraus"),
-
-    LibraryLicense(libraryName = "JUnit3", url = "https://github.com/stefanbirkner/junit3")
-      .license("CPL 1.0", "https://github.com/stefanbirkner/junit3/blob/master/cpl-v10.html")
-      .suppliedByPersons("Marc Philipp", "David Saff", "Kevin Cooney", "Stefan Birkner"),
 
     LibraryLicense(libraryName = "JUnit4", url = "https://junit.org/junit4/")
       .eplV1("https://junit.org/junit4/license.html")

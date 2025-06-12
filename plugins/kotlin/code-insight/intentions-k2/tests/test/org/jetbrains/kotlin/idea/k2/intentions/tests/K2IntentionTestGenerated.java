@@ -10917,6 +10917,11 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
                 runTest("../../../idea/tests/testData/intentions/branched/ifWhen/ifToWhen/ifWithReturnsAndEmptyLines.kt");
             }
 
+            @TestMetadata("ifWithSmartCast.kt")
+            public void testIfWithSmartCast() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/branched/ifWhen/ifToWhen/ifWithSmartCast.kt");
+            }
+
             @TestMetadata("ifWithoutElse.kt")
             public void testIfWithoutElse() throws Exception {
                 runTest("../../../idea/tests/testData/intentions/branched/ifWhen/ifToWhen/ifWithoutElse.kt");
@@ -14193,6 +14198,11 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("contextProperty.kt")
+            public void testContextProperty() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/contextParameterToReceiver/contextProperty.kt");
+            }
+
             @TestMetadata("contextUsage1.kt")
             public void testContextUsage1() throws Exception {
                 runTest("../../../idea/tests/testData/intentions/contextParameters/contextParameterToReceiver/contextUsage1.kt");
@@ -14355,6 +14365,95 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
             @TestMetadata("memberFunction1.kt")
             public void testMemberFunction1() throws Exception {
                 runTest("../../../idea/tests/testData/intentions/contextParameters/contextParameterToRegularParameter/memberFunction1.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter")
+        public static class ReceiverToContextParameter extends AbstractK2IntentionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K2;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("classScopeExtensionArgument.kt")
+            public void testClassScopeExtensionArgument() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/classScopeExtensionArgument.kt");
+            }
+
+            @TestMetadata("contextFunCallInBody.kt")
+            public void testContextFunCallInBody() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/contextFunCallInBody.kt");
+            }
+
+            @TestMetadata("contextMemberExtensionFunCallInBody.kt")
+            public void testContextMemberExtensionFunCallInBody() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/contextMemberExtensionFunCallInBody.kt");
+            }
+
+            @TestMetadata("contextValPropertyWithReceiver.kt")
+            public void testContextValPropertyWithReceiver() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/contextValPropertyWithReceiver.kt");
+            }
+
+            @TestMetadata("explicitExtensionArgument.kt")
+            public void testExplicitExtensionArgument() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/explicitExtensionArgument.kt");
+            }
+
+            @TestMetadata("explicitThisInBody.kt")
+            public void testExplicitThisInBody() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/explicitThisInBody.kt");
+            }
+
+            @TestMetadata("extensionFunCallInBody.kt")
+            public void testExtensionFunCallInBody() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/extensionFunCallInBody.kt");
+            }
+
+            @TestMetadata("implicitExtensionArgument.kt")
+            public void testImplicitExtensionArgument() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/implicitExtensionArgument.kt");
+            }
+
+            @TestMetadata("implicitThisInBody.kt")
+            public void testImplicitThisInBody() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/implicitThisInBody.kt");
+            }
+
+            @TestMetadata("inapplicableDisabledFeature.kt")
+            public void testInapplicableDisabledFeature() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/inapplicableDisabledFeature.kt");
+            }
+
+            @TestMetadata("memberExtensionFunCallInBody.kt")
+            public void testMemberExtensionFunCallInBody() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/memberExtensionFunCallInBody.kt");
+            }
+
+            @TestMetadata("memberFunCallInBody.kt")
+            public void testMemberFunCallInBody() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/memberFunCallInBody.kt");
+            }
+
+            @TestMetadata("valPropertyWithReceiver.kt")
+            public void testValPropertyWithReceiver() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/valPropertyWithReceiver.kt");
+            }
+
+            @TestMetadata("varPropertyWithReceiver.kt")
+            public void testVarPropertyWithReceiver() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/varPropertyWithReceiver.kt");
+            }
+
+            @TestMetadata("withAnotherContextBefore.kt")
+            public void testWithAnotherContextBefore() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/withAnotherContextBefore.kt");
             }
         }
 

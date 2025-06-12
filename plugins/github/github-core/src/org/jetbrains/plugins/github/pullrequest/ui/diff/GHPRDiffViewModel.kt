@@ -14,21 +14,28 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.platform.util.coroutines.childScope
 import git4idea.changes.GitTextFilePatchWithHistory
+import git4idea.changes.findCumulativeChange
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.github.api.data.GHUser
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewThread
+import org.jetbrains.plugins.github.api.data.pullrequest.isVisible
+import org.jetbrains.plugins.github.api.data.pullrequest.mapToLocation
 import org.jetbrains.plugins.github.pullrequest.config.GithubPullRequestsProjectUISettings
 import org.jetbrains.plugins.github.pullrequest.data.GHPRDataContext
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRDataProvider
 import org.jetbrains.plugins.github.pullrequest.data.provider.threadsComputationFlow
+import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRReviewUnifiedPosition
 import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRThreadsViewModels
+import org.jetbrains.plugins.github.pullrequest.ui.comment.GHPRThreadsViewModels.ThreadIdAndPosition
 import org.jetbrains.plugins.github.pullrequest.ui.review.DelegatingGHPRReviewViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.review.GHPRReviewViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.review.GHPRReviewViewModelHelper
 import org.jetbrains.plugins.github.ui.avatars.GHAvatarIconsProvider
+import java.time.Instant.EPOCH
+import java.util.*
 
 @ApiStatus.Internal
 interface GHPRDiffViewModel : CodeReviewDiffProcessorViewModel<GHPRDiffChangeViewModel>, CodeReviewDiscussionsViewModel {
@@ -42,7 +49,36 @@ interface GHPRDiffViewModel : CodeReviewDiffProcessorViewModel<GHPRDiffChangeVie
 
   fun reloadReview()
 
-  suspend fun showDiffFor(changes: ChangesSelection)
+  /**
+   * Tries to find the next comment, given that a comment is currently focused.
+   *
+   * @return The ID of the next comment to move to, or `null` if no next comment could be found.
+   */
+  fun nextComment(focused: String): String?
+
+  /**
+   * Tries to find the next comment, given that no comment is currently focused.
+   *
+   * @return The ID of the next comment to move to, or `null` if no next comment could be found.
+   */
+  fun nextComment(cursorLocation: GHPRReviewUnifiedPosition): String?
+
+  /**
+   * Tries to find the previous comment, given that a comment is currently focused.
+   *
+   * @return The ID of the previous comment to move to, or `null` if no previous comment could be found.
+   */
+  fun previousComment(focused: String): String?
+
+  /**
+   * Tries to find the previous comment, given that no comment is currently focused.
+   *
+   * @return The ID of the previous comment to move to, or `null` if no previous comment could be found.
+   */
+  fun previousComment(cursorLocation: GHPRReviewUnifiedPosition): String?
+
+  fun showDiffFor(changes: ChangesSelection)
+  fun showDiffAtComment(commentId: String)
 
   companion object {
     val KEY: Key<GHPRDiffViewModel> = Key.create("GitHub.PullRequest.Diff.ViewModel")
@@ -56,7 +92,7 @@ internal class GHPRDiffViewModelImpl(
   private val dataContext: GHPRDataContext,
   private val dataProvider: GHPRDataProvider,
   reviewVmHelper: GHPRReviewViewModelHelper,
-  private val threadsVms: GHPRThreadsViewModels,
+  private val threadsVm: GHPRThreadsViewModels,
 ) : GHPRDiffViewModel {
   private val cs = parentCs.childScope("GitHub Pull Request Diff View Model")
   private val reviewDataProvider = dataProvider.reviewData
@@ -75,7 +111,7 @@ internal class GHPRDiffViewModelImpl(
   }.shareIn(cs, SharingStarted.Lazily, 1)
 
   private val changesSorter = GithubPullRequestsProjectUISettings.getInstance(project).changesGroupingState
-    .map { groupings ->
+    .mapState { groupings ->
       { changes: List<RefComparisonChange> -> RefComparisonChangesSorter.Grouping(project, groupings).sort(changes) }
     }
 
@@ -94,6 +130,33 @@ internal class GHPRDiffViewModelImpl(
   override val isLoadingReviewData: StateFlow<Boolean> = reviewVm.pendingReview.combineState(threads) { reviewResult, threadsResult ->
     reviewResult.isInProgress || threadsResult.isInProgress
   }
+
+  private val threadMappings: StateFlow<Map<String, GHPRReviewThreadDiffViewModel.MappingData>> =
+    dataProvider.reviewData.threadsComputationFlow
+      .transformConsecutiveSuccesses(false) {
+        combine(this, discussionsViewOption, changesFetchFlow) { threads, viewOption, allChangesOrNull ->
+          val allChanges = allChangesOrNull.getOrNull() ?: return@combine null
+
+          threads.associateBy(GHPullRequestReviewThread::id) { threadData ->
+            val isVisible = threadData.isVisible(viewOption)
+
+            val commitOid = threadData.commit?.oid
+                            ?: return@associateBy GHPRReviewThreadDiffViewModel.MappingData(isVisible, null, null)
+            val change = allChanges.findCumulativeChange(commitOid, threadData.path)
+                         ?: return@associateBy GHPRReviewThreadDiffViewModel.MappingData(isVisible, null, null)
+            val diffData = allChanges.patchesByChange[change]
+                           ?: return@associateBy GHPRReviewThreadDiffViewModel.MappingData(isVisible, change, null)
+
+            val location = threadData.mapToLocation(diffData)
+            GHPRReviewThreadDiffViewModel.MappingData(isVisible, change, location)
+          }
+        }
+      }.map { it.getOrNull().orEmpty() }.stateInNow(cs, emptyMap())
+
+  private val mappedThreads: StateFlow<List<MappedGHPRReviewThreadDiffViewModel>> =
+    threadsVm.compactThreads.mapModelsToViewModels { sharedVm ->
+      MappedGHPRReviewThreadDiffViewModel(this, sharedVm, threadMappings.mapNotNull { it[sharedVm.id] })
+    }.stateInNow(cs, emptyList())
 
   override fun reloadReview() {
     cs.launch {
@@ -116,13 +179,13 @@ internal class GHPRDiffViewModelImpl(
   }
 
   private fun CoroutineScope.createChangeVm(change: RefComparisonChange, diffData: GitTextFilePatchWithHistory) =
-    GHPRDiffReviewViewModelImpl(project, this, dataContext, dataProvider, change, diffData, threadsVms, discussionsViewOption)
+    GHPRDiffReviewViewModelImpl(project, this, dataContext, dataProvider, change, diffData, threadsVm, mappedThreads)
 
   suspend fun handleSelection(listener: (ListSelection<RefComparisonChange>?) -> Unit): Nothing {
     delegate.handleSelection(listener)
   }
 
-  override suspend fun showDiffFor(changes: ChangesSelection) {
+  override fun showDiffFor(changes: ChangesSelection) {
     val scrollLocation = if (changes is ChangesSelection.Precise) changes.location else null
     delegate.showChanges(ListSelection.createAt(changes.changes, changes.selectedIdx), scrollLocation?.let(DiffViewerScrollRequest::toLine))
   }
@@ -130,12 +193,83 @@ internal class GHPRDiffViewModelImpl(
   override val changes: StateFlow<ComputedResult<CodeReviewDiffProcessorViewModel.State<GHPRDiffChangeViewModel>>?> =
     delegate.changes.stateIn(cs, SharingStarted.Eagerly, null)
 
+  private fun showChange(change: RefComparisonChange, scrollRequest: DiffViewerScrollRequest?) {
+    delegate.showChange(change, scrollRequest)
+  }
+
   override fun showChange(change: GHPRDiffChangeViewModel, scrollRequest: DiffViewerScrollRequest?) {
-    delegate.showChange(change.change, scrollRequest)
+    showChange(change.change, scrollRequest)
   }
 
   override fun showChange(changeIdx: Int, scrollRequest: DiffViewerScrollRequest?) {
     val changeVm = changes.value?.result?.getOrNull()?.selectedChanges?.list?.getOrNull(changeIdx) ?: return
-    showChange(changeVm, scrollRequest)
+    showChange(changeVm.change, scrollRequest)
   }
+
+  override fun nextComment(focused: String): String? =
+    lookupAdjacentComment(focused, isNext = true)
+
+  override fun nextComment(cursorLocation: GHPRReviewUnifiedPosition): String? =
+    lookupAdjacentComment(cursorLocation, isNext = true)
+
+  override fun previousComment(focused: String): String? =
+    lookupAdjacentComment(focused, isNext = false)
+
+  override fun previousComment(cursorLocation: GHPRReviewUnifiedPosition): String? =
+    lookupAdjacentComment(cursorLocation, isNext = false)
+
+  override fun showDiffAtComment(commentId: String) {
+    val mapping = threadMappings.value[commentId] ?: return
+    if (mapping.change == null) return
+    showChange(mapping.change, mapping.location?.let(DiffViewerScrollRequest::toLine))
+    mappedThreads.value.find { it.id == commentId }?.requestFocus()
+  }
+
+  private fun lookupAdjacentComment(cursorLocation: GHPRReviewUnifiedPosition, isNext: Boolean): String? {
+    // Fetch stuff
+    val threads = threadsVm.threadOrder.value?.getOrNull() ?: return null
+    if (threads.isEmpty()) return null
+
+    // Search from before the first comment on the selected line
+    var location: ThreadIdAndPosition? = ThreadIdAndPosition(null, Date.from(EPOCH), cursorLocation)
+
+    // Find the next or previous comment
+    location = when (isNext) {
+      true -> threads.ceiling(location)
+      false -> threads.floor(location)
+    }
+
+    return if (location?.id == null || threadIsVisible(location.id)) {
+      return location?.id
+    }
+    else {
+      lookupAdjacentComment(location.id, isNext)
+    }
+  }
+
+  private fun lookupAdjacentComment(currentThreadId: String, isNext: Boolean): String? {
+    // Fetch stuff
+    val threads = threadsVm.threadOrder.value?.getOrNull() ?: return null
+    if (threads.isEmpty()) return null
+
+    // Find the current position
+    val threadPositionsById = threadsVm.threadPositionsById.value?.getOrNull() ?: return null
+    if (threadPositionsById.isEmpty()) return null
+
+    var location: ThreadIdAndPosition? = threadPositionsById[currentThreadId] ?: return null
+
+    // Find the next or previous comment
+    do {
+      location = when (isNext) {
+        true -> threads.higher(location)
+        false -> threads.lower(location)
+      }
+    }
+    while (location?.id != null && !threadIsVisible(location.id))
+
+    return location?.id
+  }
+
+  private fun threadIsVisible(threadId: String): Boolean =
+    threadMappings.value[threadId]?.let { it.isVisible && it.location != null && it.change != null } == true
 }

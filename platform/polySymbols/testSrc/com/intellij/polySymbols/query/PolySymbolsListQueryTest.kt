@@ -1,11 +1,13 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.polySymbols.query
 
+import com.intellij.polySymbols.PolySymbolModifier
+import com.intellij.polySymbols.PolySymbolsTestsDebugOutputPrinter
+import com.intellij.polySymbols.polySymbolsTestsDataPath
 import com.intellij.polySymbols.testFramework.query.doTest
 import com.intellij.polySymbols.testFramework.query.printMatches
 import com.intellij.polySymbols.utils.asSingleSymbol
 import com.intellij.polySymbols.utils.completeMatch
-import com.intellij.polySymbols.polySymbolsTestsDataPath
 import com.intellij.polySymbols.webTypes.json.parseWebTypesPath
 
 class PolySymbolsListQueryTest : PolySymbolsMockQueryExecutorTestBase() {
@@ -191,13 +193,15 @@ class PolySymbolsListQueryTest : PolySymbolsMockQueryExecutorTestBase() {
     doTest(path, framework, includeVirtual = includeVirtual, webTypes = webTypes.toList())
   }
 
-  fun doTest(path: String,
-             framework: String? = null,
-             includeVirtual: Boolean = true,
-             expandPatterns: Boolean = false,
-             compareWithCompletionResults: Boolean = true,
-             webTypes: List<String> = emptyList(),
-             customElementsManifests: List<String> = emptyList()) {
+  fun doTest(
+    path: String,
+    framework: String? = null,
+    includeVirtual: Boolean = true,
+    expandPatterns: Boolean = false,
+    compareWithCompletionResults: Boolean = true,
+    webTypes: List<String> = emptyList(),
+    customElementsManifests: List<String> = emptyList(),
+  ) {
     registerFiles(framework, webTypes, customElementsManifests)
     val parsedPath = parseWebTypesPath(path, null)
     val queryExecutor = polySymbolsQueryExecutorFactory.create(null)
@@ -205,27 +209,37 @@ class PolySymbolsListQueryTest : PolySymbolsMockQueryExecutorTestBase() {
 
     if (compareWithCompletionResults) {
       val codeCompletionResults = queryExecutor
-        .runCodeCompletionQuery(parsedPath, 0, includeVirtual)
+        .codeCompletionQuery(parsedPath, 0) {
+          if (!includeVirtual) exclude(PolySymbolModifier.VIRTUAL)
+          exclude(PolySymbolModifier.ABSTRACT)
+        }
         .filter { it.offset == 0 && !it.completeAfterInsert }
         .map { it.name }
         .distinct()
         .mapNotNull { name ->
-          queryExecutor.runNameMatchQuery(parsedPath.subList(0, parsedPath.size - 1) + last.withName(name), includeVirtual)
+          queryExecutor.nameMatchQuery(parsedPath.subList(0, parsedPath.size - 1) + last.withName(name)) {
+            if (!includeVirtual) exclude(PolySymbolModifier.VIRTUAL)
+            exclude(PolySymbolModifier.ABSTRACT)
+          }
             .filter { it.completeMatch }
             .asSingleSymbol()
         }
       val results = queryExecutor
-        .runListSymbolsQuery(parsedPath.subList(0, parsedPath.size - 1), last.qualifiedKind,
-                             true, includeVirtual, false)
+        .listSymbolsQuery(parsedPath.subList(0, parsedPath.size - 1), last.qualifiedKind, true) {
+          if (!includeVirtual) exclude(PolySymbolModifier.VIRTUAL)
+          exclude(PolySymbolModifier.ABSTRACT)
+        }
         .filter { !it.extension }
-      assertEquals(printMatches(codeCompletionResults), printMatches(results))
+      assertEquals(printMatches(codeCompletionResults, PolySymbolsTestsDebugOutputPrinter), printMatches(results, PolySymbolsTestsDebugOutputPrinter))
     }
 
     doTest(testPath) {
       queryExecutor
-        .runListSymbolsQuery(parsedPath.subList(0, parsedPath.size - 1), last.qualifiedKind,
-                             expandPatterns, includeVirtual, false)
-        .let { printMatches(it) }
+        .listSymbolsQuery(parsedPath.subList(0, parsedPath.size - 1), last.qualifiedKind, expandPatterns) {
+          if (!includeVirtual) exclude(PolySymbolModifier.VIRTUAL)
+          exclude(PolySymbolModifier.ABSTRACT)
+        }
+        .let { printMatches(it, PolySymbolsTestsDebugOutputPrinter) }
     }
   }
 }

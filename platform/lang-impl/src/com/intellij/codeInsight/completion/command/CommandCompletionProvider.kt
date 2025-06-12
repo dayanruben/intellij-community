@@ -8,6 +8,7 @@ import com.intellij.codeInsight.completion.ml.MLWeigherUtil
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
 import com.intellij.codeInsight.lookup.LookupElementWeigher
+import com.intellij.icons.AllIcons.Actions.IntentionBulbGrey
 import com.intellij.icons.AllIcons.Actions.Lightning
 import com.intellij.injected.editor.DocumentWindow
 import com.intellij.injected.editor.EditorWindow
@@ -161,13 +162,13 @@ internal class CommandCompletionProvider : CompletionProvider<CompletionParamete
     commandCompletionFactory: CommandCompletionFactory,
     prefix: String,
   ): LookupElement {
-    val i18nName = command.i18nName.replace("_", "").replace("...", "").replace("…", "")
+    val presentableName = command.presentableName.replace("_", "").replace("...", "").replace("…", "")
     val additionalInfo = command.additionalInfo ?: ""
-    var tailText = if (command.name.equals(i18nName, ignoreCase = true)) "" else " $i18nName"
+    var tailText = ""
     if (additionalInfo.isNotEmpty()) {
       tailText += " ($additionalInfo)"
     }
-    val lookupString = command.name.trim().let {
+    val lookupString = presentableName.trim().let {
       if (it.length > 50) {
         it.substring(0, 50) + "\u2026"
       }
@@ -176,12 +177,11 @@ internal class CommandCompletionProvider : CompletionProvider<CompletionParamete
       }
     }
     val element: LookupElement = CommandCompletionLookupElement(LookupElementBuilder.create(lookupString)
-                                                                  .withLookupString(i18nName.trim())
                                                                   .withLookupString(lookupString)
                                                                   .withLookupStrings(command.synonyms)
                                                                   .withPresentableText(lookupString)
                                                                   .withTypeText(tailText)
-                                                                  .withIcon(command.icon ?: Lightning)
+                                                                  .withIcon(command.icon ?: IntentionBulbGrey)
                                                                   .withInsertHandler(CommandInsertHandler(command))
                                                                   .withBoldness(false),
                                                                 command,
@@ -198,7 +198,7 @@ internal class CommandCompletionProvider : CompletionProvider<CompletionParamete
   private fun createSorter(completionParameters: CompletionParameters): CompletionSorter {
     var weigher = CompletionService.getCompletionService().emptySorter()
       .weigh(object : LookupElementWeigher("priority", true, false) {
-        override fun weigh(element: LookupElement): Comparable<*>? {
+        override fun weigh(element: LookupElement): Comparable<*> {
           if (element.`as`(CommandCompletionLookupElement::class.java) == null) return 0.0
           return element.`as`(PrioritizedLookupElement::class.java)?.priority ?: 0.0
         }
@@ -360,7 +360,7 @@ internal sealed interface InvocationCommandType {
 internal fun findActualIndex(suffix: String, text: CharSequence, offset: Int): Int {
   var indexOf = suffix.length
   if (offset > text.length || offset == 0) return 0
-  while (indexOf > 0 && offset - indexOf >= 0 && text.substring(offset - indexOf, offset) != suffix.substring(0, indexOf)) {
+  while (indexOf > 0 && offset - indexOf >= 0 && text.substring(offset - indexOf, offset) != suffix.take(indexOf)) {
     indexOf--
   }
   //try to find outside

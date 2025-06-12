@@ -2,6 +2,8 @@ package com.intellij.cce.evaluation.data
 
 import com.intellij.cce.evaluable.*
 import com.intellij.cce.metric.*
+import com.intellij.cce.metric.ExternalApiRecall.Companion.AIA_GROUND_TRUTH_EXTERNAL_API_CALLS
+import com.intellij.cce.metric.ExternalApiRecall.Companion.AIA_PREDICTED_EXTERNAL_API_CALLS
 import com.intellij.cce.metric.context.MeanContextLines
 import com.intellij.cce.metric.context.MeanContextSize
 
@@ -90,6 +92,16 @@ object Execution {
     presentation = EvalDataPresentation(
       PresentationCategory.EXECUTION,
       DataRenderer.Text()
+    )
+  )
+
+  val EXTRACTED_SNIPPETS_FROM_LLM_RESPONSE: TrivialEvalData<List<String>> = EvalDataDescription(
+    name = "Code snippets from LLM response",
+    description = "Bind with code snippets extracted LLM response",
+    DataPlacement.AdditionalJsonSerializedStrings(AIA_EXTRACTED_CODE_SNIPPETS),
+    presentation = EvalDataPresentation(
+      PresentationCategory.EXECUTION,
+      DataRenderer.Snippets
     )
   )
 
@@ -184,6 +196,16 @@ object Analysis {
     )
   )
 
+  val CONTEXT_COLLECTION_DURATION: TrivialEvalData<Double> = EvalDataDescription(
+    name = "Context collection duration",
+    description = "Bind with the sum of durations of all context collection components",
+    DataPlacement.AdditionalDouble(AIA_CONTEXT_COLLECTION_DURATION_MS),
+    presentation = EvalDataPresentation(
+      PresentationCategory.ANALYSIS,
+      DataRenderer.InlineDouble,
+    ),
+  )
+
   val GROUND_TRUTH_API_CALLS: TrivialEvalData<List<String>> = EvalDataDescription(
     name = "Ground truth internal API calls",
     description = "Bind with the list of initial internal API calls",
@@ -194,6 +216,16 @@ object Analysis {
     ),
   )
 
+  val GROUND_TRUTH_EXTERNAL_API_CALLS: TrivialEvalData<List<String>> = EvalDataDescription(
+    name = "Ground truth external API calls",
+    description = "Bind with the list of initial external API calls",
+    DataPlacement.AdditionalConcatenatedLines(AIA_GROUND_TRUTH_EXTERNAL_API_CALLS),
+    presentation = EvalDataPresentation(
+      PresentationCategory.ANALYSIS,
+      renderer = DataRenderer.Lines,
+    )
+  )
+
   val PREDICTED_API_CALLS: TrivialEvalData<List<String>> = EvalDataDescription(
     name = "Predicted internal API calls",
     description = "Bind with the list of predicted internal API calls",
@@ -202,6 +234,16 @@ object Analysis {
       PresentationCategory.ANALYSIS,
       renderer = DataRenderer.Lines,
     ),
+  )
+
+  val PREDICTED_EXTERNAL_API_CALLS: TrivialEvalData<List<String>> = EvalDataDescription(
+    name = "Predicted external API calls",
+    description = "Bind with the list of predicted external API calls",
+    DataPlacement.AdditionalConcatenatedLines(AIA_PREDICTED_EXTERNAL_API_CALLS),
+    presentation = EvalDataPresentation(
+      PresentationCategory.ANALYSIS,
+      renderer = DataRenderer.Lines,
+    )
   )
 
   val FAILED_FILE_VALIDATIONS: TrivialEvalData<List<String>> = EvalDataDescription(
@@ -330,14 +372,23 @@ object Metrics {
     dependencies = MetricDependencies(Analysis.ERASED_APIS)
   ) { PreservedApi() }
 
-  val API_RECALL: EvalMetric = EvalMetric(
+  val INTERNAL_API_RECALL: EvalMetric = EvalMetric(
     threshold = 1.0,
     dependencies = MetricDependencies(
       Analysis.GROUND_TRUTH_API_CALLS,
       Analysis.PREDICTED_API_CALLS,
       DataRenderer.TextDiff
     ) { initial, result -> TextUpdate(initial.sorted().joinToString("\n"), result.sorted().joinToString("\n")) }
-  ) { ApiRecall() }
+  ) { InternalApiRecall() }
+
+  val EXTERNAL_API_RECALL: EvalMetric = EvalMetric(
+    threshold = 1.0,
+    dependencies = MetricDependencies(
+      Analysis.GROUND_TRUTH_EXTERNAL_API_CALLS,
+      Analysis.PREDICTED_EXTERNAL_API_CALLS,
+      DataRenderer.TextDiff
+    ) { initial, result -> TextUpdate(initial.sorted().joinToString("\n"), result.sorted().joinToString("\n")) }
+  ) { ExternalApiRecall() }
 
   val FILE_VALIDATIONS_SUCCESS: EvalMetric = EvalMetric(
     threshold = 1.0,

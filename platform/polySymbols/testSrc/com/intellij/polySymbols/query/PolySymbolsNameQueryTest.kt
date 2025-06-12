@@ -438,8 +438,11 @@ class PolySymbolsNameQueryTest : PolySymbolsMockQueryExecutorTestBase() {
     doTest(testPath) {
       registerFiles(framework, webTypes, customElementsManifests)
       val matches = polySymbolsQueryExecutorFactory.create(null)
-        .runNameMatchQuery(parseWebTypesPath(path, null), includeVirtual, false)
-      printMatches(matches)
+        .nameMatchQuery(parseWebTypesPath(path, null)) {
+          if (!includeVirtual) exclude(PolySymbolModifier.VIRTUAL)
+          exclude(PolySymbolModifier.ABSTRACT)
+        }
+      printMatches(matches, PolySymbolsTestsDebugOutputPrinter)
     }
   }
 

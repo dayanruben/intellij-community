@@ -49,6 +49,7 @@ import java.awt.event.ComponentEvent
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.LayoutFocusTraversalPolicy
 
 object CodeReviewCommentUIUtil {
 
@@ -71,6 +72,8 @@ object CodeReviewCommentUIUtil {
   @ApiStatus.Internal
   fun createEditorInlayPanel(component: JComponent, tint: Color? = null): JPanel {
     val borderColor = JBColor.lazy {
+      if (component.hasFocus()) return@lazy JBUI.CurrentTheme.Focus.focusColor()
+
       val scheme = EditorColorsManager.getInstance().globalScheme
       scheme.getColor(EditorColors.TEARLINE_COLOR) ?: JBColor.border()
     }
@@ -79,6 +82,10 @@ object CodeReviewCommentUIUtil {
         val scheme = EditorColorsManager.getInstance().globalScheme
         tint?.let { ColorUtil.blendColorsInRgb(scheme.defaultBackground, it, 0.1) } ?: scheme.defaultBackground
       }
+      isFocusCycleRoot = true
+      isFocusTraversalPolicyProvider = true
+      focusTraversalPolicy = LayoutFocusTraversalPolicy()
+
       add(UiDataProvider.wrapComponent(component) { sink ->
         suppressOuterEditorData(sink)
       })

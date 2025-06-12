@@ -40,9 +40,8 @@
 - a:execute(I,com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor):V
 - getAdditionalInfo():java.lang.String
 - getHighlightInfo():com.intellij.codeInsight.completion.command.HighlightInfoLookup
-- a:getI18nName():java.lang.String
-- a:getIcon():javax.swing.Icon
-- a:getName():java.lang.String
+- getIcon():javax.swing.Icon
+- a:getPresentableName():java.lang.String
 - getPriority():java.lang.Integer
 - getSynonyms():java.util.List
 *f:com.intellij.codeInsight.completion.command.CompletionCommandKt

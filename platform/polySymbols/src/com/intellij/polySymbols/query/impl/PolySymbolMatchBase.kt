@@ -198,9 +198,6 @@ private interface PolySymbolMatchMixin : PolySymbolMatch {
     get() = matchedName.substring(nameSegments.firstOrNull()?.start ?: 0,
                                   nameSegments.lastOrNull()?.end ?: 0)
 
-  override val virtual: Boolean
-    get() = nameSegments.any { segment -> segment.symbols.any { it.virtual } }
-
   override val extension: Boolean
     get() = nameSegments.isNotEmpty() && nameSegments.all { segment -> segment.symbols.isNotEmpty() && segment.symbols.all { it.extension } }
 
@@ -220,6 +217,9 @@ private interface PolySymbolMatchMixin : PolySymbolMatch {
   override val attributeValue: PolySymbolHtmlAttributeValue?
     get() = reversedSegments().flatMap { it.symbols }.mapNotNull { it.attributeValue }.merge()
 
+  override val modifiers: Set<PolySymbolModifier>
+    get() = nameSegments.asSequence().flatMap { segment -> segment.symbols.flatMap { it.modifiers } }.toSet()
+
   override val required: Boolean?
     get() = reversedSegments().flatMap { it.symbols }.mapNotNull { it.required }.firstOrNull()
 
@@ -229,13 +229,11 @@ private interface PolySymbolMatchMixin : PolySymbolMatch {
   override val icon: Icon?
     get() = reversedSegments().flatMap { it.symbols }.mapNotNull { it.icon }.firstOrNull()
 
-  override val properties: Map<String, Any>
-    get() = nameSegments.asSequence().flatMap { it.symbols }
-      .flatMap { it.properties.entries }
-      .filter { it.key != PolySymbol.PROP_HIDE_FROM_COMPLETION }
-      .plus(additionalProperties.entries)
-      .map { Pair(it.key, it.value) }
-      .toMap()
+  override fun <T : Any> get(property: PolySymbolProperty<T>): T? =
+    property.tryCast(additionalProperties[property.name])
+    ?: if (property != PolySymbol.PROP_HIDE_FROM_COMPLETION)
+      reversedSegments().flatMap { it.symbols }.mapNotNull { it[property] }.firstOrNull()
+    else null
 
   override fun getNavigationTargets(project: Project): Collection<NavigationTarget> =
     if (nameSegments.size == 1)

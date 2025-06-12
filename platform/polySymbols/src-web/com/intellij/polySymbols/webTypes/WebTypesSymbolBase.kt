@@ -39,8 +39,12 @@ open class WebTypesSymbolBase : WebTypesSymbol {
               ?.also { contributions -> _superContributions = contributions }
             ?: emptyList()
 
-  override val properties: Map<String, Any>
-    get() = base.contribution.genericProperties
+  private val contributionProperties by lazy {
+    base.contribution.genericProperties
+  }
+
+  override fun <T : Any> get(property: PolySymbolProperty<T>): T? =
+    property.tryCast(contributionProperties[property.name])
 
   override fun isEquivalentTo(symbol: Symbol): Boolean =
     (symbol is WebTypesSymbolBase && symbol.base == this.base)
@@ -161,9 +165,6 @@ open class WebTypesSymbolBase : WebTypesSymbol {
   final override val apiStatus: PolySymbolApiStatus
     get() = base.contribution.toApiStatus(origin as WebTypesJsonOrigin)
 
-  final override val virtual: Boolean
-    get() = base.contribution.virtual == true
-
   final override val extension: Boolean
     get() = base.contribution.extension == true
 
@@ -171,8 +172,11 @@ open class WebTypesSymbolBase : WebTypesSymbol {
     get() = base.contribution.priority?.wrap()
             ?: superContributions.firstOrNull()?.priority
 
-  final override val abstract: Boolean
-    get() = base.contribution.abstract == true
+  override val modifiers: Set<PolySymbolModifier>
+    get() = setOfNotNull(
+      PolySymbolModifier.VIRTUAL.takeIf { base.contribution.virtual == true },
+      PolySymbolModifier.ABSTRACT.takeIf { base.contribution.abstract == true },
+    )
 
   final override val required: Boolean?
     get() = (base.contribution as? GenericContribution)?.required

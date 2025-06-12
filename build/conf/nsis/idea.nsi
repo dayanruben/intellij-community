@@ -50,10 +50,9 @@ VIProductVersion ${PRODUCT_VERSION_NUM}
 ; thus ${PRODUCT_WITH_VER} is used for uninstall registry information
 !define PRODUCT_REG_VER "${MUI_PRODUCT}\${VER_BUILD}"
 
-Var STARTMENU_FOLDER
+Var startMenuFolder
 Var productLauncher
 Var baseRegKey
-Var productDir
 Var silentMode
 Var requiredDiskSpace
 
@@ -262,7 +261,13 @@ FunctionEnd
 ; configuration
 ;------------------------------------------------------------------------------
 
+BrandingText " "
+
+!define MUI_BRANDINGTEXT " "
+!define MUI_ABORTWARNING
+
 !insertmacro MUI_PAGE_WELCOME
+
 Page custom uninstallOldVersionDialog
 
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE OnDirectoryPageLeave
@@ -270,12 +275,10 @@ Page custom uninstallOldVersionDialog
 !insertmacro MUI_PAGE_DIRECTORY
 
 Page custom ConfirmDesktopShortcut
-!define MUI_PAGE_HEADER_TEXT "$(choose_start_menu_folder)"
-!define MUI_STARTMENUPAGE_NODISABLE
-!define MUI_STARTMENUPAGE_DEFAULTFOLDER "JetBrains"
 
-!insertmacro MUI_PAGE_STARTMENU Application $STARTMENU_FOLDER
-!define MUI_ABORTWARNING
+!define MUI_PAGE_HEADER_TEXT "$(choose_start_menu_folder)"
+!define MUI_STARTMENUPAGE_DEFAULTFOLDER "JetBrains"
+!insertmacro MUI_PAGE_STARTMENU Application $startMenuFolder
 
 !define MUI_PAGE_HEADER_TEXT "$(installing_product)"
 !insertmacro MUI_PAGE_INSTFILES
@@ -297,8 +300,6 @@ UninstPage custom un.ConfirmDeleteSettings
 OutFile "${OUT_DIR}\${OUT_FILE}.exe"
 
 InstallDir "$PROGRAMFILES64\${MANUFACTURER}\${INSTALL_DIR_AND_SHORTCUT_NAME}"
-!define MUI_BRANDINGTEXT " "
-BrandingText " "
 
 Function PageFinishRun
   IfSilent +2 +1
@@ -907,7 +908,13 @@ Function updatePathEnvVar
     Return
   ${EndIf}
 
-  WriteRegExpandStr HKCU "Environment" "Path" "$pathEnvVar;%${MUI_PRODUCT}%"
+  ${If} $pathEnvVar != ""
+    StrCpy $R0 $pathEnvVar 1 -1
+    ${If} $R0 != ';'
+      StrCpy $pathEnvVar "$pathEnvVar;"
+    ${EndIf}
+  ${EndIf}
+  WriteRegExpandStr HKCU "Environment" "Path" "$pathEnvVar%${MUI_PRODUCT}%"
   ${If} ${Errors}
     ${LogText} "  ERROR: cannot write the 'Path' env var"
     Return
@@ -922,17 +929,12 @@ FunctionEnd
 ;------------------------------------------------------------------------------
 Section "IDEA Files" CopyIdeaFiles
   CreateDirectory $INSTDIR
+
   Call customInstallActions
 
   StrCpy $productLauncher "$INSTDIR\bin\${PRODUCT_EXE_FILE}"
   ${LogText} "Default launcher: $productLauncher"
   DetailPrint "Default launcher: $productLauncher"
-
-  !insertmacro INSTALLOPTIONS_READ $R0 "Desktop.ini" "Field $launcherShortcut" "State"
-  ${If} $R0 == 1
-    ${LogText} "Creating shortcut: '$DESKTOP\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk' -> '$INSTDIR\bin\${PRODUCT_EXE_FILE}'"
-    CreateShortCut "$DESKTOP\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk" "$INSTDIR\bin\${PRODUCT_EXE_FILE}" "" "" "" SW_SHOWNORMAL
-  ${EndIf}
 
   !insertmacro INSTALLOPTIONS_READ $R0 "Desktop.ini" "Field $addToPath" "State"
   ${If} $R0 == 1
@@ -976,8 +978,7 @@ done:
 	WriteRegStr HKCR "IntelliJIdeaProjectFile\shell" "" "open"
 "${Index}-Skip:"
   WriteRegStr HKCR "IntelliJIdeaProjectFile\DefaultIcon" "" "$productLauncher,0"
-  WriteRegStr HKCR "IntelliJIdeaProjectFile\shell\open\command" "" \
-    '"$productLauncher" "%1"'
+  WriteRegStr HKCR "IntelliJIdeaProjectFile\shell\open\command" "" '"$productLauncher" "%1"'
 !undef Index
 
 skip_ipr:
@@ -985,31 +986,37 @@ skip_ipr:
   ${LogText} ""
   ${LogText} "Copy files to $INSTDIR"
   SectionIn RO
+
+  ; main part
   !include "idea_win.nsh"
 
-  ; registration application to be presented in Open With list
-  call ProductRegistration
+  ; registering the application for the "Open With" list
+  Call ProductRegistration
 
-  !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
-  ; $STARTMENU_FOLDER stores name of IDEA folder in Start Menu,
-  ; save it name in the "MenuFolder" RegValue
-  CreateDirectory "$SMPROGRAMS\$STARTMENU_FOLDER"
-  CreateShortCut "$SMPROGRAMS\$STARTMENU_FOLDER\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk" \
-                 "$productLauncher" "" "" "" SW_SHOWNORMAL
+  ; setting the working directory for subsequent `CreateShortCut` instructions
+  SetOutPath "$INSTDIR"
 
-  StrCpy $7 "$SMPROGRAMS\$STARTMENU_FOLDER\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk"
-  ShellLink::GetShortCutWorkingDirectory $7
-  Pop $0
-  DetailPrint "ShortCutWorkingDirectory: $0"
-  ${LogText} ""
-  ${LogText} "ShortCutWorkingDirectory: $0"
+  ; creating the desktop shortcut
+  !insertmacro INSTALLOPTIONS_READ $R0 "Desktop.ini" "Field $launcherShortcut" "State"
+  ${If} $R0 == 1
+    ${LogText} "Creating shortcut: '$DESKTOP\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk' -> '$productLauncher'"
+    CreateShortCut "$DESKTOP\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk" "$productLauncher" "" "" "" SW_SHOWNORMAL
+  ${EndIf}
 
-  StrCpy $0 $baseRegKey
-  StrCpy $1 "Software\${MANUFACTURER}\${PRODUCT_REG_VER}"
-  StrCpy $2 "MenuFolder"
-  StrCpy $3 "$STARTMENU_FOLDER"
-  Call OMWriteRegStr
-  !insertmacro MUI_STARTMENU_WRITE_END
+  ; creating the start menu shortcut and storing the start menu directory for the uninstaller
+  ${If} $startMenuFolder != ""
+    !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
+    CreateDirectory "$SMPROGRAMS\$startMenuFolder"
+    CreateShortCut "$SMPROGRAMS\$startMenuFolder\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk" "$productLauncher" "" "" "" SW_SHOWNORMAL
+    StrCpy $0 $baseRegKey
+    StrCpy $1 "Software\${MANUFACTURER}\${PRODUCT_REG_VER}"
+    StrCpy $2 "MenuFolder"
+    StrCpy $3 "$startMenuFolder"
+    Call OMWriteRegStr
+    !insertmacro MUI_STARTMENU_WRITE_END
+  ${Else}
+    DetailPrint "Skipping start menu shortcut."
+  ${EndIf}
 
   ; enabling Java assistive technologies if a screen reader is active (0x0046 = SPI_GETSCREENREADER)
   System::Call "User32::SystemParametersInfo(i 0x0046, i 0, *i .r1, i 0) i .r0"
@@ -1042,28 +1049,18 @@ skip_ipr:
   StrCpy $3 ${VER_BUILD}
   Call OMWriteRegStr
 
-  ; write uninstaller & add it to add/remove programs in control panel
+  ; writing the uninstaller & creating the uninstall record
   WriteUninstaller "$INSTDIR\bin\Uninstall.exe"
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-            "DisplayName" "${INSTALL_DIR_AND_SHORTCUT_NAME}"
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-              "UninstallString" "$INSTDIR\bin\Uninstall.exe"
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-              "InstallLocation" "$INSTDIR"
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-              "DisplayIcon" "$productLauncher"
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-              "DisplayVersion" "${VER_BUILD}"
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-              "Publisher" "JetBrains s.r.o."
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-              "URLInfoAbout" "https://www.jetbrains.com/products"
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-              "InstallType" "$baseRegKey"
-  WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-              "NoModify" 1
-  WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
-              "NoRepair" 1
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "DisplayName" "${INSTALL_DIR_AND_SHORTCUT_NAME}"
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "UninstallString" "$INSTDIR\bin\Uninstall.exe"
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "InstallLocation" "$INSTDIR"
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "DisplayIcon" "$productLauncher"
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "DisplayVersion" "${VER_BUILD}"
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "Publisher" "JetBrains s.r.o."
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "URLInfoAbout" "https://www.jetbrains.com/products"
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "InstallType" "$baseRegKey"
+  WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "NoModify" 1
+  WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" "NoRepair" 1
 
   ; reset icon cache
   ${LogText} "Reset icon cache"
@@ -1079,8 +1076,13 @@ Function .onInit
   ${IfNot} $R0 == ${INSTALLER_ARCH}
   ${OrIfNot} ${AtLeastBuild} 14393  ; Windows 10 1607 / Windows Server 2016
     ${LogText} "Architecture: expected=${INSTALLER_ARCH} actual=$R0"
-    MessageBox MB_OK "$(unsupported_win_version)"
-    Abort
+    ReadEnvStr $R0 "TEAMCITY_VERSION"
+    ${If} $R0 == ""
+      MessageBox MB_OK "$(unsupported_win_version)"
+      Abort
+    ${Else}
+      ${LogText} "  ... ignored on TeamCity"
+    ${EndIf}
   ${EndIf}
 
   !insertmacro INSTALLOPTIONS_EXTRACT "UninstallOldVersions.ini"
@@ -1216,52 +1218,6 @@ undefined_location:
 Done:
 FunctionEnd
 
-; deletes the directory "$0" if it is empty (contains only "." and ".." entries)
-Function un.deleteDirIfEmpty
-  ClearErrors
-  FindFirst $R0 $R1 "$0\*.*"
-  ${If} $R1 == "."
-    FindNext $R0 $R1
-    ${If} $R1 == ".."
-      ClearErrors
-      FindNext $R0 $R1
-      ${If} ${Errors}
-        Sleep 1000
-        RMDir "$0"
-      ${EndIf}
-    ${EndIf}
-  ${EndIf}
-  FindClose $R0
-FunctionEnd
-
-Function un.compareFileInstallationTime
-  StrCpy $9 ""
-get_first_file:
-  Pop $7
-  IfFileExists "$7" get_next_file 0
-  StrCmp $7 "Complete" complete get_first_file
-get_next_file:
-  Pop $8
-  StrCmp $8 "Complete" 0 +2
-  ; check if there is only one property file
-  StrCmp $9 "no changes" complete different
-  IfFileExists "$8" 0 get_next_file
-  ClearErrors
-  ${GetTime} "$7" "M" $0 $1 $2 $3 $4 $5 $6
-  ${GetTime} "$8" "M" $R0 $R1 $R2 $R3 $R4 $R5 $R6
-  StrCmp $0 $R0 0 different
-    StrCmp $1 $R1 0 different
-      StrCmp $2 $R2 0 different
-        StrCmp $4 $R4 0 different
-          StrCmp $5 $R5 0 different
-            StrCmp $6 $R6 0 different
-  StrCpy $9 "no changes"
-  Goto get_next_file
-different:
-  StrCpy $9 "Modified"
-complete:
-FunctionEnd
-
 
 Function un.onUninstSuccess
   SetErrorLevel 0
@@ -1320,14 +1276,8 @@ uninstall_gui_mode:
 
 delete_uninstaller_itself:
   Delete "$LOCALAPPDATA\${PRODUCT_PATHS_SELECTOR}_${VER_BUILD}_Uninstall.exe"
-  IfFileExists "$INSTDIR\bin\*.*" 0 delete_install_dir
-  StrCpy $0 "$INSTDIR\bin"
-  Call un.deleteDirIfEmpty
-delete_install_dir:
-  IfFileExists "$INSTDIR\*.*" 0 quit
-  StrCpy $0 "$INSTDIR"
-  Call un.deleteDirIfEmpty
-quit:
+  RMDir "$INSTDIR\bin"
+  RMDir "$INSTDIR"
   Quit
 
 UAC_Elevate:
@@ -1402,186 +1352,183 @@ done:
   Pop $0
 FunctionEnd
 
+
+Function un.PSEnum
+  ${If} $2 == "$INSTDIR\bin\${PRODUCT_EXE_FILE}"
+  ${OrIf} $2 == "$INSTDIR\jbr\bin\java.exe"
+    StrCpy $R1 "[$0] $2"
+    DetailPrint "$R1"
+    StrCpy $0 ""
+  ${EndIf}
+FunctionEnd
+
+Function un.checkIfIDEIsRunning
+  GetFunctionAddress $R0 un.PSEnum
+check_processes:
+  DetailPrint "Enumerating processes"
+  StrCpy $R1 ""
+  PS::Enum $R0
+  ${If} $R1 == ""
+    Return
+  ${EndIf}
+  MessageBox MB_OKCANCEL|MB_ICONQUESTION|MB_TOPMOST "$(application_running)" IDOK check_processes
+  Abort
+FunctionEnd
+
+
+Function un.deleteDirectoryWithParent
+  RMDir /R "$0"
+  RMDir "$0\.."  ; delete a parent directory if empty
+FunctionEnd
+
+
+Function un.deleteShortcutIfRight
+  ${IfNot} ${FileExists} "$0"
+    DetailPrint "The $1 shortcut '$0' does does not exist."
+    Return
+  ${EndIf}
+
+  ClearErrors
+  ShellLink::GetShortCutTarget "$0"
+  Pop $R1
+  ${IfNot} ${Errors}
+  ${AndIf} $R1 == "$INSTDIR\bin\${PRODUCT_EXE_FILE}"
+    DetailPrint "Deleting the $1 shortcut: $0"
+    Delete "$0"
+    ${If} $1 == "start menu"
+      RMDir "$0\.."  ; delete the parent group if empty
+    ${EndIf}
+  ${Else}
+    DetailPrint "The link '$0' does does not point to a valid launcher."
+  ${EndIf}
+FunctionEnd
+
+
 ;------------------------------------------------------------------------------
 ; custom uninstall pages
 ;------------------------------------------------------------------------------
 
 Function un.ConfirmDeleteSettings
   !insertmacro MUI_HEADER_TEXT "$(uninstall_options)" ""
+
+  ${GetParent} $INSTDIR $R1
+  ${UnStrRep} $R1 $R1 '\' '\\'
   !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 1" "Text" "$(prompt_delete_settings)"
-  ${UnStrRep} $R1 $INSTDIR '\' '\\'
   !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 2" "Text" $R1
   !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 3" "Text" "$(text_delete_settings)"
   !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 4" "Text" "$(confirm_delete_caches)"
   !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 5" "Text" "$(confirm_delete_settings)"
-  !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 6" "Text" "$(share_uninstall_feedback)"
 
   ${UnStrStr} $R0 "${MUI_PRODUCT}" "JetBrains Rider"
-  StrCmp $R0 "${MUI_PRODUCT}" build_tools 0
-  !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 7" "Type" "Label"
-  !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 7" "Text" ""
-  Goto feedback_web_page
-build_tools:
-  !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 7" "Text" "$(confirm_delete_rider_build_tools)"
-feedback_web_page:
-  ; do not show feedback web page checkbox for EAP builds.
-  StrCmp "${PRODUCT_WITH_VER}" "${MUI_PRODUCT} ${VER_BUILD}" hide_feedback_checkbox feedback_web_page_exists
-feedback_web_page_exists:
-  StrCmp "${UNINSTALL_WEB_PAGE}" "feedback_web_page" hide_feedback_checkbox done
-hide_feedback_checkbox:
-  ; do not show feedback web page checkbox through products uninstall.
-  !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 6" "Type" "Label"
-  !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 6" "Text" ""
-done:
+  ${If} $R0 == "${MUI_PRODUCT}"
+    !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 7" "Text" "$(confirm_delete_rider_build_tools)"
+  ${Else}
+    !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 7" "Type" "Label"
+    !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 7" "Text" ""
+  ${EndIf}
+
+  ${If} "${UNINSTALL_WEB_PAGE}" != ""
+    !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 6" "Text" "$(share_uninstall_feedback)"
+  ${Else}
+    !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 6" "Type" "Label"
+    !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 6" "Text" ""
+  ${EndIf}
+
   !insertmacro INSTALLOPTIONS_DISPLAY "DeleteSettings.ini"
 FunctionEnd
 
 
-Function un.isIDEInUse
-  IfFileExists $R0 0 done
-  CopyFiles $R0 "$R0_copy"
-  ClearErrors
-  Delete $R0
-  IfFileExists $R0 done
-  CopyFiles "$R0_copy" $R0
-done:
-  Delete "$R0_copy"
-FunctionEnd
-
-
-Function un.checkIfIDEInUse
-remove_previous_installation:
-  StrCpy $R0 "$INSTDIR\${PRODUCT_EXE_FILE}"
-  Call un.isIDEInUse
-  IfErrors remove_dialog 0
-  StrCpy $R0 "$INSTDIR\jbr\bin\java.exe"
-  Call un.isIDEInUse
-  IfErrors remove_dialog done
-remove_dialog:
-  MessageBox MB_OKCANCEL|MB_ICONQUESTION|MB_TOPMOST "$(application_running)" IDOK remove_previous_installation IDCANCEL cancel
-cancel:
-  Abort
-done:
-FunctionEnd
-
-
-Function un.validateStartMenuLinkToLauncher
-;check if exists and compare with $INSTDIR
-  ClearErrors
-  StrCpy $8 ""
-  ShellLink::GetShortCutWorkingDirectory $7
-  Pop $0
-  IfErrors done 0
-  StrCmp $0 "$productDir" 0 incorrect_link
-  StrCpy $8 $0
-  goto done
-incorrect_link:
-  DetailPrint "The link ($7) does not exist or incorrect."
-done:
-  ClearErrors
-FunctionEnd
-
-
-Function un.deleteDirectoryWithParent
-  RmDir /R "$0"
-  RmDir "$0\\.."  ; delete a parent directory if empty
-FunctionEnd
-
-Function un.deleteDirectoryIfNotEmpty
-  ${If} ${FileExists} "$0\*.*"
-    RmDir /R "$0"
-  ${EndIf}
-FunctionEnd
-
-
 Section "Uninstall"
+  DetailPrint "baseRegKey: $baseRegKey"
+
+  ; the uninstaller is in the "...\bin" subdirectory; correcting
+  ${GetParent} "$INSTDIR" $INSTDIR
+  DetailPrint "Uninstalling from: $INSTDIR"
+
+  Call un.checkIfIDEIsRunning
+
   Call un.customUninstallActions
 
-  DetailPrint "baseRegKey: $baseRegKey"
-  StrCpy $0 $baseRegKey
-  StrCpy $1 "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}"
-  StrCpy $2 "InstallLocation"
-  Call un.OMReadRegStr
-  DetailPrint "uninstall location: $3"
-  ;check if the uninstalled application is running
-  Call un.checkIfIDEInUse
-  ; Uninstaller is in the \bin directory, we need upper level dir
-  StrCpy $productDir $INSTDIR
-  StrCpy $INSTDIR $INSTDIR\..
-
+  ; deleting the start menu shortcut
   StrCpy $0 $baseRegKey
   StrCpy $1 "Software\${MANUFACTURER}\${PRODUCT_REG_VER}"
   StrCpy $2 "MenuFolder"
-  call un.OMReadRegStr
+  Call un.OMReadRegStr
   ${If} $3 != ""
-    StrCpy $7 "$SMPROGRAMS\$3\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk"
-    Call un.validateStartMenuLinkToLauncher
-    ${If} $8 == ""
-      DetailPrint "'$7' does not point to a valid launcher"
-    ${Else}
-      Delete "$7"
-      RMDir  "$SMPROGRAMS\$3"  ; delete the parent group if empty
-    ${EndIf}
+    StrCpy $0 "$SMPROGRAMS\$3\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk"
+    StrCpy $1 "start menu"
+    Call un.deleteShortcutIfRight
   ${EndIf}
 
+  ; deleting the desktop shortcut
+  StrCpy $0 "$DESKTOP\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk"
+  StrCpy $1 "desktop"
+  Call un.deleteShortcutIfRight
+
+  ; deleting the 'Path' record
+  ReadRegStr $R0 HKCU "Environment" "${MUI_PRODUCT}"
+  ${If} $R0 == "$INSTDIR\bin"
+    ReadRegStr $R1 HKCU "Environment" "Path"
+    ${UnStrRep} $R2 $R1 ";%${MUI_PRODUCT}%" ""
+    ${If} $R2 != $R1
+    ${AndIf} $R2 != ""
+      DetailPrint "Updating the 'Path' environment variable."
+      WriteRegExpandStr HKCU "Environment" "Path" "$R2"
+      SetRebootFlag true
+    ${EndIf}
+    DetailPrint "Deleting the '${MUI_PRODUCT}' environment variable."
+    DeleteRegValue HKCU "Environment" "${MUI_PRODUCT}"
+  ${EndIf}
+
+  ; setting the context for `$APPDATA` and `$LOCALAPPDATA`
+  ${If} $baseRegKey == "HKLM"
+    SetShellVarContext current
+  ${EndIf}
+
+  ; deleting caches
   !insertmacro INSTALLOPTIONS_READ $R2 "DeleteSettings.ini" "Field 4" "State"
   ${If} $R2 == 1
     StrCpy $0 "$LOCALAPPDATA\${MANUFACTURER}\${PRODUCT_PATHS_SELECTOR}"
+    DetailPrint "Deleting caches: $0"
     Call un.deleteDirectoryWithParent
+  ${Else}
+    DetailPrint "Keeping caches"
   ${EndIf}
 
+  ; deleting settings
   !insertmacro INSTALLOPTIONS_READ $R2 "DeleteSettings.ini" "Field 5" "State"
   ${If} $R2 == 1
     StrCpy $0 "$APPDATA\${MANUFACTURER}\${PRODUCT_PATHS_SELECTOR}"
+    DetailPrint "Deleting settings: $0"
     Call un.deleteDirectoryWithParent
+  ${Else}
+    DetailPrint "Keeping settings"
   ${EndIf}
 
-  ${UnStrStr} $R0 "${MUI_PRODUCT}" "JetBrains Rider"
-  ${If} $R0 == "${MUI_PRODUCT}"
-    !insertmacro INSTALLOPTIONS_READ $R2 "DeleteSettings.ini" "Field 7" "State"
-    ${If} $R2 == 1
-      StrCpy $0 "$LOCALAPPDATA\${MANUFACTURER}\BuildTools"
-      Call un.deleteDirectoryIfNotEmpty
-      StrCpy $0 "$LOCALAPPDATA\${MANUFACTURER}\jdk8"
-      Call un.deleteDirectoryIfNotEmpty
-    ${EndIf}
+  ; restoring the context
+  ${If} $baseRegKey == "HKLM"
+    SetShellVarContext all
   ${EndIf}
 
-  ; delete uninstaller itself
+  ; deleting the uninstaller itself and other cruft
   Delete "$INSTDIR\bin\Uninstall.exe"
-  Delete "$INSTDIR\jre64\bin\server\classes.jsa"
   Delete "$INSTDIR\jbr\bin\server\classes.jsa"
 
-  Push "Complete"
-  Push "$INSTDIR\bin\${PRODUCT_EXE_FILE}.vmoptions"
-  Push "$INSTDIR\bin\idea.properties"
-  Call un.compareFileInstallationTime
-  ${If} $9 != "Modified"
-    Delete "$INSTDIR\bin\idea.properties"
-    Delete "$INSTDIR\bin\${PRODUCT_EXE_FILE}.vmoptions"
-  ${EndIf}
-  !include "unidea_win.nsh"
-  StrCpy $0 "$INSTDIR\bin"
-  Call un.deleteDirIfEmpty
-  StrCpy $0 "$INSTDIR"
-  Call un.deleteDirIfEmpty
+  ; main part
+  !include "un_idea_win.nsh"
+  RMDir "$INSTDIR\bin"
+  RMDir "$INSTDIR"
 
-  ; remove desktop shortcuts
-  IfFileExists "$DESKTOP\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk" 0 registry
-  DetailPrint "remove desktop shortcut to launcher: $DESKTOP\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk"
-  Delete "$DESKTOP\${INSTALL_DIR_AND_SHORTCUT_NAME}.lnk"
-
-registry:
+  ; removing the directory context menu action
   StrCpy $0 "SHCTX"
   StrCpy $1 "Software\Classes\*\shell\Open with ${MUI_PRODUCT}"
-  call un.OMDeleteRegKey
-
+  Call un.OMDeleteRegKey
   StrCpy $1 "Software\Classes\Directory\shell\${MUI_PRODUCT}"
-  call un.OMDeleteRegKey
-
+  Call un.OMDeleteRegKey
   StrCpy $1 "Software\Classes\Directory\Background\shell\${MUI_PRODUCT}"
-  call un.OMDeleteRegKey
+  Call un.OMDeleteRegKey
 
+  ; restoring file associations
   StrCpy $5 "Software\${MANUFACTURER}"
   StrCmp "${ASSOCIATION}" "NoAssociation" finish_uninstall
   push "${ASSOCIATION}"
@@ -1633,26 +1580,27 @@ delete_association:
   ; remove product information which was used for association(s)
   Call un.OMDeleteRegKey
 
+  ; dropping the .ipr association
   StrCpy $0 "HKCR"
   StrCpy $1 "IntelliJIdeaProjectFile\DefaultIcon"
   StrCpy $2 ""
-  call un.OMReadRegStr
+  Call un.OMReadRegStr
+  ${If} $3 == "$INSTDIR\bin\${PRODUCT_EXE_FILE},0"
+    StrCpy $1 "IntelliJIdeaProjectFile"
+    Call un.OMDeleteRegKey
+  ${EndIf}
 
-  StrCmp $3 "$productDir\${PRODUCT_EXE_FILE},0" remove_IntelliJIdeaProjectFile done
-remove_IntelliJIdeaProjectFile:
-  StrCpy $1 "IntelliJIdeaProjectFile"
-  Call un.OMDeleteRegKey
-done:
+  ; deleting the uninstall record
   StrCpy $0 $baseRegKey
   StrCpy $1 "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}"
   Call un.OMDeleteRegKey
-  ;do not show feedback web page checkbox for EAP builds.
-  StrCmp "${PRODUCT_WITH_VER}" "${MUI_PRODUCT} ${VER_BUILD}" end_of_uninstall feedback_web_page
-feedback_web_page:
-  IfSilent end_of_uninstall 0
-  StrCmp "${UNINSTALL_WEB_PAGE}" "feedback_web_page" end_of_uninstall
-  !insertmacro INSTALLOPTIONS_READ $R3 "DeleteSettings.ini" "Field 6" "State"
-  StrCmp "$R3" "0" end_of_uninstall
-  ExecShell "" "${UNINSTALL_WEB_PAGE}"
-end_of_uninstall:
+
+  ; opening the uninstall feedback page
+  ${IfNot} ${Silent}
+  ${AndIfNot} "${UNINSTALL_WEB_PAGE}" == ""
+    !insertmacro INSTALLOPTIONS_READ $R2 "DeleteSettings.ini" "Field 6" "State"
+    ${If} $R2 == 1
+      ExecShell "" "${UNINSTALL_WEB_PAGE}"
+    ${EndIf}
+  ${EndIf}
 SectionEnd

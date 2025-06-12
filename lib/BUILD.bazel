@@ -885,13 +885,6 @@ jvm_import(
   visibility = ["//visibility:public"]
 )
 
-java_library(
-  name = "commons-cli-provided",
-  exports = [":commons-cli"],
-  neverlink = True,
-  visibility = ["//visibility:public"]
-)
-
 jvm_import(
   name = "commons-codec",
   jar = "@commons-codec-1_18_0_http//file",
@@ -1368,22 +1361,22 @@ jvm_import(
 java_library(
   name = "devkit-runtime-module-repository-jps",
   exports = [
-    ":devkit-runtime-module-repository-jps-251_16369_http_import",
-    ":runtime-repository-251_16369_http_import",
+    ":devkit-runtime-module-repository-jps-252_21158_http_import",
+    ":runtime-repository-252_21158_http_import",
   ],
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
-  name = "devkit-runtime-module-repository-jps-251_16369_http_import",
-  jar = "@devkit-runtime-module-repository-jps-251_16369_http//file",
-  source_jar = "@devkit-runtime-module-repository-jps-251_16369-sources_http//file"
+  name = "devkit-runtime-module-repository-jps-252_21158_http_import",
+  jar = "@devkit-runtime-module-repository-jps-252_21158_http//file",
+  source_jar = "@devkit-runtime-module-repository-jps-252_21158-sources_http//file"
 )
 
 jvm_import(
-  name = "runtime-repository-251_16369_http_import",
-  jar = "@runtime-repository-251_16369_http//file",
-  source_jar = "@runtime-repository-251_16369-sources_http//file"
+  name = "runtime-repository-252_21158_http_import",
+  jar = "@runtime-repository-252_21158_http//file",
+  source_jar = "@runtime-repository-252_21158-sources_http//file"
 )
 
 jvm_import(
@@ -2334,13 +2327,6 @@ jvm_import(
   visibility = ["//visibility:public"]
 )
 
-java_library(
-  name = "jackson-module-kotlin-provided",
-  exports = [":jackson-module-kotlin"],
-  neverlink = True,
-  visibility = ["//visibility:public"]
-)
-
 jvm_import(
   name = "java-aether_dependency_resolver-org-apache-maven-resolver-maven-resolver-connector-basic",
   jar = "@maven-resolver-connector-basic-1_9_22_http//file",
@@ -2781,13 +2767,6 @@ jvm_import(
   visibility = ["//visibility:public"]
 )
 
-java_library(
-  name = "jetbrains-markdown-provided",
-  exports = [":jetbrains-markdown"],
-  neverlink = True,
-  visibility = ["//visibility:public"]
-)
-
 jvm_import(
   name = "jetbrains-ml-models-python-imports-ranking-model",
   jar = "@python-imports-ranking-model-nebulous-albatross_http//file",
@@ -3057,13 +3036,6 @@ jvm_import(
   name = "jsvg",
   jar = "@jsvg-1_3_0-jb_8_http//file",
   source_jar = "@jsvg-1_3_0-jb_8-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "junit3",
-  jar = "@junit-3_8_2_http//file",
-  source_jar = "@junit-3_8_2-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -3937,13 +3909,6 @@ jvm_import(
 )
 
 java_library(
-  name = "kotlinx-datetime-jvm-provided",
-  exports = [":kotlinx-datetime-jvm"],
-  neverlink = True,
-  visibility = ["//visibility:public"]
-)
-
-java_library(
   name = "kotlinx-document-store-mvstore",
   exports = [
     ":kotlinx-document-store-mvstore-0_0_4_http_import",
@@ -3990,13 +3955,6 @@ jvm_import(
   name = "kotlinx-io-bytestring-jvm-0_7_0_http_import",
   jar = "@kotlinx-io-bytestring-jvm-0_7_0_http//file",
   source_jar = "@kotlinx-io-bytestring-jvm-0_7_0-sources_http//file"
-)
-
-java_library(
-  name = "kotlinx-io-core-provided",
-  exports = [":kotlinx-io-core"],
-  neverlink = True,
-  visibility = ["//visibility:public"]
 )
 
 jvm_import(

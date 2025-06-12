@@ -8,14 +8,10 @@ import com.intellij.idea.ActionsBundle
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.colors.EditorColors
-import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiNameIdentifierOwner
-import com.intellij.psi.PsiNamedElement
+import com.intellij.psi.*
 
 abstract class AbstractRenameActionCommandProvider : ActionCommandProvider(actionId = IdeActions.ACTION_RENAME,
-                                                                           name = "Rename",
-                                                                           i18nName = ActionsBundle.message("action.RenameElement.text"),
+                                                                           presentableName = ActionsBundle.message("action.RenameElement.text"),
                                                                            previewText = ActionsBundle.message("action.RenameElement.description"),
                                                                            synonyms = listOf("Rename", "Change name")) {
   override fun isApplicable(offset: Int, psiFile: PsiFile, editor: Editor?): Boolean {
@@ -36,8 +32,8 @@ abstract class AbstractRenameActionCommandProvider : ActionCommandProvider(actio
       element = element.nameIdentifier
     }
     return object : ActionCompletionCommand(actionId = super.actionId,
-                                            name = super.name,
-                                            i18nName = super.i18nName,
+                                            synonyms = super.synonyms,
+                                            presentableActionName = super.presentableName,
                                             icon = super.icon,
                                             priority = super.priority,
                                             previewText = super.previewText,
@@ -56,7 +52,7 @@ abstract class AbstractRenameActionCommandProvider : ActionCommandProvider(actio
     if (editor == null) return null
     val context = getTargetContext(targetOffset, editor)
     if (context == null) return null
-    if (!context.isWritable || context !is PsiNamedElement) return null
+    if (context is PsiCompiledElement || context !is PsiNamedElement) return null
     return context
   }
 }
