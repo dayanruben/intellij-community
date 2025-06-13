@@ -9,6 +9,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.FilePath
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.VcsKey
+import com.intellij.openapi.vcs.history.VcsRevisionNumber
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -17,8 +18,8 @@ import com.intellij.vcs.log.Hash
 import com.intellij.vcs.log.VcsLogFilterCollection
 import com.intellij.vcs.log.VcsLogProvider
 import com.intellij.vcs.log.data.VcsLogData
-import com.intellij.vcs.log.impl.VcsProjectLog.Companion.isAvailable
 import com.intellij.vcs.log.impl.VcsProjectLog.Companion.showRevisionInMainLog
+import com.intellij.vcs.log.impl.VcsProjectLog.Companion.isAvailable
 import com.intellij.vcs.log.ui.MainVcsLogUi
 import com.intellij.vcs.log.ui.VcsLogUiImpl
 import kotlinx.coroutines.Deferred
@@ -61,6 +62,15 @@ abstract class VcsProjectLog internal constructor() { // not an interface due to
 
   abstract fun showRevisionInMainLog(hash: Hash)
 
+  @Internal
+  abstract fun canShowFileHistory(paths: Collection<FilePath>, revisionNumber: VcsRevisionNumber?): Boolean
+
+  @Internal
+  abstract fun openFileHistory(paths: Collection<FilePath>, revisionNumber: VcsRevisionNumber?)
+
+  @Internal
+  abstract fun openFileHistory(paths: Collection<FilePath>, revisionNumber: VcsRevisionNumber?, revisionToSelect: VcsRevisionNumber)
+
   /**
    * Executes the given action if the VcsProjectLog has been initialized. If not, then schedules the log initialization,
    * waits for it in a background task, and executes the action after the log is ready.
@@ -83,10 +93,12 @@ abstract class VcsProjectLog internal constructor() { // not an interface due to
   abstract suspend fun init(force: Boolean): VcsLogManager?
 
   /**
-   * Disposes the [logManager] if it is initialized, runs [beforeCreateLog], and then recreates the [logManager].
+   * Disposes the [logManager] if it is initialized, and then recreates it.
+   *
+   * @param invalidateCaches if true, the persistent caches will be invalidated before recreating the manager.
    */
   @Internal
-  abstract suspend fun reinit(beforeCreateLog: (suspend () -> Unit)? = null): VcsLogManager?
+  abstract suspend fun reinit(invalidateCaches: Boolean)
 
   interface ProjectLogListener {
     @RequiresEdt

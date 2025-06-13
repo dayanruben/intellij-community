@@ -3,11 +3,12 @@ package com.intellij.html.polySymbols.attributes.impl
 
 import com.intellij.html.polySymbols.attributes.PolySymbolHtmlAttributeInfo
 import com.intellij.html.polySymbols.attributes.PolySymbolHtmlAttributeValueTypeSupport
-import com.intellij.polySymbols.html.HTML_ATTRIBUTE_VALUES
 import com.intellij.polySymbols.PolySymbol
 import com.intellij.polySymbols.PolySymbolModifier
 import com.intellij.polySymbols.completion.PolySymbolCodeCompletionItem
+import com.intellij.polySymbols.html.HTML_ATTRIBUTE_VALUES
 import com.intellij.polySymbols.html.PolySymbolHtmlAttributeValue
+import com.intellij.polySymbols.html.htmlAttributeValue
 import com.intellij.polySymbols.query.PolySymbolsQueryExecutor
 import com.intellij.psi.PsiElement
 import com.intellij.util.ThreeState
@@ -93,7 +94,7 @@ internal data class PolySymbolHtmlAttributeInfoImpl(
       context: PsiElement,
     ): PolySymbolHtmlAttributeInfo {
       val typeSupport = symbol.origin.typeSupport as? PolySymbolHtmlAttributeValueTypeSupport
-      val attrValue = symbol.attributeValue
+      val attrValue = symbol.htmlAttributeValue
       val kind = attrValue?.kind ?: PolySymbolHtmlAttributeValue.Kind.PLAIN
       val type = attrValue?.type ?: PolySymbolHtmlAttributeValue.Type.STRING
 
@@ -115,7 +116,7 @@ internal data class PolySymbolHtmlAttributeInfoImpl(
             typeSupport.createEnumType(symbol, valuesSymbols)
           }
           PolySymbolHtmlAttributeValue.Type.SYMBOL -> null
-          PolySymbolHtmlAttributeValue.Type.OF_MATCH -> symbol.type
+          PolySymbolHtmlAttributeValue.Type.OF_MATCH -> typeSupport.typeProperty?.let { symbol[it] }
           PolySymbolHtmlAttributeValue.Type.COMPLEX -> attrValue?.langType
         }
       else null

@@ -7,7 +7,9 @@ import com.intellij.polySymbols.*
 import com.intellij.polySymbols.completion.PolySymbolCodeCompletionItem
 import com.intellij.polySymbols.context.PolyContext
 import com.intellij.polySymbols.documentation.PolySymbolWithDocumentation
+import com.intellij.polySymbols.html.PROP_HTML_ATTRIBUTE_VALUE
 import com.intellij.polySymbols.html.PolySymbolHtmlAttributeValue
+import com.intellij.polySymbols.html.htmlAttributeValue
 import com.intellij.polySymbols.patterns.PolySymbolsPattern
 import com.intellij.polySymbols.query.PolySymbolsCodeCompletionQueryParams
 import com.intellij.polySymbols.query.PolySymbolsListSymbolsQueryParams
@@ -43,8 +45,25 @@ open class WebTypesSymbolBase : WebTypesSymbol {
     base.contribution.genericProperties
   }
 
+  private val attributeValue by lazy {
+    (base.contribution.attributeValue?.let { sequenceOf(HtmlAttributeValueImpl(it)) } ?: emptySequence())
+      .plus(superContributions.asSequence().map { it.htmlAttributeValue })
+      .merge()
+  }
+
+  @Suppress("UNCHECKED_CAST")
   override fun <T : Any> get(property: PolySymbolProperty<T>): T? =
-    property.tryCast(contributionProperties[property.name])
+    when (property) {
+      PROP_HTML_ATTRIBUTE_VALUE -> attributeValue as T?
+      origin.typeSupport?.typeProperty -> {
+        property.tryCast(
+          (base.contribution.type)
+            ?.let { base.jsonOrigin.typeSupport?.resolve(it.mapToTypeReferences()) }
+          ?: superContributions.asSequence().mapNotNull { it[property] }.firstOrNull()
+        )
+      }
+      else -> property.tryCast(contributionProperties[property.name])
+    }
 
   override fun isEquivalentTo(symbol: Symbol): Boolean =
     (symbol is WebTypesSymbolBase && symbol.base == this.base)
@@ -152,16 +171,6 @@ open class WebTypesSymbolBase : WebTypesSymbol {
         base.jsonOrigin.resolveSourceSymbol(it, base.cacheHolder)
       }
 
-  final override val attributeValue: PolySymbolHtmlAttributeValue?
-    get() = (base.contribution.attributeValue?.let { sequenceOf(HtmlAttributeValueImpl(it)) } ?: emptySequence())
-      .plus(superContributions.asSequence().map { it.attributeValue })
-      .merge()
-
-  final override val type: Any?
-    get() = (base.contribution.type)
-              ?.let { base.jsonOrigin.typeSupport?.resolve(it.mapToTypeReferences()) }
-            ?: superContributions.asSequence().mapNotNull { it.type }.firstOrNull()
-
   final override val apiStatus: PolySymbolApiStatus
     get() = base.contribution.toApiStatus(origin as WebTypesJsonOrigin)
 
@@ -176,6 +185,7 @@ open class WebTypesSymbolBase : WebTypesSymbol {
     get() = setOfNotNull(
       PolySymbolModifier.VIRTUAL.takeIf { base.contribution.virtual == true },
       PolySymbolModifier.ABSTRACT.takeIf { base.contribution.abstract == true },
+      PolySymbolModifier.READONLY.takeIf { (base.contribution as? JsProperty)?.readOnly == true }
     )
 
   final override val required: Boolean?
@@ -187,6 +197,7 @@ open class WebTypesSymbolBase : WebTypesSymbol {
     get() = (base.contribution as? GenericContribution)?.default
             ?: (base.contribution as? HtmlAttribute)?.default
             ?: superContributions.firstNotNullOfOrNull { it.asSafely<PolySymbolWithDocumentation>()?.defaultValue }
+            ?: attributeValue?.default
 
   final override val pattern: PolySymbolsPattern?
     get() = base.jsonPattern?.wrap(base.contribution.name, origin as WebTypesJsonOrigin)

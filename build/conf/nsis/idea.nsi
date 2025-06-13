@@ -38,6 +38,7 @@ Name "${MUI_PRODUCT}"
 !define /date CURRENT_YEAR "%Y"
 VIAddVersionKey /LANG=0 "CompanyName" "JetBrains s.r.o."
 VIAddVersionKey /LANG=0 "FileDescription" "${MUI_PRODUCT} Windows Installer"
+VIAddVersionKey /LANG=0 "FileVersion" "${VER_BUILD}"
 VIAddVersionKey /LANG=0 "LegalCopyright" "Copyright 2000-${CURRENT_YEAR} JetBrains s.r.o."
 VIAddVersionKey /LANG=0 "ProductName" "${MUI_PRODUCT}"
 VIAddVersionKey /LANG=0 "ProductVersion" "${MUI_VERSION_MAJOR}.${MUI_VERSION_MINOR}"
@@ -54,7 +55,6 @@ Var startMenuFolder
 Var productLauncher
 Var baseRegKey
 Var silentMode
-Var requiredDiskSpace
 
 ; position of controls for Uninstall Old Installations dialog
 Var control_fields
@@ -80,8 +80,6 @@ ReserveFile "UninstallOldVersions.ini"
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_BITMAP "${IMAGES_LOCATION}\${PRODUCT_HEADER_FILE}"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "${IMAGES_LOCATION}\${PRODUCT_LOGO_FILE}"
-
-!define MUI_CUSTOMFUNCTION_GUIINIT GUIInit
 
 
 !macro INST_UNINST_SWITCH un
@@ -140,54 +138,46 @@ ReserveFile "UninstallOldVersions.ini"
 !insertmacro INST_UNINST_SWITCH "un."
 
 
+; checking whether there are files in the $INSTDIR
 Function OnDirectoryPageLeave
-  ;check if there are no files into $INSTDIR (recursively)
-  StrCpy $9 "$INSTDIR"
-  Call instDirEmpty
-  StrCmp $9 "not empty" abort skip_abort
-abort:
-  ${LogText} "ERROR: installation dir is not empty: $INSTDIR"
-  MessageBox MB_OK|MB_ICONEXCLAMATION "$(choose_empty_folder)"
-  Abort
-skip_abort:
+  StrCpy $0 "$INSTDIR"
+  StrCpy $9 ""
+  Call isDirEmpty
+  ${If} $9 != ""
+    ${LogText} "ERROR: installation dir is not empty: $INSTDIR"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(choose_empty_folder)"
+    Abort
+  ${EndIf}
 FunctionEnd
 
-
-;check if there are no files into $INSTDIR recursively just except property files.
-Function instDirEmpty
-  Push $0
+; recursively checking whether there are files in the $0, ignoring empty subdirectories
+Function isDirEmpty
   Push $1
   Push $2
   ClearErrors
-  FindFirst $1 $2 "$9\*.*"
-  IfErrors done 0
-next_element:
-  ;is the element a folder?
-  StrCmp $2 "." get_next_element
-  StrCmp $2 ".." get_next_element
-  IfFileExists "$9\$2\*.*" 0 next_file
-    Push $9
-    StrCpy "$9" "$9\$2"
-    Call instDirEmpty
-    StrCmp $9 "not empty" done 0
-    Pop $9
-    Goto get_next_element
-next_file:
-  ;is it the file property?
-  ${If} $2 != "idea.properties"
-    ${AndIf} $2 != "${PRODUCT_EXE_FILE}.vmoptions"
-      StrCpy $9 "not empty"
-      Goto done
-  ${EndIf}
-get_next_element:
-  FindNext $1 $2
-  IfErrors 0 next_element
-done:
-  ClearErrors
+  FindFirst $1 $2 "$0\*.*"
+  ${DoUntil} ${Errors}
+    ${If} $2 != "."
+    ${AndIf} $2 != ".."
+      ${If} ${FileExists} "$0\$2\*.*"
+        Push $0
+        StrCpy "$0" "$0\$2"
+        Call isDirEmpty
+        Pop $0
+        ${If} $9 != ""
+          ${Break}
+        ${EndIf}
+      ${Else}
+        ${LogText} "isDirEmpty: found '$0\$2'"
+        StrCpy $9 "not empty"
+        ${Break}
+      ${EndIf}
+    ${EndIf}
+    FindNext $1 $2
+  ${Loop}
   FindClose $1
   Pop $2
   Pop $1
-  Pop $0
 FunctionEnd
 
 
@@ -263,7 +253,6 @@ FunctionEnd
 
 BrandingText " "
 
-!define MUI_BRANDINGTEXT " "
 !define MUI_ABORTWARNING
 
 !insertmacro MUI_PAGE_WELCOME
@@ -433,42 +422,24 @@ Function IncorrectSilentInstallParameters
 FunctionEnd
 
 
-Function checkVersion
-  StrCpy $2 ""
-  StrCpy $1 "Software\${MANUFACTURER}\${PRODUCT_REG_VER}"
-  Call OMReadRegStr
-  IfFileExists $3\bin\${PRODUCT_EXE_FILE} check_version
-  Goto done
-check_version:
-  StrCpy $9 $3
-  StrCpy $2 "Build"
-  Call OMReadRegStr
-  StrCmp $3 "" done
-  IntCmpU $3 ${VER_BUILD} ask_Install_Over done ask_Install_Over
-ask_Install_Over:
-  ${LogText} "  NOTE: ${PRODUCT_WITH_VER} is already installed:"
-  ${LogText} "  $9"
+Function searchCurrentVersion
   ${LogText} ""
-  IfSilent continue 0
+  ${LogText} "Checking if '${MUI_PRODUCT} ${VER_BUILD}' is already installed"
+
+  ReadRegStr $R0 HKCU "Software\${MANUFACTURER}\${PRODUCT_REG_VER}" ""
+  ${If} $R0 == ""
+  ${OrIfNot} ${FileExists} "$R0\bin\${PRODUCT_EXE_FILE}"
+    ReadRegStr $R0 HKLM "Software\${MANUFACTURER}\${PRODUCT_REG_VER}" ""
+    ${If} $R0 == ""
+    ${OrIfNot} ${FileExists} "$R0\bin\${PRODUCT_EXE_FILE}"
+      Return
+    ${EndIf}
+  ${EndIf}
+
   MessageBox MB_YESNO|MB_ICONQUESTION "$(current_version_already_installed)" IDYES continue IDNO exit_installer
 exit_installer:
   Abort
 continue:
-  StrCpy $0 "complete"
-done:
-FunctionEnd
-
-
-Function searchCurrentVersion
-  ${LogText} ""
-  ${LogText} "Check if ${MUI_PRODUCT} ${VER_BUILD} already installed"
-  ; search current version of IDEA
-  StrCpy $0 "HKCU"
-  Call checkVersion
-  StrCmp $0 "complete" Done
-  StrCpy $0 "HKLM"
-  Call checkVersion
-Done:
 FunctionEnd
 
 
@@ -582,7 +553,6 @@ Function uninstallOldVersionDialog
 
 get_installation_info:
   StrCpy $1 "Software\${MANUFACTURER}\${MUI_PRODUCT}"
-  StrCpy $5 "\bin\${PRODUCT_EXE_FILE}"
   StrCpy $2 ""
   Call getInstallationPath
   StrCmp $3 "complete" next_registry_root
@@ -625,7 +595,7 @@ complete:
     StrCpy $7 $control_fields
     IntOp $7 $7 + 1
     StrCmp $8 $7 0 +2
-      StrCpy $2 ""
+    StrCpy $2 ""
     !insertmacro MUI_HEADER_TEXT "$(uninstall_previous_installations_title)" ""
     !insertmacro INSTALLOPTIONS_WRITE "UninstallOldVersions.ini" "Field 1" "Text" "$(uninstall_previous_installations_prompt)"
     !insertmacro INSTALLOPTIONS_WRITE "UninstallOldVersions.ini" "Field 2" "Text" "$(uninstall_previous_installations_silent)"
@@ -633,7 +603,7 @@ complete:
     !insertmacro INSTALLOPTIONS_DISPLAY_RETURN "UninstallOldVersions.ini"
     Pop $9
     ${If} $9 == "success"
-loop:
+    loop:
       ;uninstall chosen installation(s)
       !insertmacro INSTALLOPTIONS_READ $0 "UninstallOldVersions.ini" "Field $8" "State"
       !insertmacro INSTALLOPTIONS_READ $3 "UninstallOldVersions.ini" "Field $8" "Text"
@@ -647,11 +617,7 @@ loop:
 finish:
 FunctionEnd
 
-
 Function getInstallationPath
-  Push $1
-  Push $2
-  Push $5
 loop:
   Call OMEnumRegKey
   StrCmp $3 "" 0 getPath
@@ -662,86 +628,10 @@ getPath:
   StrCpy $1 "$1\$3"
   Call OMReadRegStr
   Pop $1
-  IfFileExists $3$5 done 0
+  IfFileExists "$3\bin\${PRODUCT_EXE_FILE}" done 0
   IntOp $4 $4 + 1
   goto loop
 done:
-  Pop $5
-  Pop $2
-  Pop $1
-FunctionEnd
-
-
-Function GUIInit
-  Push $0
-  Push $1
-  Push $2
-  Push $3
-  Push $4
-  Push $5
-
-; is the current version of IDEA installed?
-  Call searchCurrentVersion
-
-; search old versions of IDEA installed from the user and admin.
-  ${LogText} "Search if old versions of ${MUI_PRODUCT} were installed"
-
-  StrCpy $4 0
-  StrCpy $0 "HKCU"
-  StrCpy $1 "Software\${MANUFACTURER}\${MUI_PRODUCT}"
-  StrCpy $5 "\bin\${PRODUCT_EXE_FILE}"
-  StrCpy $2 ""
-  Call getInstallationPath
-  StrCmp $3 "complete" admin
-  IfFileExists $3\bin\${PRODUCT_EXE_FILE} collect_versions admin
-admin:
-  StrCpy $4 0
-  StrCpy $0 "HKLM"
-  Call getInstallationPath
-
-collect_versions:
-  IntCmp ${SHOULD_SET_DEFAULT_INSTDIR} 0 end_enum_versions_hklm
-; latest build number and registry key index
-  StrCpy $3 "0"
-  StrCpy $0 "0"
-
-enum_versions_hkcu:
-  EnumRegKey $1 "HKCU" "Software\${MANUFACTURER}\${MUI_PRODUCT}" $0
-  StrCmp $1 "" end_enum_versions_hkcu
-  IntCmp $1 $3 continue_enum_versions_hkcu continue_enum_versions_hkcu
-  StrCpy $3 $1
-  ReadRegStr $INSTDIR "HKCU" "Software\${MANUFACTURER}\${MUI_PRODUCT}\$3" ""
-
-continue_enum_versions_hkcu:
-  IntOp $0 $0 + 1
-  Goto enum_versions_hkcu
-
-end_enum_versions_hkcu:
-  StrCpy $0 "0"        # registry key index
-
-enum_versions_hklm:
-  EnumRegKey $1 "HKLM" "Software\${MANUFACTURER}\${MUI_PRODUCT}" $0
-  StrCmp $1 "" end_enum_versions_hklm
-  IntCmp $1 $3 continue_enum_versions_hklm continue_enum_versions_hklm
-  StrCpy $3 $1
-  ReadRegStr $INSTDIR "HKLM" "Software\${MANUFACTURER}\${MUI_PRODUCT}\$3" ""
-
-continue_enum_versions_hklm:
-  IntOp $0 $0 + 1
-  Goto enum_versions_hklm
-
-end_enum_versions_hklm:
-  StrCmp $INSTDIR "" 0 skip_default_instdir
-  StrCpy $INSTDIR "$PROGRAMFILES64\${MANUFACTURER}\${INSTALL_DIR_AND_SHORTCUT_NAME}"
-
-skip_default_instdir:
-  Pop $5
-  Pop $4
-  Pop $3
-  Pop $2
-  Pop $1
-  Pop $0
-  !insertmacro INSTALLOPTIONS_EXTRACT "Desktop.ini"
 FunctionEnd
 
 
@@ -1045,9 +935,6 @@ skip_ipr:
   StrCpy $2 ""
   StrCpy $3 "$INSTDIR"
   Call OMWriteRegStr
-  StrCpy $2 "Build"
-  StrCpy $3 ${VER_BUILD}
-  Call OMWriteRegStr
 
   ; writing the uninstaller & creating the uninstall record
   WriteUninstaller "$INSTDIR\bin\Uninstall.exe"
@@ -1085,24 +972,25 @@ Function .onInit
     ${EndIf}
   ${EndIf}
 
-  !insertmacro INSTALLOPTIONS_EXTRACT "UninstallOldVersions.ini"
+  ${IfNot} ${Silent}
+    Call searchCurrentVersion
+  ${EndIf}
+
   !insertmacro INSTALLOPTIONS_EXTRACT "Desktop.ini"
   Call getInstallationOptionsPositions
+  !insertmacro INSTALLOPTIONS_EXTRACT "UninstallOldVersions.ini"
   Call getUninstallOldVersionVars
+
   IfSilent silent_mode uac_elevate
-
 silent_mode:
-  Call checkAvailableRequiredDiskSpace
-  IntCmp ${CUSTOM_SILENT_CONFIG} 0 silent_config silent_config custom_silent_config
+  Call checkAvailableDiskSpace
 
-silent_config:
-  Call silentConfigReader
-  Goto validate_install_dir
-custom_silent_config:
-  Call customSilentConfigReader
+  ${If} ${CUSTOM_SILENT_CONFIG} = 0
+    Call silentConfigReader
+  ${Else}
+    Call customSilentConfigReader
+  ${EndIf}
 
-validate_install_dir:
-  Call searchCurrentVersion
   Call silentInstallDirValidate
   StrCpy $baseRegKey "HKCU"
   StrCmp $silentMode "admin" uac_elevate installdir_is_empty
@@ -1132,12 +1020,13 @@ set_install_dir_admin_mode:
 uac_all_users:
   SetShellVarContext all
   StrCpy $baseRegKey "HKLM"
+
 installdir_is_empty:
-  IfSilent 0 done
-; Check in silent mode if install folder is not empty.
-  Call OnDirectoryPageLeave
-done:
+  ${If} ${Silent}
+    Call OnDirectoryPageLeave ; in the silent mode, check if the installation folder is not empty
+  ${EndIf}
   ${LogText} "Installation dir: $INSTDIR"
+
   ${If} $Language == ${LANG_SIMPCHINESE}
     System::Call "kernel32::GetUserDefaultUILanguage() h .r10"
     ${If} $R0 != ${LANG_SIMPCHINESE}
@@ -1149,37 +1038,35 @@ done:
 FunctionEnd
 
 
-Function checkAvailableRequiredDiskSpace
-  SectionGetSize ${CopyIdeaFiles} $requiredDiskSpace
-  ${LogText} "Space required: $requiredDiskSpace KB"
-  Push $INSTDIR
-  StrCpy $9 $INSTDIR 3
-  Call FreeDiskSpace
-  ${LogText} "Space available: $1 KB"
-
-; required free space
-  StrCpy $2 $requiredDiskSpace
-; compare the space required and the space available
-  System::Int64Op $1 > $2
-  Pop $3
-
-  IntCmp $3 1 done
-    MessageBox MB_OK|MB_ICONSTOP "$(out_of_disk_space)"
-    ${LogText} "ERROR: Not enough disk space!"
-    Abort
-done:
+Function checkAvailableDiskSpace
+  StrCpy $0 $INSTDIR 3  ; copying first 3 characters
+  Call getFreeDiskSpace
+  ${LogText} "Space available: $1 MiB"
+  ${If} $1 > 0
+    SectionGetSize ${CopyIdeaFiles} $R0
+    System::Int64Op $R0 >>> 10  ; converting KiBs to MiBs
+    Pop $R0
+    ${LogText} "Space required: $R0 MiB"
+    System::Int64Op $1 > $R0
+    Pop $R1
+    ${If} $R1 < 1
+      ${LogText} "ERROR: Not enough disk space!"
+      MessageBox MB_OK|MB_ICONSTOP "$(out_of_disk_space)"
+      Abort
+    ${EndIf}
+  ${EndIf}
 FunctionEnd
 
-
-Function FreeDiskSpace
-; $9 contains parent dir for installation
-  System::Call 'Kernel32::GetDiskFreeSpaceEx(t "$9", *l.r1, *l.r2, *l.r3)i.r0'
+; returns the amount of free space on a disk $0, in MiBs, in $1
+Function getFreeDiskSpace
+  System::Call 'Kernel32::GetDiskFreeSpaceEx(t "$0", *l.r1, *l.r2, *l.r3) i.r0'
   ${If} $0 <> 0
-; convert byte values into KB
-    System::Int64Op $1 / 1024
+    System::Int64Op $1 >>> 20  ; converting bytes to MiBs
     Pop $1
   ${Else}
-    ${LogText} "An error occurred during calculation disk space $0"
+    System::Call 'Kernel32::GetLastError() i() .r0'
+    ${LogText} "GetDiskFreeSpaceEx: $0"
+    StrCpy $1 -1
   ${EndIf}
 FunctionEnd
 
@@ -1189,33 +1076,24 @@ FunctionEnd
 
 Function un.getRegKey
   ReadRegStr $R2 HKCU "Software\${MANUFACTURER}\${PRODUCT_REG_VER}" ""
-  StrCpy $R2 "$R2\bin"
-  StrCmp $R2 $INSTDIR HKCU admin
-HKCU:
-  StrCpy $baseRegKey "HKCU"
-  Goto Done
-admin:
-  ReadRegStr $R2 HKLM "Software\${MANUFACTURER}\${PRODUCT_REG_VER}" ""
-  StrCpy $R2 "$R2\bin"
-  StrCmp $R2 $INSTDIR HKLM cant_find_installation
-HKLM:
-  StrCpy $baseRegKey "HKLM"
-  Goto Done
-
-cant_find_installation:
-; compare installdir with default user location
-  ${UnStrStr} $R0 $INSTDIR "$LOCALAPPDATA\${MANUFACTURER}"
-  StrCmp $R0 $INSTDIR HKCU 0
-
-; compare installdir with default admin location
-  ${UnStrStr} $R0 $INSTDIR $PROGRAMFILES64
-  StrCmp $R0 $INSTDIR HKLM undefined_location
-
-; installdir does not contain known default locations
-undefined_location:
-  Goto HKLM
-
-Done:
+  ${If} "$R2\bin" == $INSTDIR
+    StrCpy $baseRegKey "HKCU"
+  ${Else}
+    ReadRegStr $R2 HKLM "Software\${MANUFACTURER}\${PRODUCT_REG_VER}" ""
+    ${If} "$R2\bin" == $INSTDIR
+      StrCpy $baseRegKey "HKLM"
+    ${Else}
+      ; registry key is missing; compare $INSTDIR with default user locations
+      ${UnStrStr} $R0 $INSTDIR "$LOCALAPPDATA\${MANUFACTURER}"
+      ${UnStrStr} $R1 $INSTDIR "$LOCALAPPDATA\Programs"
+      ${If} $R0 == $INSTDIR
+      ${OrIf} $R1 == $INSTDIR
+        StrCpy $baseRegKey "HKCU"
+      ${Else}
+        StrCpy $baseRegKey "HKLM"  ; undefined location
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
 FunctionEnd
 
 
@@ -1224,83 +1102,68 @@ Function un.onUninstSuccess
 FunctionEnd
 
 
+; do not ask user for uninstall feedback if started from another installation
 Function un.UninstallFeedback
-; do not ask user about UNINSTALL FEEDBACK if uninstallation was run from another installation
-  Push $R0
-  Push $R1
   ${GetParameters} $R0
   ClearErrors
   ${GetOptions} $R0 /NO_UNINSTALL_FEEDBACK= $R1
-  IfErrors done
-  !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 6" "State" "0"
-done:
-  Pop $R1
-  Pop $R0
-  ClearErrors
+  ${IfNot} ${Errors}
+    !insertmacro INSTALLOPTIONS_WRITE "DeleteSettings.ini" "Field 6" "State" "0"
+  ${EndIf}
 FunctionEnd
 
 
 Function un.onInit
   SetRegView 64
 
-  !insertmacro INSTALLOPTIONS_EXTRACT "DeleteSettings.ini"
-  Call un.UninstallFeedback
-
-; Uninstallation was run from installation dir?
-  IfFileExists "$INSTDIR\fsnotifier.exe" 0 end_of_uninstall
-  IfFileExists "$INSTDIR\${PRODUCT_EXE_FILE}" 0 end_of_uninstall
+  ; checking that the uninstaller is in the expected location ("...\bin" subdirectory)
+  ${IfNot} ${FileExists} "$INSTDIR\fsnotifier.exe"
+  ${OrIfNot} ${FileExists} "$INSTDIR\${PRODUCT_EXE_FILE}"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(uninstaller_relocated)"
+    Abort
+  ${EndIf}
 
   Call un.getRegKey
-  StrCmp $baseRegKey "HKLM" uninstall_location UAC_Done
+  ${If} $baseRegKey == "HKLM"
+    ; checking that the uninstaller is running from the product location
+    IfFileExists $LOCALAPPDATA\${PRODUCT_PATHS_SELECTOR}_${VER_BUILD}_Uninstall.exe UAC_Elevate required_admin_perm
 
-uninstall_location:
-  ;check if the uninstallation is running from the product location
-  IfFileExists $LOCALAPPDATA\${PRODUCT_PATHS_SELECTOR}_${VER_BUILD}_Uninstall.exe UAC_Elevate required_admin_perm
+  required_admin_perm:
+    ; does the user have admin rights?
+    UserInfo::GetAccountType
+    Pop $R2
+    StrCmp $R2 "Admin" UAC_Admin
 
-required_admin_perm:
-  ;the user has admin rights?
-  UserInfo::GetAccountType
-  Pop $R2
-  StrCmp $R2 "Admin" UAC_Admin copy_uninstall
+    StrCpy $R0 "$LOCALAPPDATA\${PRODUCT_PATHS_SELECTOR}_${VER_BUILD}_Uninstall.exe"
+    CopyFiles "$OUTDIR\Uninstall.exe" "$R0"
+    ${If} ${Silent}
+      ExecWait '$R0 /S _?=$INSTDIR'
+    ${Else}
+      ExecWait '$R0 _?=$INSTDIR'
+    ${EndIf}
+    Delete "$R0"
+    RMDir "$INSTDIR\bin"
+    RMDir "$INSTDIR"
+    Quit
 
-copy_uninstall:
-  ;do copy for unistall.exe
-  CopyFiles "$OUTDIR\Uninstall.exe" "$LOCALAPPDATA\${PRODUCT_PATHS_SELECTOR}_${VER_BUILD}_Uninstall.exe"
-  IfSilent uninstall_silent_mode uninstall_gui_mode
+  UAC_Elevate:
+    !insertmacro UAC_RunElevated
+    StrCmp 1223 $0 UAC_ElevationAborted ; UAC dialog aborted by user? - continue install under user
+    StrCmp 0 $0 0 UAC_Err ; Error?
+    StrCmp 1 $1 0 UAC_Success ;Are we the real deal or just the wrapper?
+    Quit
+  UAC_ElevationAborted:
+  UAC_Err:
+    Abort
+  UAC_Success:
+    StrCmp 1 $3 UAC_Admin ;Admin?
+    StrCmp 3 $1 0 UAC_ElevationAborted ;Try again?
+    goto UAC_Elevate
+  UAC_Admin:
+    SetShellVarContext all
+    StrCpy $baseRegKey "HKLM"
+  ${EndIf}
 
-uninstall_silent_mode:
-  ExecWait '"$LOCALAPPDATA\${PRODUCT_PATHS_SELECTOR}_${VER_BUILD}_Uninstall.exe" /S _?=$INSTDIR'
-  Goto delete_uninstaller_itself
-uninstall_gui_mode:
-  ExecWait '"$LOCALAPPDATA\${PRODUCT_PATHS_SELECTOR}_${VER_BUILD}_Uninstall.exe" _?=$INSTDIR'
-
-delete_uninstaller_itself:
-  Delete "$LOCALAPPDATA\${PRODUCT_PATHS_SELECTOR}_${VER_BUILD}_Uninstall.exe"
-  RMDir "$INSTDIR\bin"
-  RMDir "$INSTDIR"
-  Quit
-
-UAC_Elevate:
-  !insertmacro UAC_RunElevated
-  StrCmp 1223 $0 UAC_ElevationAborted ; UAC dialog aborted by user? - continue install under user
-  StrCmp 0 $0 0 UAC_Err ; Error?
-  StrCmp 1 $1 0 UAC_Success ;Are we the real deal or just the wrapper?
-  Quit
-UAC_ElevationAborted:
-UAC_Err:
-  Abort
-UAC_Success:
-  StrCmp 1 $3 UAC_Admin ;Admin?
-  StrCmp 3 $1 0 UAC_ElevationAborted ;Try again?
-  goto UAC_Elevate
-UAC_Admin:
-  SetShellVarContext all
-  StrCpy $baseRegKey "HKLM"
-  Goto UAC_Done
-end_of_uninstall:
-  MessageBox MB_OK|MB_ICONEXCLAMATION "$(uninstaller_relocated)"
-  Abort
-UAC_Done:
   ${If} $Language == ${LANG_SIMPCHINESE}
     System::Call "kernel32::GetUserDefaultUILanguage() h .r10"
     ${If} $R0 != ${LANG_SIMPCHINESE}
@@ -1308,6 +1171,9 @@ UAC_Done:
     ${EndIf}
   ${EndIf}
   ;!insertmacro MUI_UNGETLANGUAGE
+
+  !insertmacro INSTALLOPTIONS_EXTRACT "DeleteSettings.ini"
+  Call un.UninstallFeedback
 FunctionEnd
 
 

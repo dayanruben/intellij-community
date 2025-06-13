@@ -9,7 +9,6 @@ import com.intellij.polySymbols.documentation.PolySymbolWithDocumentation
 import com.intellij.polySymbols.documentation.impl.PolySymbolDocumentationTargetImpl
 import com.intellij.polySymbols.js.JS_PROPERTIES
 import com.intellij.polySymbols.js.JS_STRING_LITERALS
-import com.intellij.polySymbols.js.JsSymbolSymbolKind
 import com.intellij.polySymbols.search.PsiSourcedPolySymbol
 import com.intellij.psi.PsiElement
 
@@ -32,33 +31,6 @@ interface WebTypesSymbol : PsiSourcedPolySymbol, PolySymbolWithDocumentation {
     @JvmField
     val PROP_NO_DOC: PolySymbolProperty<Boolean> = PolySymbolProperty["ij-no-doc"]
 
-    /**
-     * Name of boolean property used by `css/pseudo-elements` and `css/pseudo-classes` symbols
-     * to specify whether they require arguments. Defaults to false.
-     **/
-    @JvmField
-    val PROP_ARGUMENTS: PolySymbolProperty<Any> = PolySymbolProperty["arguments"]
-
-    /**
-     * Name of boolean property used by `js/properties` symbols to specify whether
-     * the property is read-only. Defaults to false.
-     **/
-    @JvmField
-    val PROP_READ_ONLY: PolySymbolProperty<Boolean> = PolySymbolProperty["read-only"]
-
-    /**
-     * Name of [JsSymbolSymbolKind] property used by `js/symbols` symbols to specify kind of the JS symbol.
-     * By default, JS symbol is treated as [JsSymbolSymbolKind.Variable].
-     **/
-    @JvmField
-    val PROP_KIND: PolySymbolProperty<JsSymbolSymbolKind> = PolySymbolProperty["kind"]
-
-    /**
-     * Name of [JsSymbolSymbolKind] property used by other symbols to specify kind of the JS symbol.
-     * By default, JS symbol is treated as [JsSymbolSymbolKind.Variable].
-     **/
-    @JvmField
-    val PROP_JS_SYMBOL_KIND: PolySymbolProperty<String> = PolySymbolProperty["js-symbol-kind"]
   }
 
   sealed interface Location
@@ -143,3 +115,4 @@ private data class FileOffsetData(
   override val offset: Int,
   override val context: List<VirtualFile>,
 ) : WebTypesSymbol.FileOffset
+

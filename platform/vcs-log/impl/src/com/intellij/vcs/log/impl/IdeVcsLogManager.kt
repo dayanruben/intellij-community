@@ -3,20 +3,17 @@ package com.intellij.vcs.log.impl
 
 import com.intellij.openapi.application.EdtImmediate
 import com.intellij.openapi.application.UiImmediate
-import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.platform.util.coroutines.childScope
-import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.vcs.log.Hash
 import com.intellij.vcs.log.VcsLogFilterCollection
 import com.intellij.vcs.log.VcsLogProvider
 import com.intellij.vcs.log.VcsLogUi
-import com.intellij.vcs.log.data.VcsLogStorageImpl
 import com.intellij.vcs.log.impl.VcsLogNavigationUtil.showCommit
 import com.intellij.vcs.log.impl.VcsLogNavigationUtil.showCommitSync
 import com.intellij.vcs.log.ui.MainVcsLogUi
@@ -25,7 +22,6 @@ import com.intellij.vcs.log.visible.filters.VcsLogFilterObject
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus.Internal
-import java.util.function.BiConsumer
 
 internal class IdeVcsLogManager(
   project: Project,
@@ -33,9 +29,9 @@ internal class IdeVcsLogManager(
   private val mainUiHolderState: StateFlow<IdeVcsProjectLog.MainUiHolder?>,
   uiProperties: VcsLogProjectTabsProperties,
   logProviders: Map<VirtualFile, VcsLogProvider>,
-  recreateHandler: BiConsumer<in VcsLogErrorHandler.Source, in Throwable>,
+  errorHandler: ((VcsLogErrorHandler.Source, Throwable) -> Unit)?,
 ) : VcsLogManager(project, uiProperties, logProviders, getProjectLogName(logProviders),
-                  VcsLogSharedSettings.isIndexSwitchedOn(project), recreateHandler) {
+                  VcsLogSharedSettings.isIndexSwitchedOn(project), errorHandler) {
   private val tabsManager = VcsLogTabsManager(project, uiProperties, this)
 
   private lateinit var mainUiCs: CoroutineScope
@@ -196,17 +192,6 @@ internal class IdeVcsLogManager(
       Disposer.dispose(it)
     }
     super.disposeUi()
-  }
-
-  @RequiresBackgroundThread
-  override fun disposeData() {
-    super.disposeData()
-
-    val storageImpl = dataManager.storage as? VcsLogStorageImpl ?: return
-    if (!storageImpl.isDisposed) {
-      thisLogger().error("Storage for $name was not disposed")
-      Disposer.dispose(storageImpl)
-    }
   }
 
   fun toolWindowShown(toolWindow: ToolWindow) {

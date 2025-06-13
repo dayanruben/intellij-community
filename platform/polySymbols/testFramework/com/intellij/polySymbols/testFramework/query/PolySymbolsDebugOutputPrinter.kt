@@ -6,8 +6,11 @@ import com.intellij.polySymbols.PolySymbolApiStatus
 import com.intellij.polySymbols.PolySymbolNameSegment
 import com.intellij.polySymbols.PolySymbolProperty
 import com.intellij.polySymbols.completion.PolySymbolCodeCompletionItem
+import com.intellij.polySymbols.css.PROP_CSS_ARGUMENTS
 import com.intellij.polySymbols.documentation.PolySymbolWithDocumentation
 import com.intellij.polySymbols.html.PolySymbolHtmlAttributeValue
+import com.intellij.polySymbols.html.htmlAttributeValue
+import com.intellij.polySymbols.js.PROP_JS_SYMBOL_KIND
 import com.intellij.polySymbols.search.PsiSourcedPolySymbol
 import com.intellij.polySymbols.testFramework.DebugOutputPrinter
 import com.intellij.polySymbols.utils.completeMatch
@@ -24,8 +27,7 @@ open class PolySymbolsDebugOutputPrinter : DebugOutputPrinter() {
   protected open val propertiesToPrint: List<PolySymbolProperty<*>> =
     listOf(
       PolySymbol.PROP_HIDE_FROM_COMPLETION, PolySymbol.PROP_DOC_HIDE_PATTERN, PolySymbol.PROP_INJECT_LANGUAGE,
-      WebTypesSymbol.PROP_ARGUMENTS, WebTypesSymbol.PROP_JS_SYMBOL_KIND, WebTypesSymbol.PROP_KIND,
-      WebTypesSymbol.PROP_NO_DOC, WebTypesSymbol.PROP_READ_ONLY
+      PROP_CSS_ARGUMENTS, PROP_JS_SYMBOL_KIND, WebTypesSymbol.PROP_NO_DOC,
     )
 
   override fun printValueImpl(builder: StringBuilder, level: Int, value: Any?): StringBuilder =
@@ -77,8 +79,8 @@ open class PolySymbolsDebugOutputPrinter : DebugOutputPrinter() {
       }
       printProperty(level, "origin", "${source.origin.library}@${source.origin.version} (${source.origin.framework ?: "<none>"})")
       printProperty(level, "source", (source as? PsiSourcedPolySymbol)?.source)
-      printProperty(level, "type", source.type)
-      printProperty(level, "attrValue", source.attributeValue)
+      printProperty(level, "type", source.origin.typeSupport?.typeProperty?.let { source[it] })
+      printProperty(level, "attrValue", source.htmlAttributeValue)
       printProperty(level, "complete", source.completeMatch)
       if (source is PolySymbolWithDocumentation) {
         printProperty(level, "description", source.description?.ellipsis(45))

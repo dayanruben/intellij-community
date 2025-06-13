@@ -12,7 +12,6 @@ import com.intellij.platform.backend.documentation.DocumentationTarget
 import com.intellij.platform.backend.navigation.NavigationTarget
 import com.intellij.platform.backend.presentation.TargetPresentation
 import com.intellij.polySymbols.context.PolyContext
-import com.intellij.polySymbols.html.PolySymbolHtmlAttributeValue
 import com.intellij.polySymbols.patterns.PolySymbolsPattern
 import com.intellij.polySymbols.query.PolySymbolMatch
 import com.intellij.polySymbols.query.PolySymbolsQueryExecutor
@@ -85,16 +84,6 @@ interface PolySymbol : PolySymbolsScope, Symbol, NavigatableSymbol, PolySymbolsP
     get() = null
 
   /**
-   * The type of the symbol. The type can be interpreted only within the context of symbol origin
-   * and in regard to its namespace and kind. The type may be a language type,
-   * coming from e.g. Java or TypeScript, or it may be any arbitrary value.
-   * Usually a type would be associated with symbols, which can hold a value,
-   * or represent some language symbol, like class, method, etc.
-   */
-  val type: Any?
-    get() = null
-
-  /**
    * Whether this symbol is required. What "is required" means, depends on the symbol.
    * For instance, for an HTML attribute it would mean that the attribute is required to be present
    * for the particular HTML element. For JavaScript property is would mean that it is not optional,
@@ -114,12 +103,6 @@ interface PolySymbol : PolySymbolsScope, Symbol, NavigatableSymbol, PolySymbolsP
    */
   val apiStatus: PolySymbolApiStatus
     get() = PolySymbolApiStatus.Stable
-
-  /**
-   * A special property to support symbols representing HTML attributes.
-   */
-  val attributeValue: PolySymbolHtmlAttributeValue?
-    get() = null
 
   /**
    * The pattern to match names against. As a result of pattern matching a [PolySymbolMatch] will be created.

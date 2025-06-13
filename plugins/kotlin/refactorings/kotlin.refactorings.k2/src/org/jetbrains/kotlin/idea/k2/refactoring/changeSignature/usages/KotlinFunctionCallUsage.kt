@@ -17,6 +17,7 @@ import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAct
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
 import org.jetbrains.kotlin.analysis.api.resolution.*
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.asJava.toLightMethods
@@ -46,6 +47,7 @@ import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelector
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.isTopLevelKtOrJavaMember
 import org.jetbrains.kotlin.psi.psiUtil.parameterIndex
+import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
 import org.jetbrains.kotlin.utils.sure
@@ -119,7 +121,7 @@ internal class KotlinFunctionCallUsage(
                     val replacement = when (symbol) {
                         is KaReceiverParameterSymbol -> symbol.containingSymbol?.name?.asString()?.let { "this@$it" } ?: "this"
 
-                        is KaContextParameterSymbol -> symbol.name.takeUnless { it.isSpecial }?.toString()
+                        is KaContextParameterSymbol -> symbol.name.takeUnless { it.isSpecial }?.toString() ?: "contextOf<${symbol.returnType.render(KaTypeRendererForSource.WITH_SHORT_NAMES, position = Variance.IN_VARIANCE)}>()"
 
                         else -> null
                     } ?: return@forEachIndexed
@@ -325,7 +327,7 @@ internal class KotlinFunctionCallUsage(
         var firstNamedIndex = newArgumentInfos.firstOrNull {
             !canMixArguments && it.wasNamed ||
                     it.parameter.isNewParameter && it.parameter.defaultValue != null ||
-                    it.resolvedArgument is KtValueArgument && it.parameterIndex < lastParameterIndex //todo varargs
+                    it.shouldSkip()
         }?.parameterIndex
 
         if (firstNamedIndex == null) {
@@ -382,7 +384,7 @@ internal class KotlinFunctionCallUsage(
                 val defaultValueForCall = newReceiverInfo.defaultValueForCall
                 receiverArgument?.let { psiFactory.createExpression(it.text) }
                     ?: defaultValueForCall
-                    ?: psiFactory.createExpression("contextOf()").takeIf { newReceiverInfo.wasContextParameter }
+                    ?: psiFactory.createExpression("contextOf<${newReceiverInfo.currentType.text}>()").takeIf { newReceiverInfo.wasContextParameter && newReceiverInfo.currentType.text != null }
                     ?: psiFactory.createExpression("_")
             } else {
                 null
