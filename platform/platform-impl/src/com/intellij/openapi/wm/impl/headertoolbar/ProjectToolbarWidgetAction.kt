@@ -41,6 +41,9 @@ import com.intellij.util.ui.*
 import com.intellij.util.ui.accessibility.AccessibleContextUtil
 import kotlinx.coroutines.awaitCancellation
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Nls
+import org.jetbrains.annotations.NonNls
+import org.jetbrains.annotations.SystemIndependent
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.event.ComponentAdapter
@@ -59,8 +62,14 @@ private val projectKey = Key.create<Project>("project-widget-project")
 internal class DefaultOpenProjectSelectionPredicateSupplier : OpenProjectSelectionPredicateSupplier {
   override fun getPredicate(): Predicate<AnAction> {
     val openProjects = ProjectUtilCore.getOpenProjects()
-    val paths = openProjects.map { it.basePath }
-    return Predicate { action -> (action as? ReopenProjectAction)?.projectPath in paths }
+    val paths: List<@SystemIndependent @NonNls String?> = openProjects.map { it.basePath }
+    return Predicate { action ->
+      when (action) {
+        is ReopenProjectAction -> action.projectPath in paths
+        is ProjectToolbarWidgetPresentable -> action.status?.isOpened == true
+        else -> false
+      }
+    }
   }
 }
 
@@ -320,10 +329,20 @@ private class ProjectWidgetRenderer : ListCellRenderer<PopupFactoryImpl.ActionIt
                   foreground = if (isSelected) NamedColorUtil.getListSelectionForeground(true) else UIUtil.getListForeground()
                 }.component
 
-              if (action.isProjectOpening) {
+              val projectStatus = action.status
+              if (projectStatus?.statusText != null) {
+                label(projectStatus.statusText)
+                  .customize(rowGaps.copy(left = 4, right = 8))
+                  .applyToComponent {
+                    font = JBFont.smallOrNewUiMedium()
+                    foreground = UIUtil.getLabelInfoForeground()
+                  }
+              }
+
+              if (projectStatus?.progressText != null) {
                 panel {
                   row {
-                    label(UIBundle.message("project.widget.opening.project.progress.text"))
+                    label(projectStatus.progressText)
                       .align(AlignY.CENTER)
                       .applyToComponent {
                         icon = AnimatedIcon.Default.INSTANCE
@@ -368,6 +387,19 @@ private class ProjectWidgetRenderer : ListCellRenderer<PopupFactoryImpl.ActionIt
                   }.component
               }
             }
+          }
+
+          val hasSubstep = value.isEnabled && action is ActionGroup && !value.isSubstepSuppressed
+          if (hasSubstep) {
+            panel {
+              row {
+                val arrow = if (isSelected) AllIcons.Icons.Ide.MenuArrowSelected else AllIcons.Icons.Ide.MenuArrow
+                icon(arrow)
+                  .customize(rowGaps.copy(left = 6))
+              }
+            }
+              .align(AlignX.RIGHT)
+              .align(AlignY.TOP)
           }
         }
       }
@@ -416,6 +448,7 @@ private fun createSeparator(separator: ListSeparator, hideLine: Boolean): JCompo
 }
 
 
+@JvmDefaultWithCompatibility
 interface ProjectToolbarWidgetPresentable {
   val projectNameToDisplay: @NlsSafe String
   val providerPathToDisplay: @NlsSafe String? get() = null
@@ -426,8 +459,20 @@ interface ProjectToolbarWidgetPresentable {
   val activationTimestamp: Long?
 
   @get:ApiStatus.Internal
-  val isProjectOpening: Boolean get() = false
+  val status: ProjectStatus? get() = null
+
+  /**
+   * Combined info to be used, when only a single-line-label is applicable.
+   */
+  val nameToDisplayAsText: @NlsSafe String get() = projectNameToDisplay
 }
+
+@ApiStatus.Internal
+class ProjectStatus(
+  val isOpened: Boolean,
+  val statusText: @Nls String?,
+  val progressText: @Nls String?,
+)
 
 private fun MutableList<in Icon>.addGap() {
   add(EmptyIcon.create(BETWEEN_ICONS_GAP, 1))

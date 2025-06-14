@@ -7,6 +7,7 @@ import org.jetbrains.annotations.Contract
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.PropertyKey
+import kotlin.jvm.JvmStatic
 
 /**
  * Represents Java language, JVM, or standard library features and provides information
@@ -199,7 +200,7 @@ enum class JavaFeature {
     get() = if (minimumLevel.isPreview) null else this.minimumLevel
 
   companion object {
-    // Should correspond to jdk.internal.javac.PreviewFeature.Feature enum
+    // Values taken from jdk.internal.javac.PreviewFeature.Feature enum
     @Contract(pure = true)
     @JvmStatic
     fun convertFromPreviewFeatureName(feature: @NonNls String): JavaFeature? {
@@ -216,6 +217,7 @@ enum class JavaFeature {
         "STREAM_GATHERERS" -> STREAM_GATHERERS
         "FOREIGN" -> FOREIGN_FUNCTIONS
         "VIRTUAL_THREADS" -> VIRTUAL_THREADS
+        "MODULE_IMPORTS" -> MODULE_IMPORT_DECLARATIONS
         else -> null
       }
     }

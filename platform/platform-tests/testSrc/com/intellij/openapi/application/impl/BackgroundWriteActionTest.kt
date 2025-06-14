@@ -9,6 +9,7 @@ import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.platform.locking.impl.getGlobalThreadingSupport
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.application
@@ -470,13 +471,17 @@ class BackgroundWriteActionTest {
   @Test
   fun `prevention of WA is thread-local`(): Unit = concurrencyTest {
     launch {
-      getGlobalThreadingSupport().prohibitWriteActionsInside().use {
+      val cleanup = getGlobalThreadingSupport().prohibitWriteActionsInside()
+      try {
         checkpoint(1)
         checkpoint(4)
         assertThrows<IllegalStateException> {
           application.runWriteAction { }
         }
         checkpoint(5)
+      }
+      finally {
+        cleanup()
       }
     }
     launch {

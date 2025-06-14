@@ -36,8 +36,10 @@ import java.awt.event.WindowEvent
 import javax.accessibility.AccessibleContext
 import javax.swing.JComponent
 import javax.swing.JFrame
+import javax.swing.JPanel
 import javax.swing.JRootPane
 import javax.swing.SwingUtilities
+import javax.swing.ToolTipManager
 import kotlin.math.abs
 
 @ApiStatus.Internal
@@ -172,7 +174,7 @@ class IdeFrameImpl : JFrame(), IdeFrame, UiDataProvider, DisposableWindow {
   fun doDispose() {
     EdtInvocationManager.invokeLaterIfNeeded {
       Disposer.dispose(mouseActivationWatcher)
-      fixDragRecognitionSupportLeak()
+      fixSwingLeaks()
       // must be called in addition to the `dispose`, otherwise not removed from `Window.allWindows` list.
       isVisible = false
       super.dispose()
@@ -309,24 +311,37 @@ private class EventLogger(private val frame: IdeFrameImpl, private val log: Logg
   }
 }
 
+private fun fixSwingLeaks() {
+  fixDragRecognitionSupportLeak()
+  fixTooltipManagerLeak()
+}
+
 private fun fixDragRecognitionSupportLeak() {
   // sending a "mouse release" event to any DnD-supporting component indirectly calls javax.swing.plaf.basic.DragRecognitionSupport.clearState,
   // cleaning up the potential leak (that can happen if the user started dragging something and released the mouse outside the component)
   val fakeTree = object : Tree() {
     fun releaseDND() {
-      processMouseEvent(MouseEvent(
-        this,
-        MouseEvent.MOUSE_RELEASED,
-        System.currentTimeMillis(),
-        0,
-        0,
-        0,
-        1,
-        false,
-        MouseEvent.BUTTON1
-      ))
+      processMouseEvent(mouseEvent(this, MouseEvent.MOUSE_RELEASED))
     }
   }
   fakeTree.dragEnabled = true
   fakeTree.releaseDND()
 }
+
+private fun fixTooltipManagerLeak() {
+  val fakeComponent = JPanel()
+  ToolTipManager.sharedInstance().mousePressed(mouseEvent(fakeComponent, MouseEvent.MOUSE_PRESSED))
+}
+
+private fun mouseEvent(source: Component, id: Int) = MouseEvent(
+  source,
+  id,
+  System.currentTimeMillis(),
+  0,
+  0,
+  0,
+  1,
+  false,
+  MouseEvent.BUTTON1
+)
+

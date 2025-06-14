@@ -3,7 +3,7 @@ package com.intellij.ui.mac
 
 import com.intellij.ide.DataManager
 import com.intellij.ide.RecentProjectListActionProvider
-import com.intellij.ide.ReopenProjectAction
+import com.intellij.ide.RemoteRecentProjectAction
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.ex.ActionUtil
@@ -40,12 +40,10 @@ internal class MacDockDelegate private constructor(private val recentProjectsMen
   override fun updateRecentProjectsMenu() {
     recentProjectsMenu.removeAll()
     for (action in RecentProjectListActionProvider.getInstance().getActions(addClearListItem = false)) {
-      val displayName = when (action) {
-        is ReopenProjectAction -> action.projectDisplayName
-        is ProjectToolbarWidgetPresentable -> action.projectNameToDisplay
-        else -> continue
-      }
-      val menuItem = MenuItem(displayName)
+      if (action !is ProjectToolbarWidgetPresentable) continue
+      if (action is RemoteRecentProjectAction && !action.canOpenProject()) continue // AnAction.update is ignored for dock actions
+
+      val menuItem = MenuItem(action.nameToDisplayAsText)
       menuItem.addActionListener {
         // The newly opened project won't become an active window if another application is currently active.
         // This is not what user expects, so we activate our application explicitly.

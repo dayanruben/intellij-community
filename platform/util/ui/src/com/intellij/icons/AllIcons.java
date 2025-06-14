@@ -541,6 +541,7 @@ public class AllIcons {
     /** 16x16 */ public static final @NotNull Icon HideToolWindow = load("expui/general/hide.svg", "general/hideToolWindow.svg", -24888126, 2);
     /** 16x16 */ public static final @NotNull Icon History = load("expui/general/history.svg", -1313586434, 2);
     /** 16x16 */ public static final @NotNull Icon ImplementingMethod = load("expui/general/showToImplement.svg", "general/implementingMethod.svg", -286814761, 1);
+    /** 16x16 */ public static final @NotNull Icon IndentDetected = load("expui/general/indentDetected.svg", 1513743707, 2);
     /** 16x16 */ public static final @NotNull Icon Information = load("expui/status/info.svg", "general/information.svg", 45152184, 0);
     /** 32x32 */ public static final @NotNull Icon InformationDialog = load("expui/general/informationDialog.svg", "general/informationDialog.svg", -143059635, 0);
     /** 16x16 */ public static final @NotNull Icon InheritedMethod = load("expui/hierarchy/classHierarchy.svg", "general/inheritedMethod.svg", 2120980341, 0);
@@ -705,6 +706,7 @@ public class AllIcons {
     /** 14x14 */ public static final @NotNull Icon ExternalLinkArrowWhite = load("expui/ide/externalLinkWhite.svg", "ide/externalLinkArrowWhite.svg", 555726287, 0);
     /** 16x16 */ public static final @NotNull Icon FatalErrorRead = load("expui/status/errorOutline.svg", "ide/fatalError-read.svg", -2061937514, 2);
     /** 16x16 */ public static final @NotNull Icon FatalError = load("expui/status/error.svg", "ide/fatalError.svg", -1290263519, 2);
+    /** 16x16 */ public static final @NotNull Icon Feedback = load("ide/feedback.svg", -1579460810, 2);
     /** 32x32 */ public static final @NotNull Icon FeedbackRating = load("expui/ide/feedbackRating.svg", "ide/feedbackRating.svg", 2100656760, 2);
     /** 32x32 */ public static final @NotNull Icon FeedbackRatingFocused = load("expui/ide/feedbackRatingFocused.svg", "ide/feedbackRatingFocused.svg", -49762505, 2);
     /** 32x32 */ public static final @NotNull Icon FeedbackRatingFocusedOn = load("expui/ide/feedbackRatingFocusedOn.svg", "ide/feedbackRatingFocusedOn.svg", 1557121691, 2);

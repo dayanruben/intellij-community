@@ -2,10 +2,13 @@
 package com.intellij.ide
 
 import com.intellij.ide.impl.ProjectUtilCore
+import com.intellij.openapi.actionSystem.ActionGroup
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
@@ -13,11 +16,13 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.NaturalComparator
+import com.intellij.openapi.wm.impl.headertoolbar.ProjectStatus
 import com.intellij.openapi.wm.impl.headertoolbar.ProjectToolbarWidgetPresentable
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.ProjectsGroupItem
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.ProviderRecentProjectItem
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectItem
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectTreeItem
+import com.intellij.ui.UIBundle
 import org.jetbrains.annotations.ApiStatus
 import javax.swing.Icon
 
@@ -219,6 +224,7 @@ open class RecentProjectListActionProvider {
   private fun createActionsFromProvider(provider: RecentProjectProvider): List<AnAction> {
     return provider.getRecentProjects().map { project ->
       val projectId = getProviderProjectId(provider, project)
+
       RemoteRecentProjectAction(projectId, project)
     }
   }
@@ -300,17 +306,37 @@ private class ProjectGroupComparator(private val projectPaths: Set<String>) : Co
   }
 }
 
-private class RemoteRecentProjectAction(val projectId: String, val project: RecentProject) : DumbAwareAction(), ProjectToolbarWidgetPresentable {
+internal class RemoteRecentProjectAction(val projectId: String, val project: RecentProject) : ActionGroup(), DumbAware, ProjectToolbarWidgetPresentable {
   init {
-    var text = project.displayName
-    if (project.providerName != null) text += " [${project.providerName}]"
-    if (project.branchName != null) text += " [${project.branchName}]"
-    templatePresentation.text = text
+    templatePresentation.text = nameToDisplayAsText
+  }
+
+  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+  override fun update(e: AnActionEvent) {
+    e.presentation.isPerformGroup = project.additionalActions.isEmpty()
+    e.presentation.isPopupGroup = true
+  }
+
+  override fun getChildren(e: AnActionEvent?): Array<out AnAction> {
+    val additionalActions = project.additionalActions
+    if (additionalActions.isEmpty()) return EMPTY_ARRAY
+
+    val result = mutableListOf<AnAction>()
+    if (project.canOpenProject()) {
+      result += DumbAwareAction.create(UIBundle.message("project.widget.opening.project.group.child.action.text")) { event ->
+        project.openProject(event)
+      }
+    }
+    result += additionalActions
+    return result.toTypedArray()
   }
 
   override fun actionPerformed(e: AnActionEvent) {
     project.openProject(e)
   }
+
+  fun canOpenProject() : Boolean = project.canOpenProject()
 
   override val projectNameToDisplay: @NlsSafe String = project.displayName
   override val providerPathToDisplay: @NlsSafe String? get() = project.providerPath
@@ -322,7 +348,19 @@ private class RemoteRecentProjectAction(val projectId: String, val project: Rece
   override val providerIcon: Icon? get() = project.providerIcon
   override val activationTimestamp: Long? get() = project.activationTimestamp
 
-  override val isProjectOpening: Boolean get() = project.projectOpenState == OpenRecentProjectStatus.Progress
+  override val status: ProjectStatus?
+    get() {
+      val status = project.status
+      return ProjectStatus(status.isOpened, status.statusText, status.progressText)
+    }
+
+  override val nameToDisplayAsText: @NlsSafe String
+    get() {
+      var text = project.displayName
+      if (project.providerName != null) text += " [${project.providerName}]"
+      if (project.branchName != null) text += " [${project.branchName}]"
+      return text
+    }
 }
 
 private fun getProviderProjectId(provider: RecentProjectProvider, project: RecentProject): String {

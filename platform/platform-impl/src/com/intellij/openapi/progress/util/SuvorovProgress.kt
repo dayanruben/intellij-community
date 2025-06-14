@@ -5,11 +5,11 @@ import com.intellij.CommonBundle
 import com.intellij.diagnostic.LoadingState
 import com.intellij.ide.IdeEventQueue
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.impl.getGlobalThreadingSupport
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.impl.fus.FreezeUiUsageCollector
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.platform.locking.impl.getGlobalThreadingSupport
 import com.intellij.util.ui.AsyncProcessIcon
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.InternalCoroutinesApi
@@ -108,7 +108,7 @@ object SuvorovProgress {
       finally {
         // we cannot acquire WI on closing
         if (progress is PotemkinProgress) {
-          progress.dialog.getPopup()?.setShouldDisposeInWriteIntentReadAction(false)
+          progress.dialog.getPopup()?.setShouldUseWriteIntentReadAction(false)
           progress.progressFinished()
           progress.processFinish()
           Disposer.dispose(progress)
@@ -223,7 +223,7 @@ private class EternalEventStealer(disposable: Disposable) {
   init {
     IdeEventQueue.getInstance().addPostEventListener(
       { event ->
-        if (enabled && EventStealer.isUrgentInvocationEvent(event)) {
+        if (enabled && event.toString().contains(",runnable=ForcedWriteActionRunnable")) {
           val specialDispatchEvent = SpecialDispatchEvent(event)
           specialEvents.add(specialDispatchEvent)
           IdeEventQueue.getInstance().doPostEvent(specialDispatchEvent, true)
