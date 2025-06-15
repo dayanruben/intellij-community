@@ -1,8 +1,5 @@
 // COMPILER_ARGUMENTS: -Xcontext-parameters
 
-/* KTIJ-34554 */
-// IGNORE_K2
-
 interface IFace {
     context(i: Int)
     fun foo(<caret>s: String, d: Double)

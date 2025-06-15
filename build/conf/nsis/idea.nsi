@@ -35,6 +35,11 @@ ${UnStrRep}
 
 Name "${MUI_PRODUCT}"
 
+OutFile "${OUT_DIR}\${OUT_FILE}.exe"
+
+!define DEFAULT_INST_DIR "$PROGRAMFILES64\${MANUFACTURER}\${INSTALL_DIR_AND_SHORTCUT_NAME}"
+InstallDir "${DEFAULT_INST_DIR}"
+
 !define /date CURRENT_YEAR "%Y"
 VIAddVersionKey /LANG=0 "CompanyName" "JetBrains s.r.o."
 VIAddVersionKey /LANG=0 "FileDescription" "${MUI_PRODUCT} Windows Installer"
@@ -131,6 +136,24 @@ ReserveFile "UninstallOldVersions.ini"
     ${EndIf}
     IntOp $3 $3 + 1
     Goto loop
+  FunctionEnd
+
+  Function ${un}adjustLanguage
+    ${If} $Language == ${LANG_SIMPCHINESE}
+      System::Call 'kernel32::GetUserDefaultUILanguage() h .r10'
+      ${If} $R0 != ${LANG_SIMPCHINESE}
+        ${LogText} "Language override: $R0 != ${LANG_SIMPCHINESE}"
+        StrCpy $Language ${LANG_ENGLISH}
+      ${EndIf}
+    ${EndIf}
+  FunctionEnd
+
+  Function ${un}postEnvChangeEvent
+    DetailPrint "Notifying applications about environment changes..."
+    ; SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)"Environment", SMTO_ABORTIFHUNG, 5000, &dwResult)
+    System::Call 'user32::SendMessageTimeout(i 0xFFFF, i 0x1A, i 0, t "Environment", i 0x2, i 1000, *i .r1) i .r0'
+    IntFmt $0 "0x%x" $0
+    DetailPrint "  SendMessageTimeout(): $0, $1"
   FunctionEnd
 !macroend
 
@@ -277,7 +300,6 @@ Page custom ConfirmDesktopShortcut
 !else
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
 !endif
-!define MUI_FINISHPAGE_REBOOTLATER_DEFAULT
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION PageFinishRun
 !insertmacro MUI_PAGE_FINISH
@@ -286,13 +308,10 @@ Page custom ConfirmDesktopShortcut
 UninstPage custom un.ConfirmDeleteSettings
 !insertmacro MUI_UNPAGE_INSTFILES
 
-OutFile "${OUT_DIR}\${OUT_FILE}.exe"
-
-InstallDir "$PROGRAMFILES64\${MANUFACTURER}\${INSTALL_DIR_AND_SHORTCUT_NAME}"
-
 Function PageFinishRun
-  IfSilent +2 +1
-  !insertmacro UAC_AsUser_ExecShell "" "${PRODUCT_EXE_FILE}" "" "$INSTDIR\bin" ""
+  ${IfNot} ${Silent}
+    !insertmacro UAC_AsUser_ExecShell "" "${PRODUCT_EXE_FILE}" "" "$INSTDIR\bin" ""
+  ${EndIf}
 FunctionEnd
 
 ;------------------------------------------------------------------------------
@@ -314,111 +333,80 @@ Function .onInstSuccess
 FunctionEnd
 
 
-function silentInstallDirValidate
-  ${If} $silentMode == "user"
-    ${StrLoc} $R0 $INSTDIR "$PROGRAMFILES\${MANUFACTURER}" ">"
-    ${If} $R0 == ""
-      ${StrLoc} $R0 $INSTDIR "$PROGRAMFILES64\${MANUFACTURER}" ">"
-      ${If} $R0 == ""
-        ${LogText} "Silent installation dir: $INSTDIR"
-        Return
-      ${EndIf}
-    ${EndIf}
-
-    ${LogText} ""
-    ${LogText} "  NOTE: Specified directory '$INSTDIR' requires administrative rights."
-    ${LogText} "  It is corresponding to the 'admin' mode in the silent config file."
-    ${LogText} "  But installation has been run in the 'user' mode. So the directory has been changed to the default: "
-    StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCT_WITH_VER}"
-    ${LogText} "  $INSTDIR "
-    ${LogText} ""
-  ${EndIf}
-FunctionEnd
-
-
 Function silentConfigReader
-  ; read Desktop.ini
   ${LogText} ""
   ${LogText} "Silent installation, options"
-  Call getInstallationOptionsPositions
   ${GetParameters} $R0
-  ClearErrors
 
+  ClearErrors
   ${GetOptions} $R0 /CONFIG= $R1
-  IfErrors no_silent_config
+  ${If} ${Errors}
+    ${LogText} "  config file was not provided"
+    ${LogText} "  defaulting to admin mode"
+    StrCpy $silentMode "admin"
+    Return
+  ${EndIf}
   ${LogText} "  config file: $R1"
 
+  ClearErrors
   ${ConfigRead} "$R1" "mode=" $R0
-  IfErrors bad_silent_config
+  ${If} ${Errors}
+    !define msg1 "How to run installation in silent mode:$\n"
+    !define msg2 "<installation> /S /CONFIG=<path to silent config with file name> /D=<install dir>$\n$\n"
+    !define msg3 "Examples:$\n"
+    !define msg4 "Installation.exe /S /CONFIG=d:\download\silent.config /D=d:\JetBrains\Product$\n"
+    !define msg5 "Run installation in silent mode with logging:$\n"
+    !define msg6 "Installation.exe /S /CONFIG=d:\download\silent.config /LOG=d:\JetBrains\install.log /D=d:\JetBrains\Product$\n"
+    MessageBox MB_OK|MB_ICONSTOP "${msg1}${msg2}${msg3}${msg4}${msg5}${msg6}"
+    ${LogText} "ERROR: silent installation: incorrect parameters."
+    Abort
+  ${EndIf}
   ${LogText} "  mode: $R0"
-  StrCpy $silentMode "user"
-  IfErrors launcher
   StrCpy $silentMode $R0
 
-launcher:
   ClearErrors
   ${ConfigRead} "$R1" "launcher64=" $R3
-  IfErrors update_PATH
-  ${LogText} "  shortcut for launcher64: $R3"
-  !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $launcherShortcut" "State" $R3
+  ${IfNot} ${Errors}
+    ${LogText} "  shortcut for launcher64: $R3"
+    !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $launcherShortcut" "State" $R3
+  ${EndIf}
 
-update_PATH:
   ClearErrors
   ${ConfigRead} "$R1" "updatePATH=" $R3
-  IfErrors update_context_menu
-  ${LogText} "  update PATH env var: $R3"
-  !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $addToPath" "Type" "checkbox"
-  !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $addToPath" "State" $R3
+  ${IfNot} ${Errors}
+    ${LogText} "  update PATH env var: $R3"
+    !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $addToPath" "Type" "checkbox"
+    !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $addToPath" "State" $R3
+  ${EndIf}
 
-update_context_menu:
   ClearErrors
   ${ConfigRead} "$R1" "updateContextMenu=" $R3
-  IfErrors associations
-  !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $updateContextMenu" "Type" "checkbox"
-  !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $updateContextMenu" "State" $R3
+  ${IfNot} ${Errors}
+    !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $updateContextMenu" "Type" "checkbox"
+    !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $updateContextMenu" "State" $R3
+  ${EndIf}
 
-associations:
-  ClearErrors
-  StrCmp "${ASSOCIATION}" "NoAssociation" done
-  !insertmacro INSTALLOPTIONS_READ $R0 "Desktop.ini" "Settings" "NumFields"
-  push "${ASSOCIATION}"
-loop:
-  call SplitStr
-  Pop $0
-  StrCmp $0 "" update_settings
-  ClearErrors
-  ${ConfigRead} "$R1" "$0=" $R3
-  IfErrors update_settings
-  IntOp $R0 $R0 + 1
-  !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $R0" "State" $R3
-  !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $R0" "Text" "$0"
-  ${LogText} "  association: $0, state: $R3"
-  goto loop
-
-update_settings:
-  !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Settings" "NumFields" "$R0"
-  goto done
-no_silent_config:
-  ${LogText} "  config file was not provided"
-  ${LogText} "  defaulting to admin mode"
-  StrCpy $silentMode "admin"
-  goto done
-bad_silent_config:
-  Call IncorrectSilentInstallParameters
-done:
-FunctionEnd
-
-
-Function IncorrectSilentInstallParameters
-  !define msg1 "How to run installation in silent mode:$\n"
-  !define msg2 "<installation> /S /CONFIG=<path to silent config with file name> /D=<install dir>$\n$\n"
-  !define msg3 "Examples:$\n"
-  !define msg4 "Installation.exe /S /CONFIG=d:\download\silent.config /D=d:\JetBrains\Product$\n"
-  !define msg5 "Run installation in silent mode with logging:$\n"
-  !define msg6 "Installation.exe /S /CONFIG=d:\download\silent.config /LOG=d:\JetBrains\install.log /D=d:\JetBrains\Product$\n"
-  MessageBox MB_OK|MB_ICONSTOP "${msg1}${msg2}${msg3}${msg4}${msg5}${msg6}"
-  ${LogText} "ERROR: silent installation: incorrect parameters."
-  Abort
+  ${If} "${ASSOCIATION}" != "NoAssociation"
+    !insertmacro INSTALLOPTIONS_READ $R0 "Desktop.ini" "Settings" "NumFields"
+    Push "${ASSOCIATION}"
+    ${Do}
+      Call SplitStr
+      Pop $0
+      ${If} $0 == ""
+        ${Break}
+      ${EndIf}
+      ClearErrors
+      ${ConfigRead} "$R1" "$0=" $R3
+      ${If} ${Errors}
+        ${Break}
+      ${EndIf}
+      IntOp $R0 $R0 + 1
+      !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $R0" "State" $R3
+      !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $R0" "Text" "$0"
+      ${LogText} "  association: $0, state: $R3"
+    ${Loop}
+    !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Settings" "NumFields" "$R0"
+  ${EndIf}
 FunctionEnd
 
 
@@ -810,7 +798,7 @@ Function updatePathEnvVar
     Return
   ${EndIf}
 
-  SetRebootFlag true
+  Call postEnvChangeEvent
 FunctionEnd
 
 
@@ -909,7 +897,7 @@ skip_ipr:
   ${EndIf}
 
   ; enabling Java assistive technologies if a screen reader is active (0x0046 = SPI_GETSCREENREADER)
-  System::Call "User32::SystemParametersInfo(i 0x0046, i 0, *i .r1, i 0) i .r0"
+  System::Call 'user32::SystemParametersInfo(i 0x0046, i 0, *i .r1, i 0) i .r0'
   ${LogText} "SystemParametersInfo(SPI_GETSCREENREADER): $0, value=$1"
   ${If} $0 <> 0
   ${AndIf} $1 == 1
@@ -951,7 +939,7 @@ skip_ipr:
 
   ; reset icon cache
   ${LogText} "Reset icon cache"
-  System::Call 'shell32.dll::SHChangeNotify(i, i, i, i) v (0x08000000, 0, 0, 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0) v'
 SectionEnd
 
 
@@ -981,6 +969,9 @@ Function .onInit
   !insertmacro INSTALLOPTIONS_EXTRACT "UninstallOldVersions.ini"
   Call getUninstallOldVersionVars
 
+  SetShellVarContext current
+  StrCpy $baseRegKey "HKCU"
+
   IfSilent silent_mode uac_elevate
 silent_mode:
   Call checkAvailableDiskSpace
@@ -991,9 +982,7 @@ silent_mode:
     Call customSilentConfigReader
   ${EndIf}
 
-  Call silentInstallDirValidate
-  StrCpy $baseRegKey "HKCU"
-  StrCmp $silentMode "admin" uac_elevate installdir_is_empty
+  StrCmp $silentMode "admin" uac_elevate check_install_dir
 
 uac_elevate:
   !insertmacro UAC_RunElevated
@@ -1005,36 +994,32 @@ uac_err:
   Abort
 uac_elevation_aborted:
   ${LogText} ""
-  ${LogText} "  NOTE: UAC elevation has been aborted. Installation dir will be changed."
+  ${LogText} "  NOTE: UAC elevation has been aborted. Installation dir might be changed."
   ${LogText} ""
-  StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${INSTALL_DIR_AND_SHORTCUT_NAME}"
-  goto installdir_is_empty
+  goto check_install_dir
 uac_success:
   StrCmp 1 $3 uac_admin ;Admin?
   StrCmp 3 $1 0 uac_elevation_aborted ;Try again?
   goto uac_elevate
 uac_admin:
-  IfSilent uac_all_users set_install_dir_admin_mode
-set_install_dir_admin_mode:
-  StrCpy $INSTDIR "$PROGRAMFILES64\${MANUFACTURER}\${INSTALL_DIR_AND_SHORTCUT_NAME}"
-uac_all_users:
   SetShellVarContext all
   StrCpy $baseRegKey "HKLM"
 
-installdir_is_empty:
+check_install_dir:
+  ${If} $baseRegKey == "HKCU"
+  ${AndIf} "$INSTDIR" == "${DEFAULT_INST_DIR}"
+    StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${INSTALL_DIR_AND_SHORTCUT_NAME}"
+  ${EndIf}
   ${If} ${Silent}
     Call OnDirectoryPageLeave ; in the silent mode, check if the installation folder is not empty
   ${EndIf}
+  ${LogText} "Root registry key: $baseRegKey"
   ${LogText} "Installation dir: $INSTDIR"
 
-  ${If} $Language == ${LANG_SIMPCHINESE}
-    System::Call "kernel32::GetUserDefaultUILanguage() h .r10"
-    ${If} $R0 != ${LANG_SIMPCHINESE}
-      ${LogText} "Language override: $R0 != ${LANG_SIMPCHINESE}"
-      StrCpy $Language ${LANG_ENGLISH}
-    ${EndIf}
+  ${IfNot} ${Silent}
+    Call adjustLanguage
+    ;!insertmacro MUI_LANGDLL_DISPLAY
   ${EndIf}
-  ;!insertmacro MUI_LANGDLL_DISPLAY
 FunctionEnd
 
 
@@ -1059,12 +1044,12 @@ FunctionEnd
 
 ; returns the amount of free space on a disk $0, in MiBs, in $1
 Function getFreeDiskSpace
-  System::Call 'Kernel32::GetDiskFreeSpaceEx(t "$0", *l.r1, *l.r2, *l.r3) i.r0'
+  System::Call 'kernel32::GetDiskFreeSpaceEx(t "$0", *l .r1, *l .r2, *l .r3) i .r0'
   ${If} $0 <> 0
     System::Int64Op $1 >>> 20  ; converting bytes to MiBs
     Pop $1
   ${Else}
-    System::Call 'Kernel32::GetLastError() i() .r0'
+    System::Call 'kernel32::GetLastError() i .r0'
     ${LogText} "GetDiskFreeSpaceEx: $0"
     StrCpy $1 -1
   ${EndIf}
@@ -1164,13 +1149,10 @@ Function un.onInit
     StrCpy $baseRegKey "HKLM"
   ${EndIf}
 
-  ${If} $Language == ${LANG_SIMPCHINESE}
-    System::Call "kernel32::GetUserDefaultUILanguage() h .r10"
-    ${If} $R0 != ${LANG_SIMPCHINESE}
-      StrCpy $Language ${LANG_ENGLISH}
-    ${EndIf}
+  ${IfNot} ${Silent}
+    Call un.adjustLanguage
+    ;!insertmacro MUI_UNGETLANGUAGE
   ${EndIf}
-  ;!insertmacro MUI_UNGETLANGUAGE
 
   !insertmacro INSTALLOPTIONS_EXTRACT "DeleteSettings.ini"
   Call un.UninstallFeedback
@@ -1305,7 +1287,7 @@ FunctionEnd
 
 
 Section "Uninstall"
-  DetailPrint "baseRegKey: $baseRegKey"
+  DetailPrint "Root registry key: $baseRegKey"
 
   ; the uninstaller is in the "...\bin" subdirectory; correcting
   ${GetParent} "$INSTDIR" $INSTDIR
@@ -1340,10 +1322,10 @@ Section "Uninstall"
     ${AndIf} $R2 != ""
       DetailPrint "Updating the 'Path' environment variable."
       WriteRegExpandStr HKCU "Environment" "Path" "$R2"
-      SetRebootFlag true
     ${EndIf}
     DetailPrint "Deleting the '${MUI_PRODUCT}' environment variable."
     DeleteRegValue HKCU "Environment" "${MUI_PRODUCT}"
+    Call un.postEnvChangeEvent
   ${EndIf}
 
   ; setting the context for `$APPDATA` and `$LOCALAPPDATA`

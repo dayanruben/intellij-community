@@ -2,7 +2,6 @@
 package com.intellij.openapi.application
 
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
-import kotlinx.coroutines.Deferred
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Contract
 import org.jetbrains.annotations.TestOnly
@@ -185,44 +184,11 @@ interface ThreadingSupport {
    */
   fun prohibitWriteActionsInside(): CleanupAction
 
-  /**
-   * Adds a [LockAcquisitionListener].
-   *
-   * Only one listener can be set. It is an error to set the second listener.
-   *
-   * @param listener the listener to set
-   */
-  @ApiStatus.Internal
-  fun setLockAcquisitionListener(listener: LockAcquisitionListener)
-
-  @ApiStatus.Internal
-  fun setLockAcquisitionInterceptor(consumer: (Deferred<*>) -> Unit)
-
-  @ApiStatus.Internal
-  fun removeLockAcquisitionInterceptor()
-
   @ApiStatus.Internal
   fun setWriteLockReacquisitionListener(listener: WriteLockReacquisitionListener)
 
   @ApiStatus.Internal
   fun removeWriteLockReacquisitionListener(listener: WriteLockReacquisitionListener)
-
-  @ApiStatus.Internal
-  fun setLegacyIndicatorProvider(provider: LegacyProgressIndicatorProvider)
-
-  @ApiStatus.Internal
-  fun removeLegacyIndicatorProvider(provider: LegacyProgressIndicatorProvider)
-
-
-  /**
-   * Removes a [LockAcquisitionListener].
-   *
-   * It is error to remove listener which was not set early.
-   *
-   * @param listener the listener to remove
-   */
-  @ApiStatus.Internal
-  fun removeLockAcquisitionListener(listener: LockAcquisitionListener)
 
   /**
    * Prevents any attempt to use R/W locks inside [action].

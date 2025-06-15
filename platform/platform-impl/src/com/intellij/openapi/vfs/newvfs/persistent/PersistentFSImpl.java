@@ -1674,7 +1674,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     }
 
     if (attributes == null || !attributes.isDirectory()) {
-      //FIXME RC: put special sentinel value into myRoots & myIdToDirCache so next attempt to resolve the root
+      //FIXME RC: put special sentinel value into rootsByUrl & idToDirCache so next attempt to resolve the root
       //          doesn't need to repeat the whole lookup process (which is slow)
       return null;
     }
@@ -1803,7 +1803,22 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       return;
     }
 
-    ensureRootCached(getRootPath(missedRootUrlRef.get(), vfsPeer.getName(rootId)), missedRootUrlRef.get());
+    String rootUrl = missedRootUrlRef.get();
+    String rootName = vfsPeer.getName(rootId);
+    String rootPath = getRootPath(rootUrl, rootName);
+    NewVirtualFile root = ensureRootCached(rootPath, rootUrl);
+    if (root != null) {
+      if (root.getId() != rootId) {
+        //Diogen reports like 49432216: rootId is found among existing roots -> ensureRootCached(rootPath, rootUrl) ->
+        // -> leads to insertion of a new root.
+        //I suspect this is a bug, this check is to provide more diagnostics for it:
+        throw new IllegalStateException(
+          "root[#" + rootId + "]{rootName:'" + rootName + "', rootPath:'" + rootPath + "'} cached to something else: " +
+          "cached [#" + root.getId() + "]" +
+          "{rootName: '" + root.getName() + "', rootPath: '" + root.getPath() + "', rootUrl: '" + root.getUrl() + "'}"
+        );
+      }
+    }
   }
 
   /**
@@ -1830,8 +1845,10 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
     try {
       NewVirtualFile cachedRoot = findRoot(missedRootPath, fs);
-      LOG.trace(
-        "\tforce caching " + missedRootUrl + " (protocol: " + fs.getProtocol() + ", path: " + missedRootPath + ") -> " + cachedRoot);
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("\tforce caching " + missedRootUrl +
+                  " (protocol: " + fs.getProtocol() + ", path: " + missedRootPath + ") -> " + cachedRoot);
+      }
       return cachedRoot;
     }
     catch (Throwable t) {
@@ -1850,17 +1867,14 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   @VisibleForTesting
   @ApiStatus.Internal
   public static @Nullable NewVirtualFileSystem detectFileSystem(@NotNull String rootUrl,
-                                                         @NotNull String rootPath) {
-
+                                                                @NotNull String rootPath) {
     if (rootUrl.endsWith(":")) {
       if (OSAgnosticPathUtil.startsWithWindowsDrive(rootUrl) && rootUrl.length() == 2) {
         //Workaround for IDEA-331415: it shouldn't happen: rootUrl must be an url (even though sometimes not
-        // fully correct URL), not a win-path -- but it sometimes happens, even though shouldn't:
-        LOG.warn("detectFileSystem[root url='" + rootUrl + "', path='" + rootPath + "']: root URL is not an URL, but Win drive path");
-        return LocalFileSystem.getInstance();
-        //TODO RC: I hope this was just a fluck -- i.e. some VFS instances somehow got 'infected' by these wrong
-        // root urls, but they wash off with time -- and the need for this branch disappears. Lets replace the
-        // workaround with an AssertionError in v24.1, and see.
+        // fully correct URL), not a win-path -- but it sometimes happens, even though shouldn't.
+        // I hope this was just a temporary fluck -- i.e. some VFS instances somehow got 'infected' by these
+        // wrong root urls, but they wash off with time -- and the need for this branch disappears.
+        throw new IllegalArgumentException("detectFileSystem[root url='" + rootUrl + "', path='" + rootPath + "']: root URL is not an URL, but Win drive path");
       }
 
       //We truncated all trailing '/' in the .findRoot(), before putting rootUrl into FSRecords.findOrCreateRoot()
@@ -2023,7 +2037,10 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
             vfsPeer.forEachRoot((rootUrl, rootFileId) -> {
               if (dirByIdCache.getCachedDir(rootFileId) == null) {
                 String rootName = vfsPeer.getName(rootFileId);
-                nonCachedRootsPerLine.append("\t").append(rootFileId).append(": [name:'").append(rootName).append("'][url:'").append(rootUrl).append("']\n");
+                nonCachedRootsPerLine.append("\t").append(rootFileId)
+                  .append(": [name:'").append(rootName)
+                  .append("'][url:'").append(rootUrl)
+                  .append("']\n");
               }
             });
           }
