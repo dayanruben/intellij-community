@@ -157,11 +157,11 @@ class TerminalProjectOptionsProvider(val project: Project) : PersistentStateComp
   }
 
   private suspend fun findDefaultShellPath(eelDescriptor: EelDescriptor): String {
-    if (eelDescriptor.platform.isWindows) {
+    if (eelDescriptor.osFamily.isWindows) {
       return "powershell.exe"
     }
     val eelApi = eelDescriptor.toEelApi()
-    return eelApi.exec.fetchLoginShellEnvVariables()["SHELL"] ?: when (eelDescriptor.platform) {
+    return eelApi.exec.fetchLoginShellEnvVariables()["SHELL"] ?: when (eelApi.platform) {
       is EelPlatform.Darwin -> "/bin/zsh"
       is EelPlatform.Linux -> "/bin/bash"
       else -> "/bin/sh"
