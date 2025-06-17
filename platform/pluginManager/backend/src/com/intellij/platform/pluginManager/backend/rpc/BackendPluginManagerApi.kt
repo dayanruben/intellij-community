@@ -12,6 +12,7 @@ import com.intellij.ide.plugins.marketplace.IntellijPluginMetadata
 import com.intellij.ide.plugins.marketplace.PluginReviewComment
 import com.intellij.ide.plugins.marketplace.PluginSearchResult
 import com.intellij.ide.plugins.marketplace.SetEnabledStateResult
+import com.intellij.ide.plugins.newui.PluginInstallationState
 import com.intellij.ide.plugins.newui.PluginManagerSessionService
 import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.openapi.application.EDT
@@ -79,8 +80,22 @@ class BackendPluginManagerApi : PluginManagerApi {
     return DefaultUiPluginManagerController.hasPluginsAvailableForEnableDisable(pluginIds)
   }
 
-  override suspend fun getCustomRepoPlugins(): List<PluginUiModel> {
-    return DefaultUiPluginManagerController.getCustomRepoPlugins()
+  override suspend fun getPluginInstallationState(pluginId: PluginId): PluginInstallationState {
+    return DefaultUiPluginManagerController.getPluginInstallationState(pluginId)
+  }
+
+  override suspend fun getPluginInstallationStates(pluginIds: List<PluginId>): Map<PluginId, PluginInstallationState> {
+    return DefaultUiPluginManagerController.getPluginInstallationStates(pluginIds)
+  }
+
+  override suspend fun getCustomRepoPlugins(): List<PluginDto> {
+    return DefaultUiPluginManagerController.getCustomRepoPlugins().map { PluginDto.fromModel(it) }
+  }
+
+  override suspend fun getCustomRepositoryPluginMap(): Map<String, List<PluginDto>> {
+    return DefaultUiPluginManagerController.getCustomRepositoryPluginMap().mapValues { entry ->
+      entry.value.map { PluginDto.fromModel(it) }
+    }
   }
 
   override suspend fun enableRequiredPlugins(sessionId: String, pluginId: PluginId): Set<PluginId> {
@@ -185,6 +200,10 @@ class BackendPluginManagerApi : PluginManagerApi {
 
   override suspend fun notifyUpdateFinished(sessionId: String) {
     PluginManagerSessionService.getInstance().getSession(sessionId)?.updateService?.finishUpdate()
+  }
+
+  override suspend fun checkPluginCanBeDownloaded(plugin: PluginDto): Boolean {
+    return DefaultUiPluginManagerController.checkPluginCanBeDownloaded(plugin, null)
   }
 
 }

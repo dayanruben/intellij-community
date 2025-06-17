@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins.newui
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.plugins.*
 import com.intellij.ide.plugins.DynamicPlugins.allowLoadUnloadWithoutRestart
@@ -25,6 +24,7 @@ import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.updateSettings.impl.PluginDownloader
 import com.intellij.openapi.updateSettings.impl.UpdateChecker
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.Pair
@@ -42,30 +42,31 @@ import javax.swing.JComponent
 @ApiStatus.Internal
 object DefaultUiPluginManagerController : UiPluginManagerController {
   private val LOG = Logger.getInstance(DefaultUiPluginManagerController::class.java)
-  private val objectMapper: ObjectMapper by lazy { ObjectMapper() }
+
+  override fun getTarget(): PluginSource = PluginSource.LOCAL
 
   override fun getPlugins(): List<PluginUiModel> {
-    return PluginManagerCore.plugins.map { PluginUiModelAdapter(it) }
+    return PluginManagerCore.plugins.map { PluginUiModelAdapter(it).withSource() }
   }
 
   override fun getVisiblePlugins(showImplementationDetails: Boolean): List<PluginUiModel> {
-    return PluginManager.getVisiblePlugins(showImplementationDetails).map { PluginUiModelAdapter(it) }.toList()
+    return PluginManager.getVisiblePlugins(showImplementationDetails).map { PluginUiModelAdapter(it) }.toList().withSource()
   }
 
   override fun getInstalledPlugins(): List<PluginUiModel> {
-    return InstalledPluginsState.getInstance().installedPlugins.map { PluginUiModelAdapter(it) }
+    return InstalledPluginsState.getInstance().installedPlugins.map { PluginUiModelAdapter(it) }.withSource()
   }
 
   override fun getUpdates(): List<PluginUiModel> {
-    return PluginUpdatesService.getUpdates()?.map { PluginUiModelAdapter(it) } ?: emptyList()
+    return PluginUpdatesService.getUpdates()?.map { PluginUiModelAdapter(it) }?.withSource() ?: emptyList()
   }
 
   override fun getPlugin(id: PluginId): PluginUiModel? {
-    return PluginManagerCore.getPlugin(id)?.let { PluginUiModelAdapter(it) }
+    return PluginManagerCore.getPlugin(id)?.let { PluginUiModelAdapter(it) }?.withSource()
   }
 
   override fun findPlugin(pluginId: PluginId): PluginUiModel? {
-    return buildPluginIdMap()[pluginId]?.let { PluginUiModelAdapter(it) }
+    return buildPluginIdMap()[pluginId]?.let { PluginUiModelAdapter(it) }?.withSource()
   }
 
   override fun isPluginDisabled(pluginId: PluginId): Boolean {
@@ -87,7 +88,11 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
   }
 
   override fun getCustomRepoPlugins(): List<PluginUiModel> {
-    return CustomPluginRepositoryService.getInstance().getCustomRepositoryPlugins().toList()
+    return CustomPluginRepositoryService.getInstance().getCustomRepositoryPlugins().toList().withSource()
+  }
+
+  override fun getCustomRepositoryPluginMap(): Map<String, List<PluginUiModel>> {
+    return CustomPluginRepositoryService.getInstance().getCustomRepositoryPluginMap()
   }
 
   override fun findPluginNames(pluginIds: List<PluginId>): List<String> {
@@ -221,6 +226,27 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return MarketplaceRequests.getInstance().marketplaceVendorsSupplier.get()
   }
 
+  override fun getPluginInstallationState(pluginId: PluginId): PluginInstallationState {
+    val pluginsState = InstalledPluginsState.getInstance()
+    val plugin = PluginManagerCore.getPlugin(pluginId)
+    val isDeleted = (plugin as? IdeaPluginDescriptorImpl)?.isDeleted ?: false
+    val status = when {
+      pluginsState.wasInstalledWithoutRestart(pluginId) -> PluginStatus.INSTALLED_WITHOUT_RESTART
+      pluginsState.wasUninstalledWithoutRestart(pluginId) || isDeleted -> PluginStatus.UNINSTALLED_WITHOUT_RESTART
+      pluginsState.wasUpdatedWithRestart(pluginId) -> PluginStatus.UPDATED_WITH_RESTART
+      pluginsState.wasUpdated(pluginId) -> PluginStatus.UPDATED
+      pluginsState.wasInstalled(pluginId) -> PluginStatus.INSTALLED_AND_REQUIRED_RESTART
+      else -> null
+    }
+    return PluginInstallationState(plugin != null, status)
+  }
+
+  override fun getPluginInstallationStates(pluginIds: List<PluginId>): Map<PluginId, PluginInstallationState> {
+    return pluginIds.associateWith { pluginId ->
+      return@associateWith getPluginInstallationState(pluginId)
+    }
+  }
+
   override fun performInstallOperation(
     request: InstallPluginRequest,
     parentComponent: JComponent?,
@@ -268,14 +294,9 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     result.showErrors = showErrors
     result.restartRequired = restartRequired
 
-    if (modalityState != null) {
-      ApplicationManager.getApplication().invokeLater(Runnable {
-        installDynamicPluginsSynchronously(request, pluginsToInstallSynchronously, session, parentComponent, result, installCallback)
-      }, modalityState)
-    }
-    else {
+    ApplicationManager.getApplication().invokeLater(Runnable {
       installDynamicPluginsSynchronously(request, pluginsToInstallSynchronously, session, parentComponent, result, installCallback)
-    }
+    }, modalityState ?: ModalityState.defaultModalityState())
   }
 
   override fun updateDescriptorsForInstalledPlugins() {
@@ -294,11 +315,6 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return uninstalledPlugin != null
   }
 
-  override fun unloadDynamicPlugin(parentComponent: JComponent?, pluginId: PluginId, isUpdate: Boolean): Boolean {
-    val descriptorImpl = PluginManagerCore.findPlugin(pluginId) ?: return false
-    return PluginInstaller.unloadDynamicPlugin(parentComponent, descriptorImpl, isUpdate)
-  }
-
   override fun uninstallDynamicPlugin(parentComponent: JComponent?, pluginId: PluginId, isUpdate: Boolean): Boolean {
     val descriptorImpl = PluginManagerCore.findPlugin(pluginId) ?: return false
     return PluginInstaller.uninstallDynamicPlugin(parentComponent, descriptorImpl, isUpdate)
@@ -312,6 +328,10 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     catch (e: IOException) {
       LOG.debug(e)
     }
+  }
+
+  override fun checkPluginCanBeDownloaded(pluginUiModel: PluginUiModel, progressIndicator: ProgressIndicator?): Boolean {
+    return PluginDownloader.createDownloader(pluginUiModel.getDescriptor(), pluginUiModel.repositoryName, null).checkPluginCanBeDownloaded(null)
   }
 
   override fun tryUnloadPluginIfAllowed(parentComponent: JComponent?, pluginId: PluginId, isUpdate: Boolean): Boolean {
@@ -684,7 +704,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
       if (installedWithoutRestart) {
         val installedDescriptor = PluginManagerCore.getPlugin(request.pluginId)
         if (installedDescriptor != null) {
-          result.installedDescriptor = PluginUiModelAdapter(installedDescriptor)
+          result.installedDescriptor = PluginDto.fromModel(PluginUiModelAdapter(installedDescriptor))
         }
       }
       else {
@@ -833,6 +853,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
 
   private fun uninstallPlugin(pluginId: PluginId): IdeaPluginDescriptor? {
     val descriptorImpl = PluginManagerCore.findPlugin(pluginId) ?: return null
+    descriptorImpl.isDeleted = true
     try {
       if (!isBundledUpdate(descriptorImpl)) {
         val enabler: PluginEnabler = PluginEnabler.HEADLESS
@@ -909,5 +930,15 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     }
 
     return result
+  }
+
+  private fun List<PluginUiModel>.withSource(): List<PluginUiModel> {
+    forEach { it.source = PluginSource.LOCAL }
+    return this
+  }
+
+  private fun PluginUiModel.withSource(): PluginUiModel {
+    source = PluginSource.LOCAL
+    return this
   }
 }

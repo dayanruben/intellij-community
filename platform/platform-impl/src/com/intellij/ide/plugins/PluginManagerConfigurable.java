@@ -132,6 +132,8 @@ public final class PluginManagerConfigurable
 
   private PluginUpdatesService myPluginUpdatesService;
 
+  private PluginManagerCustomizer myPluginManagerCustomizer;
+
   private List<String> myTagsSorted;
   private List<String> myVendorsSorted;
 
@@ -161,6 +163,7 @@ public final class PluginManagerConfigurable
 
   public PluginManagerConfigurable() {
     myPluginModelFacade = new PluginModelFacade(new MyPluginModel(null));
+    myPluginManagerCustomizer = PluginManagerCustomizer.getInstance();
   }
 
   @Override
@@ -464,8 +467,7 @@ public final class PluginManagerConfigurable
           List<PluginsGroup> groups = new ArrayList<>();
 
           try {
-            Map<String, List<PluginUiModel>> customRepositoriesMap = CustomPluginRepositoryService.getInstance()
-              .getCustomRepositoryPluginMap();
+            Map<String, List<PluginUiModel>> customRepositoriesMap = UiPluginManager.getInstance().getCustomRepositoryPluginMap();
             try {
               if (project != null) {
                 addSuggestedGroup(groups, project, customRepositoriesMap);
@@ -534,6 +536,9 @@ public final class PluginManagerConfigurable
                            return allDescriptors.size() > ITEMS_PER_GROUP;
                          });
               }
+            }
+            if (myPluginManagerCustomizer != null) {
+              myPluginManagerCustomizer.ensurePluginStatesLoaded();
             }
           }
           finally {

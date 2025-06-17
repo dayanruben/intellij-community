@@ -80,10 +80,6 @@ class UiPluginManager {
     return getController().allowLoadUnloadWithoutRestart(pluginId)
   }
 
-  fun unloadDynamicPlugin(parentComponent: JComponent?, pluginId: PluginId, isUpdate: Boolean): Boolean {
-    return getController().unloadDynamicPlugin(parentComponent, pluginId, isUpdate)
-  }
-
   fun resetSession(sessionId: String, removeSession: Boolean, parentComponent: JComponent? = null, callback: (Map<PluginId, Boolean>) -> Unit = {}) {
     service<FrontendRpcCoroutineContext>().coroutineScope.launch {
       callback(getController().resetSession(sessionId, removeSession, parentComponent))
@@ -121,26 +117,10 @@ class UiPluginManager {
     return getController().hasPluginsAvailableForEnableDisable(pluginIds)
   }
 
-  fun performInstallOperation(
-    request: InstallPluginRequest,
-    parentComponent: JComponent? = null,
-    modalityState: ModalityState? = null,
-    progressIndicator: ProgressIndicator? = null,
-    pluginEnabler: PluginEnabler,
-    installCallback: (InstallPluginResult) -> Unit,
-  ) {
-    getController().performInstallOperation(
-      request,
-      parentComponent,
-      modalityState,
-      progressIndicator,
-      pluginEnabler,
-      installCallback
-    )
-  }
-
   fun setPluginStatus(sessionId: String, pluginIds: List<PluginId>, enable: Boolean) {
-    getController().setPluginStatus(sessionId, pluginIds, enable)
+    service<FrontendRpcCoroutineContext>().coroutineScope.launch {
+      getController().setPluginStatus(sessionId, pluginIds, enable)
+    }
   }
 
   fun applySession(sessionId: String, parent: JComponent? = null, project: Project?): ApplyPluginsStateResult {
@@ -185,6 +165,10 @@ class UiPluginManager {
 
   fun getCustomRepoPlugins(): List<PluginUiModel> {
     return getController().getCustomRepoPlugins()
+  }
+
+  fun getCustomRepositoryPluginMap(): Map<String, List<PluginUiModel>> {
+    return getController().getCustomRepositoryPluginMap()
   }
 
   fun isDisabledInDiff(sessionId: String, pluginId: PluginId): Boolean {
@@ -233,6 +217,10 @@ class UiPluginManager {
 
   fun isNeedUpdate(pluginId: PluginId): Boolean {
     return getController().isNeedUpdate(pluginId)
+  }
+
+  fun getPluginInstallationState(pluginId: PluginId): PluginInstallationState {
+    return getController().getPluginInstallationState(pluginId)
   }
 
   fun getController(): UiPluginManagerController {

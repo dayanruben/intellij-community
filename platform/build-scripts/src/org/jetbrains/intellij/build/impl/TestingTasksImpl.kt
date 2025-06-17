@@ -157,6 +157,17 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     checkOptions(mainModule)
 
     val runConfigurations = loadTestRunConfigurations()
+    if (options.validateMainModule) {
+      checkNotNull(mainModule)
+      val withModuleMismatch = runConfigurations?.filter { it.moduleName != mainModule } ?: emptyList()
+      if (withModuleMismatch.isNotEmpty()) {
+        val errorMessage = withModuleMismatch.joinToString(
+          prefix = "Run configuration module mismatch, expected '$mainModule' (set in option 'intellij.build.test.main.module'), actual:\n",
+          separator = "\n",
+        ) { "  * Run configuration: '${it.name}', module: '${it.moduleName}'" }
+        context.messages.error(errorMessage)
+      }
+    }
 
     try {
       val compilationTasks = CompilationTasks.create(context)
@@ -216,7 +227,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
       if (options.testGroups != TestingOptions.ALL_EXCLUDE_DEFINED_GROUP) {
         warnOptionIgnored(testConfigurationsOptionName, "intellij.build.test.groups")
       }
-      if (mainModule != null) {
+      if (mainModule != null && !options.validateMainModule) {
         warnOptionIgnored(testConfigurationsOptionName, "intellij.build.test.main.module")
       }
     }
@@ -226,6 +237,10 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     if (options.batchTestIncludes != null && !isRunningInBatchMode) {
       context.messages.warning(
         "'intellij.build.test.batchTest.includes' option will be ignored as other tests matching options are specified.")
+    }
+
+    if (options.validateMainModule && mainModule.isNullOrEmpty()) {
+      context.messages.error("'intellij.build.test.main.module.validate' option requires 'intellij.build.test.main.module' to be set")
     }
   }
 

@@ -778,7 +778,11 @@
                     dynamic="true"/>
 
     <extensionPoint qualifiedName="Pythonid.PythonPackageRequiresExtractorProvider"
-                    interface="com.jetbrains.python.packaging.packageRequires.PythonPackageRequiresExtractorProvider"
+                    interface="com.jetbrains.python.packaging.packageRequirements.PythonPackageRequiresExtractorProvider"
+                    dynamic="true"/>
+
+    <extensionPoint qualifiedName="Pythonid.PythonPackageRequirementsTreeExtractorProvider"
+                    interface="com.jetbrains.python.packaging.packageRequirements.PythonPackageRequirementsTreeExtractorProvider"
                     dynamic="true"/>
   </extensionPoints>
 
@@ -886,6 +890,11 @@
     <PythonPackageRequiresExtractorProvider implementation="com.jetbrains.python.poetry.packaging.PoetryRequiresExtractorProvider"/>
     <PythonPackageRequiresExtractorProvider implementation="com.jetbrains.python.uv.packaging.UvPackageRequiresExtractorProvider"/>
 
+    <PythonPackageRequirementsTreeExtractorProvider implementation="com.jetbrains.python.poetry.packaging.PoetryPackageRequirementsTreeExtractorProvider"/>
+    <PythonPackageRequirementsTreeExtractorProvider implementation="com.jetbrains.python.uv.packaging.UvPackageRequirementsTreeExtractorProvider"/>
+
+
+
     <systemPythonProvider implementation="com.jetbrains.python.sdk.uv.UvSystemPythonProvider"/>
 
     <inspectionExtension implementation="com.jetbrains.python.sdk.configuration.PyInterpreterInspectionSuppressor"/>
@@ -962,8 +971,8 @@
     <action id="ExpandPythonTypeAnnotations" class="com.jetbrains.python.actions.PyExpandTypeAnnotationsAction"/>
 
 
+    <action id="PySyncPythonRequirements" class="com.jetbrains.python.packaging.PySyncPythonRequirementsAction"/>
     <group id="PyPackagingMenu">
-      <action id="PySyncPythonRequirements" class="com.jetbrains.python.packaging.PySyncPythonRequirementsAction"/>
       <action id="CreateSetupPy" class="com.jetbrains.python.packaging.setupPy.CreateSetupPyAction"/>
       <action id="RunSetupPyTask" class="com.jetbrains.python.packaging.setupPy.SetupTaskChooserAction"/>
       <add-to-group group-id="ToolsMenu" anchor="last"/>

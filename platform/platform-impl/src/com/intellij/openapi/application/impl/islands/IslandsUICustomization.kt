@@ -2,6 +2,7 @@
 package com.intellij.openapi.application.impl.islands
 
 import com.intellij.ide.impl.ProjectUtil
+import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.actionSystem.ex.ActionButtonLook
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.impl.InternalUICustomization
@@ -20,8 +21,11 @@ import com.intellij.openapi.wm.impl.IdeBackgroundUtil
 import com.intellij.openapi.wm.impl.IdeGlassPaneImpl
 import com.intellij.openapi.wm.impl.SquareStripeButtonLook
 import com.intellij.toolWindow.FrameLayeredPane
+import com.intellij.toolWindow.ToolWindowButtonManager
+import com.intellij.toolWindow.ToolWindowPaneNewButtonManager
 import com.intellij.toolWindow.xNext.island.XNextIslandHolder
 import com.intellij.ui.ClientProperty
+import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.JBColor
 import com.intellij.ui.tabs.impl.TabPainterAdapter
 import com.intellij.util.ui.GraphicsUtil
@@ -38,7 +42,7 @@ import javax.swing.JLayeredPane
 import javax.swing.UIManager
 
 internal class IslandsUICustomization : InternalUICustomization() {
-  private val isIslandsAvailable = !Registry.`is`("llm.riderNext.enabled", false)
+  private val isIslandsAvailable = !Registry.`is`("llm.riderNext.enabled", false) && ExperimentalUI.isNewUI()
 
   private val isOneIslandEnabled: Boolean
     get() {
@@ -75,22 +79,34 @@ internal class IslandsUICustomization : InternalUICustomization() {
     }
   }
 
-  init {
-    val listener = AWTEventListener { event ->
-      if (isManyIslandEnabled && JBColor.isBright()) {
-        val component = (event as HierarchyEvent).component
-        val isToolWindow = UIUtil.getParentOfType(XNextIslandHolder::class.java, component) != null
+  private val awtListener = AWTEventListener { event ->
+    val component = (event as HierarchyEvent).component
+    val isToolWindow = UIUtil.getParentOfType(XNextIslandHolder::class.java, component) != null
 
-        if (isToolWindow) {
-          UIUtil.forEachComponentInHierarchy(component) {
-            if (it.background == JBColor.PanelBackground) {
-              it.background = JBUI.CurrentTheme.ToolWindow.background()
-            }
-          }
+    if (isToolWindow) {
+      UIUtil.forEachComponentInHierarchy(component) {
+        if (it.background == JBColor.PanelBackground) {
+          it.background = JBUI.CurrentTheme.ToolWindow.background()
         }
       }
     }
-    Toolkit.getDefaultToolkit().addAWTEventListener(listener, AWTEvent.HIERARCHY_EVENT_MASK)
+  }
+
+  init {
+    if (isManyIslandEnabled && JBColor.isBright()) {
+      Toolkit.getDefaultToolkit().addAWTEventListener(awtListener, AWTEvent.HIERARCHY_EVENT_MASK)
+    }
+
+    val connection = ApplicationManager.getApplication().messageBus.connect()
+    connection.subscribe(LafManagerListener.TOPIC, LafManagerListener {
+      val toolkit = Toolkit.getDefaultToolkit()
+
+      toolkit.removeAWTEventListener(awtListener)
+
+      if (isManyIslandEnabled && JBColor.isBright()) {
+        toolkit.addAWTEventListener(awtListener, AWTEvent.HIERARCHY_EVENT_MASK)
+      }
+    })
   }
 
   private val tabPainterAdapter = ManyIslandsTabPainterAdapter()
@@ -102,6 +118,35 @@ internal class IslandsUICustomization : InternalUICustomization() {
       }
       return super.toolWindowUIDecorator
     }
+
+  override fun configureToolWindowPane(toolWindowPaneParent: JComponent, buttonManager: ToolWindowButtonManager) {
+    if (isIslandsEnabled && buttonManager is ToolWindowPaneNewButtonManager) {
+      buttonManager.addVisibleToolbarsListener { leftVisible, rightVisible ->
+        if (leftVisible && rightVisible) {
+          if (toolWindowPaneParent.border != null) {
+            toolWindowPaneParent.border = null
+          }
+        }
+        else {
+          val gap = JBUI.getInt("Islands.emptyGap", JBUI.scale(if (isManyIslandEnabled) 4 else 8))
+          val left = if (leftVisible) 0 else gap
+          val right = if (rightVisible) 0 else gap
+
+          val border = toolWindowPaneParent.border
+          if (border == null) {
+            toolWindowPaneParent.border = JBUI.Borders.empty(0, left, 0, right)
+          }
+          else {
+            val insets = border.getBorderInsets(toolWindowPaneParent)
+            if (insets.left != left || insets.right != right) {
+              toolWindowPaneParent.border = JBUI.Borders.empty(0, left, 0, right)
+            }
+          }
+        }
+      }
+      buttonManager.updateToolStripesVisibility()
+    }
+  }
 
   override fun createToolWindowPaneLayered(splitter: JComponent, frame: JFrame): JLayeredPane? {
     if (isOneIslandEnabled) {
@@ -163,6 +208,12 @@ internal class IslandsUICustomization : InternalUICustomization() {
       }
     }
     return null
+  }
+
+  override fun configureRendererComponent(component: JComponent) {
+    if (isIslandsEnabled) {
+      ClientProperty.putRecursive(component, IdeBackgroundUtil.NO_BACKGROUND, true)
+    }
   }
 
   override fun installEditorBackground(component: JComponent) {

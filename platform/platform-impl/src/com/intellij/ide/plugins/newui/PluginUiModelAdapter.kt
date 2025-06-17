@@ -55,16 +55,15 @@ class PluginUiModelAdapter(
   override val isEnabled: Boolean
     get() = !PluginManagerCore.isDisabled(pluginDescriptor.pluginId)
 
-  override val source: PluginSource = PluginSource.LOCAL
   override val dependencies: List<PluginDependencyModel>
     get() = pluginDescriptor.dependencies.map { PluginDependencyModel(it.pluginId, it.isOptional) }
   override val vendor: String?
     get() = pluginDescriptor.vendor
   override val organization: String?
     get() = pluginDescriptor.organization
-
   override val changeNotes: String?
     get() = pluginDescriptor.changeNotes
+
   override val productCode: String?
     get() = pluginDescriptor.productCode
   override val size: String?
@@ -80,6 +79,7 @@ class PluginUiModelAdapter(
         pluginDescriptor.forumUrl = value
       }
     }
+  override var source: PluginSource? = null
   override var licenseUrl: String?
     get() = if (pluginDescriptor is PluginNode) pluginDescriptor.licenseUrl else null
     set(value) {
@@ -226,7 +226,7 @@ class PluginUiModelAdapter(
 
   override fun addDependency(id: PluginId, optional: Boolean) {
     if (pluginDescriptor is PluginNode) {
-      pluginDescriptor.addDepends(pluginId, optional)
+      pluginDescriptor.addDepends(id, optional)
     }
   }
 
@@ -301,6 +301,12 @@ class PluginUiModelAdapter(
         pluginDescriptor.downloadUrl = value
       }
     }
+
+  override val sinceBuild: String?
+    get() = pluginDescriptor.sinceBuild
+
+  override val untilBuild: String?
+    get() = pluginDescriptor.untilBuild
 
   override fun getDescriptor(): IdeaPluginDescriptor = pluginDescriptor
 

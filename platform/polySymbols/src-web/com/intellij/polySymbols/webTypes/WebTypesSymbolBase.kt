@@ -10,7 +10,7 @@ import com.intellij.polySymbols.documentation.PolySymbolWithDocumentation
 import com.intellij.polySymbols.html.PROP_HTML_ATTRIBUTE_VALUE
 import com.intellij.polySymbols.html.PolySymbolHtmlAttributeValue
 import com.intellij.polySymbols.html.htmlAttributeValue
-import com.intellij.polySymbols.patterns.PolySymbolsPattern
+import com.intellij.polySymbols.patterns.PolySymbolPattern
 import com.intellij.polySymbols.query.*
 import com.intellij.polySymbols.utils.merge
 import com.intellij.polySymbols.webTypes.impl.WebTypesJsonContributionAdapter
@@ -18,14 +18,13 @@ import com.intellij.polySymbols.webTypes.impl.wrap
 import com.intellij.polySymbols.webTypes.json.*
 import com.intellij.psi.PsiElement
 import com.intellij.util.asSafely
-import com.intellij.util.containers.Stack
 import javax.swing.Icon
 
 open class WebTypesSymbolBase : WebTypesSymbol {
 
-  private lateinit var base: WebTypesJsonContributionAdapter
+  internal lateinit var base: WebTypesJsonContributionAdapter
 
-  protected lateinit var queryExecutor: PolySymbolsQueryExecutor
+  protected lateinit var queryExecutor: PolySymbolQueryExecutor
 
   private var _superContributions: List<PolySymbol>? = null
 
@@ -33,7 +32,7 @@ open class WebTypesSymbolBase : WebTypesSymbol {
     get() = _superContributions
             ?: base.contribution.extends
               .also { _superContributions = emptyList() }
-              ?.resolve(listOf(), queryExecutor, true, true)
+              ?.resolve(PolySymbolQueryStack(), queryExecutor, true, true)
               ?.toList()
               ?.also { contributions -> _superContributions = contributions }
             ?: emptyList()
@@ -91,24 +90,24 @@ open class WebTypesSymbolBase : WebTypesSymbol {
     }
   }
 
-  internal fun init(webTypesJsonContributionAdapter: WebTypesJsonContributionAdapter, queryExecutor: PolySymbolsQueryExecutor) {
+  internal fun init(webTypesJsonContributionAdapter: WebTypesJsonContributionAdapter, queryExecutor: PolySymbolQueryExecutor) {
     this.base = webTypesJsonContributionAdapter
     this.queryExecutor = queryExecutor
   }
 
   final override fun getMatchingSymbols(
     qualifiedName: PolySymbolQualifiedName,
-    params: PolySymbolsNameMatchQueryParams,
-    scope: Stack<PolySymbolsScope>,
+    params: PolySymbolNameMatchQueryParams,
+    stack: PolySymbolQueryStack,
   ): List<PolySymbol> =
     base.rootScope
-      .getMatchingSymbols(base.contributionForQuery, base.jsonOrigin, qualifiedName, params, scope)
+      .getMatchingSymbols(base.contributionForQuery, base.jsonOrigin, qualifiedName, params, stack)
       .toList()
 
   final override fun getSymbols(
     qualifiedKind: PolySymbolQualifiedKind,
-    params: PolySymbolsListSymbolsQueryParams,
-    scope: Stack<PolySymbolsScope>,
+    params: PolySymbolListSymbolsQueryParams,
+    stack: PolySymbolQueryStack,
   ): List<PolySymbol> =
     base.rootScope
       .getSymbols(base.contributionForQuery, this.origin as WebTypesJsonOrigin, qualifiedKind, params)
@@ -116,11 +115,11 @@ open class WebTypesSymbolBase : WebTypesSymbol {
 
   final override fun getCodeCompletions(
     qualifiedName: PolySymbolQualifiedName,
-    params: PolySymbolsCodeCompletionQueryParams,
-    scope: Stack<PolySymbolsScope>,
+    params: PolySymbolCodeCompletionQueryParams,
+    stack: PolySymbolQueryStack,
   ): List<PolySymbolCodeCompletionItem> =
     base.rootScope
-      .getCodeCompletions(base.contributionForQuery, base.jsonOrigin, qualifiedName, params, scope)
+      .getCodeCompletions(base.contributionForQuery, base.jsonOrigin, qualifiedName, params, stack)
       .toList()
 
   final override val qualifiedKind: PolySymbolQualifiedKind
@@ -184,13 +183,17 @@ open class WebTypesSymbolBase : WebTypesSymbol {
     get() = setOfNotNull(
       PolySymbolModifier.VIRTUAL.takeIf { base.contribution.virtual == true },
       PolySymbolModifier.ABSTRACT.takeIf { base.contribution.abstract == true },
-      PolySymbolModifier.READONLY.takeIf { (base.contribution as? JsProperty)?.readOnly == true }
+      PolySymbolModifier.READONLY.takeIf { (base.contribution as? JsProperty)?.readOnly == true },
+      when (required) {
+        true -> PolySymbolModifier.REQUIRED
+        false -> PolySymbolModifier.OPTIONAL
+        null -> null
+      }
     )
 
-  final override val required: Boolean?
+  private val required: Boolean?
     get() = (base.contribution as? GenericContribution)?.required
             ?: (base.contribution as? HtmlAttribute)?.required
-            ?: superContributions.firstOrNull()?.required
 
   final override val defaultValue: String?
     get() = (base.contribution as? GenericContribution)?.default
@@ -198,10 +201,7 @@ open class WebTypesSymbolBase : WebTypesSymbol {
             ?: superContributions.firstNotNullOfOrNull { it.asSafely<PolySymbolWithDocumentation>()?.defaultValue }
             ?: attributeValue?.default
 
-  final override val pattern: PolySymbolsPattern?
-    get() = base.jsonPattern?.wrap(base.contribution.name, origin as WebTypesJsonOrigin)
-
-  final override val queryScope: List<PolySymbolsScope>
+  final override val queryScope: List<PolySymbolScope>
     get() = superContributions.asSequence()
       .flatMap { it.queryScope }
       .plus(this)
@@ -213,6 +213,11 @@ open class WebTypesSymbolBase : WebTypesSymbol {
 
   override fun matchContext(context: PolyContext): Boolean =
     super.matchContext(context) && base.contribution.requiredContext.evaluate(context)
+
+  internal class WebTypesSymbolWithPattern(private val jsonPattern: NamePatternRoot) : WebTypesSymbolBase(), PolySymbolWithPattern {
+    override val pattern: PolySymbolPattern
+      get() = jsonPattern.wrap(base.contribution.name, origin as WebTypesJsonOrigin)
+  }
 
   private inner class HtmlAttributeValueImpl(private val value: HtmlAttributeValue) : PolySymbolHtmlAttributeValue {
     override val kind: PolySymbolHtmlAttributeValue.Kind?

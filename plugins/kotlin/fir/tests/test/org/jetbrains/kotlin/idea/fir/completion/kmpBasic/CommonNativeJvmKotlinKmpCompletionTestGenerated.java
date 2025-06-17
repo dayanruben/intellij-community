@@ -723,6 +723,11 @@ public abstract class CommonNativeJvmKotlinKmpCompletionTestGenerated extends Ab
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("AbstractConstructor.kt")
+        public void testAbstractConstructor() throws Exception {
+            runTest("../../completion/testData/basic/common/constructor/AbstractConstructor.kt");
+        }
+
         @TestMetadata("DoNotOfferConstructorForClassifier.kt")
         public void testDoNotOfferConstructorForClassifier() throws Exception {
             runTest("../../completion/testData/basic/common/constructor/DoNotOfferConstructorForClassifier.kt");
@@ -3796,9 +3801,39 @@ public abstract class CommonNativeJvmKotlinKmpCompletionTestGenerated extends Ab
             runTest("../../completion/testData/basic/common/InsideAnonymousClass.kt");
         }
 
-        @TestMetadata("InsideAnonymousObject.kt")
-        public void testInsideAnonymousObject() throws Exception {
-            runTest("../../completion/testData/basic/common/InsideAnonymousObject.kt");
+        @TestMetadata("InsideAnonymousObjectPrivate.kt")
+        public void testInsideAnonymousObjectPrivate() throws Exception {
+            runTest("../../completion/testData/basic/common/InsideAnonymousObjectPrivate.kt");
+        }
+
+        @TestMetadata("InsideAnonymousObjectProtected.kt")
+        public void testInsideAnonymousObjectProtected() throws Exception {
+            runTest("../../completion/testData/basic/common/InsideAnonymousObjectProtected.kt");
+        }
+
+        @TestMetadata("InsideAnonymousObjectPublic.kt")
+        public void testInsideAnonymousObjectPublic() throws Exception {
+            runTest("../../completion/testData/basic/common/InsideAnonymousObjectPublic.kt");
+        }
+
+        @TestMetadata("InsideLocalClassAndAnonymousObject.kt")
+        public void testInsideLocalClassAndAnonymousObject() throws Exception {
+            runTest("../../completion/testData/basic/common/InsideLocalClassAndAnonymousObject.kt");
+        }
+
+        @TestMetadata("InsideLocalClassPrivate.kt")
+        public void testInsideLocalClassPrivate() throws Exception {
+            runTest("../../completion/testData/basic/common/InsideLocalClassPrivate.kt");
+        }
+
+        @TestMetadata("InsideLocalClassProtected.kt")
+        public void testInsideLocalClassProtected() throws Exception {
+            runTest("../../completion/testData/basic/common/InsideLocalClassProtected.kt");
+        }
+
+        @TestMetadata("InsideLocalClassPublic.kt")
+        public void testInsideLocalClassPublic() throws Exception {
+            runTest("../../completion/testData/basic/common/InsideLocalClassPublic.kt");
         }
 
         @TestMetadata("InterfaceNameBeforeRunBug.kt")

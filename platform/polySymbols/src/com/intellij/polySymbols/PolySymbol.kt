@@ -7,21 +7,17 @@ import com.intellij.model.Pointer
 import com.intellij.model.Symbol
 import com.intellij.navigation.NavigatableSymbol
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.ModificationTracker
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.backend.documentation.DocumentationTarget
 import com.intellij.platform.backend.navigation.NavigationTarget
 import com.intellij.platform.backend.presentation.TargetPresentation
 import com.intellij.polySymbols.context.PolyContext
-import com.intellij.polySymbols.patterns.PolySymbolsPattern
-import com.intellij.polySymbols.query.PolySymbolMatch
-import com.intellij.polySymbols.query.PolySymbolsQueryExecutor
-import com.intellij.polySymbols.query.PolySymbolsScope
+import com.intellij.polySymbols.query.PolySymbolQueryExecutor
+import com.intellij.polySymbols.query.PolySymbolScope
 import com.intellij.polySymbols.refactoring.PolySymbolRenameTarget
 import com.intellij.polySymbols.search.PolySymbolSearchTarget
 import com.intellij.polySymbols.utils.*
 import com.intellij.psi.PsiElement
-import com.intellij.psi.util.CachedValue
 import com.intellij.refactoring.rename.api.RenameTarget
 import com.intellij.refactoring.rename.symbol.RenameableSymbol
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -45,7 +41,7 @@ import javax.swing.Icon
  * INAPPLICABLE_JVM_NAME -> https://youtrack.jetbrains.com/issue/KT-31420
  **/
 @Suppress("INAPPLICABLE_JVM_NAME")
-interface PolySymbol : Symbol, NavigatableSymbol, PolySymbolsPrioritizedScope {
+interface PolySymbol : Symbol, NavigatableSymbol, PolySymbolPrioritizedScope {
 
   /**
    * Specifies where this symbol comes from. Besides descriptive information like
@@ -72,27 +68,11 @@ interface PolySymbol : Symbol, NavigatableSymbol, PolySymbolsPrioritizedScope {
     get() = emptySet()
 
   /**
-   * Symbol's access modifier
-   */
-  val accessModifier: PolySymbolAccessModifier?
-    get() = null
-
-  /**
    * An optional icon associated with the symbol, which is going to be used across the IDE.
    * If none is specified, a default icon of the origin will be used and if that’s not available,
    * a default icon for symbol namespace and kind.
    */
   val icon: Icon?
-    get() = null
-
-  /**
-   * Whether this symbol is required. What "is required" means, depends on the symbol.
-   * For instance, for an HTML attribute it would mean that the attribute is required to be present
-   * for the particular HTML element. For JavaScript property is would mean that it is not optional,
-   * so it cannot be undefined.
-   */
-  @get:JvmName("isRequired")
-  val required: Boolean?
     get() = null
 
   /**
@@ -107,20 +87,11 @@ interface PolySymbol : Symbol, NavigatableSymbol, PolySymbolsPrioritizedScope {
     get() = PolySymbolApiStatus.Stable
 
   /**
-   * The pattern to match names against. As a result of pattern matching a [PolySymbolMatch] will be created.
-   * A pattern may specify that a reference to other Poly Symbols is expected in some part of it.
-   * For such places, appropriate segments with referenced Poly Symbols will be created and navigation,
-   * validation and refactoring support is available out-of-the-box.
-   */
-  val pattern: PolySymbolsPattern?
-    get() = null
-
-  /**
    * When pattern is being evaluated, matched symbols can provide additional scope for further resolution in the pattern.
-   * By default, the `queryScope` returns the symbol itself if it is a [PolySymbolsScope]
+   * By default, the `queryScope` returns the symbol itself if it is a [PolySymbolScope]
    */
-  val queryScope: List<PolySymbolsScope>
-    get() = listOfNotNull(this as? PolySymbolsScope)
+  val queryScope: List<PolySymbolScope>
+    get() = listOfNotNull(this as? PolySymbolScope)
 
   /**
    * Specifies whether the symbol is an extension.
@@ -243,7 +214,7 @@ interface PolySymbol : Symbol, NavigatableSymbol, PolySymbolsPrioritizedScope {
    * Poly Symbols can have various naming conventions.
    * This method is used by the framework to determine a new name for a symbol based on its occurrence
    */
-  fun adjustNameForRefactoring(queryExecutor: PolySymbolsQueryExecutor, newName: String, occurence: String): String =
+  fun adjustNameForRefactoring(queryExecutor: PolySymbolQueryExecutor, newName: String, occurence: String): String =
     queryExecutor.namesProvider.adjustRename(qualifiedName, newName, occurence)
 
 
