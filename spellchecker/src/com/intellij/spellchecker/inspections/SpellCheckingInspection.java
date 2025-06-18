@@ -22,17 +22,16 @@ import com.intellij.psi.PsiReference;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.spellchecker.SpellCheckerManager;
+import com.intellij.spellchecker.grazie.diacritic.Diacritics;
 import com.intellij.spellchecker.tokenizer.*;
 import com.intellij.spellchecker.util.SpellCheckerBundle;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.CollectionFactory;
-import com.intellij.util.io.IOUtil;
 import com.intellij.util.text.StringSearcher;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.text.Normalizer;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -249,7 +248,7 @@ public final class SpellCheckingInspection extends LocalInspectionTool implement
       }
 
       boolean keyword = myNamesValidator.isKeyword(word, myElement.getProject());
-      if (keyword || !myManager.hasProblem(word) || hasSameNamedReferenceInFile(word)) {
+      if (keyword || !hasProblem(word) || hasSameNamedReferenceInFile(word)) {
         return;
       }
 
@@ -279,19 +278,41 @@ public final class SpellCheckingInspection extends LocalInspectionTool implement
       }
 
       PsiFile file = myElement.getContainingFile();
-      Map<String, Boolean> referenceWords = CachedValuesManager.getProjectPsiDependentCache(file, (element) -> new ConcurrentHashMap<>());
-      return referenceWords.computeIfAbsent(word, (key) -> hasSameNamedReferenceInFile(file, key));
+      Map<String, Boolean> references = CachedValuesManager.getProjectPsiDependentCache(file, (psi) -> new ConcurrentHashMap<>());
+      return references.computeIfAbsent(word, key -> hasSameNamedReferencesInFile(file, key));
     }
 
-    private boolean hasSameNamedReferenceInFile(PsiFile file, String word) {
-      for (int occurrence : new StringSearcher(word, true, true).findAllOccurrences(file.getText())) {
+    private static boolean hasSameNamedReferencesInFile(PsiFile file, String word) {
+      int[] occurrences = new StringSearcher(word, true, true).findAllOccurrences(file.getText());
+      if (occurrences.length <= 1) {
+        return false;
+      }
+
+      for (int occurrence : occurrences) {
         PsiReference reference = file.findReferenceAt(occurrence);
-        PsiElement element = reference != null ? reference.resolve() : null;
-        if (reference != null && element != null && reference.getElement() != element) {
+        PsiElement resolvedReference = reference != null ? reference.resolve() : null;
+        if (reference != null && resolvedReference != null && reference.getElement() != resolvedReference) {
           return true;
         }
       }
       return false;
+    }
+
+    private boolean hasProblem(String word) {
+      if (!myManager.hasProblem(word)) {
+        return false;
+      }
+      Language language = myElement.getLanguage();
+      SpellcheckingStrategy strategy = getSpellcheckingStrategy(myElement, language);
+      if (strategy == null || !strategy.elementFitsScope(myElement, Set.of(SpellCheckingScope.Code))) {
+        return true;
+      }
+
+      Project project = myElement.getProject();
+      return SpellCheckerManager.getInstance(project).getSuggestions(word)
+        .stream()
+        .filter(suggestion -> RenameUtil.isValidName(project, myElement, suggestion))
+        .noneMatch(suggestion -> Diacritics.equalsIgnoringDiacritics(word, suggestion));
     }
   }
 

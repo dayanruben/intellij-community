@@ -1,11 +1,16 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.searchEverywhere.frontend.vm
 
+import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.searcheverywhere.HistoryIterator
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl
 import com.intellij.ide.actions.searcheverywhere.SearchHistoryList
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.wm.ToolWindowManager.Companion.getInstance
 import com.intellij.platform.searchEverywhere.SeItemData
 import com.intellij.platform.searchEverywhere.SeSessionEntity
 import com.intellij.platform.searchEverywhere.frontend.SeTab
@@ -39,6 +44,9 @@ class SePopupVm(
   val currentTabIndex: MutableStateFlow<Int> = MutableStateFlow(tabVms.indexOfFirst { it.tabId == initialTabIndex }.takeIf { it >= 0 } ?: 0)
   val currentTab: SeTabVm get() = tabVms[currentTabIndex.value.coerceIn(tabVms.indices)]
   val currentTabFlow: Flow<SeTabVm>
+
+  private val canBeShownInFindResultsFlow = MutableStateFlow(false)
+  val canBeShownInFindResults: Boolean get() = canBeShownInFindResultsFlow.value
 
   private var historyIterator: HistoryIterator = historyList.getIterator(currentTab.tabId)
     get() {
@@ -77,6 +85,12 @@ class SePopupVm(
       }
     }
 
+    coroutineScope.launch {
+      currentTabFlow.collect { tabVm ->
+        canBeShownInFindResultsFlow.update { tabVm.canBeShownInFindResults() }
+      }
+    }
+
     deferredTabs.forEach {
       coroutineScope.launch {
         it.getValue()?.let { tab ->
@@ -98,12 +112,20 @@ class SePopupVm(
     }
   }
 
+  suspend fun openInFindWindow(sessionRef: DurableRef<SeSessionEntity>, initEvent: AnActionEvent): Boolean {
+    return currentTab.openInFindWindow(sessionRef, initEvent)
+  }
+
   fun selectNextTab() {
     currentTabIndex.value = (currentTabIndex.value + 1) % tabVms.size
   }
 
   fun selectPreviousTab() {
     currentTabIndex.value = (currentTabIndex.value - 1 + tabVms.size) % tabVms.size
+  }
+
+  suspend fun canBeShownInFindResults(): Boolean {
+    return currentTab.canBeShownInFindResults()
   }
 
   fun showTab(tabId: String) {
@@ -124,13 +146,34 @@ class SePopupVm(
     }
   }
 
-  fun getHistoryItem(next: Boolean) : String? {
+  fun getHistoryItem(next: Boolean) : String {
     val searchText = if (next) historyIterator.next() else historyIterator.prev()
     return searchText
   }
 
   fun getHistoryItems(): List<String> {
     return historyIterator.getList()
+  }
+
+  inner class ShowInFindToolWindowAction(private val onShowFindToolWindow: () -> Unit) : DumbAwareAction(IdeBundle.messagePointer("show.in.find.window.button.name"),
+                                                                   IdeBundle.messagePointer("show.in.find.window.button.description")) {
+    override fun actionPerformed(e: AnActionEvent) {
+      onShowFindToolWindow()
+      closePopup()
+    }
+
+    override fun update(e: AnActionEvent) {
+      if (project == null) {
+        e.presentation.isEnabled = false
+        return
+      }
+      e.presentation.isEnabled = canBeShownInFindResults
+      e.presentation.icon = getInstance(project).getShowInFindToolWindowIcon()
+    }
+
+    override fun getActionUpdateThread(): ActionUpdateThread {
+      return ActionUpdateThread.BGT
+    }
   }
 }
 
