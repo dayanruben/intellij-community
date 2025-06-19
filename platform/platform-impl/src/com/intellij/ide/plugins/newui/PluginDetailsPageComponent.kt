@@ -55,7 +55,9 @@ import com.intellij.util.ui.AsyncProcessIcon.BigCentered
 import com.intellij.util.ui.StartupUiUtil.labelFont
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.xml.util.XmlStringUtil
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
@@ -63,6 +65,7 @@ import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 import java.awt.*
 import java.awt.event.ActionEvent
+import java.util.Collections
 import java.util.function.Consumer
 import java.util.function.Supplier
 import javax.accessibility.AccessibleContext
@@ -1050,7 +1053,7 @@ class PluginDetailsPageComponent @JvmOverloads constructor(
                                                     }, ModalityState.any())
 
     if (pluginModel.isPluginInstallingOrUpdating(plugin)) {
-      showProgress()
+      showInstallProgress()
     }
     else {
       fullRepaint()
@@ -1382,14 +1385,33 @@ class PluginDetailsPageComponent @JvmOverloads constructor(
     fullRepaint()
   }
 
-  fun showProgress() {
+  fun showProgress(storeIndicator: Boolean, cancelRunnable: () -> Unit) {
     indicator = OneLineProgressIndicator(false)
-    indicator!!.setCancelRunnable { pluginModel.finishInstall(descriptorForActions!!, null, false, false, true) }
+    indicator!!.setCancelRunnable(cancelRunnable)
     nameAndButtons!!.setProgressComponent(null, indicator!!.createBaselineWrapper())
-
-    PluginModelFacade.addProgress(descriptorForActions!!, indicator!!)
+    if (storeIndicator) {
+      PluginModelFacade.addProgress(descriptorForActions!!, indicator!!)
+    }
 
     fullRepaint()
+  }
+
+  fun showInstallProgress() {
+    showProgress(true) {
+      pluginModel.finishInstall(descriptorForActions!!,
+                                null,
+                                false,
+                                false,
+                                true,
+                                Collections.emptyList())
+    }
+  }
+
+  fun showUninstallProgress(cs: CoroutineScope) {
+    showProgress(false) {
+      cs.cancel()
+      hideProgress()
+    }
   }
 
   private fun fullRepaint() {
@@ -1419,6 +1441,11 @@ class PluginDetailsPageComponent @JvmOverloads constructor(
   private fun updateButtonsAndApplyCustomization() {
     updateButtons()
     applyCustomization()
+  }
+
+  fun hideProgress() {
+    indicator = null
+    nameAndButtons?.hideProgress()
   }
 
   fun hideProgress(success: Boolean, restartRequired: Boolean) {

@@ -120,6 +120,10 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
     return awaitForResult { PluginManagerApi.getInstance().checkPluginCanBeDownloaded(PluginDto.fromModel(pluginUiModel)) }
   }
 
+  override suspend fun loadErrors(sessionId: String): Map<PluginId, CheckErrorsResult> {
+    return PluginManagerApi.getInstance().loadErrors(sessionId)
+  }
+
   override fun hasPluginsAvailableForEnableDisable(pluginIds: List<PluginId>): Boolean {
     return awaitForResult { PluginManagerApi.getInstance().hasPluginsAvailableForEnableDisable(pluginIds) }
   }
@@ -270,7 +274,7 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
   @Deprecated("Test method ")
   private fun <T> awaitForResult(body: suspend () -> T): T {
     val deferred = CompletableDeferred<T>()
-    service<BackendRpcCoroutineContext>().coroutineScope.launch {
+    service<BackendRpcCoroutineContext>().coroutineScope.launch(Dispatchers.IO) {
       deferred.complete(body())
     }
     return runBlocking { deferred.await() }

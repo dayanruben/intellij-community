@@ -101,6 +101,7 @@ public final class ListPluginComponent extends JPanel {
                              @NotNull PluginUiModel pluginUiModel,
                              @NotNull PluginsGroup group,
                              @NotNull LinkListener<Object> searchListener,
+                             @NotNull List<HtmlChunk> errors,
                              boolean marketplace) {
     myPlugin = pluginUiModel;
     myGroup = group;
@@ -140,7 +141,7 @@ public final class ListPluginComponent extends JPanel {
       updateIcon(false, !myIsAvailable);
     }
     else {
-      updateErrors();
+      updateErrors(errors);
     }
     if (myModelFacade.isPluginInstallingOrUpdating(pluginUiModel)) {
       showProgress(false);
@@ -299,7 +300,8 @@ public final class ListPluginComponent extends JPanel {
         }
       }
       else {
-        if (installationState.getStatus() == PluginStatus.INSTALLED_AND_REQUIRED_RESTART || installationState.getStatus() == PluginStatus.UPDATED_WITH_RESTART) {
+        if (installationState.getStatus() == PluginStatus.INSTALLED_AND_REQUIRED_RESTART ||
+            installationState.getStatus() == PluginStatus.UPDATED_WITH_RESTART) {
           myLayout.addButtonComponent(myRestartButton = new RestartButton(myModelFacade));
         }
         else {
@@ -465,7 +467,8 @@ public final class ListPluginComponent extends JPanel {
 
     String stamp = instance.getConfirmationStamp(productCode);
     if (stamp == null) {
-      if (ApplicationManager.getApplication().isEAP() && !Arrays.asList("release", "true").contains(System.getProperty("eap.require.license"))) {
+      if (ApplicationManager.getApplication().isEAP() &&
+          !Arrays.asList("release", "true").contains(System.getProperty("eap.require.license"))) {
         setTagTooltip(IdeBundle.message("label.text.plugin.eap.license.not.required"));
         return;
       }
@@ -660,9 +663,8 @@ public final class ListPluginComponent extends JPanel {
     }
   }
 
-  public void updateErrors() {
+  public void updateErrors(List<? extends HtmlChunk> errors) {
     PluginUiModel plugin = getDescriptorForActions();
-    List<? extends HtmlChunk> errors = myOnlyUpdateMode ? List.of() : myModelFacade.getErrors(plugin);
     boolean hasErrors = !errors.isEmpty() && !myIsNotFreeInFreeMode;
     updateIcon(hasErrors,
                myModelFacade.isUninstalled(plugin.getPluginId()) || !isEnabledState() || !myIsAvailable);
@@ -703,6 +705,16 @@ public final class ListPluginComponent extends JPanel {
     if (myUpdateLicensePanel != null) {
       myUpdateLicensePanel.setVisible(!hasErrors && !myIsNotFreeInFreeMode);
     }
+  }
+
+  /**
+   * @deprecated use #updateErrors(List<? extends HtmlChunk>)
+   */
+  @Deprecated(forRemoval = true)
+  public void updateErrors() {
+    PluginUiModel plugin = getDescriptorForActions();
+    List<? extends HtmlChunk> errors = myOnlyUpdateMode ? List.of() : myModelFacade.getErrors(plugin);
+    updateErrors(errors);
   }
 
   private void updateIcon(boolean errors, boolean disabled) {
@@ -750,7 +762,7 @@ public final class ListPluginComponent extends JPanel {
           myInstallButton.setEnabled(false, IdeBundle.message("plugin.status.installed"));
           if (myInstallButton.isVisible()) {
             PluginUiModel foundPlugin = UiPluginManager.getInstance().findPlugin(myPlugin.getPluginId());
-            myInstalledDescriptorForMarketplace = foundPlugin ;
+            myInstalledDescriptorForMarketplace = foundPlugin;
             if (myInstalledDescriptorForMarketplace != null) {
               if (myMarketplace) {
                 myInstallButton.setVisible(false);
@@ -1581,7 +1593,8 @@ public final class ListPluginComponent extends JPanel {
   }
 
   private boolean isInstalledAndEnabled() {
-    return UiPluginManager.getInstance().getPluginInstallationState(myPlugin.getPluginId()).getFullyInstalled() && !myModelFacade.getState(myPlugin).isDisabled();
+    return UiPluginManager.getInstance().getPluginInstallationState(myPlugin.getPluginId()).getFullyInstalled() &&
+           !myModelFacade.getState(myPlugin).isDisabled();
   }
 
   @Override

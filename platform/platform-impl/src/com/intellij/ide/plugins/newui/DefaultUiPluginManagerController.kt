@@ -334,6 +334,11 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return PluginDownloader.createDownloader(pluginUiModel.getDescriptor(), pluginUiModel.repositoryName, null).checkPluginCanBeDownloaded(null)
   }
 
+  override suspend fun loadErrors(sessionId: String): Map<PluginId, CheckErrorsResult> {
+    val session = findSession(sessionId) ?: return emptyMap()
+    return getPlugins().map { it.pluginId }.associateWith { getErrors(session, it) }
+  }
+
   override fun tryUnloadPluginIfAllowed(parentComponent: JComponent?, pluginId: PluginId, isUpdate: Boolean): Boolean {
     val descriptorImpl = PluginManagerCore.findPlugin(pluginId) ?: return false
     return (allowLoadUnloadWithoutRestart(descriptorImpl) && DynamicPlugins.allowLoadUnloadSynchronously(descriptorImpl) && PluginInstaller.unloadDynamicPlugin(parentComponent, descriptorImpl, true))
@@ -486,7 +491,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
   }
 
   override fun loadPluginDetails(
-    model: PluginUiModel
+    model: PluginUiModel,
   ): PluginUiModel? {
     return MarketplaceRequests.getInstance().loadPluginDetails(model)
   }
@@ -518,6 +523,10 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
 
   override fun getErrors(sessionId: String, pluginId: PluginId): CheckErrorsResult {
     val session = findSession(sessionId) ?: return CheckErrorsResult()
+    return getErrors(session, pluginId)
+  }
+
+  private fun getErrors(session: PluginManagerSession, pluginId: PluginId): CheckErrorsResult {
     if (InstalledPluginsState.getInstance().wasUninstalledWithoutRestart(pluginId) ||
         InstalledPluginsState.getInstance().wasInstalledWithoutRestart(pluginId)) {
       // we'll actually install the plugin when the configurable is closed; at this time we don't know if there's any loadingError
@@ -727,6 +736,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
         LOG.warn("pending dynamic plugins probably won't finish their installation: " + session.dynamicPluginsToInstall + " " + session.dynamicPluginsToUninstall)
       }
     }
+    result.errors = getErrors(session, request.pluginId)
     installCallback(result)
   }
 

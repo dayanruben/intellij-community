@@ -9,6 +9,7 @@ import com.intellij.ide.ui.AppearanceConfigurable
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.ide.util.PropertiesComponent
+import com.intellij.idea.AppMode
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
@@ -16,7 +17,8 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
-import com.intellij.util.PlatformUtils
+import com.intellij.openapi.util.registry.Registry
+import com.intellij.ui.ExperimentalUI
 import com.intellij.util.concurrency.AppExecutorUtil
 import java.util.concurrent.TimeUnit
 
@@ -32,13 +34,16 @@ internal class IslandsFeedback : ProjectActivity {
 
     internal fun isManyIslandTheme(themeId: String) = themeId == "Many Islands Dark" || themeId == "Many Islands Light"
 
-    internal fun getReadMoreUrl() = "https://jetbrains.com" // XXX
+    internal fun getReadMoreUrl() = "https://blog.jetbrains.com/platform/2025/06/testing-a-fresh-look-for-jetbrains-ides/"
 
     internal fun getFeedbackUrl(oneIsland: Boolean): String {
       return if (oneIsland) "https://surveys.jetbrains.com/s3/JetBrains-EAP-UI-Feedback-Survey" else "https://surveys.jetbrains.com/s3/Feedback-Survey-About-UI-EAP"
     }
 
-    private var myFirstProject = !PlatformUtils.isRider() && !ApplicationManager.getApplication().isUnitTestMode && !ApplicationManager.getApplication().isHeadlessEnvironment
+    private var myFirstProject = !Registry.`is`("llm.riderNext.enabled", false) && ExperimentalUI.isNewUI() &&
+                                 !ApplicationManager.getApplication().isUnitTestMode &&
+                                 !ApplicationManager.getApplication().isHeadlessEnvironment &&
+                                 !AppMode.isRemoteDevHost()
   }
 
   override suspend fun execute(project: Project) {

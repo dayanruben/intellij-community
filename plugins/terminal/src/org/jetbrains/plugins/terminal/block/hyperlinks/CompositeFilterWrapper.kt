@@ -32,9 +32,7 @@ internal class CompositeFilterWrapper(private val project: Project, private val 
   }
 
   init {
-    ConsoleFilterProvider.FILTER_PROVIDERS.addChangeListener(coroutineScope) {
-      dropFilter()
-    }
+    ConsoleFilterProvider.FILTER_PROVIDERS.addChangeListener(coroutineScope, ::dropFilter)
   }
 
   fun addFilter(filter: Filter) {
@@ -44,7 +42,7 @@ internal class CompositeFilterWrapper(private val project: Project, private val 
 
   private fun dropFilter() {
     cachedFilter = null
-    filterDeferredLazy.drop()
+    filterDeferredLazy.drop()?.cancel("Filters updated")
     if (areFiltersInUse) {
       // If filters have been requested already, there is some text in the editor.
       // This text needs to be reprocessed with the updated filters.
@@ -61,8 +59,10 @@ internal class CompositeFilterWrapper(private val project: Project, private val 
       it.setForceUseAllFilters(true)
     }
     cachedFilter = compositeFilter
-    withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-      fireFiltersUpdated()
+    if (areFiltersInUse) {
+      withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+        fireFiltersUpdated()
+      }
     }
     compositeFilter
   }
