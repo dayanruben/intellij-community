@@ -21,6 +21,7 @@ jvm_library(
   srcs = glob(["xpath-lang/src/**/*.kt", "xpath-lang/src/**/*.java", "xpath-lang/src/**/*.form", "xpath-view/src/**/*.kt", "xpath-view/src/**/*.java", "xpath-view/src/**/*.form", "xpath-lang/gen/**/*.kt", "xpath-lang/gen/**/*.java"], allow_empty = True),
   deps = [
     "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/indexing-api:indexing",
@@ -29,6 +30,7 @@ jvm_library(
     "//platform/projectModel-api:projectModel",
     "//platform/structure-view-impl:structureView-impl",
     "//xml/openapi:xml",
+    "//platform/platform-impl/concurrency",
     "//platform/lang-api:lang",
     "//platform/platform-impl:ide-impl",
     "//platform/refactoring",
@@ -62,6 +64,7 @@ jvm_library(
   associates = [":xpath"],
   deps = [
     "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/indexing-api:indexing",
@@ -70,6 +73,7 @@ jvm_library(
     "//platform/projectModel-api:projectModel",
     "//platform/structure-view-impl:structureView-impl",
     "//xml/openapi:xml",
+    "//platform/platform-impl/concurrency",
     "//platform/lang-api:lang",
     "//platform/platform-impl:ide-impl",
     "//platform/platform-impl:ide-impl_test_lib",

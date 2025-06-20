@@ -207,7 +207,9 @@ class PlatformUtilitiesTest {
         (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
           assertThat(EDT.isCurrentThreadEdt()).isTrue
           assertThat(application.isWriteAccessAllowed).isTrue
-          runWriteAction {}
+          assertThat(application.isReadAccessAllowed).isTrue
+            runWriteAction {}
+            runReadAction { }
           assertThat(TransactionGuard.getInstance().isWritingAllowed).isTrue
         }
       }
@@ -223,7 +225,9 @@ class PlatformUtilitiesTest {
       (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
         assertThat(EDT.isCurrentThreadEdt()).isTrue
         assertThat(application.isWriteAccessAllowed).isTrue
+        assertThat(application.isReadAccessAllowed).isTrue
         runWriteAction {}
+        runReadAction { }
         assertThat(TransactionGuard.getInstance().isWritingAllowed).isTrue
       }
     }
@@ -276,10 +280,10 @@ class PlatformUtilitiesTest {
       }
     }).use {
       try {
-        ProgressManager.getInstance().run(object : Task.Backgroundable(null, "kek") {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(null, "title1") {
           override fun run(indicator: ProgressIndicator) {
             invokeLater {
-              ProgressManager.getInstance().run(object : Task.Backgroundable(null, "kek2") {
+              ProgressManager.getInstance().run(object : Task.Backgroundable(null, "title2") {
                 override fun run(indicator: ProgressIndicator) {
                   application.invokeLater {
                     throw CustomException()

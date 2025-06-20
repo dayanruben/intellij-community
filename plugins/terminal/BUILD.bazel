@@ -21,6 +21,7 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
     "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//platform/util/concurrency",
     "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
@@ -32,6 +33,7 @@ jvm_library(
     "@lib//:pty4j",
     "@lib//:jna",
     "//platform/projectModel-api:projectModel",
+    "//platform/remote-core",
     "//platform/remote-servers/api:remoteServers",
     "//platform/remote-servers/impl",
     "@lib//:jediterm-core",
@@ -78,6 +80,7 @@ jvm_library(
   associates = [":terminal"],
   deps = [
     "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//platform/util/concurrency",
     "//platform/util/concurrency:concurrency_test_lib",
     "//platform/core-api:core",
@@ -91,6 +94,7 @@ jvm_library(
     "@lib//:pty4j",
     "@lib//:jna",
     "//platform/projectModel-api:projectModel",
+    "//platform/remote-core",
     "//platform/remote-servers/api:remoteServers",
     "//platform/remote-servers/impl",
     "@lib//:junit4",

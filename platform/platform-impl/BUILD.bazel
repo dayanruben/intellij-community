@@ -34,6 +34,7 @@ jvm_library(
   deps = [
     "@lib//:eawtstub-provided",
     "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//platform/core-api:core",
     "//platform/credential-store",
     "//platform/editor-ui-api:editor-ui",
@@ -149,6 +150,7 @@ jvm_library(
     "//platform/eel",
     "//platform/platform-util-io:ide-util-io",
     "//platform/locking.impl",
+    "//platform/platform-impl/concurrency",
   ],
   exports = [
     "//platform/platform-api:ide",
@@ -187,6 +189,7 @@ jvm_library(
   deps = [
     "@lib//:eawtstub-provided",
     "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//platform/core-api:core",
     "//platform/credential-store",
     "//platform/editor-ui-api:editor-ui",
@@ -309,6 +312,7 @@ jvm_library(
     "//platform/eel",
     "//platform/platform-util-io:ide-util-io",
     "//platform/locking.impl",
+    "//platform/platform-impl/concurrency",
   ],
   runtime_deps = [":ide-impl_resources"]
 )

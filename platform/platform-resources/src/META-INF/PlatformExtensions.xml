@@ -503,10 +503,6 @@
     <applicationService serviceInterface="com.intellij.util.graph.GraphAlgorithms"
                         serviceImplementation="com.intellij.util.graph.impl.GraphAlgorithmsImpl"/>
 
-    <!--suppress DeprecatedClassUsageInspection -->
-    <applicationService serviceInterface="com.intellij.concurrency.AsyncFutureFactory"
-                        serviceImplementation="com.intellij.concurrency.AsyncFutureFactoryImpl"/>
-
     <applicationService serviceImplementation="com.intellij.openapi.keymap.impl.DefaultKeymap"/>
 
     <applicationService serviceInterface="com.intellij.openapi.options.SchemeManagerFactory"
@@ -1729,6 +1725,9 @@
     <applicationService serviceInterface="com.intellij.openapi.application.ReadWriteActionSupport"
                         serviceImplementation="com.intellij.openapi.application.rw.PlatformReadWriteActionSupport"/>
 
+    <applicationService serviceInterface="com.intellij.openapi.progress.LockingProgressSupport"
+                        serviceImplementation="com.intellij.openapi.application.impl.LockingProgressSupportImpl"/>
+
     <persistentFsConnectionListener implementation="com.intellij.openapi.vfs.impl.jar.ArchiveCachesCleaner"/>
     <applicationService serviceInterface="com.intellij.platform.ide.progress.TaskSupport"
                         serviceImplementation="com.intellij.openapi.progress.impl.PlatformTaskSupport" preload="true"/>
@@ -1842,6 +1841,11 @@
     <registryKey key="ide.recent.projects.query.ep.providers"
                  defaultValue="true"
                  description="Enables showing non-local projects in the recents list"/>
+
+    <registryKey key="code.style.package.entry.table.check.compatibility"
+                 defaultValue="true"
+                 description="Enable checks that the import layout is compatible"
+                 restartRequired="true"/>
 
     <actionConfigurationCustomizer implementation="com.intellij.openapi.project.impl.SeparateProcessActionsCustomizer"/>
 
