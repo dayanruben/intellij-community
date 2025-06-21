@@ -72,7 +72,8 @@ java_binary(
     "--add-opens=jdk.attach/sun.tools.attach=ALL-UNNAMED",
     "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
     "--add-opens=jdk.internal.jvmstat/sun.jvmstat.monitor=ALL-UNNAMED",
-    "--add-opens=jdk.jdi/com.sun.tools.jdi=ALL-UNNAMED"
+    "--add-opens=jdk.jdi/com.sun.tools.jdi=ALL-UNNAMED",
+    "-Didea.home.path=$${BUILD_WORKSPACE_DIRECTORY}",
   ]
 )
 
@@ -260,6 +261,7 @@ java_library(
     "//plugins/maven/maven3-server-impl:server-m3-impl",
     "//plugins/maven/maven36-server-impl:server-m36-impl",
     "//plugins/maven/maven40-server-impl:server-m40",
+    "//plugins/mcp-server:mcpserver",
   ]
 )
 ### auto-generated section `build intellij.idea.community.main` end

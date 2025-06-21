@@ -25,6 +25,7 @@ import org.jetbrains.plugins.terminal.block.completion.TerminalCompletionUtil
 import org.jetbrains.plugins.terminal.block.completion.spec.ShellDataGenerators
 import org.jetbrains.plugins.terminal.block.completion.spec.impl.ShellDataGeneratorsExecutorReworkedImpl
 import org.jetbrains.plugins.terminal.block.completion.spec.impl.ShellRuntimeContextProviderReworkedImpl
+import org.jetbrains.plugins.terminal.block.reworked.TerminalAliasesStorage
 import org.jetbrains.plugins.terminal.block.reworked.TerminalBlocksModel
 import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModel
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isReworkedTerminalEditor
@@ -70,20 +71,22 @@ internal class TerminalCommandSpecCompletionContributorGen2 : CompletionContribu
     else {
       tokens
     }
+    val aliasesStorage = parameters.editor.getUserData(TerminalAliasesStorage.KEY)
 
     if (allTokens.isEmpty()) {
       return
     }
     tracer.spanBuilder("terminal-completion-all").use {
       val suggestions = runBlockingCancellable {
-        computeSuggestions(allTokens, context)
+        val expandedTokens = expandAliases(context, allTokens, aliasesStorage)
+        computeSuggestions(expandedTokens, context)
       }
       tracer.spanBuilder("terminal-completion-submit-suggestions-to-lookup").use {
         submitSuggestions(suggestions, allTokens, result, ShellType.ZSH)
       }
     }
   }
-
+  
   private fun submitSuggestions(
     suggestions: List<ShellCompletionSuggestion>,
     allTokens: List<String>,
@@ -165,6 +168,21 @@ internal class TerminalCommandSpecCompletionContributorGen2 : CompletionContribu
       result += commandExecutable.removeSuffix(".exe")
     }
     return result
+  }
+
+  private fun expandAliases(
+    context: TerminalCompletionContext,
+    tokens: List<String>,
+    aliasesStorage: TerminalAliasesStorage?,
+  ): List<String> {
+    if (tokens.size < 2) {
+      return tokens
+    }
+    if (aliasesStorage != null) {
+      val expandedTokens = expandAliases(tokens, aliasesStorage.getAliasesInfo().aliases, context)
+      return expandedTokens
+    }
+    return tokens
   }
 
   /**

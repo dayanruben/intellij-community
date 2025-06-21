@@ -286,6 +286,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
       }
       else if (controller.allowLoadUnloadSynchronously(descriptor.getPluginId())) {
         allowInstallWithoutRestart.set(controller.uninstallDynamicPlugin(parentComponent,
+                                                                         sessionId.toString(),
                                                                          descriptor.getPluginId(),
                                                                          true));
       }
@@ -978,21 +979,29 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
         panel.showUninstallProgress(scope);
       }
     }
-    PluginModelAsyncOperationsExecutor.INSTANCE
-      .performUninstall(scope, descriptor, sessionId.toString(), controller, (needRestartForUninstall, errorCheckResult) -> {
-        needRestart |= descriptor.isEnabled() && needRestartForUninstall;
-        Map<PluginId, List<HtmlChunk>> errors = getErrors(errorCheckResult);
-        if (myPluginManagerCustomizer != null) {
-          myPluginManagerCustomizer.updateAfterModification(() -> {
+    try {
+      PluginModelAsyncOperationsExecutor.INSTANCE
+        .performUninstall(scope, descriptor, sessionId.toString(), controller, (needRestartForUninstall, errorCheckResult) -> {
+          needRestart |= descriptor.isEnabled() && needRestartForUninstall;
+          Map<PluginId, List<HtmlChunk>> errors = getErrors(errorCheckResult);
+          if (myPluginManagerCustomizer != null) {
+            myPluginManagerCustomizer.updateAfterModification(() -> {
+              updateUiAfterUninstall(descriptor, needRestartForUninstall, errors);
+              return null;
+            });
+          }
+          else {
             updateUiAfterUninstall(descriptor, needRestartForUninstall, errors);
-            return null;
-          });
+          }
+          return null;
+        });
+    } finally {
+      for (PluginDetailsPageComponent panel : myDetailPanels) {
+        if (panel.getDescriptorForActions() == descriptor) {
+          panel.hideProgress();
         }
-        else {
-          updateUiAfterUninstall(descriptor, needRestartForUninstall, errors);
-        }
-        return null;
-      });
+      }
+    }
   }
 
   private void updateUiAfterUninstall(@NotNull PluginUiModel descriptor, boolean needRestartForUninstall,
@@ -1027,7 +1036,6 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
 
     for (PluginDetailsPageComponent panel : myDetailPanels) {
       if (panel.getDescriptorForActions() == descriptor) {
-        panel.hideProgress();
         panel.updateAfterUninstall(needRestartForUninstall);
       }
     }
