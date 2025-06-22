@@ -3,24 +3,23 @@ package com.intellij.html.polySymbols
 
 import com.intellij.documentation.mdn.*
 import com.intellij.html.polySymbols.attributes.HtmlAttributeSymbolDescriptor
+import com.intellij.html.polySymbols.attributes.asHtmlSymbol
 import com.intellij.html.polySymbols.elements.HtmlElementSymbolDescriptor
+import com.intellij.html.polySymbols.elements.asHtmlSymbol
 import com.intellij.model.Pointer
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.NlsSafe
 import com.intellij.polySymbols.*
 import com.intellij.polySymbols.completion.PolySymbolCodeCompletionItem
 import com.intellij.polySymbols.completion.PolySymbolCodeCompletionItemCustomizer
-import com.intellij.polySymbols.context.PolyContext
 import com.intellij.polySymbols.html.*
 import com.intellij.polySymbols.js.JS_EVENTS
 import com.intellij.polySymbols.query.*
-import com.intellij.polySymbols.search.PsiSourcedPolySymbol
 import com.intellij.polySymbols.utils.PolySymbolPrioritizedScope
 import com.intellij.polySymbols.utils.match
 import com.intellij.psi.PsiElement
 import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.createSmartPointer
-import com.intellij.psi.util.PsiModificationTracker
+import com.intellij.psi.html.HtmlTag
 import com.intellij.psi.util.parentOfType
 import com.intellij.psi.util.parentOfTypes
 import com.intellij.psi.xml.XmlAttribute
@@ -28,25 +27,20 @@ import com.intellij.psi.xml.XmlElement
 import com.intellij.psi.xml.XmlTag
 import com.intellij.util.asSafely
 import com.intellij.xml.XmlAttributeDescriptor
-import com.intellij.xml.XmlElementDescriptor
-import com.intellij.xml.util.HtmlUtil
 import org.jetbrains.annotations.ApiStatus
 
-class HtmlSymbolQueryConfigurator : PolySymbolQueryConfigurator {
+class HtmlSymbolQueryScopeContributor : PolySymbolQueryScopeContributor {
 
-  override fun getScope(
-    project: Project,
-    location: PsiElement?,
-    context: PolyContext,
-    allowResolve: Boolean,
-  ): List<PolySymbolScope> =
-    if (location is XmlElement) {
-      listOfNotNull(
-        location.takeIf { it !is XmlTag }?.let { HtmlContextualSymbolScope(it) },
-        location.parentOfType<XmlTag>(withSelf = true)?.let { StandardHtmlSymbolScope(it) },
-      )
-    }
-    else emptyList()
+  override fun registerProviders(registrar: PolySymbolQueryScopeProviderRegistrar) {
+    registrar
+      .forPsiLocation(XmlElement::class.java)
+      .contributeScopeProvider { location ->
+        listOfNotNull(
+          location.takeIf { it !is XmlTag }?.let { HtmlContextualSymbolScope(it) },
+          location.parentOfType<HtmlTag>(withSelf = true)?.let { StandardHtmlSymbolScope(it) },
+        )
+      }
+  }
 
   @ApiStatus.Internal
   class HtmlContextualSymbolScope(private val location: PsiElement)
@@ -104,6 +98,7 @@ class HtmlSymbolQueryConfigurator : PolySymbolQueryConfigurator {
       location.hashCode()
   }
 
+  @ApiStatus.Internal
   class HtmlCodeCompletionItemCustomizer : PolySymbolCodeCompletionItemCustomizer {
     override fun customize(
       item: PolySymbolCodeCompletionItem,
@@ -118,7 +113,7 @@ class HtmlSymbolQueryConfigurator : PolySymbolQueryConfigurator {
       }
   }
 
-  private class StandardHtmlSymbolScope(private val tag: XmlTag) : PolySymbolScope {
+  private class StandardHtmlSymbolScope(private val tag: HtmlTag) : PolySymbolScope {
 
     override fun equals(other: Any?): Boolean =
       other is StandardHtmlSymbolScope
@@ -148,11 +143,11 @@ class HtmlSymbolQueryConfigurator : PolySymbolQueryConfigurator {
             (HtmlDescriptorUtils.getStandardHtmlElementDescriptor(tag)?.getElementsDescriptors(tag)
              ?: HtmlDescriptorUtils.getHtmlNSDescriptor(tag.project)?.getAllElementsDescriptors(null)
              ?: emptyArray())
-              .map { HtmlElementDescriptorBasedSymbol(it, tag) }
+              .map { it.asHtmlSymbol(tag) }
               .toList()
           HTML_ATTRIBUTES ->
             HtmlDescriptorUtils.getStandardHtmlAttributeDescriptors(tag)
-              .map { HtmlAttributeDescriptorBasedSymbol(it, tag) }
+              .map { it.asHtmlSymbol(tag) }
               .toList()
           JS_EVENTS ->
             HtmlDescriptorUtils.getStandardHtmlAttributeDescriptors(tag)
@@ -173,12 +168,12 @@ class HtmlSymbolQueryConfigurator : PolySymbolQueryConfigurator {
         when (qualifiedName.qualifiedKind) {
           HTML_ELEMENTS ->
             HtmlDescriptorUtils.getStandardHtmlElementDescriptor(tag, qualifiedName.name)
-              ?.let { HtmlElementDescriptorBasedSymbol(it, tag) }
+              ?.asHtmlSymbol(tag)
               ?.match(qualifiedName.name, params, stack)
               ?.let { return it }
           HTML_ATTRIBUTES ->
             HtmlDescriptorUtils.getStandardHtmlAttributeDescriptor(tag, qualifiedName.name)
-              ?.let { HtmlAttributeDescriptorBasedSymbol(it, tag) }
+              ?.asHtmlSymbol(tag)
               ?.match(qualifiedName.name, params, stack)
               ?.let { return it }
           JS_EVENTS -> {
@@ -191,158 +186,6 @@ class HtmlSymbolQueryConfigurator : PolySymbolQueryConfigurator {
       }
       return emptyList()
     }
-  }
-
-  abstract class StandardHtmlSymbol : MdnDocumentedSymbol(), PsiSourcedPolySymbol, PolySymbolScope {
-    abstract val project: Project?
-    override fun getModificationCount(): Long = project?.let { PsiModificationTracker.getInstance(it).modificationCount } ?: 0
-    abstract override fun createPointer(): Pointer<out StandardHtmlSymbol>
-  }
-
-  class HtmlElementDescriptorBasedSymbol(
-    val descriptor: XmlElementDescriptor,
-    private val tag: XmlTag?,
-  ) : PolySymbol, StandardHtmlSymbol() {
-
-    override val project: Project?
-      get() = tag?.project ?: descriptor.declaration?.project
-
-    override fun getMdnDocumentation(): MdnSymbolDocumentation? =
-      getHtmlMdnTagDocumentation(getHtmlApiNamespace(descriptor.nsDescriptor?.name, tag, name),
-                                 name)
-
-    override val qualifiedKind: PolySymbolQualifiedKind
-      get() = HTML_ELEMENTS
-
-    override val name: String = descriptor.name
-
-    override val origin: PolySymbolOrigin
-      get() = PolySymbolOrigin.empty()
-
-    override val priority: PolySymbol.Priority
-      get() = PolySymbol.Priority.LOW
-
-    override val defaultValue: String?
-      get() = descriptor.defaultValue
-
-    override val source: PsiElement?
-      get() = descriptor.declaration
-
-    override fun createPointer(): Pointer<HtmlElementDescriptorBasedSymbol> {
-      val descriptor = this.descriptor
-      val tagPtr = tag?.createSmartPointer()
-
-      return Pointer<HtmlElementDescriptorBasedSymbol> {
-        val tag = tagPtr?.let { it.dereference() ?: return@Pointer null }
-        HtmlElementDescriptorBasedSymbol(descriptor, tag)
-      }
-    }
-
-    override fun equals(other: Any?): Boolean =
-      other === this ||
-      other is HtmlElementDescriptorBasedSymbol
-      && other.descriptor == this.descriptor
-
-    override fun hashCode(): Int =
-      descriptor.hashCode()
-  }
-
-  class HtmlAttributeDescriptorBasedSymbol private constructor(
-    val descriptor: XmlAttributeDescriptor,
-    private val tag: XmlTag?,
-    private val tagName: String,
-  ) : StandardHtmlSymbol() {
-
-    constructor(descriptor: XmlAttributeDescriptor, tag: XmlTag) : this(descriptor, tag, tag.name)
-
-    constructor(descriptor: XmlAttributeDescriptor, tagName: String) : this(descriptor, null, tagName)
-
-    override fun getMdnDocumentation(): MdnSymbolDocumentation? =
-      getHtmlMdnAttributeDocumentation(getHtmlApiNamespace(tag?.namespace, tag, tagName),
-                                       tagName, name)
-
-    override val project: Project?
-      get() = tag?.project ?: descriptor.declaration?.project
-
-    override val qualifiedKind: PolySymbolQualifiedKind
-      get() = HTML_ATTRIBUTES
-
-    override val name: String = descriptor.name
-
-    override val origin: PolySymbolOrigin
-      get() = PolySymbolOrigin.empty()
-
-    override val priority: PolySymbol.Priority
-      get() = PolySymbol.Priority.LOW
-
-    override val modifiers: Set<PolySymbolModifier>
-      get() = setOf(
-        if (descriptor.isRequired) PolySymbolModifier.REQUIRED else PolySymbolModifier.OPTIONAL,
-      )
-
-    override val defaultValue: String?
-      get() = descriptor.defaultValue
-
-    override val source: PsiElement?
-      get() = descriptor.declaration
-
-    val attributeValue: PolySymbolHtmlAttributeValue
-      get() {
-        val isBooleanAttribute = HtmlUtil.isBooleanAttribute(descriptor, null)
-        return PolySymbolHtmlAttributeValue.create(
-          null,
-          when {
-            isBooleanAttribute -> PolySymbolHtmlAttributeValue.Type.BOOLEAN
-            descriptor.isEnumerated -> PolySymbolHtmlAttributeValue.Type.ENUM
-            else -> PolySymbolHtmlAttributeValue.Type.STRING
-          },
-          !isBooleanAttribute,
-          descriptor.defaultValue,
-          null,
-        )
-      }
-
-    override fun <T : Any> get(property: PolySymbolProperty<T>): T? =
-      when (property) {
-        PROP_HTML_ATTRIBUTE_VALUE -> property.tryCast(attributeValue)
-        else -> super.get(property)
-      }
-
-    override fun getSymbols(
-      qualifiedKind: PolySymbolQualifiedKind,
-      params: PolySymbolListSymbolsQueryParams,
-      stack: PolySymbolQueryStack,
-    ): List<PolySymbol> =
-      if (qualifiedKind == HTML_ATTRIBUTE_VALUES && descriptor.isEnumerated)
-        descriptor.enumeratedValues?.map { HtmlAttributeValueSymbol(it) } ?: emptyList()
-      else
-        emptyList()
-
-    override fun createPointer(): Pointer<HtmlAttributeDescriptorBasedSymbol> {
-      val descriptor = this.descriptor
-      val tagPtr = tag?.createSmartPointer()
-      val tagName = this.tagName
-      return Pointer<HtmlAttributeDescriptorBasedSymbol> {
-        val tag = tagPtr?.let { it.dereference() ?: return@Pointer null }
-        HtmlAttributeDescriptorBasedSymbol(descriptor, tag, tagName)
-      }
-    }
-
-    override fun equals(other: Any?): Boolean =
-      this === other ||
-      other is HtmlAttributeDescriptorBasedSymbol
-      && other.tag == tag
-      && other.descriptor == descriptor
-      && other.tagName == tagName
-
-    override fun hashCode(): Int {
-      var result = 31
-      result = 31 * result + descriptor.hashCode()
-      result = 31 * result + tag.hashCode()
-      result = 31 * result + tagName.hashCode()
-      return result
-    }
-
   }
 
   private class HtmlEventDescriptorBasedSymbol(private val descriptor: XmlAttributeDescriptor) : PolySymbol, StandardHtmlSymbol() {
@@ -369,16 +212,5 @@ class HtmlSymbolQueryConfigurator : PolySymbolQueryConfigurator {
 
   }
 
-  private class HtmlAttributeValueSymbol(override val name: @NlsSafe String) : PolySymbol {
-    override val origin: PolySymbolOrigin
-      get() = PolySymbolOrigin.empty()
-
-    override val qualifiedKind: PolySymbolQualifiedKind
-      get() = HTML_ATTRIBUTE_VALUES
-
-    override fun createPointer(): Pointer<HtmlAttributeValueSymbol> =
-      Pointer.hardPointer(this)
-
-  }
 }
 
