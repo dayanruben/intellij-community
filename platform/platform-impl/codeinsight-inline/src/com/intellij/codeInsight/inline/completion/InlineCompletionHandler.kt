@@ -1,10 +1,9 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.inline.completion
 
-import com.intellij.codeInsight.inline.completion.editor.InlineCompletionEditorType
 import com.intellij.codeInsight.inline.completion.elements.InlineCompletionElement
 import com.intellij.codeInsight.inline.completion.listeners.InlineSessionWiseCaretListener
-import com.intellij.codeInsight.inline.completion.listeners.typing.InlineCompletionDocumentChangesTrackerImpl
+import com.intellij.codeInsight.inline.completion.listeners.typing.InlineCompletionTypingSessionTracker
 import com.intellij.codeInsight.inline.completion.logs.InlineCompletionLogsListener
 import com.intellij.codeInsight.inline.completion.logs.InlineCompletionUsageTracker
 import com.intellij.codeInsight.inline.completion.logs.InlineCompletionUsageTracker.ShownEvents.FinishType
@@ -244,8 +243,8 @@ abstract class InlineCompletionHandler @ApiStatus.Internal constructor(
     }
   }
 
-  internal val documentChangesTracker = InlineCompletionDocumentChangesTrackerImpl(
-    parentDisposable,
+  @ApiStatus.Internal
+  val typingSessionTracker: InlineCompletionTypingSessionTracker = InlineCompletionTypingSessionTracker(
     sendEvent = ::invokeEvent,
     invalidateOnUnknownChange = { sessionManager.invalidate(UpdateSessionResult.Invalidated.Reason.UnclassifiedDocumentChange) }
   )
@@ -334,14 +333,14 @@ abstract class InlineCompletionHandler @ApiStatus.Internal constructor(
   @ApiStatus.Experimental
   @RequiresEdt
   fun <T> withIgnoringDocumentChanges(block: () -> T): T {
-    return documentChangesTracker.withIgnoringDocumentChanges(block)
+    return typingSessionTracker.withIgnoringDocumentChanges(block)
   }
 
   @ApiStatus.Experimental
   @ApiStatus.Internal
   @RequiresEdt
   fun setIgnoringDocumentChanges(value: Boolean) {
-    documentChangesTracker.ignoreDocumentChanges = value
+    typingSessionTracker.ignoreDocumentChanges = value
   }
 
   /**
@@ -355,7 +354,7 @@ abstract class InlineCompletionHandler @ApiStatus.Internal constructor(
   @ApiStatus.Experimental
   @RequiresEdt
   internal fun <T> withIgnoringCaretMovement(block: () -> T): T {
-    return documentChangesTracker.withIgnoringCaretMovement(block)
+    return typingSessionTracker.withIgnoringCaretMovement(block)
   }
 
   private suspend fun request(
@@ -403,10 +402,6 @@ abstract class InlineCompletionHandler @ApiStatus.Internal constructor(
       if (event.providerId != this@isEnabledConsideringEventRequirements.id && this !is RemDevAggregatorInlineCompletionProvider) {
         return false
       }
-    }
-    val editorType = InlineCompletionEditorType.get(editor)
-    if (!isEditorTypeSupported(editorType)) {
-      return false
     }
     return isEnabled(event)
   }
@@ -531,7 +526,10 @@ abstract class InlineCompletionHandler @ApiStatus.Internal constructor(
         }
 
       override val mode: Mode
-        get() = if (documentChangesTracker.ignoreCaretMovements) Mode.ADAPTIVE else Mode.PROHIBIT_MOVEMENT
+        get() = if (typingSessionTracker.ignoreCaretMovements) Mode.ADAPTIVE else Mode.PROHIBIT_MOVEMENT
+
+      override val isTypingSessionInProgress: Boolean
+        get() = typingSessionTracker.isTypingInProgress(editor)
 
       override fun cancel() {
         if (!context.isDisposed) hide(context, FinishType.CARET_CHANGED)

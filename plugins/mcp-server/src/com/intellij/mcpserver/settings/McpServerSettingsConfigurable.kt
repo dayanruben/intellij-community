@@ -18,6 +18,9 @@ import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.builder.selected
 import com.intellij.ui.layout.ComponentPredicate
+import com.intellij.ui.layout.ValueComponentPredicate
+import com.intellij.ui.layout.and
+import com.intellij.ui.layout.not
 import com.intellij.util.ui.TextTransferable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
@@ -26,6 +29,8 @@ import org.jetbrains.ide.RestService.Companion.getLastFocusedOrOpenedProject
 import java.awt.event.ActionEvent
 import java.nio.file.Path
 import javax.swing.JComponent
+import kotlin.io.path.exists
+import kotlin.io.path.isRegularFile
 
 class McpServerSettingsConfigurable : SearchableConfigurable {
   private var settingsPanel: DialogPanel? = null
@@ -59,31 +64,39 @@ class McpServerSettingsConfigurable : SearchableConfigurable {
           }
         }
 
+
+
         McpClientDetector.detectGlobalMcpClients().forEach { mcpClient ->
+          val isConfigured = ValueComponentPredicate(mcpClient.isConfigured() ?: false)
+          val isPortCorrect = ValueComponentPredicate(mcpClient.isPortCorrect())
           val json = mcpClient.json
           group(mcpClient.name) {
             row {
-              if (mcpClient.isConfigured()) {
-                text(McpServerBundle.message("mcp.server.configured"))
-              }
+              text(McpServerBundle.message("mcp.server.not.configured")).visibleIf(isConfigured.not())
+              text(McpServerBundle.message("mcp.server.configured")).visibleIf(isConfigured.and(isPortCorrect))
+              text(McpServerBundle.message("mcp.server.configured.port.invalid")).visibleIf(isConfigured.and(isPortCorrect.not()))
             }
+            val autoconfiguredPressed = ValueComponentPredicate(false)
+            val configExists = ValueComponentPredicate(mcpClient.configPath.exists() && mcpClient.configPath.isRegularFile())
             row {
-              button(McpServerBundle.message("autoconfigure.mcp.server"), { mcpClient.configure() })
-              button(McpServerBundle.message("open.settings.json"), { openFileInEditor(mcpClient.configPath) })
-              button(McpServerBundle.message("copy.mcp.server.stdio.configuration"), {
+              icon(AllIcons.General.Information)
+              comment(McpServerBundle.message("mcp.server.client.restart.info"))
+            }.visibleIf(autoconfiguredPressed)
+            row {
+              button(McpServerBundle.message("autoconfigure.mcp.server"), {
+                mcpClient.configure()
+                isConfigured.set(true)
+                isPortCorrect.set(true)
+                configExists.set(true)
+                autoconfiguredPressed.set(true)
+              })
+              button(McpServerBundle.message("open.settings.json"), { openFileInEditor(mcpClient.configPath) }).visibleIf(configExists)
+              button(McpServerBundle.message("copy.mcp.server.configuration"), {
                 CopyPasteManager.getInstance().setContents(TextTransferable(json.encodeToString(buildJsonObject {
-                  put("jetbrains", json.encodeToJsonElement(mcpClient.getStdioConfig()))
+                  put("jetbrains", json.encodeToJsonElement(mcpClient.getConfig()))
                 }) as CharSequence))
                 showCopiedBallon(it)
               })
-              if (mcpClient.isSSESupported()) {
-                button(McpServerBundle.message("copy.mcp.server.sse.configuration"), {
-                  CopyPasteManager.getInstance().setContents(TextTransferable(json.encodeToString(buildJsonObject {
-                    put("jetbrains", json.encodeToJsonElement(mcpClient.getSSEConfig()))
-                  }) as CharSequence))
-                  showCopiedBallon(it)
-                })
-              }
             }
           }
         }
@@ -133,7 +146,7 @@ class McpServerSettingsConfigurable : SearchableConfigurable {
     if (project == null) {
       return
     }
-    val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath.toString())
+    val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(filePath.toString())
     virtualFile?.let { file ->
       FileEditorManager.getInstance(project).openFile(file, true)
     }
