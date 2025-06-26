@@ -225,7 +225,6 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
 
   public void setPluginUpdatesService(@NotNull PluginUpdatesService service) {
     myPluginUpdatesService = service;
-    myPluginUpdatesService.setFilter(this::isEnabled);
   }
 
   public PluginUpdatesService getPluginUpdatesService() {
@@ -281,7 +280,7 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     Ref<Boolean> uninstallPlugin = Ref.create(false);
     if (isUpdate) {
       if (descriptor.isBundled()) {
-        allowInstallWithoutRestart.set(controller.tryUnloadPluginIfAllowed(parentComponent, descriptor.getPluginId(), true));
+        allowInstallWithoutRestart.set(false);
       }
       else if (!controller.allowLoadUnloadWithoutRestart(descriptor.getPluginId())) {
         allowInstallWithoutRestart.set(false);
@@ -1092,9 +1091,8 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     setStatesByIds(pluginsToEnable, true);
   }
 
-  protected @NotNull Collection<PluginNode> getCustomRepoPlugins() {
-    return ContainerUtil.map(CustomPluginRepositoryService.getInstance().getCustomRepositoryPlugins(),
-                             it -> (PluginNode)it.getDescriptor());
+  protected @NotNull Collection<PluginUiModel> getCustomRepoPlugins() {
+    return CustomPluginRepositoryService.getInstance().getCustomRepositoryPlugins();
   }
 
   public static @Unmodifiable @NotNull Set<String> getPluginNames(@NotNull Collection<? extends IdeaPluginDescriptor> descriptors) {

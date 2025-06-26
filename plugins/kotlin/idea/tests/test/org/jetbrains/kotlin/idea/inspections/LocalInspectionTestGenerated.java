@@ -6971,6 +6971,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
             runTest("testData/inspectionsLocal/kotlinUnreachableCode/returnReturn.kt");
         }
 
+        @TestMetadata("returnReturnAndStatement.kt")
+        public void testReturnReturnAndStatement() throws Exception {
+            runTest("testData/inspectionsLocal/kotlinUnreachableCode/returnReturnAndStatement.kt");
+        }
+
         @TestMetadata("returnTryReturn.kt")
         public void testReturnTryReturn() throws Exception {
             runTest("testData/inspectionsLocal/kotlinUnreachableCode/returnTryReturn.kt");
@@ -18084,6 +18089,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
             @TestMetadata("unusedPublicMembers.kt")
             public void testUnusedPublicMembers() throws Exception {
                 runTest("testData/inspectionsLocal/unusedSymbol/unusedPublicMembers.kt");
+            }
+
+            @TestMetadata("usedEnumEntries.kt")
+            public void testUsedEnumEntries() throws Exception {
+                runTest("testData/inspectionsLocal/unusedSymbol/usedEnumEntries.kt");
             }
 
             @TestMetadata("usedEnumFunction.kt")

@@ -44,7 +44,6 @@ import org.jetbrains.annotations.*;
 import javax.swing.*;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -72,7 +71,6 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
   private boolean myLogExpressionEnabled = true;
   private XExpression myLogExpression;
   private volatile boolean myDisposed;
-  private final AtomicLong myRequestId = new AtomicLong();
   private final MutableSharedFlow<Unit> myBreakpointChangedFlow = createMutableSharedFlow(0, 1);
 
   public XBreakpointBase(final XBreakpointType<Self, P> type,
@@ -146,24 +144,16 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
     return position.createNavigatable(getProject());
   }
 
-  public long getRequestId() {
-    return myRequestId.get();
-  }
-
-  protected boolean setRequestCompleted(long requestId) {
-    while (true) {
-      long current = myRequestId.get();
-      if (requestId <= current) return false;
-      if (myRequestId.compareAndSet(current, requestId)) return true;
-    }
-  }
-
   protected <T> void updateStateIfNeededAndNotify(long requestId, T newValue, Supplier<? extends T> getter, Consumer<T> setter) {
     T currentValue = getter.get();
-    if (Objects.equals(currentValue, newValue)) return;
-    setter.accept(newValue);
-    setRequestCompleted(requestId);
-    fireBreakpointChanged();
+    boolean updateNeeded = !Objects.equals(currentValue, newValue);
+    if (updateNeeded) {
+      setter.accept(newValue);
+    }
+    boolean requestIdChanged = myBreakpointManager.getRequestCounter().setRequestCompleted(requestId);
+    if (updateNeeded || requestIdChanged) {
+      fireBreakpointChanged();
+    }
   }
 
   @Override

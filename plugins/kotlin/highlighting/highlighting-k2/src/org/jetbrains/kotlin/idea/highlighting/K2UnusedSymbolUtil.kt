@@ -54,10 +54,10 @@ import org.jetbrains.kotlin.idea.searching.inheritors.hasAnyInheritors
 import org.jetbrains.kotlin.idea.searching.inheritors.hasAnyOverridings
 import org.jetbrains.kotlin.idea.util.findAnnotation
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.JvmStandardClassIds
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.*
 import org.jetbrains.kotlin.resolve.DataClassResolver
@@ -136,7 +136,7 @@ object K2UnusedSymbolUtil {
     context(KaSession)
     fun isHiddenFromResolution(declaration: KtNamedDeclaration): Boolean {
         val anno = declaration.findAnnotation(
-            ClassId.topLevel(StandardNames.FqNames.deprecated),
+            StandardClassIds.Annotations.Deprecated,
             useSiteTarget = null,
             withResolve = false,
         ) ?: return false
@@ -535,12 +535,17 @@ object K2UnusedSymbolUtil {
     context(KaSession)
     private fun hasBuiltInEnumFunctionReference(reference: PsiReference, enumClass: KtClass): Boolean {
         val parent = reference.element.parent
-        if ((parent as? KtQualifiedExpression)?.normalizeEnumQualifiedExpression(enumClass)
-                ?.canBeReferenceToBuiltInEnumFunction() == true
-        ) return true
-        if ((parent as? KtQualifiedExpression)?.normalizeEnumCallableReferenceExpression(enumClass)
-                ?.canBeReferenceToBuiltInEnumFunction() == true
-        ) return true
+        if (parent is KtQualifiedExpression) {
+            if (parent
+                    .normalizeEnumQualifiedExpression(enumClass)
+                    ?.canBeReferenceToBuiltInEnumFunction() == true
+            ) return true
+
+            if (parent
+                    .normalizeEnumCallableReferenceExpression(enumClass)
+                    ?.canBeReferenceToBuiltInEnumFunction() == true
+            ) return true
+        }
         if ((parent as? KtCallableReferenceExpression)?.canBeReferenceToBuiltInEnumFunction() == true) return true
         if (((parent as? KtTypeElement)?.parent as? KtTypeReference)?.isReferenceToBuiltInEnumFunction() == true) return true
         if ((parent as? PsiImportStaticReferenceElement)?.isReferenceToBuiltInEnumFunction() == true) return true
@@ -768,7 +773,7 @@ object K2UnusedSymbolUtil {
                     val ownerFunction = declaration.ownerFunction
                     if (ownerFunction is KtNamedFunction && KotlinMainFunctionDetector.getInstance().isMain(ownerFunction)) {
                         // @JvmStatic main() must have parameters
-                        return ownerFunction.findAnnotation(ClassId(FqName("kotlin.jvm"), FqName("JvmStatic"), false)) != null
+                        return ownerFunction.findAnnotation(JvmStandardClassIds.Annotations.JvmStatic) != null
                     }
                     if (!declaration.hasValOrVar()) return false
                 }
