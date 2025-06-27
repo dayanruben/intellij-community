@@ -51,18 +51,23 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.BorderLayout
+import java.awt.Dimension
 import java.awt.event.*
 import java.util.function.Supplier
 import javax.accessibility.AccessibleContext
 import javax.swing.*
 import javax.swing.event.ListSelectionEvent
 import javax.swing.text.Document
+import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalAtomicApi::class, ExperimentalCoroutinesApi::class)
 @Internal
-class SePopupContentPane(private val project: Project?, private val vm: SePopupVm, onShowFindToolWindow: () -> Unit) : JPanel(), Disposable, UiDataProvider {
+class SePopupContentPane(private val project: Project?, private val vm: SePopupVm,
+                         private val resizePopupHandler: (Dimension) -> Unit,
+                         initPopupExtendedSize: Dimension?,
+                         onShowFindToolWindow: () -> Unit) : JPanel(), Disposable, UiDataProvider {
   val preferableFocusedComponent: JComponent get() = textField
   val searchFieldDocument: Document get() = textField.document
 
@@ -89,6 +94,12 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
 
   private val extendedInfoContainer: JComponent = JPanel(BorderLayout())
   private var extendedInfoComponent: ExtendedInfoComponent? = null
+
+  private val isSearchCompleted: AtomicBoolean = AtomicBoolean(false)
+
+  var isCompactViewMode: Boolean = true
+    private set
+  var popupExtendedSize: Dimension? = initPopupExtendedSize
 
   init {
     layout = GridLayout()
@@ -126,6 +137,9 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
       .row(resizable = true).cell(resultsScrollPane, horizontalAlign = HorizontalAlign.FILL, verticalAlign = VerticalAlign.FILL, resizableColumn = true)
       .row().cell(extendedInfoContainer, horizontalAlign = HorizontalAlign.FILL, resizableColumn = true)
 
+    // hide resultsScrollPane and extendedInfoContainer
+    updateViewMode()
+
     textField.launchOnShow("Search Everywhere text field text binding") {
       withContext(Dispatchers.EDT) {
         textField.text = vm.searchPattern.value
@@ -145,6 +159,7 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
       }.collectLatest { throttledResultEventFlow ->
         coroutineScope {
           withContext(Dispatchers.EDT) {
+            isSearchCompleted.store(false)
             resultListModel.invalidate()
 
             if (vm.searchPattern.value.isNotEmpty()) {
@@ -162,6 +177,7 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
           throttledResultEventFlow.onCompletion {
             withContext(Dispatchers.EDT) {
               SeLog.log(SeLog.THROTTLING) { "Throttled flow completed" }
+              isSearchCompleted.store(true)
               resultListModel.removeLoadingItem()
 
               if (!resultListModel.isValid) {
@@ -177,6 +193,8 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
                 textField.setSearchInProgress(false)
                 updateEmptyStatus()
               }
+
+              updateViewMode()
             }
           }.collect { event ->
             withContext(Dispatchers.EDT) {
@@ -193,6 +211,8 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
               if (resultListModel.size > 0 && resultList.selectedIndices.isEmpty()) {
                 resultList.selectedIndex = 0
               }
+
+              updateViewMode()
             }
           }
         }
@@ -245,6 +265,13 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
     }
 
     WindowMoveListener(this).installTo(headerPane)
+    addComponentListener(object : ComponentAdapter() {
+      override fun componentResized(e: ComponentEvent?) {
+        if (project != null && !isCompactViewMode) {
+          popupExtendedSize = size
+        }
+      }
+    })
 
     DumbAwareAction.create { vm.getHistoryItem(true)?.let { textField.text = it; textField.selectAll() } }
       .registerCustomShortcutSet(SearchTextField.SHOW_HISTORY_SHORTCUT, this)
@@ -348,7 +375,12 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
   }
 
   private fun installScrollingActions() {
-    ScrollingUtil.installMoveUpAction(resultList, textField)
+    val moveUpAction = MoveUpAction()
+    moveUpAction.registerCustomShortcutSet(
+      CommonShortcuts.getMoveUp(),
+      textField
+    )
+
     ScrollingUtil.installMoveDownAction(resultList, textField)
 
     resultList.addListSelectionListener { _: ListSelectionEvent ->
@@ -414,10 +446,10 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
       }
     }
     registerAction(SeActions.NAVIGATE_TO_NEXT_GROUP) { _ ->
-      shiftSelectedIndexAndEnsureIsVisible(1)
+      scrollList(true)
     }
     registerAction(SeActions.NAVIGATE_TO_PREV_GROUP) { _ ->
-      shiftSelectedIndexAndEnsureIsVisible(-1)
+      scrollList(false)
     }
 
     val escape = ActionManager.getInstance().getAction("EditorEscape")
@@ -431,13 +463,34 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
     })
   }
 
-  private fun shiftSelectedIndexAndEnsureIsVisible(shift: Int) {
-    val currentIndex: Int = resultList.selectedIndex
-    val newIndex: Int = (currentIndex + shift).coerceIn(0, resultList.model.size - 1)
+  /**
+   * @param down if true, jumps down by approximately one page. If the target element is not loaded, jumps to the last available item;
+   *             if false, jumps to the first item in the list
+   */
+  private fun scrollList(down: Boolean) {
+    if (resultList.model.size == 0) return
+    if (down) {
+      val cellHeight = resultList.getCellBounds(0, 0)?.height ?: return
+      val viewportHeight = resultsScrollPane.viewport.height
+      val visibleRowCount = viewportHeight / cellHeight
 
-    if (newIndex != currentIndex) {
-      resultList.selectedIndex = newIndex
-      ScrollingUtil.ensureIndexIsVisible(resultList, newIndex, 0)
+      val shiftSize = maxOf(1, visibleRowCount - 3)
+      val targetIndex = resultList.selectedIndex + shiftSize
+      val modelSize = resultList.model.size
+      val hasMoreRow = modelSize > 0 && resultList.model.getElementAt(modelSize - 1) is SeResultListMoreRow
+
+      val newSelectedIndex = when {
+        targetIndex >= modelSize - 1 && hasMoreRow -> maxOf(modelSize - 2, 0)
+        targetIndex >= modelSize -> modelSize - 1
+        else -> targetIndex
+      }
+
+      resultList.selectedIndex = newSelectedIndex
+      ScrollingUtil.ensureIndexIsVisible(resultList, newSelectedIndex, 1)
+    }
+    else {
+      resultList.selectedIndex = 0
+      ScrollingUtil.ensureIndexIsVisible(resultList, 0, -1)
     }
   }
 
@@ -582,6 +635,43 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
     }
   }
 
+  private fun updateViewMode() {
+    if (textField.text.isEmpty() && resultList.isEmpty) {
+      updateViewMode(true)
+    }
+    else {
+      updateViewMode(false)
+    }
+  }
+
+  private fun updateViewMode(compact: Boolean) {
+    extendedInfoContainer.isVisible = !compact && isExtendedInfoEnabled()
+    resultsScrollPane.isVisible = !compact
+
+    if (compact == isCompactViewMode) return
+    isCompactViewMode = compact
+
+    resizePopupHandler(calcPreferredSize(isCompactViewMode))
+  }
+
+  fun getExpandedSize(): Dimension {
+    return calcPreferredSize(false)
+  }
+
+  override fun getPreferredSize(): Dimension {
+    return calcPreferredSize(isCompactViewMode)
+  }
+
+  private fun calcPreferredSize(compact: Boolean): Dimension {
+    val preferredHeight = if (compact) {
+      headerPane.preferredSize.height + textField.preferredSize.height
+    }
+    else {
+      popupExtendedSize?.height ?: JBUI.CurrentTheme.BigPopup.maxListHeight()
+    }
+    return Dimension(popupExtendedSize?.width ?: resultsScrollPane.preferredSize.width, preferredHeight)
+  }
+
   private fun logTabSwitchedEvent(e: AnActionEvent) {
     SearchEverywhereUsageTriggerCollector.TAB_SWITCHED.log(project,
                                                            SearchEverywhereUsageTriggerCollector.CONTRIBUTOR_ID_FIELD.with(vm.currentTab.tabId),
@@ -591,6 +681,29 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
 
   override fun uiDataSnapshot(sink: DataSink) {
     sink[PlatformDataKeys.PREDEFINED_TEXT] = textField.text
+  }
+
+  /**
+   * Custom move up action that moves to the end if the index is 0 and the search is completed
+   */
+  private inner class MoveUpAction() : DumbAwareAction() {
+    override fun actionPerformed(e: AnActionEvent) {
+      val currentIndex = resultList.selectedIndex
+      if (currentIndex == -1) return
+
+      val newIndex = if (currentIndex == 0) {
+        if (!isSearchCompleted.load()) return
+        // Move to the last item if the search is completed
+        resultList.model.size - 1
+      }
+      else {
+        // Move to the previous item
+        currentIndex - 1
+      }
+
+      resultList.selectedIndex = newIndex
+      ScrollingUtil.ensureIndexIsVisible(resultList, newIndex, -1)
+    }
   }
 
   override fun dispose() {}

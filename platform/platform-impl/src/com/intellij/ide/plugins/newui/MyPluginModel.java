@@ -135,6 +135,20 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
     return !applyResult.getNeedRestart();
   }
 
+  public void applyAsync(@Nullable JComponent parent, Consumer<Boolean> callback) throws ConfigurationException {
+    String error = UiPluginManager.getInstance().getApplSessionError(sessionId.toString());
+    if (error != null) {
+      throw new ConfigurationException(XmlStringUtil.wrapInHtml(error)).withHtmlMessage();
+    }
+    PluginModelAsyncOperationsExecutor.INSTANCE.applySessionResult(myCoroutineScope, sessionId.toString(), getProject(), parent, res -> {
+      res.getPluginsToEnable().forEach(id -> setEnabled(id, PluginEnabledState.ENABLED));
+      myUninstalled.clear();
+      updateButtons();
+      callback.accept(!res.getNeedRestart());
+      return null;
+    });
+  }
+
   public void clear(@Nullable JComponent parentComponent) {
     UiPluginManager.getInstance().resetSession(sessionId.toString(), false, parentComponent, newState -> {
       applyChangedStates(newState);
@@ -155,13 +169,13 @@ public class MyPluginModel extends InstalledPluginsTableModel implements PluginE
   }
 
   public void pluginInstalledFromDisk(@NotNull PluginInstallCallbackData callbackData) {
-    IdeaPluginDescriptorImpl descriptor = callbackData.getPluginDescriptor();
+    IdeaPluginDescriptor descriptor = callbackData.getPluginDescriptor();
     CheckErrorsResult errors = UiPluginManager.getInstance().getErrors(sessionId.toString(), descriptor.getPluginId());
     appendOrUpdateDescriptor(new PluginUiModelAdapter(descriptor), callbackData.getRestartNeeded(), getErrors(errors));
-    if (!callbackData.getRestartNeeded()) {
+    if (!callbackData.getRestartNeeded() && callbackData.getFile() != null && descriptor instanceof IdeaPluginDescriptorImpl) {
       mySession.getDynamicPluginsToInstall().put(descriptor.getPluginId(),
                                                  new PendingDynamicPluginInstall(callbackData.getFile(),
-                                                                                 descriptor));
+                                                                                 (IdeaPluginDescriptorImpl)descriptor));
     }
   }
 

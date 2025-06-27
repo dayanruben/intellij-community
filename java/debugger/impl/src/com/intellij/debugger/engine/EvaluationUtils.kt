@@ -40,15 +40,15 @@ internal suspend fun <R> suspendAllAndEvaluate(
       tryToBreakOnAnyMethodAndEvaluate(context,  process, null, timeToSuspend, action)
     } else {
       // We are on a Suspend All breakpoint, we can evaluate right here.
-      val result = Channel<R>(capacity = 1)
+      val result = CompletableDeferred<R>()
 
       // We have to evaluate inside SuspendContextCommandImpl, so we just start a new command.
       // TODO: are there any better ways to do this? Should we create proper command above?
       executeOnDMT(suspendContext) {
-        result.send(action(suspendContext))
+        result.completeWith(runCatching { action(suspendContext) })
       }
 
-      result.receive()
+      result.await()
     }
   }
   else {
@@ -93,11 +93,21 @@ private suspend fun <R> tryToBreakOnAnyMethodAndEvaluate (
     override fun getSuspendPolicy(): String = DebuggerSettings.SUSPEND_ALL
   }
 
-  val request = process.requestsManager.createMethodEntryRequest(requestor)
+  // We prefer to stop at a predictable location (i.e., SuspendHelper)
+  // to prevent any deadlocks by inconsistent state of VirtualThread/Coroutine
+  // See IDEA-370914.
+  val suspendHelperMethod = process
+    .takeIf { AsyncStacksUtils.isSuspendHelperEnabled() }
+    ?.findLoadedClass(null, "com.intellij.rt.debugger.agent.SuspendHelper", null)
+    ?.let { DebuggerUtils.findMethod(it, "suspendHelperLoopBody", "()V") }
+
+  val request =
+    if (suspendHelperMethod != null) process.requestsManager.createBreakpointRequest(requestor, suspendHelperMethod.locationOfCodeIndex(0))
+    else process.requestsManager.createMethodEntryRequest(requestor)
   request.setSuspendPolicy(EventRequest.SUSPEND_ALL)
   request.isEnabled = true
 
-  // If the context was on pause, it should be resume first to hit the breakpoint
+  // If the context was on pause, it should be resumed first to hit the breakpoint
   if (onPause) {
     context.managerThread!!
       .invokeNow(process.createResumeCommand(pauseSuspendContext))

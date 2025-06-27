@@ -10,6 +10,7 @@ import com.intellij.ide.structureView.impl.common.PsiTreeElementBase;
 import com.intellij.ide.structureView.logical.LogicalStructureDataKeys;
 import com.intellij.ide.structureView.logical.impl.LogicalStructureViewModel;
 import com.intellij.ide.structureView.logical.impl.LogicalStructureViewTreeElement;
+import com.intellij.ide.structureView.logical.model.LogicalPsiDescription;
 import com.intellij.ide.structureView.symbol.DelegatingPsiElementWithSymbolPointer;
 import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.ide.ui.customization.CustomizationUtil;
@@ -421,8 +422,9 @@ public class StructureViewComponent extends SimpleToolWindowPanel implements Tre
   public final @NotNull List<AnAction> addExpandCollapseActions() {
     List<AnAction> result = new ArrayList<>();
     CommonActionsManager commonActionManager = CommonActionsManager.getInstance();
-    result.add(commonActionManager.createExpandAllHeaderAction(getTree()));
-    result.add(commonActionManager.createCollapseAllHeaderAction(getTree()));
+    var expander = new StructureViewExpander(myProject);
+    result.add(commonActionManager.createExpandAllHeaderAction(expander, getTree()));
+    result.add(commonActionManager.createCollapseAllHeaderAction(expander, getTree()));
     return result;
   }
 
@@ -451,6 +453,9 @@ public class StructureViewComponent extends SimpleToolWindowPanel implements Tre
     AsyncPromise<TreePath> result = myCurrentFocusPromise = new AsyncPromise<>();
     var state = new StructureViewSelectVisitorState();
     TreeVisitor visitor = new TreeVisitor() {
+
+      private Set<LogicalPsiDescription> psiDescriptions = null;
+
       @Override
       public @NotNull TreeVisitor.VisitThread visitThread() {
         return VisitThread.BGT;
@@ -461,6 +466,14 @@ public class StructureViewComponent extends SimpleToolWindowPanel implements Tre
         if (myCurrentFocusPromise != result) {
           result.setError("rejected");
           return TreeVisitor.Action.INTERRUPT;
+        }
+        if (myTreeModel instanceof LogicalStructureViewModel logicalStructureViewModel) {
+          StructureViewTreeElement treeElement = getStructureTreeElement(path.getLastPathComponent());
+          if (treeElement == null) return TreeVisitor.Action.CONTINUE;
+          if (psiDescriptions == null) {
+            psiDescriptions = logicalStructureViewModel.getAssembledModel().getLogicalPsiDescriptions();
+          }
+          return logicalStructureViewModel.visitPathForLogicalElementSelection(treeElement, element, psiDescriptions);
         }
         return visitPathForElementSelection(path, element, editorOffset, state);
       }
@@ -560,7 +573,7 @@ public class StructureViewComponent extends SimpleToolWindowPanel implements Tre
       return;
     }
 
-    if (!getSettings().AUTOSCROLL_FROM_SOURCE) {
+    if (!isShowing() || !getSettings().AUTOSCROLL_FROM_SOURCE) {
       return;
     }
 
