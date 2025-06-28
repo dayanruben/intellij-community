@@ -236,6 +236,7 @@ com.intellij.ide.plugins.PluginManagerMain$PluginEnabler
 com.intellij.ide.plugins.PluginStateListener
 - a:install(com.intellij.ide.plugins.IdeaPluginDescriptor):V
 - uninstall(com.intellij.ide.plugins.IdeaPluginDescriptor):V
+f:com.intellij.ide.plugins.RepositoryHelper
 com.intellij.ide.plugins.UIComponentVirtualFile$Content
 - a:createComponent():javax.swing.JComponent
 - getPreferredFocusedComponent(javax.swing.JComponent):javax.swing.JComponent

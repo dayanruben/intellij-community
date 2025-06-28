@@ -20,6 +20,7 @@ import com.intellij.platform.searchEverywhere.frontend.AutoToggleAction
 import com.intellij.platform.searchEverywhere.frontend.SeEmptyResultInfo
 import com.intellij.platform.searchEverywhere.frontend.SeFilterEditor
 import com.intellij.platform.searchEverywhere.frontend.SeTab
+import com.intellij.platform.searchEverywhere.providers.SeLog
 import com.intellij.platform.searchEverywhere.utils.SuspendLazyProperty
 import com.intellij.platform.searchEverywhere.utils.initAsync
 import fleet.kernel.DurableRef
@@ -44,6 +45,8 @@ class SeTabVm(
   val reportableTabId: String =
     if (SearchEverywhereUsageTriggerCollector.isReportable(tab)) tabId
     else SearchEverywhereUsageTriggerCollector.NOT_REPORTABLE_ID
+
+  val isIndexingDependent: Boolean get() = tab.isIndexingDependent
 
   private val shouldLoadMoreFlow: MutableStateFlow<Boolean> = MutableStateFlow(false)
   var shouldLoadMore: Boolean
@@ -95,8 +98,13 @@ class SeTabVm(
           val params = SeParams(searchPattern, filterData)
 
           val resultsFlow = tab.getItems(params).let {
-            if (shouldThrottle.load()) it.throttledWithAccumulation()
-            else it.map { event -> ThrottledOneItem(event) }
+            val essential = tab.essentialProviderIds()
+            if (essential.isEmpty()) {
+              if (shouldThrottle.load()) it.throttledWithAccumulation(shouldPassItem = { item -> item !is SeResultEndEvent })
+              else it.map { event -> ThrottledOneItem(event) }
+            }
+            else it.throttleUntilEssentialsArrive(essential)
+
           }.map { item ->
             shouldLoadMoreFlow.first { it }
             item
@@ -168,5 +176,27 @@ class SeTabVm(
     return tab.getFilterEditor()?.getActions()?.firstOrNull {
       it is SearchEverywhereToggleAction
     } as? SearchEverywhereToggleAction
+  }
+}
+
+private const val ESSENTIALS_WAITING_TIMEOUT: Long = 2000
+private const val ESSENTIALS_THROTTLE_DELAY: Long = 100
+
+private fun Flow<SeResultEvent>.throttleUntilEssentialsArrive(essentialProviderIds: Set<SeProviderId>): Flow<ThrottledItems<SeResultEvent>> {
+  val nonArrivedEssentialProviders = essentialProviderIds.toMutableSet()
+
+  SeLog.log(SeLog.THROTTLING) { "Will start throttle with essential providers: $essentialProviderIds"}
+  return throttledWithAccumulation(ESSENTIALS_WAITING_TIMEOUT, { it !is SeResultEndEvent }) { event, size ->
+    val idToRemove = when (event) {
+      is SeResultAddedEvent -> event.itemData.providerId
+      is SeResultReplacedEvent -> event.newItemData.providerId
+      is SeResultEndEvent -> event.providerId
+    }
+
+    if (nonArrivedEssentialProviders.remove(idToRemove)) {
+      SeLog.log(SeLog.THROTTLING) { "Arrived: $idToRemove" }
+    }
+
+    return@throttledWithAccumulation if (nonArrivedEssentialProviders.isEmpty()) ESSENTIALS_THROTTLE_DELAY else null
   }
 }

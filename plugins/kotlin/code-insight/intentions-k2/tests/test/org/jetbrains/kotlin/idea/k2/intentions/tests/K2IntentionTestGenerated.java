@@ -5853,6 +5853,11 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
             runTest("../../../idea/tests/testData/intentions/convertPropertyGetterToInitializer/hasComment3.kt");
         }
 
+        @TestMetadata("hasContext.kt")
+        public void testHasContext() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/convertPropertyGetterToInitializer/hasContext.kt");
+        }
+
         @TestMetadata("hasInitializer.kt")
         public void testHasInitializer() throws Exception {
             runTest("../../../idea/tests/testData/intentions/convertPropertyGetterToInitializer/hasInitializer.kt");
@@ -14504,9 +14509,24 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
                 runTest("../../../idea/tests/testData/intentions/contextParameters/contextParameterToRegularParameter/inapplicableProperty.kt");
             }
 
+            @TestMetadata("inapplicableSingleUnderscore.kt")
+            public void testInapplicableSingleUnderscore() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/contextParameterToRegularParameter/inapplicableSingleUnderscore.kt");
+            }
+
+            @TestMetadata("inapplicableThreeUnderscores.kt")
+            public void testInapplicableThreeUnderscores() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/contextParameterToRegularParameter/inapplicableThreeUnderscores.kt");
+            }
+
             @TestMetadata("memberFunction1.kt")
             public void testMemberFunction1() throws Exception {
                 runTest("../../../idea/tests/testData/intentions/contextParameters/contextParameterToRegularParameter/memberFunction1.kt");
+            }
+
+            @TestMetadata("wrappedWithUnderscores.kt")
+            public void testWrappedWithUnderscores() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/contextParameterToRegularParameter/wrappedWithUnderscores.kt");
             }
         }
 
@@ -14690,6 +14710,21 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
             @TestMetadata("inapplicableFeatureDisabled.kt")
             public void testInapplicableFeatureDisabled() throws Exception {
                 runTest("../../../idea/tests/testData/intentions/contextParameters/regularParameterToContextParameter/inapplicableFeatureDisabled.kt");
+            }
+
+            @TestMetadata("inapplicablePrimaryConstructorParameter.kt")
+            public void testInapplicablePrimaryConstructorParameter() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/regularParameterToContextParameter/inapplicablePrimaryConstructorParameter.kt");
+            }
+
+            @TestMetadata("inapplicablePrimaryConstructorProperty.kt")
+            public void testInapplicablePrimaryConstructorProperty() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/regularParameterToContextParameter/inapplicablePrimaryConstructorProperty.kt");
+            }
+
+            @TestMetadata("inapplicableSecondaryConstructorParameter.kt")
+            public void testInapplicableSecondaryConstructorParameter() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/regularParameterToContextParameter/inapplicableSecondaryConstructorParameter.kt");
             }
 
             @TestMetadata("parametersContextsAndReceiver.kt")
