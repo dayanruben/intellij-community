@@ -75,6 +75,26 @@ object Execution {
     )
   )
 
+  val LLM_JUDGE_RESPONSE: TrivialEvalData<String> = EvalDataDescription(
+    name = "LLM judge response",
+    description = "Raw response of the llm as a judge",
+    placement = DataPlacement.AdditionalText(AIA_LLM_JUDGE_RESPONSE_KEY),
+    presentation = EvalDataPresentation(
+      PresentationCategory.EXECUTION,
+      DataRenderer.Text()
+    )
+  )
+
+  val LLM_JUDGE_SCORE: TrivialEvalData<Double> = EvalDataDescription(
+    name = "LLM judge score",
+    description = "The LLM Judge score, parsed from the raw LLM judge response",
+    placement = DataPlacement.AdditionalDouble(AIA_LLM_JUDGE_SCORE_KEY),
+    presentation = EvalDataPresentation(
+      PresentationCategory.METRIC,
+      DataRenderer.InlineDouble
+    )
+  )
+
   val LLM_CONTEXT: TrivialEvalData<String> = EvalDataDescription(
     name = "LLM context",
     description = "Result prompt used for LLM",
@@ -119,6 +139,10 @@ object Execution {
     name = "Reference",
     description = null,
     DataPlacement.AdditionalText(REFERENCE_PROPERTY),
+    presentation = EvalDataPresentation(
+      PresentationCategory.EXECUTION,
+      DataRenderer.Text(wrapping = true),
+    )
   )
 
   val NAME: TrivialEvalData<String> = EvalDataDescription(
@@ -152,6 +176,46 @@ object Execution {
       PresentationCategory.EXECUTION,
       DataRenderer.Text(wrapping = true),
       ignoreMissingData = true,
+    )
+  )
+
+  val REFERENCE_START_LINE: TrivialEvalData<Int> = EvalDataDescription(
+    name = "Reference start line",
+    description = "Ground truth start line of the range",
+    DataPlacement.AdditionalInt(REFERENCE_START_LINE_PROPERTY),
+    presentation = EvalDataPresentation(
+      PresentationCategory.EXECUTION,
+      DataRenderer.InlineInt
+    )
+  )
+
+  val REFERENCE_END_LINE: TrivialEvalData<Int> = EvalDataDescription(
+    name = "Reference end line",
+    description = "Ground truth end line of the range",
+    DataPlacement.AdditionalInt(REFERENCE_END_LINE_PROPERTY),
+    presentation = EvalDataPresentation(
+      PresentationCategory.EXECUTION,
+      DataRenderer.InlineInt
+    )
+  )
+
+  val START_LINES: TrivialEvalData<List<Int>> = EvalDataDescription(
+    name = "Predicted start lines",
+    description = "Predicted start lines of the ranges",
+    DataPlacement.AdditionalListInt(START_LINES_PROPERTY),
+    presentation = EvalDataPresentation(
+      PresentationCategory.EXECUTION,
+      DataRenderer.ListInt
+    )
+  )
+
+  val END_LINES: TrivialEvalData<List<Int>> = EvalDataDescription(
+    name = "Predicted end lines",
+    description = "Predicted end lines of the ranges",
+    DataPlacement.AdditionalListInt(END_LINES_PROPERTY),
+    presentation = EvalDataPresentation(
+      PresentationCategory.EXECUTION,
+      DataRenderer.ListInt
     )
   )
 }
