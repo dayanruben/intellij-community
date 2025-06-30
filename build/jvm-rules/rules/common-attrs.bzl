@@ -21,6 +21,7 @@ visibility("private")
 common_toolchains = [
     _TOOLCHAIN_TYPE,
     _JAVA_TOOLCHAIN_TYPE,
+    "@bazel_tools//tools/python:toolchain_type",
 ]
 
 def add_dicts(*dictionaries):
@@ -32,6 +33,10 @@ def add_dicts(*dictionaries):
 _implicit_deps = {
     "_java_toolchain": attr.label(
         default = Label("@bazel_tools//tools/jdk:current_java_toolchain"),
+    ),
+    "_tool_java_runtime": attr.label(
+        default = Label("@bazel_tools//tools/jdk:current_java_runtime"),
+        cfg = "exec",
     ),
 }
 
@@ -93,9 +98,15 @@ common_attr = add_dicts(
         ),
         "_jvm_builder": attr.label(
             default = "//:jvm-builder",
-            executable = True,
-            allow_files = True,
+            allow_single_file = True,
             cfg = "exec",
+        ),
+        "_jvm_builder_jvm_flags": attr.label(
+            default = "//:jvm-builder-jvm_flags",
+        ),
+        "_jvm_builder_launcher": attr.label(
+            default = Label("//:rules/impl/run_jvm_builder.py"),
+            allow_single_file = True,
         ),
         "_reduced_classpath": attr.bool(default = False),
         "_trace": attr.label(default = "//:trace"),

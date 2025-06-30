@@ -205,7 +205,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     });
 
     initComponents();
-    FindUsagesCollector.triggerUsedOptionsStats(myProject, FindUsagesCollector.FIND_IN_PATH, myHelper.getModel());
+    FindUsagesCollector.triggerUsedOptionsStats(myProject, FindUsagesCollector.FIND_IN_PATH, myHelper.getModel(), myScopeUI.getScopeTypeByModel(myHelper.getModel()));
   }
 
   @Override
@@ -1628,6 +1628,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     model.setModuleName(null);
     model.setCustomScopeName(null);
     model.setCustomScope(null);
+    model.setCustomScopeId(null);
     model.setCustomScope(false);
     myScopeUI.applyTo(model, mySelectedScope);
 
@@ -1964,6 +1965,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     @Override
     public void setSelected(@NotNull AnActionEvent e, boolean state) {
       if (state) {
+        FindUsagesCollector.triggerScopeSelected(myScope);
         mySelectedScope = myScope;
         myScopeSelectionToolbar.updateActionsImmediately();
         updateScopeDetailsPanel();

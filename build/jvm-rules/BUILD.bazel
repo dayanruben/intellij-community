@@ -24,8 +24,20 @@ label_flag(
 
 label_flag(
     name = "jvm-builder",
-    build_setting_default = "//src/jvm-builder",
+    build_setting_default = "//src/jvm-builder:jvm-builder_deploy.jar",
     visibility = ["//visibility:public"],
+)
+
+label_flag(
+    name = "jvm-builder-jvm_flags",
+    build_setting_default = "//src/jvm-builder:jvm-builder-jvm_flags",
+    visibility = ["//visibility:public"],
+)
+
+# used by _jvm_builder_launcher attribute in jvm_library rule
+exports_files(
+  ["rules/impl/run_jvm_builder.py"],
+  visibility = ["//visibility:private"],
 )
 
 kt_kotlinc_options(
