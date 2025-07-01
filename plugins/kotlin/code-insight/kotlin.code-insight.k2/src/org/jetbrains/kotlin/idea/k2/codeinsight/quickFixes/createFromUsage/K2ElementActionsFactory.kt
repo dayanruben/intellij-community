@@ -172,29 +172,44 @@ class K2ElementActionsFactory : JvmElementActionsFactory() {
 
     override fun createChangeTypeActions(
         target: JvmMethod,
-        request: ChangeTypeRequest
+        request: ChangeTypeRequest,
     ): List<IntentionAction> {
-        return super.createChangeTypeActions(target, request)
+        val ktCallableDeclaration = (target as? KtLightElement<*, *>)?.kotlinOrigin as? KtCallableDeclaration
+            ?: return emptyList()
+        return listOf(ChangeType(ktCallableDeclaration, request).asIntention())
     }
 
     override fun createChangeTypeActions(
         target: JvmParameter,
-        request: ChangeTypeRequest
+        request: ChangeTypeRequest,
     ): List<IntentionAction> {
-        return super.createChangeTypeActions(target, request)
+        val ktCallableDeclaration = (target as? KtLightElement<*, *>)?.kotlinOrigin as? KtCallableDeclaration
+            ?: return emptyList()
+        return listOf(ChangeType(ktCallableDeclaration, request).asIntention())
     }
 
     override fun createChangeTypeActions(
         target: JvmField,
-        request: ChangeTypeRequest
+        request: ChangeTypeRequest,
     ): List<IntentionAction> {
-        return super.createChangeTypeActions(target, request)
+        val ktCallableDeclaration = (target as? KtLightElement<*, *>)?.kotlinOrigin as? KtCallableDeclaration
+            ?: return emptyList()
+        return listOf(ChangeType(ktCallableDeclaration, request).asIntention())
     }
 
     override fun createChangeModifierActions(target: JvmModifiersOwner, request: ChangeModifierRequest): List<IntentionAction> {
         val kModifierOwner = target.sourceElement?.unwrapped as? KtModifierListOwner ?: return emptyList()
 
-        if (request.modifier == JvmModifier.FINAL && !request.shouldBePresent()) {
+        val modifier = request.modifier
+        val shouldPresent = request.shouldBePresent()
+
+        if (modifier == JvmModifier.PUBLIC && shouldPresent && kModifierOwner is KtProperty) {
+            return listOf(
+                MakeFieldPublicFix(kModifierOwner).asIntention()
+            )
+        }
+
+        if (modifier == JvmModifier.FINAL && !shouldPresent) {
             return listOf(
                 AddModifierFix(kModifierOwner, KtTokens.OPEN_KEYWORD).asIntention()
             )

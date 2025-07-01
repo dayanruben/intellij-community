@@ -6,7 +6,6 @@ import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelProcess
 import com.intellij.platform.eel.ExecuteProcessException
 import com.intellij.platform.eel.path.EelPath
-import com.intellij.platform.eel.path.EelPathException
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.utils.EelPathUtils
@@ -16,11 +15,7 @@ import com.intellij.python.community.execService.ExecOptions
 import com.intellij.python.community.execService.ExecService
 import com.intellij.python.community.execService.ProcessInteractiveHandler
 import com.jetbrains.python.Result
-import com.jetbrains.python.errorProcessing.ExecError
-import com.jetbrains.python.errorProcessing.ExecErrorReason
-import com.jetbrains.python.errorProcessing.PyExecResult
-import com.jetbrains.python.errorProcessing.PyResult
-import com.jetbrains.python.errorProcessing.failure
+import com.jetbrains.python.errorProcessing.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
@@ -36,17 +31,12 @@ import kotlin.time.Duration
 
 internal object ExecServiceImpl : ExecService {
 
-  override suspend fun <T> executeAdvanced(binary: Path, argsBuilder: suspend ArgsBuilder.() -> Unit, options: ExecOptions, processInteractiveHandler: ProcessInteractiveHandler<T>): PyResult<T> {
+  override suspend fun <T> executeAdvanced(binary: Path, argsBuilder: suspend ArgsBuilder.() -> Unit, options: ExecOptions, processInteractiveHandler: ProcessInteractiveHandler<T>): PyExecResult<T> {
     val args = ArgsBuilderImpl(binary.getEelDescriptor().toEelApi()).apply { argsBuilder() }.args
     val description = options.processDescription
                       ?: PyExecBundle.message("py.exec.defaultName.process", (listOf(binary.pathString) + args).joinToString(" "))
 
-    val eelPath = try {
-      binary.asEelPath()
-    }
-    catch (e: EelPathException) {
-      return PyExecResult.localizedError(e.localizedMessage)
-    }
+    val eelPath = binary.asEelPath()
     val executableProcess = EelExecutableProcess(eelPath, args, options.env, options.workingDirectory, description)
     val eelProcess = executableProcess.run().getOr { return it }
 

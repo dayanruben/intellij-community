@@ -2,10 +2,16 @@
 package com.intellij.byteCodeViewer
 
 import com.intellij.icons.AllIcons
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.util.Key
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.content.ContentFactory
+
+internal val JAVA_CLASS_FILE = Key.create<VirtualFile>("JAVA_CLASS_FILE")
 
 internal class ShowBytecodeAction : AnAction() {
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
@@ -25,26 +31,53 @@ internal class ShowBytecodeAction : AnAction() {
                        hideOnEmptyContent = true
                        canCloseContent = true
                      }
+    val service = BytecodeToolWindowService.getInstance(project)
+
+    service.ensureContentManagerListenerRegistered(toolWindow)
+
     val editor = event.getData(CommonDataKeys.EDITOR) ?: return
     val psiFile = event.getData(CommonDataKeys.PSI_FILE) ?: return
     val psiElement = psiFile.findElementAt(editor.caretModel.offset) ?: return
     val psiClass = ByteCodeViewerManager.getContainingClass(psiElement) ?: return
-    val clsFile = ByteCodeViewerManager.findClassFile(psiClass)
+    val javaClassFile = ByteCodeViewerManager.findClassFile(psiClass)
 
-    val panel = BytecodeToolWindowPanel(project, psiClass, clsFile)
+    if (javaClassFile == null) {
+      val title = BytecodeViewerBundle.message("bytecode.not.found.title")
+      val content = BytecodeViewerBundle.message("please.build.project")
+      val notification = Notification("Bytecode Viewer Errors", title, content, NotificationType.WARNING).setImportant(false)
 
-    val content = if (clsFile != null) {
-      toolWindow.contentManager.contents.firstOrNull { it.description == clsFile.presentableUrl }
-      ?: ContentFactory.getInstance().createContent(panel, clsFile.presentableName, false).apply {
-        description = clsFile.presentableUrl // appears on tab hover
+      val actionManager = ActionManager.getInstance()
+      val originalBuildAction = actionManager.getAction("CompileProject")
+      if (originalBuildAction != null) {
+        // Wrap the "build project" action because existing ones have various presentations problems:
+        // - "Compile" doesn't work
+        // - "CompileDirty" works but has only an ugly icon
+        // - "CompileProject" works fine but has the wrong text "Rebuild Project"
+        val buildAction = object : AnAction(BytecodeViewerBundle.message("build.project")) {
+          override fun actionPerformed(e: AnActionEvent) {
+            originalBuildAction.actionPerformed(e)
+            notification.expire()
+          }
+        }
+
+        notification.addAction(buildAction)
       }
+
+      notification.notify(project)
+      return
     }
-    else {
-      toolWindow.contentManager.contents.firstOrNull { it.description == null }
-      ?: ContentFactory.getInstance().createContent(panel, BytecodeViewerBundle.message("bytecode.not.found.title"), false)
-    }
+
+    val panel = BytecodeToolWindowPanel(project, psiClass, javaClassFile)
+
+    val content = toolWindow.contentManager.contents.firstOrNull { it.getUserData(JAVA_CLASS_FILE) == javaClassFile }
+                  ?: ContentFactory.getInstance().createContent(panel, javaClassFile.presentableName, false).apply {
+                    description = javaClassFile.presentableUrl // appears on tab hover
+                    putUserData(JAVA_CLASS_FILE, javaClassFile)
+                  }
+
 
     toolWindow.contentManager.addContent(content)
+    service.deduplicateTabNames(toolWindow)
     content.setDisposer(panel)
     toolWindow.contentManager.setSelectedContent(content)
     toolWindow.setAdditionalGearActions(createActionGroup())
