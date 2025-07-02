@@ -2,7 +2,6 @@
 package com.intellij.workspaceModel.ide.impl
 
 import com.intellij.diagnostic.StartUpMeasurer
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -60,7 +59,7 @@ class GlobalWorkspaceModel(
    */
   private val eelDescriptor: EelDescriptor,
   private val internalEnvironmentName: GlobalWorkspaceModelCache.InternalEnvironmentName,
-) : Disposable {
+)  {
 
   /**
    * Store link to the project from which changes came from. It's needed to avoid redundant changes application at [applyStateToProject]
@@ -183,9 +182,6 @@ class GlobalWorkspaceModel(
     globalWorkspaceModelCache?.setVirtualFileUrlManager(virtualFileManager)
   }
 
-  override fun dispose() {
-  }
-
   @RequiresWriteLock
   private fun initializeBridges(change: Map<Class<*>, List<EntityChange<*>>>, builder: MutableEntityStorage) {
     ThreadingAssertions.assertWriteAccess()
@@ -235,12 +231,15 @@ class GlobalWorkspaceModel(
     }
   }
 
-  fun applyStateToProjectBuilder(project: Project,
-                                 targetBuilder: MutableEntityStorage): Unit = applyStateToProjectBuilderTimeMs.addMeasuredTime {
+  fun applyStateToProjectBuilder(
+    targetBuilder: MutableEntityStorage,
+    workspaceModel: WorkspaceModelImpl
+  ): Unit = applyStateToProjectBuilderTimeMs.addMeasuredTime {
     LOG.info("Sync global entities with mutable entity storage")
-    targetBuilder.replaceBySource(globalEntitiesFilter,
-                                  copyEntitiesToEmptyStorage(entityStorage.current,
-                                                             WorkspaceModel.getInstance(project).getVirtualFileUrlManager()))
+    targetBuilder.replaceBySource(
+      sourceFilter = globalEntitiesFilter,
+      replaceWith = copyEntitiesToEmptyStorage(entityStorage.current, workspaceModel.getVirtualFileUrlManager()),
+    )
   }
 
   @RequiresWriteLock

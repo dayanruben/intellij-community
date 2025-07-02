@@ -2,11 +2,17 @@
 
 package com.intellij.mcpserver.clientConfiguration
 
+import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.execution.util.ExecUtil
+import com.intellij.mcpserver.McpServerBundle
 import com.intellij.mcpserver.createStdioMcpServerCommandLine
 import com.intellij.mcpserver.impl.McpServerService
 import com.intellij.mcpserver.stdio.IJ_MCP_SERVER_PORT
 import com.intellij.mcpserver.stdio.main
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.TaskCancellation
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.*
 import java.nio.file.Path
@@ -16,8 +22,20 @@ import kotlin.io.path.inputStream
 import kotlin.io.path.outputStream
 import kotlin.reflect.jvm.javaMethod
 
+enum class MCPClientNames(val displayName: String){
+  VS_CODE_PROJECT("VSCode (Project)"),
+  VS_CODE_GLOBAL("VSCode (Global)"),
+  CLAUDE_APP_GLOBAL("Claude App (Global)"),
+  WINDSURF_PROJECT("WindSurf (Project)"),
+  WINDSURF_GLOBAL("WindSurf (Global)"),
+  CURSOR_PROJECT("Cursor (Project)"),
+  CURSOR_GLOBAL("Cursor (Global)"),
+  CLAUDE_CODE_PROJECT("Claude Code (Project)"),
+  CLAUDE_CODE_GLOBAL("Claude Code (Global)"),
+}
+
 open class McpClient(
-  @NlsContexts.BorderTitle val name: String,
+  @NlsContexts.BorderTitle val name: MCPClientNames,
   val configPath: Path,
 ) {
 
@@ -27,7 +45,7 @@ open class McpClient(
   }
 
   override fun toString(): String {
-    return name
+    return name.displayName
   }
 
   val json by lazy {
@@ -44,7 +62,7 @@ open class McpClient(
 
   open fun isConfigured(): Boolean? = true
   open fun mcpServersKey() = "mcpServers"
-  fun configure() = updateServerConfig(getConfig())
+  open fun configure() = updateServerConfig(getConfig())
   fun getConfig(): ServerConfig = getSSEConfig() ?: getStdioConfig()
 
   protected open fun getSSEConfig(): ServerConfig? = null
@@ -95,6 +113,7 @@ open class McpClient(
       matchResult?.groupValues?.get(1)?.toIntOrNull()?.let { configuredPort ->
         return configuredPort == targetPort
       }
+      return false
     }
 
     if (serverConfig.command?.contains("java") == true &&
@@ -149,11 +168,36 @@ open class McpClient(
   }
 }
 
-class ClaudeMcpClient(name: String, configPath: Path) : McpClient(name, configPath) {
+class ClaudeCodeMcpClient(configPath: Path) : McpClient(MCPClientNames.CLAUDE_CODE_GLOBAL, configPath) {
+  override fun isConfigured(): Boolean? {
+    val stdio = isStdIOConfigured() ?: return null
+    val sse = isSSEConfigured() ?: return null
+    return stdio || sse
+  }
+
+  override fun configure() {
+    runWithModalProgressBlocking(ModalTaskOwner.guess(), McpServerBundle.message("autoconfigure.progress.title"), TaskCancellation.nonCancellable()) {
+      val claudeAddMCP = GeneralCommandLine()
+        .withParentEnvironmentType(GeneralCommandLine.ParentEnvironmentType.CONSOLE)
+        .withExePath("claude")
+        .withParameters("mcp", "add", "--scope", "user", "--transport", "sse", JETBRAINS_SERVER_KEY, sseUrl)
+
+      val execAndGetOutput = ExecUtil.execAndGetOutput(claudeAddMCP, 1000)
+
+      if (execAndGetOutput.exitCode != 0) {
+        throw Exception("Claude failed with exit code ${execAndGetOutput.exitCode}: ${execAndGetOutput.stderr}")
+      }
+    }
+
+  }
+  override fun getSSEConfig(): ServerConfig = ClaudeCodeSSEConfig(type="sse", url = sseUrl)
+}
+
+class ClaudeMcpClient(configPath: Path) : McpClient(MCPClientNames.CLAUDE_APP_GLOBAL, configPath) {
   override fun isConfigured(): Boolean? = isStdIOConfigured()
 }
 
-class CursorClient(name: String, configPath: Path) : McpClient(name, configPath) {
+class CursorClient(configPath: Path) : McpClient(MCPClientNames.CURSOR_GLOBAL, configPath) {
   override fun isConfigured(): Boolean? {
     val stdio = isStdIOConfigured() ?: return null
     val sse = isSSEConfigured() ?: return null
@@ -162,7 +206,7 @@ class CursorClient(name: String, configPath: Path) : McpClient(name, configPath)
   override fun getSSEConfig(): ServerConfig = CursorSSEConfig(url = sseUrl)
 }
 
-class WindsurfClient(name: String, configPath: Path) : McpClient(name, configPath) {
+class WindsurfClient(configPath: Path) : McpClient(MCPClientNames.WINDSURF_GLOBAL, configPath) {
   override fun isConfigured(): Boolean? {
     val stdio = isStdIOConfigured() ?: return null
     val sse = isSSEConfigured() ?: return null
@@ -171,7 +215,7 @@ class WindsurfClient(name: String, configPath: Path) : McpClient(name, configPat
   override fun getSSEConfig(): ServerConfig = WindsurfSSEConfig(serverUrl = sseUrl)
 }
 
-class VSCodeClient(name: String, configPath: Path) : McpClient(name, configPath) {
+class VSCodeClient(configPath: Path) : McpClient(MCPClientNames.VS_CODE_GLOBAL, configPath) {
   override fun isConfigured(): Boolean? {
     val stdio = isStdIOConfigured() ?: return null
     val sse = isSSEConfigured() ?: return null

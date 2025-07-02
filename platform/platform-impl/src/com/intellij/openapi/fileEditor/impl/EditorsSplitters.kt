@@ -20,6 +20,7 @@ import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.editor.colors.CodeInsightColors
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -1266,12 +1267,19 @@ private fun resolveFileOrLogError(fileEntry: FileEntry, virtualFileManager: Virt
   // In the case of the JetBrains client, it's better to get the file by its ID to avoid a blocking protocol call inside
   // [VirtualFileManager.findFileByUrl]
   val file = if (PlatformUtils.isJetBrainsClient() && fileEntry.id != null) {
-    FileIdAdapter.getInstance().getFile(fileEntry.id)?.also {
+    val file = if (fileEntry.managingFsCreationTimestamp != null) {
+      FileIdAdapter.getInstance().getFileWithTimestamp(fileEntry.id, fileEntry.managingFsCreationTimestamp)
+    } else {
+      FileIdAdapter.getInstance().getFile(fileEntry.id)
+    }
+    file?.also {
       StartupVirtualFileProcessor.getInstance().processVirtualFileOnStartup(it, fileEntry)
     }
   }
   else {
-    virtualFileManager.findFileByUrl(fileEntry.url) ?: virtualFileManager.refreshAndFindFileByUrl(fileEntry.url)
+    LOG.runAndLogException {
+      virtualFileManager.findFileByUrl(fileEntry.url) ?: virtualFileManager.refreshAndFindFileByUrl(fileEntry.url)
+    }
   }
   if (file != null && file.isValid) {
     return file
