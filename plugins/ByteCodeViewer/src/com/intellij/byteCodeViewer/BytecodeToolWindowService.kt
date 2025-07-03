@@ -1,13 +1,15 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.byteCodeViewer
 
+import com.intellij.filename.UniqueNameBuilder
 import com.intellij.ide.ui.UISettings
+import com.intellij.ide.ui.UISettingsListener
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.wm.ToolWindow
-import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
 import java.util.concurrent.ConcurrentHashMap
@@ -34,6 +36,11 @@ class BytecodeToolWindowService(private val project: Project) {
       return
     }
 
+    val messageBusConnection = project.messageBus.connect(toolWindow.disposable)
+    messageBusConnection.subscribe(UISettingsListener.TOPIC, UISettingsListener {
+      deduplicateTabNames(toolWindow)
+    })
+
     val listener = object : ContentManagerListener {
       override fun contentAdded(event: ContentManagerEvent) {
         if (UISettings.getInstance().showDirectoryForNonUniqueFilenames) {
@@ -54,6 +61,7 @@ class BytecodeToolWindowService(private val project: Project) {
       // The bytecode tool window cannot be "closed"  
       contentManager.removeContentManagerListener(listener)
       registeredListeners.remove(toolWindow)
+      messageBusConnection.disconnect()
     }
   }
 
@@ -61,31 +69,28 @@ class BytecodeToolWindowService(private val project: Project) {
    * Updates tab titles to avoid duplicate names by adding path information when necessary.
    */
   fun deduplicateTabNames(toolWindow: ToolWindow) {
-    val titlesToContents = mutableMapOf<String, MutableList<Content>>()
-    for (content in toolWindow.contentManager.contents) {
-      val classFileName = content.getUserData(JAVA_CLASS_FILE)?.name
-                          ?: throw IllegalStateException("Content entry has no JAVA_CLASS_FILE or it is null. Entry: $content")
-      titlesToContents.getOrPut(classFileName) { mutableListOf() }.add(content)
+    val javaClassFiles = toolWindow.contentManager.contents.map { content ->
+      content.getUserData(JAVA_CLASS_FILE) ?: throw IllegalStateException("Content has no JAVA_CLASS_FILE or it is null. Content: $content")
     }
-    for ((classFileName, contents) in titlesToContents) {
-      if (contents.size == 1) {
-        contents[0].displayName = classFileName
-      }
-      else if (contents.size > 1) {
-        val paths = contents.map {
-          it.getUserData(JAVA_CLASS_FILE) ?: throw IllegalStateException("No class file path for content entry $it")
-        }
 
-        val commonAncestor = VfsUtil.getCommonAncestor(paths) ?: continue
+    if (javaClassFiles.size == 1) {
+      toolWindow.contentManager.contents[0].displayName = javaClassFiles[0].name
+      return
+    }
 
-        for (i in contents.indices) {
-          val content = contents[i]
-          content.displayName = VfsUtil.getRelativePath(
-            content.getUserData(JAVA_CLASS_FILE) ?: throw IllegalStateException("No class file path for content entry $content"),
-            commonAncestor,
-          )
-        }
-      }
+    val commonAncestor = VfsUtil.getCommonAncestor(javaClassFiles)?.path ?: return
+    val uniqueNameBuilder = UniqueNameBuilder<String>(commonAncestor, "/")
+
+    for (javaClassFile in javaClassFiles) {
+      uniqueNameBuilder.addPath(javaClassFile.path, javaClassFile.path)
+    }
+
+    for (content in toolWindow.contentManager.contents) {
+      val javaClassFile = content.getUserData(JAVA_CLASS_FILE)
+                          ?: throw IllegalStateException("Content has no JAVA_CLASS_FILE or it is null. Content: $content")
+      @NlsSafe val displayName = uniqueNameBuilder.getShortPath(javaClassFile.path)
+                                 ?: throw IllegalStateException("Cannot get short path for ${javaClassFile.path}")
+      content.displayName = displayName
     }
   }
 

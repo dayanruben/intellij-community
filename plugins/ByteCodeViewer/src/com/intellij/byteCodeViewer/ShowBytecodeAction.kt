@@ -5,8 +5,10 @@ import com.intellij.icons.AllIcons
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.content.ContentFactory
@@ -32,6 +34,12 @@ internal class ShowBytecodeAction : AnAction() {
                        canCloseContent = true
                      }
     BytecodeToolWindowService.getInstance(project).ensureContentManagerListenerRegistered(toolWindow)
+
+    // Register the editor synchronizer if not already registered
+    project.messageBus.connect(toolWindow.disposable).subscribe(
+      topic = FileEditorManagerListener.FILE_EDITOR_MANAGER,
+      handler = BytecodeEditorSynchronizer.getInstance(project),
+    )
 
     val editor = event.getData(CommonDataKeys.EDITOR) ?: return
     val psiFile = event.getData(CommonDataKeys.PSI_FILE) ?: return
@@ -78,11 +86,13 @@ internal class ShowBytecodeAction : AnAction() {
     content.setDisposer(panel)
     toolWindow.contentManager.setSelectedContent(content)
     toolWindow.setAdditionalGearActions(createActionGroup())
-    toolWindow.activate(null)
+    toolWindow.activate {
+      IdeFocusManager.getInstance(project).requestFocus(panel, false)
+    }
   }
 
   private fun createActionGroup(): ActionGroup {
-    val action = object : ToggleAction(BytecodeViewerBundle.messagePointer("action.show.debug.action.name")) {
+    val showDebugAction = object : ToggleAction(BytecodeViewerBundle.messagePointer("action.show.debug.action.name")) {
       override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
       override fun isSelected(e: AnActionEvent): Boolean {
@@ -99,6 +109,19 @@ internal class ShowBytecodeAction : AnAction() {
         }
       }
     }
-    return DefaultActionGroup(action)
+    
+    val syncWithEditorAction = object : ToggleAction(BytecodeViewerBundle.messagePointer("action.sync.with.editor.name")) {
+      override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+      override fun isSelected(e: AnActionEvent): Boolean {
+        return BytecodeViewerSettings.getInstance().state.syncWithEditor
+      }
+
+      override fun setSelected(e: AnActionEvent, state: Boolean) {
+        BytecodeViewerSettings.getInstance().state.syncWithEditor = state
+      }
+    }
+    
+    return DefaultActionGroup(showDebugAction, syncWithEditorAction)
   }
 }

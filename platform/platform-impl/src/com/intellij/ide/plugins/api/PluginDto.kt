@@ -46,6 +46,7 @@ class PluginDto(
 
   override var releaseVersion: Int = 0
   override var displayCategory: String? = null
+  override var isImplementationDetail: Boolean = false
   override var vendorDetails: PluginNodeVendorDetails? = null
   override var reviewComments: ReviewsPageContainer? = null
 
@@ -83,6 +84,19 @@ class PluginDto(
 
   override fun addDependency(id: PluginId, optional: Boolean) {
     dependencies.add(PluginDependencyModel(id, optional))
+  }
+
+  override fun equals(other: Any?): Boolean {
+    if (this === other) return true
+    if (javaClass != other?.javaClass) return false
+
+    other as PluginDto
+
+    return pluginId == other.pluginId
+  }
+
+  override fun hashCode(): Int {
+    return pluginId.hashCode()
   }
 
   companion object {
@@ -146,6 +160,7 @@ class PluginDto(
         sinceBuild = model.sinceBuild
         untilBuild = model.untilBuild
         releaseDate = model.releaseDate
+        isImplementationDetail = model.isImplementationDetail
       }
     }
   }
