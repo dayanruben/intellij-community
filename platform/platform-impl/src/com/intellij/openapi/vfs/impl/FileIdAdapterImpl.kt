@@ -19,6 +19,12 @@ private class FileIdAdapterImpl : FileIdAdapter {
     return LOG.runAndLogException { ManagingFS.getInstance().creationTimestamp } ?: -1
   }
 
+  override fun getProtocol(file: VirtualFile): String? = null
+
+  override fun getFile(protocol: String, path: String, fileEntry: FileEntry?): VirtualFile? = null
+
+  override fun shouldSaveEditorState(file: VirtualFile): Boolean = true
+
   companion object {
     private val LOG = logger<FileIdAdapterImpl>()
   }

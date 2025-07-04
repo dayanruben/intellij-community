@@ -21,4 +21,10 @@ interface FileIdAdapter {
   fun getId(file: VirtualFile): Int?
   fun getManagingFsCreationTimestamp(file: VirtualFile): Long
 
+  fun getProtocol(file: VirtualFile): String?
+
+  fun getFile(protocol: String, path: String, fileEntry: FileEntry?): VirtualFile?
+
+  fun shouldSaveEditorState(file: VirtualFile): Boolean
+
 }
