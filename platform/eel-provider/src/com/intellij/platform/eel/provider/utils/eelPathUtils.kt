@@ -268,12 +268,24 @@ object EelPathUtils {
 
   @Service
   private class TransferredContentHolder(private val scope: CoroutineScope) {
+
+    data class CacheKey(
+      val descriptor: EelDescriptor,
+      val sourcePathString: String,
+      val fileAttributesStrategy: FileTransferAttributesStrategy,
+    )
+    data class CacheValue(
+      val sourceHash: String,
+      val transferredFilePath: Path
+    )
+    private class Cache: ConcurrentHashMap<CacheKey, Deferred<CacheValue>>()
+
     // eel descriptor -> source path string ->> source hash -> transferred file
-    private val cache = ConcurrentHashMap<Pair<EelDescriptor, String>, Deferred<Pair<String, Path>>>()
+    private val cache = Cache()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun transferIfNeeded(eel: EelApi, source: Path, fileAttributesStrategy: FileTransferAttributesStrategy): Path {
-      return cache.compute(eel.descriptor to source.toString()) { _, deferred ->
+      return cache.compute(CacheKey(eel.descriptor, source.toString(), fileAttributesStrategy)) { _, deferred ->
         val sourceHash by lazy { calculateFileHashUsingMetadata(source) }
 
         if (deferred != null) {
@@ -291,9 +303,9 @@ object EelPathUtils {
         scope.async {
           val temp = eel.createTempFor(source, true)
           walkingTransfer(source, temp, false, fileAttributesStrategy)
-          sourceHash to temp
+          CacheValue(sourceHash, temp)
         }
-      }!!.await().second
+      }!!.await().transferredFilePath
     }
   }
 
@@ -314,6 +326,7 @@ object EelPathUtils {
    * - Last modified time.
    * - Creation time.
    * - File key (if available).
+   * - File permissions (if available).
    *
    * @param path the file path for which the hash is calculated.
    * @return a hexadecimal string representing the computed SHA-256 hash.
@@ -325,12 +338,27 @@ object EelPathUtils {
     val creationTime = attributes.creationTime().toMillis()
     val fileKey = attributes.fileKey()?.toString() ?: ""
 
+    val permissions = if (attributes is PosixFileAttributes) {
+      val sb = StringBuilder()
+      sb.append(attributes.group().name)
+      sb.append("\\0")
+      sb.append(attributes.owner().name)
+      for (permission in attributes.permissions()) {
+        sb.append(permission.name)
+      }
+      sb.toString()
+    }
+    else {
+      ""
+    }
+
     val digest = MessageDigest.getInstance("SHA-256")
 
     digest.update(fileSize.toString().toByteArray())
     digest.update(lastModified.toString().toByteArray())
     digest.update(creationTime.toString().toByteArray())
     digest.update(fileKey.toByteArray())
+    digest.update(permissions.toByteArray())
 
     return digest.digest().joinToString("") { "%02x".format(it) }
   }
