@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.eel.provider.utils
 
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
@@ -15,6 +16,7 @@ import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.eel.provider.toEelApiBlocking
 import com.intellij.platform.eel.provider.utils.EelPathUtils.transferLocalContentToRemote
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import kotlinx.coroutines.*
@@ -84,20 +86,40 @@ object EelPathUtils {
 
   @JvmStatic
   @RequiresBackgroundThread(generateAssertion = false)
-  fun createTemporaryDirectory(project: Project?, prefix: String = ""): Path {
+  fun getSystemFolder(project: Project): Path {
+    return getSystemFolder(project.getEelDescriptor().toEelApiBlocking())
+  }
+
+  @JvmStatic
+  @RequiresBackgroundThread(generateAssertion = false)
+  fun getSystemFolder(eelDescriptor: EelDescriptor): Path {
+    return getSystemFolder(eelDescriptor.toEelApiBlocking())
+  }
+
+  @JvmStatic
+  @RequiresBackgroundThread(generateAssertion = false)
+  fun getSystemFolder(eel: EelApi): Path {
+    val selector = PathManager.getPathsSelector() ?: "IJ-Platform"
+    val userHomeFolder = eel.userInfo.home.asNioPath().toString()
+    return PathManager.getDefaultSystemPathFor(eel.platform.toPathManagerOs(), userHomeFolder, selector, eel.exec.fetchLoginShellEnvVariablesBlocking())
+  }
+
+  @JvmStatic
+  @RequiresBackgroundThread(generateAssertion = false)
+  fun createTemporaryDirectory(project: Project?, prefix: String = "", suffix: String = ""): Path {
     if (project == null || isProjectLocal(project)) {
       return Files.createTempDirectory(prefix)
     }
     val projectFilePath = project.projectFilePath ?: return Files.createTempDirectory(prefix)
     return runBlockingMaybeCancellable {
       val eel = Path.of(projectFilePath).getEelDescriptor().toEelApi()
-      createTemporaryDirectory(eel, prefix)
+      createTemporaryDirectory(eel, prefix, suffix)
     }
   }
 
   @JvmStatic
-  suspend fun createTemporaryDirectory(eelApi: EelApi, prefix: String = ""): Path {
-    val file = eelApi.fs.createTemporaryDirectory().prefix(prefix).getOrThrowFileSystemException()
+  suspend fun createTemporaryDirectory(eelApi: EelApi, prefix: String = "", suffix: String = ""): Path {
+    val file = eelApi.fs.createTemporaryDirectory().prefix(prefix).suffix(suffix).getOrThrowFileSystemException()
     return file.asNioPath()
   }
 
