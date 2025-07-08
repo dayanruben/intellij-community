@@ -8,6 +8,7 @@ import com.intellij.mcpserver.createSseServerJsonEntry
 import com.intellij.mcpserver.createStdioMcpServerJsonConfiguration
 import com.intellij.mcpserver.impl.McpClientDetector
 import com.intellij.mcpserver.impl.McpServerService
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.options.SearchableConfigurable
@@ -15,11 +16,8 @@ import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.ui.EditorNotificationPanel
-import com.intellij.ui.InlineBanner
 import com.intellij.ui.components.JBOptionButton
 import com.intellij.ui.dsl.builder.*
-import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.ui.layout.ValueComponentPredicate
 import com.intellij.ui.layout.and
@@ -77,6 +75,16 @@ class McpServerSettingsConfigurable : SearchableConfigurable {
         }
       }.bottomGap(BottomGap.SMALL)
 
+      row {
+        comment(McpServerBundle.message("settings.explanation.when.server.disabled"))
+      }.bottomGap(BottomGap.NONE).visibleIf(enabledCheckboxState!!.not())
+      McpClientDetector.detectGlobalMcpClients().forEach {
+        row {
+          comment(" • " + it.name.displayName)
+        }.topGap(TopGap.NONE).bottomGap(BottomGap.NONE).visibleIf(enabledCheckboxState!!.not())
+      }
+
+
       group(McpServerBundle.message("settings.client.group"), indent = false) {
         row {
           comment(McpServerBundle.message("settings.setup.description"))
@@ -88,29 +96,17 @@ class McpServerSettingsConfigurable : SearchableConfigurable {
             val json = mcpClient.json
             row {
               text(mcpClient.name.displayName)
-              icon(McpserverIcons.Expui.StatusDisabled).gap(RightGap.SMALL).visibleIf(isConfigured.not())
-              comment(McpServerBundle.message("mcp.server.not.configured")).visibleIf(isConfigured.not())
-              icon(McpserverIcons.Expui.StatusEnabled).gap(RightGap.SMALL).visibleIf(isConfigured.and(isPortCorrect))
-              comment(McpServerBundle.message("mcp.server.configured")).visibleIf(isConfigured.and(isPortCorrect))
-              icon(AllIcons.General.Error).gap(RightGap.SMALL).visibleIf(isConfigured.and(isPortCorrect.not()))
-              comment(McpServerBundle.message("mcp.server.configured.port.invalid")).visibleIf(isConfigured.and(isPortCorrect.not()))
             }.topGap(TopGap.SMALL)
             val autoconfiguredPressed = ValueComponentPredicate(false)
             val errorDuringConfiguration = ValueComponentPredicate(false)
             val configExists = ValueComponentPredicate(mcpClient.configPath.exists() && mcpClient.configPath.isRegularFile())
-            row {
-              cell(InlineBanner(McpServerBundle.message("mcp.server.client.restart.info.settings"), EditorNotificationPanel.Status.Success)).customize(UnscaledGaps(12))
-            }.visibleIf(autoconfiguredPressed).topGap(TopGap.SMALL).bottomGap(BottomGap.SMALL)
-            row {
-              icon(AllIcons.General.Error)
-              comment(McpServerBundle.message("mcp.server.client.autoconfig.error"))
-            }.visibleIf(errorDuringConfiguration)
             row {
               cell(JBOptionButton(object : AbstractAction(McpServerBundle.message("autoconfigure.mcp.server")) {
                 override fun actionPerformed(e: ActionEvent?) {
                   runCatching {
                     mcpClient.configure()
                   }.onFailure {
+                    thisLogger().info(it)
                     errorDuringConfiguration.set(true)
                   }.onSuccess {
                     errorDuringConfiguration.set(false)
@@ -132,10 +128,24 @@ class McpServerSettingsConfigurable : SearchableConfigurable {
                   if (e != null) showCopiedBallon(e)
                 }
               })))
+              icon(McpserverIcons.Expui.StatusEnabled).gap(RightGap.SMALL).visibleIf(isConfigured.and(isPortCorrect).and(autoconfiguredPressed.not()))
+              text(McpServerBundle.message("mcp.server.configured")).visibleIf(isConfigured.and(isPortCorrect).and(autoconfiguredPressed.not()))
+
+              icon(McpserverIcons.Expui.StatusEnabled).gap(RightGap.SMALL).visibleIf(autoconfiguredPressed)
+              text(McpServerBundle.message("mcp.server.client.restart.info.settings")).visibleIf(autoconfiguredPressed)
+
+              icon(McpserverIcons.Expui.StatusDisabled).gap(RightGap.SMALL).visibleIf(isConfigured.not())
+              comment(McpServerBundle.message("mcp.server.not.configured")).visibleIf(isConfigured.not())
+
+              icon(AllIcons.General.Error).gap(RightGap.SMALL).visibleIf(isConfigured.and(isPortCorrect.not()))
+              comment(McpServerBundle.message("mcp.server.configured.port.invalid")).visibleIf(isConfigured.and(isPortCorrect.not()))
+
+              icon(AllIcons.General.Error).gap(RightGap.SMALL).visibleIf(errorDuringConfiguration)
+              comment(McpServerBundle.message("mcp.server.client.autoconfig.error")).visibleIf(errorDuringConfiguration)
             }
           }
         }
-      }
+      }.visibleIf(enabledCheckboxState!!)
 
       group(McpServerBundle.message("mcp.general.client"), indent = false) {
         row {
@@ -161,7 +171,7 @@ class McpServerSettingsConfigurable : SearchableConfigurable {
         row {
           checkBox(McpServerBundle.message("checkbox.enable.brave.mode.skip.command.execution.confirmations")).comment(McpServerBundle.message("text.warning.enabling.brave.mode.will.allow.terminal.commands.to.execute.without.confirmation.use.with.caution")).bindSelected(settings.state::enableBraveMode)
         }
-      }.enabledIf(enabledCheckboxState!!)
+      }.visibleIf(enabledCheckboxState!!)
     }
 
     settingsPanel = panel
