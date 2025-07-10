@@ -4,6 +4,7 @@ package com.intellij.ide.actions;
 import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.codeInsight.daemon.impl.IdentifierUtil;
 import com.intellij.codeInsight.highlighting.HighlightManager;
+import com.intellij.find.impl.FindPopupPanel;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys;
@@ -24,6 +25,7 @@ import org.jetbrains.annotations.Unmodifiable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public final class CopyReferenceUtil {
   static void highlight(Editor editor, Project project, List<? extends PsiElement> elements) {
@@ -71,17 +73,30 @@ public final class CopyReferenceUtil {
 
     if (elements.isEmpty() && editor == null) {
       final Project project = CommonDataKeys.PROJECT.getData(dataContext);
-      VirtualFile[] files = CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(dataContext);
-      if (project != null && files != null) {
-        for (VirtualFile file : files) {
+
+      // Provides selected files context specifically for Find in Files popup.
+      // Essential for Remote Development - enables frontend UI selection data to be synchronized
+      // with backend action execution through ActionTimestampProvider mechanism.
+      VirtualFile[] selectedFiles = FindPopupPanel.SELECTED_FILES.getData(dataContext);
+      if (selectedFiles != null && project != null) {
+        for (VirtualFile file : selectedFiles) {
           ContainerUtil.addIfNotNull(elements, PsiManager.getInstance(project).findFile(file));
+        }
+      }
+
+      if (elements.isEmpty()) {
+        VirtualFile[] files = CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(dataContext);
+        if (project != null && files != null) {
+          for (VirtualFile file : files) {
+            ContainerUtil.addIfNotNull(elements, PsiManager.getInstance(project).findFile(file));
+          }
         }
       }
     }
 
     return ContainerUtil.mapNotNull(elements, element -> element instanceof PsiFile && !((PsiFile)element).getViewProvider().isPhysical()
                                                          ? null
-                                                         : adjustElement(element));
+                                                         : adjustElement(element)).stream().distinct().collect(Collectors.toList());
   }
 
   static PsiElement adjustElement(PsiElement element) {

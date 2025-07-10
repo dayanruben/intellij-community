@@ -47,15 +47,19 @@ public final class JavaApplicationSettingsEditor extends JavaSettingsEditorBase<
   protected void customizeFragments(List<SettingsEditorFragment<ApplicationConfiguration, ?>> fragments,
                                     SettingsEditorFragment<ApplicationConfiguration, ModuleClasspathCombo> moduleClasspath,
                                     CommonParameterFragments<ApplicationConfiguration> commonParameterFragments) {
+    // Create an additional entry under "Modify options", under the "Java" section
     fragments.add(SettingsEditorFragment.createTag("include.provided",
                                                    ExecutionBundle.message("application.configuration.include.provided.scope"),
                                                    ExecutionBundle.message("group.java.options"),
-                                     configuration -> configuration.getOptions().isIncludeProvidedScope(),
-                                     (configuration, value) -> configuration.getOptions().setIncludeProvidedScope(value)));
+                                                   configuration -> configuration.getOptions().isIncludeProvidedScope(),
+                                                   (configuration, value) -> configuration.getOptions().setIncludeProvidedScope(value)));
+
+    // Create an additional entry under "Modify options", under the "Java" section
     fragments.add(SettingsEditorFragment.createTag("unnamed.class",
                                                    ExecutionBundle.message("application.configuration.is.implicit.class"),
                                                    ExecutionBundle.message("group.java.options"),
                                                    configuration -> {
+                                                     // Called only on the initial display of the dialog. Controls whether to display this TagButton or not.
                                                      return configuration.isImplicitClassConfiguration();
                                                    },
                                                    (configuration, value) -> {
@@ -96,7 +100,7 @@ public final class JavaApplicationSettingsEditor extends JavaSettingsEditorBase<
       GridBag constraints = new GridBag().setDefaultFill(GridBagConstraints.HORIZONTAL).setDefaultWeightX(1.0);
       add(myClassEditorField, constraints.nextLine());
 
-      myImplicitClassField = new TextFieldWithAutoCompletion<>(getProject(), new StringsCompletionProvider(null, AllIcons.FileTypes.JavaClass) {
+      myImplicitClassField = new TextFieldWithAutoCompletion<>(getProject(), new StringsCompletionProvider(null, AllIcons.FileTypes.Java) {
         @Override
         public @NotNull Collection<String> getItems(String prefix, boolean cached, CompletionParameters parameters) {
             return DumbService.isDumb(getProject())
