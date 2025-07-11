@@ -30,8 +30,8 @@ internal class ObjectInheritsExceptionInspection : AbstractKotlinInspection(), C
                 val isException = analyze(declaration) {
                     val symbol = declaration.symbol as? KaNamedClassSymbol ?: return
                     symbol.superTypes.any {
-                        it.isClassType(StandardKotlinNames.exceptionClassId) ||
-                                it.isSubtypeOf(StandardKotlinNames.exceptionClassId)
+                        it.isClassType(StandardKotlinNames.throwableClassId) ||
+                                it.isSubtypeOf(StandardKotlinNames.throwableClassId)
                     }
                 }
 
@@ -84,9 +84,12 @@ internal class ObjectInheritsExceptionInspection : AbstractKotlinInspection(), C
                     }
 
                     updater.getWritable(expression)
-                }.forEach {
-                    val referencedName = it.getReferencedName()
-                    it.replace(psiFactory.createExpression("$referencedName()"))
+                }.forEach { expression ->
+                    (expression.parent as? KtDotQualifiedExpression)?.selectorExpression?.let {
+                        if (it != expression) return@forEach
+                    }
+                    val referencedName = expression.getReferencedName()
+                    expression.replace(psiFactory.createExpression("$referencedName()"))
                 }
 
             objectDeclaration.getObjectKeyword()?.replace(psiFactory.createClassKeyword())

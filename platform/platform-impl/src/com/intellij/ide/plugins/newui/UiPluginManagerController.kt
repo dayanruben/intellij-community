@@ -38,7 +38,6 @@ interface UiPluginManagerController {
   fun loadPluginDetails(model: PluginUiModel): PluginUiModel?
   fun loadPluginReviews(pluginId: PluginId, page: Int): List<PluginReviewComment>?
   fun loadPluginMetadata(externalPluginId: String): IntellijPluginMetadata?
-  fun createSession(sessionId: String)
   fun closeSession(sessionId: String)
   fun uninstallDynamicPlugin(parentComponent: JComponent?, sessionId: String, pluginId: PluginId, isUpdate: Boolean): Boolean
   fun deletePluginFiles(pluginId: PluginId)
@@ -84,6 +83,7 @@ interface UiPluginManagerController {
   suspend fun loadErrors(sessionId: String): Map<PluginId, CheckErrorsResult>
 
   suspend fun resetSession(sessionId: String, removeSession: Boolean, parentComponent: JComponent? = null): Map<PluginId, Boolean>
+  suspend fun isPluginEnabled(pluginId: PluginId): Boolean
 
   companion object {
     val EP_NAME: ExtensionPointName<UiPluginManagerController> = ExtensionPointName<UiPluginManagerController>("com.intellij.uiPluginManagerController")

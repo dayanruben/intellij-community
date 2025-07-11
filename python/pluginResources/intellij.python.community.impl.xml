@@ -7,6 +7,7 @@
     <module name="intellij.python.community.execService"/>
     <module name="intellij.python.community.execService.python"/>
     <module name="intellij.python.community.interpreters"/>
+    <module name="intellij.regexp"/>
   </dependencies>
 
   <resource-bundle>messages.PyBundle</resource-bundle>
@@ -895,7 +896,7 @@
 
     <systemPythonProvider implementation="com.jetbrains.python.sdk.uv.UvSystemPythonProvider"/>
 
-    <inspectionExtension implementation="com.jetbrains.python.sdk.configuration.PyInterpreterInspectionSuppressor"/>
+    <inspectionExtension implementation="com.jetbrains.python.sdk.configuration.suppressors.PyInterpreterInspectionSuppressor"/>
     <inspectionExtension implementation="com.jetbrains.python.inspections.PyUnresolvedReferenceDefaultInspectionExtension" order="last"/>
 
     <runConfigurationEditorExtension implementation="com.jetbrains.python.run.PyRunConfigurationTargetOptions"/>
