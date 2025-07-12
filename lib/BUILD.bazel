@@ -2261,13 +2261,6 @@ jvm_import(
   visibility = ["//visibility:public"]
 )
 
-java_library(
-  name = "io-modelcontextprotocol-kotlin-sdk-provided",
-  exports = [":io-modelcontextprotocol-kotlin-sdk"],
-  neverlink = True,
-  visibility = ["//visibility:public"]
-)
-
 jvm_import(
   name = "io-opentelemetry-sdk-extension-autoconfigure-spi",
   jar = "@opentelemetry-sdk-extension-autoconfigure-spi-1_45_0_http//file",
@@ -2724,8 +2717,8 @@ jvm_import(
 
 jvm_import(
   name = "jetbrains-intellij-deps-rwmutex-idea",
-  jar = "@rwmutex-idea-0_0_8_http//file",
-  source_jar = "@rwmutex-idea-0_0_8-sources_http//file",
+  jar = "@rwmutex-idea-0_0_9_http//file",
+  source_jar = "@rwmutex-idea-0_0_9-sources_http//file",
   visibility = ["//visibility:public"]
 )
 

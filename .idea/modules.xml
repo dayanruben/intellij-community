@@ -920,6 +920,9 @@
       <module fileurl="file://$PROJECT_DIR$/platform/platform-resources-en/intellij.platform.resources.en.iml" filepath="$PROJECT_DIR$/platform/platform-resources-en/intellij.platform.resources.en.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/kernel/rpc/intellij.platform.rpc.iml" filepath="$PROJECT_DIR$/platform/kernel/rpc/intellij.platform.rpc.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/kernel/rpc.backend/intellij.platform.rpc.backend.iml" filepath="$PROJECT_DIR$/platform/kernel/rpc.backend/intellij.platform.rpc.backend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/remote-topics/shared/intellij.platform.rpc.topics.iml" filepath="$PROJECT_DIR$/platform/remote-topics/shared/intellij.platform.rpc.topics.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/remote-topics/backend/intellij.platform.rpc.topics.backend.iml" filepath="$PROJECT_DIR$/platform/remote-topics/backend/intellij.platform.rpc.topics.backend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/remote-topics/frontend/intellij.platform.rpc.topics.frontend.iml" filepath="$PROJECT_DIR$/platform/remote-topics/frontend/intellij.platform.rpc.topics.frontend.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/runtime/loader/intellij.platform.runtime.loader.iml" filepath="$PROJECT_DIR$/platform/runtime/loader/intellij.platform.runtime.loader.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/runtime/product/intellij.platform.runtime.product.iml" filepath="$PROJECT_DIR$/platform/runtime/product/intellij.platform.runtime.product.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/runtime/product/tests/intellij.platform.runtime.product.tests.iml" filepath="$PROJECT_DIR$/platform/runtime/product/tests/intellij.platform.runtime.product.tests.iml" />
@@ -1267,6 +1270,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/kotlin.base.scripting.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/kotlin.base.scripting.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting.k1/kotlin.base.scripting.k1.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting.k1/kotlin.base.scripting.k1.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting.k2/kotlin.base.scripting.k2.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting.k2/kotlin.base.scripting.k2.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/kotlin.base.serialization/kotlin.base.serialization.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/kotlin.base.serialization/kotlin.base.serialization.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/statistics/kotlin.base.statistics.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/statistics/kotlin.base.statistics.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/test/kotlin.base.test.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/test/kotlin.base.test.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/util/kotlin.base.util.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/util/kotlin.base.util.iml" />
