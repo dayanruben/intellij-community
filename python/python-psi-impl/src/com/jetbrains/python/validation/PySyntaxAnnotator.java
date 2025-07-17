@@ -9,6 +9,8 @@ import org.jetbrains.annotations.NotNull;
 import java.util.List;
 
 
+// AST-based syntax annotator that does not rely on resolve.
+// Planned to move to thin-client (visitors are to be converted to `PyAstElementVisitor`).
 public final class PySyntaxAnnotator extends PyAnnotatorBase implements DumbAware {
   @Override
   public void annotate(@NotNull PsiElement psiElement, @NotNull PyAnnotationHolder holder) {
@@ -16,12 +18,19 @@ public final class PySyntaxAnnotator extends PyAnnotatorBase implements DumbAwar
       new PyAssignTargetAnnotatorVisitor(holder),
       new PyTypeAnnotationTargetAnnotatorVisitor(holder),
       new PyParameterListAnnotatorVisitor(holder),
-      new ReturnAnnotator(holder),
+      new PyReturnYieldAnnotatorVisitor(holder),
       new PyBreakContinueAnnotatorVisitor(holder),
       new PyGlobalAnnotatorVisitor(holder),
       new PyImportAnnotatorVisitor(holder),
       new PyAsyncAwaitAnnotatorVisitor(holder),
-      new PyAstNumericLiteralAnnotatorVisitor(holder)
+      new PyAstNumericLiteralAnnotatorVisitor(holder),
+      new PyGeneratorInArgumentListAnnotatorVisitor(holder),
+      new PyStarAnnotatorVisitor(holder),
+      new PyStringLiteralQuotesAnnotatorVisitor(holder),
+      new PyFStringsAnnotatorVisitor(holder),
+      new PyPatternAnnotatorVisitor(holder),
+      new PyTryExceptAnnotatorVisitor(holder),
+      new PyTypeParameterListAnnotatorVisitor(holder)
     );
     for (PsiElementVisitor visitor : visitors) {
       psiElement.accept(visitor);

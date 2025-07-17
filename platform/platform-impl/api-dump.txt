@@ -164,6 +164,8 @@ com.intellij.ide.actions.CloseAction$CloseTarget
 - a:close():V
 c:com.intellij.ide.actions.OpenFileAction
 - p:doOpenFile(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,kotlin.coroutines.Continuation):java.lang.Object
+c:com.intellij.ide.actions.RevealFileAction
+- s:showDialog(com.intellij.openapi.project.Project,java.lang.String,java.lang.String,java.io.File,com.intellij.openapi.ui.DoNotAskOption):V
 com.intellij.ide.actions.SettingsEntryPointAction$ActionProvider
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - getLastActions(com.intellij.openapi.actionSystem.DataContext):java.util.Collection
@@ -200,6 +202,8 @@ com.intellij.ide.file.BatchFileChangeListener
 - sf:TOPIC:com.intellij.util.messages.Topic
 - batchChangeCompleted(com.intellij.openapi.project.Project):V
 - batchChangeStarted(com.intellij.openapi.project.Project,java.lang.String):V
+f:com.intellij.ide.impl.ProjectNewWindowDoNotAskOption
+- com.intellij.openapi.ui.DoNotAskOption
 com.intellij.ide.navigationToolbar.NavBarModelExtension
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:additionalRoots(com.intellij.openapi.project.Project):java.util.Collection
@@ -672,6 +676,16 @@ com.intellij.openapi.ui.playback.PlaybackCommand
 - a:canGoFurther():Z
 - a:execute(com.intellij.openapi.ui.playback.PlaybackContext):java.util.concurrent.CompletableFuture
 - getScriptDir():java.io.File
+e:com.intellij.openapi.updateSettings.impl.ExternalUpdateManager
+- java.lang.Enum
+- sf:ACTUAL:com.intellij.openapi.updateSettings.impl.ExternalUpdateManager
+- sf:BREW:com.intellij.openapi.updateSettings.impl.ExternalUpdateManager
+- sf:SNAP:com.intellij.openapi.updateSettings.impl.ExternalUpdateManager
+- sf:TOOLBOX:com.intellij.openapi.updateSettings.impl.ExternalUpdateManager
+- sf:UNKNOWN:com.intellij.openapi.updateSettings.impl.ExternalUpdateManager
+- f:toolName:java.lang.String
+- s:valueOf(java.lang.String):com.intellij.openapi.updateSettings.impl.ExternalUpdateManager
+- s:values():com.intellij.openapi.updateSettings.impl.ExternalUpdateManager[]
 com.intellij.openapi.updateSettings.impl.UpdateSettingsProvider
 - a:getPluginRepositories():java.util.List
 com.intellij.openapi.updateSettings.impl.UpdateSettingsUIProvider
