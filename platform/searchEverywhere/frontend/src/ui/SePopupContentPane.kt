@@ -78,7 +78,7 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
     vm.currentTabIndex,
     vm.coroutineScope,
     vm.ShowInFindToolWindowAction(onShowFindToolWindow)
-  ) { updatePopupWidth() }
+  )
 
   private val textField = object : SeTextField() {
     override fun getAccessibleContext(): AccessibleContext {
@@ -102,6 +102,8 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
   var isCompactViewMode: Boolean = true
     private set
   var popupExtendedSize: Dimension? = initPopupExtendedSize
+
+  private val minWidth = Registry.intValue("search.everywhere.new.minimum.width", 700)
 
   init {
     layout = GridLayout()
@@ -185,6 +187,7 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
               if (!resultListModel.isValid || resultListModel.isEmpty) {
                 if (!textField.text.isEmpty() &&
                     (vm.currentTab.getSearchEverywhereToggleAction() as? AutoToggleAction)?.autoToggle(true) ?: false) {
+                  headerPane.updateActionsAsync()
                   return@withContext
                 }
               }
@@ -275,14 +278,6 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
     }
 
     WindowMoveListener(this).installTo(headerPane)
-    addComponentListener(object : ComponentAdapter() {
-      override fun componentResized(e: ComponentEvent?) {
-        if (project != null && !isCompactViewMode) {
-          popupExtendedSize = size
-          updateFrozenCount()
-        }
-      }
-    })
 
     DumbAwareAction.create { vm.getHistoryItem(true)?.let { textField.text = it; textField.selectAll() } }
       .registerCustomShortcutSet(SearchTextField.SHOW_HISTORY_SHORTCUT, this)
@@ -312,7 +307,7 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
     resultsScroll.background = JBUI.CurrentTheme.Popup.BACKGROUND
     resultList.background = JBUI.CurrentTheme.Popup.BACKGROUND
 
-    resultsScroll.preferredSize = JBUI.size(670, JBUI.CurrentTheme.BigPopup.maxListHeight())
+    resultsScroll.preferredSize = JBUI.size(minWidth, JBUI.CurrentTheme.BigPopup.maxListHeight())
 
     initActions()
 
@@ -667,23 +662,6 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
     if (compact == isCompactViewMode) return
     isCompactViewMode = compact
 
-    updatePopupSize()
-  }
-
-  private fun updatePopupWidth() {
-    if (!isShowing) return
-
-    val preferredWidth = if (headerPane.isShowing) headerPane.preferredSize.width else 0
-
-    if (headerPane.width < preferredWidth) {
-      popupExtendedSize?.takeIf { it.width < preferredWidth }?.let {
-        popupExtendedSize?.width = preferredWidth
-      }
-      updatePopupSize()
-    }
-  }
-
-  private fun updatePopupSize() {
     resizePopupHandler(calcPreferredSize(isCompactViewMode))
   }
 
@@ -695,6 +673,14 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
     return calcPreferredSize(isCompactViewMode)
   }
 
+  override fun getMinimumSize(): Dimension = getMinimumSize(isCompactViewMode)
+
+  fun getMinimumSize(isCompact: Boolean): Dimension {
+    val compactHeight = calcPreferredSize(true).height
+    val minimumHeight = if (isCompact) compactHeight else compactHeight + scale(100)
+    return Dimension(JBUI.scale(minWidth), minimumHeight)
+  }
+
   private fun calcPreferredSize(compact: Boolean): Dimension {
     val preferredHeight = if (compact) {
       headerPane.preferredSize.height + textField.preferredSize.height
@@ -702,9 +688,7 @@ class SePopupContentPane(private val project: Project?, private val vm: SePopupV
     else {
       popupExtendedSize?.height ?: JBUI.CurrentTheme.BigPopup.maxListHeight()
     }
-
-    val preferredWidth = popupExtendedSize?.width ?: maxOf(resultsScrollPane.preferredSize.width, headerPane.preferredSize.width)
-    return Dimension(preferredWidth, preferredHeight)
+    return Dimension(popupExtendedSize?.width ?: resultsScrollPane.preferredSize.width, preferredHeight)
   }
 
   private fun logTabSwitchedEvent(e: AnActionEvent) {
