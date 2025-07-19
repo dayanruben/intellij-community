@@ -2219,6 +2219,34 @@ http_file(
 )
 
 http_file(
+  name = "hunspell-ru-jvm-0_2_281_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/spell/hunspell-ru-jvm/0.2.281/hunspell-ru-jvm-0.2.281.jar",
+  sha256 = "4c6be8d96b44761d3546ba127fcfb48bd31773b40a0ff23bdb4582c7afb33123",
+  downloaded_file_path = "hunspell-ru-jvm-0.2.281.jar"
+)
+
+http_file(
+  name = "hunspell-ru-jvm-0_2_281-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/spell/hunspell-ru-jvm/0.2.281/hunspell-ru-jvm-0.2.281-sources.jar",
+  sha256 = "5b7a9db3233093cee59c7e93c6f086e066b319f69601a3147008599d8c4f53c3",
+  downloaded_file_path = "hunspell-ru-jvm-0.2.281-sources.jar"
+)
+
+http_file(
+  name = "hunspell-uk-jvm-0_2_281_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/spell/hunspell-uk-jvm/0.2.281/hunspell-uk-jvm-0.2.281.jar",
+  sha256 = "c51215918811365ae560ad4fc82e90b6b1afa3bd956162b92786857fc75e4dfe",
+  downloaded_file_path = "hunspell-uk-jvm-0.2.281.jar"
+)
+
+http_file(
+  name = "hunspell-uk-jvm-0_2_281-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/spell/hunspell-uk-jvm/0.2.281/hunspell-uk-jvm-0.2.281-sources.jar",
+  sha256 = "65aac85886a88e6dedb4e2e477191424d987dcf429c20770d84cd41339a8395d",
+  downloaded_file_path = "hunspell-uk-jvm-0.2.281-sources.jar"
+)
+
+http_file(
   name = "language-be-6_5_0_12_http",
   url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/languagetool/language-be/6.5.0.12/language-be-6.5.0.12.jar",
   sha256 = "bd1887ce9a41765b30098c4e1de1b7fb44f85a2753c38e9ab6f809c5462904a8",
@@ -3591,17 +3619,17 @@ http_file(
 )
 
 http_file(
-  name = "jbr-api-1_5_0_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/jbr-api/1.5.0/jbr-api-1.5.0.jar",
-  sha256 = "657ede7d7f8e175c909b23caa10fcd4d4a511304fd938aa9cc8457b4378950d5",
-  downloaded_file_path = "jbr-api-1.5.0.jar"
+  name = "jbr-api-1_6_0_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/runtime/jbr-api/1.6.0/jbr-api-1.6.0.jar",
+  sha256 = "0ef4d299ddca95aab7a41799693781175bdca348864fa912eb21eab0d9bb0d2d",
+  downloaded_file_path = "jbr-api-1.6.0.jar"
 )
 
 http_file(
-  name = "jbr-api-1_5_0-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/jbr-api/1.5.0/jbr-api-1.5.0-sources.jar",
-  sha256 = "0b0da2fdf5b7c24b5c8c432088e7d3a71062b01716ea5859555dc5c5326486e3",
-  downloaded_file_path = "jbr-api-1.5.0-sources.jar"
+  name = "jbr-api-1_6_0-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/runtime/jbr-api/1.6.0/jbr-api-1.6.0-sources.jar",
+  sha256 = "c9e956af6a2a79560ba570adaeb2d2d53cf81ca8c47e7e7608e96d0bf9e32637",
+  downloaded_file_path = "jbr-api-1.6.0-sources.jar"
 )
 
 http_file(
