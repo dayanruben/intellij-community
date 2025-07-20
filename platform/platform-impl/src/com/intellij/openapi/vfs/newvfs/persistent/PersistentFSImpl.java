@@ -32,30 +32,28 @@ import com.intellij.openapi.vfs.newvfs.events.*;
 import com.intellij.openapi.vfs.newvfs.impl.*;
 import com.intellij.openapi.vfs.newvfs.persistent.IPersistentFSRecordsStorage.RecordForRead;
 import com.intellij.openapi.vfs.newvfs.persistent.IPersistentFSRecordsStorage.RecordReader;
-import com.intellij.openapi.vfs.newvfs.persistent.dev.OptimizedCaseInsensitiveStringHashing;
 import com.intellij.openapi.vfs.newvfs.persistent.recovery.VFSRecoveryInfo;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
 import com.intellij.platform.diagnostic.telemetry.PlatformScopesKt;
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager;
 import com.intellij.util.*;
 import com.intellij.util.concurrency.ThreadingAssertions;
-import com.intellij.util.containers.*;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.HashingStrategy;
+import com.intellij.util.containers.MostlySingularMultiMap;
+import com.intellij.util.containers.MultiMap;
 import com.intellij.util.io.ReplicatorInputStream;
+import io.opentelemetry.api.metrics.BatchCallback;
 import io.opentelemetry.api.metrics.Meter;
 import it.unimi.dsi.fastutil.Hash;
 import it.unimi.dsi.fastutil.ints.*;
-import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenCustomHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenCustomHashSet;
-import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import org.jetbrains.annotations.*;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -66,12 +64,12 @@ import static com.intellij.configurationStore.StorageUtilKt.RELOADING_STORAGE_WR
 import static com.intellij.openapi.vfs.newvfs.events.VFileEvent.REFRESH_REQUESTOR;
 import static com.intellij.util.SystemProperties.getBooleanProperty;
 import static com.intellij.util.SystemProperties.getIntProperty;
+import static com.intellij.util.containers.CollectionFactory.*;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 @SuppressWarnings("NonDefaultConstructor")
 public final class PersistentFSImpl extends PersistentFS implements Disposable {
-  private static final boolean simplifyFindChildInfo = Boolean.getBoolean("intellij.vfs.simplify.findChildInfo");
 
   private static final Logger LOG = Logger.getInstance(PersistentFSImpl.class);
   private static final ThrottledLogger THROTTLED_LOG = new ThrottledLogger(LOG, SECONDS.toMillis(30));
@@ -81,8 +79,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   private static final int READ_ACCESS_CHECK_REQUIRE_RA_HARD = 2;
   private static final int READ_ACCESS_CHECK_REQUIRE_NO_RA = 3;
   private static final int READ_ACCESS_CHECK_KIND = getIntProperty("vfs.read-access-check-kind", READ_ACCESS_CHECK_NONE);
-
-  private static final boolean USE_OPTIMIZED_HASHING_STRATEGY = getBooleanProperty("PersistentFSImpl.USE_OPTIMIZED_HASHING_STRATEGY", true);
 
   private static final boolean LOG_NON_CACHED_ROOTS_LIST = getBooleanProperty("PersistentFSImpl.LOG_NON_CACHED_ROOTS_LIST", false);
 
@@ -115,6 +111,8 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   private final AtomicLong childByName = new AtomicLong();
   /** How many times folder case-sensitivity was read from underlying FS */
   private final AtomicLong caseSensitivityReads = new AtomicLong();
+
+  private final BatchCallback otelMonitoringHandle;
 
 
   public PersistentFSImpl(@NotNull Application app) {
@@ -167,7 +165,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     // Services might throw `AlreadyDisposedException`-s after and we have to suppress those exceptions or wrap with PCE-s.
     ShutDownTracker.getInstance().registerCacheShutdownTask(this::disconnect);
 
-    setupOTelMonitoring(TelemetryManager.getInstance().getMeter(PlatformScopesKt.VFS));
+    otelMonitoringHandle = setupOTelMonitoring(TelemetryManager.getInstance().getMeter(PlatformScopesKt.VFS));
 
     LOG.info("VFS.MAX_FILE_LENGTH_TO_CACHE: " + PersistentFSConstants.MAX_FILE_LENGTH_TO_CACHE);
   }
@@ -278,6 +276,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       LOG.warn("Detected cancellation during dispose of PersistentFS. Application was likely closed before VFS got completely initialized",
                e);
     }
+    otelMonitoringHandle.close();
   }
 
   @Override
@@ -618,13 +617,9 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     Ref<ChildInfo> foundChildRef = new Ref<>();
 
     Function<ListResult, ListResult> convertor = children -> {
-      ChildInfo child = findExistingChildInfo(parent, childName, children.children);
+      ChildInfo child = findExistingChildInfo(children.children, childName, parent.isCaseSensitive());
       if (child != null) {
         foundChildRef.set(child);
-        return children;
-      }
-
-      if (simplifyFindChildInfo) {
         return children;
       }
 
@@ -634,9 +629,9 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       //          This way here we'll have read-only scan without concurrent modification problems
       //          I.e. the whole code below is (seems to be) just a 'small local refresh' -- executed during
       //          children lookup, under the VFS lock.
-      //          I really want to remove it entirely, and just rely on automatic/explicit refresh, but seems like there is a lot
-      //          to do to implement this
-      Pair<@NotNull FileAttributes, String> childData = getChildData(fs, parent, childName, null, null); // todo: use BatchingFileSystem
+      //          I really want to remove it entirely, and just rely on automatic/explicit refresh, but seems like
+      //          there is a lot to do to implement this: i.e. an attempt to skip this 'local refresh' fails tests
+      Pair<@NotNull FileAttributes, String> childData = getChildData(fs, parent, childName, null, null);
       if (childData == null) {
         return children;
       }
@@ -656,7 +651,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
         }
 
         if (!childName.equals(canonicalName)) {
-          child = findExistingChildInfo(parent, canonicalName, children.children);
+          child = findExistingChildInfo(children.children, canonicalName, /*caseSensitive: */ false );
         }
       }
 
@@ -676,12 +671,12 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   }
 
   /**
-   * @param parent only used as a source of file names case-sensitivity
+   * @param caseSensitive is containing folder case-sensitive?
    * @return child from children list, with a given childName, with case sensitivity given by parent
    */
-  private ChildInfo findExistingChildInfo(@NotNull VirtualFile parent,
+  private ChildInfo findExistingChildInfo(@NotNull List<? extends ChildInfo> children,
                                           @NotNull String childName,
-                                          @NotNull List<? extends ChildInfo> children) {
+                                          boolean caseSensitive) {
     if (children.isEmpty()) {
       return null;
     }
@@ -696,7 +691,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     }
 
     //if parent is !case-sensitive -- repeat lookup, now by actual name, with case-insensitive comparison:
-    if (!parent.isCaseSensitive()) {
+    if (!caseSensitive) {
       for (ChildInfo info : children) {
         if (Comparing.equal(childName, vfs.getNameByNameId(info.getNameId()),  /* caseSensitive: */ false)) {
           return info;
@@ -1482,7 +1477,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     BulkFileListener publisher = getPublisher();
     Map<VirtualDirectoryImpl, Object> toCreate = new LinkedHashMap<>();
     Set<VFileEvent> toIgnore = new ReferenceOpenHashSet<>(); // VFileEvent overrides equals(), hence identity-based
-    Set<VirtualFile> toDelete = CollectionFactory.createSmallMemoryFootprintSet();
+    Set<VirtualFile> toDelete = createSmallMemoryFootprintSet();
     while (startIndex != events.size()) {
       PingProgress.interactWithEdtProgress();
 
@@ -2295,7 +2290,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       @Override
       public @NotNull ListResult apply(@NotNull ListResult children) {
         // check that names are not duplicated:
-        ChildInfo duplicate = findExistingChildInfo(parent, name, children.children);
+        ChildInfo duplicate = findExistingChildInfo(children.children, name, parent.isCaseSensitive());
         if (duplicate != null) return children;
 
         childInfo = makeChildRecord(parent, parentId, name, childData, fs, null);
@@ -2623,23 +2618,27 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     }
   }
 
-  private void setupOTelMonitoring(@NotNull Meter meter) {
+  private BatchCallback setupOTelMonitoring(@NotNull Meter meter) {
     var fileByIdCacheHitsCounter = meter.counterBuilder("VFS.fileByIdCache.hits").buildObserver();
     var fileByIdCacheMissesCounter = meter.counterBuilder("VFS.fileByIdCache.misses").buildObserver();
     var fileChildByNameCounter = meter.counterBuilder("VFS.fileChildByName").buildObserver();
     var caseSensitivityReadsCounter = meter.counterBuilder("VFS.folderCaseSensitivityReads").buildObserver();
     var invertedFileNameIndexRequestsCount = meter.counterBuilder("VFS.invertedFileNameIndex.requests").buildObserver();
-    meter.batchCallback(() -> {
-                          fileByIdCacheHitsCounter.record(fileByIdCacheHits.get());
-                          fileByIdCacheMissesCounter.record(fileByIdCacheMisses.get());
-                          fileChildByNameCounter.record(childByName.get());
-                          caseSensitivityReadsCounter.record(caseSensitivityReads.get());
-                          FSRecordsImpl vfs = vfsPeer;
-                          if (vfs != null) {
-                            invertedFileNameIndexRequestsCount.record(vfs.invertedNameIndexRequestsServed());
-                          }
-                        }, fileByIdCacheHitsCounter, fileByIdCacheMissesCounter, fileChildByNameCounter, caseSensitivityReadsCounter,
-                        invertedFileNameIndexRequestsCount);
+    return meter.batchCallback(
+      () -> {
+        fileByIdCacheHitsCounter.record(fileByIdCacheHits.get());
+        fileByIdCacheMissesCounter.record(fileByIdCacheMisses.get());
+        fileChildByNameCounter.record(childByName.get());
+        caseSensitivityReadsCounter.record(caseSensitivityReads.get());
+        FSRecordsImpl vfs = vfsPeer;
+        if (vfs != null) {
+          invertedFileNameIndexRequestsCount.record(vfs.invertedNameIndexRequestsServed());
+        }
+      },
+      fileByIdCacheHitsCounter, fileByIdCacheMissesCounter, fileChildByNameCounter,
+      caseSensitivityReadsCounter,
+      invertedFileNameIndexRequestsCount
+    );
   }
 
   private static class LengthAndContentIdReader implements RecordReader<LengthAndContentIdReader> {
@@ -2665,12 +2664,10 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     }
   }
 
-  //===== utilities to use OptimizedCaseInsensitiveStringHashing instead of the standard one:  ====================
-
   private static final Hash.Strategy<VFileCreateEvent> CASE_INSENSITIVE_STRATEGY = new Hash.Strategy<>() {
     @Override
     public int hashCode(@Nullable VFileCreateEvent object) {
-      return object == null ? 0 : OptimizedCaseInsensitiveStringHashing.caseInsensitiveHashCode(object.getChildName());
+      return object == null ? 0 : Strings.stringHashCodeInsensitive(object.getChildName());
     }
 
     @Override
@@ -2681,48 +2678,4 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       return o2 != null && o1.getChildName().equalsIgnoreCase(o2.getChildName());
     }
   };
-
-  private static @NotNull <V> Map<String, V> createFilePathMap(int cappedInitialSize) {
-    return createFilePathMap(cappedInitialSize, SystemInfoRt.isFileSystemCaseSensitive);
-  }
-
-  private static @NotNull <V> Map<String, V> createFilePathMap(int cappedInitialSize, boolean caseSensitive) {
-    if (!USE_OPTIMIZED_HASHING_STRATEGY) {
-      return CollectionFactory.createFilePathMap(cappedInitialSize, caseSensitive);
-    }
-    else if (caseSensitive) {
-      return CollectionFactory.createFilePathMap(cappedInitialSize, true);
-    }
-    else {
-      return new Object2ObjectOpenCustomHashMap<>(cappedInitialSize, OptimizedCaseInsensitiveStringHashing.instance());
-    }
-  }
-
-  private static @NotNull Set<String> createFilePathSet(int cappedInitialSize) {
-    return createFilePathSet(cappedInitialSize, SystemInfoRt.isFileSystemCaseSensitive);
-  }
-
-  private static @NotNull Set<String> createFilePathSet(int cappedInitialSize, boolean caseSensitive) {
-    if (!USE_OPTIMIZED_HASHING_STRATEGY) {
-      return CollectionFactory.createFilePathSet(cappedInitialSize, caseSensitive);
-    }
-    else if (caseSensitive) {
-      return CollectionFactory.createFilePathSet(cappedInitialSize, true);
-    }
-    else {
-      return new ObjectOpenCustomHashSet<>(cappedInitialSize, OptimizedCaseInsensitiveStringHashing.instance());
-    }
-  }
-
-  private static @NotNull Set<String> createFilePathSet(@NotNull String[] values, boolean caseSensitive) {
-    if (!USE_OPTIMIZED_HASHING_STRATEGY) {
-      return CollectionFactory.createFilePathSet(values, caseSensitive);
-    }
-    else if (caseSensitive) {
-      return CollectionFactory.createFilePathSet(values, true);
-    }
-    else {
-      return new ObjectOpenCustomHashSet<>(values, OptimizedCaseInsensitiveStringHashing.instance());
-    }
-  }
 }
