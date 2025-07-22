@@ -50,7 +50,6 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
     )
     productLayout.bundledPluginModules = IDEA_BUNDLED_PLUGINS + sequenceOf(
       "intellij.javaFX.community",
-      "intellij.vcs.github.community",
       "intellij.vcs.gitlab.community"
     )
 
