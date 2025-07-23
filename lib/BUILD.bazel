@@ -2189,22 +2189,22 @@ jvm_import(
 
 jvm_import(
   name = "io-github-smiley4-schema-kenerator-core",
-  jar = "@schema-kenerator-core-2_1_2_http//file",
-  source_jar = "@schema-kenerator-core-2_1_2-sources_http//file",
+  jar = "@schema-kenerator-core-2_2_0_http//file",
+  source_jar = "@schema-kenerator-core-2_2_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "io-github-smiley4-schema-kenerator-jsonschema",
-  jar = "@schema-kenerator-jsonschema-2_1_2_http//file",
-  source_jar = "@schema-kenerator-jsonschema-2_1_2-sources_http//file",
+  jar = "@schema-kenerator-jsonschema-2_2_0_http//file",
+  source_jar = "@schema-kenerator-jsonschema-2_2_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "io-github-smiley4-schema-kenerator-serialization",
-  jar = "@schema-kenerator-serialization-2_1_2_http//file",
-  source_jar = "@schema-kenerator-serialization-2_1_2-sources_http//file",
+  jar = "@schema-kenerator-serialization-2_2_0_http//file",
+  source_jar = "@schema-kenerator-serialization-2_2_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -2212,6 +2212,34 @@ jvm_import(
   name = "io-github-z4kn4fein-semver-jvm",
   jar = "@semver-jvm-2_0_0_http//file",
   source_jar = "@semver-jvm-2_0_0-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "io-ktor-http",
+  jar = "@ktor-http-jvm-3_1_3_http//file",
+  source_jar = "@ktor-http-jvm-3_1_3-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "io-ktor-io",
+  jar = "@ktor-io-jvm-3_1_3_http//file",
+  source_jar = "@ktor-io-jvm-3_1_3-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "io-ktor-network",
+  jar = "@ktor-network-jvm-3_1_3_http//file",
+  source_jar = "@ktor-network-jvm-3_1_3-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "io-ktor-network-tls",
+  jar = "@ktor-network-tls-jvm-3_1_3_http//file",
+  source_jar = "@ktor-network-tls-jvm-3_1_3-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -2308,8 +2336,8 @@ jvm_import(
 
 jvm_import(
   name = "io-modelcontextprotocol-kotlin-sdk",
-  jar = "@kotlin-sdk-jvm-0_5_0_http//file",
-  source_jar = "@kotlin-sdk-jvm-0_5_0-sources_http//file",
+  jar = "@kotlin-sdk-jvm-0_6_0_http//file",
+  source_jar = "@kotlin-sdk-jvm-0_6_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -8831,8 +8859,8 @@ jvm_import(
 
 jvm_import(
   name = "pty4j",
-  jar = "@pty4j-0_13_9_http//file",
-  source_jar = "@pty4j-0_13_9-sources_http//file",
+  jar = "@pty4j-0_13_8_http//file",
+  source_jar = "@pty4j-0_13_8-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -8955,8 +8983,8 @@ jvm_import(
 
 jvm_import(
   name = "rpc-compiler-plugin",
-  jar = "@rpc-compiler-plugin-2_2_0-0_1_http//file",
-  source_jar = "@rpc-compiler-plugin-2_2_0-0_1-sources_http//file",
+  jar = "@rpc-compiler-plugin-2_2_0-0_2_http//file",
+  source_jar = "@rpc-compiler-plugin-2_2_0-0_2-sources_http//file",
   visibility = ["//visibility:public"]
 )
 

@@ -73,18 +73,7 @@ kotlin {
       exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
     implementation(project(":util-core"))
-  }
-  sourceSets.jvmMain.dependencies {
-    implementation(jps.io.ktor.ktor.network.tls.jvm656433577.get().let { "${it.group}:${it.name}:${it.version}" }) {
-      exclude(group = "org.slf4j", module = "slf4j-api")
-      exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core-jvm")
-      exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
-      exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core-jvm")
-      exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core")
-      exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-      exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-io-core-jvm")
-      exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-io-core")
-    }
+    implementation(project(":ktor-network-tls"))
   }
   // KOTLIN__MARKER_END
 }

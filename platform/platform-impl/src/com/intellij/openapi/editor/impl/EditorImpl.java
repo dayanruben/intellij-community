@@ -26,7 +26,6 @@ import com.intellij.openapi.diff.impl.DiffUtil;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.actionSystem.*;
 import com.intellij.openapi.editor.actions.ChangeEditorFontSizeStrategy;
-import com.intellij.openapi.editor.actions.CopyAction;
 import com.intellij.openapi.editor.colors.*;
 import com.intellij.openapi.editor.colors.impl.*;
 import com.intellij.openapi.editor.event.*;
@@ -61,7 +60,6 @@ import com.intellij.openapi.keymap.Keymap;
 import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Queryable;
 import com.intellij.openapi.util.*;
@@ -105,8 +103,6 @@ import javax.swing.plaf.ScrollBarUI;
 import javax.swing.plaf.ScrollPaneUI;
 import javax.swing.plaf.basic.BasicScrollBarUI;
 import java.awt.*;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.dnd.DropTarget;
@@ -122,7 +118,6 @@ import java.awt.image.BufferedImage;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.io.IOException;
-import java.lang.invoke.MethodHandle;
 import java.text.AttributedCharacterIterator;
 import java.text.AttributedString;
 import java.text.CharacterIterator;
@@ -133,7 +128,6 @@ import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.function.Predicate;
 
-import static com.intellij.openapi.editor.ex.util.EditorUtil.isCaretInsideSelection;
 
 public final class EditorImpl extends UserDataHolderBase implements EditorEx, HighlighterClient, Queryable, Dumpable,
                                                                     CodeStyleSettingsListener, FocusListener {
@@ -144,7 +138,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private static final float MIN_FONT_SIZE = 4;
   private static final Logger LOG = Logger.getInstance(EditorImpl.class);
   static final Logger EVENT_LOG = Logger.getInstance("editor.input.events");
-  private static final Object DND_COMMAND_GROUP = ObjectUtils.sentinel("DndCommand");
+  static final Object DND_COMMAND_GROUP = ObjectUtils.sentinel("DndCommand");
   private static final Object MOUSE_DRAGGED_COMMAND_GROUP = ObjectUtils.sentinel("MouseDraggedGroup");
   private static final Key<JComponent> PERMANENT_HEADER = Key.create("PERMANENT_HEADER");
   static final Key<Boolean> CONTAINS_BIDI_TEXT = Key.create("contains.bidi.text");
@@ -230,7 +224,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private int mySavedSelectionEnd = -1;
 
   private final PropertyChangeSupport myPropertyChangeSupport = new PropertyChangeSupport(this);
-  private MyEditable myEditable;
+  private final EditorCopyPastProvider myEditable = new EditorCopyPastProvider(this);
 
   private @NotNull MyColorSchemeDelegate myScheme;
   private final @NotNull SelectionModelImpl mySelectionModel;
@@ -1211,7 +1205,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
     myScrollingModel.initListeners();
 
-    myEditorComponent.setTransferHandler(new MyTransferHandler());
+    myEditorComponent.setTransferHandler(new EditorTransferHandler());
     myEditorComponent.setAutoscrolls(false); // we have our own auto-scrolling code
 
     this.myLayeredPane = new PanelWithFloatingToolbar();
@@ -3034,7 +3028,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     return offset;
   }
 
-  private void clearDnDContext() {
+  void clearDnDContext() {
     if (myDraggedRange != null) {
       myDraggedRange.dispose();
       myDraggedRange = null;
@@ -3460,14 +3454,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
-  // not used on macOS and some other platforms - lazy creation
-  private static final class BasicScrollBarUiButtonHolder {
-    private static final MethodHandle decrButtonField =
-      MethodHandleUtil.getPrivateField(BasicScrollBarUI.class, "decrButton", JButton.class);
-    private static final MethodHandle incrButtonField =
-      MethodHandleUtil.getPrivateField(BasicScrollBarUI.class, "incrButton", JButton.class);
-  }
-
   final class MyScrollBar extends OpaqueAwareScrollBar {
     private static final @NonNls String APPLE_LAF_AQUA_SCROLL_BAR_UI_CLASS = "apple.laf.AquaScrollBarUI";
     private ScrollBarUI myPersistentUI;
@@ -3560,32 +3546,24 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
-  private @NotNull MyEditable getViewer() {
-    MyEditable editable = myEditable;
-    if (editable == null) {
-      myEditable = editable = EditorThreading.compute(() -> new MyEditable());
-    }
-    return editable;
-  }
-
   @Override
   public @NotNull CopyProvider getCopyProvider() {
-    return getViewer();
+    return myEditable;
   }
 
   @Override
   public @NotNull CutProvider getCutProvider() {
-    return getViewer();
+    return myEditable;
   }
 
   @Override
   public @NotNull PasteProvider getPasteProvider() {
-    return getViewer();
+    return myEditable;
   }
 
   @Override
   public @NotNull DeleteProvider getDeleteProvider() {
-    return getViewer();
+    return myEditable;
   }
 
   /**
@@ -3607,83 +3585,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         myCharacterGrid = new CharacterGridImpl(this);
       }
       return myCharacterGrid;
-    }
-  }
-
-  private final class MyEditable implements CutProvider, CopyProvider, PasteProvider, DeleteProvider, DumbAware {
-    @Override
-    public @NotNull ActionUpdateThread getActionUpdateThread() {
-      return ActionUpdateThread.EDT;
-    }
-
-    @Override
-    public void performCopy(@NotNull DataContext dataContext) {
-      executeAction(IdeActions.ACTION_EDITOR_COPY, dataContext);
-    }
-
-    @Override
-    public boolean isCopyEnabled(@NotNull DataContext dataContext) {
-      return true;
-    }
-
-    @Override
-    public boolean isCopyVisible(@NotNull DataContext dataContext) {
-      Caret caret = dataContext.getData(CommonDataKeys.CARET);
-      return caret != null
-             ? isCaretInsideSelection(caret)
-             : getSelectionModel().hasSelection(true);
-    }
-
-    @Override
-    public void performCut(@NotNull DataContext dataContext) {
-      executeAction(IdeActions.ACTION_EDITOR_CUT, dataContext);
-    }
-
-    @Override
-    public boolean isCutEnabled(@NotNull DataContext dataContext) {
-      return !isViewer();
-    }
-
-    @Override
-    public boolean isCutVisible(@NotNull DataContext dataContext) {
-      Caret caret = dataContext.getData(CommonDataKeys.CARET);
-      return isCutEnabled(dataContext) &&
-             (caret != null
-              ? isCaretInsideSelection(caret)
-              : getSelectionModel().hasSelection(true));
-    }
-
-    @Override
-    public void performPaste(@NotNull DataContext dataContext) {
-      executeAction(IdeActions.ACTION_EDITOR_PASTE, dataContext);
-    }
-
-    @Override
-    public boolean isPastePossible(@NotNull DataContext dataContext) {
-      // Copy of isPasteEnabled. See interface method javadoc.
-      return !isViewer();
-    }
-
-    @Override
-    public boolean isPasteEnabled(@NotNull DataContext dataContext) {
-      return !isViewer();
-    }
-
-    @Override
-    public void deleteElement(@NotNull DataContext dataContext) {
-      executeAction(IdeActions.ACTION_EDITOR_DELETE, dataContext);
-    }
-
-    @Override
-    public boolean canDeleteElement(@NotNull DataContext dataContext) {
-      return !isViewer();
-    }
-
-    private void executeAction(@NotNull String actionId, @NotNull DataContext dataContext) {
-      EditorAction action = (EditorAction)ActionManager.getInstance().getAction(actionId);
-      if (action != null) {
-        action.actionPerformed(EditorImpl.this, dataContext);
-      }
     }
   }
 
@@ -3827,7 +3728,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   @NotNull EditorInputMethodSupport getInputMethodSupport() {
     if (myInputMethodSupport == null) {
       MyInputMethodHandler handler = new MyInputMethodHandler();
-      myInputMethodSupport = new EditorInputMethodSupport(handler, new MyInputMethodListener(handler));
+      myInputMethodSupport = new EditorInputMethodSupport(handler, new EditorInputMethodListener(handler));
     }
     return myInputMethodSupport;
   }
@@ -3886,12 +3787,20 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
-  private EditorDropHandler getDropHandler() {
+  EditorDropHandler getDropHandler() {
     return myDropHandler;
   }
 
   public void setDropHandler(@NotNull EditorDropHandler dropHandler) {
     myDropHandler = dropHandler;
+  }
+
+  RangeMarker getDraggedRange() {
+    return myDraggedRange;
+  }
+
+  void setDraggedRange(RangeMarker draggedRange) {
+    myDraggedRange = draggedRange;
   }
 
   /**
@@ -3900,24 +3809,11 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   @Deprecated
   public void setHighlightingPredicate(@Nullable Predicate<? super RangeHighlighter> filter) {
     if (filter == null) {
-      removeHighlightingPredicate(PredicateWrapper.KEY);
+      removeHighlightingPredicate(EditorHighlightingPredicateWrapper.KEY);
     }
     else {
-      PredicateWrapper wrapper = new PredicateWrapper(filter);
-      addHighlightingPredicate(PredicateWrapper.KEY, wrapper);
-    }
-  }
-
-  private static class PredicateWrapper implements EditorHighlightingPredicate {
-    private static final Key<PredicateWrapper> KEY = Key.create("default-highlighting-predicate");
-
-    private final @NotNull Predicate<? super RangeHighlighter> filter;
-
-    PredicateWrapper(@NotNull Predicate<? super RangeHighlighter> filter) { this.filter = filter; }
-
-    @Override
-    public boolean shouldRender(@NotNull RangeHighlighter highlighter) {
-      return filter.test(highlighter);
+      EditorHighlightingPredicateWrapper wrapper = new EditorHighlightingPredicateWrapper(filter);
+      addHighlightingPredicate(EditorHighlightingPredicateWrapper.KEY, wrapper);
     }
   }
 
@@ -3992,60 +3888,11 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     return inlay != null && (inlay.getPlacement() == Inlay.Placement.ABOVE_LINE || inlay.getPlacement() == Inlay.Placement.BELOW_LINE);
   }
 
-
-  static final class MyInputMethodHandleSwingThreadWrapper implements InputMethodRequests {
-    private final @NotNull InputMethodRequests myDelegate;
-
-    MyInputMethodHandleSwingThreadWrapper(@NotNull InputMethodRequests delegate) {
-      myDelegate = delegate;
-    }
-
-    @Override
-    public @NotNull Rectangle getTextLocation(TextHitInfo offset) {
-      return execute(() -> myDelegate.getTextLocation(offset));
-    }
-
-    @Override
-    public TextHitInfo getLocationOffset(int x, int y) {
-      return execute(() -> myDelegate.getLocationOffset(x, y));
-    }
-
-    @Override
-    public int getInsertPositionOffset() {
-      return execute(() -> myDelegate.getInsertPositionOffset());
-    }
-
-    @Override
-    public @NotNull AttributedCharacterIterator getCommittedText(int beginIndex, int endIndex,
-                                                                 AttributedCharacterIterator.Attribute[] attributes) {
-      return execute(() -> myDelegate.getCommittedText(beginIndex, endIndex, attributes));
-    }
-
-    @Override
-    public int getCommittedTextLength() {
-      return execute(myDelegate::getCommittedTextLength);
-    }
-
-    @Override
-    public @Nullable AttributedCharacterIterator cancelLatestCommittedText(AttributedCharacterIterator.Attribute[] attributes) {
-      return null;
-    }
-
-    @Override
-    public AttributedCharacterIterator getSelectedText(AttributedCharacterIterator.Attribute[] attributes) {
-      return execute(() -> myDelegate.getSelectedText(attributes));
-    }
-
-    private static <T> T execute(@NotNull ThrowableComputable<T, RuntimeException> computable) {
-      return UIUtil.invokeAndWaitIfNeeded(() -> EditorThreading.compute(computable));
-    }
-  }
-
-  private final class MyInputMethodListener implements InputMethodListener {
+  private static final class EditorInputMethodListener implements InputMethodListener {
 
     private final MyInputMethodHandler myHandler;
 
-    private MyInputMethodListener(@NotNull MyInputMethodHandler handler) {
+    private EditorInputMethodListener(@NotNull MyInputMethodHandler handler) {
       myHandler = handler;
     }
 
@@ -5446,125 +5293,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }, EditorBundle.message("paste.command.name"), DND_COMMAND_GROUP, UndoConfirmationPolicy.DEFAULT, editor.getDocument());
 
     return true;
-  }
-
-  private static final class MyTransferHandler extends TransferHandler {
-    private static final TransferHandler transferHandlerStub = new TransferHandler() {
-      @Override
-      protected Transferable createTransferable(JComponent c) {
-        return null;
-      }
-    };
-    private static final JComponent componentStub = new JComponent() {
-      @Override
-      public TransferHandler getTransferHandler() {
-        return transferHandlerStub;
-      }
-    };
-    private static final MouseEvent mouseEventStub = new MouseEvent(new Component() {
-    }, 0, 0L, 0, 0, 0, 0, false, 0);
-
-    private static @NotNull EditorImpl getEditor(@NotNull JComponent comp) {
-      if (comp instanceof EditorComponentImpl editorComponent) {
-        return editorComponent.getEditor();
-      }
-      return ((EditorGutterComponentImpl)comp).getEditor();
-    }
-
-    @Override
-    public boolean importData(@NotNull TransferSupport support) {
-      Component comp = support.getComponent();
-      return comp instanceof JComponent && handleDrop(getEditor((JComponent)comp), support.getTransferable(), support.getDropAction());
-    }
-
-    @Override
-    public boolean canImport(@NotNull JComponent comp, DataFlavor @NotNull [] transferFlavors) {
-      EditorImpl editor = getEditor(comp);
-      EditorDropHandler dropHandler = editor.getDropHandler();
-      if (dropHandler != null && dropHandler.canHandleDrop(transferFlavors)) {
-        return true;
-      }
-
-      //should be used a better representation class
-      if (Registry.is("debugger.click.disable.breakpoints") && ArrayUtil.contains(GutterDraggableObject.flavor, transferFlavors)) {
-        return true;
-      }
-
-      if (editor.isViewer()) return false;
-
-      int offset = editor.getCaretModel().getOffset();
-      if (editor.getDocument().getRangeGuard(offset, offset) != null) return false;
-
-      return ArrayUtil.contains(DataFlavor.stringFlavor, transferFlavors);
-    }
-
-    @Override
-    protected @Nullable Transferable createTransferable(@NotNull JComponent c) {
-      EditorImpl editor = getEditor(c);
-      String s = editor.getSelectionModel().getSelectedText();
-      if (s == null) return null;
-      int selectionStart = editor.getSelectionModel().getSelectionStart();
-      int selectionEnd = editor.getSelectionModel().getSelectionEnd();
-      editor.myDraggedRange = editor.getDocument().createRangeMarker(selectionStart, selectionEnd);
-      Transferable transferable = CopyAction.getSelection(editor);
-      return transferable == null ? new StringSelection(s) : transferable;
-    }
-
-    @Override
-    public int getSourceActions(@NotNull JComponent c) {
-      return COPY_OR_MOVE;
-    }
-
-    @Override
-    protected void exportDone(@NotNull JComponent source, @Nullable Transferable data, int action) {
-      if (data == null) return;
-
-      Component last = DnDManager.getInstance().getLastDropHandler();
-
-      if (last != null) {
-        if (!(last instanceof EditorComponentImpl) && !(last instanceof EditorGutterComponentImpl)) {
-          return;
-        }
-        if (last != source && Boolean.TRUE.equals(DISABLE_REMOVE_ON_DROP.get(getEditor((JComponent)last)))) {
-          return;
-        }
-      }
-
-      EditorImpl editor = getEditor(source);
-      if (action == MOVE && !editor.isViewer() && editor.myDraggedRange != null) {
-        ((TransactionGuardImpl)TransactionGuard.getInstance()).performUserActivity(() -> removeDraggedOutFragment(editor));
-      }
-
-      editor.clearDnDContext();
-
-      // IDEA-316937 Project leak via TransferHandler$SwingDragGestureRecognizer.
-      // This is a dirty, makeshift solution.
-      // Swing limits us because javax.swing.TransferHandler.recognizer
-      // is a private field, and we cannot reset its value to null to avoid the memory leak.
-      // To prevent project leaks, we pass a contextless componentStub for it to replace the previous value of the recognizer field.
-      if (source != componentStub) {
-        exportAsDrag(componentStub, mouseEventStub, MOVE);
-      }
-    }
-
-    private static void removeDraggedOutFragment(@NotNull EditorImpl editor) {
-      if (!FileDocumentManager.getInstance().requestWriting(editor.getDocument(), editor.getProject())) {
-        return;
-      }
-      CommandProcessor.getInstance().executeCommand(editor.myProject, () -> ApplicationManager.getApplication().runWriteAction(() -> {
-        Document doc = editor.getDocument();
-        doc.startGuardedBlockChecking();
-        try {
-          doc.deleteString(editor.myDraggedRange.getStartOffset(), editor.myDraggedRange.getEndOffset());
-        }
-        catch (ReadOnlyFragmentModificationException e) {
-          EditorActionManager.getInstance().getReadonlyFragmentModificationHandler(doc).handle(e);
-        }
-        finally {
-          doc.stopGuardedBlockChecking();
-        }
-      }), EditorBundle.message("move.selection.command.name"), DND_COMMAND_GROUP, UndoConfirmationPolicy.DEFAULT, editor.getDocument());
-    }
   }
 
   private final class EditorDocumentAdapter implements PrioritizedDocumentListener {

@@ -63,6 +63,8 @@
     <projectOpenProcessor implementation="com.jetbrains.python.projectModel.uv.UvProjectOpenProcessor"/>
     <externalSystemUnlinkedProjectAware implementation="com.jetbrains.python.projectModel.uv.UvUnlinkedProjectAware"/>
     <postStartupActivity implementation="com.jetbrains.python.projectModel.uv.UvProjectAware$UvSyncStartupActivity"/>
+
+    <virtualFileCustomDataProvider implementation="com.jetbrains.python.psi.PyLangLevelVirtualFileCustomDataProvider"/>
   </extensions>
 
   <projectListeners>
@@ -123,8 +125,6 @@
     <stripTrailingSpacesFilterFactory implementation="com.jetbrains.python.editor.PyStripTrailingSpacesFilterFactory"/>
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.testing.PyTestParameterCompletionContributor"/>
-
-    <projectService serviceImplementation="com.jetbrains.python.configuration.PyConfigurableInterpreterList"/>
 
     <projectService serviceImplementation="com.jetbrains.python.inspections.PyCompatibilityInspectionAdvertiserSettings"/>
     <projectService serviceImplementation="com.jetbrains.python.packaging.PyPackagingSettings"/>
@@ -1088,6 +1088,15 @@
               icon="com.intellij.icons.AllIcons.General.Export"/>
       <action id="CondaUpdateEnvAction"
               class="com.jetbrains.python.packaging.conda.actions.CondaUpdateEnvAction"
+              icon="com.intellij.icons.AllIcons.Actions.Refresh"/>
+
+      <separator/>
+
+      <action id="PipSetDefaultRequirementsAction"
+              class="com.jetbrains.python.packaging.pip.actions.PipSetDefaultRequirementsAction"
+              icon="com.intellij.icons.AllIcons.General.GreenCheckmark"/>
+      <action id="PipUpdateEnvAction"
+              class="com.jetbrains.python.packaging.pip.actions.PipUpdateEnvAction"
               icon="com.intellij.icons.AllIcons.Actions.Refresh"/>
 
       <separator/>

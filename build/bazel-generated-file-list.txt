@@ -222,6 +222,7 @@ fleet/andel
 fleet/compiler-plugins
 fleet/fastutil
 fleet/kernel
+fleet/ktor/network/tls
 fleet/lsp.protocol
 fleet/multiplatform.shims
 fleet/reporting/api
