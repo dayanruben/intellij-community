@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
-import com.intellij.application.options.EditorFontsConstants;
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.diagnostic.Dumpable;
 import com.intellij.ide.*;
@@ -55,7 +54,6 @@ import com.intellij.openapi.editor.state.ObservableStateListener;
 import com.intellij.openapi.editor.toolbar.floating.EditorFloatingToolbar;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory;
-import com.intellij.openapi.fileEditor.impl.EditorsSplitters;
 import com.intellij.openapi.keymap.Keymap;
 import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapUtil;
@@ -68,8 +66,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.IdeGlassPaneUtil;
-import com.intellij.openapi.wm.ToolWindowAnchor;
-import com.intellij.openapi.wm.ex.ToolWindowManagerEx;
 import com.intellij.openapi.wm.impl.IdeBackgroundUtil;
 import com.intellij.psi.codeStyle.CodeStyleSettingsChangeEvent;
 import com.intellij.psi.codeStyle.CodeStyleSettingsListener;
@@ -135,7 +131,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   public static final int TEXT_ALIGNMENT_RIGHT = 1;
 
   private static final Object CUSTOM_LAYER_MARKER = new Object();
-  private static final float MIN_FONT_SIZE = 4;
+  static final float MIN_FONT_SIZE = 4;
   private static final Logger LOG = Logger.getInstance(EditorImpl.class);
   static final Logger EVENT_LOG = Logger.getInstance("editor.input.events");
   static final Object DND_COMMAND_GROUP = ObjectUtils.sentinel("DndCommand");
@@ -226,7 +222,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private final PropertyChangeSupport myPropertyChangeSupport = new PropertyChangeSupport(this);
   private final EditorCopyPastProvider myEditable = new EditorCopyPastProvider(this);
 
-  private @NotNull MyColorSchemeDelegate myScheme;
+  private @NotNull EditorColorSchemeDelegate myScheme;
   private final @NotNull SelectionModelImpl mySelectionModel;
   private final @NotNull EditorMarkupModelImpl myMarkupModel;
   private final @NotNull EditorFilteringMarkupModelEx myEditorFilteringMarkupModel;
@@ -254,7 +250,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   private volatile EditorHighlighter myHighlighter; // updated in EDT, but can be accessed from other threads (under read action)
   private Disposable myHighlighterDisposable = Disposer.newDisposable();
-  private final TextDrawingCallback myTextDrawingCallback = new MyTextDrawingCallback();
 
   private boolean myKeepSelectionOnMousePress;
 
@@ -337,6 +332,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   final EditorView myView;
   final @Nullable EditorView myAdView;
 
+  private final TextDrawingCallback myTextDrawingCallback;
+
   private @Nullable CharacterGridImpl myCharacterGrid;
 
   private boolean myCharKeyPressed;
@@ -374,12 +371,12 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     myState = new EditorState();
     myState.refreshAll();
     final EditorColorsScheme boundColorScheme = createBoundColorSchemeDelegate(null);
-    if (boundColorScheme instanceof MyColorSchemeDelegate) {
-      myScheme = (MyColorSchemeDelegate)boundColorScheme;
+    if (boundColorScheme instanceof EditorColorSchemeDelegate) {
+      myScheme = (EditorColorSchemeDelegate)boundColorScheme;
     } else {
       LOG.warn("createBoundColorSchemeDelegate created delegate of type '%s'. Will wrap it with MyColorSchemeDelegate".formatted(boundColorScheme.getClass()),
                 new Throwable());
-      myScheme = new MyColorSchemeDelegate(boundColorScheme);
+      myScheme = new EditorColorSchemeDelegate(this, boundColorScheme);
     }
     myScrollPane = new MyScrollPane(); // create UI after scheme initialization
     myScrollPane.setBackground(JBColor.lazy(this::getBackgroundColor));
@@ -453,7 +450,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     });
     myPanel.putClientProperty(DslComponentProperty.VERTICAL_COMPONENT_GAP, VerticalComponentGap.BOTH);
 
-    myHeaderPanel = new MyHeaderPanel();
+    myHeaderPanel = new EditorHeaderPanel(this);
     myGutterComponent = new EditorGutterComponentImpl(this);
     myGutterComponent.putClientProperty(ColorKey.FUNCTION_KEY, (Function<ColorKey, Color>)key -> getColorsScheme().getColor(key));
     initComponent();
@@ -473,6 +470,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
     myView = new EditorView(this, myEditorModel);
     myAdView = myAdEditorModel == null ? null : new EditorView(this, myAdEditorModel);
+
+    myTextDrawingCallback = new EditorTextDrawingCallback(myView);
 
     myView.reinitSettings();
     if (myAdView != null) myAdView.reinitSettings();
@@ -826,7 +825,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @Override
   public @NotNull EditorColorsScheme createBoundColorSchemeDelegate(@Nullable EditorColorsScheme customGlobalScheme) {
-    return new MyColorSchemeDelegate(customGlobalScheme);
+    return new EditorColorSchemeDelegate(this, customGlobalScheme);
   }
 
   @Override
@@ -2754,7 +2753,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
     if (!myMouseDragStarted) {
       var point = convertPoint(e.getComponent(), e.getPoint(), myEditorComponent);
-      var sensitivity = Registry.intValue("editor.drag.sensitivity", 5, 0, 25);
+      var sensitivity = dragSensitivity();
       myMouseDragStarted = myLastMousePressedPoint == null
                            || !myLastPressedOnGutter // Small drags aren't a problem in the editor, only on the gutter.
                            || Math.abs(myLastMousePressedPoint.x - point.x) >= sensitivity
@@ -2948,6 +2947,18 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       myScrollingTimer.start(dx, dy);
       onSubstantialDrag(e);
     }
+  }
+
+  /**
+   * Returns the sensitivity of the editor's drag and drop.
+   * <p>
+   * Mouse drags shorter than this value by both axes are interpreted as clicks, not drags.
+   * </p>
+   * @return the value in user-space pixels, ignoring any user scaling
+   */
+  @ApiStatus.Internal
+  public static int dragSensitivity() {
+    return Registry.intValue("editor.drag.sensitivity", 5, 0, 25);
   }
 
   private static @NotNull Point convertPoint(@NotNull Component from, @NotNull Point point, @NotNull Component to) {
@@ -3591,7 +3602,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   /**
    * This method doesn't set the scheme itself, but the delegate
    * @param scheme - original scheme
-   * @see EditorImpl.MyColorSchemeDelegate
+   * @see EditorColorSchemeDelegate
    */
   @Override
   public void setColorsScheme(final @NotNull EditorColorsScheme scheme) {
@@ -3603,10 +3614,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         LOG.info("Skipping attempt to set color scheme without EditorColorsManager");
         return;
       }
-      if (scheme instanceof MyColorSchemeDelegate) {
-        myScheme = (MyColorSchemeDelegate)scheme;
+      if (scheme instanceof EditorColorSchemeDelegate) {
+        myScheme = (EditorColorSchemeDelegate)scheme;
       } else {
-        myScheme = new MyColorSchemeDelegate(scheme);
+        myScheme = new EditorColorSchemeDelegate(this, scheme);
       }
       reinitSettings();
     });
@@ -4871,327 +4882,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
-  private final class MyColorSchemeDelegate extends DelegateColorScheme {
-    private static final float FONT_SIZE_TO_IGNORE = -1f;
-    private final FontPreferencesImpl myFontPreferences = new FontPreferencesImpl();
-    private final FontPreferencesImpl myConsoleFontPreferences = new FontPreferencesImpl();
-    private final Map<TextAttributesKey, TextAttributes> myOwnAttributes = new HashMap<>();
-    private final Map<ColorKey, Color> myOwnColors = new HashMap<>();
-    private final EditorColorsScheme myCustomGlobalScheme;
-    private Map<EditorFontType, Font> myFontsMap;
-    private float myMaxFontSize = EditorFontsConstants.getMaxEditorFontSize();
-    private float myFontSize = FONT_SIZE_TO_IGNORE;
-    private float myConsoleFontSize = FONT_SIZE_TO_IGNORE;
-    private String myFaceName;
-    private Float myLineSpacing;
-    private boolean myFontPreferencesAreSetExplicitly;
-    private Boolean myUseLigatures;
-
-    private MyColorSchemeDelegate(@Nullable EditorColorsScheme globalScheme) {
-      super(globalScheme == null ? EditorColorsManager.getInstance().getGlobalScheme() : globalScheme);
-      myCustomGlobalScheme = globalScheme;
-      updateGlobalScheme();
-    }
-
-    private void reinitFonts() {
-      EditorColorsScheme delegate = getDelegate();
-      String editorFontName = getEditorFontName();
-      float editorFontSize = getEditorFontSize2D();
-      if (!myFontPreferencesAreSetExplicitly) {
-        updatePreferences(myFontPreferences, editorFontName, editorFontSize, myUseLigatures, delegate.getFontPreferences());
-      }
-      String consoleFontName = getConsoleFontName();
-      float consoleFontSize = getConsoleFontSize2D();
-      updatePreferences(myConsoleFontPreferences, consoleFontName, consoleFontSize, myUseLigatures, delegate.getConsoleFontPreferences());
-
-      myFontsMap = new EnumMap<>(EditorFontType.class);
-      setFont(EditorFontType.PLAIN, editorFontName, Font.PLAIN, editorFontSize, myFontPreferences);
-      setFont(EditorFontType.BOLD, editorFontName, Font.BOLD, editorFontSize, myFontPreferences);
-      setFont(EditorFontType.ITALIC, editorFontName, Font.ITALIC, editorFontSize, myFontPreferences);
-      setFont(EditorFontType.BOLD_ITALIC, editorFontName, Font.BOLD | Font.ITALIC, editorFontSize, myFontPreferences);
-      setFont(EditorFontType.CONSOLE_PLAIN, consoleFontName, Font.PLAIN, consoleFontSize, myConsoleFontPreferences);
-      setFont(EditorFontType.CONSOLE_BOLD, consoleFontName, Font.BOLD, consoleFontSize, myConsoleFontPreferences);
-      setFont(EditorFontType.CONSOLE_ITALIC, consoleFontName, Font.ITALIC, consoleFontSize, myConsoleFontPreferences);
-      setFont(EditorFontType.CONSOLE_BOLD_ITALIC, consoleFontName, Font.BOLD | Font.ITALIC, consoleFontSize, myConsoleFontPreferences);
-    }
-
-    private void setFont(@NotNull EditorFontType fontType,
-                         @NotNull String familyName,
-                         int style,
-                         float fontSize,
-                         @NotNull FontPreferences fontPreferences) {
-      Font baseFont = FontFamilyService.getFont(familyName, fontPreferences.getRegularSubFamily(), fontPreferences.getBoldSubFamily(),
-                                                style, fontSize);
-      myFontsMap.put(fontType, EditorFontCacheImpl.deriveFontWithLigatures(baseFont, myUseLigatures != null
-                                                                                     ? myUseLigatures
-                                                                                     : fontPreferences.useLigatures()));
-    }
-
-    private static void updatePreferences(@NotNull FontPreferencesImpl preferences,
-                                          @NotNull String fontName,
-                                          float fontSize,
-                                          @Nullable Boolean useLigatures,
-                                          @NotNull FontPreferences delegatePreferences) {
-      preferences.clear();
-      preferences.register(fontName, fontSize);
-      List<String> families = delegatePreferences.getRealFontFamilies();
-      //skip delegate's primary font
-      for (int i = 1; i < families.size(); i++) {
-        String font = families.get(i);
-        preferences.register(font, fontSize);
-      }
-      preferences.setUseLigatures(useLigatures != null ? useLigatures : delegatePreferences.useLigatures());
-      preferences.setRegularSubFamily(delegatePreferences.getRegularSubFamily());
-      preferences.setBoldSubFamily(delegatePreferences.getBoldSubFamily());
-    }
-
-    private void reinitFontsAndSettings() {
-      reinitFonts();
-      reinitSettings();
-    }
-
-    @Override
-    public TextAttributes getAttributes(TextAttributesKey key) {
-      if (myOwnAttributes.containsKey(key)) return myOwnAttributes.get(key);
-      return getDelegate().getAttributes(key);
-    }
-
-    @Override
-    public void setAttributes(@NotNull TextAttributesKey key, TextAttributes attributes) {
-      if (TextAttributesKey.isTemp(key))
-        getDelegate().setAttributes(key, attributes);
-      else
-        myOwnAttributes.put(key, attributes);
-    }
-
-    @Override
-    public @Nullable Color getColor(ColorKey key) {
-      if (myOwnColors.containsKey(key)) {
-        return myOwnColors.get(key);
-      }
-      return getDelegate().getColor(key);
-    }
-
-    @Override
-    public void setColor(ColorKey key, Color color) {
-      if (color == AbstractColorsScheme.INHERITED_COLOR_MARKER) {
-        myOwnColors.remove(key);
-      }
-      else {
-        myOwnColors.put(key, color);
-      }
-
-      // These two are here because those attributes are cached
-      // and I do not want the clients to call editor's reinit settings in this case.
-      myCaretModel.reinitSettings();
-      mySelectionModel.reinitSettings();
-    }
-
-    @Override
-    public int getEditorFontSize() {
-      return (int)(getEditorFontSize2D() + 0.5);
-    }
-
-    @Override
-    public float getEditorFontSize2D() {
-      if (myFontPreferencesAreSetExplicitly) {
-        return myFontPreferences.getSize2D(myFontPreferences.getFontFamily());
-      }
-      if (myFontSize == FONT_SIZE_TO_IGNORE) {
-        return UISettingsUtils.getInstance().scaleFontSize(getDelegate().getEditorFontSize2D());
-      }
-      return myFontSize;
-    }
-
-    @Override
-    public void setEditorFontSize(int fontSize) {
-      setEditorFontSize((float)fontSize);
-    }
-
-    @Override
-    public void setEditorFontSize(float fontSize) {
-      float originalSize = UISettingsUtils.getInstance().scaleFontSize(getDelegate().getEditorFontSize2D());
-
-      float minSize = Math.min(MIN_FONT_SIZE, originalSize);
-      if (fontSize < minSize) {
-        fontSize = minSize;
-      }
-
-      float maxSize = Math.max(myMaxFontSize, originalSize);
-      if (fontSize > maxSize) {
-        fontSize = maxSize;
-      }
-
-      if (fontSize == myFontSize) {
-        return;
-      }
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Font size overridden for " + EditorImpl.this, new Throwable());
-      }
-      myFontPreferencesAreSetExplicitly = false;
-
-      if (fontSize == originalSize) {
-        myFontSize = FONT_SIZE_TO_IGNORE;
-      }
-      else {
-        myFontSize = fontSize;
-      }
-
-      reinitFonts();
-      reinitSettings(true, false);
-    }
-
-    void resetEditorFontSize() {
-      myFontSize = FONT_SIZE_TO_IGNORE;
-      reinitFonts();
-    }
-
-    @Override
-    public @NotNull FontPreferences getFontPreferences() {
-      return !myFontPreferencesAreSetExplicitly && myFontPreferences.getEffectiveFontFamilies().isEmpty()
-             ? getDelegate().getFontPreferences() : myFontPreferences;
-    }
-
-    @Override
-    public void setFontPreferences(@NotNull FontPreferences preferences) {
-      if (myFontPreferencesAreSetExplicitly && Comparing.equal(preferences, myFontPreferences)) return;
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Font preferences overridden for " + EditorImpl.this, new Throwable());
-      }
-      myFontPreferencesAreSetExplicitly = true;
-      myFaceName = null;
-      myFontSize = FONT_SIZE_TO_IGNORE;
-      preferences.copyTo(myFontPreferences);
-      reinitFontsAndSettings();
-    }
-
-    @Override
-    public @NotNull FontPreferences getConsoleFontPreferences() {
-      return myConsoleFontPreferences.getEffectiveFontFamilies().isEmpty() ?
-             getDelegate().getConsoleFontPreferences() : myConsoleFontPreferences;
-    }
-
-    @Override
-    public void setConsoleFontPreferences(@NotNull FontPreferences preferences) {
-      if (Comparing.equal(preferences, myConsoleFontPreferences)) return;
-      preferences.copyTo(myConsoleFontPreferences);
-      reinitFontsAndSettings();
-    }
-
-    @Override
-    public String getEditorFontName() {
-      if (myFontPreferencesAreSetExplicitly) {
-        return myFontPreferences.getFontFamily();
-      }
-      if (myFaceName == null) {
-        return getDelegate().getEditorFontName();
-      }
-      return myFaceName;
-    }
-
-    @Override
-    public void setEditorFontName(String fontName) {
-      if (Objects.equals(fontName, myFaceName)) return;
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Font name overridden for " + EditorImpl.this, new Throwable());
-      }
-      myFontPreferencesAreSetExplicitly = false;
-      myFaceName = fontName;
-      reinitFontsAndSettings();
-    }
-
-    @Override
-    public @NotNull Font getFont(EditorFontType key) {
-      if (myFontsMap != null) {
-        Font font = myFontsMap.get(key);
-        if (font != null) return font;
-      }
-      return getDelegate().getFont(key);
-    }
-
-    @Override
-    public @Nullable Object clone() {
-      return null;
-    }
-
-    private void updateGlobalScheme() {
-      for (
-        EditorColorsScheme scheme = this;
-        scheme instanceof DelegateColorScheme delegateColorScheme;
-        scheme = delegateColorScheme.getDelegate()
-      ) {
-        if (scheme instanceof MyColorSchemeDelegate myColorSchemeDelegate) {
-          myColorSchemeDelegate.updateDelegate();
-        }
-      }
-    }
-
-    private void updateDelegate() {
-      setDelegate(myCustomGlobalScheme == null ? EditorColorsManager.getInstance().getGlobalScheme() : myCustomGlobalScheme);
-    }
-
-    @Override
-    public void setDelegate(@NotNull EditorColorsScheme delegate) {
-      super.setDelegate(delegate);
-      float globalFontSize = getDelegate().getEditorFontSize2D();
-      myMaxFontSize = Math.max(EditorFontsConstants.getMaxEditorFontSize(), globalFontSize);
-      reinitFonts();
-    }
-
-    @Override
-    public void setConsoleFontSize(int fontSize) {
-      setConsoleFontSize((float)fontSize);
-    }
-
-    @Override
-    public void setConsoleFontSize(float fontSize) {
-      if (fontSize == super.getConsoleFontSize2D()) {
-        myConsoleFontSize = FONT_SIZE_TO_IGNORE;
-      }
-      else {
-        myConsoleFontSize = fontSize;
-      }
-
-      reinitFontsAndSettings();
-    }
-
-    @Override
-    public int getConsoleFontSize() {
-      return (int)(getConsoleFontSize2D() + 0.5);
-    }
-
-    @Override
-    public float getConsoleFontSize2D() {
-      return myConsoleFontSize == FONT_SIZE_TO_IGNORE ? super.getConsoleFontSize2D() : myConsoleFontSize;
-    }
-
-    @Override
-    public float getLineSpacing() {
-      return myLineSpacing == null ? super.getLineSpacing() : myLineSpacing;
-    }
-
-    @Override
-    public void setLineSpacing(float lineSpacing) {
-      float oldLineSpacing = getLineSpacing();
-      float newLineSpacing = EditorFontsConstants.checkAndFixEditorLineSpacing(lineSpacing);
-      myLineSpacing = newLineSpacing;
-      if (oldLineSpacing != newLineSpacing) {
-        reinitSettings();
-      }
-    }
-
-    @Override
-    public boolean isUseLigatures() {
-      return myUseLigatures == null ? super.isUseLigatures() : myUseLigatures;
-    }
-
-    @Override
-    public void setUseLigatures(boolean useLigatures) {
-      myUseLigatures = useLigatures;
-      reinitFontsAndSettings();
-    }
-  }
-
   static boolean handleDrop(@NotNull EditorImpl editor, @NotNull Transferable t, int dropAction) {
     EditorDropHandler dropHandler = editor.getDropHandler();
 
@@ -5529,7 +5219,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     @Override
     protected void setupCorners() {
       super.setupCorners();
-      setBorder(new TablessBorder());
+      setBorder(new EditorTablessBorder(myProject, myHeaderPanel));
     }
 
     void placeStatusOnTopOfStickyPanel() {
@@ -5585,104 +5275,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     EditorColorsManager.getInstance().getGlobalScheme().setEditorFontSize(size);
     myScheme.resetEditorFontSize();
     EditorColorsManagerImpl.fireGlobalSchemeChange(null);
-  }
-
-  private final class TablessBorder extends SideBorder {
-    private TablessBorder() {
-      super(JBColor.border(), ALL);
-    }
-
-    @Override
-    public void paintBorder(@NotNull Component c, @NotNull Graphics g, int x, int y, int width, int height) {
-      if (c instanceof JComponent) {
-        Insets insets = ((JComponent)c).getInsets();
-        if (insets.left > 0) {
-          super.paintBorder(c, g, x, y, width, height);
-        }
-        else {
-          g.setColor(UIUtil.getPanelBackground());
-          g.fillRect(x, y, width, 1);
-          g.setColor(Gray._50.withAlpha(90));
-          g.fillRect(x, y, width, 1);
-        }
-      }
-    }
-
-    @Override
-    public @NotNull Insets getBorderInsets(Component c) {
-      Container splitters = SwingUtilities.getAncestorOfClass(EditorsSplitters.class, c);
-      boolean thereIsSomethingAbove = !SystemInfo.isMac ||
-                                      UISettings.getInstance().getShowMainToolbar() ||
-                                      UISettings.getInstance().getShowNavigationBar() ||
-                                      toolWindowIsNotEmpty();
-      //noinspection ConstantConditions
-      Component header = myHeaderPanel == null ? null : ArrayUtil.getFirstElement(myHeaderPanel.getComponents());
-      boolean paintTop = thereIsSomethingAbove && header == null && UISettings.getInstance().getEditorTabPlacement() != SwingConstants.TOP;
-      return splitters == null ? super.getBorderInsets(c) : JBUI.insetsTop(paintTop ? 1 : 0);
-    }
-
-    private boolean toolWindowIsNotEmpty() {
-      if (myProject == null) {
-        return false;
-      }
-      return !ToolWindowManagerEx.getInstanceEx(myProject).getIdsOn(ToolWindowAnchor.TOP).isEmpty();
-    }
-
-    @Override
-    public boolean isBorderOpaque() {
-      return true;
-    }
-  }
-
-  private final class MyHeaderPanel extends JPanel {
-    private int myOldHeight;
-
-    private MyHeaderPanel() {
-      super(new BorderLayout());
-    }
-
-    @Override
-    public void revalidate() {
-      myOldHeight = getHeight();
-      super.revalidate();
-    }
-
-    @Override
-    protected void validateTree() {
-      int height = myOldHeight;
-      super.validateTree();
-      height -= getHeight();
-
-      if (height != 0 && !(myOldHeight == 0 && getComponentCount() > 0 && getPermanentHeaderComponent() == getComponent(0))) {
-        myVerticalScrollBar.setValue(myVerticalScrollBar.getValue() - height);
-      }
-      myOldHeight = getHeight();
-    }
-  }
-
-  private final class MyTextDrawingCallback implements TextDrawingCallback {
-    @Override
-    public void drawChars(@NotNull Graphics g,
-                          char @NotNull [] data,
-                          int start,
-                          int end,
-                          int x,
-                          int y,
-                          @NotNull Color color,
-                          @NotNull FontInfo fontInfo) {
-      myView.drawChars(g, data, start, end, x, y, color, fontInfo);
-    }
-  }
-
-  private static final class NullEditorHighlighter extends EmptyEditorHighlighter {
-    private static final TextAttributes NULL_ATTRIBUTES = new TextAttributes();
-
-    NullEditorHighlighter() {
-      super(NULL_ATTRIBUTES);
-    }
-
-    @Override
-    public void setColorScheme(@NotNull EditorColorsScheme scheme) { }
   }
 
   private final class PanelWithFloatingToolbar extends JBLayeredPane {

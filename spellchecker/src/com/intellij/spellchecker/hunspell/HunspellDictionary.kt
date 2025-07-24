@@ -17,19 +17,23 @@ internal data class HunspellBundle(val dic: File, val aff: File, val trigrams: F
 
 class HunspellDictionary : Dictionary {
   companion object {
-    private fun loadHunspellBundle(path: String): HunspellBundle? {
-      if (FileUtilRt.getExtension(path) != "dic") return null
-
-      val pathWithoutExtension = FileUtilRt.getNameWithoutExtension(path)
-      val dic = File("$pathWithoutExtension.dic")
-      val aff = File("$pathWithoutExtension.aff")
-      val trigrams = File("$pathWithoutExtension.trigrams.txt")
-
+    private fun loadHunspellBundle(dicPath: String): HunspellBundle? {
+      if (FileUtilRt.getExtension(dicPath) != "dic") return null
+      val (dic, aff, trigrams) = getHunspellPaths(dicPath)
       return if (dic.exists() && aff.exists()) HunspellBundle(dic, aff, trigrams) else null
     }
 
     fun isHunspell(path: String): Boolean {
-      return loadHunspellBundle(path) !== null
+      return loadHunspellBundle(path) != null
+    }
+
+    fun getHunspellPaths(dicPath: String): Triple<File, File, File> {
+      val path = FileUtilRt.getNameWithoutExtension(dicPath)
+      return Triple(
+        File("$path.dic"),
+        File("$path.aff"),
+        File("$path.trigrams.txt")
+      )
     }
   }
 
@@ -100,8 +104,10 @@ class HunspellDictionary : Dictionary {
 
   override fun getWords(): MutableSet<String> = throw UnsupportedOperationException()
 
-  private fun isAlien(word: String): Boolean {
-    // mark a word as alien if it contains non-alphabetical characters
+  private fun isAlien(inputWord: String): Boolean {
+    //todo use grazie-platform's updated (282+) dictionaries in newer versions
+    val word = if (inputWord.endsWith('-')) inputWord.substring(0, inputWord.length - 1) else inputWord
+    // Mark a word as alien if it contains non-alphabetical characters
     if (this.alphabet != null) return !this.alphabet.matchEntire(word)
     return word.lowercase().chars().anyMatch { it !in this.letters }
   }

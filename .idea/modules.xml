@@ -1184,7 +1184,6 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/turboComplete/languages/kotlin/k1/intellij.turboComplete.languages.kotlin.k1.iml" filepath="$PROJECT_DIR$/plugins/turboComplete/languages/kotlin/k1/intellij.turboComplete.languages.kotlin.k1.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/turboComplete/intellij.turboComplete.tests.iml" filepath="$PROJECT_DIR$/plugins/turboComplete/intellij.turboComplete.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/ui-designer-core/intellij.uiDesigner.iml" filepath="$PROJECT_DIR$/plugins/ui-designer-core/intellij.uiDesigner.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/changeReminder/intellij.vcs.changeReminder.iml" filepath="$PROJECT_DIR$/plugins/changeReminder/intellij.vcs.changeReminder.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.iml" filepath="$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git-modal-commit/intellij.vcs.git.commit.modal.iml" filepath="$PROJECT_DIR$/plugins/git-modal-commit/intellij.vcs.git.commit.modal.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.coverage/intellij.vcs.git.coverage.iml" filepath="$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.coverage/intellij.vcs.git.coverage.iml" />
@@ -1269,9 +1268,9 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/project-structure/kotlin.base.project-structure.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/project-structure/kotlin.base.project-structure.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/psi/kotlin.base.psi.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/psi/kotlin.base.psi.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/resources/kotlin.base.resources.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/resources/kotlin.base.resources.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/kotlin.base.scripting.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/kotlin.base.scripting.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting.k1/kotlin.base.scripting.k1.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting.k1/kotlin.base.scripting.k1.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting.k2/kotlin.base.scripting.k2.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting.k2/kotlin.base.scripting.k2.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.k1/kotlin.base.scripting.k1.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.k1/kotlin.base.scripting.k1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.k2/kotlin.base.scripting.k2.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.k2/kotlin.base.scripting.k2.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.shared/kotlin.base.scripting.shared.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.shared/kotlin.base.scripting.shared.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/kotlin.base.serialization/kotlin.base.serialization.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/kotlin.base.serialization/kotlin.base.serialization.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/statistics/kotlin.base.statistics.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/statistics/kotlin.base.statistics.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/test/kotlin.base.test.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/test/kotlin.base.test.iml" />

@@ -705,7 +705,6 @@ plugins/IntelliLang/xml-support/xpath
 plugins/ant
 plugins/ant/jps-plugin
 plugins/built-in-help
-plugins/changeReminder
 plugins/classic-ui
 plugins/color-schemes/all-hallows-eve-color-scheme
 plugins/color-schemes/blackboard-color-scheme
@@ -915,9 +914,9 @@ plugins/kotlin/base/project-model
 plugins/kotlin/base/project-structure
 plugins/kotlin/base/psi
 plugins/kotlin/base/resources
-plugins/kotlin/base/scripting
-plugins/kotlin/base/scripting.k1
-plugins/kotlin/base/scripting.k2
+plugins/kotlin/base/scripting/scripting.k1
+plugins/kotlin/base/scripting/scripting.k2
+plugins/kotlin/base/scripting/scripting.shared
 plugins/kotlin/base/statistics
 plugins/kotlin/base/test
 plugins/kotlin/base/util
