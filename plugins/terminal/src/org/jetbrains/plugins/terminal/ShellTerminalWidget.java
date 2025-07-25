@@ -21,6 +21,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.terminal.action.RenameTerminalSessionActionKt;
 import org.jetbrains.plugins.terminal.action.TerminalSplitAction;
+import org.jetbrains.plugins.terminal.arrangement.TerminalWorkingDirectoryManager;
 import org.jetbrains.plugins.terminal.classic.ClassicTerminalVfsRefresher;
 import org.jetbrains.plugins.terminal.fus.TerminalUsageTriggerCollector;
 import org.jetbrains.plugins.terminal.util.TerminalUtilKt;
@@ -62,7 +63,6 @@ public class ShellTerminalWidget extends JBTerminalWidget implements TerminalPan
                              @NotNull Disposable parent) {
     super(project, settingsProvider, parent);
     myShellCommandHandlerHelper = new TerminalShellCommandHandlerHelper(this);
-    TerminalPSReadLineUpdateUtil.trackUpdateRejection(getTerminal());
 
     ClassicTerminalVfsRefresher refresher = new ClassicTerminalVfsRefresher(this);
     getTerminalPanel().addPreKeyEventHandler(e -> {
@@ -184,6 +184,13 @@ public class ShellTerminalWidget extends JBTerminalWidget implements TerminalPan
       return TerminalUtil.hasRunningCommands((TtyConnector)processTtyConnector);
     }
     throw new IllegalStateException("Cannot determine if there are running processes for " + connector.getClass()); //NON-NLS
+  }
+
+  @Override
+  public @Nullable String getCurrentDirectory() {
+    TtyConnector connector = getTtyConnector();
+    if (connector == null) return null;
+    return TerminalWorkingDirectoryManager.getWorkingDirectory(connector);
   }
 
   @Override

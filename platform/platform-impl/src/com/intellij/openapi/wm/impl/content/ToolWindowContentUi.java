@@ -4,7 +4,6 @@ package com.intellij.openapi.wm.impl.content;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.actions.CloseAction;
-import com.intellij.ide.actions.ShowContentAction;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.openapi.Disposable;
@@ -57,12 +56,22 @@ import java.util.function.Predicate;
 public final class ToolWindowContentUi implements ContentUI, UiCompatibleDataProvider {
   // when client property is put in a toolwindow component, hides toolwindow label
   public static final @NonNls String HIDE_ID_LABEL = "HideIdLabel";
-  public static final @NonNls Key<Boolean> ALLOW_DND_FOR_TABS = Key.create("AllowDragAndDropForTabs");
   // when client property is set to true in a toolwindow component, the toolbar is always visible in the tool window header
   public static final @NonNls Key<Boolean> DONT_HIDE_TOOLBAR_IN_HEADER = Key.create("DontHideToolbarInHeader");
   private static final @NonNls String TOOLWINDOW_UI_INSTALLED = "ToolWindowUiInstalled";
   public static final DataKey<BaseLabel> SELECTED_CONTENT_TAB_LABEL = DataKey.create("SELECTED_CONTENT_TAB_LABEL");
   @ApiStatus.Internal public static final String HEADER_ICON = "HeaderIcon";
+
+  /**
+   * Tool-window-level actions should rely on the content manager provided by this data key
+   * instead of {@link PlatformDataKeys#CONTENT_MANAGER}.
+   * Otherwise, if the separate content manager is provided by the content of the tool window (like Run/Debug),
+   * the tool window level actions will be confused.
+   * Points to the content manager of the top {@link InternalDecoratorImpl} if there are no splits,
+   * or to the content manager of the nearest {@link InternalDecoratorImpl} if there are splits.
+   */
+  @ApiStatus.Experimental
+  public static final DataKey<ContentManager> CONTENT_MANAGER_DATA_KEY = DataKey.create("ToolWindow.ContentManager");
 
   @ApiStatus.Experimental
   public static final Key<Boolean> NOT_SELECTED_TAB_ICON_TRANSPARENT = Key.create("NotSelectedIconTransparent");
@@ -77,15 +86,6 @@ public final class ToolWindowContentUi implements ContentUI, UiCompatibleDataPro
 
   private final JPanel contentComponent;
   final ToolWindowImpl window;
-
-  private final TabbedContentAction.CloseAllAction closeAllAction;
-  private final TabbedContentAction.MyNextTabAction nextTabAction;
-  private final TabbedContentAction.MyPreviousTabAction previousTabAction;
-  private final TabbedContentAction.SplitTabAction splitRightTabAction;
-  private final TabbedContentAction.SplitTabAction splitDownTabAction;
-  private final TabbedContentAction.UnsplitTabAction unsplitTabAction;
-
-  private final ShowContentAction showContent;
 
   private final TabContentLayout tabsLayout;
   private ContentLayout comboLayout;
@@ -210,14 +210,6 @@ public final class ToolWindowContentUi implements ContentUI, UiCompatibleDataPro
 
     initMouseListeners(tabComponent, this, true);
     MouseDragHelper.setComponentDraggable(tabComponent, true);
-
-    closeAllAction = new TabbedContentAction.CloseAllAction(contentManager);
-    nextTabAction = new TabbedContentAction.MyNextTabAction(contentManager);
-    previousTabAction = new TabbedContentAction.MyPreviousTabAction(contentManager);
-    splitRightTabAction = new TabbedContentAction.SplitTabAction(contentManager, true);
-    splitDownTabAction = new TabbedContentAction.SplitTabAction(contentManager, false);
-    unsplitTabAction = new TabbedContentAction.UnsplitTabAction(contentManager);
-    showContent = new ShowContentAction(window, contentComponent, contentManager);
   }
 
   public @NotNull String getToolWindowId() {
@@ -591,17 +583,19 @@ public final class ToolWindowContentUi implements ContentUI, UiCompatibleDataPro
     if (content == null) {
       return;
     }
+    var actionManager = ActionManager.getInstance();
 
     group.addSeparator();
     group.add(new TabbedContentAction.CloseAction(content));
-    group.add(closeAllAction);
-    group.add(new TabbedContentAction.CloseAllButThisAction(content));
+    group.add(actionManager.getAction("TW.CloseAllTabs"));
+    group.add(actionManager.getAction("TW.CloseOtherTabs"));
     group.addSeparator();
-    Component component = window.getComponent();
-    if (ClientProperty.isTrue(component, ALLOW_DND_FOR_TABS) && Registry.is("ide.allow.split.and.reorder.in.tool.window", false)) {
-      group.add(splitRightTabAction);
-      group.add(splitDownTabAction);
-      group.add(unsplitTabAction);
+    if (isTabsReorderingAllowed(window)) {
+      group.add(actionManager.getAction("TW.SplitRight"));
+      group.add(actionManager.getAction("TW.SplitAndMoveRight"));
+      group.add(actionManager.getAction("TW.SplitDown"));
+      group.add(actionManager.getAction("TW.SplitAndMoveDown"));
+      group.add(actionManager.getAction("TW.Unsplit"));
       group.addSeparator();
     }
     if (content.isPinnable()) {
@@ -609,9 +603,9 @@ public final class ToolWindowContentUi implements ContentUI, UiCompatibleDataPro
       group.addSeparator();
     }
 
-    group.add(nextTabAction);
-    group.add(previousTabAction);
-    group.add(showContent);
+    group.add(actionManager.getAction("NextTab"));
+    group.add(actionManager.getAction("PreviousTab"));
+    group.add(actionManager.getAction("ShowContent"));
 
     if (content instanceof TabbedContent && ((TabbedContent)content).hasMultipleTabs()) {
       group.addAction(createSplitTabsAction((TabbedContent)content));
@@ -797,6 +791,32 @@ public final class ToolWindowContentUi implements ContentUI, UiCompatibleDataPro
   /** Checks if the selected content component or one of its descendants has focus. */
   @ApiStatus.Internal public Boolean isActive() {
     return UIUtil.isFocusAncestor(contentComponent);
+  }
+
+  /**
+   * @deprecated please use {@link ToolWindowContentUi#setAllowTabsReordering(ToolWindow, boolean)} instead.
+   */
+  @Deprecated
+  public static final @NonNls Key<Boolean> ALLOW_DND_FOR_TABS = Key.create("AllowDragAndDropForTabs");
+
+  @ApiStatus.Internal
+  public static final Key<Boolean> ALLOW_TABS_REORDERING = ALLOW_DND_FOR_TABS;
+
+  /**
+   * If {@code allow} parameter is specified as {@code true} then it will be possible to reorder and split
+   * tabs of the provided tool window using drag and drop and specific actions, such as
+   * {@link com.intellij.ide.actions.ToolWindowSplitRightAction}.
+   */
+  public static void setAllowTabsReordering(@NotNull ToolWindow toolWindow, boolean allow) {
+    toolWindow.getComponent().putClientProperty(ALLOW_TABS_REORDERING, allow);
+  }
+
+  /**
+   * @return whether reorder and split of tabs in the provided tool window is allowed.
+   */
+  public static boolean isTabsReorderingAllowed(@NotNull ToolWindow window) {
+    return ClientProperty.isTrue(window.getComponent(), ALLOW_TABS_REORDERING) &&
+           Registry.is("ide.allow.split.and.reorder.in.tool.window", false);
   }
 
   public final class TabPanel extends NonOpaquePanel implements UISettingsListener {

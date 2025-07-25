@@ -47,8 +47,8 @@ import com.jetbrains.python.psi.impl.stubs.PyTypingAliasStubType
 import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.resolve.PyResolveUtil
 import com.jetbrains.python.psi.types.*
-import com.jetbrains.python.sdk.PythonSdkUtil
 import com.jetbrains.python.psi.types.PyTypeVarType.Variance
+import com.jetbrains.python.sdk.PythonSdkUtil
 
 class PyTypeHintsInspection : PyInspection() {
 
@@ -114,7 +114,7 @@ class PyTypeHintsInspection : PyInspection() {
       checkPlainGenericInheritance(superClassExpressions)
       checkGenericDuplication(superClassExpressions)
       checkGenericCompleteness(node)
-      checkGenericClassTypeParametersNotUsedByOuterScope(node)
+      reportTypeParametersUsedByOuterScope(node)
       checkMetaClass(node.metaClassExpression)
     }
 
@@ -123,6 +123,12 @@ class PyTypeHintsInspection : PyInspection() {
 
       checkParameters(node)
       checkParameterizedBuiltins(node)
+    }
+
+    override fun visitPyTypeAliasStatement(node: PyTypeAliasStatement) {
+      super.visitPyTypeAliasStatement(node)
+
+      reportTypeParametersUsedByOuterScope(node)
     }
 
     override fun visitPyTypeParameter(typeParameter: PyTypeParameter) {
@@ -359,6 +365,7 @@ class PyTypeHintsInspection : PyInspection() {
 
       checkTypeCommentAndParameters(node)
       checkTypeVarsInFunctionAnnotations(node)
+      reportTypeParametersUsedByOuterScope(node)
     }
 
     override fun visitPyTargetExpression(node: PyTargetExpression) {
@@ -908,38 +915,57 @@ class PyTypeHintsInspection : PyInspection() {
       return Pair(if (seenGeneric) genericTypeVars else null, nonGenericTypeVars)
     }
 
-    private fun checkGenericClassTypeParametersNotUsedByOuterScope(cls: PyClass) {
-      fun getTypeParameters(clazz: PyClass): Iterable<PyTypeParameterType> {
-        val clazzType = PyTypeChecker.findGenericDefinitionType(clazz, myTypeEvalContext) ?: return emptyList()
-        return clazzType.elementTypes.filterIsInstance<PyTypeParameterType>()
-      }
-
-      val names = getTypeParameters(cls).map { it.name }.toMutableSet()
-      if (names.isEmpty()) {
-        return
-      }
-      val namesUsedByOuterScopes = mutableListOf<String>()
-      var scopeOwner: ScopeOwner? = cls
-      do {
-        scopeOwner = PsiTreeUtil.getParentOfType(scopeOwner, PyClass::class.java, PyFunction::class.java)
-        val typeParameters = when (scopeOwner) {
-          is PyClass -> getTypeParameters(scopeOwner)
-          is PyFunction -> PyTypingTypeProvider.collectTypeParameters(scopeOwner, myTypeEvalContext)
-          else -> break
-        }
-        for (typeParameter in typeParameters) {
-          val name = typeParameter.name
-          if (names.remove(name)) {
-            namesUsedByOuterScopes.add(name)
+    private fun reportTypeParametersUsedByOuterScope(typeParameterListOwner: PyTypeParameterListOwner) {
+      val typeParameterList = typeParameterListOwner.typeParameterList
+      if (typeParameterList != null) {
+        val typeParamsUsedByOuterScopes = getTypeParametersUsedByOuterScope(typeParameterListOwner).toSet()
+        for (typeParameter in typeParameterList.typeParameters) {
+          if (typeParameter.name in typeParamsUsedByOuterScopes) {
+            registerProblem(typeParameter, PyPsiBundle.message("INSP.type.hints.type.parameter.is.already.in.use.by.outer.scope",
+                                                               typeParameter.name))
           }
         }
       }
-      while (true)
-
-      if (namesUsedByOuterScopes.isNotEmpty()) {
-        registerProblem(cls.nameIdentifier, PyPsiBundle.message("INSP.type.hints.some.type.variables.are.used.by.an.outer.scope",
-                                                                namesUsedByOuterScopes.joinToString(", ")))
+      else if (typeParameterListOwner is PyClass) {
+        // Old generics syntax
+        val typeParamsUsedByOuterScopes = getTypeParametersUsedByOuterScope(typeParameterListOwner)
+        if (typeParamsUsedByOuterScopes.isNotEmpty()) {
+          registerProblem(typeParameterListOwner.nameIdentifier, PyPsiBundle.message("INSP.type.hints.some.type.variables.are.already.in.use.by.outer.scope",
+                                                                                     typeParamsUsedByOuterScopes.joinToString(", ")))
+        }
       }
+    }
+
+    private fun getTypeParametersUsedByOuterScope(scope: PyTypeParameterListOwner): List<String> {
+      val typeParams = getTypeParameters(scope).toMutableSet()
+      val typeParamsUsedByOuterScopes = mutableListOf<String>()
+      var currentScope: PyTypeParameterListOwner? = scope
+      while (typeParams.isNotEmpty()) {
+        currentScope = PsiTreeUtil.getParentOfType(currentScope, PyTypeParameterListOwner::class.java) ?: break
+        for (typeParam in getTypeParameters(currentScope)) {
+          if (typeParams.remove(typeParam)) {
+            typeParamsUsedByOuterScopes.add(typeParam)
+          }
+        }
+      }
+      return typeParamsUsedByOuterScopes
+    }
+
+    private fun getTypeParameters(scope: PyTypeParameterListOwner): List<String> {
+      val typeParameterList = scope.typeParameterList
+      if (typeParameterList != null) {
+        return typeParameterList.typeParameters.mapNotNull { it.name }
+      }
+      if (scope is PyClass) {
+        val genericType = PyTypeChecker.findGenericDefinitionType(scope, myTypeEvalContext)
+        if (genericType != null) {
+          return genericType.elementTypes.filterIsInstance<PyTypeParameterType>().map { it.name }
+        }
+      }
+      if (scope is PyFunction) {
+        return PyTypingTypeProvider.collectTypeParameters(scope, myTypeEvalContext).map { it.name }
+      }
+      return emptyList()
     }
 
     private fun checkParameters(node: PySubscriptionExpression) {

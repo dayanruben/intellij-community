@@ -5,7 +5,9 @@ import com.intellij.accessibility.AccessibilityUtils
 import com.intellij.ide.IdeBundle
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.impl.ActionButton
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.impl.InternalUICustomization
+import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.options.advanced.AdvancedSettings
@@ -16,7 +18,6 @@ import com.intellij.openapi.util.CheckedDisposable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.SystemInfoRt
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.wm.*
 import com.intellij.openapi.wm.impl.InternalDecorator
@@ -57,7 +58,7 @@ import javax.swing.text.JTextComponent
 @ApiStatus.Internal
 class InternalDecoratorImpl internal constructor(
   @JvmField internal val toolWindow: ToolWindowImpl,
-  private val contentUi: ToolWindowContentUi,
+  val contentUi: ToolWindowContentUi,
   private val myDecoratorChild: JComponent
 ) : InternalDecorator(), Queryable, UiDataProvider, ComponentWithMnemonics {
   companion object {
@@ -261,7 +262,20 @@ class InternalDecoratorImpl internal constructor(
       override fun contentRemoved(event: ContentManagerEvent) {
         val parentDecorator = findNearestDecorator(this@InternalDecoratorImpl) ?: return
         if (!parentDecorator.isSplitUnsplitInProgress() && !isSplitUnsplitInProgress() && contentManager.isEmpty) {
+          // Find some selected content in the child contents of the parent split to preserve focus in the tool window.
+          val toSelect = parentDecorator.contentManager.contentsRecursively.find { content ->
+            content.manager?.isSelected(content) == true
+          }
+
           parentDecorator.unsplit(null)
+
+          if (toSelect != null) {
+            // Focus the content later, because we are in the middle of removing the content.
+            // Current content remove logic will focus the editor, but then we will focus the chosen content.
+            invokeLater(ModalityState.any()) {
+              toSelect.manager?.setSelectedContent(toSelect, true)
+            }
+          }
         }
       }
     })
@@ -315,6 +329,7 @@ class InternalDecoratorImpl internal constructor(
                        dropIndex: Int) {
     if (dropSide == -1 || dropSide == SwingConstants.CENTER || dropIndex >= 0) {
       contentManager.addContent(content, dropIndex)
+      contentManager.setSelectedContent(content, true)
       return
     }
     firstDecorator = toolWindow.createCellDecorator().also {
@@ -327,6 +342,8 @@ class InternalDecoratorImpl internal constructor(
       it.setTitleActions(titleActions)
     }
     attach(secondDecorator)
+
+    val prevSelectedContent = contentManager.selectedContent
     val contents = contentManager.contents.toMutableList()
     if (!contents.contains(content)) {
       contents.add(content)
@@ -338,6 +355,10 @@ class InternalDecoratorImpl internal constructor(
     firstDecorator!!.updateMode(Mode.CELL)
     secondDecorator!!.updateMode(Mode.CELL)
     updateMode(if (dropSide == SwingConstants.TOP || dropSide == SwingConstants.BOTTOM) Mode.VERTICAL_SPLIT else Mode.HORIZONTAL_SPLIT)
+
+    // Update selected contents in both new split areas
+    prevSelectedContent?.manager?.setSelectedContent(prevSelectedContent)
+    content.manager?.setSelectedContent(content, true)
   }
 
   private fun raise(raiseFirst: Boolean) {
@@ -433,7 +454,7 @@ class InternalDecoratorImpl internal constructor(
             moveContent(c, secondDecorator!!, this)
           }
           updateMode(if (findNearestDecorator(this) != null) Mode.CELL else Mode.SINGLE)
-          toSelect?.manager?.setSelectedContent(toSelect)
+          toSelect?.manager?.setSelectedContent(toSelect, true)
           firstDecorator = null
           secondDecorator = null
           splitter = null
@@ -450,6 +471,43 @@ class InternalDecoratorImpl internal constructor(
   }
 
   override fun isSplitUnsplitInProgress(): Boolean = isSplitUnsplitInProgress
+
+  fun getNextCell(current: InternalDecoratorImpl): InternalDecoratorImpl? {
+    return getNextPrevCellImpl(current, isNext = true)
+  }
+
+  fun getPrevCell(current: InternalDecoratorImpl): InternalDecoratorImpl? {
+    return getNextPrevCellImpl(current, isNext = false)
+  }
+
+  private fun getNextPrevCellImpl(current: InternalDecoratorImpl, isNext: Boolean): InternalDecoratorImpl? {
+    if (mode?.isSplit != true) return null
+
+    val cells = getOrderedCells()
+    val curCellIndex = cells.indexOf(current)
+    return if (curCellIndex != -1) {
+      val newIndex = curCellIndex + (if (isNext) 1 else -1)
+      cells[(newIndex + cells.size) % cells.size]
+    }
+    else null
+  }
+
+  private fun getOrderedCells(): List<InternalDecoratorImpl> {
+    val cells = mutableListOf<InternalDecoratorImpl>()
+
+    fun collectCell(decorator: InternalDecoratorImpl) {
+      if (decorator.mode!!.isSplit) {
+        collectCell(decorator.firstDecorator!!)
+        collectCell(decorator.secondDecorator!!)
+      }
+      else {
+        cells.add(decorator)
+      }
+    }
+
+    collectCell(this)
+    return cells
+  }
 
   override fun getContentManager(): ContentManager = contentUi.contentManager
 
@@ -537,6 +595,11 @@ class InternalDecoratorImpl internal constructor(
 
   override fun uiDataSnapshot(sink: DataSink) {
     sink[PlatformDataKeys.TOOL_WINDOW] = toolWindow
+    sink[PlatformDataKeys.CONTENT_MANAGER] = contentManager
+    if (contentManager.contentCount > 1) {
+      sink[PlatformDataKeys.NONEMPTY_CONTENT_MANAGER] = contentManager
+    }
+    sink[ToolWindowContentUi.CONTENT_MANAGER_DATA_KEY] = contentManager
   }
 
   fun setTitleActions(actions: List<AnAction>) {
@@ -873,7 +936,7 @@ class InternalDecoratorImpl internal constructor(
     contentUi.update()
 
     if ((toolWindow.type == ToolWindowType.WINDOWED || toolWindow.type == ToolWindowType.FLOATING) &&
-        Registry.`is`("ide.allow.split.and.reorder.in.tool.window")) {
+        ToolWindowContentUi.isTabsReorderingAllowed(toolWindow)) {
       ToolWindowInnerDragHelper(disposable, this).start()
     }
   }

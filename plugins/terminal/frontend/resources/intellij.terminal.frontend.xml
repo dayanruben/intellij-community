@@ -21,6 +21,9 @@
     <editorActionHandler action="Replace" implementationClass="com.intellij.terminal.frontend.action.TerminalReplaceHandler"
                          id="terminalReplace" order="first"/>
 
+    <toolWindow.splitContentProvider toolWindowId="terminal"
+                                     implementationClass="com.intellij.terminal.frontend.TerminalToolWindowSplitContentProvider"/>
+
     <applicationService
       serviceInterface="org.jetbrains.plugins.terminal.fus.FrontendLatencyService"
       serviceImplementation="com.intellij.terminal.frontend.fus.FrontendLatencyServiceImpl"/>
@@ -119,14 +122,6 @@
       <reference ref="Terminal.Find"/>
       <reference ref="Terminal.NewTab"/>
       <reference ref="Terminal.CloseTab"/>
-      <separator/>
-      <reference ref="Terminal.SplitVertically"/>
-      <reference ref="Terminal.SplitHorizontally"/>
-      <reference ref="PreviousTab"/>
-      <reference ref="NextTab"/>
-      <reference ref="Terminal.MoveToolWindowTabRight"/>
-      <reference ref="Terminal.MoveToolWindowTabLeft"/>
-      <reference ref="ShowContent"/>
       <separator/>
       <reference ref="Terminal.CopySelectedText"/>
       <reference ref="Terminal.Paste"/>

@@ -311,6 +311,7 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
                 ...""");
   }
 
+  // PY-78878
   public void testGenericClassCannotUseTypeVariablesFromOuterScope() {
     doTestByText("""
                    from typing import TypeVar, Generic, Iterable
@@ -321,18 +322,55 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
                    def a_fun(x: T) -> None:
                        a_list: list[T] = []
                    
-                       class <warning descr="Some type variables (T) are used by an outer scope">MyGeneric</warning>(Generic[T]):
+                       class <warning descr="Some type variables (T) are already in use by an outer scope">MyGeneric</warning>(Generic[T]):
+                           ...
+                   
+                   def a_fun_new_syntax1[U]() -> None:
+                       class <warning descr="Some type variables (U) are already in use by an outer scope">MyGeneric</warning>(Generic[U]):
+                           ...
+                   
+                   def a_fun_new_syntax2[U](u: U) -> None:
+                       class <warning descr="Some type variables (U) are already in use by an outer scope">MyGeneric</warning>(Generic[U]):
                            ...
                    
                    class Outer(Generic[T]):
-                       class <warning descr="Some type variables (T) are used by an outer scope">Bad</warning>(Iterable[T]):
+                       class <warning descr="Some type variables (T) are already in use by an outer scope">Bad</warning>(Iterable[T]):
                            ...
                        class AlsoBad:
                            x: list[<warning descr="Unbound type variable">T</warning>]
                    
                        class Inner(Iterable[S]):
                            ...
-                       attr: Inner[T]""");
+                       attr: Inner[T]
+                   
+                   class OuterNewSyntax[U]:
+                       class <warning descr="Some type variables (U) are already in use by an outer scope">Bad</warning>(Generic[U]):
+                           ...""");
+  }
+
+  // PY-82835
+  public void testTypeParameterIsAlreadyInUseByOuterScope() {
+    doTestByText("""
+                   from typing import Sequence, TypeAlias
+                   
+                   T = 0
+                   
+                   
+                   class ClassA[T](Sequence[T]):
+                       T = 1
+                   
+                       def method1[<warning descr="Type parameter 'T' is already in use by an outer scope">T</warning>](self):
+                           ...
+                   
+                       def method2[<warning descr="Type parameter 'T' is already in use by an outer scope">T</warning>](self, x=T):
+                           ...
+                   
+                       def method3[<warning descr="Type parameter 'T' is already in use by an outer scope">T</warning>](self, x: T):
+                           ...
+                   
+                       class Inner[<warning descr="Type parameter 'T' is already in use by an outer scope">T</warning>]:
+                           ...
+                   """);
   }
 
   // PY-28249
