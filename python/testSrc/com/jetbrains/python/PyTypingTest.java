@@ -6716,6 +6716,25 @@ public class PyTypingTest extends PyTestCase {
       """);
   }
 
+  // PY-82869
+  public void testEscapedMultilineTypeHint() {
+    doTest("int | str", """
+      expr: '''
+        int |
+        str
+      '''
+      """);
+  }
+
+  // PY-82871
+  public void testConcatenateWithEllipsis() {
+    doTest("(Concatenate(int, ...)) -> str", """
+      from typing import Callable, Concatenate
+      
+      expr: Callable[Concatenate[int, ...], str]
+      """);
+  }
+
   private void doTestNoInjectedText(@NotNull String text) {
     myFixture.configureByText(PythonFileType.INSTANCE, text);
     final InjectedLanguageManager languageManager = InjectedLanguageManager.getInstance(myFixture.getProject());

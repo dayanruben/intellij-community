@@ -82,6 +82,18 @@ internal open class TerminalEventsHandlerImpl(
         LOG.error("Error sending typed key to emulator", ex)
       }
     }
+    val lookup = LookupManager.getActiveLookup(editor)
+    // Added to guarantee that the carets are synchronized after type-ahead.
+    // Essential for correct lookup behavior.
+    val moveCaretAction = { editor.caretModel.moveToOffset(outputModel.cursorOffsetState.value) }
+    if (editor.caretModel.offset != outputModel.cursorOffsetState.value) {
+      if (lookup != null) {
+        lookup.performGuardedChange(moveCaretAction)
+      }
+      else {
+        moveCaretAction()
+      }
+    }
   }
 
   override fun keyPressed(e: TimedKeyEvent) {
@@ -105,10 +117,11 @@ internal open class TerminalEventsHandlerImpl(
 
       val keyCode = e.original.keyCode
       val keyChar = e.original.keyChar
-      updateLookupOnAction(keyCode)
       if (isNoModifiers(e.original) && keyCode == KeyEvent.VK_BACK_SPACE) {
         typeAhead?.backspace()
       }
+      // All typeAhead updates should be done before calling updateLookupOnAction
+      updateLookupOnAction(keyCode)
 
       // numLock does not change the code sent by keypad VK_DELETE,
       // although it send the char '.'
