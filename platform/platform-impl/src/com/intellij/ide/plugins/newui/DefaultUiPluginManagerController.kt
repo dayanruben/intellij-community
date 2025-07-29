@@ -49,7 +49,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
 
   override fun getTarget(): PluginSource = PluginSource.LOCAL
 
-  override fun getPlugins(): List<PluginUiModel> {
+  override suspend fun getPlugins(): List<PluginUiModel> {
     return PluginManagerCore.plugins.map { PluginUiModelAdapter(it).withSource() }
   }
 
@@ -87,7 +87,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return PluginManagerCore.getPlugin(id)?.let { PluginUiModelAdapter(it) }?.withSource()
   }
 
-  override fun findPlugin(pluginId: PluginId): PluginUiModel? {
+  override suspend fun findPlugin(pluginId: PluginId): PluginUiModel? {
     return buildPluginIdMap()[pluginId]?.let { PluginUiModelAdapter(it) }?.withSource()
   }
 
@@ -104,7 +104,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return PluginUpdatesService.isNeedUpdate(descriptor)
   }
 
-  override fun isBundledUpdate(pluginIds: List<PluginId>): Boolean {
+  override suspend fun isBundledUpdate(pluginIds: List<PluginId>): Boolean {
     val pluginIdMap = buildPluginIdMap()
     return pluginIds.map { pluginIdMap[it] }.all { isBundledUpdate(it) }
   }
@@ -128,11 +128,11 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return PluginManagerSessionService.getInstance().createSession(sessionId)
   }
 
-  override fun closeSession(sessionId: String) {
+  override suspend fun closeSession(sessionId: String) {
     PluginManagerSessionService.getInstance().removeSession(sessionId)
   }
 
-  override fun isModified(sessionId: String): Boolean {
+  override suspend fun isModified(sessionId: String): Boolean {
     val session = findSession(sessionId) ?: return false
     return session.dynamicPluginsToInstall.isNotEmpty() ||
            session.dynamicPluginsToUninstall.isNotEmpty() ||
@@ -373,11 +373,6 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return getPlugins().map { it.pluginId }.associateWith { getErrors(session, it) }
   }
 
-  override fun tryUnloadPluginIfAllowed(parentComponent: JComponent?, pluginId: PluginId, isUpdate: Boolean): Boolean {
-    val descriptorImpl = PluginManagerCore.findPlugin(pluginId) ?: return false
-    return (allowLoadUnloadWithoutRestart(descriptorImpl) && DynamicPlugins.allowLoadUnloadSynchronously(descriptorImpl) && PluginInstaller.unloadDynamicPlugin(parentComponent, descriptorImpl, true))
-  }
-
   override fun prepareToUninstall(pluginsToUninstall: List<PluginId>): PrepareToUninstallResult {
     val applicationInfo = ApplicationInfoEx.getInstanceEx()
     val idMap = buildPluginIdMap()
@@ -465,7 +460,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
                               buildPluginIdMap(), getPluginSet().buildContentModuleIdMap()).pluginsIdsToSwitch
   }
 
-  override fun isDisabledInDiff(sessionId: String, pluginId: PluginId): Boolean {
+  override suspend fun isDisabledInDiff(sessionId: String, pluginId: PluginId): Boolean {
     val session = findSession(sessionId) ?: return false
     val descriptor = buildPluginIdMap()[pluginId] ?: return false
     val diffStatePair: Pair<PluginEnableDisableAction, PluginEnabledState>? = session.statesDiff[descriptor]
@@ -554,7 +549,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return MarketplaceRequests.getLastCompatiblePluginUpdate(allIds, BuildNumber.fromString(buildNumber), throwExceptions)
   }
 
-  override fun getErrors(sessionId: String, pluginId: PluginId): CheckErrorsResult {
+  override suspend fun getErrors(sessionId: String, pluginId: PluginId): CheckErrorsResult {
     val session = findSession(sessionId) ?: return CheckErrorsResult()
     return getErrors(session, pluginId)
   }
@@ -770,7 +765,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
         LOG.warn("pending dynamic plugins probably won't finish their installation: " + session.dynamicPluginsToInstall + " " + session.dynamicPluginsToUninstall)
       }
     }
-    result.errors = getPlugins().map { it.pluginId }.associateWith { getErrors(session, it) }
+    result.errors = PluginManagerCore.plugins.map { it.pluginId }.associateWith { getErrors(session, it) }
     installCallback(result)
   }
 
@@ -827,7 +822,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return ids.toSet()
   }
 
-  private fun isBundledUpdate(descriptor: IdeaPluginDescriptor?): Boolean {
+  fun isBundledUpdate(descriptor: IdeaPluginDescriptor?): Boolean {
     if (descriptor == null || descriptor.isBundled) {
       return false
     }

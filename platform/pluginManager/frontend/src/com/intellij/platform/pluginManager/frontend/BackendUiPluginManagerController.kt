@@ -47,8 +47,8 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
 
   override fun getTarget(): PluginSource = PluginSource.REMOTE
 
-  override fun getPlugins(): List<PluginUiModel> {
-    return awaitForResult { PluginManagerApi.getInstance().getPlugins().withSource() }
+  override suspend fun getPlugins(): List<PluginUiModel> {
+    return PluginManagerApi.getInstance().getPlugins().withSource()
   }
 
   override fun getVisiblePlugins(showImplementationDetails: Boolean): List<PluginUiModel> {
@@ -71,8 +71,8 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
     return awaitForResult { PluginManagerApi.getInstance().getPluginById(id)?.withSource() }
   }
 
-  override fun findPlugin(pluginId: PluginId): PluginUiModel? {
-    return awaitForResult { PluginManagerApi.getInstance().findPlugin(pluginId)?.withSource() }
+  override suspend fun findPlugin(pluginId: PluginId): PluginUiModel? {
+    return PluginManagerApi.getInstance().findPlugin(pluginId)?.withSource()
   }
 
   override fun getLastCompatiblePluginUpdateModel(pluginId: PluginId, buildNumber: String?, indicator: ProgressIndicator?): PluginUiModel? {
@@ -97,8 +97,8 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
     }
   }
 
-  override fun isModified(sessionId: String): Boolean {
-    return awaitForResult { PluginInstallerApi.getInstance().isModified(sessionId) }
+  override suspend fun isModified(sessionId: String): Boolean {
+    return PluginInstallerApi.getInstance().isModified(sessionId)
   }
 
   override fun enablePlugins(sessionId: String, descriptorIds: List<PluginId>, enable: Boolean, project: Project?): SetEnabledStateResult {
@@ -109,8 +109,8 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
     return awaitForResult { PluginManagerApi.getInstance().isPluginRequiresUltimateButItIsDisabled(sessionId, pluginId) }
   }
 
-  override fun isDisabledInDiff(sessionId: String, pluginId: PluginId): Boolean {
-    return awaitForResult { PluginManagerApi.getInstance().isDisabledInDiff(sessionId, pluginId) }
+  override suspend fun isDisabledInDiff(sessionId: String, pluginId: PluginId): Boolean {
+    return PluginManagerApi.getInstance().isDisabledInDiff(sessionId, pluginId)
   }
 
   override suspend fun isPluginEnabled(pluginId: PluginId): Boolean {
@@ -162,8 +162,8 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
     return awaitForResult { PluginInstallerApi.getInstance().setEnableStateForDependencies(sessionId, descriptorIds, enable) }
   }
 
-  override fun getErrors(sessionId: String, pluginId: PluginId): CheckErrorsResult {
-    return awaitForResult { PluginInstallerApi.getInstance().getErrors(sessionId, pluginId) }
+  override suspend fun getErrors(sessionId: String, pluginId: PluginId): CheckErrorsResult {
+    return PluginInstallerApi.getInstance().getErrors(sessionId, pluginId)
   }
 
   override fun enableRequiredPlugins(sessionId: String, pluginId: PluginId): Set<PluginId> {
@@ -182,8 +182,8 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
     return awaitForResult { PluginManagerApi.getInstance().hasPluginRequiresUltimateButItsDisabled(pluginIds) }
   }
 
-  override fun isBundledUpdate(pluginIds: List<PluginId>): Boolean {
-    return awaitForResult { PluginManagerApi.getInstance().isBundledUpdate(pluginIds) }
+  override suspend fun isBundledUpdate(pluginIds: List<PluginId>): Boolean {
+    return PluginManagerApi.getInstance().isBundledUpdate(pluginIds)
   }
 
   override fun prepareToUninstall(pluginsToUninstall: List<PluginId>): PrepareToUninstallResult {
@@ -256,17 +256,11 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
     awaitForResult { PluginInstallerApi.getInstance().deletePluginFiles(pluginId) }
   }
 
-  override fun tryUnloadPluginIfAllowed(
-    parentComponent: JComponent?, pluginId: PluginId, isUpdate: Boolean,
-  ): Boolean {
-    return awaitForResult { PluginInstallerApi.getInstance().allowLoadUnloadWithoutRestart(pluginId.idString) }
-  }
-
   override fun isNeedUpdate(pluginId: PluginId): Boolean {
     return awaitForResult { PluginManagerApi.getInstance().isNeedUpdate(pluginId) }
   }
 
-  override fun closeSession(sessionId: String) {
+  override suspend fun closeSession(sessionId: String) {
     service<BackendRpcCoroutineContext>().coroutineScope.launch {
       PluginManagerApi.getInstance().closeSession(sessionId)
     }

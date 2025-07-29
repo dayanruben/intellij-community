@@ -14,11 +14,12 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.progress.ProgressIndicator
-import com.intellij.openapi.progress.runBlockingCancellable
+import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.registry.Registry
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import java.util.UUID
@@ -31,12 +32,14 @@ import javax.swing.JComponent
 @Service
 @ApiStatus.Internal
 class UiPluginManager {
-  fun getPlugins(): List<PluginUiModel> {
+  suspend fun getPlugins(): List<PluginUiModel> {
     return getController().getPlugins()
   }
 
-  fun closeSession(uuid: UUID) {
-    getController().closeSession(uuid.toString())
+  fun closeSession(uuid: String) {
+    service<FrontendRpcCoroutineContext>().coroutineScope.launch(Dispatchers.IO) {
+      getController().closeSession(uuid)
+    }
   }
 
   fun initSession(uuid: UUID): InitSessionResult {
@@ -59,10 +62,6 @@ class UiPluginManager {
     return getController().getUpdates()
   }
 
-  fun isPluginDisabled(pluginId: PluginId): Boolean {
-    return getController().isPluginDisabled(pluginId)
-  }
-
   fun loadPluginDetails(model: PluginUiModel): PluginUiModel? {
     return getController().loadPluginDetails(model)
   }
@@ -71,26 +70,18 @@ class UiPluginManager {
     return getController().loadPluginReviews(pluginId, page)
   }
 
-  fun tryUnloadPluginIfAllowed(parentComponent: JComponent?, pluginId: PluginId, isUpdate: Boolean): Boolean {
-    return getController().tryUnloadPluginIfAllowed(parentComponent, pluginId, isUpdate)
-  }
-
   fun allowLoadUnloadWithoutRestart(pluginId: PluginId): Boolean {
     return getController().allowLoadUnloadWithoutRestart(pluginId)
   }
 
   fun resetSession(sessionId: String, removeSession: Boolean, parentComponent: JComponent? = null, callback: (Map<PluginId, Boolean>) -> Unit = {}) {
-    service<FrontendRpcCoroutineContext>().coroutineScope.launch {
+    service<FrontendRpcCoroutineContext>().coroutineScope.launch(Dispatchers.IO)  {
       callback(getController().resetSession(sessionId, removeSession, parentComponent))
     }
   }
 
   suspend fun loadErrors(sessionId: String): Map<PluginId, CheckErrorsResult> {
     return getController().loadErrors(sessionId)
-  }
-
-  fun loadErrorsBlocking(sessionId: String): Map<PluginId, CheckErrorsResult> {
-    return runBlockingCancellable { loadErrors(sessionId) }
   }
 
   fun getPlugin(pluginId: PluginId): PluginUiModel? {
@@ -123,7 +114,7 @@ class UiPluginManager {
     return getController().updatePluginDependencies(sessionId)
   }
 
-  fun isModified(sessionId: String): Boolean {
+  suspend fun isModified(sessionId: String): Boolean {
     return getController().isModified(sessionId)
   }
 
@@ -133,10 +124,6 @@ class UiPluginManager {
 
   fun prepareToUninstall(pluginsToUninstall: List<PluginId>): PrepareToUninstallResult {
     return getController().prepareToUninstall(pluginsToUninstall)
-  }
-
-  fun isBundledUpdate(pluginIds: List<PluginId>): Boolean {
-    return getController().isBundledUpdate(pluginIds)
   }
 
   fun isPluginRequiresUltimateButItIsDisabled(sessionId: String, pluginId: PluginId): Boolean {
@@ -163,12 +150,16 @@ class UiPluginManager {
     return getController().getCustomRepositoryPluginMap()
   }
 
-  fun isDisabledInDiff(sessionId: String, pluginId: PluginId): Boolean {
+  suspend fun isDisabledInDiff(sessionId: String, pluginId: PluginId): Boolean {
     return getController().isDisabledInDiff(sessionId, pluginId)
   }
 
-  fun getErrors(sessionId: String, pluginId: PluginId): CheckErrorsResult {
+  suspend fun getErrors(sessionId: String, pluginId: PluginId): CheckErrorsResult {
     return getController().getErrors(sessionId, pluginId)
+  }
+
+  fun getErrorsSync(sessionId: String, pluginId: PluginId): CheckErrorsResult {
+    return runBlockingMaybeCancellable { getErrors(sessionId, pluginId) }
   }
 
   fun setEnableStateForDependencies(sessionId: String, descriptorIds: Set<PluginId>, enable: Boolean): SetEnabledStateResult {
@@ -179,7 +170,7 @@ class UiPluginManager {
     return getController().findPluginNames(pluginIds)
   }
 
-  fun findPlugin(pluginId: PluginId): PluginUiModel? {
+  suspend fun findPlugin(pluginId: PluginId): PluginUiModel? {
     return getController().findPlugin(pluginId)
   }
 

@@ -481,7 +481,7 @@ public final class PluginManagerConfigurable
           protected @NotNull ListPluginComponent createListComponent(@NotNull PluginUiModel model,
                                                                      @NotNull PluginsGroup group,
                                                                      @NotNull List<HtmlChunk> errors) {
-            return new ListPluginComponent(myPluginModelFacade, model, group, searchListener, errors, true);
+            return new ListPluginComponent(myPluginModelFacade, model, group, searchListener, errors, myCoroutineScope, true);
           }
         };
 
@@ -867,7 +867,7 @@ public final class PluginManagerConfigurable
           protected @NotNull ListPluginComponent createListComponent(@NotNull PluginUiModel model,
                                                                      @NotNull PluginsGroup group,
                                                                      @NotNull List<HtmlChunk> errors) {
-            return new ListPluginComponent(myPluginModelFacade, model, group, searchListener, errors, true);
+            return new ListPluginComponent(myPluginModelFacade, model, group, searchListener, errors, myCoroutineScope, true);
           }
         };
 
@@ -1043,7 +1043,7 @@ public final class PluginManagerConfigurable
           protected @NotNull ListPluginComponent createListComponent(@NotNull PluginUiModel model,
                                                                      @NotNull PluginsGroup group,
                                                                      @NotNull List<HtmlChunk> errors) {
-            return new ListPluginComponent(myPluginModelFacade, model, group, searchListener, errors, false);
+            return new ListPluginComponent(myPluginModelFacade, model, group, searchListener, errors, myCoroutineScope, false);
           }
         };
 
@@ -1218,7 +1218,7 @@ public final class PluginManagerConfigurable
           protected @NotNull ListPluginComponent createListComponent(@NotNull PluginUiModel model,
                                                                      @NotNull PluginsGroup group,
                                                                      @NotNull List<HtmlChunk> errors) {
-            return new ListPluginComponent(myPluginModelFacade, model, group, searchListener, errors, false);
+            return new ListPluginComponent(myPluginModelFacade, model, group, searchListener, errors, myCoroutineScope, false);
           }
         };
 
@@ -1897,29 +1897,11 @@ public final class PluginManagerConfigurable
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
-      Set<PluginUiModel> models = new HashSet<>();
-      PluginsGroup group = myPluginModelFacade.getModel().getDownloadedGroup();
-
-      if (group == null || group.ui == null) {
-        ApplicationInfoEx appInfo = ApplicationInfoEx.getInstanceEx();
-
-        for (PluginUiModel descriptor : UiPluginManager.getInstance().getPlugins()) {
-          if (!appInfo.isEssentialPlugin(descriptor.getPluginId()) &&
-              !descriptor.isBundled() && descriptor.isEnabled() != myEnable) {
-            models.add(descriptor);
-          }
-        }
-      }
-      else {
-        for (ListPluginComponent component : group.ui.plugins) {
-          PluginUiModel plugin = component.getPluginModel();
-          if (myPluginModelFacade.isEnabled(plugin) != myEnable) {
-            models.add(plugin);
-          }
-        }
-      }
-
-      setState(myPluginModelFacade, models, myEnable);
+      PluginModelAsyncOperationsExecutor.INSTANCE.switchPlugins(myCoroutineScope, myPluginModelFacade, myEnable, models -> {
+        //noinspection unchecked
+        setState(myPluginModelFacade, (List<PluginUiModel>)models, myEnable);
+        return null;
+      });
     }
   }
 
@@ -2020,6 +2002,7 @@ public final class PluginManagerConfigurable
     pluginsState.runShutdownCallback();
     pluginsState.resetChangesAppliedWithoutRestart();
 
+    myPluginModelFacade.closeSession();
     if (myDisposer != null) {
       Disposer.dispose(myDisposer);
       CoroutineScopeKt.cancel(myCoroutineScope, null);
@@ -2148,7 +2131,17 @@ public final class PluginManagerConfigurable
 
   @RequiresEdt
   private void onPluginInstalledFromDisk(@NotNull PluginInstallCallbackData callbackData) {
-    myPluginModelFacade.getModel().pluginInstalledFromDisk(callbackData);
+    PluginModelAsyncOperationsExecutor.INSTANCE
+      .updateErrors(myCoroutineScope, myPluginModelFacade.getModel().getSessionId(), callbackData.getPluginDescriptor().getPluginId(),
+                    errors -> {
+                      //noinspection unchecked
+                      updateAfterPluginInstalledFromDisk(callbackData, (List<HtmlChunk>)errors);
+                      return null;
+                    });
+  }
+
+  private void updateAfterPluginInstalledFromDisk(@NotNull PluginInstallCallbackData callbackData, List<HtmlChunk> errors) {
+    myPluginModelFacade.getModel().pluginInstalledFromDisk(callbackData, errors);
 
     boolean select = myInstalledPanel == null;
     updateSelectionTab(INSTALLED_TAB);
