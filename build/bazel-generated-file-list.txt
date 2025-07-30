@@ -807,7 +807,6 @@ plugins/github/github-git
 plugins/github/github-json
 plugins/github/github-tracker
 plugins/github/ultimate-promo
-plugins/gitlab/gitlab-community
 plugins/gitlab/gitlab-core
 plugins/gitlab/gitlab-git
 plugins/gitlab/gitlab-yaml
@@ -1343,7 +1342,6 @@ xml/dom-impl
 xml/dom-openapi
 xml/dom-tests
 xml/impl
-xml/openapi
 xml/relaxng
 xml/testFramework
 xml/tests

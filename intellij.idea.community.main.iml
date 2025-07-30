@@ -63,7 +63,6 @@
     <orderEntry type="module" module-name="intellij.platform.debugger" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.debugger.impl" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.xml.impl" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.xml" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.idea.community.customization" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.java.plugin" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.java.tests" scope="TEST" />
@@ -218,7 +217,6 @@
     <orderEntry type="module" module-name="intellij.platform.ide.newUsersOnboarding" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.onboarding-promoter" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.execution.process.elevation" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.vcs.gitlab.community" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.vcs.gitlab.yaml" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.util.coroutines.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.progress.tests" scope="TEST" />

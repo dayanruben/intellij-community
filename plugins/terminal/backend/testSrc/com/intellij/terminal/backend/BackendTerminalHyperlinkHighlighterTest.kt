@@ -4,9 +4,9 @@ package com.intellij.terminal.backend
 import com.intellij.execution.filters.ConsoleFilterProvider
 import com.intellij.execution.filters.Filter
 import com.intellij.execution.filters.HyperlinkInfo
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.colors.CodeInsightColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.project.Project
@@ -21,8 +21,8 @@ import kotlinx.coroutines.CoroutineStart.UNDISPATCHED
 import kotlinx.coroutines.flow.*
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModel
-import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModelImpl
 import org.jetbrains.plugins.terminal.block.reworked.updateContent
+import org.jetbrains.plugins.terminal.reworked.util.TerminalTestUtil
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
@@ -42,6 +42,8 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       0: line1
       1: line2
     """.trimIndent())
+    assertLinks()
+    assertHighlightings()
   }
 
   @Test
@@ -58,6 +60,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       link(at(0, "link1")),
       link(at(1, "link2")),
     )
+    assertHighlightings()
   }
 
   @Test
@@ -71,6 +74,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
     assertLinks(
       link(at(0, "link1")),
     )
+    assertHighlightings()
   }
 
   @Test
@@ -88,6 +92,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
     assertLinks(
       link(at(0, "link1")),
     )
+    assertHighlightings()
   }
 
   @Test
@@ -128,10 +133,11 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       link(at(0, "link12")),
       link(at(1, "link2")),
     )
+    assertHighlightings()
   }
 
   @Test
-  fun `some links with highlighting`() = withHelper {
+  fun `some highlighted links`() = withHelper {
     filter.highlight = HIGHLIGHT1
     filter.followedHighlight = HIGHLIGHT2
     filter.hoveredHighlight = HIGHLIGHT3
@@ -155,6 +161,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       link(at(0, "link1"), highlight = HIGHLIGHT1, followedHighlight = HIGHLIGHT2, hoveredHighlight = HIGHLIGHT3),
       link(at(1, "link2"), highlight = HIGHLIGHT2, followedHighlight = HIGHLIGHT3, hoveredHighlight = HIGHLIGHT4),
     )
+    assertHighlightings()
   }
 
   @Test
@@ -174,9 +181,36 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       0: line1 highlight1
       1: line2 highlight2
     """.trimIndent())
+    assertLinks()
     assertHighlightings(
       highlight(at(0, "highlight1"), highlight = HIGHLIGHT1),
       highlight(at(1, "highlight2"), highlight = HIGHLIGHT2),
+    )
+  }
+
+  @Test
+  fun `some links and some highlightings`() = withHelper {
+    filter.highlight = HIGHLIGHT1
+    updateModel(0L, """
+      0: line1 highlight1
+    """.trimIndent())
+    assertLinks()
+    assertHighlightings(
+      highlight(at(0, "highlight1")),
+    )
+    filter.highlight = HIGHLIGHT2
+    updateModel(1L, """
+      1: line2 link2
+    """.trimIndent())
+    assertText("""
+      0: line1 highlight1
+      1: line2 link2
+    """.trimIndent())
+    assertLinks(
+      link(at(1, "link2"), highlight = HIGHLIGHT2)
+    )
+    assertHighlightings(
+      highlight(at(0, "highlight1"), highlight = HIGHLIGHT1),
     )
   }
 
@@ -190,6 +224,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       link(at(0, "link1")),
       link(at(1, "link2")),
     )
+    assertHighlightings()
     updateModel(1L, """
       1: line3 link3
     """.trimIndent())
@@ -201,6 +236,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       link(at(0, "link1")),
       link(at(1, "link3")),
     )
+    assertHighlightings()
   }
 
   @Test
@@ -226,6 +262,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
     assertLinks(
       *(0..499).map { link(at(it, "link${it + 1}")) }.toTypedArray(),
     )
+    assertHighlightings()
   }
 
   @Test
@@ -236,6 +273,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       link(at(100, "link101")),
       link(at(400, "link401")),
     )
+    assertHighlightings()
   }
 
   @Test
@@ -246,6 +284,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       assertLinks(
         *(0 until 667).map { link(at(it, "link${it + 3334}")) }.toTypedArray(),
       )
+      assertHighlightings()
     }
   }
 
@@ -260,6 +299,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       assertLinks(
         *(0 until 667).map { link(at(it, "link${it + 3334}")) }.toTypedArray(),
       )
+      assertHighlightings()
     }
   }
 
@@ -274,6 +314,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       assertLinks(
         *(0 until 667).map { link(at(it, "link${it + 3334}")) }.toTypedArray(),
       )
+      assertHighlightings()
     }
   }
 
@@ -284,22 +325,22 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
     }
   }
 
-  private fun withHelper(test: suspend Helper.() -> Unit) = timeoutRunBlocking(coroutineName = "BackendTerminalHyperlinkHighlighterTest") {
-    val helper = Helper(project)
+  private fun withHelper(test: suspend Fixture.() -> Unit) = timeoutRunBlocking(coroutineName = "BackendTerminalHyperlinkHighlighterTest") {
+    val fixture = Fixture(project)
     ExtensionTestUtil.maskExtensions<ConsoleFilterProvider>(
       ConsoleFilterProvider.FILTER_PROVIDERS,
-      listOf(ConsoleFilterProvider { arrayOf(helper.filter as Filter) }),
+      listOf(ConsoleFilterProvider { arrayOf(fixture.filter as Filter) }),
       testRootDisposable
     )
     withContext(Dispatchers.Default) {
-      helper.run(test)
+      fixture.run(test)
     }
   }
 
-  private class Helper(private val project: Project) {
+  private class Fixture(private val project: Project) {
 
-    private val document = DocumentImpl("", true)
-    private val outputModel = TerminalOutputModelImpl(document, MAX_LENGTH)
+    private val outputModel = TerminalTestUtil.createOutputModel(MAX_LENGTH)
+    private val document: Document get() = outputModel.document
     private lateinit var backendFacade: BackendTerminalHyperlinkFacade
     private val updateEvents = MutableSharedFlow<List<TerminalOutputEvent>>(replay = 100)
     private val pendingUpdateEventCount = MutableStateFlow(0)
@@ -308,14 +349,14 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
 
     private val clickedLinks = mutableListOf<String>()
 
-    suspend fun run(test: suspend Helper.() -> Unit) {
+    suspend fun run(test: suspend Fixture.() -> Unit) {
       coroutineScope {
         val hyperlinkScope = childScope("BackendTerminalHyperlinkHighlighterTest hyperlink scope")
         backendFacade = BackendTerminalHyperlinkFacade(project, hyperlinkScope, outputModel, false)
 
         // do what StateAwareTerminalSession does, but with less infrastructure around
         val eventJob = launch(CoroutineName("BackendTerminalHyperlinkHighlighterTest event processing"), start = UNDISPATCHED) {
-          merge(updateEvents, backendFacade.resultFlow).collect { events ->
+          merge(updateEvents, backendFacade.resultFlow.map { listOf(it) }).collect { events ->
             events.forEach { event ->
               when (event) {
                 is TerminalContentUpdatedEvent -> {
@@ -436,7 +477,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
     data class LinkLocator(val line: Int, val substring: String) {
       val length: Int get() = substring.length
 
-      fun locateOffset(document: DocumentImpl): Int {
+      fun locateOffset(document: Document): Int {
         val lineStart = document.getLineStartOffset(line)
         val lineEnd = document.getLineEndOffset(line)
         val lineText = document.immutableCharSequence.substring(lineStart, lineEnd)
@@ -445,7 +486,7 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       }
 
       fun locateLink(outputModel: TerminalOutputModel, backendFacade: BackendTerminalHyperlinkFacade): TerminalFilterResultInfo {
-        val offset = outputModel.relativeOffset(locateOffset(outputModel.document as DocumentImpl))
+        val offset = outputModel.relativeOffset(locateOffset(outputModel.document))
         val links = backendFacade.dumpState().hyperlinks
         return links.single { offset.toAbsolute() in it.absoluteStartOffset until it.absoluteEndOffset }
       }

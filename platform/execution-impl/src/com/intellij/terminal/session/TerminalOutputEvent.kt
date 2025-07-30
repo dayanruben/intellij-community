@@ -48,7 +48,8 @@ data class TerminalInitialStateEvent(
   val outputModelState: TerminalOutputModelStateDto,
   val alternateBufferState: TerminalOutputModelStateDto,
   val blocksModelState: TerminalBlocksModelStateDto,
-  val hyperlinksModelState: TerminalHyperlinksModelStateDto?,
+  val outputHyperlinksState: TerminalHyperlinksModelStateDto?,
+  val alternateBufferHyperlinksState: TerminalHyperlinksModelStateDto?,
 ) : TerminalOutputEvent
 
 // Shell Integration Events
@@ -102,7 +103,7 @@ data class TerminalHyperlinksChangedEvent(
    *
    * Only set for the first event in a batch.
    */
-  val absoluteStartOffset: Long?,
+  val removeFromOffset: Long?,
   /**
    * The newly computed hyperlinks.
    *
@@ -110,6 +111,6 @@ data class TerminalHyperlinksChangedEvent(
    */
   val hyperlinks: List<TerminalFilterResultInfoDto>,
 ) : TerminalOutputEvent {
-  val isFirstEventInTheBatch: Boolean get() = absoluteStartOffset != null
-  val isLastEventInTheBatch: Boolean get() = absoluteStartOffset == null && hyperlinks.isEmpty()
+  val isFirstEventInTheBatch: Boolean get() = removeFromOffset != null
+  val isLastEventInTheBatch: Boolean get() = removeFromOffset == null && hyperlinks.isEmpty()
 }

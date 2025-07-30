@@ -24,17 +24,20 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.plugins.terminal.block.hyperlinks.CompositeFilterWrapper
-import org.jetbrains.plugins.terminal.block.reworked.*
+import org.jetbrains.plugins.terminal.block.reworked.FrozenTerminalOutputModel
+import org.jetbrains.plugins.terminal.block.reworked.TerminalOffset
+import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModel
+import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModelListener
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration.Companion.milliseconds
 
 internal class BackendTerminalHyperlinkHighlighter(
   project: Project,
   coroutineScope: CoroutineScope,
-  private val outputModel: TerminalOutputModelImpl,
+  private val outputModel: TerminalOutputModel,
   private val isInAlternateBuffer: Boolean,
 ) {
 
@@ -42,11 +45,11 @@ internal class BackendTerminalHyperlinkHighlighter(
   private val highlightTask = MutableStateFlow<HighlightTask?>(highlightAllTask())
   private val filterWrapper = CompositeFilterWrapper(project, coroutineScope)
 
-  val resultFlow: Flow<List<TerminalHyperlinksChangedEvent>>
+  val resultFlow: Flow<TerminalHyperlinksChangedEvent>
     get() = channelFlow {
       val channel = this
       // asynchronous because we don't want to block the main event processing coroutine
-      launch(CoroutineName("BackendTerminalHyperlinkHighlighter task processing")) {
+      withContext(CoroutineName("BackendTerminalHyperlinkHighlighter task processing")) {
         combine(highlightTask, filterWrapper.getFilterFlow(), transform = { task, filter -> Pair(task, filter) })
           .debounce(20.milliseconds)
           .collectLatest { (task, filter) ->
@@ -113,7 +116,7 @@ internal class BackendTerminalHyperlinkHighlighter(
     private val outputModel: FrozenTerminalOutputModel,
     val startOffset: TerminalOffset,
   ) {
-    suspend fun run(filter: CompositeFilter, channel: SendChannel<List<TerminalHyperlinksChangedEvent>>) {
+    suspend fun run(filter: CompositeFilter, channel: SendChannel<TerminalHyperlinksChangedEvent>) {
       val document = outputModel.document
       val firstID = hyperlinkId.get() + 1
       var firstOffset: TerminalOffset? = null
@@ -125,6 +128,7 @@ internal class BackendTerminalHyperlinkHighlighter(
         "startOffset=$startOffset, " +
         "trimmed=${outputModel.relativeOffset(0).toAbsolute()}"
       }
+
       fun logEvent(event: TerminalHyperlinksChangedEvent) {
         if (!LOG.isDebugEnabled) return
         count += event.hyperlinks.size
@@ -139,20 +143,23 @@ internal class BackendTerminalHyperlinkHighlighter(
           "${first?.absoluteStartOffset?.addRelative()}-${last?.absoluteEndOffset?.addRelative()} (IDs ${last?.id}-${first?.id})"
         )
       }
+
       suspend fun send(results: List<TerminalFilterResultInfoDto>, firstBatch: Boolean, lastBatch: Boolean) {
         require(!(firstBatch && lastBatch))
         if (results.isNotEmpty() || firstBatch || lastBatch) {
           val event = createEvent(results, firstBatch)
-          channel.send(listOf(event))
+          channel.send(event)
           logEvent(event)
         }
       }
+
       val lineCount = document.lineCount
       if (lineCount == 0) {
         send(emptyList(), firstBatch = true, lastBatch = false)
         send(emptyList(), firstBatch = false, lastBatch = true)
         return
       }
+
       val startLineInclusive = document.getLineNumber(startOffset.toRelative())
       val endLineInclusive = lineCount - 1
       // Process in the reverse direction to highlight the visible part first.
@@ -165,6 +172,7 @@ internal class BackendTerminalHyperlinkHighlighter(
         send(batch, firstBatch = endBatchInclusive == endLineInclusive, lastBatch = false)
         endBatchInclusive = startBatchInclusive - 1
       }
+
       send(emptyList(), firstBatch = false, lastBatch = true)
       val lastID = hyperlinkId.get()
       LOG.debug {
