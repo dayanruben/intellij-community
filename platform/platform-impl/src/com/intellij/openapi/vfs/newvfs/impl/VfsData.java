@@ -26,7 +26,11 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.IntFunction;
 
 /**
- * The place where all the data is stored for VFS parts loaded into a memory: name-ids, flags, user data, children.
+ * Main part of VFS in-memory cache: flags, user data and children are all stored here.
+ * {@link VirtualFileSystemEntry} and {@link VirtualDirectoryImpl} objects mainly just store fileId, so they could be
+ * seen as 'pointers' into this cache.
+ * {@link com.intellij.openapi.vfs.newvfs.persistent.VirtualDirectoryCache} is another part of VFS in-memory cache, which caches
+ * {@link VirtualDirectoryImpl} objects.
  * <p>
  * The purpose is to avoid holding this data in separate immortal file/directory objects because that involves space overhead, significant
  * when there are hundreds of thousands of files.
@@ -41,14 +45,16 @@ import java.util.function.IntFunction;
  * <ol>
  * <li> The file has not been instantiated yet, so {@link #getFileById} returns null. </li>
  *
- * <li> A file is explicitly requested by calling getChildren or findChild on its parent. The parent initializes all the necessary data (in a thread-safe context)
- * and creates the file instance. See {@link Segment#initFileData(int, Object, VirtualDirectoryImpl)} </li>
+ * <li> A file is explicitly requested by calling getChildren or findChild on its parent. The parent initializes all the necessary
+ * data (in a thread-safe context) and creates the file instance.
+ * See {@link Segment#initFileData(int, Object, VirtualDirectoryImpl)} </li>
  *
  * <li> After that the file is live, an object representing it can be retrieved any time from its parent. File system roots are
  * kept on hard references in {@link PersistentFS} </li>
  *
- * <li> If a file is deleted (invalidated), then its data is not needed anymore, and should be removed. But this can only happen after
- * all the listener have been notified about the file deletion and have had their chance to look at the data the last time. See {@link #killInvalidatedFiles()} </li>
+ * <li> If a file is deleted (invalidated), then its data is not needed anymore, and should be removed. But this can only happen
+ * after all the listener has been notified about the file deletion and have had their chance to look at the data the last time.
+ * See {@link #killInvalidatedFiles()} </li>
  *
  * <li> The file with removed data is marked as "dead" (see {@link #deadMarker}), any access to it will throw {@link InvalidVirtualFileAccessException}
  * Dead ids won't be reused in the same session of the IDE. </li>
@@ -71,6 +77,8 @@ public final class VfsData {
   //TODO RC: FSRecords was quite optimized recently, probably caching is not needed anymore?
   //         indexingFlag/nameId caching was already removed -- need to think through about remaining (flag+modCount)
   //         field: on the first sight they look like an additional data, independent from persistent VFS data?
+  //         .children is another thing that could be less cached -- in many cases children could be accessed directly from
+  //         FSRecords?
 
   /** [segmentIndex -> Segment] */
   private final ConcurrentIntObjectMap<Segment> segments = ConcurrentCollectionFactory.createConcurrentIntObjectMap();
@@ -106,8 +114,7 @@ public final class VfsData {
     }, app);
   }
 
-  @NotNull
-  PersistentFSImpl owningPersistentFS() {
+  @NotNull PersistentFSImpl owningPersistentFS() {
     return owningPersistentFS;
   }
 
@@ -126,29 +133,38 @@ public final class VfsData {
     }
   }
 
-  @Nullable
-  VirtualFileSystemEntry getFileById(int id, @NotNull VirtualDirectoryImpl parent, boolean putToMemoryCache) {
+  /**
+   * @return a VirtualFileSystemEntry wrapper for the file data in the cache ({@link #segments}).
+   * If there is no data in {@link #segments} cache for given id yet -- returns null.
+   * If the file with given id was deleted -- throws {@link InvalidVirtualFileAccessException}.
+   * <p/>
+   * If putToMemoryCache=true, and the wrapper created is a directory -- it is also put into {@link PersistentFSImpl#dirByIdCache}.
+   * If the given id corresponds to a file, not a directory -- this param has no effect.
+   */
+  @Nullable VirtualFileSystemEntry getFileById(int id, @NotNull VirtualDirectoryImpl parent, boolean putToMemoryCache) {
     VirtualFileSystemEntry dir = owningPersistentFS.getCachedDir(id);
     if (dir != null) return dir;
 
-    Segment segment = getSegment(id, false);
+    Segment segment = getSegment(id, /*create: */ false);
     if (segment == null) return null;
 
     int offset = objectOffsetInSegment(id);
-    Object o = segment.objectFieldsArray.get(offset);
-    if (o == null) return null;
+    Object entryData = segment.objectFieldsArray.get(offset);
+    if (entryData == null) return null;
 
-    if (o == deadMarker) {
+    if (entryData == deadMarker) {
       throw reportDeadFileAccess(new VirtualFileImpl(id, segment, parent));
     }
 
-    if (o instanceof DirectoryData) {
+    if (entryData instanceof DirectoryData directoryData) {
       if (putToMemoryCache) {
-        return owningPersistentFS.getOrCacheDir(new VirtualDirectoryImpl(id, segment, (DirectoryData)o, parent, parent.getFileSystem()));
+        return owningPersistentFS.getOrCacheDir(new VirtualDirectoryImpl(id, segment, directoryData, parent, parent.getFileSystem()));
       }
-      VirtualFileSystemEntry entry = owningPersistentFS.getCachedDir(id);
-      if (entry != null) return entry;
-      return new VirtualDirectoryImpl(id, segment, (DirectoryData)o, parent, parent.getFileSystem());
+      else {
+        VirtualFileSystemEntry entry = owningPersistentFS.getCachedDir(id);
+        if (entry != null) return entry;
+        return new VirtualDirectoryImpl(id, segment, directoryData, parent, parent.getFileSystem());
+      }
     }
     return new VirtualFileImpl(id, segment, parent);
   }
@@ -180,8 +196,7 @@ public final class VfsData {
     return !invalidatedFileIds.get(id);
   }
 
-  @Nullable
-  VirtualDirectoryImpl getChangedParent(int id) {
+  @Nullable VirtualDirectoryImpl getChangedParent(int id) {
     return changedParents.get(id);
   }
 
@@ -256,8 +271,7 @@ public final class VfsData {
       }
     }
 
-    @NotNull
-    KeyFMap getUserMap(@NotNull VirtualFileSystemEntry file, int id) {
+    @NotNull KeyFMap getUserMap(@NotNull VirtualFileSystemEntry file, int id) {
       Object o = objectFieldsArray.get(objectOffsetInSegment(id));
       if (!(o instanceof KeyFMap)) {
         throw reportDeadFileAccess(file);
@@ -331,7 +345,7 @@ public final class VfsData {
       owningVfsData.changeParent(fileId, directory);
     }
 
-    //@GuardedBy("parent.DirectoryData")
+    //@GuardedBy("parent.directoryData")
     void initFileData(int fileId, @NotNull Object fileData, @NotNull VirtualDirectoryImpl parent) throws FileAlreadyCreatedException {
       int offset = objectOffsetInSegment(fileId);
 
@@ -339,6 +353,8 @@ public final class VfsData {
       if (existingData != null) {
         //RC: it seems like concurrency issue, but I can't find a specific location
         //MAYBE RC: don't throw the exception -- if an entry was already created, so be it, log warn and go on?
+        //TODO RC: why it is even an error? This could happen if the cached file entry was dropped by GC (it is a soft-ref),
+        //         or sometimes just by concurrency
 
         FSRecordsImpl vfsPeer = owningVfsData.owningPersistentFS.peer();
         int parentId = vfsPeer.getParent(fileId);
@@ -355,7 +371,7 @@ public final class VfsData {
           describeAlreadyCreatedFile(fileId)
           + " data: " + fileData
           + ", alreadyExistingData: " + existingData
-          + ", parentData: " + parentData + ", parent.data: " + parent.myData + " equals: " + (parentData == parent.myData)
+          + ", parentData: " + parentData + ", parent.data: " + parent.directoryData + " equals: " + (parentData == parent.directoryData)
           + ", synchronized(parentData): " + (parentData != null ? Thread.holdsLock(parentData) : "...")
         );
       }
@@ -390,7 +406,11 @@ public final class VfsData {
     }
   }
 
-  // non-final field accesses are synchronized on this instance, but this happens in VirtualDirectoryImpl
+  /**
+   * This class is mostly a data-holder: most operations are in {@link VirtualDirectoryImpl}.
+   *
+   * Non-final field modifications are synchronized on 'this' instance (but this is done in {@link VirtualDirectoryImpl})
+   */
   @ApiStatus.Internal
   public static final class DirectoryData {
     private static final AtomicFieldUpdater<DirectoryData, KeyFMap> USER_MAP_UPDATER =
@@ -401,15 +421,17 @@ public final class VfsData {
      *
      * @see VirtualDirectoryImpl#findIndexByName(ChildrenIds, CharSequence, boolean)
      */
+    //MAYBE RC:we don't really need to always _load and keep_ the children in memory. We could always load them from
+    //          FSRecordsImpl, and we could even iterate/search through FSRecordsImpl-stored children directly, unpacking
+    //          diff-compressed data on the way. This shouldn't be much slower than linear-search in in-memory int[],
+    //          but it allows to not waste memory on children lists that are not needed, which may be substantial
+    //          given: 1) we _never unload_ VfsData cache 2) most of VirtualDirectory we load we load _not_ to iterate
+    //          through it's children, but just to build a hierarchy, to access some leaf-file, e.g. during indexing
+    //          or during indexes lookups -- so we'll rarely/never actually use this VirtualDirectory.children.
     volatile @NotNull ChildrenIds children = ChildrenIds.EMPTY;
 
     /** assigned under lock(this) only; accessed/modified map contents under lock(adoptedNames) */
     private volatile Set<CharSequence> adoptedNames;
-
-    VirtualFileSystemEntry @NotNull [] getFileChildren(@NotNull VirtualDirectoryImpl parent, boolean putToMemoryCache) {
-      VfsData vfsData = parent.getVfsData();
-      return children.asFiles(fileId -> vfsData.getFileById(fileId, parent, putToMemoryCache));
-    }
 
     boolean changeUserMap(@NotNull KeyFMap oldMap, @NotNull KeyFMap newMap) {
       return USER_MAP_UPDATER.compareAndSet(this, oldMap, newMap);
@@ -477,9 +499,7 @@ public final class VfsData {
       return adopted;
     }
 
-    @NotNull
-    @Unmodifiable
-    List<String> getAdoptedNames() {
+    @NotNull @Unmodifiable List<String> getAdoptedNames() {
       Set<CharSequence> adopted = adoptedNames;
       if (adopted == null) return Collections.emptyList();
       synchronized (adopted) {
@@ -627,8 +647,13 @@ public final class VfsData {
     }
 
     public @NotNull ChildrenIds appendId(int id) {
+      //if we append id -- most likely 'sorted' property is lost:
+      return appendId(id, /*stillSorted: */ false);
+    }
+
+    public @NotNull ChildrenIds appendId(int id, boolean stillSorted) {
       int[] updatedIds = ArrayUtil.append(ids, id);
-      return withIds(updatedIds);
+      return new ChildrenIds(updatedIds, stillSorted, areAllChildrenLoaded());
     }
 
     public @NotNull ChildrenIds removeAt(int index) {

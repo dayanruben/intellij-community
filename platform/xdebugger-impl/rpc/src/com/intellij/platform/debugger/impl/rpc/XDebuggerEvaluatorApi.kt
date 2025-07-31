@@ -56,6 +56,7 @@ sealed interface XValueComputeChildrenEvent {
     val isLast: Boolean,
     val topGroups: List<XValueGroupDto>,
     val bottomGroups: List<XValueGroupDto>,
+    val topValues: List<XValueDto>,
   ) : XValueComputeChildrenEvent
 
   @Serializable
@@ -106,6 +107,7 @@ data class XValueDto(
   val valueMark: RpcFlow<XValueMarkerDto?>,
   val presentation: RpcFlow<XValueSerializedPresentation>,
   val fullValueEvaluator: RpcFlow<XFullValueEvaluatorDto?>,
+  val name: String?,
 )
 
 @ApiStatus.Internal

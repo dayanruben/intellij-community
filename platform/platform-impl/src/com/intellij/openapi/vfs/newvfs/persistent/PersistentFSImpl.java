@@ -74,6 +74,7 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 @SuppressWarnings("NonDefaultConstructor")
+@ApiStatus.Internal
 public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
   private static final Logger LOG = Logger.getInstance(PersistentFSImpl.class);
@@ -1959,7 +1960,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
    * <p/>
    * Namely:
    * <ol>
-   * <li>{@link #lookupCachedAncestor(int)}: climbs up from fileId, collecting {@link #ancestorsIds} (=path), until finds an ancestor
+   * <li>{@link #lookupCachedAncestorOrSelf(int)}: climbs up from fileId, collecting {@link #ancestorsIds} (=path), until finds an ancestor
    *     which is already cached in {@link #dirByIdCache}.</li>
    * <li>{@link #resolveDescending(VirtualFileSystemEntry, IntList, int)}: from that cached ancestor climbs down back to fileId,
    *     resolving {@link #ancestorsIds} along the way via {@link #findChild(VirtualFileSystemEntry, int)}</li>
@@ -1975,26 +1976,30 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
     public NewVirtualFile resolve(int fileId) {
       assert fileId != FSRecords.NULL_FILE_ID : "fileId=NULL_ID(0) must not be passed into find()";
-      VirtualFileSystemEntry cachedAncestor;
+      VirtualFileSystemEntry cachedAncestorOrSelf;
       try {
-        cachedAncestor = lookupCachedAncestor(fileId);
-        if (cachedAncestor == null) {
+        cachedAncestorOrSelf = lookupCachedAncestorOrSelf(fileId);
+        if (cachedAncestorOrSelf == null) {
           //fileId is deleted or orphan (=one of its ancestors is deleted, or it's root is missed)
           return null;
+        }
+        else if (cachedAncestorOrSelf.getId() == fileId) {
+          return cachedAncestorOrSelf;
         }
       }
       catch (Exception e) {
         throw vfsPeer.handleError(e);
       }
       // {cachedAncestor} / { ancestorsIds[N] / ... / ancestorsIds[0] } / fileId
-      return resolveDescending(cachedAncestor, ancestorsIds, fileId);
+      return resolveDescending(cachedAncestorOrSelf, ancestorsIds, fileId);
     }
 
     /**
      * Climbs up hierarchy, from fileId, until _cached_ ancestor is found, and return this cached ancestor.
-     * Collects all the ancestors along the way into {@link #ancestorsIds}
+     * If file with fileId itself is cached -- it is returned (which is why ...OrSelf)
+     * Collects all the non-cached ancestors along the way into {@link #ancestorsIds}
      */
-    private @Nullable VirtualFileSystemEntry lookupCachedAncestor(int fileId) {
+    private @Nullable VirtualFileSystemEntry lookupCachedAncestorOrSelf(int fileId) {
       int currentId = fileId;
       while (true) {
         if (vfsPeer.isDeleted(currentId)) {
@@ -2081,7 +2086,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       if (!(parent instanceof VirtualDirectoryImpl)) {
         return null;
       }
-      VirtualFileSystemEntry child = ((VirtualDirectoryImpl)parent).doFindChildById(childId);
+      VirtualFileSystemEntry child = ((VirtualDirectoryImpl)parent).findChildById(childId);
       if (child instanceof VirtualDirectoryImpl childDir) {
         if (child.getId() != childId) {
           LOG.error("doFindChildById(" + childId + "): " + child + " doesn't have expected id!");
@@ -2344,7 +2349,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     }
 
     class ChildInserter implements Function<ListResult, ListResult> {
-      ChildInfo childInfo = null;
+      ChildInfo insertedChildInfo = null;
 
       @Override
       public @NotNull ListResult apply(@NotNull ListResult children) {
@@ -2352,8 +2357,8 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
         ChildInfo duplicate = findExistingChildInfo(children.children, name, parent.isCaseSensitive());
         if (duplicate != null) return children;
 
-        childInfo = makeChildRecord(parent, parentId, name, childData, fs, null);
-        return children.insert(childInfo);
+        insertedChildInfo = makeChildRecord(parent, parentId, name, childData, fs, null);
+        return children.insert(insertedChildInfo);
       }
     }
     ChildInserter inserter = new ChildInserter();
@@ -2362,15 +2367,15 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     // event, for `VirtualFilePointerManager` to get those events to update its pointers properly (because currently
     // it ignores empty directory creation events for performance reasons):
     vfsPeer.update(parent, parentId, inserter, /*setAllChildrenCached: */ isEmptyDirectory);
-    if (inserter.childInfo == null) {
-      return; //nothing has been inserted
+    if (inserter.insertedChildInfo == null) {
+      return; //nothing has been inserted: child{name} is already exist
     }
 
-    int childId = inserter.childInfo.getId();
+    int childId = inserter.insertedChildInfo.getId();
+    int nameId = inserter.insertedChildInfo.getNameId();//vfsPeer.getNameId(name);
     assert parent instanceof VirtualDirectoryImpl : parent;
     VirtualDirectoryImpl dir = (VirtualDirectoryImpl)parent;
-    int nameId = vfsPeer.getNameId(name);
-    VirtualFileSystemEntry child = dir.createChild(childId, nameId, fileAttributesToFlags(childData.first), isEmptyDirectory);
+    VirtualFileSystemEntry child = dir.createChildIfNotExist(childId, nameId, fileAttributesToFlags(childData.first), isEmptyDirectory);
     dir.addChild(child);
     incStructuralModificationCount();
   }
@@ -2425,7 +2430,9 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       }
       FakeVirtualFile virtualFile = new FakeVirtualFile(parent, name);
       attributes = fs.getAttributes(virtualFile);
-      symlinkTarget = attributes != null && attributes.isSymLink() ? fs.resolveSymLink(virtualFile) : null;
+      symlinkTarget = (attributes != null && attributes.isSymLink()) ?
+                      fs.resolveSymLink(virtualFile) :
+                      null;
     }
     return attributes == null ? null : new Pair<>(attributes, symlinkTarget);
   }
@@ -2458,7 +2465,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
       VirtualDirectoryImpl directory = (VirtualDirectoryImpl)file.getParent();
       assert directory != null : file;
-      directory.removeChild(file);
+      directory.removeChild((VirtualFileSystemEntry)file);
     }
 
     vfsPeer.deleteRecordRecursively(fileIdToDelete);

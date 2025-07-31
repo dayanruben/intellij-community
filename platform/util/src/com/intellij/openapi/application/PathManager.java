@@ -1,10 +1,12 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.util.io.URLUtil;
 import com.intellij.util.system.CpuArch;
+import com.intellij.util.system.OS;
 import org.jetbrains.annotations.*;
 
 import java.io.File;
@@ -363,9 +365,10 @@ public final class PathManager {
     String path = ourConfigPath;
     if (path == null) {
       String explicit = getExplicitPath(PROPERTY_CONFIG_PATH);
-      ourConfigPath = path = explicit != null ? explicit :
-                             ourPathSelector != null ? getDefaultConfigPathFor(ourPathSelector) :
-                  getHomePath() + '/' + CONFIG_DIRECTORY;
+      ourConfigPath = path =
+        explicit != null ? explicit :
+        ourPathSelector != null ? getDefaultConfigPathFor(ourPathSelector) :
+        getHomePath() + '/' + CONFIG_DIRECTORY;
     }
     return path;
   }
@@ -424,9 +427,9 @@ public final class PathManager {
     String path = ourPluginPath;
     if (path == null) {
       String explicit = getExplicitPath(PROPERTY_PLUGINS_PATH);
-      ourPluginPath = path = explicit != null ? explicit :
-                             ourPathSelector != null && System.getProperty(PROPERTY_CONFIG_PATH) == null ? getDefaultPluginPathFor(
-                               ourPathSelector) :
+      ourPluginPath = path =
+        explicit != null ? explicit :
+        ourPathSelector != null && System.getProperty(PROPERTY_CONFIG_PATH) == null ? getDefaultPluginPathFor(ourPathSelector) :
         getConfigPath() + '/' + PLUGINS_DIRECTORY;
     }
     return path;
@@ -465,8 +468,9 @@ public final class PathManager {
     String path = ourSystemPath;
     if (path == null) {
       String explicit = getExplicitPath(PROPERTY_SYSTEM_PATH);
-      ourSystemPath = path = explicit != null ? explicit :
-                             ourPathSelector != null ? getDefaultSystemPathFor(ourPathSelector) :
+      ourSystemPath = path =
+        explicit != null ? explicit :
+        ourPathSelector != null ? getDefaultSystemPathFor(ourPathSelector) :
         getHomePath() + '/' + SYSTEM_DIRECTORY;
     }
     return path;
@@ -476,35 +480,7 @@ public final class PathManager {
    * Returns the path to the directory where caches are stored by default for IDE with the given path selector.
    */
   public static @NotNull String getDefaultSystemPathFor(@NotNull String selector) {
-    return getDefaultSystemPathFor(getLocalOS(), System.getProperty("user.home"), selector, System.getenv()).toString();
-  }
-
-  @ApiStatus.Internal
-  public enum OS {
-    LINUX,
-    WINDOWS,
-    MACOS,
-    // placeholder for BSD-like systems
-    GENERIC_UNIX,
-  }
-
-  @ApiStatus.Internal
-  public static @NotNull OS getLocalOS() {
-    if (SystemInfoRt.isMac) {
-      return OS.MACOS;
-    }
-    else if (SystemInfoRt.isWindows) {
-      return OS.WINDOWS;
-    }
-    else if (SystemInfoRt.isLinux) {
-      return OS.LINUX;
-    }
-    else if (SystemInfoRt.isUnix) {
-      return OS.GENERIC_UNIX;
-    }
-    else {
-      throw new UnsupportedOperationException("Unsupported OS:" + SystemInfoRt.OS_NAME);
-    }
+    return getDefaultSystemPathFor(OS.CURRENT, System.getProperty("user.home"), selector, System.getenv()).toString();
   }
 
   @ApiStatus.Internal
@@ -515,11 +491,6 @@ public final class PathManager {
   @ApiStatus.Internal
   public static @NotNull Path getDefaultSystemPathFor(@NotNull OS os, @NotNull String userHome, @NotNull String selector, @NotNull Map<String, String> env) {
     return Paths.get(platformPath(os, env, userHome, selector, "Caches", "", "LOCALAPPDATA", "", "XDG_CACHE_HOME", ".cache", ""));
-  }
-
-  @ApiStatus.Internal
-  public static @NotNull String getDefaultUnixSystemPath(@NotNull String userHome, @NotNull String selector) {
-    return getUnixPlatformPath(userHome, System.getenv(), selector, null, ".cache", "");
   }
 
   /**
@@ -535,15 +506,13 @@ public final class PathManager {
   @ApiStatus.Internal
   public static @NotNull Path getIndexRoot() {
     String indexRootPath = getExplicitPath("index_root_path");
-    if (indexRootPath == null) {
-      indexRootPath = getSystemPath() + "/index";
-    }
+    if (indexRootPath == null) indexRootPath = getSystemPath() + "/index";
     return Paths.get(indexRootPath);
   }
 
   /**
    * Returns the path to the directory where log files are stored.
-   * Usually you don't need to access it directly, use {@link com.intellij.openapi.diagnostic.Logger} instead.
+   * Usually you don't need to access it directly, use {@link Logger} instead.
    */
   public static @NotNull Path getLogDir() {
     return Paths.get(getLogPath());
@@ -556,9 +525,9 @@ public final class PathManager {
     String path = ourLogPath;
     if (path == null) {
       String explicit = getExplicitPath(PROPERTY_LOG_PATH);
-      ourLogPath = path = explicit != null ? explicit :
-                          ourPathSelector != null && System.getProperty(PROPERTY_SYSTEM_PATH) == null ? getDefaultLogPathFor(
-                            ourPathSelector) :
+      ourLogPath = path =
+        explicit != null ? explicit :
+        ourPathSelector != null && System.getProperty(PROPERTY_SYSTEM_PATH) == null ? getDefaultLogPathFor(ourPathSelector) :
         getSystemPath() + '/' + LOG_DIRECTORY;
     }
     return path;
@@ -599,9 +568,7 @@ public final class PathManager {
    */
   public static @Nullable String getResourceRoot(@NotNull Class<?> context, @NotNull String path) {
     URL url = context.getResource(path);
-    if (url == null) {
-      url = ClassLoader.getSystemResource(path.substring(1));
-    }
+    if (url == null) url = ClassLoader.getSystemResource(path.substring(1));
     return url != null ? extractRoot(url, path) : null;
   }
 
@@ -659,7 +626,7 @@ public final class PathManager {
   }
 
   // do not use URLUtil.splitJarUrl here - used in bootstrap
-  private static @Nullable String splitJarUrl(@NotNull String url) {
+  private static @Nullable String splitJarUrl(String url) {
     int pivot = url.indexOf(URLUtil.JAR_SEPARATOR);
     if (pivot < 0) {
       return null;
@@ -855,34 +822,25 @@ public final class PathManager {
     return s;
   }
 
-  @ApiStatus.Internal
-  public static @NotNull File findFileInLibDirectory(@NotNull String relativePath) {
-    Path file = Paths.get(getLibPath(), relativePath);
-    if (!Files.exists(file)) file = Paths.get(getHomePath(), "community/lib/" + relativePath);
-    return file.toFile();
-  }
-
   /**
    * @return path to 'community' project home irrespective of the current project
    */
+  @ApiStatus.Internal
   public static @NotNull String getCommunityHomePath() {
     return getCommunityHomePath(getHomePath());
   }
 
-  private static boolean isDevServer() {
-    return Boolean.getBoolean("idea.use.dev.build.server");
-  }
-
-  private static @NotNull String getCommunityHomePath(@NotNull String homePath) {
-    boolean isRunningFromSources = Files.isDirectory(Paths.get(homePath, ".idea"));
-    if (!isRunningFromSources && !isDevServer()) return homePath;
-    ArrayList<Path> possibleCommunityPathList = new ArrayList<>();
-    possibleCommunityPathList.add(Paths.get(homePath, "community"));
-    possibleCommunityPathList.add(Paths.get(homePath, "..", "..", "..", "community"));
-    possibleCommunityPathList.add(Paths.get(homePath, "..", "..", "..", "..", "community"));
-    for (Path possibleCommunityPath : possibleCommunityPathList) {
-      if (Files.isRegularFile(possibleCommunityPath.resolve(COMMUNITY_MARKER))) {
-        return possibleCommunityPath.normalize().toString();
+  private static String getCommunityHomePath(String homePath) {
+    if (Boolean.getBoolean("idea.use.dev.build.server") || Files.isDirectory(Paths.get(homePath, ".idea"))) {
+      Path[] possibleCommunityPathList = {
+        Paths.get(homePath, "community"),
+        Paths.get(homePath, "..", "..", "..", "community"),
+        Paths.get(homePath, "..", "..", "..", "..", "community")
+      };
+      for (Path possibleCommunityPath : possibleCommunityPathList) {
+        if (Files.isRegularFile(possibleCommunityPath.resolve(COMMUNITY_MARKER))) {
+          return possibleCommunityPath.normalize().toString();
+        }
       }
     }
     return homePath;
@@ -920,65 +878,65 @@ public final class PathManager {
     return Paths.get(path).toAbsolutePath().normalize().toString();
   }
 
-  private static @Nullable String getExplicitPath(@NotNull String property) {
+  private static @Nullable String getExplicitPath(String property) {
     String path = System.getProperty(property);
-    if (path == null) {
+    if (path == null) return null;
+
+    try {
+      boolean quoted = path.length() > 1 && '"' == path.charAt(0) && '"' == path.charAt(path.length() - 1);
+      return getAbsolutePath(quoted ? path.substring(1, path.length() - 1) : path);
+    }
+    catch (InvalidPathException e) {
+      Logger.getInstance(PathManager.class).error("Invalid value for property '" + property + "'", e);
       return null;
     }
-
-    boolean quoted = path.length() > 1 && '"' == path.charAt(0) && '"' == path.charAt(path.length() - 1);
-    return getAbsolutePath(quoted ? path.substring(1, path.length() - 1) : path);
   }
 
-  private static String platformPath(String selector,
-                                     String macDir, String macSub,
-                                     String winVar, String winSub,
-                                     String xdgVar, String xdgDfl, String xdgSub) {
-    return platformPath(getLocalOS(), System.getenv(), System.getProperty("user.home"), selector, macDir, macSub, winVar, winSub, xdgVar, xdgDfl, xdgSub);
+  private static String platformPath(
+    String selector,
+    String macDir, String macSub,
+    String winVar, String winSub,
+    String xdgVar, String xdgDfl, String xdgSub
+  ) {
+    return platformPath(OS.CURRENT, System.getenv(), System.getProperty("user.home"), selector, macDir, macSub, winVar, winSub, xdgVar, xdgDfl, xdgSub);
   }
 
-  private static String platformPath(@NotNull OS os,
-                                     @NotNull Map<String, String> env,
-                                     String userHome,
-                                     String selector,
-                                     String macDir, String macSub,
-                                     String winVar, String winSub,
-                                     String xdgVar, String xdgDfl, String xdgSub) {
+  private static String platformPath(
+    OS os,
+    Map<String, String> env,
+    String userHome,
+    String selector,
+    String macDir, String macSub,
+    String winVar, String winSub,
+    String xdgVar, String xdgDfl, String xdgSub
+  ) {
     String vendorName = vendorName();
-
-    if (os == OS.MACOS) {
-      String dir = userHome + "/Library/" + macDir + '/' + vendorName;
-      if (!selector.isEmpty()) dir = dir + '/' + selector;
-      if (!macSub.isEmpty()) dir = dir + '/' + macSub;
-      return dir;
+    switch (os) {
+      case Windows: {
+        String dir = env.get(winVar);
+        if (dir == null || dir.isEmpty()) dir = userHome + "\\AppData\\" + (winVar.startsWith("LOCAL") ? "Local" : "Roaming");
+        dir = dir + '\\' + vendorName;
+        if (!selector.isEmpty()) dir = dir + '\\' + selector;
+        if (!winSub.isEmpty()) dir = dir + '\\' + winSub;
+        return dir;
+      }
+      case macOS: {
+        String dir = userHome + "/Library/" + macDir + '/' + vendorName;
+        if (!selector.isEmpty()) dir = dir + '/' + selector;
+        if (!macSub.isEmpty()) dir = dir + '/' + macSub;
+        return dir;
+      }
+      default: {
+        String dir = xdgVar != null ? env.get(xdgVar) : null;
+        if (dir == null || dir.isEmpty()) dir = userHome + '/' + xdgDfl;
+        dir = dir + '/' + vendorName();
+        if (!selector.isEmpty()) dir = dir + '/' + selector;
+        if (!xdgSub.isEmpty()) dir = dir + '/' + xdgSub;
+        return dir;
+      }
     }
-
-    if (os == OS.WINDOWS) {
-      String dir = env.get(winVar);
-      if (dir == null || dir.isEmpty()) dir = userHome + "\\AppData\\" + (winVar.startsWith("LOCAL") ? "Local" : "Roaming");
-      dir = dir + '\\' + vendorName;
-      if (!selector.isEmpty()) dir = dir + '\\' + selector;
-      if (!winSub.isEmpty()) dir = dir + '\\' + winSub;
-      return dir;
-    }
-
-    if (os == OS.LINUX || os == OS.GENERIC_UNIX) {
-      return getUnixPlatformPath(userHome, env, selector, xdgVar, xdgDfl, xdgSub);
-    }
-
-    throw new UnsupportedOperationException("Unsupported OS: " + SystemInfoRt.OS_NAME);
   }
 
-  private static String getUnixPlatformPath(String userHome, Map<String, String> env, String selector, @Nullable String xdgVar, String xdgDfl, String xdgSub) {
-    String dir = xdgVar != null ? env.get(xdgVar) : null;
-    if (dir == null || dir.isEmpty()) dir = userHome + '/' + xdgDfl;
-    dir = dir + '/' + vendorName();
-    if (!selector.isEmpty()) dir = dir + '/' + selector;
-    if (!xdgSub.isEmpty()) dir = dir + '/' + xdgSub;
-    return dir;
-  }
-
-  @NotNull
   private static String vendorName() {
     String property = System.getProperty(PROPERTY_VENDOR_NAME);
     if (property == null) {

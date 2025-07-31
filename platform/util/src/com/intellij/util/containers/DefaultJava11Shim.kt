@@ -1,12 +1,8 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.containers
 
-import com.intellij.util.Java11Shim
 import com.intellij.util.ReflectionUtil
-import java.util.Arrays
-import java.util.Collections
-import java.util.HashMap
-import java.util.HashSet
+import java.util.*
 
 internal class DefaultJava11Shim : Java11Shim() {
   override fun <K : Any, V> copyOf(map: Map<K, V>): Map<K, V> {
@@ -27,10 +23,6 @@ internal class DefaultJava11Shim : Java11Shim() {
 
   override fun <E> copyOf(collection: Collection<E>): Set<E> {
     return Collections.unmodifiableSet(HashSet(collection))
-  }
-
-  override fun <V : Any> createConcurrentLongObjectMap(): ConcurrentLongObjectMap<V> {
-    return ConcurrentLongObjectHashMap()
   }
 
   override fun <K : Any, V> mapOf(): Map<K, V> {

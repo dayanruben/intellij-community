@@ -19,6 +19,7 @@ import com.intellij.platform.searchEverywhere.providers.SeLocalItemDataProvider
 import com.intellij.platform.searchEverywhere.providers.SeLog
 import com.intellij.platform.searchEverywhere.providers.SeLog.ITEM_EMIT
 import com.intellij.platform.searchEverywhere.providers.target.SeTypeVisibilityStatePresentation
+import com.intellij.platform.searchEverywhere.utils.SeResultsCountBalancer
 import com.intellij.platform.searchEverywhere.utils.initAsync
 import fleet.kernel.DurableRef
 import kotlinx.coroutines.*
@@ -40,16 +41,30 @@ class SeTabDelegate(
   private val providers = initAsync(scope) {
     initializeProviders(project, providerIds, initEvent, sessionRef, logLabel)
   }
-  private val providersAndLimits = providerIds.associateWith { Int.MAX_VALUE }
-
   suspend fun getProvidersIdToName(): Map<SeProviderId, @Nls String> = providers.getValue().getProvidersIdToName()
 
   fun getItems(params: SeParams, disabledProviders: List<SeProviderId>? = null): Flow<SeResultEvent> {
-    val accumulator = SeResultsAccumulator(providersAndLimits)
     val disabledProviders = fixDisabledProviders(disabledProviders)
 
     return flow {
+      val initializedProviders = providers.getValue()
+
+      val remoteProviderIds = initializedProviders.getRemoteProviderIds()
+      val allEssentialProviderIds = initializedProviders.essentialProviderIds
+      val localProviders = initializedProviders.getLocalProviderIds().toSet()
+      val localEssentialProviders = allEssentialProviderIds.intersect(localProviders)
+      val localNonEssentialProviders = localProviders.subtract(allEssentialProviderIds)
+
+      // We shouldn't block remoteProviderIds because they may miss some results after equality check on the Backend
+      val balancer = SeResultsCountBalancer("FE",
+                                            nonBlockedProviderIds = remoteProviderIds,
+                                            highPriorityProviderIds = localEssentialProviders,
+                                            lowPriorityProviderIds = localNonEssentialProviders)
+
+      val accumulator = SeResultsAccumulator()
+
       disabledProviders?.forEach {
+        balancer.end(it)
         emit(SeResultEndEvent(it))
       }
 
@@ -57,10 +72,12 @@ class SeTabDelegate(
         when (transferEvent) {
           is SeTransferEnd -> {
             SeLog.log(ITEM_EMIT) { "Tab delegate for ${logLabel} ends: ${transferEvent.providerId.value}" }
+            balancer.end(transferEvent.providerId)
             SeResultEndEvent(transferEvent.providerId)
           }
           is SeTransferItem -> {
             val itemData = transferEvent.itemData
+            balancer.add(itemData)
 
             val checkedItemData = if (equalityChecker != null) {
               equalityChecker.checkAndUpdateIfNeeded(itemData)
@@ -145,6 +162,9 @@ class SeTabDelegate(
       return localProviders.values.flatMap { it.getTypeVisibilityStates(index) ?: emptyList() } +
              (frontendProvidersFacade?.getTypeVisibilityStates(index) ?: emptyList())
     }
+
+    fun getLocalProviderIds(): List<SeProviderId> = localProviders.keys.toList()
+    fun getRemoteProviderIds(): List<SeProviderId> = frontendProvidersFacade?.providerIds ?: emptyList()
 
     fun getItems(params: SeParams, disabledProviders: List<SeProviderId>, mapToResultEvent: suspend (SeEqualityChecker?, SeTransferEvent) -> SeResultEvent?): Flow<SeResultEvent> {
       return channelFlow {

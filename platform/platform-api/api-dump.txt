@@ -483,6 +483,7 @@ com.intellij.openapi.ui.TestDialog
 - sf:OK:com.intellij.openapi.ui.TestDialog
 - sf:YES:com.intellij.openapi.ui.TestDialog
 - a:show(java.lang.String):I
+- show(java.lang.String,com.intellij.openapi.ui.DoNotAskOption):I
 com.intellij.openapi.ui.TestInputDialog
 - sf:DEFAULT:com.intellij.openapi.ui.TestInputDialog
 - sf:OK:com.intellij.openapi.ui.TestInputDialog
@@ -744,6 +745,8 @@ com.intellij.ui.AnActionButtonRunnable
 - com.intellij.util.ParameterizedRunnable
 com.intellij.ui.AnActionButtonUpdater
 - a:isEnabled(com.intellij.openapi.actionSystem.AnActionEvent):Z
+c:com.intellij.ui.CellRendererPanel
+- getAccessibleContext():javax.accessibility.AccessibleContext
 com.intellij.ui.ColorPickerListener
 - a:closed(java.awt.Color):V
 - a:colorChanged(java.awt.Color):V

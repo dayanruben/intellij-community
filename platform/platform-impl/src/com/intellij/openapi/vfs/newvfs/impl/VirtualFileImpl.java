@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -32,6 +32,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.function.Supplier;
 
+@ApiStatus.Internal
 public final class VirtualFileImpl extends VirtualFileSystemEntry {
   VirtualFileImpl(int id, @NotNull VfsData.Segment segment, VirtualDirectoryImpl parent) {
     super(id, segment, parent);
@@ -183,19 +184,19 @@ public final class VirtualFileImpl extends VirtualFileSystemEntry {
 
   @Override
   protected void setUserMap(@NotNull KeyFMap map) {
-    getSegment().setUserMap(myId, map);
+    getSegment().setUserMap(getId(), map);
   }
 
   @ApiStatus.Internal
   @Override
   public @NotNull KeyFMap getUserMap() {
-    return getSegment().getUserMap(this, myId);
+    return getSegment().getUserMap(this, getId());
   }
 
   @Override
   protected boolean changeUserMap(@NotNull KeyFMap oldMap, @NotNull KeyFMap newMap) {
     VirtualDirectoryImpl.checkLeaks(newMap);
-    return getSegment().changeUserMap(myId, oldMap, UserDataInterner.internUserData(newMap));
+    return getSegment().changeUserMap(getId(), oldMap, UserDataInterner.internUserData(newMap));
   }
 
   private void checkNotTooLarge(@Nullable Object requestor) throws FileTooBigException {
