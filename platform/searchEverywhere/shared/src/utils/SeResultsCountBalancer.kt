@@ -5,7 +5,6 @@ import com.intellij.platform.searchEverywhere.SeItemData
 import com.intellij.platform.searchEverywhere.SeProviderId
 import com.intellij.platform.searchEverywhere.providers.SeLog
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
@@ -123,12 +122,16 @@ class RelaxedSemaphore(initialPermits: Int = 0) {
   val availablePermits: Int get() = permitsFlow.value
 
   fun release(permits: Int = 1) {
-    permitsFlow.update { it + permits }
+    permitsFlow.update {
+      // Avoid Int overflow if `makeItFreeToGo` has been called before
+      if (it > Int.MAX_VALUE - permits) Int.MAX_VALUE
+      else  it + permits
+    }
   }
 
   suspend fun acquire() {
     while (true) {
-      val count = permitsFlow.filter { it >= 1 }.first() // Wait until enough permits are available
+      val count = permitsFlow.first { it >= 1 } // Wait until enough permits are available
       if (permitsFlow.compareAndSet(count, count - 1)) return
     }
   }

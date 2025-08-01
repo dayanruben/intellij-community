@@ -6,6 +6,7 @@ com.intellij.codeInsight.editorActions.TextBlockTransferableData
 - getOffsets(I[],I):I
 - getPriority():I
 - setOffsets(I[],I):I
+f:com.intellij.execution.filters.HyperlinkInfoBaseKt
 com.intellij.execution.ui.FragmentWrapper
 - a:getComponentToRegister():javax.swing.JComponent
 com.intellij.featureStatistics.ApplicabilityFilter
@@ -907,6 +908,7 @@ com.intellij.ui.dsl.builder.ButtonsGroup
 - a:visibleIf(com.intellij.ui.layout.ComponentPredicate):com.intellij.ui.dsl.builder.ButtonsGroup
 c:com.intellij.ui.dsl.builder.EmptySpacingConfiguration
 - getHorizontalCommentGap():I
+- getVerticalCommentBottomGap():I
 com.intellij.ui.dsl.builder.HyperlinkEventAction
 - sf:Companion:com.intellij.ui.dsl.builder.HyperlinkEventAction$Companion
 - sf:HTML_HYPERLINK_INSTANCE:com.intellij.ui.dsl.builder.HyperlinkEventAction
@@ -915,6 +917,7 @@ com.intellij.ui.dsl.builder.HyperlinkEventAction
 - hyperlinkExited(javax.swing.event.HyperlinkEvent):V
 c:com.intellij.ui.dsl.builder.IntelliJSpacingConfiguration
 - getHorizontalCommentGap():I
+- getVerticalCommentBottomGap():I
 com.intellij.ui.dsl.builder.MutableProperty
 - a:get():java.lang.Object
 - a:set(java.lang.Object):V
@@ -936,6 +939,7 @@ com.intellij.ui.dsl.builder.SpacingConfiguration
 - a:getHorizontalToggleButtonIndent():I
 - a:getSegmentedButtonHorizontalGap():I
 - a:getSegmentedButtonVerticalGap():I
+- a:getVerticalCommentBottomGap():I
 - a:getVerticalComponentGap():I
 - a:getVerticalMediumGap():I
 - a:getVerticalSmallGap():I
