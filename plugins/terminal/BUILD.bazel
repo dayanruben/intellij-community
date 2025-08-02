@@ -7,12 +7,6 @@ jvm_resources(
   strip_prefix = "resources"
 )
 
-jvm_resources(
-  name = "terminal_test_resources",
-  files = glob(["testResources/**/*"]),
-  strip_prefix = "testResources"
-)
-
 jvm_library(
   name = "terminal",
   module_name = "intellij.terminal",
@@ -75,7 +69,7 @@ jvm_library(
 jvm_library(
   name = "terminal_test_lib",
   visibility = ["//visibility:public"],
-  srcs = glob(["tests/**/*.kt", "tests/**/*.java"], allow_empty = True),
+  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
   associates = [":terminal"],
   deps = [
     "//platform/analysis-api:analysis",
@@ -95,13 +89,9 @@ jvm_library(
     "//platform/remote-core",
     "//platform/remote-servers/api:remoteServers",
     "//platform/remote-servers/impl",
-    "@lib//:junit4",
-    "//platform/testFramework",
-    "//platform/testFramework:testFramework_test_lib",
     "@lib//:jediterm-core",
     "@lib//:jediterm-ui",
     "//platform/execution-impl",
-    "//platform/configuration-store-impl:configurationStore-tests_test_lib",
     "@lib//:winp",
     "//platform/statistics",
     "//platform/statistics:statistics_test_lib",
@@ -130,17 +120,14 @@ jvm_library(
     "@lib//:opentelemetry-semconv-provided",
     "@lib//:opentelemetry-extension-kotlin-provided",
     "//platform/platform-impl/ui",
-    "@lib//:assert_j",
     "//platform/kernel/shared:kernel",
     "//platform/project/shared:project",
     "//platform/eel",
     "//platform/eel-provider",
     "//platform/util/jdom",
+    "@lib//:junit4",
   ],
-  runtime_deps = [
-    ":terminal_resources",
-    ":terminal_test_resources",
-  ]
+  runtime_deps = [":terminal_resources"]
 )
 ### auto-generated section `build intellij.terminal` end
 

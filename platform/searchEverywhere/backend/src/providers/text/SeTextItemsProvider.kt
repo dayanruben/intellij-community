@@ -57,6 +57,10 @@ class SeTextItemsProvider(project: Project, private val contributorWrapper: SeAs
     applyScope(scopeToApply)
     findModel.fileFilter = textFilter.selectedType
 
+    findModel.isCaseSensitive = SeTextFilter.isCaseSensitive(params.filter) ?: false
+    findModel.isWholeWordsOnly = SeTextFilter.isWholeWordsOnly(params.filter) ?: false
+    findModel.isRegularExpressions = SeTextFilter.isRegularExpressions(params.filter) ?: false
+
     coroutineToIndicator {
       val indicator = DelegatingProgressIndicator(ProgressManager.getGlobalProgressIndicator())
 

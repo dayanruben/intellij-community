@@ -4864,7 +4864,6 @@ c:com.intellij.ide.wizard.AbstractWizardEx
 - p:dispose():V
 - p:doNextAction():V
 - p:doPreviousAction():V
-- p:getHelpID():java.lang.String
 - p:getNextStep(I):I
 - p:getPreviousStep(I):I
 - p:isLastStep():Z
@@ -8292,10 +8291,6 @@ f:com.intellij.openapi.keymap.impl.ModifierKeyDoubleClickHandler$MyAnActionListe
 - com.intellij.openapi.actionSystem.ex.AnActionListener
 - <init>():V
 - beforeActionPerformed(com.intellij.openapi.actionSystem.AnAction,com.intellij.openapi.actionSystem.AnActionEvent):V
-f:com.intellij.openapi.keymap.impl.ModifierKeyDoubleClickHandler$MyEventDispatcher
-- com.intellij.ide.IdeEventQueue$EventDispatcher
-- <init>():V
-- dispatch(java.awt.AWTEvent):Z
 f:com.intellij.openapi.keymap.impl.ShortcutRestrictions
 - sf:NO_RESTRICTIONS:com.intellij.openapi.keymap.impl.ShortcutRestrictions
 - f:allowAbbreviation:Z
@@ -10080,7 +10075,6 @@ f:com.intellij.openapi.wm.impl.IdeFocusManagerImpl
 - toFront(javax.swing.JComponent):V
 f:com.intellij.openapi.wm.impl.IdeGlassPaneImpl
 - javax.swing.JComponent
-- com.intellij.ide.IdeEventQueue$EventDispatcher
 - com.intellij.openapi.wm.impl.IdeGlassPaneEx
 - sf:Companion:com.intellij.openapi.wm.impl.IdeGlassPaneImpl$Companion
 - <init>(javax.swing.JRootPane):V

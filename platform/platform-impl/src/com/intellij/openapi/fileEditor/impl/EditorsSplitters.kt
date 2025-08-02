@@ -262,6 +262,17 @@ open class EditorsSplitters internal constructor(
     }
   }
 
+  internal var borderPainter: BorderPainter = DefaultBorderPainter()
+
+  override fun paintChildren(g: Graphics) {
+    super.paintChildren(g)
+    borderPainter.paintAfterChildren(this, g)
+  }
+
+  override fun isPaintingOrigin(): Boolean {
+    return borderPainter.isPaintingOrigin(this)
+  }
+
   fun writeExternal(element: Element) {
     writeExternal(element = element, delayedStates = emptyMap())
   }
@@ -477,7 +488,7 @@ open class EditorsSplitters internal constructor(
     val frame = getFrame() ?: return
     val file = currentCompositeFlow.value?.file
     if (file == null) {
-      withContext(Dispatchers.EDT) {
+      withContext(Dispatchers.UiWithModelAccess) {
         frame.setFileTitle(null, null)
       }
     }
@@ -489,7 +500,7 @@ open class EditorsSplitters internal constructor(
       catch (ignored: InvalidPathException) {
         null
       }
-      withContext(Dispatchers.EDT) {
+      withContext(Dispatchers.UiWithModelAccess) {
         frame.setFileTitle(title, ioFile)
       }
     }

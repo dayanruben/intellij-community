@@ -4,8 +4,10 @@
     <applicationSettings service="com.intellij.debugger.settings.DebuggerSettings"/>
     <xdebugger.hotSwapUiExtension implementation="com.intellij.debugger.impl.hotswap.JvmHotSwapUiExtension"/>
     <rdct.remoteSettingProvider implementation="com.intellij.debugger.settings.JavaDebuggerSettingsProvider"/>
-    <xdebugger.xValueCustomDescriptorSerializerProvider
+    <xdebugger.customXDescriptorSerializerProvider
       implementation="com.intellij.java.debugger.impl.shared.engine.JavaValueDescriptorSerializerProvider"/>
+    <xdebugger.customXDescriptorSerializerProvider
+      implementation="com.intellij.java.debugger.impl.shared.engine.JavaExecutionStackDescriptorSerializerProvider"/>
     <postStartupActivity implementation="com.intellij.java.debugger.impl.shared.SharedDebuggerInitializationProjectActivity"/>
     <registryKey defaultValue="1000"
                  description="Maximum number of dump items that can be serialized to pass to the frontend"
@@ -19,6 +21,15 @@
     <action id="DumpThreads" class="com.intellij.java.debugger.impl.shared.actions.ThreadDumpAction" icon="AllIcons.Actions.Dump">
       <add-to-group group-id="DebuggingActionsGroup" anchor="last"/>
       <add-to-group group-id="XDebugger.ToolWindow.TopToolbar3.Extra"/>
+    </action>
+    <action id="Debugger.XThreadsView.ResumeThread" class="com.intellij.java.debugger.impl.shared.actions.ResumeThreadAction">
+      <add-to-group group-id="XDebugger.Threads.View.Popup"/>
+    </action>
+    <action id="Debugger.XThreadsView.FreezeThread" class="com.intellij.java.debugger.impl.shared.actions.FreezeThreadAction">
+      <add-to-group group-id="XDebugger.Threads.View.Popup"/>
+    </action>
+    <action id="Debugger.XThreadsView.InterruptThread" class="com.intellij.java.debugger.impl.shared.actions.InterruptThreadAction">
+      <add-to-group group-id="XDebugger.Threads.View.Popup"/>
     </action>
     <action class="com.intellij.debugger.memory.action.ShowInstancesByClassAction"
             id="MemoryView.ShowInstancesFromDebuggerTree">

@@ -16,13 +16,15 @@ import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
 import com.intellij.java.JavaBundle
 import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModCommandExecutor
+import com.intellij.modcommand.PsiUpdateModCommandAction
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.psi.*
 import com.intellij.psi.util.TypeConversionUtil
 import com.intellij.psi.util.parentOfType
 import org.jetbrains.annotations.Nls
 
-public class JavaGenerateConstructorCompletionCommandProvider : CommandProvider {
+internal class JavaGenerateConstructorCompletionCommandProvider : CommandProvider {
   private fun findContext(context: CommandCompletionProviderContext): PsiClass? {
     val element = getCommandContext(context.offset, context.psiFile) ?: return null
     val containingClass = element.parentOfType<PsiClass>() ?: return null
@@ -36,23 +38,10 @@ public class JavaGenerateConstructorCompletionCommandProvider : CommandProvider 
     val clazz = findContext(context) ?: return emptyList()
     val result = mutableListOf<CompletionCommand>()
     if (clazz.constructors.none { it.parameters.isEmpty() }) {
-      result.add(object : CompletionCommand() {
-        private val fix = AddDefaultConstructorFix(clazz, PsiModifier.PUBLIC)
-
-        override val presentableName: @Nls String
-          get() = CodeInsightBundle.message("command.completion.generate.text", JavaBundle.message("command.completion.generate.no.args.constructor.text"))
-
-        override fun execute(offset: Int, psiFile: PsiFile, editor: Editor?) {
-          val actionContext = ActionContext.from(editor, psiFile)
-          ModCommandExecutor.executeInteractively(actionContext, presentableName, editor) {
-            fix.perform(actionContext)
-          }
-        }
-
-        override fun getPreview(): IntentionPreviewInfo {
-          val actionContext = ActionContext.from(context.editor, context.psiFile)
-          return fix.generatePreview(actionContext)
-        }
+      val fix = AddDefaultConstructorFix(clazz, PsiModifier.PUBLIC)
+      result.add(GenerateConstructorCompletionCommand(fix, CodeInsightBundle.message("command.completion.generate.text", JavaBundle.message("command.completion.generate.no.args.constructor.text"))) {
+        val actionContext = ActionContext.from(context.editor, context.psiFile)
+        return@GenerateConstructorCompletionCommand fix.generatePreview(actionContext)
       })
     }
 
@@ -86,23 +75,11 @@ public class JavaGenerateConstructorCompletionCommandProvider : CommandProvider 
       if (prototypes.size == 1) {
         val generationInfo = prototypes[0]
         val text = (generationInfo?.psiMember as? PsiMethod)?.text ?: return result
-        result.add(object : CompletionCommand() {
-          private val fix = AddMethodFix(text, clazz)
+        val fix = AddMethodFix(text, clazz)
 
-          override val presentableName: @Nls String
-            get() = CodeInsightBundle.message("command.completion.generate.text", JavaBundle.message("command.completion.generate.all.args.constructor.text"))
-
-          override fun execute(offset: Int, psiFile: PsiFile, editor: Editor?) {
-            val actionContext = ActionContext.from(editor, psiFile)
-            ModCommandExecutor.executeInteractively(actionContext, presentableName, editor) {
-              fix.perform(actionContext)
-            }
-          }
-
-          override fun getPreview(): IntentionPreviewInfo {
-            val actionContext = ActionContext.from(context.editor, context.psiFile)
-            return fix.generatePreview(actionContext)
-          }
+        result.add(GenerateConstructorCompletionCommand(fix, CodeInsightBundle.message("command.completion.generate.text", JavaBundle.message("command.completion.generate.all.args.constructor.text"))) {
+          val actionContext = ActionContext.from(context.editor, context.psiFile)
+          return@GenerateConstructorCompletionCommand fix.generatePreview(actionContext)
         })
       }
     }
@@ -121,6 +98,33 @@ public class JavaGenerateConstructorCompletionCommandProvider : CommandProvider 
     val targetSize = members.size + method.parameters.size
     return clazz.constructors.none {
       it.parameters.size == targetSize
+    }
+  }
+
+  class GenerateConstructorCompletionCommand(
+    val fix: PsiUpdateModCommandAction<*>,
+    @param:Nls override val presentableName: String,
+    val preview: () -> IntentionPreviewInfo?,
+  ) : CompletionCommand() {
+
+    override val additionalInfo: String?
+      get() {
+        val shortcutText = KeymapUtil.getFirstKeyboardShortcutText("Generate")
+        if (shortcutText.isNotEmpty()) {
+          return shortcutText
+        }
+        return null
+      }
+
+    override fun execute(offset: Int, psiFile: PsiFile, editor: Editor?) {
+      val actionContext = ActionContext.from(editor, psiFile)
+      ModCommandExecutor.executeInteractively(actionContext, presentableName, editor) {
+        fix.perform(actionContext)
+      }
+    }
+
+    override fun getPreview(): IntentionPreviewInfo {
+      return preview() ?: IntentionPreviewInfo.EMPTY
     }
   }
 }

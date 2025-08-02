@@ -138,8 +138,14 @@ com.intellij.ide.CommandLineInspectionProjectConfigurator$ConfiguratorContext
 - a:getProgressIndicator():com.intellij.openapi.progress.ProgressIndicator
 - a:getProjectPath():java.nio.file.Path
 - getVirtualFilesFilter():java.util.function.Predicate
+f:com.intellij.ide.IdeEventQueue
+- f:addDispatcher(com.intellij.ide.IdeEventQueue$NonLockedEventDispatcher,com.intellij.openapi.Disposable):V
+- f:addDispatcher(com.intellij.ide.IdeEventQueue$NonLockedEventDispatcher,kotlinx.coroutines.CoroutineScope):V
+- f:removeDispatcher(com.intellij.ide.IdeEventQueue$NonLockedEventDispatcher):V
 com.intellij.ide.IdeEventQueue$EventDispatcher
 - a:dispatch(java.awt.AWTEvent):Z
+com.intellij.ide.IdeEventQueue$NonLockedEventDispatcher
+- com.intellij.ide.IdeEventQueue$EventDispatcher
 com.intellij.ide.IdeTooltip$Ui
 - a:getShowingPoint():com.intellij.ui.awt.RelativePoint
 - a:isInside(com.intellij.ui.awt.RelativePoint):Z
@@ -327,6 +333,8 @@ com.intellij.ide.vcs.RecentProjectsBranchesProvider
 - a:getCurrentBranch(java.lang.String,Z):java.lang.String
 f:com.intellij.ide.vcs.RecentProjectsBranchesProvider$Companion
 - f:getCurrentBranch(java.lang.String,Z):java.lang.String
+c:com.intellij.ide.wizard.AbstractWizardEx
+- p:getHelpId():java.lang.String
 com.intellij.ide.wizard.BuildSystemNewProjectWizardData
 - com.intellij.ide.wizard.LanguageNewProjectWizardData
 - a:getBuildSystem():java.lang.String
@@ -634,6 +642,9 @@ com.intellij.openapi.fileEditor.impl.EditorFileSwapper
 - a:getFileToSwapTo(com.intellij.openapi.project.Project,com.intellij.openapi.fileEditor.impl.EditorComposite):kotlin.Pair
 com.intellij.openapi.fileEditor.impl.EditorWindowHolder
 - a:getEditorWindow():com.intellij.openapi.fileEditor.impl.EditorWindow
+c:com.intellij.openapi.fileEditor.impl.EditorsSplitters
+- p:isPaintingOrigin():Z
+- p:paintChildren(java.awt.Graphics):V
 com.intellij.openapi.fileEditor.impl.HTMLEditorProvider$JsQueryHandler
 - a:query(J,java.lang.String,kotlin.coroutines.Continuation):java.lang.Object
 com.intellij.openapi.fileEditor.impl.text.CodeFoldingState
@@ -744,6 +755,7 @@ com.intellij.openapi.wm.impl.IdeGlassPaneEx
 - a:isInModalContext():Z
 - a:remove(java.awt.Component):V
 f:com.intellij.openapi.wm.impl.IdeGlassPaneImpl
+- com.intellij.ide.IdeEventQueue$NonLockedEventDispatcher
 - isColorfulToolbar():Z
 com.intellij.openapi.wm.impl.TitleInfoProvider
 - sf:Companion:com.intellij.openapi.wm.impl.TitleInfoProvider$Companion

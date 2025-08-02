@@ -12,6 +12,7 @@ import com.intellij.lang.Language
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -177,12 +178,13 @@ class SeTabVm(
   }
 
   suspend fun openInFindWindow(sessionRef: DurableRef<SeSessionEntity>, initEvent: AnActionEvent): Boolean {
-    val params = SeParams(searchPattern.value, (filterEditor.getValue()?.resultFlow?.value ?: SeFilterState.Empty))
+    val params = SeParams(searchPattern.value,
+                          (filterEditor.getValue()?.resultFlow?.value ?: SeFilterState.Empty))
     return tab.openInFindToolWindow(sessionRef, params, initEvent)
   }
 
   suspend fun getSearchEverywhereToggleAction(): SearchEverywhereToggleAction? {
-    return tab.getFilterEditor()?.getActions()?.firstOrNull {
+    return tab.getFilterEditor()?.getHeaderActions()?.firstOrNull {
       it is SearchEverywhereToggleAction
     } as? SearchEverywhereToggleAction
   }
@@ -190,25 +192,53 @@ class SeTabVm(
 
 private const val ESSENTIALS_WAITING_TIMEOUT: Long = 2000
 private const val ESSENTIALS_THROTTLE_DELAY: Long = 100
+private const val ESSENTIALS_ENOUGH_COUNT: Int = 15
+private const val FAST_PASS_THROTTLE: Long = 100
 
 private fun Flow<SeResultEvent>.throttleUntilEssentialsArrive(essentialProviderIds: Set<SeProviderId>): Flow<ThrottledItems<SeResultEvent>> {
-  val nonArrivedEssentialProviders = essentialProviderIds.toMutableSet()
+  val essentialProvidersCounts = essentialProviderIds.associateWith { 0 }.toMutableMap()
 
   SeLog.log(SeLog.THROTTLING) { "Will start throttle with essential providers: $essentialProviderIds"}
-  return throttledWithAccumulation(ESSENTIALS_WAITING_TIMEOUT, { it !is SeResultEndEvent }) { event, size ->
-    val idToRemove = when (event) {
-      is SeResultAddedEvent -> event.itemData.providerId
-      is SeResultReplacedEvent -> event.newItemData.providerId
-      is SeResultEndEvent -> event.providerId
+
+  return throttledWithAccumulation(
+    resultThrottlingMs = ESSENTIALS_WAITING_TIMEOUT,
+    shouldPassItem = { it !is SeResultEndEvent },
+    fastPassThrottlingMs = FAST_PASS_THROTTLE,
+    shouldFastPassItem = { it.providerId().shouldIgnoreThrottling() }
+  ) { event: SeResultEvent, _: Int ->
+    val providerId = event.providerId()
+
+    when (event) {
+      is SeResultEndEvent -> {
+        if (essentialProvidersCounts.remove(providerId) != null) {
+          SeLog.log(SeLog.THROTTLING) { "Ended: $providerId" }
+        }
+      }
+      else -> {
+        essentialProvidersCounts[providerId]?.let {
+          SeLog.log(SeLog.THROTTLING) { "Arrived: $providerId ($it)" }
+          essentialProvidersCounts[providerId] = it + 1
+        }
+      }
     }
 
-    if (nonArrivedEssentialProviders.remove(idToRemove)) {
-      SeLog.log(SeLog.THROTTLING) { "Arrived: $idToRemove" }
-    }
-
-    return@throttledWithAccumulation if (nonArrivedEssentialProviders.isEmpty()) ESSENTIALS_THROTTLE_DELAY else null
+    return@throttledWithAccumulation (
+      if (essentialProvidersCounts.isEmpty()) 0
+      else if (essentialProvidersCounts.values.all { it >= ESSENTIALS_ENOUGH_COUNT }) 0
+      else if (essentialProvidersCounts.values.all { it > 0 }) ESSENTIALS_THROTTLE_DELAY
+      else null
+    )
   }
 }
+
+private fun SeResultEvent.providerId() = when (this) {
+  is SeResultAddedEvent -> itemData.providerId
+  is SeResultReplacedEvent -> newItemData.providerId
+  is SeResultEndEvent -> providerId
+}
+
+private fun SeProviderId.shouldIgnoreThrottling(): Boolean =
+  AdvancedSettings.getBoolean("search.everywhere.recent.at.top") && (this.value == SeProviderIdUtils.RECENT_FILES_ID)
 
 @ApiStatus.Internal
 class SeSearchContext(val searchId: String, val tabId: String, val searchPattern: String, val resultsFlow: Flow<ThrottledItems<SeResultEvent>>)

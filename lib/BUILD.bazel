@@ -1529,6 +1529,41 @@ jvm_import(
 )
 
 jvm_import(
+  name = "fleet-io-ktor-http",
+  jar = "@ktor-http-jvm-3_1_3_http//file",
+  source_jar = "@ktor-http-jvm-3_1_3-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "fleet-io-ktor-io",
+  jar = "@ktor-io-jvm-3_1_3_http//file",
+  source_jar = "@ktor-io-jvm-3_1_3-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "fleet-io-ktor-network",
+  jar = "@ktor-network-jvm-3_1_3_http//file",
+  source_jar = "@ktor-network-jvm-3_1_3-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "fleet-io-ktor-network-tls",
+  jar = "@ktor-network-tls-jvm-3_1_3_http//file",
+  source_jar = "@ktor-network-tls-jvm-3_1_3-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "fleet-io-ktor-utils",
+  jar = "@ktor-utils-jvm-3_1_3_http//file",
+  source_jar = "@ktor-utils-jvm-3_1_3-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
   name = "git-learning-project",
   jar = "@git-learning-project-212_0_2_http//file",
   visibility = ["//visibility:public"]
@@ -2212,41 +2247,6 @@ jvm_import(
   visibility = ["//visibility:public"]
 )
 
-jvm_import(
-  name = "io-ktor-http",
-  jar = "@ktor-http-jvm-3_1_3_http//file",
-  source_jar = "@ktor-http-jvm-3_1_3-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "io-ktor-io",
-  jar = "@ktor-io-jvm-3_1_3_http//file",
-  source_jar = "@ktor-io-jvm-3_1_3-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "io-ktor-network",
-  jar = "@ktor-network-jvm-3_1_3_http//file",
-  source_jar = "@ktor-network-jvm-3_1_3-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "io-ktor-network-tls",
-  jar = "@ktor-network-tls-jvm-3_1_3_http//file",
-  source_jar = "@ktor-network-tls-jvm-3_1_3-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "io-ktor-utils",
-  jar = "@ktor-utils-jvm-3_1_3_http//file",
-  source_jar = "@ktor-utils-jvm-3_1_3-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
 java_library(
   name = "io-mockk",
   exports = [
@@ -2440,6 +2440,13 @@ jvm_import(
   name = "jackson-jr-objects",
   jar = "@jackson-jr-objects-2_19_0_http//file",
   source_jar = "@jackson-jr-objects-2_19_0-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "jackson-jr-objects-provided",
+  exports = [":jackson-jr-objects"],
+  neverlink = True,
   visibility = ["//visibility:public"]
 )
 
