@@ -908,7 +908,7 @@ object MavenUtil {
 
 
     if (list.size > 1) {
-      list.sortWith(Comparator.comparing<Path?, String?>(java.util.function.Function { obj: Path? -> obj.toString() }))
+      list.sortBy { obj: Path? -> obj.toString() }
     }
 
     val file = brewDir?.resolve(list.get(0).toString() + "/libexec")
@@ -1735,7 +1735,7 @@ object MavenUtil {
     val mavenProjectsManager = MavenProjectsManager.getInstance(project)
     if (mavenProjectsManager.findProject(file) != null) return true
 
-    return ReadAction.compute<Boolean?, RuntimeException?>(ThrowableComputable {
+    return ReadAction.compute<Boolean, RuntimeException>(ThrowableComputable {
       if (project.isDisposed()) return@ThrowableComputable false
       val psiFile = PsiManager.getInstance(project).findFile(file)
       if (psiFile == null) return@ThrowableComputable false

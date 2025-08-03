@@ -21,14 +21,17 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.getOrNull
-import com.jetbrains.python.packaging.*
+import com.jetbrains.python.packaging.PyPackageService
+import com.jetbrains.python.packaging.PyPackageVersionNormalizer
 import com.jetbrains.python.packaging.cache.PythonSimpleRepositoryCache
 import com.jetbrains.python.packaging.common.*
 import com.jetbrains.python.packaging.conda.CondaPackage
 import com.jetbrains.python.packaging.management.*
 import com.jetbrains.python.packaging.management.ui.PythonPackageManagerUI
+import com.jetbrains.python.packaging.normalizePackageName
 import com.jetbrains.python.packaging.packageRequirements.PackageNode
 import com.jetbrains.python.packaging.packageRequirements.PythonPackageRequirementsTreeExtractor
+import com.jetbrains.python.packaging.pyRequirement
 import com.jetbrains.python.packaging.repository.*
 import com.jetbrains.python.packaging.statistics.PythonPackagesToolwindowStatisticsCollector
 import com.jetbrains.python.packaging.toolwindow.model.*
@@ -58,7 +61,6 @@ class PyPackagingToolWindowService(val project: Project, val serviceScope: Corou
   fun initialize(toolWindowPanel: PyPackagingToolWindowPanel) {
     this.toolWindowPanel = toolWindowPanel
     serviceScope.launch(Dispatchers.IO) {
-      service<PyPIPackageRanking>().reload()
       initForSdk(project.modules.firstOrNull()?.pythonSdk)
     }
     subscribeToChanges()
@@ -89,7 +91,8 @@ class PyPackagingToolWindowService(val project: Project, val serviceScope: Corou
 
     return if (shouldUseStraightComparison) {
       StringUtil.containsIgnoreCase(pkg.name, query)
-    } else {
+    }
+    else {
       StringUtil.containsIgnoreCase(normalizePackageName(pkg.name), normalizePackageName(query))
     }
   }
@@ -165,8 +168,20 @@ class PyPackagingToolWindowService(val project: Project, val serviceScope: Corou
     }
     else {
       val packagesByRepository = manager.repositoryManager.packagesByRepository().map { (repository, packages) ->
-        val shownPackages = packages.asSequence().limitResultAndFilterOutInstalled(repository)
-        PyPackagesViewData(repository, shownPackages, moreItems = packages.size - PACKAGES_LIMIT)
+        val shownPackages = if (packages.size < PACKAGES_LIMIT) {
+          packages.asSequence().limitResultAndFilterOutInstalled(repository)
+        }
+        else {
+          emptyList()
+        }
+
+        val moreItems = if (packages.size < PACKAGES_LIMIT) {
+          0
+        }
+        else {
+          packages.size
+        }
+        PyPackagesViewData(repository, shownPackages, moreItems = moreItems)
       }.toList()
 
       toolWindowPanel?.resetSearch(installedPackages.values.toList(), packagesByRepository + invalidRepositories, currentSdk)
@@ -471,20 +486,6 @@ class PyPackagingToolWindowService(val project: Project, val serviceScope: Corou
           name1.startsWith(queryLowerCase) -> -1
           name2.startsWith(queryLowerCase) -> 1
           else -> name1.compareTo(name2)
-        }
-      }
-
-      if (PyPIPackageUtil.isPyPIRepository(url)) {
-        val ranking = service<PyPIPackageRanking>().packageRank
-        return Comparator { p1, p2 ->
-          val rank1 = ranking[p1.lowercase()]
-          val rank2 = ranking[p2.lowercase()]
-          return@Comparator when {
-            rank1 != null && rank2 == null -> -1
-            rank1 == null && rank2 != null -> 1
-            rank1 != null && rank2 != null -> rank2 - rank1
-            else -> nameComparator.compare(p1, p2)
-          }
         }
       }
 
