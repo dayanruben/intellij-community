@@ -14,16 +14,18 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.zip.*;
+import java.util.zip.CRC32;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 
 import static com.intellij.tools.build.bazel.jvmIncBuilder.ZipOutputBuilder.*;
 import static org.jetbrains.jps.util.Iterators.*;
 
 public class ZipOutputBuilderImpl implements ZipOutputBuilder {
-  private static final FileTime ZERO_TIME = FileTime.from(0L, TimeUnit.MILLISECONDS);
+  private static final long ZERO_TIME = Instant.parse("1980-01-01T00:00:00.000Z").toEpochMilli();
 
   private final Map<String, EntryData> myEntries = new TreeMap<>();
   private final Map<String, ZipEntry> myExistingDirectories = new HashMap<>();
@@ -276,7 +278,7 @@ public class ZipOutputBuilderImpl implements ZipOutputBuilder {
 
   private EntryData createEntryData(String entryName, byte[] content) {
     return new EntryData() {
-      private final ZipEntry entry = createZipEntry(entryName, content);
+      private ZipEntry entry;
       @Override
       public byte[] getContent() {
         return content;
@@ -284,15 +286,15 @@ public class ZipOutputBuilderImpl implements ZipOutputBuilder {
 
       @Override
       public ZipEntry getZipEntry() {
-          return entry;
+        return entry != null? entry : (entry = createZipEntry(entryName, content));
       }
     };
   }
 
   private EntryData createEntryData(Map<String, byte[]> swap, String entryName, byte[] content) {
     swap.put(entryName, content);
-    ZipEntry entry = createZipEntry(entryName, content);
     return new CachingDataEntry(content) {
+      private ZipEntry entry;
       @Override
       protected byte[] loadData() {
         return swap.get(entryName);
@@ -300,12 +302,19 @@ public class ZipOutputBuilderImpl implements ZipOutputBuilder {
 
       @Override
       public ZipEntry getZipEntry() {
-          return entry;
+        try {
+          return entry != null? entry : (entry = createZipEntry(entryName, getContent()));
+        }
+        catch (IOException e) {
+          // should not happen, since loadData() in this implementation won't throw anything
+          throw new RuntimeException();
+        }
       }
 
       @Override
       public void cleanup() {
         super.cleanup();
+        entry = null;
         swap.remove(entryName);
       }
     };
@@ -320,9 +329,7 @@ public class ZipOutputBuilderImpl implements ZipOutputBuilder {
     entry.setCrc(myCrc.getValue());
     
     // ensure zip content is not considered 'changed' because of changed timestamps
-    entry.setCreationTime(ZERO_TIME);
-    entry.setLastModifiedTime(ZERO_TIME);
-    entry.setLastAccessTime(ZERO_TIME);
+    entry.setTime(ZERO_TIME);
     return entry;
   }
 

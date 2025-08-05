@@ -761,6 +761,7 @@ object K2UnusedSymbolUtil {
     ): Boolean {
         if (declaration.hasKotlinAdditionalAnnotation()) return true
         val lightElement: PsiElement = when (declaration) {
+            is KtEnumEntry -> LightClassUtil.getLightClassBackingField(declaration)
             is KtClass -> {
                 if (declaration.declarations.any { it.hasKotlinAdditionalAnnotation() }) return true
                 declaration.toLightClass()
@@ -791,6 +792,12 @@ object K2UnusedSymbolUtil {
                         if (isJavaEntryPoint.isEntryPoint(javaParameterPsi)) {
                             return true
                         }
+                    }
+                }
+                if (declaration is KtProperty) {
+                    val javaFieldPsi = LightClassUtil.getLightClassBackingField(declaration)
+                    if (javaFieldPsi != null && isJavaEntryPoint.isEntryPoint(javaFieldPsi)) {
+                        return true
                     }
                 }
                 // can't rely on a light element, check annotation ourselves

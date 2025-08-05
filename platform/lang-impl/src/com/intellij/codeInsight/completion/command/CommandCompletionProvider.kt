@@ -2,6 +2,8 @@
 package com.intellij.codeInsight.completion.command
 
 import com.intellij.codeInsight.completion.*
+import com.intellij.codeInsight.completion.command.commands.DirectIntentionCommandProvider
+import com.intellij.codeInsight.completion.command.commands.HighlightCommandSkipper
 import com.intellij.codeInsight.completion.command.configuration.ApplicationCommandCompletionService
 import com.intellij.codeInsight.completion.impl.CamelHumpMatcher
 import com.intellij.codeInsight.completion.ml.MLWeigherUtil
@@ -174,9 +176,11 @@ internal class CommandCompletionProvider : CompletionProvider<CompletionParamete
         it
       }
     }
+    val synonyms = command.synonyms.toMutableList()
+    synonyms.add(lookupString)
+    synonyms.addAll(generateSynonyms(synonyms))
     val element: LookupElement = CommandCompletionLookupElement(LookupElementBuilder.create(lookupString)
-                                                                  .withLookupString(lookupString)
-                                                                  .withLookupStrings(command.synonyms)
+                                                                  .withLookupStrings(synonyms)
                                                                   .withPresentableText(lookupString)
                                                                   .withTypeText(tailText)
                                                                   .withIcon(command.icon ?: IntentionBulbGrey)
@@ -191,6 +195,17 @@ internal class CommandCompletionProvider : CompletionProvider<CompletionParamete
                                                                 command.customPrefixMatcher(prefix) == null)
     val priority = command.priority
     return PrioritizedLookupElement.withPriority(element, priority?.let { it.toDouble() - 100.0 } ?: -150.0)
+  }
+
+  private fun generateSynonyms(synonyms: MutableList<String>): Collection<String> {
+    val result = mutableSetOf<String>()
+    for (string in synonyms) {
+      val newString = string.trim().filter { it !in setOf('\'', '"', '_', "-") }
+      if (newString != string) {
+        result.add(newString)
+      }
+    }
+    return result
   }
 
   private fun createSorter(completionParameters: CompletionParameters): CompletionSorter {
@@ -224,7 +239,11 @@ internal class CommandCompletionProvider : CompletionProvider<CompletionParamete
   ) {
     val element = copyFile.findElementAt(offset - 1) ?: return
     if (!ApplicationCommandCompletionService.getInstance().commandCompletionEnabled()) return
-    for (provider in commandCompletionFactory.commandProviders(project, element.language)) {
+    val commandProviders = commandCompletionFactory.commandProviders(project, element.language)
+    val highlightCommandProvider = commandProviders.filterIsInstance<DirectIntentionCommandProvider>().firstOrNull()
+    val highlightCommandSkippers = commandProviders.filter { it is HighlightCommandSkipper }.toSet()
+    highlightCommandProvider?.setSkippers(highlightCommandSkippers)
+    for (provider in commandProviders.filter { it !is HighlightCommandSkipper }) {
       try {
         if (isReadOnly && !provider.supportsReadOnly()) continue
         copyEditor.caretModel.moveToOffset(offset)

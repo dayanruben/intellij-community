@@ -14,7 +14,6 @@ import ai.grazie.spell.dictionary.RuleDictionary
 import ai.grazie.spell.dictionary.rule.IgnoreRuleDictionary
 import ai.grazie.spell.language.LanguageModel
 import ai.grazie.spell.suggestion.filter.feature.RadiusSuggestionFilter
-import ai.grazie.spell.suggestion.ranker.*
 import ai.grazie.utils.mpp.Resources
 import com.github.benmanes.caffeine.cache.Caffeine
 import com.intellij.openapi.Disposable
@@ -38,6 +37,7 @@ import com.intellij.spellchecker.grazie.dictionary.ExtendedWordListWithFrequency
 import com.intellij.spellchecker.grazie.dictionary.WordListAdapter
 import com.intellij.spellchecker.grazie.ranker.DiacriticSuggestionRanker
 import com.intellij.spellchecker.hunspell.HunspellDictionary
+import com.intellij.spellchecker.inspections.IdentifierSplitter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
@@ -138,7 +138,7 @@ class GrazieSpellCheckerEngine(
 
   override fun isDictionaryLoad(name: String): Boolean = adapter.containsSource(name)
 
-  override fun getDictionaryNames(): Set<String> = adapter.names
+  override fun getDictionaryNames(): Set<String> = adapter.dictionaryNames
 
   override fun loadDictionary(loader: Loader) {
     this.loader.loadWordList(loader, adapter::addList)

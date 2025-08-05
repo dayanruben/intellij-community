@@ -14,8 +14,10 @@ import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiModificationTracker
-import com.intellij.psi.util.PsiTreeUtil
 import com.siyeh.ig.junit.JUnitCommonClassNames.*
+import org.jetbrains.uast.UAnnotation
+import org.jetbrains.uast.getParentOfType
+import org.jetbrains.uast.toUElement
 
 private fun parameterIsUsedByParameterizedTest(parameter: PsiParameter): Boolean {
   val declarationScope = parameter.declarationScope
@@ -48,10 +50,9 @@ private fun enumReferenceIsUsedByParameterizedTest(element: PsiEnumConstant): Bo
     val useScope = psiClass.useScope
     if (!isCheapEnough(psiClass, className, useScope)) return false
     return ReferencesSearch.search(psiClass, useScope, false).anyMatch { reference ->
-      val referenceElement = reference.element
-      val annotation = PsiTreeUtil.getParentOfType(referenceElement, PsiAnnotation::class.java, true, PsiStatement::class.java, PsiMember::class.java)
-                       ?: return@anyMatch false
-      annotation.qualifiedName == ORG_JUNIT_JUPITER_PARAMS_PROVIDER_ENUM_SOURCE && annotation.attributes.size == 1
+      val referenceElement = reference.element.toUElement() ?: return@anyMatch false
+      val annotation = referenceElement.getParentOfType<UAnnotation>() ?: return@anyMatch false
+      annotation.qualifiedName == ORG_JUNIT_JUPITER_PARAMS_PROVIDER_ENUM_SOURCE && annotation.attributeValues.size == 1
     }
   }
 
@@ -73,10 +74,10 @@ private fun methodSourceIsImplicitlyUsed(element: PsiMethod): Boolean {
       if (parent is PsiClass) psiClass = parent
     }
 
-    return psiClass.findMethodsByName(methodName, false).any { otherMethod ->
-      psiMethod != otherMethod
-      && MetaAnnotationUtil.isMetaAnnotated(otherMethod, setOf(ORG_JUNIT_JUPITER_PARAMS_PROVIDER_METHOD_SOURCE))
+    return psiClass.methods.any { otherMethod ->
+      MetaAnnotationUtil.isMetaAnnotated(otherMethod, setOf(ORG_JUNIT_JUPITER_PARAMS_PROVIDER_METHOD_SOURCE))
       && MetaAnnotationUtil.isMetaAnnotated(otherMethod, setOf(ORG_JUNIT_JUPITER_PARAMS_PARAMETERIZED_TEST))
+      && isAnnotationMemberContainsName(methodName, otherMethod, ORG_JUNIT_JUPITER_PARAMS_PROVIDER_METHOD_SOURCE)
     }
   }
   return CachedValuesManager.getCachedValue(element) {
@@ -94,15 +95,33 @@ private fun fieldSourceIsImplicitlyUsed(element: PsiField): Boolean {
       if (parent is PsiClass) psiClass = parent
     }
 
-    return psiClass.findMethodsByName(fieldName, false).any { method ->
+    return psiClass.methods.any { method ->
       MetaAnnotationUtil.isMetaAnnotated(method, setOf(ORG_JUNIT_JUPITER_PARAMS_PROVIDER_FIELD_SOURCE))
       && MetaAnnotationUtil.isMetaAnnotated(method, setOf(ORG_JUNIT_JUPITER_PARAMS_PARAMETERIZED_TEST))
+      && isAnnotationMemberContainsName(fieldName, method, ORG_JUNIT_JUPITER_PARAMS_PROVIDER_FIELD_SOURCE)
     }
   }
 
   return CachedValuesManager.getCachedValue(element) {
     CachedValueProvider.Result.create(check(element), PsiModificationTracker.MODIFICATION_COUNT)
   }
+}
+
+private fun isAnnotationMemberContainsName(name: String, method: PsiMethod, annotationFqn: String): Boolean {
+  val annotation = method.getAnnotation(annotationFqn) ?: return false
+  val value = annotation.findAttributeValue("value")
+  if (value == null && method.name == name) return true
+  if (value is PsiArrayInitializerMemberValue) {
+    if (value.initializers.isEmpty() && method.name == name) return true
+    for (memberValue in value.initializers) {
+      if (memberValue is PsiLiteralExpression) {
+        val data = JavaConstantExpressionEvaluator.computeConstantExpression(memberValue, null, false) as? String ?: continue
+        if (data.isEmpty() && method.name == name) return true
+        if (data == name) return true
+      }
+    }
+  }
+  return false
 }
 
 class JUnit5ImplicitUsageProvider : ImplicitUsageProvider {

@@ -11,6 +11,7 @@ import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.progress.*
 import com.intellij.openapi.project.DumbAware
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.platform.locking.impl.getGlobalThreadingSupport
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -22,12 +23,18 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.future.asCompletableFuture
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.fail
+import org.jetbrains.concurrency.AsyncPromise
+import org.jetbrains.concurrency.Promise
+import org.jetbrains.concurrency.resolvedPromise
 import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.util.concurrent.Callable
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import javax.swing.JComponent
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @TestApplication
 class PlatformUtilitiesTest {
@@ -365,4 +372,49 @@ class PlatformUtilitiesTest {
     }
     assertThat(counter.get()).isEqualTo(numberOfNonBlockingReadActions)
   }
+
+
+  fun <T> Deferred<T>.toPromise(): Promise<T> = AsyncPromise<T>().also { promise ->
+    invokeOnCompletion { throwable ->
+      if (throwable != null) {
+        promise.setError(throwable)
+      }
+      else {
+        @Suppress("OPT_IN_USAGE")
+        promise.setResult(getCompleted())
+      }
+    }
+  }
+
+  @Test
+  fun `async promise does not leak cancellation`(): Unit = timeoutRunBlocking {
+    coroutineScope {
+      async { 100 }
+        .toPromise()
+        .thenAsync {
+          // acceptable if there is no job
+          assertTrue { Cancellation.currentJob()?.isActive ?: true }
+          resolvedPromise(42)
+        }
+    }
+  }
+
+  @Test
+  fun `unconfined loop does not break modal dialogs`(): Unit = timeoutRunBlocking(timeout = 100.seconds, context = Dispatchers.EDT) {
+    withContext(Dispatchers.Unconfined) {
+      val dialog: DialogWrapper = object : DialogWrapper(null) {
+        override fun createCenterPanel(): JComponent? {
+          return null
+        }
+
+        // a slight hack: headless dialogs are disposed in their event loop
+        // so we execute a test in `dispose`
+        override fun dispose() {
+          launch(Dispatchers.EdtImmediate) { }.asCompletableFuture().join()
+        }
+      }
+      dialog.show()
+    }
+  }
+
 }
