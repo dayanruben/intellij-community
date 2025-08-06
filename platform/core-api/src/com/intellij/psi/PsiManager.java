@@ -48,24 +48,14 @@ public abstract class PsiManager extends UserDataHolderBase {
   public abstract @Nullable PsiFile findFile(@NotNull VirtualFile file);
 
 
-  /**
-   * @deprecated very-internal api, please don't use
-   * todo IJPL-339 remove this method
-   */
-  @Deprecated
-  @ApiStatus.Internal
+  @ApiStatus.Experimental
   @RequiresReadLock
   @RequiresBackgroundThread(generateAssertion = false)
   public abstract @Nullable PsiFile findFile(@NotNull VirtualFile file, @NotNull CodeInsightContext context);
 
   public abstract @Nullable FileViewProvider findViewProvider(@NotNull VirtualFile file);
 
-  /**
-   * @deprecated very-internal api, please don't use
-   * todo IJPL-339 remove this method
-   */
-  @Deprecated
-  @ApiStatus.Internal
+  @ApiStatus.Experimental
   @RequiresReadLock
   @RequiresBackgroundThread(generateAssertion = false)
   public abstract @Nullable FileViewProvider findViewProvider(@NotNull VirtualFile file, @NotNull CodeInsightContext context);
@@ -189,6 +179,7 @@ public abstract class PsiManager extends UserDataHolderBase {
    */
   public abstract boolean isInProject(@NotNull PsiElement element);
 
+  // todo ijpl-339 do we need context here?
   @ApiStatus.Internal
   public abstract @Nullable FileViewProvider findCachedViewProvider(@NotNull VirtualFile vFile);
 }
