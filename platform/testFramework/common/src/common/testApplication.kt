@@ -21,6 +21,7 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.impl.AWTExceptionHandler
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
+import com.intellij.openapi.application.impl.TestOnlyThreading
 import com.intellij.openapi.command.impl.DocumentReferenceManagerImpl
 import com.intellij.openapi.command.impl.UndoManagerImpl
 import com.intellij.openapi.command.undo.DocumentReferenceManager
@@ -382,9 +383,11 @@ fun waitForAppLeakingThreads(application: Application, timeout: Long, timeUnit: 
   val stubIndex = application.serviceIfCreated<StubIndex>() as? StubIndexImpl
   stubIndex?.waitUntilStubIndexedInitialized()
 
-  while (RefreshQueue.getInstance() != null && (RefreshQueueImpl.isRefreshInProgress() || RefreshQueueImpl.isEventProcessingInProgress())) {
+  while (RefreshQueue.getInstance() != null && (RefreshQueueImpl.isRefreshInProgress || RefreshQueueImpl.isEventProcessingInProgress)) {
     if (EDT.isCurrentThreadEdt()) {
-      EDT.dispatchAllInvocationEvents()
+      TestOnlyThreading.releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack {
+        EDT.dispatchAllInvocationEvents()
+      }
     }
     else {
       UIUtil.pump()

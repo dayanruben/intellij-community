@@ -33,222 +33,222 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
   override fun runInDispatchThread(): Boolean = false
 
   @Test
-  fun `no links`() = withHelper {
+  fun `no links`() = withFixture {
     updateModel(0L, """
-      0: line1
-      1: line2
+      0: line0
+      1: line1
     """.trimIndent())
     assertText("""
-      0: line1
-      1: line2
+      0: line0
+      1: line1
     """.trimIndent())
     assertLinks()
     assertHighlightings()
   }
 
   @Test
-  fun `some links`() = withHelper {
+  fun `some links`() = withFixture {
     updateModel(0L, """
-      0: line1 link1
-      1: line2 link2
+      0: line0 link0
+      1: line1 link1
     """.trimIndent())
     assertText("""
-      0: line1 link1
-      1: line2 link2
+      0: line0 link0
+      1: line1 link1
     """.trimIndent())
     assertLinks(
-      link(at(0, "link1")),
-      link(at(1, "link2")),
+      link(at(0, "link0")),
+      link(at(1, "link1")),
     )
     assertHighlightings()
   }
 
   @Test
-  fun `remove line before processing`() = withHelper {
+  fun `remove line before processing`() = withFixture {
     updateModel(0L, """
-      0: line1 link1
-      1: line2 link2
+      0: line0 link0
+      1: line1 link1
     """.trimIndent())
     updateModel(1L, "")
-    assertText("0: line1 link1\n")
+    assertText("0: line0 link0\n")
     assertLinks(
-      link(at(0, "link1")),
+      link(at(0, "link0")),
     )
     assertHighlightings()
   }
 
   @Test
-  fun `remove line after processing`() = withHelper {
+  fun `remove line after processing`() = withFixture {
     updateModel(0L, """
-      0: line1 link1
-      1: line2 link2
+      0: line0 link0
+      1: line1 link1
     """.trimIndent())
     assertLinks(
-      link(at(0, "link1")),
-      link(at(1, "link2")),
+      link(at(0, "link0")),
+      link(at(1, "link1")),
     )
     updateModel(1L, "")
-    assertText("0: line1 link1\n")
+    assertText("0: line0 link0\n")
     assertLinks(
-      link(at(0, "link1")),
+      link(at(0, "link0")),
     )
     assertHighlightings()
   }
 
   @Test
-  fun `one click`() = withHelper {
+  fun `one click`() = withFixture {
     updateModel(0L, """
-      0: line1 link1
-      1: line2 link2
+      0: line0 link0
+      1: line1 link1
     """.trimIndent())
     assertClicks(
-      at(0, "link1"),
+      at(0, "link0"),
     )
   }
 
   @Test
-  fun `several clicks`() = withHelper {
+  fun `several clicks`() = withFixture {
     updateModel(0L, """
-      0: line1 link1
-      1: line2 link2
+      0: line0 link0
+      1: line1 link1
     """.trimIndent())
     assertClicks(
-      at(0, "link1"),
-      at(1, "link2"),
+      at(0, "link0"),
+      at(1, "link1"),
     )
   }
 
   @Test
-  fun `several links per line`() = withHelper {
+  fun `several links per line`() = withFixture {
     updateModel(0L, """
-      0: line1 link11 link12
-      1: line2 link2
+      0: line0 link01 link02
+      1: line1 link1
     """.trimIndent())
     assertText("""
-      0: line1 link11 link12
-      1: line2 link2
+      0: line0 link01 link02
+      1: line1 link1
     """.trimIndent())
     assertLinks(
-      link(at(0, "link11")),
-      link(at(0, "link12")),
-      link(at(1, "link2")),
+      link(at(0, "link01")),
+      link(at(0, "link02")),
+      link(at(1, "link1")),
     )
     assertHighlightings()
   }
 
   @Test
-  fun `some highlighted links`() = withHelper {
+  fun `some highlighted links`() = withFixture {
     filter.highlight = HIGHLIGHT1
     filter.followedHighlight = HIGHLIGHT2
     filter.hoveredHighlight = HIGHLIGHT3
     updateModel(0L, """
-      0: line1 link1
+      0: line0 link0
     """.trimIndent())
     assertLinks(
-      link(at(0, "link1")),
+      link(at(0, "link0")),
     )
     filter.highlight = HIGHLIGHT2
     filter.followedHighlight = HIGHLIGHT3
     filter.hoveredHighlight = HIGHLIGHT4
     updateModel(1L, """
-      1: line2 link2
+      1: line1 link1
     """.trimIndent())
     assertText("""
-      0: line1 link1
-      1: line2 link2
+      0: line0 link0
+      1: line1 link1
     """.trimIndent())
     assertLinks(
-      link(at(0, "link1"), highlight = HIGHLIGHT1, followedHighlight = HIGHLIGHT2, hoveredHighlight = HIGHLIGHT3),
-      link(at(1, "link2"), highlight = HIGHLIGHT2, followedHighlight = HIGHLIGHT3, hoveredHighlight = HIGHLIGHT4),
+      link(at(0, "link0"), highlight = HIGHLIGHT1, followedHighlight = HIGHLIGHT2, hoveredHighlight = HIGHLIGHT3),
+      link(at(1, "link1"), highlight = HIGHLIGHT2, followedHighlight = HIGHLIGHT3, hoveredHighlight = HIGHLIGHT4),
     )
     assertHighlightings()
   }
 
   @Test
-  fun `some highlighting`() = withHelper {
+  fun `some highlighting`() = withFixture {
     filter.highlight = HIGHLIGHT1
     updateModel(0L, """
-      0: line1 highlight1
+      0: line0 highlight0
     """.trimIndent())
     assertHighlightings(
-      highlight(at(0, "highlight1")),
+      highlight(at(0, "highlight0")),
     )
     filter.highlight = HIGHLIGHT2
     updateModel(1L, """
-      1: line2 highlight2
+      1: line1 highlight1
     """.trimIndent())
     assertText("""
-      0: line1 highlight1
-      1: line2 highlight2
+      0: line0 highlight0
+      1: line1 highlight1
     """.trimIndent())
     assertLinks()
     assertHighlightings(
-      highlight(at(0, "highlight1"), highlight = HIGHLIGHT1),
-      highlight(at(1, "highlight2"), highlight = HIGHLIGHT2),
+      highlight(at(0, "highlight0"), highlight = HIGHLIGHT1),
+      highlight(at(1, "highlight1"), highlight = HIGHLIGHT2),
     )
   }
 
   @Test
-  fun `some links and some highlightings`() = withHelper {
+  fun `some links and some highlightings`() = withFixture {
     filter.highlight = HIGHLIGHT1
     updateModel(0L, """
-      0: line1 highlight1
+      0: line0 highlight0
     """.trimIndent())
     assertLinks()
     assertHighlightings(
-      highlight(at(0, "highlight1")),
+      highlight(at(0, "highlight0")),
     )
     filter.highlight = HIGHLIGHT2
     updateModel(1L, """
-      1: line2 link2
+      1: line1 link1
     """.trimIndent())
     assertText("""
-      0: line1 highlight1
-      1: line2 link2
+      0: line0 highlight0
+      1: line1 link1
     """.trimIndent())
     assertLinks(
-      link(at(1, "link2"), highlight = HIGHLIGHT2)
+      link(at(1, "link1"), highlight = HIGHLIGHT2)
     )
     assertHighlightings(
-      highlight(at(0, "highlight1"), highlight = HIGHLIGHT1),
+      highlight(at(0, "highlight0"), highlight = HIGHLIGHT1),
     )
   }
 
   @Test
-  fun `links update`() = withHelper {
+  fun `links update`() = withFixture {
     updateModel(0L, """
-      0: line1 link1
+      0: line0 link0
+      1: line1 link1
+    """.trimIndent())
+    assertLinks(
+      link(at(0, "link0")),
+      link(at(1, "link1")),
+    )
+    assertHighlightings()
+    updateModel(1L, """
+      1: line2 link2
+    """.trimIndent())
+    assertText("""
+      0: line0 link0
       1: line2 link2
     """.trimIndent())
     assertLinks(
-      link(at(0, "link1")),
+      link(at(0, "link0")),
       link(at(1, "link2")),
     )
     assertHighlightings()
-    updateModel(1L, """
-      1: line3 link3
-    """.trimIndent())
-    assertText("""
-      0: line1 link1
-      1: line3 link3
-    """.trimIndent())
-    assertLinks(
-      link(at(0, "link1")),
-      link(at(1, "link3")),
-    )
-    assertHighlightings()
   }
 
   @Test
-  fun `many links, fast filter`() = withHelper {
+  fun `many links, fast filter`() = withFixture {
     updateModel(0L, generateLines(0, 499, links = (0..499).toList()))
     assertLinks(
-      *(0..499).map { link(at(it, "link${it + 1}")) }.toTypedArray(),
+      *(0..499).map { link(at(it, "link${it}")) }.toTypedArray(),
     )
   }
 
   @Test
-  fun `many links, slow filter, several updates`() = withHelper {
+  fun `many links, slow filter, several updates`() = withFixture {
     filter.delayPerLine = 1
     updateModel(0L, generateLines(0, 499, links = (0..499).toList()))
     delay(50.milliseconds)
@@ -260,29 +260,29 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
     delay(50.milliseconds)
     updateModel(400L, generateLines(400, 499, links = (400..499).toList()))
     assertLinks(
-      *(0..499).map { link(at(it, "link${it + 1}")) }.toTypedArray(),
+      *(0..499).map { link(at(it, "link${it}")) }.toTypedArray(),
     )
     assertHighlightings()
   }
 
   @Test
-  fun `sparse links, fast filter`() = withHelper {
+  fun `sparse links, fast filter`() = withFixture {
     updateModel(0L, generateLines(0, 499, links = listOf(1, 100, 400)))
     assertLinks(
-      link(at(1, "link2")),
-      link(at(100, "link101")),
-      link(at(400, "link401")),
+      link(at(1, "link1")),
+      link(at(100, "link100")),
+      link(at(400, "link400")),
     )
     assertHighlightings()
   }
 
   @Test
   fun `link trimming, fast filter`() {
-    withHelper {
+    withFixture {
       updateModel(0L, generateLines(0, 499, links = (0..499).toList()))
       updateModel(500L, generateLines(500, 3999, links = (500..3999).toList()))
       assertLinks(
-        *(0 until 667).map { link(at(it, "link${it + 3334}")) }.toTypedArray(),
+        *(0 until 667).map { link(at(it, "link${it + 3333}")) }.toTypedArray(),
       )
       assertHighlightings()
     }
@@ -290,14 +290,14 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
 
   @Test
   fun `link trimming, slow filter, just started`() {
-    withHelper {
+    withFixture {
       filter.delayPerLine = 1
       updateModel(0L, generateLines(0, 499, links = (0..499).toList()))
       delay(100.milliseconds)
       // now the filter is still in progress
       updateModel(500L, generateLines(500, 3999, links = (500..3999).toList()))
       assertLinks(
-        *(0 until 667).map { link(at(it, "link${it + 3334}")) }.toTypedArray(),
+        *(0 until 667).map { link(at(it, "link${it + 3333}")) }.toTypedArray(),
       )
       assertHighlightings()
     }
@@ -305,14 +305,58 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
 
   @Test
   fun `link trimming, slow filter, partially done`() {
-    withHelper {
+    withFixture {
       filter.delayPerLine = 1
       updateModel(0L, generateLines(0, 499, links = (0..499).toList()))
       delay(400.milliseconds)
       // now the filter is still in progress, but should have emitted some links
       updateModel(500L, generateLines(500, 3999, links = (500..3999).toList()))
       assertLinks(
-        *(0 until 667).map { link(at(it, "link${it + 3334}")) }.toTypedArray(),
+        *(0 until 667).map { link(at(it, "link${it + 3333}")) }.toTypedArray(),
+      )
+      assertHighlightings()
+    }
+  }
+
+  @Test
+  fun `link trimming, slow filter, two updates in the middle of a task, the second one is below the first one`() {
+    withFixture {
+      updateModel(0L, generateLines(0, 999, links = (0..999).toList()))
+      delay(200.milliseconds) // now the task is definitely somewhere in the middle
+      updateModel(998L, generateLines(1000, 1001, links = (1000..1001).toList()))
+      updateModel(999L, generateLines(1002, 1005, links = (1002..1005).toList()))
+      assertLinks(
+        *(
+          (0 until 764).map { link(at(it, "link${it + 234}")) } +
+          listOf(
+            link(at(764, "link1000")),
+            link(at(765, "link1002")),
+            link(at(766, "link1003")),
+            link(at(767, "link1004")),
+            link(at(768, "link1005")),
+          )
+        ).toTypedArray(),
+      )
+      assertHighlightings()
+    }
+  }
+
+  @Test
+  fun `link trimming, slow filter, two updates in the middle of a task, the second one is above the first one`() {
+    withFixture {
+      updateModel(0L, generateLines(0, 999, links = (0..999).toList()))
+      delay(200.milliseconds) // now the task is definitely somewhere in the middle
+      updateModel(998L, generateLines(1000, 1001, links = (1000..1001).toList()))
+      updateModel(997L, generateLines(1002, 1004, links = (1002..1004).toList()))
+      assertLinks(
+        *(
+          (0 until 766).map { link(at(it, "link${it + 231}")) } +
+          listOf(
+            link(at(766, "link1002")),
+            link(at(767, "link1003")),
+            link(at(768, "link1004")),
+          )
+        ).toTypedArray(),
       )
       assertHighlightings()
     }
@@ -321,11 +365,11 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
   private fun generateLines(from: Int, toInclusive: Int, links: List<Int>): String {
     val linksAt = links.toSet()
     return (from..toInclusive).joinToString("\n") { line ->
-      "$line: ${if (line in linksAt) "link" else "line"}${line + 1}"
+      "$line: ${if (line in linksAt) "link" else "line"}${line}"
     }
   }
 
-  private fun withHelper(test: suspend Fixture.() -> Unit) = timeoutRunBlocking(coroutineName = "BackendTerminalHyperlinkHighlighterTest") {
+  private fun withFixture(test: suspend Fixture.() -> Unit) = timeoutRunBlocking(coroutineName = "BackendTerminalHyperlinkHighlighterTest") {
     val fixture = Fixture(project)
     ExtensionTestUtil.maskExtensions<ConsoleFilterProvider>(
       ConsoleFilterProvider.FILTER_PROVIDERS,
@@ -356,15 +400,18 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
 
         // do what StateAwareTerminalSession does, but with less infrastructure around
         val eventJob = launch(CoroutineName("BackendTerminalHyperlinkHighlighterTest event processing"), start = UNDISPATCHED) {
-          merge(updateEvents, backendFacade.resultFlow.map { listOf(it) }).collect { events ->
+          merge(updateEvents, backendFacade.heartbeatFlow.map { listOf(it) }).collect { events ->
             events.forEach { event ->
               when (event) {
                 is TerminalContentUpdatedEvent -> {
                   outputModel.updateContent(event)
                   pendingUpdateEventCount.update { it - 1 }
                 }
-                is TerminalHyperlinksChangedEvent -> {
-                  backendFacade.updateModelState(event)
+                is TerminalHyperlinksHeartbeatEvent -> {
+                  val modelUpdateEvent = backendFacade.collectResultsAndMaybeStartNewTask()
+                  if (modelUpdateEvent != null) {
+                    backendFacade.updateModelState(modelUpdateEvent)
+                  }
                 }
                 else -> throw Exception("Event type is not used in the test: $event")
               }
@@ -397,10 +444,11 @@ internal class BackendTerminalHyperlinkHighlighterTest : BasePlatformTestCase() 
       for (i in actualLinks.indices) {
         val actual = actualLinks[i]
         val expected = expectedLinks[i]
-        val expectedStartOffset = expected.locator.locateOffset(document)
-        val expectedEndOffset = expectedStartOffset + expected.locator.length
-        val actualStartOffset = outputModel.absoluteOffset(actual.absoluteStartOffset).toRelative()
-        val actualEndOffset = outputModel.absoluteOffset(actual.absoluteEndOffset).toRelative()
+        val actualStartOffset = outputModel.absoluteOffset(actual.absoluteStartOffset)
+        val actualEndOffset = outputModel.absoluteOffset(actual.absoluteEndOffset)
+        if (i == 0 && actualStartOffset.toRelative() < 0) continue // partially trimmed link, we may not be able to locate it
+        val expectedStartOffset = outputModel.relativeOffset(expected.locator.locateOffset(document))
+        val expectedEndOffset = outputModel.relativeOffset(expectedStartOffset.toRelative() + expected.locator.length)
         val expectedLayer = HighlighterLayer.HYPERLINK
         
         val description = "at $i actual link $actual expected link $expected"

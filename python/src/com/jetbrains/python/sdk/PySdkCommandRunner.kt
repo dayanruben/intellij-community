@@ -1,6 +1,8 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk
 
+import com.intellij.python.community.execService.Args
+import com.intellij.python.community.execService.BinOnEel
 import com.intellij.python.community.execService.ExecOptions
 import com.intellij.python.community.execService.ExecService
 import com.intellij.python.community.execService.execGetStdout
@@ -28,6 +30,6 @@ suspend fun runExecutableWithProgress(
   env: Map<String, String> = emptyMap(),
   vararg args: String,
 ): PyResult<String> {
-  val execOptions = ExecOptions(workingDirectory = workDir, timeout = timeout, env = env)
-  return ExecService().execGetStdout(executable, args.toList(), execOptions)
+  val execOptions = ExecOptions(timeout = timeout, env = env)
+  return ExecService().execGetStdout(BinOnEel(executable, workDir), Args(*args), execOptions)
 }
