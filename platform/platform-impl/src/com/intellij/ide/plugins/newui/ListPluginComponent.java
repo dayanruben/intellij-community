@@ -9,7 +9,6 @@ import com.intellij.internal.inspector.PropertyBean;
 import com.intellij.internal.inspector.UiInspectorContextProvider;
 import com.intellij.internal.inspector.UiInspectorUtil;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.extensions.PluginId;
@@ -67,7 +66,8 @@ public final class ListPluginComponent extends JPanel {
   private final LinkListener<Object> mySearchListener;
   private final boolean myMarketplace;
   private final boolean myIsAvailable;
-  private final boolean myIsEssential;
+  /** FIXME value logic is duplicated with {@link com.intellij.ide.plugins.newui.PluginDetailsPageComponent} */
+  private final boolean myIsDisableAllowed;
   private final boolean myIsNotFreeInFreeMode;
   private @NotNull PluginUiModel myPlugin;
   private PluginUiModel myInstalledPluginMarketplaceNode;
@@ -128,10 +128,10 @@ public final class ListPluginComponent extends JPanel {
     PluginId pluginId = myPlugin.getPluginId();
     boolean compatible = !myPlugin.isIncompatibleWithCurrentOs();
     myIsAvailable = (compatible || isInstalledAndEnabled()) && pluginUiModel.getCanBeEnabled();
-    myIsEssential = ApplicationInfo.getInstance().isEssentialPlugin(pluginId);
     UiPluginManager pluginManager = UiPluginManager.getInstance();
     myIsNotFreeInFreeMode = pluginManager
       .isPluginRequiresUltimateButItIsDisabled(pluginModelFacade.getModel().getSessionId(), pluginUiModel.getPluginId());
+    myIsDisableAllowed = pluginUiModel.isDisableAllowed() && !myIsNotFreeInFreeMode;
     pluginModelFacade.addComponent(this);
     myCustomizer = Registry.is("reworked.plugin.manager.enabled", false) ? PluginManagerCustomizer.getInstance() : null;
     setOpaque(true);
@@ -368,7 +368,7 @@ public final class ListPluginComponent extends JPanel {
 
     myLayout.addButtonComponent(myEnableDisableButton);
     myEnableDisableButton.setOpaque(false);
-    myEnableDisableButton.setEnabled(!myIsEssential && !myIsNotFreeInFreeMode);
+    myEnableDisableButton.setEnabled(myIsDisableAllowed);
     myEnableDisableButton.getAccessibleContext()
       .setAccessibleName(IdeBundle.message("plugins.configurable.enable.checkbox.accessible.name"));
   }
@@ -945,8 +945,8 @@ public final class ListPluginComponent extends JPanel {
     return myIsNotFreeInFreeMode;
   }
 
-  public boolean isEssential() {
-    return myIsEssential;
+  public boolean isDisableAllowed() {
+    return myIsDisableAllowed;
   }
 
   public boolean isRestartEnabled() {

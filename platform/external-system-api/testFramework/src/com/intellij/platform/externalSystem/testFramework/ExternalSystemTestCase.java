@@ -64,14 +64,13 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   private static final BiPredicate<Object, Object> EQUALS_PREDICATE = (t, u) -> Objects.equals(t, u);
 
   private File ourTempDir;
+  private Project myProject;
+  private File myTestDir;
+  private VirtualFile myProjectConfig;
+  private @Nullable WSLDistribution myWSLDistribution;
 
   protected IdeaProjectTestFixture myTestFixture;
-  protected Project myProject;
-  protected File myTestDir;
   protected VirtualFile myProjectRoot;
-  protected VirtualFile myProjectConfig;
-  protected List<VirtualFile> myAllConfigs = new ArrayList<>();
-  protected @Nullable WSLDistribution myWSLDistribution;
 
   @Override
   protected void setUp() throws Exception {
@@ -292,7 +291,6 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
           VirtualFile file = dir.findChild(configFileName);
           return file == null ? dir.createChildData(null, configFileName) : file;
         });
-        myAllConfigs.add(configFile);
     }
     catch (IOException e) {
       throw new RuntimeException(e);
@@ -364,8 +362,20 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     return file;
   }
 
-  protected Project getProject() {
+  protected @NotNull Project getMyProject() {
     return myProject;
+  }
+
+  protected @NotNull File getMyTestDir() {
+    return myTestDir;
+  }
+
+  protected @NotNull VirtualFile getMyProjectConfig() {
+    return myProjectConfig;
+  }
+
+  public @Nullable WSLDistribution getMyWSLDistribution() {
+    return myWSLDistribution;
   }
 
   protected Module getModule(final String name) {

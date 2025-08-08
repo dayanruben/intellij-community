@@ -13,9 +13,11 @@ import com.intellij.ide.plugins.PluginManagerCore.loadedPlugins
 import com.intellij.ide.plugins.PluginManagerCore.processAllNonOptionalDependencies
 import com.intellij.ide.plugins.cl.PluginClassLoader
 import com.intellij.idea.AppMode
+import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
@@ -23,8 +25,8 @@ import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.ui.IconManager
 import com.intellij.ui.PlatformIcons
-import com.intellij.util.containers.Java11Shim
 import com.intellij.util.PlatformUtils
+import com.intellij.util.containers.Java11Shim
 import com.intellij.util.lang.ZipEntryResolverPool
 import com.intellij.util.system.OS
 import kotlinx.coroutines.CompletableDeferred
@@ -912,6 +914,49 @@ object PluginManagerCore {
       }
     }
   }
+
+  /**
+   * @return `true` if any required dependency of some essential plugin (both plugin or modular, including transitive) is provided by [pluginDescriptor].
+   * Note that `pluginDescriptor is essential` does not imply `isRequiredForEssentialPlugin(pluginDescriptor) == true`.
+   */
+  @ApiStatus.Internal
+  fun isRequiredForEssentialPlugin(pluginDescriptor: PluginMainDescriptor): Boolean {
+    // FIXME id map building should be lifted out (likewise in other methods too)
+    //  this method should actually be an extension on ActivePluginSet or something
+    val initContext = ProductPluginInitContext()
+    val pluginIdMap = buildPluginIdMap()
+    val contentModuleIdMap = getPluginSet().buildContentModuleIdMap()
+    for (essentialPluginId in initContext.essentialPlugins) {
+      val essentialPlugin = pluginIdMap[essentialPluginId]
+                            ?: continue
+      val isRequiredDependency = !processAllNonOptionalDependencies(essentialPlugin, pluginIdMap, contentModuleIdMap) { dependency ->
+        if (dependency.getMainDescriptor() === pluginDescriptor) {
+          logger.debug { "Plugin ${pluginDescriptor.pluginId} is required for essential plugin $essentialPluginId" }
+          FileVisitResult.TERMINATE
+        } else {
+          FileVisitResult.CONTINUE
+        }
+      }
+      if (isRequiredDependency) {
+        return true
+      }
+    }
+    return false
+  }
+
+  @ApiStatus.Internal
+  fun isDisableAllowed(descriptor: IdeaPluginDescriptor): Boolean {
+    if (descriptor !is PluginMainDescriptor) {
+      return true // TODO does not really make sense ?
+    }
+    if (descriptor.isImplementationDetail() ||
+        ApplicationInfo.getInstance().isEssentialPlugin(descriptor.pluginId) ||
+        isRequiredForEssentialPlugin(descriptor)) {
+      return false
+    }
+    return true
+  }
+
 
   //<editor-fold desc="Deprecated stuff.">
   @ApiStatus.ScheduledForRemoval

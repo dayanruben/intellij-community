@@ -296,7 +296,7 @@ public class GradleCompositeImportingTest extends GradleImportingTestCase {
 
   @Test
   public void testCompositeBuildWithProjectNameDuplicates() throws Exception {
-    IdeModifiableModelsProvider modelsProvider = ProjectDataManager.getInstance().createModifiableModelsProvider(myProject);
+    IdeModifiableModelsProvider modelsProvider = ProjectDataManager.getInstance().createModifiableModelsProvider(getMyProject());
     modelsProvider.newModule(getProjectPath() + "/api.iml", JavaModuleType.getModuleType().getId());
     modelsProvider.newModule(getProjectPath() + "/api_main.iml", JavaModuleType.getModuleType().getId());
     modelsProvider.newModule(getProjectPath() + "/my-app-api.iml", JavaModuleType.getModuleType().getId());
@@ -356,8 +356,8 @@ public class GradleCompositeImportingTest extends GradleImportingTestCase {
     getCurrentExternalProjectSettings().setUseQualifiedModuleNames(false);
     importProject();
 
-    String myAppApiModuleName = myTestDir.getName() + "-my-app-api";
-    String myAppApiMainModuleName = myTestDir.getName() + "-my-app-api_main";
+    String myAppApiModuleName = getMyTestDir().getName() + "-my-app-api";
+    String myAppApiMainModuleName = getMyTestDir().getName() + "-my-app-api_main";
     String myUtilsApiMainModuleName = "org.sample-my-utils-api_main";
     assertModules(
       // non-gradle modules
@@ -687,7 +687,7 @@ public class GradleCompositeImportingTest extends GradleImportingTestCase {
     // use Gradle wrapper of the test root project
     FileUtil.copyDirContent(file("gradle"), file("build2"));
 
-    AutoImportProjectTrackerSettings importProjectTrackerSettings = AutoImportProjectTrackerSettings.getInstance(myProject);
+    AutoImportProjectTrackerSettings importProjectTrackerSettings = AutoImportProjectTrackerSettings.getInstance(getMyProject());
     ExternalSystemProjectTrackerSettings.AutoReloadType autoReloadType = importProjectTrackerSettings.getAutoReloadType();
     try {
       importProjectTrackerSettings.setAutoReloadType(ExternalSystemProjectTrackerSettings.AutoReloadType.NONE);
@@ -811,7 +811,7 @@ public class GradleCompositeImportingTest extends GradleImportingTestCase {
     GradleProjectSettings projectSettings = new GradleProjectSettings();
     projectSettings.setExternalProjectPath(path);
     projectSettings.setDistributionType(DistributionType.DEFAULT_WRAPPED);
-    GradleSettings.getInstance(myProject).linkProject(projectSettings);
+    GradleSettings.getInstance(getMyProject()).linkProject(projectSettings);
     return projectSettings;
   }
 
