@@ -381,7 +381,7 @@ abstract class ComposeColorLineMarkerProviderDescriptorTest : KotlinGradleImport
     importProjectFromTestData()
 
     val colorFile = runWriteActionAndWait {
-      projectRoot.createFile("composeApp/src/$sourceSetName/kotlin/org/example/project/A.kt").apply {
+      myProjectRoot.createFile("composeApp/src/$sourceSetName/kotlin/org/example/project/A.kt").apply {
         writeText(code.trimIndent())
       }
     }
@@ -458,7 +458,7 @@ abstract class ComposeColorLineMarkerProviderDescriptorTest : KotlinGradleImport
     runAll(
       { _codeInsightTestFixture?.tearDown() },
       { _codeInsightTestFixture = null },
-      { myTestFixture = null },
+      { resetTestFixture() },
     )
   }
 

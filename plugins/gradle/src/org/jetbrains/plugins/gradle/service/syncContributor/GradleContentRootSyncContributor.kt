@@ -1,78 +1,52 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.service.syncContributor
 
-import com.intellij.gradle.toolingExtension.modelAction.GradleModelFetchPhase
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.externalSystem.service.project.nameGenerator.ModuleNameGenerator
 import com.intellij.openapi.externalSystem.util.Order
 import com.intellij.openapi.module.impl.UnloadedModulesListStorage
 import com.intellij.openapi.progress.checkCanceled
-import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.jps.entities.*
+import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.entities
-import com.intellij.platform.workspace.storage.impl.url.toVirtualFileUrl
 import org.jetbrains.plugins.gradle.model.ExternalProject
 import org.jetbrains.plugins.gradle.model.GradleLightBuild
 import org.jetbrains.plugins.gradle.model.GradleLightProject
 import org.jetbrains.plugins.gradle.service.project.GradleProjectResolverUtil
 import org.jetbrains.plugins.gradle.service.project.ProjectResolverContext
 import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncContributor
-import org.jetbrains.plugins.gradle.service.syncContributor.entitites.GradleBuildEntitySource
-import org.jetbrains.plugins.gradle.service.syncContributor.entitites.GradleLinkedProjectEntitySource
-import org.jetbrains.plugins.gradle.service.syncContributor.entitites.GradleProjectEntitySource
+import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase
+import org.jetbrains.plugins.gradle.service.syncAction.virtualFileUrl
+import org.jetbrains.plugins.gradle.service.syncContributor.bridge.GradleBridgeEntitySource
 import org.jetbrains.plugins.gradle.util.GradleConstants
-import java.nio.file.Path
 
 @Order(GradleSyncContributor.Order.CONTENT_ROOT_CONTRIBUTOR)
 internal class GradleContentRootSyncContributor : GradleSyncContributor {
 
   override val name: String = "Gradle Content Root"
 
-  override suspend fun onModelFetchPhaseCompleted(
-    context: ProjectResolverContext,
-    storage: MutableEntityStorage,
-    phase: GradleModelFetchPhase,
-  ) {
-    if (context.isPhasedSyncEnabled) {
-      if (phase == GradleModelFetchPhase.PROJECT_MODEL_PHASE) {
-        configureProjectContentRoots(context, storage)
-      }
-    }
-  }
+  override val phase: GradleSyncPhase = GradleSyncPhase.PROJECT_MODEL_PHASE
 
-  private suspend fun configureProjectContentRoots(
+  override suspend fun configureProjectModel(
     context: ProjectResolverContext,
     storage: MutableEntityStorage,
   ) {
-    val project = context.project
-    val virtualFileUrlManager = project.workspaceModel.getVirtualFileUrlManager()
+    if (!context.isPhasedSyncEnabled) return
 
     val contentRoots = storage.entities<ContentRootEntity>()
       .mapTo(LinkedHashSet()) { it.url }
 
-    val linkedProjectRootPath = Path.of(context.projectPath)
-    val linkedProjectRootUrl = linkedProjectRootPath.toVirtualFileUrl(virtualFileUrlManager)
-    val linkedProjectEntitySource = GradleLinkedProjectEntitySource(linkedProjectRootUrl)
+    val entitySource = GradleContentRootEntitySource(context.projectPath)
 
     for (buildModel in context.allBuilds) {
-
-      val buildRootPath = buildModel.buildIdentifier.rootDir.toPath()
-      val buildRootUrl = buildRootPath.toVirtualFileUrl(virtualFileUrlManager)
-      val buildEntitySource = GradleBuildEntitySource(linkedProjectEntitySource, buildRootUrl)
-
       for (projectModel in buildModel.projects) {
 
         checkCanceled()
 
-        val projectRootPath = projectModel.projectDirectory.toPath()
-        val projectRootUrl = projectRootPath.toVirtualFileUrl(virtualFileUrlManager)
-        val projectEntitySource = GradleProjectEntitySource(buildEntitySource, projectRootUrl)
-
         val externalProject = context.getProjectModel(projectModel, ExternalProject::class.java) ?: continue
-
-        val contentRootData = GradleContentRootData(buildModel, projectModel, externalProject, projectEntitySource)
+        val contentRootData = GradleContentRootData(buildModel, projectModel, externalProject, entitySource)
 
         if (isUnloadedModule(context, contentRootData)) {
           continue
@@ -109,9 +83,6 @@ internal class GradleContentRootSyncContributor : GradleSyncContributor {
     storage: EntityStorage,
     contentRootData: GradleContentRootData,
   ): ModuleEntity.Builder {
-    val virtualFileUrlManager = context.project.workspaceModel.getVirtualFileUrlManager()
-
-    val contentRootPath = contentRootData.projectModel.projectDirectory.toPath()
     return ModuleEntity(
       name = resolveUniqueModuleName(context, storage, contentRootData),
       entitySource = contentRootData.entitySource,
@@ -119,11 +90,11 @@ internal class GradleContentRootSyncContributor : GradleSyncContributor {
         InheritedSdkDependency,
         ModuleSourceDependency
       )
-    ) {
+    ).apply {
       exModuleOptions = createModuleOptionsEntity(context, contentRootData)
       contentRoots = listOf(
         ContentRootEntity(
-          url = contentRootPath.toVirtualFileUrl(virtualFileUrlManager),
+          url = context.virtualFileUrl(contentRootData.projectModel.projectDirectory),
           entitySource = contentRootData.entitySource,
           excludedPatterns = emptyList()
         )
@@ -205,6 +176,10 @@ internal class GradleContentRootSyncContributor : GradleSyncContributor {
     val buildModel: GradleLightBuild,
     val projectModel: GradleLightProject,
     val externalProject: ExternalProject,
-    val entitySource: GradleProjectEntitySource,
+    val entitySource: EntitySource,
   )
+
+  private data class GradleContentRootEntitySource(
+    override val projectPath: String,
+  ) : GradleBridgeEntitySource
 }

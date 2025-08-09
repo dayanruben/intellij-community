@@ -9,32 +9,38 @@ import org.jetbrains.kotlin.gradle.scripting.shared.importing.saveGradleBuildEnv
 import org.jetbrains.kotlin.gradle.scripting.shared.kotlinDslScriptsModelImportSupported
 import org.jetbrains.plugins.gradle.service.project.ProjectResolverContext
 import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncContributor
+import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase
 
 class KotlinDslScriptSyncContributor : GradleSyncContributor {
 
     override val name: String = "Kotlin DSL Script"
 
-    override suspend fun onModelFetchCompleted(context: ProjectResolverContext, storage: MutableEntityStorage) {
+    override val phase: GradleSyncPhase = GradleSyncPhase.ADDITIONAL_MODEL_PHASE
+
+    override suspend fun configureProjectModel(
+        context: ProjectResolverContext,
+        storage: MutableEntityStorage
+    ) {
         val taskId = context.externalSystemTaskId
         val tasks = kotlinDslSyncListenerInstance?.tasks ?: return
         val sync = synchronized(tasks) { tasks[taskId] }
 
-      for (buildModel in context.allBuilds) {
-        for (projectModel in buildModel.projects) {
-          val projectIdentifier = projectModel.projectIdentifier.projectPath
-          if (projectIdentifier == ":") {
-            if (kotlinDslScriptsModelImportSupported(context.projectGradleVersion)) {
-              val model = context.getProjectModel(projectModel, KotlinDslScriptsModel::class.java)
-              if (model != null) {
-                if (!processScriptModel(context, sync, model, projectIdentifier)) {
-                  continue
-                }
-              }
-            }
+        for (buildModel in context.allBuilds) {
+            for (projectModel in buildModel.projects) {
+                val projectIdentifier = projectModel.projectIdentifier.projectPath
+                if (projectIdentifier == ":") {
+                    if (kotlinDslScriptsModelImportSupported(context.projectGradleVersion)) {
+                        val model = context.getProjectModel(projectModel, KotlinDslScriptsModel::class.java)
+                        if (model != null) {
+                            if (!processScriptModel(context, sync, model, projectIdentifier)) {
+                                continue
+                            }
+                        }
+                    }
 
-            saveGradleBuildEnvironment(context)
-          }
+                    saveGradleBuildEnvironment(context)
+                }
+            }
         }
-      }
     }
 }

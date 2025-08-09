@@ -20,13 +20,19 @@ import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.plugins.gradle.model.GradleBuildScriptClasspathModel
 import org.jetbrains.plugins.gradle.service.project.ProjectResolverContext
 import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncContributor
+import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase
 import java.nio.file.Path
 
 class KotlinDslScriptSyncContributor : GradleSyncContributor {
 
     override val name: String = "Kotlin DSL Script"
 
-    override suspend fun onModelFetchCompleted(context: ProjectResolverContext, storage: MutableEntityStorage) {
+    override val phase: GradleSyncPhase = GradleSyncPhase.ADDITIONAL_MODEL_PHASE
+
+    override suspend fun configureProjectModel(
+        context: ProjectResolverContext,
+        storage: MutableEntityStorage
+    ) {
         val project = context.project
         val taskId = context.externalSystemTaskId
         val tasks = kotlinDslSyncListenerInstance?.tasks ?: return
