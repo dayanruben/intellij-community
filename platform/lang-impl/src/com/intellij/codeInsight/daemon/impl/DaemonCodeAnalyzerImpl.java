@@ -41,7 +41,6 @@ import com.intellij.openapi.editor.ex.MarkupModelEx;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.impl.DocumentMarkupModel;
 import com.intellij.openapi.editor.impl.EditorMarkupModelImpl;
-import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.MarkupModel;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.fileEditor.*;
@@ -337,41 +336,23 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     ThreadingAssertions.assertEventDispatchThread();
     assertFileFromMyProject(psiFile.getProject(), psiFile);
     VirtualFile vFile = BackedVirtualFile.getOriginFileIfBacked(psiFile.getViewProvider().getVirtualFile());
-    FileEditorManager fileEditorManager = getFileEditorManager();
-    for (FileEditor fileEditor : fileEditorManager.getAllEditorList(vFile)) {
+    for (FileEditor fileEditor : getFileEditorManager().getAllEditorList(vFile)) {
       if (fileEditor instanceof TextEditor textEditor) {
-        List<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>> actionRanges = new ArrayList<>();
-        info.findRegisteredQuickFix((descriptor, range) -> {
-          actionRanges.add(Pair.create(descriptor, range));
-          return null;
-        });
-        List<HighlightInfo> fileLevelInfos = fileEditor.getUserData(FILE_LEVEL_HIGHLIGHTS);
-        if (fileLevelInfos == null) {
-          fileLevelInfos = ContainerUtil.createConcurrentList(); // must be able to iterate in hasFileLevelHighlights() and concurrently modify in addFileLevelHighlight()
-          fileEditor.putUserData(FILE_LEVEL_HIGHLIGHTS, fileLevelInfos);
-        }
-        if (!ContainerUtil.exists(fileLevelInfos, existing->existing.equalsByActualOffset(info))) {
+        List<HighlightInfo> fileLevelInfos = getOrCreateFileLevelHighlights(fileEditor);
+        if (!ContainerUtil.exists(fileLevelInfos, existing -> existing.equalsByActualOffset(info))) {
           Document document = textEditor.getEditor().getDocument();
           MarkupModel markupModel = DocumentMarkupModel.forDocument(document, myProject, true);
-          RangeHighlighter highlighter = toReuse != null && toReuse.isValid() ? toReuse
-                                         : markupModel.addRangeHighlighter(0, document.getTextLength(), FILE_LEVEL_FAKE_LAYER, null, HighlighterTargetArea.EXACT_RANGE);
-          highlighter.setGreedyToLeft(true);
-          highlighter.setGreedyToRight(true);
-          highlighter.setErrorStripeTooltip(info);
+          // todo do we need to create a new highlighter if toReuse is not-null?
+          RangeHighlighterEx highlighter = HighlightInfoUpdaterImpl.createOrReuseFakeFileLevelHighlighter(group, info, (RangeHighlighterEx)toReuse, markupModel);
           // for the condition `existing.equalsByActualOffset(info)` above work correctly,
           // create a fake whole-file highlighter which will track the document size changes
           // and which will make possible to calculate correct `info.getActualEndOffset()`
           if (toReuse == null) {
             // assign only newly created highlighter here; otherwise the reused highlighter was already set, no need (and can't) to overwrite
-            info.setHighlighter((RangeHighlighterEx)highlighter);
+            info.setHighlighter(highlighter);
           }
-          info.setGroup(group);
           fileLevelInfos.add(info);
-          FileLevelIntentionComponent component = new FileLevelIntentionComponent(info.getDescription(), info.getSeverity(),
-                                                                                  info.getGutterIconRenderer(), actionRanges,
-                                                                                  psiFile, textEditor.getEditor(), info.getToolTip());
-          fileEditorManager.addTopComponent(fileEditor, component);
-          info.addFileLevelComponent(fileEditor, component);
+          addFileLevelInfoComponentToEditor(info, psiFile, textEditor);
           if (LOG.isDebugEnabled()) {
             LOG.debug("addFileLevelHighlight [" + info + "]: fileLevelInfos:" + fileLevelInfos);
           }
@@ -380,7 +361,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     }
   }
 
-  // replace one file-level info with the other, possible reusing the fake highlighter
+  /** replace one file-level info with the other, possible reusing the fake highlighter */
   @Override
   public void replaceFileLevelHighlight(@NotNull HighlightInfo oldInfo,
                                         @NotNull HighlightInfo newInfo,
@@ -389,28 +370,18 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     ThreadingAssertions.assertEventDispatchThread();
     assertFileFromMyProject(psiFile.getProject(), psiFile);
     VirtualFile vFile = BackedVirtualFile.getOriginFileIfBacked(psiFile.getViewProvider().getVirtualFile());
-    FileEditorManager fileEditorManager = getFileEditorManager();
-    for (FileEditor fileEditor : fileEditorManager.getAllEditorList(vFile)) {
+    for (FileEditor fileEditor : getFileEditorManager().getAllEditorList(vFile)) {
       if (fileEditor instanceof TextEditor textEditor) {
-        List<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>> actionRanges = new ArrayList<>();
-        newInfo.findRegisteredQuickFix((descriptor, range) -> {
-          actionRanges.add(Pair.create(descriptor, range));
-          return null;
-        });
-        List<HighlightInfo> fileLevelInfos = fileEditor.getUserData(FILE_LEVEL_HIGHLIGHTS);
-        if (fileLevelInfos == null) {
-          fileLevelInfos = ContainerUtil.createConcurrentList(); // must be able to iterate in hasFileLevelHighlights() and concurrently modify in addFileLevelHighlight()
-          fileEditor.putUserData(FILE_LEVEL_HIGHLIGHTS, fileLevelInfos);
-        }
+        List<HighlightInfo> fileLevelInfos = getOrCreateFileLevelHighlights(fileEditor);
         // do not dispose highlighter if it needs to be reused
-        fileLevelInfos.removeIf(fileLevelInfo-> {
+        fileLevelInfos.removeIf(fileLevelInfo -> {
+          // todo does this check make any sense?
           if (!fileLevelInfo.attributesEqual(fileLevelInfo)) {
             return false;
           }
-          ThreadingAssertions.assertEventDispatchThread();
           JComponent component = fileLevelInfo.getFileLevelComponent(fileEditor);
           if (component != null) {
-            fileEditorManager.removeTopComponent(fileEditor, component);
+            getFileEditorManager().removeTopComponent(fileEditor, component);
             fileLevelInfo.removeFileLeverComponent(fileEditor);
           }
           RangeHighlighterEx highlighter = fileLevelInfo.getHighlighter();
@@ -425,16 +396,42 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
           HighlightInfoUpdaterImpl.createOrReuseFakeFileLevelHighlighter(newInfo.getGroup(), newInfo, null, markupModel);
         }
         fileLevelInfos.add(newInfo);
-        FileLevelIntentionComponent component = new FileLevelIntentionComponent(newInfo.getDescription(), newInfo.getSeverity(),
-                                                                                newInfo.getGutterIconRenderer(), actionRanges,
-                                                                                psiFile, textEditor.getEditor(), newInfo.getToolTip());
-        fileEditorManager.addTopComponent(fileEditor, component);
-        newInfo.addFileLevelComponent(fileEditor, component);
+        addFileLevelInfoComponentToEditor(newInfo, psiFile, textEditor);
         if (LOG.isDebugEnabled()) {
           LOG.debug("replaceFileLevelHighlight [" + newInfo + "]: fileLevelInfos:" + fileLevelInfos);
         }
       }
     }
+  }
+
+  private void addFileLevelInfoComponentToEditor(@NotNull HighlightInfo info,
+                                                 @NotNull PsiFile psiFile,
+                                                 @NotNull TextEditor textEditor) {
+    List<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>> actionRanges = getActionRanges(info);
+    FileLevelIntentionComponent component = new FileLevelIntentionComponent(info.getDescription(), info.getSeverity(),
+                                                                            info.getGutterIconRenderer(), actionRanges,
+                                                                            psiFile, textEditor.getEditor(), info.getToolTip());
+    FileEditorManager fileEditorManager = getFileEditorManager();
+    fileEditorManager.addTopComponent(textEditor, component);
+    info.addFileLevelComponent(textEditor, component);
+  }
+
+  private static @NotNull List<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>> getActionRanges(@NotNull HighlightInfo info) {
+    List<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>> actionRanges = new ArrayList<>();
+    info.findRegisteredQuickFix((descriptor, range) -> {
+      actionRanges.add(Pair.create(descriptor, range));
+      return null;
+    });
+    return actionRanges;
+  }
+
+  private static @NotNull List<HighlightInfo> getOrCreateFileLevelHighlights(@NotNull FileEditor fileEditor) {
+    List<HighlightInfo> fileLevelInfos = fileEditor.getUserData(FILE_LEVEL_HIGHLIGHTS);
+    if (fileLevelInfos == null) {
+      fileLevelInfos = ContainerUtil.createConcurrentList(); // must be able to iterate in hasFileLevelHighlights() and concurrently modify in addFileLevelHighlight()
+      fileEditor.putUserData(FILE_LEVEL_HIGHLIGHTS, fileLevelInfos);
+    }
+    return fileLevelInfos;
   }
 
   @Override

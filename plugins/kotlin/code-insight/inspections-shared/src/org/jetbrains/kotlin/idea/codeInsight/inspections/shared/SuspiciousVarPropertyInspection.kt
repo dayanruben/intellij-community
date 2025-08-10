@@ -1,5 +1,5 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package org.jetbrains.kotlin.idea.k2.codeinsight.inspections
+package org.jetbrains.kotlin.idea.codeInsight.inspections.shared
 
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.ProblemDescriptor
@@ -70,14 +70,14 @@ internal class SuspiciousVarPropertyInspection : KotlinApplicableInspectionBase<
             isBackingFieldReference(it, accessor.property)
         }
     }
+}
 
-    private fun KaSession.isBackingFieldReference(expression: KtExpression, property: KtProperty): Boolean =
-        expression is KtNameReferenceExpression && isBackingFieldReference(expression, property)
+internal fun KaSession.isBackingFieldReference(expression: KtExpression?, property: KtProperty): Boolean =
+    expression is KtNameReferenceExpression && isBackingFieldReference(expression, property)
 
-    private fun KaSession.isBackingFieldReference(namedReference: KtNameReferenceExpression, property: KtProperty): Boolean {
-        if (namedReference.text != KtTokens.FIELD_KEYWORD.value) return false
-        val fieldSymbol = namedReference.mainReference.resolveToSymbol()
-        if (fieldSymbol !is KaBackingFieldSymbol) return false
-        return fieldSymbol.owningProperty.psi == property
-    }
+private fun KaSession.isBackingFieldReference(namedReference: KtNameReferenceExpression, property: KtProperty): Boolean {
+    if (namedReference.text != KtTokens.FIELD_KEYWORD.value) return false
+    val fieldSymbol = namedReference.mainReference.resolveToSymbol()
+    if (fieldSymbol !is KaBackingFieldSymbol) return false
+    return fieldSymbol.owningProperty.psi == property
 }
