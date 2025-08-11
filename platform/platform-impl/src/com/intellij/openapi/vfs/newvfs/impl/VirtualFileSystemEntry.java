@@ -61,6 +61,9 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
 
   @ApiStatus.Internal
   static final class VfsDataFlags {
+    //Flags are contained in the highest byte, because lowest 3 bytes are for (content)ModCount,
+    // see VfsData.Segment.intFieldsArray for details
+
     static final int IS_WRITABLE_FLAG = 0x0100_0000;
     static final int IS_HIDDEN_FLAG = 0x0200_0000;
     static final int IS_OFFLINE = 0x0400_0000;
@@ -92,6 +95,20 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
              (sensitivity.isSensitive() ? VfsDataFlags.CHILDREN_CASE_SENSITIVE : 0) |
              (PersistentFS.isSpecialFile(attributes) ? VfsDataFlags.IS_SPECIAL_FLAG : 0);
     }
+
+    static @Flags int toFlags(@NotNull FileAttributes attributes,
+                              boolean isOfflineByDefault) {
+      FileAttributes.CaseSensitivity sensitivity = attributes.areChildrenCaseSensitive() ;
+      return (attributes.isWritable() ? VfsDataFlags.IS_WRITABLE_FLAG : 0) |
+             (attributes.isHidden() ? VfsDataFlags.IS_HIDDEN_FLAG : 0) |
+             (isOfflineByDefault ? VfsDataFlags.IS_OFFLINE : 0) |
+
+             (sensitivity.isKnown() ? VfsDataFlags.CHILDREN_CASE_SENSITIVITY_CACHED : 0) |
+
+             (attributes.isSymLink() ? VfsDataFlags.IS_SYMLINK_FLAG : 0) |
+             (sensitivity.isSensitive() ? VfsDataFlags.CHILDREN_CASE_SENSITIVE : 0) |
+             (attributes.isSpecial() ? VfsDataFlags.IS_SPECIAL_FLAG : 0);
+    }
   }
 
   static final @Flags int ALL_FLAGS_MASK =
@@ -118,6 +135,7 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
   private volatile CachedFileType cachedFileType;
 
   static {
+    //noinspection ConstantValue
     assert ~ALL_FLAGS_MASK == LocalTimeCounter.TIME_MASK : "ALL_FLAGS_MASK and MOD_COUNTER_MASK must combined into full int32";
   }
 
@@ -139,7 +157,7 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
   }
 
   @NotNull VfsData getVfsData() {
-    VfsData data = segment.owningVfsData;
+    VfsData data = segment.owningVfsData();
     PersistentFSImpl owningPersistentFS = data.owningPersistentFS();
     if (!owningPersistentFS.isOwnData(data)) {
       //PersistentFSImpl re-creates VfsData on (re-)connect
@@ -166,7 +184,7 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
     while (segment.replacement != null) {
       segment = segment.replacement;
     }
-    VirtualDirectoryImpl changedParent = segment.owningVfsData.getChangedParent(id);
+    VirtualDirectoryImpl changedParent = segment.owningVfsData().getChangedParent(id);
     if (changedParent != null) {
       parent = changedParent;
     }
@@ -564,7 +582,7 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
       //    is the only method that _doesn't_ throw the AssertionError for alien files, but returns false instead.
       //    In other words: we now consider an 'alien' file as 'invalid' file, instead of a primordial sin.
 
-      VfsData data = segment.owningVfsData;
+      VfsData data = segment.owningVfsData();
       PersistentFSImpl owningPersistentFS = data.owningPersistentFS();
       if (!owningPersistentFS.isOwnData(data)) {
         Logger.getInstance(VirtualFileSystemEntry.class).warn(
@@ -578,7 +596,7 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
 
   @Override
   public @NonNls String toString() {
-    VfsData owningVfsData = getSegment().owningVfsData;
+    VfsData owningVfsData = getSegment().owningVfsData();
     //don't use .owningPersistentFS() since it throws assertion if pFS not own current segment anymore,
     // but here we want to return some string always:
     PersistentFSImpl persistentFs = owningVfsData.owningPersistentFS();
@@ -801,8 +819,7 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
     return type;
   }
 
-  static final VirtualFileSystemEntry NULL_VIRTUAL_FILE =
-    new VirtualFileSystemEntry() {
+  static final VirtualFileSystemEntry NULL_VIRTUAL_FILE = new VirtualFileSystemEntry() {
       @Override
       public String toString() {
         return "NULL";
@@ -857,5 +874,7 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
       public @NotNull InputStream getInputStream() {
         throw new UnsupportedOperationException();
       }
+
+
     };
 }
