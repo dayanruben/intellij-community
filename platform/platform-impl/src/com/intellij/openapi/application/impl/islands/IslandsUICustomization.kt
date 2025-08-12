@@ -285,8 +285,10 @@ internal class IslandsUICustomization : InternalUICustomization() {
           }
         }
 
-        if (!isIslands && toolWindowPaneParent.border != null) {
-          toolWindowPaneParent.border = null
+        if (!isIslands) {
+          if (toolWindowPaneParent.border != null) {
+            toolWindowPaneParent.border = null
+          }
           return@addVisibleToolbarsListener
         }
 
@@ -497,6 +499,14 @@ internal class IslandsUICustomization : InternalUICustomization() {
       return glassPane.isColorfulToolbar
     }
     return true
+  }
+
+  override fun createProjectTab(frame: JFrame) {
+    if (frame is IdeFrame) {
+      frame.project?.also { project ->
+        updateToolStripesVisibility(ToolWindowManager.getInstance(project))
+      }
+    }
   }
 
   override fun paintProjectTab(frame: JFrame, label: TabLabel, g: Graphics, tabs: JBTabsImpl, selected: Boolean, index: Int, lastIndex: Int): Boolean {
