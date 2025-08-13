@@ -83,6 +83,7 @@ f:org.jetbrains.jewel.ui.OutlineKt
 - sf:focusOutline-AGcomas(androidx.compose.ui.Modifier,org.jetbrains.jewel.foundation.state.FocusableComponentState,androidx.compose.ui.graphics.Shape,org.jetbrains.jewel.foundation.Stroke$Alignment,F,F,androidx.compose.runtime.Composer,I,I):androidx.compose.ui.Modifier
 - sf:focusOutline-AGcomas(androidx.compose.ui.Modifier,Z,androidx.compose.ui.graphics.Shape,org.jetbrains.jewel.foundation.Stroke$Alignment,F,F,androidx.compose.runtime.Composer,I,I):androidx.compose.ui.Modifier
 - sf:outline-HYR8e34(androidx.compose.ui.Modifier,org.jetbrains.jewel.foundation.state.FocusableComponentState,org.jetbrains.jewel.ui.Outline,androidx.compose.ui.graphics.Shape,org.jetbrains.jewel.foundation.Stroke$Alignment,F,androidx.compose.runtime.Composer,I,I):androidx.compose.ui.Modifier
+- sf:outline-HYR8e34(androidx.compose.ui.Modifier,org.jetbrains.jewel.ui.Outline,Z,androidx.compose.ui.graphics.Shape,org.jetbrains.jewel.foundation.Stroke$Alignment,F,androidx.compose.runtime.Composer,I,I):androidx.compose.ui.Modifier
 org.jetbrains.jewel.ui.Typography
 - a:getConsoleTextStyle(androidx.compose.runtime.Composer,I):androidx.compose.ui.text.TextStyle
 - a:getEditorTextStyle(androidx.compose.runtime.Composer,I):androidx.compose.ui.text.TextStyle
@@ -395,6 +396,9 @@ f:org.jetbrains.jewel.ui.component.IconKt
 - sf:Icon-ww6aTOc(androidx.compose.ui.graphics.painter.Painter,java.lang.String,androidx.compose.ui.Modifier,J,androidx.compose.runtime.Composer,I,I):V
 - sf:Icon-ww6aTOc(androidx.compose.ui.graphics.vector.ImageVector,java.lang.String,androidx.compose.ui.Modifier,J,androidx.compose.runtime.Composer,I,I):V
 - sf:painterResource(java.lang.String,androidx.compose.runtime.Composer,I):androidx.compose.ui.graphics.painter.Painter
+f:org.jetbrains.jewel.ui.component.InfoTextKt
+- sf:InfoText-F-Jr8PA(androidx.compose.ui.text.AnnotatedString,androidx.compose.ui.Modifier,J,J,androidx.compose.ui.text.font.FontStyle,androidx.compose.ui.text.font.FontWeight,androidx.compose.ui.text.font.FontFamily,J,androidx.compose.ui.text.style.TextDecoration,I,J,I,Z,I,java.util.Map,kotlin.jvm.functions.Function1,androidx.compose.ui.text.TextStyle,androidx.compose.runtime.Composer,I,I,I):V
+- sf:InfoText-bAzTDeA(java.lang.String,androidx.compose.ui.Modifier,J,J,androidx.compose.ui.text.font.FontStyle,androidx.compose.ui.text.font.FontWeight,androidx.compose.ui.text.font.FontFamily,J,androidx.compose.ui.text.style.TextDecoration,I,J,I,Z,I,kotlin.jvm.functions.Function1,androidx.compose.ui.text.TextStyle,androidx.compose.runtime.Composer,I,I,I):V
 f:org.jetbrains.jewel.ui.component.InlineBannerKt
 - sf:ErrorInlineBanner(androidx.compose.ui.Modifier,java.lang.String,kotlin.jvm.functions.Function2,kotlin.jvm.functions.Function3,kotlin.jvm.functions.Function3,org.jetbrains.jewel.ui.component.styling.InlineBannerStyle,androidx.compose.ui.text.TextStyle,kotlin.jvm.functions.Function2,androidx.compose.runtime.Composer,I,I):V
 - sf:ErrorInlineBanner(java.lang.String,androidx.compose.ui.Modifier,java.lang.String,kotlin.jvm.functions.Function2,kotlin.jvm.functions.Function3,kotlin.jvm.functions.Function3,org.jetbrains.jewel.ui.component.styling.InlineBannerStyle,androidx.compose.ui.text.TextStyle,androidx.compose.runtime.Composer,I,I):V
@@ -562,19 +566,6 @@ org.jetbrains.jewel.ui.component.MenuScope
 - bs:selectableItemWithActionType$default(org.jetbrains.jewel.ui.component.MenuScope,Z,org.jetbrains.jewel.ui.icon.IconKey,org.jetbrains.jewel.ui.component.ContextMenuItemOptionAction,kotlin.jvm.functions.Function0,Z,kotlin.jvm.functions.Function2,I,java.lang.Object):V
 - a:submenu(Z,org.jetbrains.jewel.ui.icon.IconKey,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function2):V
 - bs:submenu$default(org.jetbrains.jewel.ui.component.MenuScope,Z,org.jetbrains.jewel.ui.icon.IconKey,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function2,I,java.lang.Object):V
-f:org.jetbrains.jewel.ui.component.MenuSelectableItem
-- sf:$stable:I
-- <init>(Z,Z,org.jetbrains.jewel.ui.icon.IconKey,org.jetbrains.jewel.ui.component.ContextMenuItemOptionAction,java.util.Set,kotlin.jvm.functions.Function0,kotlin.jvm.functions.Function2):V
-- b:<init>(Z,Z,org.jetbrains.jewel.ui.icon.IconKey,org.jetbrains.jewel.ui.component.ContextMenuItemOptionAction,java.util.Set,kotlin.jvm.functions.Function0,kotlin.jvm.functions.Function2,I,kotlin.jvm.internal.DefaultConstructorMarker):V
-- equals(java.lang.Object):Z
-- getContent():kotlin.jvm.functions.Function2
-- f:getIconKey():org.jetbrains.jewel.ui.icon.IconKey
-- f:getItemOptionAction():org.jetbrains.jewel.ui.component.ContextMenuItemOptionAction
-- f:getKeybinding():java.util.Set
-- f:getOnClick():kotlin.jvm.functions.Function0
-- hashCode():I
-- f:isEnabled():Z
-- f:isSelected():Z
 f:org.jetbrains.jewel.ui.component.PopupContainerKt
 - sf:PopupContainer(kotlin.jvm.functions.Function0,androidx.compose.ui.Alignment$Horizontal,androidx.compose.ui.Modifier,org.jetbrains.jewel.ui.component.styling.PopupContainerStyle,androidx.compose.ui.window.PopupProperties,androidx.compose.ui.window.PopupPositionProvider,kotlin.jvm.functions.Function2,androidx.compose.runtime.Composer,I,I):V
 f:org.jetbrains.jewel.ui.component.PopupKt
@@ -614,9 +605,11 @@ f:org.jetbrains.jewel.ui.component.RadioButtonState$Companion
 - f:of-fp8g3n8(Z,Z,Z,Z,Z,Z):J
 - bs:of-fp8g3n8$default(org.jetbrains.jewel.ui.component.RadioButtonState$Companion,Z,Z,Z,Z,Z,Z,I,java.lang.Object):J
 f:org.jetbrains.jewel.ui.component.ScrollableContainerKt
+- sf:HorizontallyScrollableContainer(androidx.compose.foundation.gestures.ScrollableState,androidx.compose.ui.Modifier,androidx.compose.ui.Modifier,org.jetbrains.jewel.ui.component.styling.ScrollbarStyle,Z,Z,androidx.compose.foundation.interaction.MutableInteractionSource,kotlin.jvm.functions.Function3,androidx.compose.runtime.Composer,I,I):V
 - sf:HorizontallyScrollableContainer(androidx.compose.foundation.lazy.LazyListState,androidx.compose.ui.Modifier,androidx.compose.ui.Modifier,org.jetbrains.jewel.ui.component.styling.ScrollbarStyle,Z,Z,androidx.compose.foundation.interaction.MutableInteractionSource,kotlin.jvm.functions.Function3,androidx.compose.runtime.Composer,I,I):V
 - sf:HorizontallyScrollableContainer(androidx.compose.foundation.lazy.grid.LazyGridState,androidx.compose.ui.Modifier,androidx.compose.ui.Modifier,org.jetbrains.jewel.ui.component.styling.ScrollbarStyle,Z,Z,androidx.compose.foundation.interaction.MutableInteractionSource,kotlin.jvm.functions.Function3,androidx.compose.runtime.Composer,I,I):V
 - sf:HorizontallyScrollableContainer(androidx.compose.ui.Modifier,androidx.compose.ui.Modifier,androidx.compose.foundation.ScrollState,org.jetbrains.jewel.ui.component.styling.ScrollbarStyle,Z,Z,androidx.compose.foundation.interaction.MutableInteractionSource,kotlin.jvm.functions.Function3,androidx.compose.runtime.Composer,I,I):V
+- sf:VerticallyScrollableContainer(androidx.compose.foundation.gestures.ScrollableState,androidx.compose.ui.Modifier,androidx.compose.ui.Modifier,org.jetbrains.jewel.ui.component.styling.ScrollbarStyle,Z,Z,androidx.compose.foundation.interaction.MutableInteractionSource,kotlin.jvm.functions.Function3,androidx.compose.runtime.Composer,I,I):V
 - sf:VerticallyScrollableContainer(androidx.compose.foundation.lazy.LazyListState,androidx.compose.ui.Modifier,androidx.compose.ui.Modifier,org.jetbrains.jewel.ui.component.styling.ScrollbarStyle,Z,Z,androidx.compose.foundation.interaction.MutableInteractionSource,kotlin.jvm.functions.Function3,androidx.compose.runtime.Composer,I,I):V
 - sf:VerticallyScrollableContainer(androidx.compose.foundation.lazy.grid.LazyGridState,androidx.compose.ui.Modifier,androidx.compose.ui.Modifier,org.jetbrains.jewel.ui.component.styling.ScrollbarStyle,Z,Z,androidx.compose.foundation.interaction.MutableInteractionSource,kotlin.jvm.functions.Function3,androidx.compose.runtime.Composer,I,I):V
 - sf:VerticallyScrollableContainer(androidx.compose.ui.Modifier,androidx.compose.ui.Modifier,androidx.compose.foundation.ScrollState,org.jetbrains.jewel.ui.component.styling.ScrollbarStyle,Z,Z,androidx.compose.foundation.interaction.MutableInteractionSource,kotlin.jvm.functions.Function3,androidx.compose.runtime.Composer,I,I):V

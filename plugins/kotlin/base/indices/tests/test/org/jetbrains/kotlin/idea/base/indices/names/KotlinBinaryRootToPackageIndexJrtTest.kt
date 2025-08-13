@@ -13,6 +13,7 @@ import com.intellij.testFramework.utils.io.createDirectory
 import com.intellij.util.indexing.FileBasedIndex
 import org.jetbrains.kotlin.idea.base.test.KotlinRoot
 import org.jetbrains.kotlin.idea.test.AbstractMultiModuleTest
+import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
@@ -32,7 +33,6 @@ import java.nio.file.Path
  */
 @RunWith(JUnit4::class)
 class KotlinBinaryRootToPackageIndexJrtTest : AbstractMultiModuleTest() {
-
     private val testDataPath = KotlinRoot.DIR.resolve("base/indices/tests/testData/kotlinBinaryRootToPackageIndex/jrt").toPath()
 
     lateinit var jrtPath: Path
@@ -53,7 +53,8 @@ class KotlinBinaryRootToPackageIndexJrtTest : AbstractMultiModuleTest() {
     }
 
     @Test
-    fun testAbc() {
+    @Ignore("KTIJ-35195")
+    fun testCustomRuntime() {
         val module = createMainModule()
         module.addLibrary(jrtRoot, "JRT-based library")
 

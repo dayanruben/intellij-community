@@ -333,6 +333,7 @@ libraries/ai.grazie.spell.gec.engine.local
 libraries/assertj-core
 libraries/compose-foundation-desktop
 libraries/compose-foundation-desktop-junit
+libraries/detekt-compose-rules
 libraries/dokka
 libraries/grpc
 libraries/grpc-netty-shaded
@@ -1248,8 +1249,12 @@ plugins/testng
 plugins/testng_rt
 plugins/testng_rt/tests
 plugins/textmate
+plugins/textmate/backend
+plugins/textmate/common
 plugins/textmate/core
 plugins/textmate/joni
+plugins/textmate/plugin
+plugins/textmate/tests
 plugins/toml
 plugins/toml/backend
 plugins/toml/core

@@ -377,12 +377,23 @@ internal class WorkspaceFileIndexDataImpl(
     // everything in actual dependencies but not in previous is considered new
     // everything in previous but not in actual dependencies is considered removed
 
-    (actualDependencies - previousDependencies).mapNotNullTo(addedEntities) { it.resolve(event.storageAfter) }
+    (actualDependencies - previousDependencies)
+      // We want to filter out entities that were already referenced by any reference holder
+      .filter { event.storageBefore.referrers(it, dependencyDescription.referenceHolderClass).none() }
+      .mapNotNull { it.resolve(event.storageAfter) }
+      .forEach {
+        removedEntities.add(it)
+        addedEntities.add(it)
+      }
 
     (previousDependencies - actualDependencies)
-      // check if any reference holder is still references removed entity
+      // we want to filter out references that are still referenced by any reference holder
       .filter { event.storageAfter.referrers(it, dependencyDescription.referenceHolderClass).none() }
-      .mapNotNullTo(removedEntities) { it.resolve(event.storageBefore) }
+      .mapNotNull { it.resolve(event.storageBefore) }
+      .forEach {
+        removedEntities.add(it)
+        addedEntities.add(it)
+      }
   }
 
   private fun <R: WorkspaceEntity, E: WorkspaceEntity> processOnArbitraryEntityDependency(dependency: DependencyDescription.OnArbitraryEntity<R, E>,
@@ -468,10 +479,10 @@ internal class WorkspaceFileIndexDataImpl(
     }
     resetFileCache()
     if (storeRegistrar.registeredFileSets.isNotEmpty() || removeRegistrar.removedFileSets.isNotEmpty()) {
-      val changeLog = VersionedWorkspaceFileIndexChangeEvent(storageBefore = event.storageBefore,
-                                                             storageAfter = event.storageAfter,
-                                                             removedFileSets = removeRegistrar.removedFileSets.values,
-                                                             registeredFileSets = storeRegistrar.registeredFileSets.values,)
+      val changeLog = WorkspaceFileIndexChangedEvent(removedFileSets = removeRegistrar.removedFileSets.values,
+                                                     registeredFileSets = storeRegistrar.registeredFileSets.values,
+                                                     storageBefore = event.storageBefore,
+                                                     storageAfter = event.storageAfter,)
       project.messageBus.syncPublisher(WorkspaceFileIndexListener.TOPIC).workspaceFileIndexChanged(changeLog)
     }
   }
@@ -505,8 +516,10 @@ internal class WorkspaceFileIndexDataImpl(
 
     WorkspaceFileIndexDataMetrics.updateDirtyEntitiesTimeNanosec.addElapsedTime(start)
     if (storeRegistrar.registeredFileSets.isNotEmpty() || removeRegistrar.removedFileSets.isNotEmpty()) {
-      val changeLog = WorkspaceFileIndexChangedEventImpl(removedFileSets = removeRegistrar.removedFileSets.values,
-                                                         registeredFileSets = storeRegistrar.registeredFileSets.values,)
+      val changeLog = WorkspaceFileIndexChangedEvent(removedFileSets = removeRegistrar.removedFileSets.values,
+                                                     registeredFileSets = storeRegistrar.registeredFileSets.values,
+                                                     storageBefore = storage,
+                                                     storageAfter = storage,)
       project.messageBus.syncPublisher(WorkspaceFileIndexListener.TOPIC).workspaceFileIndexChanged(changeLog)
     }
   }

@@ -5,6 +5,8 @@
     <module name="intellij.platform.lvcs.impl"/>
     <module name="intellij.platform.smRunner.vcs"/>
     <module name="intellij.platform.collaborationTools"/>
+    <module name="intellij.platform.collaborationTools.auth"/>
+    <module name="intellij.platform.collaborationTools.auth.base"/>
     <module name="intellij.platform.tasks"/>
     <module name="intellij.platform.tasks.impl"/>
     <module name="intellij.platform.ml.impl"/>
@@ -31,6 +33,7 @@
     <module name="intellij.platform.diagnostic.freezeAnalyzer"/>
     <module name="intellij.platform.diagnostic.freezes"/>
     <module name="intellij.platform.warmup"/>
+    <module name="intellij.platform.inspect"/>
     <module name="intellij.settingsSync.core"/>
     
     <module name="intellij.libraries.lucene.common"/>

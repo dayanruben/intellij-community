@@ -2,6 +2,7 @@
 package com.intellij.openapi.wm.impl
 
 import com.intellij.diagnostic.LoadingState
+import com.intellij.ide.AssertiveRepaintManager
 import com.intellij.ide.IdeEventQueue
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettings.Companion.setupAntialiasing
@@ -9,6 +10,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.traceThrowable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -25,6 +27,7 @@ import com.intellij.ui.DisposableWindow
 import com.intellij.ui.ScreenUtil
 import com.intellij.ui.mac.foundation.MacUtil
 import com.intellij.ui.scale.JBUIScale
+import com.intellij.util.ui.EDT
 import com.intellij.util.ui.EdtInvocationManager
 import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.launchOnShow
@@ -39,6 +42,8 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.MouseEvent
 import java.awt.event.WindowEvent
+import java.awt.image.BufferStrategy
+import java.awt.image.VolatileImage
 import javax.accessibility.AccessibleContext
 import javax.swing.JComponent
 import javax.swing.JFrame
@@ -158,8 +163,124 @@ class IdeFrameImpl : JFrame(), IdeFrame, UiDataProvider, DisposableWindow {
     if (LoadingState.COMPONENTS_REGISTERED.isOccurred) {
       setupAntialiasing(g)
     }
+    if (!EDT.isCurrentThreadEdt()) {
+      logger<IdeFrameImpl>().error("paint must be called on EDT", Throwable())
+    }
     super.paint(g)
   }
+
+  override fun revalidate() {
+    if (!EDT.isCurrentThreadEdt()) {
+      logger<IdeFrameImpl>().error("revalidate must be called on EDT", Throwable())
+    }
+    super.revalidate()
+  }
+
+  override fun getBufferStrategy(): BufferStrategy? {
+    if (!EDT.isCurrentThreadEdt()) {
+      logger<IdeFrameImpl>().error("getBufferStrategy must be called on EDT", Throwable())
+    }
+    return super.getBufferStrategy()
+  }
+
+  override fun createBufferStrategy(numBuffers: Int) {
+    if (!EDT.isCurrentThreadEdt()) {
+      logger<IdeFrameImpl>().error("createBufferStrategy must be called on EDT", Throwable())
+    }
+    super.createBufferStrategy(numBuffers)
+    tryReplaceBufferStrategy()
+  }
+
+  override fun createBufferStrategy(numBuffers: Int, caps: BufferCapabilities?) {
+    if (!EDT.isCurrentThreadEdt()) {
+      logger<IdeFrameImpl>().error("createBufferStrategy must be called on EDT", Throwable())
+    }
+    super.createBufferStrategy(numBuffers, caps)
+    tryReplaceBufferStrategy()
+  }
+
+  private fun tryReplaceBufferStrategy() {
+    if (!System.getProperty("idea.check.swing.threading").toBoolean()) {
+      return
+    }
+    try {
+      val bufferStrategyField = Component::class.java.getDeclaredField("bufferStrategy").apply {
+        isAccessible = true
+      }
+      val originalStrategy = bufferStrategyField.get(this) as BufferStrategy
+      val wrappedStrategy = AssertiveBufferStrategy(originalStrategy)
+      bufferStrategyField.set(this, wrappedStrategy)
+    }
+    catch (e: Exception) {
+      logger<IdeFrameImpl>().warn("Failed to wrap buffer strategy", e)
+    }
+  }
+
+  class AssertiveBufferStrategy internal constructor(private val delegate: BufferStrategy) : BufferStrategy() {
+    init {
+      if (!EDT.isCurrentThreadEdt()) {
+        logger<IdeFrameImpl>().error("BufferStrategy should be used only from EDT", Throwable())
+      }
+    }
+
+    override fun getCapabilities(): BufferCapabilities? {
+      if (!EDT.isCurrentThreadEdt()) {
+        logger<IdeFrameImpl>().error("BufferStrategy should be used only from EDT", Throwable())
+      }
+      return delegate.getCapabilities()
+    }
+
+    override fun getDrawGraphics(): Graphics? {
+      if (!EDT.isCurrentThreadEdt()) {
+        logger<IdeFrameImpl>().error("BufferStrategy should be used only from EDT", Throwable())
+      }
+      return delegate.getDrawGraphics()
+    }
+
+    override fun contentsLost(): Boolean {
+      if (!EDT.isCurrentThreadEdt()) {
+        logger<IdeFrameImpl>().error("BufferStrategy should be used only from EDT", Throwable())
+      }
+      return delegate.contentsLost()
+    }
+
+    override fun contentsRestored(): Boolean {
+      if (!EDT.isCurrentThreadEdt()) {
+        logger<IdeFrameImpl>().error("BufferStrategy should be used only from EDT", Throwable())
+      }
+      return delegate.contentsRestored()
+    }
+
+    override fun show() {
+      if (!EDT.isCurrentThreadEdt()) {
+        logger<IdeFrameImpl>().error("BufferStrategy should be used only from EDT", Throwable())
+      }
+      delegate.show()
+    }
+
+    override fun dispose() {
+      if (!EDT.isCurrentThreadEdt()) {
+        logger<IdeFrameImpl>().error("BufferStrategy should be used only from EDT", Throwable())
+      }
+      delegate.dispose()
+    }
+  }
+
+  override fun createVolatileImage(width: Int, height: Int): VolatileImage? {
+    if (!EDT.isCurrentThreadEdt()) {
+      logger<IdeFrameImpl>().error("createVolatileImage must be called on EDT", Throwable())
+    }
+    return super.createVolatileImage(width, height)
+  }
+
+  override fun createVolatileImage(width: Int, height: Int, caps: ImageCapabilities?): VolatileImage? {
+    if (!EDT.isCurrentThreadEdt()) {
+      logger<IdeFrameImpl>().error("createVolatileImage must be called on EDT", Throwable())
+    }
+    return super.createVolatileImage(width, height, caps)
+  }
+
+
 
   @Suppress("OVERRIDE_DEPRECATION")
   override fun show() {

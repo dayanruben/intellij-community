@@ -1010,6 +1010,9 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
       final BufferStrategy strategy = getBufferStrategy();
       if (strategy != null) {
+        if (!EDT.isCurrentThreadEdt()) {
+          LOG.error("Component dispose must be called on EDT", new Throwable());
+        }
         strategy.dispose();
       }
       super.dispose();
@@ -1042,6 +1045,9 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
         // actually, it's a bad idea to globally enable this for dialog graphics since renderers, for example, may not
         // inherit graphics so rendering hints won't be applied and trees or lists may render ugly.
         UISettings.setupAntialiasing(g);
+      }
+      if (!EDT.isCurrentThreadEdt()) {
+        LOG.error("paint must be called on EDT", new Throwable());
       }
 
       super.paint(g);
