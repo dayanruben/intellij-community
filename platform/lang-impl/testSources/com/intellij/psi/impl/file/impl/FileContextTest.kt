@@ -10,9 +10,9 @@ import com.intellij.platform.testFramework.junit5.projectStructure.fixture.withS
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
+import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.*
-import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
@@ -22,8 +22,8 @@ internal class FileContextTest {
   companion object {
     private val projectFixture = projectFixture().withSharedSourceEnabled()
 
-    private val module1 = projectFixture.moduleFixture("src1")
-    private val module2 = projectFixture.moduleFixture("src2")
+    private val module1 = projectFixture.moduleFixture("FileContextTest_src1")
+    private val module2 = projectFixture.moduleFixture("FileContextTest_src2")
 
     private val sourceRoot = sharedSourceRootFixture(module1, module2)
   }
@@ -39,7 +39,7 @@ internal class FileContextTest {
   private fun findPsiFile(context: CodeInsightContext): PsiFile = requireNotNull(psiManager.findFile(virtualFile, context))
 
   @Test
-  fun testAnyContextByDefault() = runBlocking {
+  fun testAnyContextByDefault() = timeoutRunBlocking {
     readAction {
       val file = findPsiFile()
       val rawContext = contextManager.getCodeInsightContextRaw(file.viewProvider)
@@ -48,7 +48,7 @@ internal class FileContextTest {
   }
 
   @Test
-  fun testContextIsInferred() = runBlocking {
+  fun testContextIsInferred() = timeoutRunBlocking {
     readAction {
       val file = findPsiFile()
       assertNotEquals(anyContext(), file.codeInsightContext)
@@ -56,7 +56,7 @@ internal class FileContextTest {
   }
 
   @Test
-  fun testContextIsCorrectlySet() = runBlocking {
+  fun testContextIsCorrectlySet() = timeoutRunBlocking {
     val context = module1.moduleContext()
     readAction {
       val file = findPsiFile(context)
@@ -65,7 +65,7 @@ internal class FileContextTest {
   }
 
   @Test
-  fun testRawContextIsCorrectlySet() = runBlocking {
+  fun testRawContextIsCorrectlySet() = timeoutRunBlocking {
     val context = module1.moduleContext()
     readAction {
       val file = findPsiFile(context)
@@ -74,7 +74,7 @@ internal class FileContextTest {
   }
 
   @Test
-  fun testAnyContextIsPromotedToExactContext() = runBlocking {
+  fun testAnyContextIsPromotedToExactContext() = timeoutRunBlocking {
     val context1 = module1.moduleContext()
 
     readAction {
@@ -92,7 +92,7 @@ internal class FileContextTest {
   }
 
   @Test
-  fun testTwoContextsForFile() = runBlocking {
+  fun testTwoContextsForFile() = timeoutRunBlocking {
     val context1 = module1.moduleContext()
     val context2 = module2.moduleContext()
 

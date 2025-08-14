@@ -67,7 +67,7 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + seq
 
 val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
   "" to "17",
-  "lib/idea_rt.jar" to "1.7",
+  "lib/idea_rt.jar" to "1.8",
   "lib/forms_rt.jar" to "1.8",
   "lib/annotations.jar" to "1.8",
   "lib/util_rt.jar" to "1.7",
@@ -75,7 +75,7 @@ val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
   "lib/guava.jar" to "1.8",
   "lib/external-system-rt.jar" to "1.8",
   "plugins/java-coverage/lib/java-coverage-rt.jar" to "1.8",
-  "plugins/junit/lib/junit-rt.jar" to "1.7",
+  "plugins/junit/lib/junit-rt.jar" to "1.8",
   "plugins/junit/lib/junit5-rt.jar" to "1.8",
   "plugins/gradle/lib/gradle-tooling-extension-api.jar" to "1.8",
   "plugins/gradle/lib/gradle-tooling-extension-impl.jar" to "1.8",
@@ -86,8 +86,8 @@ val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
   "plugins/java/lib/jshell-frontend.jar" to "9",
   "plugins/java/lib/sa-jdwp" to "",  // ignored
   "plugins/java/lib/rt/debugger-agent.jar" to "1.7",
-  "plugins/Groovy/lib/groovy-rt.jar" to "1.7",
-  "plugins/Groovy/lib/groovy-constants-rt.jar" to "1.7",
+  "plugins/Groovy/lib/groovy-rt.jar" to "1.8",
+  "plugins/Groovy/lib/groovy-constants-rt.jar" to "1.8",
   "plugins/repository-search/lib/maven-model.jar" to "1.8"
 )
 

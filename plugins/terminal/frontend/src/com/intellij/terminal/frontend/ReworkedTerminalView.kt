@@ -3,7 +3,6 @@ package com.intellij.terminal.frontend
 
 import com.intellij.codeInsight.completion.CompletionPhase
 import com.intellij.codeInsight.inline.completion.InlineCompletion
-import com.intellij.find.SearchReplaceComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.UiDataProvider
@@ -281,11 +280,11 @@ class ReworkedTerminalView(
   private fun listenSearchController() {
     terminalSearchController.addListener(object : TerminalSearchControllerListener {
       override fun searchSessionStarted(session: TerminalSearchSession) {
-        terminalPanel.installSearchComponent(session.component)
+        terminalPanel.installSearchComponent(session.wrapper)
       }
 
       override fun searchSessionFinished(session: TerminalSearchSession) {
-        terminalPanel.removeSearchComponent(session.component)
+        terminalPanel.removeSearchComponent(session.wrapper)
       }
     })
   }
@@ -474,11 +473,11 @@ class ReworkedTerminalView(
       curEditor = editor
     }
 
-    fun installSearchComponent(component: SearchReplaceComponent) {
+    fun installSearchComponent(component: JComponent) {
       layeredPane.installSearchComponent(component)
     }
 
-    fun removeSearchComponent(component: SearchReplaceComponent) {
+    fun removeSearchComponent(component: JComponent) {
       layeredPane.removeSearchComponent(component)
     }
 
@@ -523,13 +522,13 @@ class ReworkedTerminalView(
       repaint()
     }
 
-    fun installSearchComponent(component: SearchReplaceComponent) {
+    fun installSearchComponent(component: JComponent) {
       addToLayer(component, POPUP_LAYER)
       revalidate()
       repaint()
     }
 
-    fun removeSearchComponent(component: SearchReplaceComponent) {
+    fun removeSearchComponent(component: JComponent) {
       remove(component)
       revalidate()
       repaint()
@@ -543,7 +542,7 @@ class ReworkedTerminalView(
       for (component in components) {
         when (component) {
           curEditor.component -> layoutEditor(component)
-          is SearchReplaceComponent -> layoutSearchComponent(component)
+          else -> layoutSearchComponent(component)
         }
       }
     }
