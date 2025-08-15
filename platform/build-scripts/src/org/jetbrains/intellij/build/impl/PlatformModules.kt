@@ -41,6 +41,7 @@ private val PLATFORM_API_MODULES = java.util.List.of(
   "intellij.platform.externalSystem.dependencyUpdater",
   "intellij.platform.codeStyle",
   "intellij.platform.lang.core",
+  "intellij.platform.debugger",
   "intellij.platform.ml",
   "intellij.platform.remote.core",
   "intellij.platform.remoteServers.agent.rt",
@@ -60,10 +61,8 @@ private val PLATFORM_IMPLEMENTATION_MODULES = java.util.List.of(
   "intellij.platform.externalProcessAuthHelper",
   "intellij.platform.lvcs",
   "intellij.platform.macro",
-  "intellij.platform.scriptDebugger.protocolReaderRuntime",
   "intellij.platform.remoteServers.impl",
-  "intellij.platform.scriptDebugger.backend",
-  "intellij.platform.scriptDebugger.ui",
+  "intellij.platform.debugger.impl",
   "intellij.platform.smRunner",
   "intellij.platform.structureView.impl",
   "intellij.platform.testRunner",
@@ -75,8 +74,6 @@ private val PLATFORM_IMPLEMENTATION_MODULES = java.util.List.of(
 
   "intellij.platform.runtime.product",
   "intellij.platform.bootstrap",
-
-  "intellij.platform.vcs.log",
 
   "intellij.platform.markdown.utils",
   "intellij.platform.util.commonsLangV2Shim",
@@ -96,7 +93,6 @@ private val PLATFORM_IMPLEMENTATION_MODULES = java.util.List.of(
   "intellij.platform.ide.favoritesTreeView",
   "intellij.platform.bookmarks",
   "intellij.platform.todo",
-  "intellij.libraries.cglib",
 )
 
 @Suppress("RemoveRedundantQualifierName")
@@ -662,12 +658,6 @@ private suspend fun collectAndEmbedProductModules(root: Element, xIncludePathRes
 // we can consider ways to improve `pluginAuto` and eliminate the need for an explicit declaration here.
 @Suppress("RemoveRedundantQualifierName")
 private val PRODUCT_MODULE_IMPL_COMPOSITION = java.util.Map.of(
-  "intellij.platform.vcs.log.impl", listOf(
-    "intellij.platform.vcs.log.graph.impl",
-  ),
-  "intellij.platform.vcs.dvcs.impl", listOf(
-    "intellij.platform.vcs.dvcs"
-  ),
   "intellij.rider", listOf(
     "intellij.platform.debugger.modulesView"
   ),

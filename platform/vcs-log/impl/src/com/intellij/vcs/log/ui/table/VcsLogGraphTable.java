@@ -585,7 +585,9 @@ public class VcsLogGraphTable extends TableWithProgress
     sink.set(VcsLogInternalDataKeys.VCS_LOG_GRAPH_TABLE, this);
 
     if (roots.size() == 1) {
-      sink.set(VcsDataKeys.VCS, myLogData.getLogProvider(Objects.requireNonNull(getFirstItem(roots))).getSupportedVcs());
+      VirtualFile root = Objects.requireNonNull(getFirstItem(roots));
+      VcsLogProvider provider = Objects.requireNonNull(myLogData.getLogProviders().get(root));
+      sink.set(VcsDataKeys.VCS, provider.getSupportedVcs());
     }
     if (selectedRows.length == 1) {
       List<VcsRef> refsAtRow = getModel().getRefsAtRow(selectedRows[0]);
@@ -1041,11 +1043,6 @@ public class VcsLogGraphTable extends TableWithProgress
 
   private class MyProgressListener implements VcsLogProgress.ProgressListener {
     @Override
-    public void progressStarted(@NotNull Collection<? extends VcsLogProgress.ProgressKey> keys) {
-      progressChanged(keys);
-    }
-
-    @Override
     public void progressChanged(@NotNull Collection<? extends VcsLogProgress.ProgressKey> keys) {
       if (VcsLogUiUtil.isProgressVisible(keys, getId())) {
         getEmptyText().setText(VcsLogBundle.message("vcs.log.loading.status"));
@@ -1053,11 +1050,6 @@ public class VcsLogGraphTable extends TableWithProgress
       else {
         updateEmptyText();
       }
-    }
-
-    @Override
-    public void progressStopped() {
-      updateEmptyText();
     }
   }
 

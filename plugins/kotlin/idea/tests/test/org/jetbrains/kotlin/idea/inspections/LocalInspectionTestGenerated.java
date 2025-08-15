@@ -11371,6 +11371,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("complexExpression.kt")
+        public void testComplexExpression() throws Exception {
+            runTest("testData/inspectionsLocal/redundantWith/complexExpression.kt");
+        }
+
         @TestMetadata("emptyExpressionInReturn.kt")
         public void testEmptyExpressionInReturn() throws Exception {
             runTest("testData/inspectionsLocal/redundantWith/emptyExpressionInReturn.kt");
@@ -11399,6 +11404,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
         @TestMetadata("nested.kt")
         public void testNested() throws Exception {
             runTest("testData/inspectionsLocal/redundantWith/nested.kt");
+        }
+
+        @TestMetadata("notApplicable_complexExpression.kt")
+        public void testNotApplicable_complexExpression() throws Exception {
+            runTest("testData/inspectionsLocal/redundantWith/notApplicable_complexExpression.kt");
         }
 
         @TestMetadata("notApplicable_contextParameter.kt")
@@ -14544,6 +14554,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractLocalInspecti
             @TestMetadata("constantAsFirstArgument.kt")
             public void testConstantAsFirstArgument() throws Exception {
                 runTest("testData/inspectionsLocal/replaceSubstring/withTake/constantAsFirstArgument.kt");
+            }
+
+            @TestMetadata("dontReplaceWithTakeDropLast.kt")
+            public void testDontReplaceWithTakeDropLast() throws Exception {
+                runTest("testData/inspectionsLocal/replaceSubstring/withTake/dontReplaceWithTakeDropLast.kt");
             }
 
             @TestMetadata("expressionAsFirstArgument.kt")

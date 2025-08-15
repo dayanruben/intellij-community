@@ -76,7 +76,10 @@ internal fun createModulesWithDependenciesAndAdditionalEdges(plugins: Collection
       val strictCheck = module.isBundled || PluginManagerCore.isVendorJetBrains(module.vendor ?: "")
       if (!strictCheck || doesDependOnPluginAlias(module, VCS_ALIAS_ID)) {
         moduleMap.get("intellij.platform.vcs.impl")?.let { dependenciesCollector.add(it) }
+        moduleMap.get("intellij.platform.vcs.dvcs")?.let { dependenciesCollector.add(it) }
         moduleMap.get("intellij.platform.vcs.dvcs.impl")?.let { dependenciesCollector.add(it) }
+        moduleMap.get("intellij.platform.vcs.log")?.let { dependenciesCollector.add(it) }
+        moduleMap.get("intellij.platform.vcs.log.graph")?.let { dependenciesCollector.add(it) }
         moduleMap.get("intellij.platform.vcs.log.impl")?.let { dependenciesCollector.add(it) }
       }
       if (!strictCheck) {
@@ -187,6 +190,9 @@ private val contentModulesExtractedInCorePluginWhichCanBeUsedFromExternalPlugins
   "intellij.platform.collaborationTools.auth.base",
   "intellij.platform.tasks",
   "intellij.platform.tasks.impl",
+  "intellij.platform.scriptDebugger.ui",
+  "intellij.platform.scriptDebugger.backend",
+  "intellij.platform.scriptDebugger.protocolReaderRuntime",
   "intellij.spellchecker.xml",
   "intellij.relaxng",
   "intellij.spellchecker",
