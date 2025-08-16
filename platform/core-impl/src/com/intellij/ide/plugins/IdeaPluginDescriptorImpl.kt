@@ -169,12 +169,12 @@ sealed class IdeaPluginDescriptorImpl(
       if (dependencies.isEmpty()) {
         return ModuleDependencies.EMPTY
       }
-      val moduleDeps = ArrayList<ModuleDependencies.ModuleReference>()
-      val pluginDeps = ArrayList<ModuleDependencies.PluginReference>()
+      val moduleDeps = ArrayList<PluginModuleId>()
+      val pluginDeps = ArrayList<PluginId>()
       for (dep in dependencies) {
         when (dep) {
-          is DependenciesElement.PluginDependency -> pluginDeps.add(ModuleDependencies.PluginReference(PluginId.getId(dep.pluginId)))
-          is DependenciesElement.ModuleDependency -> moduleDeps.add(ModuleDependencies.ModuleReference(dep.moduleName))
+          is DependenciesElement.PluginDependency -> pluginDeps.add(PluginId.getId(dep.pluginId))
+          is DependenciesElement.ModuleDependency -> moduleDeps.add(PluginModuleId(dep.moduleName))
           else -> LOG.error("Unknown dependency type: $dep")
         }
       }
@@ -199,7 +199,7 @@ sealed class IdeaPluginDescriptorImpl(
       LOG.warnInProduction(PluginException(buildString {
         append("Plugin descriptor for ")
         when (this@logUnexpectedElement) {
-          is ContentModuleDescriptor -> append("content module '${moduleName}' of plugin '${pluginId}'")
+          is ContentModuleDescriptor -> append("content module '${moduleId}' of plugin '${pluginId}'")
           is DependsSubDescriptor -> append("'depends' sub-descriptor '${descriptorPath}' of plugin '${pluginId}'")
           is PluginMainDescriptor -> error("not intended")
         }
@@ -403,7 +403,7 @@ class PluginMainDescriptor(
   ): ContentModuleDescriptor = ContentModuleDescriptor(
     parent = this,
     raw = subBuilder.build(),
-    moduleName = module.name,
+    moduleId = module.moduleId,
     moduleLoadingRule = module.loadingRule,
     descriptorPath = descriptorPath
   )
@@ -411,10 +411,10 @@ class PluginMainDescriptor(
   fun initialize(context: PluginInitializationContext): PluginNonLoadReason? {
     content.modules.forEach { it.requireDescriptor() }
     if (content.modules.size > 1) {
-      val duplicates = HashSet<String>()
+      val duplicates = HashSet<PluginModuleId>()
       for (item in content.modules) {
-        if (!duplicates.add(item.name)) {
-          return onInitError(PluginHasDuplicateContentModuleDeclaration(this, item.name))
+        if (!duplicates.add(item.moduleId)) {
+          return onInitError(PluginHasDuplicateContentModuleDeclaration(this, item.moduleId))
         }
       }
     }
@@ -430,8 +430,8 @@ class PluginMainDescriptor(
       }
     }
     for (pluginDependency in moduleDependencies.plugins) {
-      if (context.isPluginDisabled(pluginDependency.id)) {
-        return onInitError(PluginDependencyIsDisabled(this, pluginDependency.id, false))
+      if (context.isPluginDisabled(pluginDependency)) {
+        return onInitError(PluginDependencyIsDisabled(this, pluginDependency, false))
       }
     }
     return null
@@ -481,7 +481,11 @@ class PluginMainDescriptor(
         val configFile: String? = if (index != -1) {
           "${elem.name.substring(0, index)}.${elem.name.substring(index + 1)}.xml"
         } else null
-        PluginContentDescriptor.ModuleItem(elem.name, configFile, elem.embeddedDescriptorContent, elem.loadingRule.convert())
+        PluginContentDescriptor.ModuleItem(
+          moduleId = PluginModuleId(elem.name),
+          configFile = configFile,
+          descriptorContent = elem.embeddedDescriptorContent,
+          loadingRule = elem.loadingRule.convert())
       }
     }
     
@@ -590,11 +594,11 @@ class DependsSubDescriptor(
 class ContentModuleDescriptor(
   val parent: PluginMainDescriptor,
   raw: RawPluginDescriptor,
-  moduleName: String,
+  moduleId: PluginModuleId,
   moduleLoadingRule: ModuleLoadingRule,
   private val descriptorPath: String
 ): PluginModuleDescriptor(raw) {
-  val moduleName: String = moduleName
+  val moduleId: PluginModuleId = moduleId
   val moduleLoadingRule: ModuleLoadingRule = moduleLoadingRule
 
   override val useCoreClassLoader: Boolean
@@ -604,15 +608,18 @@ class ContentModuleDescriptor(
 
   private val resourceBundleBaseName: String? = raw.resourceBundleBaseName
 
+  /** java helper */
+  fun getModuleIdString(): String = moduleId.id
+
   override fun getDescriptorPath(): String = descriptorPath
 
   override fun getResourceBundleBaseName(): String? = resourceBundleBaseName
 
   override fun toString(): String =
-    "ContentModuleDescriptor(moduleName=$moduleName" +
+    "ContentModuleDescriptor(id=${this@ContentModuleDescriptor.moduleId}" +
     (if (moduleLoadingRule == ModuleLoadingRule.OPTIONAL) "" else ", loadingRule=$moduleLoadingRule") +
     (if (packagePrefix == null) "" else ", package=$packagePrefix") +
-    (if (descriptorPath == "$moduleName.xml") "" else ", descriptorPath=$descriptorPath") +
+    (if (descriptorPath == "${this@ContentModuleDescriptor.moduleId}.xml") "" else ", descriptorPath=$descriptorPath") +
     ") <- $parent"
 
   init {
@@ -620,7 +627,7 @@ class ContentModuleDescriptor(
   }
 
   override fun getPluginId(): PluginId = parent.pluginId
-  @Deprecated("make sure you don't confuse it with moduleName; use main descriptor", level = DeprecationLevel.ERROR)
+  @Deprecated("make sure you don't confuse it with moduleId; use main descriptor", level = DeprecationLevel.ERROR)
   override fun getName(): @NlsSafe String = parent.name // .also { LOG.error("unexpected call") } TODO test failures
   // <editor-fold desc="Deprecated">
   // These are meaningless for sub-descriptors

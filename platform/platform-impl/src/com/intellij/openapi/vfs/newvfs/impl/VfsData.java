@@ -85,7 +85,7 @@ public final class VfsData implements Closeable {
    * cache size without an eviction is still typically in the range 20-50Mbs for the intellij project -- which is tolerable.
    * I.e., this option definitely _could_ be used in practice)
    */
-  private static final boolean USE_SOFT_REFERENCES = getBooleanProperty("platform.vfs.cache.use-soft-references", false);
+  private static final boolean USE_SOFT_REFERENCES = getBooleanProperty("platform.vfs.cache.use-soft-references", true);
 
   private static final int SEGMENT_BITS = 9;
   private static final int SEGMENT_SIZE = 1 << SEGMENT_BITS;
@@ -337,6 +337,11 @@ public final class VfsData implements Closeable {
     synchronized (deadMarker) {
       queueOfFileIdsToBeInvalidated.add(id);
     }
+  }
+
+  @Override
+  public String toString() {
+    return getClass().getSimpleName() + "{segments: " + segments.size() + ", connected: " + owningPersistentFS.isConnected() + "}";
   }
 
   /** @return offset of fileId's data in {@link Segment#objectFieldsArray} */

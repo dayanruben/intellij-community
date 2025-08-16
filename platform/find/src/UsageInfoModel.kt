@@ -16,10 +16,10 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ex.DocumentEx
 import com.intellij.openapi.editor.ex.DocumentFullUpdateListener
-import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.fileEditor.*
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.Segment
 import com.intellij.openapi.util.TextRange
@@ -28,21 +28,23 @@ import com.intellij.openapi.vfs.findDocument
 import com.intellij.psi.*
 import com.intellij.usageView.UsageInfo
 import com.intellij.usages.TextChunk
+import com.intellij.usages.UsageChangedListener
 import com.intellij.usages.UsageInfoAdapter
 import com.intellij.usages.UsagePresentation
 import com.intellij.usages.rules.MergeableUsage
 import com.intellij.usages.rules.UsageDocumentProcessor
 import com.intellij.usages.rules.UsageInFile
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.intellij.util.containers.ContainerUtil
 import kotlinx.coroutines.*
 import java.util.concurrent.CompletableFuture
 import javax.swing.Icon
 
 private val LOG = logger<UsageInfoModel>()
 
-internal class UsageInfoModel private constructor(val project: Project, val model: FindInFilesResult, val coroutineScope: CoroutineScope, val onDocumentUpdated: (usageInfos: List<UsageInfo>) -> Unit?) : UsageInfoAdapter, UsageInFile, UsageDocumentProcessor, Disposable {
+internal class UsageInfoModel private constructor(val project: Project, val model: FindInFilesResult, val coroutineScope: CoroutineScope) : UsageInfoAdapter, UsageInFile, UsageDocumentProcessor, Disposable {
   private val virtualFile: VirtualFile? = run {
-    val virtualFile = model.fileId.virtualFile()
+    val virtualFile = model.usageInfos.firstOrNull()?.file?.virtualFile ?: model.fileId.virtualFile()
     if (virtualFile == null) LOG.error("Cannot find virtualFile for ${model.presentablePath}")
     virtualFile
   }
@@ -59,7 +61,14 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
       return field
     }
   private var isLoaded: Boolean = false
+    set(value) {
+      field = value
+      if (value) {
+        initializationListeners.forEach { it.modelInitialized() }
+      }
+    }
   private var initializationJob: Job? = null
+  private val initializationListeners: MutableList<UsageChangedListener> = ContainerUtil.createLockFreeCopyOnWriteList()
 
   private val defaultRange: TextRange = TextRange(model.navigationOffset, model.navigationOffset + model.length)
   private val defaultMergedRanges: List<TextRange> = model.mergedOffsets.map {
@@ -69,13 +78,14 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
   private val fullUpdateListener = object : DocumentFullUpdateListener {
     override fun onFullUpdateDocument(document: Document) {
       PsiDocumentManager.getInstance(project).performForCommittedDocument(document) {
-        initialize(onDocumentUpdated)
+        initialize()
       }
     }
   }
 
   override fun dispose() {
-    (document as? DocumentImpl)?.removeFullUpdateListener(fullUpdateListener)
+    (document as? DocumentEx)?.removeFullUpdateListener(fullUpdateListener)
+    initializationListeners.clear()
   }
 
   init {
@@ -122,8 +132,8 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
               return@readAction
             }
 
-            val smartRange = SmartPointerManager.getInstance(project)
-              .createSmartPsiFileRangePointer(psiFile, defaultRange)
+            val smartPointerManager = SmartPointerManager.getInstance(project)
+            val smartRange = smartPointerManager.createSmartPsiFileRangePointer(psiFile, defaultRange)
             cachedSmartRange = smartRange
 
             cachedMergedSmartRanges = if (defaultMergedRanges.size == 1) {
@@ -131,8 +141,7 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
             }
             else {
               defaultMergedRanges.map { range ->
-                SmartPointerManager.getInstance(project)
-                  .createSmartPsiFileRangePointer(psiFile, range)
+                smartPointerManager.createSmartPsiFileRangePointer(psiFile, range)
               }
             }
             cachedUsageInfos = defaultMergedRanges.map { UsageInfo(psiFile, it, false) }
@@ -140,7 +149,7 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
         }
         finally {
           //if we get some model without ranges or proper ranges were loaded - full model loaded
-          val loaded = defaultMergedRanges.isEmpty() || !cachedUsageInfos.isNotEmpty()
+          val loaded = defaultMergedRanges.isEmpty() || cachedUsageInfos.isNotEmpty()
           isLoaded = loaded
           if (loaded) {
             withContext(Dispatchers.EDT) {
@@ -152,13 +161,18 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
     }
   }
 
-  override fun isLoaded(): Boolean = isLoaded
+  override fun addInitializationListener(listener: UsageChangedListener, disposable: Disposable) {
+    initializationListeners.add(listener)
+    Disposer.tryRegister(disposable) {
+      initializationListeners.remove(listener)
+    }
+  }
 
   companion object {
     @JvmStatic
     @RequiresBackgroundThread
-    fun createUsageInfoModel(project: Project, model: FindInFilesResult, coroutineScope: CoroutineScope, onDocumentUpdated: (usageInfos: List<UsageInfo>) -> Unit?): UsageInfoModel {
-      return UsageInfoModel(project, model, coroutineScope, onDocumentUpdated)
+    fun createUsageInfoModel(project: Project, model: FindInFilesResult, coroutineScope: CoroutineScope): UsageInfoModel {
+      return UsageInfoModel(project, model, coroutineScope)
     }
   }
 
@@ -185,15 +199,11 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
       return false
     }
 
-    FileTypeManager.getInstance().getFileTypeByFile(virtualFile)
     if (FileTypeManager.getInstance().getFileTypeByFile(virtualFile).isBinary()) {
       return false
     }
 
     val fileLength = document?.textLength ?: cachedPsiFile?.textLength ?: model.fileLength
-    if (document == null || cachedPsiFile == null) {
-      initialize()
-    }
 
     val ranges = getMergedRanges()
     return ranges.isNotEmpty() && ranges.all { range ->
@@ -203,8 +213,8 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
   }
 
   override fun getMergedInfos(): Array<UsageInfo> {
-    if (cachedUsageInfos.isEmpty()) {
-      initialize(onDocumentUpdated)
+    if (isLoaded && defaultMergedRanges.isNotEmpty() && cachedUsageInfos.isEmpty()) {
+      initialize()
     }
     return cachedUsageInfos.toTypedArray()
   }
@@ -281,14 +291,19 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
   override fun getFile(): VirtualFile? = virtualFile
 
   override fun getDocument(): Document? {
+    document?.let { return it }
     return try {
       runReadAction {
-        val document = cachedPsiFile?.let { psiFile -> PsiDocumentManager.getInstance(project).getDocument(psiFile) }
-        if (document == null) {
+        val psiDoc = cachedPsiFile?.let { psiFile -> PsiDocumentManager.getInstance(project).getDocument(psiFile) }
+        if (psiDoc == null) {
           LOG.warn("PsiFile is not yet loaded for path ${model.presentablePath}. Trying to get document from virtualFile")
-          virtualFile?.findDocument()
         }
-        document
+        val doc = psiDoc ?: virtualFile?.findDocument()
+        if (doc != null && document == null) {
+          document = doc
+          (doc as? DocumentEx)?.addFullUpdateListener(fullUpdateListener)
+        }
+        doc
       }
     }
     catch (t: Throwable) {

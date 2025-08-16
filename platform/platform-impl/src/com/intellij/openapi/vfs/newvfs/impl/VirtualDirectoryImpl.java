@@ -521,21 +521,22 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
     VfsData vfsData = getVfsData();
     PersistentFSImpl pFS = vfsData.owningPersistentFS();
 
-    List<? extends ChildInfo> childrenInfo = pFS.listAll(this);
-
-    boolean reallyNeedsSorting = sortChildrenOnLoading && (childrenInfo.size() > 1);
-    if (reallyNeedsSorting) {
-      String someChildName = childrenInfo.get(0).getName().toString();
-      updateCaseSensitivityIfUnknown(someChildName);
-    }
-    boolean isCaseSensitive = isCaseSensitive();
-
     synchronized (directoryData) {
+      //TODO RC: listAll() could involve IO, which is not good to do under the lock -- but we need at least to check will it help
+      //         avoiding disappeared children (logDisappearedChildren), and then maybe refactor this code:
+      List<? extends ChildInfo> childrenInfo = pFS.listAll(this);
       if (childrenInfo.isEmpty()) {
         directoryData.clearAdoptedNames();
         directoryData.children = VfsData.ChildrenIds.EMPTY.withAllChildrenLoaded(true);
         return VirtualFile.EMPTY_ARRAY;
       }
+
+      boolean reallyNeedsSorting = sortChildrenOnLoading && (childrenInfo.size() > 1);
+      if (reallyNeedsSorting) {
+        String someChildName = childrenInfo.get(0).getName().toString();
+        updateCaseSensitivityIfUnknown(someChildName);
+      }
+      boolean isCaseSensitive = isCaseSensitive();
 
       //We could load children unsorted, and delay the sorting until someone really asks for it:
       if (reallyNeedsSorting) {
@@ -595,9 +596,7 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
 
       directoryData.clearAdoptedNames();
       directoryData.children = new VfsData.ChildrenIds(newChildrenIds, sortChildrenOnLoading, /*allChildren: */ true);
-      if (CHECK_CONSISTENCY) {
-        assertConsistency(isCaseSensitive, childrenInfo);
-      }
+      assertConsistency(isCaseSensitive, childrenInfo);
 
       return newChildren;
     }
@@ -785,8 +784,8 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
           @Attributes int attributes = nextInfo.getFileAttributeFlags();
           boolean isEmptyDirectory = nextInfo.getChildren() != null && nextInfo.getChildren().length == 0;
           directoryData.removeAdoptedName(nextInfo.getName());
-          VirtualFileSystemEntry file = initializeChildData(nextInfo.getId(), nextInfo.getNameId(), attributes, isEmptyDirectory);
-          callback.accept(file, nextInfo);
+          VirtualFileSystemEntry child = initializeChildData(nextInfo.getId(), nextInfo.getNameId(), attributes, isEmptyDirectory);
+          callback.accept(child, nextInfo);
         }
         mergedIds.add(nextInfo.getId());
       });
@@ -1222,7 +1221,8 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
     }
     sb.append("\nexisting children:");
     for (VirtualFile existingChild : newChildren) {
-      sb.append("\n\t[" + existingChild + "] ").append(verboseToString((VirtualFileSystemEntry)existingChild));
+      VirtualFileSystemEntry child = (VirtualFileSystemEntry)existingChild;
+      sb.append("\n\t[" + child.getId() + "] ").append(verboseToString(child));
     }
     sb.append("\nchildren infos:");
     for (final ChildInfo childInfo : childrenInfo) {
