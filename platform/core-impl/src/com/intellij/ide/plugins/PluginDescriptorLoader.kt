@@ -45,9 +45,8 @@ private val LOG: Logger
   get() = PluginManagerCore.logger
 
 @JvmOverloads
-fun loadAndInitForCoreEnv(pluginRoot: Path, fileName: String, relativeDir: String = PluginManagerCore.META_INF, id: PluginId? = null): PluginMainDescriptor? {
+fun loadForCoreEnv(pluginRoot: Path, fileName: String, relativeDir: String = PluginManagerCore.META_INF, id: PluginId? = null): PluginMainDescriptor? {
   val pathResolver = PluginXmlPathResolver.DEFAULT_PATH_RESOLVER
-  val initContext = ProductPluginInitContext()
   val loadingContext = PluginDescriptorLoadingContext()
   val relativePath = "${relativeDir}${fileName}"
   if (Files.isDirectory(pluginRoot)) {
@@ -60,7 +59,7 @@ fun loadAndInitForCoreEnv(pluginRoot: Path, fileName: String, relativeDir: Strin
       isBundled = true,
       isEssential = true,
       id = id,
-    )?.apply { initialize(context = initContext) }
+    )
   }
   else {
     return loadDescriptorFromJar(
@@ -72,7 +71,7 @@ fun loadAndInitForCoreEnv(pluginRoot: Path, fileName: String, relativeDir: Strin
       isBundled = true,
       isEssential = true,
       id = id,
-    )?.apply { initialize(context = initContext) }
+    )
   }
 }
 
@@ -1043,8 +1042,7 @@ private fun collectPluginFilesInClassPath(loader: ClassLoader): Map<URL, String>
 
 @Throws(IOException::class)
 @RequiresBackgroundThread
-fun loadAndInitDescriptorFromArtifact(file: Path, buildNumber: BuildNumber?): PluginMainDescriptor? {
-  val initContext = ProductPluginInitContext(buildNumberOverride = buildNumber)
+fun loadDescriptorFromArtifact(file: Path, buildNumber: BuildNumber?): PluginMainDescriptor? {
   val loadingContext = PluginDescriptorLoadingContext(
     getBuildNumberForDefaultDescriptorVersion = { buildNumber ?: PluginManagerCore.buildNumber },
     isMissingSubDescriptorIgnored = true,
@@ -1057,7 +1055,7 @@ fun loadAndInitDescriptorFromArtifact(file: Path, buildNumber: BuildNumber?): Pl
       loadingContext = loadingContext,
       pool = NonShareableJavaZipFilePool(),
       pathResolver = PluginXmlPathResolver.DEFAULT_PATH_RESOLVER
-    )?.apply { initialize(context = initContext) }
+    )
     if (descriptor != null) {
       return descriptor
     }
@@ -1079,7 +1077,6 @@ fun loadAndInitDescriptorFromArtifact(file: Path, buildNumber: BuildNumber?): Pl
         @Suppress("SSBasedInspection")
         return runBlocking {
           loadFromPluginDir(dir = rootDir, loadingContext = loadingContext, pool = NonShareableJavaZipFilePool(), isUnitTestMode = PluginManagerCore.isUnitTestMode)
-            ?.apply { initialize(context = initContext) }
         }
       }
     }
