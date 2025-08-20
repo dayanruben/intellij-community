@@ -24,7 +24,6 @@ import com.intellij.platform.project.projectId
 import com.intellij.platform.scopes.ScopeModelApi
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.usages.FindUsagesProcessPresentation
-import com.intellij.usages.UsageChangedListener
 import com.intellij.usages.UsageInfo2UsageAdapter
 import com.intellij.usages.UsageInfoAdapter
 import fleet.rpc.client.RpcTimeoutException
@@ -93,7 +92,7 @@ open class FindAndReplaceExecutorImpl(val coroutineScope: CoroutineScope) : Find
             return@collect
           }
           throttledItems.items.forEach { item ->
-            val usage = UsageInfoModel.createUsageInfoModel(project, item, initScope)
+            val usage = UsageInfoModel.createUsageInfoModel(project, item, initScope, onUpdateModelCallback)
             if (searchDisposable == null || !Disposer.tryRegister(searchDisposable, usage)) {
               Disposer.dispose(usage)
               return@collect
@@ -101,15 +100,8 @@ open class FindAndReplaceExecutorImpl(val coroutineScope: CoroutineScope) : Find
 
             val shouldContinue = onResult(usage)
             if (!shouldContinue) {
-              Disposer.dispose(searchDisposable)
               return@collect
             }
-
-            usage.addInitializationListener(object : UsageChangedListener {
-              override fun modelInitialized() {
-                onUpdateModelCallback.accept(usage)
-              }
-            }, searchDisposable)
           }
         }
         onFinish()
@@ -153,10 +145,10 @@ open class FindAndReplaceExecutorImpl(val coroutineScope: CoroutineScope) : Find
     }
   }
 
-  override fun performScopeSelection(scopeId: String, project: Project) {
+  override fun performScopeSelection(scopeId: String, scopesModelId: String, project: Project) {
     selectScopeJob = coroutineScope.launch {
       try {
-       ScopeModelApi.getInstance().performScopeSelection(scopeId, project.projectId())
+       ScopeModelApi.getInstance().performScopeSelection(scopeId, scopesModelId,project.projectId())
       }
       catch (e: RpcTimeoutException) {
         LOG.warn("Failed to select scope", e)

@@ -90,6 +90,11 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
   private static final boolean LOG_NON_CACHED_ROOTS_LIST = getBooleanProperty("PersistentFSImpl.LOG_NON_CACHED_ROOTS_LIST", false);
 
+
+  private final Application app;
+
+  /** Map[rootUrl -> rootEntry] */
+  private final Map<String, VirtualFileSystemEntry> rootsByUrl;
   /**
    * Sometimes PFS got request for the files with lost (missed) roots -- i.e. the roots that are absent in persistence.
    * Looking up the roots in persistent storage is quite expensive, so we don't want to repeat the lookup for the
@@ -98,18 +103,14 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
    */
   private final IntSet missedRootIds = IntSets.synchronize(new IntOpenHashSet());
 
-  /** Map[rootUrl -> rootEntry] */
-  private final Map<String, VirtualFileSystemEntry> rootsByUrl;
-
   private final AtomicBoolean connected = new AtomicBoolean(false);
   private volatile FSRecordsImpl vfsPeer = null;
+  private volatile VfsData vfsData = null;
 
   private final AtomicInteger structureModificationCount = new AtomicInteger();
+
   private BulkFileListener publisher;
   private BulkFileListenerBackgroundable publisherBackgroundable;
-  private volatile VfsData vfsData;
-
-  private final Application app;
 
   //=========================== statistics:   ======================================================
   private final AtomicLong fileByIdCacheHits = new AtomicLong();
@@ -2747,6 +2748,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     var fileByIdCacheMissesCounter = meter.counterBuilder("VFS.fileByIdCache.misses").buildObserver();
     var fileChildByNameCounter = meter.counterBuilder("VFS.fileChildByName").buildObserver();
     var caseSensitivityReadsCounter = meter.counterBuilder("VFS.folderCaseSensitivityReads").buildObserver();
+    var rootsCounter = meter.gaugeBuilder("VFS.rootsCount").buildObserver();
     var invertedFileNameIndexRequestsCount = meter.counterBuilder("VFS.invertedFileNameIndex.requests").buildObserver();
     return meter.batchCallback(
       () -> {
@@ -2754,6 +2756,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
         fileByIdCacheMissesCounter.record(fileByIdCacheMisses.get());
         fileChildByNameCounter.record(childByName.get());
         caseSensitivityReadsCounter.record(caseSensitivityReads.get());
+        rootsCounter.record(rootsByUrl.size());
         FSRecordsImpl vfs = vfsPeer;
         if (vfs != null) {
           invertedFileNameIndexRequestsCount.record(vfs.invertedNameIndexRequestsServed());
@@ -2761,6 +2764,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       },
       fileByIdCacheHitsCounter, fileByIdCacheMissesCounter, fileChildByNameCounter,
       caseSensitivityReadsCounter,
+      rootsCounter,
       invertedFileNameIndexRequestsCount
     );
   }
