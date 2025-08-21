@@ -184,7 +184,7 @@ jvm_library(
 jvm_library(
   name = "ide-impl_test_lib",
   visibility = ["//visibility:public"],
-  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
+  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java", "testSrc/**/*.form"], allow_empty = True),
   javac_opts = ":custom-javac-options",
   associates = [":ide-impl"],
   deps = [
@@ -315,6 +315,11 @@ jvm_library(
     "//platform/locking.impl",
     "//platform/platform-impl/concurrency",
     "//platform/pratt",
+  ],
+  exports = [
+    "//platform/platform-api:ide",
+    "@lib//:kotlin-stdlib",
+    "//platform/util:util-ui",
   ],
   runtime_deps = [":ide-impl_resources"]
 )

@@ -72,6 +72,7 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
   private final @NotNull EvaluationContextImpl myEvaluationContext;
   private final NodeManagerImpl myNodeManager;
   private final boolean myContextSet;
+  private final CompletableFuture<XDescriptor> myXDescriptorFuture;
 
   protected JavaValue(JavaValue parent,
                       @NotNull ValueDescriptorImpl valueDescriptor,
@@ -94,6 +95,8 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
     myNodeManager = nodeManager;
     myContextSet = contextSet;
     myCanBePinned = doComputeCanBePinned();
+    myXDescriptorFuture = myValueDescriptor.getInitFuture()
+      .thenCompose(__ -> JavaValueUtilsKt.getJavaValueXDescriptor(this));
   }
 
   @Override
@@ -522,18 +525,8 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
   }
 
   @Override
-  public @Nullable CompletableFuture<XDescriptor> getXValueDescriptorAsync() {
-    return myValueDescriptor.getInitFuture().thenApply(ignored -> {
-      Value value = myValueDescriptor.getValue();
-      JavaValueObjectReferenceInfo objectReferenceInfo = null;
-      if (value instanceof ObjectReference ref) {
-        objectReferenceInfo = new JavaValueObjectReferenceInfo(ref.referenceType().name(), ref.virtualMachine().canGetInstanceInfo());
-      }
-      return new JavaValueDescriptor(
-        myValueDescriptor.isString(),
-        objectReferenceInfo
-      );
-    });
+  public @NotNull CompletableFuture<XDescriptor> getXValueDescriptorAsync() {
+    return myXDescriptorFuture;
   }
 
   @Override
@@ -689,14 +682,17 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
     };
   }
 
-  public void setRenderer(NodeRenderer nodeRenderer, final XValueNodeImpl node) {
+  public void setRenderer(NodeRenderer nodeRenderer, @Nullable final XValueNodeImpl node) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     myValueDescriptor.setRenderer(nodeRenderer);
     reBuild(node);
   }
 
-  public void reBuild(final XValueNodeImpl node) {
+  public void reBuild(final @Nullable XValueNodeImpl node) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
+    if (node == null) {
+      return;
+    }
     node.invokeNodeUpdate(() -> {
       node.clearChildren();
       computePresentation(node, XValuePlace.TREE);

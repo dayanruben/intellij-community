@@ -60,6 +60,11 @@ public class KotlinNavBarTestGenerated extends AbstractKotlinNavBarTest {
         runTest("testData/navigationToolbar/MethodInClassAndParameters.kt");
     }
 
+    @TestMetadata("MethodParameter.kt")
+    public void testMethodParameter() throws Exception {
+        runTest("testData/navigationToolbar/MethodParameter.kt");
+    }
+
     @TestMetadata("SeveralClassesInFile.kt")
     public void testSeveralClassesInFile() throws Exception {
         runTest("testData/navigationToolbar/SeveralClassesInFile.kt");

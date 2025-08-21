@@ -37,6 +37,7 @@ jvm_library(
     "//platform/platform-util-io:ide-util-io",
     "//platform/util/coroutines",
     "//platform/dvcs-impl/shared",
+    "//platform/vcs-impl/shared",
   ],
   runtime_deps = [":vcs-hg_resources"]
 )
@@ -44,7 +45,7 @@ jvm_library(
 jvm_library(
   name = "vcs-hg_test_lib",
   visibility = ["//visibility:public"],
-  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
+  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java", "testSrc/**/*.form"], allow_empty = True),
   associates = [":vcs-hg"],
   deps = [
     "//platform/analysis-api:analysis",
@@ -78,6 +79,7 @@ jvm_library(
     "//platform/platform-util-io:ide-util-io",
     "//platform/util/coroutines",
     "//platform/dvcs-impl/shared",
+    "//platform/vcs-impl/shared",
   ],
   runtime_deps = [":vcs-hg_resources"]
 )

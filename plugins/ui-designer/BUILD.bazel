@@ -82,7 +82,7 @@ jvm_library(
 jvm_library(
   name = "java-guiForms-designer_test_lib",
   visibility = ["//visibility:public"],
-  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
+  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java", "testSrc/**/*.form"], allow_empty = True),
   associates = [":java-guiForms-designer"],
   deps = [
     "//java/openapi:java",
@@ -145,6 +145,12 @@ jvm_library(
     "//jps/jps-builders:build-tests_test_lib",
     "//xml/xml-psi-api:psi",
     "@lib//:caffeine",
+  ],
+  exports = [
+    "//java/compiler/forms-compiler:java-guiForms-compiler",
+    "//java/compiler/forms-compiler:java-guiForms-compiler_test_lib",
+    "//plugins/java-i18n",
+    "//plugins/java-i18n:java-i18n_test_lib",
   ],
   runtime_deps = [
     ":java-guiForms-designer_resources",

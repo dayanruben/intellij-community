@@ -17,7 +17,7 @@ jvm_library(
   name = "community-junit5Tests-framework_test_lib",
   module_name = "intellij.python.community.junit5Tests.framework",
   visibility = ["//visibility:public"],
-  srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
+  srcs = glob(["src/**/*.kt", "src/**/*.java", "src/**/*.form"], allow_empty = True),
   deps = [
     "@lib//:junit4",
     "@lib//:junit5",
@@ -54,6 +54,10 @@ jvm_library(
     "@lib//:python-community-junit5_tests-framework-uk-webcompere-system-stubs-jupiter",
     "//platform/util/coroutines",
     "@lib//:byte-buddy",
+  ],
+  exports = [
+    "//python/setup-test-environment:community-testFramework-testEnv",
+    "@lib//:python-community-junit5_tests-framework-uk-webcompere-system-stubs-jupiter",
   ],
   runtime_deps = [
     ":community-junit5Tests-framework_test_resources",

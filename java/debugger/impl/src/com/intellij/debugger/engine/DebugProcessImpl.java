@@ -36,6 +36,7 @@ import com.intellij.execution.process.ProcessListener;
 import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.execution.runners.ExecutionUtil;
 import com.intellij.idea.ActionsBundle;
+import com.intellij.java.debugger.impl.shared.engine.NodeRendererId;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
@@ -81,6 +82,7 @@ import com.intellij.xdebugger.XDebuggerBundle;
 import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.frame.XExecutionStack;
+import com.intellij.xdebugger.impl.CoroutineUtilsKt;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
@@ -94,10 +96,13 @@ import com.sun.jdi.event.LocatableEvent;
 import com.sun.jdi.request.EventRequest;
 import com.sun.jdi.request.EventRequestManager;
 import com.sun.jdi.request.StepRequest;
+import kotlin.Unit;
 import kotlin.coroutines.EmptyCoroutineContext;
 import kotlinx.coroutines.CoroutineScope;
 import kotlinx.coroutines.CoroutineScopeKt;
 import kotlinx.coroutines.Job;
+import kotlinx.coroutines.flow.Flow;
+import kotlinx.coroutines.flow.MutableSharedFlow;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.*;
 
@@ -146,6 +151,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private volatile Map<String, Connector.Argument> myArguments;
 
   private final List<NodeRenderer> myRenderers = new ArrayList<>();
+  private final MutableSharedFlow<Unit> myRenderersUpdated = CoroutineUtilsKt.createMutableSharedFlow(1, 1);
 
   // we use null key here
   private final Map<Type, Object> myNodeRenderersMap = Collections.synchronizedMap(new HashMap<>());
@@ -220,6 +226,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     return new DebuggerManagerThreadImpl(disposable, projectScope, this);
   }
 
+  @ApiStatus.Internal
+  public Flow<Unit> getRenderersUpdatedFlow() {
+    return myRenderersUpdated;
+  }
+
   private void reloadRenderers() {
     getManagerThread().schedule(new DebuggerCommandImpl(PrioritizedTask.Priority.HIGH) {
       @Override
@@ -230,6 +241,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           myRenderers.addAll(NodeRendererSettings.getInstance().getAllRenderers(project));
         }
         finally {
+          myRenderersUpdated.tryEmit(Unit.INSTANCE);
           DebuggerInvocationUtil.invokeLaterAnyModality(project, () -> {
             final DebuggerSession session = mySession;
             if (session != null && session.isAttached()) {
@@ -265,6 +277,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   public @NotNull CompletableFuture<List<NodeRenderer>> getApplicableRenderers(Type type) {
     return DebuggerUtilsImpl.getApplicableRenderers(myRenderers, type);
+  }
+
+  @ApiStatus.Internal
+  public @Nullable NodeRenderer getRendererById(@NotNull NodeRendererId id) {
+    return ContainerUtil.find(myRenderers, r -> id.equals(JavaValueUtilsKt.getId(r)));
   }
 
   public @NotNull CompletableFuture<NodeRenderer> getAutoRendererAsync(@Nullable Type type) {

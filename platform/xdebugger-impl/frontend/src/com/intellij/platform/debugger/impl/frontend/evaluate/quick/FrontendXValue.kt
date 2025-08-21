@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.debugger.impl.rpc.*
+import com.intellij.platform.debugger.impl.shared.FrontendDescriptorStateManager
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.ConcurrencyUtil
 import com.intellij.util.ThreeState
@@ -37,6 +38,13 @@ class FrontendXValue private constructor(
   hasParentValue: Boolean,
   private val presentation: StateFlow<XValueSerializedPresentation>,
 ) : XValue(), XValueTextProvider {
+
+  init {
+    cs.launch {
+      val descriptor = xValueDto.descriptor?.await() ?: return@launch
+      FrontendDescriptorStateManager.getInstance(project).registerDescriptor(descriptor, cs)
+    }
+  }
 
   @Volatile
   private var modifier: XValueModifier? = null

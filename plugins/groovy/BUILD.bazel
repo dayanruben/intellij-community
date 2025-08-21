@@ -93,7 +93,7 @@ jvm_library(
 jvm_library(
   name = "groovy_test_lib",
   visibility = ["//visibility:public"],
-  srcs = glob(["test/**/*.kt", "test/**/*.java"], allow_empty = True),
+  srcs = glob(["test/**/*.kt", "test/**/*.java", "test/**/*.form"], allow_empty = True),
   associates = [":groovy"],
   deps = [
     "//platform/analysis-api:analysis",
@@ -178,6 +178,7 @@ jvm_library(
     "//xml/xml-psi-api:psi",
     "//java/unscramble",
   ],
+  exports = ["//plugins/groovy/groovy-psi:psi"],
   runtime_deps = [":groovy_resources"]
 )
 ### auto-generated section `build intellij.groovy` end

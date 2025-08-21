@@ -41,6 +41,7 @@ import com.intellij.settingsSync.core.config.SettingsSyncEnabler.State
 import com.intellij.settingsSync.core.statistics.SettingsSyncEventsStatistics
 import com.intellij.ui.RelativeFont
 import com.intellij.ui.components.DropDownLink
+import com.intellij.ui.components.JBRadioButton
 import com.intellij.ui.dsl.builder.*
 import com.intellij.ui.dsl.builder.components.DslLabel
 import com.intellij.ui.dsl.builder.components.DslLabelType
@@ -53,13 +54,17 @@ import com.intellij.ui.scale.JBUIScale.scale
 import com.intellij.util.Consumer
 import com.intellij.util.asDisposable
 import com.intellij.util.text.DateFormatUtil
+import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.NamedColorUtil
 import com.intellij.util.ui.StartupUiUtil.labelFont
 import kotlinx.coroutines.*
 import java.awt.event.ItemEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.util.concurrent.CancellationException
 import javax.swing.*
+import javax.swing.border.Border
 import javax.swing.event.HyperlinkEvent
 
 internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineScope) : BoundConfigurable(message("title.settings.sync")),
@@ -80,7 +85,7 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
 
   private val syncEnabler = SettingsSyncEnabler()
   private val enableSyncOption = AtomicProperty<InitSyncType>(InitSyncType.GET_FROM_SERVER)
-  private val disableSyncOption = AtomicProperty<Int>(DisableSyncType.DISABLE)
+  private val disableSyncOption = AtomicProperty<DisableSyncType>(DisableSyncType.DISABLE)
   private val remoteSettingsExist = AtomicBooleanProperty(false)
   private val wasUsedBefore = AtomicBooleanProperty(currentUser() != null)
   private val userAccountsList = arrayListOf<UserProviderHolder>()
@@ -186,7 +191,7 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
           } else {
             component.text = component.selectedItem.toString()
           }
-        }.comment("")
+        }.comment("", MAX_LINE_LENGTH_NO_WRAP)
       }.visibleIf(userAccountListIsNotEmpty)
 
       // settings to sync
@@ -376,22 +381,19 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
     }
   }
 
-  private fun showDisableSyncDialog(): Int {
-    @Suppress("DialogTitleCapitalization")
+  private fun showDisableSyncDialog(): DisableSyncType {
     val providerName = userDropDownLink.selectedItem?.providerName ?: ""
-    if (SettingsSyncStatusTracker.getInstance().currentStatus is SettingsSyncStatusTracker.SyncStatus.ActionRequired)
-      return Messages.showDialog( // TODO<rv>: Use AlertMessage instead
+    val intResult = if (SettingsSyncStatusTracker.getInstance().currentStatus is SettingsSyncStatusTracker.SyncStatus.ActionRequired) {
+      Messages.showDialog(
         message("disable.dialog.text", providerName),
         message("disable.dialog.title"),
         arrayOf(Messages.getCancelButton(), message("disable.dialog.disable.button")),
-        //message("disable.dialog.remove.data.box", providerName),
-        //false,
         1,
         1,
-        Messages.getInformationIcon(), null
+        Messages.getQuestionIcon(), null
       )
-    else {
-      return Messages.showCheckboxMessageDialog( // TODO<rv>: Use AlertMessage instead
+    } else {
+      Messages.showCheckboxMessageDialog(
         message("disable.dialog.text", providerName),
         message("disable.dialog.title"),
         arrayOf(Messages.getCancelButton(), message("disable.dialog.disable.button")),
@@ -399,16 +401,17 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
         false,
         1,
         1,
-        Messages.getInformationIcon()
+        Messages.getQuestionIcon()
       ) { index: Int, checkbox: JCheckBox ->
         if (index == 1) {
-          if (checkbox.isSelected) DisableSyncType.DISABLE_AND_REMOVE_DATA else DisableSyncType.DISABLE
+          if (checkbox.isSelected) 2 else 1
         }
         else {
           0
         }
       }
     }
+    return DisableSyncType.entries.find { it.value == intResult } ?: DisableSyncType.DONT_DISABLE
   }
 
   private fun disableCurrentSyncDialog() : Boolean {
@@ -578,7 +581,6 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
           }
           userDropDownLink.selectedItem = selectedValue
           enableCheckbox.doClick()
-          enableButtonAction()
         } else {
           userDropDownLink.selectedItem = selectedValue
           enableButtonAction()
@@ -592,8 +594,8 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
 
   private fun updateUserAccountsList() {
     userAccountsList.clear()
-    val providersMap = RemoteCommunicatorHolder.getAvailableProviders().sortedBy { it.providerCode }
-    providersMap.forEach { communicator ->
+    val providersList = RemoteCommunicatorHolder.getAvailableProviders()
+    providersList.forEach { communicator ->
       val authService = communicator.authService
       val providerName = authService.providerName
       authService.getAvailableUserAccounts().forEachIndexed { idx, account ->
@@ -809,12 +811,10 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
     GET_FROM_SERVER
   }
 
-  private sealed class DisableSyncType{
-    companion object{
-      const val DISABLE = 1
-      const val DISABLE_AND_REMOVE_DATA = 2
-      const val DONT_DISABLE = 0
-    }
+  private enum class DisableSyncType(val value: Int) {
+    DISABLE(1),
+    DISABLE_AND_REMOVE_DATA(2),
+    DONT_DISABLE(0)
   }
 
 
@@ -831,7 +831,9 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
           icon(AllIcons.General.QuestionDialog).align(AlignY.TOP)
           panel {
             row {
-              text(message("enable.dialog.source.option.title")).bold()
+              text(message("enable.dialog.source.option.title")).applyToComponent {
+                font = JBFont.h3()
+              }
             }
             row {
               text(message("enable.dialog.source.option.text"), 50)
@@ -862,31 +864,84 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
       init()
     }
 
+    override fun createContentPaneBorder(): Border {
+      val insets = JButton().insets
+      return JBUI.Borders.empty(14, 20, 20 - insets.bottom, 20 - insets.right)
+    }
+
     override fun createCenterPanel(): JComponent {
       return panel {
         row {
           icon(AllIcons.General.QuestionDialog).align(AlignY.TOP)
           panel {
             row {
-              text(message("enable.sync.choose.data.provider.title")).bold()
+              text(message("enable.sync.choose.data.provider.title")).applyToComponent {
+                font = JBFont.h3()
+              }
             }
-            buttonsGroup (message("enable.sync.choose.data.provider.text"), false) {
-              val availableProviders = RemoteCommunicatorHolder.getAvailableProviders().filter { it.isAvailable() }
-              availableProviders.firstOrNull { it.learnMoreLinkPair2 != null }?.also {
-                row {
-                  val linkPair = it.learnMoreLinkPair2!!
-                  browserLink(linkPair.first, linkPair.second)
-                }
-              }
-
+            val availableProviders = RemoteCommunicatorHolder.getAvailableProviders().filter { it.isAvailable() }
+            availableProviders.firstOrNull { it.learnMoreLinkPair2 != null }?.also {
               row {
-                for (provider in availableProviders) {
-                  radioButton(provider.authService.providerName, provider.providerCode)
-                }
+                val linkPair = it.learnMoreLinkPair2!!
+                browserLink(linkPair.first, linkPair.second)
               }
-            }.bind(::providerCode)
+            }
+
+            row {
+              text(message("enable.sync.choose.data.provider.text"))
+            }
+
+            val buttonGroup = ButtonGroup()
+            val radioButtonPanel = JPanel().apply {
+              layout = BoxLayout(this, BoxLayout.X_AXIS)
+              isOpaque = false
+            }
+
+            for ((index, provider) in availableProviders.withIndex()) {
+              if (index > 0) {
+                radioButtonPanel.add(Box.createHorizontalStrut(5))
+              }
+              val providerPanel = createRadioButtonPanelForProvider(provider, buttonGroup)
+              radioButtonPanel.add(providerPanel)
+            }
+            row {
+              cell(radioButtonPanel)
+            }
           }
         }
+      }
+    }
+
+    private fun createRadioButtonPanelForProvider(provider: SettingsSyncCommunicatorProvider, buttonGroup: ButtonGroup): JPanel {
+      val radioButton = JBRadioButton().apply {
+        actionCommand = provider.providerCode
+        addActionListener {
+          if (isSelected) {
+            providerCode = provider.providerCode
+          }
+        }
+      }
+      buttonGroup.add(radioButton)
+
+      // mouse listener for text and icon to mimic normal radiobutton behavior
+      val mouseListener = object : MouseAdapter() {
+        override fun mouseClicked(e: MouseEvent) {
+          radioButton.doClick()
+        }
+      }
+
+      val iconLabel = provider.authService.icon?.let { JLabel(it).apply { addMouseListener(mouseListener) } }
+      val textLabel = JLabel(provider.authService.providerName).apply { addMouseListener(mouseListener) }
+      return JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.X_AXIS)
+        isOpaque = false
+
+        add(radioButton)
+        if (iconLabel != null) {
+          add(iconLabel)
+          add(Box.createHorizontalStrut(4))
+        }
+        add(textLabel)
       }
     }
   }

@@ -17,7 +17,7 @@ jvm_library(
   name = "tests_test_lib",
   module_name = "intellij.platform.langInjection.tests",
   visibility = ["//visibility:public"],
-  srcs = glob(["test/**/*.kt", "test/**/*.java"], allow_empty = True),
+  srcs = glob(["test/**/*.kt", "test/**/*.java", "test/**/*.form"], allow_empty = True),
   deps = [
     "//java/testFramework",
     "//platform/analysis-api:analysis",
@@ -41,7 +41,6 @@ jvm_library(
     "//java/langInjection/jps",
     "@lib//:asm",
     "//platform/util/jdom",
-    "//plugins/IntelliLang/plugin",
     "//plugins/IntelliLang/backend",
     "//plugins/markdown/plugin:plugin-main",
   ],

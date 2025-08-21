@@ -630,6 +630,7 @@ platform/testFramework
 platform/testFramework/bootstrap
 platform/testFramework/common
 platform/testFramework/core
+platform/testFramework/eelJava
 platform/testFramework/extensions
 platform/testFramework/impl
 platform/testFramework/junit5
@@ -705,7 +706,6 @@ platform/xdebugger-testFramework
 plugins/ByteCodeViewer
 plugins/IntelliLang
 plugins/IntelliLang/backend
-plugins/IntelliLang/plugin
 plugins/IntelliLang/tests
 plugins/ant
 plugins/ant/jps-plugin

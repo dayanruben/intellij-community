@@ -117,7 +117,7 @@ jvm_library(
 jvm_library(
   name = "vcs-git_test_lib",
   visibility = ["//visibility:public"],
-  srcs = glob(["tests/**/*.kt", "tests/**/*.java"], allow_empty = True),
+  srcs = glob(["tests/**/*.kt", "tests/**/*.java", "tests/**/*.form"], allow_empty = True),
   kotlinc_opts = ":custom_vcs-git",
   associates = [":vcs-git"],
   deps = [
@@ -218,6 +218,10 @@ jvm_library(
     "//platform/eel-provider",
     "//platform/eel",
     "//platform/eel-impl",
+  ],
+  exports = [
+    "//platform/dvcs-api:vcs-dvcs",
+    "@lib//:cucumber-testing",
   ],
   runtime_deps = [
     ":vcs-git_resources",

@@ -98,6 +98,8 @@
     <orderEntry type="module" module-name="intellij.xml.psi" />
     <orderEntry type="module" module-name="intellij.platform.debugger.impl.shared" />
     <orderEntry type="module" module-name="intellij.platform.debugger.impl.rpc" />
+    <orderEntry type="module" module-name="fleet.rpc" />
+    <orderEntry type="module" module-name="intellij.platform.rpc" />
   </component>
   <component name="copyright">
     <Base>
