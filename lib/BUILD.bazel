@@ -2745,8 +2745,8 @@ jvm_import(
 
 jvm_import(
   name = "jcef",
-  jar = "@jcef-122_1_9-gd14e051-chromium-122_0_6261_94-api-1_18-251-b27_http//file",
-  source_jar = "@jcef-122_1_9-gd14e051-chromium-122_0_6261_94-api-1_18-251-b27-sources_http//file",
+  jar = "@jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_19-253-b9_http//file",
+  source_jar = "@jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_19-253-b9-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -4526,6 +4526,110 @@ jvm_import(
   jar = "@cglib-nodep-3_3_0_http//file",
   source_jar = "@cglib-nodep-3_3_0-sources_http//file",
   visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "libraries-coil-io-coil-kt-coil3-compose-jvm",
+  exports = [
+    ":coil-compose-jvm-3_2_0_http_import",
+    ":coil-jvm-3_2_0_http_import",
+    ":coil-core-jvm-3_2_0_http_import",
+    ":okio-jvm-3_11_0_http_import",
+    ":coil-compose-core-jvm-3_2_0_http_import",
+  ],
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "coil-compose-jvm-3_2_0_http_import",
+  jar = "@coil-compose-jvm-3_2_0_http//file",
+  source_jar = "@coil-compose-jvm-3_2_0-sources_http//file"
+)
+
+jvm_import(
+  name = "coil-jvm-3_2_0_http_import",
+  jar = "@coil-jvm-3_2_0_http//file",
+  source_jar = "@coil-jvm-3_2_0-sources_http//file"
+)
+
+jvm_import(
+  name = "coil-core-jvm-3_2_0_http_import",
+  jar = "@coil-core-jvm-3_2_0_http//file",
+  source_jar = "@coil-core-jvm-3_2_0-sources_http//file"
+)
+
+jvm_import(
+  name = "okio-jvm-3_11_0_http_import",
+  jar = "@okio-jvm-3_11_0_http//file",
+  source_jar = "@okio-jvm-3_11_0-sources_http//file"
+)
+
+jvm_import(
+  name = "coil-compose-core-jvm-3_2_0_http_import",
+  jar = "@coil-compose-core-jvm-3_2_0_http//file",
+  source_jar = "@coil-compose-core-jvm-3_2_0-sources_http//file"
+)
+
+java_library(
+  name = "libraries-coil-io-coil-kt-coil3-network-ktor3-jvm",
+  exports = [
+    ":coil-network-ktor3-jvm-3_2_0_http_import",
+    ":coil-core-jvm-3_2_0_http_import",
+    ":okio-jvm-3_11_0_http_import",
+    ":coil-network-core-jvm-3_2_0_http_import",
+  ],
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "coil-network-ktor3-jvm-3_2_0_http_import",
+  jar = "@coil-network-ktor3-jvm-3_2_0_http//file",
+  source_jar = "@coil-network-ktor3-jvm-3_2_0-sources_http//file"
+)
+
+jvm_import(
+  name = "coil-network-core-jvm-3_2_0_http_import",
+  jar = "@coil-network-core-jvm-3_2_0_http//file",
+  source_jar = "@coil-network-core-jvm-3_2_0-sources_http//file"
+)
+
+java_library(
+  name = "libraries-coil-io-coil-kt-coil3-svg-jvm",
+  exports = [
+    ":coil-svg-jvm-3_2_0_http_import",
+    ":coil-core-jvm-3_2_0_http_import",
+    ":okio-jvm-3_11_0_http_import",
+  ],
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "coil-svg-jvm-3_2_0_http_import",
+  jar = "@coil-svg-jvm-3_2_0_http//file",
+  source_jar = "@coil-svg-jvm-3_2_0-sources_http//file"
+)
+
+java_library(
+  name = "libraries-coil-io-coil-kt-coil3-test-jvm",
+  exports = [
+    ":coil-test-jvm-3_2_0_http_import",
+    ":coil-core-jvm-3_2_0_http_import",
+    ":skiko-awt-0_9_4_http_import",
+    ":okio-jvm-3_11_0_http_import",
+  ],
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "coil-test-jvm-3_2_0_http_import",
+  jar = "@coil-test-jvm-3_2_0_http//file",
+  source_jar = "@coil-test-jvm-3_2_0-sources_http//file"
+)
+
+jvm_import(
+  name = "skiko-awt-0_9_4_http_import",
+  jar = "@skiko-awt-0_9_4_http//file",
+  source_jar = "@skiko-awt-0_9_4-sources_http//file"
 )
 
 java_library(
@@ -8513,87 +8617,6 @@ jvm_import(
   jar = "@commonmark-ext-gfm-tables-0_24_0_http//file",
   source_jar = "@commonmark-ext-gfm-tables-0_24_0-sources_http//file",
   visibility = ["//visibility:public"]
-)
-
-java_library(
-  name = "platform-jewel-markdown-extensions-images-io-coil-kt-coil3-compose-jvm",
-  exports = [
-    ":coil-compose-jvm-3_2_0_http_import",
-    ":coil-jvm-3_2_0_http_import",
-    ":coil-core-jvm-3_2_0_http_import",
-    ":okio-jvm-3_11_0_http_import",
-    ":coil-compose-core-jvm-3_2_0_http_import",
-  ],
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "coil-compose-jvm-3_2_0_http_import",
-  jar = "@coil-compose-jvm-3_2_0_http//file",
-  source_jar = "@coil-compose-jvm-3_2_0-sources_http//file"
-)
-
-jvm_import(
-  name = "coil-jvm-3_2_0_http_import",
-  jar = "@coil-jvm-3_2_0_http//file",
-  source_jar = "@coil-jvm-3_2_0-sources_http//file"
-)
-
-jvm_import(
-  name = "coil-core-jvm-3_2_0_http_import",
-  jar = "@coil-core-jvm-3_2_0_http//file",
-  source_jar = "@coil-core-jvm-3_2_0-sources_http//file"
-)
-
-jvm_import(
-  name = "okio-jvm-3_11_0_http_import",
-  jar = "@okio-jvm-3_11_0_http//file",
-  source_jar = "@okio-jvm-3_11_0-sources_http//file"
-)
-
-jvm_import(
-  name = "coil-compose-core-jvm-3_2_0_http_import",
-  jar = "@coil-compose-core-jvm-3_2_0_http//file",
-  source_jar = "@coil-compose-core-jvm-3_2_0-sources_http//file"
-)
-
-java_library(
-  name = "platform-jewel-markdown-extensions-images-io-coil-kt-coil3-network-ktor3-jvm",
-  exports = [
-    ":coil-network-ktor3-jvm-3_2_0_http_import",
-    ":coil-core-jvm-3_2_0_http_import",
-    ":okio-jvm-3_11_0_http_import",
-    ":coil-network-core-jvm-3_2_0_http_import",
-  ],
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "coil-network-ktor3-jvm-3_2_0_http_import",
-  jar = "@coil-network-ktor3-jvm-3_2_0_http//file",
-  source_jar = "@coil-network-ktor3-jvm-3_2_0-sources_http//file"
-)
-
-jvm_import(
-  name = "coil-network-core-jvm-3_2_0_http_import",
-  jar = "@coil-network-core-jvm-3_2_0_http//file",
-  source_jar = "@coil-network-core-jvm-3_2_0-sources_http//file"
-)
-
-java_library(
-  name = "platform-jewel-markdown-extensions-images-io-coil-kt-coil3-svg-jvm",
-  exports = [
-    ":coil-svg-jvm-3_2_0_http_import",
-    ":coil-core-jvm-3_2_0_http_import",
-    ":okio-jvm-3_11_0_http_import",
-  ],
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "coil-svg-jvm-3_2_0_http_import",
-  jar = "@coil-svg-jvm-3_2_0_http//file",
-  source_jar = "@coil-svg-jvm-3_2_0-sources_http//file"
 )
 
 jvm_import(

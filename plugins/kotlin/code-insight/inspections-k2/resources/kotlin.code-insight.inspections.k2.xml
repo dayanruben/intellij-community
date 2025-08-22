@@ -233,6 +233,14 @@
                      language="kotlin"
                      key="inspection.replace.collection.count.with.size.display.name" bundle="messages.KotlinBundle"/>
 
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.SuspiciousCallableReferenceInLambdaInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
+                     enabledByDefault="true"
+                     level="WEAK WARNING"
+                     language="kotlin"
+                     key="inspection.move.suspicious.callable.reference.into.parentheses.display.name" bundle="messages.KotlinBundle"/>
+
     <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.RemoveToStringInStringTemplateInspection"
                      groupPath="Kotlin"
                      groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
@@ -1087,6 +1095,12 @@
                      level="WEAK WARNING"
                      language="kotlin" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
                      key="inspection.remove.explicit.super.qualifier.display.name" bundle="messages.KotlinBundle"/>
-
+<localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.UnlabeledReturnInsideLambdaInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
+                     enabledByDefault="true"
+                     level="INFORMATION"
+                     language="kotlin"
+                     key="inspection.unlabeled.return.inside.lambda.display.name" bundle="messages.KotlinBundle"/>
   </extensions>
 </idea-plugin>
