@@ -45,14 +45,15 @@ import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Listener that reacts to user initiated changes and updates current problems state.
+ * Listeners that react to user initiated changes and updates current problems state.
  *
  * Events that are handled by this listener:<br></br>
  * 1. selection change (user opened different file) -> store current timestamp for closed file and restores state for new file<br></br>
  * 2. VFS changes -> remove states for deleted files, remove problems for updated files (in order to recalculate them later)<br></br>
- * 3. hints settings change -> rollback file state, so that there are no reported problems yet (but they can be found using a rolled-back state)<br></br>
- * 4. refactoring done for member -> rollback member file state<br></br>
- * 5. PSI tree changed -> rollback file state for all the editors with this file<br></br>
+ * 3. Editor releases -> removes states for deleted fragments that have PSI events enabled
+ * 4. hints settings change -> rollback file state, so that there are no reported problems yet (but they can be found using a rolled-back state)<br></br>
+ * 5. refactoring done for member -> rollback member file state<br></br>
+ * 6. PSI tree changed -> rollback file state for all the editors with this file<br></br>
  */
 
 private class ProjectProblemFileFileEditorManagerListener : FileEditorManagerListener {
@@ -189,6 +190,7 @@ private class ProjectProblemFileSelectionListenerStartupActivity : ProjectActivi
       override fun editorReleased(event: EditorFactoryEvent) {
         val virtualFile = FileDocumentManager.getInstance().getFile(event.editor.document) ?: return
         ReadAction.nonBlocking<Any> {
+          if (!virtualFile.isValid) return@nonBlocking null
           val psiFile = PsiManager.getInstance(project).findFile(virtualFile) ?: return@nonBlocking null
           if (psiFile.viewProvider.isPhysical) return@nonBlocking null // will already be removed by the vfs file listener
           removeState(psiFile)
