@@ -84,7 +84,7 @@ private class ProjectProblemFileFileEditorManagerListener : FileEditorManagerLis
     setPreviousState(newJavaFile)
     val isInSplitEditorMode = event.manager.selectedEditors.size > 1
     if (isInSplitEditorMode) {
-      InlayHintsPassFactoryInternal.Companion.restartDaemonUpdatingHints(project, "ProjectProblemFileFileEditorManagerListener.selectionChanged")
+      InlayHintsPassFactoryInternal.restartDaemonUpdatingHints(project, "ProjectProblemFileFileEditorManagerListener.selectionChanged")
     }
   }
 }
@@ -125,7 +125,7 @@ internal class ProjectProblemFileRefactoringEventListener(private val project: P
 
 @OptIn(FlowPreview::class)
 @Service(Service.Level.PROJECT)
-private class ProjectPsiChangesProcessor(private val scope: CoroutineScope) {
+private class ProjectPsiChangesProcessor(scope: CoroutineScope) {
   private val psiChanges = ConcurrentCollectionFactory.createConcurrentSet<PsiFile>()
   private val psiChangesProcessor = MutableSharedFlow<Unit?>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
@@ -188,12 +188,13 @@ private class ProjectProblemFileSelectionListenerStartupActivity : ProjectActivi
     // Remove fragments from the cache once the editor gets released
     EditorFactory.getInstance().addEditorFactoryListener(object : EditorFactoryListener {
       override fun editorReleased(event: EditorFactoryEvent) {
+        if (event.editor.project != project) return
         val virtualFile = FileDocumentManager.getInstance().getFile(event.editor.document) ?: return
         ReadAction.nonBlocking<Any> {
           if (!virtualFile.isValid) return@nonBlocking null
-          val psiFile = PsiManager.getInstance(project).findFile(virtualFile) ?: return@nonBlocking null
-          if (psiFile.viewProvider.isPhysical) return@nonBlocking null // will already be removed by the vfs file listener
-          removeState(psiFile)
+          val viewProvider = PsiManager.getInstance(project).findViewProvider(virtualFile) ?: return@nonBlocking null
+          if (viewProvider.isPhysical) return@nonBlocking null // will already be removed by the vfs file listener
+          removeState(viewProvider.getPsi(viewProvider.baseLanguage))
         }.expireWith(parentDisposable).submit(AppExecutorUtil.getAppExecutorService())
       }
     }, parentDisposable)

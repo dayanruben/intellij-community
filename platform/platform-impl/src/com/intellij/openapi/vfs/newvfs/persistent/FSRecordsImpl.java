@@ -569,7 +569,7 @@ public final class FSRecordsImpl implements Closeable {
         }
         recordAccessor.markRecordAsDeleted(childId);
 
-        invertedNameIndex.updateFileName(childId, NULL_NAME_ID, nameId);
+        invertedNameIndex.updateFileName(childId, nameId, NULL_NAME_ID);
       }
       finally {
         fileRecordLock.unlockForWrite(childId, lockStamp);
@@ -1148,7 +1148,7 @@ public final class FSRecordsImpl implements Closeable {
         }
       }
       invertedNameIndexRequestsServed.incrementAndGet();
-      return invertedNameIndexLazy.get().processFilesWithNames(nameIds, processor);
+      return invertedNameIndexLazy.get().forEachFileIds(nameIds, processor);
     }
     catch (IOException e) {
       throw handleError(e);
@@ -1285,7 +1285,7 @@ public final class FSRecordsImpl implements Closeable {
 
       record.setNameId(nameId);
 
-      invertedNameIndexLazy.get().updateFileName(fileId, nameId, previousNameId);
+      invertedNameIndexLazy.get().updateFileName(fileId, previousNameId, nameId);
       invertedNameIndexModCount.incrementAndGet();
       return true;
     });
@@ -1390,6 +1390,7 @@ public final class FSRecordsImpl implements Closeable {
 
     InvertedNameIndex filenameIndex = invertedNameIndexLazy.get();
     updateRecordFields(fileId, record -> {
+      int oldNameId = record.getNameId();
       record.setParent(parentId);
       record.setNameId(nameId);
       record.setFlags(flags);
@@ -1399,7 +1400,7 @@ public final class FSRecordsImpl implements Closeable {
       record.setTimestamp(timestamp);
       record.setLength(length);
 
-      filenameIndex.updateFileName(fileId, nameId, NULL_NAME_ID);
+      filenameIndex.updateFileName(fileId, oldNameId, nameId);
       return true;
     });
 
@@ -1854,14 +1855,14 @@ public final class FSRecordsImpl implements Closeable {
   @VisibleForTesting
   public static @NotNull Supplier<@NotNull InvertedNameIndex> asyncFillInvertedNameIndex(@NotNull PersistentFSRecordsStorage recordsStorage) {
     CompletableFuture<InvertedNameIndex> fillUpInvertedNameIndexTask = PersistentFsConnectorHelper.INSTANCE.executor().async(() -> {
-      InvertedNameIndex invertedNameIndex = new InvertedNameIndex();
+      InvertedNameIndex invertedNameIndex = new DefaultInMemoryInvertedNameIndex();
       // fill up nameId->fileId index:
       int maxAllocatedID = recordsStorage.maxAllocatedID();
       for (int fileId = FSRecords.ROOT_FILE_ID; fileId <= maxAllocatedID; fileId++) {
         int flags = recordsStorage.getFlags(fileId);
         int nameId = recordsStorage.getNameId(fileId);
         if (!hasDeletedFlag(flags) && nameId != NULL_NAME_ID) {
-          invertedNameIndex.updateDataInner(fileId, nameId);
+          invertedNameIndex.updateFileName(fileId, /*old: */ NULL_NAME_ID, /*new: */ nameId);
         }
       }
       LOG.info("VFS scanned: file-by-name index was populated");
@@ -1869,7 +1870,7 @@ public final class FSRecordsImpl implements Closeable {
     });
 
     // We don't need volatile/atomicLazy, since computation is idempotent: same instance returned always.
-    // So _there could be_ a data race, but it is a benign race.
+    // So _there could be_ a race, but only a benign race.
     return () -> {
       try {
         return fillUpInvertedNameIndexTask.join();
