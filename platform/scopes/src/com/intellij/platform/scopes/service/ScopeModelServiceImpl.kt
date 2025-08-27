@@ -9,9 +9,9 @@ import com.intellij.ide.util.scopeChooser.ScopesStateService
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.platform.project.projectId
-import com.intellij.platform.project.projectIdOrNullWithLogError
 import com.intellij.platform.scopes.ScopeModelRemoteApi
 import com.intellij.platform.util.coroutines.childScope
+import com.intellij.util.cancelOnDispose
 import fleet.rpc.client.RpcTimeoutException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -57,16 +57,21 @@ private class ScopeModelServiceImpl(private val project: Project, private val co
     return null
   }
 
-  override fun openEditScopesDialog(selectedScopeId: String?, onFinish: (selectedScopeId: String?) -> Unit) {
-    val projectId = project.projectIdOrNullWithLogError(LOG) ?: return
+  override fun openEditScopesDialog(selectedScopeId: String?, modelId: String, onFinish: (selectedScopeId: String?) -> Unit) {
+    val projectId = project.projectId()
     editScopesJob = coroutineScope.launch {
       val deferred = try {
-        val selectedScopeName = selectedScopeId?.let { ScopesStateService.getInstance(project).getScopeNameById(selectedScopeId) }
-        ScopeModelRemoteApi.getInstance().openEditScopesDialog(projectId, selectedScopeName)
+        ScopeModelRemoteApi.getInstance().openEditScopesDialog(projectId, selectedScopeId, modelId)
       }
       catch (e: RpcTimeoutException) {
         LOG.warn("Failed to edit scopes", e)
         null
+      }
+      deferred?.cancelOnDispose(project)
+      deferred?.invokeOnCompletion { cause ->
+        if (cause != null) {
+          onFinish(null)
+        }
       }
       onFinish(deferred?.await())
     }
