@@ -1768,6 +1768,30 @@ public abstract class SharedK1LocalInspectionTestGenerated extends AbstractShare
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../testData/inspectionsLocal/javaCollectionsStaticMethodOnImmutableList")
+    public static class JavaCollectionsStaticMethodOnImmutableList extends AbstractSharedK1LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("reverseImmutableList.kt")
+        public void testReverseImmutableList() throws Exception {
+            runTest("../testData/inspectionsLocal/javaCollectionsStaticMethodOnImmutableList/reverseImmutableList.kt");
+        }
+
+        @TestMetadata("reverseMutableList.kt")
+        public void testReverseMutableList() throws Exception {
+            runTest("../testData/inspectionsLocal/javaCollectionsStaticMethodOnImmutableList/reverseMutableList.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../testData/inspectionsLocal/javaIoSerializableObjectMustHaveReadResolve")
     public static class JavaIoSerializableObjectMustHaveReadResolve extends AbstractSharedK1LocalInspectionTest {
         @java.lang.Override

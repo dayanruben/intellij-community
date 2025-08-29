@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl;
@@ -29,11 +29,10 @@ import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.ui.HintListener;
 import com.intellij.ui.LightweightHint;
-import com.intellij.util.ModalityUiUtil;
 import com.intellij.util.ThreeState;
 import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.util.ui.EDT;
-import com.intellij.util.ui.EdtInvocationManager;
 import com.intellij.util.ui.accessibility.ScreenReader;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -41,12 +40,14 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.event.FocusEvent;
+import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 public abstract class CompletionPhase implements Disposable {
+  @ApiStatus.Internal
   public static final Key<TypedEvent> AUTO_POPUP_TYPED_EVENT = Key.create("AutoPopupTypedEvent");
+
   @ApiStatus.Internal
   public static final Key<String> CUSTOM_CODE_COMPLETION_ACTION_ID = Key.create("CodeCompletionActionID");
 
@@ -66,6 +67,7 @@ public abstract class CompletionPhase implements Disposable {
 
   public final CompletionProgressIndicator indicator;
 
+  @ApiStatus.Internal
   protected CompletionPhase(@Nullable CompletionProgressIndicator indicator) {
     this.indicator = indicator;
   }
@@ -78,12 +80,14 @@ public abstract class CompletionPhase implements Disposable {
 
   public static final class CommittingDocuments extends CompletionPhase {
     private static final ExecutorService ourExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor("Completion Preparation", 1);
+
     boolean replaced;
-    private final ActionTracker myTracker;
+    private final @NotNull ActionTracker myTracker;
     private final @Nullable TypedEvent myEvent;
     private int myRequestCount = 1;
 
-    CommittingDocuments(@Nullable CompletionProgressIndicator prevIndicator, @NotNull Editor editor,
+    CommittingDocuments(@Nullable CompletionProgressIndicator prevIndicator,
+                        @NotNull Editor editor,
                         @Nullable TypedEvent event) {
       super(prevIndicator);
       myTracker = new ActionTracker(editor, this);
@@ -202,7 +206,7 @@ public abstract class CompletionPhase implements Disposable {
     }
 
     private static @NotNull CommittingDocuments getCompletionPhase(@Nullable CompletionProgressIndicator prevIndicator,
-                                                                   Editor topLevelEditor,
+                                                                   @NotNull Editor topLevelEditor,
                                                                    @Nullable TypedEvent event) {
       if (event != null) {
         CompletionPhase currentPhase = CompletionServiceImpl.getCompletionPhase();
@@ -220,12 +224,13 @@ public abstract class CompletionPhase implements Disposable {
     }
 
     @ApiStatus.Internal
-    public static void loadContributorsOutsideEdt(Editor editor, PsiFile file) {
+    @RequiresBackgroundThread
+    public static void loadContributorsOutsideEdt(@NotNull Editor editor, @NotNull PsiFile file) {
       CompletionContributor.forLanguage(PsiUtilCore.getLanguageAtOffset(file, editor.getCaretModel().getOffset()));
     }
 
     @ApiStatus.Internal
-    public static boolean shouldSkipAutoPopup(Editor editor, PsiFile psiFile) {
+    public static boolean shouldSkipAutoPopup(@NotNull Editor editor, @NotNull PsiFile psiFile) {
       int offset = editor.getCaretModel().getOffset();
       int psiOffset = Math.max(0, offset - 1);
 
@@ -252,7 +257,7 @@ public abstract class CompletionPhase implements Disposable {
   }
 
   public static final class Synchronous extends CompletionPhase {
-    public Synchronous(CompletionProgressIndicator indicator) {
+    Synchronous(@NotNull CompletionProgressIndicator indicator) {
       super(indicator);
     }
 
@@ -268,7 +273,7 @@ public abstract class CompletionPhase implements Disposable {
     boolean modifiersChanged = false;
     private final @NotNull ClientId ownerId = ClientId.getCurrent();
 
-    public BgCalculation(final CompletionProgressIndicator indicator) {
+    BgCalculation(@NotNull CompletionProgressIndicator indicator) {
       super(indicator);
       ApplicationManager.getApplication().addApplicationListener(new ApplicationListener() {
         @Override
@@ -289,11 +294,11 @@ public abstract class CompletionPhase implements Disposable {
         }
       }, this);
       if (indicator.isAutopopupCompletion()) {
-        // lookup is not visible, we have to check ourselves if editor retains focus
+        // lookup is not visible, we have to check ourselves if the editor retains focus
         ((EditorEx)indicator.getEditor()).addFocusListener(new FocusChangeListener() {
           @Override
           public void focusLost(@NotNull Editor editor, @NotNull FocusEvent event) {
-            // When ScreenReader is active the lookup gets focus on show and we should not close it.
+            // When ScreenReader is active, the lookup gets focus on show, and we should not close it.
             if (ScreenReader.isActive() &&
                 event.getOppositeComponent() != null &&
                 // Check the opposite is in the lookup ancestor
@@ -316,20 +321,20 @@ public abstract class CompletionPhase implements Disposable {
 
   public static final class ItemsCalculated extends CompletionPhase {
 
-    public ItemsCalculated(CompletionProgressIndicator indicator) {
+    ItemsCalculated(@NotNull CompletionProgressIndicator indicator) {
       super(indicator);
     }
 
     @Override
     public int newCompletionStarted(int time, boolean repeated) {
-      indicator.closeAndFinish(false);
+      Objects.requireNonNull(indicator, "`ItemsCalculated#indicator` is not-null as its constructor accepts not-null `indicator`").closeAndFinish(false);
       return indicator.nextInvocationCount(time, repeated);
     }
   }
 
   public abstract static class ZombiePhase extends CompletionPhase {
 
-    ZombiePhase(CompletionProgressIndicator indicator) {
+    ZombiePhase(@Nullable CompletionProgressIndicator indicator) {
       super(indicator);
     }
 
@@ -356,9 +361,9 @@ public abstract class CompletionPhase implements Disposable {
   }
 
   public static final class InsertedSingleItem extends ZombiePhase {
-    public final Runnable restorePrefix;
+    public final @NotNull Runnable restorePrefix;
 
-    InsertedSingleItem(CompletionProgressIndicator indicator, Runnable restorePrefix) {
+    InsertedSingleItem(@NotNull CompletionProgressIndicator indicator, @NotNull Runnable restorePrefix) {
       super(indicator);
       this.restorePrefix = restorePrefix;
       expireOnAnyEditorChange(indicator.getEditor());
@@ -375,7 +380,7 @@ public abstract class CompletionPhase implements Disposable {
   }
 
   public static final class NoSuggestionsHint extends ZombiePhase {
-    NoSuggestionsHint(@Nullable LightweightHint hint, CompletionProgressIndicator indicator) {
+    NoSuggestionsHint(@Nullable LightweightHint hint, @NotNull CompletionProgressIndicator indicator) {
       super(indicator);
       expireOnAnyEditorChange(indicator.getEditor());
       if (hint != null) {
@@ -397,7 +402,8 @@ public abstract class CompletionPhase implements Disposable {
     private final Editor myEditor;
     private final Set<? extends Pair<Integer, ElementPattern<String>>> myRestartingPrefixConditions;
 
-    EmptyAutoPopup(Editor editor, Set<? extends Pair<Integer, ElementPattern<String>>> restartingPrefixConditions) {
+    EmptyAutoPopup(@NotNull Editor editor,
+                   @NotNull Set<? extends Pair<Integer, ElementPattern<String>>> restartingPrefixConditions) {
       super(null);
       myTracker = new ActionTracker(editor, this);
       myEditor = editor;

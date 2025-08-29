@@ -17,12 +17,10 @@ import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
 import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.XDebuggerManagerImpl
 import com.intellij.xdebugger.impl.XDebuggerUtilImpl.reshowInlayRunToCursor
-import com.intellij.xdebugger.impl.XSteppingSuspendContext
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase
 import com.intellij.xdebugger.impl.frame.XDebugSessionProxy.Companion.useFeProxy
 import com.intellij.xdebugger.impl.rpc.XDebugSessionId
 import com.intellij.xdebugger.impl.rpc.models.findValue
-import com.intellij.xdebugger.impl.rpc.models.getOrStoreGlobally
 import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl
 import fleet.rpc.core.toRpc
 import kotlinx.coroutines.*
@@ -49,9 +47,7 @@ internal class BackendXDebuggerManagerApi : XDebuggerManagerApi {
 
   private suspend fun createSessionDto(currentSession: XDebugSessionImpl, debugProcess: XDebugProcess): XDebugSessionDto {
     currentSession.sessionInitializedDeferred().await()
-    val initialSessionState = XDebugSessionState(
-      currentSession.isPaused, currentSession.isStopped, currentSession.isReadOnly, currentSession.isPauseActionSupported(), currentSession.isSuspended,
-    )
+    val initialSessionState = currentSession.state()
     val sessionDataDto = XDebugSessionDataDto(
       currentSession.sessionData.configurationName,
       currentSession.areBreakpointsMuted(),
@@ -85,46 +81,42 @@ internal class BackendXDebuggerManagerApi : XDebuggerManagerApi {
     )
   }
 
+  private fun XDebugSessionImpl.state(): XDebugSessionState = XDebugSessionState(
+    isPaused, isStopped, isReadOnly, isPauseActionSupported(), isSuspended,
+  )
+
   @OptIn(ExperimentalCoroutinesApi::class)
   private fun createSessionEvents(currentSession: XDebugSessionImpl, initialSessionState: XDebugSessionState): Flow<XDebuggerSessionEvent> = channelFlow {
     val listener = object : XDebugSessionListener {
       override fun sessionPaused() {
-        val suspendContext = currentSession.suspendContext ?: return
-        val suspendScope = currentSession.currentSuspendCoroutineScope ?: return
-        val data = async {
-          val suspendContextId = coroutineScope {
-            suspendContext.getOrStoreGlobally(suspendScope, currentSession)
-          }
-          val suspendContextDto = XSuspendContextDto(suspendContextId, suspendContext is XSteppingSuspendContext)
-          val executionStackDto = suspendContext.activeExecutionStack?.toRpc(suspendScope, currentSession)
-          val stackTraceDto = currentSession.currentStackFrame?.toRpc(suspendScope, currentSession)
-          SuspendData(suspendContextDto,
-                      executionStackDto,
-                      stackTraceDto)
-        }
-        trySend(XDebuggerSessionEvent.SessionPaused(data))
+        val data = async { currentSession.suspendData() }
+        trySend(XDebuggerSessionEvent.SessionPaused(currentSession.state(), data))
       }
 
       override fun sessionResumed() {
-        trySend(XDebuggerSessionEvent.SessionResumed)
+        trySend(XDebuggerSessionEvent.SessionResumed(currentSession.state()))
       }
 
       override fun sessionStopped() {
-        trySend(XDebuggerSessionEvent.SessionStopped)
+        trySend(XDebuggerSessionEvent.SessionStopped(currentSession.state()))
       }
 
       override fun beforeSessionResume() {
-        trySend(XDebuggerSessionEvent.BeforeSessionResume)
+        trySend(XDebuggerSessionEvent.BeforeSessionResume(currentSession.state()))
       }
 
       override fun stackFrameChanged() {
         val suspendScope = currentSession.currentSuspendCoroutineScope ?: return
-        val stackTraceDto = currentSession.currentStackFrame?.let {
+        val stackFrameDto = currentSession.currentStackFrame?.let {
           async {
             it.toRpc(suspendScope, currentSession)
           }
         }
-        trySend(XDebuggerSessionEvent.StackFrameChanged(stackTraceDto))
+        trySend(XDebuggerSessionEvent.StackFrameChanged(
+          currentSession.state(),
+          currentSession.currentPosition?.toRpc(),
+          stackFrameDto,
+        ))
       }
 
       override fun stackFrameChanged(changedByUser: Boolean) {

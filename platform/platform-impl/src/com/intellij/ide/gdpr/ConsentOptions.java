@@ -221,8 +221,17 @@ public final class ConsentOptions implements ModificationTracker {
     return getPermission(AI_DATA_COLLECTION_OPTION_ID);
   }
 
+  @TestOnly
   public void setAiDataCollectionPermission(boolean permitted) {
     setPermission(AI_DATA_COLLECTION_OPTION_ID, permitted);
+  }
+
+  public @NotNull Permission getTraceDataCollectionPermission() {
+    return getPermission(TRACE_DATA_COLLECTION_OPTION_ID);
+  }
+
+  public void setTraceDataCollectionPermission(boolean permitted) {
+    setPermission(TRACE_DATA_COLLECTION_OPTION_ID, permitted);
   }
 
   private Permission getPermission(String consentId) {

@@ -32,7 +32,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageType
 import com.intellij.openapi.util.Comparing
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.platform.kernel.ids.storeValueGlobally
 import com.intellij.platform.util.coroutines.childScope
@@ -79,6 +78,7 @@ import com.intellij.xdebugger.stepping.XSmartStepIntoHandler
 import com.intellij.xdebugger.stepping.XSmartStepIntoVariant
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
@@ -106,8 +106,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
 
   private var myDebugProcess: XDebugProcess? = null
   private val myRegisteredBreakpoints: MutableMap<XBreakpoint<*>?, CustomizedBreakpointPresentation?> = HashMap<XBreakpoint<*>?, CustomizedBreakpointPresentation?>()
-  private val myInactiveSlaveBreakpoints: MutableSet<XBreakpoint<*>?> = Collections.synchronizedSet<XBreakpoint<*>?>(
-    HashSet<XBreakpoint<*>?>())
+  private val myInactiveSlaveBreakpoints: MutableSet<XBreakpoint<*>?> = Collections.synchronizedSet<XBreakpoint<*>?>(HashSet())
   private var myBreakpointsDisabled = false
   private val myDebuggerManager: XDebuggerManagerImpl = debuggerManager
   private val myExecutionPointManager: XDebuggerExecutionPointManager = debuggerManager.executionPointManager
@@ -120,7 +119,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
   private var myIsTopFrame = false
 
   private val myTopStackFrame = MutableStateFlow<XStackFrame?>(null)
-  private val myPaused = MutableStateFlow<Boolean>(false)
+  private val myPaused = MutableStateFlow(false)
   private var myValueMarkers: XValueMarkers<*, *>? = null
   private val mySessionName: @Nls String = sessionName
   private val mySessionTab = CompletableDeferred<XDebugSessionTab>()
@@ -128,42 +127,29 @@ class XDebugSessionImpl @JvmOverloads constructor(
   val sessionData: XDebugSessionData
   private val myActiveNonLineBreakpointAndPositionFlow = MutableStateFlow<Pair<XBreakpoint<*>, XSourcePosition?>?>(null)
   private val myPausedEvents = MutableSharedFlow<XDebugSessionPausedInfo>(replay = 1, extraBufferCapacity = 1)
-  private val myDispatcher = EventDispatcher.create<XDebugSessionListener>(XDebugSessionListener::class.java)
+  private val myDispatcher = EventDispatcher.create(XDebugSessionListener::class.java)
   private val myProject: Project = debuggerManager.project
 
   private val executionEnvironment: ExecutionEnvironment? = environment
   override fun getExecutionEnvironment(): ExecutionEnvironment? = executionEnvironment
 
-  private val myStopped = MutableStateFlow<Boolean>(false)
-  private val myReadOnly = MutableStateFlow<Boolean>(false)
+  private val myStopped = MutableStateFlow(false)
+  private val myReadOnly = MutableStateFlow(false)
   private val myShowToolWindowOnSuspendOnly: Boolean = showToolWindowOnSuspendOnly
-  private val myTabInitDataFlow = createMutableStateFlow<XDebuggerSessionTabAbstractInfo?>(null)
+  private val myTabInitDataFlow = MutableStateFlow<XDebuggerSessionTabAbstractInfo?>(null)
   val restartActions: MutableList<AnAction> = SmartList<AnAction>()
   val extraStopActions: MutableList<AnAction> = SmartList<AnAction>()
   val extraActions: MutableList<AnAction> = SmartList<AnAction>()
   private var myConsoleView: ConsoleView? = null
   private val myIcon: Icon? = icon
   private val myCurrentStackFrameManager = XDebugSessionCurrentStackFrameManager()
-  private val executionStackFlow = MutableStateFlow<Ref<XExecutionStack?>>(Ref.create(null))
 
   @get:ApiStatus.Internal
   val fileColorsComputer: FileColorsComputer = FileColorsComputer(project, coroutineScope)
 
-  var currentExecutionStack: XExecutionStack?
-    get() = executionStackFlow.value.get()
-    private set(value) {
-      if (executionStackFlow.value.get() === value) return
-      executionStackFlow.value = Ref.create(value)
-    }
+  var currentExecutionStack: XExecutionStack? = null
   private val suspendContextFlow = MutableStateFlow<XSuspendContext?>(null)
-  private val mySuspendContext: StateFlow<XSuspendContext?>
-    get() = suspendContextFlow
   private val sessionInitializedDeferred = CompletableDeferred<Unit>()
-
-  @get:ApiStatus.Internal
-  val isSuspendedState: StateFlow<Boolean> = combine(myPaused, mySuspendContext) { paused, suspendContext ->
-    paused && suspendContext != null
-  }.stateIn(coroutineScope, SharingStarted.Eagerly, myPaused.value && mySuspendContext.value != null)
 
   @Volatile
   private var breakpointsInitialized = false
@@ -207,12 +193,8 @@ class XDebugSessionImpl @JvmOverloads constructor(
   }
 
   @get:ApiStatus.Internal
-  val tabInitDataFlow: Flow<XDebuggerSessionTabAbstractInfo?>
-    get() = myTabInitDataFlow
-
-  @get:ApiStatus.Internal
-  val topFrameFlow: Flow<XStackFrame?>
-    get() = myTopStackFrame
+  val tabInitDataFlow: Flow<XDebuggerSessionTabAbstractInfo>
+    get() = myTabInitDataFlow.filterNotNull()
 
   override fun getRunContentDescriptor(): RunContentDescriptor {
     if (useFeProxy() && showFeWarnings()) {
@@ -238,9 +220,6 @@ class XDebugSessionImpl @JvmOverloads constructor(
   override fun setPauseActionSupported(isSupported: Boolean) {
     sessionData.isPauseSupported = isSupported
   }
-
-  val isReadOnlyState: StateFlow<Boolean>
-    get() = myReadOnly
 
   var isReadOnly: Boolean
     get() = myReadOnly.value
@@ -270,9 +249,6 @@ class XDebugSessionImpl @JvmOverloads constructor(
     return if (this.executionEnvironment != null) executionEnvironment.runProfile else null
   }
 
-  val isPauseActionSupportedState: StateFlow<Boolean>
-    get() = sessionData.pauseSupportedFlow
-
   @JvmName("isPauseActionSupported")
   fun isPauseActionSupported(): Boolean {
     return sessionData.isPauseSupported
@@ -287,21 +263,12 @@ class XDebugSessionImpl @JvmOverloads constructor(
   }
 
   override fun isSuspended(): Boolean {
-    return isSuspendedState.value
+    return isPaused && suspendContext != null
   }
-
-  @get:ApiStatus.Internal
-  val isPausedState: StateFlow<Boolean>
-    get() = myPaused
 
   @ApiStatus.Internal
   fun getPausedEventsFlow(): Flow<XDebugSessionPausedInfo?> {
     return myPausedEvents
-  }
-
-  @ApiStatus.Internal
-  fun getCurrentExecutionStackFlow(): Flow<XExecutionStack?> {
-    return executionStackFlow.map { it.get() }
   }
 
   override fun isPaused(): Boolean {
@@ -317,29 +284,12 @@ class XDebugSessionImpl @JvmOverloads constructor(
     return myCurrentStackFrameManager.getCurrentStackFrame()
   }
 
-  @ApiStatus.Internal
-  fun getCurrentStackFrameFlow(): Flow<XStackFrame?> {
-    return myCurrentStackFrameManager.getCurrentStackFrameFlow().map { it.get() }
-  }
-
   override fun getSuspendContext(): XSuspendContext? {
-    return mySuspendContext.value
-  }
-
-  @ApiStatus.Internal
-  fun getCurrentSuspendContextFlow(): Flow<XSuspendContext?> {
-    return mySuspendContext
+    return suspendContextFlow.value
   }
 
   override fun getCurrentPosition(): XSourcePosition? {
     return getFrameSourcePosition(currentStackFrame)
-  }
-
-  @ApiStatus.Internal
-  fun getCurrentPositionFlow(): Flow<XSourcePosition?> {
-    return getCurrentStackFrameFlow().map {
-      getFrameSourcePosition(it)
-    }
   }
 
   override fun getTopFramePosition(): XSourcePosition? {
@@ -400,7 +350,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
   fun reset() {
     breakpointsInitialized = false
     removeBreakpointListeners()
-    unsetPaused()
+    myPaused.value = false
     clearPausedData()
     rebuildViews()
   }
@@ -481,7 +431,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
           override fun isHiddenContent(): Boolean = true
         }
         debuggerManager.coroutineScope.launch(Dispatchers.EDT) {
-          for (tabClosedRequest in tabClosedChannel) {
+          tabClosedChannel.consumeEach {
             environmentCoroutineScope.cancel()
             Disposer.dispose(mockDescriptor)
           }
@@ -582,7 +532,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
       val active = ReadAction.compute<Boolean, RuntimeException?>(ThrowableComputable { isBreakpointActive(b!!) })
       if (active) {
         synchronized(myRegisteredBreakpoints) {
-          myRegisteredBreakpoints.put(b, CustomizedBreakpointPresentation())
+          myRegisteredBreakpoints[b] = CustomizedBreakpointPresentation()
           if (b is XLineBreakpoint<*>) {
             updateBreakpointPresentation(b as XLineBreakpoint<*>, b.getType().pendingIcon, null)
           }
@@ -747,7 +697,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
     }
 
     myDispatcher.getMulticaster().beforeSessionResume()
-    val context = mySuspendContext.value
+    val context = suspendContext
     clearPausedData()
     myDispatcher.getMulticaster().sessionResumed()
     return context
@@ -757,7 +707,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
     // If the scope is not provided by an XSuspendContent implementation,
     // then a default scope, provided by XDebuggerSuspendScopeProvider is used,
     // and it must be canceled manually
-    if (mySuspendContext.value?.coroutineScope != null) {
+    if (suspendContext?.coroutineScope != null) {
       currentSuspendCoroutineScope?.cancel()
     }
     currentSuspendCoroutineScope = null
@@ -789,16 +739,11 @@ class XDebugSessionImpl @JvmOverloads constructor(
 
 
   override fun showExecutionPoint() {
-    if (mySuspendContext.value != null) {
-      val executionStack = mySuspendContext.value!!.activeExecutionStack
-      if (executionStack != null) {
-        val topFrame = executionStack.getTopFrame()
-        if (topFrame != null) {
-          setCurrentStackFrame(executionStack, topFrame, true)
-          myExecutionPointManager.showExecutionPosition()
-        }
-      }
-    }
+    val currentSuspendContext = suspendContext ?: return
+    val executionStack = currentSuspendContext.activeExecutionStack ?: return
+    val topFrame = executionStack.getTopFrame() ?: return
+    setCurrentStackFrame(executionStack, topFrame, true)
+    myExecutionPointManager.showExecutionPosition()
   }
 
   override fun setCurrentStackFrame(executionStack: XExecutionStack, frame: XStackFrame, isTopFrame: Boolean) {
@@ -807,7 +752,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
 
   @ApiStatus.Experimental
   fun setCurrentStackFrame(executionStack: XExecutionStack, frame: XStackFrame, isTopFrame: Boolean, changedByUser: Boolean) {
-    if (mySuspendContext.value == null) return
+    if (suspendContext == null) return
 
     val frameChanged = currentStackFrame !== frame
     this.currentExecutionStack = executionStack
@@ -1022,10 +967,6 @@ class XDebugSessionImpl @JvmOverloads constructor(
     })
   }
 
-  fun unsetPaused() {
-    myPaused.value = false
-  }
-
   private fun positionReachedInternal(suspendContext: XSuspendContext, attract: Boolean) {
     if (handlePositionReaching(suspendContext, attract)) {
       return
@@ -1090,10 +1031,6 @@ class XDebugSessionImpl @JvmOverloads constructor(
     doResume()
   }
 
-  @get:ApiStatus.Internal
-  val isStoppedState: StateFlow<Boolean>
-    get() = myStopped
-
   override fun isStopped(): Boolean {
     return myStopped.value
   }
@@ -1107,10 +1044,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
       removeBreakpointListeners()
     }
     finally {
-      myDebugProcess!!.stopAsync()
-        .onSuccess(Consumer { aVoid: Any? ->
-          processStopped()
-        })
+      myDebugProcess!!.stopAsync().onSuccess { processStopped() }
     }
   }
 

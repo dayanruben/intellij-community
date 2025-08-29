@@ -357,7 +357,11 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerPsiQuickFixes(KaFirDiagnostic.UselessElvisRightIsNull::class, RemoveUselessElvisFix)
         registerPsiQuickFixes(KaFirDiagnostic.UselessCast::class, RemoveUselessCastFix)
         registerFactory(UselessIsCheckFactories.uselessIsCheckFactory)
+        registerFactory(UselessIsCheckFactories.impossibleIsCheckWarningFactory)
+        registerFactory(UselessIsCheckFactories.impossibleIsCheckErrorFactory)
         registerFactory(UselessIsCheckFactories.uselessWhenCheckFactory)
+        registerFactory(UselessIsCheckFactories.impossibleWhenCheckWarningFactory)
+        registerFactory(UselessIsCheckFactories.impossibleWhenCheckErrorFactory)
         registerFactory(ReplaceCallFixFactories.unsafeCallFactory)
         registerFactory(ReplaceCallFixFactories.unsafeInfixCallFactory)
         registerFactory(ReplaceCallFixFactories.unsafeOperatorCallFactory)
@@ -387,6 +391,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
 
         registerPsiQuickFixes(KaFirDiagnostic.NullableSupertype::class, RemoveNullableFix.removeForSuperType)
         registerPsiQuickFixes(KaFirDiagnostic.InapplicableLateinitModifier::class, RemoveNullableFix.removeForLateInitProperty)
+        registerPsiQuickFixes(KaFirDiagnostic.RedundantNullable::class, RemoveNullableFix.removeForRedundant)
         registerPsiQuickFixes(
             KaFirDiagnostic.TypeArgumentsRedundantInSuperQualifier::class,
             RemovePsiElementSimpleFix.RemoveTypeArgumentsFactory

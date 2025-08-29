@@ -903,10 +903,6 @@ c:com.intellij.openapi.vcs.changes.ChangeListAdapter
 - changesMoved(java.util.Collection,com.intellij.openapi.vcs.changes.ChangeList,com.intellij.openapi.vcs.changes.ChangeList):V
 - changesRemoved(java.util.Collection,com.intellij.openapi.vcs.changes.ChangeList):V
 - defaultListChanged(com.intellij.openapi.vcs.changes.ChangeList,com.intellij.openapi.vcs.changes.ChangeList):V
-com.intellij.openapi.vcs.changes.ChangeListDecorator
-- sf:EP_NAME:com.intellij.openapi.extensions.ProjectExtensionPointName
-- a:decorateChangeList(com.intellij.openapi.vcs.changes.LocalChangeList,com.intellij.ui.ColoredTreeCellRenderer,Z,Z,Z):V
-- s:getDecorators(com.intellij.openapi.project.Project):java.util.List
 com.intellij.openapi.vcs.changes.ChangeListListener
 - java.util.EventListener
 - sf:TOPIC:com.intellij.util.messages.Topic
@@ -945,6 +941,7 @@ a:com.intellij.openapi.vcs.changes.ChangeListManager
 - a:getChangeList(com.intellij.openapi.vcs.changes.Change):com.intellij.openapi.vcs.changes.LocalChangeList
 - a:getChangeList(com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.vcs.changes.LocalChangeList
 - a:getChangeList(java.lang.String):com.intellij.openapi.vcs.changes.LocalChangeList
+- a:getChangeListManagerState():com.intellij.platform.vcs.changes.ChangeListManagerState
 - a:getChangeListNameIfOnlyOne(com.intellij.openapi.vcs.changes.Change[]):java.lang.String
 - a:getChangeLists():java.util.List
 - a:getChangeLists(com.intellij.openapi.vcs.changes.Change):java.util.List
