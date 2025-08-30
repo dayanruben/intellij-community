@@ -79,7 +79,6 @@
   - name: intellij.java.performancePlugin
   - name: intellij.java.terminal
   - name: intellij.java.debugger.impl.backend
-  - name: intellij.debugger.collections.visualizer.jvm
   - name: intellij.jvm.dfa.analysis.ui
 - name: lib/javac2.jar
   modules:

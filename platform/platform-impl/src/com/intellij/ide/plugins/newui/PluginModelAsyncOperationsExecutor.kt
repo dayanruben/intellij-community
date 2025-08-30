@@ -12,6 +12,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.text.HtmlChunk
+import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -135,34 +136,12 @@ internal object PluginModelAsyncOperationsExecutor {
     }
   }
 
-  fun updateButtons(
-    cs: CoroutineScope,
-    installedPluginComponents: List<ListPluginComponent>,
-    pluginComponentsMap: Map<PluginId, List<ListPluginComponent>>,
-    detailPanels: List<PluginDetailsPageComponent>,
-  ) {
-    cs.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-      for (component in installedPluginComponents) {
-        component.updateButtons()
-      }
-      for (plugins in pluginComponentsMap.values) {
-        for (plugin in plugins) {
-          if (plugin.myInstalledDescriptorForMarketplace != null) {
-            plugin.updateButtons()
-          }
-        }
-      }
-      for (detailPanel in detailPanels) {
-        detailPanel.updateAll()
-      }
-    }
-  }
-
-  fun findPlugin(cs: CoroutineScope, pluginId: PluginId, callback: (PluginUiModel?) -> Unit) {
-    cs.launch(Dispatchers.IO) {
-      val plugin = UiPluginManager.getInstance().getPlugin(pluginId)
+  fun findPlugins(pluginIds: Set<PluginId>, callback: (Map<PluginId, PluginUiModel>) -> Unit) {
+    val coroutineScope = service<CoreUiCoroutineScopeHolder>().coroutineScope
+    coroutineScope.launch(Dispatchers.IO) {
+      val plugins = UiPluginManager.getInstance().findInstalledPlugins(pluginIds)
       withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-        callback(plugin)
+        callback(plugins)
       }
     }
   }

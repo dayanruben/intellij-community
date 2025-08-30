@@ -329,26 +329,24 @@ class LookupCellRenderer(lookup: LookupImpl, editorComponent: JComponent) : List
   }
 
   private fun tryToCreateSeparator(item: LookupElement, index: Int): JComponent? {
-    val separatorLookupElement = item.`as`(SeparatorLookupElement::class.java)
-    if (separatorLookupElement == null) {
-      return null
-    }
+    val separatorLookupElement = item.`as`(SeparatorLookupElement::class.java) ?: return null
+
     val insets = getIconInsets()
-    val labelInsets = if (index != 0) {
-      val separatorLabelInsets = JBUI.CurrentTheme.Popup.separatorLabelInsets()
+    val separatorLabelInsets = JBUI.CurrentTheme.Popup.separatorLabelInsets()
+    if (index != 0) {
       insets.set(separatorLabelInsets.top, insets.left, separatorLabelInsets.bottom, insets.right)
-      insets
     }
     else {
-      val separatorLabelInsets = JBUI.CurrentTheme.Popup.separatorLabelInsets()
       insets.set(3, insets.left, separatorLabelInsets.bottom + separatorLabelInsets.top - 3, insets.right)
-      insets
     }
-    val res = GroupHeaderSeparator(labelInsets)
+
+    val res = GroupHeaderSeparator(insets)
     res.caption = separatorLookupElement.title
     res.isHideLine = index == 0
+
     val panel = LookupPanel()
     panel.add(res)
+
     return panel
   }
 

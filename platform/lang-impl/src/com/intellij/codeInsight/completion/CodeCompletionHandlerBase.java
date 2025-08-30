@@ -349,11 +349,17 @@ public class CodeCompletionHandlerBase {
       .submit(AppExecutorUtil.getAppExecutorService());
   }
 
+  /**
+   * Tries to perform completion synchronously:
+   * 1. It starts inferencing candidates (synchornously or asynchronously)
+   * 2. It waits for them to be computed for the given timeout.
+   * 3. If candidates are computed until timeout, the UI is updated immediately, otherwise computation continues and the phase is set to BgCalculation.
+   */
   private void trySynchronousCompletion(@NotNull CompletionInitializationContextImpl initContext,
                                         boolean hasModifiers,
                                         long startingTime,
                                         @NotNull CompletionProgressIndicator indicator,
-                                        OffsetsInFile hostCopyOffsets) {
+                                        @NotNull OffsetsInFile hostCopyOffsets) {
     CompletionServiceImpl.setCompletionPhase(new CompletionPhase.Synchronous(indicator));
 
     var future = startContributorThread(initContext, indicator, hostCopyOffsets, hasModifiers);
@@ -468,7 +474,7 @@ public class CodeCompletionHandlerBase {
            offsetMap.getOffset(CompletionInitializationContext.SELECTION_END_OFFSET);
   }
 
-  protected void completionFinished(final CompletionProgressIndicator indicator, boolean hasModifiers) {
+  protected void completionFinished(@NotNull CompletionProgressIndicator indicator, boolean hasModifiers) {
     List<LookupElement> items = indicator.getLookup().getItems();
     if (items.isEmpty()) {
       LookupManager.hideActiveLookup(indicator.getProject());

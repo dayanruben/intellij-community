@@ -302,7 +302,10 @@ public class LookupImpl extends LightweightHint implements LookupEx, Disposable,
     refreshUi(true, true);
   }
 
-  public boolean addItem(LookupElement item, PrefixMatcher matcher) {
+  /**
+   * @return true if the item was added
+   */
+  public boolean addItem(@NotNull LookupElement item, @NotNull PrefixMatcher matcher) {
     LookupElementPresentation presentation = LookupElementPresentation.renderElement(item);
     if (containsDummyIdentifier(presentation.getItemText()) ||
         containsDummyIdentifier(presentation.getTailText()) ||
@@ -730,7 +733,7 @@ public class LookupImpl extends LightweightHint implements LookupEx, Disposable,
   }
 
   @Override
-  public boolean performGuardedChange(Runnable change) {
+  public boolean performGuardedChange(@NotNull Runnable change) {
     checkValid();
 
     editor.getDocument().startGuardedBlockChecking();
@@ -762,7 +765,9 @@ public class LookupImpl extends LightweightHint implements LookupEx, Disposable,
   @Override
   public boolean vetoesHiding() {
     // the second condition means that the Lookup belongs to another connected client
-    return myGuardedChanges > 0 || mySession != ClientSessionsUtil.getCurrentSessionOrNull(mySession.getProject()) || LookupImplVetoPolicy.anyVetoesHiding(this);
+    return myGuardedChanges > 0 ||
+           mySession != ClientSessionsUtil.getCurrentSessionOrNull(mySession.getProject()) ||
+           LookupImplVetoPolicy.anyVetoesHiding(this);
   }
 
   public boolean isAvailableToUser() {
@@ -1020,18 +1025,18 @@ public class LookupImpl extends LightweightHint implements LookupEx, Disposable,
   }
 
   @Override
-  public void setCurrentItem(LookupElement item) {
+  public void setCurrentItem(@Nullable LookupElement item) {
     markSelectionTouched();
     list.setSelectedValue(item, false);
   }
 
   @Override
-  public void addLookupListener(LookupListener listener) {
+  public void addLookupListener(@NotNull LookupListener listener) {
     myListeners.add(listener);
   }
 
   @Override
-  public void removeLookupListener(LookupListener listener) {
+  public void removeLookupListener(@NotNull LookupListener listener) {
     myListeners.remove(listener);
   }
 

@@ -4753,6 +4753,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/member/innerClass.kt");
             }
 
+            @TestMetadata("propertyLikeCall.kt")
+            public void testPropertyLikeCall() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/member/propertyLikeCall.kt");
+            }
+
             @TestMetadata("propertyOnUserType.kt")
             public void testPropertyOnUserType() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/createFromUsage/createFunction/call/member/propertyOnUserType.kt");
@@ -16372,6 +16377,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("iterateIntArray.kt")
         public void testIterateIntArray() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/useWithIndex/iterateIntArray.kt");
+        }
+
+        @TestMetadata("longIndex.kt")
+        public void testLongIndex() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/useWithIndex/longIndex.kt");
         }
 
         @TestMetadata("nonZeroStartingIndex.kt")
