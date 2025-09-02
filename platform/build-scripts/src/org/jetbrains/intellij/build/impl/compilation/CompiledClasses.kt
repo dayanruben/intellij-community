@@ -1,9 +1,10 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl.compilation
 
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.util.io.NioFiles
-import com.intellij.util.io.Decompressor
 import com.intellij.util.currentJavaVersion
+import com.intellij.util.io.Decompressor
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
@@ -14,7 +15,6 @@ import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.CompilationContext
 import org.jetbrains.intellij.build.impl.JpsCompilationRunner
 import org.jetbrains.intellij.build.impl.cleanOutput
-import org.jetbrains.intellij.build.impl.generateRuntimeModuleRepository
 import org.jetbrains.intellij.build.impl.isBazelTestRun
 import org.jetbrains.intellij.build.jpsCache.isForceDownloadJpsCache
 import org.jetbrains.intellij.build.jpsCache.isPortableCompilationCacheEnabled
@@ -120,10 +120,15 @@ internal fun keepCompilationState(options: BuildOptions): Boolean {
 }
 
 internal suspend fun reuseOrCompile(context: CompilationContext, moduleNames: Collection<String>?, includingTestsInModules: List<String>?, span: Span) {
+  if (context.compilationData.outputForAllModulesIsAvailable) {
+    span.addEvent("Output for all modules was already provided in this compilation session, skipping compilation")
+    return
+  }
+  
   val pathToCompiledClassArchiveMetadata = context.options.pathToCompiledClassesArchivesMetadata
   when {
     context.options.useCompiledClassesFromProjectOutput -> {
-      check(isBazelTestRun() || context.classesOutputDirectory.exists()) {
+      check(isBazelTestRun() || context.classesOutputDirectory.exists() || PathManager.getArchivedCompiledClassesMapping() != null) {
         "${BuildOptions.USE_COMPILED_CLASSES_PROPERTY} is enabled but the classes output directory ${context.classesOutputDirectory} doesn't exist"
       }
       val production = context.classesOutputDirectory.resolve("production")
@@ -134,10 +139,12 @@ internal suspend fun reuseOrCompile(context: CompilationContext, moduleNames: Co
         span.addEvent(msg)
       }
       span.addEvent("compiled classes reused", Attributes.of(AttributeKey.stringKey("dir"), context.classesOutputDirectory.toString()))
+      context.compilationData.outputForAllModulesIsAvailable = true
     }
     context.options.pathToCompiledClassesArchive != null -> {
       span.addEvent("compilation skipped", Attributes.of(AttributeKey.stringKey("reuseFrom"), context.options.pathToCompiledClassesArchive.toString()))
       unpackCompiledClasses(classOutput = context.classesOutputDirectory, context = context)
+      context.compilationData.outputForAllModulesIsAvailable = true
     }
     pathToCompiledClassArchiveMetadata != null -> {
       span.addEvent("compilation skipped", Attributes.of(AttributeKey.stringKey("reuseFrom"), pathToCompiledClassArchiveMetadata.toString()))
@@ -153,6 +160,7 @@ internal suspend fun reuseOrCompile(context: CompilationContext, moduleNames: Co
            */
           saveHash = !forInstallers,
         )
+        context.compilationData.outputForAllModulesIsAvailable = true
       }
     }
     else -> {
@@ -201,13 +209,7 @@ internal suspend fun reuseOrCompile(context: CompilationContext, moduleNames: Co
     }
   }
 
-  if (context.options.useCompiledClassesFromProjectOutput) {
-    context.compilationData.runtimeModuleRepositoryGenerated = true
-  }
-  else {
-    generateRuntimeModuleRepository(context)
-    context.options.useCompiledClassesFromProjectOutput = true
-  }
+  context.options.useCompiledClassesFromProjectOutput = true
 }
 
 internal fun isIncrementalCompilationDataAvailable(context: CompilationContext): Boolean {

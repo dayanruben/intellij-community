@@ -34,7 +34,8 @@
     "Islands": 1,
     "Island": {
       "arc": 20,
-      "border1.insets": "6,6,6,6"
+      "border1.insets": "6,6,6,6",
+      "inactiveAlpha": 0.44
     },
 
     "MainWindow.background": "BackgroundDark",
@@ -44,7 +45,8 @@
     "MainWindow.Tab": {
       "selectedBackground": "BackgroundMid",
       "hoverBackground": "#0000000D",
-      "separatorColor": "#00000012"
+      "separatorColor": "#00000012",
+      "foreground": "#818594"
     },
 
     "MainToolbar": {

@@ -22,6 +22,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.Segment
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.vfs.ContentPreloadable
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findDocument
 import com.intellij.psi.*
@@ -50,7 +51,6 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
     virtualFile
   }
 
-  private var isUpdateRequired: Boolean = model.isUpdateRequired
   private var cachedPsiFile: PsiFile? = null
   private var document: Document? = null
   private var cachedSmartRange: SmartPsiFileRange? = null
@@ -58,7 +58,7 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
   private var cachedUsageInfos: List<UsageInfo> = emptyList()
     get() {
       if (field.isEmpty()) {
-        LOG.warn("UsageInfos are not yet initialized for ${model.presentablePath}")
+        LOG.debug("UsageInfos are not yet initialized for ${model.presentablePath}")
       }
       return field
     }
@@ -88,6 +88,10 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
     (document as? DocumentEx)?.removeFullUpdateListener(fullUpdateListener)
   }
 
+  init {
+    initialize()
+  }
+
   private fun initialize() {
     //local IDE case
     if (model.usageInfos.isNotEmpty()) {
@@ -99,10 +103,6 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
     }
     //RemDev case - we need to load psi elements
     else {
-      if (isUpdateRequired) {
-        LOG.debug("Update is required for ${model.presentablePath}")
-        return
-      }
       if (initializationJob?.isActive == true) {
         LOG.debug("Initialization job is already in progress ${model.presentablePath}")
         return
@@ -116,6 +116,14 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
           if (virtualFile?.isValid == false) {
             LOG.warn("VirtualFile is invalid for ${model.presentablePath}")
             return@launch
+          }
+
+          (virtualFile as? ContentPreloadable)?.let { capability ->
+            try {
+              capability.preloadContent()
+            } catch (t: Throwable) {
+              LOG.debug("preloadContent failed during UsageInfoModel initialization for ${model.presentablePath}", t)
+            }
           }
 
           readAction {
@@ -182,9 +190,6 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
   }
 
   override fun isValid(): Boolean {
-    if (isUpdateRequired) {
-      return false
-    }
     if (virtualFile?.isValid != true) {
       return false
     }
@@ -296,11 +301,6 @@ internal class UsageInfoModel private constructor(val project: Project, val mode
         doc
       }
     }
-  }
-
-  fun setReadyToInitialize() {
-    isUpdateRequired = false
-    initialize()
   }
 
   private class UsageInfoModelPresentation(val model: FindInFilesResult) : UsagePresentation {

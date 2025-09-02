@@ -183,6 +183,13 @@ com.intellij.ide.actions.SettingsEntryPointAction$IconCustomizer
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:getCustomIcon(com.intellij.ui.BadgeIconSupplier):javax.swing.Icon
 - getSecondIcon():javax.swing.Icon
+c:com.intellij.ide.browsers.actions.OpenInBrowserBaseGroupAction$OpenInBrowserFloatingToolbarProvider
+- com.intellij.openapi.editor.toolbar.floating.AbstractFloatingToolbarProvider
+- <init>():V
+- isApplicable(com.intellij.openapi.actionSystem.DataContext):Z
+com.intellij.ide.browsers.actions.OpenInBrowserBaseGroupAction$OpenInBrowserFloatingToolbarSuppressor
+- sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
+- a:isSuppressed(com.intellij.openapi.editor.toolbar.floating.FloatingToolbarProvider,com.intellij.openapi.actionSystem.DataContext):Z
 com.intellij.ide.dnd.TransferableWrapper
 - com.intellij.ide.dnd.FileFlavorProvider
 - a:getPsiElements():com.intellij.psi.PsiElement[]
@@ -588,11 +595,6 @@ com.intellij.openapi.editor.impl.softwrap.mapping.SoftWrapApplianceManager$Visib
 com.intellij.openapi.editor.markup.LineMarkerRendererEx
 - com.intellij.openapi.editor.markup.LineMarkerRenderer
 - a:getPosition():com.intellij.openapi.editor.markup.LineMarkerRendererEx$Position
-com.intellij.openapi.editor.toolbar.floating.EditorFloatingToolbarSuppressor
-- sf:Companion:com.intellij.openapi.editor.toolbar.floating.EditorFloatingToolbarSuppressor$Companion
-- a:isSuppressed(com.intellij.openapi.editor.toolbar.floating.FloatingToolbarProvider,com.intellij.openapi.actionSystem.DataContext):Z
-f:com.intellij.openapi.editor.toolbar.floating.EditorFloatingToolbarSuppressor$Companion
-- f:getEP_NAME():com.intellij.openapi.extensions.ExtensionPointName
 com.intellij.openapi.editor.toolbar.floating.FloatingToolbarComponent
 - a:getAutoHideable():Z
 - a:getBackgroundAlpha():F
@@ -827,6 +829,8 @@ com.intellij.platform.DirectoryProjectGenerator
 - a:validate(java.lang.String):com.intellij.facet.ui.ValidationResult
 com.intellij.platform.HideableProjectGenerator
 - a:isHidden():Z
+f:com.intellij.platform.PlatformProjectOpenProcessor$Companion
+- f:runDirectoryProjectConfigurators(java.nio.file.Path,com.intellij.openapi.project.Project,Z,Z,kotlin.coroutines.Continuation):java.lang.Object
 com.intellij.platform.ProjectGeneratorPeer
 - addSettingsListener(com.intellij.platform.ProjectGeneratorPeer$SettingsListener):V
 - addSettingsStateListener(com.intellij.platform.WebProjectGenerator$SettingsStateListener):V
@@ -1350,6 +1354,31 @@ com.intellij.ui.popup.list.FilterableListPopupStep
 - com.intellij.openapi.ui.popup.ListPopupStep
 - a:updateFilter(java.lang.String):V
 f:com.intellij.ui.render.RenderersKt
+f:com.intellij.ui.tree.AsyncTreeModel
+- com.intellij.ui.tree.Searchable
+- com.intellij.ui.tree.TreeVisitor$LoadingAwareAcceptor
+- com.intellij.ui.treeStructure.BgtAwareTreeModel
+- com.intellij.util.ui.tree.AbstractTreeModel
+- <init>(javax.swing.tree.TreeModel,com.intellij.openapi.Disposable):V
+- <init>(javax.swing.tree.TreeModel,Z,com.intellij.openapi.Disposable):V
+- accept(com.intellij.ui.tree.TreeVisitor):org.jetbrains.concurrency.Promise
+- accept(com.intellij.ui.tree.TreeVisitor,Z):org.jetbrains.concurrency.Promise
+- dispose():V
+- getChild(java.lang.Object,I):java.lang.Object
+- getChildCount(java.lang.Object):I
+- getIndexOfChild(java.lang.Object,java.lang.Object):I
+- getModel():javax.swing.tree.TreeModel
+- getRoot():java.lang.Object
+- getTreePath(java.lang.Object):org.jetbrains.concurrency.Promise
+- isLeaf(java.lang.Object):Z
+- isProcessing():Z
+- onValidThread(java.lang.Runnable):V
+- resolve(javax.swing.tree.TreePath):org.jetbrains.concurrency.Promise
+- treeNodesChanged(javax.swing.tree.TreePath):V
+- treeNodesInserted(javax.swing.tree.TreePath):V
+- treeNodesRemoved(javax.swing.tree.TreePath):V
+- treeStructureChanged(javax.swing.tree.TreePath):V
+- valueForPathChanged(javax.swing.tree.TreePath,java.lang.Object):V
 com.intellij.ui.tree.ChildrenProvider
 - a:getChildren(java.lang.Object):java.util.List
 com.intellij.ui.tree.project.ProjectFileNode

@@ -13,6 +13,5 @@
                  defaultValue="true"
                  description="Enables the 'Find in Files' implementation, optimized to support both remote development workflows and monolithic setups."
                  restartRequired="true"/>
-    <applicationService serviceImplementation="com.intellij.platform.find.backend.FindResultPreparationService"/>
   </extensions>
 </idea-plugin>

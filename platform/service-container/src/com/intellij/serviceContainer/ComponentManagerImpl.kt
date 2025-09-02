@@ -52,6 +52,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.internal.intellij.IntellijCoroutines
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
+import org.jetbrains.annotations.VisibleForTesting
 import org.picocontainer.ComponentAdapter
 import java.lang.invoke.MethodHandle
 import java.lang.invoke.MethodHandles
@@ -108,7 +109,8 @@ abstract class ComponentManagerImpl(
   @JvmField internal val parent: ComponentManagerImpl?,
   parentScope: CoroutineScope,
   additionalContext: CoroutineContext,
-) : ComponentManager, Disposable.Parent, MessageBusOwner, UserDataHolderBase(), ComponentManagerEx, ComponentStoreOwner {
+) : ComponentManager, Disposable.Parent, MessageBusOwner, UserDataHolderBase(), ComponentManagerEx, ComponentStoreOwner,
+    TestMutableComponentManager {
   protected enum class ContainerState {
     PRE_INIT, COMPONENT_CREATED, DISPOSE_IN_PROGRESS, DISPOSED, DISPOSE_COMPLETED
   }
@@ -260,11 +262,6 @@ abstract class ComponentManagerImpl(
       throw RuntimeException("Module doesn't have coroutineScope")
     }
   }
-
-  override val componentStore: IComponentStore
-    get() {
-      return getService(IComponentStore::class.java) ?: error("Cannot get service: ${IComponentStore::class.java.name}")
-    }
 
   internal fun getComponentInstance(componentKey: Any): Any? {
     val holder = ignoreDisposal {
@@ -644,9 +641,19 @@ abstract class ComponentManagerImpl(
 
   @Deprecated("Deprecated in interface")
   final override fun <T : Any> getComponent(key: Class<T>): T? {
+    return getComponent(key, lookupService = true)
+  }
+
+  /**
+   * Retrieve the component from the container
+   *
+   * @param key the component/service interface
+   * @param lookupService if true, a matching service will be retrieved or created instead
+   */
+  private fun <T : Any> getComponent(key: Class<T>, lookupService: Boolean): T? {
     checkState()
 
-    val adapter = getComponentAdapter(key)
+    val adapter = getComponentOrServiceAdapter(key, lookupService)
     if (adapter == null) {
       checkCanceledIfNotInClassInit()
       if (containerState.get() == ContainerState.DISPOSE_COMPLETED) {
@@ -655,16 +662,9 @@ abstract class ComponentManagerImpl(
       return null
     }
 
-    when (adapter) {
-      is HolderAdapter -> {
-        // TODO asserts
-        @Suppress("UNCHECKED_CAST")
-        return getOrCreateInstanceBlocking(holder = adapter.holder, debugString = key.name, keyClass = key) as T
-      }
-      else -> {
-        return null
-      }
-    }
+    @Suppress("UNCHECKED_CAST")
+    // TODO asserts
+    return getOrCreateInstanceBlocking(holder = adapter.holder, debugString = key.name, keyClass = key) as T
   }
 
   final override fun <T : Any> getService(serviceClass: Class<T>): T? {
@@ -746,15 +746,21 @@ abstract class ComponentManagerImpl(
       throw PluginException.createByClass("Light service class $serviceClass must be final", null, serviceClass)
     }
 
-    @Suppress("DEPRECATION")
-    val result = getComponent(serviceClass) ?: return null
-    LOG.error(PluginException.createByClass(
-      "$key requested as a service, but it is a component - " +
-      "convert it to a service or change call to " +
-      if (parent == null) "ApplicationManager.getApplication().getComponent()" else "project.getComponent()",
-      null, serviceClass
-    ))
-    return result
+    return getComponentAsServiceFallback(serviceClass)
+  }
+
+  @VisibleForTesting
+  fun <T : Any> getComponentAsServiceFallback(serviceClass: Class<T>): T? {
+    val fallback = getComponent(serviceClass, lookupService = false)
+    if (fallback != null) {
+      LOG.error(PluginException.createByClass(
+        "${serviceClass.name} requested as a service, but it is a component - " +
+        "convert it to a service or change call to " +
+        if (parent == null) "ApplicationManager.getApplication().getComponent()" else "project.getComponent()",
+        null, serviceClass
+      ))
+    }
+    return fallback
   }
 
   @Synchronized
@@ -1277,11 +1283,18 @@ abstract class ComponentManagerImpl(
            ?: parent?.getInstanceHolder(keyClass)
   }
 
-  internal fun getComponentAdapter(keyClass: Class<*>): ComponentAdapter? {
+  internal fun getComponentOrServiceAdapter(keyClass: Class<*>, lookupService: Boolean): HolderAdapter? {
     return ignoreDisposal {
-      componentContainer.getInstanceHolder(keyClass)?.let { HolderAdapter(keyClass, it) }
-      ?: serviceContainer.getInstanceHolder(keyClass)?.let { HolderAdapter(keyClass.name, it) }
-    } ?: parent?.getComponentAdapter(keyClass)
+      doGetComponentOrServiceAdapter(keyClass, lookupService)
+    } ?: parent?.getComponentOrServiceAdapter(keyClass, lookupService)
+  }
+
+  private fun doGetComponentOrServiceAdapter(keyClass: Class<*>, lookupService: Boolean): HolderAdapter? {
+    val componentAdapter = componentContainer.getInstanceHolder(keyClass)?.let { HolderAdapter(keyClass, it) }
+    if (componentAdapter == null && lookupService) {
+      return serviceContainer.getInstanceHolder(keyClass)?.let { HolderAdapter(keyClass.name, it) }
+    }
+    return componentAdapter
   }
 
   final override fun unregisterComponent(componentKey: Class<*>): ComponentAdapter? {
@@ -1291,8 +1304,9 @@ abstract class ComponentManagerImpl(
   }
 
   @TestOnly
-  final override fun registerComponentInstance(key: Class<*>, instance: Any) {
-    check(getApplication()!!.isUnitTestMode)
+  fun registerComponentInstance(key: Class<*>, instance: Any) {
+    val app = getApplication()
+    check(app == null || app.isUnitTestMode)
     @Suppress("UNCHECKED_CAST")
     componentContainer.registerInstance(key as Class<Any>, instance)
   }
@@ -1440,7 +1454,7 @@ internal fun doLoadClass(name: String, pluginDescriptor: PluginDescriptor, check
       return classLoader.loadClass(name)
     }
     catch (e: ClassNotFoundException) {
-      if (checkCoreSubModules && pluginDescriptor.pluginId == PluginManagerCore.CORE_ID && pluginDescriptor is IdeaPluginDescriptorImpl) {
+      if (checkCoreSubModules && pluginDescriptor.pluginId == PluginManagerCore.CORE_ID && pluginDescriptor is PluginMainDescriptor) {
         for (module in pluginDescriptor.contentModules) {
           if (module.packagePrefix == null && !module.moduleId.id.startsWith("intellij.libraries.")) {
             val pluginClassLoader = module.classLoader as? PluginAwareClassLoader ?: continue

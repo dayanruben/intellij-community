@@ -251,6 +251,7 @@ c:com.intellij.codeInsight.actions.VcsFacade
 - a:canNavigateToDeclaration(com.intellij.psi.PsiElement):Z
 - p:createCommand(com.intellij.codeInsight.completion.command.CommandCompletionProviderContext):com.intellij.codeInsight.completion.command.commands.ActionCompletionCommand
 - pf:isApplicable(I,com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor):Z
+- f:supportsInjected():Z
 - f:supportsReadOnly():Z
 *a:com.intellij.codeInsight.completion.command.commands.AbstractGoToImplementationCompletionCommandProvider
 - com.intellij.codeInsight.completion.command.commands.ActionCommandProvider
@@ -296,6 +297,7 @@ c:com.intellij.codeInsight.actions.VcsFacade
 - p:createCommand(com.intellij.codeInsight.completion.command.CommandCompletionProviderContext):com.intellij.codeInsight.completion.command.commands.ActionCompletionCommand
 - a:findRenameOffset(I,com.intellij.psi.PsiFile):java.lang.Integer
 - p:isApplicable(I,com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor):Z
+- supportsInjected():Z
 *a:com.intellij.codeInsight.completion.command.commands.AbstractSafeDeleteCompletionCommandProvider
 - com.intellij.codeInsight.completion.command.commands.ActionCommandProvider
 - com.intellij.codeInsight.completion.command.commands.AfterHighlightingCommandProvider
@@ -310,6 +312,7 @@ c:com.intellij.codeInsight.actions.VcsFacade
 - p:createCommand(com.intellij.codeInsight.completion.command.CommandCompletionProviderContext):com.intellij.codeInsight.completion.command.commands.ActionCompletionCommand
 - a:hasToShow(com.intellij.psi.PsiElement):Z
 - pf:isApplicable(I,com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor):Z
+- f:supportsInjected():Z
 - f:supportsReadOnly():Z
 *a:com.intellij.codeInsight.completion.command.commands.AbstractSurroundWithCompletionCommandProvider
 - com.intellij.codeInsight.completion.command.CommandProvider
@@ -337,6 +340,7 @@ c:com.intellij.codeInsight.actions.VcsFacade
 - f:getActionId():java.lang.String
 - getCommands(com.intellij.codeInsight.completion.command.CommandCompletionProviderContext):java.util.List
 - f:getIcon():javax.swing.Icon
+- pf:getOffsetAwareInjection(com.intellij.psi.PsiElement,com.intellij.openapi.util.TextRange):com.intellij.openapi.util.TextRange
 - f:getPresentableName():java.lang.String
 - f:getPreviewText():java.lang.String
 - f:getPriority():java.lang.Integer
@@ -742,6 +746,8 @@ f:com.intellij.ide.impl.StructureViewWrapperImpl
 - s:commitModel(com.intellij.openapi.module.Module,com.intellij.openapi.roots.ModifiableRootModel):V
 - s:findContentEntry(com.intellij.openapi.roots.ModuleRootModel,com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.roots.ContentEntry
 - s:modifyRoots(com.intellij.openapi.module.Module,com.intellij.openapi.vfs.VirtualFile[],java.util.function.BiConsumer):V
+com.intellij.ide.projectView.impl.ProjectViewListener
+- *:paneUpdateScheduled(com.intellij.ide.projectView.impl.AbstractProjectViewPane):V
 *:com.intellij.ide.projectView.impl.nodes.ExternalLibrariesWorkspaceModelNodesProvider
 - sf:EP:com.intellij.openapi.extensions.ExtensionPointName
 - a:createNode(com.intellij.platform.workspace.storage.WorkspaceEntity,com.intellij.openapi.project.Project,com.intellij.ide.projectView.ViewSettings):com.intellij.ide.util.treeView.AbstractTreeNode

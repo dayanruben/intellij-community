@@ -33,7 +33,7 @@ import org.jetbrains.intellij.build.impl.compilation.keepCompilationState
 import org.jetbrains.intellij.build.impl.compilation.reuseOrCompile
 import org.jetbrains.intellij.build.impl.logging.BuildMessagesHandler
 import org.jetbrains.intellij.build.impl.logging.BuildMessagesImpl
-import org.jetbrains.intellij.build.impl.moduleBased.OriginalModuleRepositoryImpl
+import org.jetbrains.intellij.build.impl.moduleBased.buildOriginalModuleRepository
 import org.jetbrains.intellij.build.io.ZipEntryProcessorResult
 import org.jetbrains.intellij.build.io.logFreeDiskSpace
 import org.jetbrains.intellij.build.io.readZipFile
@@ -238,10 +238,11 @@ class CompilationContextImpl private constructor(
     return jdkHome
   }
 
-  override suspend fun getOriginalModuleRepository(): OriginalModuleRepository {
-    generateRuntimeModuleRepository(this)
-    return OriginalModuleRepositoryImpl(this)
+  private val originalModuleRepository = asyncLazy("Build original module repository") {
+    buildOriginalModuleRepository(this@CompilationContextImpl)
   }
+  
+  override suspend fun getOriginalModuleRepository(): OriginalModuleRepository = originalModuleRepository.await()
 
   override fun createCopy(messages: BuildMessages, options: BuildOptions, paths: BuildPaths): CompilationContext {
     val copy = CompilationContextImpl(projectModel, messages, paths, options)
