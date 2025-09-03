@@ -2,7 +2,7 @@
 package org.jetbrains.kotlin.idea.test
 
 import com.intellij.testFramework.common.BazelTestUtil
-import org.jetbrains.kotlin.idea.base.plugin.artifacts.TestKotlinArtifacts
+import org.jetbrains.kotlin.idea.artifacts.TestKotlinArtifacts
 import org.jetbrains.kotlin.idea.base.test.KotlinRoot
 import org.jetbrains.kotlin.idea.base.test.TestRoot
 import org.jetbrains.kotlin.test.TestMetadata
@@ -93,7 +93,7 @@ object TestMetadataUtil {
         val jvmDebuggerTestData = Path("jvm-debugger", "test", "testData")
         if (normalizedPathToResolve.startsWith(jvmDebuggerTestData)) {
             val pathToResolveRelativeTestData = jvmDebuggerTestData.relativize(normalizedPathToResolve);
-            return TestKotlinArtifacts.kotlinJvmDebuggerTestData.resolve(pathToResolveRelativeTestData.toString())
+            return TestKotlinArtifacts.kotlinJvmDebuggerTestData.resolve(pathToResolveRelativeTestData.toString()).toFile()
         } else {
             val resolvedFrom = "TestRoot='${testRoot.value}' + path='${pathToResolve}' => '$normalizedPathToResolve'"
             val supportedRoot = jvmDebuggerTestData.toString()

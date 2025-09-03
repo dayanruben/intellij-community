@@ -79,6 +79,10 @@ a:com.intellij.psi.impl.PsiDocumentManagerBase
 - com.intellij.openapi.Disposable
 - com.intellij.openapi.editor.event.DocumentListener
 - *:getPsiFile(com.intellij.openapi.editor.Document,com.intellij.codeInsight.multiverse.CodeInsightContext):com.intellij.psi.PsiFile
+*:com.intellij.psi.impl.PsiDocumentTransactionListenerBackgroundable
+- sf:TOPIC:com.intellij.util.messages.Topic
+- transactionCompleted(com.intellij.openapi.editor.Document,com.intellij.psi.PsiFile):V
+- a:transactionStarted(com.intellij.openapi.editor.Document,com.intellij.psi.PsiFile):V
 com.intellij.psi.impl.PsiFileEx
 - com.intellij.psi.PsiFile
 - *s:isBatchReferenceProcessingEnabled(com.intellij.psi.PsiFile):Z
@@ -88,6 +92,7 @@ com.intellij.psi.impl.PsiFileEx
 f:com.intellij.psi.impl.PsiManagerImpl
 - com.intellij.psi.impl.PsiManagerEx
 - com.intellij.openapi.Disposable
+- *:addPsiTreeChangeListenerBackgroundable(com.intellij.psi.PsiTreeChangeListener,com.intellij.openapi.Disposable):V
 - *:findFile(com.intellij.openapi.vfs.VirtualFile,com.intellij.codeInsight.multiverse.CodeInsightContext):com.intellij.psi.PsiFile
 f:com.intellij.psi.impl.PsiModificationTrackerImpl
 - com.intellij.psi.impl.PsiTreeChangePreprocessor

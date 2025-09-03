@@ -22,7 +22,6 @@ import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiModificationTracker;
-import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.containers.ContainerUtil;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.*;
@@ -43,18 +42,35 @@ public abstract class TextExtractor {
   private static final Key<CachedValue<Cache>> COMMON_PARENT_CACHE = Key.create("TextExtractor common parent cache");
   private static final Key<CachedValue<Cache>> QUERY_CACHE = Key.create("TextExtractor query cache");
   private static final Key<Boolean> IGNORED = Key.create("TextExtractor ignored");
-  private static final Key<Map<TextContent, TextContent>> CONTENT_INTERNER = Key.create("TextExtractor interner");
+  private static final Key<CachedValue<Map<TextContent, TextContent>>> CONTENT_INTERNER = Key.create("TextExtractor interner");
   private static final Pattern SUPPRESSION = Pattern.compile(SuppressionUtil.COMMON_SUPPRESS_REGEXP);
 
   /**
    * Extract text from the given PSI element, if possible.
    * The returned text is most often fully embedded in {@code element},
-   * but it may also include other PSI elements (e.g. adjacent comments).
+   * but it may also include other PSI elements (e.g., adjacent comments).
    * In the latter case, this extension should return an equal {@link TextContent} for every one of those adjacent elements.
+   * <p>
+   * Typical usage:
+   *
+   * <pre><code class="java">TextContentBuilder.FromPsi.build(element, textDomain)</code></pre>
+   *
+   * Implementation guidance:
+   * <p>
+   * To maximize performance, guard against unnecessary (and sometimes quite expensive) operations by checking that
+   * the requested textDomain is contained in allowedDomains before extracting.
+   *
+   * <pre><code class="java">
+   * if (shouldExtractTextContent(root) && allowedDomains.contains(textDomain)) {
+   *   // some other potentially performance-intensive operations
+   *   return TextContentBuilder.FromPsi.build(root, textDomain)
+   * }
+   * </code></pre>
+   *
+   * See concrete implementations (e.g., in ChatInputTextExtractor, JsonTextExtractor, GoTextExtractor, etc.) for
+   * examples.
+
    * @param allowedDomains the set of the text domains that are expected by the caller.
-   *                       The extension may check this set before doing unnecessary expensive PSI traversal
-   *                       to improve the performance,
-   *                       but it's not necessary.
    * @see TextContentBuilder
    * @see #buildTextContents
    */
@@ -147,9 +163,16 @@ public abstract class TextExtractor {
     var providedTracker = provider != null ? provider.getModificationTracker(psi) : null;
     var tracker = providedTracker != null ? providedTracker : PsiModificationTracker.MODIFICATION_COUNT;
     
-    CachedValue<Cache> cache = CachedValuesManager.getManager(psi.getProject()).createCachedValue(
-      () -> CachedValueProvider.Result.create(new Cache(), tracker));
+    CachedValue<Cache> cache = CachedValuesManager.getManager(psi.getProject())
+      .createCachedValue(() -> CachedValueProvider.Result.create(new Cache(), tracker));
     cache = ((UserDataHolderEx)psi).putUserDataIfAbsent(key, cache);
+    return cache.getValue();
+  }
+
+  private static Map<TextContent, TextContent> obtainInterner(PsiFile file) {
+    CachedValue<Map<TextContent, TextContent>> cache = CachedValuesManager.getManager(file.getProject())
+      .createCachedValue(() -> CachedValueProvider.Result.create(createConcurrentWeakKeyWeakValueMap(), file));
+    cache = ((UserDataHolderEx)file).putUserDataIfAbsent(CONTENT_INTERNER, cache);
     return cache.getValue();
   }
 
@@ -173,7 +196,7 @@ public abstract class TextExtractor {
     if (contents.isEmpty()) return Collections.emptyList();
 
     // deduplicate equal contents created by different threads to avoid O(token_count) 'equals' checks later on
-    var interner = ConcurrencyUtil.computeIfAbsent(file, CONTENT_INTERNER, () -> createConcurrentWeakKeyWeakValueMap());
+    var interner = obtainInterner(file);
     contents = ContainerUtil.map(contents, content -> interner.computeIfAbsent(content, __ -> content));
 
     for (TextContent content : contents) {
@@ -326,5 +349,10 @@ public abstract class TextExtractor {
       ContainerUtil.addIfNotNull(result, Language.findLanguageByID(point.language));
     }
     return result;
+  }
+  
+  @TestOnly
+  public @NotNull List<TextContent> buildTextContentsTestAccessor(@NotNull PsiElement element, @NotNull Set<TextContent.TextDomain> allowedDomains) {
+    return buildTextContents(element, allowedDomains); 
   }
 }

@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.completion
 
+import com.intellij.codeInsight.completion.CompletionPhase.Companion.NoCompletion
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl.Companion.assertPhase
 import com.intellij.codeWithMe.ClientId
@@ -124,17 +125,17 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
       @ApiStatus.Internal
       @JvmStatic
       fun scheduleAsyncCompletion(
-        _editor: Editor,
+        editor: Editor,
         completionType: CompletionType,
         condition: Condition<in PsiFile?>?,
         project: Project,
         prevIndicator: CompletionProgressIndicator?
       ) {
         LOG.trace("Schedule async completion")
-        val topLevelEditor = InjectedLanguageEditorUtil.getTopLevelEditor(_editor)
+        val topLevelEditor = InjectedLanguageEditorUtil.getTopLevelEditor(editor)
         val offset = topLevelEditor.getCaretModel().offset
 
-        val phase = getCompletionPhase(prevIndicator, topLevelEditor, _editor.getUserData(AUTO_POPUP_TYPED_EVENT))
+        val phase = getCompletionPhase(prevIndicator, topLevelEditor, editor.getUserData(AUTO_POPUP_TYPED_EVENT))
 
         val autopopup = prevIndicator == null || prevIndicator.isAutopopupCompletion
 
@@ -263,10 +264,13 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
             else {
               // this branch is possible because completion can be canceled on background write action
               ApplicationManager.getApplication().invokeLater(
-                /* runnable = */ Runnable { indicator.scheduleRestart() },  // since we break the synchronous execution here, it is possible that some other EDT event finishes completion before us
+                /* runnable = */ { indicator.scheduleRestart() },
 
+                // since we break the synchronous execution here, it is possible that some other EDT event finishes completion before us
                 // in this case, the current indicator becomes obsolete, and we don't need to reschedule the session anymore
-                /* expired = */ Condition<Any?> { CompletionServiceImpl.currentCompletionProgressIndicator != indicator })
+
+                /* expired = */ { CompletionServiceImpl.currentCompletionProgressIndicator != indicator }
+              )
             }
           }
         }
