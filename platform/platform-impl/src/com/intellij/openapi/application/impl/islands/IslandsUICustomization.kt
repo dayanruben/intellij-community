@@ -164,6 +164,7 @@ internal class IslandsUICustomization : InternalUICustomization() {
   private fun enableManyIslands() {
     editorTabPainterAdapter.isEnabled = true
     commonTabPainterAdapter.isEnabled = true
+    debuggerTabPainterAdapter.isEnabled = true
 
     // XXX: dialogs
 
@@ -211,6 +212,7 @@ internal class IslandsUICustomization : InternalUICustomization() {
   private fun disableManyIslands() {
     editorTabPainterAdapter.isEnabled = false
     commonTabPainterAdapter.isEnabled = false
+    debuggerTabPainterAdapter.isEnabled = false
 
     // XXX: dialogs
 
@@ -494,6 +496,7 @@ internal class IslandsUICustomization : InternalUICustomization() {
       gg.color = getMainBackgroundColor()
       gg.fill(shape)
 
+      gg.color = JBColor.namedColor("Island.borderColor", getMainBackgroundColor())
       gg.stroke = BasicStroke(JBUIScale.scale(1f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
       gg.draw(border)
     }
@@ -504,7 +507,7 @@ internal class IslandsUICustomization : InternalUICustomization() {
     }
   }
 
-  override val editorTabPainterAdapter: IslandsTabPainterAdapter = IslandsTabPainterAdapter(false, isManyIslandEnabled)
+  override val editorTabPainterAdapter: IslandsTabPainterAdapter = IslandsTabPainterAdapter(false, false, isManyIslandEnabled)
 
   override val toolWindowTabPainter: IslandsTabPainter = object : IslandsTabPainter(false) {
     private val defaultPainter = JBTabPainter.TOOL_WINDOW
@@ -534,7 +537,9 @@ internal class IslandsUICustomization : InternalUICustomization() {
     }
   }
 
-  override val commonTabPainterAdapter: IslandsTabPainterAdapter = IslandsTabPainterAdapter(true, isManyIslandEnabled)
+  override val commonTabPainterAdapter: IslandsTabPainterAdapter = IslandsTabPainterAdapter(true, false, isManyIslandEnabled)
+
+  override val debuggerTabPainterAdapter: IslandsTabPainterAdapter = IslandsTabPainterAdapter(true, true, isManyIslandEnabled)
 
   override fun paintTab(g: Graphics, rect: Rectangle, hovered: Boolean, selected: Boolean): Boolean {
     if (isManyIslandEnabled) {

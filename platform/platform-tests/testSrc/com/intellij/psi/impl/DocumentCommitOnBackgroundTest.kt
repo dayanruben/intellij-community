@@ -30,8 +30,9 @@ class DocumentCommitOnBackgroundTest {
     val project = projectFixture(openAfterCreation = true)
     val module = project.moduleFixture()
     val sourceRoot = module.sourceRootFixture()
-    val file = sourceRoot.psiFileFixture("A.java", "class A {}")
   }
+
+  val file = sourceRoot.psiFileFixture("A.java", "class A {}")
 
   class Recorder {
     val invoked: AtomicInteger = AtomicInteger()
@@ -108,7 +109,7 @@ class DocumentCommitOnBackgroundTest {
     invokeAndWaitIfNeeded {
       val file = file.get()
       val document = psiDocumentManager.getDocument(file)!!
-      WriteCommandAction.runWriteCommandAction(project.get(), { document.insertString(0, " ") })
+      WriteCommandAction.runWriteCommandAction(project.get()) { document.insertString(0, "def") }
       PlatformTestUtil.waitForAllDocumentsCommitted(10, TimeUnit.SECONDS)
     }
 
@@ -139,7 +140,7 @@ class DocumentCommitOnBackgroundTest {
     invokeAndWaitIfNeeded {
       val file = file.get()
       val document = psiDocumentManager.getDocument(file)!!
-      WriteCommandAction.runWriteCommandAction(project.get(), { document.insertString(0, " ") })
+      WriteCommandAction.runWriteCommandAction(project.get()) { document.insertString(0, "abc") }
       PlatformTestUtil.waitForAllDocumentsCommitted(10, TimeUnit.SECONDS)
     }
 

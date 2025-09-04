@@ -21,11 +21,12 @@ import com.intellij.terminal.session.TerminalSession
 import com.intellij.terminal.tests.block.util.TestCommandSpecsProvider
 import com.intellij.testFramework.ExtensionTestUtil
 import org.jetbrains.plugins.terminal.JBTerminalSystemSettingsProvider
-import org.jetbrains.plugins.terminal.LocalBlockTerminalRunner.Companion.REWORKED_TERMINAL_COMPLETION_POPUP
 import org.jetbrains.plugins.terminal.block.completion.spec.ShellCommandSpecConflictStrategy
 import org.jetbrains.plugins.terminal.block.completion.spec.ShellCommandSpecInfo
 import org.jetbrains.plugins.terminal.block.completion.spec.ShellCommandSpecsProvider
+import org.jetbrains.plugins.terminal.block.reworked.TerminalCommandCompletion
 import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModel
+import org.junit.Assume
 import java.awt.event.KeyEvent
 import java.awt.event.KeyEvent.VK_UNDEFINED
 import java.util.concurrent.CompletableFuture
@@ -42,8 +43,11 @@ class TerminalCompletionFixture(val project: Project, val testRootDisposable: Di
     val terminalOutputBlock = TerminalOutputBlock(0, 0, 0, -1, 0, null)
     val blocksModelState = TerminalBlocksModelState(listOf(terminalOutputBlock), 0)
     view.blocksModel.restoreFromState(blocksModelState)
-    Registry.get(REWORKED_TERMINAL_COMPLETION_POPUP).setValue(true, testRootDisposable)
+
     Registry.get("terminal.type.ahead").setValue(true, testRootDisposable)
+    TerminalCommandCompletion.enableForTests(testRootDisposable)
+    // Terminal completion might still be disabled if not supported yet on some OS.
+    Assume.assumeTrue(TerminalCommandCompletion.isEnabled())
   }
 
   fun type(text: String) {

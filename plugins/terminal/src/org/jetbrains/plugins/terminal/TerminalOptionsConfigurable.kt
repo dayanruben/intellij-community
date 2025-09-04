@@ -19,7 +19,6 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.keymap.KeyMapBundle
 import com.intellij.openapi.keymap.KeymapManager
-import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.keymap.ex.KeymapManagerEx
 import com.intellij.openapi.keymap.impl.ui.KeymapPanel
 import com.intellij.openapi.options.BoundSearchableConfigurable
@@ -33,14 +32,15 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.SystemInfo
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.Strings
+import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.terminal.TerminalUiSettingsManager
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.FontComboBox
 import com.intellij.ui.TextFieldWithHistoryWithBrowseButton
 import com.intellij.ui.components.ActionLink
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.components.textFieldWithHistoryWithBrowseButton
 import com.intellij.ui.dsl.builder.*
@@ -49,6 +49,7 @@ import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.ui.layout.and
 import com.intellij.ui.layout.enteredTextSatisfies
+import com.intellij.ui.layout.selected
 import com.intellij.ui.layout.selectedValueIs
 import com.intellij.ui.layout.selectedValueMatches
 import com.intellij.ui.render.fontInfoRenderer
@@ -64,9 +65,12 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.TerminalBundle.message
 import org.jetbrains.plugins.terminal.block.BlockTerminalOptions
-import org.jetbrains.plugins.terminal.block.completion.TerminalCommandCompletionShowingMode
+import org.jetbrains.plugins.terminal.block.completion.TerminalCommandCompletionShowingMode.ALWAYS
+import org.jetbrains.plugins.terminal.block.completion.TerminalCommandCompletionShowingMode.ONLY_PARAMETERS
 import org.jetbrains.plugins.terminal.block.feedback.askForFeedbackIfReworkedTerminalDisabled
 import org.jetbrains.plugins.terminal.block.prompt.TerminalPromptStyle
+import org.jetbrains.plugins.terminal.block.reworked.TerminalCommandCompletion
+import org.jetbrains.plugins.terminal.runner.LocalShellIntegrationInjector
 import org.jetbrains.plugins.terminal.runner.LocalTerminalStartCommandBuilder
 import java.awt.Color
 import java.awt.Component
@@ -84,9 +88,6 @@ import javax.swing.plaf.basic.BasicComboBoxEditor
 
 @ApiStatus.Internal
 const val TERMINAL_CONFIGURABLE_ID: String = "terminal"
-private val TAB_SHORTCUT = KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), null)
-private val ENTER_SHORTCUT = KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), null)
-private val CTRL_SPACE_SHORTCUT = KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK), null)
 
 internal class TerminalOptionsConfigurable(private val project: Project) : BoundSearchableConfigurable(
   displayName = IdeBundle.message("configurable.TerminalOptionsConfigurable.display.name"),
@@ -130,6 +131,50 @@ internal class TerminalOptionsConfigurable(private val project: Project) : Bound
             )
             .component
         }
+
+        group(message("terminal.command.completion")) {
+          rowsRange {
+            lateinit var completionEnabledCheckBox: JBCheckBox
+
+            row {
+              completionEnabledCheckBox = checkBox(message("terminal.command.completion.show"))
+                .bindSelected(optionsProvider::showCompletionPopupAutomatically)
+                .component
+            }
+            indent {
+              buttonsGroup {
+                row {
+                  radioButton(message("terminal.command.completion.show.always"), value = ALWAYS)
+                }
+                row {
+                  radioButton(message("terminal.command.completion.show.parameters"), value = ONLY_PARAMETERS)
+                }
+              }.bind(optionsProvider::commandCompletionShowingMode)
+                .enabledIf(completionEnabledCheckBox.selected)
+            }
+
+            row {
+              shortcutCombobox(
+                labelText = message("terminal.command.completion.shortcut.trigger"),
+                presets = listOf(getCtrlSpacePreset(project), TAB_SHORTCUT_PRESET),
+                actionId = "Terminal.CommandCompletion.Gen2"
+              )
+            }
+            row {
+              shortcutCombobox(
+                labelText = message("terminal.command.completion.shortcut.insert"),
+                presets = listOf(ENTER_SHORTCUT_PRESET, TAB_SHORTCUT_PRESET),
+                actionId = "Terminal.EnterCommandCompletion"
+              )
+            }
+          }.visible(TerminalCommandCompletion.isEnabled())
+
+          TerminalCloudCompletionSettingsProvider.getProvider()?.addSettingsRow(this)
+        }.bottomGap(BottomGap.NONE)
+          .visibleIf(terminalEngineComboBox.selectedValueIs(TerminalEngine.REWORKED)
+                       .and(shellPathField.shellWithIntegrationSelected())
+                       .and(ComponentPredicate.fromValue(AppModeAssertions.isMonolith())))
+
         indent {
           buttonsGroup(title = message("settings.prompt.style")) {
             row {
@@ -175,36 +220,6 @@ internal class TerminalOptionsConfigurable(private val project: Project) : Bound
         }
       }
 
-      group(message("terminal.command.completion")) {
-        buttonsGroup(title = message("terminal.command.completion.show")) {
-          row {
-            radioButton(message("terminal.command.completion.show.always"), value = TerminalCommandCompletionShowingMode.ALWAYS)
-          }
-          row {
-            radioButton(message("terminal.command.completion.show.parameters"), value = TerminalCommandCompletionShowingMode.ONLY_PARAMETERS)
-          }
-          row {
-            radioButton(message("terminal.command.completion.show.never"), value = TerminalCommandCompletionShowingMode.NEVER)
-          }
-        }.bind(optionsProvider::commandCompletionShowingMode)
-        row {
-          shortcutCombobox(
-            labelText = message("terminal.command.completion.shortcut.insert"),
-            presets = listOf(ENTER_SHORTCUT, TAB_SHORTCUT),
-            actionId = "Terminal.EnterCommandCompletion"
-          )
-        }
-        row {
-          shortcutCombobox(
-            labelText = message("terminal.command.completion.shortcut.trigger"),
-            presets = listOf(CTRL_SPACE_SHORTCUT, TAB_SHORTCUT),
-            actionId = "Terminal.CommandCompletion.Gen2"
-          )
-        }
-      }.visibleIf(terminalEngineComboBox.selectedValueIs(TerminalEngine.REWORKED)
-                    .and(completionPopupPredicate())
-                    .and(shellPathField.shellWithIntegrationSelected())
-      )
       group(message("settings.terminal.font.settings")) {
         var fontSettings = TerminalFontSettingsService.getInstance().getSettings()
         row(message("settings.font.name")) {
@@ -288,12 +303,6 @@ internal class TerminalOptionsConfigurable(private val project: Project) : Bound
             .bindText(optionsProvider::tabName)
             .align(AlignX.FILL)
         }
-        TerminalCloudCompletionSettingsProvider.getProvider()
-          ?.addSettingsRow(this)
-          ?.visibleIf(terminalEngineComboBox.selectedValueIs(TerminalEngine.REWORKED)
-                        .and(shellPathField.shellWithIntegrationSelected())
-                        .and(ComponentPredicate.fromValue(AppModeAssertions.isMonolith())
-                        ))
         row {
           checkBox(message("settings.show.separators.between.blocks"))
             .bindSelected(blockTerminalOptions::showSeparatorsBetweenBlocks)
@@ -493,13 +502,6 @@ private fun newUiPredicate(): ComponentPredicate {
   else ComponentPredicate.FALSE
 }
 
-private fun completionPopupPredicate(): ComponentPredicate {
-  return if (Registry.`is`("terminal.new.ui.completion.popup")) {
-    ComponentPredicate.TRUE
-  }
-  else ComponentPredicate.FALSE
-}
-
 private fun TextFieldWithHistoryWithBrowseButton.shellWithIntegrationSelected(): ComponentPredicate {
   return childComponent.textEditor.enteredTextSatisfies { text ->
     isShellWithIntegration(text)
@@ -511,7 +513,7 @@ private fun isShellWithIntegration(text: String): Boolean {
   val shellPath = command.firstOrNull() ?: return false
   val shellName = PathUtil.getFileName(shellPath)
 
-  return LocalTerminalDirectRunner.supportsBlocksShellIntegration(shellName)
+  return LocalShellIntegrationInjector.supportsBlocksShellIntegration(shellName, LocalEelDescriptor /* to be replaced with proper EelDescriptor */)
 }
 
 private fun getDefaultValueColor(): Color {
@@ -553,40 +555,32 @@ private fun getClientSystemInfo(project: Project): ClientSystemInfo? {
 
 private val LOG = logger<TerminalOptionsConfigurable>()
 
-fun Row.shortcutCombobox(
+private fun Row.shortcutCombobox(
   @NlsContexts.Label labelText: String,
-  presets: List<Shortcut>,
+  presets: List<ShortcutPreset>,
   actionId: String,
 ) {
-  label(labelText)
-
   val comboBox = comboBox(
     items = presets.map { ShortcutItem.Preset(it) } + ShortcutItem.Custom,
-    renderer = textListCellRenderer { shortcut ->
-      when (shortcut) {
-        is ShortcutItem.Preset -> {
-          when (shortcut.shortcut) {
-            TAB_SHORTCUT -> "Tab"
-            ENTER_SHORTCUT -> "Enter"
-            CTRL_SPACE_SHORTCUT -> "Ctrl + Space"
-            else -> KeymapUtil.getShortcutText(shortcut.shortcut)
-          }
-        }
+    renderer = textListCellRenderer { item ->
+      when (item) {
+        is ShortcutItem.Preset -> item.preset.text
         is ShortcutItem.Custom -> message("terminal.command.completion.shortcut.custom")
         null -> ""
       }
     }
-  ).bindItem(
-    getter = {
-      val currentShortcut = getActionShortcut(actionId)
-      presets.find { it == currentShortcut }?.let { ShortcutItem.Preset(it) } ?: ShortcutItem.Custom
-    },
-    setter = { item ->
-      if (item is ShortcutItem.Preset) {
-        setActionShortcut(actionId, item.shortcut)
+  ).label(labelText)
+    .bindItem(
+      getter = {
+        val currentShortcut = getActionShortcut(actionId)
+        presets.find { it.shortcut == currentShortcut }?.let { ShortcutItem.Preset(it) } ?: ShortcutItem.Custom
+      },
+      setter = { item ->
+        if (item is ShortcutItem.Preset) {
+          setActionShortcut(actionId, item.preset.shortcut)
+        }
       }
-    }
-  ).component
+    ).component
 
   link(message("terminal.command.completion.shortcut.change")) {
     val allSettings = Settings.KEY.getData(DataManager.getInstance().getDataContext(it.source as Component))
@@ -633,8 +627,24 @@ private fun setActionShortcut(actionId: String, value: Shortcut?) {
   }
 }
 
+private val TAB_SHORTCUT_PRESET = ShortcutPreset(
+  KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), null),
+  "Tab"
+)
+private val ENTER_SHORTCUT_PRESET = ShortcutPreset(
+  KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), null),
+  "Enter"
+)
+private fun getCtrlSpacePreset(project: Project): ShortcutPreset {
+  return ShortcutPreset(
+    KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK), null),
+    if (isMac(project)) "⌃ Space" else "Ctrl+Space"
+  )
+}
+
+private class ShortcutPreset(val shortcut: Shortcut, val text: String)
 
 private sealed class ShortcutItem {
-  data class Preset(val shortcut: Shortcut) : ShortcutItem()
+  data class Preset(val preset: ShortcutPreset) : ShortcutItem()
   object Custom : ShortcutItem()
 }

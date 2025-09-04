@@ -388,6 +388,9 @@ c:com.intellij.codeInsight.actions.VcsFacade
 - *sf:Companion:com.intellij.codeInsight.completion.command.commands.IntentionCommandSkipper$Companion
 - skip(com.intellij.codeInsight.intention.CommonIntentionAction,com.intellij.psi.PsiFile,I):Z
 *f:com.intellij.codeInsight.completion.command.commands.IntentionCommandSkipper$Companion
+*f:com.intellij.codeInsight.completion.command.commands.ViewStructureCompletionCommandProvider
+- com.intellij.codeInsight.completion.command.commands.ActionCommandProvider
+- <init>():V
 *:com.intellij.codeInsight.daemon.impl.focusMode.FocusModeProvider
 - a:calcFocusZones(com.intellij.psi.PsiFile):java.util.List
 *:com.intellij.codeInsight.editorActions.TypingActionsExtension
@@ -568,6 +571,10 @@ f:com.intellij.codeInsight.highlighting.HighlightUsagesHandler
 - com.intellij.openapi.Disposable
 - a:isDisposed():Z
 - a:jComponent():javax.swing.JComponent
+*:com.intellij.codeInsight.lookup.LookupBottomPanelProvider
+- *sf:Companion:com.intellij.codeInsight.lookup.LookupBottomPanelProvider$Companion
+- a:createBottomPanel(com.intellij.codeInsight.lookup.Lookup):javax.swing.JComponent
+*f:com.intellij.codeInsight.lookup.LookupBottomPanelProvider$Companion
 *:com.intellij.codeInsight.navigation.SymbolTypeProvider
 - a:getSymbolTypes(com.intellij.openapi.project.Project,com.intellij.model.Symbol):java.util.List
 f:com.intellij.codeInsight.navigation.UtilKt

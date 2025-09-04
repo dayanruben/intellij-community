@@ -4,6 +4,7 @@ package com.intellij.platform.debugger.impl.frontend
 import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.runners.ExecutionEnvironmentProxy
 import com.intellij.execution.ui.ConsoleView
+import com.intellij.ide.rpc.action
 import com.intellij.ide.ui.icons.icon
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
@@ -38,6 +39,7 @@ import com.intellij.xdebugger.impl.breakpoints.XBreakpointProxy
 import com.intellij.xdebugger.impl.frame.*
 import com.intellij.xdebugger.impl.inline.DebuggerInlayListener
 import com.intellij.xdebugger.impl.rpc.*
+import com.intellij.xdebugger.impl.ui.SplitDebuggerUIUtil
 import com.intellij.xdebugger.impl.ui.XDebugSessionData
 import com.intellij.xdebugger.impl.ui.XDebugSessionTab
 import com.intellij.xdebugger.impl.util.MonolithUtils
@@ -55,7 +57,7 @@ class FrontendXDebuggerSession private constructor(
   override val project: Project,
   scope: CoroutineScope,
   private val manager: FrontendXDebuggerManager,
-  sessionDto: XDebugSessionDto,
+  private val sessionDto: XDebugSessionDto,
   override val processHandler: ProcessHandler,
   override val consoleView: ConsoleView?,
 ) : XDebugSessionProxy {
@@ -139,11 +141,11 @@ class FrontendXDebuggerSession private constructor(
                                                                           cs, id, sessionStateFlow)
 
   override val restartActions: List<AnAction>
-    get() = emptyList() // TODO
+    get() = sessionDto.restartActions.mapNotNull { it.action() }
   override val extraActions: List<AnAction>
-    get() = emptyList() // TODO
+    get() = sessionDto.extraActions.mapNotNull { it.action() }
   override val extraStopActions: List<AnAction>
-    get() = emptyList() // TODO
+    get() = sessionDto.extraStopActions.mapNotNull { it.action() }
   override val coroutineScope: CoroutineScope = cs
   override val currentStateMessage: String
     get() = if (isStopped) XDebuggerBundle.message("debugger.state.message.disconnected") else XDebuggerBundle.message("debugger.state.message.connected") // TODO
@@ -269,10 +271,19 @@ class FrontendXDebuggerSession private constructor(
     cs.launch {
       if (tabInfo !is XDebuggerSessionTabInfo) return@launch
 
+      val backendRunContentDescriptorId = tabInfo.backendRunContendDescriptorId.await()
+      val executionEnvironmentId = tabInfo.executionEnvironmentId
+
       val proxy = this@FrontendXDebuggerSession
       withContext(Dispatchers.EDT) {
         XDebugSessionTab.create(proxy, tabInfo.iconId?.icon(), tabInfo.executionEnvironmentProxyDto?.executionEnvironment(project, cs), tabInfo.contentToReuse,
-                                tabInfo.forceNewDebuggerUi, tabInfo.withFramesCustomization).apply {
+                                tabInfo.forceNewDebuggerUi, tabInfo.withFramesCustomization, tabInfo.defaultFramesViewKey).apply {
+          setAdditionalKeysProvider { sink ->
+            sink[SplitDebuggerUIUtil.SPLIT_RUN_CONTENT_DESCRIPTOR_KEY] = backendRunContentDescriptorId
+            if (executionEnvironmentId != null) {
+              sink[SplitDebuggerUIUtil.SPLIT_EXECUTION_ENVIRONMENT_KEY] = executionEnvironmentId
+            }
+          }
           sessionTabDeferred.complete(this)
           proxy.onTabInitialized(this)
           showTab()

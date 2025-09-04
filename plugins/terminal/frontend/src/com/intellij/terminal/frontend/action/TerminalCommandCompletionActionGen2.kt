@@ -9,11 +9,10 @@ import com.intellij.openapi.actionSystem.ActionPromoter
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
-import com.intellij.openapi.util.registry.Registry
-import com.intellij.terminal.frontend.TerminalCommandCompletion
+import com.intellij.terminal.frontend.completion.TerminalCommandCompletionHandler
 import org.jetbrains.annotations.Unmodifiable
-import org.jetbrains.plugins.terminal.LocalBlockTerminalRunner.Companion.REWORKED_TERMINAL_COMPLETION_POPUP
-import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isReworkedTerminalEditor
+import org.jetbrains.plugins.terminal.block.reworked.TerminalCommandCompletion
+import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isOutputModelEditor
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isSuppressCompletion
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.terminalEditor
 
@@ -26,14 +25,14 @@ internal class TerminalCommandCompletionActionGen2 : BaseCodeCompletionAction(),
       if (inlineCompletionHandler != null && inlineCompletionContext != null) {
         inlineCompletionHandler.hide(inlineCompletionContext)
       }
-      val terminalCodeCompletion = TerminalCommandCompletion(CompletionType.BASIC, true, false, true)
+      val terminalCodeCompletion = TerminalCommandCompletionHandler(CompletionType.BASIC, true, false, true)
       terminalCodeCompletion.invokeCompletion(e, 1)
     }
   }
 
   override fun update(e: AnActionEvent) {
     super.update(e)
-    e.presentation.isEnabledAndVisible = e.terminalEditor?.isReworkedTerminalEditor == true && Registry.`is`(REWORKED_TERMINAL_COMPLETION_POPUP)
+    e.presentation.isEnabledAndVisible = e.terminalEditor?.isOutputModelEditor == true && TerminalCommandCompletion.isEnabled()
   }
 
   override fun createHandler(
@@ -42,7 +41,7 @@ internal class TerminalCommandCompletionActionGen2 : BaseCodeCompletionAction(),
     autopopup: Boolean,
     synchronous: Boolean,
   ): CodeCompletionHandlerBase {
-    return TerminalCommandCompletion(completionType, invokedExplicitly, autopopup, synchronous)
+    return TerminalCommandCompletionHandler(completionType, invokedExplicitly, autopopup, synchronous)
   }
 
   override fun promote(actions: @Unmodifiable List<AnAction?>, context: DataContext): @Unmodifiable List<AnAction?>? {

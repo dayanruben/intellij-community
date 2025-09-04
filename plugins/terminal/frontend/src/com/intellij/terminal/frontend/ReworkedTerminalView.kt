@@ -18,9 +18,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.isFocusAncestor
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.actions.TerminalActionUtil
+import com.intellij.terminal.frontend.completion.ShellDataGeneratorsExecutorReworkedImpl
+import com.intellij.terminal.frontend.completion.ShellRuntimeContextProviderReworkedImpl
 import com.intellij.terminal.frontend.fus.TerminalFusCursorPainterListener
 import com.intellij.terminal.frontend.fus.TerminalFusFirstOutputListener
 import com.intellij.terminal.frontend.hyperlinks.FrontendTerminalHyperlinkFacade
@@ -36,6 +39,8 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.TerminalPanelMarker
 import org.jetbrains.plugins.terminal.block.TerminalContentView
+import org.jetbrains.plugins.terminal.block.completion.ShellCommandSpecsManagerImpl
+import org.jetbrains.plugins.terminal.block.completion.spec.impl.TerminalCommandCompletionServices
 import org.jetbrains.plugins.terminal.block.output.TerminalOutputEditorInputMethodSupport
 import org.jetbrains.plugins.terminal.block.output.TerminalTextHighlighter
 import org.jetbrains.plugins.terminal.block.reworked.*
@@ -146,7 +151,6 @@ class ReworkedTerminalView(
     outputEditor = TerminalEditorFactory.createOutputEditor(project, settings, parentDisposable = this)
     outputEditor.putUserData(TerminalInput.KEY, terminalInput)
     outputModel = TerminalOutputModelImpl(outputEditor.document, maxOutputLength = TerminalUiUtils.getDefaultMaxOutputLength())
-    updatePsiOnOutputModelChange(project, outputModel, coroutineScope.childScope("TerminalOutputPsiUpdater"))
 
     scrollingModel = TerminalOutputScrollingModelImpl(outputEditor, outputModel, sessionModel, coroutineScope.childScope("TerminalOutputScrollingModel"))
     outputEditor.putUserData(TerminalOutputScrollingModel.KEY, scrollingModel)
@@ -215,6 +219,12 @@ class ReworkedTerminalView(
     }
 
     configureInlineCompletion(outputEditor, outputModel, coroutineScope, parentDisposable = this)
+    configureCommandCompletion(
+      outputEditor,
+      sessionModel,
+      controller,
+      coroutineScope.childScope("TerminalCommandCompletion")
+    )
 
     terminalPanel = TerminalPanel(initialContent = outputEditor)
 
@@ -439,6 +449,21 @@ class ReworkedTerminalView(
         }
       }
     })
+  }
+
+  private fun configureCommandCompletion(
+    editor: Editor,
+    sessionModel: TerminalSessionModel,
+    controller: TerminalSessionController,
+    coroutineScope: CoroutineScope,
+  ) {
+    val eelDescriptor = LocalEelDescriptor // TODO: it should be determined by where shell is running to work properly in WSL and Docker
+    val services = TerminalCommandCompletionServices(
+      commandSpecsManager = ShellCommandSpecsManagerImpl.getInstance(),
+      runtimeContextProvider = ShellRuntimeContextProviderReworkedImpl(project, sessionModel, eelDescriptor),
+      dataGeneratorsExecutor = ShellDataGeneratorsExecutorReworkedImpl(controller, coroutineScope.childScope("ShellDataGeneratorsExecutorReworkedImpl"))
+    )
+    editor.putUserData(TerminalCommandCompletionServices.KEY, services)
   }
 
   private inner class TerminalPanel(initialContent: Editor) : BorderLayoutPanel(), UiDataProvider, TerminalPanelMarker {

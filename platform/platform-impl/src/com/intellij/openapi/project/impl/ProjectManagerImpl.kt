@@ -677,6 +677,11 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
               configureWorkspace(project, projectStoreBaseDir, options)
             }
 
+            if (Registry.`is`("ide.create.project.root.entity") && options.projectRootDir != null) {
+              val root = options.projectRootDir!!.toUri().toString().removeSuffix("/")
+              project.serviceAsync<ProjectRootPersistentStateComponent>().projectRootUrls += root
+            }
+
             if (!addToOpened(project)) {
               throw CancellationException("project is already opened")
             }

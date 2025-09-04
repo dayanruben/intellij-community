@@ -19,6 +19,9 @@ import javax.swing.JComponent
 @Internal
 class OpenInRightSplitAction : AnAction(), DumbAware, ActionRemoteBehaviorSpecification.Frontend {
   override fun actionPerformed(e: AnActionEvent) {
+    if (e.getData(OpenInRightSplitActionProvider.DATA_KEY)?.openInRightSplit(e) == true) {
+      return
+    }
     val project = getEventProject(e) ?: return
     val file = getVirtualFile(e) ?: return
 
@@ -107,4 +110,12 @@ class OpenInRightSplitAction : AnAction(), DumbAware, ActionRemoteBehaviorSpecif
       }
     }
   }
+}
+
+@Internal
+interface OpenInRightSplitActionProvider {
+  companion object {
+    val DATA_KEY: DataKey<OpenInRightSplitActionProvider> = DataKey.create("OpenInRightSplitActionProvider")
+  }
+  fun openInRightSplit(e: AnActionEvent): Boolean
 }

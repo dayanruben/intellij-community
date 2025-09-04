@@ -39,6 +39,9 @@ jvm_library(
     "//platform/platform-impl/codeinsight-inline:ide-codeinsight-inline",
     "//platform/inline-completion/shared:inline-completion",
     "//plugins/terminal/completion",
+    "//platform/eel-provider",
+    "@lib//:caffeine",
+    "//platform/observable",
   ],
   runtime_deps = [":frontend_resources"]
 )

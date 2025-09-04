@@ -609,6 +609,9 @@
     <extensionPoint name="usageFilteringRuleCustomizer" interface="com.intellij.usages.rules.UsageFilteringRuleCustomizer" dynamic="true"/>
 
     <extensionPoint name="endUserAgreementUpdater" beanClass="com.intellij.ide.gdpr.EndUserAgreement$PluginAgreementUpdateDescriptor" dynamic="true"/>
+    <extensionPoint name="aiDataCollectionExternalSettings"
+                    interface="com.intellij.ide.gdpr.ui.consents.AiDataCollectionExternalSettings"
+                    dynamic="true"/>
 
     <extensionPoint name="cefDelegate" interface="com.intellij.ui.jcef.CefDelegate" dynamic="false"/>
 
@@ -643,6 +646,7 @@
     <extensionPoint name="findInDirectoryScopeProvider" interface="com.intellij.find.impl.FindInDirectoryScopeProvider" dynamic="true"/>
 
     <extensionPoint name="customTypeRpcSerializer" interface="com.intellij.ide.rpc.CustomTypeRpcSerializer" dynamic="true"/>
+    <extensionPoint name="anActionSerializer" interface="com.intellij.ide.rpc.AnActionSerializer" dynamic="true"/>
 
     <extensionPoint name="frontendDocumentIdRegistry" interface="com.intellij.ide.rpc.FrontendDocumentIdRegistry"
                     dynamic="true"/>
@@ -694,5 +698,9 @@
                     beanClass="com.intellij.ui.split.SplitComponentProviderBean">
       <with attribute="implementation" implements="com.intellij.ui.split.SplitComponentProvider"/>
     </extensionPoint>
+
+    <extensionPoint qualifiedName="com.intellij.ide.gdpr.traceConsentManager"
+                    interface="com.intellij.ide.gdpr.trace.TraceConsentManager"
+                    dynamic="true"/>
   </extensionPoints>
 </idea-plugin>

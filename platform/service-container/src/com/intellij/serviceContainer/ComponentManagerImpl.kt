@@ -8,8 +8,6 @@ package com.intellij.serviceContainer
 import com.intellij.codeWithMe.ClientIdContextElement
 import com.intellij.codeWithMe.ClientIdContextElementPrecursor
 import com.intellij.concurrency.*
-import com.intellij.configurationStore.ProjectIdManager
-import com.intellij.configurationStore.SettingsSavingComponent
 import com.intellij.diagnostic.ActivityCategory
 import com.intellij.diagnostic.LoadingState
 import com.intellij.diagnostic.PluginException
@@ -35,7 +33,10 @@ import com.intellij.openapi.extensions.impl.createExtensionPoints
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.progress.*
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.*
+import com.intellij.openapi.util.Condition
+import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.IntellijInternalApi
+import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.platform.instanceContainer.internal.*
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.concurrency.ThreadingAssertions
@@ -607,33 +608,7 @@ abstract class ComponentManagerImpl(
     }
   }
 
-  internal suspend fun initializeService(component: Any, serviceDescriptor: ServiceDescriptor?, pluginId: PluginId) {
-    initializeService(component = component, serviceDescriptor = serviceDescriptor, pluginId = pluginId) {
-      it()
-    }
-  }
-
-  internal suspend inline fun initializeService(
-    component: Any,
-    serviceDescriptor: ServiceDescriptor?,
-    pluginId: PluginId,
-    invocator: suspend (() -> Unit) -> Unit,
-  ) {
-    @Suppress("DEPRECATION")
-    if ((serviceDescriptor == null || !isPreInitialized(component)) &&
-        (component is PersistentStateComponent<*> || component is SettingsSavingComponent || component is JDOMExternalizable)) {
-      val componentStore = componentStore
-      check(component is ProjectIdManager || componentStore.isStoreInitialized || getApplication()!!.isUnitTestMode) {
-        "You cannot get $component before component store is initialized"
-      }
-
-      invocator {
-        componentStore.initComponentBlocking(component = component, serviceDescriptor = serviceDescriptor, pluginId = pluginId)
-      }
-    }
-  }
-
-  protected open fun isPreInitialized(service: Any): Boolean {
+  open fun isPreInitialized(service: Any): Boolean {
     return service is PathMacroManager || service is IComponentStore || service is MessageBusFactory
   }
 
