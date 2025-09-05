@@ -26,7 +26,6 @@ import com.intellij.spellchecker.grazie.GrazieSpellCheckerEngine
 import com.intellij.spellchecker.inspections.IdentifierSplitter.MINIMAL_TYPO_LENGTH
 import com.intellij.spellchecker.inspections.SpellCheckingInspection.SpellCheckingScope.Comments
 import com.intellij.spellchecker.inspections.SpellCheckingInspection.SpellCheckingScope.Literals
-import com.intellij.spellchecker.inspections.SpellCheckingInspection.getSpellcheckingStrategy
 import com.intellij.spellchecker.inspections.SpellcheckingExtension
 import com.intellij.spellchecker.inspections.SpellcheckingExtension.SpellCheckingResult
 import com.intellij.spellchecker.inspections.SpellcheckingExtension.SpellingTypo
@@ -42,11 +41,10 @@ class GrazieSpellcheckingExtension : SpellcheckingExtension {
 
   private val knownPhrases = ContainerUtil.createConcurrentSoftValueMap<Language, KnownPhrases>()
 
-  override fun spellcheck(element: PsiElement, session: LocalInspectionToolSession, consumer: Consumer<SpellingTypo>): SpellCheckingResult {
-    val strategy = getSpellcheckingStrategy(element)
-    if (!strategy.useTextLevelSpellchecking()) return SpellCheckingResult.Ignored
-
+  override fun spellcheck(element: PsiElement, strategy: SpellcheckingStrategy, session: LocalInspectionToolSession, consumer: Consumer<SpellingTypo>): SpellCheckingResult {
     if (element is PsiWhiteSpace) return SpellCheckingResult.Checked
+
+    if (!strategy.useTextLevelSpellchecking()) return SpellCheckingResult.Ignored
     ProgressManager.checkCanceled()
 
     val texts = sortByPriority(TextExtractor.findTextsExactlyAt(element, DOMAINS), session.priorityRange)

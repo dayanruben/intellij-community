@@ -869,36 +869,36 @@ jvm_import(
 
 jvm_import(
   name = "com-jetbrains-fus-reporting-ap-validation",
-  jar = "@ap-validation-134_http//file",
-  source_jar = "@ap-validation-134-sources_http//file",
+  jar = "@ap-validation-171_http//file",
+  source_jar = "@ap-validation-171-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "com-jetbrains-fus-reporting-configuration",
-  jar = "@configuration-134_http//file",
-  source_jar = "@configuration-134-sources_http//file",
+  jar = "@configuration-171_http//file",
+  source_jar = "@configuration-171-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "com-jetbrains-fus-reporting-connection-client",
-  jar = "@connection-client-134_http//file",
-  source_jar = "@connection-client-134-sources_http//file",
+  jar = "@connection-client-171_http//file",
+  source_jar = "@connection-client-171-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "com-jetbrains-fus-reporting-model",
-  jar = "@model-134_http//file",
-  source_jar = "@model-134-sources_http//file",
+  jar = "@model-171_http//file",
+  source_jar = "@model-171-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "com-jetbrains-fus-reporting-serialization-kotlin",
-  jar = "@serialization-kotlin-134_http//file",
-  source_jar = "@serialization-kotlin-134-sources_http//file",
+  jar = "@serialization-kotlin-171_http//file",
+  source_jar = "@serialization-kotlin-171-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -8831,36 +8831,36 @@ jvm_import(
 
 jvm_import(
   name = "rd-core",
-  jar = "@rd-core-2025_2_2_http//file",
-  source_jar = "@rd-core-2025_2_2-sources_http//file",
+  jar = "@rd-core-2025_2_3_http//file",
+  source_jar = "@rd-core-2025_2_3-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "rd-framework",
-  jar = "@rd-framework-2025_2_2_http//file",
-  source_jar = "@rd-framework-2025_2_2-sources_http//file",
+  jar = "@rd-framework-2025_2_3_http//file",
+  source_jar = "@rd-framework-2025_2_3-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "rd-gen",
-  jar = "@rd-gen-2025_2_2_http//file",
-  source_jar = "@rd-gen-2025_2_2-sources_http//file",
+  jar = "@rd-gen-2025_2_3_http//file",
+  source_jar = "@rd-gen-2025_2_3-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "rd-swing",
-  jar = "@rd-swing-2025_2_2_http//file",
-  source_jar = "@rd-swing-2025_2_2-sources_http//file",
+  jar = "@rd-swing-2025_2_3_http//file",
+  source_jar = "@rd-swing-2025_2_3-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "rd-text",
-  jar = "@rd-text-2025_2_2_http//file",
-  source_jar = "@rd-text-2025_2_2-sources_http//file",
+  jar = "@rd-text-2025_2_3_http//file",
+  source_jar = "@rd-text-2025_2_3-sources_http//file",
   visibility = ["//visibility:public"]
 )
 

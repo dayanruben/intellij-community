@@ -2,6 +2,7 @@
 package com.intellij.platform.searchEverywhere.backend.providers.text
 
 import com.intellij.find.FindManager
+import com.intellij.find.impl.JComboboxAction
 import com.intellij.find.impl.SearchEverywhereItem
 import com.intellij.ide.actions.searcheverywhere.FoundItemDescriptor
 import com.intellij.ide.ui.colors.rpcId
@@ -48,19 +49,26 @@ class SeTextItemsProvider(project: Project, private val contributorWrapper: SeAs
     val inputQuery = params.inputQuery
 
     val textFilter = SeTextFilter.from(params.filter)
+
     val scopeToApply: String? = SeEverywhereFilter.isEverywhere(params.filter)?.let { isEverywhere ->
       scopeProviderDelegate.searchScopesInfo.getValue()?.let { searchScopesInfo ->
         if (isEverywhere) searchScopesInfo.everywhereScopeId else searchScopesInfo.projectScopeId
       }
     } ?: run {
-      textFilter.selectedScopeId
+      textFilter?.selectedScopeId
     }
     applyScope(scopeToApply)
-    findModel.fileFilter = textFilter.selectedType
 
-    findModel.isCaseSensitive = SeTextFilter.isCaseSensitive(params.filter) ?: false
-    findModel.isWholeWordsOnly = SeTextFilter.isWholeWordsOnly(params.filter) ?: false
-    findModel.isRegularExpressions = SeTextFilter.isRegularExpressions(params.filter) ?: false
+    if (textFilter != null) {
+      // Sync the file mask from the filter to the TextSearchContributor's JComboboxAction to prevent state conflicts
+      contributorWrapper.contributor.getActions { }.filterIsInstance<JComboboxAction>().firstOrNull()?.onMaskChanged(textFilter.selectedType)
+      // Apply type for the correct search
+      findModel.fileFilter = textFilter.selectedType
+
+      findModel.isCaseSensitive = SeTextFilter.isCaseSensitive(params.filter) ?: false
+      findModel.isWholeWordsOnly = SeTextFilter.isWholeWordsOnly(params.filter) ?: false
+      findModel.isRegularExpressions = SeTextFilter.isRegularExpressions(params.filter) ?: false
+    }
 
     coroutineToIndicator {
       val indicator = DelegatingProgressIndicator(ProgressManager.getGlobalProgressIndicator())
