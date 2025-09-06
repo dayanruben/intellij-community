@@ -60,6 +60,7 @@ import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.NamedColorUtil
 import kotlinx.coroutines.*
+import java.awt.event.ActionEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.util.concurrent.CancellationException
@@ -653,8 +654,11 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
         if (userData != null) {
           withContext(Dispatchers.EDT) {
             updateUserAccountsList()
-            val remoteCommunicator = RemoteCommunicatorHolder.createRemoteCommunicator(provider, userData.id, loginDisposable) ?: return@withContext
-            if (checkServerState(syncPanelHolder, remoteCommunicator, provider.authService.crossSyncSupported())) {
+            val serverStateChecked = withContext(Dispatchers.IO) {
+              val remoteCommunicator = RemoteCommunicatorHolder.createRemoteCommunicator(provider, userData.id, loginDisposable) ?: return@withContext false
+              checkServerState(syncPanelHolder, remoteCommunicator, provider.authService.crossSyncSupported())
+            }
+            if (serverStateChecked) {
               SettingsSyncEvents.getInstance().fireLoginStateChanged()
               val newHolder = UserProviderHolder(userData.id, userData, provider.authService.providerCode, provider.authService.providerName, null)
               userProviderHolder = newHolder
@@ -950,6 +954,16 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
   private class AddAccountDialog(parent: JComponent) : DialogWrapper(parent, false) {
 
     var providerCode: String = ""
+    private val loginAction = object : DialogWrapperAction(message("enable.sync.choose.data.provider.login.button")) {
+      init {
+        putValue(DEFAULT_ACTION, true)
+        isEnabled = false
+      }
+
+      override fun doAction(e: ActionEvent?) {
+        close(OK_EXIT_CODE)
+      }
+    }
 
     init {
       title = message("title.settings.sync")
@@ -1004,12 +1018,17 @@ internal class SettingsSyncConfigurable(private val coroutineScope: CoroutineSco
       }
     }
 
+    override fun createActions(): Array<Action> =
+      arrayOf(cancelAction, loginAction)
+
+
     private fun createRadioButtonPanelForProvider(provider: SettingsSyncCommunicatorProvider, buttonGroup: ButtonGroup): JPanel {
       val radioButton = JBRadioButton().apply {
         actionCommand = provider.providerCode
         addActionListener {
           if (isSelected) {
             providerCode = provider.providerCode
+            loginAction.isEnabled = true
           }
         }
       }

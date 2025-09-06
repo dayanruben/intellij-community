@@ -715,30 +715,36 @@ public final class PyExtractMethodUtil {
   }
 
   private static class PyExtractMethodValidator implements ExtractMethodValidator {
-    private final PsiElement myElement;
     private final Project myProject;
     private final @Nullable Function<String, Boolean> myFunction;
 
     PyExtractMethodValidator(final PsiElement element, final Project project) {
-      myElement = element;
       myProject = project;
-      final ScopeOwner parent = ScopeUtil.getScopeOwner(myElement);
-      myFunction = s -> {
-        ScopeOwner owner = parent;
-        while (owner != null) {
-          if (owner instanceof PyClass) {
-            if (((PyClass)owner).findMethodByName(s, true, null) != null) {
-              return false;
-            }
-          }
-          final Scope scope = ControlFlowCache.getScope(owner);
-          if (scope.containsDeclaration(s)) {
+      final ScopeOwner parent = ScopeUtil.getScopeOwner(element);
+      if (ScopeUtil.getScopeOwner(parent) instanceof PyClass enclosingClass) {
+        myFunction = s -> {
+          if (enclosingClass.findMethodByName(s, true, null) != null) {
             return false;
           }
-          owner = ScopeUtil.getScopeOwner(owner);
-        }
-        return true;
-      };
+          final Scope classScope = ControlFlowCache.getScope(enclosingClass);
+          return !classScope.containsDeclaration(s);
+        };
+      }
+      else {
+        myFunction = s -> {
+          ScopeOwner owner = parent;
+          while (owner != null) {
+            if (!(owner instanceof PyClass)) {
+              final Scope scope = ControlFlowCache.getScope(owner);
+              if (scope.containsDeclaration(s)) {
+                return false;
+              }
+            }
+            owner = ScopeUtil.getScopeOwner(owner);
+          }
+          return true;
+        };
+      }
     }
 
     @Override

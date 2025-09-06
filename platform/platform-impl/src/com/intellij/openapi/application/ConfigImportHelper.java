@@ -15,9 +15,7 @@ import com.intellij.ide.startup.StartupActionScriptManager.ActionCommand;
 import com.intellij.ide.ui.laf.LookAndFeelThemeAdapterKt;
 import com.intellij.idea.AppMode;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
-import com.intellij.openapi.application.migrations.JpaBuddyMigration242;
 import com.intellij.openapi.application.migrations.NotebooksMigration242;
-import com.intellij.openapi.application.migrations.PythonProMigration242;
 import com.intellij.openapi.application.migrations.SpaceMigration252;
 import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.diagnostic.Logger;
@@ -1223,9 +1221,7 @@ public final class ConfigImportHelper {
   private static void performMigrations(PluginMigrationOptions options) {
     // WRITE IN MIGRATIONS HERE
     // Note that migrations are not taken into account for IDE updates through Toolbox
-    new PythonProMigration242().migratePlugins(options);
     new NotebooksMigration242().migratePlugins(options);
-    new JpaBuddyMigration242().migratePlugins(options);
     new SpaceMigration252().migratePlugins(options);
   }
 
