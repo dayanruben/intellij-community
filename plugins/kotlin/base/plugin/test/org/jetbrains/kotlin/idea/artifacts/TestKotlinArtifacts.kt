@@ -154,6 +154,8 @@ object TestKotlinArtifacts {
         val target = Path.of(PathManager.getCommunityHomePath())
             .resolve("out")
             .resolve("kotlin-from-sources-deps")
+            .resolve(label.repo)
+            .resolve(label.packageName)
             .resolve(label.target)
 
         // we could have a file from some previous launch, but with different content
@@ -165,7 +167,7 @@ object TestKotlinArtifacts {
         target.createParentDirectories()
         val tempFile = Files.createTempFile(target.parent, target.name, ".tmp")
         try {
-            dependency.copyToRecursively(tempFile, overwrite = true, followLinks = false)
+            dependency.copyToRecursively(tempFile, overwrite = true, followLinks = true)
             // in the case of parallel access target will be overwritten by one of the threads
             tempFile.moveTo(target, StandardCopyOption.ATOMIC_MOVE)
         } finally {
@@ -263,6 +265,8 @@ object TestKotlinArtifacts {
 
     @JvmStatic
     val kotlinJvmDebuggerTestData: Path by lazy { getKotlinDepsByLabel("@community//plugins/kotlin/jvm-debugger/test:testData") }
+    @JvmStatic
+    val kotlinIdeaTestData: Path by lazy { getKotlinDepsByLabel("@community//plugins/kotlin/idea/tests:testData") }
 
     @Suppress("NO_REFLECTION_IN_CLASS_PATH")
     @JvmStatic

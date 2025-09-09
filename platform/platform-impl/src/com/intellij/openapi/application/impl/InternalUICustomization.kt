@@ -12,6 +12,7 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.IdeGlassPane
 import com.intellij.openapi.wm.impl.IdeFrameImpl
 import com.intellij.openapi.wm.impl.content.ContentLayout
+import com.intellij.openapi.wm.impl.headertoolbar.MainToolbar
 import com.intellij.toolWindow.StripesUxCustomizer
 import com.intellij.toolWindow.ToolWindowButtonManager
 import com.intellij.toolWindow.xNext.XNextStripesUxCustomizer
@@ -71,6 +72,8 @@ open class InternalUICustomization {
       return isProjectCustomDecorationActive
     }
 
+  open val isMainMenuBottomBorder: Boolean = true
+
   internal open fun configureToolWindowPane(toolWindowPaneParent: JComponent, buttonManager: ToolWindowButtonManager) {}
 
   /**
@@ -86,6 +89,8 @@ open class InternalUICustomization {
     StripesUxCustomizer()
 
   open fun configureMainFrame(frame: IdeFrameImpl) {}
+
+  open fun configureMainToolbar(toolbar: MainToolbar) {}
 
   open fun configureButtonLook(look: ActionButtonLook, g: Graphics): Graphics? = null
 
@@ -112,6 +117,8 @@ open class InternalUICustomization {
   open fun configureRendererComponent(component: JComponent) {}
 
   open val isCustomPaintersAllowed: Boolean = false
+
+  open val isMacScrollBar: Boolean = false
 
   open fun attachIdeFrameBackgroundPainter(frame: IdeFrame, glassPane: IdeGlassPane): Unit = Unit
 

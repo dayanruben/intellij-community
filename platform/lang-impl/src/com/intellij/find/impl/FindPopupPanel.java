@@ -230,7 +230,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     }
 
     boolean isOneFileForPreview = adapters.size() == 1 || adapters.stream().map(UsageInfoAdapter::getPath).distinct().count() == 1;
-    if (FindKey.isLazyPreviewEnabled() && adapters.stream().map(UsageInfoAdapter::getPath).distinct().count() == 1 &&
+    if (FindKey.isLazyPreviewEnabled() && isOneFileForPreview &&
         ContainerUtil.exists(adapters, adapter -> adapter instanceof ItemWithLazyContent &&
                                                   !((ItemWithLazyContent)adapter).isContentComputed())) {
       LOG.debug("Preview will be updated when item will be loaded");
@@ -253,7 +253,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
         .finishOnUiThread(ModalityState.nonModal(), usagesFileInfo -> {
           myReplaceSelectedButton.setText(FindBundle.message("find.popup.replace.selected.button", selectedUsages.size()));
           FindInProjectUtil.setupViewPresentation(myUsageViewPresentation, myHelper.getModel().clone());
-          myUsagePreviewPanel.updateLayout(myProject, selectedUsages, isOneFileForPreview);
+          myUsagePreviewPanel.updateLayout(myProject, selectedUsages, !isOneFileForPreview);
           myUsagePreviewTitle.clear();
           if (usagesFileInfo.isOneAndOnlyOnePsiFileInUsages && selectedFilePath != null) {
             myUsagePreviewTitle.append(PathUtil.getFileName(selectedFilePath), SimpleTextAttributes.REGULAR_ATTRIBUTES);
@@ -1361,7 +1361,9 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
           FindUsagesCollector.recordSearchFinished(System.currentTimeMillis() - startTime.get(), resultsCount.get(), ShowUsagesAction.getUsagesPageSize());
           onStop(hash);
 
-          myHelper.onSearchFinish(isEmpty ? 0 : myResultsPreviewTable.getRowCount());
+          if (FindKey.isEnabled()) {
+            myHelper.onSearchFinish(isEmpty ? 0 : myResultsPreviewTable.getRowCount());
+          }
         }, state);
       }
     }, myResultsPreviewSearchProgress);
@@ -1585,6 +1587,10 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
       showEmptyText(message, false);
       if (backendValidator.isFinished) {
         header.loadingIcon.setIcon(EmptyIcon.ICON_16);
+      }
+
+      if (!FindKey.isEnabled()) {
+        myHelper.onSearchFinish(myResultsPreviewTable.getRowCount());
       }
     });
   }

@@ -113,7 +113,7 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
   private @NotNull List<Supplier<@Nullable JComponent>> myAdditionalInfo = Collections.emptyList();
   private volatile boolean myShowLocalChangesInvalidated;
 
-  private volatile @Nls String myFreezeName;
+  private final @NotNull ChangesListManagerStateProviderImpl myStateProvider;
 
   private final @NotNull Set<String> myListsToBeDeletedSilently = new HashSet<>();
   private final @NotNull Set<String> myListsToBeDeleted = new HashSet<>();
@@ -130,6 +130,7 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
 
   public ChangeListManagerImpl(@NotNull Project project, @NotNull CoroutineScope coroutineScope) {
     this.project = project;
+    myStateProvider = ChangesListManagerStateProviderImpl.getInstance(project);
     myConflictTracker = new ChangelistConflictTracker(project, this);
 
     myComposite = FileHolderComposite.create(project);
@@ -153,6 +154,8 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
         scheduleAutomaticEmptyChangeListDeletion(oldList);
       }
     });
+
+    busConnection.subscribe(VcsManagedFilesHolder.TOPIC, () -> myStateProvider.setFileHolderState(getFileHoldersState()));
 
     VcsManagedFilesHolder.VCS_IGNORED_FILES_HOLDER_EP.addChangeListener(this.project, () -> {
       VcsDirtyScopeManager.getInstance(this.project).markEverythingDirty();
@@ -387,7 +390,7 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
     invokeAfterUpdate(false, () -> {
       myUpdater.setIgnoreBackgroundOperation(false);
       myUpdater.pause();
-      myFreezeName = reason;
+      myStateProvider.setFreezeReason(reason);
       sem.up();
     });
 
@@ -397,7 +400,7 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
   @Override
   public void unfreeze() {
     myUpdater.go();
-    myFreezeName = null;
+    myStateProvider.setFreezeReason(null);
   }
 
   @Override
@@ -416,8 +419,9 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
   }
 
   @Override
-  public String isFreezed() {
-    return myFreezeName;
+  public @Nullable String isFreezed() {
+    ChangeListManagerState.Frozen frozen = ObjectUtils.tryCast(myStateProvider.getState().getValue(), ChangeListManagerState.Frozen.class);
+    return frozen == null ? null : frozen.getReason();
   }
 
   public void executeOnUpdaterThread(@NotNull Runnable r) {
@@ -504,6 +508,7 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
         synchronized (myDataLock) {
           dataHolder = new DataHolder(myComposite.copy(), new ChangeListUpdater(myWorker), wasEverythingDirty);
           myModifier.enterUpdate();
+          myStateProvider.setInUpdateMode(true);
           if (wasEverythingDirty) {
             myUpdateException = null;
             myAdditionalInfo = Collections.emptyList();
@@ -595,6 +600,8 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
 
         myDelayedNotificator.changedFileStatusChanged(!isInUpdate());
         myDelayedNotificator.changeListUpdateDone();
+
+        myStateProvider.setInUpdateMode(false);
         changesView.scheduleRefresh();
       }
       return true;
@@ -1509,7 +1516,7 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
       if (enabled == myWorker.areChangeListsEnabled()) return;
     }
 
-    project.getMessageBus().syncPublisher(ChangeListAvailabilityListener.TOPIC).onBefore();
+    project.getMessageBus().syncPublisher(ChangeListAvailabilityListener.TOPIC).onBefore(!enabled);
 
     synchronized (myDataLock) {
       assert enabled != myWorker.areChangeListsEnabled();
@@ -1531,7 +1538,7 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
       }
     }
 
-    project.getMessageBus().syncPublisher(ChangeListAvailabilityListener.TOPIC).onAfter();
+    project.getMessageBus().syncPublisher(ChangeListAvailabilityListener.TOPIC).onAfter(enabled);
   }
 
   private boolean shouldEnableChangeLists() {
@@ -1559,6 +1566,7 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
   // (commit -> asynch synch VFS -> asynch vcs dirty scope)
   public void showLocalChangesInvalidated() {
     myShowLocalChangesInvalidated = true;
+    myStateProvider.setInUpdateMode(true);
   }
 
   @ApiStatus.Internal
@@ -1631,16 +1639,10 @@ public final class ChangeListManagerImpl extends ChangeListManagerEx implements 
     return true;
   }
 
-  @Override
-  public @NotNull ChangeListManagerState getChangeListManagerState() {
-    String freezeReason = isFreezed();
-    if (freezeReason != null) {
-      return new ChangeListManagerState.Frozen(freezeReason);
-    } else if (isInUpdate()) {
-      return ChangeListManagerState.Updating.INSTANCE;
-    } else {
-      return ChangeListManagerState.Default.INSTANCE;
-    }
+  private @NotNull ChangeListManagerState.FileHoldersState getFileHoldersState() {
+    boolean ignoredInUpdateMode = myComposite.getIgnoredFileHolder().isInUpdatingMode();
+    boolean unversionedInUpdateMode = myComposite.getUnversionedFileHolder().isInUpdatingMode();
+    return new ChangeListManagerState.FileHoldersState(unversionedInUpdateMode, ignoredInUpdateMode);
   }
 
   public void replaceCommitMessage(@NotNull String oldMessage, @NotNull String newMessage) {

@@ -847,17 +847,17 @@ http_file(
 )
 
 http_file(
-  name = "commons-cli-1_9_0_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/commons-cli/commons-cli/1.9.0/commons-cli-1.9.0.jar",
-  sha256 = "d3d530d0f28fd0fbbffe2b0b338f70e8cb96f1605579e2e3abd4db29cac24e69",
-  downloaded_file_path = "commons-cli-1.9.0.jar"
+  name = "commons-cli-1_10_0_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/commons-cli/commons-cli/1.10.0/commons-cli-1.10.0.jar",
+  sha256 = "1b273d92160b9fa69c3e65389a5c4decd2f38a697e458e6f75080ae09e886404",
+  downloaded_file_path = "commons-cli-1.10.0.jar"
 )
 
 http_file(
-  name = "commons-cli-1_9_0-sources_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/commons-cli/commons-cli/1.9.0/commons-cli-1.9.0-sources.jar",
-  sha256 = "d551046d6abf01a6cd27cacb607b320daa90ade1b7a6e96ea98d142b18d9170e",
-  downloaded_file_path = "commons-cli-1.9.0-sources.jar"
+  name = "commons-cli-1_10_0-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/commons-cli/commons-cli/1.10.0/commons-cli-1.10.0-sources.jar",
+  sha256 = "f5a18437321638af1a87ade18419749e2dc9b135968ce7949b2bae39d2a76e1f",
+  downloaded_file_path = "commons-cli-1.10.0-sources.jar"
 )
 
 http_file(
@@ -1673,17 +1673,17 @@ http_file(
 )
 
 http_file(
-  name = "easymock-5_5_0_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/easymock/easymock/5.5.0/easymock-5.5.0.jar",
-  sha256 = "bf05b56b102be91c7cd0bbad1684d5809ac2ccd0380e684f9445bfde14418f7f",
-  downloaded_file_path = "easymock-5.5.0.jar"
+  name = "easymock-5_6_0_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/easymock/easymock/5.6.0/easymock-5.6.0.jar",
+  sha256 = "63efc00da99774fb0253330ef9b5788b261022ba73f36bf76889ce7edf3d2b31",
+  downloaded_file_path = "easymock-5.6.0.jar"
 )
 
 http_file(
-  name = "easymock-5_5_0-sources_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/easymock/easymock/5.5.0/easymock-5.5.0-sources.jar",
-  sha256 = "8e4f745f7721c9b7f58cdfdc8fe1eb72841710e4899ada0b7affcd764b5fd037",
-  downloaded_file_path = "easymock-5.5.0-sources.jar"
+  name = "easymock-5_6_0-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/easymock/easymock/5.6.0/easymock-5.6.0-sources.jar",
+  sha256 = "42a5f5b70878719fe17f1d73486a3e11457ba949359890621d008e3472a187b6",
+  downloaded_file_path = "easymock-5.6.0-sources.jar"
 )
 
 http_file(
@@ -2723,17 +2723,17 @@ http_file(
 )
 
 http_file(
-  name = "hash4j-0_25_0_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/dynatrace/hash4j/hash4j/0.25.0/hash4j-0.25.0.jar",
-  sha256 = "a9f1ebf6dab3fecfb36eed4e084ca587e5cdf9dcdd723b8adb7d17b6fc874862",
-  downloaded_file_path = "hash4j-0.25.0.jar"
+  name = "hash4j-0_26_0_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/dynatrace/hash4j/hash4j/0.26.0/hash4j-0.26.0.jar",
+  sha256 = "47c319c7015d31df78c17962c4008861f8630f383d12275cf7abd09f6a804c43",
+  downloaded_file_path = "hash4j-0.26.0.jar"
 )
 
 http_file(
-  name = "hash4j-0_25_0-sources_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/dynatrace/hash4j/hash4j/0.25.0/hash4j-0.25.0-sources.jar",
-  sha256 = "8963022184c1a701ff3437ba782e8583a4c4b4943f59b8e0c17d5511225f20f8",
-  downloaded_file_path = "hash4j-0.25.0-sources.jar"
+  name = "hash4j-0_26_0-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/dynatrace/hash4j/hash4j/0.26.0/hash4j-0.26.0-sources.jar",
+  sha256 = "c101d3ddb83b3ddac9d20097cfa3df498ea9b77017b3c69c1d40527607e503fe",
+  downloaded_file_path = "hash4j-0.26.0-sources.jar"
 )
 
 http_file(
@@ -3689,17 +3689,17 @@ http_file(
 )
 
 http_file(
-  name = "jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_20-253-b12_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b12/jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b12.jar",
-  sha256 = "ea1f2107955815765e96e4db5c2f0772c4779724dedff357bfba4c112e96aeb8",
-  downloaded_file_path = "jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b12.jar"
+  name = "jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_20-253-b13_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b13/jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b13.jar",
+  sha256 = "7ff53ee6af9a9b3dcf9ce5366b9e803398d61460840a4232fa7bf3b9ef1388e5",
+  downloaded_file_path = "jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b13.jar"
 )
 
 http_file(
-  name = "jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_20-253-b12-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b12/jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b12-sources.jar",
-  sha256 = "d0cd4a95966bc10496a632b0448d503e338868cda369895e22ad841fa30f20ff",
-  downloaded_file_path = "jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b12-sources.jar"
+  name = "jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_20-253-b13-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b13/jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b13-sources.jar",
+  sha256 = "8354fc6df3124878f3c2af12ae1d050e919cf8b6e83fdd7a8e6fb26368456745",
+  downloaded_file_path = "jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.20-253-b13-sources.jar"
 )
 
 http_file(
@@ -9919,6 +9919,13 @@ http_file(
 )
 
 http_file(
+  name = "commons-cli-1_9_0_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/commons-cli/commons-cli/1.9.0/commons-cli-1.9.0.jar",
+  sha256 = "d3d530d0f28fd0fbbffe2b0b338f70e8cb96f1605579e2e3abd4db29cac24e69",
+  downloaded_file_path = "commons-cli-1.9.0.jar"
+)
+
+http_file(
   name = "jansi-core-3_30_4_http",
   url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jline/jansi-core/3.30.4/jansi-core-3.30.4.jar",
   sha256 = "c7ff9f2ae789def538cb68c32d25f5df5839cb25c8fe0550306c4611b4ec9adf",
@@ -10301,6 +10308,13 @@ http_file(
   url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17-sources.jar",
   sha256 = "db0d08d8efa05ad19d174d747bd9d8e68dbb02b596812fe7b3a681656e346694",
   downloaded_file_path = "slf4j-api-2.0.17-sources.jar"
+)
+
+http_file(
+  name = "commons-cli-1_9_0-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/commons-cli/commons-cli/1.9.0/commons-cli-1.9.0-sources.jar",
+  sha256 = "d551046d6abf01a6cd27cacb607b320daa90ade1b7a6e96ea98d142b18d9170e",
+  downloaded_file_path = "commons-cli-1.9.0-sources.jar"
 )
 
 http_file(

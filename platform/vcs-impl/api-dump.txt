@@ -615,7 +615,6 @@ f:com.intellij.openapi.vcs.changes.ChangeListManagerImpl
 - getChangeList(com.intellij.openapi.vcs.changes.Change):com.intellij.openapi.vcs.changes.LocalChangeList
 - getChangeList(com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.vcs.changes.LocalChangeList
 - getChangeList(java.lang.String):com.intellij.openapi.vcs.changes.LocalChangeList
-- getChangeListManagerState():com.intellij.platform.vcs.changes.ChangeListManagerState
 - getChangeListNameIfOnlyOne(com.intellij.openapi.vcs.changes.Change[]):java.lang.String
 - getChangeLists():java.util.List
 - getChangeLists(com.intellij.openapi.vcs.changes.Change):java.util.List
@@ -2215,10 +2214,6 @@ f:com.intellij.openapi.vcs.changes.ui.ChangeListChooserPanel
 - setSuggestedName(java.lang.String,java.lang.String,Z):V
 - setSuggestedName(java.lang.String,Z):V
 - updateEnabled():V
-f:com.intellij.openapi.vcs.changes.ui.ChangeListRemoteState
-- <init>():V
-- f:allUpToDate():Z
-- f:report(I,Z):V
 f:com.intellij.openapi.vcs.changes.ui.ChangeListViewerDialog
 - com.intellij.openapi.ui.DialogWrapper
 - sf:DIMENSION_SERVICE_KEY:java.lang.String
@@ -2281,13 +2276,6 @@ c:com.intellij.openapi.vcs.changes.ui.ChangesBrowserBase$ShowStandaloneDiff
 - getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
 - isActive(com.intellij.openapi.actionSystem.AnActionEvent):Z
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
-c:com.intellij.openapi.vcs.changes.ui.ChangesBrowserChangeListNode
-- com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode
-- <init>(com.intellij.openapi.project.Project,com.intellij.openapi.vcs.changes.ChangeList,com.intellij.openapi.vcs.changes.ui.ChangeListRemoteState):V
-- compareUserObjects(com.intellij.openapi.vcs.changes.ChangeList):I
-- getSortWeight():I
-- getTextPresentation():java.lang.String
-- render(com.intellij.openapi.vcs.changes.ui.ChangesBrowserNodeRenderer,Z,Z,Z):V
 c:com.intellij.openapi.vcs.changes.ui.ChangesBrowserModuleNode
 - com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode
 - com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode$NodeWithFilePath
@@ -4105,14 +4093,14 @@ a:com.intellij.vcs.commit.ChangeListViewCommitPanel
 - f:getCommitProgressUi():com.intellij.vcs.commit.CommitProgressUi
 - f:getDisplayedChanges():java.util.List
 - f:getDisplayedUnversionedFiles():java.util.List
-- f:getEditedCommit():com.intellij.vcs.commit.EditedCommitPresentation
+- f:getEditedCommit():com.intellij.platform.vcs.impl.shared.commit.EditedCommitPresentation
 - f:getIncludedChanges():java.util.List
 - f:getIncludedUnversionedFiles():java.util.List
 - f:getInclusionModel():com.intellij.openapi.vcs.changes.InclusionModel
 - f:select(java.lang.Object):V
 - f:selectFirst(java.util.Collection):V
 - f:setCompletionContext(java.util.List):V
-- f:setEditedCommit(com.intellij.vcs.commit.EditedCommitPresentation):V
+- f:setEditedCommit(com.intellij.platform.vcs.impl.shared.commit.EditedCommitPresentation):V
 - f:setInclusionModel(com.intellij.openapi.vcs.changes.InclusionModel):V
 f:com.intellij.vcs.commit.ChangesViewCommitPanel
 - com.intellij.vcs.commit.ChangeListViewCommitPanel
@@ -4349,18 +4337,6 @@ com.intellij.vcs.commit.CommitterResultHandler
 - onCancel():V
 - onFailure():V
 - onSuccess():V
-f:com.intellij.vcs.commit.EditedCommitNodeKt
-- sf:insertEditedCommitNode(com.intellij.openapi.vcs.changes.ui.ChangesViewModelBuilder,com.intellij.vcs.commit.EditedCommitPresentation):V
-com.intellij.vcs.commit.EditedCommitPresentation
-f:com.intellij.vcs.commit.EditedCommitPresentation$Details
-- com.intellij.vcs.commit.EditedCommitDetails
-- com.intellij.vcs.commit.EditedCommitPresentation
-- <init>(com.intellij.vcs.commit.EditedCommitDetails):V
-- getCommit():com.intellij.vcs.log.VcsFullCommitDetails
-- getCurrentUser():com.intellij.vcs.log.VcsUser
-f:com.intellij.vcs.commit.EditedCommitPresentation$Loading
-- com.intellij.vcs.commit.EditedCommitPresentation
-- sf:INSTANCE:com.intellij.vcs.commit.EditedCommitPresentation$Loading
 c:com.intellij.vcs.commit.LocalChangesCommitter
 - com.intellij.vcs.commit.VcsCommitter
 - <init>(com.intellij.openapi.project.Project,com.intellij.vcs.commit.ChangeListCommitState,com.intellij.openapi.vcs.changes.CommitContext,java.lang.String):V
@@ -4466,8 +4442,8 @@ com.intellij.vcs.commit.NonModalCommitWorkflowUi
 - com.intellij.vcs.commit.CommitAuthorTracker
 - com.intellij.vcs.commit.CommitWorkflowUi
 - a:getCommitProgressUi():com.intellij.vcs.commit.CommitProgressUi
-- a:getEditedCommit():com.intellij.vcs.commit.EditedCommitPresentation
-- a:setEditedCommit(com.intellij.vcs.commit.EditedCommitPresentation):V
+- a:getEditedCommit():com.intellij.platform.vcs.impl.shared.commit.EditedCommitPresentation
+- a:setEditedCommit(com.intellij.platform.vcs.impl.shared.commit.EditedCommitPresentation):V
 - a:showCommitOptions(com.intellij.vcs.commit.CommitOptions,java.lang.String,Z,com.intellij.openapi.actionSystem.DataContext):V
 f:com.intellij.vcs.commit.SaveCommittingDocumentsVetoerKt
 - sf:vetoDocumentSaving(com.intellij.openapi.project.Project,java.util.Collection,kotlin.jvm.functions.Function0):V
