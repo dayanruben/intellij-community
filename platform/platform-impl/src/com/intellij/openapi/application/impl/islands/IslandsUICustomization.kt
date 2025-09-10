@@ -5,10 +5,12 @@ import com.intellij.ide.ProjectWindowCustomizerService
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.ide.ui.UISettings
+import com.intellij.ide.ui.experimental.ExperimentalUiCollector
 import com.intellij.openapi.actionSystem.ex.ActionButtonLook
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.application.impl.ToolWindowUIDecorator
+import com.intellij.openapi.editor.impl.EditorHeaderComponent
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.impl.EditorEmptyTextPainter
 import com.intellij.openapi.fileEditor.impl.EditorsSplitters
@@ -28,10 +30,12 @@ import com.intellij.openapi.wm.impl.customFrameDecorations.header.MacToolbarFram
 import com.intellij.openapi.wm.impl.headertoolbar.MainToolbar
 import com.intellij.openapi.wm.impl.status.IdeStatusBarImpl
 import com.intellij.toolWindow.ToolWindowButtonManager
+import com.intellij.toolWindow.ToolWindowPane
 import com.intellij.toolWindow.ToolWindowPaneNewButtonManager
 import com.intellij.toolWindow.ToolWindowToolbar
 import com.intellij.toolWindow.xNext.island.XNextIslandHolder
 import com.intellij.ui.*
+import com.intellij.ui.border.CustomLineBorder
 import com.intellij.ui.components.JBLayeredPane
 import com.intellij.ui.paint.LinePainter2D
 import com.intellij.ui.scale.JBUIScale
@@ -216,6 +220,8 @@ internal class IslandsUICustomization : InternalUICustomization() {
         }
       }
     }
+
+    ExperimentalUiCollector.islandsThemeOn.log()
   }
 
   private fun disableManyIslands() {
@@ -262,6 +268,8 @@ internal class IslandsUICustomization : InternalUICustomization() {
         }
       }
     }
+
+    ExperimentalUiCollector.islandsThemeOff.log()
   }
 
   private fun setOriginalToolWindowBorder(holder: XNextIslandHolder) {
@@ -365,6 +373,9 @@ internal class IslandsUICustomization : InternalUICustomization() {
         if (component is MainToolbar && component.parent !is JBLayeredPane) {
           return
         }
+        if (component is ToolWindowPane && JBColor.isBright()) {
+          return
+        }
 
         val alphaKey = if (component is IdeStatusBarImpl) "Island.inactiveAlphaInStatusBar" else "Island.inactiveAlpha"
 
@@ -372,7 +383,14 @@ internal class IslandsUICustomization : InternalUICustomization() {
         g.color = getMainBackgroundColor()
         g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, JBUI.getFloat(alphaKey, 0.5f))
 
-        g.fillRect(0, 0, component.width, component.height)
+        if (component is ToolWindowPane) {
+          val extraBorder = JBUI.scale(4)
+          g.fillRect(0, 0, component.width, extraBorder)
+          g.fillRect(0, extraBorder, extraBorder, component.height)
+        }
+        else {
+          g.fillRect(0, 0, component.width, component.height)
+        }
       }
     }
   }
@@ -427,6 +445,9 @@ internal class IslandsUICustomization : InternalUICustomization() {
         component.borderPainter = if (install) inactivePainter else DefaultBorderPainter()
       }
       is MainToolbar -> {
+        component.borderPainter = if (install) inactivePainter else DefaultBorderPainter()
+      }
+      is ToolWindowPane -> {
         component.borderPainter = if (install) inactivePainter else DefaultBorderPainter()
       }
     }
@@ -606,6 +627,25 @@ internal class IslandsUICustomization : InternalUICustomization() {
   override fun paintFrameBackground(frame: Window, component: Component, g: Graphics2D) {
     if (isManyIslandEnabled && isIslandsGradientEnabled) {
       islandsGradientPaint(frame as IdeFrame, getMainBackgroundColor(), ProjectWindowCustomizerService.getInstance(), component, g)
+    }
+  }
+
+  override fun configureSearchReplaceComponentBorder(component: EditorHeaderComponent) {
+    component.border = object : CustomLineBorder(JBUI.CurrentTheme.Editor.BORDER_COLOR, 0, 0, 1, 0) {
+      override fun getBorderInsets(c: Component): Insets {
+        if (isManyIslandEnabled) {
+          return JBUI.insets(1, 0)
+        }
+        return super.getBorderInsets(c)
+      }
+
+      override fun paintBorder(c: Component, g: Graphics, x: Int, y: Int, w: Int, h: Int) {
+        super.paintBorder(c, g, x, y, w, h)
+        if (isManyIslandEnabled) {
+          g.color = color
+          g.fillRect(x, y, w, JBUI.scale(1))
+        }
+      }
     }
   }
 

@@ -220,6 +220,7 @@ build/tests
 commandInterface
 community-resources
 fleet/andel
+fleet/bifurcan
 fleet/compiler-plugins
 fleet/fastutil
 fleet/junit4
@@ -232,10 +233,14 @@ fleet/reporting/shared
 fleet/rhizomedb
 fleet/rpc
 fleet/rpc.server
+fleet/util/codepoints
+fleet/util/codepoints/test
 fleet/util/core
+fleet/util/datetime
 fleet/util/logging/api
 fleet/util/logging/slf4j
 fleet/util/multiplatform
+fleet/util/serialization
 grid/api
 grid/core-impl
 grid/csv
@@ -527,6 +532,7 @@ platform/navbar/shared
 platform/navbar/testFramework
 platform/new-ui-onboarding
 platform/new-users-onboarding
+platform/non-modal-welcome-screen
 platform/object-serializer
 platform/observable
 platform/platform-api

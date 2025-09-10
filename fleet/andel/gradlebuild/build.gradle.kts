@@ -72,6 +72,9 @@ kotlin {
       isTransitive = false
     }
     implementation(project(":fleet.util.core"))
+    implementation(project(":fleet.util.codepoints"))
+    api(project(":fleet.bifurcan"))
+    implementation(project(":fleet.fastutil"))
   }
   // KOTLIN__MARKER_END
 }

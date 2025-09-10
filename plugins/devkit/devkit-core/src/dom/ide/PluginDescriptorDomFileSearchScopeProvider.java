@@ -5,6 +5,7 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IntelliJProjectUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -49,11 +50,14 @@ final class PluginDescriptorDomFileSearchScopeProvider implements SearchScopePro
       if (ApplicationManager.getApplication().isReadAccessAllowed()) {
         return getDomFileCandidates(project);
       }
-      return ReadAction.nonBlocking(() -> getDomFileCandidates(project)).executeSynchronously();
+      return ReadAction.nonBlocking(() -> getDomFileCandidates(project))
+        .expireWhen(() -> project.isDisposed())
+        .executeSynchronously();
     };
   }
 
   private static @NotNull Collection<VirtualFile> getDomFileCandidates(@NotNull Project project) {
+    if (DumbService.isDumb(project)) return Collections.emptyList();
     return DomService.getInstance().getDomFileCandidates(IdeaPlugin.class, GlobalSearchScopesCore.projectProductionScope(project));
   }
 }

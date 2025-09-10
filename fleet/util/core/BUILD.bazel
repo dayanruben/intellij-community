@@ -36,16 +36,14 @@ jvm_library(
     "//fleet/reporting/api",
     "//fleet/reporting/shared",
     "//fleet/multiplatform.shims",
-    "//fleet/fastutil",
-    "@lib//:kotlinx-datetime-jvm",
-    "@lib//:de-cketti-unicode-kotlin-codepoints-jvm",
+    "//fleet/util/serialization",
     ":fleet_util_multiplatform_provided",
   ],
   exports = [
     "//fleet/util/logging/api",
     "@lib//:kotlinx-collections-immutable",
     "//fleet/multiplatform.shims",
-    "//fleet/fastutil",
+    "//fleet/util/serialization",
   ],
   runtime_deps = [":core_resources"]
 )
