@@ -51,6 +51,7 @@ import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.nextSiblingOfSameType
 import org.jetbrains.kotlin.resolve.ArrayFqNames
 import org.jetbrains.kotlin.types.Variance
+import org.jetbrains.kotlin.utils.addToStdlib.plusIfNotNull
 import kotlin.reflect.KClass
 
 private val NOT_PROPERTIES = NotPropertiesService.DEFAULT.toSet()
@@ -62,9 +63,8 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
     priority = K2ContributorSectionPriority.HEURISTIC,
 ) {
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     protected open fun getImportStrategy(
-        context: K2CompletionSectionContext<P>,
         signature: KaCallableSignature<*>,
         isImportDefinitelyNotRequired: Boolean
     ): ImportStrategy =
@@ -86,13 +86,12 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
         applicabilityResult: KaExtensionApplicabilityResult.ApplicableAsFunctionalVariableCall,
     ): CallableInsertionStrategy? = CallableInsertionStrategy.AsCall
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     private fun getOptions(
-        context: K2CompletionSectionContext<P>,
         signature: KaCallableSignature<*>,
         isImportDefinitelyNotRequired: Boolean = false
     ): CallableInsertionOptions = CallableInsertionOptions(
-        getImportStrategy(context, signature, isImportDefinitelyNotRequired),
+        getImportStrategy(signature, isImportDefinitelyNotRequired),
         getInsertionStrategy(signature)
     )
 
@@ -131,9 +130,8 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
     private fun K2CompletionSectionContext<P>.isWithTrailingLambda(): Boolean =
         positionContext is KotlinExpressionNameReferencePositionContext
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     private fun Sequence<CallableWithMetadataForCompletion>.createFilteredLookupElements(
-        context: K2CompletionSectionContext<P>,
         shadowedCallablesFilter: ShadowedCallablesFilter
     ): Sequence<LookupElement> =
         filterIfInsideAnnotationEntryArgument(context.positionContext.position, context.weighingContext.expectedType)
@@ -158,16 +156,20 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
                     val explicitReceiverTypeHint = callableWithMetadata.explicitReceiverTypeHint
                         ?: return@map builder
 
+                    val typeWithStarProjections = explicitReceiverTypeHint.replaceTypeParametersWithStarProjections()
+                        ?: return@map builder
+
                     builder.adaptToExplicitReceiver(
                         receiver = receiver,
-                        typeText = @OptIn(KaExperimentalApi::class) explicitReceiverTypeHint.render(position = Variance.INVARIANT),
+                        typeText =
+                            @OptIn(KaExperimentalApi::class)
+                            typeWithStarProjections.render(position = Variance.INVARIANT),
                     )
                 }
             }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     fun completeFromLocalScope(
-        context: K2CompletionSectionContext<P>,
         shadowedCallablesFilter: ShadowedCallablesFilter,
     ) {
         val positionContext = context.positionContext
@@ -176,15 +178,14 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
 
         val receiver = positionContext.explicitReceiver
         if (receiver == null) return
-        val elements = collectDotCompletionFromLocalScope(context, scopeContext, receiver)
-        elements.createFilteredLookupElements(context, shadowedCallablesFilter)
+        val elements = collectDotCompletionFromLocalScope(scopeContext, receiver)
+        elements.createFilteredLookupElements(shadowedCallablesFilter)
             .forEach { context.addElement(it) }
     }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     @OptIn(KaExperimentalApi::class)
     private fun createAndFilterMetadataForMemberCallables(
-        context: K2CompletionSectionContext<P>,
         callables: Sequence<KaCallableSymbol>,
     ): Sequence<CallableWithMetadataForCompletion> = callables.filter { filter(it) }
         .filter { context.visibilityChecker.isVisible(it, context.positionContext) }
@@ -192,15 +193,13 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
         .map { signature ->
             CallableWithMetadataForCompletion(
                 _signature = signature,
-                options = getOptions(context, signature),
+                options = getOptions(signature),
                 showReceiver = true,
             )
         }
 
-    context(_: KaSession)
-    private fun completeWithoutReceiverFromIndex(
-        context: K2CompletionSectionContext<P>
-    ): Sequence<CallableWithMetadataForCompletion> = sequence {
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
+    private fun completeWithoutReceiverFromIndex(): Sequence<CallableWithMetadataForCompletion> = sequence {
         val prefix = context.prefixMatcher.prefix
         val invocationCount = context.parameters.invocationCount
         val scopeContext = context.weighingContext.scopeContext
@@ -220,7 +219,7 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
                     context.visibilityChecker.canBeVisible(it)
                 }
             }
-            yieldAll(createAndFilterMetadataForMemberCallables(context, callablesFromIndex))
+            yieldAll(createAndFilterMetadataForMemberCallables(callablesFromIndex))
         }
 
         val extensionDescriptors = collectExtensionsFromIndexAndResolveExtensionScope(
@@ -230,26 +229,24 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
         yieldAll(extensionDescriptors)
     }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     fun completeFromIndex(
-        context: K2CompletionSectionContext<P>,
         shadowedCallablesFilter: ShadowedCallablesFilter,
     ) {
         val positionContext = context.positionContext
 
         val receiver = positionContext.explicitReceiver
         val elements = if (receiver == null) {
-            completeWithoutReceiverFromIndex(context)
+            completeWithoutReceiverFromIndex()
         } else {
-            collectDotCompletionFromIndex(context, receiver)
+            collectDotCompletionFromIndex(receiver)
         }
-        elements.createFilteredLookupElements(context, shadowedCallablesFilter)
+        elements.createFilteredLookupElements(shadowedCallablesFilter)
             .forEach { context.addElement(it) }
     }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     protected open fun collectDotCompletionFromLocalScope(
-        context: K2CompletionSectionContext<P>,
         scopeContext: KaScopeContext,
         explicitReceiver: KtElement,
         showReceiver: Boolean = false,
@@ -267,7 +264,6 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
                 if (symbol !is KaNamedClassSymbol || symbol.canBeUsedAsReceiver) {
                     yieldAll(
                         collectDotCompletionForCallableReceiver(
-                            context = context,
                             scopeContext = scopeContext,
                             explicitReceiver = explicitReceiver,
                         )
@@ -281,9 +277,8 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
         }
     }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     protected open fun collectDotCompletionFromIndex(
-        context: K2CompletionSectionContext<P>,
         explicitReceiver: KtElement,
         showReceiver: Boolean = false,
     ): Sequence<CallableWithMetadataForCompletion> {
@@ -298,7 +293,7 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
                     yieldAll(
                         collectDotCompletionForCallableReceiverFromIndex(
                             context = context,
-                            typesOfPossibleReceiver = types,
+                            typesOfPossibleReceiver = types.plusIfNotNull(context.runtimeType),
                         )
                     )
                 }
@@ -334,17 +329,16 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
             )
         }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     @OptIn(KaExperimentalApi::class)
     protected fun collectDotCompletionForCallableReceiver(
-        context: K2CompletionSectionContext<P>,
         scopeContext: KaScopeContext,
         explicitReceiver: KtExpression,
     ): Sequence<CallableWithMetadataForCompletion> = sequence {
         val receiverType = explicitReceiver.expressionType ?: return@sequence
+
         val callablesWithMetadata = collectDotCompletionForCallableReceiver(
-            context = context,
-            typesOfPossibleReceiver = listOf(receiverType),
+            typesOfPossibleReceiver = listOfNotNull(receiverType, context.runtimeType),
             scopeContext = scopeContext,
         )
         yieldAll(callablesWithMetadata)
@@ -357,7 +351,6 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
 
         // Collect members available from unstable smartcast as well.
         val callablesWithMetadataFromUnstableSmartCast = collectDotCompletionForCallableReceiver(
-            context = context,
             typesOfPossibleReceiver = listOf(smartCastType),
             scopeContext = scopeContext,
         ) + collectDotCompletionForCallableReceiverFromIndex(
@@ -374,9 +367,8 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
         })
     }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     protected fun collectDotCompletionForCallableReceiver(
-        context: K2CompletionSectionContext<P>,
         typesOfPossibleReceiver: List<KaType>,
         scopeContext: KaScopeContext,
     ): Sequence<CallableWithMetadataForCompletion> = sequence {
@@ -390,9 +382,9 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
                 symbolFilter = { filter(it) },
             ).map {
                 it.createCallableWithMetadata(
-                    context = context,
                     scopeKind = KtOutsideTowerScopeKinds.TypeScope,
                     isImportDefinitelyNotRequired = true,
+                    explicitReceiverTypeHint = context.runtimeType,
                 )
             }
         }
@@ -468,6 +460,7 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
                 CallableWithMetadataForCompletion(
                     _signature = applicableExtension.signature,
                     options = applicableExtension.insertionOptions,
+                    _explicitReceiverTypeHint = context.runtimeType,
                 )
             }
     }
@@ -499,6 +492,7 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
                             options = extension.insertionOptions,
                             scopeKind = scopeWithKind.kind,
                             aliasName = aliasName,
+                            _explicitReceiverTypeHint = context.runtimeType,
                         )
                     }
             }
@@ -587,13 +581,13 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
      * Note, that [isImportDefinitelyNotRequired] should be set to true only if the callable is available without import, and it doesn't
      * require import or fully-qualified name to be resolved unambiguously.
      */
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     protected fun KaCallableSignature<*>.createCallableWithMetadata(
-        context: K2CompletionSectionContext<P>,
         scopeKind: KaScopeKind,
         isImportDefinitelyNotRequired: Boolean = false,
-        options: CallableInsertionOptions = getOptions(context, this, isImportDefinitelyNotRequired),
+        options: CallableInsertionOptions = getOptions(this, isImportDefinitelyNotRequired),
         aliasName: Name? = null,
+        explicitReceiverTypeHint: KaType? = null,
     ): CallableWithMetadataForCompletion {
         val javaGetterIfNotProperty = this.getJavaGetterSignatureIfNotProperty()
         val optionsToUse = if (javaGetterIfNotProperty != null && options.insertionStrategy == CallableInsertionStrategy.AsIdentifier) {
@@ -605,7 +599,8 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
             _signature = javaGetterIfNotProperty ?: this,
             options = optionsToUse,
             scopeKind = scopeKind,
-            aliasName = aliasName
+            aliasName = aliasName,
+            _explicitReceiverTypeHint = explicitReceiverTypeHint,
         )
     }
 
@@ -719,9 +714,8 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
     }.asCompositeScope()
 
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     fun completeEnumEntriesFromPsi(
-        context: K2CompletionSectionContext<P>,
         shadowedCallablesFilter: ShadowedCallablesFilter,
     ) {
         // If the expected type is an enum, we want to yield the enum entries very early on so they will
@@ -745,14 +739,13 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
             else -> emptySequence()
         }
 
-        createAndFilterMetadataForMemberCallables(context, enumEntries)
-            .createFilteredLookupElements(context, shadowedCallablesFilter)
+        createAndFilterMetadataForMemberCallables(enumEntries)
+            .createFilteredLookupElements(shadowedCallablesFilter)
             .forEach { context.addElement(it) }
     }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     fun completeLocalVariables(
-        context: K2CompletionSectionContext<P>,
         shadowedCallablesFilter: ShadowedCallablesFilter,
     ) {
         if (context.positionContext.explicitReceiver != null) return
@@ -765,16 +758,15 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
         ) { filter(it) }
             .map { signatureWithKind ->
                 signatureWithKind.signature
-                    .createCallableWithMetadata(context, signatureWithKind.scopeKind)
+                    .createCallableWithMetadata(signatureWithKind.scopeKind)
             }
 
-        availableLocalAndMemberNonExtensions.createFilteredLookupElements(context, shadowedCallablesFilter)
+        availableLocalAndMemberNonExtensions.createFilteredLookupElements(shadowedCallablesFilter)
             .forEach { context.addElement(it) }
     }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     fun completeLocalExtensions(
-        context: K2CompletionSectionContext<P>,
         shadowedCallablesFilter: ShadowedCallablesFilter,
     ) {
         if (context.positionContext.explicitReceiver != null) return
@@ -796,18 +788,17 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
                     symbolFilter = { filter(it) },
                 ).map { signature ->
                     val aliasName = context.parameters.completionFile.getAliasNameIfExists(signature.symbol)
-                    signature.createCallableWithMetadata(context, scopeWithKind.kind, aliasName = aliasName)
+                    signature.createCallableWithMetadata(scopeWithKind.kind, aliasName = aliasName)
                 }
             }
 
         (extensionsWhichCanBeCalled + availableStaticAndTopLevelNonExtensions)
-            .createFilteredLookupElements(context, shadowedCallablesFilter)
+            .createFilteredLookupElements(shadowedCallablesFilter)
             .forEach { context.addElement(it) }
     }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
     fun completeEnumEntriesFromIndex(
-        context: K2CompletionSectionContext<P>,
         shadowedCallablesFilter: ShadowedCallablesFilter,
     ) {
         if (context.positionContext.explicitReceiver != null) return
@@ -854,32 +845,33 @@ internal abstract class K2AbstractCallableCompletionContributor<P : KotlinNameRe
                 }
             yieldAll(constants)
         }
-        createAndFilterMetadataForMemberCallables(context, enumEntries + enumConstants)
-            .createFilteredLookupElements(context, shadowedCallablesFilter)
+        createAndFilterMetadataForMemberCallables(enumEntries + enumConstants)
+            .createFilteredLookupElements(shadowedCallablesFilter)
             .forEach { context.addElement(it) }
     }
 
-    override fun KaSession.complete(context: K2CompletionSectionContext<P>) {
+    context(_: KaSession, context: K2CompletionSectionContext<P>)
+    override fun complete() {
         // TODO: Apart from de-duplication this an all be done in the separate threads.
         //  we should consider doing the filtering later in the pipeline and run these all in parallel.
         val shadowedCallablesFilter = ShadowedCallablesFilter()
         context.completeLaterInSameSession("Enum Entries from PSI", priority = K2ContributorSectionPriority.HEURISTIC) {
-            completeEnumEntriesFromPsi(it, shadowedCallablesFilter)
+            completeEnumEntriesFromPsi(shadowedCallablesFilter)
         }
         context.completeLaterInSameSession("Local Variables", priority = K2ContributorSectionPriority.HEURISTIC) {
-            completeLocalVariables(it, shadowedCallablesFilter)
+            completeLocalVariables(shadowedCallablesFilter)
         }
         context.completeLaterInSameSession("Local Extensions") {
-            completeLocalExtensions(it, shadowedCallablesFilter)
+            completeLocalExtensions(shadowedCallablesFilter)
         }
         context.completeLaterInSameSession("Local Completion") {
-            completeFromLocalScope(it, shadowedCallablesFilter)
+            completeFromLocalScope(shadowedCallablesFilter)
         }
         context.completeLaterInSameSession("Enums from Index", K2ContributorSectionPriority.FROM_INDEX) {
-            completeEnumEntriesFromIndex(it, shadowedCallablesFilter)
+            completeEnumEntriesFromIndex(shadowedCallablesFilter)
         }
         context.completeLaterInSameSession("Index Completion", K2ContributorSectionPriority.FROM_INDEX) {
-            completeFromIndex(it, shadowedCallablesFilter)
+            completeFromIndex(shadowedCallablesFilter)
         }
     }
 }
@@ -899,18 +891,17 @@ internal class K2CallableCompletionContributor : K2AbstractCallableCompletionCon
         else -> 0
     }
 
-    override fun KaSession.shouldExecute(context: K2CompletionSectionContext<KotlinNameReferencePositionContext>): Boolean {
+    context(_: KaSession, context: K2CompletionSectionContext<KotlinNameReferencePositionContext>)
+    override fun shouldExecute(): Boolean {
         return !context.positionContext.isAfterRangeOperator() && !context.positionContext.allowsOnlyNamedArguments()
     }
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<KotlinExpressionNameReferencePositionContext>)
     override fun createChainedLookupElements(
-        context: K2CompletionSectionContext<KotlinExpressionNameReferencePositionContext>,
         receiverExpression: KtDotQualifiedExpression,
         importingStrategy: ImportStrategy
     ): Sequence<LookupElement> {
         return collectDotCompletionFromLocalScope(
-            context = context,
             scopeContext = context.weighingContext.scopeContext,
             explicitReceiver = receiverExpression,
             showReceiver = true,
@@ -935,9 +926,8 @@ internal class K2CallableReferenceCompletionContributor : K2AbstractCallableComp
 ) {
     override fun K2CompletionSectionContext<KotlinCallableReferencePositionContext>.getGroupPriority(): Int = 1
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<KotlinCallableReferencePositionContext>)
     override fun getImportStrategy(
-        context: K2CompletionSectionContext<KotlinCallableReferencePositionContext>,
         signature: KaCallableSignature<*>,
         isImportDefinitelyNotRequired: Boolean
     ): ImportStrategy {
@@ -970,9 +960,8 @@ internal class K2CallableReferenceCompletionContributor : K2AbstractCallableComp
     }
 
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<KotlinCallableReferencePositionContext>)
     override fun collectDotCompletionFromLocalScope(
-        context: K2CompletionSectionContext<KotlinCallableReferencePositionContext>,
         scopeContext: KaScopeContext,
         explicitReceiver: KtElement,
         showReceiver: Boolean,
@@ -987,7 +976,6 @@ internal class K2CallableReferenceCompletionContributor : K2AbstractCallableComp
                 val types = collectReceiverTypesForExplicitReceiverExpression(explicitReceiver)
                 yieldAll(
                     collectDotCompletionForCallableReceiver(
-                        context = context,
                         typesOfPossibleReceiver = types,
                         scopeContext = scopeContext,
                     )
@@ -995,7 +983,6 @@ internal class K2CallableReferenceCompletionContributor : K2AbstractCallableComp
             }
 
             else -> collectDotCompletionForCallableReceiver(
-                context = context,
                 scopeContext = scopeContext,
                 explicitReceiver = explicitReceiver,
             )
@@ -1051,17 +1038,15 @@ internal class K2KDocCallableCompletionContributor : K2AbstractCallableCompletio
     }
 
     // No dot completion from index necessary for KDocs
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<KDocLinkNamePositionContext>)
     override fun collectDotCompletionFromIndex(
-        context: K2CompletionSectionContext<KDocLinkNamePositionContext>,
         explicitReceiver: KtElement,
         showReceiver: Boolean
     ): Sequence<CallableWithMetadataForCompletion> = emptySequence()
 
-    context(_: KaSession)
+    context(_: KaSession, context: K2CompletionSectionContext<KDocLinkNamePositionContext>)
     @OptIn(KaExperimentalApi::class)
     override fun collectDotCompletionFromLocalScope(
-        context: K2CompletionSectionContext<KDocLinkNamePositionContext>,
         scopeContext: KaScopeContext,
         explicitReceiver: KtElement,
         showReceiver: Boolean,
@@ -1101,7 +1086,7 @@ internal class K2KDocCallableCompletionContributor : K2AbstractCallableCompletio
 
                 val aliasName = context.parameters.completionFile.getAliasNameIfExists(callableSymbol)
                 val value = callableSymbol.asSignature()
-                    .createCallableWithMetadata(context, scopeWithKind.kind, isImportDefinitelyNotRequired = true, aliasName = aliasName)
+                    .createCallableWithMetadata(scopeWithKind.kind, isImportDefinitelyNotRequired = true, aliasName = aliasName)
                 yield(value)
             }
         }

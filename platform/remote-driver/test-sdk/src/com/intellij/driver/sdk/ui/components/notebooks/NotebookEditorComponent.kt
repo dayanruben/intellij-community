@@ -25,7 +25,6 @@ import com.intellij.driver.sdk.ui.components.elements.LetsPlotComponent
 import com.intellij.driver.sdk.ui.components.elements.NotebookTableOutputUi
 import com.intellij.driver.sdk.ui.components.elements.popup
 import com.intellij.driver.sdk.ui.pasteText
-import com.intellij.driver.sdk.ui.should
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import com.intellij.driver.sdk.waitForCodeAnalysis
@@ -237,8 +236,44 @@ fun Driver.createNewNotebook(name: String = "New Notebook", type: NotebookType) 
       x("//div[@accessiblename='Name']", JTextFieldUI::class.java).click()
 
       keyboard {
-        driver.ui.pasteText(name)
-        should("expect $name in the popup") {
+        waitFor("expect $name in the popup") {
+          driver.ui.pasteText(name)
+          getAllTexts().any { it.text == name }
+        }
+        enter() // submit the popup
+      }
+    }
+
+    waitFor("the editor is present") {
+      notebookEditor().present()
+    }
+  }
+}
+
+fun Driver.createNewNotebookWithMouse(name: String = "New Notebook", type: NotebookType) {
+  ideFrame {
+    projectView {
+      projectViewTree.run {
+        waitFor("wait for project tree to load", 30.seconds) {
+          getAllTexts().isNotEmpty()
+        }
+        getAllTexts().first().moveMouse()
+      }
+    }
+
+    val newFileButton = x { byAccessibleName("New File or Directory…") }
+
+    waitFor {
+      newFileButton.present()
+    }
+    newFileButton.click()
+
+    popup().run {
+      waitOneText("${type.typeName} Notebook").click()
+
+      keyboard {
+        waitFor("expect $name in the popup") {
+          driver.ui.pasteText(name)
           getAllTexts().any { it.text == name }
         }
         enter() // submit the popup
