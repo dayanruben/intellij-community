@@ -229,16 +229,16 @@ object CallableReturnTypeUpdaterUtils {
         useSmartCastType: Boolean = false,
         allTypesConsumer: (KaType, Sequence<KaType>, Boolean) -> T?
     ): T? {
-        val defaultType = declaration.returnType
         val declarationTypes = buildList {
             if (useSmartCastType) {
-                when (val smartCastType = (declaration as? KtProperty)?.initializer?.smartCastInfo?.smartCastType) {
+                val smartCastInfo = (declaration as? KtProperty)?.initializer?.smartCastInfo
+                when (val smartCastType = smartCastInfo?.takeIf { it.isStable }?.smartCastType) {
                     is KaIntersectionType -> addAll(smartCastType.conjuncts)
                     is KaUsualClassType -> add(smartCastType)
                 }
             }
             if (this.isEmpty()) {
-                add(defaultType)
+                add(declaration.returnType)
             }
         }
         val overriddenTypes = (declaration.symbol as? KaCallableSymbol)?.directlyOverriddenSymbols

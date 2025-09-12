@@ -101,9 +101,34 @@ abstract class AbstractExtractMethodCompletionCommandProvider(
     synonyms = synonyms,
   ) {
   override fun isApplicable(offset: Int, psiFile: PsiFile, editor: Editor?): Boolean {
-    if (!super.isApplicable(offset, psiFile, editor)) return false
-    return findOutermostExpression(offset, psiFile, editor) != null
+    val controlFlowStatement = findControlFlowStatement(offset, psiFile)
+    if (controlFlowStatement != null) {
+      editor?.selectionModel?.setSelection(controlFlowStatement.textRange.startOffset, controlFlowStatement.textRange.endOffset)
+      return super.isApplicable(offset, psiFile, editor)
+    } else {
+      return findOutermostExpression(offset, psiFile, editor) != null && super.isApplicable(offset, psiFile, editor)
+    }
   }
 
-  abstract fun findOutermostExpression(offset: Int, psiFile: PsiFile, editor: Editor?): PsiElement?
+  override fun createCommand(context: CommandCompletionProviderContext): ActionCompletionCommand {
+    return object : ActionCompletionCommand(actionId = super.actionId,
+                                            synonyms = super.synonyms,
+                                            presentableActionName = super.presentableName,
+                                            icon = super.icon,
+                                            priority = super.priority,
+                                            previewText = super.previewText) {
+      override fun execute(offset: Int, psiFile: PsiFile, editor: Editor?) {
+        if (editor == null) return
+        val controlFlowStatement = findControlFlowStatement(offset, psiFile)
+        if (controlFlowStatement != null) {
+          editor.selectionModel.setSelection(controlFlowStatement.textRange.startOffset, controlFlowStatement.textRange.endOffset)
+        }
+        super.execute(offset, psiFile, editor)
+      }
+    }
+  }
+
+  protected abstract fun findOutermostExpression(offset: Int, psiFile: PsiFile, editor: Editor?): PsiElement?
+
+  protected abstract fun findControlFlowStatement(offset: Int, psiFile: PsiFile): PsiElement?
 }

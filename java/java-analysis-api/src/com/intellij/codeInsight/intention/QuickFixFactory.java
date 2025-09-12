@@ -127,6 +127,8 @@ public abstract class QuickFixFactory {
 
   public abstract @NotNull IntentionAction createNavigateToDuplicateElementFix(@NotNull NavigatablePsiElement element);
 
+  public abstract @NotNull IntentionAction createShowDuplicateElementsFix(@NotNull List<@NotNull ? extends NavigatablePsiElement> elements);
+
   public abstract @NotNull IntentionAction createConvertToStringLiteralAction();
 
   /**
@@ -528,4 +530,10 @@ public abstract class QuickFixFactory {
   public abstract @Nullable ModCommandAction createRecordThisDelegateFix(PsiMethod psi);
 
   public abstract @Nullable CommonIntentionAction createLiftThrowOutOfSwitchExpression(@NotNull PsiSwitchExpression psiSwitchExpression);
+
+  /**
+   * Creates a list of ModCommandAction objects to fix a type with a possible wrong import.
+   */
+  public abstract @NotNull List<? extends @NotNull ModCommandAction> createReplaceTypeWithWrongImportFixes(@Nullable PsiJavaCodeReferenceElement reference);
+
 }
