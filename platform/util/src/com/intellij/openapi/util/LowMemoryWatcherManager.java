@@ -38,9 +38,15 @@ public final class LowMemoryWatcherManager {
   /** Use exponentially smoothing GcTracker instead of WindowedSum one */
   private static final boolean USE_EXPONENTIALLY_SMOOTHING_GC_TRACKING = getBooleanProperty("LowMemoryWatcherManager.USE_EXPONENTIALLY_SMOOTHING_GC_TRACKING", false);
 
+  /** Window size for {@link GcTracker} to accumulate GC durations over. */
   private static final long WINDOW_SIZE_MS = getLongProperty("LowMemoryWatcherManager.WINDOW_SIZE_MS", SECONDS.toMillis(60));
-  private static final long IN_WINDOW_GC_DURATION_THRESHOLD_MS = getLongProperty("LowMemoryWatcherManager.IN_WINDOW_GC_DURATION_THRESHOLD_MS", SECONDS.toMillis(10));
+  /**
+   * GC load (returned by {@link GcTracker}) which is 'too much', i.e. GC is overloaded.
+   * Default 0.1 means that if GC takes > 10% of CPU time then it is considered overloaded.
+   */
+  private static final float GC_LOAD_THRESHOLD = getFloatProperty("LowMemoryWatcherManager.GC_LOAD_THRESHOLD", 0.1f);
 
+  /** Period of GC tracker updates. If <0 -- disable regular updates, update only on memory threshold violation (legacy behavior) */
   private static final long REGULAR_TRACKER_UPDATE_PERIOD_MS = getLongProperty("LowMemoryWatcherManager.REGULAR_TRACKER_UPDATE_PERIOD_MS", SECONDS.toMillis(5));
   //@formatter:on
 
@@ -74,15 +80,19 @@ public final class LowMemoryWatcherManager {
 
       if (memoryThreshold || memoryCollectionThreshold) {
         long currentGcTime = fetchMajorGcDurationAccumulated();
-        long gcLoadScore = gcTracker.trackGc(System.currentTimeMillis(), currentGcTime);
+        double gcLoadScore = gcTracker.gcLoadScore(System.currentTimeMillis(), currentGcTime);
         LOG.info(
-          "LowMemoryNotification{gcTime: " + currentGcTime + "ms, GC load score: " + gcLoadScore + "}" +
+          "LowMemoryNotification{gcTime: " + currentGcTime + "ms, GC load: " + gcLoadScore + "}" +
           "{threshold: " + memoryThreshold + ", collectionThreshold: " + memoryCollectionThreshold + "}"
         );
+        //This is not just 'after GC', it is 'memory subsystem is overloaded':
+        //  (a lot of time spent on GC recently) AND (memory still low after GC)
+        boolean afterGC = (gcLoadScore > GC_LOAD_THRESHOLD) && memoryCollectionThreshold;
+        if (afterGC) {
+          gcTracker.reset();
+        }
         synchronized (watcherNotificationTask) {
           if (watcherNotificationTaskSubmitted == null) {
-            //This is not just 'after GC', it is (a lot of time spent on GC recently) AND (memory still low after GC)
-            boolean afterGC = (gcLoadScore > IN_WINDOW_GC_DURATION_THRESHOLD_MS) && memoryCollectionThreshold;
             watcherNotificationTaskSubmitted = watcherNotificationPool.submit(() -> watcherNotificationTask.accept(afterGC));
             // maybe it's executed too fast or even synchronously
             if (watcherNotificationTaskSubmitted.isDone()) {
@@ -111,6 +121,9 @@ public final class LowMemoryWatcherManager {
                               createSequentialApplicationPoolExecutor("LowMemoryWatcherManager", backendExecutorService);
 
     memoryPoolMXBeansInitializationFuture = initializeMXBeanListenersLater(backendExecutorService);
+
+    //TODO RC: no dependency on telemetry module!
+    //var otelMeter = TelemetryManager.getMeter(JVM)
   }
 
   /** @return accumulated duration of major GC collections since the application start, ms */
@@ -159,9 +172,9 @@ public final class LowMemoryWatcherManager {
               gcTimeTrackingFuture = scheduler.scheduleWithFixedDelay(
                 () -> {
                   long currentGcTime = fetchMajorGcDurationAccumulated();
-                  long gcLoadScore = gcTracker.trackGc(System.currentTimeMillis(), currentGcTime);
+                  double gcLoadScore = gcTracker.gcLoadScore(System.currentTimeMillis(), currentGcTime);
                   if (LOG.isDebugEnabled()) {
-                    LOG.debug("GcTracker update: {gcTime: " + currentGcTime + "ms, GC load score: " + gcLoadScore + "}");
+                    LOG.debug("GcTracker update: {gcTime: " + currentGcTime + "ms, GC load: " + gcLoadScore + "}");
                   }
                 },
                 /*initialDelay: */ 10_000, /*period: */ REGULAR_TRACKER_UPDATE_PERIOD_MS, MILLISECONDS);
@@ -212,9 +225,15 @@ public final class LowMemoryWatcherManager {
   @ApiStatus.Internal
   @VisibleForTesting
   public interface GcTracker {
-    /** @return some weighted sum of GC times over the last period */
-    long trackGc(long currentTimeMs,
-                 long accumulatedGcDurationMs);
+    /**
+     * @return some kind of estimation of how much GC was loaded recently.
+     * Returned value is analogous to cpu_load, i.e. it is something like 'a fraction of total CPU time [0..1] spend on GC', with
+     * more detailed definition being implementation-specific
+     */
+    double gcLoadScore(long currentTimeMs,
+                       long accumulatedGcDurationMs);
+
+    void reset();
   }
 
   /** GC tracker computes a moving sum over {@link #WINDOW_SIZE_MS} window over reported GC cycle durations */
@@ -238,7 +257,7 @@ public final class LowMemoryWatcherManager {
      * last {@link #windowSizeMs}
      */
     @Override
-    public synchronized long trackGc(long currentTimeMs, long accumulatedGcDurationMs) {
+    public synchronized double gcLoadScore(long currentTimeMs, long accumulatedGcDurationMs) {
       if (previousUpdateTimestampMs < currentTimeMs - windowSizeMs) {
         previousUpdateTimestampMs = currentTimeMs;
         previousAccumulatedGcDurationMs = accumulatedGcDurationMs;
@@ -258,9 +277,15 @@ public final class LowMemoryWatcherManager {
         gcDurations.poll();
       }
 
-      return gcDurations.stream()
+      long gcDurationInWindow = gcDurations.stream()
         .mapToLong(period -> period.gcDurationMs)
         .sum();
+      return gcDurationInWindow * 1.0 / windowSizeMs;
+    }
+
+    @Override
+    public synchronized void reset() {
+      gcDurations.clear();
     }
 
     private static class GcPeriod {
@@ -296,8 +321,8 @@ public final class LowMemoryWatcherManager {
     }
 
     @Override
-    public synchronized long trackGc(long currentTimeMs,
-                                     long accumulatedGcDurationMs) {
+    public synchronized double gcLoadScore(long currentTimeMs,
+                                           long accumulatedGcDurationMs) {
       long gcDurationInLastMs = accumulatedGcDurationMs - previousAccumulatedGcDurationMs;
       if (gcDurationInLastMs > 0) {
         long sinceLastUpdateMs = currentTimeMs - previousUpdateTimestampMs;
@@ -311,7 +336,12 @@ public final class LowMemoryWatcherManager {
       previousUpdateTimestampMs = currentTimeMs;
       previousAccumulatedGcDurationMs = accumulatedGcDurationMs;
 
-      return (long)ema;
+      return ema / windowSizeMs;
+    }
+
+    @Override
+    public synchronized void reset() {
+      ema = 0;
     }
   }
 }

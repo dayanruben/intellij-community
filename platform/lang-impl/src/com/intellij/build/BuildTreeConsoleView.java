@@ -54,7 +54,7 @@ import com.intellij.ui.*;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.progress.ProgressUIUtil;
 import com.intellij.ui.render.RenderingHelper;
-import com.intellij.ui.split.SplitComponentFactory;
+import com.intellij.ui.split.SplitComponentBindingKt;
 import com.intellij.ui.tree.AsyncTreeModel;
 import com.intellij.ui.tree.StructureTreeModel;
 import com.intellij.ui.tree.TreePathUtil;
@@ -133,7 +133,7 @@ public final class BuildTreeConsoleView implements ConsoleView, UiDataProvider, 
   private final Tree myTree;
   private final CoroutineScope myScope;
   private final BuildTreeViewModel myTreeVm;
-  private final ComponentContainer mySplitComponent;
+  private final JComponent mySplitComponent;
   private final ExecutionNode myRootNode;
   private final ExecutionNode myBuildProgressRootNode;
   private final Set<Predicate<? super ExecutionNode>> myNodeFilters;
@@ -177,10 +177,12 @@ public final class BuildTreeConsoleView implements ConsoleView, UiDataProvider, 
     if (mySplitImplementation) {
       myScope = CoroutineScopeKt.childScope(ScopeHolder.getScope(project), "BuildTreeConsoleView", EmptyCoroutineContext.INSTANCE, true);
       myTreeVm = new BuildTreeViewModel(this, myScope);
-      Disposer.register(this, myTreeVm);
-      mySplitComponent = SplitComponentFactory.getInstance().createComponent(myTreeVm);
+      mySplitComponent = SplitComponentBindingKt.createComponent(
+        BuildTreeSplitComponentBindingKt.getBuildTreeSplitComponentBinding(),
+        myProject, myScope, myTreeVm.getId()
+      );
 
-      treeComponent = mySplitComponent.getComponent();
+      treeComponent = mySplitComponent;
 
       myOccurrenceNavigatorSupport = new SplitProblemOccurrenceNavigatorSupport(myTreeVm);
 
@@ -890,8 +892,15 @@ public final class BuildTreeConsoleView implements ConsoleView, UiDataProvider, 
 
   @Override
   public JComponent getPreferredFocusableComponent() {
-    return mySplitImplementation ? ObjectUtils.notNull(mySplitComponent.getPreferredFocusableComponent(), mySplitComponent.getComponent())
-                                 : myTree;
+    if (!mySplitImplementation) {
+      return myTree;
+    }
+
+    if (mySplitComponent instanceof ComponentContainer splitComponentContainer) {
+      return splitComponentContainer.getPreferredFocusableComponent();
+    }
+
+    return mySplitComponent;
   }
 
   @Override
@@ -1044,7 +1053,7 @@ public final class BuildTreeConsoleView implements ConsoleView, UiDataProvider, 
   public JTree getTree() {
     if (mySplitImplementation) {
       // won't work on rem dev backend
-      return UIUtil.findComponentOfType(mySplitComponent.getComponent(), JTree.class);
+      return UIUtil.findComponentOfType(mySplitComponent, JTree.class);
     }
     else {
       return myTree;

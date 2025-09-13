@@ -5,7 +5,7 @@ import com.intellij.ide.DataManager
 import com.intellij.ide.IdeView
 import com.intellij.ide.projectView.ProjectView
 import com.intellij.ide.projectView.impl.IdeViewForProjectViewPane
-import com.intellij.ide.startup.importSettings.chooser.ui.UiUtils
+import com.intellij.idea.AppModeAssertions
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.PresentationFactory
@@ -35,15 +35,14 @@ import javax.swing.JComponent
 
 internal class WelcomeScreenLeftPanelActions(val project: Project) {
   internal val panelButtonModels: List<PanelButtonModel>
-    get() = listOf(
+    get() = listOfNotNull(
       PanelButtonModel(NonModalWelcomeScreenBundle.message ("welcome.screen.action.open"), AllIcons.Nodes.Folder,
                        runPlatformAction("OpenFile")),
       PanelButtonModel(NonModalWelcomeScreenBundle.message("welcome.screen.action.new"), AllIcons.General.Add,
                        showNewActionGroupDropDown()),
       PanelButtonModel(NonModalWelcomeScreenBundle.message("welcome.screen.action.clone"), AllIcons.General.Vcs,
                        runPlatformAction("Vcs.VcsClone")),
-      PanelButtonModel(NonModalWelcomeScreenBundle.message("welcome.screen.action.remote.development"), AllIcons.Nodes.Plugin,
-                       runPlatformAction("OpenRemoteDevelopment")),
+      remoteDevelopmentButton()
     )
 
   internal data class PanelButtonModel(
@@ -51,6 +50,12 @@ internal class WelcomeScreenLeftPanelActions(val project: Project) {
     val icon: Icon,
     val onClick: (JComponent) -> Unit,
   )
+
+  private fun remoteDevelopmentButton(): PanelButtonModel? {
+    if (!AppModeAssertions.isMonolith()) return null
+    return PanelButtonModel(NonModalWelcomeScreenBundle.message("welcome.screen.action.remote.development"), AllIcons.Nodes.Plugin,
+                            runPlatformAction("OpenRemoteDevelopment"))
+  }
 
   private fun runPlatformAction(name: String): (JComponent) -> Unit {
     val action = ActionManager.getInstance().getAction(name)
@@ -71,7 +76,7 @@ internal class WelcomeScreenLeftPanelActions(val project: Project) {
     val result = object : ListPopupImpl(null, step) {
       override fun createPopupComponent(content: JComponent?): JComponent {
         return super.createPopupComponent(content).apply {
-          preferredSize = Dimension(JBUI.scale(UiUtils.DEFAULT_BUTTON_WIDTH)
+          preferredSize = Dimension(JBUI.scale(DEFAULT_BUTTON_WIDTH)
                                       .coerceAtLeast(preferredSize.width), preferredSize.height)
         }
       }
@@ -127,6 +132,8 @@ internal class WelcomeScreenLeftPanelActions(val project: Project) {
   }
 
   companion object {
+    private const val DEFAULT_BUTTON_WIDTH = 280
+
     /**
      * See com.jetbrains.ds.toolwindow.DataSpellDataPanelService.createEmptyStatePanel
      */

@@ -2,6 +2,7 @@
 package com.intellij.ide.impl
 
 import com.intellij.CommonBundle
+import com.intellij.configurationStore.ProjectStorePathManager
 import com.intellij.configurationStore.runInAutoSaveDisabledMode
 import com.intellij.configurationStore.saveSettings
 import com.intellij.execution.wsl.WslPath.Companion.isWslUncPath
@@ -13,7 +14,6 @@ import com.intellij.ide.RecentProjectsManager
 import com.intellij.ide.actions.OpenFileAction
 import com.intellij.ide.highlighter.ProjectFileType
 import com.intellij.openapi.application.*
-import com.intellij.openapi.components.StorageScheme
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
@@ -24,7 +24,6 @@ import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.project.ProjectStorePathManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.ui.MessageDialogBuilder
@@ -361,7 +360,7 @@ object ProjectUtil {
       val storePathManager = ProjectStorePathManager.getInstance()
       val isKnownProject = storePathManager.testStoreDirectoryExistsForProjectRoot(file)
       if (!isKnownProject) {
-        val dirPath = storePathManager.getStoreDirectoryPath(file)
+        val dirPath = storePathManager.getStoreDescriptor(file)
         Messages.showErrorDialog(IdeBundle.message("error.project.file.does.not.exist", dirPath.toString()), CommonBundle.getErrorTitle())
         return null
       }
@@ -452,20 +451,20 @@ object ProjectUtil {
     }
 
     if (Files.isDirectory(projectFile)) {
-      return try {
-        Files.isSameFile(projectFile, existingBaseDirPath)
+      try {
+        return Files.isSameFile(projectFile, existingBaseDirPath)
       }
       catch (_: IOException) {
-        false
+        return false
       }
     }
 
-    if (projectStore.storageScheme == StorageScheme.DEFAULT) {
-      return try {
-        Files.isSameFile(projectFile, projectStore.projectFilePath)
+    if (projectStore.directoryStorePath == null) {
+      try {
+        return Files.isSameFile(projectFile, projectStore.projectFilePath)
       }
       catch (_: IOException) {
-        false
+        return false
       }
     }
 
@@ -473,6 +472,7 @@ object ProjectUtil {
     if (projectFile.startsWith(storeDir)) {
       return true
     }
+
     val parent = projectFile.parent ?: return false
     return projectFile.fileName.toString().endsWith(ProjectFileType.DOT_DEFAULT_EXTENSION) &&
            FileUtil.pathsEqual(parent.toString(), existingBaseDirPath.toString())

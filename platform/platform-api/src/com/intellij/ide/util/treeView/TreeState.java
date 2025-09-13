@@ -6,7 +6,6 @@ import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Progressive;
 import com.intellij.openapi.util.*;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringHash;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.reference.SoftReference;
@@ -268,6 +267,12 @@ public final class TreeState implements JDOMExternalizable {
 
     boolean fullyMatched() {
       return matchedSoFar == serializedPath.length;
+    }
+    
+    boolean isParentOf(@NotNull TreePath path) {
+      var parent = path.getParentPath();
+      if (parent == null) return false; // No path can be the root's parent.
+      return Objects.equals(matchedPath, parent);
     }
 
     boolean tryAdvance(@NotNull Object node) {
@@ -1118,33 +1123,22 @@ public final class TreeState implements JDOMExternalizable {
   }
 
   private Promise<List<TreePath>> expand(@NotNull JTree tree) {
-    if (TreeUtil.isBulkExpandCollapseSupported(tree) && tree instanceof Tree jbTree && Registry.is("ide.tree.bulk.expand.tree.state", false)) {
-      var promise = new AsyncPromise<List<TreePath>>();
-      var bulkExpandVisitor = new MultiplePathsVisitor(myExpandedPaths);
-      TreeUtil.promiseVisit(tree, bulkExpandVisitor).onProcessed(lastPathFound -> {
-        jbTree.expandPaths(bulkExpandVisitor.pathsFound);
-        promise.setResult(bulkExpandVisitor.pathsFound);
-      });
-      return promise;
+    if (myPresentationData == null) {
+      LOG.debug("Restoring the expanded paths");
+      return TreeUtil.promiseExpand(tree, myExpandedPaths.stream().map(elements -> new SinglePathVisitor(elements)));
     }
     else {
-      if (myPresentationData == null) {
-        LOG.debug("Restoring the expanded paths");
-        return TreeUtil.promiseExpand(tree, myExpandedPaths.stream().map(elements -> new SinglePathVisitor(elements)));
-      }
-      else {
-        // If we have cached presentation data, then everything is already shown and expanded,
-        // and if the user collapses one of those nodes, we don't want to expand it again here,
-        // as that looks and feels weird.
-        // So instead, only load these nodes so they can replace the cached ones.
-        LOG.debug("Loading the expanded paths to replace the cached presentation");
-        var promise = new AsyncPromise<List<TreePath>>();
-        var visitor = new MultiplePathsVisitor(myExpandedPaths);
-        TreeUtil.promiseVisit(tree, visitor).onProcessed(lastPathFound -> {
-          promise.setResult(visitor.pathsFound);
-        });
-        return promise;
-      }
+      // If we have cached presentation data, then everything is already shown and expanded,
+      // and if the user collapses one of those nodes, we don't want to expand it again here,
+      // as that looks and feels weird.
+      // So instead, only load these nodes so they can replace the cached ones.
+      LOG.debug("Loading the expanded paths to replace the cached presentation");
+      var promise = new AsyncPromise<List<TreePath>>();
+      var visitor = new MultiplePathsVisitor(myExpandedPaths);
+      TreeUtil.promiseVisit(tree, visitor).onProcessed(lastPathFound -> {
+        promise.setResult(visitor.pathsFound);
+      });
+      return promise;
     }
   }
 
@@ -1210,9 +1204,12 @@ public final class TreeState implements JDOMExternalizable {
       private PathMatchState(PathElement[] elements) { this.matcher = new PathMatcher(elements, null, null); }
 
       @NotNull PathMatch match(@NotNull TreePath path) {
-        if (Objects.equals(path.getParentPath(), matcher.matchedPath())) {
+        if (matcher.fullyMatched()) {
+          return matcher.isParentOf(path) ? PathMatch.CHILD : PathMatch.NONE;
+        }
+        else if (Objects.equals(path.getParentPath(), matcher.matchedPath())) {
           if (matcher.tryAdvance(path.getLastPathComponent())) {
-            return matcher.fullyMatched() ? PathMatch.FULL : PathMatch.PARTIAL;
+            return matcher.fullyMatched() ? PathMatch.FULL : PathMatch.ANCESTOR;
           }
           else {
             return PathMatch.NONE;
@@ -1226,17 +1223,20 @@ public final class TreeState implements JDOMExternalizable {
 
     private enum PathMatch {
       FULL,
-      PARTIAL,
+      ANCESTOR,
+      CHILD,
       NONE
     }
 
-    private final List<PathMatchState> matchStates = new ArrayList<>();
+    private final List<Set<PathMatchState>> matchStatesPerLevel = new ArrayList<>();
     private final List<TreePath> pathsFound = new ArrayList<>();
 
     MultiplePathsVisitor(List<PathElement[]> paths) {
+      matchStatesPerLevel.add(new HashSet<>());
       for (PathElement[] path : paths) {
-        matchStates.add(new PathMatchState(path));
+        matchStatesPerLevel.getFirst().add(new PathMatchState(path));
       }
+      push(1, new HashSet<>(matchStatesPerLevel.getFirst()));
     }
 
     @Override
@@ -1246,32 +1246,71 @@ public final class TreeState implements JDOMExternalizable {
 
     @Override
     public @NotNull Action visit(@NotNull TreePath path) {
-      boolean foundPartialMatch = false;
+      var level = path.getPathCount();
+      pop(level);
+      var matchStates = matchStatesPerLevel.get(level);
+      @Nullable Set<PathMatchState> matchStatesForNextLevel = null;
       for (Iterator<PathMatchState> iterator = matchStates.iterator(); iterator.hasNext(); ) {
         PathMatchState state = iterator.next();
+        boolean needToGoDeeper = false;
         switch (state.match(path)) {
           case FULL -> {
             if (LOG.isDebugEnabled()) {
               LOG.debug("Found a path using a multi-path visitor: " + path);
             }
             pathsFound.add(path);
+            // We've found an expanded path, but we still need to load its children.
+            needToGoDeeper = true;
+          }
+          case ANCESTOR -> {
+            // We've found an ancestor of an expanded path, so we need to keep looking into this subtree.
+            needToGoDeeper = true;
+          }
+          case CHILD -> {
+            // A fully matched path, and we've found its first child.
+            // This means its children have been loaded, so we're done with it.
             iterator.remove();
+            removeFromUpperLevels(level, state);
           }
-          case PARTIAL -> {
-            foundPartialMatch = true;
+        }
+        if (needToGoDeeper) {
+          if (matchStatesForNextLevel == null) {
+            matchStatesForNextLevel = new HashSet<>();
           }
+          matchStatesForNextLevel.add(state);
         }
       }
       if (matchStates.isEmpty()) {
-        return Action.INTERRUPT;
+        // Nothing more to look for at this level.
+        return Action.SKIP_SIBLINGS;
       }
-      else if (foundPartialMatch) {
+      else if (matchStatesForNextLevel != null) {
+        // Either this path is an ancestor of a path we're looking for,
+        // or that it IS a path we're looking for, but we still need to load its children.
+        push(level + 1, matchStatesForNextLevel);
         return Action.CONTINUE;
       }
       else {
+        // No need to go deeper, but we might still find something on this level because matchStates is not empty yet.
         return Action.SKIP_CHILDREN;
+      }
+    }
+
+    private void push(int level, @NotNull Set<PathMatchState> matchStates) {
+      assert level == matchStatesPerLevel.size();
+      matchStatesPerLevel.add(matchStates);
+    }
+
+    private void pop(int level) {
+      while (level < matchStatesPerLevel.size() - 1) {
+        matchStatesPerLevel.removeLast();
+      }
+    }
+
+    private void removeFromUpperLevels(int level, PathMatchState state) {
+      for (int i = 0; i < level; ++i) {
+        matchStatesPerLevel.get(i).remove(state);
       }
     }
   }
 }
-

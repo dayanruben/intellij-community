@@ -264,6 +264,9 @@
                     beanClass="com.intellij.ui.viewModel.extraction.ToolWindowExtractorEP"
                     dynamic="true"/>
 
+    <extensionPoint name="projectViewPaneExtractor" interface="com.intellij.ui.viewModel.extraction.ProjectViewPaneModelExtractor"
+                    dynamic="true"/>
+
     <extensionPoint name="editorNavigation" interface="com.intellij.openapi.editor.EditorNavigationDelegate" dynamic="true"/>
 
     <extensionPoint name="statistics.applicationUsagesCollector"
@@ -694,17 +697,15 @@
 
     <extensionPoint name="editorSkeletonPolicy" interface="com.intellij.openapi.fileEditor.impl.EditorSkeletonPolicy" dynamic="true"/>
 
-    <extensionPoint qualifiedName="com.intellij.frontend.splitComponentProvider"
-                    beanClass="com.intellij.ui.split.SplitComponentProviderBean">
-      <with attribute="implementation" implements="com.intellij.ui.split.SplitComponentProvider"/>
-    </extensionPoint>
+    <extensionPoint qualifiedName="com.intellij.frontend.splitComponentProvider" interface="com.intellij.ui.split.SplitComponentProvider"
+                    dynamic="true"/>
 
     <extensionPoint qualifiedName="com.intellij.ide.gdpr.traceConsentManager"
                     interface="com.intellij.ide.gdpr.trace.TraceConsentManager"
                     dynamic="true"/>
 
     <extensionPoint name="projectStorePathCustomizer"
-                    interface="com.intellij.openapi.project.ProjectStorePathCustomizer"
+                    interface="com.intellij.configurationStore.ProjectStorePathCustomizer"
                     dynamic="true"/>
   </extensionPoints>
 </idea-plugin>

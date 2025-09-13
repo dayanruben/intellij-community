@@ -168,8 +168,8 @@
     <configurationType implementation="com.jetbrains.python.run.FastAPILockedRunConfigurationType" order="first"/>
     <facetIgnorer implementation="com.jetbrains.python.run.DjangoFacetIgnorer"/>
 
-    <programRunner implementation="com.jetbrains.python.run.PythonRunner"/>
-    <programRunner implementation="com.jetbrains.python.debugger.PyDebugRunner"/>
+    <programRunner implementation="com.jetbrains.python.run.PythonRunner" order="before defaultRunRunner"/>
+    <programRunner implementation="com.jetbrains.python.debugger.PyDebugRunner" order="before defaultDebugRunner"/>
     <runConfigurationProducer implementation="com.jetbrains.python.run.PythonRunConfigurationProducer"/>
     <xdebugger.breakpointType implementation="com.jetbrains.python.debugger.PyLineBreakpointType"/>
     <xdebugger.breakpointType implementation="com.jetbrains.python.debugger.PyExceptionBreakpointType"/>
@@ -677,7 +677,6 @@
 
     <!-- uv -->
     <configurationType implementation="com.jetbrains.python.sdk.uv.run.UvRunConfigurationType"/>
-    <runConfigurationProducer implementation="com.jetbrains.python.sdk.uv.run.UvRunConfigurationProducer"/>
   </extensions>
 
   <extensionPoints>
@@ -1131,7 +1130,7 @@
 
       <action id="PipSetDefaultRequirementsAction"
               class="com.jetbrains.python.packaging.pip.actions.PipSetDefaultRequirementsAction"
-              icon="com.intellij.icons.AllIcons.General.GreenCheckmark"/>
+              icon="com.jetbrains.python.icons.PythonIcons.Python.ReferencedFile"/>
       <action id="PipUpdateEnvAction"
               class="com.jetbrains.python.packaging.pip.actions.PipUpdateEnvAction"
               icon="com.intellij.icons.AllIcons.Actions.Refresh"/>

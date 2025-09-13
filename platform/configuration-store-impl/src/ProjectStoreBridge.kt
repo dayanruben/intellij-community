@@ -11,17 +11,14 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.components.impl.ModulePathMacroManager
 import com.intellij.openapi.components.impl.ProjectPathMacroManager
 import com.intellij.openapi.components.impl.stores.ComponentStorageUtil
-import com.intellij.openapi.components.impl.stores.IProjectStore
-import com.intellij.openapi.components.impl.stores.stateStore
+import com.intellij.openapi.components.impl.stores.ComponentStoreOwner
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.getExternalConfigurationDir
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.SystemInfoRt
-import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFileManager
@@ -35,9 +32,7 @@ import com.intellij.platform.workspace.jps.serialization.impl.JpsFileContentWrit
 import com.intellij.platform.workspace.jps.serialization.impl.WritableJpsFileContent
 import com.intellij.platform.workspace.jps.serialization.impl.isExternalModuleFile
 import com.intellij.platform.workspace.storage.CachedValue
-import com.intellij.project.stateStore
 import com.intellij.util.LineSeparator
-import com.intellij.util.PathUtil
 import com.intellij.util.PathUtilRt
 import com.intellij.util.containers.HashingStrategy
 import com.intellij.workspaceModel.ide.getJpsProjectConfigLocation
@@ -72,8 +67,7 @@ private fun shouldWriteExternalFilesDirectly(): Boolean {
 }
 
 @ApiStatus.Internal
-open
-class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(project), ProjectStoreWithJpsContentReader {
+open class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(project), ProjectStoreWithJpsContentReader {
   private val persistentModules = CachedValue<List<Module>> { storage ->
     val moduleMap = storage.moduleMap
     storage.entities(ModuleEntity::class.java)
@@ -86,7 +80,7 @@ class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(project), 
     saveSessions: MutableList<SaveSession>,
     saveResult: SaveResult,
     forceSavingAllSettings: Boolean,
-    projectSessionManager: ProjectSaveSessionProducerManager
+    projectSessionManager: ProjectSaveSessionProducerManager,
   ) {
     projectSessionManager as ProjectWithModulesSaveSessionProducerManager
     val workspaceModel = project.serviceAsync<WorkspaceModel>()
@@ -104,7 +98,7 @@ class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(project), 
 
     val entityStorage = (project.serviceAsync<WorkspaceModel>() as WorkspaceModelInternal).entityStorage
     for (module in entityStorage.cachedValue(persistentModules)) {
-      val moduleStore = module.stateStore as? ComponentStoreImpl ?: continue
+      val moduleStore = (module as ComponentStoreOwner).componentStore as? ComponentStoreImpl ?: continue
       val moduleSessionManager = moduleStore.createSaveSessionProducerManager()
       moduleStore.commitComponents(isForce = forceSavingAllSettings, sessionManager = moduleSessionManager, saveResult = saveResult)
       projectSessionManager.commitComponents(moduleStore = moduleStore, moduleSaveSessionManager = moduleSessionManager)
@@ -119,11 +113,11 @@ class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(project), 
   }
 
   override fun createContentReader(): JpsFileContentReaderWithCache {
-    return StorageJpsConfigurationReader(project = project, configLocation = getJpsProjectConfigLocation(project)!!)
+    return StorageJpsConfigurationReader(project = project, projectStore = this, configLocation = getJpsProjectConfigLocation(project)!!)
   }
 }
 
-private class DelegatingJpsStorageContentWriter(session: ProjectWithModulesSaveSessionProducerManager, store: IProjectStore, project: Project)
+private class DelegatingJpsStorageContentWriter(session: ProjectWithModulesSaveSessionProducerManager, store: ProjectStoreImpl, project: Project)
   : JpsStorageContentWriter(session, store, project) {
   override fun saveInternalFileModuleComponent(filePath: @NlsSafe String, componentName: String, componentTag: Element?) {
     session.setModuleComponentState(imlFilePath = filePath, componentName = componentName, componentTag = componentTag)
@@ -144,7 +138,7 @@ private class DelegatingJpsStorageContentWriter(session: ProjectWithModulesSaveS
 
 private class DirectJpsStorageContentWriter(
   session: ProjectWithModulesSaveSessionProducerManager,
-  store: IProjectStore,
+  store: ProjectStoreImpl,
   project: Project,
   private val moduleManager: ModuleManager,
 ) : JpsStorageContentWriter(session = session, store = store, project = project) {
@@ -249,7 +243,7 @@ private class DirectJpsStorageContentWriter(
 
 private class ComponentStoreContentWriter(
   session: ProjectWithModulesSaveSessionProducerManager,
-  store: IProjectStore,
+  store: ProjectStoreImpl,
   project: Project,
 ) : JpsStorageContentWriter(session, store, project) {
 
@@ -268,7 +262,7 @@ private class ComponentStoreContentWriter(
 // (because we want the store to generate VFS events to keep iml files up to date)
 private class HalfDirectJpsStorageContentWriter(
   session: ProjectWithModulesSaveSessionProducerManager,
-  store: IProjectStore,
+  store: ProjectStoreImpl,
   project: Project,
   moduleManager: ModuleManager,
 ) : JpsStorageContentWriter(session, store, project) {
@@ -302,7 +296,7 @@ private class HalfDirectJpsStorageContentWriter(
 
 private abstract class JpsStorageContentWriter(
   val session: ProjectWithModulesSaveSessionProducerManager,
-  val store: IProjectStore,
+  val store: ProjectStoreImpl,
   val project: Project,
 ) : JpsFileContentWriter {
   override fun saveComponent(fileUrl: String, componentName: String, componentTag: Element?) {
@@ -376,16 +370,14 @@ private class ProjectWithModulesSaveSessionProducerManager(project: Project, isU
   fun commitComponents(moduleStore: ComponentStoreImpl, moduleSaveSessionManager: SaveSessionProducerManager) {
     fun commitToStorage(storageSpec: Storage, componentToElement: Map<String, Element>) {
       val storage = moduleStore.storageManager.getStateStorage(storageSpec)
-      val producer = moduleSaveSessionManager.getProducer(storage)
-      if (producer != null) {
-        for ((componentName, componentTag) in componentToElement) {
-          producer.setState(
-            component = null,
-            componentName = componentName,
-            pluginId = PluginManagerCore.CORE_ID,
-            state = if (componentTag === NULL_ELEMENT) null else componentTag,
-          )
-        }
+      val producer = moduleSaveSessionManager.getProducer(storage) ?: return
+      for ((componentName, componentTag) in componentToElement) {
+        producer.setState(
+          component = null,
+          componentName = componentName,
+          pluginId = PluginManagerCore.CORE_ID,
+          state = if (componentTag === NULL_ELEMENT) null else componentTag,
+        )
       }
     }
 
@@ -405,7 +397,11 @@ private class ProjectWithModulesSaveSessionProducerManager(project: Project, isU
   }
 }
 
-internal class StorageJpsConfigurationReader(private val project: Project, private val configLocation: JpsProjectConfigLocation) : JpsFileContentReaderWithCache {
+private class StorageJpsConfigurationReader(
+  private val project: Project,
+  private val configLocation: JpsProjectConfigLocation,
+  private val projectStore: ProjectStoreImpl,
+) : JpsFileContentReaderWithCache {
   @Volatile
   private var fileContentCachingReader: CachingJpsFileContentReader? = null
   private val externalConfigurationDir = lazy { project.getExternalConfigurationDir() }
@@ -415,40 +411,40 @@ internal class StorageJpsConfigurationReader(private val project: Project, priva
     if (ProjectUtil.isRemotePath(FileUtilRt.toSystemDependentName(filePath)) && !TrustedProjects.isProjectTrusted(project)) {
       throw IOException(ConfigurationStoreBundle.message("error.message.details.configuration.files.from.remote.locations.in.safe.mode"))
     }
-    if (componentName.isEmpty()) {
-      //this is currently used for loading Eclipse project configuration from the.classpath file
-      val file = VirtualFileManager.getInstance().findFileByUrl(fileUrl)
-      val component = file?.inputStream?.use { JDOMUtil.load(it) }
-      return@addMeasuredTime component
-    }
-    if (isExternalMiscFile(filePath)) {
-      // this is a workaround to make a working scenario when the whole .idea is moved to external configuration dir
-      // see com.intellij.workspaceModel.ide.impl.jps.serialization.JpsProjectEntitiesLoader.isExternalStorageEnabled
-      val component = getCachingReader().loadComponent(fileUrl, componentName, customModuleFilePath)
-      return@addMeasuredTime component
-    }
-    if (filePath.endsWith(".iml") || isExternalModuleFile(filePath)) {
-      //todo fetch data from ModuleStore (IJPL-15992)
-      val component = getCachingReader().loadComponent(fileUrl, componentName, customModuleFilePath)
-      return@addMeasuredTime component
-    }
-    else {
-      val storage = getProjectStateStorage(filePath, project.stateStore, project)
-      val stateMap = storage.getStorageData()
-      val component = if (storage is DirectoryBasedStorage) {
-        val elementContent = stateMap.getElement(PathUtilRt.getFileName(filePath))
-        if (elementContent == null) {
-          null
+
+    when {
+      componentName.isEmpty() -> {
+        // this is currently used for loading Eclipse project configuration from the.classpath file
+        val file = VirtualFileManager.getInstance().findFileByUrl(fileUrl)
+        file?.inputStream?.use { JDOMUtil.load(it) }
+      }
+      isExternalMiscFile(filePath) -> {
+        // this is a workaround to make a working scenario when the whole .idea is moved to external configuration dir
+        // see com.intellij.workspaceModel.ide.impl.jps.serialization.JpsProjectEntitiesLoader.isExternalStorageEnabled
+        getCachingReader().loadComponent(fileUrl, componentName, customModuleFilePath)
+      }
+      filePath.endsWith(".iml") || isExternalModuleFile(filePath) -> {
+        //todo fetch data from ModuleStore (IJPL-15992)
+        getCachingReader().loadComponent(fileUrl, componentName, customModuleFilePath)
+      }
+      else -> {
+        val storage = getProjectStateStorage(filePath, projectStore, project)
+        val stateMap = storage.getStorageData()
+        val component = if (storage is DirectoryBasedStorage) {
+          val elementContent = stateMap.getElement(PathUtilRt.getFileName(filePath))
+          if (elementContent == null) {
+            null
+          }
+          else {
+            Element(ComponentStorageUtil.COMPONENT).setAttribute(ComponentStorageUtil.NAME, componentName).addContent(elementContent)
+          }
         }
         else {
-          Element(ComponentStorageUtil.COMPONENT).setAttribute(ComponentStorageUtil.NAME, componentName).addContent(elementContent)
+          stateMap.getElement(componentName)
         }
-      }
-      else {
-        stateMap.getElement(componentName)
-      }
 
-      return@addMeasuredTime component
+        component
+      }
     }
   }
 
@@ -492,58 +488,7 @@ internal class StorageJpsConfigurationReader(private val project: Project, priva
   }
 }
 
-internal fun getProjectStateStorage(filePath: String, store: IProjectStore, project: Project): StateStorageBase<StateMap> {
-  val storageSpec = getStorageSpec(filePath, project)
+private fun getProjectStateStorage(filePath: String, store: ProjectStoreImpl, project: Project): StateStorageBase<StateMap> {
   @Suppress("UNCHECKED_CAST")
-  return store.storageManager.getStateStorage(storageSpec) as StateStorageBase<StateMap>
-}
-
-private fun getStorageSpec(filePath: String, project: Project): Storage {
-  val collapsedPath: String
-  val splitterClass: Class<out StateSplitterEx>
-  val fileName = PathUtil.getFileName(filePath)
-  val parentPath = PathUtil.getParentPath(filePath)
-  val parentFileName = PathUtil.getFileName(parentPath)
-  if (filePath.endsWith(".ipr") || fileName == "misc.xml" && parentFileName == Project.DIRECTORY_STORE_FOLDER) {
-    collapsedPath = "\$PROJECT_FILE$"
-    splitterClass = StateSplitterEx::class.java
-  }
-  else {
-    if (parentFileName == Project.DIRECTORY_STORE_FOLDER) {
-      collapsedPath = fileName
-      splitterClass = StateSplitterEx::class.java
-    }
-    else {
-      val grandParentPath = PathUtil.getParentPath(parentPath)
-      collapsedPath = parentFileName
-      splitterClass = FakeDirectoryBasedStateSplitter::class.java
-      if (PathUtil.getFileName(grandParentPath) != Project.DIRECTORY_STORE_FOLDER) {
-        if (parentFileName == "project") {
-          if (fileName == "libraries.xml" || fileName == "artifacts.xml") {
-            val inProjectStorage = FileStorageAnnotation(FileUtil.getNameWithoutExtension(fileName), false, splitterClass)
-            val componentName = if (fileName == "libraries.xml") "libraryTable" else "ArtifactManager"
-            StreamProviderFactory.EP_NAME.computeSafeIfAny(project) {
-              it.getOrCreateStorageSpec(fileName, StateAnnotation(componentName, inProjectStorage))
-            }?.let { return it }
-          }
-          if (fileName == "modules.xml") {
-            StreamProviderFactory.EP_NAME.computeSafeIfAny(project) {
-              it.getOrCreateStorageSpec(fileName)
-            }?.let { return it }
-          }
-        }
-        if (StreamProviderFactory.EP_NAME.hasAnyExtensions(project)) {
-          error("$filePath is not under .idea directory and not under external system cache")
-        }
-      }
-    }
-  }
-  return FileStorageAnnotation(/* path = */ collapsedPath, /* deprecated = */ false, /* splitterClass = */ splitterClass)
-}
-
-/**
- * This fake implementation is used to force creating directory-based storage in `StateStorageManagerImpl.createStateStorage`.
- */
-private class FakeDirectoryBasedStateSplitter : StateSplitterEx() {
-  override fun splitState(state: Element): MutableList<Pair<Element, String>> = throw AssertionError()
+  return store.storageManager.getStateStorage(store.storeDescriptor.getJpsBridgeAwareStorageSpec(filePath, project)) as StateStorageBase<StateMap>
 }
