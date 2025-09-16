@@ -18,7 +18,7 @@ import com.intellij.java.JavaBundle;
 import com.intellij.junit4.JUnit4IdeaTestRunner;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.application.ArchivedCompilationContextUtil;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
@@ -238,7 +238,7 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
     javaParameters.getClassPath().addFirst(path != null ? path : PathUtil.getJarPathForClass(JUnitStarter.class));
 
     //include junit5 listeners for the case custom junit 5 engines would be detected on runtime
-    javaParameters.getClassPath().addFirst(getJUnit5RtFile());
+    javaParameters.getClassPath().addAllFiles(getJUnit5RtFiles());
 
     appendDownloadedDependenciesForForkedConfigurations(javaParameters, module);
   }
@@ -261,7 +261,7 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
     }
   }
 
-  public static File getJUnit5RtFile() {
+  public static List<File> getJUnit5RtFiles() {
     File junit4Rt = new File(PathUtil.getJarPathForClass(JUnit4IdeaTestRunner.class));
     String junit4Name = junit4Rt.getName();
     String junit5Name;
@@ -269,16 +269,16 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
       junit5Name = junit4Name.replace("junit", "junit.v5");
     }
     else {
-      var relevantJarsRoot = PathManager.getArchivedCompliedClassesLocation();
-      Map<String, String> mapping = PathManager.getArchivedCompiledClassesMapping();
+      var relevantJarsRoot = ArchivedCompilationContextUtil.getArchivedCompiledClassesLocation();
+      Map<String, List<String>> mapping = ArchivedCompilationContextUtil.getArchivedCompiledClassesMapping();
       if (relevantJarsRoot != null && junit4Rt.toPath().startsWith(relevantJarsRoot) && mapping != null) {
-        return new File(mapping.get("production/intellij.junit.v5.rt"));
+        return ContainerUtil.map(mapping.get("production/intellij.junit.v5.rt"), File::new);
       }
       else {
         junit5Name = junit4Name.replace("junit", "junit5");
       }
     }
-    return new File(junit4Rt.getParent(), junit5Name);
+    return Collections.singletonList(new File(junit4Rt.getParent(), junit5Name));
   }
 
   /**

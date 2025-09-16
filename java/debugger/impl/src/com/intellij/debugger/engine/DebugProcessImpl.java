@@ -78,6 +78,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.DisposableWrapperList;
 import com.intellij.util.lang.JavaVersion;
 import com.intellij.util.system.OS;
+import com.intellij.util.ui.EDT;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerBundle;
@@ -174,6 +175,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   final SteppingProgressTracker mySteppingProgressTracker = new SteppingProgressTracker(this);
 
+  protected final @NotNull RunToCursorManager myRunToCursorManager;
+
   // These 2 fields are needs to switching from found suspend-thread context to user-friendly suspend-all context.
   // The main related logic is in [SuspendOtherThreadsRequestor].
   volatile ParametersForSuspendAllReplacing myParametersForSuspendAllReplacing = null;
@@ -192,6 +195,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       .childScope(projectScope, "DebugProcessImpl", EmptyCoroutineContext.INSTANCE, true);
     myDebuggerManagerThread = createManagerThread();
     myShowStatusManager = new ShowStatusManager(project, myCoroutineScope);
+    myRunToCursorManager = new RunToCursorManager(this, myCoroutineScope);
+
     requestManager = new RequestManagerImpl(this);
     NodeRendererSettings.getInstance().addListener(this::reloadRenderers, disposable);
     NodeRenderer.EP_NAME.addChangeListener(this::reloadRenderers, disposable);
@@ -1420,10 +1425,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       context.getManagerThread().startLongProcessAndFork(() -> {
         try {
           try {
-            if (!Patches.IBM_JDK_DISABLE_COLLECTION_BUG) {
-              // ensure args are not collected
-              StreamEx.of(myArgs).select(ObjectReference.class).forEach(DebuggerUtilsEx::disableCollection);
-            }
+            // ensure args are not collected
+            StreamEx.of(myArgs).select(ObjectReference.class).forEach(DebuggerUtilsEx::disableCollection);
 
             if (Patches.JDK_BUG_ID_21275177 && (ourTraceMask & VirtualMachine.TRACE_SENDS) != 0) {
               //noinspection ResultOfMethodCallIgnored
@@ -1448,11 +1451,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
             if (Patches.JDK_BUG_WITH_TRACE_SEND && (getTraceMask() & VirtualMachine.TRACE_SENDS) != 0) {
               myMethod.virtualMachine().setDebugTraceMode(getTraceMask());
             }
-            //  assertThreadSuspended(thread, context);
-            if (!Patches.IBM_JDK_DISABLE_COLLECTION_BUG) {
-              // ensure args are not collected
-              StreamEx.of(myArgs).select(ObjectReference.class).forEach(DebuggerUtilsEx::enableCollection);
-            }
+            // ensure args are not collected
+            StreamEx.of(myArgs).select(ObjectReference.class).forEach(DebuggerUtilsEx::enableCollection);
           }
         }
         catch (Exception e) {
@@ -2129,6 +2129,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       final DebugProcessImpl debugProcess = context.getDebugProcess();
 
       if (shouldExecuteRegardlessOfRequestWarnings() || debugProcess.getRequestsManager().getWarning(myRunToCursorBreakpoint) == null) {
+        myRunToCursorManager.onRunToCursorCommandStarted();
         super.contextAction(context);
       }
       else {
@@ -3026,7 +3027,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           BalloonBuilder balloonBuilder = JBPopupFactory.getInstance()
             .createHtmlTextBalloonBuilder(content, messageType, null)
             .setHideOnClickOutside(true)
-            .setDisposable(disposable)
+            .setDisposable(createEdtDisposable())
             .setHideOnFrameResize(false);
           Balloon balloon = balloonBuilder.createBalloon();
           balloon.show(new AnchoredPoint(AnchoredPoint.Anchor.TOP, target), Balloon.Position.above);
@@ -3056,6 +3057,25 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   private record VirtualMachineData(VirtualMachineProxyImpl vm, RemoteConnection connection,
                                     DebuggerManagerThreadImpl debuggerManagerThread) {
+  }
+
+  private @NotNull Disposable createEdtDisposable() {
+    EDT.assertIsEdt();
+    Disposable result = Disposer.newCheckedDisposable();
+    boolean isSuccess = Disposer.tryRegister(disposable, new Disposable() {
+      @Override
+      public void dispose() {
+        ApplicationManager.getApplication().invokeLater(() -> {
+          Disposer.dispose(result);
+        });
+      }
+    });
+    if (!isSuccess) {
+      ApplicationManager.getApplication().invokeLater(() -> {
+        Disposer.dispose(result);
+      });
+    }
+    return result;
   }
 
   public void logError(@NotNull String message, @NotNull Attachment attachment) {

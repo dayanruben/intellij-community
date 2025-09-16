@@ -14,7 +14,10 @@ import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.changes.*;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.platform.vcs.VcsSharedDataKeys;
+import com.intellij.platform.vcs.impl.shared.RdLocalChanges;
+import com.intellij.platform.vcs.impl.shared.actions.VcsTransferableDataKeys;
 import com.intellij.platform.vcs.impl.shared.changes.ChangeListsViewModel;
+import com.intellij.platform.vcs.impl.shared.changes.ChangesViewSelection;
 import com.intellij.platform.vcs.impl.shared.commit.EditedCommitNode;
 import com.intellij.ui.PopupHandler;
 import com.intellij.util.containers.JBIterable;
@@ -152,15 +155,11 @@ public abstract class ChangesListView extends ChangesTree implements DnDAware {
     sink.set(VcsSharedDataKeys.CHANGE_LISTS, VcsTreeModelData.exactlySelected(this)
       .iterateRawUserObjects(ChangeList.class)
       .toList().toArray(ChangeList[]::new));
-    sink.set(VcsSharedDataKeys.FILE_PATHS, VcsTreeModelData.mapToFilePath(VcsTreeModelData.selected(this)));
-    // don't try to delete files when only a changelist node is selected
-    sink.set(PlatformDataKeys.DELETE_ELEMENT_PROVIDER,
-             VcsTreeModelData.exactlySelected(this)
-               .iterateRawUserObjects()
-               .filter(userObject -> !(userObject instanceof ChangeList))
-               .isNotEmpty()
-             ? new VirtualFileDeleteProvider()
-             : null);
+    JBIterable<FilePath> filePaths = VcsTreeModelData.mapToFilePath(VcsTreeModelData.selected(this));
+    sink.set(VcsSharedDataKeys.FILE_PATHS, filePaths);
+    if (filePaths.isNotEmpty()) {
+      sink.set(PlatformDataKeys.DELETE_ELEMENT_PROVIDER, new VirtualFileDeleteProvider());
+    }
     sink.set(UNVERSIONED_FILE_PATHS_DATA_KEY, getSelectedUnversionedFiles());
     sink.set(IGNORED_FILE_PATHS_DATA_KEY, getSelectedIgnoredFiles());
     sink.set(MODIFIED_WITHOUT_EDITING_DATA_KEY, getSelectedModifiedWithoutEditing());
@@ -199,6 +198,11 @@ public abstract class ChangesListView extends ChangesTree implements DnDAware {
     sink.lazy(EXACTLY_SELECTED_FILES_DATA_KEY, () -> {
       return VcsTreeModelData.mapToExactVirtualFile(exactSelection);
     });
+
+    if (RdLocalChanges.isEnabled()) {
+      sink.set(VcsTransferableDataKeys.CHANGES_VIEW_SELECTION,
+               ChangesViewSelection.create(VcsTreeModelData.selected(this).iterateRawNodes(), this));
+    }
   }
 
   public @NotNull JBIterable<FilePath> getUnversionedFiles() {
