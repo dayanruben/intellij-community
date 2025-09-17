@@ -133,7 +133,8 @@ public abstract class CompletionContributor implements PossiblyDumbAware {
     new MultiMap<>();
 
   public final void extend(@Nullable CompletionType type,
-                           final @NotNull ElementPattern<? extends PsiElement> place, CompletionProvider<CompletionParameters> provider) {
+                           @NotNull ElementPattern<? extends PsiElement> place,
+                           @NotNull CompletionProvider<CompletionParameters> provider) {
     myMap.putValue(type, new Pair<>(place, provider));
   }
 
@@ -143,17 +144,17 @@ public abstract class CompletionContributor implements PossiblyDumbAware {
    * invoking {@link #extend(CompletionType, ElementPattern, CompletionProvider)} from your contributor constructor,
    * matches the desired completion type and {@link ElementPattern} with actual ones, and, depending on it, invokes those
    * completion providers.<p>
-   *
+   * <p>
    * If you want to implement this functionality directly by overriding this method, the following is for you.
    * Always check that parameters match your situation, and that completion type ({@link CompletionParameters#getCompletionType()}
    * is of your favourite kind. This method is run inside a read action. If you do any long activity non-related to PSI in it, please
    * ensure you call {@link ProgressManager#checkCanceled()} often enough so that the completion process
    * can be canceled smoothly when the user begins to type in the editor.
    */
-  public void fillCompletionVariants(final @NotNull CompletionParameters parameters, @NotNull CompletionResultSet result) {
-    for (final Pair<ElementPattern<? extends PsiElement>, CompletionProvider<CompletionParameters>> pair : myMap.get(parameters.getCompletionType())) {
+  public void fillCompletionVariants(@NotNull CompletionParameters parameters, @NotNull CompletionResultSet result) {
+    for (var pair : myMap.get(parameters.getCompletionType())) {
       ProgressManager.checkCanceled();
-      final ProcessingContext context = new ProcessingContext();
+      ProcessingContext context = new ProcessingContext();
       if (pair.first.accepts(parameters.getPosition(), context)) {
         pair.second.addCompletionVariants(parameters, context, result);
         if (result.isStopped()) {
@@ -161,8 +162,8 @@ public abstract class CompletionContributor implements PossiblyDumbAware {
         }
       }
     }
-    for (final Pair<ElementPattern<? extends PsiElement>, CompletionProvider<CompletionParameters>> pair : myMap.get(null)) {
-      final ProcessingContext context = new ProcessingContext();
+    for (var pair : myMap.get(null)) {
+      ProcessingContext context = new ProcessingContext();
       if (pair.first.accepts(parameters.getPosition(), context)) {
         pair.second.addCompletionVariants(parameters, context, result);
         if (result.isStopped()) {
@@ -180,8 +181,8 @@ public abstract class CompletionContributor implements PossiblyDumbAware {
   }
 
   /**
-   * @deprecated use {@link CompletionResultSet#addLookupAdvertisement(String)}
    * @return text to be shown at the bottom of the lookup list
+   * @deprecated use {@link CompletionResultSet#addLookupAdvertisement(String)}
    */
   @Deprecated(forRemoval = true)
   public @Nullable @Nls(capitalization = Nls.Capitalization.Sentence) String advertise(@NotNull CompletionParameters parameters) {
@@ -192,7 +193,7 @@ public abstract class CompletionContributor implements PossiblyDumbAware {
    *
    * @return hint text to be shown if no variants are found, typically "No suggestions"
    */
-  public @Nullable @NlsContexts.HintText String handleEmptyLookup(@NotNull CompletionParameters parameters, final Editor editor) {
+  public @Nullable @NlsContexts.HintText String handleEmptyLookup(@NotNull CompletionParameters parameters, @NotNull Editor editor) {
     return null;
   }
 
@@ -217,7 +218,7 @@ public abstract class CompletionContributor implements PossiblyDumbAware {
    * (see {@link CompletionInitializationContext#setReplacementOffset(int)})
    * if it takes too much time to spend it in {@link #beforeCompletion(CompletionInitializationContext)},
    * e.g., doing {@link com.intellij.psi.PsiFile#findReferenceAt(int)}
-   *
+   * <p>
    * Guaranteed to be invoked before any lookup element is selected
    *
    * @param context context
