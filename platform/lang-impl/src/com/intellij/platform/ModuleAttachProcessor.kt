@@ -7,6 +7,7 @@ import com.intellij.configurationStore.saveSettings
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.lang.LangBundle
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.application.readAction
@@ -87,17 +88,28 @@ class ModuleAttachProcessor : ProjectAttachProcessor() {
                                             beforeOpen: (suspend (Project) -> Boolean)?): Boolean {
     LOG.info("Attaching directory: $projectDir")
     val dotIdeaDir = projectDir.resolve(Project.DIRECTORY_STORE_FOLDER)
-    if (!Files.exists(dotIdeaDir)) {
-      val options = OpenProjectTask { useDefaultProjectAsTemplate = true; isNewProject = true }
-      val newProject = ProjectManagerEx.getInstanceEx().newProjectAsync(file = projectDir, options = options)
-      PlatformProjectOpenProcessor.runDirectoryProjectConfigurators(baseDir = projectDir,
-                                                                    project = newProject,
-                                                                    newProject = true,
-                                                                    createModule = true)
-      runInAutoSaveDisabledMode {
-        saveSettings(newProject)
+    if (Files.notExists(dotIdeaDir)) {
+      val options = OpenProjectTask {
+        useDefaultProjectAsTemplate = true
+        isNewProject = true
       }
-      edtWriteAction { Disposer.dispose(newProject) }
+      val newProject = ProjectManagerEx.getInstanceEx().newProjectAsync(file = projectDir, options = options)
+      try {
+        PlatformProjectOpenProcessor.runDirectoryProjectConfigurators(
+          baseDir = projectDir,
+          project = newProject,
+          newProject = true,
+          createModule = true,
+        )
+        runInAutoSaveDisabledMode {
+          saveSettings(newProject)
+        }
+      }
+      finally {
+        withContext(Dispatchers.EDT) {
+          ApplicationManager.getApplication().runWriteAction { Disposer.dispose(newProject) }
+        }
+      }
     }
 
     val newModule = try {

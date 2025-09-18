@@ -124,8 +124,8 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.intellij.debugger.engine.DebuggerUtils.forEachSafe;
 import static com.intellij.debugger.engine.MethodInvokeUtilsKt.tryInvokeWithHelper;
-import static com.intellij.debugger.impl.DebuggerUtilsImpl.forEachSafe;
 
 public abstract class DebugProcessImpl extends UserDataHolderBase implements DebugProcess {
   private static final Logger LOG = Logger.getInstance(DebugProcessImpl.class);
@@ -1431,9 +1431,6 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       context.getManagerThread().startLongProcessAndFork(() -> {
         try {
           try {
-            // ensure args are not collected
-            StreamEx.of(myArgs).select(ObjectReference.class).forEach(DebuggerUtilsEx::disableCollection);
-
             if (Patches.JDK_BUG_ID_21275177 && (ourTraceMask & VirtualMachine.TRACE_SENDS) != 0) {
               //noinspection ResultOfMethodCallIgnored
               StreamEx.of(myArgs).nonNull().forEach(Object::toString);
@@ -1457,8 +1454,6 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
             if (Patches.JDK_BUG_WITH_TRACE_SEND && (getTraceMask() & VirtualMachine.TRACE_SENDS) != 0) {
               myMethod.virtualMachine().setDebugTraceMode(getTraceMask());
             }
-            // ensure args are not collected
-            StreamEx.of(myArgs).select(ObjectReference.class).forEach(DebuggerUtilsEx::enableCollection);
           }
         }
         catch (Exception e) {
@@ -2217,7 +2212,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
     protected void beforeSteppingAction(SuspendContextImpl context) {
       if (context != null) {
-        DebuggerUtilsImpl.forEachSafe(SteppingListener.getExtensions(),
+        forEachSafe(SteppingListener.getExtensions(),
                                       listener -> listener.beforeSteppingStarted(context, getSteppingAction()));
       }
     }
@@ -2267,7 +2262,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     public void contextAction(@NotNull SuspendContextImpl suspendContext) {
       showStatusText(JavaDebuggerBundle.message("status.process.resumed"));
       if (!(this instanceof StepCommand)) {
-        DebuggerUtilsImpl.forEachSafe(SteppingListener.getExtensions(), listener -> listener.beforeResume(suspendContext));
+        forEachSafe(SteppingListener.getExtensions(), listener -> listener.beforeResume(suspendContext));
       }
       resumeAction();
 

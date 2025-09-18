@@ -2,7 +2,6 @@
 package com.intellij.ide.ui
 
 import com.intellij.ide.IdeBundle
-import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.project.Project
 import com.intellij.ui.dsl.builder.BottomGap
 import com.intellij.ui.dsl.builder.bind
@@ -18,8 +17,12 @@ import javax.swing.JComponent
  * @author Alexander Lobas
  */
 @Internal
-class SubscriptionExpirationDialog(project: Project?, private val showPromise: Boolean) :
-  LicenseExpirationDialog(project, getImagePath(), 433, 242) {
+class SubscriptionExpirationDialog(
+  project: Project?,
+  private val isEvaluation: Boolean,
+  private val showPromise: Boolean,
+  private val showContinueWithoutSubscription: Boolean,
+) : LicenseExpirationDialog(project, getImagePath(), 433, 242) {
 
   private var selectionButton = 0
 
@@ -39,8 +42,8 @@ class SubscriptionExpirationDialog(project: Project?, private val showPromise: B
     }
 
     @JvmStatic
-    fun show(project: Project?, showPromise: Boolean): ResultState {
-      val dialog = SubscriptionExpirationDialog(project, showPromise)
+    fun show(project: Project?, isEvaluation: Boolean, showPromise: Boolean, showContinueWithoutSubscription: Boolean): ResultState {
+      val dialog = SubscriptionExpirationDialog(project, isEvaluation, showPromise, showContinueWithoutSubscription)
       dialog.show()
 
       if (dialog.exitCode != OK_EXIT_CODE) {
@@ -53,16 +56,21 @@ class SubscriptionExpirationDialog(project: Project?, private val showPromise: B
         else -> ResultState.CONTINUE
       }
     }
+
+    private fun dialogTitle(isEvaluation: Boolean): @Nls String {
+      val key = if (isEvaluation) "subscription.dialog.title.evaluation" else "subscription.dialog.title.subscription"
+      return IdeBundle.message(key)
+    }
   }
 
   init {
-    initDialog(IdeBundle.message("subscription.dialog.title"))
+    initDialog(dialogTitle(isEvaluation))
   }
 
   override fun createPanel(): JComponent {
     val panel = panel {
       row {
-        label(IdeBundle.message("subscription.dialog.title")).component.font = JBFont.h1()
+        label(dialogTitle(isEvaluation)).component.font = JBFont.h1()
       }
       row {
         browserLink(IdeBundle.message("subscription.dialog.link", getPlatformName()), "https://www.jetbrains.com/idea/features")
@@ -87,8 +95,10 @@ class SubscriptionExpirationDialog(project: Project?, private val showPromise: B
             radioButton(IdeBundle.message("subscription.dialog.promise.button"), 1).component.addActionListener(listener)
           }
         }
-        row {
-          radioButton(IdeBundle.message("subscription.dialog.continue.button"), 2).component.addActionListener(listener)
+        if (showContinueWithoutSubscription) {
+          row {
+            radioButton(IdeBundle.message("subscription.dialog.continue.button"), 2).component.addActionListener(listener)
+          }
         }
       }.bind({ selectionButton }, { selectionButton = it })
     }

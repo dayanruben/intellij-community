@@ -34,7 +34,7 @@ import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.openapi.util.registry.migrateRegistryToAdvSettings
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
-import com.intellij.openapi.wm.ex.NoProjectStateHandler
+import com.intellij.openapi.wm.ex.findNoProjectStateHandler
 import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
@@ -88,14 +88,14 @@ open class IdeStarter : ModernApplicationStarter() {
       }
 
       val starter = FUSProjectHotStartUpMeasurer.getStartUpContextElementIntoIdeStarter(close = isHeadless || !shouldRunFusStartUpMeasurer())
-      if (starter != null) {
+      if (starter == null) {
+        openProjectBlock()
+      }
+      else {
         if ((app as ApplicationEx).isLightEditMode) {
           FUSProjectHotStartUpMeasurer.lightEditProjectFound()
         }
         withContext(starter, openProjectBlock)
-      }
-      else {
-        openProjectBlock()
       }
 
       app.serviceAsync<PerformanceWatcher>()
@@ -156,14 +156,15 @@ open class IdeStarter : ModernApplicationStarter() {
       if (willOpenProject) {
         return@span true
       }
-      val customHandler = NoProjectStateHandler.EP_NAME.lazySequence().firstOrNull { it.canHandle() }
-      if (customHandler != null) {
-        withContext(Dispatchers.EDT) {
-          customHandler.handle()
-        }
+
+      val customHandler = findNoProjectStateHandler()
+      if (customHandler == null) {
+        return@span showWelcomeFrame(publisher)
+      }
+      else {
+        customHandler()
         return@span false
       }
-      return@span showWelcomeFrame(publisher)
     }
 
     if (!isOpenProjectNeeded) {

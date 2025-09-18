@@ -28,7 +28,8 @@ private fun isFrontend(): Boolean {
   return PlatformUtils.isJetBrainsClient()
 }
 
-private fun isMonolith(): Boolean {
+@ApiStatus.Internal
+fun isMonolith(): Boolean {
   // returns true in split mode backend 0_o
   return FrontendApplicationInfo.getFrontendType() is FrontendType.Monolith && !isBackend() && !isFrontend()
 }
@@ -38,7 +39,7 @@ private fun isBackend(): Boolean {
 }
 
 private fun isNewFrontendServiceViewEnabled(): Boolean {
-  return Registry.`is`("services.view.split.enabled")
+  return Registry.`is`("services.view.split.enabled") || Registry.`is`("xdebugger.toolwindow.split.remdev")
 }
 
 private fun isOldMonolithServiceViewEnabled(): Boolean {
