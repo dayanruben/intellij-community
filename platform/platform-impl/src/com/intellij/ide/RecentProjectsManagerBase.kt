@@ -11,7 +11,6 @@ import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.impl.ProjectUtil.isSameProject
 import com.intellij.ide.impl.ProjectUtilService
 import com.intellij.ide.lightEdit.LightEdit
-import com.intellij.ide.vcs.RecentProjectsBranchesProvider
 import com.intellij.idea.AppMode
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.application.ApplicationManager
@@ -52,7 +51,6 @@ import com.intellij.ui.mac.createMacDelegate
 import com.intellij.ui.win.createWinDockDelegate
 import com.intellij.util.PathUtilRt
 import com.intellij.util.PlatformUtils
-import com.intellij.util.application
 import com.intellij.util.io.createParentDirectories
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
@@ -62,7 +60,6 @@ import kotlinx.coroutines.flow.debounce
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
-import org.jetbrains.jps.util.JpsPathUtil
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
@@ -151,7 +148,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       }
     }
 
-    application.messageBus.connect().subscribe(RecentProjectsManager.RECENT_PROJECTS_CHANGE_TOPIC, object : RecentProjectsChange {
+    ApplicationManager.getApplication().messageBus.connect(coroutineScope).subscribe(RecentProjectsManager.RECENT_PROJECTS_CHANGE_TOPIC, object : RecentProjectsChange {
       override fun change() {
         updateSystemDockMenu()
       }
@@ -229,7 +226,9 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       @Suppress("DEPRECATION")
       val recentPaths = state.recentPaths
       if (recentPaths.isNotEmpty()) {
-        convertToSystemIndependentPaths(recentPaths)
+        recentPaths.replaceAll {
+          FileUtilRt.toSystemIndependentName(it)
+        }
 
         // replace system-dependent paths to system-independent
         for (key in state.additionalInfo.keys.toList()) {
@@ -475,8 +474,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
 
   fun getLastOpenedProject(): String? = state.lastOpenedProject
 
-  @Internal
-  class MyFrameStateListener : FrameStateListener {
+  internal class MyFrameStateListener : FrameStateListener {
     override fun onFrameActivated(frame: IdeFrame): Unit = frame.notifyProjectActivation()
   }
 
@@ -567,10 +565,6 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     synchronized(stateLock) {
       return state.additionalInfo.get(path)?.activationTimestamp
     }
-  }
-
-  fun getCurrentBranch(path: String, nameIsDistinct: Boolean): String? {
-    return RecentProjectsBranchesProvider.getCurrentBranch(path, nameIsDistinct)
   }
 
   fun getProjectName(path: String): String {
@@ -676,7 +670,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       return someProjectWasOpened || project != null
     }
     else {
-      return openOneByOne(openPaths, index = index + 1, someProjectWasOpened = someProjectWasOpened || project != null)
+      return openOneByOne(openPaths = openPaths, index = index + 1, someProjectWasOpened = someProjectWasOpened || project != null)
     }
   }
 
@@ -705,14 +699,16 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
           ideFrame.isVisible = true
 
           val startUpContextElementToPass = FUSProjectHotStartUpMeasurer.getStartUpContextElementToPass()
-          val task = Setup(path,
-                           startUpContextElementToPass,
-                           OpenProjectTask {
-                             forceOpenInNewFrame = true
-                             showWelcomeScreen = false
-                             projectWorkspaceId = info.projectWorkspaceId
-                             implOptions = OpenProjectImplOptions(recentProjectMetaInfo = info, frame = ideFrame)
-                           })
+          val task = Setup(
+            path = path,
+            elementToPass = startUpContextElementToPass,
+            task = OpenProjectTask {
+              forceOpenInNewFrame = true
+              showWelcomeScreen = false
+              projectWorkspaceId = info.projectWorkspaceId
+              implOptions = OpenProjectImplOptions(recentProjectMetaInfo = info, frame = ideFrame)
+            },
+          )
 
           if (isActive) {
             activeTask = task
@@ -816,7 +812,8 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       group.removeProject(projectPath)
     }
     to.addProject(projectPath)
-    to.isExpanded = true // Save state for UI
+    // save state for UI
+    to.isExpanded = true
     fireChangeEvent()
   }
 
@@ -1020,7 +1017,7 @@ private fun fireChangeEvent() {
 
 private suspend fun fireLastProjectsReopenedEvent(activeProject: Project) {
   withContext(Dispatchers.EDT) {
-    application.messageBus.syncPublisher(RecentProjectsManager.LAST_PROJECTS_TOPIC).lastProjectsReopened(activeProject)
+    ApplicationManager.getApplication().messageBus.syncPublisher(RecentProjectsManager.LAST_PROJECTS_TOPIC).lastProjectsReopened(activeProject)
   }
 }
 
@@ -1031,18 +1028,6 @@ private fun readProjectName(path: String): String {
     return path
   }
 
-  // IJPL-194035
-  // Avoid greedy I/O under non-local projects. For example, in the case of WSL:
-  //	1.	it may trigger Ijent initialization for each recent project
-  //	2.	with Ijent disabled, performance may degrade further — 9P is very slow and could lead to UI freezes
-  if (Path.of(path).getEelDescriptor() != LocalEelDescriptor) {
-    return path
-  }
-
-  if (path.endsWith(".ipr")) {
-    return FileUtilRt.getNameWithoutExtension(path)
-  }
-
   val file = try {
     Path.of(path)
   }
@@ -1050,17 +1035,18 @@ private fun readProjectName(path: String): String {
     return path
   }
 
-  val storePath = ProjectStorePathManager.getInstance().getStoreDescriptor(file).dotIdea!!
-  return JpsPathUtil.readProjectName(storePath) ?: PathUtilRt.getFileName(path)
+  // IJPL-194035
+  // Avoid greedy I/O under non-local projects. For example, in the case of WSL:
+  //	1.	it may trigger Ijent initialization for each recent project
+  //	2.	with Ijent disabled, performance may degrade further — 9P is very slow and could lead to UI freezes
+  if (file.getEelDescriptor() != LocalEelDescriptor) {
+    return path
+  }
+
+  return ProjectStorePathManager.getInstance().getStoreDescriptor(file).getProjectName()
 }
 
 private fun getLastProjectFrameInfoFile() = getSystemDir().resolve("lastProjectFrameInfo")
-
-private fun convertToSystemIndependentPaths(list: MutableList<String>) {
-  list.replaceAll {
-    FileUtilRt.toSystemIndependentName(it)
-  }
-}
 
 private fun validateRecentProjects(modCounter: LongAdder, map: MutableMap<String, RecentProjectMetaInfo>) {
   val limit = AdvancedSettings.getInt("ide.max.recent.projects")

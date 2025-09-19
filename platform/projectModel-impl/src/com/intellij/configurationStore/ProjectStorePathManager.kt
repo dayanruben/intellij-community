@@ -4,8 +4,8 @@ package com.intellij.configurationStore
 import com.intellij.openapi.components.service
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import org.jetbrains.annotations.ApiStatus
-import java.nio.file.Files
 import java.nio.file.Path
 
 /**
@@ -15,6 +15,7 @@ import java.nio.file.Path
 @ApiStatus.Internal
 interface ProjectStorePathManager {
   companion object {
+    @RequiresBlockingContext
     fun getInstance(): ProjectStorePathManager = service()
   }
 
@@ -32,8 +33,7 @@ interface ProjectStorePathManager {
    */
   @RequiresBackgroundThread
   fun testStoreDirectoryExistsForProjectRoot(projectRoot: Path): Boolean {
-    val dotIdea = getStoreDescriptor(projectRoot).dotIdea
-    return dotIdea != null && Files.isDirectory(dotIdea)
+    return getStoreDescriptor(projectRoot).testStoreDirectoryExistsForProjectRoot()
   }
 
   /**

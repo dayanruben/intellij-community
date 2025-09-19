@@ -2,7 +2,6 @@
 // Apache 2.0 license.
 package org.jetbrains.jewel.samples.showcase.components
 
-import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,8 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollbarAdapter
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,13 +25,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.jetbrains.jewel.foundation.lazy.SelectableLazyColumn
-import org.jetbrains.jewel.foundation.lazy.items
 import org.jetbrains.jewel.foundation.lazy.rememberSelectableLazyListState
 import org.jetbrains.jewel.foundation.lazy.tree.buildTree
 import org.jetbrains.jewel.foundation.theme.JewelTheme
@@ -46,8 +42,13 @@ import org.jetbrains.jewel.ui.component.LazyTree
 import org.jetbrains.jewel.ui.component.OutlinedButton
 import org.jetbrains.jewel.ui.component.RadioButtonChip
 import org.jetbrains.jewel.ui.component.SimpleListItem
+import org.jetbrains.jewel.ui.component.SpeedSearchArea
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.component.ToggleableChip
+import org.jetbrains.jewel.ui.component.VerticalScrollbar
+import org.jetbrains.jewel.ui.component.search.SpeedSearchableLazyColumn
+import org.jetbrains.jewel.ui.component.search.highlightSpeedSearchMatches
+import org.jetbrains.jewel.ui.component.search.highlightTextSearch
 import org.jetbrains.jewel.ui.theme.colorPalette
 
 @Composable
@@ -177,27 +178,34 @@ public fun SelectableLazyColumnSample(modifier: Modifier = Modifier) {
     }
 
     val state = rememberSelectableLazyListState()
-    Box(modifier = modifier.size(200.dp, 200.dp)) {
+    Box(modifier = modifier.size(200.dp)) {
         if (listOfItems.isEmpty()) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         } else {
-            SelectableLazyColumn(modifier = Modifier.focusable(), state = state) {
-                items(listOfItems, key = { item -> item }) { item ->
-                    SimpleListItem(
-                        text = item,
-                        selected = isSelected,
-                        active = isActive,
-                        modifier =
-                            Modifier.fillMaxWidth().selectable(isSelected) {
-                                JewelLogger.getInstance("ChipsAndTree").info("Click on $item")
-                            },
-                    )
+            SpeedSearchArea {
+                SpeedSearchableLazyColumn(modifier = Modifier.focusable(), state = state) {
+                    items(listOfItems, textContent = { item -> item }, key = { item -> item }) { item ->
+                        LaunchedEffect(isSelected) {
+                            if (isSelected) {
+                                JewelLogger.getInstance("ChipsAndTree").info("Item $item got selected")
+                            }
+                        }
+
+                        var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+
+                        SimpleListItem(
+                            text = item.highlightTextSearch(),
+                            selected = isSelected,
+                            active = isActive,
+                            onTextLayout = { textLayoutResult = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            textModifier = Modifier.highlightSpeedSearchMatches(textLayoutResult),
+                        )
+                    }
                 }
+
+                VerticalScrollbar(state.lazyListState, modifier = Modifier.align(Alignment.CenterEnd))
             }
-            VerticalScrollbar(
-                rememberScrollbarAdapter(state.lazyListState),
-                modifier = Modifier.align(Alignment.CenterEnd),
-            )
         }
     }
 }

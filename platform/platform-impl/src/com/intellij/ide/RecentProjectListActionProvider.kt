@@ -3,6 +3,7 @@ package com.intellij.ide
 
 import com.intellij.diagnostic.LoadingState
 import com.intellij.ide.impl.ProjectUtilCore
+import com.intellij.ide.vcs.RecentProjectsBranchesProvider
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -12,7 +13,7 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.NaturalComparator
 import com.intellij.openapi.wm.impl.headertoolbar.ProjectStatus
@@ -34,7 +35,7 @@ open class RecentProjectListActionProvider {
     @RequiresBlockingContext
     fun getInstance(): RecentProjectListActionProvider = service<RecentProjectListActionProvider>()
 
-    private val EP = ExtensionPointName.create<RecentProjectProvider>("com.intellij.recentProjectsProvider")
+    private val EP = ExtensionPointName<RecentProjectProvider>("com.intellij.recentProjectsProvider")
   }
 
   internal fun collectProjectsWithoutCurrent(currentProject: Project): List<RecentProjectTreeItem> = collectProjects(currentProject)
@@ -72,9 +73,12 @@ open class RecentProjectListActionProvider {
       createRecentProject(path = recentProject, duplicates = duplicates, projectGroup = null, recentProjectManager = recentProjectManager)
     }
 
-    val projectsFromEP = if (Registry.`is`("ide.recent.projects.query.ep.providers"))
+    val projectsFromEP = if (Registry.`is`("ide.recent.projects.query.ep.providers")) {
       EP.extensionList.flatMap { createProjectsFromProvider(it) }
-    else emptyList()
+    }
+    else {
+      emptyList()
+    }
 
     val mergedProjectsWithoutGroups = insertProjectsFromProvider(projectsWithoutGroups.toList(), projectsFromEP) { it.activationTimestamp }
     return (projectGroups + mergedProjectsWithoutGroups).toList()
@@ -193,21 +197,26 @@ open class RecentProjectListActionProvider {
 
     if (displayName.isNullOrBlank()) {
       val nameIsDistinct = !duplicates.contains(ProjectNameOrPathIfNotYetComputed(projectName))
-      branch = recentProjectManager.getCurrentBranch(path, nameIsDistinct)
+      branch = getCurrentBranch(path, nameIsDistinct)
 
-      displayName = if (!nameIsDistinct) {
-        FileUtil.toSystemDependentName(path)
+      displayName = if (nameIsDistinct) {
+        projectName
       }
       else {
-        projectName
+        FileUtilRt.toSystemDependentName(path)
       }
     }
 
     // It's better don't to remove non-existent projects.
     // Sometimes projects are stored on USB-sticks or flash-cards, and it will be nice to have them in the list
     // when a USB device or SD-card is mounted
-    return ReopenProjectAction(projectPath = path, projectName = projectName, displayName = displayName, branchName = branch,
-                               activationTimestamp = activationTimestamp)
+    return ReopenProjectAction(
+      projectPath = path,
+      projectName = projectName,
+      displayName = displayName,
+      branchName = branch,
+      activationTimestamp = activationTimestamp,
+    )
   }
 
   private fun createRecentProject(
@@ -428,3 +437,15 @@ private val AnAction.activationTimestamp
     else -> null
   }
 
+private val EP_NAME: ExtensionPointName<RecentProjectsBranchesProvider> = ExtensionPointName("com.intellij.recentProjectsBranchesProvider")
+
+private fun getCurrentBranch(projectPath: String, nameIsDistinct: Boolean): String? {
+  EP_NAME.extensionList.forEach { provider ->
+    val branch = provider.getCurrentBranch(projectPath, nameIsDistinct)
+    if (branch != null) {
+      return branch
+    }
+  }
+
+  return null
+}

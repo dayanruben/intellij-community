@@ -8,6 +8,7 @@ import com.intellij.ide.util.PsiNavigationSupport
 import com.intellij.openapi.application.*
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
+import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
@@ -72,6 +73,15 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
   }
 
   companion object {
+    @Deprecated("this function is for legacy Java api, do not use it", level = DeprecationLevel.ERROR)
+    @JvmStatic
+    @JvmOverloads
+    @Internal
+    fun openProjectLegacyJavaApi(virtualFile: VirtualFile, projectToClose: Project?, forceOpenInNewFrame: Boolean, instance: PlatformProjectOpenProcessor? = null): Project? {
+      @Suppress("DEPRECATION") // Function has no thread requirements
+      return runUnderModalProgressIfIsEdt { (instance ?: getInstance()).openProjectAsync(virtualFile, projectToClose, forceOpenInNewFrame) }
+    }
+
     fun isOpenedByPlatformProcessor(project: Project): Boolean = project.getUserData(PROJECT_OPENED_BY_PLATFORM_PROCESSOR) == true
 
     fun isNewProject(project: Project): Boolean = project.getUserData(PROJECT_NEWLY_OPENED) == true
@@ -89,11 +99,13 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
     @JvmStatic
     @ApiStatus.ScheduledForRemoval
     @Deprecated("Use {@link #doOpenProject(Path, OpenProjectTask)}", level = DeprecationLevel.ERROR)
-    fun doOpenProject(virtualFile: VirtualFile,
-                      projectToClose: Project?,
-                      line: Int,
-                      callback: ProjectOpenedCallback?,
-                      options: EnumSet<Option>): Project? {
+    fun doOpenProject(
+      virtualFile: VirtualFile,
+      projectToClose: Project?,
+      line: Int,
+      callback: ProjectOpenedCallback?,
+      options: EnumSet<Option>,
+    ): Project? {
       val openProjectOptions = OpenProjectTask {
         forceOpenInNewFrame = Option.FORCE_NEW_FRAME in options
         this.projectToClose = projectToClose
@@ -118,10 +130,10 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
           model.addContentEntry(VfsUtilCore.pathToUrl(file.toString()))
         }
       },
-      beforeOpen = {
-        it.service<OpenProjectSettingsService>().state.isLocatedInTempDirectory = true
-        options.beforeOpen?.invoke(it) ?: true
-      })
+                              beforeOpen = {
+                                it.service<OpenProjectSettingsService>().state.isLocatedInTempDirectory = true
+                                options.beforeOpen?.invoke(it) ?: true
+                              })
       TrustedPaths.getInstance().setProjectPathTrusted(baseDir, true)
       val project = ProjectManagerEx.getInstanceEx().openProject(baseDir, copy) ?: return null
       openFileFromCommandLine(project = project, file = file, line = copy.line, column = copy.column)
@@ -164,7 +176,7 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
         }
       )
       TrustedPaths.getInstance().setProjectPathTrusted(path = baseDir, value = true)
-      val project = ProjectManagerEx.getInstanceEx().openProjectAsync(projectStoreBaseDir = baseDir, options = copy) ?: return null
+      val project = ProjectManagerEx.getInstanceEx().openProjectAsync(projectIdentityFile = baseDir, options = copy) ?: return null
       openFileFromCommandLine(project = project, file = file, line = copy.line, column = copy.column)
       return project
     }
@@ -179,7 +191,8 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
       }
 
       var options = originalOptions
-      if (LightEditService.getInstance() != null && LightEditService.getInstance().isForceOpenInLightEditMode) {
+      val lightEditService = serviceOrNull<LightEditService>()
+      if (lightEditService != null && lightEditService.isForceOpenInLightEditMode()) {
         LightEditService.getInstance().openFile(file, false)?.let {
           FUSProjectHotStartUpMeasurer.lightEditProjectFound()
           return it
@@ -196,8 +209,8 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
       // no reasonable directory -> create new temp one or use parent
       if (baseDirCandidate == null) {
         LOG.info("No project directory found")
-        if (LightEditService.getInstance() != null) {
-          if (LightEditService.getInstance().isLightEditEnabled && !LightEditService.getInstance().isPreferProjectMode) {
+        if (lightEditService != null) {
+          if (lightEditService.isLightEditEnabled() && !LightEditService.getInstance().isPreferProjectMode) {
             val lightEditProject = LightEditService.getInstance().openFile(file, true)
             if (lightEditProject != null) {
               FUSProjectHotStartUpMeasurer.lightEditProjectFound()
@@ -232,13 +245,14 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
 
       if (Files.isDirectory(file)) {
         return ProjectManagerEx.getInstanceEx().openProjectAsync(
-          projectStoreBaseDir = file,
+          projectIdentityFile = file,
           options = createOptionsToOpenDotIdeaOrCreateNewIfNotExists(file, projectToClose = null),
         )
       }
 
       var options = originalOptions
-      if (LightEditService.getInstance() != null && LightEditService.getInstance().isForceOpenInLightEditMode) {
+      val lightEditService = serviceOrNull<LightEditService>()
+      if (lightEditService != null && lightEditService.isForceOpenInLightEditMode()) {
         LightEditService.getInstance().openFile(file, false)?.let {
           FUSProjectHotStartUpMeasurer.lightEditProjectFound()
           return it
@@ -255,8 +269,8 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
       // no reasonable directory -> create new temp one or use parent
       if (baseDirCandidate == null) {
         LOG.info("No project directory found")
-        if (LightEditService.getInstance() != null) {
-          if (LightEditService.getInstance().isLightEditEnabled && !LightEditService.getInstance().isPreferProjectMode) {
+        if (lightEditService != null) {
+          if (lightEditService.isLightEditEnabled() && !LightEditService.getInstance().isPreferProjectMode) {
             val lightEditProject = LightEditService.getInstance().openFile(file, true)
             if (lightEditProject != null) {
               FUSProjectHotStartUpMeasurer.lightEditProjectFound()
@@ -277,7 +291,7 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
       }
 
       val project = ProjectManagerEx.getInstanceEx().openProjectAsync(
-        projectStoreBaseDir = baseDir,
+        projectIdentityFile = baseDir,
         options = if (baseDir == file) options else options.copy(projectName = file.fileName.toString())
       )
       if (project != null && file != baseDir) {
@@ -298,7 +312,7 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
         }
       }
 
-      if (createModule){
+      if (createModule) {
         moduleRef.getOrInitializeModule(project, virtualFile)
       }
       for (configurator in EP_NAME.lazySequence()) {
@@ -374,9 +388,10 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
 
   override fun lookForProjectsInDirectory(): Boolean = false
 
-  override fun doOpenProject(virtualFile: VirtualFile, projectToClose: Project?, forceOpenInNewFrame: Boolean): Project? {
+  @Internal
+  override suspend fun openProjectAsync(virtualFile: VirtualFile, projectToClose: Project?, forceOpenInNewFrame: Boolean): Project? {
     val baseDir = virtualFile.toNioPath()
-    val options = runUnderModalProgressIfIsEdt {
+    val options = run {
       createOptionsToOpenDotIdeaOrCreateNewIfNotExists(baseDir, projectToClose)
     }.copy(forceOpenInNewFrame = forceOpenInNewFrame)
     return doOpenProject(baseDir, options)
@@ -421,7 +436,7 @@ suspend fun attachToProjectAsync(
   projectDir: Path,
   processor: ProjectAttachProcessor? = null,
   callback: ProjectOpenedCallback? = null,
-  beforeOpen: (suspend (Project) -> Boolean)? = null
+  beforeOpen: (suspend (Project) -> Boolean)? = null,
 ): Boolean {
   if (!checkTrustedState(projectDir)) {
     return false

@@ -14,6 +14,7 @@ import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.ComponentUtil;
+import com.intellij.ui.ExperimentalUI;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBOptionButton;
 import com.intellij.ui.scale.JBUIScale;
@@ -21,6 +22,7 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.ui.*;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -35,15 +37,16 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.RoundRectangle2D;
 
 import static com.intellij.ide.ui.laf.darcula.DarculaUIUtil.BW;
+import static com.intellij.ui.icons.StrokeKt.toStrokeIcon;
 
 /**
  * @author Konstantin Bulenkov
  */
 @SuppressWarnings("UnregisteredNamedColor")
 public class DarculaButtonUI extends BasicButtonUI {
-  protected final Rectangle viewRect = new Rectangle();
-  protected final Rectangle textRect = new Rectangle();
-  protected final Rectangle iconRect = new Rectangle();
+  final Rectangle viewRect = new Rectangle();
+  final Rectangle textRect = new Rectangle();
+  final Rectangle iconRect = new Rectangle();
 
   protected static JBValue HELP_BUTTON_DIAMETER = new JBValue.Float(22);
   protected static JBValue HORIZONTAL_PADDING = new JBValue.Float(14);
@@ -102,7 +105,7 @@ public class DarculaButtonUI extends BasicButtonUI {
     return c instanceof AbstractButton button && button.getClientProperty("gotItButton.contrast.only.button") == Boolean.TRUE;
   }
 
-  public static @Nullable Insets getCustomButtonInsets(Component c) {
+  static @Nullable Insets getCustomButtonInsets(Component c) {
     if (!(c instanceof AbstractButton b)) return null;
 
     Object maybeInsets = b.getClientProperty("customButtonInsets");
@@ -323,6 +326,96 @@ public class DarculaButtonUI extends BasicButtonUI {
     }
   }
 
+  @Override
+  protected void paintIcon(Graphics g, JComponent c, Rectangle iconRect) {
+    AbstractButton b = (AbstractButton) c;
+    Icon icon = b.getIcon();
+    if (icon == null) return;
+    icon = adjustIcon(icon, b);
+    paintIcon(icon, g, c, iconRect);
+  }
+
+  /**
+   * Adjusts the icon depending on the button state.
+   * <p>
+   *   By default, takes various model states into account - enabled/disabled, selected, etc.
+   * </p>
+   * <p>
+   *   For default enabled buttons, the icon is also replaced with the stroke icon of the same color as the text.
+   *   In order for this to work, the icon should either provide a specialized stroke version or only use a subset of replaceable colors.
+   * </p>
+   * @param originalIcon the base icon, as returned by b.getIcon()
+   * @param b the button
+   * @return the adjusted icon, possibly the same as the original if there are no adjustments to be made
+   */
+  protected @NotNull Icon adjustIcon(@NotNull Icon originalIcon, @NotNull AbstractButton b) {
+    ButtonModel model = b.getModel();
+    Icon icon = originalIcon;
+    Icon chosenIcon = null;
+    Icon selectedIcon = null;
+
+    // This is mostly the same logic as super.paintIcon() ...
+
+    if (model.isSelected()) {
+      selectedIcon = b.getSelectedIcon();
+      if (selectedIcon != null) {
+        icon = selectedIcon;
+      }
+    }
+
+    if (!model.isEnabled()) {
+      if (model.isSelected()) {
+        chosenIcon = b.getDisabledSelectedIcon();
+        if (chosenIcon == null) {
+          chosenIcon = selectedIcon;
+        }
+      }
+      if (chosenIcon == null) {
+        chosenIcon = b.getDisabledIcon();
+      }
+    }
+    else if (model.isPressed() && model.isArmed()) {
+      chosenIcon = b.getPressedIcon();
+      if (chosenIcon != null) {
+        clearTextShiftOffset();
+      }
+    }
+    else if (b.isRolloverEnabled() && model.isRollover()) {
+      if (model.isSelected()) {
+        chosenIcon = b.getRolloverSelectedIcon();
+        if (chosenIcon == null) {
+          chosenIcon = selectedIcon;
+        }
+      }
+      if (chosenIcon == null) {
+        chosenIcon = b.getRolloverIcon();
+      }
+    }
+
+    if (chosenIcon != null) {
+      icon = chosenIcon;
+    }
+
+    // ... but with this new addition:
+
+    if (ExperimentalUI.isNewUI() && isDefaultButton(b) && model.isEnabled()) {
+      icon = toStrokeIcon(icon, JBUI.CurrentTheme.Button.defaultButtonForeground());
+    }
+
+    return icon;
+  }
+
+  private void paintIcon(@NotNull Icon icon, @NotNull Graphics g, @NotNull JComponent c, @NotNull Rectangle iconRect) {
+    AbstractButton b = (AbstractButton) c;
+    ButtonModel model = b.getModel();
+    if (model.isPressed() && model.isArmed()) {
+      icon.paintIcon(c, g, iconRect.x + getTextShiftOffset(), iconRect.y + getTextShiftOffset());
+    }
+    else {
+      icon.paintIcon(c, g, iconRect.x, iconRect.y);
+    }
+  }
+
   protected Dimension getDarculaButtonSize(JComponent c, Dimension prefSize) {
     Insets i = c.getInsets();
     prefSize = ObjectUtils.notNull(prefSize, JBUI.emptySize());
@@ -400,7 +493,7 @@ public class DarculaButtonUI extends BasicButtonUI {
     return JBColor.namedColor("GotItTooltip.Button.endBackground", JBUI.CurrentTheme.Button.buttonColorEnd());
   }
 
-  protected String layout(AbstractButton b, @Nls String text, Icon icon, FontMetrics fm, int width, int height) {
+  String layout(AbstractButton b, @Nls String text, Icon icon, FontMetrics fm, int width, int height) {
     textRect.setBounds(0, 0, 0, 0);
     iconRect.setBounds(0, 0, 0, 0);
 
@@ -416,6 +509,7 @@ public class DarculaButtonUI extends BasicButtonUI {
       StringUtil.isEmpty(text) || icon == null ? 0 : b.getIconTextGap());
   }
 
+  @ApiStatus.Internal
   protected void modifyViewRect(AbstractButton b, Rectangle rect) {
     JBInsets.removeFrom(rect, b.getInsets());
     JBInsets.removeFrom(rect, b.getMargin());

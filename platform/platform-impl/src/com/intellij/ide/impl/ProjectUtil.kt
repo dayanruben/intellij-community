@@ -181,6 +181,7 @@ object ProjectUtil {
         return chooseProcessorAndOpenAsync(mutableListOf(provider), virtualFile, options)
       }
     }
+
     if (isValidProjectPath(file)) {
       LOG.info("Opening existing project with .idea at $file")
       // see OpenProjectTest.`open valid existing project dir with inability to attach using OpenFileAction` test about why `runConfigurators = true` is specified here
@@ -221,12 +222,12 @@ object ProjectUtil {
       LOG.info("No processor found for project in $file")
       return null
     }
-    LOG.info("Processors found for project in $file: ${ processors.joinToString { it.name} }")
+    LOG.info("Processors found for project in $file: ${processors.joinToString { it.name }}")
 
     val project: Project?
     if (processors.size == 1 && processors[0] is PlatformProjectOpenProcessor) {
       project = (serviceAsync<ProjectManager>() as ProjectManagerEx).openProjectAsync(
-        projectStoreBaseDir = file,
+        projectIdentityFile = file,
         options = options.copy(
           isNewProject = true,
           useDefaultProjectAsTemplate = true,
@@ -326,6 +327,7 @@ object ProjectUtil {
     return withContext(Dispatchers.EDT) {
       //readaction is not enough
       writeIntentReadAction {
+        @Suppress("DEPRECATION_ERROR") // TODO: Remove as soon as everyone implement async function
         processor.doOpenProject(virtualFile, options.projectToClose, options.forceOpenInNewFrame)
       }
     }
@@ -673,7 +675,7 @@ object ProjectUtil {
       return null
     }
 
-    return projectManager.openProjectAsync(projectStoreBaseDir = projectFile, options = OpenProjectTask {
+    return projectManager.openProjectAsync(projectIdentityFile = projectFile, options = OpenProjectTask {
       runConfigurators = true
       isProjectCreatedWithWizard = true
     })
@@ -716,7 +718,7 @@ object ProjectUtil {
     val project = if (canAttach) {
       val options = createOptionsToOpenDotIdeaOrCreateNewIfNotExists(file, currentProject).copy(
         projectRootDir = file,
-        )
+      )
       (serviceAsync<ProjectManager>() as ProjectManagerEx).openProjectAsync(file, options)
     }
     else {
@@ -744,8 +746,7 @@ object ProjectUtil {
   suspend fun isValidProjectPath(file: Path): Boolean {
     val storePathManager = serviceAsync<ProjectStorePathManager>()
     return withContext(Dispatchers.IO) {
-      storePathManager.testStoreDirectoryExistsForProjectRoot(file) ||
-      (file.toString().endsWith(ProjectFileType.DOT_DEFAULT_EXTENSION) && Files.isRegularFile(file))
+      storePathManager.getStoreDescriptor(file).testStoreDirectoryExistsForProjectRoot()
     }
   }
 }
