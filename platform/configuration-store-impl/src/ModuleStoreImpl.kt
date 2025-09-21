@@ -64,7 +64,7 @@ internal class ModuleStoreImpl(module: Module, private val pathMacroManager: Pat
     return result
   }
 
-  override fun reloadStates(componentNames: Set<String>) {
+  override suspend fun reloadStates(componentNames: Set<String>) {
     batchReloadStates(componentNames, project.messageBus)
   }
 
@@ -94,7 +94,9 @@ internal class ModuleStoreImpl(module: Module, private val pathMacroManager: Pat
         else {
           storageManager.updatePath(spec = StoragePathMacros.MODULE_FILE, newPath = path)
         }
-      })
+      },
+      usePathMacroManager = true,
+    )
   }
 }
 
@@ -114,7 +116,7 @@ private class ModuleStateStorageManager(macroSubstitutor: TrackingPathMacroSubst
 
   override fun rename(newName: String) {
     storageLock.write {
-      val storage = getOrCreateStorage(collapsedPath = StoragePathMacros.MODULE_FILE, roamingType = RoamingType.DEFAULT) as FileBasedStorage
+      val storage = getOrCreateStorage(collapsedPath = StoragePathMacros.MODULE_FILE, roamingType = RoamingType.DEFAULT, usePathMacroManager = true) as FileBasedStorage
       val file = storage.getVirtualFile()
       try {
         if (file != null) {

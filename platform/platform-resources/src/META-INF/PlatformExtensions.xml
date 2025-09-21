@@ -1167,10 +1167,6 @@
                  defaultValue="true"
                  description="Enables Windows Defender configuration check on project open"/>
 
-    <backgroundPostStartupActivity implementation="com.intellij.diagnostic.UnsupportedGlibcNotifierActivity" os="linux"/>
-    <registryKey key="ide.warn.glibc.version.unsupported" defaultValue="true"
-                 description="Shows a warning notification to users of unsupported Linux distributions with glibc less than minimum supported"/>
-
     <applicationActivity implementation="com.intellij.codeInsight.editorActions.TypedHandlerPreloader"/>
 
     <writingAccessProvider implementation="com.intellij.openapi.fileEditor.impl.NonProjectFileWritingAccessProvider" order="first"/>
@@ -1551,7 +1547,7 @@
     <notificationGroup id="Test Hidden Notification" displayType="NONE" hideFromSettings="true"/>
     <notificationGroup id="Test Notification" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="System Messages" displayType="BALLOON" bundle="messages.IdeBundle" key="notification.group.system.messages"
-                       notificationIds="cloud.config.alert;glibc.incompatible"/>
+                       notificationIds="cloud.config.alert;glibc.incompatible;reset.auto.reparse.settings.to.default"/>
     <notificationGroup id="Merge Internal Error" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="Diff Changes Loading Error" displayType="BALLOON" hideFromSettings="true"/>
     <notificationGroup id="System shortcuts conflicts" displayType="STICKY_BALLOON" bundle="messages.KeyMapBundle"
@@ -1997,11 +1993,10 @@
 
     <registryKey key="ide.suppress.low.memory.notifications.when.dumb" defaultValue="false"
                  description="Disables Low Memory notifications during indexing for the sake of less false-positive detection for users" />
+    <configFolderChangedListener implementation="com.intellij.configurationStore.ComponentStoreImplReloadListener"/>
   </extensions>
 
   <applicationListeners>
-    <listener class="com.intellij.configurationStore.ComponentStoreImplReloadListener"
-              topic="com.intellij.openapi.project.impl.shared.ConfigFolderChangedListener"/>
     <listener class="com.intellij.ide.plugins.DynamicPluginsFrameStateListener"
               topic="com.intellij.openapi.application.ApplicationActivationListener"/>
     <listener class="com.intellij.openapi.updateSettings.impl.UpdateCheckerService$MyAppLifecycleListener"

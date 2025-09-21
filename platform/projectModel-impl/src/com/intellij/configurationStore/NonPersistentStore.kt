@@ -26,9 +26,9 @@ object NonPersistentStore : IComponentStore {
   override fun initPersistencePlainComponent(component: Any, key: String, pluginId: PluginId) {
   }
 
-  override fun reloadStates(componentNames: Set<String>) {}
+  override suspend fun reloadStates(componentNames: Set<String>) {}
 
-  override fun reloadState(componentClass: Class<out PersistentStateComponent<*>>) {
+  override suspend fun reloadState(componentClass: Class<out PersistentStateComponent<*>>) {
   }
 
   override fun isReloadPossible(componentNames: Set<String>): Boolean = true
@@ -74,5 +74,5 @@ private object NonPersistentStateStorage : StateStorage {
 
   override fun createSaveSessionProducer(): SaveSessionProducer? = null
 
-  override fun analyzeExternalChangesAndUpdateIfNeeded(componentNames: MutableSet<in String>) {}
+  override suspend fun analyzeExternalChangesAndUpdateIfNeeded(componentNames: MutableSet<in String>) {}
 }

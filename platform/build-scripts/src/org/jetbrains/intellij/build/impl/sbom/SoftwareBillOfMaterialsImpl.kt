@@ -14,6 +14,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
@@ -30,7 +32,6 @@ import org.jetbrains.intellij.build.SoftwareBillOfMaterials
 import org.jetbrains.intellij.build.SoftwareBillOfMaterials.Companion.Suppliers
 import org.jetbrains.intellij.build.SoftwareBillOfMaterials.Options
 import org.jetbrains.intellij.build.downloadAsText
-import org.jetbrains.intellij.build.forEachConcurrent
 import org.jetbrains.intellij.build.impl.BundledRuntime
 import org.jetbrains.intellij.build.impl.Checksums
 import org.jetbrains.intellij.build.impl.DistributionForOsTaskResult
@@ -106,7 +107,11 @@ class SoftwareBillOfMaterialsImpl(
 ) : SoftwareBillOfMaterials {
   private companion object {
     val JETBRAINS_GITHUB_ORGANIZATIONS: Set<String> = setOf("JetBrains", "Kotlin")
-    val STRICT_MODE: Boolean = System.getProperty("intellij.build.sbom.strictMode").toBoolean()
+    /**
+     * Cannot be enabled by default because the Maven resolver doesn't resolve pom.xml reproducibly, see IJI-1882.
+     * It may resolve nothing, hence no metadata like a supplier value, hence sporadic failures of [checkNtiaConformance].
+     */
+    val STRICT_MODE: Boolean = System.getProperty("intellij.build.sbom.strictMode", "false").toBoolean()
   }
 
   private val specVersion: String = Version.TWO_POINT_THREE_VERSION
@@ -132,7 +137,7 @@ class SoftwareBillOfMaterialsImpl(
   }
 
   /**
-   * See [com.intellij.ide.gdpr.EndUserAgreement]
+   * See https://github.com/JetBrains/intellij-community/blob/master/platform/platform-impl/src/com/intellij/ide/gdpr/EndUserAgreement.java
    */
   private val jetBrainsOwnLicense: Options.DistributionLicense by lazy {
     val eula = context.paths.communityHomeDir
@@ -230,7 +235,7 @@ class SoftwareBillOfMaterialsImpl(
       distributions.associateWith { distribution ->
         getFiles(distribution)
           .map { async(CoroutineName("checksums for $it")) { Checksums(it) } }
-          .map { it.await() }
+          .awaitAll()
       }
     }.flatMap { (distribution, filesWithChecksums) ->
       filesWithChecksums.map {
@@ -446,7 +451,7 @@ class SoftwareBillOfMaterialsImpl(
         .filterNot { it.startsWith(context.paths.tempDir) }
         .toList().map {
           async(CoroutineName("checksums for $it")) { Checksums(it) }
-        }.map { it.await() }
+        }.awaitAll()
     }
   }
 
@@ -979,7 +984,7 @@ class SoftwareBillOfMaterialsImpl(
    * See https://pypi.org/project/ntia-conformance-checker/
    */
   private suspend fun checkNtiaConformance(documents: List<Path>, context: BuildContext) {
-    if (!Docker.isAvailable || SystemInfoRt.isWindows) {
+    if (!STRICT_MODE || !Docker.isAvailable || SystemInfoRt.isWindows) {
       return
     }
 
@@ -990,32 +995,29 @@ class SoftwareBillOfMaterialsImpl(
         workingDir = context.paths.communityHomeDir.resolve("platform/build-scripts/resources/sbom/$ntiaChecker"),
       )
     }
-    documents.forEachConcurrent { document ->
-      try {
-        context.runProcess(
-          args = listOf(
-            "docker", "run", "--rm",
-            "--volume=${document.parent}:${document.parent}:ro",
-            ntiaChecker, "--file", "${document.toAbsolutePath()}", "--verbose"
-          ),
-          attachStdOutToException = true,
-        )
-      }
-      catch (e: CancellationException) {
-        throw e
-      }
-      catch (e: Exception) {
-        val message =
-          """
-           Generated SBOM $document is not NTIA-conformant. 
-           Please look for 'Components missing a supplier' in the suppressed exceptions and specify all missing suppliers.
-           You may use https://package-search.jetbrains.com/ to search for them.
-          """.trimIndent()
-        if (STRICT_MODE) {
-          throw IllegalStateException(message, e)
-        }
-        else {
-          Span.current().addEvent("$message\n${e.stackTraceToString()}")
+    supervisorScope {
+      for (document in documents) {
+        launch(CoroutineName("NTIA conformance check for ${document.name}")) {
+          try {
+            context.runProcess(
+              args = listOf(
+                "docker", "run", "--rm",
+                "--volume=${document.parent}:${document.parent}:ro",
+                ntiaChecker, "--file", "${document.toAbsolutePath()}", "--verbose"
+              ),
+              attachStdOutToException = true,
+            )
+          }
+          catch (e: CancellationException) {
+            throw e
+          }
+          catch (e: Exception) {
+            context.messages.logErrorAndThrow("""
+             Generated SBOM $document is not NTIA-conformant. 
+             Please look for 'Components missing a supplier' in the suppressed exceptions and specify all missing suppliers.
+             You may use https://package-search.jetbrains.com/ to search for them.
+            """.trimIndent(), e)
+          }
         }
       }
     }
