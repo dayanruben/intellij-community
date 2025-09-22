@@ -22,10 +22,12 @@ import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.ProjectsGroupIt
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.ProviderRecentProjectItem
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectItem
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectTreeItem
+import com.intellij.project.ProjectStoreOwner
 import com.intellij.ui.UIBundle
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.containers.forEachLoggingErrors
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import javax.swing.Icon
 import kotlin.io.path.invariantSeparatorsPathString
 
@@ -40,15 +42,19 @@ open class RecentProjectListActionProvider {
 
   internal fun collectProjectsWithoutCurrent(currentProject: Project): List<RecentProjectTreeItem> = collectProjects(currentProject)
 
-  @ApiStatus.Internal
+  @Internal
   fun collectProjects(): List<RecentProjectTreeItem> = collectProjects(projectToFilterOut = null)
 
   private fun collectProjects(projectToFilterOut: Project?): List<RecentProjectTreeItem> {
     val recentProjectManager = RecentProjectsManager.getInstance() as RecentProjectsManagerBase
-    val openedPaths = ProjectManagerEx.getOpenProjects().mapNotNullTo(LinkedHashSet()) { recentProjectManager.getProjectPath(it)?.invariantSeparatorsPathString }
+    val openedPaths = ProjectManagerEx.getOpenProjects().mapNotNullTo(LinkedHashSet()) {
+      recentProjectManager.getProjectPath(it)?.invariantSeparatorsPathString
+    }
     val allRecentProjectPaths = LinkedHashSet(recentProjectManager.getRecentPaths())
     if (projectToFilterOut != null) {
-      allRecentProjectPaths.remove(recentProjectManager.getProjectPath(projectToFilterOut)?.invariantSeparatorsPathString)
+      recentProjectManager.getProjectPath(projectToFilterOut)?.let {
+        allRecentProjectPaths.remove(it.invariantSeparatorsPathString)
+      }
     }
 
     val duplicates = getDuplicateProjectNames(openedPaths, allRecentProjectPaths, recentProjectManager)
@@ -80,11 +86,16 @@ open class RecentProjectListActionProvider {
       emptyList()
     }
 
-    val mergedProjectsWithoutGroups = insertProjectsFromProvider(projectsWithoutGroups.toList(), projectsFromEP) { it.activationTimestamp }
-    return (projectGroups + mergedProjectsWithoutGroups).toList()
+    val mergedProjectsWithoutGroups = insertProjectsFromProvider(projectsWithoutGroups, projectsFromEP) { it.activationTimestamp }
+    if (projectGroups.isEmpty()) {
+      return mergedProjectsWithoutGroups
+    }
+    else {
+      return projectGroups + mergedProjectsWithoutGroups
+    }
   }
 
-  @ApiStatus.Internal
+  @Internal
   open fun getActions(project: Project?): List<AnAction> = getActions(allowCustomProjectActions = true)
 
   /**
@@ -157,6 +168,36 @@ open class RecentProjectListActionProvider {
 
     val mergedProjectsWithoutGroups = insertProjectsFromProvider(actionsWithoutGroup, actionsFromEP) { it.activationTimestamp }
     return (topGroups + mergedProjectsWithoutGroups + bottomGroups)
+  }
+
+  @Internal
+  open fun getActionsWithoutGroups(
+    addClearListItem: Boolean = false,
+  ): List<AnAction> {
+    val recentProjectManager = RecentProjectsManager.getInstance() as RecentProjectsManagerBase
+    val openedPaths = LinkedHashSet<String>()
+    for (openProject in ProjectUtilCore.getOpenProjects()) {
+      recentProjectManager.getProjectPath(openProject)?.let {
+        openedPaths.add(it.invariantSeparatorsPathString)
+      }
+    }
+
+    val paths = LinkedHashSet(recentProjectManager.getRecentPaths())
+    val duplicates = getDuplicateProjectNames(openedPaths, paths, recentProjectManager)
+
+    val actionsWithoutGroup = mutableListOf<AnAction>()
+    for (path in paths) {
+      actionsWithoutGroup.add(createOpenAction(path, duplicates, recentProjectManager))
+    }
+
+    val actionsFromEP = if (LoadingState.COMPONENTS_LOADED.isOccurred && Registry.`is`("ide.recent.projects.query.ep.providers")) {
+      EP.extensionList.flatMap { createActionsFromProvider(it, false) }
+    }
+    else {
+      emptyList()
+    }
+
+    return insertProjectsFromProvider(actionsWithoutGroup, actionsFromEP) { it.activationTimestamp }
   }
 
   private fun addGroups(
@@ -256,12 +297,12 @@ open class RecentProjectListActionProvider {
     }
   }
 
-  @ApiStatus.Internal
+  @Internal
   fun countLocalProjects(): Int {
     return RecentProjectsManagerBase.getInstanceEx().getRecentPaths().size
   }
 
-  @ApiStatus.Internal
+  @Internal
   fun countProjectsFromProviders(): Int {
     var sum = 0
     EP.extensionList.forEachLoggingErrors(logger<RecentProjectListActionProvider>()) {
@@ -278,7 +319,9 @@ open class RecentProjectListActionProvider {
     projectsFromEP: List<T>,
     timestampGetter: (T) -> Long?,
   ): List<T> {
-    if (projectsFromEP.isEmpty()) return projects
+    if (projectsFromEP.isEmpty()) {
+      return projects
+    }
 
     fun List<T>.indexOfFirstOrSize(predicate: (T) -> Boolean): Int {
       val index = indexOfFirst(predicate)
@@ -308,7 +351,12 @@ open class RecentProjectListActionProvider {
   /**
    * Returns true if the action corresponds to a specified project
    */
-  open fun isCurrentProjectAction(project: Project, action: ReopenProjectAction): Boolean = action.projectPath == project.basePath
+  open fun isCurrentProjectAction(project: Project, action: ReopenProjectAction): Boolean {
+    if (project !is ProjectStoreOwner) {
+      return false
+    }
+    return action.projectPath == project.componentStore.storeDescriptor.presentableUrl.invariantSeparatorsPathString
+  }
 }
 
 private fun getDuplicateProjectNames(
@@ -330,9 +378,9 @@ private fun getDuplicateProjectNames(
 
 private class ProjectGroupComparator(private val projectPaths: Set<String>) : Comparator<ProjectGroup> {
   override fun compare(o1: ProjectGroup, o2: ProjectGroup): Int {
-    val ind1 = getGroupIndex(o1)
-    val ind2 = getGroupIndex(o2)
-    return if (ind1 == ind2) NaturalComparator.INSTANCE.compare(o1.name, o2.name) else ind1 - ind2
+    val index1 = getGroupIndex(o1)
+    val index2 = getGroupIndex(o2)
+    return if (index1 == index2) NaturalComparator.INSTANCE.compare(o1.name, o2.name) else index1 - index2
   }
 
   private fun getGroupIndex(group: ProjectGroup): Int {
@@ -363,17 +411,22 @@ private class RemoteRecentProjectActionGroup(val projectId: String, val project:
 
   override fun getChildren(e: AnActionEvent?): Array<out AnAction> {
     val additionalActions = project.additionalActions
-    if (additionalActions.isEmpty()) return EMPTY_ARRAY
+    if (additionalActions.isEmpty()) {
+      return EMPTY_ARRAY
+    }
 
-    if (e != null && e.place == ActionPlaces.DOCK_MENU) return EMPTY_ARRAY
+    if (e != null && e.place == ActionPlaces.DOCK_MENU) {
+      return EMPTY_ARRAY
+    }
 
     val result = mutableListOf<AnAction>()
     if (project.canOpenProject()) {
-      result += DumbAwareAction.create(UIBundle.message("project.widget.opening.project.group.child.action.text")) { event ->
+      result.add(DumbAwareAction.create(UIBundle.message("project.widget.opening.project.group.child.action.text")) { event ->
         project.openProject(event)
       }
+      )
     }
-    result += additionalActions
+    result.addAll(additionalActions)
     return result.toTypedArray()
   }
 
