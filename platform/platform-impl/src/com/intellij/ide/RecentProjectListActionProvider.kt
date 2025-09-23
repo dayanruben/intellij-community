@@ -22,22 +22,20 @@ import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.ProjectsGroupIt
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.ProviderRecentProjectItem
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectItem
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectTreeItem
-import com.intellij.project.ProjectStoreOwner
 import com.intellij.ui.UIBundle
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.containers.forEachLoggingErrors
-import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
 import javax.swing.Icon
 import kotlin.io.path.invariantSeparatorsPathString
+
+private val EP = ExtensionPointName<RecentProjectProvider>("com.intellij.recentProjectsProvider")
 
 open class RecentProjectListActionProvider {
   companion object {
     @JvmStatic
     @RequiresBlockingContext
     fun getInstance(): RecentProjectListActionProvider = service<RecentProjectListActionProvider>()
-
-    private val EP = ExtensionPointName<RecentProjectProvider>("com.intellij.recentProjectsProvider")
   }
 
   internal fun collectProjectsWithoutCurrent(currentProject: Project): List<RecentProjectTreeItem> = collectProjects(currentProject)
@@ -60,7 +58,7 @@ open class RecentProjectListActionProvider {
     val duplicates = getDuplicateProjectNames(openedPaths, allRecentProjectPaths, recentProjectManager)
     val groups = recentProjectManager.groups.sortedWith(ProjectGroupComparator(allRecentProjectPaths))
     val projectGroups = groups.map { projectGroup ->
-      val projects = projectGroup.projects.toSet()
+      val projects = LinkedHashSet(projectGroup.projects)
       val children = projects.map { recentProject ->
         createRecentProject(
           path = recentProject,
@@ -171,33 +169,42 @@ open class RecentProjectListActionProvider {
   }
 
   @Internal
-  open fun getActionsWithoutGroups(
-    addClearListItem: Boolean = false,
-  ): List<AnAction> {
+  @JvmOverloads
+  open fun getActionsWithoutGroups(addClearListItem: Boolean = false, withoutProject: Project? = null): List<AnAction> {
     val recentProjectManager = RecentProjectsManager.getInstance() as RecentProjectsManagerBase
     val openedPaths = LinkedHashSet<String>()
+    var withoutProjectPath: String? = null
     for (openProject in ProjectUtilCore.getOpenProjects()) {
-      recentProjectManager.getProjectPath(openProject)?.let {
-        openedPaths.add(it.invariantSeparatorsPathString)
+      val projectPath = recentProjectManager.getProjectPath(openProject)?.invariantSeparatorsPathString ?: continue
+      if (openProject === withoutProject) {
+        withoutProjectPath = projectPath
       }
+      openedPaths.add(projectPath)
+    }
+
+    if (withoutProjectPath == null && withoutProject != null) {
+      withoutProjectPath = recentProjectManager.getProjectPath(withoutProject)?.invariantSeparatorsPathString
     }
 
     val paths = LinkedHashSet(recentProjectManager.getRecentPaths())
     val duplicates = getDuplicateProjectNames(openedPaths, paths, recentProjectManager)
 
-    val actionsWithoutGroup = mutableListOf<AnAction>()
+    val actions = mutableListOf<ReopenProjectAction>()
     for (path in paths) {
-      actionsWithoutGroup.add(createOpenAction(path, duplicates, recentProjectManager))
+      if (path == withoutProjectPath) {
+        continue
+      }
+      actions.add(createOpenAction(path = path, duplicates = duplicates, recentProjectManager = recentProjectManager))
     }
 
     val actionsFromEP = if (LoadingState.COMPONENTS_LOADED.isOccurred && Registry.`is`("ide.recent.projects.query.ep.providers")) {
-      EP.extensionList.flatMap { createActionsFromProvider(it, false) }
+      EP.extensionList.flatMap { createActionsFromProvider(provider = it, allowCustomProjectActions = false) }
     }
     else {
-      emptyList()
+      return actions
     }
 
-    return insertProjectsFromProvider(actionsWithoutGroup, actionsFromEP) { it.activationTimestamp }
+    return insertProjectsFromProvider(actions, actionsFromEP) { it.activationTimestamp }
   }
 
   private fun addGroups(
@@ -277,26 +284,6 @@ open class RecentProjectListActionProvider {
     )
   }
 
-  private fun createProjectsFromProvider(provider: RecentProjectProvider): List<ProviderRecentProjectItem> {
-    return provider.getRecentProjects().map { project ->
-      val projectId = getProviderProjectId(provider, project)
-      ProviderRecentProjectItem(projectId, project)
-    }
-  }
-
-  private fun createActionsFromProvider(provider: RecentProjectProvider, allowCustomProjectActions: Boolean): List<AnAction> {
-    return provider.getRecentProjects().map { project ->
-      val projectId = getProviderProjectId(provider, project)
-
-      if (allowCustomProjectActions) {
-        RemoteRecentProjectActionGroup(projectId, project)
-      }
-      else {
-        RemoteRecentProjectAction(projectId, project)
-      }
-    }
-  }
-
   @Internal
   fun countLocalProjects(): Int {
     return RecentProjectsManagerBase.getInstanceEx().getRecentPaths().size
@@ -310,52 +297,61 @@ open class RecentProjectListActionProvider {
     }
     return sum
   }
+}
 
-  /**
-   * Keep [projects] order intact, but insert [projectsFromEP] into the correct place if possible
-   */
-  private fun <T> insertProjectsFromProvider(
-    projects: List<T>,
-    projectsFromEP: List<T>,
-    timestampGetter: (T) -> Long?,
-  ): List<T> {
-    if (projectsFromEP.isEmpty()) {
-      return projects
-    }
+private fun createProjectsFromProvider(provider: RecentProjectProvider): Sequence<ProviderRecentProjectItem> {
+  return provider.getRecentProjects().asSequence().map { project ->
+    ProviderRecentProjectItem(projectId = getProviderProjectId(provider, project), recentProject = project)
+  }
+}
 
-    fun List<T>.indexOfFirstOrSize(predicate: (T) -> Boolean): Int {
-      val index = indexOfFirst(predicate)
-      return if (index == -1) size else index
-    }
-
-    val cutIndex = projects.indexOfFirstOrSize { timestampGetter(it) == null }
-    val mergedPrefix = projects.subList(0, cutIndex).toMutableList()
-    val mergedSuffix = projects.subList(cutIndex, projects.size).toMutableList()
-
-    for (projectFromEP in projectsFromEP) {
-      val projectFromEPTimestamp = timestampGetter(projectFromEP)
-      if (projectFromEPTimestamp == null) {
-        mergedSuffix.add(projectFromEP)
-      }
-      else {
-        val insertIndex = mergedPrefix.indexOfFirstOrSize { item ->
-          val timestamp = timestampGetter(item) ?: 0L
-          return@indexOfFirstOrSize timestamp < projectFromEPTimestamp
-        }
-        mergedPrefix.add(index = insertIndex, element = projectFromEP)
-      }
-    }
-    return mergedPrefix + mergedSuffix
+/**
+ * Keep [projects] order intact, but insert [projectsFromEP] into the correct place if possible
+ */
+private fun <T> insertProjectsFromProvider(
+  projects: List<T>,
+  projectsFromEP: List<T>,
+  timestampGetter: (T) -> Long?,
+): List<T> {
+  if (projectsFromEP.isEmpty()) {
+    return projects
   }
 
-  /**
-   * Returns true if the action corresponds to a specified project
-   */
-  open fun isCurrentProjectAction(project: Project, action: ReopenProjectAction): Boolean {
-    if (project !is ProjectStoreOwner) {
-      return false
+  fun List<T>.indexOfFirstOrSize(predicate: (T) -> Boolean): Int {
+    val index = indexOfFirst(predicate)
+    return if (index == -1) size else index
+  }
+
+  val cutIndex = projects.indexOfFirstOrSize { timestampGetter(it) == null }
+  val mergedPrefix = projects.subList(0, cutIndex).toMutableList()
+  val mergedSuffix = projects.subList(cutIndex, projects.size).toMutableList()
+
+  for (projectFromEP in projectsFromEP) {
+    val projectFromEPTimestamp = timestampGetter(projectFromEP)
+    if (projectFromEPTimestamp == null) {
+      mergedSuffix.add(projectFromEP)
     }
-    return action.projectPath == project.componentStore.storeDescriptor.presentableUrl.invariantSeparatorsPathString
+    else {
+      val insertIndex = mergedPrefix.indexOfFirstOrSize { item ->
+        val timestamp = timestampGetter(item) ?: 0L
+        return@indexOfFirstOrSize timestamp < projectFromEPTimestamp
+      }
+      mergedPrefix.add(index = insertIndex, element = projectFromEP)
+    }
+  }
+  return mergedPrefix + mergedSuffix
+}
+
+private fun createActionsFromProvider(provider: RecentProjectProvider, allowCustomProjectActions: Boolean): Sequence<AnAction> {
+  return provider.getRecentProjects().asSequence().map { project ->
+    val projectId = getProviderProjectId(provider, project)
+
+    if (allowCustomProjectActions) {
+      RemoteRecentProjectActionGroup(projectId, project)
+    }
+    else {
+      RemoteRecentProjectAction(projectId, project)
+    }
   }
 }
 
@@ -423,8 +419,7 @@ private class RemoteRecentProjectActionGroup(val projectId: String, val project:
     if (project.canOpenProject()) {
       result.add(DumbAwareAction.create(UIBundle.message("project.widget.opening.project.group.child.action.text")) { event ->
         project.openProject(event)
-      }
-      )
+      })
     }
     result.addAll(additionalActions)
     return result.toTypedArray()
@@ -436,8 +431,7 @@ private class RemoteRecentProjectActionGroup(val projectId: String, val project:
 }
 
 private class RemoteRecentProjectAction(val projectId: String, val project: RecentProject)
-  : AnAction(), DumbAware,
-    ProjectToolbarWidgetPresentable by RemoteRecentProjectWidgetActionHelper(projectId, project) {
+  : AnAction(), DumbAware, ProjectToolbarWidgetPresentable by RemoteRecentProjectWidgetActionHelper(projectId, project) {
   init {
     templatePresentation.setText(nameToDisplayAsText, false)
   }
@@ -452,9 +446,15 @@ private class RemoteRecentProjectWidgetActionHelper(val projectId: String, val p
   override val providerPathToDisplay: @NlsSafe String? get() = project.providerPath
   override val projectPathToDisplay: @NlsSafe String? = project.projectPath
   override val branchName: @NlsSafe String? = project.branchName
+
   override val projectIcon: Icon
-    get() = project.icon
-            ?: RecentProjectsManagerBase.getInstanceEx().getNonLocalProjectIcon(projectId, true, unscaledProjectIconSize(), project.displayName)
+    get() = project.icon ?: RecentProjectsManagerBase.getInstanceEx().getNonLocalProjectIcon(
+      id = projectId,
+      isProjectValid = true,
+      unscaledIconSize = unscaledProjectIconSize(),
+      name = project.displayName,
+    )
+
   override val providerIcon: Icon? get() = project.providerIcon
   override val activationTimestamp: Long? get() = project.activationTimestamp
 
@@ -493,10 +493,9 @@ private val AnAction.activationTimestamp
 private val EP_NAME: ExtensionPointName<RecentProjectsBranchesProvider> = ExtensionPointName("com.intellij.recentProjectsBranchesProvider")
 
 private fun getCurrentBranch(projectPath: String, nameIsDistinct: Boolean): String? {
-  EP_NAME.extensionList.forEach { provider ->
-    val branch = provider.getCurrentBranch(projectPath, nameIsDistinct)
-    if (branch != null) {
-      return branch
+  for (provider in EP_NAME.extensionList) {
+    provider.getCurrentBranch(projectPath, nameIsDistinct)?.let {
+      return it
     }
   }
 
