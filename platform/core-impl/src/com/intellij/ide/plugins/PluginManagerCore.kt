@@ -111,7 +111,11 @@ object PluginManagerCore {
   private var thirdPartyPluginsNoteAccepted: Boolean? = null
 
   /**
-   * See also [AppMode.isDevServer]
+   * Returns `true` if the IDE is running from source code **without using 'dev build'**.
+   * In this mode a single classloader is used to load all modules and plugins, and the actual layout of class-files and resources differs from the real production layout.
+   * The IDE can be started in this mode from source code using a run configuration without the 'dev build' suffix. Also, tests are often started in this mode.
+   *
+   * See also [AppMode.isRunningFromDevBuild].
    */
   @JvmStatic
   fun isRunningFromSources(): Boolean {
@@ -1083,14 +1087,18 @@ fun pluginRequiresUltimatePlugin(rootDescriptor: IdeaPluginDescriptorImpl,
   }
 }
 
+/**
+ * Checks if the class is a part of the platform or included to a built-in plugin provided by JetBrains vendor.
+ */
 @ApiStatus.Internal
 @IntellijInternalApi
-fun isPlatformOrJetBrainsBundled(aClass: Class<*>): Boolean {
+fun isPlatformOrJetBrainsDistributionPlugin(aClass: Class<*>): Boolean {
   val classLoader = aClass.classLoader
   when {
     classLoader is PluginAwareClassLoader -> {
       val plugin = classLoader.pluginDescriptor
-      return plugin.isBundled && PluginManagerCore.isDevelopedByJetBrains(plugin)
+      return (plugin.isBundled || PluginManagerCore.isUpdatedBundledPlugin(plugin))
+             && PluginManagerCore.isDevelopedByJetBrains(plugin)
     }
     PluginManagerCore.isRunningFromSources() -> {
       return true

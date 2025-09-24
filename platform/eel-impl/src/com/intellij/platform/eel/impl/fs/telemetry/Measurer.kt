@@ -15,6 +15,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.time.Duration.Companion.nanoseconds
 
 @ApiStatus.Internal
 object Measurer {
@@ -31,7 +32,7 @@ object Measurer {
 
   @Suppress("EnumEntryName")
   enum class DelegateType() {
-    system,
+    local,
     wsl,
     docker;
 
@@ -47,7 +48,7 @@ object Measurer {
       private fun fromDelegateClassInternal(clazz: Class<FileSystemProvider>): DelegateType {
         if (clazz.name == "com.intellij.platform.ide.impl.wsl.ijent.nio.IjentWslNioFileSystemProvider") return wsl
         if (clazz.name == "com.intellij.docker.ijent.MountsAwareFileSystemProvider") return docker
-        if (!RoutingAwareFileSystemProvider::class.java.isAssignableFrom(clazz)) return system
+        if (!RoutingAwareFileSystemProvider::class.java.isAssignableFrom(clazz)) return local
         error("Unknown delegate class: ${clazz.name}")
       }
     }
@@ -56,26 +57,36 @@ object Measurer {
   data class FsEventKey(
     val delegateType: DelegateType,
     val operation: Operation,
-    val success: Boolean,
+    val success: Boolean?,
     val repeated: Boolean?
   ) {
     override fun toString(): String {
-      val successKey = if (success) ".success" else ".failure"
+      val successKey = when (success) {
+        true -> ".success"
+        false -> ".failure"
+        null -> ""
+      }
       val repeatedKey = when (repeated) {
         true -> ".repeated"
         false -> ".initial"
         null -> ""
       }
-      val keyString = "ijent.fs.events.${delegateType}.${operation}$successKey$repeatedKey"
+      val delegateTypeKey = when (delegateType) {
+        DelegateType.local -> ".local"
+        DelegateType.wsl -> ".ijent.wsl"
+        DelegateType.docker -> ".ijent.docker"
+      }
+      val keyString = "nio.fs.${delegateTypeKey}.${operation}$successKey$repeatedKey"
       return keyString
     }
     companion object {
+      val countUniquePathsEnabled: Boolean get() = System.getProperty("nio.mrfs.telemetry.count.unique.paths", "false").toBoolean()
       val VALUES: List<FsEventKey> = DelegateType.entries.filter {
         it != DelegateType.wsl || SystemInfo.isWindows
       }.flatMap { delegateType ->
         Operation.entries.flatMap { operation ->
-          listOf(true, false).flatMap { success ->
-            val repeatedChoices = if (fsQueryStatCounter == null) listOf(null) else listOf(null, true, false)
+          listOf(null, true, false).flatMap { success ->
+            val repeatedChoices = if (countUniquePathsEnabled && success != null) listOf(null, true, false) else listOf(null)
             repeatedChoices.map { repeated ->
               FsEventKey(delegateType, operation, success, repeated)
             }
@@ -100,10 +111,12 @@ object Measurer {
       val keyString = key.toString()
       listOfNotNull("$keyString.count" to {
         extendedFsEventsCounter[key]!!.get()
-      }, "$keyString.duration.nanos" to {
-        extendedFsEventsDurationNanos[key]!!.get()
-      }, ("$keyString.repeat.interval.nanos" to {
-        extendedFsEventsRepeatIntervalNanos[key]!!.get()
+      }, "$keyString.duration.ms" to {
+        extendedFsEventsDurationNanos[key]!!.get().nanoseconds.inWholeMilliseconds
+      }, ("$keyString.repeat.interval.ms" to {
+        val intervalSum = extendedFsEventsRepeatIntervalNanos[key]!!.get().nanoseconds
+        val uniqueCount = extendedFsEventsCounter[key.copy(repeated = false)]!!.get()
+        (intervalSum.div(uniqueCount.coerceAtLeast(1).toDouble())).inWholeMilliseconds
       }).takeIf { key.repeated == true })
     }
   }
@@ -142,7 +155,7 @@ object Measurer {
     supportedFileAttributeViews;
   }
 
-  val fsQueryStatCounter: FsQueryStatCounter? = if (System.getProperty("nio.mrfs.telemetry.count.unique.paths", "false").toBoolean()) {
+  val fsQueryStatCounter: FsQueryStatCounter? = if (FsEventKey.countUniquePathsEnabled) {
     FsQueryStatCounter()
   }
   else null
@@ -162,9 +175,15 @@ object Measurer {
     )
     extendedFsEventsCounter[key]!!.incrementAndGet()
     extendedFsEventsDurationNanos[key]!!.addAndGet(Duration.between(startTime, endTime).toNanos())
+    run {
+      val keyWithNullRepeatedAndSuccess = key.copy(repeated = null, success = null)
+      extendedFsEventsCounter[keyWithNullRepeatedAndSuccess]!!.incrementAndGet()
+      extendedFsEventsDurationNanos[keyWithNullRepeatedAndSuccess]!!.addAndGet(Duration.between(startTime, endTime).toNanos())
+    }
     if (repeated != null) {
-      extendedFsEventsCounter[key.copy(repeated = null)]!!.incrementAndGet()
-      extendedFsEventsDurationNanos[key.copy(repeated = null)]!!.addAndGet(Duration.between(startTime, endTime).toNanos())
+      val keyWithNullRepeated = key.copy(repeated = null)
+      extendedFsEventsCounter[keyWithNullRepeated]!!.incrementAndGet()
+      extendedFsEventsDurationNanos[keyWithNullRepeated]!!.addAndGet(Duration.between(startTime, endTime).toNanos())
     }
     if (repeated == true) {
       extendedFsEventsRepeatIntervalNanos[key]!!.addAndGet(repeatInterval!!.toNanos())
