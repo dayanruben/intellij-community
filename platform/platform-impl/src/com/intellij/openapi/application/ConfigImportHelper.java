@@ -79,7 +79,7 @@ import java.util.stream.Collectors;
 import static com.intellij.ide.CommandLineProcessorKt.isIdeStartupWizardEnabled;
 import static com.intellij.ide.SpecialConfigFiles.*;
 import static com.intellij.ide.plugins.BundledPluginsState.BUNDLED_PLUGINS_FILENAME;
-import static com.intellij.openapi.application.ImportOldConfigsState.InitialImportScenario.*;
+import static com.intellij.openapi.application.ImportOldConfigsUsagesCollector.InitialImportScenario.*;
 import static com.intellij.openapi.application.migrations.Localization242Kt.enableL10nIfPluginInstalled;
 import static com.intellij.openapi.application.migrations.PluginMigrationKt.MIGRATION_INSTALLED_PLUGINS_TXT;
 import static com.intellij.platform.ide.bootstrap.SplashManagerKt.hideSplash;
@@ -169,13 +169,12 @@ public final class ConfigImportHelper {
       return;
     }
 
-    var otherProductPrefixes = settings != null ? settings.getProductsToImportFrom(args) : List.<String>of();
-    var guessedOldConfigDirs = findConfigDirectories(newConfigDir, settings, otherProductPrefixes);
+    var guessedOldConfigDirs = findConfigDirectories(newConfigDir, settings, args);
     var tempBackup = (Path)null;
     var vmOptionFileChanged = false;
     var vmOptionsLines = (List<String>)null;
     var currentlyDisabledPlugins = (List<String>)null;
-    var importScenarioStatistics = (ImportOldConfigsState.InitialImportScenario)null;
+    var importScenarioStatistics = (ImportOldConfigsUsagesCollector.InitialImportScenario)null;
 
     try {
       var oldConfigDirAndOldIdePath = (Pair<@NotNull Path, @Nullable Path>)null;
@@ -302,10 +301,12 @@ public final class ConfigImportHelper {
       }
 
       if (settings != null) {
-        settings.importFinished(newConfigDir, otherProductPrefixes);
+        var oldConfigDir = oldConfigDirAndOldIdePath != null ? oldConfigDirAndOldIdePath.first : null;
+        settings.importFinished(newConfigDir, oldConfigDir);
       }
 
-      ImportOldConfigsState.Companion.getInstance().reportImportScenario(importScenarioStatistics);
+      ImportOldConfigsUsagesCollector.INSTANCE.reportImportScenario(importScenarioStatistics);
+
       if (importScenarioStatistics == IMPORT_SETTINGS_ACTION && vmOptionsLines != null) {
         var vmOptionsFile = newConfigDir.resolve(VMOptions.getFileName());
         try {
@@ -577,10 +578,6 @@ public final class ConfigImportHelper {
     }
   }
 
-  static @NotNull ConfigDirsSearchResult findConfigDirectories(@NotNull Path newConfigDir) {
-    return findConfigDirectories(newConfigDir, null, List.of());
-  }
-
   public static @Nullable FileTime getConfigLastModifiedTime(@NotNull Path configDir) {
     var max = (FileTime)null;
     for (var name : OPTIONS) {
@@ -595,12 +592,13 @@ public final class ConfigImportHelper {
     return max;
   }
 
-  @VisibleForTesting
   public static @NotNull ConfigDirsSearchResult findConfigDirectories(
     @NotNull Path newConfigDir,
     @Nullable ConfigImportSettings settings,
-    @NotNull List<String> otherProductPrefixes
+    @NotNull List<String> args
   ) {
+    var otherProductPrefixes = settings != null ? settings.getProductsToImportFrom(args) : List.<String>of();
+
     var homes = new HashSet<Path>();  // looking for existing config directories ...
     homes.add(newConfigDir.getParent());  // ... in the vicinity of the new config directory
     homes.add(newConfigDir.getFileSystem().getPath(PathManager.getDefaultConfigPathFor("X")).getParent());  // ... in the default location
