@@ -365,6 +365,8 @@ libraries/lucene.common
 libraries/microba
 libraries/mockito
 libraries/skiko
+libraries/sshd-osgi
+libraries/system-stubs-jupiter
 libraries/testcontainers
 libraries/testng
 libraries/xerces
@@ -884,6 +886,8 @@ plugins/junit/kotlin-tests-shared
 plugins/junit/testFramework
 plugins/junit5_rt
 plugins/junit5_rt_tests
+plugins/junit6_rt
+plugins/junit6_rt_tests
 plugins/junit_rt
 plugins/keymaps/eclipse-keymap
 plugins/keymaps/netbeans5.6-keymap
