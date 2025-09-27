@@ -15,8 +15,6 @@ import com.intellij.spellchecker.settings.SpellCheckerSettings
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import com.intellij.tools.ide.metrics.benchmark.Benchmark
-import com.intellij.ui.ChooserInterceptor
-import com.intellij.ui.UiInterceptors
 import java.util.function.Consumer
 
 
@@ -167,9 +165,6 @@ class JavaSupportTest : GrazieTestBase() {
   }
 
   fun `test no highlighting after fixing an error within the same range`() {
-    GrazieConfig.update {
-      it.withDomainEnabledRules(TextStyleDomain.CodeDocumentation, setOf("LanguageTool.EN.FILE_EXTENSIONS_CASE"))
-    }
     runHighlightTestForFile("ide/language/java/PDF.java")
     myFixture.launchAction(myFixture.findSingleIntention("PDF"))
     myFixture.checkHighlighting()
