@@ -2,6 +2,7 @@
 package com.intellij.devkit.compose.preview
 
 import androidx.compose.runtime.Composer
+import com.intellij.codeInsight.AnnotationUtil
 import com.intellij.debugger.ui.HotSwapUIImpl
 import com.intellij.devkit.compose.hasCompose
 import com.intellij.ide.plugins.PluginManager
@@ -25,6 +26,7 @@ import org.jetbrains.uast.UFile
 import org.jetbrains.uast.findSourceAnnotation
 import org.jetbrains.uast.toUElement
 import java.lang.reflect.Method
+import java.net.URL
 import java.net.URLClassLoader
 import java.nio.file.Files
 import kotlin.coroutines.resume
@@ -54,32 +56,36 @@ internal suspend fun compileCode(fileToCompile: VirtualFile, project: Project): 
       }
   } ?: return null
 
-  val clazzFqn = readAction {
-    getKotlinFileJvmClassFqnViaUast(project, fileToCompile)
+  val analysis = readAction {
+    analyzeClass(project, fileToCompile)
   } ?: return null
 
-  return withContext(Dispatchers.EDT) {
+  withContext(Dispatchers.EDT) {
     if (moduleData.module.isDisposed) return@withContext null
     if (!fileToCompile.isValid) return@withContext null
 
     val files = compileFiles(fileToCompile, project)
     if (files.isEmpty()) return@withContext null
-
-    val diskPaths = moduleData.paths
-      .mapNotNull { p -> Path(p).takeIf { Files.exists(it) }?.toUri()?.toURL() }
-      .toTypedArray()
-
-    val pluginByClass = PluginManager.getPluginByClass(ComposePreviewToolWindowFactory::class.java)
-    val parent = pluginByClass!!.classLoader
-    val loader = URLClassLoader("ComposePreview", diskPaths, parent)
-    val functions = ComposableFunctionFinder(loader)
-      .findPreviewFunctions(clazzFqn)
-
-    functions.firstOrNull()?.method
-      ?.let { ContentProvider(it, loader) }
-    ?: return@withContext null
   }
+
+  val diskPaths = moduleData.paths
+    .mapNotNull { p -> Path(p).takeIf { Files.exists(it) }?.toUri()?.toURL() }
+    .toTypedArray()
+
+  val pluginByClass = PluginManager.getPluginByClass(ComposePreviewToolWindowFactory::class.java)
+  val filteringClassLoader = FilteringClassLoader(pluginByClass!!.classLoader)
+
+  val loader = DevKitClassLoader(diskPaths, filteringClassLoader)
+  val functions = ComposableFunctionFinder(loader).findPreviewFunctions(analysis.targetClassName, analysis.composableMethodNames)
+
+  return functions.firstOrNull()?.method
+    ?.let { ContentProvider(it, loader) }
 }
+
+/**
+ * Here the magic name `DevKitClassLoader` is used in the IDE process to check if we are in development time classloader.
+ */
+internal class DevKitClassLoader(urls: Array<URL>, parent: ClassLoader) : URLClassLoader("ComposeUIPreview", urls, parent)
 
 private suspend fun compileFiles(fileToCompile: VirtualFile, project: Project): List<VirtualFile> {
   val taskManager = ProjectTaskManager.getInstance(project) as ProjectTaskManagerImpl
@@ -104,10 +110,17 @@ private suspend fun compileFiles(fileToCompile: VirtualFile, project: Project): 
   }
 }
 
-private fun getKotlinFileJvmClassFqnViaUast(project: Project, vFile: VirtualFile): String? {
-  val psiFile = PsiManager.getInstance(project).findFile(vFile) ?: return null
+internal data class FileAnalysisResult(
+  val file: VirtualFile,
+  val targetClassName: String,
+  val composableMethodNames: Collection<String>,
+)
 
-  val uFile = psiFile.toUElement(UFile::class.java) ?: return null
+private fun analyzeClass(project: Project, vFile: VirtualFile): FileAnalysisResult? {
+  if (!vFile.isValid) return null
+
+  val psiFile = PsiManager.getInstance(project).findFile(vFile)
+  val uFile = psiFile?.toUElement(UFile::class.java) ?: return null
 
   // UFile represents the file. For Kotlin top-level functions,
   // the JVM class is still <fileName>Kt, possibly with `@file:JvmName()`
@@ -117,5 +130,37 @@ private fun getKotlinFileJvmClassFqnViaUast(project: Project, vFile: VirtualFile
   val packageName = uFile.packageName
   val baseName = jvmName ?: "${vFile.nameWithoutExtension}Kt"
 
-  return if (packageName.isEmpty()) baseName else "$packageName.$baseName"
+  val className = if (packageName.isEmpty()) baseName else "$packageName.$baseName"
+
+  val annotatedMethodNames = uFile.classes.asSequence()
+    .flatMap { it.methods.asSequence() }
+    .filter {
+      AnnotationUtil.isAnnotated(it.javaPsi, PREVIEW_ANNOTATIONS, 0)
+      || it.uAnnotations.any { a -> a.qualifiedName?.endsWith(".Preview") == true }
+    }
+    .map { it.name }
+    .toSet()
+
+  return FileAnalysisResult(vFile, className, annotatedMethodNames)
+}
+
+/**
+ * Isolates project code from attempts to load unrelated classes via parent classloader.
+ */
+private class FilteringClassLoader(parent: ClassLoader) : ClassLoader(parent) {
+  override fun loadClass(name: String, resolve: Boolean): Class<*>? {
+    if (isAlienClass(name)) throw ClassNotFoundException(name)
+
+    return super.loadClass(name, resolve)
+  }
+
+  override fun findClass(name: String): Class<*> {
+    if (isAlienClass(name)) throw ClassNotFoundException(name)
+
+    return super.findClass(name)
+  }
+
+  private fun isAlienClass(name: String): Boolean {
+    return name.startsWith("com.intellij.") && !name.startsWith("com.intellij.openapi.")
+  }
 }

@@ -7,7 +7,7 @@ import androidx.compose.runtime.currentComposer
 import androidx.compose.runtime.currentCompositeKeyHashCode
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
-import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.UI
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.DumbAware
@@ -23,7 +23,9 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.withContext
 import org.jetbrains.jewel.bridge.compose
 import org.jetbrains.jewel.foundation.ExperimentalJewelApi
-import java.awt.BorderLayout
+import javax.swing.JComponent
+
+internal const val TOOLWINDOW_ID = "ComposeUIPreview"
 
 internal class ComposePreviewToolWindowFactory : ToolWindowFactory, DumbAware {
 
@@ -45,7 +47,12 @@ internal class ComposePreviewToolWindowFactory : ToolWindowFactory, DumbAware {
     toolWindow.setTitleActions(titleActionsGroup.getChildren(actionManager).toList())
 
     project.service<ComposePreviewChangesTracker>().startTracking(project, toolWindowContent) { virtualFile ->
-      wrapperPanel.setPaintBusy(true)
+      val oldContent = withContext(Dispatchers.UI) {
+        val current = wrapperPanel.components.firstOrNull()
+        wrapperPanel.setPaintBusy(true)
+
+        current as? JComponent
+      }
 
       val provider = try {
         compileCode(virtualFile, project)
@@ -55,17 +62,22 @@ internal class ComposePreviewToolWindowFactory : ToolWindowFactory, DumbAware {
         return@startTracking
       }
       finally {
-        wrapperPanel.setPaintBusy(false)
+        withContext(Dispatchers.UI) {
+          wrapperPanel.setPaintBusy(false)
+          if (oldContent != null) {
+            wrapperPanel.setContent(oldContent)
+          }
+        }
       }
 
       if (provider == null) {
-        withContext(Dispatchers.EDT) {
+        withContext(Dispatchers.UI) {
           wrapperPanel.displayUnsupportedFile()
         }
         return@startTracking
       }
 
-      withContext(Dispatchers.EDT) {
+      withContext(Dispatchers.UI) {
         // free up the previous content JVM classes, register new
         try {
           wrapperPanel.getUserData(PROVIDER_KEY)?.classLoader?.close()
@@ -76,11 +88,9 @@ internal class ComposePreviewToolWindowFactory : ToolWindowFactory, DumbAware {
         wrapperPanel.putUserData(PROVIDER_KEY, provider)
 
         wrapperPanel.setPaintBusy(false)
-        wrapperPanel.removeAll()
-
-        wrapperPanel.add(compose(focusOnClickInside = true) {
+        wrapperPanel.setContent(compose(focusOnClickInside = true) {
           provider.build(currentComposer, currentCompositeKeyHashCode)
-        }, BorderLayout.CENTER)
+        })
       }
     }
   }

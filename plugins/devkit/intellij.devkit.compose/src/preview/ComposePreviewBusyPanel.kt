@@ -19,6 +19,7 @@ import com.intellij.ui.components.JBPanelWithEmptyText
 import com.intellij.util.ui.AsyncProcessIcon
 import com.intellij.util.ui.StatusText
 import java.awt.BorderLayout
+import javax.swing.JComponent
 import javax.swing.SwingUtilities
 
 internal class ComposePreviewBusyPanel(private val project: Project) : JBPanelWithEmptyText(BorderLayout()), DumbAware {
@@ -69,6 +70,9 @@ internal class ComposePreviewBusyPanel(private val project: Project) : JBPanelWi
 
     busy = paintBusy
     updateBusy()
+
+    revalidate()
+    repaint()
   }
 
   private fun updateBusy() {
@@ -81,21 +85,22 @@ internal class ComposePreviewBusyPanel(private val project: Project) : JBPanelWi
       }
     }
 
-    if (busyIcon != null) {
+    val current = busyIcon
+    if (current != null) {
       if (busy) {
-        busyIcon!!.resume()
+        removeAll()
+        add(current, BorderLayout.CENTER)
+        current.resume()
       }
       else {
-        busyIcon!!.suspend()
+        current.suspend()
         SwingUtilities.invokeLater(Runnable {
           if (busyIcon != null) {
             repaint()
           }
         })
       }
-      if (busyIcon != null) {
-        busyIcon!!.updateLocation(this)
-      }
+      current.updateLocation(this)
     }
   }
 
@@ -108,5 +113,16 @@ internal class ComposePreviewBusyPanel(private val project: Project) : JBPanelWi
     emptyText.appendLine(DevkitComposeBundle.message("compose.preview.enable.composable"))
 
     addRefreshHintText(emptyText, project)
+
+    revalidate()
+    repaint()
+  }
+
+  fun setContent(content: JComponent) {
+    removeAll()
+
+    add(content, BorderLayout.CENTER)
+    revalidate()
+    repaint()
   }
 }
