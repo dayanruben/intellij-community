@@ -552,12 +552,14 @@ platform/platform-impl/codeinsight-inline
 platform/platform-impl/concurrency
 platform/platform-impl/designer
 platform/platform-impl/eel
+platform/platform-impl/initial-config-import
 platform/platform-impl/internal
 platform/platform-impl/recentProjects
 platform/platform-impl/remote
 platform/platform-impl/rpc
 platform/platform-impl/ui
 platform/platform-impl/ui-inspector
+platform/platform-impl/update-checker
 platform/platform-resources
 platform/platform-resources-en
 platform/platform-tests

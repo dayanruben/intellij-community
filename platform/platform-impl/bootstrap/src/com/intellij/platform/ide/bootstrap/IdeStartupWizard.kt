@@ -6,8 +6,8 @@ import com.intellij.internal.statistic.eventLog.EventLogGroup
 import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector
 import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ConfigImportHelper
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.InitialConfigImportState
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
@@ -95,7 +95,7 @@ internal suspend fun runStartupWizard(isInitialStart: Job, app: Application) {
           }
         }
 
-        if (ConfigImportHelper.isStartupWizardEnabled()) {
+        if (InitialConfigImportState.isStartupWizardEnabled()) {
           LOG.info("Passing execution control to $wizard.")
           wizard.run()
           firstWizardExecuted = true
@@ -159,7 +159,7 @@ object IdeStartupWizardCollector : CounterUsagesCollector() {
   )
 
   internal fun logWizardExperimentState() {
-    assert(ConfigImportHelper.isFirstSession())
+    assert(InitialConfigImportState.isFirstSession())
     val isEnabled = IdeStartupExperiment.isWizardExperimentEnabled()
     LOG.info("IDE startup isEnabled = $isEnabled," +
              " IDEStartupKind = ${IdeStartupExperiment.experimentGroupKind}, " +

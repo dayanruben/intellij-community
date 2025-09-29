@@ -5,6 +5,8 @@ package com.intellij.ide.startup.importSettings.jb
 import com.intellij.configurationStore.*
 import com.intellij.configurationStore.schemeManager.SchemeManagerFactoryBase
 import com.intellij.diagnostic.VMOptions
+import com.intellij.ide.ConfigImportOptions
+import com.intellij.ide.ConfigImportSettings
 import com.intellij.ide.fileTemplates.FileTemplatesScheme
 import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.ide.plugins.PluginInstaller
@@ -16,7 +18,10 @@ import com.intellij.ide.startup.importSettings.data.SettingsService
 import com.intellij.ide.startup.importSettings.statistics.ImportSettingsEventsCollector
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.laf.LafManagerImpl
-import com.intellij.openapi.application.*
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ConfigImportHelper
+import com.intellij.openapi.application.CustomConfigMigrationOption
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.*
 import com.intellij.openapi.components.impl.stores.stateStore
 import com.intellij.openapi.diagnostic.logger
@@ -29,7 +34,7 @@ import com.intellij.openapi.options.SchemeManagerFactory
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.updateSettings.impl.UpdateChecker
+import com.intellij.openapi.updateSettings.impl.UpdateCheckerFacade
 import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.registry.Registry
@@ -52,7 +57,7 @@ import kotlin.io.path.*
 
 private val LOG = logger<JbSettingsImporter>()
 
-class JbSettingsImporter(private val configDirPath: Path, private val pluginsPath: Path) {
+internal class JbSettingsImporter(private val configDirPath: Path, private val pluginsPath: Path) {
   private val componentStore = ApplicationManager.getApplication().stateStore as ComponentStoreImpl
   private val additionalSchemeDirs = mapOf(FileTemplatesScheme.TEMPLATES_DIR to SettingsCategory.CODE)
 
@@ -401,7 +406,7 @@ class JbSettingsImporter(private val configDirPath: Path, private val pluginsPat
     RepositoryHelper.updatePluginHostsFromConfigDir(configDirPath, LOG)
     val updateableMap = HashMap<PluginId, IdeaPluginDescriptor?>(pluginsMap)
     progressIndicator.text2 = ImportSettingsBundle.message("progress.details.checking.for.plugin.updates")
-    val internalPluginUpdates = UpdateChecker.getInternalPluginUpdates(
+    val internalPluginUpdates = service<UpdateCheckerFacade>().getInternalPluginUpdates(
       buildNumber = null,
       indicator = progressIndicator,
       updateablePluginsMap = updateableMap
@@ -449,8 +454,8 @@ class JbSettingsImporter(private val configDirPath: Path, private val pluginsPat
     }
   }
 
-  private fun configImportOptions(progressIndicator: ProgressIndicator, pluginIds: Collection<PluginId>): ConfigImportHelper.ConfigImportOptions {
-    val importOptions = ConfigImportHelper.ConfigImportOptions(LOG)
+  private fun configImportOptions(progressIndicator: ProgressIndicator, pluginIds: Collection<PluginId>): ConfigImportOptions {
+    val importOptions = ConfigImportOptions(LOG)
     importOptions.headless = true
     importOptions.headlessProgressIndicator = progressIndicator
     importOptions.importSettings = object : ConfigImportSettings {
@@ -458,7 +463,7 @@ class JbSettingsImporter(private val configDirPath: Path, private val pluginsPat
         newConfigDir: Path,
         oldConfigDir: Path,
         oldPluginsDir: Path,
-        options: ConfigImportHelper.ConfigImportOptions,
+        options: ConfigImportOptions,
         brokenPluginVersions: Map<PluginId?, Set<String?>?>?,
         bundledPlugins: MutableList<IdeaPluginDescriptor>, // FIXME wrong arg name
         nonBundledPlugins: MutableList<IdeaPluginDescriptor>, // FIXME wrong arg name
