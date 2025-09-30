@@ -1,18 +1,17 @@
 ### auto-generated section `build intellij.java.jshell` start
-load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
 
-jvm_resources(
+resourcegroup(
   name = "jshell_resources",
-  files = glob(["resources/**/*"]),
+  srcs = glob(["resources/**/*"]),
   strip_prefix = "resources"
 )
 
 jvm_library(
   name = "jshell",
-  module_name = "intellij.java.jshell",
   visibility = ["//visibility:public"],
-  srcs = glob(["src/**/*.kt", "src/**/*.java", "src/**/*.form"], allow_empty = True),
-  deps = ["@lib//:kotlin-stdlib"],
-  runtime_deps = [":jshell_resources"]
+  srcs = glob([], allow_empty = True),
+  resources = [":jshell_resources"],
+  runtime_deps = ["@lib//:kotlin-stdlib"]
 )
 ### auto-generated section `build intellij.java.jshell` end

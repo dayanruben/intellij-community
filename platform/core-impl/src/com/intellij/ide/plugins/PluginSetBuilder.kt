@@ -4,8 +4,6 @@
 package com.intellij.ide.plugins
 
 import com.intellij.core.CoreBundle
-import com.intellij.ide.plugins.PluginModuleId.Companion.asPluginId
-import com.intellij.ide.plugins.PluginModuleId.Companion.asPluginModuleId
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.util.containers.Java11Shim
 import com.intellij.util.graph.DFSTBuilder
@@ -101,13 +99,13 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
     }
     val moduleIncompatibleWithCurrentMode = getModuleIncompatibleWithCurrentProductMode(currentProductModeEvaluator)
     val usedPackagePrefixes = HashMap<String, IdeaPluginDescriptorImpl>()
-    val isDisabledDueToPackagePrefixConflict = HashMap<String, IdeaPluginDescriptorImpl>()
+    val isDisabledDueToPackagePrefixConflict = HashMap<PluginModuleId, IdeaPluginDescriptorImpl>()
 
     fun registerLoadingError(plugin: IdeaPluginDescriptorImpl, disabledModule: ContentModuleDescriptor) {
       loadingErrors.add(createCannotLoadError(
         descriptor = plugin,
         dependencyPluginId = disabledModuleToProblematicPlugin.get(disabledModule.moduleId)
-                             ?: disabledModule.moduleId.asPluginId(),
+                             ?: disabledModule.parent.pluginId,
         errors = emptyMap(),
         isNotifyUser = !plugin.isImplementationDetail))
     }
@@ -175,7 +173,9 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
         val alreadyRegistered = usedPackagePrefixes.putIfAbsent(module.packagePrefix, module)
         if (alreadyRegistered != null) {
           module.isMarkedForLoading = false
-          isDisabledDueToPackagePrefixConflict.put(module.contentModuleId ?: module.pluginId.idString, alreadyRegistered)
+          if (module is ContentModuleDescriptor) {
+            isDisabledDueToPackagePrefixConflict.put(module.moduleId, alreadyRegistered)
+          }
           logMessages.add("Module ${module.contentModuleId ?: module.pluginId} is not enabled because package prefix ${module.packagePrefix} is already used by " +
                           "${alreadyRegistered.contentModuleId ?: alreadyRegistered.pluginId}")
           loadingErrors.add(PluginPackagePrefixConflict(module, module, alreadyRegistered))
@@ -189,8 +189,8 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
             for (contentModule in module.contentModules) {
               if (contentModule.moduleLoadingRule.required && !enabledRequiredContentModules.containsKey(contentModule.moduleId)) {
                 module.isMarkedForLoading = false
-                if (isDisabledDueToPackagePrefixConflict.containsKey(contentModule.moduleId.id)) {
-                  val alreadyRegistered = isDisabledDueToPackagePrefixConflict[contentModule.moduleId.id]!!
+                if (isDisabledDueToPackagePrefixConflict.containsKey(contentModule.moduleId)) {
+                  val alreadyRegistered = isDisabledDueToPackagePrefixConflict[contentModule.moduleId]!!
                   loadingErrors.add(PluginPackagePrefixConflict(module, contentModule, alreadyRegistered))
                 } else {
                   registerLoadingError(module, contentModule)
@@ -204,9 +204,6 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
           enabledPluginIds.put(module.pluginId, module)
           for (pluginAlias in module.pluginAliases) {
             enabledPluginIds.put(pluginAlias, module)
-          }
-          if (module.packagePrefix != null) {
-            enabledModuleV2Ids.put(module.pluginId.asPluginModuleId(), module)
           }
           if (module.pluginId != PluginManagerCore.CORE_ID) {
             for (contentModule in module.contentModules) {
