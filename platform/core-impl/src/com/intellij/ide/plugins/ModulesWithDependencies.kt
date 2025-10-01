@@ -12,10 +12,6 @@ private val LANG_PLUGIN_ALIAS_ID = PluginId.getId("com.intellij.modules.lang")
 private val VCS_ALIAS_ID = PluginId.getId("com.intellij.modules.vcs")
 private val RIDER_ALIAS_ID = PluginId.getId("com.intellij.modules.rider")
 private val RIDER_MODULE_ID = PluginModuleId("intellij.rider")
-private val COVERAGE_ALIAS_ID = PluginId.getId("com.intellij.modules.coverage")
-private val PLATFORM_COVERAGE_MODULE_ID = PluginModuleId("intellij.platform.coverage")
-private val ML_INLINE_ALIAS_ID = PluginId.getId("com.intellij.ml.inline.completion")
-private val INLINE_COMPLETION_MODULE_ID = PluginModuleId("intellij.ml.inline.completion")
 private val JSON_ALIAS_ID = PluginId.getId("com.intellij.modules.json")
 private val JSON_BACKEND_MODULE_ID = PluginModuleId("intellij.json.backend")
 
@@ -62,7 +58,7 @@ internal fun createModulesWithDependenciesAndAdditionalEdges(plugins: Collection
     // If a plugin does not include any module dependency tags in its plugin.xml, it's assumed to be a legacy plugin
    // and is loaded only in IntelliJ IDEA, so it may use classes from Java plugin.
     val implicitDep = if (hasAllModules && PluginCompatibilityUtils.isLegacyPluginWithoutPlatformAliasDependencies(module)) {
-      pluginIdToDescriptor.get(PluginManagerCore.JAVA_MODULE_ID)
+      pluginIdToDescriptor.get(PluginManagerCore.JAVA_PLUGIN_ALIAS_ID)
     } else null
     if (implicitDep != null) {
       if (module === implicitDep) {
@@ -98,12 +94,6 @@ internal fun createModulesWithDependenciesAndAdditionalEdges(plugins: Collection
 
       if (doesDependOnPluginAlias(module, RIDER_ALIAS_ID)) {
         moduleIdToModule.get(RIDER_MODULE_ID)?.let { dependenciesCollector.add(it) }
-      }
-      if (doesDependOnPluginAlias(module, COVERAGE_ALIAS_ID)) {
-        moduleIdToModule.get(PLATFORM_COVERAGE_MODULE_ID)?.let { dependenciesCollector.add(it) }
-      }
-      if (doesDependOnPluginAlias(module, ML_INLINE_ALIAS_ID)) {
-        moduleIdToModule.get(INLINE_COMPLETION_MODULE_ID)?.let { dependenciesCollector.add(it) }
       }
       if (doesDependOnPluginAlias(module, PluginId.getId("org.jetbrains.completion.full.line"))) {
         fullLineApiContentModules.mapNotNullTo(dependenciesCollector) { moduleIdToModule.get(it) }
@@ -210,7 +200,6 @@ private val fullLineApiContentModules = listOf(
   "intellij.fullLine.core",
   "intellij.fullLine.local",
   "intellij.fullLine.core.impl",
-  "intellij.ml.inline.completion",
 ).map { PluginModuleId(it) }
 
 private fun collectDirectDependenciesInOldFormat(

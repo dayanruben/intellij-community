@@ -29,6 +29,9 @@ public class JSpecifyFilteredAnnotationTest extends JSpecifyAnnotationTest {
     new SkipIndividuallyFilter( //each case has its own reason (line number starts from 0)
       Set.of(
         new Pair<>("CastWildcardToTypeVariable.java", 21),  // see: IDEA-377686
+        new Pair<>("CastOfCaptureOfUnboundedWildcardForNotNullMarkedObjectBoundedTypeParameter.java", 27),  // see: jspecify issue #771
+        new Pair<>("NotNullMarkedTypeVariableBound.java", 51),  // see: jspecify issue #771
+        new Pair<>("NotNullMarkedTypeVariableBound.java", 56),  // see: jspecify issue #771
 
         new Pair<>("ContravariantReturns.java", 32),  // see: IDEA-377687
         new Pair<>("ContravariantReturns.java", 36),  // see: IDEA-377687
@@ -54,8 +57,6 @@ public class JSpecifyFilteredAnnotationTest extends JSpecifyAnnotationTest {
         new Pair<>("TypeVariableUnionNullToSelf.java", 118), // see: IDEA-377691
         new Pair<>("TypeVariableToParent.java", 94), // see: IDEA-377691
 
-        new Pair<>("NullUnmarkedUndoesNullMarkedForWildcards.java", 23), // see: IDEA-377693
-
         new Pair<>("SuperObject.java", 31),  // see: IDEA-377694
         new Pair<>("SuperTypeVariable.java", 28),  // see: IDEA-377694
         new Pair<>("SuperTypeVariable.java", 57),  // see: IDEA-377694
@@ -72,8 +73,6 @@ public class JSpecifyFilteredAnnotationTest extends JSpecifyAnnotationTest {
         new Pair<>("MultiBoundTypeVariableUnionNullToSelf.java", 62), // see: IDEA-377697
 
         new Pair<>("WildcardCapturesToBoundOfTypeParameterNotToTypeVariableItself.java", 24), // see: IDEA-377699
-
-        new Pair<>("UnionTypeArgumentWithUseSite.java", 30), // see: IDEA-377706
 
         new Pair<>("SelfType.java", 34),  // see: IDEA-377707
         new Pair<>("SelfType.java", 43),  // see: IDEA-377707
@@ -129,7 +128,6 @@ public class JSpecifyFilteredAnnotationTest extends JSpecifyAnnotationTest {
         new Pair<>("TypeVariableUnspecToParent.java", 68), // @unspecified, skip
         new Pair<>("TypeVariableUnspecToParent.java", 83), // @unspecified, skip
         new Pair<>("TypeVariableUnspecToParent.java", 98), // @unspecified, skip
-        new Pair<>("UnionTypeArgumentWithUseSite.java", 77), // @unspecified, skip
         new Pair<>("UnionTypeArgumentWithUseSite.java", 95) // @unspecified, skip
       )
     ) {

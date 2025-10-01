@@ -1,8 +1,3 @@
-- name: lib/libthrift.jar
-  library: libthrift
-  files:
-  - name: $MAVEN_REPOSITORY$/org/apache/thrift/libthrift/0/libthrift-0.jar
-  reason: withProjectLibrary
 - name: lib/modules/intellij.platform.ide.nonModalWelcomeScreen.jar
   contentModules:
   - name: intellij.platform.ide.nonModalWelcomeScreen
@@ -35,10 +30,6 @@
   - name: intellij.python.community.impl.installer
 - name: lib/modules/intellij.python.community.impl.jar
   projectLibraries:
-  - name: io.github.z4kn4fein.semver.jvm
-    files:
-    - name: $MAVEN_REPOSITORY$/io/github/z4kn4fein/semver-jvm/2/semver-jvm-2.jar
-    reason: <- intellij.python.community.impl
   - name: jackson-dataformat-yaml
     files:
     - name: $MAVEN_REPOSITORY$/com/fasterxml/jackson/dataformat/jackson-dataformat-yaml/2/jackson-dataformat-yaml-2.jar
@@ -53,10 +44,9 @@
     - name: $MAVEN_REPOSITORY$/it/krzeminski/snakeyaml-engine-kmp-jvm/3/snakeyaml-engine-kmp-jvm-3.jar
     - name: $MAVEN_REPOSITORY$/net/thauvin/erik/urlencoder/urlencoder-lib-jvm/1/urlencoder-lib-jvm-1.jar
     reason: <- intellij.python.community.impl
-  - name: tuweni-toml
+  - name: libthrift
     files:
-    - name: $MAVEN_REPOSITORY$/io/consensys/tuweni/tuweni-toml/2/tuweni-toml-2.jar
-    - name: $MAVEN_REPOSITORY$/org/antlr/antlr4-runtime/4/antlr4-runtime-4.jar
+    - name: $MAVEN_REPOSITORY$/org/apache/thrift/libthrift/0/libthrift-0.jar
     reason: <- intellij.python.community.impl
   contentModules:
   - name: intellij.python.community.impl
@@ -137,6 +127,11 @@
 - name: lib/modules/intellij.python.pyproject.jar
   contentModules:
   - name: intellij.python.pyproject
+  library: tuweni-toml
+  files:
+  - name: $MAVEN_REPOSITORY$/io/consensys/tuweni/tuweni-toml/2/tuweni-toml-2.jar
+  - name: $MAVEN_REPOSITORY$/org/antlr/antlr4-runtime/4/antlr4-runtime-4.jar
+  reason: <- intellij.python.pyproject
 - name: lib/modules/intellij.python.sdk.jar
   contentModules:
   - name: intellij.python.sdk
