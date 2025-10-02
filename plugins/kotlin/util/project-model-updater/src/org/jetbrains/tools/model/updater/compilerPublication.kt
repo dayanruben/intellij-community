@@ -11,7 +11,7 @@ internal fun publishCompiler(preferences: GeneratorPreferences) {
     val kotlinRepoRoot = root.resolve(kotlinCompilerRepoPath)
         .also {
             if (!it.isDirectory()) {
-                error("Kotlin compiler repo path does not exist or is not a directory: $it")
+                exitWithErrorMessage("Kotlin compiler repo path does not exist or is not a directory: $it")
             }
         }
         .absolute()
@@ -23,6 +23,7 @@ internal fun publishCompiler(preferences: GeneratorPreferences) {
         .resolve("kotlin-snapshot")
 
     println("Artifacts path: $kotlinSnapshotPath")
+    println("Publishing Kotlin compiler...")
 
     val exitCode = ProcessBuilder(
         gradleWrapperExecutable,
