@@ -1,9 +1,18 @@
+- name: lib/modules/intellij.platform.ide.nonModalWelcomeScreen.backend.jar
+  contentModules:
+  - name: intellij.platform.ide.nonModalWelcomeScreen.backend
+- name: lib/modules/intellij.platform.ide.nonModalWelcomeScreen.frontend.jar
+  contentModules:
+  - name: intellij.platform.ide.nonModalWelcomeScreen.frontend
 - name: lib/modules/intellij.platform.ide.nonModalWelcomeScreen.jar
   contentModules:
   - name: intellij.platform.ide.nonModalWelcomeScreen
 - name: lib/modules/intellij.python.ast.jar
   contentModules:
   - name: intellij.python.ast
+- name: lib/modules/intellij.python.common.jar
+  contentModules:
+  - name: intellij.python.common
 - name: lib/modules/intellij.python.community.aliasProvider.jar
   contentModules:
   - name: intellij.python.community.aliasProvider
@@ -142,6 +151,9 @@
   files:
   - name: $MAVEN_REPOSITORY$/io/github/z4kn4fein/semver-jvm/2/semver-jvm-2.jar
   reason: <- intellij.python.sdk.ui
+- name: lib/modules/intellij.python.sdkConfigurator.jar
+  contentModules:
+  - name: intellij.python.sdkConfigurator
 - name: lib/modules/intellij.python.syntax.core.jar
   contentModules:
   - name: intellij.python.syntax.core

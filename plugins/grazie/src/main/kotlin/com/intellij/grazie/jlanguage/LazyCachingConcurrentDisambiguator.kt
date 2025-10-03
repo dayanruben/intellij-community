@@ -8,6 +8,7 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import org.languagetool.AnalyzedSentence
 import org.languagetool.AnalyzedTokenReadings
+import org.languagetool.JLanguageTool
 import org.languagetool.Language
 import org.languagetool.tagging.disambiguation.AbstractDisambiguator
 import org.languagetool.tagging.disambiguation.Disambiguator
@@ -20,9 +21,11 @@ internal class LazyCachingConcurrentDisambiguator(private val jLanguage: Languag
   private var disambiguator: Disambiguator? = null
   private val lock = Any()
 
-  override fun disambiguate(input: AnalyzedSentence): AnalyzedSentence {
+  override fun disambiguate(input: AnalyzedSentence): AnalyzedSentence = disambiguate(input, null)
+
+  override fun disambiguate(input: AnalyzedSentence, checkCanceled: JLanguageTool.CheckCancelledCallback?): AnalyzedSentence {
     ensureInitialized()
-    return cache.computeIfAbsent(copy(input.tokens)) { disambiguator!!.disambiguate(input) }
+    return cache.computeIfAbsent(copy(input.tokens)) { disambiguator!!.disambiguate(input, checkCanceled) }
   }
 
   private fun ensureInitialized() {

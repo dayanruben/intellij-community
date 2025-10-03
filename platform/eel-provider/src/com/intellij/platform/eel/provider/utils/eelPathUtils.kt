@@ -570,10 +570,16 @@ object EelPathUtils {
   @RequiresBackgroundThread
   @RequiresBlockingContext
   @VisibleForTesting
-  fun walkingTransfer(sourceRoot: Path, targetRoot: Path, removeSource: Boolean, fileAttributesStrategy: FileTransferAttributesStrategy) {
+  fun walkingTransfer(
+    sourceRoot: Path,
+    targetRoot: Path,
+    removeSource: Boolean,
+    fileAttributesStrategy: FileTransferAttributesStrategy,
+    absoluteSymlinkHandler: IncrementalWalkingTransferAbsoluteSymlinkHandler? = null,
+  ) {
     if (Registry.`is`("ijent.incremental.walking.transfer") && !removeSource) {
       runBlockingMaybeCancellable {
-        incrementalWalkingTransfer(sourceRoot, targetRoot, fileAttributesStrategy)
+        incrementalWalkingTransfer(sourceRoot, targetRoot, fileAttributesStrategy, absoluteSymlinkHandler)
       }
       return
     }
@@ -698,7 +704,7 @@ object EelPathUtils {
   /**
    * Function only checks permissions, and it ignores the owner, group, sticky bit, gid, and uid.
    * If FileTransferAttributesStrategy is RequirePosixPermissions, it will be checked if remote file permissions contain required permissions.
-  **/
+   **/
   private fun arePermissionsEqual(fileAttributesStrategy: FileTransferAttributesStrategy, local: WalkDirectoryEntry.Permissions, remote: WalkDirectoryEntry.Permissions): Boolean {
     return when (local) {
       is WalkDirectoryEntryPosix.Permissions -> {
@@ -797,7 +803,7 @@ object EelPathUtils {
     ) : DiffOperation()
 
     // If a file has the same local and remote path but different file type, the existing one is deleted and replaced with a correct one.
-    // ReplaceFile is additionally used in case of symlinks. The symlink target cannot be changed in place, thus it requires replacing.
+    // ReplaceFile is additionally used in the case of a relative symlink. The symlink target cannot be changed in place, thus it requires replacing.
     // Always syncs permission, attributes and timestamps.
     data class ReplaceFile(
       val localFile: WalkDirectoryEntry,
@@ -811,6 +817,12 @@ object EelPathUtils {
       val updateTimestamps: Boolean = false,
       val localFile: WalkDirectoryEntry,
       val remoteFile: WalkDirectoryEntry,
+    ) : DiffOperation()
+
+    // Absolute symlinks are left untouched, and it is up to the user-provided lambda to handle it
+    data class AbsoluteSymlink(
+      val sourceSymlink: WalkDirectoryEntry,
+      val remoteSymlink: WalkDirectoryEntry?,
     ) : DiffOperation()
   }
 
@@ -888,7 +900,10 @@ object EelPathUtils {
 
       // if there is a file locally but not on the remote side - the file was created
       if (localEntry != null && remoteEntry == null) {
-        if (localEntry.type !is WalkDirectoryEntry.Type.Other) {
+        if (localEntry.type is WalkDirectoryEntry.Type.Symlink.Absolute) {
+          emit(DiffOperation.AbsoluteSymlink(localEntry, null))
+        }
+        else if (localEntry.type !is WalkDirectoryEntry.Type.Other) {
           emit(DiffOperation.Create(localEntry))
         }
         localEntry = null
@@ -956,7 +971,8 @@ object EelPathUtils {
             }
           }
           is WalkDirectoryEntry.Type.Symlink.Absolute -> {
-            // TODO: IJPL-201078
+            emit(DiffOperation.AbsoluteSymlink(localEntry, remoteEntry))
+            opEmitted = true
           }
           is WalkDirectoryEntry.Type.Other -> {
             // other file types have been handled prior to this when
@@ -982,7 +998,10 @@ object EelPathUtils {
       }
       // if the local path is in lower lexicographical order than the remote path, it means that the local file was created
       else if (pathComparison < 0) {
-        if (localEntry !is WalkDirectoryEntry.Type.Symlink.Absolute) { // TODO: IJPL-201078
+        if (localEntry is WalkDirectoryEntry.Type.Symlink.Absolute) {
+          emit(DiffOperation.AbsoluteSymlink(localEntry, null))
+        }
+        else {
           emit(DiffOperation.Create(localEntry))
         }
         localEntry = null
@@ -1056,7 +1075,7 @@ object EelPathUtils {
     }
 
     if (setAttributes) {
-      if (localEntry.permissions == null) {
+      if (localEntry.attributes == null) {
         error("Attributes are supposed to be transferred, but were not yielded")
       }
       remoteEntry.fileAttributesViewOrNull<DosFileAttributeView>(LinkOption.NOFOLLOW_LINKS)?.let { remoteView ->
@@ -1093,212 +1112,111 @@ object EelPathUtils {
    * Synchronizes the remote directory tree with the local one (directories only).
    * This extra pass is necessary to handle:
    *   - Races when creating parent directories for files
-   *   - An edge case where a local directory is deleted and replaced by a file with the same name
+   *   - An edge case where a source directory is deleted and replaced by a file with the same name
    *
    * It also reduces redundant system calls when creating files.
+   * @param sourceRoot Has to be a valid path to a directory
+   * @param targetRoot Has to be a valid path to a directory
    */
   @RequiresBackgroundThread
   @VisibleForTesting
   suspend fun directoryOnlySync(
     sourceRoot: EelPath,
     targetRoot: EelPath,
-    sourceEelApi: EelApi,
     targetEelApi: EelApi,
     ignoreCase: Boolean,
-    scope: CoroutineScope,
   ) {
-    coroutineScope {
+    val sourceRoot = sourceRoot.asNioPath()
+    val targetRoot = targetRoot.asNioPath()
+    val localQ = ArrayDeque<Path>()
+    val remoteQ = ArrayDeque<Path>()
+    localQ.add(sourceRoot)
+    remoteQ.add(targetRoot)
 
-      val attrs = sourceRoot.asNioPath().fileAttributesView<BasicFileAttributeView>(LinkOption.NOFOLLOW_LINKS).readAttributes()
-      when {
-        attrs.isDirectory -> {
-          if (!targetRoot.asNioPath().isDirectory(LinkOption.NOFOLLOW_LINKS)) {
-            targetEelApi.fs.delete(targetRoot, true).getOrThrow()
-            Files.createDirectory(targetRoot.asNioPath())
-          }
+    while (localQ.isNotEmpty() || remoteQ.isNotEmpty()) {
+      if (localQ.isNotEmpty() && remoteQ.isEmpty()) {
+        val path = localQ.removeFirst()
+        val relativeDirPath = path.relativeTo(sourceRoot)
+        val targetDirPath = targetRoot.resolve(relativeDirPath)
+
+        // edge case when a local directory is deleted and replaced by a file with the same name
+        if (targetDirPath.exists()) {
+          Files.delete(targetDirPath)
         }
-        attrs.isRegularFile -> {
-          if (!targetRoot.asNioPath().isRegularFile(LinkOption.NOFOLLOW_LINKS)) {
-            targetEelApi.fs.delete(targetRoot, true).getOrThrow()
-            Files.createFile(targetRoot.asNioPath())
-          }
-        }
-        attrs.isSymbolicLink -> {
-          if (!targetRoot.asNioPath().isSymbolicLink()) {
-            targetEelApi.fs.delete(targetRoot, true).getOrThrow()
-            Files.createSymbolicLink(targetRoot.asNioPath(), Path(""))
-          }
-        }
+        Files.createDirectory(targetDirPath)
+        localQ.addAll(
+          path.listDirectoryEntries()
+            .filter { it.isDirectory(LinkOption.NOFOLLOW_LINKS) }
+            .sortedByDescending { it.pathString }
+        )
       }
+      else if (localQ.isEmpty() && remoteQ.isNotEmpty()) {
+        val path = remoteQ.removeFirst()
+        targetEelApi.fs.delete(path.asEelPath(), true)
+      }
+      else {
+        val localRelativeDirPath = localQ.first().relativeTo(sourceRoot)
+        val remoteRelativeDirPath = remoteQ.first().relativeTo(targetRoot)
+        val comparison = compareRelativePathComponents(localRelativeDirPath, remoteRelativeDirPath, ignoreCase)
 
-      val sourceQ: ArrayDeque<EelPath> = ArrayDeque()
-      val targetQ: ArrayDeque<EelPath> = ArrayDeque()
-      sourceQ.add(sourceRoot)
-      targetQ.add(targetRoot)
-      val sourceRoot = sourceRoot.asNioPath()
-      val targetRoot = targetRoot.asNioPath()
-      var sourceDirEntriesChan: ReceiveChannel<WalkDirectoryEntryResult>?
-      var targetDirEntriesChan: ReceiveChannel<WalkDirectoryEntryResult>?
-      var sourceDir: WalkDirectoryEntry? = null
-      var targetDir: WalkDirectoryEntry? = null
+        // new local directory
+        if (comparison > 0) {
+          val dirTargetPath = targetRoot.resolve(localRelativeDirPath)
 
-      var maxDepth = 0
-
-      while (sourceQ.isNotEmpty() || targetQ.isNotEmpty()) {
-        val nextSourceRootDir = sourceQ.removeFirstOrNull()
-        val nextTargetRootDir = targetQ.removeFirstOrNull()
-
-        sourceDirEntriesChan = null
-        nextSourceRootDir?.let { sourceRoot ->
-          val walkDirectoryOptionsSource = WalkDirectoryOptionsBuilder(sourceRoot)
-            .entryOrder(WalkDirectoryEntryOrder.ALPHABETICAL)
-            .traversalOrder(WalkDirectoryTraversalOrder.BFS)
-            .yieldDirectories(true)
-            .yieldSymlinks(false)
-            .yieldRegularFiles(false)
-            .yieldOtherFileTypes(false)
-            .maxDepth(maxDepth)
-            .build()
-          sourceDirEntriesChan = sourceEelApi.fs.walkDirectory(walkDirectoryOptionsSource).produceIn(scope)
+          // edge case when a local directory is deleted and replaced by a file with the same name
+          if (dirTargetPath.exists()) {
+            Files.delete(dirTargetPath)
+          }
+          Files.createDirectory(dirTargetPath)
+          localQ.removeFirst()
         }
-
-        targetDirEntriesChan = null
-        nextTargetRootDir?.let { targetRoot ->
-          val walkDirectoryOptionsTarget = WalkDirectoryOptionsBuilder(targetRoot)
-            .entryOrder(WalkDirectoryEntryOrder.ALPHABETICAL)
-            .traversalOrder(WalkDirectoryTraversalOrder.BFS)
-            .yieldDirectories(true)
-            .yieldSymlinks(false)
-            .yieldRegularFiles(false)
-            .yieldOtherFileTypes(false)
-            .maxDepth(maxDepth)
-            .build()
-          targetDirEntriesChan = targetEelApi.fs.walkDirectory(walkDirectoryOptionsTarget).produceIn(scope)
+        // the local directory was deleted
+        else if (comparison < 0) {
+          targetEelApi.fs.delete(remoteQ.removeFirst().asEelPath(), true).getOrThrow()
         }
-
-        // skip the first directory yielded because it has been processed in the previous iteration
-        if (maxDepth == 1) {
-          if (sourceDirEntriesChan != null) {
-            try {
-              sourceDirEntriesChan.receive()
-            }
-            catch (_: ClosedReceiveChannelException) {
-            }
-          }
-
-          if (targetDirEntriesChan != null) {
-            try {
-              targetDirEntriesChan.receive()
-            }
-            catch (_: ClosedReceiveChannelException) {
-            }
-          }
-        }
-
-        // This sync must process layer by layer.
-        // In the first iteration, only the root directory itself is needed.
-        // In all later iterations, maxDepth = 1 is used to fetch the next layer.
-        maxDepth = 1
-
-        while (true) {
-          if (sourceDir == null && sourceDirEntriesChan != null) {
-            try {
-              val sourceRes = sourceDirEntriesChan.receive()
-              sourceDir = when (sourceRes) {
-                is WalkDirectoryEntryResult.Ok -> sourceRes.value
-                is WalkDirectoryEntryResult.Error -> {
-                  LOG.info("Error processing directory on the source side: ")
-                  break
-                }
-              }
-            }
-            catch (_: ClosedReceiveChannelException) {
-            }
-          }
-
-          if (targetDir == null && targetDirEntriesChan != null) {
-            try {
-              val targetRes = targetDirEntriesChan.receive()
-              targetDir = when (targetRes) {
-                is WalkDirectoryEntryResult.Ok -> targetRes.value
-                is WalkDirectoryEntryResult.Error -> {
-                  LOG.info("Error processing directory on the target side: ")
-                  break
-                }
-              }
-            }
-            catch (_: ClosedReceiveChannelException) {
-            }
-          }
-
-          if (sourceDir == null && targetDir == null) {
-            break
-          }
-          else if (sourceDir != null && targetDir == null) {
-            val relativeDirPath = sourceDir.path.asNioPath().relativeTo(sourceRoot)
-            val targetDirPath = targetRoot.resolve(relativeDirPath)
-
-            // try is required to handle an edge case when a source file is deleted and replaced by a directory with the same name
-            try {
-              Files.createDirectory(targetDirPath)
-            }
-            catch (_: java.nio.file.FileAlreadyExistsException) {
-              Files.delete(targetDirPath)
-              Files.createDirectory(targetDirPath)
-            }
-            sourceQ.add(sourceDir.path)
-            targetQ.add(targetDirPath.asEelPath())
-            sourceDir = null
-          }
-          else if (sourceDir == null && targetDir != null) {
-            val path = targetDir.path
-            targetEelApi.fs.delete(path, true).getOrThrow()
-            targetDir = null
-          }
-          else {
-            val sourceRelativeDirPath = sourceDir!!.path.asNioPath().relativeTo(sourceRoot)
-            val targetRelativeDirPath = targetDir!!.path.asNioPath().relativeTo(targetRoot)
-            val comparison = compareRelativePathComponents(sourceRelativeDirPath, targetRelativeDirPath, ignoreCase)
-
-            // new source directory
-            if (comparison < 0) {
-              val dirTargetPath = targetRoot.resolve(sourceRelativeDirPath)
-
-              // try is required to handle an edge case when a source file is deleted and replaced by a directory with the same name
-              try {
-                Files.createDirectory(dirTargetPath)
-              }
-              catch (_: java.nio.file.FileAlreadyExistsException) {
-                Files.delete(dirTargetPath)
-                Files.createDirectory(dirTargetPath)
-              }
-              sourceQ.add(sourceDir.path)
-              targetQ.add(dirTargetPath.asEelPath())
-              sourceDir = null
-            }
-            // the source directory was deleted
-            else if (comparison > 0) {
-              targetEelApi.fs.delete(targetDir.path, true).getOrThrow()
-            }
-            else {
-              sourceQ.add(sourceDir.path)
-              targetQ.add(targetDir.path)
-              sourceDir = null
-              targetDir = null
-            }
-          }
+        else {
+          val localPath = localQ.removeFirst()
+          val remotePath = remoteQ.removeFirst()
+          localQ.addAll(
+            localPath.listDirectoryEntries()
+              .filter { it.isDirectory(LinkOption.NOFOLLOW_LINKS) }
+              .sortedByDescending { it.pathString }
+          )
+          remoteQ.addAll(
+            remotePath.listDirectoryEntries()
+              .filter { it.isDirectory(LinkOption.NOFOLLOW_LINKS) }
+              .sortedByDescending { it.pathString }
+          )
         }
       }
     }
   }
 
   /**
+   * Callback invoked for each absolute symlink encountered during transfer.
+   * The lambda can do whatever it wants: recreate the symlink, copy contents,
+   * ignore it, call [incrementalWalkingTransfer] again on it, or implement any custom logic.
+   */
+  fun interface IncrementalWalkingTransferAbsoluteSymlinkHandler {
+    /**
+     * @param sourceSymlink Information about the source symlink
+     * @param targetEntry Directory entry that lives on the path where the source symlink should be. May or may not be a symlink.
+     */
+    suspend fun handle(sourceSymlink: WalkDirectoryEntry, targetEntry: WalkDirectoryEntry?)
+  }
+
+  /**
    * Supports transferring directories, files, and symlinks. On POSIX permissions and timestamps are transferred as well if indicated
-   * using [FileTransferAttributesStrategy]. Symlinks are transferred as is, and the target path does not have to be valid.
+   * using [FileTransferAttributesStrategy]. Relative symlinks are transferred as is, and the target path does not have to be valid.
    * Permissions on symlinks are not transferred as they are ignored by on Unix-like systems.
    */
   @RequiresBackgroundThread
-  private suspend fun incrementalWalkingTransfer(sourceRoot: Path, targetRoot: Path, fileAttributesStrategy: FileTransferAttributesStrategy) {
+  private suspend fun incrementalWalkingTransfer(
+    sourceRoot: Path,
+    targetRoot: Path,
+    fileAttributesStrategy: FileTransferAttributesStrategy,
+    absoluteSymlinkHandler: IncrementalWalkingTransferAbsoluteSymlinkHandler?,
+  ) {
     coroutineScope {
       val targetRootEel = targetRoot.asEelPath()
       val remoteDescriptor = targetRootEel.descriptor
@@ -1307,8 +1225,32 @@ object EelPathUtils {
       val localOsFamily = localPathEel.descriptor.osFamily
       val remoteOsFamily = targetRoot.getEelDescriptor().osFamily
 
-      withContext(Dispatchers.IO) {
-        directoryOnlySync(localPathEel, targetRootEel, localPathEel.descriptor.toEelApi(), remoteDescriptor.toEelApi(), false, this)
+      val sourceAttrs = sourceRoot.fileAttributesView<BasicFileAttributeView>(LinkOption.NOFOLLOW_LINKS).readAttributes()
+      val targetAttrs = targetRoot.fileAttributesView<BasicFileAttributeView>(LinkOption.NOFOLLOW_LINKS).readAttributes()
+      when {
+        sourceAttrs.isDirectory -> {
+          if (!targetAttrs.isDirectory) {
+            remoteEelApi.fs.delete(targetRootEel, true).getOrThrow()
+            Files.createDirectory(targetRoot)
+          }
+          withContext(Dispatchers.IO) {
+            directoryOnlySync(localPathEel, targetRootEel, remoteDescriptor.toEelApi(), false)
+          }
+        }
+        sourceAttrs.isRegularFile -> {
+          if (!targetAttrs.isRegularFile) {
+            remoteEelApi.fs.delete(targetRootEel, true).getOrThrow()
+            Files.createFile(targetRoot)
+          }
+        }
+        sourceAttrs.isSymbolicLink -> {
+          // if targetRoot is a directory, it should be deleted to prevent it from being traversed
+          if (targetAttrs.isDirectory) {
+            remoteEelApi.fs.delete(targetRootEel, true).getOrThrow()
+            // a placeholder file is created so that, in the case of an absolute symlink, the user lambda receives the expected target path (where the absolute symlink should be)
+            Files.createFile(targetRoot)
+          }
+        }
       }
 
       val walkDirectoryOptionsSource = WalkDirectoryOptionsBuilder(localPathEel)
@@ -1344,17 +1286,13 @@ object EelPathUtils {
           try {
             when (diffOp) {
               is DiffOperation.Create, is DiffOperation.ReplaceFile -> {
-                if (diffOp is DiffOperation.ReplaceFile) {
-                  val ker = diffOp.remoteFile.path.asNioPath()
-                  Files.delete(ker)
-                }
+                if (diffOp is DiffOperation.ReplaceFile) Files.delete(diffOp.remoteFile.path.asNioPath())
 
-                val localFile: WalkDirectoryEntry
-                if (diffOp is DiffOperation.Create) {
-                  localFile = diffOp.localFile
+                val localFile = if (diffOp is DiffOperation.Create) {
+                  diffOp.localFile
                 }
                 else {
-                  localFile = (diffOp as DiffOperation.ReplaceFile).localFile
+                  (diffOp as DiffOperation.ReplaceFile).localFile
                 }
 
                 val localFileNioPath = localFile.path.asNioPath()
@@ -1385,11 +1323,11 @@ object EelPathUtils {
                   is WalkDirectoryEntry.Type.Symlink.Relative -> {
                     var symlinkTarget = (localFile.type as WalkDirectoryEntry.Type.Symlink.Relative).symlinkRelativePath
                     if (localOsFamily != remoteOsFamily) {
-                      if (remoteOsFamily.isWindows) {
-                        symlinkTarget = symlinkTarget.replace("/", "\\")
+                      symlinkTarget = if (remoteOsFamily.isWindows) {
+                        symlinkTarget.replace("/", "\\")
                       }
                       else {
-                        symlinkTarget = symlinkTarget.replace("\\", "/")
+                        symlinkTarget.replace("\\", "/")
                       }
                     }
                     Files.createSymbolicLink(remoteAbsolutePath, Path(symlinkTarget))
@@ -1398,7 +1336,7 @@ object EelPathUtils {
                     //setPermissionsAndAttributes(localFile, remoteAbsolutePath, fileAttributesStrategy, false, true, true)
                   }
                   is WalkDirectoryEntry.Type.Symlink.Absolute -> {
-                    // TODO: IJPL-201078
+                    error("unreachable, absolute symlink should exclusively be handled by the user provided lambda")
                   }
                   is WalkDirectoryEntry.Type.Other -> {
                     // NOTE: other file types not supported
@@ -1428,6 +1366,12 @@ object EelPathUtils {
                 // TODO: setting timestamps on a symlink requires using ffi syscall in ijent
                 if (diffOp.localFile.type !is WalkDirectoryEntry.Type.Symlink) {
                   setPermissionsAndAttributes(diffOp.localFile, diffOp.remoteFile.path.asNioPath(), remoteEelApi, fileAttributesStrategy, diffOp.updatePermissions, diffOp.updateAttributes, diffOp.updateTimestamps)
+                }
+              }
+              is DiffOperation.AbsoluteSymlink -> {
+                when (absoluteSymlinkHandler) {
+                  null -> LOG.info("No absolute symlink handler provided for incremental walking transfer, skipping symlink: ${diffOp.sourceSymlink.path}")
+                  else -> absoluteSymlinkHandler.handle(diffOp.sourceSymlink, diffOp.remoteSymlink)
                 }
               }
             }
