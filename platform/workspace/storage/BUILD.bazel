@@ -28,11 +28,11 @@ jvm_library(
   kotlinc_opts = ":custom_storage",
   deps = [
     "@lib//:kotlin-stdlib",
-    "@lib//:guava",
+    "//libraries/guava",
     "@lib//:kotlin-reflect",
     "//platform/util",
     "@lib//:fastutil-min",
-    "@lib//:caffeine",
+    "//libraries/caffeine",
     "@lib//:kryo5",
     "//platform/diagnostic/telemetry",
     "@lib//:opentelemetry",

@@ -625,8 +625,10 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/intellij.kotlin.plugin.community.main.iml" filepath="$PROJECT_DIR$/plugins/kotlin/intellij.kotlin.plugin.community.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/laf/macos/intellij.laf.macos.iml" filepath="$PROJECT_DIR$/plugins/laf/macos/intellij.laf.macos.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/laf/win10/intellij.laf.win10.iml" filepath="$PROJECT_DIR$/plugins/laf/win10/intellij.laf.win10.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/aalto-xml/intellij.libraries.aalto.xml.iml" filepath="$PROJECT_DIR$/libraries/aalto-xml/intellij.libraries.aalto.xml.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ai.grazie.spell.gec.engine.local/intellij.libraries.ai.grazie.spell.gec.engine.local.iml" filepath="$PROJECT_DIR$/libraries/ai.grazie.spell.gec.engine.local/intellij.libraries.ai.grazie.spell.gec.engine.local.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/assertj-core/intellij.libraries.assertj.core.iml" filepath="$PROJECT_DIR$/libraries/assertj-core/intellij.libraries.assertj.core.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/caffeine/intellij.libraries.caffeine.iml" filepath="$PROJECT_DIR$/libraries/caffeine/intellij.libraries.caffeine.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/libraries/cglib/intellij.libraries.cglib.iml" filepath="$PROJECT_DIR$/platform/libraries/cglib/intellij.libraries.cglib.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/coil/intellij.libraries.coil.iml" filepath="$PROJECT_DIR$/libraries/coil/intellij.libraries.coil.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/compose-foundation-desktop/intellij.libraries.compose.foundation.desktop.iml" filepath="$PROJECT_DIR$/libraries/compose-foundation-desktop/intellij.libraries.compose.foundation.desktop.iml" />
@@ -636,8 +638,17 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/dokka/intellij.libraries.dokka.iml" filepath="$PROJECT_DIR$/libraries/dokka/intellij.libraries.dokka.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/grpc/intellij.libraries.grpc.iml" filepath="$PROJECT_DIR$/libraries/grpc/intellij.libraries.grpc.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/grpc-netty-shaded/intellij.libraries.grpc.netty.shaded.iml" filepath="$PROJECT_DIR$/libraries/grpc-netty-shaded/intellij.libraries.grpc.netty.shaded.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/gson/intellij.libraries.gson.iml" filepath="$PROJECT_DIR$/libraries/gson/intellij.libraries.gson.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/guava/intellij.libraries.guava.iml" filepath="$PROJECT_DIR$/libraries/guava/intellij.libraries.guava.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/hamcrest/intellij.libraries.hamcrest.iml" filepath="$PROJECT_DIR$/libraries/hamcrest/intellij.libraries.hamcrest.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/hamcrest-more-matchers/intellij.libraries.hamcrest.more.matchers.iml" filepath="$PROJECT_DIR$/libraries/hamcrest-more-matchers/intellij.libraries.hamcrest.more.matchers.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/hash4j/intellij.libraries.hash4j.iml" filepath="$PROJECT_DIR$/libraries/hash4j/intellij.libraries.hash4j.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/icu4j/intellij.libraries.icu4j.iml" filepath="$PROJECT_DIR$/libraries/icu4j/intellij.libraries.icu4j.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/ion/intellij.libraries.ion.iml" filepath="$PROJECT_DIR$/libraries/ion/intellij.libraries.ion.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/jackson/jackson/intellij.libraries.jackson.iml" filepath="$PROJECT_DIR$/libraries/jackson/jackson/intellij.libraries.jackson.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/jackson/databind/intellij.libraries.jackson.databind.iml" filepath="$PROJECT_DIR$/libraries/jackson/databind/intellij.libraries.jackson.databind.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/jackson/jr-objects/intellij.libraries.jackson.jr.objects.iml" filepath="$PROJECT_DIR$/libraries/jackson/jr-objects/intellij.libraries.jackson.jr.objects.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/jackson/module-kotlin/intellij.libraries.jackson.module.kotlin.iml" filepath="$PROJECT_DIR$/libraries/jackson/module-kotlin/intellij.libraries.jackson.module.kotlin.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit4/intellij.libraries.junit4.iml" filepath="$PROJECT_DIR$/libraries/junit4/intellij.libraries.junit4.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5/intellij.libraries.junit5.iml" filepath="$PROJECT_DIR$/libraries/junit5/intellij.libraries.junit5.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5-launcher/intellij.libraries.junit5.launcher.iml" filepath="$PROJECT_DIR$/libraries/junit5-launcher/intellij.libraries.junit5.launcher.iml" />
@@ -645,6 +656,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5-pioneer/intellij.libraries.junit5.pioneer.iml" filepath="$PROJECT_DIR$/libraries/junit5-pioneer/intellij.libraries.junit5.pioneer.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlin-test/intellij.libraries.kotlinTest.iml" filepath="$PROJECT_DIR$/libraries/kotlin-test/intellij.libraries.kotlinTest.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlin-test-assertions-core-jvm/intellij.libraries.kotlinTestAssertionsCoreJvm.iml" filepath="$PROJECT_DIR$/libraries/kotlin-test-assertions-core-jvm/intellij.libraries.kotlinTestAssertionsCoreJvm.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/coroutines/slf4j/intellij.libraries.kotlinx.coroutines.slf4j.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/coroutines/slf4j/intellij.libraries.kotlinx.coroutines.slf4j.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/io/intellij.libraries.kotlinx.io.iml" filepath="$PROJECT_DIR$/libraries/io/intellij.libraries.kotlinx.io.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/serialization/core/intellij.libraries.kotlinx.serialization.core.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/serialization/core/intellij.libraries.kotlinx.serialization.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/serialization/json/intellij.libraries.kotlinx.serialization.json.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/serialization/json/intellij.libraries.kotlinx.serialization.json.iml" />

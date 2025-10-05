@@ -59,7 +59,6 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + seq
   "intellij.keymap.netbeans",
   "intellij.performanceTesting",
   "intellij.compose.ide.plugin",
-  "intellij.java.jshell"
 )
 
 val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
@@ -69,7 +68,6 @@ val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
   "lib/annotations.jar" to "1.8",
   "lib/util_rt.jar" to "1.8",
   "lib/util-8.jar" to "1.8",
-  "lib/guava.jar" to "1.8",
   "lib/external-system-rt.jar" to "1.8",
   "plugins/java-coverage/lib/java-coverage-rt.jar" to "1.8",
   "plugins/junit/lib/junit-rt.jar" to "1.8",
