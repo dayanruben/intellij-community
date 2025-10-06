@@ -417,9 +417,9 @@ public class CodeCompletionHandlerBase {
     }
   }
 
-  private AutoCompletionDecision shouldAutoComplete(@NotNull CompletionProgressIndicator indicator,
-                                                    @NotNull List<? extends LookupElement> items,
-                                                    @NotNull CompletionParameters parameters) {
+  private @NotNull AutoCompletionDecision shouldAutoComplete(@NotNull CompletionProgressIndicator indicator,
+                                                             @NotNull List<? extends LookupElement> items,
+                                                             @NotNull CompletionParameters parameters) {
     if (!invokedExplicitly) {
       return AutoCompletionDecision.SHOW_LOOKUP;
     }
@@ -573,10 +573,10 @@ public class CodeCompletionHandlerBase {
     return context;
   }
 
-  private static WatchingInsertionContext insertItemHonorBlockSelection(CompletionProcessEx indicator,
-                                                                        LookupElement item,
-                                                                        char completionChar,
-                                                                        StatisticsUpdate update) {
+  private static @NotNull WatchingInsertionContext insertItemHonorBlockSelection(@NotNull CompletionProcessEx indicator,
+                                                                                 @NotNull LookupElement item,
+                                                                                 char completionChar,
+                                                                                 @NotNull StatisticsUpdate update) {
     Editor editor = indicator.getEditor();
     int caretOffset = indicator.getCaret().getOffset();
     OffsetMap offsetMap = indicator.getOffsetMap();
@@ -587,16 +587,18 @@ public class CodeCompletionHandlerBase {
     int idEndOffset = CompletionUtil.calcIdEndOffset(offsetMap, editor, caretOffset);
     int idEndOffsetDelta = idEndOffset - caretOffset;
 
-    WatchingInsertionContext context = doInsertItem(indicator.getHostOffsets(),
+    WatchingInsertionContext context = doInsertItem(
+      indicator.getHostOffsets(),
       item,
       completionChar,
-                                                    editor,
+      editor,
       indicator.getProject(),
       caretOffset,
       offsetMap,
       items,
       idEndOffset,
-      idEndOffsetDelta);
+      idEndOffsetDelta
+    );
 
     if (lookup != null) {
       update.addSparedChars(lookup, item, context);
@@ -627,13 +629,7 @@ public class CodeCompletionHandlerBase {
       boolean wasInjected = hostEditor != editor;
       PsiDocumentManager.getInstance(project).commitDocument(hostEditor.getDocument());
       hostEditor.getCaretModel().runForEachCaret(caret -> {
-        OffsetsInFile targetOffsets;
-        if (!wasInjected) {
-          targetOffsets = topLevelOffsets;
-        }
-        else {
-          targetOffsets = topLevelOffsets.toInjectedIfAny(caret.getOffset());
-        }
+        OffsetsInFile targetOffsets = wasInjected ? topLevelOffsets.toInjectedIfAny(caret.getOffset()) : topLevelOffsets;
         lastContext.set(doInsertItemForSingleCaret(item, completionChar, items, idEndOffsetDelta, hostEditor, targetOffsets));
       });
       context = lastContext.get();
@@ -666,7 +662,7 @@ public class CodeCompletionHandlerBase {
     return currentContext;
   }
 
-  private static void checkPsiTextConsistency(CompletionProcessEx indicator) {
+  private static void checkPsiTextConsistency(@NotNull CompletionProcessEx indicator) {
     PsiFile psiFile = PsiUtilBase.getPsiFileInEditor(InjectedLanguageEditorUtil.getTopLevelEditor(indicator.getEditor()), indicator.getProject());
     if (psiFile != null) {
       if (Registry.is("ide.check.stub.text.consistency") ||
@@ -836,7 +832,7 @@ public class CodeCompletionHandlerBase {
     caret.putUserData(CARET_PROCESSED, Boolean.TRUE);
   }
 
-  private static Caret getNextCaretToProcess(@NotNull Editor editor) {
+  private static @Nullable Caret getNextCaretToProcess(@NotNull Editor editor) {
     for (Caret caret : editor.getCaretModel().getAllCarets()) {
       if (caret.getUserData(CARET_PROCESSED) == null) {
         return caret;
