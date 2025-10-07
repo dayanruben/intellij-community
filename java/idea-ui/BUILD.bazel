@@ -44,7 +44,7 @@ jvm_library(
     "@lib//:stream_ex",
     "@lib//:kotlinx-coroutines-core",
     "//platform/statistics",
-    "@lib//:fastutil-min",
+    "//libraries/fastutil",
     "//platform/core-ui",
     "//platform/lang-impl",
     "//platform/workspace/jps",
@@ -62,7 +62,7 @@ jvm_library(
     "//java/java-syntax:syntax",
     "@lib//:slf4j-api",
     "//xml/xml-psi-api:psi",
-    "@lib//:asm",
+    "//libraries/asm",
     "//libraries/jackson/jackson",
     "//libraries/jackson/databind",
   ]

@@ -339,6 +339,7 @@ jvm/jvm-analysis-refactoring
 jvm/jvm-analysis-testFramework
 libraries/aalto-xml
 libraries/ai.grazie.spell.gec.engine.local
+libraries/asm
 libraries/assertj-core
 libraries/caffeine
 libraries/coil
@@ -347,6 +348,7 @@ libraries/compose-foundation-desktop-junit
 libraries/compose-runtime-desktop
 libraries/detekt-compose-rules
 libraries/dokka
+libraries/fastutil
 libraries/grpc
 libraries/grpc-netty-shaded
 libraries/gson
@@ -366,6 +368,7 @@ libraries/junit5
 libraries/junit5-launcher
 libraries/junit5-params
 libraries/junit5-pioneer
+libraries/kotlin-reflect
 libraries/kotlin-test
 libraries/kotlin-test-assertions-core-jvm
 libraries/kotlinx/coroutines/slf4j
@@ -377,14 +380,21 @@ libraries/ktor/io
 libraries/ktor/network-tls
 libraries/ktor/utils
 libraries/lucene.common
+libraries/lz4
 libraries/microba
+libraries/miglayout-swing
 libraries/mockito
+libraries/mvstore
+libraries/proxy-vole
+libraries/rhino
 libraries/skiko
 libraries/sshd-osgi
 libraries/system-stubs-jupiter
 libraries/testcontainers
 libraries/testng
+libraries/winp
 libraries/xerces
+libraries/xz
 notebooks/notebook-ui
 notebooks/visualization
 platform/analysis-api

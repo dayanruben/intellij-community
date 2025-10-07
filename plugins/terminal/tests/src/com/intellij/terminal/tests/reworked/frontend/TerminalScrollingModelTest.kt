@@ -17,8 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.terminal.JBTerminalSystemSettingsProvider
-import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModel
-import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModelImpl
+import org.jetbrains.plugins.terminal.block.reworked.MutableTerminalOutputModel
+import org.jetbrains.plugins.terminal.block.reworked.MutableTerminalOutputModelImpl
 import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModel
 import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModelImpl
 import org.jetbrains.plugins.terminal.block.ui.TerminalUi
@@ -452,7 +452,7 @@ internal class TerminalScrollingModelTest : BasePlatformTestCase() {
   ) {
     val scrollingModelScope = childScope("TerminalOutputScrollingModel")
     try {
-      val outputModel = TerminalOutputModelImpl(editor.document, maxOutputLength = 0)
+      val outputModel = MutableTerminalOutputModelImpl(editor.document, maxOutputLength = 0)
       val sessionModel = createSessionModel(showCursor)
       val scrollingModel = TerminalOutputScrollingModelImpl(editor, outputModel, sessionModel, scrollingModelScope)
 
@@ -463,7 +463,7 @@ internal class TerminalScrollingModelTest : BasePlatformTestCase() {
       assertThat(offset)
         .overridingErrorMessage {
           val text = outputModel.document.text
-          val textWithCursor = StringBuilder(text).insert(outputModel.cursorOffsetState.value.toRelative(), "<cursor>")
+          val textWithCursor = StringBuilder(text).insert((outputModel.cursorOffset - outputModel.startOffset).toInt(), "<cursor>")
           "Expected scroll offset: ${expectedScrollOffset}, but got $offset. Output text:\n$textWithCursor"
         }
         .isEqualTo(expectedScrollOffset)
@@ -502,7 +502,7 @@ internal class TerminalScrollingModelTest : BasePlatformTestCase() {
   }
 
   private class ScrollingModelTestContext(
-    private val outputModel: TerminalOutputModel,
+    private val outputModel: MutableTerminalOutputModel,
     private val scrollingModel: TerminalOutputScrollingModelImpl,
   ) {
     suspend fun updateText(absoluteLineIndex: Long, text: String) {

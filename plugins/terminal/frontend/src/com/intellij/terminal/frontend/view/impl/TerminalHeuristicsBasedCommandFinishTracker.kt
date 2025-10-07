@@ -15,6 +15,8 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import org.jetbrains.plugins.terminal.block.reworked.TerminalLine
+import org.jetbrains.plugins.terminal.block.reworked.TerminalOffset
 import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModel
 import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModelListener
 import java.awt.event.KeyEvent
@@ -67,7 +69,7 @@ internal class TerminalHeuristicsBasedCommandFinishTracker(
 
     val lineInfo = curLineInfo
     if (e.keyCode == KeyEvent.VK_ENTER && lineInfo != null) {
-      val cursorOffset = outputModel.cursorOffsetState.value.toRelative()
+      val cursorOffset = outputModel.cursorOffset
       val textBeforeCursor = getTextBeforeCursor(cursorOffset) ?: return
       if (textBeforeCursor.startsWith(lineInfo.promptText) && textBeforeCursor.length > lineInfo.promptText.length) {
         // There is some command to execute
@@ -79,16 +81,16 @@ internal class TerminalHeuristicsBasedCommandFinishTracker(
 
   private fun updateCurLineInfo() {
     val lineInfo = curLineInfo
-    val cursorOffset = outputModel.cursorOffsetState.value.toRelative()
-    val absoluteLineIndex = outputModel.getAbsoluteLineIndex(cursorOffset)
+    val cursorOffset = outputModel.cursorOffset
+    val cursorLine = outputModel.lineByOffset(cursorOffset)
     val textBeforeCursor = getTextBeforeCursor(cursorOffset)
 
     when {
       textBeforeCursor == null -> {
         curLineInfo = null
       }
-      lineInfo?.absoluteIndex != absoluteLineIndex -> {
-        curLineInfo = LineInfo(absoluteLineIndex, textBeforeCursor)
+      lineInfo?.line != cursorLine -> {
+        curLineInfo = LineInfo(cursorLine, textBeforeCursor)
       }
       !textBeforeCursor.startsWith(lineInfo.promptText) -> {
         curLineInfo = lineInfo.copy(promptText = textBeforeCursor)
@@ -105,10 +107,10 @@ internal class TerminalHeuristicsBasedCommandFinishTracker(
     // Heuristic: suspend until we detect the current line has the same prompt as in the provided LineInfo
     // Then we can consider that command is finished
     modelUpdatesFlow.debounce(PROMPT_CHECKING_DELAY).first {
-      val cursorOffset = outputModel.cursorOffsetState.value.toRelative()
-      val absoluteLineIndex = outputModel.getAbsoluteLineIndex(cursorOffset)
+      val cursorOffset = outputModel.cursorOffset
+      val cursorLine = outputModel.lineByOffset(cursorOffset)
 
-      absoluteLineIndex != lineInfo.absoluteIndex && getTextBeforeCursor(cursorOffset) == lineInfo.promptText
+      cursorLine != lineInfo.line && getTextBeforeCursor(cursorOffset) == lineInfo.promptText
     }
 
     onCommandFinish()
@@ -116,14 +118,13 @@ internal class TerminalHeuristicsBasedCommandFinishTracker(
     LOG.debug { "Command finish detected" }
   }
 
-  private fun getTextBeforeCursor(cursorOffset: Int): String? {
-    val document = outputModel.document
-    val lineNumber = document.getLineNumber(cursorOffset)
-    val lineStartOffset = document.getLineStartOffset(lineNumber)
+  private fun getTextBeforeCursor(cursorOffset: TerminalOffset): String? {
+    val lineNumber = outputModel.lineByOffset(cursorOffset)
+    val lineStartOffset = outputModel.startOffset(lineNumber)
 
     val length = cursorOffset - lineStartOffset
     return if (length <= MAX_LINE_LENGTH) {
-      document.immutableCharSequence.substring(lineStartOffset, lineStartOffset + length)
+      outputModel.getText(lineStartOffset, lineStartOffset + length)
     }
     else null // Line is too long, let's do not try to track it.
   }
@@ -132,7 +133,7 @@ internal class TerminalHeuristicsBasedCommandFinishTracker(
     val flow = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     outputModel.addListener(coroutineScope.asDisposable(), object : TerminalOutputModelListener {
-      override fun afterContentChanged(model: TerminalOutputModel, startOffset: Int, isTypeAhead: Boolean) {
+      override fun afterContentChanged(model: TerminalOutputModel, startOffset: TerminalOffset, isTypeAhead: Boolean) {
         check(flow.tryEmit(Unit))
       }
     })
@@ -141,7 +142,7 @@ internal class TerminalHeuristicsBasedCommandFinishTracker(
   }
 
   private data class LineInfo(
-    val absoluteIndex: Long,
+    val line: TerminalLine,
     val promptText: String,
   )
 

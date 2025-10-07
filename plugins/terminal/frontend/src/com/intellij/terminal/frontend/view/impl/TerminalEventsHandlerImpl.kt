@@ -9,7 +9,6 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.openapi.util.TextRange
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.jediterm.terminal.emulator.mouse.MouseButtonCodes
 import com.jediterm.terminal.emulator.mouse.MouseButtonModifierFlags
@@ -165,7 +164,7 @@ internal open class TerminalEventsHandlerImpl(
     val typedString = keyChar.toString()
     if (e.original.id == KeyEvent.KEY_TYPED) {
       val inlineCompletionTypingSession = InlineCompletion.getHandlerOrNull(editor)?.typingSessionTracker
-      editor.caretModel.moveToOffset(outputModel.cursorOffsetState.value.toRelative())
+      editor.caretModel.moveToOffset(outputModel.cursorOffset.toRelative(outputModel))
       inlineCompletionTypingSession?.startTypingSession(editor)
 
       typeAhead?.type(typedString)
@@ -375,7 +374,7 @@ internal open class TerminalEventsHandlerImpl(
    * Essential for correct lookup behavior.
    */
   private fun syncEditorCaretWithModel() {
-    val expectedCaretOffset = outputModel.cursorOffsetState.value.toRelative()
+    val expectedCaretOffset = outputModel.cursorOffset.toRelative(outputModel)
     val moveCaretAction = { editor.caretModel.moveToOffset(expectedCaretOffset) }
     if (editor.caretModel.offset != expectedCaretOffset) {
       val lookup = LookupManager.getActiveLookup(editor)
@@ -407,10 +406,7 @@ internal open class TerminalEventsHandlerImpl(
     return Character.isLetterOrDigit(char) || char == '-'
   }
 
-  private fun TerminalOutputModel.getTextAfterCursor(): @NlsSafe String {
-    val cursorOffset = cursorOffsetState.value.toRelative()
-    return document.getText(TextRange(cursorOffset, document.textLength))
-  }
+  private fun TerminalOutputModel.getTextAfterCursor(): @NlsSafe String = getText(cursorOffset, endOffset)
 
   companion object {
     private val LOG = Logger.getInstance(TerminalEventsHandlerImpl::class.java)

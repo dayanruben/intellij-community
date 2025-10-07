@@ -4,6 +4,7 @@ import ai.grazie.gec.model.problem.Problem
 import ai.grazie.gec.model.problem.SentenceWithProblems
 import ai.grazie.nlp.langs.Language
 import ai.grazie.nlp.langs.locale
+import ai.grazie.rules.settings.RuleSetting
 import ai.grazie.text.exclusions.SentenceWithExclusions
 import com.intellij.codeInspection.util.InspectionMessage
 import com.intellij.grazie.GrazieConfig
@@ -39,30 +40,27 @@ class MlecChecker : ExternalTextChecker() {
     return rules
   }
 
-  override suspend fun checkExternally(content: TextContent): Collection<TextProblem> {
-    if (!GrazieCloudConnector.seemsCloudConnected() || !NaturalTextDetector.seemsNatural(content.toString())) return emptyList()
-    if (HighlightingUtil.skipExpensivePrecommitAnalysis(content.containingFile)) return emptyList()
+  override suspend fun checkExternally(context: ProofreadingContext): Collection<TextProblem> {
+    if (!GrazieCloudConnector.seemsCloudConnected()) return emptyList()
 
-    val stripPrefixLength = HighlightingUtil.stripPrefix(content)
-    val detected = getLanguageIfAvailable(content.toString().substring(stripPrefixLength)) ?: return emptyList()
-    val rules = Constants.mlecRules[detected] ?: return emptyList()
-    if (rules.none { it.isCurrentlyEnabled(content) }) return emptyList()
+    val rules = Constants.mlecRules[context.language] ?: return emptyList()
+    if (rules.none { it.isCurrentlyEnabled(context.text) }) return emptyList()
 
-    val typos = getTypos(detected, content, stripPrefixLength).takeIf { it.isNotEmpty() } ?: return emptyList()
+    val typos = getTypos(context.language, context.text, context.stripPrefix.length).takeIf { it.isNotEmpty() } ?: return emptyList()
 
     return typos
       .mapNotNull { typo ->
         val underline: TextRange = typo.highlighting.underline ?: return@mapNotNull null
 
         val fixes = typo.fixes.map { it.display() }
-        val errorText = underline.substring(content.toString())
+        val errorText = underline.substring(context.text.toString())
 
         val rule =
-          if (detected == Language.ENGLISH && typo.info.id.id.endsWith("article.missing")) Constants.enMissingArticle
+          if (context.language == Language.ENGLISH && typo.info.id.id.endsWith("article.missing")) Constants.enMissingArticle
           else rules.last()
-        if (!rule.isCurrentlyEnabled(content)) return@mapNotNull null
+        if (!rule.isCurrentlyEnabled(context.text)) return@mapNotNull null
 
-        object : GrazieProblem(typo, rule, content) {
+        object : GrazieProblem(typo, rule, context.text) {
           override fun getDescriptionTemplate(isOnTheFly: Boolean): @InspectionMessage String {
             val description = super.getDescriptionTemplate(isOnTheFly)
             if (ApplicationManager.getApplication().isUnitTestMode()) return "${rule.globalId}: $description"
@@ -71,17 +69,17 @@ class MlecChecker : ExternalTextChecker() {
 
           override fun fitsGroup(group: RuleGroup): Boolean {
             if (RuleGroup.SENTENCE_START_CASE in group.rules && StringUtil.capitalize(errorText) in fixes) {
-              val prev = content.subSequence(0, underline.startOffset).toString().trim()
+              val prev = context.text.subSequence(0, underline.startOffset).toString().trim()
               if (prev.isBlank() ||
                   Text.Latin.isEndPunctuation(prev) ||
-                  Text.findParagraphRange(content, underline).startOffset == underline.startOffset) {
+                  Text.findParagraphRange(context.text, underline).startOffset == underline.startOffset) {
                 return true
               }
             }
 
             if (RuleGroup.SENTENCE_END_PUNCTUATION in group.rules && "$errorText." in fixes) {
-              return content.subSequence(underline.endOffset, content.length).isBlank() ||
-                     Text.findParagraphRange(content, underline).endOffset == underline.endOffset
+              return context.text.subSequence(underline.endOffset, context.text.length).isBlank() ||
+                     Text.findParagraphRange(context.text, underline).endOffset == underline.endOffset
             }
 
             if (RuleGroup.INCOMPLETE_SENTENCE in group.rules && typo.message in incompleteSentenceMessages) {
@@ -179,6 +177,14 @@ class MlecChecker : ExternalTextChecker() {
     private fun mlecRule(id: String, language: Language, presentableName: String, category: String, description: String): Rule =
       object : Rule(id, language, presentableName, category) {
         override fun getDescription(): String = description
+        override fun isEnabledByDefault(domain: TextStyleDomain): Boolean {
+          if (this.globalId != enMissingArticle.globalId) return super.isEnabledByDefault(domain)
+          return featuredSettings(Language.ENGLISH).asSequence()
+            .filterIsInstance<RuleSetting>()
+            .map { it.rule }
+            .find { it.id == "Grammar.MISSING_ARTICLE" }!!
+            .isEnabledInState(GrazieConfig.get(), domain)
+        }
       }
   }
 

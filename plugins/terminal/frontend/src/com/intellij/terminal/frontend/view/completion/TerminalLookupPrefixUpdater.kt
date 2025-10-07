@@ -4,6 +4,7 @@ import com.intellij.codeInsight.completion.impl.CompletionServiceImpl
 import com.intellij.codeInsight.lookup.impl.LookupImpl
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.util.Key
+import com.intellij.terminal.frontend.view.impl.toRelative
 import com.intellij.util.asDisposable
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import kotlinx.coroutines.*
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
+import org.jetbrains.plugins.terminal.block.reworked.TerminalOffset
 import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModel
 import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModelListener
 
@@ -36,7 +38,7 @@ class TerminalLookupPrefixUpdater private constructor(
     }
 
     model.addListener(coroutineScope.asDisposable(), object : TerminalOutputModelListener {
-      override fun afterContentChanged(model: TerminalOutputModel, startOffset: Int, isTypeAhead: Boolean) {
+      override fun afterContentChanged(model: TerminalOutputModel, startOffset: TerminalOffset, isTypeAhead: Boolean) {
         pendingRequestsCount.update { it + 1 }
         prefixUpdateRequests.trySend(Unit)
       }
@@ -88,12 +90,12 @@ class TerminalLookupPrefixUpdater private constructor(
   }
 
   private fun calculateUpdatedPrefix(): String? {
-    val startOffset = lookup.lookupStart
-    val caretOffset = model.cursorOffsetState.value.toRelative()
+    val startOffset = model.startOffset + lookup.lookupStart.toLong()
+    val caretOffset = model.cursorOffset
     if (caretOffset < startOffset) {
       return null  // It looks like the lookup is not valid
     }
-    return model.document.immutableCharSequence.substring(startOffset, caretOffset)
+    return model.getText(startOffset, caretOffset)
   }
 
   private fun truncatePrefix(times: Int) {
@@ -128,7 +130,7 @@ class TerminalLookupPrefixUpdater private constructor(
 
   private fun closeLookupOrRestart() {
     // If the cursor was placed right before the lookup start offset, let's restart the completion
-    val cursorOffset = model.cursorOffsetState.value.toRelative()
+    val cursorOffset = model.cursorOffset.toRelative(model)
     if (cursorOffset == lookup.lookupOriginalStart - 1) {
       CompletionServiceImpl.currentCompletionProgressIndicator?.scheduleRestart()
     }
@@ -139,7 +141,7 @@ class TerminalLookupPrefixUpdater private constructor(
 
   private fun syncEditorCaretWithOutputModel() {
     if (!lookup.isLookupDisposed) {
-      val cursorOffset = model.cursorOffsetState.value.toRelative()
+      val cursorOffset = model.cursorOffset.toRelative(model)
       lookup.performGuardedChange {
         lookup.editor.caretModel.moveToOffset(cursorOffset)
       }
