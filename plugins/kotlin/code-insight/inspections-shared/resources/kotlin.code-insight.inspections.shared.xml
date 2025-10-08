@@ -753,7 +753,6 @@
                      groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
                      enabledByDefault="true"
                      level="INFORMATION"
-                     editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
                      language="kotlin"
                      key="inspection.remove.unnecessary.parentheses.display.name" bundle="messages.KotlinBundle"/>
 
@@ -773,5 +772,13 @@
                      level="INFORMATION"
                      language="kotlin"
                      key="inspection.replace.addAll.with.mapTo.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.codeInsight.inspections.shared.ImplicitNullableNothingTypeInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.probable.bugs"
+                     enabledByDefault="true"
+                     level="WEAK WARNING"
+                     language="kotlin"
+                     key="inspection.implicit.nullable.nothing.type.display.name" bundle="messages.KotlinBundle"/>
   </extensions>
 </idea-plugin>

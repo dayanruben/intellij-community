@@ -119,7 +119,8 @@ private fun moveCaretIntoGeneratedElementDocumentUnblocked(editor: Editor, eleme
         editor.moveCaret(offset)
 
         if (initializerRange != null) {
-            val endOffset = expression.siblings(forward = true, withItself = false).lastOrNull()?.endOffset ?: initializerRange.endOffset
+            val endOffset =
+                expression.siblings(forward = true, withItself = false).lastOrNull()?.endOffset ?: initializerRange.endOffset
             editor.selectionModel.setSelection(initializerRange.startOffset, endOffset)
         }
 
@@ -135,6 +136,7 @@ private fun moveCaretIntoGeneratedElementDocumentUnblocked(editor: Editor, eleme
     }
 
     editor.moveCaret(element.endOffset)
+    editor.scrollingModel.scrollToCaret(ScrollType.RELATIVE)
     return false
 }
 

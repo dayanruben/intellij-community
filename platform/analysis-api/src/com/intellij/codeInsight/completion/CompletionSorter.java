@@ -2,11 +2,16 @@
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.lookup.LookupElementWeigher;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @see CompletionResultSet#withRelevanceSorter(CompletionSorter)
+ *
+ * @see #emptySorter
+ * @see #defaultSorter
  */
+@ApiStatus.NonExtendable
 public abstract class CompletionSorter {
   /**
    * @param beforeId id of the weigher which must be run after {@code weighers}

@@ -11,18 +11,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 
-public class CompletionSorterImpl extends CompletionSorter {
+public final class CompletionSorterImpl extends CompletionSorter {
   private final List<? extends ClassifierFactory<LookupElement>> myMembers;
   private final int myHashCode;
 
   @ApiStatus.Internal
-  public CompletionSorterImpl(List<? extends ClassifierFactory<LookupElement>> members) {
+  public CompletionSorterImpl(@NotNull List<? extends ClassifierFactory<LookupElement>> members) {
     myMembers = members;
     myHashCode = myMembers.hashCode();
   }
 
   public static @NotNull ClassifierFactory<LookupElement> weighingFactory(@NotNull LookupElementWeigher weigher) {
-    final String id = weigher.toString();
+    String id = weigher.toString();
     return new ClassifierFactory<>(id) {
       @Override
       public @NotNull Classifier<LookupElement> createClassifier(@NotNull Classifier<LookupElement> next) {
@@ -66,11 +66,11 @@ public class CompletionSorterImpl extends CompletionSorter {
   public @NotNull CompletionSorterImpl withClassifier(@NotNull String anchorId,
                                                       boolean beforeAnchor,
                                                       @NotNull ClassifierFactory<LookupElement> classifierFactory) {
-    final int i = idIndex(anchorId);
+    int i = idIndex(anchorId);
     return enhanced(classifierFactory, beforeAnchor ? Math.max(0, i) : i + 1);
   }
 
-  public CompletionSorterImpl withoutClassifiers(@NotNull Predicate<? super ClassifierFactory<LookupElement>> removeCondition) {
+  public @NotNull CompletionSorterImpl withoutClassifiers(@NotNull Predicate<? super ClassifierFactory<LookupElement>> removeCondition) {
     return new CompletionSorterImpl(ContainerUtil.filter(myMembers, t -> !removeCondition.test(t)));
   }
 
@@ -78,12 +78,12 @@ public class CompletionSorterImpl extends CompletionSorter {
    * @return a copy of sorter with classifierFactory added to the specified index
    */
   private @NotNull CompletionSorterImpl enhanced(@NotNull ClassifierFactory<LookupElement> classifierFactory, int index) {
-    final List<ClassifierFactory<LookupElement>> copy = new ArrayList<>(myMembers);
+    List<ClassifierFactory<LookupElement>> copy = new ArrayList<>(myMembers);
     copy.add(index, classifierFactory);
     return new CompletionSorterImpl(copy);
   }
 
-  private int idIndex(final String id) {
+  private int idIndex(@NotNull String id) {
     return ContainerUtil.indexOf(myMembers, factory -> id.equals(factory.getId()));
   }
 
