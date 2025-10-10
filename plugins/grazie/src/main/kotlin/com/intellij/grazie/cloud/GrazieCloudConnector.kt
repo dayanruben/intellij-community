@@ -14,7 +14,7 @@ import com.intellij.openapi.util.TextRange
 interface GrazieCloudConnector {
 
   /**
-   * Returns true if there is a connection to Grazie Cloud and [connectionType] is [Processing.Cloud]
+   * Returns true if there is a connection to Grazie Cloud and [connectionType] is [Processing.Cloud].
    */
   fun seemsCloudConnected(): Boolean
 
@@ -22,6 +22,16 @@ interface GrazieCloudConnector {
    * Returns the type of the connection. Usually set in settings: ([Processing.Local] or [Processing.Cloud]).
    */
   fun connectionType(): Processing
+
+  /**
+   * Returns the default value for cloud connection.
+   */
+  fun isCloudEnabledByDefault(): Boolean
+
+  /**
+   * Asks user for consent for using Cloud mode.
+   */
+  fun askUserConsentForCloud(): Boolean
 
   /**
    * Returns true if there was a recent error during the last GEC request.
@@ -46,7 +56,12 @@ interface GrazieCloudConnector {
   /**
    * Returns machine learning errors for the given [sentences] in the given [language].
    */
-  suspend fun mlec(sentences: List<SentenceWithExclusions>, lang: Language, project: Project): List<SentenceWithProblems>?
+  suspend fun mlec(sentences: List<SentenceWithExclusions>, language: Language, project: Project): List<SentenceWithProblems>?
+
+  /**
+   * Returns spelling errors for the given [text] in the given [language].
+   */
+  suspend fun spell(sentences: List<SentenceWithExclusions>, language: Language, project: Project): List<SentenceWithProblems>?
 
   /**
    * Subscribe to authorization state change events.
@@ -56,6 +71,10 @@ interface GrazieCloudConnector {
   companion object {
     val EP_NAME = ExtensionPointName<GrazieCloudConnector>("com.intellij.grazie.cloudConnector")
 
+    fun hasCloudConnector(): Boolean = EP_NAME.extensionList.isNotEmpty()
+
     fun seemsCloudConnected(): Boolean = EP_NAME.extensionList.any { it.seemsCloudConnected() }
+
+    fun isAfterRecentGecError(): Boolean = EP_NAME.extensionList.any { it.isAfterRecentGecError() }
   }
 }

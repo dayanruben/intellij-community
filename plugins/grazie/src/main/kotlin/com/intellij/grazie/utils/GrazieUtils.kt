@@ -1,6 +1,8 @@
 package com.intellij.grazie.utils
 
+import ai.grazie.gec.model.problem.Problem
 import ai.grazie.gec.model.problem.ProblemHighlighting
+import ai.grazie.gec.model.problem.SentenceWithProblems
 import ai.grazie.nlp.langs.Language
 import ai.grazie.nlp.langs.Language.UNKNOWN
 import ai.grazie.rules.Rule
@@ -11,18 +13,27 @@ import com.intellij.grazie.GrazieConfig
 import com.intellij.grazie.detection.LangDetector
 import com.intellij.grazie.ide.ui.configurable.StyleConfigurable.Companion.ruleEngineLanguages
 import com.intellij.grazie.jlanguage.LangTool
+import com.intellij.grazie.mlec.LanguageHolder
 import com.intellij.grazie.rule.RuleIdeClient
-import com.intellij.grazie.text.TextChecker
+import com.intellij.grazie.rule.SentenceBatcher
+import com.intellij.grazie.rule.SentenceBatcher.Companion.runWithSentenceBatcher
+import com.intellij.grazie.rule.SentenceTokenizer.tokenize
 import com.intellij.grazie.text.TextChecker.ProofreadingContext
 import com.intellij.grazie.text.TextContent
 import com.intellij.openapi.util.TextRange
 import com.intellij.util.containers.CollectionFactory.createConcurrentSoftValueMap
+import java.util.concurrent.ConcurrentHashMap
 import ai.grazie.text.TextRange as GrazieTextRange
 
 private val affectedGlobalRules = createConcurrentSoftValueMap<Language, Set<String>>()
-private val associatedGrazieRules = buildAssociatedGrazieMapping()
+private val associatedGrazieRules = ConcurrentHashMap<Language, Map<String, Rule>>()
 
-fun getAssociatedGrazieRule(ruleId: String): Rule? = associatedGrazieRules[ruleId]
+fun getAssociatedGrazieRule(rule: com.intellij.grazie.text.Rule): Rule? {
+  if (rule.language !in ruleEngineLanguages) return null
+  return associatedGrazieRules
+    .computeIfAbsent(rule.language) { buildAssociatedGrazieMapping(rule.language) }
+    .get(rule.globalId)
+}
 
 fun getAffectedGlobalRules(language: Language): Set<String> {
   if (language !in ruleEngineLanguages) return emptySet()
@@ -65,22 +76,41 @@ fun TextContent.toProofreadingContext(): ProofreadingContext {
   }
 }
 
+suspend fun <T : LanguageHolder<SentenceBatcher<SentenceWithProblems>>> getProblems(context: ProofreadingContext, parserClass: Class<T>): List<Problem>? {
+  val stripPrefixLength = context.stripPrefix.length
+  val subText = context.text.subText(TextRange(stripPrefixLength, context.text.length)) ?: return emptyList()
+  val sentences = tokenize(subText)
+  val parsed = runWithSentenceBatcher(sentences, context.language, context.text.containingFile.viewProvider, parserClass)
+  if (parsed == null) return null
+  if (parsed.isEmpty()) return emptyList()
+
+  val result = ArrayList<Problem>()
+  for (sentence in sentences) {
+    val corrections = parsed[sentence.swe()]?.problems ?: continue
+    val start = sentence.start + stripPrefixLength
+    if (!context.text.hasUnknownFragmentsIn(TextRange.from(start, sentence.text.trimEnd().length))) {
+      corrections.forEach {
+        result.add(it.withOffset(start))
+      }
+    }
+  }
+  return result
+}
+
 val ProblemHighlighting.underline: TextRange?
   get() = GrazieTextRange.coveringIde(this.always)
 
-private fun buildAssociatedGrazieMapping(): Map<String, Rule> {
+private fun buildAssociatedGrazieMapping(language: Language): Map<String, Rule> {
   val associatedGrazieRules = hashMapOf<String, Rule>()
-  ruleEngineLanguages.forEach { language ->
-    val ltPrefix = LangTool.globalIdPrefix(language)
-    featuredSettings(language)
-      .filterIsInstance<RuleSetting>()
-      .map { it.rule }
-      .forEach { grazieRule ->
-        grazieRule.associatedLTRules.forEach { associatedLTRule ->
-          associatedGrazieRules[ltPrefix + associatedLTRule.id] = grazieRule
-        }
+  val ltPrefix = LangTool.globalIdPrefix(language)
+  featuredSettings(language)
+    .filterIsInstance<RuleSetting>()
+    .map { it.rule }
+    .forEach { grazieRule ->
+      grazieRule.associatedLTRules.forEach { associatedLTRule ->
+        associatedGrazieRules[ltPrefix + associatedLTRule.id] = grazieRule
       }
-  }
+    }
   return associatedGrazieRules
 }
 

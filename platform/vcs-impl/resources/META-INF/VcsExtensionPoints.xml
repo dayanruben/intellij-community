@@ -62,10 +62,6 @@
                     dynamic="true"/>
 
     <extensionPoint name="vcs.commitMessageProvider" interface="com.intellij.openapi.vcs.changes.ui.CommitMessageProvider" dynamic="true"/>
-    <extensionPoint name="vcs.changes.changesViewModifier"
-                    interface="com.intellij.openapi.vcs.changes.ChangesViewModifier"
-                    area="IDEA_PROJECT"
-                    dynamic="true"/>
     <extensionPoint name="vcs.changes.changesViewConflictsBannerCustomizer"
                     interface="com.intellij.openapi.vcs.merge.ChangesViewConflictsBannerCustomizer"
                     area="IDEA_PROJECT"
@@ -264,8 +260,10 @@
                     dynamic="true"/>
 
     <extensionPoint name="vcs.commitMessageInspection"
-                    interface="com.intellij.vcs.commit.message.BaseCommitMessageInspection"
-                    dynamic="true"/>
+                    beanClass="com.intellij.vcs.commit.message.CommitMessageInspectionEP"
+                    dynamic="true">
+      <with attribute="implementation" implements="com.intellij.vcs.commit.message.BaseCommitMessageInspection"/>
+    </extensionPoint>
 
     <extensionPoint qualifiedName="com.intellij.vcs.impl.backend.treeNodeConverter"
                     interface="com.intellij.vcs.shelf.NodeToEntityConverter"

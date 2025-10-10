@@ -12,7 +12,6 @@ import com.intellij.codeInspection.options.OptionController;
 import com.intellij.lang.jvm.JvmModifier;
 import com.intellij.lang.jvm.actions.JvmElementActionFactories;
 import com.intellij.lang.jvm.actions.MemberRequestsKt;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.roots.ProjectFileIndex;
@@ -31,6 +30,7 @@ import com.intellij.util.xmlb.annotations.XCollection;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.psiutils.ClassUtils;
 import com.siyeh.ig.psiutils.TestUtils;
+import kotlin.jvm.JvmStatic;
 import one.util.streamex.StreamEx;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -113,8 +113,7 @@ public final class SuspiciousPackagePrivateAccessInspection extends AbstractBase
         return null;
       }
 
-      KotlinExtensionMemberChecker checker = ApplicationManager.getApplication().getService(KotlinExtensionMemberChecker.class);
-      if (checker != null && checker.check(target)) {
+      if (isExtensionMember(target)) {
         return null;
       }
 
@@ -126,6 +125,13 @@ public final class SuspiciousPackagePrivateAccessInspection extends AbstractBase
         return ObjectUtils.tryCast(((UReferenceExpression)qualifier).resolve(), PsiClass.class);
       }
       return null;
+    }
+
+    private static boolean isExtensionMember(@NotNull PsiModifierListOwner target) {
+      UMethod method = UastContextKt.toUElement(target, UMethod.class);
+      return method != null &&
+             !method.getUastParameters().isEmpty() &&
+             method.getUastParameters().getFirst() instanceof UReceiverParameter;
     }
 
     private void checkAccess(@NotNull UElement sourceNode, @NotNull PsiJvmMember target, @Nullable PsiClass accessObjectType) {
@@ -152,7 +158,7 @@ public final class SuspiciousPackagePrivateAccessInspection extends AbstractBase
             IntentionWrapper.wrapToQuickFixes(fixes.toArray(IntentionAction.EMPTY_ARRAY), targetElement.getContainingFile());
           String message;
           if (suspiciousAccess.accessedFromTests) {
-            message = InspectionGadgetsBundle.message("inspection.suspicious.package.private.access.from.tests.description", 
+            message = InspectionGadgetsBundle.message("inspection.suspicious.package.private.access.from.tests.description",
                                                       elementDescription, accessType);
           }
           else {
@@ -185,7 +191,7 @@ public final class SuspiciousPackagePrivateAccessInspection extends AbstractBase
                                                       classDescription);
           }
           else {
-            problem = InspectionGadgetsBundle.message("inspection.suspicious.package.private.access.problem", elementDescription, 
+            problem = InspectionGadgetsBundle.message("inspection.suspicious.package.private.access.problem", elementDescription,
                                                       classDescription, accessResult.targetModule.getName());
           }
           myProblemsHolder.registerProblem(nameIdentifier, problem, quickFixes);
@@ -212,18 +218,29 @@ public final class SuspiciousPackagePrivateAccessInspection extends AbstractBase
       }
       return null;
     }
-    
+
     private record SuspiciousPackagePrivateAccess(Module targetModule, boolean accessedFromTests) {}
   }
 
   private static boolean canAccessProtectedMember(UElement sourceNode, PsiMember member, PsiClass accessObjectType) {
-    PsiClass memberClass = member.getContainingClass();
+    PsiClass containingClass = member.getContainingClass();
+    if (containingClass == null) return false;
+
+    boolean isJvmStatic = isJvmStatic(member);
+    PsiClass memberClass = isJvmStatic ? containingClass.getContainingClass() : containingClass;
     if (memberClass == null) return false;
 
     PsiClass contextClass = getContextClass(sourceNode, member instanceof PsiClass);
     if (contextClass == null) return false;
 
-    return canAccessProtectedMember(member, memberClass, accessObjectType, member.hasModifierProperty(PsiModifier.STATIC), contextClass);
+    boolean isStaticAccess = isJvmStatic || member.hasModifierProperty(PsiModifier.STATIC);
+    return canAccessProtectedMember(member, memberClass, accessObjectType, isStaticAccess, contextClass);
+  }
+
+  private static boolean isJvmStatic(@NotNull PsiModifierListOwner member) {
+    UAnnotated annotated = UastContextKt.toUElement(member.getNavigationElement(), UAnnotated.class);
+    return annotated != null &&
+           UVariableKt.findSourceAnnotation(annotated, JvmStatic.class.getCanonicalName()) != null;
   }
 
   /**
