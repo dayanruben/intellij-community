@@ -33,6 +33,10 @@ private class ExecutionPointManagerChangeListener(val project: Project) : Fronte
         updateExecutionPosition(project)
       }
 
+      override fun sessionResumed() {
+        updateExecutionPosition(project)
+      }
+
       override fun sessionPaused() {
         updateExecutionPosition(project)
       }
