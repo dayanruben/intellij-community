@@ -664,7 +664,7 @@
                  description="Add icon 'open In right splitter' to recent files menu"/>
     <welcomeFrameProvider implementation="com.intellij.openapi.wm.impl.welcomeScreen.FlatWelcomeFrameProvider"/>
     <welcomeTabFactory id="ProjectsWelcomeTab" implementation="com.intellij.openapi.wm.impl.welcomeScreen.ProjectsTabFactory"/>
-    <registryKey defaultValue="3" description="Number of primary buttons on welcome screen (other go to 'more actions')" key="welcome.screen.primaryButtonsCount" restartRequired="true"/>
+    <registryKey defaultValue="4" description="Number of primary buttons on welcome screen (other go to 'more actions')" key="welcome.screen.primaryButtonsCount" restartRequired="true"/>
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.openapi.wm.impl.welcomeScreen.survey.IdeSurveyCollector"/>
     <statistics.counterUsagesCollector
@@ -1526,8 +1526,8 @@
     <applicationService serviceInterface="com.intellij.ui.ToolbarService"
                         serviceImplementation="com.intellij.ui.ToolbarServiceImpl"/>
 
-    <applicationService serviceInterface="com.intellij.openapi.ui.OnboardingBackgroundImageProvider"
-                        serviceImplementation="com.intellij.openapi.wm.impl.OnboardingBackgroundImageProviderImpl"/>
+    <applicationService serviceInterface="com.intellij.openapi.ui.DialogBackgroundImageProvider"
+                        serviceImplementation="com.intellij.openapi.wm.impl.DialogBackgroundImageProviderImpl"/>
 
     <applicationService serviceImplementation="com.intellij.ui.WindowDeactivationManager" client="all"/>
 
