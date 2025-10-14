@@ -254,6 +254,7 @@ private fun readIdeaVersion(reader: XMLStreamReader2, builder: PluginDescriptorB
     when (reader.getAttributeLocalName(i)) {
       PluginXmlConst.IDEA_VERSION_SINCE_ATTR -> builder.sinceBuild = getNullifiedAttributeValue(reader, i)
       PluginXmlConst.IDEA_VERSION_UNTIL_ATTR -> builder.untilBuild = getNullifiedAttributeValue(reader, i)
+      PluginXmlConst.IDEA_VERSION_STRICT_UNTIL_ATTR -> builder.strictUntilBuild = getNullifiedAttributeValue(reader, i)
     }
   }
   reader.skipElement()
@@ -655,7 +656,7 @@ private fun readComponents(reader: XMLStreamReader2, containerDescriptor: Scoped
 
 private fun readContent(reader: XMLStreamReader2, builder: PluginDescriptorBuilder, readContext: PluginDescriptorReaderContext) {
   for (i in 0 until reader.attributeCount) {
-    if (reader.getAttributeLocalName(i) == PluginXmlConst.CONTENT_MODULE_NAMESPACE_ATTR) {
+    if (reader.getAttributeLocalName(i) == PluginXmlConst.CONTENT_NAMESPACE_ATTR) {
       val namespace = readContext.interner.name(reader.getAttributeValue(i))
       if (builder.namespace == null) {
         builder.namespace = namespace

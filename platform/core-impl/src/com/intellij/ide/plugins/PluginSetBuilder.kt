@@ -29,7 +29,7 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
   }
   
   private val enabledPluginIds = HashMap<PluginId, PluginModuleDescriptor>(unsortedPlugins.size)
-  private val enabledModuleV2Ids = HashMap<PluginModuleId, PluginModuleDescriptor>(unsortedPlugins.size * 2)
+  private val enabledModuleV2Ids = HashMap<PluginModuleId, ContentModuleDescriptor>(unsortedPlugins.size * 2)
 
   internal fun checkPluginCycles(errors: MutableList<PluginLoadingError>) {
     if (builder.isAcyclic) {
@@ -109,13 +109,13 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
     val usedPackagePrefixes = HashMap<String, IdeaPluginDescriptorImpl>()
     val isDisabledDueToPackagePrefixConflict = HashMap<PluginModuleId, IdeaPluginDescriptorImpl>()
 
-    fun registerLoadingError(plugin: IdeaPluginDescriptorImpl, disabledModule: ContentModuleDescriptor) {
-      loadingErrors.add(createCannotLoadError(
-        descriptor = plugin,
-        dependencyPluginId = disabledModuleToProblematicPlugin.get(disabledModule.moduleId)
-                             ?: disabledModule.parent.pluginId,
-        errors = emptyMap(),
-        isNotifyUser = !plugin.isImplementationDetail))
+    fun registerDependencyIsNotInstalledError(plugin: IdeaPluginDescriptorImpl, disabledModule: ContentModuleDescriptor) {
+      loadingErrors.add(PluginDependencyIsNotInstalled(
+        plugin = plugin,
+        dependencyNameOrId = (disabledModuleToProblematicPlugin.get(disabledModule.moduleId)
+                              ?: disabledModule.parent.pluginId).idString,
+        shouldNotifyUser = !plugin.isImplementationDetail,
+      ))
     }
     fun markRequiredModulesAsDisabled(plugin: PluginMainDescriptor) {
       for (module in plugin.contentModules) {
@@ -201,7 +201,7 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
                   val alreadyRegistered = isDisabledDueToPackagePrefixConflict[contentModule.moduleId]!!
                   loadingErrors.add(PluginPackagePrefixConflict(module, contentModule, alreadyRegistered))
                 } else {
-                  registerLoadingError(module, contentModule)
+                  registerDependencyIsNotInstalledError(module, contentModule)
                 }
                 markRequiredModulesAsDisabled(module)
                 continue@m
@@ -238,7 +238,7 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
       for (moduleItem in corePlugin.contentModules) {
         if (moduleItem.moduleLoadingRule.required && !enabledModuleV2Ids.containsKey(moduleItem.moduleId)) {
           moduleItem.isMarkedForLoading = false
-          registerLoadingError(corePlugin, moduleItem)
+          registerDependencyIsNotInstalledError(corePlugin, moduleItem)
         }
       }
     }

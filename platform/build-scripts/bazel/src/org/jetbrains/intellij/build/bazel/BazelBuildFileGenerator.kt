@@ -762,9 +762,6 @@ internal class BazelBuildFileGenerator(
         if (resource.relativeOutputPath.isNotEmpty()) {
           option("add_prefix", resource.relativeOutputPath)
         }
-        if (hasOnlyTestResources(module)) {
-          visibility(arrayOf("//visibility:public"))
-        }
       }
 
       BazelLabel(name, module)
@@ -849,6 +846,7 @@ private fun getTestClasspathModule(module: ModuleDescriptor, moduleList: ModuleL
 
   val mainModuleName = when {
     moduleName.startsWith("kotlin.jvm-debugger.") -> "intellij.idea.community.main"
+    moduleName.startsWith("intellij.kotlin.jvm.debugger.") -> "intellij.idea.community.main"
     else -> null
   }
 

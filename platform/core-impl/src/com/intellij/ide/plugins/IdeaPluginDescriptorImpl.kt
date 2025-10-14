@@ -64,7 +64,7 @@ sealed class IdeaPluginDescriptorImpl(
   abstract val useIdeaClassLoader: Boolean
 
   /**
-   * aka `<depends>` elements from the plugin.xml
+   * Aka `<depends>` elements from the plugin.xml
    *
    * Note that it's different from [moduleDependencies]
    */
@@ -133,7 +133,7 @@ sealed class IdeaPluginDescriptorImpl(
       val keys = rawMap.keys.toTypedArray()
       keys.sortWith(extensionPointNameComparator)
       for (key in keys) {
-        result.put(key, rawMap[key]!!)
+        result[key] = rawMap[key]!!
       }
       return result
     }
@@ -221,6 +221,7 @@ sealed class IdeaPluginDescriptorImpl(
       if (raw.version != null) reporter(PluginXmlConst.VERSION_ELEM)
       if (raw.sinceBuild != null) reporter(PluginXmlConst.IDEA_VERSION_SINCE_ATTR)
       if (raw.untilBuild != null) reporter(PluginXmlConst.IDEA_VERSION_UNTIL_ATTR)
+      if (raw.strictUntilBuild != null) reporter(PluginXmlConst.IDEA_VERSION_STRICT_UNTIL_ATTR)
 
       if (raw.vendor != null) reporter(PluginXmlConst.VENDOR_ELEM)
       if (raw.vendorUrl != null) reporter(PluginXmlConst.VENDOR_URL_ATTR)
@@ -268,7 +269,7 @@ class PluginMainDescriptor(
   private val version: String? = raw.version
   private val sinceBuild: String? = raw.sinceBuild
   @Suppress("DEPRECATION")
-  private val untilBuild: String? = UntilBuildDeprecation.nullizeIfTargetsMinimalApiOrLater(raw.untilBuild, raw.name ?: raw.id)
+  private val untilBuild: String? = raw.strictUntilBuild ?: UntilBuildDeprecation.nullizeIfTargetsMinimalApiOrLater(raw.untilBuild, raw.name ?: raw.id)
 
   @Volatile
   private var loadedDescriptionText: @Nls String? = null
@@ -407,7 +408,10 @@ class PluginMainDescriptor(
     if (pluginId != PluginManagerCore.CORE_ID) {
       return pluginAliases
     }
-    return pluginAliases + IdeaPluginOsRequirement.getHostOsModuleIds() + productModeAliasesForCorePlugin()
+    return pluginAliases +
+           IdeaPluginOsRequirement.getHostOsModuleIds() +
+           IdeaPluginCpuArchRequirement.getHostCpuArchModuleIds() +
+           productModeAliasesForCorePlugin()
   }
 
   internal fun createContentModule(

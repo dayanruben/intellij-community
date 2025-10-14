@@ -7,9 +7,9 @@ import com.intellij.bcd.json.*
 import com.intellij.documentation.mdn.*
 import com.intellij.ide.highlighter.HtmlFileType
 import com.intellij.lang.html.HTMLLanguage
+import com.intellij.lang.javascript.index.JSIndexKeys
 import com.intellij.lang.javascript.library.JSCorePredefinedLibrariesProvider
 import com.intellij.lang.javascript.psi.JSPsiElementBase
-import com.intellij.lang.javascript.psi.stubs.JSSymbolIndex2
 import com.intellij.lang.javascript.psi.types.JSNamedTypeFactory
 import com.intellij.lang.javascript.psi.types.JSTypeContext
 import com.intellij.lang.javascript.psi.types.JSTypeSourceFactory
@@ -1057,14 +1057,15 @@ class GenerateMdnDocumentation : BasePlatformTestCase() {
   private fun extractStatus(contents: DocContents): Set<MdnApiStatus>? =
     contents.getBcdMap()
       .mapNotNull { it.value.compat?.status }
-      .let { statuses ->
+      .takeIf { it.isNotEmpty() }
+      ?.let { statuses ->
         setOfNotNull(
           MdnApiStatus.Experimental.takeIf { statuses.all { it.experimental } },
           MdnApiStatus.StandardTrack.takeIf { statuses.any { it.standardTrack } },
           MdnApiStatus.Deprecated.takeIf { statuses.all { it.deprecated } },
         )
       }
-      .takeIf { it.isNotEmpty() }
+      ?.takeIf { it.isNotEmpty() }
 
   private fun extractCompatibilityInfo(contents: DocContents): CompatibilityMap? =
     contents.getBcdMap()
@@ -1171,7 +1172,7 @@ class GenerateMdnDocumentation : BasePlatformTestCase() {
       .find { it.name == "lib.dom.d.ts" }
       ?.let { PsiManager.getInstance(project).findFile(it) }
 
-    val realNameMap = StubIndex.getInstance().getAllKeys(JSSymbolIndex2.KEY, project)
+    val realNameMap = StubIndex.getInstance().getAllKeys(JSIndexKeys.JS_SYMBOL_INDEX_2_KEY, project)
       .associateBy { it.lowercase(Locale.US) }
 
     return symbols.keys.asSequence()

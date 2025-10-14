@@ -31,6 +31,7 @@ object PluginXmlConst {
   const val IDEA_VERSION_ELEM: String = "idea-version"
   const val IDEA_VERSION_SINCE_ATTR: String = "since-build"
   const val IDEA_VERSION_UNTIL_ATTR: String = "until-build"
+  const val IDEA_VERSION_STRICT_UNTIL_ATTR: String = "strict-until-build"
 
   const val VENDOR_ELEM: String = "vendor"
   const val VENDOR_URL_ATTR: String = "url"
@@ -48,6 +49,8 @@ object PluginXmlConst {
   const val MODULE_VALUE_ATTR: String = "value"
 
   const val CONTENT_ELEM: String = "content"
+  const val CONTENT_NAMESPACE_ATTR: String = "namespace"
+
   const val CONTENT_MODULE_ELEM: String = "module"
   const val CONTENT_MODULE_NAME_ATTR: String = "name"
   const val CONTENT_MODULE_LOADING_ATTR: String = "loading"
@@ -55,7 +58,6 @@ object PluginXmlConst {
   const val CONTENT_MODULE_LOADING_REQUIRED_VALUE: String = "required"
   const val CONTENT_MODULE_LOADING_EMBEDDED_VALUE: String = "embedded"
   const val CONTENT_MODULE_LOADING_ON_DEMAND_VALUE: String = "on-demand"
-  const val CONTENT_MODULE_NAMESPACE_ATTR: String = "namespace"
 
   const val DEPENDS_ELEM: String = "depends"
   const val DEPENDS_OPTIONAL_ATTR: String = "optional"

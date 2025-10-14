@@ -13,8 +13,9 @@
     <module name="intellij.xml.psi.impl"/>
   </dependencies>
 
-  <content>
+  <content namespace="jetbrains">
     <module name="intellij.platform.images.copyright"/>
+    <module name="intellij.platform.images.xdebugger"/>
   </content>
 
   <extensions defaultExtensionNs="com.intellij">

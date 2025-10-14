@@ -12,13 +12,8 @@ import com.intellij.openapi.util.io.OSAgnosticPathUtil
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.eel.*
 import com.intellij.platform.eel.path.EelPath
-import com.intellij.platform.eel.provider.LocalEelDescriptor
-import com.intellij.platform.eel.provider.asEelPath
-import com.intellij.platform.eel.provider.getEelDescriptor
-import com.intellij.platform.eel.provider.utils.EelProcessExecutionResult
-import com.intellij.platform.eel.provider.utils.awaitProcessResult
-import com.intellij.platform.eel.provider.utils.stderrString
-import com.intellij.platform.eel.provider.utils.stdoutString
+import com.intellij.platform.eel.provider.*
+import com.intellij.platform.eel.provider.utils.*
 import com.intellij.util.PathUtil
 import com.intellij.util.io.awaitExit
 import com.intellij.util.system.OS
@@ -31,7 +26,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.plugins.terminal.runner.LocalTerminalStartCommandBuilder
 import org.jetbrains.plugins.terminal.util.ShellNameUtil
 import org.jetbrains.plugins.terminal.util.terminalApplicationScope
-import java.lang.ref.WeakReference
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.time.Duration
@@ -69,21 +63,20 @@ internal fun startProcess(
   envs: Map<String, String>,
   initialWorkingDirectory: Path,
   initialTermSize: TermSize,
-): Pair<PtyProcess, ShellProcessHolder> {
+): ShellProcessHolder {
   return runBlockingMaybeCancellable {
     val context = buildStartupEelContext(initialWorkingDirectory, command)
     val eelApi = context.eelDescriptor.toEelApi()
     val remoteCommand = convertCommandToRemote(eelApi, command)
     val workingDirectory = context.workingDirectoryProvider(eelApi)
     val process = doStartProcess(eelApi, remoteCommand, envs, workingDirectory, initialTermSize)
-    val ptyProcess = process.convertToJavaProcess() as PtyProcess
-    ptyProcess to ShellProcessHolder(process.pid, WeakReference(ptyProcess), eelApi)
+    ShellProcessHolder(process, eelApi)
   }
 }
 
 private suspend fun convertCommandToRemote(eelApi: EelApi, command: List<String>): List<String> {
   if (eelApi.descriptor != LocalEelDescriptor && isWslCommand(command)) {
-    val shell = eelApi.exec.fetchLoginShellEnvVariables()["SHELL"] ?: "/bin/sh"
+    val shell = eelApi.fetchMinimalEnvironmentVariables()["SHELL"] ?: "/bin/sh"
     return listOf(shell, LocalTerminalDirectRunner.LOGIN_CLI_OPTION, LocalTerminalStartCommandBuilder.INTERACTIVE_CLI_OPTION)
   }
   return command
@@ -174,6 +167,20 @@ private fun getWslDistributionNameFromCommand(command: List<String>): String? {
 }
 
 @Throws(ExecuteProcessException::class)
+internal fun startLocalProcess(
+  command: List<String>,
+  envs: Map<String, String>,
+  workingDirectory: String,
+  initialTermSize: TermSize,
+): ShellProcessHolder {
+  return runBlockingMaybeCancellable {
+    val eelWorkingDirectory = EelPath.parse(workingDirectory, LocalEelDescriptor)
+    val eelProcess = doStartProcess(localEel, command, envs, eelWorkingDirectory, initialTermSize)
+    ShellProcessHolder(eelProcess, localEel)
+  }
+}
+
+@Throws(ExecuteProcessException::class)
 private suspend fun doStartProcess(
   eelApi: EelApi,
   command: List<String>,
@@ -192,15 +199,44 @@ private suspend fun doStartProcess(
 
 internal fun shouldUseEelApi(): Boolean = Registry.`is`("terminal.use.EelApi", true)
 
+/**
+ * @return The environment variables of this EelApi.
+ * These environment variables should be non-interactive and non-login.
+ * Specifically, they should not include variables defined in shell initialization files
+ * such as ~/.bashrc, ~/.bash_profile, ~/.zshrc, or ~/.zprofile.
+ * Because shell configuration files are loaded during a shell startup and
+ * loading the same configuration file twice might break things. 
+ */
+internal suspend fun EelApi.fetchMinimalEnvironmentVariables(): Map<String, String> {
+  if (this.descriptor == LocalEelDescriptor) {
+    return System.getenv()
+  }
+  return when (val exec = this.exec) {
+    is EelExecPosixApi -> exec.environmentVariables().minimal().eelIt().await()
+    is EelExecWindowsApi -> exec.environmentVariables().eelIt().await()
+  }
+}
+
+internal fun fetchMinimalEnvironmentVariablesBlocking(eelDescriptor: EelDescriptor): Map<String, String> {
+  if (eelDescriptor == LocalEelDescriptor) {
+    return System.getenv()
+  }
+  return runBlockingMaybeCancellable {
+    eelDescriptor.toEelApi().fetchMinimalEnvironmentVariables()
+  } 
+}
+
+
 internal class ShellProcessHolder(
-  private val shellPid: EelApi.Pid,
-  private val ptyProcessRef: WeakReference<PtyProcess>,
+  eelProcess: EelProcess,
   private val eelApi: EelApi,
 ) {
   val isPosix: Boolean get() = eelApi.platform.isPosix
 
+  val ptyProcess: PtyProcess = eelProcess.convertToJavaProcess() as PtyProcess
+  private val shellPid: EelApi.Pid = eelProcess.pid
+
   fun terminatePosixShell() {
-    val ptyProcess = ptyProcessRef.get() ?: return
     terminalApplicationScope().launch(Dispatchers.IO) {
       if (!ptyProcess.isAlive) {
         log.debug { "Shell process ${processInfo(ptyProcess)} is already terminated" }

@@ -410,6 +410,24 @@ class PluginDescriptorTest {
   }
 
   @Test
+  fun `core plugin has implicit CPU arch mode plugin alias`() {
+    plugin(PluginManagerCore.CORE_PLUGIN_ID) {}.buildDir(pluginDirPath)
+    val descriptor = loadDescriptorInTest(pluginDirPath)
+    assertThat(descriptor).isNotNull
+    val hostIds = IdeaPluginCpuArchRequirement.getHostCpuArchModuleIds()
+    if (hostIds.isEmpty()) {
+      logger<PluginDescriptorTest>().warn("No host arch plugin aliases")
+    }
+    val productAliases = PluginMainDescriptor.productModeAliasesForCorePlugin()
+    if (productAliases.isEmpty()) {
+      logger<PluginDescriptorTest>().warn("No product mode plugin aliases")
+    }
+    assertThat(descriptor.pluginAliases)
+      .containsAll(hostIds)
+      .containsAll(productAliases)
+  }
+
+  @Test
   fun `content module's content modules are disregarded`() {
     plugin("bar") {
       content {
@@ -483,6 +501,25 @@ class PluginDescriptorTest {
     }.buildDir(pluginDirPath)
     val (_, errors) = runAndReturnWithLoggedErrors { loadDescriptorInTest(pluginDirPath) }
     assertThat(errors.joinToString { it.message ?: "" }).contains("visibility", "has no effect")
+  }
+
+  @Test
+  fun `strict-until-build attribute`() {
+    plugin {
+      strictUntilBuild = "253.0"
+    }.buildDir(pluginDirPath)
+    val plugin = loadDescriptorInTest(pluginDirPath)
+    assertThat(plugin.untilBuild).isEqualTo("253.0")
+  }
+
+  @Test
+  fun `strict-until-build attribute overrides until-build attribute`() {
+    plugin {
+      untilBuild = "252.0"
+      strictUntilBuild = "253.0"
+    }.buildDir(pluginDirPath)
+    val plugin = loadDescriptorInTest(pluginDirPath)
+    assertThat(plugin.untilBuild).isEqualTo("253.0")
   }
 
   // todo this is rather about plugin set loading, probably needs to be moved out
