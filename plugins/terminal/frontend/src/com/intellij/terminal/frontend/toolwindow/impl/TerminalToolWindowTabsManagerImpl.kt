@@ -178,7 +178,7 @@ internal class TerminalToolWindowTabsManagerImpl(
     manager.addContent(tab.content)
 
     val selectTab = {
-      manager.setSelectedContent(tab.content)
+      manager.setSelectedContent(tab.content, requestFocus)
     }
     if (requestFocus && !toolWindow.isActive) {
       toolWindow.activate(selectTab, false, false)
@@ -337,7 +337,7 @@ internal class TerminalToolWindowTabsManagerImpl(
 
       val toolWindowActions = ActionManager.getInstance().getAction("Terminal.ToolWindowActions") as? ActionGroup
       toolWindow.setAdditionalGearActions(toolWindowActions)
-      ToolWindowContentUi.setAllowTabsReordering(toolWindow, true)
+      toolWindow.setTabsSplittingAllowed(true)
       ToolWindowContentUi.setToolWindowInEditorSupport(toolWindow, TerminalInEditorSupport())
 
       if (toolWindow is ToolWindowEx) {
