@@ -117,7 +117,7 @@ public final class ListPluginComponent extends JPanel {
     myCoroutineScope = coroutineScope;
     myInstalledDescriptorForMarketplace = listModel.getInstalledModels().get(pluginUiModel.getPluginId());
     PluginId pluginId = myPlugin.getPluginId();
-    boolean compatible = !myPlugin.isIncompatibleWithCurrentOs();
+    boolean compatible = !myPlugin.isIncompatibleWithCurrentPlatform();
     PluginInstallationState pluginInstallationState = listModel.getPluginInstallationStates().get(pluginId);
     myIsAvailable = (compatible || isInstalledAndEnabled(pluginInstallationState)) && pluginUiModel.getCanBeEnabled();
     UiPluginManager pluginManager = UiPluginManager.getInstance();
@@ -125,7 +125,7 @@ public final class ListPluginComponent extends JPanel {
       .isPluginRequiresUltimateButItIsDisabled(pluginModelFacade.getModel().getSessionId(), pluginUiModel.getPluginId());
     myIsDisableAllowed = pluginUiModel.isDisableAllowed() && !myIsNotFreeInFreeMode;
     pluginModelFacade.addComponent(this);
-    myCustomizer = Registry.is("reworked.plugin.manager.enabled", false) ? PluginManagerCustomizer.getInstance() : null;
+    myCustomizer = UiPluginManager.isCombinedPluginManagerEnabled() ? PluginManagerCustomizer.getInstance() : null;
     setOpaque(true);
     setBorder(JBUI.Borders.empty(10));
     setLayout(myLayout);

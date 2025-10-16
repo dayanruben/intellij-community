@@ -4,7 +4,6 @@ package org.jetbrains.plugins.terminal.block.reworked
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.util.Key
-import kotlinx.coroutines.flow.StateFlow
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.block.output.HighlightingInfo
 import org.jetbrains.plugins.terminal.block.output.TerminalOutputHighlightingsSnapshot
@@ -16,7 +15,7 @@ sealed interface TerminalOutputModel {
     val DATA_KEY: DataKey<TerminalOutputModel> = DataKey.create("TerminalOutputModel")
   }
 
-  val immutableText: CharSequence
+  val textLength: Int
 
   val lineCount: Int
 
@@ -26,7 +25,7 @@ sealed interface TerminalOutputModel {
 
   val startOffset: TerminalOffset
 
-  val firstLine: TerminalLineIndex
+  val firstLineIndex: TerminalLineIndex
 
   fun addListener(parentDisposable: Disposable, listener: TerminalOutputModelListener)
 
@@ -38,7 +37,7 @@ sealed interface TerminalOutputModel {
 
   fun getEndOfLine(line: TerminalLineIndex, includeEOL: Boolean = false): TerminalOffset
 
-  fun getText(start: TerminalOffset, end: TerminalOffset): String
+  fun getText(start: TerminalOffset, end: TerminalOffset): CharSequence
 
   /**
    * Returns document ranges with corresponding text attributes.
@@ -53,7 +52,7 @@ sealed interface TerminalOutputModel {
 
 @ApiStatus.Experimental
 sealed interface TerminalOutputModelSnapshot {
-  val immutableText: CharSequence
+  val textLength: Int
 
   val lineCount: Int
 
@@ -63,7 +62,7 @@ sealed interface TerminalOutputModelSnapshot {
 
   val startOffset: TerminalOffset
 
-  val firstLine: TerminalLineIndex
+  val firstLineIndex: TerminalLineIndex
 
   fun getLineByOffset(offset: TerminalOffset): TerminalLineIndex
 
@@ -71,7 +70,7 @@ sealed interface TerminalOutputModelSnapshot {
 
   fun getEndOfLine(line: TerminalLineIndex, includeEOL: Boolean = false): TerminalOffset
 
-  fun getText(start: TerminalOffset, end: TerminalOffset): String
+  fun getText(start: TerminalOffset, end: TerminalOffset): CharSequence
 }
 
 @ApiStatus.Experimental
@@ -99,28 +98,20 @@ sealed interface TerminalLineIndex : Comparable<TerminalLineIndex> {
 }
 
 @get:ApiStatus.Experimental
-val TerminalOutputModel.textLength: Int
-  get() = immutableText.length
-
-@get:ApiStatus.Experimental
 val TerminalOutputModel.endOffset: TerminalOffset
   get() = startOffset + textLength.toLong()
 
 @get:ApiStatus.Experimental
-val TerminalOutputModel.lastLine: TerminalLineIndex
-  get() = firstLine + (lineCount - 1).toLong()
-
-@get:ApiStatus.Experimental
-val TerminalOutputModelSnapshot.textLength: Int
-  get() = immutableText.length
+val TerminalOutputModel.lastLineIndex: TerminalLineIndex
+  get() = firstLineIndex + (lineCount - 1).toLong()
 
 @get:ApiStatus.Experimental
 val TerminalOutputModelSnapshot.endOffset: TerminalOffset
   get() = startOffset + textLength.toLong()
 
 @get:ApiStatus.Experimental
-val TerminalOutputModelSnapshot.lastLine: TerminalLineIndex
-  get() = firstLine + (lineCount - 1).toLong()
+val TerminalOutputModelSnapshot.lastLineIndex: TerminalLineIndex
+  get() = firstLineIndex + (lineCount - 1).toLong()
 
 
 private data class TerminalOffsetImpl(private val absolute: Long) : TerminalOffset {

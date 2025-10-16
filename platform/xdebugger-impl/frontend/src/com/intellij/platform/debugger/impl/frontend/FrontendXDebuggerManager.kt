@@ -23,11 +23,10 @@ import com.intellij.xdebugger.SplitDebuggerMode
 import com.intellij.xdebugger.impl.XDebuggerManagerProxyListener
 import com.intellij.xdebugger.impl.frame.XDebugSessionProxy
 import com.intellij.xdebugger.impl.rpc.XDebugSessionId
+import fleet.rpc.client.durable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
@@ -38,52 +37,32 @@ import org.jetbrains.annotations.VisibleForTesting
 @Service(Service.Level.PROJECT)
 class FrontendXDebuggerManager(private val project: Project, private val cs: CoroutineScope) {
   private val sessionsFlow = MutableStateFlow<List<FrontendXDebuggerSession>>(listOf())
-  private val synchronousExecutor = Channel<suspend () -> Unit>(capacity = Integer.MAX_VALUE)
+  private val _currentSessionFlow = MutableStateFlow<FrontendXDebuggerSession?>(null)
 
-  @OptIn(ExperimentalCoroutinesApi::class)
-  val currentSession: StateFlow<FrontendXDebuggerSession?> =
-    channelFlow {
-      durableWithStateReset(block = {
-        val currentSessionFlow = XDebuggerManagerApi.getInstance().currentSession(project.projectId())
-        currentSessionFlow
-          .combine(sessionsFlow) { currentSessionId, sessions ->
-            currentSessionId to sessions
-          }
-          .collectLatest { (currentSessionId, sessions) ->
-            synchronousExecutor.trySend {
-              this@channelFlow.send(sessions.firstOrNull { it.id == currentSessionId })
-            }
-          }
-      }, stateReset = {
-        synchronousExecutor.trySend { this@channelFlow.send(null) }
-      })
-    }.stateIn(cs, SharingStarted.Eagerly, null)
+  val currentSessionFlow: StateFlow<FrontendXDebuggerSession?> = _currentSessionFlow.asStateFlow()
+  val currentSession: FrontendXDebuggerSession? get() = currentSessionFlow.value
 
   val breakpointsManager: FrontendXBreakpointManager = FrontendXBreakpointManager(project, cs)
   internal val sessions get() = sessionsFlow.value
 
   init {
-    initCapabilities()
-    // TODO: make sure that capabilities are send before anything else
-
     cs.launch {
-      for (event in synchronousExecutor) {
-        event()
+      durable {
+        initCapabilities()
       }
-    }
+      initSessions()
 
-    initSessions()
+      installEditorListeners()
 
-    installEditorListeners()
-
-    cs.launch(Dispatchers.EDT) {
-      // await listening started on the backend
-      XDebuggerValueLookupHintsRemoteApi.getInstance().getValueLookupListeningFlow(project.projectId()).filter { it }.first()
-      ValueLookupManager.getInstance(project).startListening()
+      launch(Dispatchers.EDT) {
+        // await listening started on the backend
+        XDebuggerValueLookupHintsRemoteApi.getInstance().getValueLookupListeningFlow(project.projectId()).filter { it }.first()
+        ValueLookupManager.getInstance(project).startListening()
+      }
     }
   }
 
-  private fun initCapabilities() = cs.launch {
+  private suspend fun initCapabilities() {
     XDebuggerManagerApi.getInstance().initialize(project.projectId(), XFrontendDebuggerCapabilities(
       canShowImages = ImageEditorUIUtil.canCreateImageEditor(),
     ))
@@ -96,58 +75,49 @@ class FrontendXDebuggerManager(private val project: Project, private val cs: Cor
     durableWithStateReset(block = {
       val (sessionsList, eventFlow) = XDebuggerManagerApi.getInstance().sessions(project.projectId())
       for (sessionDto in sessionsList) {
-        synchronousExecutor.trySend {
-          createDebuggerSession(sessionDto)
-        }
+        createDebuggerSession(sessionDto)
       }
       eventFlow.toFlow().collect { event ->
         when (event) {
           is XDebuggerManagerSessionEvent.ProcessStarted -> {
-            synchronousExecutor.trySend {
-              val session = createDebuggerSession(event.sessionDto)
-              if (shouldTriggerListener) {
-                project.messageBus.syncPublisher(XDebuggerManagerProxyListener.TOPIC).sessionStarted(session)
-              }
+            val session = createDebuggerSession(event.sessionDto)
+            if (shouldTriggerListener) {
+              project.messageBus.syncPublisher(XDebuggerManagerProxyListener.TOPIC).sessionStarted(session)
             }
           }
           is XDebuggerManagerSessionEvent.ProcessStopped -> {
-            synchronousExecutor.trySend {
-              sessionsFlow.update { sessions ->
-                val sessionToRemove = sessions.firstOrNull { it.id == event.sessionId }
-                if (sessionToRemove != null) {
-                  if (shouldTriggerListener) {
-                    project.messageBus.syncPublisher(XDebuggerManagerProxyListener.TOPIC).sessionStopped(sessionToRemove)
-                  }
-                  sessions - sessionToRemove
+            sessionsFlow.update { sessions ->
+              val sessionToRemove = sessions.firstOrNull { it.id == event.sessionId }
+              if (sessionToRemove != null) {
+                if (shouldTriggerListener) {
+                  project.messageBus.syncPublisher(XDebuggerManagerProxyListener.TOPIC).sessionStopped(sessionToRemove)
                 }
-                else {
-                  sessions
-                }
+                sessions - sessionToRemove
+              }
+              else {
+                sessions
               }
             }
           }
           is XDebuggerManagerSessionEvent.CurrentSessionChanged -> {
-            synchronousExecutor.trySend {
-              val sessions = sessionsFlow.value
-              val previousSession = sessions.firstOrNull { it.id == event.previousSession }
-              val currentSession = sessions.firstOrNull { it.id == event.currentSession }
-              if (shouldTriggerListener) {
-                project.messageBus.syncPublisher(XDebuggerManagerProxyListener.TOPIC).activeSessionChanged(previousSession, currentSession)
-              }
+            val sessions = sessionsFlow.value
+            val previousSession = sessions.firstOrNull { it.id == event.previousSession }
+            val currentSession = sessions.firstOrNull { it.id == event.currentSession }
+            _currentSessionFlow.value = currentSession
+            if (shouldTriggerListener) {
+              project.messageBus.syncPublisher(XDebuggerManagerProxyListener.TOPIC).activeSessionChanged(previousSession, currentSession)
             }
           }
         }
       }
     }, stateReset = {
-      synchronousExecutor.trySend {
-        sessionsFlow.update { currentSessions ->
-          if (shouldTriggerListener) {
-            for (session in currentSessions) {
-              project.messageBus.syncPublisher(XDebuggerManagerProxyListener.TOPIC).sessionStopped(session)
-            }
+      sessionsFlow.update { currentSessions ->
+        if (shouldTriggerListener) {
+          for (session in currentSessions) {
+            project.messageBus.syncPublisher(XDebuggerManagerProxyListener.TOPIC).sessionStopped(session)
           }
-          listOf()
         }
+        listOf()
       }
     })
   }

@@ -61,12 +61,12 @@ internal fun generateDeps(
   val runtimeDeps = mutableListOf<BazelLabel>()
   val provided = mutableListOf<BazelLabel>()
 
-  if (isTest && module.sources.isNotEmpty()) {
-    if (hasSources) {
+  if (isTest) {
+    if (hasSources && module.sources.isNotEmpty()) {
       // associates also is a dependency
       associates.add(BazelLabel(":${module.targetName}", module))
     }
-    else {
+    else if (module.sources.isNotEmpty() || module.resources.isNotEmpty()) {
       runtimeDeps.add(BazelLabel(":${module.targetName}", module))
     }
   }
@@ -446,7 +446,33 @@ private fun addDep(
           }
         }
       }
-      JpsJavaDependencyScope.TEST, JpsJavaDependencyScope.PROVIDED -> {
+      JpsJavaDependencyScope.PROVIDED -> {
+        // ignore deps if no sources, as `exports` in Bazel means "compile" scope
+        if (hasSources) {
+          if (dependencyModuleDescriptor == null) {
+            // lib supports `provided`
+            deps.add(dependencyLabel)
+            if (isExported) {
+              exports.add(dependencyLabel)
+            }
+          }
+          else {
+            if (dependencyModuleDescriptor.sources.isNotEmpty() || dependencyModuleDescriptor.resources.isNotEmpty()) {  // e.g. v2 module library
+              provided.add(dependencyLabel)
+              if (isExported) {
+                exports.add(dependencyLabel)
+              }
+            }
+            if (dependencyModuleDescriptor.testSources.isNotEmpty()) {
+              provided.add(getLabelForTest(dependencyLabel))
+              if (isExported) {
+                exports.add(getLabelForTest(dependencyLabel))
+              }
+            }
+          }
+        }
+      }
+      JpsJavaDependencyScope.TEST -> {
         if (dependencyModuleDescriptor == null) {
           if (hasSources) {
             deps.add(dependencyLabel)
@@ -468,6 +494,7 @@ private fun addDep(
           }
           else {
             val hasTestSource = !dependencyModuleDescriptor.testSources.isEmpty()
+            val hasTestResources = dependencyModuleDescriptor.testResources.isNotEmpty()
 
             if (isExported && hasTestSource) {
               println("Do not export test dependency (module=${dependentModule.module.name}, exported=${dependencyModuleDescriptor.module.name})")
@@ -484,7 +511,7 @@ private fun addDep(
                 exports.add(dependencyLabel)
               }
             }
-            if (hasTestSource) {
+            if (hasTestSource || hasTestResources) {
               if (hasSources) {
                 deps.add(getLabelForTest(dependencyLabel))
               }

@@ -2,7 +2,9 @@
 package com.intellij.codeInsight.completion
 
 import com.intellij.codeInsight.CodeInsightSettings
+import com.intellij.codeInsight.TailTypes
 import com.intellij.codeInsight.completion.JavaMethodCallElement.areParameterTemplatesEnabledOnCompletion
+import com.intellij.codeInsight.completion.JavaMethodCallInsertHandler.Companion.needParameterHints
 import com.intellij.codeInsight.completion.JavaMethodCallInsertHandler.Companion.showParameterHints
 import com.intellij.codeInsight.completion.method.*
 import com.intellij.codeInsight.completion.method.JavaMethodCallInsertHandlerHelper.findInsertedCall
@@ -69,7 +71,7 @@ public class JavaMethodCallInsertHandler(
   private val myHandlers: List<InsertHandler<in JavaMethodCallElement>> = listOfNotNull(
     RefStartInsertHandler(),
     createDiamondInsertHandler(item),
-    ParenthInsertHandler(),
+    ParenthInsertHandler.create(item),
     beforeHandler,
     ImportQualifyAndInsertTypeParametersHandler.create(needImportOrQualify, needExplicitTypeParameters, item),
     MethodCallInstallerHandler(),
@@ -77,7 +79,7 @@ public class JavaMethodCallInsertHandler(
     createNegationInsertHandler(item),
     afterHandler,
     ArgumentLiveTemplateInsertHandler.create(canStartArgumentLiveTemplate),
-    ShowParameterInfoInsertHandler(),
+    ShowParameterInfoInsertHandler.create(item),
   )
 
   override fun handleInsert(context: InsertionContext, item: JavaMethodCallElement) {
@@ -96,6 +98,18 @@ public class JavaMethodCallInsertHandler(
   }
 
   public companion object {
+    internal fun needParameterHints(element: LookupElement, method: PsiMethod): Boolean {
+      if (!CodeInsightSettings.getInstance().SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION ||
+          element.getUserData(JavaMethodMergingContributor.MERGED_ELEMENT) != null
+      ) {
+        return false
+      }
+
+      val parameterList = method.parameterList
+      val parametersCount = parameterList.parametersCount
+      return parametersCount != 0
+    }
+
     @JvmStatic
     public fun showParameterHints(
       element: LookupElement,
@@ -103,19 +117,20 @@ public class JavaMethodCallInsertHandler(
       method: PsiMethod,
       methodCall: PsiCallExpression?,
     ) {
-      if (!CodeInsightSettings.getInstance().SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION ||
+      if (!needParameterHints(element, method) ||
           context.completionChar == Lookup.COMPLETE_STATEMENT_SELECT_CHAR ||
           context.completionChar == Lookup.REPLACE_SELECT_CHAR ||
           methodCall == null ||
-          methodCall.containingFile is PsiCodeFragment ||
-          element.getUserData(JavaMethodMergingContributor.MERGED_ELEMENT) != null
+          methodCall.containingFile is PsiCodeFragment
       ) {
         return
       }
-      val parameterList = method.parameterList
-      val parametersCount = parameterList.parametersCount
+
+      val parametersCount = method.parameterList.parametersCount
+      assert(parametersCount != 0) { "must be checked in needParameterHints"}
+
       val parameterOwner = methodCall.argumentList
-      if ((parameterOwner == null) || (parameterOwner.getText() != "()") || (parametersCount == 0)) {
+      if ((parameterOwner == null) || (parameterOwner.getText() != "()")) {
         return
       }
 
@@ -178,12 +193,28 @@ private fun createDiamondInsertHandler(item: JavaMethodCallElement): InsertHandl
   return DiamondInsertHandler()
 }
 
-private class ParenthInsertHandler : InsertHandler<JavaMethodCallElement> {
+private class ParenthInsertHandler private constructor(
+  private val hasParameters: Boolean,
+  private val hasTailType: Boolean,
+) : InsertHandler<JavaMethodCallElement>, FrontendConvertibleInsertHandler<JavaMethodCallElement> {
   override fun handleInsert(context: InsertionContext, item: JavaMethodCallElement) {
     val method = item.getObject()
     val allItems = context.elements
-    val hasParams = if (method.parameterList.isEmpty) ThreeState.NO else MethodParenthesesHandler.overloadsHaveParameters(allItems, method)
-    JavaCompletionUtil.insertParentheses(context, item, false, hasParams, false)
+    val hasParams = if (hasParameters) MethodParenthesesHandler.overloadsHaveParameters(allItems, method) else ThreeState.NO
+    FrontendFriendlyParenthesesInsertHandler.insertParenthesesForJavaMethod(item, context, hasParams)
+  }
+
+  override fun asFrontendFriendly(): FrontendFriendlyInsertHandler? {
+    if (hasTailType) return null
+    return FrontendFriendlyParenthesesInsertHandler(hasParameters)
+  }
+
+  companion object {
+    fun create(item: JavaMethodCallElement): InsertHandler<JavaMethodCallElement> {
+      val method = item.getObject()
+      val hasTailType = item.tailType != TailTypes.unknownType()
+      return ParenthInsertHandler(!method.parameterList.isEmpty, hasTailType)
+    }
   }
 }
 
@@ -309,6 +340,13 @@ private class ShowParameterInfoInsertHandler : InsertHandler<JavaMethodCallEleme
     val method = item.getObject()
     val methodCall = findInsertedCall(item, context)
     showParameterHints(item, context, method, methodCall)
+  }
+
+  companion object {
+    fun create(item: JavaMethodCallElement): InsertHandler<in JavaMethodCallElement>? {
+      if (!needParameterHints(item, item.`object`)) return null
+      return ShowParameterInfoInsertHandler()
+    }
   }
 }
 

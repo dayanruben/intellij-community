@@ -174,14 +174,14 @@ private class TerminalLookupOutputModelListener(
 ) : TerminalOutputModelListener {
   private val initialTextBelowCursor = model.getTextBelowCursorLine().trim()
 
-  override fun afterContentChanged(model: TerminalOutputModel, startOffset: TerminalOffset, isTypeAhead: Boolean) {
-    val textBelowCursor = model.getTextBelowCursorLine().trim()
+  override fun afterContentChanged(event: TerminalContentChangeEvent) {
+    val textBelowCursor = event.model.getTextBelowCursorLine().trim()
     if (textBelowCursor != initialTextBelowCursor) {
       lookup.hideLookup(true)
     }
   }
 
-  private fun TerminalOutputModel.getTextBelowCursorLine(): String {
+  private fun TerminalOutputModel.getTextBelowCursorLine(): CharSequence {
     val line = getLineByOffset(this.cursorOffset)
     val lineEndOffset = getEndOfLine(line)
     return getText(lineEndOffset, endOffset)

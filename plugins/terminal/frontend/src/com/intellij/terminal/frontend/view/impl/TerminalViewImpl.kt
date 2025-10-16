@@ -39,12 +39,7 @@ import com.intellij.util.ui.components.BorderLayoutPanel
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.channels.trySendBlocking
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.TerminalPanelMarker
@@ -400,11 +395,11 @@ class TerminalViewImpl(
         editor.isTerminalOutputScrollChangingActionInProgress = true
       }
 
-      override fun afterContentChanged(model: TerminalOutputModel, startOffset: TerminalOffset, isTypeAhead: Boolean) {
+      override fun afterContentChanged(event: TerminalContentChangeEvent) {
         editor.isTerminalOutputScrollChangingActionInProgress = false
 
         // Also repaint the changed part of the document to ensure that highlightings are properly painted.
-        editor.repaint(startOffset.toRelative(model), editor.document.textLength)
+        editor.repaint(if (event.isTrimming) 0 else event.offset.toRelative(model), editor.document.textLength)
 
         // Update the PSI file content
         val psiFile = PsiDocumentManager.getInstance(project).getPsiFile((model as MutableTerminalOutputModel).document) as? TerminalOutputPsiFile
@@ -460,7 +455,7 @@ class TerminalViewImpl(
       var commandText: String? = null
       var cursorPosition: Int? = null
 
-      override fun afterContentChanged(model: TerminalOutputModel, startOffset: TerminalOffset, isTypeAhead: Boolean) {
+      override fun afterContentChanged(event: TerminalContentChangeEvent) {
         val inlineCompletionTypingSession = InlineCompletion.getHandlerOrNull(editor)?.typingSessionTracker
         val lastBlock = editor.getUserData(TerminalBlocksModel.KEY)?.blocks?.lastOrNull() ?: return
         val lastBlockCommandStartIndex = lastBlock.commandStartOffset ?: lastBlock.startOffset
@@ -468,9 +463,9 @@ class TerminalViewImpl(
         // When resizing the terminal, the blocks model may fall out of sync for a short time.
         // These updates will never trigger a completion, so we return early to avoid reading out of bounds.
         if (lastBlockCommandStartIndex >= model.endOffset) return
-        val curCommandText = model.getText(lastBlockCommandStartIndex, model.endOffset).trim()
+        val curCommandText = model.getText(lastBlockCommandStartIndex, model.endOffset).trim().toString()
 
-        if (isTypeAhead) {
+        if (event.isTypeAhead) {
           // Trim because of differing whitespace between terminal and type ahead
           commandText = curCommandText
           val newCursorOffset = model.cursorOffset.toRelative(model) + 1
@@ -640,7 +635,7 @@ internal fun TerminalOffset.toRelative(model: TerminalOutputModel): Int = (this 
 val TerminalOutputModel.cursorOffsetFlow: Flow<TerminalOffset>
   get() = callbackFlow {
     addListener(asDisposable(), object : TerminalOutputModelListener {
-      override fun cursorOffsetChanged(event: TerminalCursorOffsetChanged) {
+      override fun cursorOffsetChanged(event: TerminalCursorOffsetChangeEvent) {
         trySendBlocking(event.newOffset)
       }
     })

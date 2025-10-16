@@ -4,6 +4,7 @@
 package com.intellij.ide.plugins
 
 import com.intellij.core.CoreBundle
+import com.intellij.diagnostic.PluginException
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.util.containers.Java11Shim
@@ -95,7 +96,7 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
 
   internal fun computeEnabledModuleMap(
     incompletePlugins: Collection<PluginMainDescriptor>,
-    currentProductModeEvaluator: () -> String = { ProductLoadingStrategy.strategy.currentModeId },
+    initContext: PluginInitializationContext,
     disabler: ((descriptor: IdeaPluginDescriptorImpl, disabledModuleToProblematicPlugin: Map<PluginModuleId, PluginId>) -> Boolean)? = null,
   ): List<PluginNonLoadReason> {
     val logMessages = ArrayList<String>()
@@ -105,7 +106,6 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
     for (incompletePlugin in incompletePlugins) {
       incompletePlugin.contentModules.associateByTo(disabledModuleToProblematicPlugin, { it.moduleId }, { incompletePlugin.pluginId })
     }
-    val moduleIncompatibleWithCurrentMode = getModuleIncompatibleWithCurrentProductMode(currentProductModeEvaluator)
     val usedPackagePrefixes = HashMap<String, IdeaPluginDescriptorImpl>()
     val isDisabledDueToPackagePrefixConflict = HashMap<PluginModuleId, IdeaPluginDescriptorImpl>()
 
@@ -127,10 +127,13 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
     }
 
     m@ for (module in sortedModulesWithDependencies.modules) {
-      if (module is ContentModuleDescriptor && module.moduleId == moduleIncompatibleWithCurrentMode) {
-        module.isMarkedForLoading = false
-        logMessages.add("Module ${module.moduleId.id} is disabled because it is not compatible with the current product mode")
-        continue
+      if (module is ContentModuleDescriptor) {
+        val envConfiguredModule = initContext.environmentConfiguredModules[module.moduleId]
+        if (envConfiguredModule?.unavailabilityReason != null) {
+          module.isMarkedForLoading = false
+          logMessages.add(envConfiguredModule.unavailabilityReason.logMessage)
+          continue
+        }
       }
 
       if (module.useIdeaClassLoader && !canExtendIdeaClassLoader) {
@@ -155,7 +158,8 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
       }
 
       for (ref in module.moduleDependencies.modules) {
-        if (!enabledModuleV2Ids.containsKey(ref) && !enabledRequiredContentModules.containsKey(ref)) {
+        val targetModule = enabledModuleV2Ids[ref] ?: enabledRequiredContentModules[ref]
+        if (targetModule == null) {
           logMessages.add("Module ${module.contentModuleId ?: module.pluginId} is not enabled because dependency ${ref.id} is not available")
           when (module) {
             is ContentModuleDescriptor -> disabledModuleToProblematicPlugin.put(module.moduleId, disabledModuleToProblematicPlugin.get(ref)
@@ -163,6 +167,15 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
             is PluginMainDescriptor -> markRequiredModulesAsDisabled(module)
           }
           continue@m
+        }
+        else {
+          val visibilityError = checkVisibilityAndReturnErrorMessage(module, targetModule)
+          if (visibilityError != null) {
+            logMessages.add("Module ${module.contentModuleId ?: module.pluginId} is not enabled because $visibilityError")
+            if (module is PluginMainDescriptor) {
+              markRequiredModulesAsDisabled(module)
+            }
+          }
         }
       }
       for (ref in module.moduleDependencies.plugins) {
@@ -249,19 +262,49 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
     return loadingErrors
   }
 
-  /**
-   * Returns a module which should be disabled because it's not relevant to the current com.intellij.platform.runtime.product.ProductMode.
-   * All modules that depend on the specified module will be automatically disabled as well.
-   */
-  private fun getModuleIncompatibleWithCurrentProductMode(currentProductModeEvaluator: () -> String): PluginModuleId? {
-    return when (currentProductModeEvaluator()) {
-      /** intellij.platform.backend.split is currently available in 'monolith' mode because it's used as a backend in CodeWithMe */
-      "monolith" -> "intellij.platform.frontend.split"
-      "backend" -> "intellij.platform.frontend"
-      "frontend" -> "intellij.platform.backend"
-      else -> null
-    }?.let { PluginModuleId(it) }
+  private fun checkVisibilityAndReturnErrorMessage(sourceModule: PluginModuleDescriptor, targetModule: ContentModuleDescriptor): String? {
+    if (pluginModuleVisibilityCheck == PluginModuleVisibilityCheckOption.DISABLED) {
+      return null
+    }
+
+    val errorMessage = when (targetModule.visibility) {
+      ModuleVisibility.PUBLIC -> null
+      ModuleVisibility.INTERNAL -> {
+        if (targetModule.parent.namespace != null && targetModule.parent.namespace == sourceModule.namespace) null
+        else {
+          val sourceNamespace = sourceModule.namespace?.let { "is from namespace '$it'" } ?: "has no namespace specified"
+          val targetNamespace = targetModule.parent.namespace?.let { "namespace '$it'" } ?: "unspecified namespace"
+          "it $sourceNamespace and depends on module '${targetModule.contentModuleId}' which is registered in '${targetModule.parent.pluginId}' plugin with internal visibility in $targetNamespace"
+        }
+      }
+      ModuleVisibility.PRIVATE -> {
+        if (sourceModule.pluginId == targetModule.pluginId) null
+        else "it depends on module '${targetModule.contentModuleId}' which private visibility in '${targetModule.pluginId}' plugin"
+      }
+    }
+    if (errorMessage == null) {
+      return null
+    }
+
+    val sourceModuleId = sourceModule.contentModuleId ?: sourceModule.pluginId
+    return when (pluginModuleVisibilityCheck) {
+      PluginModuleVisibilityCheckOption.REPORT_WARNING -> {
+        PluginManagerCore.logger.warn("$sourceModuleId has accessibility problem which is currently ignored: $errorMessage")
+        null
+      }
+      PluginModuleVisibilityCheckOption.REPORT_ERROR -> {
+        PluginManagerCore.logger.error(PluginException("$sourceModuleId isn't loaded: $errorMessage", sourceModule.pluginId))
+        errorMessage
+      }
+      PluginModuleVisibilityCheckOption.DISABLED -> null
+    }
   }
+
+  private val PluginModuleDescriptor.namespace: String?
+    get() = when (this) {
+      is ContentModuleDescriptor -> parent.namespace
+      is PluginMainDescriptor -> namespace
+    }
 
   private fun markModuleAsEnabled(moduleId: PluginModuleId, moduleDescriptor: ContentModuleDescriptor) {
     enabledModuleV2Ids.put(moduleId, moduleDescriptor)
@@ -271,9 +314,10 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
   }
 
   fun createPluginSetWithEnabledModulesMap(): PluginSet {
-    //TODO pass proper list of incomplete plugins to ensure that this information isn't lost after enabling/disabling a plugin dynamically
+    // FIXME pass proper list of incomplete plugins to ensure that this information isn't lost after enabling/disabling a plugin dynamically
+    //   and proper init context too
     val incompletePlugins = emptyList<PluginMainDescriptor>()
-    computeEnabledModuleMap(incompletePlugins = incompletePlugins)
+    computeEnabledModuleMap(incompletePlugins = incompletePlugins, initContext = ProductPluginInitContext())
     return createPluginSet(incompletePlugins = incompletePlugins)
   }
 
@@ -344,6 +388,23 @@ class PluginSetBuilder(@JvmField val unsortedPlugins: Set<PluginMainDescriptor>)
       return PluginModuleDependencyCannotBeLoadedOrMissing(plugin = descriptor, moduleDependency = missingDependency, containingPlugin = problematicPlugin, shouldNotifyUser = isNotifyUser)
     }
     return null
+  }
+}
+
+private enum class PluginModuleVisibilityCheckOption {
+  /** No visibility checks performed */
+  DISABLED,
+  /** If a module depends on a module which is not visible to it, it's loaded and a warning is printed to the log */
+  REPORT_WARNING,
+  /** If a module depends on a module which is not visible to it, it's not loaded and an error is printed to the log */
+  REPORT_ERROR,
+}
+
+private val pluginModuleVisibilityCheck by lazy {
+  when (System.getProperty("intellij.platform.plugin.modules.check.visibility")) {
+    "warning" -> PluginModuleVisibilityCheckOption.REPORT_WARNING
+    "error" -> PluginModuleVisibilityCheckOption.REPORT_ERROR
+    else -> PluginModuleVisibilityCheckOption.DISABLED
   }
 }
 

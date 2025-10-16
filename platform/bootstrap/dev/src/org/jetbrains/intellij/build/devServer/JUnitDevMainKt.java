@@ -48,12 +48,21 @@ public final class JUnitDevMainKt {
       System.err.println("'idea.dev.build.test.entry.point.module' is not set");
       System.exit(1);
     }
-    System.setProperty("idea.dev.build.test.entry.point.class", jUnitStarterModule != null ? "com.intellij.rt.junit.JUnitStarter" : "com.intellij.tests.JUnit5TeamCityRunnerForTestsOnClasspath");
+    // idea.dev.build.test.entry.point.class should be set
+    if (jUnitStarterModule != null) {  // IDE
+      System.setProperty("idea.dev.build.test.entry.point.class", "com.intellij.rt.junit.JUnitStarter");
+    }
+    else if (System.getProperty("idea.dev.build.test.entry.point.class") == null) {
+      System.err.println("'idea.dev.build.test.entry.point.class' is not set");
+      System.exit(1);
+    }
     if (jUnitStarterModule != null) System.setProperty("idea.dev.build.test.additional.modules", jUnitStarterModule);
 
-    String testEntryPointModulePlugin = System.getProperty("idea.dev.build.test.entry.point.module") + ".plugin";
-    String additionalModules = System.getProperty("additional.modules");
-    System.setProperty("additional.modules", (additionalModules != null ? additionalModules + "," : "") + testEntryPointModulePlugin);
+    // additional.modules should be set
+    if (System.getProperty("additional.modules") == null) {
+      System.err.println("'additional.modules' is not set");
+      System.exit(1);
+    }
 
     // separate method to not retain local variables like implClass
     if (!build(lookup, classLoader)) {

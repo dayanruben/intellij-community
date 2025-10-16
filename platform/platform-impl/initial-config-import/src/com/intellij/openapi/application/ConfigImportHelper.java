@@ -14,6 +14,7 @@ import com.intellij.ide.ui.laf.LookAndFeelThemeAdapterKt;
 import com.intellij.idea.AppMode;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.application.migrations.Localization242;
+import com.intellij.openapi.application.migrations.BigDataToolsMigration253;
 import com.intellij.openapi.application.migrations.NotebooksMigration242;
 import com.intellij.openapi.application.migrations.SpaceMigration252;
 import com.intellij.openapi.components.StoragePathMacros;
@@ -211,12 +212,14 @@ public final class ConfigImportHelper {
         }
         else if (bestCandidate != null && !isConfigOld(bestCandidate.second)) {
           oldConfigDirAndOldIdePath = new Pair<>(bestCandidate.first, null);
-          log.info("auto-import (wizard disabled)");
+          log.info("auto-import");
         }
-        else if (!(veryFirstStartOnThisComputer || wizardEnabled || "never".equals(showImportDialog) || AppMode.isRemoteDevHost())) {
+        else {
           log.info("no suitable configs found");
-          oldConfigDirAndOldIdePath = showDialogAndGetOldConfigPath(candidateDirectories.getPaths());
-          importScenarioStatistics = ImportOldConfigsUsagesCollector.InitialImportScenario.SHOW_DIALOG_NO_CONFIGS_FOUND;
+          if (!(veryFirstStartOnThisComputer || wizardEnabled || "never".equals(showImportDialog) || AppMode.isRemoteDevHost())) {
+            oldConfigDirAndOldIdePath = showDialogAndGetOldConfigPath(candidateDirectories.getPaths());
+            importScenarioStatistics = ImportOldConfigsUsagesCollector.InitialImportScenario.SHOW_DIALOG_NO_CONFIGS_FOUND;
+          }
         }
       }
 
@@ -962,13 +965,8 @@ public final class ConfigImportHelper {
 
     if (options.importSettings != null) {
       options.importSettings.processPluginsToMigrate(
-        newConfigDir,
-        oldConfigDir,
-        oldPluginsDir,
-        options,
-        brokenPluginVersions,
-        pluginsToMigrate,
-        pluginsToDownload);
+        newConfigDir, oldConfigDir, oldPluginsDir, options, brokenPluginVersions, pluginsToMigrate, pluginsToDownload
+      );
     }
 
     if (!PlatformUtils.isJetBrainsClient()) {
@@ -1071,6 +1069,7 @@ public final class ConfigImportHelper {
     // Note that migrations are not taken into account for IDE updates through Toolbox
     new NotebooksMigration242().migratePlugins(options);
     new SpaceMigration252().migratePlugins(options);
+    new BigDataToolsMigration253().migratePlugins(options);
   }
 
   private static void migrateGlobalPlugins(

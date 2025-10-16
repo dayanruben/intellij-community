@@ -11,13 +11,9 @@ interface TerminalOutputModelListener : EventListener {
    */
   fun beforeContentChanged(model: TerminalOutputModel) {}
 
-  /**
-   * Called after changing the document and highlightings in [MutableTerminalOutputModel.updateContent].
-   * @param startOffset offset from which document was updated.
-   */
-  fun afterContentChanged(model: TerminalOutputModel, startOffset: TerminalOffset, isTypeAhead: Boolean) {}
+  fun afterContentChanged(event: TerminalContentChangeEvent) {}
 
-  fun cursorOffsetChanged(event: TerminalCursorOffsetChanged) {}
+  fun cursorOffsetChanged(event: TerminalCursorOffsetChangeEvent) {}
 }
 
 @ApiStatus.Experimental
@@ -26,7 +22,16 @@ sealed interface TerminalOutputModelEvent {
 }
 
 @ApiStatus.Experimental
-sealed interface TerminalCursorOffsetChanged : TerminalOutputModelEvent {
+sealed interface TerminalContentChangeEvent : TerminalOutputModelEvent {
+  val offset: TerminalOffset
+  val oldText: CharSequence
+  val newText: CharSequence
+  val isTypeAhead: Boolean
+  val isTrimming: Boolean
+}
+
+@ApiStatus.Experimental
+sealed interface TerminalCursorOffsetChangeEvent : TerminalOutputModelEvent {
   val oldOffset: TerminalOffset
   val newOffset: TerminalOffset
 }
