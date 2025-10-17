@@ -32,7 +32,7 @@ import com.jetbrains.python.getOrLogException
 import com.jetbrains.python.packaging.utils.PyPackageCoroutine
 import com.jetbrains.python.sdk.*
 import com.jetbrains.python.sdk.conda.PyCondaSdkCustomizer
-import com.jetbrains.python.sdk.configuration.CreateSdkInfo
+import com.jetbrains.python.sdk.configuration.CreateSdkInfoWithTool
 import com.jetbrains.python.sdk.configuration.PyProjectSdkConfiguration.setReadyToUseSdk
 import com.jetbrains.python.sdk.configuration.PyProjectSdkConfiguration.setSdkUsingCreateSdkInfo
 import com.jetbrains.python.sdk.configuration.PyProjectSdkConfiguration.suppressTipAndInspectionsFor
@@ -54,8 +54,12 @@ class PythonSdkConfigurator : DirectoryProjectConfigurator {
 
   override fun configureProject(project: Project, baseDir: VirtualFile, moduleRef: Ref<Module>, isProjectCreatedWithWizard: Boolean) {
     val sdk = project.pythonSdk
-    thisLogger().debug { "Input: $sdk, $isProjectCreatedWithWizard" }
-    if (sdk != null || isProjectCreatedWithWizard) {
+    thisLogger().debug { "Input: $sdk" }
+    /*
+     * Technically, we can end up in a situation when we created a project, but failed to configure SDK for some reason, which would
+     * lead to automatic SDK configuration.
+     */
+    if (sdk != null) {
       return
     }
     if (PySdkFromEnvironmentVariable.getPycharmPythonPathProperty()?.isNotBlank() == true) {
@@ -76,12 +80,12 @@ class PythonSdkConfigurator : DirectoryProjectConfigurator {
     }
   }
 
-  private suspend fun findSuitableCreateSdkInfos(module: Module): List<CreateSdkInfo> = withContext(Dispatchers.Default) {
+  private suspend fun findSuitableCreateSdkInfos(module: Module): List<CreateSdkInfoWithTool> = withContext(Dispatchers.Default) {
     if (!TrustedProjects.isProjectTrusted(module.project) || ApplicationManager.getApplication().isUnitTestMode) {
       emptyList()
     }
     else {
-      PyProjectSdkConfigurationExtension.EP_NAME.extensionsIfPointIsRegistered.mapNotNull { it.checkEnvironmentAndPrepareSdkCreator(module) }.sorted()
+      PyProjectSdkConfigurationExtension.findAllSortedForModule(module)
     }
   }
 
@@ -90,7 +94,7 @@ class PythonSdkConfigurator : DirectoryProjectConfigurator {
   suspend fun configureSdk(
     project: Project,
     module: Module,
-    createSdkInfos: List<CreateSdkInfo>,
+    createSdkInfos: List<CreateSdkInfoWithTool>,
   ): Unit = withContext(Dispatchers.Default) {
     val context = UserDataHolderBase()
 

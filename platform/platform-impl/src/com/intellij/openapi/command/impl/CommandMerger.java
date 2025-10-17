@@ -31,6 +31,7 @@ public final class CommandMerger {
   private final boolean isLocalHistoryActivity;
   private final boolean isTransparentSupported;
 
+  private @NotNull List<CommandId> commandIds = new ArrayList<>();
   private @Nullable @Command String commandName;
   private @Nullable Reference<Object> lastGroupId; // weak reference to avoid memleaks when clients pass some exotic objects as commandId
   private @NotNull UndoRedoList<UndoableAction> undoableActions = new UndoRedoList<>();
@@ -64,10 +65,19 @@ public final class CommandMerger {
   }
 
   @Nullable UndoCommandFlushReason shouldFlush(@NotNull PerformedCommand performedCommand) {
-    if (isTransparentSupported && performedCommand.isTransparent() && performedCommand.editorStateAfter() == null && editorStateAfter != null) {
+    if (!isCompatible(performedCommand.commandId())) {
+      return createFlushReason("INCOMPATIBLE_COMMAND", performedCommand);
+    }
+    if (isTransparentSupported &&
+        performedCommand.isTransparent() &&
+        performedCommand.editorStateAfter() == null &&
+        editorStateAfter != null) {
       return createFlushReason("NEXT_TRANSPARENT_WITHOUT_EDITOR_STATE_AFTER", performedCommand);
     }
-    if (isTransparentSupported && isTransparent() && editorStateBefore == null && performedCommand.editorStateBefore() != null) {
+    if (isTransparentSupported &&
+        isTransparent() &&
+        editorStateBefore == null &&
+        performedCommand.editorStateBefore() != null) {
       return createFlushReason("CURRENT_TRANSPARENT_WITHOUT_EDITOR_STATE_BEFORE", performedCommand);
     }
     if (isTransparent() || performedCommand.isTransparent()) {
@@ -135,6 +145,7 @@ public final class CommandMerger {
     var references = new UndoAffectedDocuments();
     references.addAffected(snapshot.getDocumentReferences());
     reset(
+      new ArrayList<>(), // TODO: snapshot me
       snapshot.getActions().toList(),
       references,
       new UndoAffectedDocuments(),
@@ -206,6 +217,18 @@ public final class CommandMerger {
     return additionalAffectedDocuments.asCollection();
   }
 
+  @NotNull Collection<CommandId> getCommandIds() {
+    return commandIds;
+  }
+
+  @Nullable EditorAndState getStateBefore() {
+    return editorStateBefore;
+  }
+
+  @Nullable EditorAndState getStateAfter() {
+    return editorStateAfter;
+  }
+
   @NotNull String dumpState() {
     return UndoDumpUnit.fromMerger(this).toString();
   }
@@ -242,6 +265,7 @@ public final class CommandMerger {
   }
 
   private void mergeState(@NotNull PerformedCommand performedCommand) {
+    commandIds.add(performedCommand.commandId());
     setEditorStateBefore(performedCommand.editorStateBefore());
     setEditorStateAfter(performedCommand.editorStateAfter());
     if (isTransparent()) { // todo write test
@@ -281,6 +305,7 @@ public final class CommandMerger {
       undoableActions.add(new MyEmptyUndoableAction(refs));
     }
     return new UndoableGroup(
+      commandIds,
       commandName,
       undoableActions,
       undoConfirmationPolicy,
@@ -297,6 +322,7 @@ public final class CommandMerger {
 
   private void reset() {
     reset(
+      new ArrayList<>(),
       new UndoRedoList<>(),
       new UndoAffectedDocuments(),
       new UndoAffectedDocuments(),
@@ -313,6 +339,7 @@ public final class CommandMerger {
 
   @SuppressWarnings("SameParameterValue")
   private void reset(
+    List<CommandId> commandIds,
     UndoRedoList<UndoableAction> currentActions,
     UndoAffectedDocuments allAffectedDocuments,
     UndoAffectedDocuments additionalAffectedDocuments,
@@ -325,6 +352,7 @@ public final class CommandMerger {
     EditorAndState editorStateAfter,
     UndoConfirmationPolicy undoConfirmationPolicy
   ) {
+    this.commandIds = commandIds;
     this.undoableActions = currentActions;
     this.affectedDocuments = allAffectedDocuments;
     this.additionalAffectedDocuments = additionalAffectedDocuments;
@@ -345,6 +373,13 @@ public final class CommandMerger {
       }
     }
     return false;
+  }
+
+  private boolean isCompatible(@NotNull CommandId commandId) {
+    if (commandIds.isEmpty()) {
+      return true;
+    }
+    return commandIds.getFirst().isCompatible(commandId);
   }
 
   private static boolean isMergeGlobalCommandsAllowed() {

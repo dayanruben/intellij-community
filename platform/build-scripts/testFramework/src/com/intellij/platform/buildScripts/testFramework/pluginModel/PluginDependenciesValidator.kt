@@ -16,7 +16,7 @@ import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.PluginModuleId
 import com.intellij.ide.plugins.PluginSet
 import com.intellij.ide.plugins.cl.PluginClassLoader
-import com.intellij.ide.plugins.contentModuleId
+import com.intellij.ide.plugins.contentModuleName
 import com.intellij.ide.plugins.loadPluginSubDescriptors
 import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.text.HtmlChunk
@@ -208,7 +208,7 @@ class PluginDependenciesValidator private constructor(
             //println("Skipping reporting '$sourceModuleName' -> '$targetModuleName' because no runtime descriptors found\n")
             return@processModules
           }
-          val expectedTargets = allExpectedTargets.filter { it.contentModuleId?.contains("/") != true }.takeIf { it.isNotEmpty() } ?: allExpectedTargets
+          val expectedTargets = allExpectedTargets.filter { it.contentModuleName?.contains("/") != true }.takeIf { it.isNotEmpty() } ?: allExpectedTargets
           val sourceDescriptorsString = if (sourceDescriptors.size == 1) {
             "${sourceDescriptors.first().shortPresentation} doesn't have dependency"
           }
@@ -251,7 +251,7 @@ class PluginDependenciesValidator private constructor(
     val target = targetDescriptors.singleOrNull() ?: return null
 
     val dependencyTag = when (target) {
-      is ContentModuleDescriptor -> "<module name=\"${target.contentModuleId}\"/>"
+      is ContentModuleDescriptor -> "<module name=\"${target.contentModuleName}\"/>"
       is PluginMainDescriptor -> "<plugin id=\"${target.pluginId.idString}\"/>"
       is DependsSubDescriptor -> return null
     }
@@ -292,7 +292,7 @@ class PluginDependenciesValidator private constructor(
         }
       }
       is ContentModuleDescriptor -> {
-        "add the following tag in ${source.contentModuleId}.xml:\n$dependenciesTag"
+        "add the following tag in ${source.contentModuleName}.xml:\n$dependenciesTag"
       }
       is DependsSubDescriptor -> {
         """since files included via <depends> tag cannot declare additional dependencies,
@@ -319,7 +319,7 @@ class PluginDependenciesValidator private constructor(
   private val IdeaPluginDescriptorImpl.shortPresentation: String
     get() = when (this) {
       is PluginMainDescriptor -> "main plugin module of '${pluginId}'"
-      is ContentModuleDescriptor -> "content module '${contentModuleId}' of plugin '${pluginId}'"
+      is ContentModuleDescriptor -> "content module '${contentModuleName}' of plugin '${pluginId}'"
       is DependsSubDescriptor -> "depends sub descriptor of plugin '${pluginId}'"
     }
 
@@ -360,12 +360,12 @@ class PluginDependenciesValidator private constructor(
     )
     val embeddedContentModules = descriptor.content.modules.filter { it.defaultLoadingRule == ModuleLoadingRule.EMBEDDED }.map { it.moduleId }
     val customConfigFileToModule = descriptor.content.modules.mapNotNull { 
-      moduleItem -> moduleItem.configFile?.let { it to moduleItem.moduleId.id.substringBefore('/') }
+      moduleItem -> moduleItem.configFile?.let { it to moduleItem.moduleId.name.substringBefore('/') }
     }.toMap()
     val pathResolver = LoadFromSourcePathResolver(pluginLayout, customConfigFileToModule, embeddedContentModules, xIncludeLoader)
     val dataLoader = LoadFromSourceDataLoader(mainPluginModule = mainModule) 
     loadPluginSubDescriptors(descriptor, pathResolver, loadingContext = loadingContext, dataLoader = dataLoader, pluginDir = pluginDir, pool = zipPool)
-    descriptor.jarFiles = (pluginLayout.jpsModulesInClasspath + embeddedContentModules.map { it.id }).map { getModuleOutputDir(it) }
+    descriptor.jarFiles = (pluginLayout.jpsModulesInClasspath + embeddedContentModules.map { it.name }).map { getModuleOutputDir(it) }
     return descriptor
   }
 
@@ -469,7 +469,7 @@ class PluginDependenciesValidator private constructor(
       if (moduleId in embeddedContentModules) {
         return emptyList()
       }
-      return listOf(getModuleOutputDir(moduleId.id.substringBefore('/')))
+      return listOf(getModuleOutputDir(moduleId.name.substringBefore('/')))
     }
   }
 

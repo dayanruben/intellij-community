@@ -234,7 +234,7 @@ public final class ConfigImportHelper {
 
         System.setProperty(CONFIG_IMPORTED_FROM_PATH, oldConfigDir.toString());
 
-        doImport(oldConfigDir, newConfigDir, oldIdeHome, log, configImportOptions);
+        doImport(oldConfigDir, newConfigDir, oldIdeHome, configImportOptions);
 
         System.setProperty(InitialConfigImportState.CONFIG_IMPORTED_IN_CURRENT_SESSION_KEY, Boolean.TRUE.toString());
 
@@ -804,14 +804,9 @@ public final class ConfigImportHelper {
     return OSAgnosticPathUtil.expandUserHome(StringUtil.unquoteString(dir, '"'));
   }
 
-  @VisibleForTesting
-  public static void doImport(
-    @NotNull Path oldConfigDir,
-    @NotNull Path newConfigDir,
-    @Nullable Path oldIdeHome,
-    @NotNull Logger log,
-    @NotNull ConfigImportOptions importOptions
-  ) {
+  private static void doImport(Path oldConfigDir, Path newConfigDir, @Nullable Path oldIdeHome, ConfigImportOptions options) {
+    var log = options.log;
+
     if (oldConfigDir.equals(newConfigDir)) {
       log.info("New config directory is the same as the old one, no import needed.");
       return;
@@ -824,7 +819,7 @@ public final class ConfigImportHelper {
       log.info(String.format(
         "Importing configs: oldConfigDir=[%s], newConfigDir=[%s], oldIdeHome=[%s], oldPluginsDir=[%s], newPluginsDir=[%s]",
         oldConfigDir, newConfigDir, oldIdeHome, oldPluginsDir, newPluginsDir));
-      doImport(oldConfigDir, newConfigDir, oldIdeHome, oldPluginsDir, newPluginsDir, importOptions);
+      doImport(oldConfigDir, newConfigDir, oldIdeHome, oldPluginsDir, newPluginsDir, options);
     }
     catch (Exception e) {
       log.warn(e);
@@ -916,7 +911,7 @@ public final class ConfigImportHelper {
     // applying prepared updates to copied plugins
     StartupActionScriptManager.executeActionScriptCommands(actionCommands, oldPluginsDir, newPluginsDir);
 
-    updateVMOptions(newConfigDir, log);
+    updateVMOptions(newConfigDir, oldConfigDir, log);
   }
 
   public static void migrateLocalization(@NotNull Path oldConfigDir, @NotNull Path oldPluginsDir) {
@@ -1417,7 +1412,7 @@ public final class ConfigImportHelper {
       var currentLines = Files.readAllLines(currentFile, cs);
       currentLines.sort(String::compareTo);
       var result = mergeVmOptionsLines(importLines, currentLines);
-      updateVMOptionsLines(newConfigDir, result, log);
+      updateVMOptionsLines(newConfigDir, oldConfigDir, result, log);
       result.sort(String::compareTo);
       return !currentLines.equals(result);
     }
@@ -1427,7 +1422,7 @@ public final class ConfigImportHelper {
     }
   }
 
-  private static ArrayList<String> mergeVmOptionsLines(List<String> importLines, List<String> currentLines) {
+  private static List<String> mergeVmOptionsLines(List<String> importLines, List<String> currentLines) {
     var result = new ArrayList<String>(importLines.size() + currentLines.size());
     var preferCurrentXmx = false;
 
@@ -1460,12 +1455,12 @@ public final class ConfigImportHelper {
   }
 
   /* Fix VM options in the custom *.vmoptions file that won't work with the current IDE version or duplicate/undercut platform ones. */
-  public static void updateVMOptions(Path newConfigDir, Logger log) {
+  public static void updateVMOptions(@NotNull Path newConfigDir, @NotNull Path oldConfigDir, @NotNull Logger log) {
     var vmOptionsFile = newConfigDir.resolve(VMOptions.getFileName());
     if (Files.exists(vmOptionsFile)) {
       try {
         var lines = Files.readAllLines(vmOptionsFile, VMOptions.getFileCharset());
-        var updated = updateVMOptionsLines(newConfigDir, lines, log);
+        var updated = updateVMOptionsLines(newConfigDir, oldConfigDir, lines, log);
         if (updated) {
           Files.write(vmOptionsFile, lines, VMOptions.getFileCharset());
         }
@@ -1476,9 +1471,12 @@ public final class ConfigImportHelper {
     }
   }
 
-  private static boolean updateVMOptionsLines(Path newConfigDir, List<String> lines, Logger log) {
+  private static boolean updateVMOptionsLines(Path newConfigDir, Path oldConfigDir, List<String> lines, Logger log) {
     var platformVmOptionsFile = newConfigDir.getFileSystem().getPath(VMOptions.getPlatformOptionsFile().toString());
     var platformLines = new LinkedHashSet<>(readPlatformOptions(platformVmOptionsFile, log));
+    var oldConfigName = oldConfigDir.getFileName().toString();
+    @SuppressWarnings("SpellCheckingInspection")
+    var fromCE = oldConfigName.startsWith("IdeaIC") || oldConfigName.startsWith("PyCharmCE");
     var updated = false;
 
     for (var i = lines.listIterator(); i.hasNext(); ) {
@@ -1494,6 +1492,8 @@ public final class ConfigImportHelper {
         line.startsWith("-agentpath:") && line.contains("yjpagent") ||
         "-Dsun.io.useCanonPrefixCache=false".equals(line) ||
         "-Dfile.encoding=UTF-8".equals(line) && OS.CURRENT == OS.macOS ||
+        line.startsWith("-DJETBRAINS_LICENSE_SERVER") && fromCE ||
+        line.startsWith("-Dide.do.not.disable.paid.plugins.on.startup") ||
         isDuplicateOrLowerValue(line, platformLines)
       ) {
         i.remove(); updated = true;

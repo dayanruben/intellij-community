@@ -97,7 +97,7 @@ private class PluginDescriptionDumper(val coroutineScope: CoroutineScope) {
     val classLoaderIds = parentClassLoaders.associateWith { classLoader ->
       when (classLoader) {
         is PluginClassLoader -> {
-          val moduleSuffix = (classLoader.pluginDescriptor as? IdeaPluginDescriptorImpl)?.contentModuleId?.let { ":$it" } ?: ""
+          val moduleSuffix = (classLoader.pluginDescriptor as? IdeaPluginDescriptorImpl)?.contentModuleName?.let { ":$it" } ?: ""
           "PluginClassLoader[${classLoader.pluginId.idString}$moduleSuffix]"
         }
         ClassLoader.getSystemClassLoader() -> "java.SystemClassLoader"
@@ -140,7 +140,7 @@ private class PluginDescriptionDumper(val coroutineScope: CoroutineScope) {
     writeArrayFieldStart("modules")
     for (module in modules) {
       writeStartObject()
-      writeStringField("name", module.moduleId.id)
+      writeStringField("name", module.moduleId.name)
       val isEnabled = module in PluginManagerCore.getPluginSet().getEnabledModules()
       writeBooleanField("enabled", isEnabled)
       if (isEnabled) {

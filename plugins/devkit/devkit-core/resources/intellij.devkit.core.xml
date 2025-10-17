@@ -44,7 +44,7 @@
 
     <dom.fileMetaData implementation="org.jetbrains.idea.devkit.dom.impl.PluginDescriptorDomFileDescription"
                       rootTagName="idea-plugin"
-                      stubVersion="22"/>
+                      stubVersion="23"/>
     <dom.extender domClass="org.jetbrains.idea.devkit.dom.Extensions"
                   extenderClass="org.jetbrains.idea.devkit.dom.impl.ExtensionsDomExtender"/>
     <dom.extender domClass="org.jetbrains.idea.devkit.dom.Action"
@@ -722,6 +722,8 @@
                  description="Enables commit messages validation for IntelliJ Monorepo"/>
     <registryKey key="aia.commit.message.validation.enabled" defaultValue="true"
                  description="Enables commit messages validation for AI Assistant project"/>
+    <registryKey key="toolbox.commit.message.validation.enabled" defaultValue="true"
+                 description="Enables commit messages validation for Toolbox project"/>
 
     <generatedSourcesFilter implementation="org.jetbrains.idea.devkit.contentReport.ContentReportGeneratedSourcesFilter"/>
 

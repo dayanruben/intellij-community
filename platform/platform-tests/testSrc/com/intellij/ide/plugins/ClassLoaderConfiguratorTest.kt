@@ -52,7 +52,7 @@ internal class ClassLoaderConfiguratorTest {
       ))
     val plugins = arrayOf(kotlin, gradle, kotlinGradleJava, kotlinCompilerGradle)
     sortDependenciesInPlace(plugins)
-    assertThat(plugins.last().contentModuleId).isNull()
+    assertThat(plugins.last().contentModuleName).isNull()
   }
 
   @Test
@@ -82,7 +82,7 @@ internal class ClassLoaderConfiguratorTest {
       createModuleDescriptor("com.foo.bar"),
     )
     sortDependenciesInPlace(modules)
-    assertThat(modules.map { it.moduleId.id }).containsExactly("com.foo.bar", "com.foo")
+    assertThat(modules.map { it.moduleId.name }).containsExactly("com.foo.bar", "com.foo")
   }
 
   @Test

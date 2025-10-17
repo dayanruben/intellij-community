@@ -22,9 +22,11 @@ final class CommandBuilder {
 
   private final @Nullable Project undoProject; // null - global, isDefault - error
   private final boolean isTransparentSupported;
+  private final boolean isGroupIdChangeSupported;
 
   private @Nullable Project commandProject;
   private @NotNull CurrentEditorProvider editorProvider;
+  private @NotNull CommandId commandId;
   private @Nullable @Command String commandName;
   private @Nullable Object groupId;
   private @NotNull UndoConfirmationPolicy confirmationPolicy;
@@ -39,9 +41,10 @@ final class CommandBuilder {
   private boolean isValid;
   private boolean isInsideCommand;
 
-  CommandBuilder(@Nullable Project undoProject, boolean isTransparentSupported) {
+  CommandBuilder(@Nullable Project undoProject, boolean isTransparentSupported, boolean isGroupIdChangeSupported) {
     this.undoProject = undoProject;
     this.isTransparentSupported = isTransparentSupported;
+    this.isGroupIdChangeSupported = isGroupIdChangeSupported;
     reset();
   }
 
@@ -63,6 +66,8 @@ final class CommandBuilder {
     boolean isTransparent
   ) {
     assertOutsideCommand();
+    CommandId id = CommandIdService.currCommandId();
+    this.commandId = id == null ? NoCommandId.INSTANCE : id;
     this.commandProject = commandProject;
     this.commandName = commandName;
     this.groupId = commandGroupId;
@@ -121,8 +126,10 @@ final class CommandBuilder {
 
   @NotNull PerformedCommand commandFinished(@Nullable @Command String commandName, @Nullable Object groupId) {
     assertInsideCommand();
-    this.commandName = commandName;
-    this.groupId = groupId;
+    if (isGroupIdChangeSupported) {
+      this.commandName = commandName;
+      this.groupId = groupId;
+    }
     this.editorStateAfter = currentEditorState();
     if (originalDocument != null && hasActions() && !isTransparent() && affectedDocuments.affectsOnlyPhysical()) {
       addDocumentAsAffected(Objects.requireNonNull(originalDocument));
@@ -132,6 +139,7 @@ final class CommandBuilder {
 
   private @NotNull PerformedCommand buildAndReset() {
     PerformedCommand performedCommand = new PerformedCommand(
+      commandId,
       commandName,
       groupId,
       confirmationPolicy,
@@ -143,9 +151,7 @@ final class CommandBuilder {
       isTransparent(),
       isForcedGlobal,
       isGlobal(),
-      hasActions(),
-      isValid,
-      shouldClearRedoStack()
+      isValid
     );
     reset();
     return performedCommand;
@@ -180,10 +186,6 @@ final class CommandBuilder {
     return hasActions() && additionalAffectedDocuments.affects(ref);
   }
 
-  private boolean shouldClearRedoStack() {
-    return !isTransparent() && hasActions();
-  }
-
   private boolean isGlobal() {
     return isForcedGlobal || affectedDocuments.affectsMultiplePhysical();
   }
@@ -191,6 +193,7 @@ final class CommandBuilder {
   private void reset() {
     this.commandProject = null;
     this.editorProvider = NoEditorProvider.INSTANCE;
+    this.commandId = NoCommandId.INSTANCE;
     this.commandName = null;
     this.groupId = null;
     this.confirmationPolicy = UndoConfirmationPolicy.DEFAULT;
@@ -220,6 +223,15 @@ final class CommandBuilder {
 
   private static boolean isRefresh() {
     return ExternalChangeActionUtil.isExternalChangeInProgress();
+  }
+
+  private static final class NoCommandId implements CommandId {
+    static final NoCommandId INSTANCE = new NoCommandId();
+
+    @Override
+    public boolean isCompatible(@NotNull CommandId commandId) {
+      return true;
+    }
   }
 
   private static final class NoEditorProvider implements CurrentEditorProvider {

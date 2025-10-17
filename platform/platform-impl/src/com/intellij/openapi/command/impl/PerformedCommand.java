@@ -11,6 +11,7 @@ import java.util.Collection;
 
 
 record PerformedCommand(
+  @NotNull CommandId commandId,
   @Nullable @Command String commandName,
   @Nullable Object groupId,
   @NotNull UndoConfirmationPolicy confirmationPolicy,
@@ -22,8 +23,14 @@ record PerformedCommand(
   boolean isTransparent,
   boolean isForcedGlobal,
   boolean isGlobal,
-  boolean hasActions,
-  boolean isValid,
-  boolean shouldClearRedoStack
+  boolean isValid
 ) {
+
+  boolean hasActions() {
+    return !undoableActions.isEmpty();
+  }
+
+  boolean shouldClearRedoStack() {
+    return !isTransparent() && hasActions();
+  }
 }
