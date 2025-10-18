@@ -55,22 +55,33 @@ internal class ContentModuleVisibilityInspection : DevKitPluginXmlInspectionBase
   ) {
     val currentXmlFile = dependencyValue.xmlElement?.containingFile as? XmlFile ?: return
     val productionXmlFilesScope = getProjectProductionXmlFilesScope(currentXmlFile.project)
-    val currentModuleIncludingFiles = getXmlFilesIncludingFileAsContentModule(currentXmlFile, productionXmlFilesScope)
+    val currentModuleIncludingFiles = getInclusionContextsForContentModuleOrPluginXmlFile(currentXmlFile, productionXmlFilesScope)
     val dependencyXmlFile = moduleDependency.xmlElement?.containingFile as? XmlFile ?: return
-    val dependencyIncludingFiles = getXmlFilesIncludingFileAsContentModule(dependencyXmlFile, productionXmlFilesScope)
+    val dependencyIncludingFiles = getInclusionContextsForContentModuleOrPluginXmlFile(dependencyXmlFile, productionXmlFilesScope)
 
-    for (currentModuleIncludingFile in currentModuleIncludingFiles) {
-      for (dependencyIncludingFile in dependencyIncludingFiles) {
-        if (currentModuleIncludingFile == dependencyIncludingFile) continue
-        val currentModuleNamespace = currentModuleIncludingFile.namespace
-        val dependencyNamespace = dependencyIncludingFile.namespace
+    for (currentModuleInclusionContext in currentModuleIncludingFiles) {
+      for (dependencyInclusionContext in dependencyIncludingFiles) {
+        if (currentModuleInclusionContext.rootPlugin == dependencyInclusionContext.rootPlugin) continue
+        val currentModuleNamespace = currentModuleInclusionContext.registrationPlace.namespace
+        val dependencyNamespace = dependencyInclusionContext.registrationPlace.namespace
         if (currentModuleNamespace != dependencyNamespace) {
+          val currentModuleVendor = currentModuleInclusionContext.rootPlugin.actualVendor
+          val currentModuleRegistrationFile = currentModuleInclusionContext.registrationPlace.xmlElement?.containingFile as? XmlFile
+          val fixes =
+            if (currentModuleNamespace == null && dependencyNamespace != null && currentModuleRegistrationFile != null &&
+                currentModuleVendor != null && currentModuleVendor == dependencyInclusionContext.rootPlugin.actualVendor) {
+              arrayOf(SetNamespaceFix(dependencyNamespace, currentModuleInclusionContext.registrationPlace.getIdOrUniqueFileName(), currentModuleRegistrationFile.createSmartPointer()))
+            }
+            else {
+              emptyArray()
+            }
           holder.createProblem(
             dependencyValue,
             getInternalVisibilityProblemMessage(
-              dependencyValue, dependencyIncludingFile, dependencyNamespace,
-              currentXmlFile, currentModuleIncludingFile, currentModuleNamespace
-            )
+              dependencyValue, dependencyInclusionContext.registrationPlace, dependencyNamespace,
+              currentXmlFile, currentModuleInclusionContext.registrationPlace, currentModuleNamespace
+            ),
+            *fixes
           )
           return // report only one problem at once
         }
@@ -127,30 +138,34 @@ internal class ContentModuleVisibilityInspection : DevKitPluginXmlInspectionBase
     }
   }
 
-  private fun getXmlFilesIncludingFileAsContentModule(xmlFile: XmlFile, scope: GlobalSearchScope): Collection<IdeaPlugin> {
+  private val IdeaPlugin.pluginIdOrPlainFileName: String?
+    get() = pluginId ?: xmlElement?.containingFile?.name
+
+  private fun getInclusionContextsForContentModuleOrPluginXmlFile(xmlFile: XmlFile, scope: GlobalSearchScope): Collection<ContentModuleInclusionContext> {
     val ideaPlugin = DescriptorUtil.getIdeaPlugin(xmlFile)
     if (ideaPlugin != null && isActualPluginDescriptor(ideaPlugin, xmlFile)) {
-      return listOf(ideaPlugin)
+      return listOf(ContentModuleInclusionContext(ideaPlugin, ideaPlugin))
     }
     val moduleVirtualFile = xmlFile.virtualFile ?: return emptyList()
     val psiManager = xmlFile.manager
     return PluginIdDependenciesIndex.findFilesIncludingContentModule(moduleVirtualFile, scope)
       .mapNotNull { psiManager.findFile(it) as? XmlFile }
-      .mapNotNull { DescriptorUtil.getIdeaPlugin(it) }
+      .flatMap { xmlFile ->
+        val currentDescriptor = DescriptorUtil.getIdeaPlugin(xmlFile) ?: return@flatMap emptyList()
+        getRootIncludingPlugins(xmlFile, currentDescriptor, registrationPlace = currentDescriptor, scope)
+      }
+      .distinct()
+      .sortedWith(compareBy<ContentModuleInclusionContext> { it.rootPlugin.pluginIdOrPlainFileName }.thenBy { it.registrationPlace.pluginIdOrPlainFileName })
   }
 
-  private fun getRootPluginDescriptorIncludingFileAsContentModule(xmlFile: XmlFile, scope: GlobalSearchScope): Collection<IdeaPlugin> {
-    val ideaPlugin = DescriptorUtil.getIdeaPlugin(xmlFile)
-    if (ideaPlugin != null && isActualPluginDescriptor(ideaPlugin, xmlFile)) {
-      return listOf(ideaPlugin)
-    }
-    val moduleVirtualFile = xmlFile.virtualFile ?: return emptyList()
-    val psiManager = xmlFile.manager
-    return PluginIdDependenciesIndex.findFilesIncludingContentModule(moduleVirtualFile, scope)
-      .mapNotNull { psiManager.findFile(it) as? XmlFile }
-      .flatMap { getActualIncludingPlugins(it, scope) }
-      .distinct()
-  }
+  private data class ContentModuleInclusionContext(
+    /** Element of the root `plugin.xml` (or `<idea.platform.prefix>Plugin.xml`) which includes the content module. */
+    val rootPlugin: IdeaPlugin,
+    /**
+     * The XML file where the content module is actually registered.
+     */
+    val registrationPlace: IdeaPlugin,
+  )
 
   private val IdeaPlugin.namespace: String?
     get() {
@@ -162,6 +177,15 @@ internal class ContentModuleVisibilityInspection : DevKitPluginXmlInspectionBase
     return UniqueVFilePathBuilder.getInstance().getUniqueVirtualFilePath(xmlElement!!.project, xmlElement!!.containingFile.virtualFile)
   }
 
+  private val IdeaPlugin.actualVendor: String?
+    get() {
+      val explicitValue = this.vendor.stringValue
+      if (explicitValue != null) return explicitValue
+      val xmlFileName = xmlElement?.containingFile?.name
+      //it would be more reliable to collect data from all included XML files to find the proper vendor, but this heuristic should work ok
+      return if (xmlFileName in rootPluginNames) "JetBrains" else null
+    }
+
   private fun checkPrivateVisibility(
     dependencyValue: GenericAttributeValue<IdeaPlugin?>,
     moduleDependency: IdeaPlugin,
@@ -170,13 +194,15 @@ internal class ContentModuleVisibilityInspection : DevKitPluginXmlInspectionBase
     val currentXmlFile = dependencyValue.xmlElement?.containingFile as? XmlFile ?: return
     val project = currentXmlFile.project
     val productionXmlFilesScope = getProjectProductionXmlFilesScope(project)
-    val currentModuleIncludingPlugins = getRootPluginDescriptorIncludingFileAsContentModule(currentXmlFile, productionXmlFilesScope)
+    val currentModuleInclusionContexts = getInclusionContextsForContentModuleOrPluginXmlFile(currentXmlFile, productionXmlFilesScope)
     val dependencyXmlFile = moduleDependency.xmlElement?.containingFile as? XmlFile ?: return
-    val dependencyIncludingPlugins = getRootPluginDescriptorIncludingFileAsContentModule(dependencyXmlFile, productionXmlFilesScope)
-    for (currentModuleIncludingPlugin in currentModuleIncludingPlugins) {
-      if (dependencyIncludingPlugins.contains(currentModuleIncludingPlugin)) continue // are included in the same plugin
-      for (dependencyIncludingPlugin in dependencyIncludingPlugins) {
-        if (currentModuleIncludingPlugin != dependencyIncludingPlugin) {
+    val dependencyInclusionContexts = getInclusionContextsForContentModuleOrPluginXmlFile(dependencyXmlFile, productionXmlFilesScope)
+    for (currentModuleInclusionContext in currentModuleInclusionContexts) {
+      val currentModuleIncludingPlugin = currentModuleInclusionContext.rootPlugin
+      if (dependencyInclusionContexts.any { it.rootPlugin == currentModuleIncludingPlugin }) continue // are included in the same plugin
+      for (dependencyInclusionContext in dependencyInclusionContexts) {
+        val dependencyIncludingPlugin = dependencyInclusionContext.rootPlugin
+        if (currentModuleIncludingPlugin != dependencyInclusionContext) {
           val dependencyModuleName = getModuleName(dependencyXmlFile)
           val dependencyXmlFilePointer = dependencyXmlFile.createSmartPointer()
           val currentIdeaPlugin = DescriptorUtil.getIdeaPlugin(currentXmlFile)
@@ -191,11 +217,16 @@ internal class ContentModuleVisibilityInspection : DevKitPluginXmlInspectionBase
               getModuleName(currentXmlFile), currentModuleIncludingPlugin.getIdOrUniqueFileName()
             )
           }
+          val fixes = buildList {
+            if (currentModuleIncludingPlugin.actualVendor == dependencyIncludingPlugin.actualVendor) {
+              add(ChangeModuleModuleVisibilityFix(dependencyModuleName, ContentModuleVisibility.INTERNAL, dependencyXmlFilePointer))
+            }
+            add(ChangeModuleModuleVisibilityFix(dependencyModuleName, ContentModuleVisibility.PUBLIC, dependencyXmlFilePointer))
+          }
           holder.createProblem(
             dependencyValue,
             message,
-            ChangeModuleModuleVisibilityFix(dependencyModuleName, ContentModuleVisibility.INTERNAL, dependencyXmlFilePointer),
-            ChangeModuleModuleVisibilityFix(dependencyModuleName, ContentModuleVisibility.PUBLIC, dependencyXmlFilePointer)
+            *fixes.toTypedArray(),
           )
           return // report only one problem at once
         }
@@ -212,20 +243,25 @@ internal class ContentModuleVisibilityInspection : DevKitPluginXmlInspectionBase
    * - has ID or is `META-INF/plugin.xml`, then return it, as it is an actual plugin
    * - is included via `<xi:include>`, find including plugins (recursively).
    */
-  private fun getActualIncludingPlugins(
+  private fun getRootIncludingPlugins(
     xmlFile: XmlFile,
+    currentDescriptor: IdeaPlugin,
+    registrationPlace: IdeaPlugin,
     scope: GlobalSearchScope,
     visited: MutableSet<XmlFile> = mutableSetOf(),
-  ): Collection<IdeaPlugin> {
+  ): Collection<ContentModuleInclusionContext> {
     if (!visited.add(xmlFile)) return emptyList() // prevent inclusion cycles
-    val ideaPlugin = DescriptorUtil.getIdeaPlugin(xmlFile)
-    if (ideaPlugin != null && isActualPluginDescriptor(ideaPlugin, xmlFile)) {
-      return listOf(ideaPlugin)
+    if (isActualPluginDescriptor(currentDescriptor, xmlFile)) {
+      return listOf(ContentModuleInclusionContext(currentDescriptor, registrationPlace))
     }
     return ReferencesSearch.search(xmlFile, scope)
       .filtering { isXiIncluded(it) }
       .findAll()
-      .flatMap { getActualIncludingPlugins(it.element.containingFile as XmlFile, scope, visited) }
+      .flatMapTo(ArrayList()) { reference ->
+        val referencedFile = reference.element.containingFile as? XmlFile ?: return@flatMapTo emptyList()
+        val referencedDescriptor = DescriptorUtil.getIdeaPlugin(referencedFile) ?: return@flatMapTo emptyList()
+        getRootIncludingPlugins(referencedFile, currentDescriptor = referencedDescriptor, registrationPlace, scope, visited)
+      }
   }
 
   private fun isActualPluginDescriptor(ideaPlugin: IdeaPlugin, xmlFile: XmlFile): Boolean {
@@ -286,4 +322,43 @@ internal class ContentModuleVisibilityInspection : DevKitPluginXmlInspectionBase
     }
   }
 
+  private class SetNamespaceFix(
+    private val namespace: String,
+    private val declaringPluginId: String,
+    private val declaringXmlFilePointer: SmartPsiElementPointer<XmlFile>,
+  ) : LocalQuickFix {
+    override fun getFamilyName(): @IntentionFamilyName String =
+      message("inspection.content.module.visibility.internal.fix.set.namespace.family.name")
+
+    override fun getName(): @IntentionName String =
+      message("inspection.content.module.visibility.internal.fix.set.namespace.to", declaringPluginId, namespace)
+
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
+      val declaringXmlFile = declaringXmlFilePointer.dereference() ?: return
+      setNamespace(declaringXmlFile)
+    }
+
+    private fun setNamespace(declaringXmlFile: XmlFile) {
+      val ideaPlugin = DescriptorUtil.getIdeaPlugin(declaringXmlFile) ?: return
+      if (ideaPlugin.content.isNotEmpty()) {
+        ideaPlugin.content.forEach { it.namespace.stringValue = namespace }
+      }
+      else {
+        ideaPlugin.addContent().namespace.stringValue = namespace
+      }
+    }
+
+    override fun generatePreview(project: Project, previewDescriptor: ProblemDescriptor): IntentionPreviewInfo {
+      val declaringXmlFile = declaringXmlFilePointer.dereference() ?: return IntentionPreviewInfo.EMPTY
+      val declaringXmlFileCopy = declaringXmlFile.copy() as XmlFile
+      setNamespace(declaringXmlFileCopy)
+      return IntentionPreviewInfo.CustomDiff(
+        XmlFileType.INSTANCE,
+        declaringXmlFile.name,
+        declaringXmlFile.text,
+        declaringXmlFileCopy.text,
+        true
+      )
+    }
+  }
 }

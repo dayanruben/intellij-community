@@ -89,27 +89,20 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
   }
 
   private fun loadRunConfigurations(name: String): List<JUnitRunConfigurationProperties> {
-    return try {
-      val projectHome = context.paths.projectHome
-      val file = RunConfigurationProperties.findRunConfiguration(projectHome, name)
-      val configuration = RunConfigurationProperties.getConfiguration(file)
-      when (val type = RunConfigurationProperties.getConfigurationType(configuration)) {
-        JUnitRunConfigurationProperties.TYPE -> {
-          listOf(JUnitRunConfigurationProperties.loadRunConfiguration(file))
-        }
-        CompoundRunConfigurationProperties.TYPE -> {
-          val runConfiguration = CompoundRunConfigurationProperties.loadRunConfiguration(file)
-          runConfiguration.toRun.flatMap(::loadRunConfigurations)
-        }
-        else -> {
-          throw RuntimeException("Unsupported run configuration type '${type}' in run configuration '${name}' of project '${projectHome}'")
-        }
+    val projectHome = context.paths.projectHome
+    val file = RunConfigurationProperties.findRunConfiguration(projectHome, name)
+    val configuration = RunConfigurationProperties.getConfiguration(file)
+    return when (val type = RunConfigurationProperties.getConfigurationType(configuration)) {
+      JUnitRunConfigurationProperties.TYPE -> {
+        listOf(JUnitRunConfigurationProperties.loadRunConfiguration(file))
       }
-    }
-    catch (e: Exception) {
-      val description = e.message?.lineSequence()?.firstOrNull() ?: ""
-      context.messages.reportBuildProblem(description, identity = name)
-      emptyList()
+      CompoundRunConfigurationProperties.TYPE -> {
+        val runConfiguration = CompoundRunConfigurationProperties.loadRunConfiguration(file)
+        runConfiguration.toRun.flatMap(::loadRunConfigurations)
+      }
+      else -> {
+        throw RuntimeException("Unsupported run configuration type '${type}' in run configuration '${name}' of project '${projectHome}'")
+      }
     }
   }
 
@@ -1344,12 +1337,14 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     args += "--add-opens"
     args += "java.base/java.nio.file.spi=ALL-UNNAMED"
 
+    val environment: MutableMap<String, String> = HashMap(envVariables)
+
     val mainClass = if (suiteName == null) "com.intellij.tests.JUnit5TeamCityRunnerForTestsOnClasspath" else "com.intellij.tests.JUnit5TeamCityRunnerForTestAllSuite"
     if (devBuildModeSettings == null) {
       args.add(mainClass)
     }
     else {
-      devBuildModeSettings.apply(mainClass, mainModule, args)
+      devBuildModeSettings.apply(mainClass, mainModule, args, environment)
     }
 
     if (suiteName != null) {
@@ -1365,7 +1360,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
 
     context.messages.info("Starting tests on runtime $runtime")
     val builder = ProcessBuilder(runtime, "@" + argFile.absolutePath)
-    builder.environment().putAll(envVariables)
+    builder.environment().putAll(environment)
     builder.inheritIO()
     val exitCode = builder.start().awaitExit()
     if (exitCode != 0 && exitCode != NO_TESTS_ERROR) {

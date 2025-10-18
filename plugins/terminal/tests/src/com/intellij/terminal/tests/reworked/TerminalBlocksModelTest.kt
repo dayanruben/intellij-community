@@ -8,10 +8,11 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.plugins.terminal.block.reworked.MutableTerminalOutputModel
-import org.jetbrains.plugins.terminal.block.reworked.TerminalBlocksModelImpl
 import org.jetbrains.plugins.terminal.block.reworked.TerminalOffset
 import org.jetbrains.plugins.terminal.session.TerminalBlocksModelState
-import org.jetbrains.plugins.terminal.session.TerminalOutputBlock
+import org.jetbrains.plugins.terminal.view.shellIntegration.*
+import org.jetbrains.plugins.terminal.view.shellIntegration.impl.TerminalBlocksModelImpl
+import org.jetbrains.plugins.terminal.view.shellIntegration.impl.TerminalCommandBlockImpl
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,6 +23,46 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
   override fun runInDispatchThread(): Boolean = false
 
   @Test
+  fun `initial block is created from empty output model`() = runBlocking(Dispatchers.EDT) {
+    val outputModel = TerminalTestUtil.createOutputModel()
+    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
+
+    assertEquals(1, blocksModel.blocks.size)
+    val block = blocksModel.activeBlock as TerminalCommandBlock
+
+    assertEquals(TerminalBlockIdImpl(0), block.id)
+    assertEquals(TerminalOffset.ZERO, block.startOffset)
+    assertEquals(TerminalOffset.ZERO, block.endOffset)
+    assertEquals(null, block.commandStartOffset)
+    assertEquals(null, block.outputStartOffset)
+    assertEquals(null, block.exitCode)
+    assertEquals(null, block.getCommandText(outputModel))
+    assertEquals(null, block.getOutputText(outputModel))
+    assertEquals(false, block.wasExecuted)
+  }
+
+  @Test
+  fun `initial block is created from non-empty output model`() = runBlocking(Dispatchers.EDT) {
+    val outputModel = TerminalTestUtil.createOutputModel()
+    outputModel.update(0, "some welcome text\n")
+
+    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
+
+    assertEquals(1, blocksModel.blocks.size)
+    val block = blocksModel.activeBlock as TerminalCommandBlock
+
+    assertEquals(TerminalBlockIdImpl(0), block.id)
+    assertEquals(TerminalOffset.ZERO, block.startOffset)
+    assertEquals(TerminalOffset.of(18), block.endOffset)
+    assertEquals(null, block.commandStartOffset)
+    assertEquals(null, block.outputStartOffset)
+    assertEquals(null, block.exitCode)
+    assertEquals(null, block.getCommandText(outputModel))
+    assertEquals(null, block.getOutputText(outputModel))
+    assertEquals(false, block.wasExecuted)
+  }
+
+  @Test
   fun `initial block is replaced with a new one`() = runBlocking(Dispatchers.EDT) {
     val outputModel = TerminalTestUtil.createOutputModel()
     val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
@@ -30,9 +71,9 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
 
     assertEquals(1, blocksModel.blocks.size)
 
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
     outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
 
     assertEquals(1, blocksModel.blocks.size)
   }
@@ -43,11 +84,12 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
     val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
 
     outputModel.update(0, "\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
     outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
 
-    val block = blocksModel.blocks.singleOrNull() ?: error("Single block expected")
+    assertEquals(1, blocksModel.blocks.size)
+    val block = blocksModel.activeBlock as TerminalCommandBlock
 
     assertNotEquals(null, block.commandStartOffset)
     assertEquals("myPrompt: ", outputModel.getTextAsString(block.startOffset, block.commandStartOffset!!))
@@ -61,13 +103,13 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
     val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
 
     outputModel.update(0, "\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
     outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
     outputModel.update(0, "myPrompt: myCommand\n\n\n")
 
-    val block = blocksModel.blocks.singleOrNull() ?: error("Single block expected")
-
+    assertEquals(1, blocksModel.blocks.size)
+    val block = blocksModel.activeBlock
     assertEquals("myPrompt: myCommand\n\n\n", outputModel.getTextAsString(block.startOffset, block.endOffset))
   }
 
@@ -77,17 +119,130 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
     val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
 
     outputModel.update(0, "\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
     outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
     outputModel.update(0, "myPrompt: myCommand\n\n\n")
-    blocksModel.commandStarted(outputModel.startOffset + 20L)
+    blocksModel.updateOutputStartOffset(outputModel.startOffset + 20L)
     outputModel.update(1, "someOutput\n\n")
 
-    val block = blocksModel.blocks.singleOrNull() ?: error("Single block expected")
+    assertEquals(1, blocksModel.blocks.size)
+    val block = blocksModel.activeBlock as TerminalCommandBlock
     assertEquals("myCommand\n", outputModel.getTextAsString(block.commandStartOffset!!, block.outputStartOffset!!))
+    assertEquals("myCommand", block.getCommandText(outputModel))
     assertEquals("someOutput\n\n", outputModel.getTextAsString(block.outputStartOffset!!, block.endOffset))
+    assertEquals("someOutput", block.getOutputText(outputModel))
+    assertEquals(true, block.wasExecuted)
     assertEquals("myPrompt: myCommand\nsomeOutput\n\n", outputModel.getTextAsString(block.startOffset, block.endOffset))
+  }
+
+  @Test
+  fun `aborted command block contains valid command and no output`() = runBlocking(Dispatchers.EDT) {
+    val outputModel = TerminalTestUtil.createOutputModel()
+    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
+
+    outputModel.update(0, "\n\n\n")
+    blocksModel.startNewBlock(TerminalOffset.ZERO)
+    outputModel.update(0, "myPrompt: \n\n\n")
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(10))
+    outputModel.update(0, "myPrompt: abortedCommand\n\n\n")
+    blocksModel.startNewBlock(TerminalOffset.of(25))
+    outputModel.update(1, "myPrompt: \n\n")
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(35))
+
+    assertEquals(2, blocksModel.blocks.size)
+    val firstBlock = blocksModel.blocks[0] as TerminalCommandBlock
+    assertEquals("abortedCommand", firstBlock.getCommandText(outputModel))
+    assertEquals(null, firstBlock.getOutputText(outputModel))
+    assertEquals(false, firstBlock.wasExecuted)
+  }
+
+  @Test
+  fun `getOutputText of command with no output is empty`() = runBlocking(Dispatchers.EDT) {
+    val outputModel = TerminalTestUtil.createOutputModel()
+    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
+
+    outputModel.update(0, "\n\n\n")
+    blocksModel.startNewBlock(TerminalOffset.ZERO)
+    outputModel.update(0, "myPrompt: \n\n\n")
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(10))
+    outputModel.update(0, "myPrompt: myCommand\n\n\n")
+    blocksModel.updateOutputStartOffset(TerminalOffset.of(20))
+    blocksModel.startNewBlock(TerminalOffset.of(20))
+    outputModel.update(1, "myPrompt: \n\n")
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(30))
+
+    assertEquals(2, blocksModel.blocks.size)
+    val firstBlock = blocksModel.blocks[0] as TerminalCommandBlock
+    assertEquals("myCommand", firstBlock.getCommandText(outputModel))
+    assertEquals("", firstBlock.getOutputText(outputModel))
+    assertEquals(true, firstBlock.wasExecuted)
+  }
+
+  @Test
+  fun `getOutputText of running command returns current output`() = runBlocking(Dispatchers.EDT) {
+    val outputModel = TerminalTestUtil.createOutputModel()
+    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
+
+    outputModel.update(0, "\n\n\n")
+    blocksModel.startNewBlock(TerminalOffset.ZERO)
+    outputModel.update(0, "myPrompt: \n\n\n")
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(10))
+    outputModel.update(0, "myPrompt: myCommand\n\n\n")
+    blocksModel.updateOutputStartOffset(TerminalOffset.of(20))
+    outputModel.update(1, "someOutput...\n\n")
+
+    assertEquals(1, blocksModel.blocks.size)
+    val firstBlock = blocksModel.blocks[0] as TerminalCommandBlock
+    assertEquals("myCommand", firstBlock.getCommandText(outputModel))
+    assertEquals("someOutput...", firstBlock.getOutputText(outputModel))
+    assertEquals(true, firstBlock.wasExecuted)
+  }
+
+  @Test
+  fun `getCommandText returns null if command start is trimmed`() = runBlocking(Dispatchers.EDT) {
+    val outputModel = TerminalTestUtil.createOutputModel(30)
+    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
+
+    outputModel.update(0, "\n\n\n")
+    blocksModel.startNewBlock(TerminalOffset.ZERO)
+    outputModel.update(0, "myPrompt: \n\n\n")
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(10))
+    outputModel.update(0, "myPrompt: myCommand myCommand\n\n\n")
+    blocksModel.updateOutputStartOffset(TerminalOffset.of(30))
+    outputModel.update(1, "someOutput\n\n")
+    blocksModel.startNewBlock(TerminalOffset.of(41))
+    outputModel.update(2, "myPrompt: \n")
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(51))
+
+    assertEquals(2, blocksModel.blocks.size)
+    val firstBlock = blocksModel.blocks[0] as TerminalCommandBlock
+    assertEquals(null, firstBlock.getCommandText(outputModel))
+    assertEquals("someOutput", firstBlock.getOutputText(outputModel))
+    assertEquals(true, firstBlock.wasExecuted)
+  }
+
+  @Test
+  fun `getOutputText returns partial output if output start is trimmed`() = runBlocking(Dispatchers.EDT) {
+    val outputModel = TerminalTestUtil.createOutputModel(25)
+    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
+
+    outputModel.update(0, "\n\n")
+    blocksModel.startNewBlock(TerminalOffset.ZERO)
+    outputModel.update(0, "myPrompt: \n\n")
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(10))
+    outputModel.update(0, "myPrompt: myCommand\n\n")
+    blocksModel.updateOutputStartOffset(TerminalOffset.of(20))
+    outputModel.update(1, "123456789-123456789\n")
+    blocksModel.startNewBlock(TerminalOffset.of(40))
+    outputModel.update(2, "myPrompt: ")
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(50))
+
+    assertEquals(2, blocksModel.blocks.size)
+    val firstBlock = blocksModel.blocks[0] as TerminalCommandBlock
+    assertEquals(null, firstBlock.getCommandText(outputModel))
+    assertEquals("6789-123456789", firstBlock.getOutputText(outputModel))
+    assertEquals(true, firstBlock.wasExecuted)
   }
 
   @Test
@@ -96,15 +251,15 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
     val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
 
     outputModel.update(0, "\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
     outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
     outputModel.update(0, "myPrompt: myCommand\n\n\n")
-    blocksModel.commandStarted(outputModel.startOffset + 20L)
+    blocksModel.updateOutputStartOffset(outputModel.startOffset + 20L)
     outputModel.update(1, "someOutput\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 31L)
+    blocksModel.startNewBlock(outputModel.startOffset + 31L)
     outputModel.update(2, "updatedPrompt: \n")
-    blocksModel.promptFinished(outputModel.startOffset + 46L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 46L)
 
     assertEquals(2, blocksModel.blocks.size)
 
@@ -121,18 +276,18 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
 
     outputModel.update(0, "\n\n\n")
     outputModel.update(0, "welcomeText\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 12L)
+    blocksModel.startNewBlock(outputModel.startOffset + 12L)
     outputModel.update(1, "myPrompt: \n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 22L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 22L)
 
     assertEquals(2, blocksModel.blocks.size)
 
-    val firstBlock = blocksModel.blocks[0]
+    val firstBlock = blocksModel.blocks[0] as TerminalCommandBlock
     assertEquals(null, firstBlock.commandStartOffset)
     assertEquals(null, firstBlock.outputStartOffset)
     assertEquals("welcomeText\n", outputModel.getTextAsString(firstBlock.startOffset, firstBlock.endOffset))
 
-    val secondBlock = blocksModel.blocks[1]
+    val secondBlock = blocksModel.blocks[1] as TerminalCommandBlock
     assertEquals("myPrompt: \n\n", outputModel.getTextAsString(secondBlock.startOffset, secondBlock.endOffset))
   }
 
@@ -143,15 +298,15 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
 
     // Prepare
     outputModel.update(0, "\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
     outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
     outputModel.update(0, "myPrompt: myCommand\n\n\n")
-    blocksModel.commandStarted(outputModel.startOffset + 20L)
+    blocksModel.updateOutputStartOffset(outputModel.startOffset + 20L)
     outputModel.update(1, "output123\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 30L)
+    blocksModel.startNewBlock(outputModel.startOffset + 30L)
     outputModel.update(2, "myPrompt: \n")
-    blocksModel.promptFinished(outputModel.startOffset + 40L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 40L)
     outputModel.update(2, "myPrompt: otherCommand\n")
 
     assertEquals(2, blocksModel.blocks.size)
@@ -173,119 +328,153 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
   }
 
   @Test
+  fun `single block is left after full replace`() = runBlocking(Dispatchers.EDT) {
+    val outputModel = TerminalTestUtil.createOutputModel()
+    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
+
+    // Prepare
+    outputModel.update(0, "\n\n\n")
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
+    outputModel.update(0, "myPrompt: \n\n\n")
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
+    outputModel.update(0, "myPrompt: myCommand\n\n\n")
+    blocksModel.updateOutputStartOffset(outputModel.startOffset + 20L)
+    outputModel.update(1, "output123\n\n")
+    blocksModel.startNewBlock(outputModel.startOffset + 30L)
+    outputModel.update(2, "myPrompt: \n")
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 40L)
+
+    assertEquals(2, blocksModel.blocks.size)
+
+    // Test
+    outputModel.update(2, "myPrompt: clear\n")
+    blocksModel.updateOutputStartOffset(outputModel.startOffset + 46L)
+    outputModel.update(0, "\n\n\n")  // full replace
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
+    outputModel.update(0, "myPrompt: \n\n\n")
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
+
+    assertEquals(1, blocksModel.blocks.size)
+    val block = blocksModel.activeBlock
+    assertEquals("myPrompt: \n\n\n", outputModel.getTextAsString(block.startOffset, block.endOffset))
+  }
+
+  @Test
   fun `single block is left after clear`() = runBlocking(Dispatchers.EDT) {
     val outputModel = TerminalTestUtil.createOutputModel()
     val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
 
     // Prepare
     outputModel.update(0, "\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
     outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
     outputModel.update(0, "myPrompt: myCommand\n\n\n")
-    blocksModel.commandStarted(outputModel.startOffset + 20L)
+    blocksModel.updateOutputStartOffset(outputModel.startOffset + 20L)
     outputModel.update(1, "output123\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 30L)
+    blocksModel.startNewBlock(outputModel.startOffset + 30L)
     outputModel.update(2, "myPrompt: \n")
-    blocksModel.promptFinished(outputModel.startOffset + 40L)
-
-    assertEquals(2, blocksModel.blocks.size)
-
-    // Test
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 45L)
     outputModel.update(2, "myPrompt: clear\n")
-    blocksModel.commandStarted(outputModel.startOffset + 46L)
-    outputModel.update(0, "\n\n\n")  // all text cleared
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
-    outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
-
-    val block = blocksModel.blocks.singleOrNull() ?: error("Single block expected")
-    assertEquals("myPrompt: \n\n\n", outputModel.getTextAsString(block.startOffset, block.endOffset))
-  }
-
-  /**
-   * I'm not sure that this case is possible, because usually after clear-related things, an empty screen with new lines is left.
-   * But let's test this case too, to ensure that model can handle it.
-   */
-  @Test
-  fun `single block is left after all text removed`() = runBlocking(Dispatchers.EDT) {
-    val outputModel = TerminalTestUtil.createOutputModel()
-    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
-
-    // Prepare
-    outputModel.update(0, "\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
-    outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
-    outputModel.update(0, "myPrompt: myCommand\n\n\n")
-    blocksModel.commandStarted(outputModel.startOffset + 20L)
-    outputModel.update(1, "output123\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 30L)
-    outputModel.update(2, "myPrompt: \n")
-    blocksModel.promptFinished(outputModel.startOffset + 40L)
 
     assertEquals(2, blocksModel.blocks.size)
 
     // Test
     outputModel.update(0, "")
 
-    val block = blocksModel.blocks.singleOrNull() ?: error("Single block expected")
+    assertEquals(1, blocksModel.blocks.size)
+    val block = blocksModel.activeBlock
     assertEquals("", outputModel.getTextAsString(block.startOffset, block.endOffset))
   }
 
   @Test
-  fun `blocks positions are adjusted after output start trimmed`() = runBlocking(Dispatchers.EDT) {
+  fun `single block is left after clear (with trimming)`() = runBlocking(Dispatchers.EDT) {
+    val outputModel = TerminalTestUtil.createOutputModel(100)
+    val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
+
+    // Prepare
+    outputModel.update(0, "\n\n\n")
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
+    outputModel.update(0, "myPrompt: \n\n\n")
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
+    outputModel.update(0, "myPrompt: myCommand\n\n\n")
+    blocksModel.updateOutputStartOffset(outputModel.startOffset + 20L)
+    outputModel.update(1, "a".repeat(100) + "\n\n")
+    outputModel.update(2, "output123\n")
+    blocksModel.startNewBlock(outputModel.startOffset + 100L)
+    outputModel.update(3, "myPrompt: ")
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 100L)
+    outputModel.update(3, "myPrompt: clear")
+
+    assertEquals(2, blocksModel.blocks.size)
+
+    // Test
+    outputModel.update(0, "")
+
+    assertEquals(1, blocksModel.blocks.size)
+    val block = blocksModel.activeBlock
+    assertEquals("", outputModel.getTextAsString(block.startOffset, block.endOffset))
+  }
+
+  @Test
+  fun `block positions stay the same after output start trimmed`() = runBlocking(Dispatchers.EDT) {
     val outputModel = TerminalTestUtil.createOutputModel(maxLength = 30)
     val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
 
     outputModel.update(0, "\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
+    blocksModel.startNewBlock(TerminalOffset.ZERO)
     outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(10))
     outputModel.update(0, "myPrompt: myCommand\n\n\n")
-    blocksModel.commandStarted(outputModel.startOffset + 20L)
+    blocksModel.updateOutputStartOffset(TerminalOffset.of(20))
     outputModel.update(1, "output123456\n\n")  // 4 chars from the start should be trimmed
-    blocksModel.promptStarted(outputModel.startOffset + 29L)
+    blocksModel.startNewBlock(TerminalOffset.of(33))
     outputModel.update(2, "myPrompt: \n")      // 10 chars from the start should be trimmed
-    blocksModel.promptFinished(outputModel.startOffset + 29L)
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(43))
 
     assertEquals(2, blocksModel.blocks.size)
 
-    val firstBlock = blocksModel.blocks[0]
-    assertEquals("", outputModel.getTextAsString(firstBlock.startOffset, firstBlock.commandStartOffset!!))
-    assertEquals("mmand\n", outputModel.getTextAsString(firstBlock.commandStartOffset!!, firstBlock.outputStartOffset!!))
-    assertEquals("mmand\noutput123456\n", outputModel.getTextAsString(firstBlock.startOffset, firstBlock.endOffset))
+    val firstBlock = blocksModel.blocks[0] as TerminalCommandBlock
+    assertEquals(TerminalOffset.ZERO, firstBlock.startOffset)
+    assertEquals(TerminalOffset.of(10), firstBlock.commandStartOffset)
+    assertEquals(TerminalOffset.of(20), firstBlock.outputStartOffset)
+    assertEquals(TerminalOffset.of(33), firstBlock.endOffset)
 
-    val secondBlock = blocksModel.blocks[1]
-    assertEquals("myPrompt: \n", outputModel.getTextAsString(secondBlock.startOffset, secondBlock.endOffset))
+    val secondBlock = blocksModel.blocks[1] as TerminalCommandBlock
+    assertEquals(TerminalOffset.of(33), secondBlock.startOffset)
+    assertEquals(TerminalOffset.of(43), secondBlock.commandStartOffset)
+    assertEquals(TerminalOffset.of(44), secondBlock.endOffset)
   }
 
   @Test
-  fun `blocks was removed after output start trimmed`() = runBlocking(Dispatchers.EDT) {
+  fun `block was removed after output start trimmed`() = runBlocking(Dispatchers.EDT) {
     val outputModel = TerminalTestUtil.createOutputModel(maxLength = 30)
     val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
 
     outputModel.update(0, "\n\n\n")
     outputModel.update(0, "welcome12\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 10L)
+    blocksModel.startNewBlock(TerminalOffset.of(10))
     outputModel.update(1, "myPrompt: \n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 20L)
-    outputModel.update(1, "myPrompt: myCommand\n\n")  // 1 char from that start should be trimmed
-    blocksModel.commandStarted(outputModel.startOffset + 29L)
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(20))
+    outputModel.update(1, "myPrompt: myCommand\n\n")  // 1 char from the start should be trimmed
+    blocksModel.updateOutputStartOffset(TerminalOffset.of(30))
     outputModel.update(2, "output123456\n")           // 12 chars from the start should be trimmed (and first block removed)
-    blocksModel.promptStarted(outputModel.startOffset + 30L)
+    blocksModel.startNewBlock(TerminalOffset.of(43))
     outputModel.update(3, "myPrompt: \n")             // 10 chars from the start should be trimmed
-    blocksModel.promptFinished(outputModel.startOffset + 29L)
+    blocksModel.updateCommandStartOffset(TerminalOffset.of(53))
 
     assertEquals(2, blocksModel.blocks.size)
 
-    val firstBlock = blocksModel.blocks[0]
-    assertEquals("", outputModel.getTextAsString(firstBlock.startOffset, firstBlock.commandStartOffset!!))
-    assertEquals("mmand\n", outputModel.getTextAsString(firstBlock.commandStartOffset!!, firstBlock.outputStartOffset!!))
-    assertEquals("mmand\noutput123456\n", outputModel.getTextAsString(firstBlock.startOffset, firstBlock.endOffset))
+    val firstBlock = blocksModel.blocks[0] as TerminalCommandBlock
+    assertEquals(TerminalOffset.of(10), firstBlock.startOffset)
+    assertEquals(TerminalOffset.of(20), firstBlock.commandStartOffset)
+    assertEquals(TerminalOffset.of(30), firstBlock.outputStartOffset)
+    assertEquals(TerminalOffset.of(43), firstBlock.endOffset)
 
-    val secondBlock = blocksModel.blocks[1]
-    assertEquals("myPrompt: \n", outputModel.getTextAsString(secondBlock.startOffset, secondBlock.endOffset))
+    val secondBlock = blocksModel.blocks[1] as TerminalCommandBlock
+    assertEquals(TerminalOffset.of(43), secondBlock.startOffset)
+    assertEquals(TerminalOffset.of(53), secondBlock.commandStartOffset)
+    assertEquals(TerminalOffset.of(54), secondBlock.endOffset)
   }
 
   @Test
@@ -295,15 +484,15 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
 
     // Prepare
     outputModel.update(0, "\n\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 0L)
+    blocksModel.startNewBlock(outputModel.startOffset + 0L)
     outputModel.update(0, "myPrompt: \n\n\n")
-    blocksModel.promptFinished(outputModel.startOffset + 10L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 10L)
     outputModel.update(0, "myPrompt: myCommand\n\n\n")
-    blocksModel.commandStarted(outputModel.startOffset + 20L)
+    blocksModel.updateOutputStartOffset(outputModel.startOffset + 20L)
     outputModel.update(1, "someOutput\n\n")
-    blocksModel.promptStarted(outputModel.startOffset + 31L)
+    blocksModel.startNewBlock(outputModel.startOffset + 31L)
     outputModel.update(2, "updatedPrompt: \n")
-    blocksModel.promptFinished(outputModel.startOffset + 46L)
+    blocksModel.updateCommandStartOffset(outputModel.startOffset + 46L)
 
     // Test
     val state = blocksModel.dumpState()
@@ -311,8 +500,8 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
     assertEquals(3, state.blockIdCounter)
     assertEquals(2, state.blocks.size)
 
-    val expectedFirstBlock = TerminalOutputBlock(
-      id = 1,
+    val expectedFirstBlock = TerminalCommandBlockImpl(
+      id = TerminalBlockIdImpl(1),
       startOffset = outputModel.startOffset + 0,
       commandStartOffset = outputModel.startOffset + 10,
       outputStartOffset = outputModel.startOffset + 20,
@@ -321,8 +510,8 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
     )
     assertEquals(expectedFirstBlock, state.blocks[0])
 
-    val expectedSecondBlock = TerminalOutputBlock(
-      id = 2,
+    val expectedSecondBlock = TerminalCommandBlockImpl(
+      id = TerminalBlockIdImpl(2),
       startOffset = outputModel.startOffset + 31,
       commandStartOffset = outputModel.startOffset + 46,
       outputStartOffset = null,
@@ -337,16 +526,16 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
     val outputModel = TerminalTestUtil.createOutputModel()
     val blocksModel = TerminalBlocksModelImpl(outputModel, testRootDisposable)
 
-    val firstBlock = TerminalOutputBlock(
-      id = 1,
+    val firstBlock = TerminalCommandBlockImpl(
+      id = TerminalBlockIdImpl(1),
       startOffset = outputModel.startOffset + 0,
       commandStartOffset = outputModel.startOffset + 10,
       outputStartOffset = outputModel.startOffset + 20,
       endOffset = outputModel.startOffset + 31,
       exitCode = null
     )
-    val secondBlock = TerminalOutputBlock(
-      id = 2,
+    val secondBlock = TerminalCommandBlockImpl(
+      id = TerminalBlockIdImpl(2),
       startOffset = outputModel.startOffset + 31,
       commandStartOffset = outputModel.startOffset + 46,
       outputStartOffset = null,
@@ -374,15 +563,15 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
 
     // Prepare
     sourceOutputModel.update(0, "\n\n\n")
-    sourceBlocksModel.promptStarted(sourceOutputModel.startOffset + 0)
+    sourceBlocksModel.startNewBlock(sourceOutputModel.startOffset + 0)
     sourceOutputModel.update(0, "myPrompt: \n\n\n")
-    sourceBlocksModel.promptFinished(sourceOutputModel.startOffset + 10)
+    sourceBlocksModel.updateCommandStartOffset(sourceOutputModel.startOffset + 10)
     sourceOutputModel.update(0, "myPrompt: myCommand\n\n\n")
-    sourceBlocksModel.commandStarted(sourceOutputModel.startOffset + 20)
+    sourceBlocksModel.updateOutputStartOffset(sourceOutputModel.startOffset + 20)
     sourceOutputModel.update(1, "someOutput\n\n")
-    sourceBlocksModel.promptStarted(sourceOutputModel.startOffset + 31)
+    sourceBlocksModel.startNewBlock(sourceOutputModel.startOffset + 31)
     sourceOutputModel.update(2, "updatedPrompt: \n")
-    sourceBlocksModel.promptFinished(sourceOutputModel.startOffset + 46)
+    sourceBlocksModel.updateCommandStartOffset(sourceOutputModel.startOffset + 46)
 
     // Test
     val state = sourceBlocksModel.dumpState()
@@ -393,8 +582,8 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
     assertEquals(3, state.blockIdCounter)
     assertEquals(2, state.blocks.size)
 
-    val expectedFirstBlock = TerminalOutputBlock(
-      id = 1,
+    val expectedFirstBlock = TerminalCommandBlockImpl(
+      id = TerminalBlockIdImpl(1),
       startOffset = newOutputModel.startOffset + 0,
       commandStartOffset = newOutputModel.startOffset + 10,
       outputStartOffset = newOutputModel.startOffset + 20,
@@ -403,8 +592,8 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
     )
     assertEquals(expectedFirstBlock, state.blocks[0])
 
-    val expectedSecondBlock = TerminalOutputBlock(
-      id = 2,
+    val expectedSecondBlock = TerminalCommandBlockImpl(
+      id = TerminalBlockIdImpl(2),
       startOffset = newOutputModel.startOffset + 31,
       commandStartOffset = newOutputModel.startOffset + 46,
       outputStartOffset = null,
@@ -416,5 +605,17 @@ internal class TerminalBlocksModelTest : BasePlatformTestCase() {
 
   private fun MutableTerminalOutputModel.getTextAsString(startOffset: TerminalOffset, endOffset: TerminalOffset): String {
     return getText(startOffset, endOffset).toString()
+  }
+
+  private fun TerminalBlocksModelImpl.updateCommandStartOffset(offset: TerminalOffset) {
+    updateActiveCommandBlock { block ->
+      block.copy(commandStartOffset = offset)
+    }
+  }
+
+  private fun TerminalBlocksModelImpl.updateOutputStartOffset(offset: TerminalOffset) {
+    updateActiveCommandBlock { block ->
+      block.copy(outputStartOffset = offset)
+    }
   }
 }

@@ -40,6 +40,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.future.await
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.TerminalPanelMarker
@@ -65,6 +66,9 @@ import org.jetbrains.plugins.terminal.view.TerminalSendTextBuilder
 import org.jetbrains.plugins.terminal.view.impl.TerminalOutputModelsSetImpl
 import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextBuilderImpl
 import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextOptions
+import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalBlocksModel
+import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalCommandBlock
+import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalShellIntegration
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.event.ComponentAdapter
@@ -84,10 +88,12 @@ class TerminalViewImpl(
   override val coroutineScope: CoroutineScope,
 ) : TerminalView {
   private val sessionFuture: CompletableFuture<TerminalSession> = CompletableFuture()
-  private val sessionModel: TerminalSessionModel
 
   @VisibleForTesting
-  val blocksModel: TerminalBlocksModel
+  val shellIntegrationFuture: CompletableFuture<TerminalShellIntegration> = CompletableFuture()
+
+  private val sessionModel: TerminalSessionModel
+
   private val encodingManager: TerminalKeyEncodingManager
   private val controller: TerminalSessionController
 
@@ -107,6 +113,9 @@ class TerminalViewImpl(
   @VisibleForTesting
   val outputEditorEventsHandler: TerminalEventsHandler
 
+  @VisibleForTesting
+  val shellIntegrationFeaturesInitJob: Job
+
   override val component: JComponent
     get() = terminalPanel
   override val preferredFocusableComponent: JComponent
@@ -122,6 +131,12 @@ class TerminalViewImpl(
   override val sessionState: StateFlow<TerminalViewSessionState> = mutableSessionState.asStateFlow()
 
   init {
+    // Cancell the hanging callbacks that wait for future completion if the coroutine scope is cancelled.
+    coroutineScope.coroutineContext.job.invokeOnCompletion {
+      sessionFuture.cancel(true)
+      shellIntegrationFuture.cancel(true)
+    }
+
     val hyperlinkScope = coroutineScope.childScope("TerminalViewImpl hyperlink facades")
 
     sessionModel = TerminalSessionModelImpl()
@@ -151,6 +166,7 @@ class TerminalViewImpl(
       settings,
       scrollingModel = null,
       alternateBufferModel,
+      shellIntegrationFuture = null,
       typeAhead = null,
     )
     configureOutputEditor(
@@ -181,14 +197,10 @@ class TerminalViewImpl(
                                                       coroutineScope.childScope("TerminalOutputScrollingModel"))
     outputEditor.putUserData(TerminalOutputScrollingModel.KEY, scrollingModel)
 
-    blocksModel = TerminalBlocksModelImpl(outputModel, coroutineScope.asDisposable())
-    outputEditor.putUserData(TerminalBlocksModel.KEY, blocksModel)
-    TerminalBlocksDecorator(outputEditor, outputModel, blocksModel, scrollingModel, coroutineScope.childScope("TerminalBlocksDecorator"))
-
     val outputModelController = TerminalTypeAheadOutputModelController(
       project,
       outputModel,
-      blocksModel,
+      shellIntegrationFuture,
       coroutineScope.childScope("TerminalTypeAheadOutputModelController")
     )
     outputEditor.putUserData(TerminalTypeAhead.KEY, outputModelController)
@@ -201,6 +213,7 @@ class TerminalViewImpl(
       settings,
       scrollingModel,
       outputModel,
+      shellIntegrationFuture,
       typeAhead = outputModelController
     )
 
@@ -243,23 +256,20 @@ class TerminalViewImpl(
       outputHyperlinkFacade,
       alternateBufferModelController,
       alternateBufferHyperlinkFacade,
-      blocksModel,
       settings,
-      coroutineScope.childScope("TerminalSessionController"),
-      terminalAliasesStorage
+      coroutineScope.childScope("TerminalSessionController")
     )
+    val shellIntegrationEventsHandler = TerminalShellIntegrationEventsHandler(
+      outputModelController,
+      shellIntegrationFuture,
+      terminalAliasesStorage,
+      coroutineScope.childScope("TerminalShellIntegrationEventsHandler"),
+    )
+    controller.addEventsHandler(shellIntegrationEventsHandler)
 
     controller.addTerminationCallback(coroutineScope.asDisposable()) {
       mutableSessionState.value = TerminalViewSessionState.Terminated
     }
-
-    configureInlineCompletion(outputEditor, outputModel, coroutineScope.childScope("TerminalInlineCompletion"))
-    configureCommandCompletion(
-      outputEditor,
-      sessionModel,
-      controller,
-      coroutineScope.childScope("TerminalCommandCompletion")
-    )
 
     terminalPanel = TerminalPanel(initialContent = outputEditor)
 
@@ -268,13 +278,42 @@ class TerminalViewImpl(
     listenAlternateBufferSwitch()
 
     val synchronizer = TerminalVfsSynchronizer(
-      controller,
+      shellIntegrationFuture,
       outputModel,
-      sessionModel,
       terminalPanel,
       coroutineScope.childScope("TerminalVfsSynchronizer"),
     )
     outputEditor.putUserData(TerminalVfsSynchronizer.KEY, synchronizer)
+
+    shellIntegrationFeaturesInitJob = coroutineScope.launch(
+      Dispatchers.EDT +
+      ModalityState.any().asContextElement() +
+      CoroutineName("Shell integration features init")
+    ) {
+      val shellIntegration = awaitShellIntegrationInitialized()
+
+      outputEditor.putUserData(TerminalBlocksModel.KEY, shellIntegration.blocksModel)
+      TerminalBlocksDecorator(
+        outputEditor,
+        outputModel,
+        shellIntegration.blocksModel,
+        scrollingModel,
+        coroutineScope.childScope("TerminalBlocksDecorator")
+      )
+
+      configureInlineCompletion(
+        outputEditor,
+        outputModel,
+        shellIntegration,
+        coroutineScope.childScope("TerminalInlineCompletion")
+      )
+      configureCommandCompletion(
+        outputEditor,
+        sessionModel,
+        shellIntegration,
+        coroutineScope.childScope("TerminalCommandCompletion")
+      )
+    }
   }
 
   fun connectToSession(session: TerminalSession) {
@@ -304,6 +343,14 @@ class TerminalViewImpl(
 
   private fun doSendText(options: TerminalSendTextOptions) {
     terminalInput.sendText(options)
+  }
+
+  override fun getShellIntegration(): TerminalShellIntegration? {
+    return shellIntegrationFuture.getNow(null)
+  }
+
+  override suspend fun awaitShellIntegrationInitialized(): TerminalShellIntegration {
+    return shellIntegrationFuture.await()
   }
 
   fun setTopComponent(component: JComponent, disposable: Disposable) {
@@ -444,7 +491,12 @@ class TerminalViewImpl(
   }
 
   @OptIn(AwaitCancellationAndInvoke::class)
-  private fun configureInlineCompletion(editor: EditorEx, model: TerminalOutputModel, coroutineScope: CoroutineScope) {
+  private fun configureInlineCompletion(
+    editor: EditorEx,
+    model: TerminalOutputModel,
+    shellIntegration: TerminalShellIntegration,
+    coroutineScope: CoroutineScope,
+  ) {
     InlineCompletion.install(editor, coroutineScope)
     // Inline completion handler needs to be manually disposed
     coroutineScope.awaitCancellationAndInvoke(Dispatchers.UiWithModelAccess) {
@@ -457,8 +509,8 @@ class TerminalViewImpl(
 
       override fun afterContentChanged(event: TerminalContentChangeEvent) {
         val inlineCompletionTypingSession = InlineCompletion.getHandlerOrNull(editor)?.typingSessionTracker
-        val lastBlock = editor.getUserData(TerminalBlocksModel.KEY)?.blocks?.lastOrNull() ?: return
-        val lastBlockCommandStartIndex = lastBlock.commandStartOffset ?: lastBlock.startOffset
+        val commandBlock = shellIntegration.blocksModel.activeBlock as? TerminalCommandBlock ?: return
+        val lastBlockCommandStartIndex = commandBlock.commandStartOffset ?: commandBlock.startOffset
 
         // When resizing the terminal, the blocks model may fall out of sync for a short time.
         // These updates will never trigger a completion, so we return early to avoid reading out of bounds.
@@ -486,15 +538,17 @@ class TerminalViewImpl(
   private fun configureCommandCompletion(
     editor: Editor,
     sessionModel: TerminalSessionModel,
-    controller: TerminalSessionController,
+    shellIntegration: TerminalShellIntegration,
     coroutineScope: CoroutineScope,
   ) {
     val eelDescriptor = LocalEelDescriptor // TODO: it should be determined by where shell is running to work properly in WSL and Docker
     val services = TerminalCommandCompletionServices(
       commandSpecsManager = ShellCommandSpecsManagerImpl.getInstance(),
       runtimeContextProvider = ShellRuntimeContextProviderReworkedImpl(project, sessionModel, eelDescriptor),
-      dataGeneratorsExecutor = ShellDataGeneratorsExecutorReworkedImpl(controller,
-                                                                       coroutineScope.childScope("ShellDataGeneratorsExecutorReworkedImpl"))
+      dataGeneratorsExecutor = ShellDataGeneratorsExecutorReworkedImpl(
+        shellIntegration,
+        coroutineScope.childScope("ShellDataGeneratorsExecutorReworkedImpl")
+      )
     )
     editor.putUserData(TerminalCommandCompletionServices.KEY, services)
   }

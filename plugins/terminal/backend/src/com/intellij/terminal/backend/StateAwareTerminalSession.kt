@@ -20,6 +20,7 @@ import org.jetbrains.plugins.terminal.fus.*
 import org.jetbrains.plugins.terminal.session.*
 import org.jetbrains.plugins.terminal.session.dto.toDto
 import org.jetbrains.plugins.terminal.session.dto.toTerminalState
+import org.jetbrains.plugins.terminal.view.shellIntegration.impl.TerminalBlocksModelImpl
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.TimeSource
 
@@ -46,7 +47,7 @@ internal class StateAwareTerminalSession(
   private val outputHyperlinkFacade: BackendTerminalHyperlinkFacade
   private val alternateBufferModel: MutableTerminalOutputModel
   private val alternateBufferHyperlinkFacade: BackendTerminalHyperlinkFacade
-  private val blocksModel: TerminalBlocksModel
+  private val blocksModel: TerminalBlocksModelImpl
 
   private val inputChannel: SendChannel<TerminalInputEvent>
 
@@ -182,16 +183,22 @@ internal class StateAwareTerminalSession(
           sessionModel.updateTerminalState(state)
         }
         TerminalPromptStartedEvent -> {
-          blocksModel.promptStarted(outputModel.cursorOffset)
+          blocksModel.startNewBlock(outputModel.cursorOffset)
         }
         TerminalPromptFinishedEvent -> {
-          blocksModel.promptFinished(outputModel.cursorOffset)
+          blocksModel.updateActiveCommandBlock { block ->
+            block.copy(commandStartOffset = outputModel.cursorOffset)
+          }
         }
         is TerminalCommandStartedEvent -> {
-          blocksModel.commandStarted(outputModel.cursorOffset)
+          blocksModel.updateActiveCommandBlock { block ->
+            block.copy(outputStartOffset = outputModel.cursorOffset)
+          }
         }
         is TerminalCommandFinishedEvent -> {
-          blocksModel.commandFinished(event.exitCode)
+          blocksModel.updateActiveCommandBlock { block ->
+            block.copy(exitCode = event.exitCode)
+          }
         }
         is TerminalHyperlinksHeartbeatEvent -> {
           val facade = getHyperlinkFacade(event)

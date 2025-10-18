@@ -15,12 +15,15 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.debounce
 import org.jetbrains.plugins.terminal.block.reworked.*
-import org.jetbrains.plugins.terminal.block.reworked.TerminalOffset
 import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils.isReworkedTerminalEditor
 import org.jetbrains.plugins.terminal.session.TerminalContentUpdatedEvent
 import org.jetbrains.plugins.terminal.session.TerminalCursorPositionChangedEvent
 import org.jetbrains.plugins.terminal.session.TerminalOutputEvent
+import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalCommandBlock
+import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalOutputStatus
+import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalShellIntegration
 import java.lang.Runnable
+import java.util.concurrent.CompletableFuture
 
 /**
  * Implementation of the [TerminalOutputModelController] that supports type-ahead.
@@ -34,7 +37,7 @@ import java.lang.Runnable
 internal class TerminalTypeAheadOutputModelController(
   private val project: Project,
   private val outputModel: MutableTerminalOutputModel,
-  private val blocksModel: TerminalBlocksModel,
+  private val shellIntegrationFuture: CompletableFuture<TerminalShellIntegration>,
   coroutineScope: CoroutineScope,
 ) : TerminalOutputModelController, TerminalTypeAhead {
   override val model: MutableTerminalOutputModel = outputModel
@@ -56,7 +59,9 @@ internal class TerminalTypeAheadOutputModelController(
   }
 
   private fun isTypeAheadEnabled(): Boolean {
-    return Registry.`is`("terminal.type.ahead", false) && blocksModel.isCommandTypingMode()
+    val enabledInRegistry = Registry.`is`("terminal.type.ahead", false)
+    val outputStatus = shellIntegrationFuture.getNow(null)?.outputStatus?.value
+    return enabledInRegistry && outputStatus == TerminalOutputStatus.TypingCommand
   }
 
   override fun type(string: String) {
@@ -73,10 +78,11 @@ internal class TerminalTypeAheadOutputModelController(
   override fun backspace() {
     if (!isTypeAheadEnabled()) return
 
-    val lastBlock = blocksModel.blocks.lastOrNull()
+    val shellIntegration = shellIntegrationFuture.getNow(null)!!  // isTypeAheadEnabled should guarantee that it is available
+    val commandBlock = shellIntegration.blocksModel.activeBlock as? TerminalCommandBlock
     val cursorOffset = outputModel.cursorOffset
-    val commandStartOffset = lastBlock?.commandStartOffset
-    if (lastBlock == null || (commandStartOffset != null && cursorOffset <= commandStartOffset) || cursorOffset == outputModel.startOffset) {
+    val commandStartOffset = commandBlock?.commandStartOffset
+    if (commandBlock == null || (commandStartOffset != null && cursorOffset <= commandStartOffset) || cursorOffset == outputModel.startOffset) {
       // Cursor is placed before or at the command start, so we can't backspace anymore.
       return
     }

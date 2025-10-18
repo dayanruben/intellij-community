@@ -216,7 +216,7 @@ abstract class ProductProperties {
   var rootModuleForModularLoader: String? = null
 
   /**
-   * Specifies the mode of this product which will be used to determine which plugin modules should be loaded at runtime by 
+   * Specifies the mode of this product which will be used to determine which plugin modules should be loaded at runtime by
    * [the modular loader][com.intellij.platform.bootstrap.ModuleBasedProductLoadingStrategy].
    * This property makes sense only if [rootModuleForModularLoader] is set to a non-null value.
    */
@@ -338,7 +338,7 @@ abstract class ProductProperties {
    * Paths to externally built plugins to be included in the IDE.
    * They will be copied into the build, as well as included in the IDE classpath when launching it to build search index, .jar order, etc.
    */
-  open fun getAdditionalPluginPaths(context: BuildContext): List<Path> = emptyList()
+  open suspend fun getAdditionalPluginPaths(context: BuildContext): List<Path> = emptyList()
 
   /**
    * Override this function to provide additional JVM command line arguments which will be added to launchers along with 
@@ -347,7 +347,7 @@ abstract class ProductProperties {
   open fun getAdditionalContextDependentIdeJvmArguments(context: BuildContext): List<String> = emptyList()
 
   /**
-   * @return custom properties for [org.jetbrains.intellij.build.impl.productInfo.ProductInfoData].
+   * @return custom properties for [com.intellij.platform.buildData.productInfo.ProductInfoData].
    */
   @Suppress("KDocUnresolvedReference")
   open fun generateCustomPropertiesForProductInfo(): List<CustomProperty> = emptyList()

@@ -1,5 +1,6 @@
 package com.intellij.platform.ide.nonModalWelcomeScreen.actions
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.AnActionWrapper
@@ -9,6 +10,7 @@ import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehavior
 import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider.Companion.isWelcomeScreenProject
+import com.intellij.platform.ide.nonModalWelcomeScreen.leftPanel.WelcomeScreenLeftTabActionNew
 import org.intellij.lang.annotations.Language
 
 internal class WelcomeScreenAwareActionsCustomizer : ActionConfigurationCustomizer, ActionConfigurationCustomizer.LightCustomizeStrategy {
@@ -18,6 +20,7 @@ internal class WelcomeScreenAwareActionsCustomizer : ActionConfigurationCustomiz
       replaceExistingAction("RenameProject") { hideActionOnWelcomeScreen(it) }
       replaceExistingAction("NewDir") { hideActionOnWelcomeScreen(it) }
       replaceExistingAction("NewFile") { WelcomeScreenProxyAction(it, CreateEmptyFileAction()) }
+      replaceExistingAction("NewElement") { WelcomeScreenProxyAction(it, WelcomeScreenLeftTabActionNew()) }
 
       // Hide project view toolbar actions
       replaceExistingAction("SelectInProjectView") { hideActionOnWelcomeScreen(it) }
@@ -65,13 +68,27 @@ private open class WelcomeScreenHiddenAction(action: AnAction) : AnActionWrapper
   }
 }
 
-private class WelcomeScreenProxyAction(val action: AnAction?, val welcomeScreenBehaviour: AnAction) : DumbAwareAction(action?.templatePresentation?.text) {
+private class WelcomeScreenProxyAction(val action: AnAction, val welcomeScreenBehaviour: AnAction) : DumbAwareAction(action.templatePresentation.text) {
   override fun actionPerformed(e: AnActionEvent) {
     val project = e.project
     if (project != null && isWelcomeScreenProject(project)) {
       welcomeScreenBehaviour.actionPerformed(e)
       return
     }
-    action?.actionPerformed(e)
+    action.actionPerformed(e)
+  }
+
+  override fun update(e: AnActionEvent) {
+    val project = e.project
+    if (project != null && isWelcomeScreenProject(project)) {
+      welcomeScreenBehaviour.update(e)
+      return
+    }
+    action.update(e)
+    welcomeScreenBehaviour.update(e)
+  }
+
+  override fun getActionUpdateThread(): ActionUpdateThread {
+    return action.actionUpdateThread
   }
 }

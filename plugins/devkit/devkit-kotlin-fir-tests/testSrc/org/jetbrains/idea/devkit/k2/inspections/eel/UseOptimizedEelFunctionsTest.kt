@@ -59,7 +59,7 @@ class UseOptimizedEelFunctionsTest {
 
         @Language("Java")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles;
+          import com.intellij.platform.eel.fs.EelFiles;
           
           import java.io.IOException;
           import java.nio.file.Files;
@@ -89,7 +89,7 @@ class UseOptimizedEelFunctionsTest {
 
         @Language("Kt")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles
+          import com.intellij.platform.eel.fs.EelFiles
           import java.nio.file.Files
           import java.nio.file.Path
     
@@ -99,6 +99,59 @@ class UseOptimizedEelFunctionsTest {
         """.trimIndent()
 
         doTest("Example.kt", source, expectedResult)
+      }
+    }
+
+    @Nested
+    inner class `usages in docs are ignored` {
+      @Test
+      fun Java() {
+        @Language("Java")
+        val source = """
+          import java.io.IOException;
+          import java.nio.file.Files;
+          import java.nio.file.Path;
+    
+          class Example {
+            /**
+             * <p>{@link java.nio.file.Files#readAllBytes}</p>
+             * <p>{@link java.nio.file.Files#readAllBytes(Path)}</p>
+             * <p>{@link java.nio.file.Files#readAllBytes(Path) Files.readAllBytes(Path)}</p>
+             */
+            void example() {}
+          }
+        """.trimIndent()
+
+        doTest("Example.java", source)
+      }
+
+      @Test
+      fun Kotlin() {
+        @Language("Kt")
+        val source = """
+          import java.nio.file.Files
+          import java.nio.file.Path
+    
+          /**
+           * [java.nio.file.Files.readAllBytes]
+           * 
+           * [java.nio.file.Files.readAllBytes(Path)]
+           *
+           * [java.nio.file.Files.readAllBytes(Path) Files.readAllBytes(Path)]
+           */
+          fun example() = Unit
+        """.trimIndent()
+
+        doTest("Example.kt", source)
+      }
+
+      private fun doTest(fileName: String, source: String) = timeoutRunBlocking {
+        val exampleFile = myFixture.configureByText(fileName, source)
+        withContext(Dispatchers.EDT) {
+          myFixture.openFileInEditor(exampleFile.virtualFile)
+        }
+
+        myFixture.testHighlighting()
       }
     }
 
@@ -122,7 +175,7 @@ class UseOptimizedEelFunctionsTest {
 
         @Language("Java")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles;
+          import com.intellij.platform.eel.fs.EelFiles;
           
           import java.io.IOException;
           import java.nio.ByteBuffer;
@@ -154,13 +207,79 @@ class UseOptimizedEelFunctionsTest {
 
         @Language("Kt")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles
+          import com.intellij.platform.eel.fs.EelFiles
           import java.nio.ByteBuffer
           import java.nio.file.Files
           import java.nio.file.Path
     
           fun example() {
             val result = ByteBuffer.wrap(EelFiles.readAllBytes(Path.of("hello.txt")))
+          }
+        """.trimIndent()
+
+        doTest("Example.kt", source, expectedResult)
+      }
+    }
+
+    @Nested
+    inner class `class dot method in call chain` {
+      @Test
+      fun Java() {
+        @Language("Java")
+        val source = """
+          import java.io.IOException;
+          import java.nio.ByteBuffer;
+          import java.nio.file.Files;
+          import java.nio.file.Path;
+    
+          class Example {
+            void example() throws IOException {
+              int hash = Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt")).hashCode();
+            }
+          }
+        """.trimIndent()
+
+        @Language("Java")
+        val expectedResult = """
+          import com.intellij.platform.eel.fs.EelFiles;
+          
+          import java.io.IOException;
+          import java.nio.ByteBuffer;
+          import java.nio.file.Files;
+          import java.nio.file.Path;
+    
+          class Example {
+            void example() throws IOException {
+              int hash = EelFiles.readAllBytes(Path.of("hello.txt")).hashCode();
+            }
+          }
+        """.trimIndent()
+
+        doTest("Example.java", source, expectedResult)
+      }
+
+      @Test
+      fun Kotlin() {
+        @Language("Kt")
+        val source = """
+          import java.nio.ByteBuffer
+          import java.nio.file.Files
+          import java.nio.file.Path
+    
+          fun example() {
+            val hash = Files.<warning descr="Works ineffectively with remote Eel">readAllBytes</warning>(Path.of("hello.txt")).hashCode()
+          }
+        """.trimIndent()
+
+        @Language("Kt")
+        val expectedResult = """
+          import com.intellij.platform.eel.fs.EelFiles
+          import java.nio.ByteBuffer
+          import java.nio.file.Files
+          import java.nio.file.Path
+    
+          fun example() {
+            val hash = EelFiles.readAllBytes(Path.of("hello.txt")).hashCode()
           }
         """.trimIndent()
 
@@ -186,7 +305,7 @@ class UseOptimizedEelFunctionsTest {
 
         @Language("Java")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles;
+          import com.intellij.platform.eel.fs.EelFiles;
           
           import java.io.IOException;
           import java.nio.file.*;
@@ -214,7 +333,7 @@ class UseOptimizedEelFunctionsTest {
 
         @Language("Kt")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles
+          import com.intellij.platform.eel.fs.EelFiles
           import java.nio.file.*
     
           fun example() {
@@ -244,7 +363,7 @@ class UseOptimizedEelFunctionsTest {
         // It would be better to keep FQN for java.nio.file.Path, but it's impossible after the commit b739467b7a9728dd1e7eabe814dda073e66ad563
         @Language("Java")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles;
+          import com.intellij.platform.eel.fs.EelFiles;
           
           import java.io.IOException;
           import java.nio.file.Path;
@@ -273,7 +392,7 @@ class UseOptimizedEelFunctionsTest {
         // It would be better to keep FQN for java.nio.file.Path, but it's impossible after the commit b739467b7a9728dd1e7eabe814dda073e66ad563
         @Language("Kt")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles
+          import com.intellij.platform.eel.fs.EelFiles
           import java.nio.file.Files
           import java.nio.file.Path
     
@@ -305,7 +424,7 @@ class UseOptimizedEelFunctionsTest {
 
         @Language("Java")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles;
+          import com.intellij.platform.eel.fs.EelFiles;
           
           import java.io.IOException;
           import static java.nio.file.Files.readAllBytes;
@@ -335,7 +454,7 @@ class UseOptimizedEelFunctionsTest {
 
         @Language("Kt")
         val expectedResult = """
-          import com.intellij.platform.eel.provider.nioHelpers.EelFiles
+          import com.intellij.platform.eel.fs.EelFiles
           import java.nio.file.Files.readAllBytes
           import java.nio.file.Path
     
@@ -362,7 +481,7 @@ class UseOptimizedEelFunctionsTest {
 
       @Language("Kt")
       val expectedResult = """
-        import com.intellij.platform.eel.provider.nioHelpers.EelFiles
+        import com.intellij.platform.eel.fs.EelFiles
         import java.nio.file.Files.readAllBytes as foobar
         import java.nio.file.Path
   
@@ -394,7 +513,7 @@ class UseOptimizedEelFunctionsTest {
 
       @Language("Java")
       val expectedResult = """
-        import com.intellij.platform.eel.provider.nioHelpers.EelFiles;
+        import com.intellij.platform.eel.fs.EelFiles;
         
         import java.io.IOException;
         import java.nio.file.Files;
@@ -429,7 +548,7 @@ class UseOptimizedEelFunctionsTest {
 
       @Language("Java")
       val expectedResult = """
-        import com.intellij.platform.eel.provider.nioHelpers.EelFiles;
+        import com.intellij.platform.eel.fs.EelFiles;
         
         import java.io.IOException;
         import java.nio.charset.StandardCharsets;
@@ -440,6 +559,60 @@ class UseOptimizedEelFunctionsTest {
           void example() throws IOException {
             String a = EelFiles.readString(Path.of("hello.txt"));
             String b = EelFiles.readString(Path.of("hello.txt"), StandardCharsets.UTF_8);
+          }
+        }
+      """.trimIndent()
+
+      doTest("Example.java", source, expectedResult)
+    }
+
+    @Test
+    fun deleteRecursively() {
+      @Suppress("unused")
+      fun someFnThatIsNeverCalled() {
+        // Just a reminder that these functions are checked by this inspection.
+        // If something happens with the functions, the inspection is to be modified as well.
+        fun path(): Path = error("oops")
+        com.intellij.openapi.util.io.NioFiles.deleteRecursively(path())
+        com.intellij.openapi.util.io.FileUtilRt.deleteRecursively(path())
+      }
+
+      @Language("Java")
+      val source = """
+        import com.intellij.openapi.util.io.NioFiles;
+        import com.intellij.openapi.util.io.FileUtilRt;
+        import java.io.IOException;
+        import java.nio.charset.StandardCharsets;
+        import java.nio.file.Files;
+        import java.nio.file.Path;
+  
+        class Example {
+          void example() throws IOException {
+            NioFiles.<warning descr="Works ineffectively with remote Eel">deleteRecursively</warning>(Path.of(""));
+            NioFiles.deleteRecursively(Path.of(""), path -> {});  // This overload has no replacement in eel.
+            
+            FileUtilRt.<warning descr="Works ineffectively with remote Eel">deleteRecursively</warning>(Path.of(""));
+          }
+        }
+      """.trimIndent()
+
+      @Language("Java")
+      val expectedResult = """
+        import com.intellij.openapi.util.io.NioFiles;
+        import com.intellij.openapi.util.io.FileUtilRt;
+        import com.intellij.platform.eel.fs.EelFileUtils;
+        
+        import java.io.IOException;
+        import java.nio.charset.StandardCharsets;
+        import java.nio.file.Files;
+        import java.nio.file.Path;
+  
+        class Example {
+          void example() throws IOException {
+            EelFileUtils.deleteRecursively(Path.of(""));
+            NioFiles.deleteRecursively(Path.of(""), path -> {});  // This overload has no replacement in eel.
+            
+            EelFileUtils.deleteRecursively(Path.of(""));
           }
         }
       """.trimIndent()
@@ -503,14 +676,12 @@ class UseOptimizedEelFunctionsTest {
         commit()
       }
 
-      PsiTestUtil.addSourceContentToRoots(
-        module,
-        Path.of(PathManager.getCommunityHomePath(), "platform/eel/src").refreshAndGetVirtualDirectory(),
-      )
-      PsiTestUtil.addSourceContentToRoots(
-        module,
-        Path.of(PathManager.getCommunityHomePath(), "platform/eel-provider/src").refreshAndGetVirtualDirectory(),
-      )
+      for (directory in listOf("platform/eel/src", "platform/util/src", "platform/util-rt/src")) {
+        PsiTestUtil.addSourceContentToRoots(
+          module,
+          Path.of(PathManager.getCommunityHomePath(), directory).refreshAndGetVirtualDirectory(),
+        )
+      }
     }
   }
 }
