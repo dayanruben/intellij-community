@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.github.pullrequest.ui
 
+import com.intellij.collaboration.action.findFocusedThreadId
 import com.intellij.collaboration.async.combineState
 import com.intellij.collaboration.async.flatMapLatestEach
 import com.intellij.collaboration.async.launchNow
@@ -29,7 +30,6 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import org.jetbrains.plugins.github.pullrequest.comment.action.findFocusedThreadId
 import org.jetbrains.plugins.github.pullrequest.ui.comment.CommentedCodeFrameRenderer
 import org.jetbrains.plugins.github.pullrequest.ui.editor.GHPREditorMappedComponentModel
 import java.awt.*
@@ -235,7 +235,7 @@ internal object GHPRInlayUtils {
   }
 
   @OptIn(ExperimentalCoroutinesApi::class)
-  fun installInlaysDimming(cs: CoroutineScope, model: CodeReviewEditorInlaysModel<*>) {
+  fun installInlaysDimming(cs: CoroutineScope, model: CodeReviewEditorInlaysModel<*>, locationToLine: ((DiffLineLocation) -> Int?)?) {
     cs.launchNow {
       model.inlays
         .map { it.filterIsInstance<GHPREditorMappedComponentModel>() }
@@ -248,13 +248,25 @@ internal object GHPRInlayUtils {
           val rangesToDim = inlayStates
             .filter { it.shouldShowOutline }
             .mapNotNull {
-              val (_, lines) = it.range ?: return@mapNotNull null
-              lines.first..<lines.last
+              val (side, lines) = it.range ?: return@mapNotNull null
+              if (locationToLine != null) {
+                val startLine = locationToLine(side to lines.first) ?: return@mapNotNull null
+                val endLine = locationToLine(side to lines.last) ?: return@mapNotNull null
+                startLine..<endLine
+              }
+              else {
+                lines.first..<lines.last
+              }
             }
 
           inlayStates.forEach { (vm, _, range) ->
-            val (_, lines) = range ?: return@forEach
-            val onLine = lines.last
+            val (side, lines) = range ?: return@forEach
+            val onLine = if (locationToLine != null) {
+              locationToLine(side to lines.last) ?: return@forEach
+            }
+            else {
+              lines.last
+            }
 
             vm.setDimmed(rangesToDim.any { dimRange -> dimRange.contains(onLine) })
           }

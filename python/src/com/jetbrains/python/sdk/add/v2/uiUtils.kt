@@ -31,6 +31,7 @@ import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.errorProcessing.emit
 import com.jetbrains.python.onFailure
 import com.jetbrains.python.parser.icons.PythonParserIcons
 import com.jetbrains.python.sdk.add.v2.PythonInterpreterSelectionMethod.CREATE_NEW
@@ -151,7 +152,7 @@ internal fun <P : PathHolder> SimpleColoredComponent.customizeForPythonInterpret
     is DetectedSelectableInterpreter, is ManuallyAddedSelectableInterpreter -> {
       icon = IconLoader.getTransparentIcon(interpreter.ui?.icon ?: PythonParserIcons.PythonFile)
       val title = interpreter.ui?.toolName ?: message("sdk.rendering.detected.grey.text")
-      append(String.format("Python %-4s", interpreter.languageLevel))
+      append(String.format("Python %-4s", interpreter.pythonInfo.languageLevel))
       append(" (" + replaceHomePathToTilde(interpreter.homePath.toString()) + ") $title", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
     }
     is InstallableSelectableInterpreter -> {

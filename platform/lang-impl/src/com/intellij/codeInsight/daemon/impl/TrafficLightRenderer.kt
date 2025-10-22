@@ -67,6 +67,9 @@ open class TrafficLightRenderer private constructor(
   private val daemonCodeAnalyzer: DaemonCodeAnalyzerImpl
   private val severityRegistrar: SeverityRegistrar
   private val errorCount = ErrorCountStorage()
+  @Volatile
+  private var isDisposed: Boolean = false
+
   @JvmField
   @ApiStatus.Internal
   protected val uiController: UIController
@@ -103,22 +106,23 @@ open class TrafficLightRenderer private constructor(
 
   private fun init(project: Project, document: Document) {
     val model = DocumentMarkupModel.forDocument(document, project, true) as MarkupModelEx
-    model.addMarkupModelListener(this, object : MarkupModelListener {
-      override fun afterAdded(highlighter: RangeHighlighterEx) {
-        incErrorCount(highlighter, 1)
-      }
-
-      // assumption: range highlighters for errors/warnings don't transmute into each other, across different severity layers
-      // see com.intellij.codeInsight.daemon.impl.ManagedHighlighterRecycler.pickupHighlighterFromGarbageBin how range highlighter recycling work
-
-      override fun afterRemoved(highlighter: RangeHighlighterEx) {
-        incErrorCount(highlighter, -1)
-      }
-    })
     EdtInvocationManager.invokeLaterIfNeeded(Runnable {
       for (rangeHighlighter in model.getAllHighlighters()) {
         incErrorCount(rangeHighlighter, 1)
       }
+      if (isDisposed) return@Runnable
+      model.addMarkupModelListener(this, object : MarkupModelListener {
+        override fun afterAdded(highlighter: RangeHighlighterEx) {
+          incErrorCount(highlighter, 1)
+        }
+
+        // assumption: range highlighters for errors/warnings don't transmute into each other, across different severity layers
+        // see com.intellij.codeInsight.daemon.impl.ManagedHighlighterRecycler.pickupHighlighterFromGarbageBin how range highlighter recycling work
+
+        override fun afterRemoved(highlighter: RangeHighlighterEx) {
+          incErrorCount(highlighter, -1)
+        }
+      })
     })
   }
 
@@ -166,6 +170,7 @@ open class TrafficLightRenderer private constructor(
 
   override fun dispose() {
     errorCount.clear()
+    isDisposed = true
   }
 
   private fun incErrorCount(highlighter: RangeHighlighter, delta: Int) {

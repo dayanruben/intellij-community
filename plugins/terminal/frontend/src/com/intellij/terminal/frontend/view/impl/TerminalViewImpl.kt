@@ -26,6 +26,7 @@ import com.intellij.terminal.TerminalTitle
 import com.intellij.terminal.actions.TerminalActionUtil
 import com.intellij.terminal.frontend.fus.TerminalFusCursorPainterListener
 import com.intellij.terminal.frontend.fus.TerminalFusFirstOutputListener
+import com.intellij.terminal.frontend.view.TerminalTextSelectionModel
 import com.intellij.terminal.frontend.view.TerminalView
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
 import com.intellij.terminal.frontend.view.completion.ShellDataGeneratorsExecutorReworkedImpl
@@ -66,9 +67,7 @@ import org.jetbrains.plugins.terminal.view.TerminalSendTextBuilder
 import org.jetbrains.plugins.terminal.view.impl.TerminalOutputModelsSetImpl
 import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextBuilderImpl
 import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextOptions
-import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalBlocksModel
-import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalCommandBlock
-import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalShellIntegration
+import org.jetbrains.plugins.terminal.view.shellIntegration.*
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.event.ComponentAdapter
@@ -124,6 +123,8 @@ class TerminalViewImpl(
 
   private val mutableOutputModels: TerminalOutputModelsSetImpl
   override val outputModels: TerminalOutputModelsSet
+
+  override val textSelectionModel: TerminalTextSelectionModel
 
   private val mutableSessionState: MutableStateFlow<TerminalViewSessionState> = MutableStateFlow(TerminalViewSessionState.NotStarted)
   override val sessionState: StateFlow<TerminalViewSessionState> = mutableSessionState.asStateFlow()
@@ -234,6 +235,13 @@ class TerminalViewImpl(
 
     mutableOutputModels = TerminalOutputModelsSetImpl(outputModel, alternateBufferModel)
     outputModels = mutableOutputModels
+
+    textSelectionModel = TerminalTextSelectionModelImpl(
+      outputModels,
+      outputEditor,
+      alternateBufferEditor,
+      coroutineScope.childScope("TerminalTextSelectionModel")
+    )
 
     terminalSearchController = TerminalSearchController(project)
 
@@ -502,15 +510,16 @@ class TerminalViewImpl(
       var cursorPosition: Int? = null
 
       override fun afterContentChanged(event: TerminalContentChangeEvent) {
-        val inlineCompletionTypingSession = InlineCompletion.getHandlerOrNull(editor)?.typingSessionTracker
+        if (shellIntegration.outputStatus.value != TerminalOutputStatus.TypingCommand) {
+          commandText = null
+          cursorPosition = null
+          return
+        }
+
         val commandBlock = shellIntegration.blocksModel.activeBlock as? TerminalCommandBlock ?: return
-        val lastBlockCommandStartIndex = commandBlock.commandStartOffset ?: commandBlock.startOffset
+        val curCommandText = commandBlock.getTypedCommandText(model) ?: return
 
-        // When resizing the terminal, the blocks model may fall out of sync for a short time.
-        // These updates will never trigger a completion, so we return early to avoid reading out of bounds.
-        if (lastBlockCommandStartIndex >= model.endOffset) return
-        val curCommandText = model.getText(lastBlockCommandStartIndex, model.endOffset).trim().toString()
-
+        val inlineCompletionTypingSession = InlineCompletion.getHandlerOrNull(editor)?.typingSessionTracker
         if (event.isTypeAhead) {
           // Trim because of differing whitespace between terminal and type ahead
           commandText = curCommandText
