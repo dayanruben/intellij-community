@@ -1171,6 +1171,7 @@ plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.k1
 plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.k2
 plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.shared
 plugins/kotlin/grazie
+plugins/kotlin/grazie/intellij.kotlin.grazie.tests
 plugins/kotlin/highlighting/highlighting-k1
 plugins/kotlin/highlighting/highlighting-k2
 plugins/kotlin/highlighting/highlighting-minimal
@@ -1489,6 +1490,10 @@ tools/devLauncher
 tools/devLauncher/tests
 tools/intellij.tools.ide.metrics.benchmark
 tools/intellij.tools.ide.metrics.collector
+tools/intellij.tools.ide.metrics.collector.starter
+tools/intellij.tools.ide.starter
+tools/intellij.tools.ide.starter.driver
+tools/intellij.tools.ide.starter.junit5
 tools/intellij.tools.ide.util.common
 tools/launcher-generator
 tools/reproducibleBuilds.diff

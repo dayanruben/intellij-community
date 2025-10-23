@@ -10,10 +10,12 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.vcs.commit.ChangesViewCommitWorkflowHandler
 import kotlinx.coroutines.flow.SharedFlow
 import org.jetbrains.annotations.ApiStatus
-import javax.swing.JComponent
 
 // TODO IJPL-173924 cleanup methods returning tree/component
-internal interface BackendCommitChangesViewModel {
+/**
+ * @see [com.intellij.vcs.changes.BackendChangesView]
+ */
+internal sealed interface BackendCommitChangesViewModel {
   val inclusionChanged: SharedFlow<Unit>
 
   fun initPanel()
@@ -46,7 +48,4 @@ internal interface BackendCommitChangesViewModel {
 
   @ApiStatus.Obsolete
   fun getTree(): ChangesListView
-
-  @ApiStatus.Obsolete
-  fun getPreferredFocusableComponent(): JComponent
 }

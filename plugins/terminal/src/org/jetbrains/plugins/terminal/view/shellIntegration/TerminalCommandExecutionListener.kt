@@ -2,11 +2,10 @@
 package org.jetbrains.plugins.terminal.view.shellIntegration
 
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.plugins.terminal.block.reworked.TerminalOutputModel
-import java.util.*
+import org.jetbrains.plugins.terminal.view.TerminalOutputModel
 
 @ApiStatus.Experimental
-interface TerminalCommandExecutionListener : EventListener {
+interface TerminalCommandExecutionListener {
   fun commandStarted(event: TerminalCommandStartedEvent) {}
 
   fun commandFinished(event: TerminalCommandFinishedEvent) {}

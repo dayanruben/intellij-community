@@ -1,11 +1,15 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.execution.dashboard.backend
 
+import com.intellij.execution.ExecutionBundle
 import com.intellij.execution.RunManager
+import com.intellij.execution.dashboard.RunDashboardManager
 import com.intellij.execution.dashboard.RunDashboardServiceId
+import com.intellij.execution.impl.RunDialog
 import com.intellij.execution.impl.RunManagerImpl
 import com.intellij.ide.rpc.ComponentDirectTransferId
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.platform.execution.dashboard.BackendLuxedRunDashboardContentManager
@@ -46,7 +50,7 @@ internal class RunDashboardServiceRpcImpl : RunDashboardServiceRpc {
     return RunDashboardManagerImpl.getInstance(project).configurationTypes;
   }
 
-  override suspend fun updateConfigurationFolderName(serviceIds: List<RunDashboardServiceId>, newGroupName: String?, projectId: ProjectId) {
+  override suspend fun updateConfigurationFolderName(projectId: ProjectId, serviceIds: List<RunDashboardServiceId>, newGroupName: String?) {
     val project = projectId.findProjectOrNull() ?: return
     val dashboardManagerImpl = RunDashboardManagerImpl.getInstance(project)
     val backendServices = serviceIds.mapNotNull { dashboardManagerImpl.findServiceById(it) }
@@ -123,5 +127,32 @@ internal class RunDashboardServiceRpcImpl : RunDashboardServiceRpc {
   override suspend fun getRunManagerUpdates(projectId: ProjectId): Flow<Unit> {
     val project = projectId.findProjectOrNull() ?: return emptyFlow()
     return RunDashboardConfigurationUpdatesHolder.getInstance(project).getUpdates()
+  }
+
+  override suspend fun editConfiguration(projectId: ProjectId, serviceId: RunDashboardServiceId) {
+    val project = projectId.findProjectOrNull() ?: return
+    val backendConfigurationSettings =
+      RunDashboardManagerImpl.getInstance(project).findServiceById(serviceId)?.configurationSettings ?: return
+    withContext(Dispatchers.EDT) {
+      writeIntentReadAction {
+        RunDialog.editConfiguration(project,
+                                    backendConfigurationSettings,
+                                    ExecutionBundle.message("run.dashboard.edit.configuration.dialog.title"))
+      }
+    }
+  }
+
+  override suspend fun copyConfiguration(projectId: ProjectId, serviceId: RunDashboardServiceId) {
+    val project = projectId.findProjectOrNull() ?: return
+    val backendService = RunDashboardManagerImpl.getInstance(project).findServiceById(serviceId) ?: return
+    withContext(Dispatchers.EDT) {
+      RunDashboardEditConfigurationUtils.editConfiguration(project, backendService)
+    }
+  }
+
+  override suspend fun hideConfiguration(projectId: ProjectId, serviceIds: List<RunDashboardServiceId>) {
+    val project = projectId.findProjectOrNull() ?: return
+    val configurations = serviceIds.mapNotNull { serviceId -> RunDashboardManagerImpl.getInstance(project).findServiceById(serviceId)?.configurationSettings?.configuration }
+    RunDashboardManager.getInstance(project).hideConfigurations(configurations)
   }
 }

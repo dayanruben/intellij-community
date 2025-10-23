@@ -48,7 +48,10 @@ import org.jetbrains.plugins.terminal.block.completion.ShellCommandSpecsManagerI
 import org.jetbrains.plugins.terminal.block.completion.spec.impl.TerminalCommandCompletionServices
 import org.jetbrains.plugins.terminal.block.output.TerminalOutputEditorInputMethodSupport
 import org.jetbrains.plugins.terminal.block.output.TerminalTextHighlighter
-import org.jetbrains.plugins.terminal.block.reworked.*
+import org.jetbrains.plugins.terminal.block.reworked.TerminalAiInlineCompletion
+import org.jetbrains.plugins.terminal.block.reworked.TerminalAliasesStorage
+import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModel
+import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModelImpl
 import org.jetbrains.plugins.terminal.block.reworked.lang.TerminalOutputPsiFile
 import org.jetbrains.plugins.terminal.block.reworked.session.FrontendTerminalSession
 import org.jetbrains.plugins.terminal.block.reworked.session.rpc.TerminalSessionId
@@ -62,14 +65,12 @@ import org.jetbrains.plugins.terminal.session.TerminalGridSize
 import org.jetbrains.plugins.terminal.session.TerminalStartupOptions
 import org.jetbrains.plugins.terminal.session.impl.TerminalHyperlinkId
 import org.jetbrains.plugins.terminal.session.impl.TerminalSession
-import org.jetbrains.plugins.terminal.view.TerminalOutputModelsSet
-import org.jetbrains.plugins.terminal.view.TerminalSendTextBuilder
-import org.jetbrains.plugins.terminal.view.impl.TerminalOutputModelsSetImpl
-import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextBuilderImpl
-import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextOptions
+import org.jetbrains.plugins.terminal.view.*
+import org.jetbrains.plugins.terminal.view.impl.*
 import org.jetbrains.plugins.terminal.view.shellIntegration.*
 import java.awt.Component
 import java.awt.Dimension
+import java.awt.Point
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.FocusEvent
@@ -311,12 +312,15 @@ class TerminalViewImpl(
         coroutineScope.childScope("TerminalBlocksDecorator")
       )
 
-      configureInlineCompletion(
-        outputEditor,
-        outputModel,
-        shellIntegration,
-        coroutineScope.childScope("TerminalInlineCompletion")
-      )
+      if (TerminalAiInlineCompletion.isEnabled()) {
+        configureInlineCompletion(
+          outputEditor,
+          outputModel,
+          shellIntegration,
+          coroutineScope.childScope("TerminalInlineCompletion")
+        )
+      }
+
       configureCommandCompletion(
         outputEditor,
         sessionModel,
@@ -447,8 +451,8 @@ class TerminalViewImpl(
       override fun afterContentChanged(event: TerminalContentChangeEvent) {
         editor.isTerminalOutputScrollChangingActionInProgress = false
 
-        // Also repaint the changed part of the document to ensure that highlightings are properly painted.
-        editor.repaint(if (event.isTrimming) 0 else event.offset.toRelative(model), editor.document.textLength)
+        // Repaint the whole screen to update all changed highlightings.
+        repaintEditorScreen(editor)
 
         // Update the PSI file content
         val psiFile = PsiDocumentManager.getInstance(project).getPsiFile((model as MutableTerminalOutputModel).document) as? TerminalOutputPsiFile
@@ -484,6 +488,19 @@ class TerminalViewImpl(
     TerminalEditorFactory.listenEditorFontChanges(editor, settings, parentDisposable) {
       editor.resizeIfShowing()
     }
+  }
+
+  private fun repaintEditorScreen(editor: EditorEx) {
+    val document = editor.document
+    if (document.textLength == 0 || document.lineCount == 0) return
+
+    val visibleArea = editor.scrollingModel.visibleArea
+    val screenTopLine = editor.xyToLogicalPosition(visibleArea.location).line
+    val screenBottomPoint = Point(visibleArea.x + visibleArea.width, visibleArea.y + visibleArea.height)
+    val screenBottomLine = editor.xyToLogicalPosition(screenBottomPoint).line.coerceAtMost(document.lineCount - 1)
+    val screenStartOffset = editor.document.getLineStartOffset(screenTopLine)
+    val screenEndOffset = editor.document.getLineEndOffset(screenBottomLine)
+    editor.repaint(screenStartOffset, screenEndOffset)
   }
 
   private fun EditorImpl.resizeIfShowing() {

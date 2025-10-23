@@ -14,10 +14,13 @@ import com.intellij.util.ui.tree.TreeUtil.*
 import com.intellij.vcs.commit.ChangesViewCommitWorkflowHandler
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import javax.swing.JComponent
 import javax.swing.tree.TreePath
 
-internal class BackendLocalCommitChangesViewModel(private val panel: CommitChangesViewWithToolbarPanel) : BackendCommitChangesViewModel {
+/**
+ * Simply calls delegates to the corresponding [panel] methods.
+ * Suitable for the monolith mode only.
+ */
+internal class BackendLocalCommitChangesViewModel(val panel: CommitChangesViewWithToolbarPanel) : BackendCommitChangesViewModel {
   private var commitWorkflowHandler: ChangesViewCommitWorkflowHandler? = null
   private val _inclusionChanged = MutableSharedFlow<Unit>()
 
@@ -101,8 +104,6 @@ internal class BackendLocalCommitChangesViewModel(private val panel: CommitChang
   }
 
   override fun getTree(): ChangesListView = panel.changesView
-
-  override fun getPreferredFocusableComponent(): JComponent = panel.changesView.preferredFocusedComponent
 
   private inner class ModelProvider : CommitChangesViewWithToolbarPanel.ModelProvider {
     override fun getModelData(): CommitChangesViewWithToolbarPanel.ModelProvider.ModelData {

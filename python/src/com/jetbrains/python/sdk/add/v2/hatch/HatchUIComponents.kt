@@ -101,16 +101,21 @@ private class HatchEnvComboBoxListCellRenderer(val contentFlow: StateFlow<PyResu
 private fun <P : PathHolder> Panel.addEnvironmentComboBox(
   model: PythonAddInterpreterModel<P>,
   validationRequestor: DialogValidationRequestor,
-  isValidateOnlyNotExisting: Boolean,
+  isGenerateNewMode: Boolean,
 ): ComboBox<HatchVirtualEnvironment> {
   val environmentAlreadyExists = AtomicBooleanProperty(false)
 
   lateinit var environmentComboBox: ComboBox<HatchVirtualEnvironment>
 
+  val hatchEnvironmentProperty = if (isGenerateNewMode)
+    model.hatchViewModel.selectedEnvFromAvailable
+  else
+    model.hatchViewModel.selectedEnvFromExisting
+
   row(message("sdk.create.custom.hatch.environment")) {
-    environmentComboBox = comboBox(emptyList(), HatchEnvComboBoxListCellRenderer(model.hatchViewModel.hatchEnvironmentsResult))
-      .bindItem(model.hatchViewModel.selectedHatchEnv)
-      .validationRequestor(validationRequestor and WHEN_PROPERTY_CHANGED(model.hatchViewModel.selectedHatchEnv))
+    environmentComboBox = comboBox(emptyList(), HatchEnvComboBoxListCellRenderer(model.hatchViewModel.availableEnvironments))
+      .bindItem(hatchEnvironmentProperty)
+      .validationRequestor(validationRequestor and WHEN_PROPERTY_CHANGED(hatchEnvironmentProperty))
       .validationInfo { component ->
         environmentAlreadyExists.set(false)
         when {
@@ -118,7 +123,7 @@ private fun <P : PathHolder> Panel.addEnvironmentComboBox(
           component.item == null -> {
             ValidationInfo(message("sdk.create.custom.hatch.error.no.environments.to.select"))
           }
-          isValidateOnlyNotExisting && component.item?.pythonVirtualEnvironment is PythonVirtualEnvironment.Existing -> {
+          isGenerateNewMode && component.item?.pythonVirtualEnvironment is PythonVirtualEnvironment.Existing -> {
             environmentAlreadyExists.set(true)
             ValidationInfo(message("sdk.create.custom.hatch.environment.exists"))
           }
@@ -137,7 +142,7 @@ private fun <P : PathHolder> Panel.addEnvironmentComboBox(
       message = message("sdk.create.custom.hatch.environment.exists"),
       firstActionLink = ActionLink(message("sdk.create.custom.venv.select.existing.link")) {
         PythonNewProjectWizardCollector.logExistingVenvFixUsed()
-        model.hatchViewModel.selectedHatchEnv.set(environmentComboBox.item)
+        model.hatchViewModel.selectedEnvFromExisting.set(environmentComboBox.item)
         model.navigator.navigateTo(newMethod = SELECT_EXISTING, newManager = PythonSupportedEnvironmentManagers.HATCH)
       },
       validationType = ValidationType.ERROR
@@ -171,13 +176,16 @@ internal data class HatchFormFields<P : PathHolder>(
   val validatedPathField: ValidatedPathField<Version, P, ValidatedPath.Executable<P>>,
 ) {
   fun onShown(scope: CoroutineScope, model: PythonMutableTargetAddInterpreterModel<P>, isFilterOnlyExisting: Boolean) {
-    model.hatchViewModel.hatchEnvironmentsResult.onEach { environmentsResult ->
+    model.hatchViewModel.availableEnvironments.onEach { environmentsResult ->
       when (environmentsResult) {
         null -> environmentComboBox.isEnabled = false
         else -> {
           environmentComboBox.isEnabled = true
           environmentComboBox.syncWithEnvs(environmentsResult, isFilterOnlyExisting = isFilterOnlyExisting)
-          if (environmentsResult.isFailure) model.hatchViewModel.selectedHatchEnv.set(null)
+          if (environmentsResult.isFailure) {
+            model.hatchViewModel.selectedEnvFromAvailable.set(null)
+            model.hatchViewModel.selectedEnvFromExisting.set(null)
+          }
         }
       }
     }.launchIn(scope + Dispatchers.EDT)
@@ -212,7 +220,7 @@ internal fun <P : PathHolder> Panel.buildHatchFormFields(
     environmentComboBox = addEnvironmentComboBox(
       model = model,
       validationRequestor = validationRequestor,
-      isValidateOnlyNotExisting = isGenerateNewMode
+      isGenerateNewMode = isGenerateNewMode
     )
 
     if (isGenerateNewMode) {

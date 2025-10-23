@@ -89,8 +89,8 @@
       }
     },
 
-    "Borders.color": "#2E3033",
-    "Borders.ContrastBorderColor": "#2E3033",
+    "Borders.color": "BorderDark",
+    "Borders.ContrastBorderColor": "BorderDark",
     "MainWindow.FullScreeControl.Background": "#575A5C",
 
     "MainWindow.Tab": {
@@ -122,7 +122,7 @@
       "Header": {
         "background": "ToolWindowBackground",
         "inactiveBackground": "ToolWindowBackground",
-        "borderColor": "#2E3033"
+        "borderColor": "BorderDark"
       },
       "HeaderTab": {
         "hoverBackground": "HoverBackgroundMid",
@@ -316,6 +316,7 @@
     "Debugger.EvaluateExpression.background": "Gray3",
     "NewUiOnboarding.Dialog.background": "PanelBackground",
     "WelcomeScreen.Details.background": "BackgroundDark",
+    "WelcomeScreen.Banner.background": "BackgroundLight",
 
     "Bookmark.MnemonicAssigned.foreground": "#1e1f22",
 
@@ -716,7 +717,11 @@
       "StatusBar.background": "AltBackgroundLight",
 
       "ToolWindow.Header.inactiveBackground": "#212326",
-      "ToolWindow.background": "#212326"
+      "ToolWindow.background": "#212326",
+
+      "Borders.color": "#2E3033",
+      "Borders.ContrastBorderColor": "#2E3033",
+      "ToolWindow.Header.borderColor": "#2E3033"
     },
 
     "AlertDialog.background": "PopupBackground"
