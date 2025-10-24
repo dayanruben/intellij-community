@@ -317,6 +317,7 @@
     "NewUiOnboarding.Dialog.background": "PanelBackground",
     "WelcomeScreen.Details.background": "BackgroundDark",
     "WelcomeScreen.Banner.background": "BackgroundLight",
+    "WelcomeScreen.Projects.actions.background": "#2B2D30",
 
     "Bookmark.MnemonicAssigned.foreground": "#1e1f22",
 
@@ -596,7 +597,7 @@
       "Default.background": "#27282E",
       "Active.background": "#273828",
       "Alert.background": "#3D3223",
-      "Expiring.background": "#CC3645",
+      "Expiring.background": "#402929",
       "Default.borderColor": "#B4B8BF",
       "Active.borderColor": "#4E8052",
       "Alert.borderColor": "#826A41",

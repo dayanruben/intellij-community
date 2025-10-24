@@ -29,6 +29,7 @@ import com.intellij.tools.ide.util.common.logOutput
 import io.qameta.allure.Allure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.runInterruptible
 import java.io.Closeable
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -93,12 +94,13 @@ class LocalIDEProcess : IDEProcess {
             onProcessCreated = { process, pid ->
               span.addEvent("process created")
               EventsBus.subscribeOnce(process) { _: IdeExceptionEvent ->
-                if(process.isAlive) {
-                  captureDiagnosticOnKill(logsDir, jdkHome, startConfig, pid, process, snapshotsDir)
+                if (process.isAlive) {
+                  captureDiagnosticOnKill(logsDir, jdkHome, startConfig, process, snapshotsDir)
                 }
               }
-              EventsBus.postAndWaitProcessing(
-                IdeLaunchEvent(runContext = this, ideProcess = IDEProcessHandle(process.toHandle())))
+              runInterruptible {
+                EventsBus.postAndWaitProcessing(IdeLaunchEvent(runContext = this, ideProcess = IDEProcessHandle(process.toHandle())))
+              }
               ideProcessId = getIdeProcessIdWithRetry(process.toProcessInfo())
               startCollectThreadDumpsLoop(logsDir, IDEProcessHandle(process.toHandle()), jdkHome, startConfig.workDir, ideProcessId, "ide")
             },
@@ -106,7 +108,7 @@ class LocalIDEProcess : IDEProcess {
               span.end()
               computeWithSpan("runIde post-processing before killed") {
                 logOutput("BeforeKilled: $processPresentableName")
-                captureDiagnosticOnKill(logsDir, jdkHome, startConfig, pid, process, snapshotsDir)
+                captureDiagnosticOnKill(logsDir, jdkHome, startConfig, process, snapshotsDir)
                 EventsBus.postAndWaitProcessing(IdeBeforeKillEvent(this, process, pid))
                 if (testContext.profilerType != ProfilerType.NONE) {
                   EventsBus.postAndWaitProcessing(StopProfilerEvent(listOf()))
@@ -135,8 +137,10 @@ class LocalIDEProcess : IDEProcess {
               error.messageText + System.lineSeparator() +
               error.stackTraceContent + System.lineSeparator() +
               (ciFailureDetails ?: ""))
-          } else {
-            throw ExecTimeoutException("Timeout of IDE run '$contextName' for $runTimeout" + System.lineSeparator() + (ciFailureDetails ?: ""))
+          }
+          else {
+            throw ExecTimeoutException("Timeout of IDE run '$contextName' for $runTimeout" + System.lineSeparator() + (ciFailureDetails
+                                                                                                                       ?: ""))
           }
         }
       }

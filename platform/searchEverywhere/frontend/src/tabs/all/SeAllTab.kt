@@ -4,6 +4,7 @@ package com.intellij.platform.searchEverywhere.frontend.tabs.all
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.searcheverywhere.CheckBoxSearchEverywhereToggleAction
 import com.intellij.ide.actions.searcheverywhere.PersistentSearchEverywhereContributorFilter
+import com.intellij.ide.actions.searcheverywhere.PreviewAction
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereFiltersAction
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl
 import com.intellij.ide.util.gotoByName.SearchEverywhereConfiguration
@@ -88,13 +89,14 @@ class SeAllTab(private val delegate: SeTabDelegate) : SeTab {
   companion object {
     @ApiStatus.Internal
     const val ID: String = SearchEverywhereManagerImpl.ALL_CONTRIBUTORS_GROUP_ID
+
     @ApiStatus.Internal
     val NAME: String = IdeBundle.message("searcheverywhere.all.elements.tab.name")
   }
 }
 
 private class SeAllFilterEditor(providersIdToName: Map<SeProviderId, @Nls String>) : SeFilterEditorBase<SeEverywhereFilter>(SeEverywhereFilter(true, false, disabledProviders)) {
-  private val actions = listOf(getEverywhereToggleAction(), getFilterTypesAction(providersIdToName))
+  private val actions = listOf(getEverywhereToggleAction(), PreviewAction(), getFilterTypesAction(providersIdToName))
   override fun getHeaderActions(): List<AnAction> = actions
 
   private fun getEverywhereToggleAction() = object : CheckBoxSearchEverywhereToggleAction(IdeUICustomization.getInstance().projectMessage("checkbox.include.non.project.items")), AutoToggleAction {
