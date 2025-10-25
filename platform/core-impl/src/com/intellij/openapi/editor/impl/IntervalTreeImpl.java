@@ -447,9 +447,10 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
   }
 
   private @NotNull Supplier<? extends T> createGetter(@NotNull T interval) {
+    //noinspection rawtypes,unchecked
     return keepIntervalOnWeakReference(interval)
            ? new WeakReferencedGetter<>(interval, myReferenceQueue)
-           : new StaticSupplier<>(interval);
+           : (Supplier)interval;
   }
 
   private static final class WeakReferencedGetter<T> extends WeakReference<T> implements Supplier<T> {
@@ -463,26 +464,13 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     }
   }
 
-  private static final class StaticSupplier<T> implements Supplier<T> {
-    private final T myT;
-
-    private StaticSupplier(@NotNull T referent) {
-      myT = referent;
-    }
-
-    @Override
-    public T get() {
-      return myT;
-    }
-
-    @Override
-    public @NonNls String toString() {
-      return "sRef: " + get();
-    }
-  }
-
   void assertUnderWriteLock() {
-    assert l.isWriteLocked() : l.writeLock();
+    assert l.isWriteLockedByCurrentThread() : l.writeLock();
+  }
+  protected void assertMayModify() throws IllegalStateException {
+    if (l.getReadHoldCount() != 0) {
+      throw new IllegalStateException("Must not perform modifications while holding read lock/iterating");
+    }
   }
 
   private void pushDeltaFromRoot(@Nullable IntervalNode<T> node) {

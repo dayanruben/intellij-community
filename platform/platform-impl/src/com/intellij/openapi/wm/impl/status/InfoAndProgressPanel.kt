@@ -246,6 +246,7 @@ class InfoAndProgressPanel internal constructor(
     synchronized(originals) {
       if (originals.isEmpty()) {
         mainPanel.updateNavBarAutoscrollToSelectedLimit(AutoscrollLimit.ALLOW_ONCE)
+        getPopup().setHideOnFocusLost(false)
       }
       originals.add(original)
       infos.add(info)
@@ -415,7 +416,8 @@ class InfoAndProgressPanel internal constructor(
     val htmlContent = htmlBody.replace("\n", "<br>")
     val icon = icon ?: if (type == MessageType.INFO) {
       null
-    } else {
+    }
+    else {
       type.defaultIcon
     }
     val balloon = JBPopupFactory.getInstance()
@@ -620,7 +622,7 @@ class InfoAndProgressPanel internal constructor(
         updateNavBarAutoscrollToSelectedLimit(AutoscrollLimit.UNLIMITED)
         inlinePanel.updateState(null)
         if (host.shouldClosePopupAndOnProcessFinish) {
-          host.hideProcessPopup()
+          host.popup?.setHideOnFocusLost(true)
         }
       }
       else if (inlinePanel.indicator != null && inlinePanel.indicator!!.info === progress.info) {
@@ -1257,7 +1259,7 @@ private class CounterLabel : JPanel(), UISettingsListener {
     layout = BorderLayout()
     add(textPanel, BorderLayout.CENTER)
     isOpaque = false
-    setNumber(0, isProgressVisible =false, isPopupShowing = false)
+    setNumber(0, isProgressVisible = false, isPopupShowing = false)
   }
 
   private fun createTextPanel(): TextPanel {

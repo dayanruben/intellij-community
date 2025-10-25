@@ -20,6 +20,7 @@ import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.IdeGlassPaneUtil
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.asDisposable
@@ -36,6 +37,7 @@ import java.awt.*
 import java.beans.PropertyChangeListener
 import javax.swing.JComponent
 import javax.swing.JLayer
+import javax.swing.SwingUtilities
 import javax.swing.plaf.LayerUI
 import kotlin.math.abs
 
@@ -49,7 +51,9 @@ internal object GHPRInlayUtils {
   ) {
     val cs: CoroutineScope = parentCs.childScope("Comment inlay hover controller")
     var activeLineHighlighter: RangeHighlighter? = null
-    val frameResizer = if (vm is GHPREditorMappedComponentModel.NewComment<*>) {
+    val isUnifiedDiffViewer = side == null
+    val multilineCommentsDisabled = Registry.get("github.pr.new.multiline.comments.disabled").asBoolean()
+    val frameResizer = if (vm is GHPREditorMappedComponentModel.NewComment<*> && !(isUnifiedDiffViewer && multilineCommentsDisabled)) {
       val frameResizer = ResizingFrameListener(editor, vm)
       editor.addEditorMouseMotionListener(frameResizer)
       editor.addEditorMouseListener(frameResizer)
@@ -114,6 +118,18 @@ internal object GHPRInlayUtils {
     }
     catch (_: IllegalArgumentException) {
       Cursor.getDefaultCursor()
+    }
+
+    init {
+      SwingUtilities.invokeLater {
+        val point = editorEx.gutterComponentEx.mousePosition
+        if (point != null) {
+          val borders = getYAxisBorders()
+          if (borders != null && point.getEdge(borders) != null) {
+            editorEx.gutterComponentEx.cursor = resizeCursor
+          }
+        }
+      }
     }
 
     override fun mouseDragged(e: EditorMouseEvent) {
