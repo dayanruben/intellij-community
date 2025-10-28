@@ -255,7 +255,7 @@ class TerminalViewImpl(
       coroutineScope = hyperlinkScope,
     )
 
-    outputEditor.putUserData(CompletionPhase.CUSTOM_CODE_COMPLETION_ACTION_ID, "Terminal.CommandCompletion.Gen2")
+    outputEditor.putUserData(CompletionPhase.CUSTOM_CODE_COMPLETION_ACTION_ID, "Terminal.CommandCompletion.Invoke")
 
     val terminalAliasesStorage = TerminalAliasesStorage()
     outputEditor.putUserData(TerminalAliasesStorage.KEY, terminalAliasesStorage)
@@ -595,6 +595,13 @@ class TerminalViewImpl(
     init {
       addToCenter(layeredPane)
       updateFocusListeners(initialContent, initialContent)
+    }
+
+    @Suppress("unused")
+    @ApiStatus.Internal
+    @VisibleForTesting
+    fun getActiveOutputModel(): TerminalOutputModel {
+      return outputModels.active.value
     }
 
     override fun uiDataSnapshot(sink: DataSink) {

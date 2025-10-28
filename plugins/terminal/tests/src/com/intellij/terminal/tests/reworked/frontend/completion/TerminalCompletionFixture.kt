@@ -15,6 +15,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.terminal.completion.spec.ShellCommandSpec
+import com.intellij.terminal.frontend.view.TerminalView
 import com.intellij.terminal.frontend.view.activeOutputModel
 import com.intellij.terminal.frontend.view.completion.TerminalLookupPrefixUpdater
 import com.intellij.terminal.frontend.view.impl.TerminalViewImpl
@@ -61,7 +62,7 @@ class TerminalCompletionFixture(val project: Project, val testRootDisposable: Di
     Registry.get("terminal.type.ahead").setValue(true, testRootDisposable)
     TerminalCommandCompletion.enableForTests(testRootDisposable)
     // Terminal completion might still be disabled if not supported yet on some OS.
-    Assume.assumeTrue(TerminalCommandCompletion.isEnabled())
+    Assume.assumeTrue(TerminalCommandCompletion.isEnabled(project))
   }
 
   suspend fun awaitShellIntegrationFeaturesInitialized() {
@@ -83,7 +84,7 @@ class TerminalCompletionFixture(val project: Project, val testRootDisposable: Di
   }
 
   suspend fun callCompletionPopup() {
-    runActionById("Terminal.CommandCompletion.Gen2")
+    runActionById("Terminal.CommandCompletion.Invoke")
     awaitLookupPrefixUpdated()
   }
 
@@ -105,11 +106,11 @@ class TerminalCompletionFixture(val project: Project, val testRootDisposable: Di
   }
 
   fun downCompletionPopup() {
-    runActionById("Terminal.DownCommandCompletion")
+    runActionById("Terminal.CommandCompletion.SelectSuggestionBelow")
   }
 
   fun upCompletionPopup() {
-    runActionById("Terminal.UpCommandCompletion")
+    runActionById("Terminal.CommandCompletion.SelectSuggestionAbove")
   }
 
   /**
@@ -144,6 +145,7 @@ class TerminalCompletionFixture(val project: Project, val testRootDisposable: Di
       .add(CommonDataKeys.PROJECT, project)
       .add(CommonDataKeys.EDITOR, view.outputEditor)
       .add(TerminalOutputModel.DATA_KEY, outputModel)
+      .add(TerminalView.DATA_KEY, view)
       .build()
     val event = AnActionEvent.createEvent(action, context, null,
                                           "", ActionUiKind.NONE, null)

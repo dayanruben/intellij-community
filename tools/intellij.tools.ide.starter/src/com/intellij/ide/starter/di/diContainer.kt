@@ -5,6 +5,7 @@ import com.intellij.ide.starter.ci.CIServer
 import com.intellij.ide.starter.ci.NoCIServer
 import com.intellij.ide.starter.community.PublicIdeDownloader
 import com.intellij.ide.starter.config.ConfigurationStorage
+import com.intellij.ide.starter.config.ScrambleToolProvider
 import com.intellij.ide.starter.config.splitMode
 import com.intellij.ide.starter.config.starterConfigurationStorageDefaults
 import com.intellij.ide.starter.frameworks.Framework
@@ -43,7 +44,7 @@ import java.nio.file.Path
  *    }
  * ```
  * */
-var di = DI {
+private var _di = DI {
   bindSingleton<GlobalPaths> { StarterGlobalPaths() }
   bindSingleton<CIServer> { NoCIServer }
   bindSingleton<ErrorReporter> { ErrorReporterToCI }
@@ -80,6 +81,22 @@ var di = DI {
   bindProvider<TestContainer<*>> { if (ConfigurationStorage.splitMode()) TestContainer.newInstance<RemDevTestContainer>() else TestContainer.newInstance<TestContainerImpl>() }
   bindSingleton<JBRDownloader> { StarterJBRDownloader }
   bindSingleton<TargetResolver> { LocalOnlyTargetResolver }
+  bindSingleton<ScrambleToolProvider> { object : ScrambleToolProvider {} }
+  bindSingleton<DevBuildServerRunner> { NoOpDevBuildServerRunner }
 }.apply {
   logOutput("Starter DI was initialized")
 }
+
+private val lock = Any()
+
+var di: DI = _di
+  set(value) {
+    synchronized(lock) {
+      field = value
+      logOutput(
+        """Starter DI was updated by: 
+        |${Thread.currentThread().stackTrace.copyOfRange(2, 5).joinToString(separator = "\n") { "- $it" }}"""
+          .trimMargin()
+      )
+    }
+  }

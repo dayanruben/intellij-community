@@ -2,6 +2,7 @@
 package com.intellij.xdebugger.impl
 
 import com.intellij.diagnostic.logging.AdditionalTabComponent
+import com.intellij.diagnostic.logging.LogConsoleBase
 import com.intellij.execution.configurations.AdditionalTabComponentManagerEx
 import com.intellij.ide.rpc.setupTransfer
 import com.intellij.ide.ui.icons.rpcId
@@ -15,24 +16,19 @@ import com.intellij.platform.kernel.ids.findValueById
 import com.intellij.platform.kernel.ids.storeValueGlobally
 import com.intellij.ui.content.Content
 import com.intellij.util.asDisposable
+import com.intellij.xdebugger.SplitDebuggerMode
 import com.intellij.xdebugger.impl.rpc.XDebugSessionAdditionalTabComponentManagerId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.job
 import org.jetbrains.annotations.ApiStatus
 import javax.swing.Icon
 
 @ApiStatus.Internal
 class XDebugSessionAdditionalTabComponentManager(private val debugTabScope: CoroutineScope) : AdditionalTabComponentManagerEx {
   init {
-    debugTabScope.coroutineContext.job.invokeOnCompletion {
-      val tabs = tabToId.keys.toList()
-      for (tab in tabs) {
-        removeAdditionalTabComponent(tab)
-      }
-    }
+    Disposer.register(debugTabScope.asDisposable(), this)
   }
 
   val id: XDebugSessionAdditionalTabComponentManagerId = storeValueGlobally(debugTabScope, this, XDebugSessionAdditionalTabComponentManagerValueIdType)
@@ -42,6 +38,13 @@ class XDebugSessionAdditionalTabComponentManager(private val debugTabScope: Coro
   val tabComponentEvents: Flow<XDebuggerSessionAdditionalTabEvent> = _tabComponentEvents.asSharedFlow()
 
   override fun addAdditionalTabComponent(tabComponent: AdditionalTabComponent, id: String, icon: Icon?, closeable: Boolean): Content? {
+    if (tabComponent is LogConsoleBase && SplitDebuggerMode.isSplitDebugger()) {
+      // This call is required to initialize the component
+      // see com.intellij.diagnostic.logging.LogConsoleBase.getComponent
+      tabComponent.component
+      // start log file reading
+      tabComponent.activate(/* force = */ true)
+    }
     val tabId = tabComponent.setupTransfer(debugTabScope.asDisposable())
     tabToId[tabComponent] = tabId
     val serializableTab = XDebuggerSessionAdditionalTabDto(tabId, contentId = id, tabComponent.tabTitle, tabComponent.tooltip, icon?.rpcId(), closeable)
@@ -59,6 +62,13 @@ class XDebugSessionAdditionalTabComponentManager(private val debugTabScope: Coro
     }
     val tabId = tabToId.remove(component) ?: return
     _tabComponentEvents.tryEmit(XDebuggerSessionAdditionalTabEvent.TabRemoved(tabId))
+  }
+
+  override fun dispose() {
+    val tabs = tabToId.keys.toList()
+    for (tab in tabs) {
+      removeAdditionalTabComponent(tab)
+    }
   }
 }
 

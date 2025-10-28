@@ -6,7 +6,6 @@ import com.dynatrace.hash4j.hashing.Hashing
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.ijent.community.buildConstants.isMultiRoutingFileSystemEnabledForProduct
-import com.intellij.util.PathUtilRt
 import com.intellij.util.lang.PathClassLoader
 import com.intellij.util.lang.UrlClassLoader
 import io.opentelemetry.api.trace.Span
@@ -75,7 +74,6 @@ import org.jetbrains.intellij.build.telemetry.TraceManager
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
 import org.jetbrains.intellij.build.writePluginClassPathHeader
-import org.jetbrains.jps.model.artifact.JpsArtifactService
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
@@ -119,17 +117,15 @@ data class BuildRequest(
 
   @JvmField val isBootClassPathCorrect: Boolean = false,
 ) {
-  override fun toString(): String {
-    return buildString {
-      append("BuildRequest(platformPrefix='$platformPrefix', ")
-      if (baseIdePlatformPrefixForFrontend != null) {
-        append("baseIdePlatformPrefixForFrontend='$baseIdePlatformPrefixForFrontend', ")
-      }
-      append("additionalModules=$additionalModules, ")
-      append("productionClassOutput=$productionClassOutput, ")
-      append("keepHttpClient=$keepHttpClient, ")
-      append("generateRuntimeModuleRepository=$generateRuntimeModuleRepository")
+  override fun toString(): String = buildString {
+    append("BuildRequest(platformPrefix='$platformPrefix', ")
+    if (baseIdePlatformPrefixForFrontend != null) {
+      append("baseIdePlatformPrefixForFrontend='$baseIdePlatformPrefixForFrontend', ")
     }
+    append("additionalModules=$additionalModules, ")
+    append("productionClassOutput=$productionClassOutput, ")
+    append("keepHttpClient=$keepHttpClient, ")
+    append("generateRuntimeModuleRepository=$generateRuntimeModuleRepository")
   }
 }
 
@@ -225,14 +221,7 @@ internal suspend fun buildProduct(request: BuildRequest, createProductProperties
 
       val platformLayoutAwaited = platformLayout.await()
       val (platformDistributionEntries, classPath) = spanBuilder("layout platform").use {
-        layoutPlatform(
-          runDir = runDir,
-          platformLayout = platformLayoutAwaited,
-          searchableOptionSet = searchableOptionSet,
-          context = context,
-          moduleOutputPatcher = moduleOutputPatcher,
-          request = request,
-        )
+        layoutPlatform(runDir, platformLayoutAwaited, searchableOptionSet, context, moduleOutputPatcher, request)
       }
 
       if (request.writeCoreClasspath) {
@@ -247,43 +236,23 @@ internal suspend fun buildProduct(request: BuildRequest, createProductProperties
       platformDistributionEntries
     }
 
-    val artifactTask = launch {
-      val artifactOutDir = request.projectDir.resolve("out/classes/artifacts").toString()
-      for (artifact in JpsArtifactService.getInstance().getArtifacts(context.project)) {
-        artifact.outputPath = "$artifactOutDir/${PathUtilRt.getFileName(artifact.outputPath)}"
-      }
-    }
-
     val pluginDistributionEntriesDeferred = async(CoroutineName("build plugins")) {
-      buildPlugins(
-        request = request,
-        context = context,
-        runDir = runDir,
-        platformLayout = platformLayout,
-        artifactTask = artifactTask,
-        searchableOptionSet = searchableOptionSet,
-        buildPlatformJob = platformDistributionEntriesDeferred,
-        moduleOutputPatcher = moduleOutputPatcher,
-      )
+      buildPlugins(request, context, runDir, platformLayout, searchableOptionSet, platformDistributionEntriesDeferred, moduleOutputPatcher)
     }
 
     if (context.generateRuntimeModuleRepository) {
       launch {
-        val allDistributionEntries = platformDistributionEntriesDeferred.await().asSequence() +
-                                     pluginDistributionEntriesDeferred.await().first.asSequence().flatMap { it.second }
+        val allDistributionEntries =
+          platformDistributionEntriesDeferred.await().asSequence() +
+          pluginDistributionEntriesDeferred.await().first.asSequence().flatMap { it.second }
         spanBuilder("generate runtime repository").use(Dispatchers.IO) {
-          generateRuntimeModuleRepositoryForDevBuild(entries = allDistributionEntries, targetDirectory = runDir, context = context)
+          generateRuntimeModuleRepositoryForDevBuild(allDistributionEntries, runDir, context)
         }
       }
     }
 
     launch {
-      computeIdeFingerprint(
-        platformDistributionEntriesDeferred = platformDistributionEntriesDeferred,
-        pluginDistributionEntriesDeferred = pluginDistributionEntriesDeferred,
-        runDir = runDir,
-        homePath = request.projectDir,
-      )
+      computeIdeFingerprint(platformDistributionEntriesDeferred, pluginDistributionEntriesDeferred, runDir, request.projectDir)
     }
 
     launch {
@@ -303,27 +272,20 @@ internal suspend fun buildProduct(request: BuildRequest, createProductProperties
         spanBuilder("generate plugin classpath").use(Dispatchers.IO) {
           val mainData = generatePluginClassPath(pluginEntries, moduleOutputPatcher)
           val additionalData = additionalEntries?.let { generatePluginClassPathFromPrebuiltPluginFiles(it) }
-
-          val byteOut = ByteArrayOutputStream()
-          val out = DataOutputStream(byteOut)
-          val pluginCount = pluginEntries.size + (additionalEntries?.size ?: 0)
-          platformDistributionEntriesDeferred.join()
-          writePluginClassPathHeader(out = out, isJarOnly = !request.isUnpackedDist, pluginCount = pluginCount, platformLayout = platformLayout, context = context)
-          out.write(mainData)
-          additionalData?.let { out.write(it) }
-          out.close()
-          Files.write(runDir.resolve(PLUGIN_CLASSPATH), byteOut.toByteArray())
+          val buffer = ByteArrayOutputStream()
+          DataOutputStream(buffer).use { out ->
+            val pluginCount = pluginEntries.size + (additionalEntries?.size ?: 0)
+            platformDistributionEntriesDeferred.join()
+            writePluginClassPathHeader(out, isJarOnly = !request.isUnpackedDist, pluginCount, platformLayout, context)
+            out.write(mainData)
+            additionalData?.let { out.write(it) }
+          }
+          Files.write(runDir.resolve(PLUGIN_CLASSPATH), buffer.toByteArray())
         }
       }
 
       withContext(Dispatchers.IO) {
-        copyDistFiles(
-          context = context,
-          newDir = runDir,
-          os = request.os,
-          arch = JvmArchitecture.currentJvmArch,
-          libcImpl = LibcImpl.current(OsFamily.currentOs),
-        )
+        copyDistFiles(context, runDir, request.os, JvmArchitecture.currentJvmArch, LibcImpl.current(OsFamily.currentOs))
       }
     }
   }.invokeOnCompletion {
@@ -333,14 +295,12 @@ internal suspend fun buildProduct(request: BuildRequest, createProductProperties
   return runDir
 }
 
-private suspend fun getSearchableOptionSet(context: BuildContext): SearchableOptionSetDescriptor? {
-  return withContext(Dispatchers.IO) {
-    try {
-      readSearchableOptionIndex(context.paths.searchableOptionDir)
-    }
-    catch (_: NoSuchFileException) {
-      null
-    }
+private suspend fun getSearchableOptionSet(context: BuildContext): SearchableOptionSetDescriptor? = withContext(Dispatchers.IO) {
+  try {
+    readSearchableOptionIndex(context.paths.searchableOptionDir)
+  }
+  catch (_: NoSuchFileException) {
+    null
   }
 }
 
@@ -568,24 +528,13 @@ private suspend fun createBuildContext(
     }
 
     BuildContextImpl(
-      compilationContext = compilationContext,
-      productProperties = productProperties.await(),
-      windowsDistributionCustomizer = WindowsDistributionCustomizer(),
-      linuxDistributionCustomizer = LinuxDistributionCustomizer(),
-      macDistributionCustomizer = MacDistributionCustomizer(),
-      proprietaryBuildTools = if (request.scrambleTool == null) {
-        ProprietaryBuildTools.DUMMY
-      }
-      else {
-        ProprietaryBuildTools(
-          signTool = ProprietaryBuildTools.DUMMY_SIGN_TOOL,
-          scrambleTool = request.scrambleTool,
-          featureUsageStatisticsProperties = null,
-          artifactsServer = null,
-          licenseServerHost = null,
-        )
-      },
-      jarCacheManager = jarCacheManager,
+      compilationContext, productProperties.await(), WindowsDistributionCustomizer(), LinuxDistributionCustomizer(), MacDistributionCustomizer(),
+      proprietaryBuildTools =
+        if (request.scrambleTool == null) ProprietaryBuildTools.DUMMY
+        else ProprietaryBuildTools(
+          ProprietaryBuildTools.DUMMY_SIGN_TOOL, request.scrambleTool, featureUsageStatisticsProperties = null, artifactsServer = null, licenseServerHost = null
+        ),
+      jarCacheManager
     )
   }
 }
@@ -669,18 +618,13 @@ private suspend fun layoutPlatform(
   }
 }
 
-private fun computeAdditionalModulesFingerprint(additionalModules: List<String>): String {
-  if (additionalModules.isEmpty()) {
-    return ""
-  }
+private fun computeAdditionalModulesFingerprint(additionalModules: List<String>): String =
+  if (additionalModules.isEmpty()) ""
   else {
     val hash = Hashing.xxh3_64().hashStream()
     hash.putUnorderedIterable(additionalModules, HashFunnel.forString(), Hashing.xxh3_64())
-    return "-" + additionalModules.joinToString(separator = "-") { it.removePrefix("intellij.").take(4) } + "-" +
-           java.lang.Long.toUnsignedString(hash.asLong, Character.MAX_RADIX)
+    "-" + additionalModules.joinToString(separator = "-") { it.removePrefix(@Suppress("SpellCheckingInspection") "intellij.").take(4) } + "-" +
+    java.lang.Long.toUnsignedString(hash.asLong, Character.MAX_RADIX)
   }
-}
 
-private fun getCommunityHomePath(homePath: Path): Path {
-  return if (Files.isDirectory(homePath.resolve("community"))) homePath.resolve("community") else homePath
-}
+private fun getCommunityHomePath(homePath: Path): Path = if (Files.isDirectory(homePath.resolve("community"))) homePath.resolve("community") else homePath

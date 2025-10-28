@@ -182,6 +182,8 @@ com.intellij.codeInsight.lookup.Lookup
 - a:itemMatcher(com.intellij.codeInsight.lookup.LookupElement):com.intellij.codeInsight.completion.PrefixMatcher
 - a:itemPattern(com.intellij.codeInsight.lookup.LookupElement):java.lang.String
 - a:removeLookupListener(com.intellij.codeInsight.lookup.LookupListener):V
+f:com.intellij.codeInsight.lookup.LookupElementBuilder
+- s:createWithSymbolPointer(java.lang.String,com.intellij.model.Symbol):com.intellij.codeInsight.lookup.LookupElementBuilder
 com.intellij.codeInsight.lookup.LookupEx
 - com.intellij.codeInsight.lookup.Lookup
 - a:getComponent():java.awt.Component
@@ -596,6 +598,7 @@ com.intellij.modcommand.ModCommand
 - s:highlight(com.intellij.openapi.editor.colors.TextAttributesKey,com.intellij.psi.PsiElement[]):com.intellij.modcommand.ModCommand
 - s:highlight(com.intellij.psi.PsiElement[]):com.intellij.modcommand.ModCommand
 - s:info(java.lang.String):com.intellij.modcommand.ModCommand
+- s:insertText(com.intellij.modcommand.ActionContext,java.lang.String,Z):com.intellij.modcommand.ModCommand
 - isEmpty():Z
 - modifiedFiles():java.util.Set
 - s:moveFile(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.vfs.VirtualFile):com.intellij.modcommand.ModCommand
@@ -632,6 +635,7 @@ com.intellij.modcommand.ModCommandExecutor
 com.intellij.modcommand.ModCommandService
 - a:chooseFileAndPerform(com.intellij.psi.PsiFile,com.intellij.openapi.editor.Editor,com.intellij.modcommand.ModCommandAction,I):com.intellij.modcommand.ModCommandWithContext
 - s:getInstance():com.intellij.modcommand.ModCommandService
+- a:insertText(com.intellij.modcommand.ActionContext,java.lang.String,Z):com.intellij.modcommand.ModCommand
 - a:psiUpdate(com.intellij.modcommand.ActionContext,java.util.function.Consumer):com.intellij.modcommand.ModCommand
 - a:unwrap(com.intellij.codeInspection.LocalQuickFix):com.intellij.modcommand.ModCommandAction
 - a:updateOption(com.intellij.psi.PsiElement,com.intellij.codeInspection.InspectionProfileEntry,java.util.function.Consumer):com.intellij.modcommand.ModCommand

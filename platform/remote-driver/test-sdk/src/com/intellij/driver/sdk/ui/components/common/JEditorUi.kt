@@ -66,6 +66,8 @@ open class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
 
   fun getLineNumber(text: String): Int = document.getLineNumber(this.text.indexOf(text)) + 1
 
+  fun getLastLineNumber(text: String): Int = document.getLineNumber(this.text.lastIndexOf(text)) + 1
+
   fun expandAllFoldings() {
     driver.invokeAction("ExpandAllRegions", component = component)
   }
@@ -133,7 +135,7 @@ open class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
 
   fun getFontSize(): Int = editor.getColorsScheme().getEditorFontSize()
 
-  fun clickOn(text: String, button: RemoteMouseButton, times: Int = 1) {
+  fun clickOn(text: String, button: RemoteMouseButton = RemoteMouseButton.LEFT, times: Int = 1) {
     val offset = this.text.indexOf(text) + text.length / 2
     val point = interact {
       val p = offsetToVisualPosition(offset)
@@ -392,6 +394,8 @@ class EditorSearchReplaceComponent(data: ComponentData) : UiComponent(data) {
   val replaceField = textField { and(byClass("JBTextArea"), byAccessibleName("Replace")) }
   val matchesLabel = x("//div[@class='ActionToolbarImpl']//div[@class='JLabel']")
   val nextOccurrenceButton = actionButton { byAccessibleName("Next Occurrence") }
+  val previousOccurrenceButton = actionButton { byAccessibleName("Previous Occurrence") }
+  val clearSearchButton = actionButton { byAttribute("myicon", "closeSmall.svg") }
 }
 
 @Remote("com.intellij.openapi.editor.impl.EditorGutterComponentImpl")

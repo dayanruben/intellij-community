@@ -44,6 +44,7 @@ jvm_library(
     "//plugins/performanceTesting/event-bus:tools-ide-starter-bus",
     "@lib//:opentelemetry",
     "@lib//:github-oshi-core",
+    "//platform/runtime/repository",
   ],
   exports = [
     "//plugins/performanceTesting/commands-model:tools-ide-performanceTesting-commands",
