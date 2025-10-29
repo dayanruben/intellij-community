@@ -2689,7 +2689,6 @@ f:com.intellij.codeInsight.editorActions.FixDocCommentAction
 - com.intellij.openapi.editor.actionSystem.EditorAction
 - sf:ACTION_ID:java.lang.String
 - <init>():V
-- s:generateComment(com.intellij.psi.PsiElement,com.intellij.openapi.project.Project,com.intellij.modcommand.ModPsiNavigator):V
 - s:generateOrFixComment(com.intellij.psi.PsiElement,com.intellij.openapi.project.Project,com.intellij.openapi.editor.Editor):V
 f:com.intellij.codeInsight.editorActions.IndentTransferableData
 - com.intellij.codeInsight.editorActions.TextBlockTransferableData
@@ -15177,7 +15176,7 @@ f:com.intellij.refactoring.move.moveFilesOrDirectories.MoveFilesOrDirectoriesUti
 - s:checkIfMoveIntoSelf(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement):V
 - s:checkMove(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement):V
 - s:doMove(com.intellij.openapi.project.Project,com.intellij.psi.PsiElement[],com.intellij.psi.PsiElement[],com.intellij.refactoring.move.MoveCallback):V
-- s:doMove(com.intellij.openapi.project.Project,com.intellij.psi.PsiElement[],com.intellij.psi.PsiElement[],com.intellij.refactoring.move.MoveCallback,com.intellij.util.Function):V
+- s:doMove(com.intellij.openapi.project.Project,com.intellij.psi.PsiElement[],com.intellij.psi.PsiElement[],com.intellij.refactoring.move.MoveCallback,java.util.function.Function):V
 - s:doMoveDirectory(com.intellij.psi.PsiDirectory,com.intellij.psi.PsiDirectory):V
 - s:doMoveFile(com.intellij.psi.PsiFile,com.intellij.psi.PsiDirectory):V
 - s:getInitialTargetDirectory(com.intellij.psi.PsiDirectory,com.intellij.psi.PsiElement[]):com.intellij.psi.PsiDirectory

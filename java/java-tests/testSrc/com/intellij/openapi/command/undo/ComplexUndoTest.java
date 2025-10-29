@@ -10,6 +10,7 @@ import com.intellij.openapi.vfs.encoding.EncodingManager;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.testFramework.EditorTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.util.DocumentUtil;
 import com.intellij.util.ui.UIUtil;
 
 import java.nio.charset.Charset;
@@ -114,6 +115,22 @@ public class ComplexUndoTest extends EditorUndoTestCase {
     undo(getSecondEditor());
     checkEditorText("a\nb\nc\nd\ne\nf", getSecondEditor());
     assertEquals(9, getSecondEditor().getCaretModel().getOffset());
+  }
+
+  // IJPL-215217 Undo is broken after Introduce variable action
+  public void testUndoAfterBulkUpdate() {
+    WriteCommandAction.runWriteCommandAction(
+      myProject,
+      () -> {
+        DocumentUtil.executeInBulk(
+          getFirstEditor().getDocument(),
+          true,
+          () -> getFirstEditor().getDocument().insertString(0, " ")
+        );
+      }
+    );
+    undoFirstEditor();
+    checkEditorText("");
   }
 
   private void checkEditorsText(String text) {

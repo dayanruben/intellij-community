@@ -1,9 +1,11 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.command.impl;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.command.undo.DocumentReference;
 import com.intellij.openapi.command.undo.UndoableAction;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.impl.CurrentEditorProvider;
@@ -19,16 +21,19 @@ import java.util.*;
 
 final class CommandBuilder {
 
+  private static final Logger LOG = Logger.getInstance(CommandBuilder.class);
+
   private final @Nullable Project undoProject; // null - global, isDefault - error
   private final boolean isTransparentSupported;
   private final boolean isGroupIdChangeSupported;
 
   private @NotNull CmdEvent cmdEvent;
+  private @Nullable Throwable tracedStartCommand;
   private @NotNull CurrentEditorProvider editorProvider;
   private @Nullable EditorAndState editorStateBefore;
   private @Nullable EditorAndState editorStateAfter;
   private @Nullable DocumentReference originalDocument;
-  private @NotNull List<UndoableAction> undoableActions;
+  private @NotNull Collection<UndoableAction> undoableActions;
   private @NotNull UndoAffectedDocuments affectedDocuments;
   private @NotNull UndoAffectedDocuments additionalAffectedDocuments;
   private boolean isForcedGlobal;
@@ -50,18 +55,21 @@ final class CommandBuilder {
     return isInsideCommand() && cmdEvent.project() == undoProject;
   }
 
+  boolean hasActions() {
+    assertInsideCommand();
+    return !undoableActions.isEmpty();
+  }
+
   void commandStarted(@NotNull CmdEvent cmdEvent, @NotNull CurrentEditorProvider editorProvider) {
     assertOutsideCommand();
+    if (LOG.isTraceEnabled() || ApplicationManager.getApplication().isUnitTestMode()) {
+      this.tracedStartCommand = new Throwable();
+    }
     this.cmdEvent = cmdEvent;
     this.editorProvider = editorProvider;
     this.editorStateBefore = currentEditorState();
     this.originalDocument = this.cmdEvent.recordOriginalDocument() ? originalDocument() : null;
     this.isInsideCommand = true;
-  }
-
-  boolean hasActions() {
-    assertInsideCommand();
-    return !undoableActions.isEmpty();
   }
 
   void addUndoableAction(@NotNull UndoableAction action) {
@@ -114,6 +122,19 @@ final class CommandBuilder {
       addDocumentAsAffected(Objects.requireNonNull(originalDocument));
     }
     return buildAndReset();
+  }
+
+
+  void assertInsideCommand() {
+    if (!isInsideCommand) {
+      throw new UndoIllegalStateException("Must be called inside a command");
+    }
+  }
+
+  void assertOutsideCommand() {
+    if (isInsideCommand) {
+      throw new UndoIllegalStateException("Nested command detected, please report the stacktrace", tracedStartCommand);
+    }
   }
 
   private @NotNull PerformedCommand buildAndReset() {
@@ -171,6 +192,7 @@ final class CommandBuilder {
 
   private void reset() {
     this.cmdEvent = NoEvent.INSTANCE;
+    this.tracedStartCommand = null;
     this.editorProvider = NoEditorProvider.INSTANCE;
     this.editorStateBefore = null;
     this.editorStateAfter = null;
@@ -183,24 +205,14 @@ final class CommandBuilder {
     this.isInsideCommand = false;
   }
 
-  private void assertInsideCommand() {
-    if (!isInsideCommand) {
-      throw new UndoIllegalStateException("Must be called inside a command");
-    }
-  }
-
-  private void assertOutsideCommand() {
-    if (isInsideCommand) {
-      throw new UndoIllegalStateException("Must be called outside a command");
-    }
-  }
-
   private static boolean isRefresh() {
     return ExternalChangeActionUtil.isExternalChangeInProgress();
   }
 
   private static final class NoEvent implements CmdEvent {
     static final NoEvent INSTANCE = new NoEvent();
+
+    // region Unsupported
 
     @Override
     public @NotNull CommandId id() { throw new UnsupportedOperationException(); }
@@ -222,12 +234,18 @@ final class CommandBuilder {
 
     @Override
     public boolean isTransparent() { throw new UnsupportedOperationException(); }
+
+    // endregion
   }
 
   private static final class NoEditorProvider implements CurrentEditorProvider {
     static final CurrentEditorProvider INSTANCE = new NoEditorProvider();
 
+    // region Unsupported
+
     @Override
     public @Nullable FileEditor getCurrentEditor(@Nullable Project project) { throw new UnsupportedOperationException(); }
+
+    // endregion
   }
 }

@@ -100,7 +100,7 @@ internal class GHPRReviewDiffExtension : DiffExtension() {
           cs.launchNow {
             inlays
               .mapStatefulToStateful { inlayModel ->
-                GHPRInlayUtils.installInlayHoverOutline(this, editor, side, locationToLine, inlayModel)
+                GHPRInlayUtils.installInlayHoverOutline(this, editor, side == null, locationToLine, inlayModel)
               }
               .collect()
           }
@@ -183,7 +183,9 @@ private class DiffEditorModel(
       Side.LEFT -> range.end1
       Side.RIGHT -> range.end2
     }
-    val end = locationToLine(side to endLineIdx.dec())?.inc() ?: return null
+    val end =
+      if (startLineIdx == endLineIdx) start
+      else locationToLine(side to endLineIdx.dec())?.inc() ?: return null
     return LineRange(start, end)
   }
 
