@@ -44,7 +44,7 @@ class GrazieInspection : LocalInspectionTool(), DumbAware {
 
   override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean, session: LocalInspectionToolSession): PsiElementVisitor {
     val file = holder.file
-    if (ignoreGrammarChecking(file) || hasTooLowSeverity(session)) return PsiElementVisitor.EMPTY_VISITOR
+    if (ignoreGrammarChecking(file) || hasTooLowSeverity(session) || areDisabled(session)) return PsiElementVisitor.EMPTY_VISITOR
 
     val checkedDomains = checkedDomains()
     val areChecksDisabled = getDisabledChecker(file)
@@ -88,6 +88,15 @@ class GrazieInspection : LocalInspectionTool(), DumbAware {
     return inspections.all { InspectionProfileManager.hasTooLowSeverity(session, it) }
   }
 
+  private fun areDisabled(session: LocalInspectionToolSession): Boolean {
+    val project = session.file.project
+    val profile = InspectionProfileManager.getInstance(project).currentProfile
+    return inspections.all { inspection ->
+      val tools = profile.getToolsOrNull(inspection.shortName, project)
+      tools == null || !tools.isEnabled
+    }
+  }
+
   /**
    * Most of those methods are used in Grazie Pro.
    */
@@ -95,7 +104,7 @@ class GrazieInspection : LocalInspectionTool(), DumbAware {
   companion object {
     private val inspections: List<LocalInspectionTool> = listOf(Grammar(), Style())
 
-    private const val MAX_TEXT_LENGTH_IN_PSI_ELEMENT = 50_000
+    internal const val MAX_TEXT_LENGTH_IN_PSI_ELEMENT: Int = 50_000
     private const val MAX_TEXT_LENGTH_IN_FILE = 200_000
     const val GRAMMAR_INSPECTION: String = "GrazieInspection"
     const val STYLE_INSPECTION: String = "GrazieStyle"

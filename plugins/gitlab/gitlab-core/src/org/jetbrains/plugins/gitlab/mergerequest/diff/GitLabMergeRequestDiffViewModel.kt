@@ -28,6 +28,7 @@ import org.jetbrains.plugins.gitlab.mergerequest.GitLabMergeRequestsPreferences
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequestChanges
 import org.jetbrains.plugins.gitlab.mergerequest.data.loadRevisionsAndParseChanges
+import org.jetbrains.plugins.gitlab.mergerequest.ui.GitLabContextDataLoader
 import org.jetbrains.plugins.gitlab.mergerequest.ui.createDiffDataFlow
 import org.jetbrains.plugins.gitlab.mergerequest.ui.diff.*
 import org.jetbrains.plugins.gitlab.mergerequest.ui.review.GitLabMergeRequestDiscussionsViewModels
@@ -47,7 +48,6 @@ private typealias NewDiscussionsFlow = StateFlow<Collection<GitLabMergeRequestDi
 interface GitLabMergeRequestDiffViewModel : GitLabMergeRequestReviewViewModel, CodeReviewDiffProcessorViewModel<GitLabMergeRequestDiffChangeViewModel> {
   val discussions: DiscussionsFlow
   val draftDiscussions: DraftDiscussionsFlow
-  val newDiscussions: NewDiscussionsFlow
 
   fun getViewModelFor(change: RefComparisonChange): Flow<GitLabMergeRequestDiffReviewViewModel?>
 
@@ -72,6 +72,7 @@ internal class GitLabMergeRequestDiffProcessorViewModelImpl(
   private val mergeRequest: GitLabMergeRequest,
   private val discussionsContainer: GitLabMergeRequestDiscussionsViewModels,
   private val avatarIconsProvider: IconsProvider<GitLabUserDTO>,
+  private val contextDataLoader: GitLabContextDataLoader,
 ) : GitLabMergeRequestDiffViewModel, GitLabMergeRequestReviewViewModelBase(
   parentCs.childScope("GitLab Merge Request Diff Review VM"),
   currentUser, mergeRequest,
@@ -130,21 +131,13 @@ internal class GitLabMergeRequestDiffProcessorViewModelImpl(
         }
       }
     }.stateInNow(cs, ComputedResult.loading())
-  override val newDiscussions: NewDiscussionsFlow =
-    discussionsContainer.newDiscussions.map { list ->
-      list.mapNotNull { (position, vm) ->
-        val position = position.position
-        val diffDataFlow = createDiffDataFlow(position, selectedChanges)
-        GitLabMergeRequestDiffNewDiscussionViewModel(vm, diffDataFlow, position, discussionsViewOption)
-      }
-    }.stateInNow(cs, emptyList())
 
   private val noteByTrackingId: StateFlow<Map<String, DiffDataMappedGitLabMergeRequestDiffInlayViewModel>> =
-    combine(discussions, draftDiscussions, newDiscussions) { discussionsResult, draftNotesResult, newDiscussions ->
+    combine(discussions, draftDiscussions) { discussionsResult, draftNotesResult ->
       val discussions = discussionsResult.getOrNull() ?: emptyList()
       val draftNotes = draftNotesResult.getOrNull() ?: emptyList()
 
-      (discussions + draftNotes + newDiscussions).associateBy { it.trackingId }
+      (discussions + draftNotes).associateBy { it.trackingId }
     }.stateInNow(cs, emptyMap())
 
   override fun showChange(change: GitLabMergeRequestDiffChangeViewModel, scrollRequest: DiffViewerScrollRequest?) =
@@ -203,7 +196,8 @@ internal class GitLabMergeRequestDiffProcessorViewModelImpl(
       project, this,
       mergeRequest, diffData, change,
       this@GitLabMergeRequestDiffProcessorViewModelImpl,
-      discussionsContainer, discussionsViewOption, avatarIconsProvider
+      discussionsContainer, discussionsViewOption, avatarIconsProvider,
+      contextDataLoader
     )
 
   override fun findNextComment(currentThreadId: String, additionalIsVisible: (String) -> Boolean): String? =

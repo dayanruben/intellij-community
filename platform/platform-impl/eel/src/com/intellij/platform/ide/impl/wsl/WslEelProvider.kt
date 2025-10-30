@@ -78,7 +78,10 @@ class EelWslMrfsBackend(private val coroutineScope: CoroutineScope) : MultiRouti
       val ijentFsProvider = TracingFileSystemProvider(IjentNioFileSystemProvider.getInstance())
 
       try {
-        val ijentFs = IjentFailSafeFileSystemPosixApi(coroutineScope, WslEelDescriptor(WSLDistribution(distributionId), wslRoot))
+        val descriptor = WslEelDescriptor(WSLDistribution(distributionId), wslRoot)
+        val ijentFs = IjentFailSafeFileSystemPosixApi(coroutineScope, descriptor, checkIsIjentInitialized = {
+          WslIjentManager.getInstance().isIjentInitialized(descriptor)
+        })
         val fs = ijentFsProvider.newFileSystem(ijentUri, IjentNioFileSystemProvider.newFileSystemMap(ijentFs))
 
         coroutineScope.coroutineContext.job.invokeOnCompletion {

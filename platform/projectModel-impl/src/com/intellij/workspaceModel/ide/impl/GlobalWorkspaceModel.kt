@@ -362,7 +362,11 @@ class GlobalWorkspaceModel internal constructor(
       return ApplicationManager.getApplication().serviceAsync<GlobalWorkspaceModelRegistry>().getGlobalModel(eelMachine)
     }
 
-    suspend fun getInstanceByEnvironmentName(environmentName: InternalEnvironmentName): GlobalWorkspaceModel {
+    fun getInstanceByEnvironmentName(environmentName: InternalEnvironmentName): GlobalWorkspaceModel {
+      return ApplicationManager.getApplication().service<GlobalWorkspaceModelRegistry>().getGlobalModelByEnvironmentName(environmentName)
+    }
+
+    suspend fun getInstanceByEnvironmentNameAsync(environmentName: InternalEnvironmentName): GlobalWorkspaceModel {
       return ApplicationManager.getApplication().serviceAsync<GlobalWorkspaceModelRegistry>().getGlobalModelByEnvironmentName(environmentName)
     }
 
@@ -466,7 +470,8 @@ fun EelMachine.getInternalEnvironmentName(): InternalEnvironmentName {
   return protectedMachine.getInternalEnvironmentNameImpl()
 }
 
-private fun EelMachine.getInternalEnvironmentNameImpl(): InternalEnvironmentName =
+@ApiStatus.Internal
+fun EelMachine.getInternalEnvironmentNameImpl(): InternalEnvironmentName =
   if (this is LocalEelMachine) {
     InternalEnvironmentName.Local
   }
