@@ -5,7 +5,6 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.nls.NlsMessages;
-import com.intellij.ide.plugins.marketplace.MarketplacePluginDownloadService;
 import com.intellij.ide.plugins.marketplace.MarketplaceRequests;
 import com.intellij.ide.plugins.marketplace.statistics.PluginManagerUsageCollector;
 import com.intellij.ide.plugins.marketplace.statistics.enums.InstallationSourceEnum;
@@ -57,7 +56,6 @@ public final class PluginInstallOperation {
   private final List<PendingDynamicPluginInstall> myPendingDynamicPluginInstalls = new ArrayList<>();
   private boolean myRestartRequired = false;
   private boolean myShownErrors;
-  private MarketplacePluginDownloadService myDownloadService;
 
   public PluginInstallOperation(@NotNull List<PluginNode> pluginsToInstall,
                                 @NotNull Collection<PluginNode> customReposPlugins,
@@ -116,10 +114,6 @@ public final class PluginInstallOperation {
     ActionCallback callback = new ActionCallback();
     ourInstallCallbacks.put(id, callback);
     myLocalInstallCallbacks.put(id, callback);
-  }
-
-  public void setDownloadService(MarketplacePluginDownloadService downloadService) {
-    myDownloadService = downloadService;
   }
 
   public void setAllowInstallWithoutRestart(boolean allowInstallWithoutRestart) {
@@ -345,10 +339,10 @@ public final class PluginInstallOperation {
       PluginId depPluginId = dependency.getPluginId();
 
       if (PluginManagerCore.looksLikePlatformPluginAlias(depPluginId)) {
-        IdeaPluginDescriptorImpl descriptorByModule = PluginManagerCore.findPluginByPlatformAlias(depPluginId);
-        PluginId pluginIdByModule = descriptorByModule != null ?
-                                    descriptorByModule.getPluginId() :
-                                    getCachedPluginId(depPluginId.getIdString());
+        IdeaPluginDescriptorImpl descriptorByAlias = PluginManagerCore.findPluginByPlatformAlias(depPluginId);
+        PluginId pluginIdByModule = descriptorByAlias != null ?
+                                    descriptorByAlias.getPluginId() :
+                                    resolveModuleInMarketplaceWithCache(depPluginId.getIdString());
 
         if (pluginIdByModule == null) continue;
         depPluginId = pluginIdByModule;
@@ -371,10 +365,12 @@ public final class PluginInstallOperation {
                              "plugin.manager.dependencies.detected.message", false)) {
       return false;
     }
-
-    return !Registry.is("ide.plugins.suggest.install.optional.dependencies") ||
-           prepareDependencies(pluginNode, optionalDeps, "plugin.manager.optional.dependencies.detected.title",
-                               "plugin.manager.optional.dependencies.detected.message", true);
+    if (Registry.is("ide.plugins.suggest.install.optional.dependencies") &&
+        !prepareDependencies(pluginNode, optionalDeps, "plugin.manager.optional.dependencies.detected.title",
+                            "plugin.manager.optional.dependencies.detected.message", true)) {
+      return false;
+    }
+    return true;
   }
 
   private boolean prepareDependencies(@NotNull IdeaPluginDescriptor pluginNode,
@@ -478,14 +474,16 @@ public final class PluginInstallOperation {
     return fromCustomRepos ? pluginFromCustomRepos : pluginFromMarketplace;
   }
 
-  private static @Nullable PluginId getCachedPluginId(@NotNull String pluginId) {
-    Optional<PluginId> cachedModule = ourCache.getIfPresent(pluginId);
+  /**
+   * Beware: Marketplace treats both plugin ids and content module ids as "modules"
+   */
+  private static @Nullable PluginId resolveModuleInMarketplaceWithCache(@NotNull String moduleId) {
+    Optional<PluginId> cachedModule = ourCache.getIfPresent(moduleId);
     if (cachedModule != null && cachedModule.isPresent()) {
       return cachedModule.get();
     }
-
-    PluginId result = MarketplaceRequests.getInstance().getCompatibleUpdateByModule(pluginId);
-    ourCache.put(pluginId, Optional.ofNullable(result));
+    PluginId result = MarketplaceRequests.getInstance().getCompatibleUpdateByModule(moduleId);
+    ourCache.put(moduleId, Optional.ofNullable(result));
     return result;
   }
 }

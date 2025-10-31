@@ -1,5 +1,6 @@
 package com.intellij.lambda.testFramework.junit
 
+import com.intellij.lambda.testFramework.utils.BackgroundRunWithLambda
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.api.extension.InvocationInterceptor
@@ -11,49 +12,58 @@ import java.lang.reflect.Method
  */
 open class MonolithAndSplitModeInvocationInterceptor : InvocationInterceptor {
   override fun interceptTestTemplateMethod(
-    invocation: InvocationInterceptor.Invocation<Void>,
-    invocationContext: ReflectiveInvocationContext<Method>,
-    extensionContext: ExtensionContext,
+    invocation: InvocationInterceptor.Invocation<Void?>,
+    invocationContext: ReflectiveInvocationContext<Method?>,
+    extensionContext: ExtensionContext?,
   ) {
-    intercept<Void>(invocation, invocationContext)
+    intercept<Void?>(invocation, invocationContext)
   }
 
   override fun interceptTestMethod(
-    invocation: InvocationInterceptor.Invocation<Void>, invocationContext: ReflectiveInvocationContext<Method>,
-    extensionContext: ExtensionContext,
+    invocation: InvocationInterceptor.Invocation<Void?>, invocationContext: ReflectiveInvocationContext<Method?>,
+    extensionContext: ExtensionContext?,
   ) {
-    intercept<Void>(invocation, invocationContext)
+    intercept<Void?>(invocation, invocationContext)
   }
 
-  override fun <T : Any> interceptTestFactoryMethod(
-    invocation: InvocationInterceptor.Invocation<T>, invocationContext: ReflectiveInvocationContext<Method>,
+  override fun <T> interceptTestFactoryMethod(
+    invocation: InvocationInterceptor.Invocation<T?>, invocationContext: ReflectiveInvocationContext<Method?>,
     extensionContext: ExtensionContext,
-  ): T {
-    return intercept<T>(invocation, invocationContext)
+  ): T? {
+    return intercept<T?>(invocation, invocationContext)
   }
 
   override fun interceptBeforeEachMethod(
-    invocation: InvocationInterceptor.Invocation<Void>,
-    invocationContext: ReflectiveInvocationContext<Method>,
-    extensionContext: ExtensionContext,
+    invocation: InvocationInterceptor.Invocation<Void?>,
+    invocationContext: ReflectiveInvocationContext<Method?>,
+    extensionContext: ExtensionContext?,
   ) {
-    intercept<Void>(invocation, invocationContext)
+    intercept<Void?>(invocation, invocationContext)
   }
 
-  private fun <T : Any> intercept(invocation: InvocationInterceptor.Invocation<T>, invocationContext: ReflectiveInvocationContext<Method>): T {
+  private fun <T> intercept(invocation: InvocationInterceptor.Invocation<T?>, invocationContext: ReflectiveInvocationContext<Method?>): T? {
+    if (invocationContext.arguments.any { it::class == BackgroundRunWithLambda::class }) {
+      System.err.println("Test ${invocationContext.executable?.name} has ${BackgroundRunWithLambda::class.qualifiedName} parameter. Test is expected to use it directly.")
+      return invocation.proceed()
+      // TODO: https://youtrack.jetbrains.com/issue/AT-3414/Lambda-tests-implement-parameterization-for-all-possible-JUnit5-test-scenarios
+    }
+
+    @Suppress("RAW_RUN_BLOCKING")
     runBlocking {
-      // TODO: init background IDE run before all tests (and provide and option to start IDE for every test)
+      // TODO: https://youtrack.jetbrains.com/issue/AT-3386/Lambda-tests-Start-different-instances-of-IDE-for-each-mode
+      // TODO: provide and option to start IDE for every test
       MonolithAndSplitModeIdeInstanceInitializer.ideBackgroundRun.runLambda(InjectedLambda::class,
                                                                             params = mapOf(
-                                                       "testClass" to invocationContext.targetClass.name,
-                                                       "testMethod" to invocationContext.executable.name,
-                                                       "methodArguments" to argumentsToString(invocationContext.arguments)
-                                                     ))
+                                                                              "testClass" to (invocationContext.targetClass.name ?: ""),
+                                                                              "testMethod" to (invocationContext.executable?.name ?: ""),
+                                                                              "methodArguments" to argumentsToString(invocationContext.arguments)
+                                                                            ))
     }
 
     invocation.skip()
-    // TODO: find a way to deal with JUnit5 test factory (see overrides above)
-    return Void.TYPE as T
+    // TODO: https://youtrack.jetbrains.com/issue/AT-3414/Lambda-tests-implement-parameterization-for-all-possible-JUnit5-test-scenarios
+    //  find a way to deal with JUnit5 test factory (see overrides above)
+    return null
   }
 }
 

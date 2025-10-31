@@ -22,6 +22,13 @@ import java.util.Set;
 @ApiStatus.Internal
 public final class JavaTypeNullabilityUtil {
   /**
+   * Java allows recursive type bounds, e.g. {@code class A<T extends A<T>> {}}.
+   * During the nullability conflict it may turn into the endless recursion.
+   * This field limits the depth of the recursive type parameters.
+   */
+  private static final int MAX_NULLABILITY_CONFLICT_RECURSION_PARAMETER_DEPTH = 100;
+
+  /**
    * Computes the class type nullability
    * 
    * @param type type to compute nullability for
@@ -71,10 +78,12 @@ public final class JavaTypeNullabilityUtil {
   
   private static boolean isLocal(PsiClassType classType) {
     PsiElement context = classType.getPsiContext();
-    //PsiKeyword is used for `var` case
-    return (context instanceof PsiJavaCodeReferenceElement || PsiUtil.isJavaToken(context, JavaTokenType.VAR_KEYWORD)) &&
-           context.getParent() instanceof PsiTypeElement &&
-           context.getParent().getParent() instanceof PsiLocalVariable;
+    return ((context instanceof PsiJavaCodeReferenceElement) &&
+            context.getParent() instanceof PsiTypeElement &&
+            context.getParent().getParent() instanceof PsiLocalVariable) ||
+           //inferred PsiTypeElements
+           (context instanceof PsiTypeElement && ((PsiTypeElement)context).isInferredType() &&
+            context.getParent() instanceof PsiLocalVariable);
   }
 
   /**
@@ -107,13 +116,17 @@ public final class JavaTypeNullabilityUtil {
   public static @NotNull NullabilityConflict getNullabilityConflictInAssignment(@Nullable PsiType leftType,
                                                                                 @Nullable PsiType rightType,
                                                                                 boolean checkNotNullToNull) {
-    return getNullabilityConflictInAssignment(leftType, rightType, checkNotNullToNull, false);
+    return getNullabilityConflictInAssignment(leftType, rightType, 0, checkNotNullToNull, false);
   }
 
   private static @NotNull NullabilityConflict getNullabilityConflictInAssignment(@Nullable PsiType leftType,
                                                                                  @Nullable PsiType rightType,
+                                                                                 int recursionDepth,
                                                                                  boolean checkNotNullToNull,
                                                                                  boolean checkConflictInInitialType) {
+    if (recursionDepth >= MAX_NULLABILITY_CONFLICT_RECURSION_PARAMETER_DEPTH) {
+      return NullabilityConflict.UNKNOWN;
+    }
     if (checkConflictInInitialType) {
       NullabilityConflict nullabilityConflict = getNullabilityConflictType(leftType, rightType);
       if (isAllowedNullabilityConflictType(checkNotNullToNull, nullabilityConflict)) return nullabilityConflict;
@@ -126,34 +139,34 @@ public final class JavaTypeNullabilityUtil {
     }
 
     if (rightType instanceof PsiIntersectionType) {
-      return getNullabilityConflictInTypeArguments(leftType, rightType, checkNotNullToNull);
+      return getNullabilityConflictInTypeArguments(leftType, rightType, recursionDepth, checkNotNullToNull);
     }
 
     if (rightType instanceof PsiCapturedWildcardType) {
-      return getNullabilityConflictInAssignment(leftType, ((PsiCapturedWildcardType)rightType).getUpperBound(true), checkNotNullToNull,
+      return getNullabilityConflictInAssignment(leftType, ((PsiCapturedWildcardType)rightType).getUpperBound(true), recursionDepth + 1, checkNotNullToNull,
                                                 false);
     }
     if (leftType instanceof PsiCapturedWildcardType) {
-      return getNullabilityConflictInAssignment(((PsiCapturedWildcardType)leftType).getLowerBound(), rightType, checkNotNullToNull, false);
+      return getNullabilityConflictInAssignment(((PsiCapturedWildcardType)leftType).getLowerBound(), rightType, recursionDepth + 1, checkNotNullToNull, false);
     }
 
     if (leftType instanceof PsiWildcardType) {
-      return getNullabilityConflictInAssignment(GenericsUtil.getWildcardBound(leftType), rightType, checkNotNullToNull, false);
+      return getNullabilityConflictInAssignment(GenericsUtil.getWildcardBound(leftType), rightType, recursionDepth + 1, checkNotNullToNull, false);
     }
     if (rightType instanceof PsiWildcardType) {
-      return getNullabilityConflictInAssignment(leftType, GenericsUtil.getWildcardBound(rightType), checkNotNullToNull, false);
+      return getNullabilityConflictInAssignment(leftType, GenericsUtil.getWildcardBound(rightType), recursionDepth + 1, checkNotNullToNull, false);
     }
 
     if (leftType instanceof PsiArrayType && rightType instanceof PsiArrayType) {
       return getNullabilityConflictInAssignment(((PsiArrayType)leftType).getComponentType(),
-                                                ((PsiArrayType)rightType).getComponentType(), checkNotNullToNull, true);
+                                                ((PsiArrayType)rightType).getComponentType(), recursionDepth + 1, checkNotNullToNull, true);
     }
 
     if (!(leftType instanceof PsiClassType) || !(rightType instanceof PsiClassType)) {
       return NullabilityConflict.UNKNOWN;
     }
 
-    return getNullabilityConflictInTypeArguments(leftType, rightType, checkNotNullToNull);
+    return getNullabilityConflictInTypeArguments(leftType, rightType, recursionDepth, checkNotNullToNull);
   }
 
   /**
@@ -167,6 +180,7 @@ public final class JavaTypeNullabilityUtil {
    */
   private static @NotNull NullabilityConflict getNullabilityConflictInTypeArguments(@NotNull PsiType leftType,
                                                                                     @NotNull PsiType rightType,
+                                                                                    int recursionDepth,
                                                                                     boolean checkNotNullToNull) {
     PsiClass leftClass = PsiTypesUtil.getPsiClass(leftType);
     if (leftClass == null) return NullabilityConflict.UNKNOWN;
@@ -185,6 +199,7 @@ public final class JavaTypeNullabilityUtil {
       NullabilityConflict nullabilityConflict = getNullabilityConflictInAssignment(
         leftParameterType,
         rightParameterType,
+        recursionDepth + 1,
         checkNotNullToNull,
         true
       );
