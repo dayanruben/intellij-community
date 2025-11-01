@@ -108,9 +108,9 @@ open class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
     }
   }
 
-  fun getSelection(): String? {
+  fun getSelection(allCarets: Boolean = false): String? {
     return interact {
-      getSelectionModel().getSelectedText()
+      getSelectionModel().getSelectedText(allCarets)
     }
   }
 
@@ -132,6 +132,10 @@ open class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
 
   fun getCaretLine(): Int = caretPosition.getLine() + 1
   fun getCaretColumn(): Int = caretPosition.getColumn() + 1
+
+  fun getMultipleCaretPositions(): List<Pair<Int, Int>> {
+    return editor.getCaretModel().getAllCarets().map { Pair(it.getLogicalPosition().getLine() + 1, it.getLogicalPosition().getColumn() + 1) }
+  }
 
   fun getFontSize(): Int = editor.getColorsScheme().getEditorFontSize()
 
@@ -396,6 +400,7 @@ class EditorSearchReplaceComponent(data: ComponentData) : UiComponent(data) {
   val nextOccurrenceButton = actionButton { byAccessibleName("Next Occurrence") }
   val previousOccurrenceButton = actionButton { byAccessibleName("Previous Occurrence") }
   val clearSearchButton = actionButton { byAttribute("myicon", "closeSmall.svg") }
+  val optionsButton = actionButton { byAccessibleName("Open in Window, Multiple Cursors") }
 }
 
 @Remote("com.intellij.openapi.editor.impl.EditorGutterComponentImpl")

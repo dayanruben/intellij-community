@@ -1166,13 +1166,17 @@ fun <T : CommandChain> T.replaceText(
   if (endOffset != null) {
     options.append(" -endOffset ${endOffset}")
   }
-  if (newText != null) {
-    options.append(" -newText ${newText}")
-  }
   if (calculateAnalysisTime) {
     options.append(" -calculateAnalysisTime ${true}")
   }
+  if (newText != null) {
+    options.append(" -newText ${newText}")
+  }
   addCommand("${CMD_PREFIX}replaceText ${options}")
+}
+
+fun <T : CommandChain> T.insertText(offset: Int, text: String): T = apply {
+  addCommand("${CMD_PREFIX}replaceText -startOffset ${offset} -endOffset ${offset} -newText ${text}")
 }
 
 fun <T : CommandChain> T.saveDocumentsAndSettings(): T = apply {
@@ -1350,7 +1354,10 @@ fun <T : CommandChain> T.waitForReOpenedFile(relativePath: String): T = apply {
   addCommand("${CMD_PREFIX}waitForReOpenedFile -file ${relativePath.replace(" ", "SPACE_SYMBOL")}")
 }
 
-@Suppress("KDocUnresolvedReference")
 fun <T : CommandChain> T.detectProjectLeaks(): T = apply {
   addCommand("${CMD_PREFIX}detectProjectLeaks")
+}
+
+fun <T : CommandChain> T.hideAllToolWindows(): T = apply {
+  addCommand("${CMD_PREFIX}hideAllToolWindows")
 }

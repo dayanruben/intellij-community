@@ -12,11 +12,12 @@ import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.pathSeparator
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.asEelPath
+import com.intellij.util.PathUtil
 import com.intellij.util.asSafely
 import org.jetbrains.plugins.terminal.LocalTerminalCustomizer
-import org.jetbrains.plugins.terminal.runner.TerminalCustomizerLocalPathTranslator.Companion.PATH_LIKE_ENV_NAMES
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import kotlin.text.orEmpty
 
 /**
  * Fixes potentially incorrect modifications to PATH-like environment variables made by
@@ -41,22 +42,25 @@ internal class TerminalCustomizerLocalPathTranslator(
   private val customizerClass: Class<out LocalTerminalCustomizer>,
 ) {
 
-  private val pathLikeEnvs: List<PathLikeEnv> = when (descriptor) {
-    LocalEelDescriptor -> emptyList()
-    else -> PATH_LIKE_ENV_NAMES.map {
-      PathLikeEnv(it, envs[it].orEmpty())
-    }
-  }
+  private val multiPathEnvs: List<PathLikeEnv> = capturePathEnvs(MULTI_PATH_ENV_NAMES, envs, descriptor)
+  private val singlePathEnvs: List<PathLikeEnv> = capturePathEnvs(SINGLE_PATH_ENV_NAMES, envs, descriptor)
 
   /**
-   * Translates the modifications to the PATH-like environment variables [PATH_LIKE_ENV_NAMES]
+   * Translates the modifications to the PATH-like environment variables [MULTI_PATH_ENV_NAMES], [SINGLE_PATH_ENV_NAMES]
    * made by [customizerClass].
    */
   fun translate() {
+    translateEnvs(multiPathEnvs, ::doTranslate)
+    translateEnvs(singlePathEnvs) { _, newValue ->
+      translateHostPathToRemote(newValue)
+    }
+  }
+
+  private fun translateEnvs(pathLikeEnvs: List<PathLikeEnv>, translator: (PathLikeEnv, String) -> String?) {
     for (pathLikeEnv in pathLikeEnvs) {
       val newValue = envs[pathLikeEnv.name]
       if (newValue != null && newValue != pathLikeEnv.prevValue) {
-        val translatedValue = doTranslate(pathLikeEnv, newValue)
+        val translatedValue = translator(pathLikeEnv, newValue)
         if (translatedValue != null) {
           LOG.debug {
             "Translated ${pathLikeEnv.name} for ${customizerClass.name}: ${pathLikeEnv.prevValue} -> $newValue -> $translatedValue"
@@ -86,7 +90,7 @@ internal class TerminalCustomizerLocalPathTranslator(
    */
   private fun doTranslate(pathLikeEnv: PathLikeEnv, newValue: String): String? {
     val prevValue = pathLikeEnv.prevValue
-    val ind = newValue.indexOf(pathLikeEnv.prevValue)
+    val ind = newValue.indexOf(prevValue)
     if (ind >= 0) {
       val prepended = newValue.take(ind)
       val appended = newValue.substring(ind + prevValue.length)
@@ -114,7 +118,7 @@ internal class TerminalCustomizerLocalPathTranslator(
   }
 
   private fun translateHostPathToRemote(pathString: String): String {
-    if (pathString.isBlank() || pathString == ".") return pathString
+    if (pathString.isBlank()) return pathString
     val path: Path = try {
       Path.of(pathString)
     }
@@ -122,6 +126,7 @@ internal class TerminalCustomizerLocalPathTranslator(
       LOG.debug(e) { "Failed to create Path from $pathString, adding it as is (without translation)" }
       return pathString
     }
+    if (!path.isAbsolute) return pathString
     val eelPath: EelPath = try {
       path.asEelPath(descriptor)
     }
@@ -177,8 +182,9 @@ internal class TerminalCustomizerLocalPathTranslator(
     val path = WslPath.parseWindowsUncPath(pathString) ?: return null
     val eelRootPath = WslPath.parseWindowsUncPath(wslEelDescriptor.rootPath.toString()) ?: return null
     if (path.distributionId == eelRootPath.distributionId && path.wslRoot != eelRootPath.wslRoot) {
-      check(pathString.startsWith(path.wslRoot))
-      val newPathString = eelRootPath.wslRoot + pathString.substring(path.wslRoot.length)
+      val winPathString = PathUtil.toSystemDependentName(pathString)
+      check(winPathString.startsWith(path.wslRoot))
+      val newPathString = eelRootPath.wslRoot + winPathString.substring(path.wslRoot.length)
       try {
         val newPath = Path.of(newPathString)
         return newPath.asEelPath(descriptor).toString()
@@ -209,8 +215,36 @@ internal class TerminalCustomizerLocalPathTranslator(
   private data class PathLikeEnv(val name: String, val prevValue: String)
 
   companion object {
-    private val PATH_LIKE_ENV_NAMES: List<String> = listOf("PATH", "_INTELLIJ_FORCE_PREPEND_PATH", "_INTELLIJ_FORCE_SET_PATH")
+    private val MULTI_PATH_ENV_NAMES: List<String> = listOf(
+      "PATH",
+      "GOPATH",
+    ).duplicateWithPrefixes("_INTELLIJ_FORCE_PREPEND_", "_INTELLIJ_FORCE_SET_")
+
+    private val SINGLE_PATH_ENV_NAMES: List<String> = listOf(
+      "JEDITERM_SOURCE"
+    ) + listOf(
+      "GOROOT",
+      "GOBIN",
+    ).duplicateWithPrefixes("_INTELLIJ_FORCE_SET_")
+
     private val LOG: Logger = logger<TerminalCustomizerLocalPathTranslator>()
+
+    private fun List<String>.duplicateWithPrefixes(vararg prefixes: String): List<String> {
+      return this + prefixes.flatMap { prefix ->
+        this.map { prefix + it }
+      }
+    }
+
+    private fun capturePathEnvs(
+      envNamesToCapture: List<String>,
+      envs: Map<String, String>,
+      descriptor: EelDescriptor,
+    ): List<PathLikeEnv> = when (descriptor) {
+      LocalEelDescriptor -> emptyList()
+      else -> envNamesToCapture.map {
+        PathLikeEnv(it, envs[it].orEmpty())
+      }
+    }
 
     /**
      * @return if the entries are already separated (can be concatenated as-is)

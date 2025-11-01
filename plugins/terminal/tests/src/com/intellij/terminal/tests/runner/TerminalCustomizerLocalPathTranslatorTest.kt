@@ -5,6 +5,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.io.OSAgnosticPathUtil
 import com.intellij.openapi.vfs.impl.wsl.WslConstants
 import com.intellij.platform.eel.EelApi
@@ -228,14 +229,6 @@ class TerminalCustomizerLocalPathTranslatorTest(private val eelHolder: EelHolder
   fun `translate Windows WSL UNC paths with different prefix`(): Unit = timeoutRunBlocking(TIMEOUT) {
     Assumptions.assumeTrue(eelHolder.type is Wsl)
 
-    fun buildWslUncPathWithOtherPrefix(windowsUncPath: String): String {
-      val wslPath = WslPath.parseWindowsUncPath(windowsUncPath)!!
-      val prefix = wslPath.wslRoot.removeSuffix(wslPath.distributionId)
-      val otherPrefix = (listOf(WslConstants.UNC_PREFIX, "\\\\wsl.localhost\\") - prefix).single()
-      check(windowsUncPath.startsWith(prefix))
-      return otherPrefix + windowsUncPath.removePrefix(prefix)
-    }
-
     val dir = tempDir.asDirectory()
     val dirWithOtherPrefix = Path.of(buildWslUncPathWithOtherPrefix(dir.nioDir.toString()))
     Assumptions.assumeTrue(Files.isDirectory(dirWithOtherPrefix))
@@ -249,6 +242,122 @@ class TerminalCustomizerLocalPathTranslatorTest(private val eelHolder: EelHolder
     }
     Assertions.assertThat(result.getEnvVarValue(PATH))
       .isEqualTo(dir.remoteDirAndSeparator + "/usr/bin")
+  }
+
+  @Test
+  fun `translate Windows WSL UNC paths with different prefix (Unix separators)`(): Unit = timeoutRunBlocking(TIMEOUT) {
+    Assumptions.assumeTrue(eelHolder.type is Wsl)
+
+    val dir = tempDir.asDirectory()
+    val dirWithOtherPrefix = Path.of(buildWslUncPathWithOtherPrefix(dir.nioDir.toString()))
+    Assumptions.assumeTrue(Files.isDirectory(dirWithOtherPrefix))
+
+    register(deprecatedCustomizer {
+      prependToEnvVar(PATH, it, FileUtilRt.toSystemIndependentName(dirWithOtherPrefix.toString()), LocalEelDescriptor)
+    })
+
+    val result = configureStartupOptions(dir) {
+      it[PATH] = "/usr/bin"
+    }
+    Assertions.assertThat(result.getEnvVarValue(PATH))
+      .isEqualTo(dir.remoteDirAndSeparator + "/usr/bin")
+  }
+
+  @Test
+  fun `ensure relative paths are not translated`(): Unit = timeoutRunBlocking(TIMEOUT) {
+    val dir1 = tempDir.asDirectory()
+    val dir2 = createTmpDir("dir2").asDirectory()
+    register(deprecatedCustomizer {
+      dir1.prependHostTo(PATH, it)
+      appendToEnvVar(PATH, it, ".", LocalEelDescriptor)
+    }, deprecatedCustomizer {
+      appendToEnvVar(PATH, it, "./foo", LocalEelDescriptor)
+      prependToEnvVar(PATH, it, "./bar", LocalEelDescriptor)
+      dir2.appendHostTo(PATH, it)
+    })
+    val result = configureStartupOptions(dir1) {
+      it[PATH] = "/path/to/baz"
+    }
+    val remoteSeparator = dir1.remoteSeparator
+    Assertions.assertThat(result.getEnvVarValue(PATH))
+      .isEqualTo("./bar" + remoteSeparator +
+                 dir1.remoteDirAndSeparator +
+                 "/path/to/baz" +
+                 remoteSeparator + "." +
+                 remoteSeparator + "./foo" +
+                 dir2.remoteSeparatorAndDir)
+  }
+
+  @Test
+  fun `Go-related local dirs are translated to remote`(): Unit = timeoutRunBlocking(TIMEOUT) {
+    val dir = tempDir.asDirectory()
+
+    val gopath = "GOPATH"
+    val ijForceSetGopath = "_INTELLIJ_FORCE_SET_GOPATH"
+    val goroot = "GOROOT"
+    val ijForceSetGoroot = "_INTELLIJ_FORCE_SET_GOROOT"
+
+    val gopathDir = createTmpDir(gopath).asDirectory()
+    val binDir = createTmpDir("bin").asDirectory()
+    val gorootDir = createTmpDir("GOROOT").asDirectory()
+    register(deprecatedCustomizer {
+      gopathDir.appendHostTo(gopath, it)
+      binDir.appendHostTo(IJ_PREPEND_PATH, it)
+      gopathDir.appendHostTo(ijForceSetGopath, it)
+      it[goroot] = gorootDir.nioDir.toString()
+      it[ijForceSetGoroot] = gorootDir.nioDir.toString()
+    })
+    val result = configureStartupOptions(dir) {
+      it[gopath] = ""
+      it[IJ_PREPEND_PATH] = ""
+      it[ijForceSetGopath] = ""
+    }
+    Assertions.assertThat(result.getEnvVarValue(gopath))
+      .isEqualTo(gopathDir.remoteDir)
+    Assertions.assertThat(result.getEnvVarValue(IJ_PREPEND_PATH))
+      .isEqualTo(binDir.remoteDir)
+    Assertions.assertThat(result.getEnvVarValue(ijForceSetGopath))
+      .isEqualTo(gopathDir.remoteDir)
+    Assertions.assertThat(result.getEnvVarValue(goroot))
+      .isEqualTo(gorootDir.remoteDir)
+    Assertions.assertThat(result.getEnvVarValue(ijForceSetGoroot))
+      .isEqualTo(gorootDir.remoteDir)
+  }
+
+  @Test
+  fun `Windows WSL UNC paths with Unix separators are translated`(): Unit = timeoutRunBlocking(TIMEOUT) {
+    Assumptions.assumeTrue(eelHolder.type is Wsl)
+
+    val dir1 = tempDir.asDirectory()
+    val dir2 = createTmpDir("dir2").asDirectory()
+
+    register(deprecatedCustomizer {
+      prependToEnvVar(PATH, it, FileUtilRt.toSystemIndependentName(dir1.nioDir.toString()), LocalEelDescriptor)
+      appendToEnvVar(PATH, it, "foo", LocalEelDescriptor)
+    }, deprecatedCustomizer {
+      appendToEnvVar(PATH, it, FileUtilRt.toSystemIndependentName(dir2.nioDir.toString()), LocalEelDescriptor)
+    })
+
+    val initialPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games"
+    val result = configureStartupOptions(dir1) {
+      it[PATH] = initialPath
+    }
+    Assertions.assertThat(result.getEnvVarValue(PATH))
+      .isEqualTo(dir1.remoteDirAndSeparator + initialPath + dir1.remoteSeparator + "foo" + dir2.remoteSeparatorAndDir)
+  }
+
+  @Test
+  fun `translate JEDITERM_SOURCE to remote`(): Unit = timeoutRunBlocking(TIMEOUT) {
+    val dir = tempDir.asDirectory()
+    val fileToSource = dir.nioDir.resolve("test.sh")
+    register(deprecatedCustomizer {
+      it[JEDITERM_SOURCE] = fileToSource.toString()
+    })
+    val result = configureStartupOptions(dir) {
+      it.remove(JEDITERM_SOURCE)
+    }
+    Assertions.assertThat(result.getEnvVarValue(JEDITERM_SOURCE))
+      .isEqualTo(fileToSource.asEelPath(dir.descriptor).toString())
   }
 
   private fun customizer(handler: (envs: MutableMap<String, String>) -> Unit): LocalTerminalCustomizer {
@@ -384,6 +493,16 @@ private fun joinPaths(path1: String, path2: String, descriptor: EelDescriptor): 
   }
 }
 
+private fun buildWslUncPathWithOtherPrefix(windowsUncPath: String): String {
+  val winSepUncPath = FileUtilRt.toSystemDependentName(windowsUncPath, '\\')
+  val wslPath = WslPath.parseWindowsUncPath(winSepUncPath)!!
+  val prefix = wslPath.wslRoot.removeSuffix(wslPath.distributionId)
+  val otherPrefix = (listOf(WslConstants.UNC_PREFIX, "\\\\wsl.localhost\\") - prefix).single()
+  check(winSepUncPath.startsWith(prefix))
+  return otherPrefix + winSepUncPath.removePrefix(prefix)
+}
+
 private const val PATH: String = "PATH"
 private const val IJ_PREPEND_PATH: String = "_INTELLIJ_FORCE_PREPEND_PATH"
+private const val JEDITERM_SOURCE: String = "JEDITERM_SOURCE"
 private val TIMEOUT: Duration = 60.seconds
