@@ -120,11 +120,6 @@ public final class FileManagerImpl implements FileManagerEx {
     });
   }
 
-  /**
-   * Updates the context of [viewProvider] to [context] if the current context of viewProvider is anyContext.
-   *
-   * @return updated context of viewProvider, or `null` if viewProvider is missing in the cache.
-   */
   @ApiStatus.Internal
   @Override
   public @Nullable CodeInsightContext trySetContext(@NotNull FileViewProvider viewProvider, @NotNull CodeInsightContext context) {
@@ -185,11 +180,15 @@ public final class FileManagerImpl implements FileManagerEx {
 
   @Override
   public void dispose() {
-    clearViewProviders();
+    clearViewProviders("Dispose");
   }
 
   @RequiresWriteLock
-  private void clearViewProviders() {
+  private void clearViewProviders(@NotNull String reason) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("clearViewProviders: " + reason);
+    }
+
     DebugUtil.performPsiModification("clearViewProviders", () -> {
       myVFileToViewProviderMap.forEach((__, ___, provider) -> {
         markInvalidated(provider);
@@ -201,7 +200,7 @@ public final class FileManagerImpl implements FileManagerEx {
   @Override
   @TestOnly
   public void cleanupForNextTest() {
-    ApplicationManager.getApplication().runWriteAction(() -> clearViewProviders());
+    ApplicationManager.getApplication().runWriteAction(() -> clearViewProviders("clearViewProvidersForNextTest"));
 
     myVFileToPsiDirMap.set(null);
     myManager.dropPsiCaches();
@@ -429,7 +428,7 @@ public final class FileManagerImpl implements FileManagerEx {
 
           possiblyInvalidatePhysicalPsi();
           if (clearViewProviders) {
-            clearViewProviders();
+            clearViewProviders("processFileTypesChanged");
           }
 
           myManager.propertyChanged(event);

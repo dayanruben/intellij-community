@@ -21,6 +21,7 @@ import org.jetbrains.intellij.build.PLATFORM_LOADER_JAR
 import org.jetbrains.intellij.build.UTIL_8_JAR
 import org.jetbrains.intellij.build.UTIL_JAR
 import org.jetbrains.intellij.build.UTIL_RT_JAR
+import org.jetbrains.intellij.build.findFileInModuleSources
 import org.jetbrains.intellij.build.impl.PlatformJarNames.PRODUCT_BACKEND_JAR
 import org.jetbrains.intellij.build.impl.PlatformJarNames.PRODUCT_JAR
 import org.jetbrains.intellij.build.impl.PlatformJarNames.TEST_FRAMEWORK_JAR
@@ -44,7 +45,7 @@ import java.util.SortedSet
  * details. You can use 'loading="embedded"' to make it still loaded by the core classloader if needed.
  */
 @Suppress("RemoveRedundantQualifierName")
-private val PLATFORM_CORE_MODULES = java.util.List.of(
+internal val PLATFORM_CORE_MODULES = java.util.List.of(
   "intellij.platform.builtInServer",
   "intellij.platform.diff",
   "intellij.platform.editor.ui",
@@ -103,10 +104,6 @@ private val PLATFORM_CORE_MODULES = java.util.List.of(
 internal val PLATFORM_CUSTOM_PACK_MODE: Map<String, LibraryPackMode> = java.util.Map.of(
   "jetbrains-annotations", LibraryPackMode.STANDALONE_SEPARATE_WITHOUT_VERSION_NAME,
 )
-
-internal fun collectPlatformModules(to: MutableCollection<String>) {
-  to.addAll(PLATFORM_CORE_MODULES)
-}
 
 private fun addModule(relativeJarPath: String, moduleNames: Sequence<String>, productLayout: ProductModulesLayout, layout: PlatformLayout) {
   layout.withModules(
@@ -581,19 +578,21 @@ private suspend fun processAndGetProductPluginContentModules(
       moduleToSetChainMapping = null
     }
     else {
-      val sb = StringBuilder()
-      val result = buildProductContentXml(
+      val buildResult = buildProductContentXml(
         spec = programmaticModulesSpec,
         moduleOutputProvider = context,
-        sb = sb,
         inlineXmlIncludes = true,
+        productPropertiesClass = context.productProperties::class.java.name,
+        generatorCommand = "(runtime)",
+        inlineModuleSets = true,
+        isUltimateBuild = context.paths.projectHome != context.paths.communityHomeDir,
       )
-      Span.current().addEvent("Generated ${result.contentBlocks.size} content blocks with ${result.contentBlocks.sumOf { it.modules.size }} total modules")
+      Span.current().addEvent("Generated ${buildResult.contentBlocks.size} content blocks with ${buildResult.contentBlocks.sumOf { it.modules.size }} total modules")
 
-      originalContent = sb.toString()
-      xml = JDOMUtil.load(sb)
+      originalContent = buildResult.xml
+      xml = JDOMUtil.load(buildResult.xml)
       resolveNonXIncludeElement(original = xml, base = file, pathResolver = xIncludePathResolver, trackSourceFile = false)
-      moduleToSetChainMapping = result.moduleToSetChainMapping
+      moduleToSetChainMapping = buildResult.moduleToSetChainMapping
     }
 
     val moduleItems = collectAndEmbedProductModules(

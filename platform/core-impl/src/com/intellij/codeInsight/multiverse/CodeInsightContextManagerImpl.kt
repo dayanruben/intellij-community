@@ -123,7 +123,7 @@ class CodeInsightContextManagerImpl(
     log.trace { "requested preferred context of file ${file.path}" }
 
     return preferredContext.getOrPut(file) {
-      findFirstContext(file)
+      findFirstContext(file).also { log.assertTrue(it !== anyContext()) { "preferredContext must not be anyContext" } }
     }
   }
 
@@ -172,7 +172,6 @@ class CodeInsightContextManagerImpl(
     log.trace { "infer context of FileViewProvider ${fileViewProvider.virtualFile.path}" }
 
     val preferredContext = getPreferredContext(fileViewProvider.virtualFile)
-    log.assertTrue(preferredContext != anyContext()) { "preferredContext must not be anyContext" }
 
     val setContext = trySetContext(fileViewProvider, preferredContext)
 
@@ -181,34 +180,30 @@ class CodeInsightContextManagerImpl(
     return setContext
   }
 
+  @RequiresReadLock
   private fun trySetContext(
     fileViewProvider: FileViewProvider,
-    preferredContext: CodeInsightContext,
+    context: CodeInsightContext,
   ): CodeInsightContext {
-    val fileManager = PsiManagerEx.getInstanceEx(project).fileManager as? FileManagerEx
-    if (fileManager != null) {
-      val result = fileManager.trySetContext(fileViewProvider, preferredContext)
-      if (result != null) {
-        return result
-      }
+    val fileManager = PsiManagerEx.getInstanceEx(project).fileManagerEx
 
-      // let's make sure fileViewProvider is still valid
-      val mainPsi = fileViewProvider.getPsi(fileViewProvider.baseLanguage)
-      if (mainPsi != null) {
-        PsiUtilCore.ensureValid(mainPsi)
-      }
+    // if the viewProvider is already stored in the fileManager, we need to update it there
+    val result = fileManager.trySetContext(fileViewProvider, context)
+    if (result != null) {
+      return result
     }
-
-    setCodeInsightContext(fileViewProvider, preferredContext)
-    return preferredContext
+    else {
+      // result was null, thus fileViewProvider was not stored in the fileManager yet
+      // we just need to install the context in the viewProvider
+      setCodeInsightContext(fileViewProvider, context)
+      return context
+    }
   }
 
-  /**
-   * does not infer the substitution for `anyContext`
-   */
   override fun getCodeInsightContextRaw(fileViewProvider: FileViewProvider): CodeInsightContext =
     fileViewProvider.getUserData(codeInsightContextKey) ?: defaultContext()
 
+  @RequiresReadLock
   fun setCodeInsightContext(fileViewProvider: FileViewProvider, context: CodeInsightContext) {
     log.trace { "set context of FileViewProvider ${fileViewProvider.virtualFile.path} to $context" }
 

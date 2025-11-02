@@ -5,15 +5,13 @@ package org.jetbrains.intellij.build.productLayout
 
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.platform.plugins.parser.impl.elements.ModuleLoadingRule
-import com.intellij.util.lang.ImmutableZipFile
 import kotlinx.serialization.json.Json
-import org.jdom.Element
+import org.jetbrains.intellij.build.BuildPaths
 import org.jetbrains.intellij.build.dev.createProductProperties
+import org.jetbrains.intellij.build.findFileInModuleLibraryDependencies
+import org.jetbrains.intellij.build.findFileInModuleSources
 import org.jetbrains.intellij.build.impl.ModuleOutputProvider
-import org.jetbrains.intellij.build.impl.findFileInModuleSources
-import org.jetbrains.jps.model.library.JpsOrderRootType
-import org.jetbrains.jps.model.module.JpsLibraryDependency
-import org.jetbrains.jps.model.module.JpsModule
+import org.jetbrains.intellij.build.isModuleNameLikeFilename
 import org.jetbrains.jps.model.serialization.JpsMavenSettings
 import org.jetbrains.jps.model.serialization.JpsSerializationManager
 import java.nio.file.Files
@@ -32,12 +30,12 @@ fun generateModuleSetXml(moduleSet: ModuleSet, outputDir: Path, label: String): 
   val fileName = "intellij.moduleSets.${moduleSet.name}.xml"
   val outputPath = outputDir.resolve(fileName)
 
-  val xml = buildModuleSetXml(moduleSet, label)
+  val buildResult = buildModuleSetXml(moduleSet, label)
 
   // determine change status
   val status = if (Files.exists(outputPath)) {
     val existingContent = Files.readString(outputPath)
-    if (existingContent == xml) FileChangeStatus.UNCHANGED else FileChangeStatus.MODIFIED
+    if (existingContent == buildResult.xml) FileChangeStatus.UNCHANGED else FileChangeStatus.MODIFIED
   }
   else {
     FileChangeStatus.CREATED
@@ -45,13 +43,10 @@ fun generateModuleSetXml(moduleSet: ModuleSet, outputDir: Path, label: String): 
 
   // Only write if changed
   if (status != FileChangeStatus.UNCHANGED) {
-    Files.writeString(outputPath, xml)
+    Files.writeString(outputPath, buildResult.xml)
   }
 
-  // Count direct modules (excluding nested)
-  val directModuleCount = getDirectModules(moduleSet).size
-
-  return ModuleSetFileResult(fileName, status, directModuleCount)
+  return ModuleSetFileResult(fileName, status, buildResult.directModuleCount)
 }
 
 /**
@@ -77,9 +72,11 @@ data class ModuleWithLoading(
 
 /**
  * Result of building product content XML.
- * Contains both the generated content blocks and the module-to-set chain mapping.
+ * Contains the generated XML string, content blocks, and module-to-set chain mapping.
  */
-data class ProductContentResult(
+data class ProductContentBuildResult(
+  /** Generated XML content as string */
+  val xml: String,
   /** List of content blocks generated from the spec */
   val contentBlocks: List<ContentBlock>,
   /** Mapping from module name to its module set chain as list (e.g., ["parent", "child"]) */
@@ -89,33 +86,36 @@ data class ProductContentResult(
 /**
  * Generates complete product plugin.xml file from programmatic specification.
  *
+ * @param isUltimateBuild Whether this is an Ultimate build (vs. Community build)
  * @return Result containing file status and statistics
  */
 fun generateProductXml(
   pluginXmlPath: Path,
   spec: ProductModulesContentSpec,
   productName: String,
+  productPropertiesClass: String,
   moduleOutputProvider: ModuleOutputProvider,
   projectRoot: Path,
+  isUltimateBuild: Boolean,
 ): ProductFileResult {
   // Determine which generator to recommend based on plugin.xml file location
   // Community products are under community/ directory, Ultimate products are not
   val generatorCommand = (if (pluginXmlPath.toString().contains("/community/")) "CommunityModuleSets" else "UltimateModuleSets") + ".main()"
 
-  // Build complete plugin.xml file and capture result for statistics
-  var result: ProductContentResult? = null
-  val newContent = buildString {
-    // Header comments
-    append("  <!-- DO NOT EDIT: This file is auto-generated from Kotlin code -->\n")
-    append("  <!-- To regenerate, run 'Generate Product Layouts' or directly $generatorCommand -->\n")
-    append("  <!-- Source: see getProductContentModules() in ${productName}Properties.kt -->\n")
-    // Generated content (module alias, xi:includes, content blocks)
-    result = buildProductContentXml(spec = spec, moduleOutputProvider = moduleOutputProvider, sb = this, inlineXmlIncludes = true)
-  }
+  // Build complete plugin.xml file
+  val buildResult = buildProductContentXml(
+    spec = spec,
+    moduleOutputProvider = moduleOutputProvider,
+    inlineXmlIncludes = false,
+    inlineModuleSets = false,
+    productPropertiesClass = productPropertiesClass,
+    generatorCommand = generatorCommand,
+    isUltimateBuild = isUltimateBuild
+  )
 
   // Compare with existing file if it exists
   val originalContent = Files.readString(pluginXmlPath)
-  val status = if (originalContent == newContent) {
+  val status = if (originalContent == buildResult.xml) {
     FileChangeStatus.UNCHANGED
   }
   else {
@@ -124,11 +124,11 @@ fun generateProductXml(
 
   // Only write if changed
   if (status != FileChangeStatus.UNCHANGED) {
-    Files.writeString(pluginXmlPath, newContent)
+    Files.writeString(pluginXmlPath, buildResult.xml)
   }
 
   // Calculate statistics using the contentBlocks from generation
-  val totalModules = result!!.contentBlocks.sumOf { it.modules.size }
+  val totalModules = buildResult.contentBlocks.sumOf { it.modules.size }
   val relativePath = projectRoot.relativize(pluginXmlPath).toString()
 
   return ProductFileResult(
@@ -136,7 +136,7 @@ fun generateProductXml(
     relativePath = relativePath,
     status = status,
     includeCount = spec.deprecatedXmlIncludes.size,
-    contentBlockCount = result.contentBlocks.size,
+    contentBlockCount = buildResult.contentBlocks.size,
     totalModules = totalModules
   )
 }
@@ -154,6 +154,9 @@ suspend fun generateAllProductXmlFiles(projectRoot: Path): ProductGenerationResu
 
   val project = JpsSerializationManager.getInstance().loadProject(projectRoot.toString(), mapOf("MAVEN_REPOSITORY" to JpsMavenSettings.getMavenRepositoryPath()), false)
   val moduleOutputProvider = ModuleOutputProvider.jps(project.modules)
+
+  // Detect if this is an Ultimate build (projectRoot != communityRoot)
+  val isUltimateBuild = projectRoot != BuildPaths.COMMUNITY_ROOT.communityRoot
 
   val productResults = mutableListOf<ProductFileResult>()
   for ((productName, productConfig) in productToConfiguration) {
@@ -174,7 +177,9 @@ suspend fun generateAllProductXmlFiles(projectRoot: Path): ProductGenerationResu
       spec = spec,
       productName = productName,
       moduleOutputProvider = moduleOutputProvider,
-      projectRoot = projectRoot
+      productPropertiesClass = productProperties::class.java.name,
+      projectRoot = projectRoot,
+      isUltimateBuild = isUltimateBuild,
     )
     productResults.add(result)
   }
@@ -184,41 +189,57 @@ suspend fun generateAllProductXmlFiles(projectRoot: Path): ProductGenerationResu
 
 
 /**
- * Generates content blocks from a product modules specification.
- * This is the shared logic used by both static XML generation and runtime injection.
+ * Generates content blocks and module-to-set chain mapping in a single hierarchical traversal.
+ * This optimized version eliminates redundant tree walking by computing both results simultaneously.
  *
  * @param spec The product modules specification
- * @param allModuleSets All module sets (including nested ones) flattened into a list
- * @return List of content blocks, each representing a `<content>` element
+ * @return Pair of (content blocks, module-to-set chain mapping)
  */
-private fun generateContentBlocks(
+private fun generateContentBlocksWithChainMapping(
   spec: ProductModulesContentSpec,
-  allModuleSets: List<ModuleSet>
-): List<ContentBlock> {
-  val result = mutableListOf<ContentBlock>()
-
-  // Track which modules are in which sets for duplicate detection
+): Pair<List<ContentBlock>, Map<String, List<String>>> {
+  val contentBlocks = mutableListOf<ContentBlock>()
+  val moduleToChain = mutableMapOf<String, List<String>>()
   val moduleToSets = mutableMapOf<String, MutableList<String>>()
+  val processedSets = HashSet<String>()
 
-  // Process each module set
-  for (moduleSet in allModuleSets) {
-    val directModules = getDirectModules(moduleSet, spec.excludedModules)
+  fun traverse(moduleSet: ModuleSet, chain: List<String>) {
+    val setName = "intellij.moduleSets.${moduleSet.name}"
+    val currentChain = chain + setName
 
-    // Track each module's set for duplicate detection
-    for (module in directModules) {
-      moduleToSets.computeIfAbsent(module.name) { mutableListOf() }.add(moduleSet.name)
+    // Skip if already processed
+    if (!processedSets.add(setName)) {
+      return
     }
 
-    // Generate content block with loading rules applied
+    // Get direct modules for this set
+    val directModules = getDirectModules(moduleSet, spec.excludedModules)
+
+    // Build content block and track chains/duplicates in single pass
     val modulesWithLoading = mutableListOf<ModuleWithLoading>()
     for (module in directModules) {
+      // Track for duplicate detection
+      moduleToSets.computeIfAbsent(module.name) { mutableListOf() }.add(moduleSet.name)
+      // Track chain
+      moduleToChain[module.name] = currentChain
+      // Build loading info
       val effectiveLoading = spec.moduleLoadingOverrides[module.name] ?: module.loading
       modulesWithLoading.add(ModuleWithLoading(module.name, effectiveLoading))
     }
 
     if (modulesWithLoading.isNotEmpty()) {
-      result.add(ContentBlock(moduleSet.name, modulesWithLoading))
+      contentBlocks.add(ContentBlock(moduleSet.name, modulesWithLoading))
     }
+
+    // Recursively process nested sets
+    for (nestedSet in moduleSet.nestedSets) {
+      traverse(nestedSet, currentChain)
+    }
+  }
+
+  // Process all top-level module sets
+  for (moduleSet in spec.moduleSets) {
+    traverse(moduleSet, emptyList())
   }
 
   // Check for duplicates and FAIL if found
@@ -246,95 +267,174 @@ private fun generateContentBlocks(
   }
 
   if (additionalModulesWithLoading.isNotEmpty()) {
-    result.add(ContentBlock("additional", additionalModulesWithLoading))
+    contentBlocks.add(ContentBlock("additional", additionalModulesWithLoading))
   }
 
-  return result
+  return Pair(contentBlocks, moduleToChain)
+}
+
+/**
+ * Appends a single module XML element with optional loading attribute.
+ */
+private fun StringBuilder.appendModuleLine(moduleWithLoading: ModuleWithLoading, indent: String = "    ") {
+  append("$indent<module name=\"${moduleWithLoading.name}\"")
+  if (moduleWithLoading.loading != null) {
+    // convert enum to lowercase with hyphens (e.g., ON_DEMAND -> on-demand)
+    append(" loading=\"${moduleWithLoading.loading.name.lowercase().replace('_', '-')}\"")
+  }
+  append("/>\n")
+}
+
+/**
+ * Appends a content block with modules wrapped in editor fold.
+ */
+private fun StringBuilder.appendContentBlock(
+  blockSource: String,
+  modules: List<ModuleWithLoading>,
+  indent: String = "  ",
+) {
+  append("$indent<content namespace=\"jetbrains\">\n")
+  withEditorFold(this, "$indent  ", blockSource) {
+    for (module in modules) {
+      appendModuleLine(module, "$indent  ")
+    }
+  }
+  append("$indent</content>\n")
+}
+
+/**
+ * Collects and validates module aliases from the spec.
+ * Checks for duplicates and fails if any are found.
+ *
+ * @param spec The product modules specification
+ * @param inlineModuleSets Whether module sets are being inlined
+ * @return List of validated unique aliases
+ */
+private fun collectAndValidateAliases(spec: ProductModulesContentSpec, inlineModuleSets: Boolean): List<String> {
+  val aliasToSource = HashMap<String, String>()
+
+  // Collect product-level aliases
+  for (alias in spec.productModuleAliases) {
+    val existing = aliasToSource.put(alias, "product level")
+    if (existing != null) {
+      error("Duplicate alias '$alias' found at product level (already defined in: $existing)")
+    }
+  }
+
+  // When inlining module sets, also collect their aliases
+  if (inlineModuleSets) {
+    visitAllModuleSets(spec.moduleSets) { moduleSet ->
+      if (moduleSet.alias != null) {
+        val existing = aliasToSource.put(moduleSet.alias, "module set '${moduleSet.name}'")
+        if (existing != null) {
+          error("Duplicate alias '${moduleSet.alias}' in module set '${moduleSet.name}' (already defined in: $existing)")
+        }
+      }
+    }
+  }
+
+  return aliasToSource.keys.sorted()
 }
 
 /**
  * Builds XML content for programmatic product modules.
  * Generates module alias, xi:include directives (or inlined content), and `<content>` blocks for each module set.
- *
- * @param moduleOutputProvider Provider for module lookup and validation
- * @param inlineXmlIncludes If true, inline the actual XML content instead of generating xi:include directives (for runtime processing)
- * @return ProductContentResult containing content blocks and module-to-set chain mapping
  */
 internal fun buildProductContentXml(
   spec: ProductModulesContentSpec,
   moduleOutputProvider: ModuleOutputProvider,
-  sb: StringBuilder,
   inlineXmlIncludes: Boolean,
-): ProductContentResult {
-  // Opening tag with optional XInclude namespace
-  if (spec.deprecatedXmlIncludes.isEmpty()) {
-    sb.append("<idea-plugin>\n")
-  }
-  else {
-    sb.append("<idea-plugin xmlns:xi=\"http://www.w3.org/2001/XInclude\">\n")
-  }
+  inlineModuleSets: Boolean,
+  productPropertiesClass: String,
+  generatorCommand: String,
+  isUltimateBuild: Boolean,
+): ProductContentBuildResult {
+  // Generate content blocks and module-to-set chain mapping in single pass
+  val (contentBlocks, moduleToSetChainMapping) = generateContentBlocksWithChainMapping(spec)
 
-  // Collect all module sets once (including nested ones)
-  val allModuleSets = collectAllModuleSets(spec.moduleSets)
+  val xml = buildString {
+    // Header comments
+    append("  <!-- DO NOT EDIT: This file is auto-generated from Kotlin code -->\n")
+    append("  <!-- To regenerate, run 'Generate Product Layouts' or directly $generatorCommand -->\n")
+    append("  <!-- Source: $productPropertiesClass -->\n")
 
-  // Generate module aliases (product-level + from module sets)
-  val allAliases = mutableListOf<String>()
-  allAliases.addAll(spec.productModuleAliases)
-  for (moduleSet in allModuleSets) {
-    if (moduleSet.alias != null) {
-      allAliases.add(moduleSet.alias)
+    // Opening tag with optional XInclude namespace
+    val needsXiNamespace = (!inlineXmlIncludes && spec.deprecatedXmlIncludes.isNotEmpty()) ||
+                           (!inlineModuleSets && spec.moduleSets.isNotEmpty())
+
+    // Check if PlatformLangPlugin.xml is included - if NOT, we need explicit id/name tags
+    // Products that include PlatformLangPlugin.xml inherit id/name from it
+    // Products without it (like Git Client) need explicit child tags
+    val includesPlatformLang = spec.deprecatedXmlIncludes.any {
+      it.resourcePath == "META-INF/PlatformLangPlugin.xml" ||
+      it.resourcePath == "META-INF/JavaIdePlugin.xml" ||
+      it.resourcePath == "META-INF/pycharm-core.xml"
     }
-  }
 
-  val aliasXml = buildModuleAliasesXml(allAliases)
-  if (aliasXml.isNotEmpty()) {
-    sb.append(aliasXml)
-    sb.append("\n")
-  }
+    if (needsXiNamespace) {
+      append("<idea-plugin xmlns:xi=\"http://www.w3.org/2001/XInclude\">\n")
+    }
+    else {
+      append("<idea-plugin>\n")
+    }
 
-  // Generate xi:include directives or inline content
-  if (spec.deprecatedXmlIncludes.isNotEmpty()) {
-    generateXIncludes(spec = spec, moduleOutputProvider = moduleOutputProvider, inlineXmlIncludes = inlineXmlIncludes, sb = sb)
-  }
+    // Add id and name as child tags if PlatformLangPlugin.xml is not included
+    if (!includesPlatformLang) {
+      append("  <id>com.intellij</id>\n")
+      append("  <name>IDEA CORE</name>\n")
+    }
 
-  // Generate single content block with comments separating module sets
-  val contentBlocks = generateContentBlocks(spec, allModuleSets)
-  if (contentBlocks.isNotEmpty()) {
-    sb.append("  <content namespace=\"jetbrains\">\n")
+    // Collect and validate aliases in a single pass
+    val validatedAliases = collectAndValidateAliases(spec, inlineModuleSets)
+    val aliasXml = buildModuleAliasesXml(validatedAliases)
+    if (aliasXml.isNotEmpty()) {
+      append(aliasXml)
+      append("\n")
+    }
 
-    for ((index, block) in contentBlocks.withIndex()) {
-      withEditorFold(sb, "    ", block.source) {
-        for (moduleWithLoading in block.modules) {
-          sb.append("    <module name=\"${moduleWithLoading.name}\"")
+    // Generate xi:include directives or inline content
+    if (spec.deprecatedXmlIncludes.isNotEmpty()) {
+      generateXIncludes(spec = spec, moduleOutputProvider = moduleOutputProvider, inlineXmlIncludes = inlineXmlIncludes, sb = this, isUltimateBuild = isUltimateBuild)
+    }
 
-          if (moduleWithLoading.loading != null) {
-            // convert enum to lowercase with hyphens (e.g., ON_DEMAND -> on-demand)
-            sb.append(" loading=\"${moduleWithLoading.loading.name.lowercase().replace('_', '-')}\"")
+    // Generate module sets as xi:includes or inline content blocks
+    if (spec.moduleSets.isNotEmpty()) {
+      if (inlineModuleSets) {
+        // Generate single content block with all module sets inlined
+        append("  <content namespace=\"jetbrains\">\n")
+        for ((index, block) in contentBlocks.withIndex()) {
+          if (block.source == "additional") continue // Skip additional modules, handle separately
+          withEditorFold(this, "    ", block.source) {
+            for (module in block.modules) {
+              appendModuleLine(module, "    ")
+            }
           }
-
-          sb.append("/>\n")
+          // Add blank line between sections for readability (except after last block)
+          if (index < contentBlocks.size - 1) {
+            append("\n")
+          }
+        }
+        append("  </content>\n")
+      }
+      else {
+        // Generate xi:include directives for top-level module sets only (nested sets are resolved via parent includes)
+        for (moduleSet in spec.moduleSets) {
+          append("  <xi:include href=\"/META-INF/intellij.moduleSets.${moduleSet.name}.xml\"/>\n")
         }
       }
-
-      // Add blank line between sections for readability (except after last block)
-      if (index < contentBlocks.size - 1) {
-        sb.append("\n")
-      }
     }
 
-    sb.append("  </content>\n")
+    // Handle additional modules separately (they don't have XML files, inline them)
+    val additionalBlock = contentBlocks.firstOrNull { it.source == "additional" }
+    if (additionalBlock != null) {
+      appendContentBlock(additionalBlock.source, additionalBlock.modules)
+    }
+
+    // Closing tag
+    append("</idea-plugin>\n")
   }
 
-  // Closing tag
-  sb.append("</idea-plugin>\n")
-
-  // Build module-to-set chain mapping
-  val moduleToSetChainMapping = buildModuleToSetChainMapping(
-    moduleSets = spec.moduleSets,
-    excludedModules = spec.excludedModules
-  )
-
-  return ProductContentResult(contentBlocks, moduleToSetChainMapping)
+  return ProductContentBuildResult(xml = xml, contentBlocks = contentBlocks, moduleToSetChainMapping = moduleToSetChainMapping)
 }
 
 private fun generateXIncludes(
@@ -342,17 +442,30 @@ private fun generateXIncludes(
   moduleOutputProvider: ModuleOutputProvider,
   inlineXmlIncludes: Boolean,
   sb: StringBuilder,
+  isUltimateBuild: Boolean,
 ) {
   for (include in spec.deprecatedXmlIncludes) {
+    // When inlining: skip ultimate-only xi-includes in Community builds
+    if (inlineXmlIncludes && include.ultimateOnly && !isUltimateBuild) {
+      continue
+    }
+
     // Find the module and file
     val module = moduleOutputProvider.findModule(include.moduleName)
-                 ?: error("Module '${include.moduleName}' not found (referenced in xi:include for '${include.resourcePath}')")
-    val data = findFileInModuleSources(module, include.resourcePath)?.let { JDOMUtil.load(it) }
-               ?: findFileInModuleLibraries(module, include.resourcePath)
-               ?: error("Resource '${include.resourcePath}' not found in module '${module.name}' sources or libraries (referenced in xi:include)")
+    val resourcePath = include.resourcePath
+    if (module == null) {
+      if (include.ultimateOnly) {
+        error("Ultimate-only module '${include.moduleName}' not found in Ultimate build - this is a configuration error (referenced in xi:include for '$resourcePath')")
+      }
+      error("Module '${include.moduleName}' not found (referenced in xi:include for '$resourcePath')")
+    }
+
+    val data = findFileInModuleSources(module, resourcePath)?.let { JDOMUtil.load(it) }
+               ?: findFileInModuleLibraryDependencies(module = module, relativePath = resourcePath)?.let { JDOMUtil.load(it) }
+               ?: error("Resource '$resourcePath' not found in module '${module.name}' sources or libraries (referenced in xi:include)")
 
     if (inlineXmlIncludes) {
-      withEditorFold(sb, "  ", "Inlined from ${include.moduleName}/${include.resourcePath}") {
+      withEditorFold(sb, "  ", "Inlined from ${include.moduleName}/$resourcePath") {
         // Inline the actual XML content
         for (element in data.children) {
           sb.append(JDOMUtil.write(element).prependIndent("  "))
@@ -362,31 +475,24 @@ private fun generateXIncludes(
       sb.append("\n")
     }
     else {
-      // Generate the xi:include with absolute path (resources are in /META-INF/... in jars)
-      sb.append("  <xi:include href=\"/${include.resourcePath}\"/>")
-      sb.append("\n")
+      // Generate xi:include with absolute path (resources are in /META-INF/... in jars)
+      // Wrap ultimate-only xi-includes with xi:fallback for graceful handling in Community builds
+      if (include.ultimateOnly) {
+        sb.append("""  <xi:include href="${resourcePathToXIncludePath(resourcePath)}">""")
+        sb.append("\n")
+        sb.append("""    <xi:fallback/>""")
+        sb.append("\n")
+        sb.append("""  </xi:include>""")
+        sb.append("\n")
+      }
+      else {
+        sb.append("""  <xi:include href="${resourcePathToXIncludePath(resourcePath)}"/>""")
+        sb.append("\n")
+      }
     }
   }
 }
 
-/**
- * Searches for a file in the module's library dependencies (JARs).
- * This is used as a fallback when a resource is not found in module sources.
- *
- * @param module The module whose library dependencies to search
- * @param relativePath The relative path to the resource (e.g., "META-INF/plugin.xml")
- * @return Path to the resource inside a JAR, or null if not found
- */
-private fun findFileInModuleLibraries(module: JpsModule, relativePath: String): Element? {
-  for (dependency in module.dependenciesList.dependencies) {
-    if (dependency is JpsLibraryDependency) {
-      val library = dependency.library ?: continue
-      for (jarPath in library.getPaths(JpsOrderRootType.COMPILED)) {
-        ImmutableZipFile.load(jarPath).use { zipFile ->
-          zipFile.getData(relativePath)?.let { return JDOMUtil.load(it) }
-        }
-      }
-    }
-  }
-  return null
+private fun resourcePathToXIncludePath(resourcePath: String): String {
+  return if (isModuleNameLikeFilename(resourcePath)) resourcePath else "/$resourcePath"
 }

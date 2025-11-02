@@ -36,27 +36,28 @@ import org.jetbrains.intellij.build.LibcImpl
 import org.jetbrains.intellij.build.LinuxDistributionCustomizer
 import org.jetbrains.intellij.build.MacDistributionCustomizer
 import org.jetbrains.intellij.build.OsFamily
-import org.jetbrains.intellij.build.PluginBuildDescriptor
 import org.jetbrains.intellij.build.ProductProperties
 import org.jetbrains.intellij.build.ProprietaryBuildTools
 import org.jetbrains.intellij.build.ScrambleTool
 import org.jetbrains.intellij.build.SearchableOptionSetDescriptor
 import org.jetbrains.intellij.build.WindowsDistributionCustomizer
-import org.jetbrains.intellij.build.generateClassPathByLayoutReport
-import org.jetbrains.intellij.build.generatePluginClassPath
-import org.jetbrains.intellij.build.generatePluginClassPathFromPrebuiltPluginFiles
+import org.jetbrains.intellij.build.classPath.PluginBuildDescriptor
+import org.jetbrains.intellij.build.classPath.generateClassPathByLayoutReport
+import org.jetbrains.intellij.build.classPath.generatePluginClassPath
+import org.jetbrains.intellij.build.classPath.generatePluginClassPathFromPrebuiltPluginFiles
+import org.jetbrains.intellij.build.classPath.writePluginClassPathHeader
 import org.jetbrains.intellij.build.getDevModeOrTestBuildDateInSeconds
 import org.jetbrains.intellij.build.impl.BuildContextImpl
 import org.jetbrains.intellij.build.impl.CompilationContextImpl
 import org.jetbrains.intellij.build.impl.ModuleOutputPatcher
 import org.jetbrains.intellij.build.impl.ModuleOutputProvider
+import org.jetbrains.intellij.build.impl.PLATFORM_CORE_MODULES
 import org.jetbrains.intellij.build.impl.PLUGIN_CLASSPATH
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.asArchived
 import org.jetbrains.intellij.build.impl.asArchivedIfNeeded
 import org.jetbrains.intellij.build.impl.asBazelIfNeeded
 import org.jetbrains.intellij.build.impl.collectIncludedPluginModules
-import org.jetbrains.intellij.build.impl.collectPlatformModules
 import org.jetbrains.intellij.build.impl.copyDistFiles
 import org.jetbrains.intellij.build.impl.createIdeaPropertyFile
 import org.jetbrains.intellij.build.impl.createPlatformLayout
@@ -73,7 +74,6 @@ import org.jetbrains.intellij.build.readSearchableOptionIndex
 import org.jetbrains.intellij.build.telemetry.TraceManager
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
-import org.jetbrains.intellij.build.writePluginClassPathHeader
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
@@ -386,7 +386,7 @@ private suspend fun collectModulesToCompileForDistribution(context: BuildContext
   val result = java.util.LinkedHashSet<String>()
   val productLayout = context.productProperties.productLayout
   collectIncludedPluginModules(context.getBundledPluginModules(), result, context)
-  collectPlatformModules(to = result)
+  result.addAll(PLATFORM_CORE_MODULES)
   result.addAll(productLayout.productApiModules)
   result.addAll(productLayout.productImplementationModules)
   result.addAll(getToolModules())
