@@ -11,7 +11,6 @@ import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.XDebuggerManagerImpl
 import com.intellij.xdebugger.impl.breakpoints.*
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointProxy.Monolith.Companion.getEditorsProvider
-import com.intellij.xdebugger.impl.rpc.XBreakpointTypeId
 import com.intellij.xdebugger.impl.rpc.toRpc
 import fleet.rpc.core.toRpc
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +30,7 @@ internal suspend fun XBreakpointBase<*, *, *>.toRpc(): XBreakpointDto {
     id = breakpointId,
     initialState = getDtoState(xDebuggerManager.currentSession),
     typeId = XBreakpointTypeId(type.id),
-    editorsProviderDto = editorsProvider?.toRpc(),
+    editorsProviderDto = editorsProvider?.toRpc(coroutineScope),
     state = channelFlow {
       val currentSessionFlow = xDebuggerManager.currentSessionFlow
       breakpointChangedFlow().combine(currentSessionFlow) { _, currentSession ->

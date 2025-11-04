@@ -1,10 +1,10 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.debugger.impl.rpc
 
+import com.intellij.platform.rpc.Id
 import com.intellij.platform.rpc.RemoteApiProviderService
+import com.intellij.platform.rpc.UID
 import com.intellij.util.ThreeState
-import com.intellij.xdebugger.impl.rpc.XValueGroupId
-import com.intellij.xdebugger.impl.rpc.XValueId
 import fleet.rpc.RemoteApi
 import fleet.rpc.Rpc
 import fleet.rpc.core.RpcFlow
@@ -18,8 +18,8 @@ import org.jetbrains.annotations.ApiStatus
 interface XValueApi : RemoteApi<Unit> {
   suspend fun computeTooltipPresentation(xValueId: XValueId): Flow<XValueSerializedPresentation>
 
-  suspend fun computeChildren(xValueId: XValueId): Flow<XValueComputeChildrenEvent>
-  suspend fun computeXValueGroupChildren(xValueGroupId: XValueGroupId): Flow<XValueComputeChildrenEvent>
+  fun computeChildren(xValueId: XValueId): Flow<XValueComputeChildrenEvent>
+  fun computeXValueGroupChildren(xValueGroupId: XValueGroupId): Flow<XValueComputeChildrenEvent>
 
   suspend fun disposeXValue(xValueId: XValueId)
 
@@ -38,6 +38,18 @@ interface XValueApi : RemoteApi<Unit> {
     }
   }
 }
+
+/**
+ * @see com.intellij.xdebugger.impl.rpc.models.BackendXValueModel
+ */
+@ApiStatus.Internal
+@Serializable
+data class XValueId(override val uid: UID) : Id
+
+/** @see com.intellij.xdebugger.impl.rpc.models.BackendXValueGroupModel */
+@ApiStatus.Internal
+@Serializable
+data class XValueGroupId(override val uid: UID) : Id
 
 @ApiStatus.Internal
 @Serializable

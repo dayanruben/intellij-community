@@ -11,8 +11,6 @@ import com.intellij.platform.rpc.RemoteApiProviderService
 import com.intellij.platform.rpc.UID
 import com.intellij.xdebugger.breakpoints.SuspendPolicy
 import com.intellij.xdebugger.breakpoints.XBreakpointType
-import com.intellij.xdebugger.impl.rpc.XBreakpointId
-import com.intellij.xdebugger.impl.rpc.XBreakpointTypeId
 import fleet.rpc.RemoteApi
 import fleet.rpc.Rpc
 import fleet.rpc.core.RpcFlow
@@ -58,6 +56,14 @@ interface XBreakpointTypeApi : RemoteApi<Unit> {
 
 @ApiStatus.Internal
 @Serializable
+data class XBreakpointTypeId(val id: String)
+
+@ApiStatus.Internal
+@Serializable
+data class XBreakpointId(override val uid: UID) : Id
+
+@ApiStatus.Internal
+@Serializable
 data class XBreakpointsLineInfo(
   val availableTypes: List<XBreakpointTypeId>,
   val singleBreakpointVariant: Boolean,
@@ -82,6 +88,19 @@ data class XBreakpointTypeDto(
   val standardPanels: Set<XBreakpointTypeSerializableStandardPanels>,
   val isAddBreakpointButtonVisible: Boolean,
   val icons: XBreakpointTypeIcons,
+)
+
+@ApiStatus.Internal
+@Serializable
+data class XBreakpointTypeIcons(
+  val enabledIcon: IconId,
+  val disabledIcon: IconId,
+  val suspendNoneIcon: IconId,
+  val mutedEnabledIcon: IconId,
+  val mutedDisabledIcon: IconId,
+  val pendingIcon: IconId?,
+  val inactiveDependentIcon: IconId,
+  val temporaryIcon: IconId?,
 )
 
 @ApiStatus.Internal

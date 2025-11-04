@@ -10537,6 +10537,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("../../../idea/tests/testData/inspectionsLocal/unnecessaryVariable/it.kt");
             }
 
+            @TestMetadata("noConflictWithImplicitLambdaParameter.kt")
+            public void testNoConflictWithImplicitLambdaParameter() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/unnecessaryVariable/noConflictWithImplicitLambdaParameter.kt");
+            }
+
             @TestMetadata("override.kt")
             public void testOverride() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/unnecessaryVariable/override.kt");
@@ -16780,6 +16785,60 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("uppercase.kt")
         public void testUppercase() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithIgnoreCaseEquals/uppercase.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/replaceWithImportAlias")
+    public static class ReplaceWithImportAlias extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("class.kt")
+        public void testClass() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithImportAlias/class.kt");
+        }
+
+        @TestMetadata("extension.kt")
+        public void testExtension() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithImportAlias/extension.kt");
+        }
+
+        @TestMetadata("function.kt")
+        public void testFunction() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithImportAlias/function.kt");
+        }
+
+        @TestMetadata("inImport.kt")
+        public void testInImport() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithImportAlias/inImport.kt");
+        }
+
+        @TestMetadata("multipleAliases.kt")
+        public void testMultipleAliases() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithImportAlias/multipleAliases.kt");
+        }
+
+        @TestMetadata("notQualifed.kt")
+        public void testNotQualifed() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithImportAlias/notQualifed.kt");
+        }
+
+        @TestMetadata("property.kt")
+        public void testProperty() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithImportAlias/property.kt");
+        }
+
+        @TestMetadata("type.kt")
+        public void testType() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceWithImportAlias/type.kt");
         }
     }
 

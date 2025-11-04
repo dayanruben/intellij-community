@@ -7625,6 +7625,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createVariable/property/objectMemberValNoReceiver.kt");
                     }
 
+                    @TestMetadata("preview.kt")
+                    public void testPreview() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createVariable/property/preview.kt");
+                    }
+
                     @TestMetadata("privateForMembers.kt")
                     public void testPrivateForMembers() throws Exception {
                         runTest("testData/quickfix/createFromUsage/createVariable/property/privateForMembers.kt");
@@ -9239,6 +9244,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             @TestMetadata("avoidCastingContext.kt")
             public void testAvoidCastingContext() throws Exception {
                 runTest("testData/quickfix/deprecatedSymbolUsage/avoidCastingContext.kt");
+            }
+
+            @TestMetadata("brokenImportToIgnore.kt")
+            public void testBrokenImportToIgnore() throws Exception {
+                runTest("testData/quickfix/deprecatedSymbolUsage/brokenImportToIgnore.kt");
             }
 
             @TestMetadata("callChainBug.kt")

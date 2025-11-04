@@ -24,6 +24,7 @@ jvm_library(
     "//libraries/kotlinx/serialization/core",
     "//libraries/kotlinx/serialization/json",
     "//platform/xdebugger-impl:debugger-impl",
+    "//platform/xdebugger-impl/rpc",
     "//platform/xdebugger-impl/shared",
   ]
 )

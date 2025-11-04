@@ -17,7 +17,6 @@ import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.evaluate.XEvaluationOrigin
 import com.intellij.xdebugger.impl.evaluate.quick.XDebuggerDocumentOffsetEvaluator
 import com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType
-import com.intellij.xdebugger.impl.rpc.XStackFrameId
 import com.intellij.xdebugger.impl.rpc.models.*
 import com.intellij.xdebugger.impl.rpc.sourcePosition
 import com.intellij.xdebugger.impl.ui.tree.nodes.XEvaluationCallbackWithOrigin
@@ -80,7 +79,7 @@ internal class BackendXDebuggerEvaluatorApi : XDebuggerEvaluatorApi {
       override fun evaluated(result: XValue) {
         evaluationCoroutineScope.launch {
           val xValueModel = newXValueModel(stackFrameModel, result, session)
-          val xValueDto = xValueModel.toXValueDto()
+          val xValueDto = xValueModel.toXValueDtoWithPresentation()
           evaluationResult.complete(XEvaluationResult.Evaluated(xValueDto))
         }
       }

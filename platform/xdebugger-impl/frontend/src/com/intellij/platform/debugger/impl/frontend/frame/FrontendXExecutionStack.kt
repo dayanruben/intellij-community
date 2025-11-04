@@ -6,11 +6,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.platform.debugger.impl.frontend.storage.getOrCreateStackFrame
 import com.intellij.platform.debugger.impl.rpc.XExecutionStackApi
 import com.intellij.platform.debugger.impl.rpc.XExecutionStackDto
+import com.intellij.platform.debugger.impl.rpc.XExecutionStackId
 import com.intellij.platform.debugger.impl.rpc.XStackFramesEvent
 import com.intellij.xdebugger.frame.XDescriptor
 import com.intellij.xdebugger.frame.XExecutionStack
 import com.intellij.xdebugger.frame.XStackFrame
-import com.intellij.xdebugger.impl.rpc.XExecutionStackId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.future.asCompletableFuture
 import kotlinx.coroutines.launch
@@ -24,8 +24,18 @@ internal class FrontendXExecutionStack(
   val id: XExecutionStackId = stackDto.executionStackId
 
   override fun getTopFrame(): XStackFrame? {
-    // TODO[IJPL-177087]
-    return null
+    val frameDto = runCatching {
+      stackDto.topFrame.asCompletableFuture().getNow(null)
+    }.getOrNull() ?: return null
+    return suspendContextLifetimeScope.getOrCreateStackFrame(frameDto, project)
+  }
+
+  override fun getTopFrameAsync(): CompletableFuture<XStackFrame?> {
+    return stackDto.topFrame.asCompletableFuture().thenApply { frameDto ->
+      frameDto?.let {
+        suspendContextLifetimeScope.getOrCreateStackFrame(it, project)
+      }
+    }
   }
 
   override fun computeStackFrames(firstFrameIndex: Int, container: XStackFrameContainer) {

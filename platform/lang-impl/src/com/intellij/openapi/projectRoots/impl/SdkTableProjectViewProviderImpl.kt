@@ -15,7 +15,6 @@ import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.project.ProjectStoreOwner
 import org.jetbrains.annotations.Unmodifiable
-import java.nio.file.Path
 
 private class SdkTableProjectViewProviderImpl(project: Project) : SdkTableProjectViewProvider, Disposable {
   @Suppress("SimpleRedundantLet")
@@ -51,7 +50,7 @@ private class SdkTableProjectViewProviderImpl(project: Project) : SdkTableProjec
 
 private class ProjectJdkTableProjectView(val descriptor: EelDescriptor, val delegate: ProjectJdkTable) : ProjectJdkTable() {
   override fun findJdk(name: String): Sdk? {
-    if (delegate is EnvironmentScopedProjectJdkLookup) {
+    if (delegate is EnvironmentScopedSdkTableOps) {
       return delegate.findJdk(name, descriptor)
     }
     return delegate.allJdks.find {
@@ -60,7 +59,7 @@ private class ProjectJdkTableProjectView(val descriptor: EelDescriptor, val dele
   }
 
   override fun findJdk(name: String, type: String): Sdk? {
-    if (delegate is EnvironmentScopedProjectJdkLookup) {
+    if (delegate is EnvironmentScopedSdkTableOps) {
       return delegate.findJdk(name, type, descriptor)
     }
     // sometimes delegate.findJdk can do mutating operations, like in the case of ProjectJdkTableImpl
@@ -72,7 +71,7 @@ private class ProjectJdkTableProjectView(val descriptor: EelDescriptor, val dele
   }
 
   private fun validateDescriptor(sdk: Sdk): Boolean {
-    val sdkDescriptor = sdk.homePath?.let(Path::of)?.getEelDescriptor()
+    val sdkDescriptor = sdk.homePath?.let { getEelDescriptorOfHomePath(it) }
     return if (sdkDescriptor == null) {
       true
     }
@@ -106,6 +105,9 @@ private class ProjectJdkTableProjectView(val descriptor: EelDescriptor, val dele
   }
 
   override fun createSdk(name: String, sdkType: SdkTypeId): Sdk {
+    if (delegate is EnvironmentScopedSdkTableOps) {
+      return delegate.createSdk(name, sdkType, descriptor)
+    }
     return delegate.createSdk(name, sdkType)
   }
 

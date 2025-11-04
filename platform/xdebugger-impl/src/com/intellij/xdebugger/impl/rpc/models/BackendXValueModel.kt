@@ -6,12 +6,8 @@ import com.intellij.ide.ui.icons.rpcId
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
-import com.intellij.platform.debugger.impl.rpc.XFullValueEvaluatorDto
+import com.intellij.platform.debugger.impl.rpc.*
 import com.intellij.platform.debugger.impl.rpc.XFullValueEvaluatorDto.FullValueEvaluatorLinkAttributes
-import com.intellij.platform.debugger.impl.rpc.XValueDto
-import com.intellij.platform.debugger.impl.rpc.XValueMarkerDto
-import com.intellij.platform.debugger.impl.rpc.XValueSerializedPresentation
-import com.intellij.platform.debugger.impl.rpc.XValueTextProviderDto
 import com.intellij.platform.kernel.ids.BackendValueIdType
 import com.intellij.platform.kernel.ids.deleteValueById
 import com.intellij.platform.kernel.ids.findValueById
@@ -25,14 +21,12 @@ import com.intellij.xdebugger.frame.XValue
 import com.intellij.xdebugger.frame.XValuePlace
 import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.pinned.items.PinToTopValue
-import com.intellij.xdebugger.impl.rpc.XValueId
 import com.intellij.xdebugger.impl.ui.XValueTextProvider
 import com.intellij.xdebugger.impl.ui.tree.ValueMarkup
 import fleet.rpc.core.RpcFlow
 import fleet.rpc.core.toRpc
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.future.asDeferred
@@ -128,6 +122,16 @@ class BackendXValueModel internal constructor(
 }
 
 @ApiStatus.Internal
+suspend fun BackendXValueModel.toXValueDtoWithPresentation(): XValueDtoWithPresentation {
+  val value = toXValueDto()
+  return XValueDtoWithPresentation(
+    value,
+    presentation.toRpc(),
+    getEvaluatorDtoFlow().toRpc(),
+  )
+}
+
+@ApiStatus.Internal
 suspend fun BackendXValueModel.toXValueDto(): XValueDto {
   val xValueModel = this
   val xValue = this.xValue
@@ -146,8 +150,6 @@ suspend fun BackendXValueModel.toXValueDto(): XValueDto {
     canBeModified = xValue.modifierAsync.thenApply { modifier -> modifier != null }.asDeferred(),
     canMarkValue = canMarkValue.asDeferred(),
     valueMarkupFlow,
-    xValueModel.presentation.toRpc(),
-    xValueModel.getEvaluatorDtoFlow().toRpc(),
     (xValue as? XNamedValue)?.name,
     textProvider?.toRpc(),
     (xValue as? PinToTopValue)?.pinToTopDataFuture?.asDeferred(),
@@ -155,20 +157,18 @@ suspend fun BackendXValueModel.toXValueDto(): XValueDto {
 }
 
 private fun BackendXValueModel.getEvaluatorDtoFlow(): Flow<XFullValueEvaluatorDto?> {
-  return fullValueEvaluator.map {
-    if (it == null) {
-      return@map null
-    }
-    XFullValueEvaluatorDto(
-      it.linkText,
-      it.isEnabled,
-      it.isShowValuePopup,
-      it.linkAttributes?.let { attributes ->
-        FullValueEvaluatorLinkAttributes(attributes.linkIcon?.rpcId(), attributes.linkTooltipText, attributes.shortcutSupplier?.get())
-      }
-    )
-  }
+  return fullValueEvaluator.map { it?.toRpc() }
 }
+
+@ApiStatus.Internal
+fun XFullValueEvaluator.toRpc(): XFullValueEvaluatorDto = XFullValueEvaluatorDto(
+  linkText,
+  isEnabled,
+  isShowValuePopup,
+  linkAttributes?.let { attributes ->
+    FullValueEvaluatorLinkAttributes(attributes.linkIcon?.rpcId(), attributes.linkTooltipText, attributes.shortcutSupplier?.get())
+  }
+)
 
 private fun getTextProviderFlow(
   xValue: XValue,

@@ -70,6 +70,7 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
   @SuppressWarnings("WeakerAccess") public boolean IGNORE_EXTERNAL_SUPER_NOTNULL;
   @SuppressWarnings("WeakerAccess") public boolean REPORT_NOTNULL_PARAMETERS_OVERRIDES_NOT_ANNOTATED;
   @SuppressWarnings("WeakerAccess") public boolean REPORT_NULLABILITY_ANNOTATION_ON_LOCALS = true;
+  @SuppressWarnings("WeakerAccess") public boolean REPORT_NOT_ANNOTATED_INSTANTIATION_NOT_NULL_TYPE = false;
   @SuppressWarnings("WeakerAccess") public boolean REPORT_NOT_NULL_TO_NULLABLE_CONFLICTS_IN_ASSIGNMENTS = false;
   /**
    * @deprecated the field remains to minimize changes to users' inspection profiles.
@@ -100,6 +101,7 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
           "REPORT_NULLABILITY_ANNOTATION_ON_LOCALS".equals(name) && "true".equals(value) ||
           "REPORT_NULLS_PASSED_TO_NOT_NULL_PARAMETER".equals(name) && "true".equals(value) ||
           "REPORT_NOT_NULL_TO_NULLABLE_CONFLICTS_IN_ASSIGNMENTS".equals(name) && "false".equals(value) ||
+          "REPORT_NOT_ANNOTATED_INSTANTIATION_NOT_NULL_TYPE".equals(name) && "false".equals(value) ||
           "REPORT_REDUNDANT_NULLABILITY_ANNOTATION_IN_THE_SCOPE_OF_ANNOTATED_CONTAINER".equals(name) && "true".equals(value)) {
         node.removeContent(child);
       }
@@ -447,7 +449,8 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
               Project project = element.getProject();
               PsiType type = typeArgument.getType();
               if (TypeNullability.ofTypeParameter(typeParameters[i]).nullability() != Nullability.NOT_NULL) continue;
-              Nullability typeNullability = DfaPsiUtil.getTypeNullability(type);
+              TypeNullability nullability = type.getNullability();
+              Nullability typeNullability = nullability.nullability();
               if (typeNullability != Nullability.NOT_NULL &&
                   !(typeNullability == Nullability.UNKNOWN && type instanceof PsiWildcardType wildcardType && !wildcardType.isExtends())) {
                 String annotationToAdd = manager.getDefaultAnnotation(Nullability.NOT_NULL, reference);
@@ -458,7 +461,15 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
                   fixes.add(LocalQuickFix.from(new AddTypeAnnotationFix(typeArgument, annotationToAdd, manager.getNullables())));
                 }
                 fixes.add(LocalQuickFix.from(createAnnotateAsNullMarkedFix(typeArgument, manager.getNullables()), false));
-                reportProblem(holder, typeArgument, fixes.toArray(LocalQuickFix.EMPTY_ARRAY), "non.null.type.argument.is.expected");
+                ProblemHighlightType level =
+                  nullability == TypeNullability.UNKNOWN && !REPORT_NOT_ANNOTATED_INSTANTIATION_NOT_NULL_TYPE ?
+                  ProblemHighlightType.INFORMATION :
+                  ProblemHighlightType.GENERIC_ERROR_OR_WARNING;
+                if (!isOnTheFly && level == ProblemHighlightType.INFORMATION) continue;
+                holder.registerProblem(typeArgument,
+                                       JavaAnalysisBundle.message("non.null.type.argument.is.expected"),
+                                       level,
+                                       fixes.toArray(LocalQuickFix.EMPTY_ARRAY));
               }
             }
           }
@@ -699,7 +710,7 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
         if (REPORT_NOT_ANNOTATED_GETTER) {
           if (!hasNullability(manager, getter) && !TypeConversionUtil.isPrimitiveAndNotNull(getter.getReturnType())) {
             reportProblem(holder, nameIdentifier, getterAnnoFix, "inspection.nullable.problems.annotated.field.getter.not.annotated",
-                          getPresentableAnnoName(field));
+                          StringUtil.getShortName(anno));
           }
         }
         if (annotated.isDeclaredNotNull && isNullableNotInferred(getter, false) ||
@@ -818,7 +829,7 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
         if (nameIdentifier != null && nameIdentifier.isPhysical()) {
           reportProblem(holder, nameIdentifier, createAddAnnotationFix(anno, annoToRemove, parameter),
                         "inspection.nullable.problems.annotated.field.constructor.parameter.not.annotated",
-                        getPresentableAnnoName(field));
+                        StringUtil.getShortName(anno));
         }
       }
     });

@@ -7,9 +7,6 @@ import com.intellij.openapi.util.NlsContexts
 import com.intellij.platform.debugger.impl.rpc.*
 import com.intellij.xdebugger.frame.XExecutionStack
 import com.intellij.xdebugger.frame.XStackFrame
-import com.intellij.xdebugger.impl.rpc.XDebugSessionId
-import com.intellij.xdebugger.impl.rpc.XExecutionStackId
-import com.intellij.xdebugger.impl.rpc.XStackFrameId
 import com.intellij.xdebugger.impl.rpc.models.findValue
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -62,7 +59,7 @@ internal class BackendXExecutionStackApi : XExecutionStackApi {
     }
   }
 
-  override suspend fun computeVariables(xStackFrameId: XStackFrameId): Flow<XValueComputeChildrenEvent> {
+  override fun computeVariables(xStackFrameId: XStackFrameId): Flow<XValueComputeChildrenEvent> {
     val stackFrameModel = xStackFrameId.findValue() ?: return emptyFlow()
     return computeContainerChildren(stackFrameModel.coroutineScope, stackFrameModel.stackFrame, stackFrameModel.session)
   }

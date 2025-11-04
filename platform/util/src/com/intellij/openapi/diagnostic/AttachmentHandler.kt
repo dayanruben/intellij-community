@@ -4,6 +4,7 @@ package com.intellij.openapi.diagnostic
 import com.intellij.util.ExceptionUtil
 import com.intellij.util.io.sanitizeFileName
 import java.io.IOException
+import java.io.PrintWriter
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.ZonedDateTime
@@ -25,6 +26,8 @@ internal class AttachmentHandler(private val logPath: Path) : Handler() {
     if (!hasAnyAttachments) return
 
     val attachmentsDir = prepareDir(logPath, record) ?: return
+
+    log.info("Saving attachments of [${record.loggerName}] ${t.javaClass.name} to $attachmentsDir")
 
     writeStacktrace(attachmentsDir, t)
 
@@ -87,8 +90,9 @@ internal class AttachmentHandler(private val logPath: Path) : Handler() {
   private fun writeStacktrace(dir: Path, t: Throwable) {
     try {
       val stacktraceFile = dir.resolve("stacktrace.txt")
-      val stackTraceBytes = t.stackTraceToString().toByteArray()
-      Files.write(stacktraceFile, stackTraceBytes)
+      PrintWriter(Files.newBufferedWriter(stacktraceFile)).use {
+        t.printStackTrace(it)
+      }
     }
     catch (_: IOException) {
       // ignore errors for individual files
@@ -99,7 +103,6 @@ internal class AttachmentHandler(private val logPath: Path) : Handler() {
     // no-op
   }
 
-  @Throws(SecurityException::class)
   override fun close() {
     // no-op
   }
@@ -174,3 +177,5 @@ internal class AttachmentHandler(private val logPath: Path) : Handler() {
 
 private val dateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yy-MM-dd-HH-mm-ss")
 private val uppercaseMatcher = Regex("(?=[A-Z])")
+
+private val log = logger<AttachmentHandler>()

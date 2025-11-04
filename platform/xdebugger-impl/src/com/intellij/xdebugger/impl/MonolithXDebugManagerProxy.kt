@@ -5,6 +5,8 @@ import com.intellij.frontend.FrontendApplicationInfo
 import com.intellij.frontend.FrontendType
 import com.intellij.idea.AppMode
 import com.intellij.openapi.project.Project
+import com.intellij.platform.debugger.impl.rpc.XExecutionStackId
+import com.intellij.platform.debugger.impl.rpc.XValueId
 import com.intellij.xdebugger.SplitDebuggerMode
 import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.xdebugger.frame.XExecutionStack
@@ -15,8 +17,6 @@ import com.intellij.xdebugger.impl.breakpoints.asProxy
 import com.intellij.xdebugger.impl.frame.XDebugManagerProxy
 import com.intellij.xdebugger.impl.frame.XDebugSessionProxy
 import com.intellij.xdebugger.impl.frame.asProxy
-import com.intellij.xdebugger.impl.rpc.XExecutionStackId
-import com.intellij.xdebugger.impl.rpc.XValueId
 import com.intellij.xdebugger.impl.rpc.models.BackendXValueModel
 import com.intellij.xdebugger.impl.rpc.models.getOrStoreGlobally
 import kotlinx.coroutines.*
@@ -46,7 +46,8 @@ private class MonolithXDebugManagerProxy : XDebugManagerProxy {
   override suspend fun <T> withId(stack: XExecutionStack, session: XDebugSessionProxy, block: suspend (XExecutionStackId) -> T): T {
     val sessionImpl = (session as XDebugSessionProxy.Monolith).sessionImpl
     return withCoroutineScopeForId(block) { scope ->
-      stack.getOrStoreGlobally(scope, sessionImpl)
+      val (_, id) = stack.getOrStoreGlobally(scope, sessionImpl)
+      id
     }
   }
 

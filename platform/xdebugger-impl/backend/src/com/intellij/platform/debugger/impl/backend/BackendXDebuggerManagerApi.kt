@@ -20,21 +20,18 @@ import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.XDebuggerManagerImpl
 import com.intellij.xdebugger.impl.XDebuggerUtilImpl.reshowInlayRunToCursor
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase
-import com.intellij.xdebugger.impl.rpc.XDebugSessionId
 import com.intellij.xdebugger.impl.rpc.models.findValue
+import com.intellij.xdebugger.impl.rpc.models.storeGlobally
 import com.intellij.xdebugger.impl.rpc.toRpc
 import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl
 import fleet.rpc.core.toRpc
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 internal class BackendXDebuggerManagerApi : XDebuggerManagerApi {
   override suspend fun initialize(projectId: ProjectId, capabilities: XFrontendDebuggerCapabilities) {
@@ -79,7 +76,7 @@ internal class BackendXDebuggerManagerApi : XDebuggerManagerApi {
     return XDebugSessionDto(
       currentSession.id,
       currentSession.getMockRunContentDescriptorIfInitialized()?.id as RunContentDescriptorIdImpl?,
-      debugProcess.editorsProvider.toRpc(),
+      debugProcess.editorsProvider.toRpc(cs),
       initialSessionState,
       currentSession.suspendData(),
       currentSession.sessionName,
@@ -234,7 +231,6 @@ internal class BackendXDebuggerManagerApi : XDebuggerManagerApi {
     XDebuggerSettingManagerImpl.getInstanceImpl().dataViewSettings.isShowLibraryStackFrames = show
   }
 
-  @OptIn(ExperimentalCoroutinesApi::class)
   override suspend fun getBreakpoints(projectId: ProjectId): XBreakpointsSetDto {
     val project = projectId.findProject()
     val breakpointManager = (XDebuggerManager.getInstance(project) as XDebuggerManagerImpl).breakpointManager
@@ -261,18 +257,18 @@ internal class BackendXDebuggerManagerApi : XDebuggerManagerApi {
         }
       })
 
-      val currentBreakpoints = breakpointManager.allBreakpoints.filterIsInstance<XBreakpointBase<*, *, *>>()
+      val currentBreakpoints = breakpointManager.allBreakpoints
       val currentBreakpointIds = currentBreakpoints.map { it.breakpointId }.toSet()
 
-      // some breakpoints were added during subscription
-      for (breakpoint in currentBreakpoints.filter { it.breakpointId !in initialBreakpointIds }) {
+      val createdDuringSubscription = currentBreakpoints.filter { it.breakpointId !in initialBreakpointIds }
+      for (breakpoint in createdDuringSubscription) {
         events.trySend {
           XBreakpointEvent.BreakpointAdded(breakpoint.toRpc())
         }
       }
 
-      // some breakpoints were removed during subscription
-      for (breakpointIdToRemove in initialBreakpointIds - currentBreakpointIds) {
+      val removedDuringSubscription = initialBreakpointIds - currentBreakpointIds
+      for (breakpointIdToRemove in removedDuringSubscription) {
         events.trySend {
           XBreakpointEvent.BreakpointRemoved(breakpointIdToRemove)
         }
@@ -287,6 +283,7 @@ internal class BackendXDebuggerManagerApi : XDebuggerManagerApi {
   }
 }
 
-internal fun XDebuggerEditorsProvider.toRpc(): XDebuggerEditorsProviderDto {
-  return XDebuggerEditorsProviderDto(fileType.name, this)
+internal fun XDebuggerEditorsProvider.toRpc(cs: CoroutineScope): XDebuggerEditorsProviderDto {
+  val id = storeGlobally(cs)
+  return XDebuggerEditorsProviderDto(id, fileType.name, this)
 }
