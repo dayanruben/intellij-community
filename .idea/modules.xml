@@ -1060,6 +1060,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/eel/intellij.platform.eel.codegen.iml" filepath="$PROJECT_DIR$/platform/eel/intellij.platform.eel.codegen.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/eel-impl/intellij.platform.eel.impl.iml" filepath="$PROJECT_DIR$/platform/eel-impl/intellij.platform.eel.impl.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/eel-provider/intellij.platform.eel.provider.iml" filepath="$PROJECT_DIR$/platform/eel-provider/intellij.platform.eel.provider.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/eel-tcp/intellij.platform.eel.tcp.iml" filepath="$PROJECT_DIR$/platform/eel-tcp/intellij.platform.eel.tcp.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/eel/intellij.platform.eel.tests.iml" filepath="$PROJECT_DIR$/platform/eel/intellij.platform.eel.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/platform-tests/eel-helper/intellij.platform.eelHelper.iml" filepath="$PROJECT_DIR$/platform/platform-tests/eel-helper/intellij.platform.eelHelper.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/execution/intellij.platform.execution.iml" filepath="$PROJECT_DIR$/platform/execution/intellij.platform.execution.iml" />
@@ -1193,6 +1194,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/ml-logs/intellij.platform.ml.logs.iml" filepath="$PROJECT_DIR$/platform/ml-logs/intellij.platform.ml.logs.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/monolith/intellij.platform.monolith.iml" filepath="$PROJECT_DIR$/platform/monolith/intellij.platform.monolith.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/main/intellij.platform.monolith.main/intellij.platform.monolith.main.iml" filepath="$PROJECT_DIR$/platform/main/intellij.platform.monolith.main/intellij.platform.monolith.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/multiplatformSupport/intellij.platform.multiplatformSupport.iml" filepath="$PROJECT_DIR$/platform/multiplatformSupport/intellij.platform.multiplatformSupport.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/navbar/shared/intellij.platform.navbar.iml" filepath="$PROJECT_DIR$/platform/navbar/shared/intellij.platform.navbar.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/navbar/backend/intellij.platform.navbar.backend.iml" filepath="$PROJECT_DIR$/platform/navbar/backend/intellij.platform.navbar.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/navbar/frontend/intellij.platform.navbar.frontend.iml" filepath="$PROJECT_DIR$/platform/navbar/frontend/intellij.platform.navbar.frontend.iml" />
@@ -1267,7 +1269,6 @@
       <module fileurl="file://$PROJECT_DIR$/platform/syntax/syntax-api/intellij.platform.syntax.iml" filepath="$PROJECT_DIR$/platform/syntax/syntax-api/intellij.platform.syntax.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/syntax/syntax-extensions/intellij.platform.syntax.extensions.iml" filepath="$PROJECT_DIR$/platform/syntax/syntax-extensions/intellij.platform.syntax.extensions.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/syntax/syntax-i18n/intellij.platform.syntax.i18n.iml" filepath="$PROJECT_DIR$/platform/syntax/syntax-i18n/intellij.platform.syntax.i18n.iml" />
-      <module fileurl="file://$PROJECT_DIR$/platform/syntax/syntax-multiplatformSupport/intellij.platform.syntax.multiplatformSupport.iml" filepath="$PROJECT_DIR$/platform/syntax/syntax-multiplatformSupport/intellij.platform.syntax.multiplatformSupport.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/syntax/syntax-psi/intellij.platform.syntax.psi.iml" filepath="$PROJECT_DIR$/platform/syntax/syntax-psi/intellij.platform.syntax.psi.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/syntax/syntax-psi-tests/intellij.platform.syntax.psi.tests.iml" filepath="$PROJECT_DIR$/platform/syntax/syntax-psi-tests/intellij.platform.syntax.psi.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/syntax/syntax-scripts/intellij.platform.syntax.scripts.iml" filepath="$PROJECT_DIR$/platform/syntax/syntax-scripts/intellij.platform.syntax.scripts.iml" />
@@ -1528,8 +1529,10 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.coverage/intellij.vcs.git.coverage.iml" filepath="$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.coverage/intellij.vcs.git.coverage.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git-features-trainer/intellij.vcs.git.featuresTrainer.iml" filepath="$PROJECT_DIR$/plugins/git-features-trainer/intellij.vcs.git.featuresTrainer.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/frontend/intellij.vcs.git.frontend.iml" filepath="$PROJECT_DIR$/plugins/git4idea/frontend/intellij.vcs.git.frontend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/localHistory/intellij.vcs.git.localHistory.iml" filepath="$PROJECT_DIR$/plugins/git4idea/localHistory/intellij.vcs.git.localHistory.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/rt/intellij.vcs.git.rt.iml" filepath="$PROJECT_DIR$/plugins/git4idea/rt/intellij.vcs.git.rt.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/shared/intellij.vcs.git.shared.iml" filepath="$PROJECT_DIR$/plugins/git4idea/shared/intellij.vcs.git.shared.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/terminal/intellij.vcs.git.terminal.iml" filepath="$PROJECT_DIR$/plugins/git4idea/terminal/intellij.vcs.git.terminal.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/github/github-core/intellij.vcs.github.iml" filepath="$PROJECT_DIR$/plugins/github/github-core/intellij.vcs.github.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/github/github-git/intellij.vcs.github.git.iml" filepath="$PROJECT_DIR$/plugins/github/github-git/intellij.vcs.github.git.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/github/github-json/intellij.vcs.github.json.iml" filepath="$PROJECT_DIR$/plugins/github/github-json/intellij.vcs.github.json.iml" />
