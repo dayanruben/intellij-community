@@ -337,9 +337,21 @@ public abstract class AbstractJavaBlock extends AbstractBlock implements JavaBlo
         }
         return Indent.getNoneIndent();
       }
+
+      if (JavaFormatterConditionalExpressionUtil.isInsideConditionalExpression(parent)) {
+        return Indent.getSpaceIndent(0, true);
+      }
     }
 
     return null;
+  }
+
+  private static @Nullable ASTNode skipParenthesesUp(@NotNull ASTNode node) {
+    ASTNode currNode = node.getTreeParent();
+    while (currNode != null && currNode.getElementType() == JavaElementType.PARENTH_EXPRESSION) {
+      currNode = currNode.getTreeParent();
+    }
+    return currNode;
   }
 
   private static @Nullable ASTNode skipCommentsAndWhitespacesBackwards(@NotNull ASTNode node) {
@@ -826,8 +838,10 @@ public abstract class AbstractJavaBlock extends AbstractBlock implements JavaBlo
       return
         new LegacyChainedMethodCallsBlockBuilder(alignment, blockWrap, indent, mySettings, myJavaSettings, myFormattingMode).build(nodes);
     }
-    return new ChainMethodCallsBlockBuilder(alignment, blockWrap, indent, mySettings, myJavaSettings, myFormattingMode).build(nodes);
+    return new ChainMethodCallsBlockBuilder(alignment, blockWrap, indent, mySettings, myJavaSettings,
+                                            myFormattingMode, JavaFormatterConditionalExpressionUtil.isInsideConditionalExpression(node)).build(nodes);
   }
+
 
   private boolean shouldAlignChild(final @NotNull ASTNode child) {
     int role = getChildRole(child);
