@@ -129,6 +129,7 @@ abstract class KotlinWithGradleConfigurator : KotlinProjectConfigurator {
         dialog.show()
         if (!dialog.isOK) return emptySet()
         val kotlinVersion = dialog.kotlinVersion ?: return emptySet()
+        KotlinJ2KOnboardingFUSCollector.logChosenKotlinVersion(project, kotlinVersion)
 
         KotlinJ2KOnboardingFUSCollector.logStartConfigureKt(project)
         val commandKey = "command.name.configure.kotlin"
@@ -274,7 +275,7 @@ abstract class KotlinWithGradleConfigurator : KotlinProjectConfigurator {
                         queueSyncIfNeeded(project)
                     }
                     val notificationHolder = KotlinGradleAutoConfigurationNotificationHolder.getInstance(project)
-                    addUndoAutoconfigurationListener(project, modules, isAutoConfig, notificationHolder)
+                    addUndoConfigurationListener(project, modules, isAutoConfig, notificationHolder)
                     configurationResult to collector
                 }
             }

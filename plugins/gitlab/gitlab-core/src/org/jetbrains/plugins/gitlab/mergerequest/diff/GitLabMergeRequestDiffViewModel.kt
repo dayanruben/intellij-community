@@ -24,11 +24,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
+import org.jetbrains.plugins.gitlab.data.GitLabImageLoader
 import org.jetbrains.plugins.gitlab.mergerequest.GitLabMergeRequestsPreferences
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequestChanges
 import org.jetbrains.plugins.gitlab.mergerequest.data.loadRevisionsAndParseChanges
-import org.jetbrains.plugins.gitlab.mergerequest.ui.GitLabContextDataLoader
 import org.jetbrains.plugins.gitlab.mergerequest.ui.createDiffDataFlow
 import org.jetbrains.plugins.gitlab.mergerequest.ui.diff.*
 import org.jetbrains.plugins.gitlab.mergerequest.ui.review.GitLabMergeRequestDiscussionsViewModels
@@ -72,7 +72,7 @@ internal class GitLabMergeRequestDiffProcessorViewModelImpl(
   private val mergeRequest: GitLabMergeRequest,
   private val discussionsContainer: GitLabMergeRequestDiscussionsViewModels,
   private val avatarIconsProvider: IconsProvider<GitLabUserDTO>,
-  private val contextDataLoader: GitLabContextDataLoader,
+  private val imageLoader: GitLabImageLoader,
 ) : GitLabMergeRequestDiffViewModel, GitLabMergeRequestReviewViewModelBase(
   parentCs.childScope("GitLab Merge Request Diff Review VM"),
   currentUser, mergeRequest,
@@ -197,7 +197,7 @@ internal class GitLabMergeRequestDiffProcessorViewModelImpl(
       mergeRequest, diffData, change,
       this@GitLabMergeRequestDiffProcessorViewModelImpl,
       discussionsContainer, discussionsViewOption, avatarIconsProvider,
-      contextDataLoader
+      imageLoader
     )
 
   override fun findNextComment(currentThreadId: String, additionalIsVisible: (String) -> Boolean): String? =
