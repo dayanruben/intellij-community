@@ -5,8 +5,9 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.modules
 import com.intellij.openapi.util.io.toNioPathOrNull
-import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.TestApplicationManager
 import com.intellij.testFramework.TestDataPath
+import com.intellij.testFramework.TestDataProvider
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture
 import com.intellij.testFramework.fixtures.IdeaProjectTestFixture
 import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy
@@ -59,9 +60,13 @@ fun codeInsightFixture(
       return project.modules[0]
     }
 
-    override fun setUp() {}
+    override fun setUp() {
+      TestApplicationManager.getInstance().setDataProvider(TestDataProvider(project))
+    }
 
-    override fun tearDown() {}
+    override fun tearDown() {
+      TestApplicationManager.getInstance().setDataProvider(null)
+    }
   }
   val tempDirFixture = object : TempDirTestFixtureImpl() {
     // This method affects the internal temp dir used by the fixture, so we need to override it and not #getTempDir().
@@ -73,8 +78,7 @@ fun codeInsightFixture(
 
   val codeInsightFixture = CodeInsightTestFixtureImpl(projectFixture, tempDirFixture)
   val rootPath = context.findAnnotation(TestDataPath::class.java)?.value?.removePrefix($$"$PROJECT_ROOT/") ?: ""
-  val subPath = context.findAnnotation(TestSubPath::class.java)?.value
-                ?: PlatformTestUtil.getTestName(context.testName, true)
+  val subPath = context.findAnnotation(TestSubPath::class.java)?.value ?: ""
   val homeDir = IdeaTestExecutionPolicy.getHomePathWithPolicy().toNioPathOrNull()
   check(homeDir != null) {
     "Couldn't create nio.Path from ${IdeaTestExecutionPolicy.getHomePathWithPolicy()}"
