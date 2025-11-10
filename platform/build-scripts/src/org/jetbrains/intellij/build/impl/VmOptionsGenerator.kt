@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl
 
-import com.intellij.ReviseWhenPortedToJDK
 import com.intellij.platform.ijent.community.buildConstants.MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS
 import com.intellij.platform.ijent.community.buildConstants.isMultiRoutingFileSystemEnabledForProduct
 import org.jetbrains.intellij.build.BuildContext
@@ -9,6 +8,9 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.name
+
+/** duplicates RepositoryHelper.CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY */
+private const val CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY = "intellij.plugins.custom.built.in.repository.url"
 
 private const val DEFAULT_MIN_HEAP = "128m"
 private const val DEFAULT_MAX_HEAP = "2048m"
@@ -20,6 +22,8 @@ private val COMMON_VM_OPTIONS: List<String> = listOf(
   "-XX:-OmitStackTraceInFastThrow",
   "-XX:CICompilerCount=2",
   "-XX:+IgnoreUnrecognizedVMOptions",  // allowing the JVM to start even with outdated options stuck in user configs
+  "-XX:+UnlockDiagnosticVMOptions",
+  "-XX:TieredOldPercentage=100000",
   "-ea",
   "-Dsun.io.useCanonCaches=false",
   "-Dsun.java2d.metal=true",
@@ -32,76 +36,49 @@ private val COMMON_VM_OPTIONS: List<String> = listOf(
   "-Dkotlinx.coroutines.debug=off",
 )
 
-/** duplicates RepositoryHelper.CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY */
-private const val CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY = "intellij.plugins.custom.built.in.repository.url"
-
-object VmOptionsGenerator {
-  fun generate(context: BuildContext): List<String> = generate(
-    context.applicationInfo.isEAP,
-    context.bundledRuntime,
-    context.productProperties.customJvmMemoryOptions,
-    context.productProperties.additionalVmOptions.let {
-      val customPluginRepositoryUrl = computeCustomPluginRepositoryUrl(context)
-      if (customPluginRepositoryUrl == null) {
-        it
-      }
-      else {
-        it + "-D${CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY}=${customPluginRepositoryUrl}"
-      }
+fun generateVmOptions(context: BuildContext): List<String> {
+  return generateVmOptions(
+    isEAP = context.applicationInfo.isEAP,
+    customVmMemoryOptions = context.productProperties.customJvmMemoryOptions,
+    additionalVmOptions = context.productProperties.additionalVmOptions.let {
+      val url = computeCustomPluginRepositoryUrl(context)
+      if (url == null) it else it + "-D${CUSTOM_BUILT_IN_PLUGIN_REPOSITORY_PROPERTY}=${url}"
     },
-    context.productProperties.platformPrefix,
+    platformPrefix = context.productProperties.platformPrefix,
   )
+}
 
-  internal fun generate(
-    isEAP: Boolean,
-    bundledRuntime: BundledRuntime,
-    customVmMemoryOptions: Map<String, String>,
-    additionalVmOptions: List<String>,
-    platformPrefix: String?,
-  ): List<String> {
-    val result = ArrayList<String>()
+internal fun generateVmOptions(
+  isEAP: Boolean,
+  customVmMemoryOptions: Map<String, String>,
+  additionalVmOptions: List<String>,
+  platformPrefix: String?,
+): List<String> {
+  val result = ArrayList<String>()
 
-    val memory = LinkedHashMap<String, String>(customVmMemoryOptions)
-    memory.putIfAbsent("-Xms", DEFAULT_MIN_HEAP)
-    memory.putIfAbsent("-Xmx", DEFAULT_MAX_HEAP)  // must be the same as [com.intellij.diagnostic.MemorySizeConfigurator.DEFAULT_XMX]
-    for ((k, v) in memory) {
-      result.add(k + v)
-    }
-
-    result.addAll(COMMON_VM_OPTIONS)
-
-    if (isMultiRoutingFileSystemEnabledForProduct(platformPrefix)) {
-      result.addAll(MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS)
-    }
-
-    result += additionalVmOptions
-
-    var index = result.indexOf("-ea")
-    if (index < 0) {
-      index = result.indexOfFirst { it.startsWith("-D") }
-    }
-    if (index < 0) {
-      index = result.size
-    }
-
-    result.addAll(
-      index,
-      @ReviseWhenPortedToJDK("21", description = "Merge into `COMMON_VM_OPTIONS`")
-      if (bundledRuntime.build.startsWith("17.")) {
-        listOf(
-          "-XX:CompileCommand=exclude,com/intellij/openapi/vfs/impl/FilePartNodeRoot,trieDescend",  // temporary workaround for crashes in С2 (JBR-4509)
-          "-XX:SoftRefLRUPolicyMSPerMB=50",
-        )
-      }
-      else listOf("-XX:+UnlockDiagnosticVMOptions", "-XX:TieredOldPercentage=100000")
-    )
-
-    if (isEAP) {
-      result.add(index, "-XX:MaxJavaStackTraceDepth=10000")  // must be consistent with `ConfigImportHelper#updateVMOptions`
-    }
-
-    return result
+  val memory = LinkedHashMap<String, String>(customVmMemoryOptions)
+  memory.putIfAbsent("-Xms", DEFAULT_MIN_HEAP)
+  memory.putIfAbsent("-Xmx", DEFAULT_MAX_HEAP)
+  for ((k, v) in memory) {
+    result.add(k + v)
   }
+
+  result.addAll(COMMON_VM_OPTIONS)
+
+  if (isMultiRoutingFileSystemEnabledForProduct(platformPrefix)) {
+    result.addAll(MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS)
+  }
+
+  result.addAll(additionalVmOptions)
+
+  if (isEAP) {
+    var index = result.indexOf("-ea")
+    if (index < 0) index = result.indexOfFirst { it.startsWith("-D") }
+    if (index < 0) index = result.size
+    result.add(index, "-XX:MaxJavaStackTraceDepth=10000")  // must be consistent with `ConfigImportHelper#updateVMOptions`
+  }
+
+  return result
 }
 
 private fun computeCustomPluginRepositoryUrl(context: BuildContext): String? {
