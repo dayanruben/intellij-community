@@ -94,39 +94,48 @@ internal fun collectAllModuleNames(moduleSet: ModuleSet, excludedModules: Set<St
 }
 
 /**
- * Gets direct modules from a module set (excluding modules from nested sets and excluded modules).
+ * Visits all modules recursively (including nested sets), applying the visitor function to each.
+ * More efficient than collecting when you only need iteration (avoids intermediate collection).
  *
- * @param moduleSet The module set to get direct modules from
- * @param excludedModules Set of module names to exclude
- * @return List of direct modules
+ * @param moduleSet The module set to visit
+ * @param visitor Function to apply to each module
  */
-internal fun getDirectModules(moduleSet: ModuleSet, excludedModules: Set<String> = emptySet()): List<ContentModule> {
-  // Fast path: no filtering needed (very common for leaf nodes)
-  if (moduleSet.nestedSets.isEmpty() && excludedModules.isEmpty()) {
-    return moduleSet.modules
-  }
-
-  // Fast path: only check exclusions (no nested sets)
-  if (moduleSet.nestedSets.isEmpty()) {
-    return moduleSet.modules.filter { it.name !in excludedModules }
-  }
-
-  // Build set of module names from nested sets
-  val nestedModuleNames = HashSet<String>()
-  for (nestedSet in moduleSet.nestedSets) {
-    for (module in nestedSet.modules) {
-      nestedModuleNames.add(module.name)
-    }
-  }
-
-  // Full filtering: check both nested modules and exclusions
-  val directModules = mutableListOf<ContentModule>()
+internal fun visitAllModules(moduleSet: ModuleSet, visitor: (ContentModule) -> Unit) {
   for (module in moduleSet.modules) {
-    if (module.name !in nestedModuleNames && module.name !in excludedModules) {
-      directModules.add(module)
-    }
+    visitor(module)
   }
-  return directModules
+  for (nestedSet in moduleSet.nestedSets) {
+    visitAllModules(nestedSet, visitor)
+  }
+}
+
+/**
+ * Recursively collects all module names from a module set and its nested sets.
+ * Helper function for module distribution and usage analysis.
+ *
+ * @param moduleSets List of all module sets to search in
+ * @param setName Name of the module set to start collecting from
+ * @param visited Set of already visited module set names to prevent infinite recursion
+ * @return Set of all module names found in the module set hierarchy
+ */
+fun collectAllModuleNamesFromSet(
+  moduleSets: List<ModuleSet>,
+  setName: String,
+  visited: MutableSet<String> = mutableSetOf()
+): Set<String> {
+  if (setName in visited) return emptySet()
+  visited.add(setName)
+
+  val moduleSet = moduleSets.firstOrNull { it.name == setName } ?: return emptySet()
+
+  val allModules = moduleSet.modules.map { it.name }.toMutableSet()
+
+  // Recursively collect from nested sets
+  for (nestedSet in moduleSet.nestedSets) {
+    allModules.addAll(collectAllModuleNamesFromSet(moduleSets, nestedSet.name, visited))
+  }
+
+  return allModules
 }
 
 /**

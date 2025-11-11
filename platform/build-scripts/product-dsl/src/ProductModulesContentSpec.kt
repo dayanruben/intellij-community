@@ -115,11 +115,6 @@ class ProductModulesContentSpec(
    */
   @JvmField val additionalModules: List<ContentModule>,
 
-  /**
-   * Module names to exclude from the final set (after resolving all module sets and additions).
-   * This is useful to remove specific modules from included module sets.
-   */
-  @JvmField val excludedModules: Set<String>,
 
   /**
    * Composition graph tracking how this spec was assembled.
@@ -144,7 +139,6 @@ class ProductModulesContentSpecBuilder @PublishedApi internal constructor() {
   private val xmlIncludes = mutableListOf<DeprecatedXmlInclude>()
   private val moduleSets = mutableListOf<ModuleSetWithOverrides>()
   private val additionalModules = mutableListOf<ContentModule>()
-  private val excludedModules = mutableSetOf<String>()
 
   // Composition tracking
   private val compositionGraph = mutableListOf<SpecComposition>()
@@ -198,7 +192,6 @@ class ProductModulesContentSpecBuilder @PublishedApi internal constructor() {
     xmlIncludes.addAll(spec.deprecatedXmlIncludes)
     moduleSets.addAll(spec.moduleSets)
     additionalModules.addAll(spec.additionalModules)
-    excludedModules.addAll(spec.excludedModules)
 
     // Also preserve the nested spec's composition graph for deep analysis
     compositionGraph.addAll(spec.compositionGraph)
@@ -304,16 +297,9 @@ class ProductModulesContentSpecBuilder @PublishedApi internal constructor() {
     compositionGraph.add(SpecComposition(
       type = CompositionType.DIRECT_MODULE,
       reference = name,
-      path = pathStack.toList(),
-      sourceLocation = null
+      path = java.util.List.copyOf(pathStack),
+      sourceLocation = null,
     ))
-  }
-
-  /**
-   * Exclude a module from the final set.
-   */
-  fun exclude(moduleName: String) {
-    excludedModules.add(moduleName)
   }
 
   @PublishedApi
@@ -323,7 +309,6 @@ class ProductModulesContentSpecBuilder @PublishedApi internal constructor() {
       deprecatedXmlIncludes = java.util.List.copyOf(xmlIncludes),
       moduleSets = java.util.List.copyOf(moduleSets),
       additionalModules = java.util.List.copyOf(additionalModules),
-      excludedModules = java.util.Set.copyOf(excludedModules),
       compositionGraph = java.util.List.copyOf(compositionGraph),
       metadata = metadata,
     )
