@@ -36,7 +36,6 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.Pair
-import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.util.registry.RegistryValueListener
@@ -47,7 +46,6 @@ import com.intellij.reference.SoftReference
 import com.intellij.ui.*
 import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.awt.RelativePoint
-import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.ui.hover.HoverListener
@@ -772,8 +770,6 @@ class InfoAndProgressPanel internal constructor(
     override fun createCompactTextAndProgress(component: JPanel) {
       textPanel.setTextAlignment(Component.RIGHT_ALIGNMENT)
       textPanel.recomputeSize()
-      UIUtil.setCursor(textPanel, Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
-      UIUtil.setCursor(progress, Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
       super.createCompactTextAndProgress(component)
       (progress.parent as JComponent).setBorder(JBUI.Borders.empty(0, 8, 0, 4))
     }
@@ -988,14 +984,7 @@ class InfoAndProgressPanel internal constructor(
 
     val progressIcon: AsyncProcessIcon = AsyncProcessIcon(host.coroutineScope)
     var indicator: MyProgressComponent? = null
-    private val multiProcessLink: ActionLink = object : ActionLink("", ActionListener { host.triggerPopupShowing() }) {
-      override fun updateUI() {
-        super.updateUI()
-        if (!ExperimentalUI.isNewUI()) {
-          setFont(if (SystemInfo.isMac) JBUI.Fonts.label(11f) else JBFont.label())
-        }
-      }
-    }
+    private val multiProcessLink = TextPanel()
     private val counterComponent: CounterLabel
     private var isHovered = false
     init {
@@ -1010,7 +999,6 @@ class InfoAndProgressPanel internal constructor(
           host.handle(e)
         }
       })
-      progressIcon.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
       updateProgressIconBorder()
       val listener = object : RegistryValueListener {
         override fun afterValueChanged(value: RegistryValue) {
@@ -1018,6 +1006,11 @@ class InfoAndProgressPanel internal constructor(
         }
       }
       Registry.get(SHOW_COUNTER_REGISTRY_KEY).addListener(listener, host.coroutineScope)
+      multiProcessLink.addMouseListener(object : MouseAdapter() {
+        override fun mouseClicked(e: MouseEvent) {
+          host.triggerPopupShowing()
+        }
+      })
 
       counterComponent = CounterLabel()
       counterComponent.addMouseListener(object : MouseAdapter() {
@@ -1025,7 +1018,6 @@ class InfoAndProgressPanel internal constructor(
           host.triggerPopupShowing()
         }
       })
-      UIUtil.setCursor(counterComponent, Cursor.getPredefinedCursor(Cursor.HAND_CURSOR))
       addMouseHoverListener(host.lifecycleDisposable, object : HoverListener() {
         override fun mouseEntered(component: Component, x: Int, y: Int) {
           setHovered(true)
@@ -1063,12 +1055,12 @@ class InfoAndProgressPanel internal constructor(
           if (indicator != null) {
             addVisibleToPreferred(indicator!!.component, withGap = false)
           }
+          addVisibleToPreferred(multiProcessLink, withGap = true)
 
           if (showCounterInsteadOfMultiProcessLink) {
             addVisibleToPreferred(counterComponent, withGap = false)
             addVisibleToPreferred(progressIcon, withGap = false)
           }
-          addVisibleToPreferred(multiProcessLink, withGap = true)
 
           if (progressIcon.isVisible) {
             result.height = max(result.height, progressIcon.getPreferredSize().height)
@@ -1270,7 +1262,7 @@ class InfoAndProgressPanel internal constructor(
         counterComponent.setNumber(size, isIndicatorVisible, showPopup)
         counterComponent.isVisible = true
         progressIcon.isVisible = !showPopup && !isIndicatorVisible
-        multiProcessLink.setText(IdeBundle.message("link.hide.processes", size))
+        multiProcessLink.text = IdeBundle.message("link.hide.processes", size)
         multiProcessLink.isVisible = showPopup
       }
       else {
@@ -1278,10 +1270,10 @@ class InfoAndProgressPanel internal constructor(
         progressIcon.isVisible = false
         multiProcessLink.isVisible = showPopup || size > 1
         if (showPopup) {
-          multiProcessLink.setText(IdeBundle.message("link.hide.processes", size))
+          multiProcessLink.text = IdeBundle.message("link.hide.processes", size)
         }
         else if (size > 1) {
-          multiProcessLink.setText(IdeBundle.message("link.show.all.processes", size))
+          multiProcessLink.text = IdeBundle.message("link.show.all.processes", size)
         }
       }
 
@@ -1299,6 +1291,7 @@ class InfoAndProgressPanel internal constructor(
         if (statusBar != null) {
           val bounds = bounds
           bounds.setLocation(0, 0)
+          bounds.width -= counterComponent.getWidthAdditionForAlignmemt()
           IdeStatusBarImpl.paintHover(g, this, bounds, JBUI.CurrentTheme.StatusBar.Widget.HOVER_BACKGROUND, statusBar)
         }
       }
@@ -1340,7 +1333,7 @@ private class CounterLabel : JPanel(), UISettingsListener {
     this.isPopupShowing = isPopupShowing
 
     refreshTextForMinimumSizeIfNeeded()
-    refreshPanelText()
+    refreshPanelText(textPanel)
   }
 
   private fun getNumberToShow(): Int {
@@ -1352,7 +1345,7 @@ private class CounterLabel : JPanel(), UISettingsListener {
     }
   }
 
-  private fun refreshPanelText() {
+  private fun refreshPanelText(panel: TextPanel) {
     val numberToShow = getNumberToShow()
     val text = when {
       isPopupShowing -> ""
@@ -1361,7 +1354,7 @@ private class CounterLabel : JPanel(), UISettingsListener {
       isProgressVisible -> "+${numberToShow}"
       else -> "${numberToShow}"
     }
-    textPanel.text = text
+    panel.text = text
   }
 
   private fun refreshTextForMinimumSizeIfNeeded() {
@@ -1408,6 +1401,14 @@ private class CounterLabel : JPanel(), UISettingsListener {
 
   override fun uiSettingsChanged(uiSettings: UISettings) {
     minimumSize = null
+  }
+
+  fun getWidthAdditionForAlignmemt(): Int {
+    if (!isVisible) return 0
+    val minWidth = getPreferredSize().width
+    val panel = createTextPanel()
+    refreshPanelText(panel)
+    return minWidth - panel.preferredSize.width
   }
 }
 

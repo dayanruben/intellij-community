@@ -20,17 +20,17 @@ import org.jetbrains.intellij.build.impl.ModuleOutputPatcher
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
 import org.jetbrains.intellij.build.impl.SupportedDistribution
-import org.jetbrains.intellij.build.impl.buildPlugins
 import org.jetbrains.intellij.build.impl.copyAdditionalPlugins
 import org.jetbrains.intellij.build.impl.getPluginLayoutsByJpsModuleNames
 import org.jetbrains.intellij.build.impl.handleCustomPlatformSpecificAssets
+import org.jetbrains.intellij.build.impl.plugins.buildPlugins
 import org.jetbrains.intellij.build.impl.satisfiesBundlingRequirements
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
 import java.nio.file.Files
 import java.nio.file.Path
 
-internal suspend fun buildPlugins(
+internal suspend fun buildPluginsForDevMode(
   request: BuildRequest,
   context: BuildContext,
   runDir: Path,
@@ -91,7 +91,7 @@ private fun isPluginApplicable(bundledMainModuleNames: Set<String>, plugin: Plug
          satisfiesBundlingRequirements(plugin = plugin, osFamily = null, arch = JvmArchitecture.currentJvmArch, context = context)
 }
 
-private suspend fun getBundledMainModuleNames(context: BuildContext, additionalModules: List<String>): Set<String> {
+private fun getBundledMainModuleNames(context: BuildContext, additionalModules: List<String>): Set<String> {
   val bundledPluginModules = context.getBundledPluginModules()
   val result = LinkedHashSet<String>(bundledPluginModules.size + additionalModules.size)
   result.addAll(bundledPluginModules)

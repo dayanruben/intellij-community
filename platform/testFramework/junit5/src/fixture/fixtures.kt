@@ -19,6 +19,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ModuleRootModificationUtil
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.io.toCanonicalPath
 import com.intellij.openapi.vfs.VfsUtil
@@ -47,9 +48,14 @@ import kotlin.io.path.Path
 import kotlin.io.path.copyToRecursively
 import kotlin.io.path.exists
 
+// Adapted from com.intellij.clion.testFramework.nolang.junit5.core.FixturesKt.testNameFixture
+@JvmOverloads
 @TestOnly
-fun testNameFixture(): TestFixture<String> = testFixture {
-  val testName = it.testName
+fun testNameFixture(lowerCaseFirstLetter: Boolean = true): TestFixture<String> = testFixture {
+  val testName = it.testName.replaceFirstChar {
+    chr -> if (lowerCaseFirstLetter) chr.lowercaseChar() else chr.uppercaseChar()
+  }
+
   initialized(testName) {}
 }
 
@@ -271,9 +277,9 @@ fun TestFixture<PsiDirectory>.psiFileFixture(
 ): TestFixture<PsiFile> = testFixture { _ ->
   val project = this@psiFileFixture.init().project
   val virtualFile = virtualFileFixture(name, content).init()
-  val file = readAction {
+  val file = PsiDocumentManager.getInstance(project).commitAndRunReadAction(Computable {
     PsiManager.getInstance(project).findFile(virtualFile) ?: error("Fail to find file $virtualFile")
-  }
+  })
   initialized(file) {/*nothing*/ }
 }
 
