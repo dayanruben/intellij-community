@@ -134,7 +134,7 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : JetBrai
 
   protected open suspend fun bundleExternalPlugins(context: BuildContext, targetDirectory: Path) {}
 
-  override fun createWindowsCustomizer(projectHome: String): WindowsDistributionCustomizer = CommunityWindowsDistributionCustomizer()
+  override fun createWindowsCustomizer(projectHome: Path): WindowsDistributionCustomizer = CommunityWindowsDistributionCustomizer()
 
   override fun createLinuxCustomizer(projectHome: String): LinuxDistributionCustomizer = CommunityLinuxDistributionCustomizer()
 
@@ -142,11 +142,13 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : JetBrai
 
   protected open inner class CommunityWindowsDistributionCustomizer : WindowsDistributionCustomizer() {
     init {
-      icoPath = "${communityHomeDir}/build/conf/ideaCE/win/images/idea_CE.ico"
-      icoPathForEAP = "${communityHomeDir}/build/conf/ideaCE/win/images/idea_CE_EAP.ico"
-      installerImagesPath = "${communityHomeDir}/build/conf/ideaCE/win/images"
-      fileAssociations = listOf("java", "gradle", "groovy", "kt", "kts", "pom")
+      icoPath = communityHomeDir.resolve("build/conf/ideaCE/win/images/idea_CE.ico")
+      icoPathForEAP = communityHomeDir.resolve("build/conf/ideaCE/win/images/idea_CE_EAP.ico")
+      installerImagesPath = communityHomeDir.resolve("build/conf/ideaCE/win/images")
     }
+
+    override val fileAssociations: List<String>
+      get() = listOf("java", "gradle", "groovy", "kt", "kts", "pom")
 
     override fun getFullNameIncludingEdition(appInfo: ApplicationInfoProperties): String = "IntelliJ IDEA Community Edition"
 

@@ -22,10 +22,10 @@ import java.util.Map;
 public final class StubUpdatingIndexStorage extends TransientFileContentIndex<Integer, SerializedStubTree, StubUpdatingIndexStorage.Data> {
   private static final Logger LOG = Logger.getInstance(StubUpdatingIndexStorage.class);
 
-  private StubIndexImpl myStubIndex;
-  private final @Nullable CompositeBinaryBuilderMap myCompositeBinaryBuilderMap = FileBasedIndex.USE_IN_MEMORY_INDEX
-                                                                        ? null
-                                                                        : new CompositeBinaryBuilderMap();
+  /** Cached {@code StubIndex.getInstance()} */
+  private StubIndexImpl myCachedStubIndex;
+
+  private final @NotNull CompositeBinaryBuilderMap myCompositeBinaryBuilderMap = new CompositeBinaryBuilderMap(FileBasedIndex.USE_IN_MEMORY_INDEX);
   private final @NotNull SerializationManagerEx mySerializationManager;
 
   StubUpdatingIndexStorage(@NotNull FileBasedIndexExtension<Integer, SerializedStubTree> extension,
@@ -48,9 +48,9 @@ public final class StubUpdatingIndexStorage extends TransientFileContentIndex<In
   }
 
   private @NotNull StubIndexImpl getStubIndex() {
-    StubIndexImpl index = myStubIndex;
+    StubIndexImpl index = myCachedStubIndex;
     if (index == null) {
-      myStubIndex = index = (StubIndexImpl)StubIndex.getInstance();
+      myCachedStubIndex = index = (StubIndexImpl)StubIndex.getInstance();
     }
     return index;
   }
@@ -74,7 +74,7 @@ public final class StubUpdatingIndexStorage extends TransientFileContentIndex<In
     }
     catch (ProcessCanceledException pce) {
       if (FileBasedIndexEx.TRACE_STUB_INDEX_UPDATES) {
-        LOG.infoWithDebug("mapInputAndPrepareUpdate interrupted,inputId=" + inputId + "," + pce, new RuntimeException(pce));
+        LOG.infoWithDebug("mapInputAndPrepareUpdate interrupted,inputId=" + inputId, new RuntimeException(pce));
       }
       throw pce;
     }
@@ -84,7 +84,9 @@ public final class StubUpdatingIndexStorage extends TransientFileContentIndex<In
     }
   }
 
-  public static @NotNull StorageUpdate withStubIndexingDiagnosticUpdate(int inputId, @Nullable FileContent content, @NotNull StorageUpdate indexUpdate) {
+  public static @NotNull StorageUpdate withStubIndexingDiagnosticUpdate(int inputId,
+                                                                        @Nullable FileContent content,
+                                                                        @NotNull StorageUpdate indexUpdate) {
     IndexingStampInfo indexingStampInfo = content == null ? null : StubUpdatingIndex.calculateIndexingStamp(content);
     return () -> {
       boolean updateSuccessful = indexUpdate.update();
@@ -116,9 +118,12 @@ public final class StubUpdatingIndexStorage extends TransientFileContentIndex<In
     removeTransientStubIndexKeys(inputId, maps);
   }
 
+
   private static void removeTransientStubIndexKeys(int inputId, @NotNull Map<StubIndexKey<?, ?>, Map<Object, StubIdList>> indexedStubs) {
     StubIndexImpl stubIndex = (StubIndexImpl)StubIndex.getInstance();
+    //noinspection rawtypes
     for (StubIndexKey key : indexedStubs.keySet()) {
+      //noinspection unchecked
       stubIndex.removeTransientDataForFile(key, inputId, indexedStubs.get(key));
     }
   }
@@ -148,6 +153,13 @@ public final class StubUpdatingIndexStorage extends TransientFileContentIndex<In
       }
       finally {
         mySerializationManager.performShutdown();
+
+        try {
+          myCompositeBinaryBuilderMap.close();
+        }
+        catch (IOException e) {
+          throw new StorageException(e);
+        }
       }
     }
   }
@@ -164,7 +176,7 @@ public final class StubUpdatingIndexStorage extends TransientFileContentIndex<In
   @Override
   public Data getFileIndexMetaData(@NotNull IndexedFile file) {
     IndexerIdHolder data = super.getFileIndexMetaData(file);
-    FileType fileType = ProgressManager.getInstance().computeInNonCancelableSection(() -> file.getFileType());
+    FileType fileType = ProgressManager.getInstance().computeInNonCancelableSection(file::getFileType);
     return new Data(data == null ? -1 : data.indexerId, fileType);
   }
 
@@ -191,14 +203,7 @@ public final class StubUpdatingIndexStorage extends TransientFileContentIndex<In
 
   @Override
   protected FileIndexingStateWithExplanation isIndexConfigurationUpToDate(int fileId, @NotNull IndexedFile file) {
-    if (myCompositeBinaryBuilderMap == null) return FileIndexingStateWithExplanation.upToDate();
-    try {
-      return myCompositeBinaryBuilderMap.isUpToDateState(fileId, file.getFile());
-    }
-    catch (IOException e) {
-      LOG.error(e);
-      return FileIndexingStateWithExplanation.outdated("IOException");
-    }
+    return myCompositeBinaryBuilderMap.isUpToDateState(fileId, file.getFile());
   }
 
   @Override
@@ -207,36 +212,15 @@ public final class StubUpdatingIndexStorage extends TransientFileContentIndex<In
   }
 
   private void setBinaryBuilderConfiguration(int fileId, @NotNull IndexedFile file) {
-    if (myCompositeBinaryBuilderMap != null) {
-      try {
-        myCompositeBinaryBuilderMap.persistState(fileId, file.getFile());
-      }
-      catch (IOException e) {
-        LOG.error(e);
-      }
-    }
+    myCompositeBinaryBuilderMap.persistState(fileId, file.getFile());
   }
 
   private void setBinaryBuilderConfiguration(int fileId, @NotNull Data fileData) {
-    if (myCompositeBinaryBuilderMap != null) {
-      try {
-        myCompositeBinaryBuilderMap.persistState(fileId, fileData.myFileType);
-      }
-      catch (IOException e) {
-        LOG.error(e);
-      }
-    }
+    myCompositeBinaryBuilderMap.persistState(fileId, fileData.myFileType);
   }
 
   private void resetBinaryBuilderConfiguration(int fileId) {
-    if (myCompositeBinaryBuilderMap != null) {
-      try {
-        myCompositeBinaryBuilderMap.resetPersistedState(fileId);
-      }
-      catch (IOException e) {
-        LOG.error(e);
-      }
-    }
+    myCompositeBinaryBuilderMap.resetPersistedState(fileId);
   }
 
   @Internal

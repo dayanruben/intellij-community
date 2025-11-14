@@ -143,8 +143,9 @@ sealed class BaseLayout {
     return stackTrace
   }
 
+  @Deprecated("Project Library should be provided as a content module")
   fun withProjectLibrary(libraryName: String, jarName: String, reason: String? = null) {
-    includedProjectLibraries.add(ProjectLibraryData(libraryName = libraryName, outPath = jarName, reason = reason))
+    includedProjectLibraries.add(ProjectLibraryData(libraryName = libraryName, outPath = jarName, reason = reason, owner = null))
   }
 
   fun excludeFromModule(moduleName: String, excludedPattern: String) {
@@ -159,18 +160,20 @@ sealed class BaseLayout {
     }
   }
 
+  @Deprecated("Project Library should be provided as a content module")
   fun withProjectLibrary(libraryName: String) {
-    includedProjectLibraries.add(ProjectLibraryData(libraryName = libraryName, reason = "withProjectLibrary"))
+    includedProjectLibraries.add(ProjectLibraryData(libraryName = libraryName, reason = "withProjectLibrary", owner = null))
   }
 
   internal fun withProjectLibraries(libraryNames: Sequence<String>, outPath: String? = null) {
     for (libraryName in libraryNames) {
-      includedProjectLibraries.add(ProjectLibraryData(libraryName = libraryName, reason = "withProjectLibrary", outPath = outPath))
+      includedProjectLibraries.add(ProjectLibraryData(libraryName = libraryName, reason = "withProjectLibrary", outPath = outPath, owner = null))
     }
   }
 
+  @Deprecated("Project Library should be provided as a content module")
   fun withProjectLibrary(libraryName: String, packMode: LibraryPackMode) {
-    includedProjectLibraries.add(ProjectLibraryData(libraryName = libraryName, packMode = packMode, reason = "withProjectLibrary"))
+    includedProjectLibraries.add(ProjectLibraryData(libraryName = libraryName, packMode = packMode, reason = "withProjectLibrary", owner = null))
   }
 
   /**

@@ -1,0 +1,5 @@
+<idea-plugin>
+  <dependencies>
+    <plugin id="intellij.lambda.sampleTests.plugin"/>
+  </dependencies>
+</idea-plugin>

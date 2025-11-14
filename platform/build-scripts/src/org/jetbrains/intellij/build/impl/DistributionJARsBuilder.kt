@@ -36,6 +36,7 @@ import org.jetbrains.intellij.build.SearchableOptionSetDescriptor
 import org.jetbrains.intellij.build.buildSearchableOptions
 import org.jetbrains.intellij.build.classPath.PluginBuildDescriptor
 import org.jetbrains.intellij.build.classPath.generateClassPathByLayoutReport
+import org.jetbrains.intellij.build.classPath.generateCoreClasspathFromPlugins
 import org.jetbrains.intellij.build.classPath.generatePluginClassPath
 import org.jetbrains.intellij.build.classPath.generatePluginClassPathFromPrebuiltPluginFiles
 import org.jetbrains.intellij.build.classPath.writePluginClassPathHeader
@@ -136,7 +137,10 @@ internal suspend fun buildDistribution(
       context = context,
     )
 
-    ContentReport(platform = buildPlatformJob.await(), bundledPlugins = bundledPluginItems, nonBundledPlugins = buildNonBundledPlugins.await())
+    val platformItems = buildPlatformJob.await()
+    context.bootClassPathJarNames = generateCoreClassPath(platformLayout, context, platformItems, bundledPluginItems)
+
+    ContentReport(platform = platformItems, bundledPlugins = bundledPluginItems, nonBundledPlugins = buildNonBundledPlugins.await())
   }
 
   coroutineScope {
@@ -162,6 +166,26 @@ internal suspend fun buildDistribution(
   contentReport
 }
 
+private fun generateCoreClassPath(
+  platformLayout: PlatformLayout,
+  context: BuildContext,
+  platformDistribution: List<DistributionFileEntry>,
+  bundledPluginsDistribution: List<PluginBuildDescriptor>,
+): List<String> {
+  if (context.useModularLoader) {
+    return listOf(PLATFORM_LOADER_JAR)
+  }
+  val libDir = context.paths.distAllDir.resolve("lib")
+  val platformClassPath = generateClassPathByLayoutReport(
+    libDir = libDir,
+    entries = platformDistribution,
+    skipNioFs = isMultiRoutingFileSystemEnabledForProduct(context.productProperties.platformPrefix)
+  ).map { libDir.relativize(it).toString() }
+  val pluginsDir = context.paths.distAllDir.resolve("plugins")
+  val coreClassPathFromPlugins = generateCoreClasspathFromPlugins(platformLayout, context, bundledPluginsDistribution).map { pluginsDir.resolve(it).toString() }
+  return platformClassPath + coreClassPathFromPlugins
+}
+
 @VisibleForTesting
 suspend fun buildPlatform(
   moduleOutputPatcher: ModuleOutputPatcher,
@@ -184,17 +208,6 @@ suspend fun buildPlatform(
     else {
       tool.scramble(platformLayout = state.platformLayout, platformFileEntries = distributionFileEntries, context = context)
     }
-  }
-  context.bootClassPathJarNames = if (context.useModularLoader) {
-    listOf(PLATFORM_LOADER_JAR)
-  }
-  else {
-    val libDir = context.paths.distAllDir.resolve("lib")
-    generateClassPathByLayoutReport(
-      libDir = libDir,
-      entries = distributionFileEntries,
-      skipNioFs = isMultiRoutingFileSystemEnabledForProduct(context.productProperties.platformPrefix)
-    ).map { libDir.relativize(it).toString() }
   }
   return distributionFileEntries
 }
@@ -322,13 +335,15 @@ private fun writePluginInfo(
     specificClasspath?.let { out.write(it) }
     out.close()
 
-    context.addDistFile(DistFile(
-      content = InMemoryDistFileContent(byteOut.toByteArray()),
-      relativePath = PLUGIN_CLASSPATH,
-      os = supportedDist.os,
-      libcImpl = supportedDist.libcImpl,
-      arch = supportedDist.arch,
-    ))
+    context.addDistFile(
+      DistFile(
+        content = InMemoryDistFileContent(byteOut.toByteArray()),
+        relativePath = PLUGIN_CLASSPATH,
+        os = supportedDist.os,
+        libcImpl = supportedDist.libcImpl,
+        arch = supportedDist.arch,
+      )
+    )
   }
 }
 
@@ -646,8 +661,10 @@ private fun CoroutineScope.createBuildBrokenPluginListJob(context: BuildContext)
 }
 
 private fun CoroutineScope.createBuildThirdPartyLibraryListJob(entries: Sequence<DistributionFileEntry>, context: BuildContext): Job {
-  return createSkippableJob(spanBuilder("generate table of licenses for used third-party libraries"),
-                            BuildOptions.THIRD_PARTY_LIBRARIES_LIST_STEP, context) {
+  return createSkippableJob(
+    spanBuilder("generate table of licenses for used third-party libraries"),
+    BuildOptions.THIRD_PARTY_LIBRARIES_LIST_STEP, context
+  ) {
     val generator = createLibraryLicensesListGenerator(
       context = context,
       licenseList = context.productProperties.allLibraryLicenses,
