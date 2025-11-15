@@ -47,8 +47,8 @@ public class DummyHolderViewProvider extends AbstractFileViewProvider {
   }
 
   @Override
-  public PsiFile getCachedPsi(@NotNull Language target) {
-    getManager().getFileManager().setViewProvider(getVirtualFile(), this);
+  public @Nullable PsiFile getCachedPsi(@NotNull Language target) {
+    getManager().getFileManager().changeViewProvider(getVirtualFile(), this);
     return target == getBaseLanguage() ? myHolder : null;
   }
 

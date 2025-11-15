@@ -4,6 +4,7 @@ import com.intellij.driver.client.Driver
 import com.intellij.driver.client.Remote
 import com.intellij.driver.client.utility
 import com.intellij.driver.model.OnDispatcher
+import com.intellij.notification.NotificationType
 
 @Remote("com.intellij.notification.Notification")
 interface Notification {
@@ -11,15 +12,16 @@ interface Notification {
   fun getContent(): String
   fun getGroupId(): String
   fun getActions(): List<AnAction>
+  fun getType(): NotificationType
 }
 
 @Remote("com.intellij.notification.ActionCenter")
 interface ActionCenter {
-  fun getNotifications(project: Project): List<Notification>
+  fun getNotifications(project: Project?): List<Notification>
 }
 
-fun Driver.getNotifications(project: Project? = null): Collection<Notification> {
+fun Driver.getNotifications(project: Project? = singleProject()): Collection<Notification> {
   return withContext(OnDispatcher.EDT) {
-    utility<ActionCenter>().getNotifications(project ?: singleProject())
+    utility<ActionCenter>().getNotifications(project)
   }
 }

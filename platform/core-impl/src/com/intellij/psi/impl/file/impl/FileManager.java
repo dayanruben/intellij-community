@@ -39,6 +39,15 @@ public interface FileManager {
   @Nullable
   PsiFile getCachedPsiFile(@NotNull VirtualFile vFile);
 
+  /**
+   * @return list of cached PSI files. Note that the list can be shorter than {@link #findCachedViewProviders(VirtualFile)} because
+   * not all view providers have cached PSI files.
+   */
+  @ApiStatus.Experimental
+  @RequiresReadLock
+  @NotNull @Unmodifiable
+  List<@NotNull PsiFile> getCachedPsiFiles(@NotNull VirtualFile vFile);
+
   @ApiStatus.Experimental
   @Nullable
   PsiFile getCachedPsiFile(@NotNull VirtualFile vFile, @NotNull CodeInsightContext context);
@@ -47,7 +56,7 @@ public interface FileManager {
   void cleanupForNextTest();
 
   // todo IJPL-339 mark deprecated?
-  FileViewProvider findViewProvider(@NotNull VirtualFile vFile);
+  @NotNull FileViewProvider findViewProvider(@NotNull VirtualFile vFile);
 
   @ApiStatus.Experimental
   FileViewProvider findViewProvider(@NotNull VirtualFile vFile, @NotNull CodeInsightContext context);
@@ -63,10 +72,23 @@ public interface FileManager {
   @Nullable
   FileViewProvider findCachedViewProvider(@NotNull VirtualFile vFile, @NotNull CodeInsightContext context);
 
+  /** @deprecated use {@link #changeViewProvider(VirtualFile, FileViewProvider)} or {@link #dropViewProviders(VirtualFile)} instead. */
+  @Deprecated
+  void setViewProvider(@NotNull VirtualFile vFile, @Nullable FileViewProvider viewProvider);
+
+  /**
+   * Requires write lock for physical files, and <i>usually</i> does not require a write lock for non-physical files.
+   * <p>
+   * If a file has several view providers, all of them will be invalidated.
+   */
+  @ApiStatus.Experimental
+  void changeViewProvider(@NotNull VirtualFile vFile, @NotNull FileViewProvider viewProvider);
+
   /**
    * Requires write lock for physical files, and <i>usually</i> does not require a write lock for non-physical files.
    */
-  void setViewProvider(@NotNull VirtualFile vFile, @Nullable FileViewProvider viewProvider);
+  @ApiStatus.Experimental
+  void dropViewProviders(@NotNull VirtualFile vFile);
 
   @NotNull
   List<PsiFile> getAllCachedFiles();

@@ -145,7 +145,7 @@ public final class FileManagerImpl implements FileManagerEx {
       return;
     }
     if (!CodeInsightContextUtil.isEventSystemEnabled(viewProviders)) {
-      setViewProvider(vFile, null);
+      dropViewProviders(vFile);
       return;
     }
 
@@ -159,13 +159,13 @@ public final class FileManagerImpl implements FileManagerEx {
       event.setPropertyName(PsiTreeChangeEvent.PROP_UNLOADED_PSI);
 
       myManager.beforePropertyChange(event);
-      setViewProvider(vFile, null);
+      dropViewProviders(vFile);
       myManager.propertyChanged(event);
     } else {
       event.setParent(parentDir);
 
       myManager.beforeChildrenChange(event);
-      setViewProvider(vFile, null);
+      dropViewProviders(vFile);
       myManager.childrenChanged(event);
     }
   }
@@ -316,21 +316,16 @@ public final class FileManagerImpl implements FileManagerEx {
 
   @Override
   public void setViewProvider(@NotNull VirtualFile vFile, @Nullable FileViewProvider viewProvider) {
-    // todo IJPL-339 investigate if we need a context here
     if (viewProvider == null) {
-      // Let's drop all providers.
-      // Please add a new method if you need to drop only a single provider. But this seems to be a suspicious idea,
-      // because shouldn't you drop other providers as well?
-      dropAllProviders(vFile);
+      dropViewProviders(vFile);
     }
     else {
-      changeFileProvider(vFile, viewProvider);
+      changeViewProvider(vFile, viewProvider);
     }
   }
 
-  private void changeFileProvider(@NotNull VirtualFile vFile,
-                                  @NotNull FileViewProvider viewProvider) {
-
+  @Override
+  public void changeViewProvider(@NotNull VirtualFile vFile, @NotNull FileViewProvider viewProvider) {
     if (vFile instanceof LightVirtualFile) {
       FileViewProvider prev = getRawCachedViewProvider(vFile, CodeInsightContexts.anyContext());
       if (prev == viewProvider) return;
@@ -359,7 +354,8 @@ public final class FileManagerImpl implements FileManagerEx {
     }
   }
 
-  private void dropAllProviders(@NotNull VirtualFile vFile) {
+  @Override
+  public void dropViewProviders(@NotNull VirtualFile vFile) {
     if (vFile instanceof LightVirtualFile) {
       FileViewProvider oldProvider = vFile.getUserData(myPsiHardRefKey);
       if (oldProvider != null) {
@@ -533,7 +529,19 @@ public final class FileManagerImpl implements FileManagerEx {
   }
 
   @Override
-  public @Nullable PsiFile getCachedPsiFile(@NotNull VirtualFile vFile, @NotNull CodeInsightContext context) {
+  public @NotNull @Unmodifiable List<PsiFile> getCachedPsiFiles(@NotNull VirtualFile vFile) {
+    ensureValidAndDispatchPendingEvents(vFile);
+
+    return getCachedPsiFilesInner(vFile);
+  }
+
+  @Override
+  public @NotNull List<@NotNull PsiFile> getCachedPsiFilesInner(@NotNull VirtualFile vFile) {
+    List<FileViewProvider> viewProviders = findCachedViewProviders(vFile);
+    return ContainerUtil.mapNotNull(viewProviders, p -> ((AbstractFileViewProvider)p).getCachedPsi(p.getBaseLanguage()));
+  }
+
+  private void ensureValidAndDispatchPendingEvents(@NotNull VirtualFile vFile) {
     if (!vFile.isValid()) {
       throw new InvalidVirtualFileAccessException(vFile);
     }
@@ -544,6 +552,11 @@ public final class FileManagerImpl implements FileManagerEx {
     }
 
     dispatchPendingEvents();
+  }
+
+  @Override
+  public @Nullable PsiFile getCachedPsiFile(@NotNull VirtualFile vFile, @NotNull CodeInsightContext context) {
+    ensureValidAndDispatchPendingEvents(vFile);
 
     return getCachedPsiFileInner(vFile, context);
   }
@@ -551,20 +564,11 @@ public final class FileManagerImpl implements FileManagerEx {
   @RequiresReadLock
   @Override
   public @Nullable PsiDirectory findDirectory(@NotNull VirtualFile vFile) {
-    Project project = myManager.getProject();
-    if (project.isDisposed()) {
-      LOG.error("Access to psi files should not be performed after project disposal: " + project);
-    }
-
-    if (!vFile.isValid()) {
-      LOG.error(new InvalidVirtualFileAccessException(vFile));
-      return null;
-    }
+    ensureValidAndDispatchPendingEvents(vFile);
 
     if (!vFile.isDirectory()) {
       return null;
     }
-    dispatchPendingEvents();
 
     return findDirectoryImpl(vFile, getVFileToPsiDirMap());
   }
@@ -669,13 +673,13 @@ public final class FileManagerImpl implements FileManagerEx {
       myVFileToViewProviderMap.clear();
     }
 
-    // When some file is moved to another directory, its contexts might change
-    // So, view providers associated with irrelevant contexts should be processed
+    // When some file is moved to another directory, its contexts might change.
+    // So, view providers associated with irrelevant contexts should be processed.
     // The best way to deal with such view providers is just to invalidate them.
     // But PSI clients are not usually ready for that.
-    // So we try to preserve one of them, clearing the context of this lucky view provider and setting its context to `any`.
+    // So we try to preserve one of the view providers, clearing the context of this lucky view provider and setting its context to `any`.
     // It is possible to do that if there are no other relevant view providers for this file left.
-    // Also, if there's a view provider with `any` context, there can be no other view providers for this file, so we can silently accept them here.
+    // Also, if there's a view provider with `any` context, there can be no other view providers for this file, so we don't need to do anything for this file.
     Set<VirtualFile> filesHavingRelevantViewProviders = new HashSet<>();
     Map<VirtualFile, Entry> irrelevantViewProviders = new LinkedHashMap<>();
 
@@ -916,14 +920,7 @@ public final class FileManagerImpl implements FileManagerEx {
   @RequiresReadLock
   @Override
   public PsiFile getFastCachedPsiFile(@NotNull VirtualFile vFile, @NotNull CodeInsightContext context) {
-    if (!vFile.isValid()) {
-      throw new InvalidVirtualFileAccessException(vFile);
-    }
-    Project project = myManager.getProject();
-    if (project.isDisposed()) {
-      LOG.error("Project is already disposed: " + project);
-    }
-    dispatchPendingEvents();
+    ensureValidAndDispatchPendingEvents(vFile);
 
     FileViewProvider viewProvider = getRawCachedViewProvider(vFile, context);
     if (viewProvider == null || viewProvider.getUserData(IN_COMA) != null) {

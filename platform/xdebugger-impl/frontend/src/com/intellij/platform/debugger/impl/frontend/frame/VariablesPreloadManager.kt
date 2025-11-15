@@ -3,11 +3,9 @@ package com.intellij.platform.debugger.impl.frontend.frame
 
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.platform.debugger.impl.rpc.*
-import com.intellij.platform.rpc.Id
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.AwaitCancellationAndInvoke
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTreeState
-import fleet.multiplatform.shims.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -17,26 +15,8 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.coroutines.AbstractCoroutineContextElement
-import kotlin.coroutines.CoroutineContext
+import java.util.concurrent.ConcurrentHashMap
 
-internal class PreloadManagerContainer(private val cs: CoroutineScope) : AbstractCoroutineContextElement(PreloadManagerContainer) {
-  companion object Key : CoroutineContext.Key<PreloadManagerContainer>
-
-  private val currentManager = AtomicReference<VariablesPreloadManager?>(null)
-
-  val manager: VariablesPreloadManager? get() = currentManager.get()
-
-  fun initializePreload(
-    treeState: XDebuggerTreeState,
-    newFrame: FrontendXStackFrame?,
-    oldFrameEqualityObject: Any,
-  ) {
-    val new = VariablesPreloadManager.creteIfNeeded(cs, treeState, newFrame, oldFrameEqualityObject)
-    currentManager.getAndUpdate { new }?.cancel()
-  }
-}
 
 /**
  * Preloads the variables in the tree described by [XDebuggerTreeExpandedNode].
@@ -50,7 +30,7 @@ class VariablesPreloadManager(
   frameId: XStackFrameId,
 ) {
   private val cs = parentScope.childScope("VariablesPreloadManager")
-  private val preloadedEvents = ConcurrentHashMap<Id, Channel<XValueComputeChildrenEvent>>()
+  private val preloadedEvents = ConcurrentHashMap<XContainerId, Channel<XValueComputeChildrenEvent>>()
 
   init {
     markToBeLoaded(frameId)
@@ -72,14 +52,14 @@ class VariablesPreloadManager(
     }
   }
 
-  fun getChildrenEventsFlow(entityId: Id): Flow<XValueComputeChildrenEvent>? {
+  fun getChildrenEventsFlow(entityId: XContainerId): Flow<XValueComputeChildrenEvent>? {
     val eventsChannel = preloadedEvents[entityId] ?: return null
     return channelFlow {
       eventsChannel.consumeEach { send(it) }
     }
   }
 
-  private fun markToBeLoaded(id: Id) {
+  private fun markToBeLoaded(id: XContainerId) {
     val old = preloadedEvents.put(id, Channel(capacity = Channel.UNLIMITED))
     assert(old == null) { "Channel for $id was already registered" }
   }
@@ -91,15 +71,12 @@ class VariablesPreloadManager(
   companion object {
     internal fun creteIfNeeded(
       parentScope: CoroutineScope,
-      treeState: XDebuggerTreeState,
-      newFrame: FrontendXStackFrame?,
-      oldFrameEqualityObject: Any,
+      treeState: XDebuggerTreeState?,
+      xFrameId: XStackFrameId,
     ): VariablesPreloadManager? {
-      if (newFrame == null) return null
-      if (oldFrameEqualityObject != newFrame.equalityObject) return null
-      val rootInfo = treeState.rootInfo ?: return null
+      val rootInfo = treeState?.rootInfo ?: return null
       if (!rootInfo.isExpanded) return null
-      return VariablesPreloadManager(parentScope, rootInfo.toRpc(), newFrame.id)
+      return VariablesPreloadManager(parentScope, rootInfo.toRpc(), xFrameId)
     }
   }
 }

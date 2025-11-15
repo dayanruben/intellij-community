@@ -128,7 +128,7 @@ public class SingleRootFileViewProvider extends AbstractFileViewProvider impleme
   }
 
   @Override
-  public final PsiFile getCachedPsi(@NotNull Language target) {
+  public final @Nullable PsiFile getCachedPsi(@NotNull Language target) {
     if (target != getBaseLanguage()) return null;
     PsiFile obj = myPsiFile;
     return obj == PsiUtilCore.NULL_PSI_FILE ? null : obj;
@@ -254,6 +254,6 @@ public class SingleRootFileViewProvider extends AbstractFileViewProvider impleme
     if (prev != psiFile && prev instanceof PsiFileEx) {
       DebugUtil.performPsiModification(getClass().getName() + " PSI change", () -> ((PsiFileEx)prev).markInvalidated());
     }
-    getManager().getFileManager().setViewProvider(getVirtualFile(), this);
+    getManager().getFileManager().changeViewProvider(getVirtualFile(), this);
   }
 }

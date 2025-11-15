@@ -72,6 +72,11 @@ public final class MockFileManager implements FileManager {
     return provider.getPsi(provider.getBaseLanguage());
   }
 
+  @Override
+  public @NotNull @Unmodifiable List<PsiFile> getCachedPsiFiles(@NotNull VirtualFile vFile) {
+    return ContainerUtil.createMaybeSingletonList(getCachedPsiFile(vFile));
+  }
+
   @ApiStatus.Internal
   @Override
   public @Nullable PsiFile getCachedPsiFile(@NotNull VirtualFile vFile, @NotNull CodeInsightContext context) {
@@ -84,7 +89,7 @@ public final class MockFileManager implements FileManager {
   }
 
   @Override
-  public FileViewProvider findViewProvider(@NotNull VirtualFile vFile) {
+  public @NotNull FileViewProvider findViewProvider(@NotNull VirtualFile vFile) {
     throw new UnsupportedOperationException("Method findViewProvider is not yet implemented in " + getClass().getName());
   }
 
@@ -108,6 +113,16 @@ public final class MockFileManager implements FileManager {
   @Override
   public void setViewProvider(@NotNull VirtualFile vFile, FileViewProvider viewProvider) {
     myViewProviders.put(vFile, viewProvider);
+  }
+
+  @Override
+  public void changeViewProvider(@NotNull VirtualFile vFile, @NotNull FileViewProvider viewProvider) {
+    myViewProviders.put(vFile, viewProvider);
+  }
+
+  @Override
+  public void dropViewProviders(@NotNull VirtualFile vFile) {
+    myViewProviders.remove(vFile);
   }
 
   @Override
