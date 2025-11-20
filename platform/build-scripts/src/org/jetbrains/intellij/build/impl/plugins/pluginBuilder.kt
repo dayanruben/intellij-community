@@ -9,7 +9,7 @@ import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -42,10 +42,10 @@ internal suspend fun buildPlugins(
   os: OsFamily?,
   targetDir: Path,
   state: DistributionBuilderState,
-  context: BuildContext,
-  buildPlatformJob: Job?,
+  buildPlatformJob: Deferred<List<DistributionFileEntry>>?,
   searchableOptionSet: SearchableOptionSetDescriptor?,
   descriptorCacheContainer: DescriptorCacheContainer,
+  context: BuildContext,
   pluginBuilt: (suspend (PluginLayout, pluginDirOrFile: Path) -> List<DistributionFileEntry>)? = null,
 ): List<PluginBuildDescriptor> {
   val scrambleTool = context.proprietaryBuildTools.scrambleTool
@@ -73,9 +73,9 @@ internal suspend fun buildPlugins(
     checkNotNull(scrambleTool)
 
     // scrambling can require classes from the platform
-    buildPlatformJob?.let { task ->
-      spanBuilder("wait for platform lib for scrambling").use { task.join() }
-    }
+    val platformEntries = buildPlatformJob?.let { task ->
+      spanBuilder("wait for platform lib for scrambling").use { task.await() }
+    } ?: emptyList()
     coroutineScope {
       for (scrambleTask in scrambleTasks) {
         launch(CoroutineName("scramble plugin ${scrambleTask.pluginLayout.directoryName}")) {
@@ -85,6 +85,7 @@ internal suspend fun buildPlugins(
             targetDir = scrambleTask.pluginDir,
             additionalPluginDir = scrambleTask.targetDir,
             layouts = plugins,
+            platformContent = platformEntries,
             context = context,
           )
         }

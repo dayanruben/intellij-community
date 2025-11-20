@@ -1,17 +1,23 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.intellij.lang.regexp.inspection;
 
-import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.CommonQuickFixBundle;
+import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.lang.ASTNode;
 import com.intellij.modcommand.ModCommand;
 import com.intellij.modcommand.ModCommandQuickFix;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiErrorElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import org.intellij.lang.regexp.RegExpBundle;
+import org.intellij.lang.regexp.RegExpCapability;
+import org.intellij.lang.regexp.RegExpLanguageHosts;
 import org.intellij.lang.regexp.RegExpTT;
 import org.intellij.lang.regexp.psi.*;
 import org.jetbrains.annotations.NotNull;
@@ -36,6 +42,7 @@ public class RegExpSimplifiableInspection extends LocalInspectionTool {
     @Override
     public void visitRegExpClass(RegExpClass regExpClass) {
       super.visitRegExpClass(regExpClass);
+      if (regExpClass.getLastChild() instanceof PsiErrorElement) return;
       final RegExpClassElement[] elements = regExpClass.getElements();
       for (RegExpClassElement element : elements) {
         if (element instanceof RegExpCharRange range) {
@@ -62,15 +69,21 @@ public class RegExpSimplifiableInspection extends LocalInspectionTool {
       else {
         if (elements.length == 1) {
           final RegExpClassElement element = elements[0];
-          if (element instanceof RegExpPosixBracketExpression) return;
+          if (element.getLastChild() instanceof PsiErrorElement || element instanceof RegExpPosixBracketExpression) return;
           if (!(element instanceof RegExpCharRange) && !(element instanceof RegExpIntersection)) {
-            if (!(element instanceof RegExpChar) || !"{}().*+?|$".contains(element.getText())) {
+            if (!(element instanceof RegExpChar) || !"[{}().*+?|$".contains(element.getText())) {
+              final String text = element.getUnescapedText();
+              if (StringUtil.isWhiteSpace(text.charAt(0)) && isCommentMode(element)) return;
               // [a] -> a
-              registerProblem(regExpClass, element.getUnescapedText());
+              registerProblem(regExpClass, text);
             }
           }
         }
       }
+    }
+
+    private static boolean isCommentMode(@NotNull RegExpElement element) {
+      return RegExpLanguageHosts.getInstance().getCapabilities(element).contains(RegExpCapability.COMMENT_MODE);
     }
 
     @Override

@@ -196,24 +196,32 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
           LambdaRdIdeType.MONOLITH -> LambdaMonolithContextClass()
         }
 
-        val testModuleId = System.getProperty(TEST_MODULE_ID_PROPERTY_NAME)
-                           ?: error("Test module ID '$TEST_MODULE_ID_PROPERTY_NAME' is not specified")
 
-        val testModuleDescriptor = PluginManagerCore.getPluginSet().findEnabledModule(PluginModuleId(testModuleId, PluginModuleId.JETBRAINS_NAMESPACE))
-                                   ?: error("Test plugin with test module '$testModuleId' is not found")
+        val testModuleDescriptor = run {
+          val testModuleId = System.getProperty(TEST_MODULE_ID_PROPERTY_NAME)
+                             ?: return@run null
+          val tmd = PluginManagerCore.getPluginSet().findEnabledModule(PluginModuleId(testModuleId, PluginModuleId.JETBRAINS_NAMESPACE))
+                     ?: error("Test plugin with test module '$testModuleId' is not found")
 
-        assert(testModuleDescriptor.pluginClassLoader != null) { "Test plugin with test module '$testModuleId' is not loaded." +
-                                                                 "Probably due to missing dependencies, see `com.intellij.ide.plugins.ClassLoaderConfigurator#configureContentModule`." }
+          assert(tmd.pluginClassLoader != null) {
+            "Test plugin with test module '${testModuleId}' is not loaded." +
+            "Probably due to missing dependencies, see `com.intellij.ide.plugins.ClassLoaderConfigurator#configureContentModule`."
+          }
+          return@run tmd
+        }
 
-
-        LOG.info("All test code will be loaded using '${testModuleDescriptor.pluginClassLoader}'")
+        LOG.info("All test code will be loaded using '${testModuleDescriptor?.pluginClassLoader}'")
 
         // Advice for processing events
         session.runLambda.setSuspend(sessionBgtDispatcher) { _, parameters ->
           LOG.info("'${parameters.reference}': received lambda execution request")
+
+          assert(testModuleDescriptor != null) {
+            "Test module descriptor is not set, can't find test class '${parameters.reference}'"
+          }
           try {
             val lambdaReference = parameters.reference
-            val namedLambdas = findLambdaClasses(lambdaReference = lambdaReference, testModuleDescriptor = testModuleDescriptor, ideContext = ideContext)
+            val namedLambdas = findLambdaClasses(lambdaReference = lambdaReference, testModuleDescriptor = testModuleDescriptor!!, ideContext = ideContext)
 
             val ideAction = namedLambdas.singleOrNull { it.name() == lambdaReference } ?: run {
               val text = "There is no Action with reference '${lambdaReference}', something went terribly wrong, " +
@@ -225,7 +233,7 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
             assert(ClientId.current.isLocal) { "ClientId '${ClientId.current}' should be local before test method starts" }
             LOG.info("'$parameters': received action execution request")
 
-            val providedCoroutineContext = Dispatchers.EDT + CoroutineName("Lambda task: ${ideAction.name()}")
+            val providedCoroutineContext = Dispatchers.Default + CoroutineName("Lambda task: ${ideAction.name()}")
             val requestFocusBeforeStart = false
             val clientId = providedCoroutineContext.clientId() ?: ClientId.current
 
@@ -257,21 +265,15 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
             assert(ClientId.current.isLocal) { "ClientId '${ClientId.current}' should be local before test method starts" }
             LOG.info("'$serializedLambda': received serialized lambda execution request")
 
-            val providedCoroutineContext = Dispatchers.EDT + CoroutineName("Lambda task: SerializedLambda:${serializedLambda.clazzName}#${serializedLambda.methodName}")
-            val requestFocusBeforeStart = false
+            val providedCoroutineContext = Dispatchers.Default + CoroutineName("Lambda task: SerializedLambda:${serializedLambda.stepName}")
             val clientId = providedCoroutineContext.clientId() ?: ClientId.current
 
             withContext(providedCoroutineContext) {
-              assert(ClientId.current == clientId) { "ClientId '${ClientId.current}' should equal $clientId one when test method starts" }
-              if (!app.isHeadlessEnvironment && (requestFocusBeforeStart ?: isCurrentThreadEdt())) {
-                requestFocus()
-              }
-
               assert(ClientId.current == clientId) { "ClientId '${ClientId.current}' should equal $clientId one when after request focus" }
 
               val urls = serializedLambda.classPath.map { File(it).toURI().toURL() }
-              runLogged(serializedLambda.methodName, 1.minutes) {
-                URLClassLoader(urls.toTypedArray(), testModuleDescriptor.pluginClassLoader).use {
+              runLogged(serializedLambda.stepName, 10.minutes) {
+                URLClassLoader(urls.toTypedArray(), testModuleDescriptor?.pluginClassLoader ?: this::class.java.classLoader).use {
                   SerializedLambdaLoader().load(serializedLambda.serializedDataBase64, classLoader = it, context = ideContext)
                     .accept(ideContext)
                 }
@@ -282,7 +284,7 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
             }
           }
           catch (ex: Throwable) {
-            LOG.warn("${session.rdIdeType}: ${serializedLambda.methodName.let { "'$it' " }}hasn't finished successfully", ex)
+            LOG.warn("${session.rdIdeType}: '${serializedLambda.stepName}' hasn't finished successfully", ex)
             throw ex
           }
           return@setSuspend

@@ -346,6 +346,11 @@ public abstract class BasicCompletionWeigherTestGenerated extends AbstractBasicC
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("destructuring.kt")
+            public void testDestructuring() throws Exception {
+                runTest("../testData/weighers/basic/expectedType/destructuring.kt");
+            }
+
             @TestMetadata("ifConditionQualified.kt")
             public void testIfConditionQualified() throws Exception {
                 runTest("../testData/weighers/basic/expectedType/ifConditionQualified.kt");
@@ -354,6 +359,16 @@ public abstract class BasicCompletionWeigherTestGenerated extends AbstractBasicC
             @TestMetadata("MatchingNullableType.kt")
             public void testMatchingNullableType() throws Exception {
                 runTest("../testData/weighers/basic/expectedType/MatchingNullableType.kt");
+            }
+
+            @TestMetadata("overrideWithoutExplicitType.kt")
+            public void testOverrideWithoutExplicitType() throws Exception {
+                runTest("../testData/weighers/basic/expectedType/overrideWithoutExplicitType.kt");
+            }
+
+            @TestMetadata("propertyAccessor.kt")
+            public void testPropertyAccessor() throws Exception {
+                runTest("../testData/weighers/basic/expectedType/propertyAccessor.kt");
             }
 
             @TestMetadata("returnFromFunction.kt")

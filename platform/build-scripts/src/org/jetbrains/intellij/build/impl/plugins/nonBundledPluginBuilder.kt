@@ -15,8 +15,8 @@ import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import org.apache.commons.compress.archivers.zip.Zip64Mode
@@ -42,6 +42,7 @@ import org.jetbrains.intellij.build.impl.executableFileUnixMode
 import org.jetbrains.intellij.build.impl.generatePluginRepositoryMetaFile
 import org.jetbrains.intellij.build.impl.handleCustomPlatformSpecificAssets
 import org.jetbrains.intellij.build.impl.nonBundledPluginsStageDir
+import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
 import org.jetbrains.intellij.build.io.W_CREATE_NEW
 import org.jetbrains.intellij.build.io.ZipArchiver
 import org.jetbrains.intellij.build.io.archiveDir
@@ -58,7 +59,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 internal suspend fun buildNonBundledPlugins(
   pluginsToPublish: Set<PluginLayout>,
   compressPluginArchive: Boolean,
-  buildPlatformLibJob: Job?,
+  buildPlatformLibJob: Deferred<List<DistributionFileEntry>>?,
   state: DistributionBuilderState,
   searchableOptionSet: SearchableOptionSetDescriptor?,
   descriptorCacheContainer: DescriptorCacheContainer,
@@ -81,7 +82,7 @@ internal suspend fun buildNonBundledPlugins(
 internal suspend fun CoroutineScope.doBuildNonBundledPlugins(
   pluginsToPublish: Set<PluginLayout>,
   compressPluginArchive: Boolean,
-  buildPlatformLibJob: Job?,
+  buildPlatformLibJob: Deferred<List<DistributionFileEntry>>?,
   state: DistributionBuilderState,
   searchableOptionSet: SearchableOptionSetDescriptor?,
   isUpdateFromSources: Boolean,
@@ -118,66 +119,65 @@ internal suspend fun CoroutineScope.doBuildNonBundledPlugins(
     os = null,
     targetDir = stageDir,
     state = state,
-    context = context,
     buildPlatformJob = buildPlatformLibJob,
     searchableOptionSet = searchableOptionSet,
     descriptorCacheContainer = descriptorCacheContainer,
-    pluginBuilt = { plugin, pluginDirOrFile ->
-      val pluginVersion = if (plugin.mainModule == BUILT_IN_HELP_MODULE_NAME) {
-        context.buildNumber
-      }
-      else {
-        plugin.versionEvaluator.evaluate(
-          pluginXmlSupplier = { getUnprocessedPluginXmlContent(module = context.findRequiredModule(plugin.mainModule), context = context).decodeToString() },
-          ideBuildVersion = context.pluginBuildNumber,
-          context,
-        ).pluginVersion
-      }
+    context = context,
+  ) { plugin, pluginDirOrFile ->
+    val pluginVersion = if (plugin.mainModule == BUILT_IN_HELP_MODULE_NAME) {
+      context.buildNumber
+    }
+    else {
+      plugin.versionEvaluator.evaluate(
+        pluginXmlSupplier = { getUnprocessedPluginXmlContent(module = context.findRequiredModule(plugin.mainModule), context = context).decodeToString() },
+        ideBuildVersion = context.pluginBuildNumber,
+        context,
+      ).pluginVersion
+    }
 
-      val targetDirectory = if (context.pluginAutoPublishList.test(plugin)) {
-        context.nonBundledPluginsToBePublished
-      }
-      else {
-        context.nonBundledPlugins
-      }
-      val destFile = targetDirectory.resolve("${plugin.directoryName}-$pluginVersion.zip")
-      val pluginXml = moduleOutputPatcher.getPatchedPluginXml(plugin.mainModule)
-      pluginSpecs.add(PluginRepositorySpec(destFile, pluginXml))
+    val targetDirectory = if (context.pluginAutoPublishList.test(plugin)) {
+      context.nonBundledPluginsToBePublished
+    }
+    else {
+      context.nonBundledPlugins
+    }
+    val destFile = targetDirectory.resolve("${plugin.directoryName}-$pluginVersion.zip")
+    val pluginXml = moduleOutputPatcher.getPatchedPluginXml(plugin.mainModule)
+    pluginSpecs.add(PluginRepositorySpec(destFile, pluginXml))
 
-      val entries = handleCustomPlatformSpecificAssets(
-        layout = plugin,
-        targetPlatform = null,
+    val entries = handleCustomPlatformSpecificAssets(
+      layout = plugin,
+      targetPlatform = null,
+      context = context,
+      pluginDir = pluginDirOrFile,
+      isDevMode = true,
+    )
+
+    if (isPluginArchiveEnabled) {
+      archivePlugin(
+        optimizedZip = !plugin.enableSymlinksAndExecutableResources,
+        source = pluginDirOrFile,
+        target = destFile,
+        compress = compressPluginArchive,
+        withBlockMap = compressPluginArchive,
         context = context,
-        pluginDir = pluginDirOrFile,
-        isDevMode = true,
+        json = json,
       )
 
-      if (isPluginArchiveEnabled) {
-        archivePlugin(
-          optimizedZip = !plugin.enableSymlinksAndExecutableResources,
-          source = pluginDirOrFile,
-          target = destFile,
-          compress = compressPluginArchive,
-          withBlockMap = compressPluginArchive,
-          context = context,
-          json = json,
-        )
-
-        if (isPluginValidationEnabled) {
-          spanBuilder("plugin validation").use { span ->
-            if (Files.notExists(destFile)) {
-              span.addEvent("doesn't exist, skipped", Attributes.of(AttributeKey.stringKey("path"), "$destFile"))
-            }
-            else {
+      if (isPluginValidationEnabled) {
+        spanBuilder("plugin validation").use { span ->
+          if (Files.notExists(destFile)) {
+            span.addEvent("doesn't exist, skipped", Attributes.of(AttributeKey.stringKey("path"), "$destFile"))
+          }
+          else {
               //validatePlugin(file = destFile, context = context, span = span)
-            }
           }
         }
       }
+    }
 
-      entries
-    },
-  )
+    entries
+  }
 
   val helpPlugin = buildHelpPlugin(context.pluginBuildNumber, context)
   if (helpPlugin != null) {
@@ -359,10 +359,10 @@ private suspend fun buildHelpPlugin(
       os = null,
       targetDir = targetDir,
       state = state,
-      context = context,
       buildPlatformJob = null,
+      searchableOptionSet = searchableOptionSetDescriptor,
       descriptorCacheContainer = descriptorCacheContainer,
-      searchableOptionSet = searchableOptionSetDescriptor
+      context = context
     )
     zipWithCompression(targetFile = destFile, dirs = mapOf(targetDir to ""))
     null
