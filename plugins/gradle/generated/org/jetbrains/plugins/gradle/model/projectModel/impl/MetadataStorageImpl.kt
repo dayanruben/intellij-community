@@ -123,14 +123,11 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
                                                                           name = "codeCache", valueType = primitiveTypeIntNotNullable,
                                                                           withDefault = false),
                                                       OwnPropertyMetadata(isComputable = false, isKey = false, isOpen = false,
+                                                                          name = "identityPath", valueType = primitiveTypeStringNotNullable,
+                                                                          withDefault = false),
+                                                      OwnPropertyMetadata(isComputable = false, isKey = false, isOpen = false,
                                                                           name = "presentableName",
-                                                                          valueType = primitiveTypeStringNotNullable, withDefault = false),
-                                                      OwnPropertyMetadata(isComputable = false, isKey = false, isOpen = false, name = "url",
-                                                                          valueType = ValueTypeMetadata.SimpleType.CustomType(
-                                                                            isNullable = false,
-                                                                            typeMetadata = FinalClassMetadata.KnownClass(
-                                                                              fqName = "com.intellij.platform.workspace.storage.url.VirtualFileUrl")),
-                                                                          withDefault = false)),
+                                                                          valueType = primitiveTypeStringNotNullable, withDefault = false)),
                                                     supertypes = listOf("com.intellij.platform.workspace.storage.SymbolicEntityId"))
 
     addMetadata(typeMetadata)
@@ -227,6 +224,20 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase",
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$Dynamic",
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.Dynamic")),
+                                                                                                      FinalClassMetadata.ObjectMetadata(
+                                                                                                        fqName = "org.jetbrains.plugins.gradle.service.syncAction.GradleBaseScriptSyncPhase",
+                                                                                                        properties = listOf(
+                                                                                                          OwnPropertyMetadata(
+                                                                                                            isComputable = false,
+                                                                                                            isKey = false, isOpen = false,
+                                                                                                            name = "name",
+                                                                                                            valueType = primitiveTypeStringNotNullable,
+                                                                                                            withDefault = false)),
+                                                                                                        supertypes = listOf(
+                                                                                                          "kotlin.Comparable",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$BaseScript",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.BaseScript")),
                                                                                                       FinalClassMetadata.ClassMetadata(
                                                                                                         fqName = "org.jetbrains.plugins.gradle.service.syncAction.GradleStaticSyncPhase",
                                                                                                         properties = listOf(
@@ -344,6 +355,20 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase",
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$Dynamic",
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.Dynamic")),
+                                                                                                      FinalClassMetadata.ObjectMetadata(
+                                                                                                        fqName = "org.jetbrains.plugins.gradle.service.syncAction.GradleBaseScriptSyncPhase",
+                                                                                                        properties = listOf(
+                                                                                                          OwnPropertyMetadata(
+                                                                                                            isComputable = false,
+                                                                                                            isKey = false, isOpen = false,
+                                                                                                            name = "name",
+                                                                                                            valueType = primitiveTypeStringNotNullable,
+                                                                                                            withDefault = false)),
+                                                                                                        supertypes = listOf(
+                                                                                                          "kotlin.Comparable",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$BaseScript",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.BaseScript")),
                                                                                                       FinalClassMetadata.ClassMetadata(
                                                                                                         fqName = "org.jetbrains.plugins.gradle.service.syncAction.GradleStaticSyncPhase",
                                                                                                         properties = listOf(
@@ -462,6 +487,20 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase",
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$Dynamic",
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.Dynamic")),
+                                                                                                      FinalClassMetadata.ObjectMetadata(
+                                                                                                        fqName = "org.jetbrains.plugins.gradle.service.syncAction.GradleBaseScriptSyncPhase",
+                                                                                                        properties = listOf(
+                                                                                                          OwnPropertyMetadata(
+                                                                                                            isComputable = false,
+                                                                                                            isKey = false, isOpen = false,
+                                                                                                            name = "name",
+                                                                                                            valueType = primitiveTypeStringNotNullable,
+                                                                                                            withDefault = false)),
+                                                                                                        supertypes = listOf(
+                                                                                                          "kotlin.Comparable",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$BaseScript",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.BaseScript")),
                                                                                                       FinalClassMetadata.ClassMetadata(
                                                                                                         fqName = "org.jetbrains.plugins.gradle.service.syncAction.GradleStaticSyncPhase",
                                                                                                         properties = listOf(
@@ -579,6 +618,20 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase",
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$Dynamic",
                                                                                                           "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.Dynamic")),
+                                                                                                      FinalClassMetadata.ObjectMetadata(
+                                                                                                        fqName = "org.jetbrains.plugins.gradle.service.syncAction.GradleBaseScriptSyncPhase",
+                                                                                                        properties = listOf(
+                                                                                                          OwnPropertyMetadata(
+                                                                                                            isComputable = false,
+                                                                                                            isKey = false, isOpen = false,
+                                                                                                            name = "name",
+                                                                                                            valueType = primitiveTypeStringNotNullable,
+                                                                                                            withDefault = false)),
+                                                                                                        supertypes = listOf(
+                                                                                                          "kotlin.Comparable",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$BaseScript",
+                                                                                                          "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.BaseScript")),
                                                                                                       FinalClassMetadata.ClassMetadata(
                                                                                                         fqName = "org.jetbrains.plugins.gradle.service.syncAction.GradleStaticSyncPhase",
                                                                                                         properties = listOf(
@@ -838,15 +891,13 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
                                                                                                         withDefault = false),
                                                                                     OwnPropertyMetadata(isComputable = false, isKey = false,
                                                                                                         isOpen = false,
-                                                                                                        name = "presentableName",
+                                                                                                        name = "identityPath",
                                                                                                         valueType = primitiveTypeStringNotNullable,
                                                                                                         withDefault = false),
                                                                                     OwnPropertyMetadata(isComputable = false, isKey = false,
-                                                                                                        isOpen = false, name = "url",
-                                                                                                        valueType = ValueTypeMetadata.SimpleType.CustomType(
-                                                                                                          isNullable = false,
-                                                                                                          typeMetadata = FinalClassMetadata.KnownClass(
-                                                                                                            fqName = "com.intellij.platform.workspace.storage.url.VirtualFileUrl")),
+                                                                                                        isOpen = false,
+                                                                                                        name = "presentableName",
+                                                                                                        valueType = primitiveTypeStringNotNullable,
                                                                                                         withDefault = false)),
                                                                                   supertypes = listOf(
                                                                                     "com.intellij.platform.workspace.storage.SymbolicEntityId"))),
@@ -1041,18 +1092,15 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
                                                                                                                   isComputable = false,
                                                                                                                   isKey = false,
                                                                                                                   isOpen = false,
-                                                                                                                  name = "presentableName",
+                                                                                                                  name = "identityPath",
                                                                                                                   valueType = primitiveTypeStringNotNullable,
                                                                                                                   withDefault = false),
                                                                                                                 OwnPropertyMetadata(
                                                                                                                   isComputable = false,
                                                                                                                   isKey = false,
                                                                                                                   isOpen = false,
-                                                                                                                  name = "url",
-                                                                                                                  valueType = ValueTypeMetadata.SimpleType.CustomType(
-                                                                                                                    isNullable = false,
-                                                                                                                    typeMetadata = FinalClassMetadata.KnownClass(
-                                                                                                                      fqName = "com.intellij.platform.workspace.storage.url.VirtualFileUrl")),
+                                                                                                                  name = "presentableName",
+                                                                                                                  valueType = primitiveTypeStringNotNullable,
                                                                                                                   withDefault = false)),
                                                                                                               supertypes = listOf(
                                                                                                                 "com.intellij.platform.workspace.storage.SymbolicEntityId"))),
@@ -1092,14 +1140,14 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
 
   override fun initializeMetadataHash() {
     addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.model.projectModel.GradleBuildEntity", metadataHash = 261393341)
-    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.model.projectModel.GradleModuleEntity", metadataHash = 657314474)
-    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.model.projectModel.GradleProjectEntity", metadataHash = 547852071)
+    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.model.projectModel.GradleModuleEntity", metadataHash = -360987748)
+    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.model.projectModel.GradleProjectEntity", metadataHash = 1137405429)
     addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.model.versionCatalogs.GradleVersionCatalogEntity", metadataHash = 1998822139)
     addMetadataHash(typeFqn = "com.intellij.platform.externalSystem.impl.workspaceModel.ExternalProjectEntityId", metadataHash = -535054241)
     addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.model.projectModel.GradleBuildEntityId", metadataHash = -1846600137)
-    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.model.projectModel.GradleProjectEntityId", metadataHash = -1029413002)
-    addMetadataHash(typeFqn = "com.intellij.platform.workspace.storage.SymbolicEntityId", metadataHash = 39125357)
-    addMetadataHash(typeFqn = "com.intellij.platform.workspace.storage.EntitySource", metadataHash = 361104699)
+    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.model.projectModel.GradleProjectEntityId", metadataHash = -1550874392)
+    addMetadataHash(typeFqn = "com.intellij.platform.workspace.storage.SymbolicEntityId", metadataHash = 1828939835)
+    addMetadataHash(typeFqn = "com.intellij.platform.workspace.storage.EntitySource", metadataHash = 257516859)
     addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.GradleEntitySource", metadataHash = -565169080)
     addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.impl.bridge.GradleBridgeEntitySource",
                     metadataHash = 1893250484)
@@ -1108,8 +1156,10 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
       metadataHash = -118266230)
     addMetadataHash(
       typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.impl.contributors.GradleContentRootSyncContributor\$GradleContentRootEntitySource",
-      metadataHash = -1866518801)
-    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase", metadataHash = 6939851)
+      metadataHash = 524190627)
+    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase", metadataHash = -555414781)
+    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$BaseScript", metadataHash = 859780846)
+    addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.GradleBaseScriptSyncPhase", metadataHash = 1347543976)
     addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase\$Dynamic", metadataHash = 896961146)
     addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.GradleDynamicSyncPhase", metadataHash = 739426399)
     addMetadataHash(typeFqn = "com.intellij.gradle.toolingExtension.modelAction.GradleModelFetchPhase", metadataHash = 1617061511)
@@ -1125,13 +1175,13 @@ internal object MetadataStorageImpl : MetadataStorageBase() {
     addMetadataHash(typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.GradleStaticSyncPhase", metadataHash = 79572120)
     addMetadataHash(
       typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.impl.contributors.GradleContentRootSyncContributor\$GradleProjectModelEntitySource",
-      metadataHash = -1901195304)
+      metadataHash = 239940034)
     addMetadataHash(
       typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.impl.contributors.GradleProjectRootSyncContributor\$GradleProjectRootEntitySource",
-      metadataHash = -530336721)
+      metadataHash = -1792666013)
     addMetadataHash(
       typeFqn = "org.jetbrains.plugins.gradle.service.syncAction.impl.contributors.GradleVersionCatalogSyncContributor\$GradleVersionCatalogEntitySource",
-      metadataHash = -947119701)
+      metadataHash = 2064634511)
   }
 
 }
