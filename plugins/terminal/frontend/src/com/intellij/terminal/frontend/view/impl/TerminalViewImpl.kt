@@ -406,19 +406,21 @@ class TerminalViewImpl(
   }
 
   private fun listenAlternateBufferSwitch() {
-    coroutineScope.launch(Dispatchers.EDT + ModalityState.any().asContextElement() + CoroutineName("Alternate buffer switch listener")) {
+    coroutineScope.launch(CoroutineName("Alternate buffer switch listener")) {
       sessionModel.terminalState.collect { state ->
-        if (state.isAlternateScreenBuffer != isAlternateScreenBuffer) {
-          isAlternateScreenBuffer = state.isAlternateScreenBuffer
+        withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+          if (state.isAlternateScreenBuffer != isAlternateScreenBuffer) {
+            isAlternateScreenBuffer = state.isAlternateScreenBuffer
 
-          val terminalWasFocused = terminalPanel.isFocusAncestor()
-          val editor = if (state.isAlternateScreenBuffer) alternateBufferEditor else outputEditor
-          terminalPanel.setTerminalContent(editor)
-          terminalSearchController.finishSearchSession()
-          mutableOutputModels.setActiveModel(state.isAlternateScreenBuffer)
+            val terminalWasFocused = terminalPanel.isFocusAncestor()
+            val editor = if (state.isAlternateScreenBuffer) alternateBufferEditor else outputEditor
+            terminalPanel.setTerminalContent(editor)
+            terminalSearchController.finishSearchSession()
+            mutableOutputModels.setActiveModel(state.isAlternateScreenBuffer)
 
-          if (terminalWasFocused) {
-            IdeFocusManager.getInstance(project).requestFocus(terminalPanel.preferredFocusableComponent, true)
+            if (terminalWasFocused) {
+              IdeFocusManager.getInstance(project).requestFocus(terminalPanel.preferredFocusableComponent, true)
+            }
           }
         }
       }
@@ -617,6 +619,14 @@ class TerminalViewImpl(
       val hyperlinkFacade = if (isAlternateScreenBuffer) alternateBufferHyperlinkFacade else outputHyperlinkFacade
       sink[TerminalHyperlinkId.KEY] = hyperlinkFacade.getHoveredHyperlinkId()
       sink.setNull(PlatformDataKeys.COPY_PROVIDER)
+
+      // Add selection text to the data context, so features like Search Everywhere and Find in Files
+      // can use it as an initial query.
+      val selection = textSelectionModel.selection
+      if (selection != null) {
+        val selectionText = outputModels.active.value.getText(selection.startOffset, selection.endOffset).toString()
+        sink[PlatformDataKeys.PREDEFINED_TEXT] = selectionText
+      }
     }
 
     fun setTerminalContent(editor: Editor) {

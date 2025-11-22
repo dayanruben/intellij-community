@@ -12,9 +12,11 @@ import com.intellij.platform.vcs.impl.shared.changes.ChangeListsViewModel
 import com.intellij.platform.vcs.impl.shared.changes.ChangesViewSettings
 import com.intellij.platform.vcs.impl.shared.rpc.BackendChangesViewEvent
 import com.intellij.platform.vcs.impl.shared.rpc.ChangesViewApi
+import com.intellij.platform.vcs.impl.shared.rpc.ChangesViewDiffApi
 import fleet.rpc.client.durable
 import fleet.util.logging.logger
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -29,6 +31,9 @@ internal class FrontendCommitChangesViewWithToolbarPanel(
     ChangeListsViewModel.getInstance(project).changeListsState.onEach { scheduleRefresh() }.launchIn(cs)
     cs.launch {
       subscribeToBackendEvents()
+    }
+    cs.launch {
+      forwardDiffActionsToBackend()
     }
   }
 
@@ -47,8 +52,18 @@ internal class FrontendCommitChangesViewWithToolbarPanel(
   private suspend fun subscribeToBackendEvents() {
     durable {
       ChangesViewApi.getInstance().getBackendChangesViewEvents(project.projectId()).collect { event ->
-        handleBackendEvent(event)
+        try {
+          handleBackendEvent(event)
+        } catch (e: Exception) {
+          LOG.error(e, "Failed to handle event $event")
+        }
       }
+    }
+  }
+
+  private suspend fun forwardDiffActionsToBackend() {
+    diffRequests.collectLatest { (action, _) ->
+      ChangesViewDiffApi.getInstance().performDiffAction(project.projectId(), action)
     }
   }
 
@@ -57,7 +72,6 @@ internal class FrontendCommitChangesViewWithToolbarPanel(
     when (event) {
       is BackendChangesViewEvent.InclusionChanged -> inclusionModel.applyBackendState(event.inclusionState)
       is BackendChangesViewEvent.RefreshRequested -> scheduleRefresh(event.withDelay, event.refreshCounter)
-      is BackendChangesViewEvent.ToggleCheckboxes -> changesView.setShowCheckboxes(event.showCheckboxes)
     }
   }
 

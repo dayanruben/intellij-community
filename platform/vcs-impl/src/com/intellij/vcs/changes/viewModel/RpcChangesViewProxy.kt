@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.changes.viewModel
 
+import com.intellij.codeWithMe.ClientId
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.FilePath
@@ -29,7 +30,7 @@ import kotlin.time.Duration.Companion.minutes
  *
  * @see [com.intellij.platform.vcs.impl.shared.rpc.ChangesViewApi.getBackendChangesViewEvents]
  */
-internal class RpcChangesViewProxy(private val project: Project, scope: CoroutineScope) : ChangesViewProxy(scope) {
+internal class RpcChangesViewProxy(project: Project, scope: CoroutineScope) : ChangesViewProxy(project, scope) {
   private val treeView: ChangesListView by lazy { LocalChangesListView(project) }
 
   private val _eventsForFrontend =
@@ -46,6 +47,8 @@ internal class RpcChangesViewProxy(private val project: Project, scope: Coroutin
     get() = _panel ?: error("Panel is not initialized yet")
 
   override val inclusionChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+  override val diffRequests = MutableSharedFlow<Pair<ChangesViewDiffAction, ClientId>>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
   override fun setInclusionModel(model: InclusionModel?) {
     inclusionModel.value = model
@@ -73,10 +76,6 @@ internal class RpcChangesViewProxy(private val project: Project, scope: Coroutin
   }
 
   override fun resetViewImmediatelyAndRefreshLater() {
-  }
-
-  override fun setShowCheckboxes(value: Boolean) {
-    _eventsForFrontend.tryEmit(BackendChangesViewEvent.ToggleCheckboxes(value))
   }
 
   override fun getDisplayedChanges(): List<Change> = emptyList()

@@ -18,8 +18,13 @@ import javax.swing.tree.TreePath
 /**
  * Suitable for the monolith mode only.
  */
-internal class LocalChangesViewProxy(override val panel: CommitChangesViewWithToolbarPanel, scope: CoroutineScope) : ChangesViewProxy(scope) {
+internal class LocalChangesViewProxy(
+  override val panel: CommitChangesViewWithToolbarPanel,
+  scope: CoroutineScope,
+) : ChangesViewProxy(panel.project, scope) {
   override val inclusionChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+  override val diffRequests = panel.diffRequests
 
   override fun setInclusionModel(model: InclusionModel?) {
     panel.changesView.setInclusionModel(model)
@@ -50,10 +55,6 @@ internal class LocalChangesViewProxy(override val panel: CommitChangesViewWithTo
 
   override fun resetViewImmediatelyAndRefreshLater() {
     panel.resetViewImmediatelyAndRefreshLater()
-  }
-
-  override fun setShowCheckboxes(value: Boolean) {
-    panel.changesView.isShowCheckboxes = value
   }
 
   override fun getDisplayedChanges(): List<Change> = all(panel.changesView).userObjects(Change::class.java)

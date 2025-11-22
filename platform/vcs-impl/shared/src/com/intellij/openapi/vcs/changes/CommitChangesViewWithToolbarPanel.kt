@@ -1,33 +1,50 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs.changes
 
+import com.intellij.codeWithMe.ClientId
+import com.intellij.ide.DataManager
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.UI
+import com.intellij.openapi.components.service
+import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vcs.FilePath
+import com.intellij.openapi.vcs.VcsConfiguration.getInstance
 import com.intellij.openapi.vcs.changes.ChangesViewModifier.ChangesViewModifierListener
 import com.intellij.openapi.vcs.changes.ui.ChangesListView
 import com.intellij.openapi.vcs.changes.ui.ChangesTree
 import com.intellij.openapi.vcs.changes.ui.TreeModelBuilder
+import com.intellij.openapi.vcs.changes.ui.VcsTreeModelData
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.diagnostic.telemetry.helpers.use
+import com.intellij.platform.ide.navigation.NavigationOptions
+import com.intellij.platform.ide.navigation.NavigationService
 import com.intellij.platform.vcs.impl.shared.SingleTaskRunner
 import com.intellij.platform.vcs.impl.shared.changes.ChangeListsViewModel
 import com.intellij.platform.vcs.impl.shared.changes.ChangesViewSettings
 import com.intellij.platform.vcs.impl.shared.changes.PartialChangesHolder
+import com.intellij.platform.vcs.impl.shared.commit.CommitToolWindowViewModel
 import com.intellij.platform.vcs.impl.shared.telemetry.ChangesView
 import com.intellij.platform.vcs.impl.shared.telemetry.VcsScope
+import com.intellij.ui.ExpandableItemsHandler
+import com.intellij.util.EditSourceOnDoubleClickHandler
+import com.intellij.util.Processor
 import com.intellij.util.application
 import com.intellij.util.asDisposable
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.CalledInAny
+import java.awt.event.MouseEvent
 import java.lang.Runnable
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -52,13 +69,23 @@ abstract class CommitChangesViewWithToolbarPanel(
         changesView.setPaintBusy(!idle)
       }
     }
+    changesView.putClientProperty(ExpandableItemsHandler.IGNORE_ITEM_SELECTION, true)
   }
+
+  private val inputHandler = ChangesViewInputHandler(cs, changesView)
+  val diffRequests: SharedFlow<Pair<ChangesViewDiffAction, ClientId>> = inputHandler.diffRequests
 
   @RequiresEdt
   open fun initPanel() {
     cs.launch(Dispatchers.UI) {
       ChangeListsViewModel.getInstance(project).changeListManagerState.collectLatest {
         changesView.repaint()
+      }
+    }
+
+    cs.launch(Dispatchers.UI) {
+      project.serviceAsync<CommitToolWindowViewModel>().canExcludeFromCommit.collectLatest { canExclude ->
+        changesView.isShowCheckboxes = canExclude
       }
     }
 
@@ -165,4 +192,52 @@ abstract class CommitChangesViewWithToolbarPanel(
     val ignoredFiles: List<FilePath>,
     val isAllowExcludeFromCommit: () -> Boolean,
   )
+}
+
+private class ChangesViewInputHandler(private val cs: CoroutineScope, private val changesView: ChangesListView) {
+  val diffRequests: MutableSharedFlow<Pair<ChangesViewDiffAction, ClientId>> =
+    MutableSharedFlow(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+  init {
+    changesView.doubleClickHandler = Processor { e: MouseEvent ->
+      if (EditSourceOnDoubleClickHandler.isToggleEvent(changesView, e)) return@Processor false
+      handleEnterOrDoubleClick(requestFocus = true)
+    }
+    changesView.enterKeyHandler = Processor {
+      handleEnterOrDoubleClick(requestFocus = false)
+    }
+    changesView.addSelectionListener {
+      if (Registry.get("show.diff.preview.as.editor.tab.with.single.click").asBoolean() &&
+          getInstance(changesView.project).LOCAL_CHANGES_DETAILS_PREVIEW_SHOWN) {
+        diffRequests.tryEmit(ChangesViewDiffAction.TRY_SHOW_PREVIEW to ClientId.current)
+      }
+    }
+  }
+
+  private fun handleEnterOrDoubleClick(requestFocus: Boolean): Boolean {
+    if (!performHoverAction()) {
+      val diffPreviewOnDoubleClickOrEnter = changesView.project.service<CommitToolWindowViewModel>().diffPreviewOnDoubleClickOrEnter
+      if (diffPreviewOnDoubleClickOrEnter) {
+        diffRequests.tryEmit(ChangesViewDiffAction.PERFORM_DIFF to ClientId.current)
+      }
+      else {
+        val dataContext = DataManager.getInstance().getDataContext(changesView)
+        cs.launch {
+          val parameters = NavigationOptions.defaultOptions().requestFocus(requestFocus)
+          NavigationService.getInstance(changesView.project).navigate(dataContext, parameters)
+        }
+      }
+    }
+    return true
+  }
+
+  private fun performHoverAction(): Boolean {
+    val selected = VcsTreeModelData.selected(changesView).iterateNodes().single()
+    if (selected == null) return false
+
+    for (extension in ChangesViewNodeAction.EP_NAME.getExtensions(changesView.project)) {
+      if (extension.handleDoubleClick(selected)) return true
+    }
+    return false
+  }
 }

@@ -16,6 +16,7 @@ import com.intellij.platform.rpc.UID
 import com.intellij.xdebugger.evaluation.EvaluationMode
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider
 import com.intellij.xdebugger.frame.XDescriptor
+import com.intellij.xdebugger.ui.XDebugTabLayouter
 import fleet.rpc.RemoteApi
 import fleet.rpc.Rpc
 import fleet.rpc.core.DeferredSerializer
@@ -59,6 +60,8 @@ interface XDebugSessionApi : RemoteApi<Unit> {
 
   suspend fun computeExecutionStacks(suspendContextId: XSuspendContextId): Flow<XExecutionStacksEvent>
 
+  suspend fun computeRunningExecutionStacks(sessionId: XDebugSessionId): Flow<XExecutionStacksEvent>
+
   suspend fun muteBreakpoints(sessionDataId: XDebugSessionDataId, muted: Boolean)
 
   suspend fun getUiUpdateEventsFlow(sessionId: XDebugSessionId): Flow<Unit>
@@ -91,6 +94,7 @@ data class XDebugSessionDto(
   val restartActions: List<AnActionId>,
   val extraActions: List<AnActionId>,
   val extraStopActions: List<AnActionId>,
+  val tabLayouter: XDebugTabLayouterDto,
 )
 
 @ApiStatus.Internal
@@ -186,3 +190,10 @@ data class XSmartStepIntoTargetDto(
 @ApiStatus.Internal
 @Serializable
 data class XSmartStepIntoTargetId(override val uid: UID) : Id
+
+@ApiStatus.Internal
+@Serializable
+data class XDebugTabLayouterDto(
+  val events: RpcFlow<XDebugTabLayouterEvent>,
+  @Transient val localLayouter: XDebugTabLayouter? = null,
+)
