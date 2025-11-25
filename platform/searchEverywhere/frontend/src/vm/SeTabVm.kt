@@ -18,14 +18,7 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.searchEverywhere.*
-import com.intellij.platform.searchEverywhere.frontend.AutoToggleAction
-import com.intellij.platform.searchEverywhere.frontend.SeEmptyResultInfo
-import com.intellij.platform.searchEverywhere.frontend.SeFilterEditor
-import com.intellij.platform.searchEverywhere.frontend.SeSelectionResult
-import com.intellij.platform.searchEverywhere.frontend.SeSelectionResultClose
-import com.intellij.platform.searchEverywhere.frontend.SeSelectionResultKeep
-import com.intellij.platform.searchEverywhere.frontend.SeSelectionResultText
-import com.intellij.platform.searchEverywhere.frontend.SeTab
+import com.intellij.platform.searchEverywhere.frontend.*
 import com.intellij.platform.searchEverywhere.providers.SeAdaptedItem
 import com.intellij.platform.searchEverywhere.providers.SeLog
 import com.intellij.platform.searchEverywhere.utils.SuspendLazyProperty
@@ -36,7 +29,6 @@ import org.jetbrains.annotations.ApiStatus
 import java.util.*
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
-import kotlin.text.toBoolean
 
 @OptIn(ExperimentalCoroutinesApi::class, ExperimentalAtomicApi::class)
 @ApiStatus.Internal
@@ -44,13 +36,16 @@ class SeTabVm(
   private val project: Project?,
   coroutineScope: CoroutineScope,
   private val tab: SeTab,
+  private val customizedTabInfo: SeTabInfo,
   private val searchPattern: StateFlow<String>,
   private val availableLegacyContributors: Map<SeProviderId, SearchEverywhereContributor<Any>>,
 ) {
-  val searchResults: StateFlow<SeSearchContext?> get() = _searchResults.asStateFlow()
-  val name: String get() = tab.name
-  val filterEditor: SuspendLazyProperty<SeFilterEditor?> = initAsync(coroutineScope) { tab.getFilterEditor() }
   val tabId: String get() = tab.id
+  val name: String get() = customizedTabInfo.name
+  val priority: Int get() = customizedTabInfo.priority
+
+  val searchResults: StateFlow<SeSearchContext?> get() = _searchResults.asStateFlow()
+  val filterEditor: SuspendLazyProperty<SeFilterEditor?> = initAsync(coroutineScope) { tab.getFilterEditor() }
   val reportableTabId: String =
     if (SearchEverywhereUsageTriggerCollector.isReportable(tab)) tabId
     else SearchEverywhereUsageTriggerCollector.NOT_REPORTABLE_ID

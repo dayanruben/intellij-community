@@ -26,9 +26,6 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
-import kotlin.collections.flatMap
-import kotlin.collections.plus
-import kotlin.collections.toSet
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Internal
@@ -321,13 +318,15 @@ class SeTabDelegate(
       initEvent: AnActionEvent,
       session: SeSession,
       logLabel: String,
-    ): Providers {
+    ): Providers = coroutineScope {
       val projectId = project?.projectId()
       val dataContextId = readAction {
         initEvent.dataContext.rpcId()
       }
 
       val hasWildcard = providerIds.any { it.isWildcard }
+
+      ensureActive()
       val localProvidersHolder = SeFrontendService.getInstance(project).localProvidersHolder
                                  ?: error("Local providers holder is not initialized")
 
@@ -346,8 +345,14 @@ class SeTabDelegate(
       }?.toSet() ?: emptySet()
 
       val adaptedAndAvailableToRenderRemoteProviderIds = if (adaptedRemoteProviderItemsAreFetchable) {
-        availableRemoteProviders.adapted.filter {
-          !frontendOnlyIds.contains(it) && localProvidersHolder.legacyAllTabContributors.containsKey(it)
+        val isAllTab = providerIds.contains(SeProviderIdUtils.WILDCARD_ID.toProviderId())
+
+        val (legacyContributors, adaptedRemoteProviders) =
+          if (isAllTab) localProvidersHolder.legacyAllTabContributors to availableRemoteProviders.adaptedAllTab
+          else localProvidersHolder.legacySeparateTabContributors to availableRemoteProviders.adaptedSeparateTab.map { it.providerId }
+
+        adaptedRemoteProviders.filter {
+          !frontendOnlyIds.contains(it) && legacyContributors.containsKey(it)
         }
       }
       else emptySet()
@@ -387,7 +392,7 @@ class SeTabDelegate(
                           (frontendProvidersFacade?.essentialProviderIds ?: emptySet())
 
       SeLog.log(SeLog.THROTTLING) { "Essential contributors for $logLabel tab : " + allEssentials.joinToString(", ") { it.value } }
-      return Providers(localProviders, frontendProvidersFacade, allEssentials)
+      Providers(localProviders, frontendProvidersFacade, allEssentials)
     }
   }
 }

@@ -194,6 +194,8 @@ com.intellij.codeInsight.lookup.Lookup
 - a:itemMatcher(com.intellij.codeInsight.lookup.LookupElement):com.intellij.codeInsight.completion.PrefixMatcher
 - a:itemPattern(com.intellij.codeInsight.lookup.LookupElement):java.lang.String
 - a:removeLookupListener(com.intellij.codeInsight.lookup.LookupListener):V
+a:com.intellij.codeInsight.lookup.LookupArranger
+- f:prefixChanged(com.intellij.codeInsight.lookup.Lookup):V
 f:com.intellij.codeInsight.lookup.LookupElementBuilder
 - s:createWithSymbolPointer(java.lang.String,com.intellij.model.Symbol):com.intellij.codeInsight.lookup.LookupElementBuilder
 com.intellij.codeInsight.lookup.LookupEx
@@ -694,6 +696,8 @@ com.intellij.modcommand.ModTemplateBuilder
 - a:field(com.intellij.psi.PsiElement,java.lang.String,java.lang.String,Z):com.intellij.modcommand.ModTemplateBuilder
 - a:finishAt(I):com.intellij.modcommand.ModTemplateBuilder
 - a:onTemplateFinished(java.util.function.Function):com.intellij.modcommand.ModTemplateBuilder
+f:com.intellij.modcommand.ModUpdateFileText
+- translateOffset(I,Z):I
 f:com.intellij.modcommand.Presentation$HighlightRange
 - <init>(com.intellij.openapi.util.TextRange,com.intellij.modcommand.Presentation$HighlightingKind):V
 - highlightingKind():com.intellij.modcommand.Presentation$HighlightingKind

@@ -3,7 +3,7 @@
 
 package org.jetbrains.intellij.build.productLayout
 
-import com.intellij.platform.plugins.parser.impl.elements.ModuleLoadingRule
+import com.intellij.platform.plugins.parser.impl.elements.ModuleLoadingRuleValue
 
 /**
  * Determines if a module set needs to be inlined (cannot use xi:include).
@@ -15,7 +15,7 @@ import com.intellij.platform.plugins.parser.impl.elements.ModuleLoadingRule
  */
 internal fun shouldInlineModuleSet(
   moduleSet: ModuleSet,
-  overrides: Map<String, ModuleLoadingRule>,
+  overrides: Map<String, ModuleLoadingRuleValue>,
   overriddenModuleSetNames: Set<ModuleSetName>
 ): Boolean {
   return overrides.isNotEmpty() || containsOverriddenNestedSet(moduleSet, overriddenModuleSetNames)
@@ -27,7 +27,7 @@ internal fun shouldInlineModuleSet(
  */
 internal fun StringBuilder.appendInlinedModuleSet(
   moduleSet: ModuleSet,
-  overrides: Map<String, ModuleLoadingRule>,
+  overrides: Map<String, ModuleLoadingRuleValue>,
   contentBlocks: List<ContentBlock>,
   overriddenModuleSetNames: Set<ModuleSetName>
 ) {
@@ -116,7 +116,7 @@ internal fun StringBuilder.appendModuleSetInclude(moduleSetName: String) {
  */
 internal fun StringBuilder.appendModuleSetXml(
   moduleSet: ModuleSet,
-  overrides: Map<String, ModuleLoadingRule>,
+  overrides: Map<String, ModuleLoadingRuleValue>,
   contentBlocks: List<ContentBlock>,
   overriddenModuleSetNames: Set<ModuleSetName>
 ) {
@@ -134,8 +134,7 @@ internal fun StringBuilder.appendModuleSetXml(
 internal fun StringBuilder.appendModuleLine(moduleWithLoading: ModuleWithLoading, indent: String = "    ") {
   append("$indent<module name=\"${moduleWithLoading.name}\"")
   if (moduleWithLoading.loading != null) {
-    // convert enum to lowercase with hyphens (e.g., ON_DEMAND -> on-demand)
-    append(" loading=\"${moduleWithLoading.loading.name.lowercase().replace('_', '-')}\"")
+    append(" loading=\"${moduleWithLoading.loading.xmlValue}\"")
   }
   append("/>\n")
 }

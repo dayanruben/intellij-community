@@ -8295,7 +8295,7 @@ a:com.intellij.openapi.options.BeanConfigurable
 - pf:checkBox(java.lang.String,com.intellij.openapi.util.Getter,com.intellij.openapi.util.Setter):V
 - pf:checkBox(java.lang.String,kotlin.reflect.KMutableProperty0):V
 - createComponent():javax.swing.JComponent
-- createContent(com.intellij.ui.dsl.builder.Panel):V
+- f:createContent(com.intellij.ui.dsl.builder.Panel):V
 - pf:getInstance():java.lang.Object
 - getOptionDescriptors(java.lang.String,java.util.function.Function):java.util.List
 - f:getTitle():java.lang.String
@@ -14150,11 +14150,6 @@ c:com.intellij.ui.render.LabelBasedRenderer
 - repaint(java.awt.Rectangle):V
 - revalidate():V
 - validate():V
-f:com.intellij.ui.render.LabelBasedRenderer$List
-- com.intellij.ui.render.LabelBasedRenderer
-- javax.swing.ListCellRenderer
-- <init>():V
-- getListCellRendererComponent(javax.swing.JList,java.lang.Object,I,Z,Z):java.awt.Component
 c:com.intellij.ui.render.LabelBasedRenderer$Tree
 - com.intellij.ui.render.LabelBasedRenderer
 - javax.swing.tree.TreeCellRenderer
@@ -14443,7 +14438,6 @@ f:com.intellij.util.ScrambledInputStream
 - read(B[],I,I):I
 - reset():V
 - skip(J):J
-f:com.intellij.util.SwingBindingsKt
 f:com.intellij.util.UriUtilKt
 - sf:changeQuery(java.net.URI,java.net.URI,java.lang.String):java.net.URI
 - sf:fromRawParts(java.net.URI,java.lang.String,Z,java.lang.String,java.lang.String,java.lang.String,I,java.lang.String,java.lang.String,java.lang.String,java.lang.String):java.net.URI

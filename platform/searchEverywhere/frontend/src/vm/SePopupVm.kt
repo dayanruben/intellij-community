@@ -22,9 +22,9 @@ import com.intellij.openapi.wm.ToolWindowManager.Companion.getInstance
 import com.intellij.platform.searchEverywhere.SeItemData
 import com.intellij.platform.searchEverywhere.SeProviderId
 import com.intellij.platform.searchEverywhere.SeSession
-import com.intellij.platform.searchEverywhere.frontend.SeSelectionResult
-import com.intellij.platform.searchEverywhere.frontend.SeTab
+import com.intellij.platform.searchEverywhere.frontend.*
 import com.intellij.platform.searchEverywhere.frontend.tabs.actions.SeActionsTab
+import com.intellij.platform.searchEverywhere.toProviderId
 import com.intellij.platform.searchEverywhere.utils.SuspendLazyProperty
 import com.intellij.psi.PsiManager
 import com.intellij.usageView.UsageInfo
@@ -42,10 +42,12 @@ class SePopupVm(
   private val project: Project?,
   tabs: List<SeTab>,
   deferredTabs: List<SuspendLazyProperty<SeTab?>>,
+  adaptedTabs: SuspendLazyProperty<List<SeTab>>,
   initialSearchPattern: String?,
-  initialTabIndex: String,
+  initialTabId: String,
   private val historyList: SearchHistoryList,
-  private val availableLegacyContributors: Map<SeProviderId, SearchEverywhereContributor<Any>>,
+  private val availableLegacyAllTabContributors: Map<SeProviderId, SearchEverywhereContributor<Any>>,
+  private val availableLegacySeparateTabContributors: Map<SeProviderId, SearchEverywhereContributor<Any>>,
   private val onShowFindToolWindow: (SePopupVm) -> Unit,
   private val closePopupHandler: () -> Unit,
 ) {
@@ -53,13 +55,18 @@ class SePopupVm(
   val searchPattern: StateFlow<String> = _searchPattern.asStateFlow()
 
   private val _deferredTabVms = MutableSharedFlow<SeTabVm>(replay = 100)
-  val deferredTabVms: SharedFlow<SeTabVm> = _deferredTabVms.asSharedFlow()
-  private val tabVmsSateFlow = MutableStateFlow(tabs.map { SeTabVm(project, coroutineScope, it, searchPattern, availableLegacyContributors) })
-  val tabVms: List<SeTabVm> get() = tabVmsSateFlow.value
-
-  val currentTabIndex: MutableStateFlow<Int> = MutableStateFlow(tabVms.indexOfFirst { it.tabId == initialTabIndex }.takeIf { it >= 0 } ?: 0)
-  val currentTab: SeTabVm get() = tabVms[currentTabIndex.value.coerceIn(tabVms.indices)]
+  private val _tabsModelFlow = MutableStateFlow(run {
+    val customizer = SeTabsCustomizer.getInstance()
+    val tabsVms = tabs.mapNotNull {
+      val tabInfo = customizer.customizeTabInfo(it.id, SeTabInfo(it.priority, it.name)) ?: return@mapNotNull null
+      SeTabVm(project, coroutineScope, it, tabInfo, searchPattern, availableLegacyAllTabContributors)
+    }
+    SeTabsModel(tabsVms, initialTabId)
+  })
+  val tabsModelFlow: StateFlow<SeTabsModel> get() = _tabsModelFlow.asStateFlow()
+  val tabsModel: SeTabsModel get() = tabsModelFlow.value
   val currentTabFlow: Flow<SeTabVm>
+  val currentTab: SeTabVm get() = tabsModelFlow.value.selectedTab
 
   private val canBeShownInFindResultsFlow = MutableStateFlow(false)
   val canBeShownInFindResults: Boolean get() = canBeShownInFindResultsFlow.value
@@ -89,11 +96,9 @@ class SePopupVm(
   private val previewTopicPublisher = ApplicationManager.getApplication().getMessageBus().syncPublisher(PREVIEW_EVENTS)
 
   init {
-    check(tabVms.isNotEmpty()) { "Search Everywhere tabs must not be empty" }
+    check(tabs.isNotEmpty()) { "Search Everywhere tabs must not be empty" }
 
-    currentTabFlow = currentTabIndex.map {
-      tabVms[it.coerceIn(tabVms.indices)]
-    }.withPrevious().map { (prev, next) ->
+    currentTabFlow = tabsModelFlow.flatMapLatest { it.selectedTabFlow }.withPrevious().map { (prev, next) ->
       prev?.setActive(false)
       next.setActive(true)
       next
@@ -109,8 +114,10 @@ class SePopupVm(
     }
 
     coroutineScope.launch {
-      deferredTabVms.collect { tabVm ->
-        tabVmsSateFlow.update { it + tabVm }
+      _deferredTabVms.collect { tabVm ->
+        _tabsModelFlow.update { model ->
+          model.newModelWith(tabVm)
+        }
       }
     }
 
@@ -120,10 +127,26 @@ class SePopupVm(
       }
     }
 
-    deferredTabs.forEach {
+    val tabsCustomizer = SeTabsCustomizer.getInstance()
+    val deferredTabJobs = deferredTabs.map {
       coroutineScope.launch {
         it.getValue()?.let { tab ->
-          _deferredTabVms.emit(SeTabVm(project, coroutineScope, tab, searchPattern, availableLegacyContributors))
+          val newInfo = tabsCustomizer.customizeTabInfo(tab.id, SeTabInfo(tab.priority, tab.name)) ?: return@launch
+          _deferredTabVms.emit(SeTabVm(project, coroutineScope, tab, newInfo, searchPattern, availableLegacyAllTabContributors))
+        }
+      }
+    }
+
+    coroutineScope.launch {
+      deferredTabJobs.joinAll()
+
+      val adaptedTabs = adaptedTabs.getValue()
+      adaptedTabs.forEach { tab ->
+        val providerId = tab.id.toProviderId()
+        val availableLegacyContributor = availableLegacySeparateTabContributors[providerId] ?: return@forEach
+
+        tabsCustomizer.customizeTabInfo(tab.id, SeTabInfo(tab.priority, tab.name))?.let { tabInfo ->
+          _deferredTabVms.emit(SeTabVm(project, coroutineScope, tab, tabInfo, searchPattern, mapOf(providerId to availableLegacyContributor)))
         }
       }
     }
@@ -207,11 +230,11 @@ class SePopupVm(
   }
 
   fun selectNextTab() {
-    currentTabIndex.value = (currentTabIndex.value + 1) % tabVms.size
+    tabsModel.selectNextTab()
   }
 
   fun selectPreviousTab() {
-    currentTabIndex.value = (currentTabIndex.value - 1 + tabVms.size) % tabVms.size
+    tabsModel.selectPreviousTab()
   }
 
   suspend fun canBeShownInFindResults(): Boolean {
@@ -219,9 +242,7 @@ class SePopupVm(
   }
 
   fun showTab(tabId: String) {
-    tabVms.indexOfFirst { it.tabId == tabId }.takeIf { it >= 0 }?.let {
-      currentTabIndex.value = it
-    }
+    tabsModel.showTab(tabId)
   }
 
   fun closePopup() {
@@ -294,16 +315,36 @@ class SePopupVm(
   }
 }
 
-private fun <T> Flow<T>.withPrevious(): Flow<Pair<T?, T>> = flow {
-  var previous: T? = null
-  collect { current ->
-    emit(Pair(previous, current))
-    previous = current
-  }
-}
-
 @ApiStatus.Internal
 class SePreviewConfiguration(
   val project: Project,
   val fetchPreview: (suspend (SeItemData) -> (List<UsageInfo>?))?,
 )
+
+@ApiStatus.Internal
+class SeTabsModel(tabVms: List<SeTabVm>, selectedTabId: String) {
+  val sortedTabVms: List<SeTabVm> = tabVms.sortedBy { -it.priority }
+
+  val selectedTabIndexFlow: MutableStateFlow<Int> = MutableStateFlow(sortedTabVms.indexOfFirst { it.tabId == selectedTabId })
+  val selectedTabFlow: Flow<SeTabVm> = selectedTabIndexFlow.map { sortedTabVms[it] }
+  val selectedTab: SeTabVm get() = sortedTabVms[selectedTabIndexFlow.value]
+
+  init {
+    require(sortedTabVms.isNotEmpty()) { "Search Everywhere tabs must not be empty" }
+    require(selectedTabIndexFlow.value != -1) { "Selected tab ID must be present in the list of tabs" }
+  }
+
+  fun selectNextTab() {
+    selectedTabIndexFlow.update { (it + 1) % sortedTabVms.size }
+  }
+
+  fun selectPreviousTab() {
+    selectedTabIndexFlow.update { (it - 1 + sortedTabVms.size) % sortedTabVms.size }
+  }
+
+  fun showTab(tabId: String) {
+    sortedTabVms.indexOfFirst { it.tabId == tabId }.takeIf { it != -1 }?.let { selectedTabIndexFlow.value = it }
+  }
+
+  fun newModelWith(tab: SeTabVm): SeTabsModel = SeTabsModel(sortedTabVms + tab, selectedTab.tabId)
+}
