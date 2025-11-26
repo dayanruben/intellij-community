@@ -6,11 +6,6 @@ import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.extension.ExtendWith
 import java.lang.annotation.Inherited
 
-/** List of available IDE modes (monolith, split) */
-enum class IdeRunMode {
-  MONOLITH, SPLIT
-}
-
 /**
  * Test will be executed in IDE in [IdeRunMode]
  * and tests will be grouped by [IdeRunMode] during the run to optimize time spent on IDE instance/application reinitialization
@@ -20,8 +15,9 @@ enum class IdeRunMode {
 @Inherited
 @ExtendWith(
   //TestApplicationExtension::class,
-  MonolithAndSplitModeContextProvider::class,
+  MonolithAndSplitModeTestTemplateProvider::class,
   MonolithAndSplitModeInvocationInterceptor::class,
+  MonolithAndSplitModeParameterizedTestSupport::class,
   RemoteDevRun::class
 )
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

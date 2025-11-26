@@ -28,7 +28,6 @@ import org.jetbrains.kotlin.idea.completion.impl.k2.ParallelCompletionRunner.Com
 import org.jetbrains.kotlin.idea.completion.impl.k2.checkers.KtCompletionExtensionCandidateChecker
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.K2ChainCompletionContributor
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.replaceTypeParametersWithStarProjections
-import org.jetbrains.kotlin.idea.completion.impl.k2.jfr.CompletionSectionEvent
 import org.jetbrains.kotlin.idea.completion.lookups.ImportStrategy
 import org.jetbrains.kotlin.idea.completion.lookups.factories.ClassifierLookupObject
 import org.jetbrains.kotlin.idea.completion.weighers.WeighingContext
@@ -310,19 +309,7 @@ private class SharedPriorityQueue<P : Any, C : Comparable<C>>(
 context(_: KaSession, context: K2CompletionSectionContext<P>)
 private fun <P : KotlinRawPositionContext> K2CompletionSection<P>.executeIfAllowed() {
     if (!contributor.shouldExecute()) return
-
-    val event = CompletionSectionEvent(
-        contributorName = contributor::class.simpleName ?: "Unknown",
-        sectionName = name.takeIf { it != contributor::class.simpleName }
-    )
-
-    try {
-        event.begin()
-        runnable()
-        event.wasCompleted = true
-    } finally {
-        event.commit()
-    }
+    runnable()
 }
 
 /**
@@ -342,7 +329,7 @@ private class SequentialCompletionRunner : K2CompletionRunner {
 
         val globalAndLocalQueue = SharedPriorityQueue(remainingSections) { it.priority }.createLocalInstance()
 
-        analyze(parameters.completionFile) {
+         analyze(parameters.completionFile) {
             val commonData = createCommonSectionData(completionContext) ?: return@analyze
 
             while (true) {

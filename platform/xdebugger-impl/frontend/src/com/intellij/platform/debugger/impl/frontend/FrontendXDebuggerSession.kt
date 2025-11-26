@@ -14,11 +14,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.platform.debugger.impl.frontend.evaluate.quick.FrontendXValue
-import com.intellij.platform.debugger.impl.frontend.frame.FrontendDropFrameHandler
-import com.intellij.platform.debugger.impl.frontend.frame.FrontendXExecutionStack
-import com.intellij.platform.debugger.impl.frontend.frame.FrontendXStackFrame
-import com.intellij.platform.debugger.impl.frontend.frame.FrontendXSuspendContext
-import com.intellij.platform.debugger.impl.frontend.frame.collectExecutionStackEvents
+import com.intellij.platform.debugger.impl.frontend.frame.*
 import com.intellij.platform.debugger.impl.frontend.storage.getOrCreateStackFrame
 import com.intellij.platform.debugger.impl.rpc.*
 import com.intellij.platform.execution.impl.frontend.createFrontendProcessHandler
@@ -38,7 +34,10 @@ import com.intellij.xdebugger.frame.XStackFrame
 import com.intellij.xdebugger.frame.XSuspendContext
 import com.intellij.xdebugger.impl.XSourceKind
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointProxy
-import com.intellij.xdebugger.impl.frame.*
+import com.intellij.xdebugger.impl.frame.XDebugSessionProxy
+import com.intellij.xdebugger.impl.frame.XSmartStepIntoHandlerEntry
+import com.intellij.xdebugger.impl.frame.XStackFramesListColorsCache
+import com.intellij.xdebugger.impl.frame.XValueMarkers
 import com.intellij.xdebugger.impl.inline.DebuggerInlayListener
 import com.intellij.xdebugger.impl.rpc.*
 import com.intellij.xdebugger.impl.ui.SplitDebuggerUIUtil
@@ -52,7 +51,6 @@ import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
-import java.awt.Color
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.event.HyperlinkListener
 import kotlin.time.Duration.Companion.seconds
@@ -431,13 +429,12 @@ class FrontendXDebuggerSession private constructor(
     return currentContext.isStepping
   }
 
-  override fun computeExecutionStacks(provideContainer: () -> XSuspendContext.XExecutionStackContainer) {
-    getCurrentSuspendContext()?.computeExecutionStacks(provideContainer())
+  override fun computeExecutionStacks(container: XSuspendContext.XExecutionStackContainer) {
+    getCurrentSuspendContext()?.computeExecutionStacks(container)
   }
 
-  override fun computeRunningExecutionStacks(provideContainer: () -> XSuspendContext.XExecutionStackContainer) {
+  override fun computeRunningExecutionStacks(container: XSuspendContext.XExecutionStackContainer) {
     coroutineScope.launch {
-      val container = provideContainer()
       XDebugSessionApi.getInstance()
         .computeRunningExecutionStacks(id)
         .collectExecutionStackEvents(project, coroutineScope, container)
@@ -477,13 +474,11 @@ class FrontendXDebuggerSession private constructor(
     }
   }
 
-  override fun createFileColorsCache(framesList: XDebuggerFramesList): XStackFramesListColorsCache {
-    return object : XStackFramesListColorsCache(project) {
-      override fun get(stackFrame: XStackFrame): Color? {
-        require(stackFrame is FrontendXStackFrame) { "Expected FrontendXStackFrame, got ${stackFrame::class.java}" }
+  override fun createFileColorsCache(onAllComputed: () -> Unit): XStackFramesListColorsCache {
+    return XStackFramesListColorsCache { stackFrame, _ ->
+      require(stackFrame is FrontendXStackFrame) { "Expected FrontendXStackFrame, got ${stackFrame::class.java}" }
 
-        return stackFrame.backgroundColor
-      }
+      stackFrame.backgroundColor
     }
   }
 
