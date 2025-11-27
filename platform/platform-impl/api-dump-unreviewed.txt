@@ -3422,10 +3422,6 @@ a:com.intellij.ide.plugins.UIComponentVirtualFile
 - <init>(java.lang.String,javax.swing.Icon):V
 - a:createContent(com.intellij.ide.plugins.UIComponentFileEditor):com.intellij.ide.plugins.UIComponentVirtualFile$Content
 - getPath():java.lang.String
-f:com.intellij.ide.plugins.auth.PluginRepositoryAuthService
-- <init>():V
-- f:getAllCustomHeaders(java.lang.String):java.util.Map
-- f:getConnectionTuner():com.intellij.util.io.HttpRequests$ConnectionTuner
 e:com.intellij.ide.plugins.enums.PluginsGroupType
 - java.lang.Enum
 - sf:BUNDLED_UPDATE:com.intellij.ide.plugins.enums.PluginsGroupType
@@ -10321,7 +10317,6 @@ c:com.intellij.openapi.wm.impl.status.IdeStatusBarImpl
 - addWidget(com.intellij.openapi.wm.StatusBarWidget,com.intellij.openapi.Disposable):V
 - addWidget(com.intellij.openapi.wm.StatusBarWidget,java.lang.String):V
 - addWidget(com.intellij.openapi.wm.StatusBarWidget,java.lang.String,com.intellij.openapi.Disposable):V
-- createChild(kotlinx.coroutines.CoroutineScope,com.intellij.openapi.wm.IdeFrame,kotlin.jvm.functions.Function0):com.intellij.openapi.wm.StatusBar
 - findChild(java.awt.Component):com.intellij.openapi.wm.StatusBar
 - fireNotificationPopup(javax.swing.JComponent,java.awt.Color):V
 - getAccessibleContext():javax.accessibility.AccessibleContext
@@ -10329,7 +10324,6 @@ c:com.intellij.openapi.wm.impl.status.IdeStatusBarImpl
 - getBackgroundProcessModels():java.util.List
 - getComponent():javax.swing.JComponent
 - p:getComponentGraphics(java.awt.Graphics):java.awt.Graphics
-- getCurrentEditor():kotlin.jvm.functions.Function0
 - getInfo():java.lang.String
 - getPreferredSize():java.awt.Dimension
 - getProject():com.intellij.openapi.project.Project
@@ -11780,6 +11774,8 @@ f:com.intellij.ui.GotItTooltip
 - f:withGotItButtonAction(kotlin.jvm.functions.Function0):com.intellij.ui.GotItTooltip
 - f:withHeader(java.lang.String):com.intellij.ui.GotItTooltip
 - f:withIcon(javax.swing.Icon):com.intellij.ui.GotItTooltip
+- f:withImage(javax.swing.Icon,Z):com.intellij.ui.GotItTooltip
+- bs:withImage$default(com.intellij.ui.GotItTooltip,javax.swing.Icon,Z,I,java.lang.Object):com.intellij.ui.GotItTooltip
 - f:withLink(java.lang.String,java.lang.Runnable):com.intellij.ui.GotItTooltip
 - f:withLink(java.lang.String,kotlin.jvm.functions.Function0):com.intellij.ui.GotItTooltip
 - f:withMaxWidth(I):com.intellij.ui.GotItTooltip

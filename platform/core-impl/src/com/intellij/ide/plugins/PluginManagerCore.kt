@@ -120,6 +120,27 @@ object PluginManagerCore {
     @Volatile
     var initFuture: Deferred<PluginSet>? = null
     var ourBuildNumber: BuildNumber? = null
+
+    @Synchronized
+    fun addPluginLoadingErrors(errors: List<PluginLoadingError>) {
+      pluginErrors.addAll(errors)
+    }
+
+    @Synchronized
+    fun getAndClearPluginLoadingErrors(): List<PluginLoadingError> {
+      val result = pluginErrors.toList()
+      pluginErrors.clear()
+      return result
+    }
+
+    @Synchronized
+    fun consumeStartupActionsPluginsToEnableDisable(): Pair<Set<PluginId>, Set<PluginId>> {
+      val toEnable = pluginsToEnable ?: emptySet()
+      val toDisable = pluginsToDisable ?: emptySet()
+      pluginsToEnable = null
+      pluginsToDisable = null
+      return toEnable to toDisable
+    }
   }
 
   @ApiStatus.Internal
@@ -181,21 +202,10 @@ object PluginManagerCore {
 
   @ApiStatus.Experimental
   @JvmStatic
-  fun isLoaded(plugin: PluginDescriptor): Boolean = (plugin as? IdeaPluginDescriptorImpl)?.pluginClassLoader != null
+  fun isLoaded(plugin: PluginDescriptor): Boolean = (plugin as? IdeaPluginDescriptorImpl)?.isLoaded ?: false
 
   @ApiStatus.Internal
-  fun getAndClearPluginLoadingErrors(): List<PluginLoadingError> {
-    val pluginErrors = pluginsState.pluginErrors
-    synchronized(pluginErrors) {
-      if (pluginErrors.isEmpty()) {
-        return emptyList()
-      }
-
-      val errors = pluginErrors.toList()
-      pluginErrors.clear()
-      return errors
-    }
-  }
+  fun getAndClearPluginLoadingErrors(): List<PluginLoadingError> = pluginsState.getAndClearPluginLoadingErrors()
 
   @ApiStatus.Internal
   @JvmStatic
@@ -345,33 +355,6 @@ object PluginManagerCore {
   @ApiStatus.Internal
   fun clearLoadingErrorsFor(pluginId: PluginId) {
     pluginsState.pluginLoadingErrors = pluginsState.pluginLoadingErrors?.minus(pluginId)
-  }
-
-  @ApiStatus.Internal
-  @Synchronized
-  @JvmStatic
-  fun onEnable(enabled: Boolean): Boolean {
-    val pluginIds = if (enabled) pluginsState.pluginsToEnable else pluginsState.pluginsToDisable
-    pluginsState.pluginsToEnable = null
-    pluginsState.pluginsToDisable = null
-    val applied = pluginIds != null
-    if (applied) {
-      val descriptors = ArrayList<IdeaPluginDescriptorImpl>()
-      for (descriptor in getPluginSet().allPlugins) {
-        if (pluginIds.contains(descriptor.getPluginId())) {
-          descriptor.isMarkedForLoading = enabled
-          descriptors.add(descriptor)
-        }
-      }
-      val pluginEnabler = PluginEnabler.getInstance()
-      if (enabled) {
-        pluginEnabler.enable(descriptors)
-      }
-      else {
-        pluginEnabler.disable(descriptors)
-      }
-    }
-    return applied
   }
 
   @ApiStatus.Internal
@@ -584,23 +567,24 @@ object PluginManagerCore {
       incompletePlugins = loadingResult.getIncompleteIdMap().values,
       initContext = initContext,
       disabler = { descriptor, disabledModuleToProblematicPlugin ->
-      val loadingError = pluginSetBuilder.initEnableState(
-        descriptor = descriptor,
-        idMap = idMap,
-        fullIdMap = fullIdMap,
-        fullContentModuleIdMap = fullContentModuleIdMap,
-        isPluginDisabled = initContext::isPluginDisabled,
-        errors = pluginErrorsById,
-        disabledModuleToProblematicPlugin = disabledModuleToProblematicPlugin,
-      )
-      if (loadingError != null) {
-        registerLoadingError(loadingError)
+        val loadingError = pluginSetBuilder.initEnableState(
+          descriptor = descriptor,
+          idMap = idMap,
+          fullIdMap = fullIdMap,
+          fullContentModuleIdMap = fullContentModuleIdMap,
+          isPluginDisabled = initContext::isPluginDisabled,
+          errors = pluginErrorsById,
+          disabledModuleToProblematicPlugin = disabledModuleToProblematicPlugin,
+        )
+        if (loadingError != null) {
+          registerLoadingError(loadingError)
+        }
+        if (loadingError != null || initContext.isPluginExpired(descriptor.getPluginId())) {
+          descriptor.isMarkedForLoading = false
+        }
+        !descriptor.isMarkedForLoading
       }
-      if (loadingError != null || initContext.isPluginExpired(descriptor.getPluginId())) {
-        descriptor.isMarkedForLoading = false
-      }
-      !descriptor.isMarkedForLoading
-    })
+    )
     for (loadingError in additionalErrors) {
       registerLoadingError(loadingError)
     }
@@ -609,12 +593,8 @@ object PluginManagerCore {
     pluginsState.pluginLoadingErrors = pluginErrorsById
 
     val errorList = preparePluginErrors(globalErrors)
-    if (!errorList.isEmpty()) {
-      val pluginErrors = pluginsState.pluginErrors
-      synchronized(pluginErrors) {
-        pluginErrors.addAll(errorList)
-        pluginErrors.addAll(actions.map { PluginLoadingError(reason = null, htmlMessageSupplier = it, error = null) })
-      }
+    if (!errorList.isEmpty()) { // FIXME why actions is not checked here?
+      pluginsState.addPluginLoadingErrors(errorList + actions.map { PluginLoadingError(reason = null, htmlMessageSupplier = it, error = null) })
     }
 
     if (initContext.checkEssentialPlugins) {
@@ -908,6 +888,9 @@ object PluginManagerCore {
     }
     return true
   }
+
+  @ApiStatus.Internal
+  fun consumeStartupActionsPluginsToEnableDisable(): Pair<Set<PluginId>, Set<PluginId>> = pluginsState.consumeStartupActionsPluginsToEnableDisable()
 
   //<editor-fold desc="Deprecated stuff.">
   @Deprecated("The platform code should use [JAVA_PLUGIN_ALIAS_ID] instead, plugins aren't supposed to use this")

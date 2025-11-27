@@ -10,6 +10,7 @@ import com.intellij.ide.actions.searcheverywhere.SearchEverywhereUI
 import com.intellij.ide.actions.searcheverywhere.footer.ExtendedInfoComponent
 import com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector
 import com.intellij.ide.ui.laf.darcula.ui.TextFieldWithPopupHandlerUI
+import com.intellij.ide.util.gotoByName.QuickSearchComponent
 import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
@@ -20,6 +21,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListItemDescriptorAdapter
 import com.intellij.openapi.util.NlsContexts
@@ -31,6 +33,7 @@ import com.intellij.platform.searchEverywhere.frontend.tabs.actions.SeActionItem
 import com.intellij.platform.searchEverywhere.frontend.tabs.all.SeAllTab
 import com.intellij.platform.searchEverywhere.frontend.tabs.files.SeTargetItemPresentationRenderer
 import com.intellij.platform.searchEverywhere.frontend.tabs.text.SeTextSearchItemPresentationRenderer
+import com.intellij.platform.searchEverywhere.frontend.vm.SeDummyTabVm
 import com.intellij.platform.searchEverywhere.frontend.vm.SePopupVm
 import com.intellij.platform.searchEverywhere.providers.SeLog
 import com.intellij.ui.*
@@ -43,6 +46,7 @@ import com.intellij.ui.dsl.gridLayout.GridLayout
 import com.intellij.ui.dsl.gridLayout.HorizontalAlign
 import com.intellij.ui.dsl.gridLayout.VerticalAlign
 import com.intellij.ui.dsl.gridLayout.builders.RowsGridBuilder
+import com.intellij.ui.popup.PopupUpdateProcessorBase
 import com.intellij.ui.popup.list.GroupedItemsListRenderer
 import com.intellij.ui.render.RenderingUtil
 import com.intellij.ui.scale.JBUIScale.scale
@@ -71,16 +75,16 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalAtomicApi::class, ExperimentalCoroutinesApi::class)
 @Internal
 class SePopupContentPane(
-  private val project: Project?, //private val vm: SePopupVm,
+  private val project: Project?,
   private val resizePopupHandler: (Dimension) -> Unit,
   private val searchStatePublisher: SeSearchStatePublisher,
   private val coroutineScope: CoroutineScope,
-  initialTabs: List<SePopupHeaderPane.Tab>,
+  initialTabs: List<SeDummyTabVm>,
   selectedTabId: String,
   initialSearchText: String?,
   initPopupExtendedSize: Dimension?,
   initialSelectionState: SeSelectionState?,
-) : JPanel(), Disposable, UiDataProvider {
+) : JPanel(), Disposable, UiDataProvider, QuickSearchComponent {
   val preferableFocusedComponent: JComponent get() = textField
   val searchFieldDocument: Document get() = textField.document
   private val tabConfigurationState = MutableStateFlow(SePopupHeaderPane.Configuration.createInitial(initialTabs, selectedTabId))
@@ -118,6 +122,8 @@ class SePopupContentPane(
   var popupExtendedSize: Dimension? = initPopupExtendedSize
 
   private val semanticWarning = MutableStateFlow(false)
+
+  private var quickDocPopup: JBPopup? = null
 
   init {
     layout = GridLayout()
@@ -261,6 +267,7 @@ class SePopupContentPane(
               if (resultListModel.isEmpty) {
                 hintHelper.setSearchInProgress(false)
                 updateEmptyStatus()
+                hideQuickDocPopup()
               }
 
               semanticWarning.value = resultListModel.isValidAndHasOnlySemantic
@@ -404,6 +411,14 @@ class SePopupContentPane(
               }
             }
           }
+        }
+      }
+    }
+
+    vm.coroutineScope.launch {
+      selectedItemDataFlow.collectLatest { itemData ->
+        withContext(Dispatchers.EDT) {
+          updateQuickDocPopup(itemData)
         }
       }
     }
@@ -827,6 +842,9 @@ class SePopupContentPane(
   }
 
   private fun closePopup() {
+    coroutineScope.launch(Dispatchers.EDT) {
+      hideQuickDocPopup()
+    }
     vmState.value?.closePopup()
   }
 
@@ -1024,6 +1042,35 @@ class SePopupContentPane(
   @TestOnly
   fun getResultListModel(): SeResultListModel {
     return resultListModel
+  }
+
+  override fun registerHint(h: JBPopup) {
+    quickDocPopup?.takeIf { it.isVisible && it != h }?.cancel()
+    quickDocPopup = h
+  }
+
+  override fun unregisterHint() {
+    quickDocPopup = null
+  }
+
+  /**
+   * IJPL-188794 Quick doc popup and Quick def popup are not updated in remote development for several reasons:
+   * - Most elements cannot be fetched on the frontend
+   * - Showing the documentation popup triggers PopupUpdateProcessor.beforeShown on the backend,
+   *   which registers the hint based on the focused component. As a result,
+   *   SePopupContentPane.registerHint is never called
+   */
+  private fun updateQuickDocPopup(itemData: SeItemData?) {
+    val quickDocPopup = quickDocPopup ?: return
+    if (!quickDocPopup.isVisible()) return
+    val rawObject = itemData?.fetchItemIfExists()?.rawObject ?: hideQuickDocPopup()
+
+    val updateProcessor = quickDocPopup.getUserData(PopupUpdateProcessorBase::class.java)
+    updateProcessor?.updatePopup(rawObject)
+  }
+
+  private fun hideQuickDocPopup() {
+    quickDocPopup?.takeIf { it.isVisible }?.cancel()
   }
 
   override fun dispose() {}
