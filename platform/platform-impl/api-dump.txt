@@ -192,6 +192,10 @@ com.intellij.ide.actions.SettingsEntryPointAction$IconCustomizer
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:getCustomIcon(com.intellij.ui.BadgeIconSupplier):javax.swing.Icon
 - getSecondIcon():javax.swing.Icon
+a:com.intellij.ide.actions.WindowAction
+- com.intellij.openapi.actionSystem.AnAction
+- com.intellij.openapi.project.DumbAware
+- s:setEnabledFor(java.awt.Window,Z):V
 c:com.intellij.ide.browsers.StartBrowserSettings
 - <init>():V
 - getBrowser():com.intellij.ide.browsers.WebBrowser
