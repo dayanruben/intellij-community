@@ -38,7 +38,7 @@ public class SetDefaultPageSizeAction extends DumbAwareAction {
     int pageSize = grid.getDataHookup().getPageModel().getPageSize();
     GridHelper helper = GridHelper.get(grid);
 
-    helper.setDefaultPageSize(pageSize);
-    helper.setLimitDefaultPageSize(!GridUtilCore.isPageSizeUnlimited(pageSize));
+    helper.getProperties().setDefaultPageSizeProperty(pageSize);
+    helper.getProperties().setDefaultLimitPageSizeProperty(!GridUtilCore.isPageSizeUnlimited(pageSize));
   }
 }

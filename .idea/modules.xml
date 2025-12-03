@@ -735,6 +735,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/gradle/code-insight-groovy/intellij.kotlin.gradle.codeInsight.groovy.iml" filepath="$PROJECT_DIR$/plugins/kotlin/gradle/code-insight-groovy/intellij.kotlin.gradle.codeInsight.groovy.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/gradle/code-insight-groovy/tests.k2/intellij.kotlin.gradle.codeInsight.groovy.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/gradle/code-insight-groovy/tests.k2/intellij.kotlin.gradle.codeInsight.groovy.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/gradle/code-insight-toml/intellij.kotlin.gradle.codeInsight.toml.iml" filepath="$PROJECT_DIR$/plugins/kotlin/gradle/code-insight-toml/intellij.kotlin.gradle.codeInsight.toml.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/gradle/code-insight-toml/k2/intellij.kotlin.gradle.codeInsight.toml.k2.iml" filepath="$PROJECT_DIR$/plugins/kotlin/gradle/code-insight-toml/k2/intellij.kotlin.gradle.codeInsight.toml.k2.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/gradle/gradle/intellij.kotlin.gradle.gradle.iml" filepath="$PROJECT_DIR$/plugins/kotlin/gradle/gradle/intellij.kotlin.gradle.gradle.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/gradle/gradle/tests/intellij.kotlin.gradle.gradle.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/gradle/gradle/tests/intellij.kotlin.gradle.gradle.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/gradle/gradle-java/k2/intellij.kotlin.gradle.java.iml" filepath="$PROJECT_DIR$/plugins/kotlin/gradle/gradle-java/k2/intellij.kotlin.gradle.java.iml" />
@@ -877,6 +878,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/jsvg/intellij.libraries.jsvg.iml" filepath="$PROJECT_DIR$/libraries/jsvg/intellij.libraries.jsvg.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit4/intellij.libraries.junit4.iml" filepath="$PROJECT_DIR$/libraries/junit4/intellij.libraries.junit4.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5/intellij.libraries.junit5.iml" filepath="$PROJECT_DIR$/libraries/junit5/intellij.libraries.junit5.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/junit5-jupiter/intellij.libraries.junit5.jupiter.iml" filepath="$PROJECT_DIR$/libraries/junit5-jupiter/intellij.libraries.junit5.jupiter.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5-launcher/intellij.libraries.junit5.launcher.iml" filepath="$PROJECT_DIR$/libraries/junit5-launcher/intellij.libraries.junit5.launcher.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5-params/intellij.libraries.junit5.params.iml" filepath="$PROJECT_DIR$/libraries/junit5-params/intellij.libraries.junit5.params.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5-pioneer/intellij.libraries.junit5.pioneer.iml" filepath="$PROJECT_DIR$/libraries/junit5-pioneer/intellij.libraries.junit5.pioneer.iml" />
@@ -887,7 +889,11 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlin/test/intellij.libraries.kotlinTest.iml" filepath="$PROJECT_DIR$/libraries/kotlin/test/intellij.libraries.kotlinTest.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlin/test-assertions-core-jvm/intellij.libraries.kotlinTestAssertionsCoreJvm.iml" filepath="$PROJECT_DIR$/libraries/kotlin/test-assertions-core-jvm/intellij.libraries.kotlinTestAssertionsCoreJvm.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/collections-immutable/intellij.libraries.kotlinx.collections.immutable.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/collections-immutable/intellij.libraries.kotlinx.collections.immutable.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/coroutines/core/intellij.libraries.kotlinx.coroutines.core.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/coroutines/core/intellij.libraries.kotlinx.coroutines.core.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/coroutines/debug/intellij.libraries.kotlinx.coroutines.debug.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/coroutines/debug/intellij.libraries.kotlinx.coroutines.debug.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/coroutines/guava/intellij.libraries.kotlinx.coroutines.guava.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/coroutines/guava/intellij.libraries.kotlinx.coroutines.guava.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/coroutines/slf4j/intellij.libraries.kotlinx.coroutines.slf4j.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/coroutines/slf4j/intellij.libraries.kotlinx.coroutines.slf4j.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/coroutines/test/intellij.libraries.kotlinx.coroutines.test.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/coroutines/test/intellij.libraries.kotlinx.coroutines.test.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/datetime/intellij.libraries.kotlinx.datetime.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/datetime/intellij.libraries.kotlinx.datetime.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/document-store-mvstore/intellij.libraries.kotlinx.document.store.mvstore.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/document-store-mvstore/intellij.libraries.kotlinx.document.store.mvstore.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/html/intellij.libraries.kotlinx.html.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/html/intellij.libraries.kotlinx.html.iml" />

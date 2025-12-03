@@ -3380,8 +3380,8 @@ jvm_import(
 
 jvm_import(
   name = "jimfs",
-  jar = "@com_google_jimfs-jimfs-1_1_http//file",
-  source_jar = "@com_google_jimfs-jimfs-1_1-sources_http//file",
+  jar = "@com_google_jimfs-jimfs-1_3_0_http//file",
+  source_jar = "@com_google_jimfs-jimfs-1_3_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -3656,13 +3656,6 @@ jvm_import(
   name = "junit5Jupiter",
   jar = "@org_junit_jupiter-junit-jupiter-engine-5_13_4_http//file",
   source_jar = "@org_junit_jupiter-junit-jupiter-engine-5_13_4-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-java_library(
-  name = "junit5Jupiter-provided",
-  exports = [":junit5Jupiter"],
-  neverlink = True,
   visibility = ["//visibility:public"]
 )
 
@@ -4448,13 +4441,6 @@ jvm_import(
   visibility = ["//visibility:public"]
 )
 
-java_library(
-  name = "kotlinx-coroutines-core-provided",
-  exports = [":kotlinx-coroutines-core"],
-  neverlink = True,
-  visibility = ["//visibility:public"]
-)
-
 jvm_import(
   name = "kotlinx-coroutines-debug",
   jar = "@org_jetbrains_intellij_deps_kotlinx-kotlinx-coroutines-debug-1_10_2-intellij-1_http//file",
@@ -4565,13 +4551,6 @@ jvm_import(
   name = "kotlinx-serialization-protobuf",
   jar = "@org_jetbrains_kotlinx-kotlinx-serialization-protobuf-jvm-1_9_0_http//file",
   source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-protobuf-jvm-1_9_0-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "kryo5",
-  jar = "@com_esotericsoftware-kryo5-5_6_0_http//file",
-  source_jar = "@com_esotericsoftware-kryo5-5_6_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -5461,6 +5440,13 @@ jvm_import(
   name = "libraries-kotlinx-html-kotlinx-html-jvm",
   jar = "@org_jetbrains_kotlinx-kotlinx-html-jvm-0_12_0_http//file",
   source_jar = "@org_jetbrains_kotlinx-kotlinx-html-jvm-0_12_0-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-kryo5-kryo",
+  jar = "@com_esotericsoftware-kryo5-5_6_0_http//file",
+  source_jar = "@com_esotericsoftware-kryo5-5_6_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 

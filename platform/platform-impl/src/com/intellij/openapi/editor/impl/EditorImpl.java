@@ -1287,7 +1287,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         if (event.isConsumed()) {
           return;
         }
-        if (processKeyTyped(event)) {
+        if (WriteIntentReadAction.compute((Computable<Boolean>)() -> processKeyTyped(event))) {
           event.consume();
         }
       }
@@ -2797,9 +2797,11 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     if (myCommandProcessor == null || e.isConsumed() || myMousePressedEvent != null && myMousePressedEvent.isConsumed()) {
       return;
     }
-    myCommandProcessor.executeCommand(myProject, () -> WriteIntentReadAction.run((Runnable)() -> mouseDragHandler.mouseDragged(e)), "",
-                                      MOUSE_DRAGGED_COMMAND_GROUP,
-                                      UndoConfirmationPolicy.DEFAULT, getDocument());
+    WriteIntentReadAction.run((Runnable)() -> {
+      myCommandProcessor.executeCommand(myProject, () -> mouseDragHandler.mouseDragged(e), "",
+                                        MOUSE_DRAGGED_COMMAND_GROUP,
+                                        UndoConfirmationPolicy.DEFAULT, getDocument());
+    });
   }
 
   private void processMouseDragged(@NotNull MouseEvent e) {
