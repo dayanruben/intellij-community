@@ -10,10 +10,11 @@ import com.intellij.diagnostic.EventWatcher
 import com.intellij.diagnostic.LoadingState
 import com.intellij.diagnostic.PerformanceWatcher
 import com.intellij.ide.MnemonicUsageCollector.logMnemonicUsed
-import com.intellij.ide.actions.MaximizeActiveDialogAction
 import com.intellij.ide.dnd.DnDManager
 import com.intellij.ide.dnd.DnDManagerImpl
 import com.intellij.ide.ui.UISettings
+import com.intellij.ide.ui.maximize
+import com.intellij.ide.ui.normalize
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
@@ -76,6 +77,11 @@ import sun.awt.SunToolkit
 import java.awt.*
 import java.awt.datatransfer.StringSelection
 import java.awt.event.*
+import java.lang.Class
+import java.lang.Runnable
+import java.lang.System
+import java.lang.Thread
+import java.lang.Void
 import java.lang.invoke.MethodHandle
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
@@ -651,11 +657,11 @@ class IdeEventQueue private constructor() : EventQueue() {
     }
 
     if (dispatchers.isNotEmpty() || hasOldDispatchers) {
-      val result = WriteIntentReadAction.compute<Boolean, Throwable> {
+      val result = WriteIntentReadAction.computeThrowable<Boolean, Throwable> {
         for (eachDispatcher in dispatchers) {
           try {
             if (eachDispatcher.dispatch(e)) {
-              return@compute true
+              return@computeThrowable true
             }
           }
           catch (t: Throwable) {
@@ -666,7 +672,7 @@ class IdeEventQueue private constructor() : EventQueue() {
         for (eachDispatcher in DISPATCHER_EP.extensionsIfPointIsRegistered) {
           try {
             if (eachDispatcher !is NonLockedEventDispatcher && eachDispatcher.dispatch(e)) {
-              return@compute true
+              return@computeThrowable true
             }
           }
           catch (t: Throwable) {
@@ -825,10 +831,10 @@ class IdeEventQueue private constructor() : EventQueue() {
         if (parent is JDialog) {
           invokeLater {
             if (e.keyCode == KeyEvent.VK_UP) {
-              MaximizeActiveDialogAction.maximize(parent)
+              parent.maximize()
             }
             else {
-              MaximizeActiveDialogAction.normalize(parent)
+              parent.normalize()
             }
           }
           return true
