@@ -2,6 +2,7 @@
 
 package com.intellij.grazie.ide.ui.mass
 
+import com.intellij.diff.tools.util.FoldingModelSupport
 import com.intellij.diff.util.DiffDrawUtil
 import com.intellij.diff.util.DiffUtil
 import com.intellij.diff.util.TextDiffTypeFactory.TextDiffTypeImpl
@@ -14,17 +15,14 @@ import com.intellij.grazie.spellcheck.TypoProblem
 import com.intellij.grazie.text.CheckerRunner
 import com.intellij.grazie.text.ProofreadingProblems
 import com.intellij.grazie.text.TextProblem
-import com.intellij.grazie.utils.ijRange
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.command.WriteCommandAction
-import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.HighlighterColors
-import com.intellij.openapi.editor.RangeMarker
+import com.intellij.openapi.editor.*
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.event.EditorMouseEvent
 import com.intellij.openapi.editor.event.EditorMouseListener
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
@@ -43,14 +41,19 @@ import com.intellij.ui.CollectionComboBoxModel
 import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.*
 import com.intellij.util.IconUtil
+import com.intellij.util.text.TextRangeUtil
 import com.intellij.util.ui.JBUI
 import java.awt.Font
+import java.awt.Graphics2D
+import java.awt.geom.Rectangle2D
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.Action
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.ListSelectionModel
+import kotlin.math.max
+import kotlin.math.min
 
 private val appliedChange = Key<Int>("grazie.mass.apply.change.index")
 
@@ -59,7 +62,7 @@ class GrazieMassApplyDialog : DialogWrapper {
   private val text: String
   private val problems: ProofreadingProblems
   private val project: Project
-  private val editor: Editor
+  private val editor: EditorEx
   private val undoManager: DocumentUndoManager
   private val highlightings = HighlightedProblems()
   private val massOptionComboBox by lazy { CollectionComboBoxModel(MassOptions.entries) }
@@ -70,7 +73,7 @@ class GrazieMassApplyDialog : DialogWrapper {
     this.problems = problems.filterOutDuplicatedTypos()
     this.editor = createEditor()
     this.undoManager = DocumentUndoManager()
-    massApply(MassOptions.SINGLE, true)
+    massApply(MassOptions.SINGLE)
     setupMouseListener()
     init()
   }
@@ -81,7 +84,7 @@ class GrazieMassApplyDialog : DialogWrapper {
 
       row {
         comboBox(massOptionComboBox).gap(RightGap.SMALL)
-          .onChanged { massApply(massOptionComboBox.selected, false) }
+          .onChanged { massApply(massOptionComboBox.selected) }
         cell(createToolbarComponent()).gap(RightGap.SMALL)
 
         label("").align(AlignX.FILL).resizableColumn()
@@ -142,46 +145,79 @@ class GrazieMassApplyDialog : DialogWrapper {
     return undoAction
   }
 
-  private fun createEditor(): Editor {
-    val document = EditorFactory.getInstance().createDocument(this.text)
-    val editor = DiffUtil.createEditor(document, project, true)
+  private fun createEditor(): EditorEx {
+    val document = EditorFactory.getInstance().createDocument("")
+    val editor = DiffUtil.createEditor(document, project, true, true)
     editor.component.minimumSize = JBUI.size(500, 500)
     editor.component.preferredSize = JBUI.size(800, 500)
     Disposer.register(disposable) { EditorFactory.getInstance().releaseEditor(editor) }
     return editor
   }
 
-  private fun updateHighlightings() {
+  private fun setupFolding(textRanges: List<TextRange>) {
+    val lines = editor.document.lineCount - 1
+    val textLineRanges = textRanges
+      .map {
+        TextRange(
+          max(0, editor.document.getLineNumber(it.startOffset) - 2),
+          min(editor.document.getLineNumber(it.endOffset) + 2, lines)
+        )
+      }
+      .sortedBy { it.startOffset }
+      .let { TextRangeUtil.mergeRanges(it, 1) }
+
+    val renderer = object : CustomFoldRegionRenderer {
+      override fun calcWidthInPixels(region: CustomFoldRegion) = 0
+      override fun calcHeightInPixels(region: CustomFoldRegion) = 0
+      override fun paint(region: CustomFoldRegion, g: Graphics2D, targetRegion: Rectangle2D, textAttributes: TextAttributes) {}
+    }
+
+    editor.foldingModel.runBatchFoldingOperation {
+      editor.foldingModel.clearFoldRegions()
+      for (region in TextRangeUtil.excludeRanges(TextRange(0, lines), textLineRanges)) {
+        editor.foldingModel.addCustomLinesFolding(region.startOffset, region.endOffset, renderer)
+        val currentRegion = FoldingModelSupport.addFolding(editor, region.startOffset, region.endOffset, false)
+        if (currentRegion != null) {
+          DiffDrawUtil.createLineSeparatorHighlighter(
+            editor,
+            editor.getDocument().getLineStartOffset(region.startOffset),
+            editor.getDocument().getLineEndOffset(region.endOffset)
+          )
+        }
+      }
+    }
+  }
+
+  private fun setupHighlightings() {
     val document = editor.document
     addRangeHighlighter(editor, TextRange(0, document.textLength), BASE_TEXT_ATTRIBUTES)
-    problems.textRanges
-      .forEach { range -> addRangeHighlighter(editor, range, REGULAR_TEXT_ATTRIBUTES) }
+    val textRanges = problems.textRanges
+    textRanges.forEach { range -> addRangeHighlighter(editor, range, REGULAR_TEXT_ATTRIBUTES) }
 
     val grammarHighlightings = getHighlightings(problems.grammarErrors)
     val styleHighlightings = getHighlightings(problems.styleErrors)
     val typoHighlightings = problems.typos.map { typo ->
-      val range = typo.text.textRangeToFile(typo.range.ijRange())
+      val range = typo.text.textRangeToFile(typo.range)
       val changes = typo.fixes.map { DocumentChange(it, listOf(range to it), editor, project) }
       Highlighting(
         typo,
         ProblemType.Typo,
         listOf(addRangeHighlighter(editor, range, BOLD_TEXT_ATTRIBUTES)),
-        changes + IgnoreChange(typo.word, changes[0])
+        changes + IgnoreChange(typo.word, changes.firstOrNull())
       )
     }
 
     this.highlightings.update(editor, grammarHighlightings, styleHighlightings, typoHighlightings)
+    setupFolding(textRanges)
   }
 
-  private fun massApply(options: MassOptions?, initial: Boolean) {
+  private fun massApply(options: MassOptions?) {
     if (options == null) return
-    if (!initial) {
-      val document = editor.document
-      WriteCommandAction.runWriteCommandAction(project, GrazieBundle.message("grazie.mass.apply.text.do"), null, {
-        document.replaceString(0, document.textLength, this.text)
-      })
-    }
-    updateHighlightings()
+    val document = editor.document
+    WriteCommandAction.runWriteCommandAction(project, GrazieBundle.message("grazie.mass.apply.text.do"), null, {
+      document.replaceString(0, document.textLength, this.text)
+    })
+    setupHighlightings()
     highlightings.forEach { highlighting ->
       val changes = highlighting.changes.first()
       if (options == MassOptions.MULTIPLE || highlighting.changes.filterIsInstance<DocumentChange>().size == 1) {
@@ -235,7 +271,7 @@ class GrazieMassApplyDialog : DialogWrapper {
         DocumentChange(suggestion.presentableText, replacements, editor, project)
       }
       val type = if (problem.isStyleLike) ProblemType.Style else ProblemType.Grammar
-      Highlighting(problem, type, highlightRanges, changes + IgnoreChange(problem, changes[0]))
+      Highlighting(problem, type, highlightRanges, changes + IgnoreChange(problem, changes.firstOrNull()))
     }
 
   private fun Row.labeledIcon(icon: Icon, problemsExtractor: (HighlightedProblems) -> Int) {
@@ -302,27 +338,27 @@ private class CompositeChange(private val oldChange: Change, private val newChan
 }
 
 private class IgnoreChange : Change {
-  private val change: Change
+  private val change: Change?
   private val presentableText: String
 
-  constructor(problem: TextProblem, change: Change) {
+  constructor(problem: TextProblem, change: Change?) {
     val suppressionPattern = CheckerRunner(problem.text).defaultSuppressionPattern(problem, null)
     val errorText = StringUtil.shortenTextWithEllipsis(suppressionPattern.errorText, 50, 20)
     this.presentableText = GrazieBundle.message("grazie.grammar.quickfix.ignore.text.no.context", errorText)
     this.change = change
   }
 
-  constructor(typo: String, change: Change) {
+  constructor(typo: String, change: Change?) {
     this.presentableText = GrazieBundle.message("grazie.grammar.quickfix.ignore.text.no.context", typo)
     this.change = change
   }
 
   override fun apply() {
-    change.revert()
+    change?.revert()
   }
 
   override fun revert() {
-    change.apply()
+    change?.apply()
   }
 
   override fun toString(): String = presentableText

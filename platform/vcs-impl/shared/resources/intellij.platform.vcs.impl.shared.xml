@@ -49,6 +49,8 @@
 
     <changesGroupingPolicy key="directory" id="directory" weight="10"
                            implementationClass="com.intellij.openapi.vcs.changes.ui.DirectoryChangesGroupingPolicy$Factory"/>
+
+    <vcs.changes.changesViewModifier implementation="com.intellij.platform.vcs.impl.shared.commit.EditedCommitChangesViewModifier"/>
   </extensions>
 
   <actions>
@@ -98,11 +100,13 @@
                 icon="AllIcons.Actions.ToggleVisibility"/>
       </group>
       <separator/>
-      <reference ref="ExpandAll"/>
-      <reference ref="CollapseAll"/>
-      <separator/>
       <group id="ChangesViewToolbar.Shared.Other"/>
       <separator/>
+      <action id="ChangesView.SelectFile"
+              class="com.intellij.openapi.vcs.changes.actions.SelectInChangesViewAction"
+              icon="AllIcons.General.Locate"/>
+      <reference ref="ExpandAll"/>
+      <reference ref="CollapseAll"/>
     </group>
   </actions>
 </idea-plugin>
