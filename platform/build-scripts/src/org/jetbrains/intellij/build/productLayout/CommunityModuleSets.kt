@@ -123,7 +123,12 @@ object CommunityModuleSets  {
     embeddedModule("intellij.libraries.lz4")
     embeddedModule("intellij.libraries.markdown")
     embeddedModule("intellij.libraries.mvstore")
+    embeddedModule("intellij.libraries.netty.buffer")
+    embeddedModule("intellij.libraries.netty.codec.compression")
+    embeddedModule("intellij.libraries.netty.codec.http")
+    embeddedModule("intellij.libraries.netty.handler.proxy")
     embeddedModule("intellij.libraries.oro.matcher")
+    embeddedModule("intellij.libraries.protobuf")
     embeddedModule("intellij.libraries.proxy.vole")
     embeddedModule("intellij.libraries.rhino")
     embeddedModule("intellij.libraries.snakeyaml")
@@ -190,8 +195,8 @@ object CommunityModuleSets  {
     module("intellij.libraries.kotlinx.document.store.mvstore")
     module("intellij.libraries.opencsv")
     module("intellij.libraries.lucene.common")
-    // todo - once intellij.java.aetherDependencyResolver will be migrated to product module, it can be a non-embedded module (see ArtifactRepositoryManager)
-    embeddedModule("intellij.libraries.plexus.utils")
+    module("intellij.libraries.plexus.utils")
+    module("intellij.libraries.maven.resolver.provider")
   }
 
   /**
