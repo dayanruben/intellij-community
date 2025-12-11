@@ -12,7 +12,6 @@ import org.jetbrains.intellij.build.productLayout.stats.DependencyFileResult
 import org.jetbrains.intellij.build.productLayout.stats.PluginDependencyFileResult
 import org.jetbrains.intellij.build.productLayout.stats.PluginDependencyGenerationResult
 import org.jetbrains.intellij.build.productLayout.xml.updateXmlDependencies
-import java.nio.file.Files
 
 /**
  * Generates dependencies for bundled plugin `plugin.xml` files.
@@ -85,7 +84,11 @@ private suspend fun generatePluginDependency(
   // Also process content modules - generate dependencies for their module descriptors
   val contentModuleResults = mutableListOf<DependencyFileResult>()
   for (contentModuleName in info.contentModules) {
-    val result = generateContentModuleDependencies(contentModuleName = contentModuleName, descriptorCache = descriptorCache, dependencyFilter = { dependencyFilter(contentModuleName, it) })
+    val result = generateContentModuleDependencies(
+      contentModuleName = contentModuleName,
+      descriptorCache = descriptorCache,
+      dependencyFilter = { dependencyFilter(contentModuleName, it) }
+    )
     if (result != null) {
       contentModuleResults.add(result)
     }
@@ -112,16 +115,6 @@ private suspend fun generateContentModuleDependencies(
 ): DependencyFileResult? {
   val info = descriptorCache.getOrAnalyze(contentModuleName) ?: return null
   val filteredDeps = info.dependencies.filter(dependencyFilter)
-  val status = updateXmlDependencies(
-    path = info.descriptorPath,
-    content = Files.readString(info.descriptorPath),
-    moduleDependencies = filteredDeps,
-    preserveExistingModule = { !dependencyFilter(it) },
-  )
-  return DependencyFileResult(
-    moduleName = contentModuleName,
-    descriptorPath = info.descriptorPath,
-    status = status,
-    dependencyCount = filteredDeps.size
-  )
+  val status = updateXmlDependencies(path = info.descriptorPath, content = info.content, moduleDependencies = filteredDeps, preserveExistingModule = { !dependencyFilter(it) })
+  return DependencyFileResult(moduleName = contentModuleName, descriptorPath = info.descriptorPath, status = status, dependencyCount = filteredDeps.size)
 }

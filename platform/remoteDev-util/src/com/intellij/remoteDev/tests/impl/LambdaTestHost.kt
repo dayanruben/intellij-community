@@ -20,11 +20,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.rd.util.setSuspend
 import com.intellij.remoteDev.tests.*
-import com.intellij.remoteDev.tests.impl.utils.SerializedLambdaLoader
+import com.intellij.remoteDev.tests.impl.utils.SerializedLambdaWithIdeContextHelper
 import com.intellij.remoteDev.tests.impl.utils.runLogged
 import com.intellij.remoteDev.tests.impl.utils.waitSuspendingNotNull
 import com.intellij.remoteDev.tests.modelGenerated.LambdaRdIdeType
-import com.intellij.remoteDev.tests.modelGenerated.LambdaRdKeyValueEntry
+import com.intellij.remoteDev.tests.modelGenerated.LambdaRdTestActionParameters
 import com.intellij.remoteDev.tests.modelGenerated.lambdaTestModel
 import com.jetbrains.rd.framework.*
 import com.jetbrains.rd.util.lifetime.EternalLifetime
@@ -68,8 +68,8 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
     // TODO: plugin: PluginModuleDescriptor might be passed as a context parameter and not via constructor
     abstract class NamedLambda<T : LambdaIdeContext>(protected val lambdaIdeContext: T, protected val plugin: PluginModuleDescriptor) {
       fun name(): String = this::class.qualifiedName ?: error("Can't get qualified name of lambda $this")
-      abstract suspend fun T.lambda(args: List<LambdaRdKeyValueEntry>): Any?
-      suspend fun runLambda(args: List<LambdaRdKeyValueEntry>) {
+      abstract suspend fun T.lambda(args: LambdaRdTestActionParameters): Any?
+      suspend fun runLambda(args: LambdaRdTestActionParameters) {
         with(lambdaIdeContext) {
           lambda(args = args)
         }
@@ -227,7 +227,7 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
               assert(ClientId.current == clientId) { "ClientId '${ClientId.current}' should equal $clientId one when test method starts" }
 
               runLogged(parameters.reference, 1.minutes) {
-                ideAction.runLambda(parameters.parameters ?: listOf())
+                ideAction.runLambda(parameters)
               }
             }
           }
@@ -253,10 +253,23 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
             runLogged(lambda.stepName, 10.minutes) {
               val urls = lambda.classPath.map { File(it).toURI().toURL() }
               URLClassLoader(urls.toTypedArray(), testModuleDescriptor?.pluginClassLoader ?: this::class.java.classLoader).use { cl ->
-                SerializedLambdaLoader().let { loader ->
-                  val params = lambda.parametersBase64.map { loader.loadObject(it, classLoader = cl) }
-                  val result = loader.load<LambdaIdeContext>(lambda.serializedDataBase64, classLoader = cl).accept(ideContext, params)
-                  loader.save(lambda.stepName, result)
+                SerializedLambdaWithIdeContextHelper().let { loader ->
+                  val params = lambda.parametersBase64.map {
+                    loader.decodeObject<String>(it, classLoader = cl) ?: error("Parameter $it is not serializable")
+                  }
+                  val serializableConsumer = loader.getSuspendingSerializableConsumer<LambdaIdeContext, Any>(lambda.serializedDataBase64, classLoader = cl)
+                  val result = with(serializableConsumer) {
+                    with(ideContext) {
+                      runSerializedLambda(params)
+                    }
+                  }
+                  if (result is Serializable) {
+                    loader.serialize(result)
+                  }
+                  else {
+                    LOG.warn("Lambda '${lambda.stepName}' didn't return serializable result")
+                    "<NO RESULT>"
+                  }
                 }
               }
             }

@@ -1,8 +1,8 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.productLayout
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.impl.BazelModuleOutputProvider
@@ -23,11 +23,11 @@ import java.nio.file.Path
  * Determines product category based on module sets included in the content spec.
  * 
  * @param contentSpec Product's module content specification
- * @return ProductCategory based on which core module sets are used
+ * @return ProductCategory, based on which core module sets are used
  */
 private fun determineProductCategory(contentSpec: ProductModulesContentSpec?): ProductCategory {
   if (contentSpec == null) return ProductCategory.BACKEND
-  
+
   val moduleSetNames = contentSpec.moduleSets.map { it.moduleSet.name }
   return when {
     "ide.ultimate" in moduleSetNames -> ProductCategory.ULTIMATE
@@ -76,7 +76,7 @@ fun parseJsonArgument(arg: String): JsonFilter? {
  * @param projectRoot Project root path
  * @param generateXmlImpl Lambda to generate XML files (default mode implementation)
  */
-fun runModuleSetMain(
+suspend fun runModuleSetMain(
   args: Array<String>,
   communityModuleSets: List<ModuleSet>,
   ultimateModuleSets: List<ModuleSet>,
@@ -85,13 +85,17 @@ fun runModuleSetMain(
   ultimateSourceFile: String?,
   projectRoot: Path,
   generateXmlImpl: suspend (moduleOutputProvider: ModuleOutputProvider) -> Unit,
-): Unit = runBlocking(Dispatchers.Default) {
+) {
   withoutTracer {
     // Parse `--json` arg with optional filter
     val jsonArg = args.firstOrNull { it.startsWith("--json") }
-    val moduleOutputProvider = createModuleOutputProvider(projectRoot)
-    when {
-      jsonArg != null -> {
+    coroutineScope {
+      val moduleOutputProvider = createModuleOutputProvider(projectRoot = projectRoot, scope = this)
+      if (jsonArg == null) {
+        // Default mode: Generate XML files
+        generateXmlImpl(moduleOutputProvider)
+      }
+      else {
         jsonResponse(
           communityModuleSets = communityModuleSets,
           communitySourceFile = communitySourceFile,
@@ -102,10 +106,6 @@ fun runModuleSetMain(
           jsonArg = jsonArg,
           moduleOutputProvider = moduleOutputProvider,
         )
-      }
-      else -> {
-        // Default mode: Generate XML files
-        generateXmlImpl(moduleOutputProvider)
       }
     }
   }
@@ -187,25 +187,21 @@ private suspend fun jsonResponse(
     products = (regularProducts + testProductSpecs).toList(),
     projectRoot = projectRoot,
     filter = parseJsonArgument(jsonArg),
-    moduleOutputProvider = moduleOutputProvider
+    moduleOutputProvider = moduleOutputProvider,
   )
 }
 
-fun createModuleOutputProvider(projectRoot: Path): ModuleOutputProvider {
+fun createModuleOutputProvider(projectRoot: Path, scope: CoroutineScope): ModuleOutputProvider {
   val project = JpsSerializationManager.getInstance().loadProject(
     projectRoot.toString(),
     mapOf("MAVEN_REPOSITORY" to JpsMavenSettings.getMavenRepositoryPath()),
     false
   )
-  val bazelOutputRoot = bazelOutputRoot
-  return if (bazelOutputRoot != null) {
-    BazelModuleOutputProvider(
-      modules = project.modules,
-      projectHome = projectRoot,
-      bazelOutputRoot = bazelOutputRoot,
-    )
-  }
-  else {
-    JpsModuleOutputProvider(project)
-  }
+  val bazelOutputRoot = bazelOutputRoot ?: return JpsModuleOutputProvider(project)
+  return BazelModuleOutputProvider(
+    modules = project.modules,
+    projectHome = projectRoot,
+    bazelOutputRoot = bazelOutputRoot,
+    scope = scope,
+  )
 }

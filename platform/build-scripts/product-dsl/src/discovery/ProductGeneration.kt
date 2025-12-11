@@ -22,10 +22,12 @@ import org.jetbrains.intellij.build.productLayout.stats.ModuleSetFileResult
 import org.jetbrains.intellij.build.productLayout.stats.ModuleSetGenerationResult
 import org.jetbrains.intellij.build.productLayout.stats.ProductGenerationResult
 import org.jetbrains.intellij.build.productLayout.stats.printGenerationSummary
+import org.jetbrains.intellij.build.productLayout.util.AsyncCache
+import org.jetbrains.intellij.build.productLayout.util.DryRunCollector
+import org.jetbrains.intellij.build.productLayout.util.ValidationErrorCollector
 import org.jetbrains.intellij.build.productLayout.validation.validateNoRedundantModuleSets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Configuration for generating all module sets and products.
@@ -62,6 +64,7 @@ internal suspend fun generateAllProductXmlFiles(
   testProductSpecs: List<Pair<String, ProductModulesContentSpec>> = emptyList(),
   projectRoot: Path,
   moduleOutputProvider: ModuleOutputProvider,
+  dryRunCollector: DryRunCollector? = null,
 ): ProductGenerationResult {
   // Convert test product specs to DiscoveredProduct instances
   val testProducts = testProductSpecs.mapNotNull { (name, spec) ->
@@ -112,6 +115,7 @@ internal suspend fun generateAllProductXmlFiles(
           productPropertiesClass = productPropertiesClass,
           projectRoot = projectRoot,
           isUltimateBuild = isUltimateBuild,
+          dryRunCollector = dryRunCollector,
         )
       }
     }.awaitAll().filterNotNull()
@@ -121,15 +125,17 @@ internal suspend fun generateAllProductXmlFiles(
 }
 
 /**
- * Discovers all module sets from configured sources.
+ * Discovers all module sets from configured sources in parallel.
  */
-private fun discoverAllModuleSets(moduleSetSources: Map<String, Pair<Any, Path>>): List<ModuleSet> {
-  val allModuleSets = mutableListOf<ModuleSet>()
-  for ((_, source) in moduleSetSources) {
-    val (sourceObj, _) = source
-    allModuleSets.addAll(discoverModuleSets(sourceObj))
+private suspend fun discoverAllModuleSets(moduleSetSources: Map<String, Pair<Any, Path>>): List<ModuleSet> {
+  return coroutineScope {
+    moduleSetSources.map { (_, source) ->
+      async {
+        val (sourceObj, _) = source
+        discoverModuleSets(sourceObj)
+      }
+    }.awaitAll().flatten()
   }
-  return allModuleSets
 }
 
 /**
@@ -164,7 +170,7 @@ private fun aggregateAndCleanupOrphanedFiles(moduleSetResults: List<ModuleSetGen
  *
  * @param config Configuration specifying module set sources, discovered products, test products, and other parameters
  */
-suspend fun generateAllModuleSetsWithProducts(config: ModuleSetGenerationConfig) {
+suspend fun generateAllModuleSetsWithProducts(config: ModuleSetGenerationConfig, dryRunCollector: DryRunCollector? = null, errorCollector: ValidationErrorCollector? = null) {
   val startTime = System.currentTimeMillis()
 
   // Discover all module sets and validate products
@@ -187,7 +193,8 @@ suspend fun generateAllModuleSetsWithProducts(config: ModuleSetGenerationConfig)
           obj = sourceObj,
           outputDir = outputDir,
           label = label,
-          moduleOutputProvider = config.moduleOutputProvider
+          moduleOutputProvider = config.moduleOutputProvider,
+          dryRunCollector = dryRunCollector,
         )
       }
     }
@@ -198,9 +205,11 @@ suspend fun generateAllModuleSetsWithProducts(config: ModuleSetGenerationConfig)
       .distinct()
       .toList()
 
-    val xIncludeCache = ConcurrentHashMap<String, LoadedXIncludeReference>()
+    val xIncludeCache = AsyncCache<String, LoadedXIncludeReference?>(this)
     val pluginContentJobs: Map<String, Deferred<PluginContentInfo?>> = allBundledPlugins.associateWith { pluginName ->
-      async { extractPluginContent(pluginName, config.moduleOutputProvider, xIncludeCache) }
+      async {
+        extractPluginContent(pluginName = pluginName, moduleOutputProvider = config.moduleOutputProvider, xIncludeCache = xIncludeCache)
+      }
     }
 
     // TIER 2: Parallel dependency and product generation (can run concurrently with TIER 1)
@@ -219,6 +228,7 @@ suspend fun generateAllModuleSetsWithProducts(config: ModuleSetGenerationConfig)
         productSpecs = products,
         pluginContentJobs = pluginContentJobs,
         additionalPlugins = config.additionalPlugins,
+        errorCollector = errorCollector,
       )
     }
 
@@ -244,7 +254,8 @@ suspend fun generateAllModuleSetsWithProducts(config: ModuleSetGenerationConfig)
         discoveredProducts = config.discoveredProducts,
         testProductSpecs = config.testProductSpecs,
         projectRoot = config.projectRoot,
-        moduleOutputProvider = config.moduleOutputProvider
+        moduleOutputProvider = config.moduleOutputProvider,
+        dryRunCollector = dryRunCollector,
       )
     }
 

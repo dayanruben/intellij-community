@@ -127,9 +127,6 @@ fun PyCallExpression.getCalleeType(resolveContext: PyResolveContext): PyType? {
   return PyUnionType.union(callableTypes)
 }
 
-fun multiResolveCallee(x: PyCallExpression, resolveContext: PyResolveContext): List<PyCallableType> =
-  x.multipleResolveCallee(resolveContext)
-
 /**
  * It is not the same as [getCalleeType] since
  * this method returns callable types that would be actually called, the mentioned method returns type of underlying callee.
@@ -141,13 +138,11 @@ fun multiResolveCallee(x: PyCallExpression, resolveContext: PyResolveContext): L
  * b = a()  # callee type is A, resolved callee is A.__call__
  * ```
  */
-fun PyCallExpression.multipleResolveCallee(resolveContext: PyResolveContext): List<PyCallableType> {
-  return PyUtil.getParameterizedCachedValue(
-    this,
-    resolveContext) {
-    getExplicitResolveResults(it) +
-    getImplicitResolveResults(it) +
-    getRemoteResolveResults(it)
+fun multiResolveCallee(expression: PyCallExpression, resolveContext: PyResolveContext): List<PyCallableType> {
+  return PyUtil.getParameterizedCachedValue(expression, resolveContext) {
+    expression.getExplicitResolveResults(it) +
+    expression.getImplicitResolveResults(it) +
+    expression.getRemoteResolveResults(it)
   }
 }
 
@@ -811,15 +806,7 @@ fun <T> Map<T, PyCallableParameter>.getArgumentsMappedToKeywordContainer(): List
 }
 
 fun <T> Map<T, PyCallableParameter>.getRegularMappedParameters(): Map<T, PyCallableParameter> {
-  val result = LinkedHashMap<T, PyCallableParameter>()
-  for (entry in entries) {
-    val argument = entry.key
-    val parameter: PyCallableParameter = entry.value
-    if (!parameter.isPositionalContainer() && !parameter.isKeywordContainer()) {
-      result.put(argument, parameter)
-    }
-  }
-  return result
+  return filterValues { !it.isPositionalContainer() && !it.isKeywordContainer() }
 }
 
 fun <T> Map<T, PyCallableParameter>.getMappedPositionalContainer(): PyCallableParameter? {
