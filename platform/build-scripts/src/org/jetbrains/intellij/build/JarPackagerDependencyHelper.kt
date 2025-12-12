@@ -16,11 +16,11 @@ import org.jetbrains.jps.model.module.JpsModuleReference
 import java.util.concurrent.ConcurrentHashMap
 
 // production-only - JpsJavaClasspathKind.PRODUCTION_RUNTIME
-internal class JarPackagerDependencyHelper(private val moduleOutputProvider: ModuleOutputProvider) {
+internal class JarPackagerDependencyHelper(private val outputProvider: ModuleOutputProvider) {
   private val libraryCache = ConcurrentHashMap<JpsModule, List<JpsLibraryDependency>>()
 
   fun getModuleDependencies(moduleName: String): Sequence<String> {
-    return moduleOutputProvider.findRequiredModule(moduleName).getProductionModuleDependencies(withTests = false).map { it.moduleReference.moduleName }
+    return outputProvider.findRequiredModule(moduleName).getProductionModuleDependencies(withTests = false).map { it.moduleReference.moduleName }
   }
 
   fun isPluginModulePackedIntoSeparateJar(module: JpsModule, layout: PluginLayout?, frontendModuleFilter: FrontendModuleFilter): Boolean {
@@ -61,14 +61,16 @@ internal class JarPackagerDependencyHelper(private val moduleOutputProvider: Mod
              moduleName != "intellij.rider.test.framework.core" &&
              moduleName != "intellij.rider.test.framework.testng" &&
              moduleName != "intellij.rider.test.framework.junit" &&
-             moduleName != "intellij.rider.test.framework.junit5"
+             moduleName != "intellij.rider.test.framework.junit5" &&
+             moduleName != "intellij.rider.test.framework.integration.testng" &&
+             moduleName != "intellij.rider.test.framework.integration.junit"
     }
     return moduleName.endsWith("._test")
   }
 
   fun getPluginIdByModule(pluginModule: JpsModule): String {
     // it is ok to read the plugin descriptor with unresolved x-include as the ID should be specified at the root
-    val root = readXmlAsModel(getUnprocessedPluginXmlContent(module = pluginModule, context = moduleOutputProvider))
+    val root = readXmlAsModel(getUnprocessedPluginXmlContent(module = pluginModule, outputProvider = outputProvider))
     val element = root.getChild("id") ?: root.getChild("name") ?: throw IllegalStateException("Cannot find attribute id or name (module=$pluginModule)")
     return element.content!!
   }

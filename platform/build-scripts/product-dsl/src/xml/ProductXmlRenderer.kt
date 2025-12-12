@@ -17,7 +17,7 @@ import org.jetbrains.intellij.build.productLayout.withEditorFold
 internal fun StringBuilder.appendXmlHeader(generatorCommand: String, productPropertiesClass: String) {
   append("  <!-- DO NOT EDIT: This file is auto-generated from Kotlin code -->\n")
   append("  <!-- To regenerate, run 'Generate Product Layouts' or directly $generatorCommand -->\n")
-  append("  <!-- Source: $productPropertiesClass -->\n")
+  append("  <!-- Source: $productPropertiesClass.getProductContentDescriptor() -->\n")
 }
 
 /**
@@ -61,7 +61,7 @@ internal fun StringBuilder.appendOpeningTag(
  */
 internal fun generateXIncludes(
   spec: ProductModulesContentSpec,
-  moduleOutputProvider: ModuleOutputProvider,
+  outputProvider: ModuleOutputProvider,
   inlineXmlIncludes: Boolean,
   sb: StringBuilder,
   isUltimateBuild: Boolean,
@@ -73,7 +73,7 @@ internal fun generateXIncludes(
     }
 
     // Find the module and file
-    val module = moduleOutputProvider.findModule(include.moduleName)
+    val module = outputProvider.findModule(include.moduleName)
     val resourcePath = include.resourcePath
     if (module == null) {
       if (include.ultimateOnly) {
@@ -83,7 +83,7 @@ internal fun generateXIncludes(
     }
 
     val data = findFileInModuleSources(module, resourcePath)?.let { JDOMUtil.load(it) }
-               ?: findFileInModuleLibraryDependencies(module = module, relativePath = resourcePath, moduleOutputProvider = moduleOutputProvider)
+               ?: findFileInModuleLibraryDependencies(module = module, relativePath = resourcePath, outputProvider = outputProvider)
                  ?.let { JDOMUtil.load(it) }
                ?: error("Resource '$resourcePath' not found in module '${module.name}' sources or libraries (referenced in xi:include)")
 

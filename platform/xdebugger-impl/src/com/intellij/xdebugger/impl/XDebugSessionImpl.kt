@@ -360,8 +360,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
     if (frame == null) return null
     return when (sourceKind) {
       XSourceKind.MAIN -> frame.sourcePosition
-      XSourceKind.ALTERNATIVE -> if (myAlternativeSourceHandler != null) myAlternativeSourceHandler!!.getAlternativePosition(frame)
-      else null
+      XSourceKind.ALTERNATIVE -> myAlternativeSourceHandler?.getAlternativePosition(frame)
     }
   }
 
@@ -372,7 +371,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
     }
 
   val alternativeSourceKindState: StateFlow<Boolean>
-    get() = if (myAlternativeSourceHandler != null) myAlternativeSourceHandler!!.getAlternativeSourceKindState() else ALWAYS_FALSE_STATE
+    get() = myAlternativeSourceHandler?.getAlternativeSourceKindState() ?: ALWAYS_FALSE_STATE
 
   fun init(process: XDebugProcess, contentToReuse: RunContentDescriptor?) {
     LOG.assertTrue(myDebugProcess == null)
@@ -870,9 +869,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
   @Deprecated("Update should go via front-end listeners")
   override fun updateExecutionPosition() {
     // Actually, it is just a fallback. All information should go via front-end listeners.
-    if (myDebuggerManager.currentSession == this) {
-      updateExecutionPosition(myProject, currentSourceKind)
-    }
+    updateExecutionPosition(this.asProxy())
   }
 
   val isTopFrameSelected: Boolean

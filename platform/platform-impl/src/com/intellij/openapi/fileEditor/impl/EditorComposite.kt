@@ -198,7 +198,7 @@ open class EditorComposite internal constructor(
 
     // TODO comment this and log a warning or log something
     if (fileEditorWithProviders.isEmpty()) {
-      withContext(Dispatchers.UiWithModelAccess) {
+      withContext(Dispatchers.EDT) {
         compositePanel.removeAll()
         setFileEditors(fileEditors = emptyList(), selectedEditor = null)
       }
@@ -474,10 +474,10 @@ open class EditorComposite internal constructor(
       editorComponent = DumbService.getInstance(project).wrapGently(editorComponent, editor)
     }
     component.add(editorComponent, BorderLayout.CENTER)
-    val topPanel = TopBottomPanel()
+    val topPanel = EditorTopPanel()
     topComponents.put(editor, topPanel)
     component.add(topPanel, BorderLayout.NORTH)
-    val bottomPanel = TopBottomPanel()
+    val bottomPanel = EditorBottomPanel()
     bottomComponents.put(editor, bottomPanel)
     component.add(bottomPanel, BorderLayout.SOUTH)
     return component
@@ -567,6 +567,7 @@ open class EditorComposite internal constructor(
   @RequiresEdt
   private fun manageTopOrBottomComponent(editor: FileEditor, component: JComponent, top: Boolean, remove: Boolean) {
     val container = (if (top) topComponents.get(editor) else bottomComponents.get(editor))!!
+    val uICustomization = InternalUICustomization.getInstance()
     selfBorder = false
     if (remove) {
       val componentParent = component.parent
@@ -585,14 +586,19 @@ open class EditorComposite internal constructor(
       }
     }
     else {
-      val wrapper = InternalUICustomization.getInstance()?.configureEditorTopComponent(component, top) ?: NonOpaquePanel(component)
+      val wrapper = uICustomization?.configureEditorTopComponent(component, top) ?: NonOpaquePanel(component)
       if (component.getClientProperty(FileEditorManager.SEPARATOR_DISABLED) != true) {
-        val border = ClientProperty.get(component, FileEditorManager.SEPARATOR_BORDER)
-        selfBorder = border != null
-        wrapper.border = border ?: createTopBottomSideBorder(
-          top = top,
-          borderColor = ClientProperty.get(component, FileEditorManager.SEPARATOR_COLOR),
-        )
+        if (component.getClientProperty("BE_CONTROL_MODELS") != null) {
+          selfBorder = true
+        }
+        else {
+          val border = ClientProperty.get(component, FileEditorManager.SEPARATOR_BORDER)
+          selfBorder = border != null
+          wrapper.border = border ?: createTopBottomSideBorder(
+            top = top,
+            borderColor = ClientProperty.get(component, FileEditorManager.SEPARATOR_COLOR),
+          )
+        }
       }
       else {
         selfBorder = wrapper.border != null
@@ -619,6 +625,7 @@ open class EditorComposite internal constructor(
       }
     }
     container.revalidate()
+    uICustomization?.configureEditorTopContainer(container)
   }
 
   fun setDisplayName(editor: FileEditor, name: @NlsContexts.TabTitle String) {
@@ -894,7 +901,7 @@ internal class EditorCompositePanel(@JvmField val composite: EditorComposite) : 
   init {
     addFocusListener(object : FocusAdapter() {
       override fun focusGained(e: FocusEvent) {
-        composite.coroutineScope.launch(Dispatchers.UiWithModelAccess + ModalityState.any().asContextElement()) {
+        composite.coroutineScope.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
           if (!hasFocus()) {
             return@launch
           }
@@ -979,7 +986,7 @@ internal class EditorCompositePanel(@JvmField val composite: EditorComposite) : 
   }
 }
 
-private class TopBottomPanel : JPanel() {
+internal open class EditorBottomPanel : JPanel() {
   init {
     layout = BoxLayout(this, BoxLayout.Y_AXIS)
   }
@@ -994,6 +1001,8 @@ private class TopBottomPanel : JPanel() {
     }
   }
 }
+
+internal class EditorTopPanel : EditorBottomPanel()
 
 internal fun createTopBottomSideBorder(top: Boolean, borderColor: Color?): SideBorder {
   return object : SideBorder(null, if (top) BOTTOM else TOP) {
