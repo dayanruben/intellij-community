@@ -28,6 +28,7 @@ import com.intellij.driver.sdk.ui.components.elements.NotebookTableOutputUi
 import com.intellij.driver.sdk.ui.components.elements.popup
 import com.intellij.driver.sdk.ui.hasFocus
 import com.intellij.driver.sdk.ui.pasteText
+import com.intellij.driver.sdk.ui.should
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitFor
 import com.intellij.driver.sdk.waitForCodeAnalysis
@@ -270,18 +271,14 @@ fun Driver.createNewNotebookWithMouse(name: String = "New Notebook", type: Noteb
         waitFor("wait for project tree to load", 30.seconds) {
           getAllTexts().isNotEmpty()
         }
-        getAllTexts().first().strictClick()
+        moveMouse()
       }
     }
 
     val newFileButton = x { byAccessibleName("New File or Directory…") }
 
-    waitFor(timeout = 30.seconds) {
-      newFileButton.present()
-    }
-    newFileButton.strictClick()
-
-    waitFor("New file popup will be selected", timeout = 15.seconds) {
+    should(message = "new file popup should present and focused", timeout = 30.seconds) {
+      newFileButton.strictClick()
       hasFocus(popup())
     }
 
