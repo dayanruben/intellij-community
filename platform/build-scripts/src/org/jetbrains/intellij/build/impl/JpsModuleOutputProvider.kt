@@ -8,7 +8,6 @@ import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsModule
-import org.jetbrains.jps.util.JpsPathUtil
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
@@ -19,8 +18,9 @@ internal class JpsModuleOutputProvider(private val project: JpsProject) : Module
   private val nameToModule = modules.associateByTo(HashMap(modules.size)) { it.name }
 
   override fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray? {
-    val outputRoots = getModuleOutputRoots(module, forTests)
-    val outputDir = outputRoots.singleOrNull() ?: error("More than one output root for module '${module.name}': ${outputRoots.joinToString()}")
+    val outputDir = requireNotNull(JpsJavaExtensionService.getInstance().getOutputDirectoryPath(/* module = */ module, /* forTests = */ forTests)) {
+      "Output directory for ${module.name} isn't set"
+    }
     val file = outputDir.resolve(relativePath)
     try {
       return Files.readAllBytes(file)
@@ -47,8 +47,7 @@ internal class JpsModuleOutputProvider(private val project: JpsProject) : Module
       project.libraryCollection.findLibrary(libraryName) ?: error("Could not find project-level library $libraryName")
     }
 
-    val libraryMoniker = "library '$libraryName' " +
-                         if (moduleLibraryModuleName == null) "(project level)" else "(in module '$moduleLibraryModuleName'"
+    val libraryMoniker = "library '$libraryName' " + if (moduleLibraryModuleName == null) "(project level)" else "(in module '$moduleLibraryModuleName'"
 
     val paths = library.getPaths(JpsOrderRootType.COMPILED)
     for (path in paths) {
@@ -61,18 +60,13 @@ internal class JpsModuleOutputProvider(private val project: JpsProject) : Module
   }
 
   override fun getModuleOutputRoots(module: JpsModule, forTests: Boolean): List<Path> {
-    val url = JpsJavaExtensionService.getInstance().getOutputUrl(/* module = */ module, /* forTests = */ forTests)
-    requireNotNull(url) {
+    val file = requireNotNull(JpsJavaExtensionService.getInstance().getOutputDirectoryPath(/* module = */ module, /* forTests = */ forTests)) {
       "Output directory for ${module.name} isn't set"
     }
-    return listOf(Path.of(JpsPathUtil.urlToPath(url)))
+    return listOf(file)
   }
 
-  override suspend fun findFileInAnyModuleOutput(
-    relativePath: String,
-    moduleNamePrefix: String?,
-    processedModules: MutableSet<String>?,
-  ): ByteArray? {
+  override suspend fun findFileInAnyModuleOutput(relativePath: String, moduleNamePrefix: String?, processedModules: MutableSet<String>?): ByteArray? {
     return findFileInAnyModuleOutput(
       modules = modules,
       relativePath = relativePath,

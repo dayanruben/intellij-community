@@ -45,6 +45,7 @@ import com.intellij.openapi.editor.impl.event.MarkupModelListener;
 import com.intellij.openapi.editor.impl.stickyLines.StickyLinesManager;
 import com.intellij.openapi.editor.impl.stickyLines.StickyLinesModel;
 import com.intellij.openapi.editor.impl.stickyLines.VisualStickyLines;
+import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLineColors;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLineShadowBorder;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLineShadowPainter;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLinesPanel;
@@ -1156,9 +1157,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
     myFractionalMetricsHintValue = UISettings.getEditorFractionalMetricsHint();
 
-    if (myStickyLinesManager != null) {
-      myStickyLinesManager.reinitSettings();
-    }
+    reinitStickyLines();
   }
 
   @Contract("_->fail")
@@ -5484,18 +5483,31 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
+  void reinitStickyLines() {
+    if (myStickyLinesManager != null) {
+      myStickyLinesManager.reinitSettings();
+    }
+  }
+
   private @Nullable StickyLinesManager createStickyLinesPanel() {
     if (myProject != null && myKind == EditorKind.MAIN_EDITOR && !isMirrored()) {
       StickyLinesModel stickyModel = StickyLinesModel.getModel(myEditorFilteringMarkupModel.getDelegate());
       VisualStickyLines visualStickyLines = new VisualStickyLines(this, stickyModel);
-      StickyLineShadowPainter shadowPainter = new StickyLineShadowPainter();
-      StickyLineShadowBorder border = new StickyLineShadowBorder(this, shadowPainter);
-      StickyLinesPanel stickyPanel = new StickyLinesPanel(this, visualStickyLines, border);
+      StickyLineColors colors = new StickyLineColors(getColorsScheme());
+      StickyLinesPanel stickyPanel = new StickyLinesPanel(
+        this,
+        visualStickyLines,
+        new StickyLineShadowBorder(
+          this,
+          colors,
+          new StickyLineShadowPainter(colors)
+        )
+      );
       StickyLinesManager stickyManager = new StickyLinesManager(
         this,
         stickyModel,
         stickyPanel,
-        shadowPainter,
+        colors,
         visualStickyLines,
         myDisposable
       );
