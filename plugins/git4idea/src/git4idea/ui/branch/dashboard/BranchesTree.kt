@@ -4,6 +4,7 @@ package git4idea.ui.branch.dashboard
 import com.intellij.dvcs.DvcsUtil
 import com.intellij.dvcs.branch.GroupingKey
 import com.intellij.dvcs.repo.rpcId
+import com.intellij.dvcs.ui.VcsRepositoryIconsProvider
 import com.intellij.ide.dnd.TransferableList
 import com.intellij.ide.dnd.aware.DnDAwareTree
 import com.intellij.ide.util.treeView.TreeState
@@ -37,7 +38,6 @@ import com.intellij.vcs.branch.LinkedBranchDataImpl
 import com.intellij.vcs.git.branch.GitBranchesMatcherWrapper
 import com.intellij.vcs.git.branch.calcTooltip
 import com.intellij.vcs.git.branch.tree.GitBranchesTreeUtil
-import com.intellij.vcs.git.repo.GitRepositoryIconsProvider
 import com.intellij.vcs.git.ui.GitBranchesTreeIconProvider
 import com.intellij.vcs.git.ui.GitIncomingOutgoingUi
 import com.intellij.vcsUtil.VcsImplUtil
@@ -110,7 +110,7 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
         )
         is BranchNodeDescriptor.Group, is BranchNodeDescriptor.RemoteGroup -> GitBranchesTreeIconProvider.forGroup()
           is BranchNodeDescriptor.Repository ->
-              GitRepositoryIconsProvider.getInstance(descriptor.repository.project).getIcon(descriptor.repository.rpcId())
+              VcsRepositoryIconsProvider.getInstance(descriptor.repository.project).getIcon(descriptor.repository.rpcId())
         else -> null
       }
 
