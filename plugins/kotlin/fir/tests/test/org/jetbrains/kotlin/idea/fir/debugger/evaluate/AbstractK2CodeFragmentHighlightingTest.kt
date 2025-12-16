@@ -33,6 +33,10 @@ abstract class AbstractK2CodeFragmentHighlightingTest : AbstractCodeFragmentHigh
         }
     }
 
+    override fun configureByCodeFragment(filePath: String) {
+        myFixture.configureByK2ModeCodeFragment(filePath)
+    }
+
     private fun runTestIfNotDisabledByFileDirective(filePath: String, test: () -> Unit) {
         IgnoreTests.runTestIfNotDisabledByFileDirective(
             Paths.get(filePath),
