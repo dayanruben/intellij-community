@@ -5,8 +5,10 @@ import com.intellij.ide.starter.driver.engine.LocalDriverRunner
 import com.intellij.ide.starter.ide.IDERemDevTestContext
 import com.intellij.ide.starter.ide.IDETestContext
 import com.intellij.ide.starter.ide.onRemDevContext
+import com.intellij.ide.starter.project.NoProject
 import com.intellij.ide.starter.runner.IDERunContext
 import com.intellij.ide.starter.runner.events.IdeAfterLaunchEvent
+import com.intellij.lambda.testFramework.testApi.waitForProject
 import com.intellij.remoteDev.tests.LambdaTestsConstants
 import com.intellij.remoteDev.tests.impl.LambdaTestHost.Companion.TEST_MODULE_ID_PROPERTY_NAME
 import com.intellij.remoteDev.tests.modelGenerated.LambdaRdIdeType
@@ -20,6 +22,7 @@ import com.intellij.util.io.createDirectories
 import com.jetbrains.rd.framework.*
 import com.jetbrains.rd.util.lifetime.EternalLifetime
 import com.jetbrains.rd.util.threading.SynchronousScheduler
+import kotlinx.coroutines.runBlocking
 import kotlin.io.path.exists
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -33,25 +36,9 @@ internal fun IDETestContext.runIdeWithLambda(
   collectNativeThreads: Boolean = false,
   configure: IDERunContext.() -> Unit = {},
 ): IdeWithLambda {
-  this.onRemDevContext { remDev ->
-    val driverRunner = RemDevDriverRunner()
-    LambdaTestPluginHolder.additionalPluginDirNames().forEach { remDev.addCustomFrontendPlugin(it) }
-    val backendRdSession = setUpRdTestSession(BACKEND)
-    val frontendRdSession = remDev.frontendIDEContext.setUpRdTestSession(FRONTEND)
-
-    val backgroundRun = driverRunner.runIdeWithDriver(this,
-                                                      determineDefaultCommandLineArguments(),
-                                                      emptyList(),
-                                                      runTimeout,
-                                                      useStartupScript = true,
-                                                      launchName,
-                                                      expectedKill,
-                                                      expectedExitCode,
-                                                      collectNativeThreads,
-                                                      configure)
-    listOf(backendRdSession, frontendRdSession).forEach { it.awaitSessionReady() }
-    IdeWithLambda(backgroundRun, rdSession = frontendRdSession, backendRdSession = backendRdSession)
-  }?.let { return it }
+  onRemDevContext {
+    return@runIdeWithLambda runIdeWithLambda(runTimeout, launchName, expectedKill, expectedExitCode, collectNativeThreads, configure)
+  }
 
   val driverRunner = LocalDriverRunner()
   val monolithRdSession = setUpRdTestSession(MONOLITH)
@@ -67,6 +54,42 @@ internal fun IDETestContext.runIdeWithLambda(
                                                     configure)
   monolithRdSession.awaitSessionReady()
   return IdeWithLambda(backgroundRun, monolithRdSession, null)
+}
+
+internal fun IDERemDevTestContext.runIdeWithLambda(
+  runTimeout: Duration = 10.minutes,
+  launchName: String = "",
+  expectedKill: Boolean = false,
+  expectedExitCode: Int = 0,
+  collectNativeThreads: Boolean = false,
+  configure: IDERunContext.() -> Unit = {},
+): IdeWithLambda {
+  val driverRunner = RemDevDriverRunner()
+  LambdaTestPluginHolder.additionalPluginDirNames().forEach { addCustomFrontendPlugin(it) }
+  val backendRdSession = setUpRdTestSession(BACKEND)
+  val frontendRdSession = frontendIDEContext.setUpRdTestSession(FRONTEND)
+
+  val backgroundRun = driverRunner.runIdeWithDriver(this,
+                                                    determineDefaultCommandLineArguments(),
+                                                    emptyList(),
+                                                    runTimeout,
+                                                    useStartupScript = true,
+                                                    launchName,
+                                                    expectedKill,
+                                                    expectedExitCode,
+                                                    collectNativeThreads,
+                                                    configure)
+  listOf(backendRdSession, frontendRdSession).forEach { it.awaitSessionReady() }
+  return IdeWithLambda(backgroundRun, rdSession = frontendRdSession, backendRdSession = backendRdSession).also {
+    if (testCase.projectInfo != NoProject) {
+      @Suppress("RAW_RUN_BLOCKING")
+      runBlocking {
+        it.runInFrontend("Wait for the project") {
+          waitForProject(20.seconds)
+        }
+      }
+    }
+  }
 }
 
 private fun LambdaRdTestSession.awaitSessionReady() {

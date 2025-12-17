@@ -6,7 +6,6 @@ import com.intellij.lambda.testFramework.starter.UltimateTestCases.JpsEmptyProje
 import com.intellij.lambda.testFramework.testApi.editor.openFile
 import com.intellij.lambda.testFramework.testApi.getProject
 import com.intellij.lambda.testFramework.testApi.getProjects
-import com.intellij.lambda.testFramework.testApi.waitForProject
 import com.intellij.lambda.testFramework.utils.IdeWithLambda
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.ProjectManager
@@ -22,17 +21,16 @@ import java.io.Serializable
 import java.util.stream.Stream
 import kotlin.io.path.createFile
 import kotlin.io.path.exists
-import kotlin.time.Duration.Companion.seconds
 
 @RunInMonolithAndSplitMode
 class SampleTest {
   @TestTemplate
   fun `serialized test`(ide: IdeWithLambda) = runBlocking {
-    Assumptions.assumeThat(ide.rdSession.rdIdeType)
+    Assumptions.assumeThat(ide.isRemoteDev)
       .describedAs("works in both modes if headless is turned off for monolith in com.intellij.lambda.testFramework.starter.NewContextWithLambdaKt.newContextWithLambda" +
                    "as ProjectManager returns empty projects list in headless IJPL-221229")
       // TODO: https://youtrack.jetbrains.com/issue/AT-3645/Lambda-tests-possibility-to-use-RunInMonolithAndSplitMode-annotation-on-test-methods
-      .isNotIn(LambdaRdIdeType.MONOLITH)
+      .isTrue
     JpsEmptyProject.projectInfo.projectDir.resolve("src").resolve("FormattingExamplesExpected.java").let {
       if (!it.exists()) {
         it.parent.createDirectories()
@@ -40,10 +38,6 @@ class SampleTest {
       }
     }
     ide.apply {
-      runInBackend {
-        waitForProject(20.seconds)
-      }
-
       runInFrontend {
         Logger.getInstance("test").warn("Projects: " + getProjects().joinToString { it.name })
       }

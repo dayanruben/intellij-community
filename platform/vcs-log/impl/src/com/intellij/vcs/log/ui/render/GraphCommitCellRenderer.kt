@@ -85,14 +85,13 @@ class GraphCommitCellRenderer(
 
     prepareTemplateComponent(row, cell)
     if (templateComponent.referencePainter.isLeftAligned) {
-      val distance: Double = point.getX() - templateComponent.graphWidth
-      if (distance > 0 && distance <= templateComponent.referencesWidth) {
-        return TooltipReferencesPanel(logData, refs, bookmarks)
+      if (templateComponent.graphWidth < point.getX() && point.getX() <= templateComponent.graphWidth + templateComponent.referencesWidth) {
+        return templateComponent.referencePainter.createTooltip(logData, refs, bookmarks, point.getX() - templateComponent.graphWidth)
       }
     }
     else {
-      if (columnWidth - point.getX() <= templateComponent.referencesWidth) {
-        return TooltipReferencesPanel(logData, refs, bookmarks)
+      if (columnWidth - templateComponent.referencesWidth <= point.getX()) {
+        return templateComponent.referencePainter.createTooltip(logData, refs, bookmarks, point.getX() - columnWidth + templateComponent.referencesWidth)
       }
     }
     return null

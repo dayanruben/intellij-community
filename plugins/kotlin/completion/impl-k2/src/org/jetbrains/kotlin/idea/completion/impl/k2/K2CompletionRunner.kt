@@ -16,7 +16,6 @@ import org.jetbrains.kotlin.analysis.api.components.KaCompletionExtensionCandida
 import org.jetbrains.kotlin.analysis.api.components.expectedType
 import org.jetbrains.kotlin.analysis.api.components.expressionType
 import org.jetbrains.kotlin.analysis.api.components.render
-import org.jetbrains.kotlin.analysis.api.components.returnType
 import org.jetbrains.kotlin.analysis.api.impl.base.components.KaBaseIllegalPsiException
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.symbol
@@ -28,6 +27,7 @@ import org.jetbrains.kotlin.idea.completion.impl.k2.ParallelCompletionRunner.Com
 import org.jetbrains.kotlin.idea.completion.impl.k2.checkers.KtCompletionExtensionCandidateChecker
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.K2ChainCompletionContributor
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.replaceTypeParametersWithStarProjections
+import org.jetbrains.kotlin.idea.completion.impl.k2.jfr.CompletionCollectResultsEvent
 import org.jetbrains.kotlin.idea.completion.impl.k2.jfr.CompletionCommonSectionDataSetupEvent
 import org.jetbrains.kotlin.idea.completion.impl.k2.jfr.CompletionSectionEvent
 import org.jetbrains.kotlin.idea.completion.impl.k2.jfr.timeEvent
@@ -80,15 +80,19 @@ internal interface K2CompletionRunner {
             }
         }
 
+        /**
+         * Runs chain completion, returning true if any new results were added by chain completion.
+         */
         @OptIn(KaImplementationDetail::class)
         fun runChainCompletion(
             originalPositionContext: KotlinNameReferencePositionContext,
             completionResultSet: CompletionResultSet,
             parameters: KotlinFirCompletionParameters,
             chainCompletionContributors: List<K2ChainCompletionContributor>,
-        ) {
-            val explicitReceiver = originalPositionContext.explicitReceiver ?: return
+        ): Boolean {
+            val explicitReceiver = originalPositionContext.explicitReceiver ?: return false
 
+            var addedAnyElements = false
             completionResultSet.runRemainingContributors(parameters.delegate) { completionResult ->
                 val lookupElement = completionResult.lookupElement
                 if (lookupElement.`object` !is KotlinLookupObject) {
@@ -156,11 +160,14 @@ internal interface K2CompletionRunner {
                             contributor.createChainedLookupElements(receiverExpression, nameToImport)
                                 .forEach { lookupElement ->
                                     completionResultSet.addElement(lookupElement)
+                                    addedAnyElements = true
                                 }
                         }
                     }
                 }
             }
+
+            return addedAnyElements
         }
     }
 }
@@ -393,7 +400,6 @@ private class ParallelCompletionRunner : K2CompletionRunner {
         get() = Runtime.getRuntime().availableProcessors().coerceIn(1..MAX_CONCURRENT_COMPLETION_THREADS)
 
     private fun <P : KotlinRawPositionContext> handleElement(
-        currentSection: K2CompletionSection<P>,
         resultSet: CompletionResultSet,
         registeredChainContributors: MutableList<K2ChainCompletionContributor>,
         registeredSinks: SharedPriorityQueue<Pair<K2CompletionSection<P>, K2AccumulatingLookupElementSink>, K2ContributorSectionPriority>.LocalInstance,
@@ -417,7 +423,9 @@ private class ParallelCompletionRunner : K2CompletionRunner {
 
         is AccumulatingSinkMessage.RegisterChainContributor -> registeredChainContributors.add(element.chainContributor)
 
-        is AccumulatingSinkMessage.RegisterLaterSectionSink -> registeredSinks.addLocal(currentSection to element.sink)
+        is AccumulatingSinkMessage.RegisterLaterSectionSink ->
+            @Suppress("UNCHECKED_CAST")
+            registeredSinks.addLocal(element.section as K2CompletionSection<P> to element.sink)
     }
 
     private class WeighingContextCreationImpossibleException : RuntimeException()
@@ -447,7 +455,7 @@ private class ParallelCompletionRunner : K2CompletionRunner {
                 addLaterSection = { section ->
                     val laterSectionSink = K2AccumulatingLookupElementSink()
                     localQueueInstance.addLocal(section to laterSectionSink)
-                    sectionSink.registerLaterSection(section.priority, laterSectionSink)
+                    sectionSink.registerLaterSection(section, section.priority, laterSectionSink)
                 },
             )
 
@@ -475,16 +483,24 @@ private class ParallelCompletionRunner : K2CompletionRunner {
 
             val (currentSection, sectionSink) = entry
 
-            sectionSink.consumeElements { element ->
-                handleElement(
-                    currentSection = currentSection,
-                    resultSet = resultSet,
-                    registeredChainContributors = registeredChainContributors,
-                    registeredSinks = registeredSinks,
-                    element = element
-                )
+            val event = CompletionCollectResultsEvent(
+                contributorName = currentSection.contributor::class.simpleName ?: "Unknown",
+                sectionName = currentSection.name.takeIf { it != currentSection.contributor::class.simpleName }
+            )
+
+            event.timeEvent {
+                sectionSink.consumeElements { element ->
+                    handleElement(
+                        resultSet = resultSet,
+                        registeredChainContributors = registeredChainContributors,
+                        registeredSinks = registeredSinks,
+                        element = element
+                    )
+                }
+
+                event.consumedElements = sectionSink.addedElementCount
+                addedElements += sectionSink.addedElementCount
             }
-            addedElements += sectionSink.addedElementCount
         }
 
         return K2CompletionRunnerResult(
