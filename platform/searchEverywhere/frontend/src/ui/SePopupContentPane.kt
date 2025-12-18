@@ -197,6 +197,10 @@ class SePopupContentPane(
   }
 
   private fun wrapSearchField(): JComponent {
+    if (!Registry.`is`("search.everywhere.round.text.field", false)) {
+      return textField
+    }
+
     val wrapper = Wrapper(SearchFieldWithExtension(textField, JBUI.CurrentTheme.Popup.BACKGROUND))
     wrapper.isOpaque = true
     wrapper.background = JBUI.CurrentTheme.Popup.BACKGROUND
@@ -389,7 +393,7 @@ class SePopupContentPane(
             }
           }
           else if (semanticWarning) {
-            val noExactMatchesText = SearchEverywhereFrontendBundle.getMessage("search.everywhere.no.exact.matches")
+            val noExactMatchesText = SearchEverywhereFrontendBundle.bundle.getMessage("search.everywhere.no.exact.matches")
             hintHelper.setHint(noExactMatchesText)
           }
           else {
@@ -933,7 +937,8 @@ class SePopupContentPane(
 
   private fun calcPreferredSize(compact: Boolean, avoidWidthDecreasing: Boolean = false): Dimension {
     val preferredHeight = if (compact) {
-      headerPane.preferredSize.height + textField.preferredSize.height + JBUI.scale(15)
+      val extraHeight = if (Registry.`is`("search.everywhere.round.text.field", false)) JBUI.scale(15) else 0
+      headerPane.preferredSize.height + textField.preferredSize.height + extraHeight
     }
     else {
       getPopupExtendedHeight()

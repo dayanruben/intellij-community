@@ -18,7 +18,6 @@ import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaType
-import org.jetbrains.kotlin.analysis.api.types.KaTypeNullability
 import org.jetbrains.kotlin.idea.stubindex.KotlinExactPackagesIndex
 import org.jetbrains.kotlin.name.StandardClassIds
 import java.util.concurrent.ConcurrentHashMap
@@ -67,6 +66,7 @@ internal class WorkspaceMetaModelBuilder(
       .mapNotNull { propertySymbol ->
         propertySymbol.receiverType?.expandedSymbol
           ?.takeIf { receiverClassSymbol -> isEntityInterface(receiverClassSymbol) && !isEntityBuilderInterface(receiverClassSymbol) }
+          ?.takeIf { isEntityReference(propertySymbol.returnType) }
           ?.let { propertySymbol to it }
       }
     return objModuleStub.registerContent(this@registerObjModuleContent, extensionProperties.toList())
@@ -166,8 +166,9 @@ internal class WorkspaceMetaModelBuilder(
         for (inheritor in inheritorsKtClasses) {
           analyze(inheritor) {
             val inheritorSymbol = inheritor.namedClassSymbol
-            // FIXME: Check for module removed because of problems with kotlin.base.scripting in tests, might liead to other problems
-            if (inheritorSymbol != null && inheritorSymbol.packageName == compiledObjModule.name) { // && inheritorSymbol.containingModule == this@ObjModuleStub.kaModule ) {
+            // FIXME: Check for module (inheritorSymbol.containingModule == this@ObjModuleStub.kaModule) removed because of problems with 
+            //  kotlin.base.scripting in tests, might lead to other problems.
+            if (inheritorSymbol != null && inheritorSymbol.packageName == compiledObjModule.name && inheritorSymbol.name.identifier != "NonPersistentEntitySource") {
               val inheritorValueType = classSymbolToValueType(inheritorSymbol, hashMapOf(javaClassFqn to blobType), true)
               inheritors.add(inheritorValueType)
             }
@@ -217,8 +218,8 @@ internal class WorkspaceMetaModelBuilder(
       hasParentAnnotation: Boolean,
     ): ValueType<*> {
       if (type !is KaClassType) error("$type is not a class in module ${compiledObjModule.name}")
-      if (type.nullability == KaTypeNullability.NULLABLE) {
-        val nonNullableType = type.withNullability(KaTypeNullability.NON_NULLABLE)
+      if (type.isMarkedNullable) {
+        val nonNullableType = type.withNullability(false)
         return ValueType.Optional(convertType(nonNullableType, knownTypes, hasParentAnnotation))
       }
 

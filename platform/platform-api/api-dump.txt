@@ -161,6 +161,15 @@ com.intellij.ide.warmup.WarmupStatus
 a:com.intellij.ide.wizard.AbstractWizard
 - p:getHelpID():java.lang.String
 - p:getHelpId():java.lang.String
+f:com.intellij.internal.inspector.PropertyBean
+- sf:Companion:com.intellij.internal.inspector.PropertyBean$Companion
+- <init>(java.lang.String,java.lang.Object):V
+- <init>(java.lang.String,java.lang.Object,Z):V
+- b:<init>(java.lang.String,java.lang.Object,Z,I,kotlin.jvm.internal.DefaultConstructorMarker):V
+- f:getChanged():Z
+- f:getPropertyName():java.lang.String
+- f:getPropertyValue():java.lang.Object
+f:com.intellij.internal.inspector.PropertyBean$Companion
 com.intellij.internal.inspector.UiInspectorTreeRendererContextProvider
 - a:getUiInspectorContext(javax.swing.JTree,java.lang.Object,I):java.util.List
 com.intellij.openapi.GitRepositoryInitializer
@@ -449,7 +458,9 @@ com.intellij.openapi.ui.DialogBuilder$ActionDescriptor
 com.intellij.openapi.ui.DialogBuilder$CustomizableAction
 - a:setText(java.lang.String):V
 a:com.intellij.openapi.ui.DialogWrapper
+- f:isMaximizable():Z
 - setDoNotAskOption(com.intellij.openapi.ui.DialogWrapper$DoNotAskOption):V
+- f:setMaximizable(Z):V
 com.intellij.openapi.ui.DialogWrapper$DoNotAskOption
 - com.intellij.openapi.ui.DoNotAskOption
 a:com.intellij.openapi.ui.DialogWrapper$DoNotAskOption$Adapter
@@ -458,6 +469,9 @@ a:com.intellij.openapi.ui.DialogWrapper$DoNotAskOption$Adapter
 - <init>():V
 com.intellij.openapi.ui.DialogWrapperDialog
 - a:getDialogWrapper():com.intellij.openapi.ui.DialogWrapper
+a:com.intellij.openapi.ui.DialogWrapperPeer
+- isMaximizable():Z
+- setMaximizable(Z):V
 com.intellij.openapi.ui.ErrorBorderCapable
 com.intellij.openapi.ui.GenericListComponentUpdater
 - a:paintBusy(Z):V
@@ -1308,6 +1322,13 @@ com.intellij.ui.viewModel.extraction.ToolWindowViewModelListener
 - sf:TOPIC:com.intellij.util.messages.Topic
 - a:toolWindowChanged(java.lang.String):V
 - a:toolWindowsChanged():V
+c:com.intellij.util.net.HttpProxyConfigurable
+- com.intellij.openapi.options.ConfigurableBase
+- com.intellij.openapi.options.Configurable$NoMargin
+- <init>():V
+- p:createUi():com.intellij.openapi.options.ConfigurableUi
+- s:editConfigurable(javax.swing.JComponent):Z
+- p:getSettings():com.intellij.util.net.ProxySettings
 com.intellij.util.net.JdkProxyProvider
 - sf:Companion:com.intellij.util.net.JdkProxyProvider$Companion
 - s:ensureDefault():V
@@ -1352,8 +1373,6 @@ com.intellij.util.net.ProxySettings
 - s:getInstance():com.intellij.util.net.ProxySettings
 - a:getProxyConfiguration():com.intellij.util.net.ProxyConfiguration
 com.intellij.util.net.ProxySettingsOverrideProvider
-- sf:Companion:com.intellij.util.net.ProxySettingsOverrideProvider$Companion
-- s:areProxySettingsOverridden():Z
 - a:getProxyConfigurationProvider():com.intellij.util.net.ProxyConfigurationProvider
 - a:getShouldUserSettingsBeOverriden():Z
 com.intellij.util.ui.ComponentWithEmptyText

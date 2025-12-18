@@ -5,11 +5,10 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.platform.debugger.impl.shared.SplitDebuggerAction
 import com.intellij.platform.debugger.impl.shared.proxy.XDebugSessionProxy
-import com.intellij.xdebugger.impl.DebuggerSupport
-import com.intellij.xdebugger.impl.performDebuggerActionAsync
+import com.intellij.platform.debugger.impl.shared.performDebuggerActionAsync
 
 open class ForceStepIntoAction : XDebuggerActionBase(), SplitDebuggerAction {
-  override fun getHandler(debuggerSupport: DebuggerSupport): DebuggerActionHandler {
+  override fun getHandler(): DebuggerActionHandler {
     return ourHandler
   }
 

@@ -4,6 +4,7 @@ package com.intellij.ide.actions.searcheverywhere
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.GotoFileItemProvider
 import com.intellij.ide.actions.SearchEverywherePsiRenderer
+import com.intellij.ide.actions.searcheverywhere.footer.createPsiExtendedInfo
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.runReadAction
@@ -48,13 +49,14 @@ interface FilesTabSEContributor {
 private val LOG = Logger.getInstance(NonIndexableFilesSEContributor::class.java)
 
 @ApiStatus.Internal
-class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEverywhereContributor<Any>, DumbAware, FilesTabSEContributor {
+class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEverywhereContributor<Any>,
+                                                             DumbAware,
+                                                             FilesTabSEContributor,
+                                                             SearchEverywhereExtendedInfoProvider {
   private val project: Project = event.project!!
   private val navigationHandler: SearchEverywhereNavigationHandler = FileSearchEverywhereNavigationContributionHandler(project)
 
-  override fun getSearchProviderId(): String {
-    return javaClass.simpleName
-  }
+  override fun getSearchProviderId(): String = ID
 
   override fun getGroupName(): @Nls String {
     return IdeBundle.message("search.everywhere.group.name.non.indexable.files")
@@ -166,6 +168,12 @@ class NonIndexableFilesSEContributor(event: AnActionEvent) : WeightedSearchEvery
     }
   }
 
+  override fun createExtendedInfo(): @Nls ExtendedInfo = createPsiExtendedInfo()
+
+  companion object {
+    @ApiStatus.Internal
+    const val ID: String = "NonIndexableFilesSEContributor"
+  }
 
   @ApiStatus.Internal
   class Factory : SearchEverywhereContributorFactory<Any?> {
