@@ -5,6 +5,7 @@ import com.intellij.ide.starter.config.classFileVerification
 import com.intellij.ide.starter.config.includeRuntimeModuleRepositoryInIde
 import com.intellij.ide.starter.config.monitoringDumpsIntervalSeconds
 import com.intellij.ide.starter.di.di
+import com.intellij.ide.starter.ide.IDERemDevTestContext
 import com.intellij.ide.starter.ide.IDEStartConfig
 import com.intellij.ide.starter.ide.IDETestContext
 import com.intellij.ide.starter.ide.asRemDevContext
@@ -43,7 +44,9 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.io.path.bufferedReader
 import kotlin.io.path.exists
+import kotlin.io.path.name
 import kotlin.io.path.readText
+import kotlin.io.path.walk
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -244,7 +247,7 @@ data class IDERunContext(
     snapshotsDir: Path,
     runContext: IDERunContext,
   ) {
-    if (!runContext.calculateVmOptions().hasHeadlessMode()) {
+    if (!runContext.calculateVmOptions().hasHeadlessMode() && runContext.testContext !is IDERemDevTestContext) {
       catchAll {
         takeScreenshot(logsDir)
       }
@@ -281,7 +284,7 @@ data class IDERunContext(
   }
 
   private fun isLowMemorySignalPresent(logsDir: Path): Boolean {
-    return logsDir.resolve("idea.log").bufferedReader().useLines { lines ->
+    return logsDir.walk().single { it.name == "idea.log"}.bufferedReader().useLines { lines ->
       lines.any { line ->
         line.contains("Low memory signal received: afterGc=true")
       }

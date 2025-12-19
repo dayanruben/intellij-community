@@ -31,7 +31,7 @@ fun getProjectOrNull(): Project? {
 
 context(lambdaIdeContext: LambdaIdeContext)
 fun getProject(): Project =
-  getProjectOrNull() ?: error("Have not been able to find project")
+  getProjects().single()
 
 context(lambdaIdeContext: LambdaIdeContext)
 val Project.frame
@@ -125,6 +125,7 @@ suspend fun openProject(projectPath: Path): Project {
     @Suppress("RAW_RUN_BLOCKING")
     runBlocking {
       projectManager.forceCloseProjectAsync(project, save = false)
+      waitForProject(timeout = 5.seconds) // waits there is a single project left
     }
   }
   project.waitInitialised()

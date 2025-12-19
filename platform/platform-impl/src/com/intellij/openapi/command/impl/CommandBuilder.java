@@ -3,6 +3,8 @@ package com.intellij.openapi.command.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
+import com.intellij.openapi.command.impl.cmd.CmdEvent;
+import com.intellij.openapi.command.impl.cmd.CmdMeta;
 import com.intellij.openapi.command.undo.DocumentReference;
 import com.intellij.openapi.command.undo.UndoableAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -117,7 +119,7 @@ final class CommandBuilder {
     originalDocument = null;
     UndoSpy undoSpy = UndoSpy.getInstance();
     if (undoSpy != null) {
-      undoSpy.undoableActionAdded(undoProject, new ResetOriginatorAction(), UndoableActionType.RESET_ORIGINATOR);
+      undoSpy.undoableActionAdded(undoProject, ResetOriginatorAction.INSTANCE, UndoableActionType.RESET_ORIGINATOR);
     }
   }
 
@@ -267,10 +269,7 @@ final class CommandBuilder {
     public boolean isTransparent() { throw new UnsupportedOperationException(); }
 
     @Override
-    public void addEditorProvider(@NotNull ForeignEditorProvider provider) { throw new UnsupportedOperationException(); }
-
-    @Override
-    public @NotNull List<@NotNull ForeignEditorProvider> editorProviders() { throw new UnsupportedOperationException(); }
+    public @NotNull CmdMeta meta() { throw new UnsupportedOperationException(); }
 
     // endregion
   }

@@ -7,6 +7,7 @@ import com.intellij.codeWithMe.clientId
 import com.intellij.diagnostic.LoadingState
 import com.intellij.diagnostic.dumpCoroutines
 import com.intellij.diagnostic.enableCoroutineDump
+import com.intellij.ide.IdeEventQueue
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.PluginModuleDescriptor
 import com.intellij.ide.plugins.PluginModuleId
@@ -37,6 +38,7 @@ import java.io.Serializable
 import java.net.InetAddress
 import java.net.URLClassLoader
 import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.io.path.Path
 import kotlin.reflect.KClass
 import kotlin.reflect.full.companionObject
 import kotlin.reflect.full.isSubclassOf
@@ -102,6 +104,11 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
         }
         coroutineDumperOnTimeout.cancel()
         withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+          runLogged("Flush queue before tests") {
+            withContext(Dispatchers.EDT) {
+              IdeEventQueue.getInstance().flushQueue()
+            }
+          }
           createProtocol(hostAddress, port)
         }
       }
@@ -196,6 +203,11 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
         session.cleanUp.setSuspend(sessionBgtDispatcher) { _, _ ->
           LOG.info("Resetting scopes")
           ideContext.coroutineContext.job.cancelAndJoin()
+          runLogged("Flush queue in between tests") {
+            withContext(Dispatchers.EDT) {
+              IdeEventQueue.getInstance().flushQueue()
+            }
+          }
           ideContext = getLambdaIdeContext()
         }
 
@@ -251,7 +263,7 @@ open class LambdaTestHost(coroutineScope: CoroutineScope) {
           assert(ClientId.current.isLocal) { "ClientId '${ClientId.current}' should be local before test method starts" }
           withContext(ideContext.coroutineContext + Dispatchers.Default + CoroutineName("Lambda task: ${lambda.stepName}") + clientIdContextToRunLambda()) {
             runLogged(lambda.stepName, 10.minutes) {
-              val urls = lambda.classPath.map { File(it).toURI().toURL() }
+              val urls = lambda.classPath.map { Path(it).toUri().toURL() }
               URLClassLoader(urls.toTypedArray(), testModuleDescriptor?.pluginClassLoader ?: this::class.java.classLoader).use { cl ->
                 SerializedLambdaWithIdeContextHelper().let { loader ->
                   val params = lambda.parametersBase64.map {

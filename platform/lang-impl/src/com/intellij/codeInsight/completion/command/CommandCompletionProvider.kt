@@ -163,6 +163,8 @@ internal class CommandCompletionProvider(val contributor: CommandCompletionContr
       if (adjustedParameters.injectedFile == null) return
       if (adjustedParameters.injectedOffset == null) return
       if (!commandCompletionFactory.isApplicable(adjustedParameters.injectedFile, adjustedParameters.injectedOffset)) return
+      val originalCompletionFactory = commandCompletionService.getFactory(adjustedParameters.copyFile.language) ?: return
+      if (!originalCompletionFactory.isApplicableForHost(adjustedParameters.copyFile, adjustedParameters.copyOffset)) return
     }
     else {
       if (!commandCompletionFactory.isApplicable(adjustedParameters.copyFile, adjustedParameters.copyOffset)) return
@@ -624,11 +626,14 @@ internal fun findCommandCompletionType(
                                                text.substring(offset - indexOf, offset - indexOf + 1))
   }
   //two points
-  else if (offset - indexOf + 2 <= text.length && text.substring(offset - indexOf, offset - indexOf + 2) == suffix) {
+  else if (offset - indexOf + 2 <= text.length &&
+           offset >= offset - indexOf + 2 &&
+           text.substring(offset - indexOf, offset - indexOf + 2) == suffix) {
     return InvocationCommandType.FullSuffix(text.substring(offset - indexOf + 2, offset),
                                             text.substring(offset - indexOf, offset - indexOf + 2))
   }
-  if (indexOf > 0 && text.substring(offset - indexOf).startsWith(factory.suffix())) {
+  if (indexOf > 0 &&
+      text.substring(offset - indexOf).startsWith(factory.suffix())) {
     //force call with one point
     return InvocationCommandType.PartialSuffix(text.substring(offset - indexOf + 1, offset),
                                                text.substring(offset - indexOf, offset - indexOf + 1))

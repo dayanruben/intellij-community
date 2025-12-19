@@ -4,10 +4,15 @@ package com.intellij.openapi.command.impl;
 import com.intellij.openapi.command.undo.DocumentReference;
 import com.intellij.openapi.command.undo.UndoableAction;
 import com.intellij.openapi.command.undo.UnexpectedUndoException;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
 
-final class ResetOriginatorAction implements UndoableAction {
+@ApiStatus.Experimental
+@ApiStatus.Internal
+public final class ResetOriginatorAction implements UndoableAction {
+
+  public static final UndoableAction INSTANCE = new ResetOriginatorAction();
 
   @Override
   public void undo() throws UnexpectedUndoException {

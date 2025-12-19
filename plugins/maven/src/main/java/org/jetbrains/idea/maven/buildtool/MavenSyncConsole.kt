@@ -29,6 +29,7 @@ import org.jetbrains.idea.maven.buildtool.quickfix.OpenMavenSettingsQuickFix
 import org.jetbrains.idea.maven.execution.SyncBundle
 import org.jetbrains.idea.maven.externalSystemIntegration.output.importproject.quickfixes.DownloadArtifactBuildIssue
 import org.jetbrains.idea.maven.model.MavenProjectProblem
+import org.jetbrains.idea.maven.project.MavenProjectBundle
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.project.MavenWorkspaceSettingsComponent
 import org.jetbrains.idea.maven.server.MavenArtifactEvent
@@ -39,6 +40,7 @@ import org.jetbrains.idea.maven.utils.MavenLog
 import org.jetbrains.idea.maven.utils.MavenUtil
 import java.io.File
 import java.text.MessageFormat
+import java.util.concurrent.CancellationException
 
 class MavenSyncConsole(private val myProject: Project) : MavenEventHandler, MavenBuildIssueHandler {
   private val mySyncView: BuildProgressListener = myProject.getService(SyncViewManager::class.java)
@@ -54,6 +56,8 @@ class MavenSyncConsole(private val myProject: Project) : MavenEventHandler, Mave
   private val myPostponed = ArrayList<() -> Unit>()
 
   private var myStartedSet = LinkedHashSet<Pair<Any, String>>()
+
+  class RescheduledMavenDownloadJobException(override val message: String?) : CancellationException(message)
 
   @Synchronized
   fun startImport(explicit: Boolean) {
@@ -201,6 +205,26 @@ class MavenSyncConsole(private val myProject: Project) : MavenEventHandler, Mave
     mySyncView.onEvent(mySyncId,
                        FileMessageEventImpl(mySyncId, MessageEvent.Kind.ERROR, SyncBundle.message("maven.sync.group.error"), desc, desc,
                                             FilePosition(File(file.path), -1, -1)))
+  }
+
+  @Synchronized
+  fun notifyDownloadSourcesProblem(e: Exception) {
+    val messageEvent = when (e) {
+      // a new job was submitted so no need to show anything to the user
+      is RescheduledMavenDownloadJobException -> null
+      // a normal cancellation happened
+      is CancellationException -> {
+        val message = MavenProjectBundle.message("maven.downloading.cancelled")
+        MessageEventImpl(mySyncId, MessageEvent.Kind.INFO, SyncBundle.message("build.event.title.error"), message, message)
+      }
+      else -> {
+        hasErrors = true
+        createMessageEvent(myProject, mySyncId, e)
+      }
+    }
+    if (messageEvent != null) {
+      mySyncView.onEvent(mySyncId, messageEvent)
+    }
   }
 
   @Synchronized
