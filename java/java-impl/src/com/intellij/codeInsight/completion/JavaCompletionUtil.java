@@ -291,7 +291,8 @@ public final class JavaCompletionUtil {
     }
 
     PsiElement refQualifier = javaReference.getQualifier();
-    if (refQualifier == null && PsiTreeUtil.getParentOfType(element, PsiPackageStatement.class, PsiImportStatementBase.class) == null) {
+    if (!ModCompletionItemProvider.modCommandCompletionEnabled() && 
+        refQualifier == null && PsiTreeUtil.getParentOfType(element, PsiPackageStatement.class, PsiImportStatementBase.class) == null) {
       StaticMemberProcessor memberProcessor = new JavaStaticMemberProcessor(parameters);
       memberProcessor.processMembersOfRegisteredClasses(nameCondition, (member, psiClass) -> {
         if (!mentioned.contains(member) && processor.satisfies(member, ResolveState.initial())) {
@@ -557,7 +558,7 @@ public final class JavaCompletionUtil {
       return JavaConstructorCallElement.wrap(classItem, reference.getElement());
     }
     if (completion instanceof PsiMethod) {
-      if (reference instanceof PsiMethodReferenceExpression) {
+      if (reference instanceof PsiMethodReferenceExpression && !ModCompletionItemProvider.modCommandCompletionEnabled()) {
         return Collections.singleton((LookupElement)new JavaMethodReferenceElement(
           (PsiMethod)completion, (PsiMethodReferenceExpression)reference, completionElement.getMethodRefType()));
       }

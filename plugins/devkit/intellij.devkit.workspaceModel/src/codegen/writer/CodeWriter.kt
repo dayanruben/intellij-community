@@ -98,7 +98,16 @@ object CodeWriter {
       ApplicationManagerEx.getApplicationEx().runWriteActionWithCancellableProgressInDispatchThread(title, project, null) { indicator ->
         indicator.text = DevKitWorkspaceModelBundle.message("progress.text.collecting.classes.metadata")
         val metaLoader: WorkspaceMetaModelProvider = service<WorkspaceMetaModelProvider>()
-        val objModules = metaLoader.loadObjModules(ktClasses, module, processAbstractTypes, isTestSourceFolder)
+        val (objModules, metaProblems) = metaLoader.loadObjModules(ktClasses, module, processAbstractTypes, isTestSourceFolder)
+        if (metaProblems.isNotEmpty()) {
+          WorkspaceCodegenProblemsProvider.getInstance(project).reportMetaProblem(metaProblems)
+          val genFolder = existingTargetFolder.invoke()
+          if (genFolder != null) {
+            indicator.text = DevKitWorkspaceModelBundle.message("progress.text.removing.old.code")
+            removeGeneratedCode(genFolder)
+          }
+          return@runWriteActionWithCancellableProgressInDispatchThread
+        }
 
         val results = generate(codeGenerator, objModules, explicitApiEnabled, isTestModule)
         val generatedCode = results.flatMap { it.generatedCode }
@@ -106,7 +115,6 @@ object CodeWriter {
         WorkspaceCodegenProblemsProvider.getInstance(project).reportProblems(problems)
 
         if (generatedCode.isEmpty() || problems.any { it.level == GenerationProblem.Level.ERROR }) {
-          LOG.info("Not found types for generation")
           val genFolder = existingTargetFolder.invoke()
           if (genFolder != null) {
             indicator.text = DevKitWorkspaceModelBundle.message("progress.text.removing.old.code")
@@ -156,12 +164,11 @@ object CodeWriter {
         if (!formatCode) return@runWriteActionWithCancellableProgressInDispatchThread
 
         val copiedEditorconfig = copyEditorConfigIfIntellij(project, genFolder)
-        val kotlinImportOptimizer = generatedFiles.firstOrNull()?.let { LanguageImportStatements.INSTANCE.forFile(it) }?.firstOrNull()
         for ((i, file) in generatedFiles.withIndex()) {
           DumbService.getInstance(project).completeJustSubmittedTasks()
           indicator.fraction = 0.25 + 0.7 * i / generatedFiles.size
           addCopyright(file, ktClasses)
-          kotlinImportOptimizer?.processFile(file)?.run()
+          LanguageImportStatements.INSTANCE.forFile(file).forEach { it.processFile(file).run() }
           PsiDocumentManager.getInstance(file.project).doPostponedOperationsAndUnblockDocument(file.viewProvider.document!!)
           CodeStyleManager.getInstance(project).reformat(file)
         }
