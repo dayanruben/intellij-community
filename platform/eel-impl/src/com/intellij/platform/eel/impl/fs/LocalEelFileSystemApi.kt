@@ -189,22 +189,6 @@ abstract class NioBasedEelFileSystemApi(@VisibleForTesting val fs: FileSystem) :
       LocalEelOpenedFileWriter(this, byteChannel, path, AtomicReference(null))
     }
 
-  private fun writeOptionsToNioOptions(options: EelFileSystemApi.WriteOptions): MutableSet<StandardOpenOption> {
-    val nioOptions = mutableSetOf<StandardOpenOption>(StandardOpenOption.WRITE)
-    when (options.creationMode) {
-      ALLOW_CREATE -> nioOptions += StandardOpenOption.CREATE
-      ONLY_CREATE -> nioOptions += StandardOpenOption.CREATE_NEW
-      ONLY_OPEN_EXISTING -> Unit
-    }
-    if (options.append) {
-      nioOptions += StandardOpenOption.APPEND
-    }
-    if (options.truncateExisting) {
-      nioOptions += StandardOpenOption.TRUNCATE_EXISTING
-    }
-    return nioOptions
-  }
-
   override suspend fun openForReadingAndWriting(options: EelFileSystemApi.WriteOptions): EelResult<
     EelOpenedFile.ReaderWriter,
     EelFileSystemApi.FileWriterError> =
@@ -500,6 +484,10 @@ abstract class PosixNioBasedEelFileSystemApi(
       Files.createSymbolicLink(linkPath.toNioPath(), targetPath)
     }
 
+  override suspend fun streamingWrite(chunks: Flow<ByteBuffer>, targetFileOpenOptions: EelFileSystemApi.WriteOptions): StreamingWriteResult = doStreamingWrite(chunks, targetFileOpenOptions)
+
+  override suspend fun streamingRead(path: EelPath): Flow<StreamingReadResult> = doStreamingRead(path)
+
   override suspend fun walkDirectory(options: EelFileSystemApi.WalkDirectoryOptions): Flow<WalkDirectoryEntryResult> = flow {
     val rootDir = options.path.asNioPath()
 
@@ -727,6 +715,10 @@ abstract class WindowsNioBasedEelFileSystemApi(
 
       // TODO File permissions for windows.
     }
+
+  override suspend fun streamingWrite(chunks: Flow<ByteBuffer>, targetFileOpenOptions: EelFileSystemApi.WriteOptions): StreamingWriteResult = doStreamingWrite(chunks, targetFileOpenOptions)
+
+  override suspend fun streamingRead(path: EelPath): Flow<StreamingReadResult> = doStreamingRead(path)
 
   override suspend fun walkDirectory(options: EelFileSystemApi.WalkDirectoryOptions): Flow<WalkDirectoryEntryResult> = flow {
     val rootDir = options.path.asNioPath()
@@ -1026,4 +1018,83 @@ private fun convertPermissionsToMask(permissions: Set<PosixFilePermission>): Int
   if (PosixFilePermission.OTHERS_WRITE in permissions) mask = mask or 0b000000010
   if (PosixFilePermission.OTHERS_EXECUTE in permissions) mask = mask or 0b000000001
   return mask
+}
+
+private suspend fun doStreamingWrite(chunks: Flow<ByteBuffer>, targetFileOpenOptions: EelFileSystemApi.WriteOptions): StreamingWriteResult {
+  var totalBytesWritten = 0
+  val path = targetFileOpenOptions.path
+  val nioOptions = writeOptionsToNioOptions(targetFileOpenOptions)
+
+  try {
+    withContext(Dispatchers.IO) {
+      Files.newByteChannel(
+        path.asNioPath(),
+        nioOptions
+      ).use { channel ->
+        chunks.collect { buffer ->
+          while (buffer.hasRemaining()) {
+            totalBytesWritten += channel.write(buffer)
+          }
+        }
+      }
+    }
+  }
+  catch (e: FileSystemException) {
+    val err = when (e) {
+      is NoSuchFileException -> EelFsResultImpl.DoesNotExist(path, e.message ?: "Target path does not exist")
+      is FileAlreadyExistsException -> EelFsResultImpl.AlreadyExists(path, e.message ?: "Target path already exists")
+      is AccessDeniedException -> EelFsResultImpl.NotFile(path, e.message
+                                                                ?: "Target path is not a file, no permissions to write, or the path points to a directory")
+      else -> EelFsResultImpl.Other(path, e.message ?: e.toString())
+    }
+    return StreamingWriteResultImpl.Error(err)
+  }
+  return StreamingWriteResultImpl.Ok(totalBytesWritten)
+}
+
+private fun doStreamingRead(path: EelPath): Flow<StreamingReadResult> =
+  flow {
+    try {
+      Files.newByteChannel(path.asNioPath(), StandardOpenOption.READ).use { channel ->
+        // Buffer size chosen randomly
+        val buffer = ByteBuffer.allocateDirect(64 * 1024)
+        while (true) {
+          buffer.clear()
+          val bytesRead = channel.read(buffer)
+          if (bytesRead == -1) break
+          buffer.flip()
+
+          val chunk = ByteBuffer.allocate(buffer.remaining())
+          chunk.put(buffer)
+          chunk.flip()
+
+          emit(StreamingReadResultImpl.Ok(chunk))
+        }
+      }
+    }
+    // Exception instead of FileSystemException because opening a directory for reading returns IOException
+    catch (e: Exception) {
+      val err = when (e) {
+        is NoSuchFileException -> EelFsResultImpl.DoesNotExist(path, e.message ?: "Target path does not exist")
+        is AccessDeniedException -> EelFsResultImpl.NotFile(path, e.message ?: "Target path is not a file or no permissions to read")
+        else -> EelFsResultImpl.Other(path, e.message ?: e.toString())
+      }
+      emit(StreamingReadResultImpl.Error(err))
+    }
+  }
+
+private fun writeOptionsToNioOptions(options: EelFileSystemApi.WriteOptions): MutableSet<StandardOpenOption> {
+  val nioOptions = mutableSetOf<StandardOpenOption>(StandardOpenOption.WRITE)
+  when (options.creationMode) {
+    ALLOW_CREATE -> nioOptions += StandardOpenOption.CREATE
+    ONLY_CREATE -> nioOptions += StandardOpenOption.CREATE_NEW
+    ONLY_OPEN_EXISTING -> Unit
+  }
+  if (options.append) {
+    nioOptions += StandardOpenOption.APPEND
+  }
+  if (options.truncateExisting) {
+    nioOptions += StandardOpenOption.TRUNCATE_EXISTING
+  }
+  return nioOptions
 }
