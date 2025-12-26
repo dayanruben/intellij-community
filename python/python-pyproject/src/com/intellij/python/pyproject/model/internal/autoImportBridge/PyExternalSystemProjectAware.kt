@@ -4,13 +4,14 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.externalSystem.autoimport.*
 import com.intellij.openapi.externalSystem.model.ProjectSystemId
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.platform.backend.observation.launchTracked
 import com.intellij.project.stateStore
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.python.pyproject.model.api.ModelRebuiltListener
 import com.intellij.python.pyproject.model.internal.PyProjectTomlBundle
 import com.intellij.python.pyproject.model.internal.pyProjectToml.walkFileSystemNoTomlContent
@@ -36,7 +37,11 @@ internal class PyExternalSystemProjectAware private constructor(
   override val settingsFiles: Set<String>
     get() = runBlockingMaybeCancellable {
       // We do not need file content: only names here.
-      val fsInfo = walkFileSystemNoTomlContent(projectRootDir)
+      val fsInfo = walkFileSystemNoTomlContent(projectRootDir).getOr {
+        // Dir can't be accessed
+        log.trace(it.error)
+        return@runBlockingMaybeCancellable emptySet()
+      }
       return@runBlockingMaybeCancellable fsInfo.rawTomlFiles.map { it.pathString }.toSet()
     }
 
@@ -52,12 +57,19 @@ internal class PyExternalSystemProjectAware private constructor(
     project.service<PyExternalSystemProjectAwareService>().scope.launchTracked {
       writeAction {
         // We might get stale files otherwise
-        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        FileDocumentManager.getInstance().saveAllDocuments()
       }
+
       project.messageBus.syncAndPreloadPublisher(PROJECT_AWARE_TOPIC).apply {
         try {
-          val files = walkFileSystemWithTomlContent(projectRootDir)
           this.onProjectReloadStart()
+          val files = walkFileSystemWithTomlContent(projectRootDir).getOr {
+            if (log.isTraceEnabled) {
+              log.warn("Can't access $projectRootDir", it.error)
+            }
+            this.onProjectReloadFinish(ExternalSystemRefreshStatus.FAILURE)
+            return@launchTracked
+          }
           rebuildProjectModel(project, files)
           this.onProjectReloadFinish(ExternalSystemRefreshStatus.SUCCESS)
           // Even though we have no entities, we still "rebuilt" the model
@@ -106,3 +118,5 @@ internal val MODEL_REBUILD: Topic<ModelRebuiltListener> = Topic(ModelRebuiltList
 
 @Service(Service.Level.PROJECT)
 private class PyExternalSystemProjectAwareService(val scope: CoroutineScope)
+
+private val log = fileLogger()
