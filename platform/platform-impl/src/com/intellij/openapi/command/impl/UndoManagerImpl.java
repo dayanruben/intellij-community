@@ -11,6 +11,7 @@ import com.intellij.openapi.client.ClientSession;
 import com.intellij.openapi.client.ClientSessionsManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.impl.cmd.CmdEvent;
+import com.intellij.openapi.command.impl.cmd.CmdIdService;
 import com.intellij.openapi.command.undo.DocumentReference;
 import com.intellij.openapi.command.undo.DocumentReferenceManager;
 import com.intellij.openapi.command.undo.UndoManager;
@@ -246,6 +247,7 @@ public class UndoManagerImpl extends UndoManager {
     Pair<String, String> redoDescription = getRedoActionNameAndDescription(editor);
     String undoStatus = "undo: %s, %s, %s".formatted(undoAvailable, undoDescription.getFirst(), undoDescription.getSecond());
     String redoStatus = "redo: %s, %s, %s".formatted(redoAvailable, redoDescription.getFirst(), redoDescription.getSecond());
+    String commandHistory = CmdIdService.getInstance().historyDump();
     String stacks;
     UndoClientState state = getClientState(editor);
     if (state == null) {
@@ -261,8 +263,9 @@ public class UndoManagerImpl extends UndoManager {
       %s
       %s
       %s
+      %s
       _____________________________________________________________________________________________________________________
-      """.formatted(title, editorString, undoStatus, redoStatus, stacks);
+      """.formatted(title, editorString, undoStatus, redoStatus, commandHistory, stacks);
   }
 
   @ApiStatus.Internal
@@ -290,7 +293,7 @@ public class UndoManagerImpl extends UndoManager {
   }
 
   @ApiStatus.Internal
-  protected void undoOrRedo(@Nullable FileEditor editor, boolean isUndo) {
+  public void undoOrRedo(@Nullable FileEditor editor, boolean isUndo) {
     UndoClientState state = getClientState(editor);
     if (state != null) {
       String commandName = getUndoOrRedoActionNameAndDescription(editor, isUndo).getSecond();
@@ -439,6 +442,14 @@ public class UndoManagerImpl extends UndoManager {
     UndoClientState state = getClientState();
     if (state != null) {
       state.flushCommandMerger(UndoCommandFlushReason.MANAGER_FORCE);
+    }
+  }
+
+  @ApiStatus.Internal
+  public void flushCurrentCommandMergerIntoRedo() {
+    UndoClientState state = getClientState();
+    if (state != null) {
+      state.flushCommandMergerIntoRedo();
     }
   }
 

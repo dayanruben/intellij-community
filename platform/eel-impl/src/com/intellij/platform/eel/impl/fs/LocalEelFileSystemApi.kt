@@ -569,7 +569,7 @@ abstract class PosixNioBasedEelFileSystemApi(
         }
       }
     }
-  }
+  }.flowOn(Dispatchers.IO)
 
   private fun walkDirectoryProcessFilePosix(
     currentItem: Path,
@@ -801,7 +801,7 @@ abstract class WindowsNioBasedEelFileSystemApi(
         }
       }
     }
-  }
+  }.flowOn(Dispatchers.IO)
 
   private fun walkDirectoryProcessFileWindows(
     currentItem: Path,
@@ -869,7 +869,7 @@ abstract class WindowsNioBasedEelFileSystemApi(
     }
     else if (sourceAttrs.isRegularFile) {
       if (options.yieldRegularFiles) {
-        val hash = if (options.fileContentsHash) {
+        val hash = if (!options.fileContentsHash) {
           null
         }
         else if (sourceAttrs.size() > 0) {

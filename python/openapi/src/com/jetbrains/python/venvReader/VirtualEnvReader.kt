@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.venvReader
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.util.io.toCanonicalPath
 import com.intellij.platform.eel.EelApi
@@ -17,6 +18,8 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.TestOnly
 import java.io.IOException
+import java.nio.file.NoSuchFileException
+import java.nio.file.NotDirectoryException
 import java.nio.file.Path
 import kotlin.io.path.*
 
@@ -47,7 +50,7 @@ class VirtualEnvReader private constructor(
    * Dir with virtual envs
    */
   @RequiresBackgroundThread
-  fun getVEnvRootDir(eel: EelApi = localEel): Directory {
+  fun getVEnvRootDir(eel: EelApi? = getLocalEelIfApp()): Directory {
     return resolveDirFromEnvOrElseGetDirInHomePath(eel, "WORKON_HOME", DEFAULT_VIRTUALENVS_DIR)
   }
 
@@ -56,25 +59,35 @@ class VirtualEnvReader private constructor(
    */
   @RequiresBackgroundThread
   fun findVEnvInterpreters(): List<PythonBinary> =
-    findLocalInterpreters(getVEnvRootDir())
+    findVenvsInDir(getVEnvRootDir())
 
   @RequiresBackgroundThread
-  fun getPyenvRootDir(eel: EelApi = localEel): Directory {
+  fun getPyenvRootDir(eel: EelApi? = getLocalEelIfApp()): Directory {
     return resolveDirFromEnvOrElseGetDirInHomePath(eel, "PYENV_ROOT", ".pyenv")
   }
 
   @RequiresBackgroundThread
   fun findPyenvInterpreters(): List<PythonBinary> =
-    findLocalInterpreters(getPyenvVersionsDir())
+    findVenvsInDir(getPyenvVersionsDir())
 
+  /**
+   * List contents of [root] looking for envs there, returns all pythons it were able to find
+   */
   @RequiresBackgroundThread
-  fun findLocalInterpreters(root: Directory): List<PythonBinary> {
-    if (!root.isDirectory()) {
-      return listOf()
-    }
+  fun findVenvsInDir(root: Directory): List<PythonBinary> {
 
     val candidates: ArrayList<Path> = arrayListOf()
-    for (dir in root.listDirectoryEntries()) {
+    val children = try {
+      root.listDirectoryEntries()
+    }
+    catch (_: NoSuchFileException) {
+      return emptyList()
+    }
+    catch (_: NotDirectoryException) {
+      return emptyList()
+    }
+
+    for (dir in children) {
       findPythonInPythonRoot(dir)?.let { candidates.add(it) }
     }
 
@@ -119,19 +132,12 @@ class VirtualEnvReader private constructor(
    */
   @RequiresBackgroundThread
   fun findPythonInPythonRoot(dir: PythonHomePath): PythonBinary? {
-    if (!dir.isDirectory()) {
-      return null
-    }
 
     val bin = dir.resolve("bin")
-    if (bin.isDirectory()) {
-      findInterpreter(bin)?.let { return it }
-    }
+    findInterpreter(bin)?.let { return it }
 
     val scripts = dir.resolve("Scripts")
-    if (scripts.isDirectory()) {
-      findInterpreter(scripts)?.let { return it }
-    }
+    findInterpreter(scripts)?.let { return it }
 
     return findInterpreter(dir)
   }
@@ -169,17 +175,28 @@ class VirtualEnvReader private constructor(
   @RequiresBackgroundThread
   private fun findInterpreter(dir: Path): PythonBinary? {
     val pythonNames = when (forcedOs ?: dir.getEelDescriptor().osFamily) {
-      EelOsFamily.Posix -> setOf("pypy", "python")
-      EelOsFamily.Windows -> setOf("pypy.exe", "python.exe")
+      EelOsFamily.Posix -> POSIX_BINS
+      EelOsFamily.Windows -> WIN_BINS
     }
-    return dir.listDirectoryEntries().firstOrNull { it.isRegularFile() && it.name.lowercase() in pythonNames }
+    return try {
+      dir.listDirectoryEntries().firstOrNull { it.name.lowercase() in pythonNames && it.isRegularFile() }
+    }
+    catch (_: NotDirectoryException) {
+      return null
+    }
+    catch (_: NoSuchFileException) {
+      return null
+    }
   }
 
   @RequiresBackgroundThread
-  private fun resolveDirFromEnvOrElseGetDirInHomePath(eel: EelApi, env: String, dirName: String): Path {
-    val envs = forcedVars ?: runBlockingMaybeCancellable { eel.exec.environmentVariables().eelIt().await() }
-    return envs[env]?.let { tryResolvePath(it, eel.descriptor) }
-           ?: eel.userInfo.home.asNioPath().resolve(dirName)
+  private fun resolveDirFromEnvOrElseGetDirInHomePath(eel: EelApi?, env: String, dirName: String): Path {
+    val envs = forcedVars
+               ?: eel?.let { eel -> runBlockingMaybeCancellable { eel.exec.environmentVariables().eelIt().await() } }
+               ?: System.getenv()
+    return envs[env]?.let { tryResolvePath(it, eel?.descriptor) }
+           ?: (eel?.userInfo?.home?.asNioPath()
+               ?: Path(System.getProperty("user.home"))).resolve(dirName)
   }
 
 
@@ -195,7 +212,12 @@ class VirtualEnvReader private constructor(
      * @see com.jetbrains.python.sdk.flavors.VirtualEnvSdkFlavor.getDefaultLocation
      */
     const val DEFAULT_VIRTUALENVS_DIR: String = ".virtualenvs"
+
+    @Suppress("VENV_IS_OK") // The only place it should be used in prod
     const val DEFAULT_VIRTUALENV_DIRNAME: String = ".venv"
 
+    private val POSIX_BINS = setOf("pypy", "python")
+    private val WIN_BINS = setOf("pypy.exe", "python.exe")
+    private fun getLocalEelIfApp(): EelApi? = if (ApplicationManager.getApplication() != null) localEel else null
   }
 }
