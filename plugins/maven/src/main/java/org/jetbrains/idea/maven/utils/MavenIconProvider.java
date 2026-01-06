@@ -11,8 +11,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
-import org.jetbrains.idea.maven.project.MavenProjectsManagerEx;
-import org.jetbrains.idea.maven.project.MavenProjectsTree;
 
 import javax.swing.*;
 
@@ -22,14 +20,15 @@ public final class MavenIconProvider implements DumbAware, FileIconProvider {
   @Override
   public @Nullable Icon getIcon(@NotNull VirtualFile file, @Iconable.IconFlags int flags, @Nullable Project project) {
     if (project == null) return null;
-    MavenProjectsManagerEx manager = (MavenProjectsManagerEx)MavenProjectsManager.getInstanceIfCreated(project);
-    if (manager == null || !manager.isMavenizedProject()) return null;
 
-    MavenProjectsTree tree = manager.getProjectsTreeIfInitialized();
-    if (tree == null) return null;
-    MavenProject mavenProject = tree.findProject(file);
+    var mavenProjectsManager = MavenProjectsManager.getInstanceIfCreated(project);
+    if (mavenProjectsManager == null) return null;
+
+    if (!mavenProjectsManager.isMavenizedProject()) return null;
+
+    MavenProject mavenProject = mavenProjectsManager.findProject(file);
     if (mavenProject != null) {
-      if (tree.isIgnored(mavenProject)) {
+      if (mavenProjectsManager.isIgnored(mavenProject)) {
         return MavenIcons.MavenIgnored;
       }
       return RepositoryLibraryLogo;
