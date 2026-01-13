@@ -183,8 +183,9 @@ internal class CommandCompletionProvider(val contributor: CommandCompletionContr
     resultSet.restartCompletionOnPrefixChange(
       StandardPatterns.string().with(object : PatternCondition<String>("add filter for command completion") {
         override fun accepts(t: String, context: ProcessingContext?): Boolean {
-          return (!isReadOnly && commandCompletionType.suffix + t ==
-                  commandCompletionFactory.suffix() + (commandCompletionFactory.filterSuffix()?.toString() ?: "")) ||
+          val fullSuffix = commandCompletionFactory.suffix() + (commandCompletionFactory.filterSuffix()?.toString() ?: "")
+          return (!isReadOnly &&
+                  (commandCompletionType.suffix + t == fullSuffix) || t.endsWith(fullSuffix)) ||
                  (isReadOnly && (commandCompletionType.suffix + t == (commandCompletionFactory.filterSuffix()?.toString() ?: "")))
         }
       }))
@@ -522,7 +523,7 @@ internal open class MyEditor(psiFileCopy: PsiFile, private val settings: EditorS
     return object : FoldingModel {
       override fun addFoldRegion(startOffset: Int, endOffset: Int, placeholderText: String): FoldRegion? = null
       override fun removeFoldRegion(region: FoldRegion) = Unit
-      override fun getAllFoldRegions(): Array<out FoldRegion?> = emptyArray()
+      override fun getAllFoldRegions(): Array<out FoldRegion> = emptyArray()
       override fun isOffsetCollapsed(offset: Int): Boolean = false
       override fun getCollapsedRegionAtOffset(offset: Int): FoldRegion? = null
       override fun getFoldRegion(startOffset: Int, endOffset: Int): FoldRegion? = null
