@@ -8,8 +8,8 @@ import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager
 import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManagerListener
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.vcs.VcsShowToolWindowTabAction
+import com.intellij.vcs.git.workingTrees.GitWorkingTreesUtil
 import git4idea.workingTrees.GitWorkingTreesService
-import git4idea.workingTrees.GitWorkingTreesUtil
 
 internal class ShowWorkingTreesAction : DumbAwareAction() {
 

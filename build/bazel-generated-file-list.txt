@@ -296,6 +296,7 @@ java/execution/impl
 java/execution/openapi
 java/execution/shared
 java/ide-customization
+java/ide-customization/training
 java/ide-resources
 java/idea-ui
 java/java-analysis-api
@@ -1375,6 +1376,7 @@ plugins/performanceTesting/remote-driver.compose
 plugins/performanceTesting/scripts-ui
 plugins/performanceTesting/vcs
 plugins/properties
+plugins/properties/copyright
 plugins/properties/properties-common
 plugins/properties/properties-psi-api
 plugins/properties/properties-psi-impl
@@ -1418,6 +1420,7 @@ plugins/tasks/tasks-java
 plugins/tasks/tasks-tests
 plugins/terminal
 plugins/terminal/backend
+plugins/terminal/cloud
 plugins/terminal/completion
 plugins/terminal/frontend
 plugins/terminal/sh

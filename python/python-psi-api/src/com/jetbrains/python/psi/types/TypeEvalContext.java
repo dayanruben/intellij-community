@@ -313,7 +313,7 @@ public sealed class TypeEvalContext {
         ExternalPyTypeResolver externalPyTypeResolver = externalTypeResolver.get();
         PyType type;
 
-        if (externalPyTypeResolver != null && externalPyTypeResolver.isSupportedForResolve(element)) {
+        if (externalPyTypeResolver != null && !isFallbackContext() && externalPyTypeResolver.isSupportedForResolve(element)) {
           type = externalPyTypeResolver.resolveType(element, this, this instanceof LibraryTypeEvalContext);
         }
         else {
@@ -325,6 +325,10 @@ public sealed class TypeEvalContext {
         return type;
       }
     );
+  }
+
+  private boolean isFallbackContext() {
+    return myConstraints.myOrigin == null;
   }
 
   public @Nullable PyType getReturnType(final @NotNull PyCallable callable) {
@@ -414,7 +418,11 @@ public sealed class TypeEvalContext {
   }
 
   private static boolean inPyiFile(@NotNull PsiElement element) {
-    if (isPyiFile(element.getContainingFile())) {
+    PsiFile containingFile = element.getContainingFile();
+    if (containingFile == null) {
+      return false;
+    }
+    if (isPyiFile(containingFile)) {
       return true;
     }
     PsiFile contextFile = getContextFile(element);
