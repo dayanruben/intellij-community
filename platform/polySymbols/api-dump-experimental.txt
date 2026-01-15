@@ -424,8 +424,6 @@
 *f:com.intellij.polySymbols.context.PolyContextSourceProximityProvider$SourceKind$PackageManagerDependency
 - com.intellij.polySymbols.context.PolyContextSourceProximityProvider$SourceKind
 - f:component1():java.lang.String
-- f:copy(java.lang.String):com.intellij.polySymbols.context.PolyContextSourceProximityProvider$SourceKind$PackageManagerDependency
-- bs:copy$default(com.intellij.polySymbols.context.PolyContextSourceProximityProvider$SourceKind$PackageManagerDependency,java.lang.String,I,java.lang.Object):com.intellij.polySymbols.context.PolyContextSourceProximityProvider$SourceKind$PackageManagerDependency
 - equals(java.lang.Object):Z
 - f:getName():java.lang.String
 - hashCode():I
@@ -1017,7 +1015,7 @@
 - a:createPointer():com.intellij.model.Pointer
 - getNavigationTargets(com.intellij.openapi.project.Project):java.util.Collection
 - getPsiContext():com.intellij.psi.PsiElement
-- getSource():com.intellij.psi.PsiElement
+- a:getSource():com.intellij.psi.PsiElement
 - isEquivalentTo(com.intellij.model.Symbol):Z
 *f:com.intellij.polySymbols.utils.FileUtils
 - sf:findOriginalFile(com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.vfs.VirtualFile

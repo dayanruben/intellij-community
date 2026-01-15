@@ -874,6 +874,8 @@ com.intellij.openapi.fileChooser.ex.FileLookup$LookupFile
 - a:setMacro(java.lang.String):V
 com.intellij.openapi.fileChooser.ex.FileLookup$LookupFilter
 - a:isAccepted(com.intellij.openapi.fileChooser.ex.FileLookup$LookupFile):Z
+a:com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+- updateFileName(com.intellij.openapi.vfs.VirtualFile):V
 com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
 - sf:Companion:com.intellij.openapi.fileEditor.ex.FileEditorProviderManager$Companion
 - a:getDumbUnawareProviders(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.util.Set,kotlin.coroutines.Continuation):java.lang.Object
@@ -1720,6 +1722,7 @@ c:com.intellij.ui.tree.ui.DefaultTreeUI
 - p:isLocationInExpandControl(javax.swing.tree.TreePath,I,I):Z
 - p:isToggleEvent(java.awt.event.MouseEvent):Z
 - paint(java.awt.Graphics,javax.swing.JComponent):V
+- p:selectPathForEvent(javax.swing.tree.TreePath,java.awt.event.MouseEvent):V
 - p:setLargeModel(Z):V
 - p:setModel(javax.swing.tree.TreeModel):V
 - p:setRootVisible(Z):V

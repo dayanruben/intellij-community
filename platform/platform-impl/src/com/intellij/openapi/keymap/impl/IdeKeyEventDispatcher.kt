@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplacePutWithAssignment", "ReplaceGetOrSet")
 
 package com.intellij.openapi.keymap.impl
@@ -18,9 +18,9 @@ import com.intellij.openapi.actionSystem.impl.ActionMenu
 import com.intellij.openapi.actionSystem.impl.PresentationFactory
 import com.intellij.openapi.actionSystem.impl.Utils
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.TransactionGuard
 import com.intellij.openapi.application.TransactionGuardImpl
-import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.client.ClientSystemInfo
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.diagnostic.debug
@@ -65,6 +65,7 @@ import java.awt.event.ActionEvent
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.util.*
+import java.util.function.Supplier
 import javax.swing.*
 import javax.swing.plaf.basic.ComboPopup
 import javax.swing.text.JTextComponent
@@ -538,44 +539,53 @@ class IdeKeyEventDispatcher(private val queue: IdeEventQueue?) {
 
     fireBeforeShortcutTriggered(shortcut, actions, context)
 
-    val chosen = WriteIntentReadAction.compute(Computable {
-      val chosen = Utils.runUpdateSessionForInputEvent(
+    val chosen = runInReadActionConditionally(actions) {
+      Utils.runUpdateSessionForInputEvent(
         actions, e, wrappedContext, place, processor, presentationFactory
       ) { rearranged, updater, events ->
         doUpdateActionsInner(rearranged, updater, events, dumb, wouldBeEnabledIfNotDumb)
       }
-      val doPerform = chosen != null && !this@IdeKeyEventDispatcher.context.secondStrokeActions.contains(chosen.action)
+    }
+    val doPerform = chosen != null && !this@IdeKeyEventDispatcher.context.secondStrokeActions.contains(chosen.action)
 
-      LOG.trace { "updateResult: chosen=$chosen, doPerform=$doPerform" }
-      val hasSecondStroke = chosen != null && this.context.secondStrokeActions.contains(chosen.action)
-      if (e.id == KeyEvent.KEY_PRESSED && !hasSecondStroke && (chosen != null || !wouldBeEnabledIfNotDumb.isEmpty())) {
-        ignoreNextKeyTypedEvent = true
-      }
+    LOG.trace { "updateResult: chosen=$chosen, doPerform=$doPerform" }
+    val hasSecondStroke = chosen != null && this.context.secondStrokeActions.contains(chosen.action)
+    if (e.id == KeyEvent.KEY_PRESSED && !hasSecondStroke && (chosen != null || !wouldBeEnabledIfNotDumb.isEmpty())) {
+      ignoreNextKeyTypedEvent = true
+    }
 
-      if (doPerform) {
-        doPerformActionInner(e, processor, chosen.action, chosen.event)
-        logTimeMillis(chosen.startedAt, chosen.action)
-      }
-      else if (hasSecondStroke) {
-        waitSecondStroke(chosen.action, chosen.event.presentation)
-      }
-      else if (!wouldBeEnabledIfNotDumb.isEmpty()) {
-        val actionManager = ActionManager.getInstance()
-        showDumbModeBalloonLater(project = project,
-                                 message = getActionUnavailableMessage(wouldBeEnabledIfNotDumb),
-                                 expired = { e.isConsumed },
-                                 actionIds = actions.mapNotNull { action -> actionManager.getId(action) }) {
-          // invokeLater to make sure correct dataContext is taken from focus
-          ApplicationManager.getApplication().invokeLater {
-            DataManager.getInstance().dataContextFromFocusAsync.onSuccess { dataContext ->
-              processAction(e, place, dataContext, actions, processor, presentationFactory, shortcut)
-            }
+    if (doPerform) {
+      doPerformActionInner(e, processor, chosen.action, chosen.event)
+      logTimeMillis(chosen.startedAt, chosen.action)
+    }
+    else if (hasSecondStroke) {
+      waitSecondStroke(chosen.action, chosen.event.presentation)
+    }
+    else if (!wouldBeEnabledIfNotDumb.isEmpty()) {
+      val actionManager = ActionManager.getInstance()
+      showDumbModeBalloonLater(project = project,
+                               message = getActionUnavailableMessage(wouldBeEnabledIfNotDumb),
+                               expired = { e.isConsumed },
+                               actionIds = actions.mapNotNull { action -> actionManager.getId(action) }) {
+        // invokeLater to make sure correct dataContext is taken from focus
+        ApplicationManager.getApplication().invokeLater {
+          DataManager.getInstance().dataContextFromFocusAsync.onSuccess { dataContext ->
+            processAction(e, place, dataContext, actions, processor, presentationFactory, shortcut)
           }
         }
       }
-      chosen
-    })
+    }
     return chosen != null
+  }
+
+  // inlining here to reduce the number of service stacktraces
+  @Suppress("NOTHING_TO_INLINE")
+  private inline fun <T> runInReadActionConditionally(actions: List<AnAction>, supplier: Supplier<T>): T {
+    return if (actions.any(Utils::isLockRequired)) {
+      ReadAction.compute<T, Throwable>(supplier::get)
+    } else {
+      supplier.get()
+    }
   }
 
   /**

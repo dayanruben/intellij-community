@@ -20,6 +20,7 @@ import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.fileEditor.*
 import com.intellij.openapi.fileEditor.ClientFileEditorManager.Companion.assignClientId
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
 import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider
 import com.intellij.openapi.fileEditor.impl.HistoryEntry.Companion.FILE_ATTRIBUTE
@@ -139,7 +140,14 @@ open class EditorComposite internal constructor(
 
   @JvmField
   @Internal
-  val initDeferred: CompletableDeferred<Unit> = CompletableDeferred<Unit>()
+  val shownDeferred: CompletableDeferred<Unit> = CompletableDeferred()
+
+  @JvmField
+  @Internal
+  val initDeferred: CompletableDeferred<Unit> = CompletableDeferred()
+
+  private val _isPreviewFlow = MutableStateFlow(false)
+  internal val isPreviewFlow: StateFlow<Boolean> = _isPreviewFlow.asStateFlow()
 
   init {
     EDT.assertIsEdt()
@@ -170,6 +178,13 @@ open class EditorComposite internal constructor(
         }
       }
     }
+
+    coroutineScope.launch {
+      // listen for preview status change to update file tooltip, skip the first value as it is the initial value
+      isPreviewFlow.drop(1).collect {
+        FileEditorManagerEx.getInstanceEx(project).updateFileName(file)
+      }
+    }
   }
 
   // available doesn't mean that a file editor is fully loaded
@@ -188,9 +203,12 @@ open class EditorComposite internal constructor(
   fun isAvailable(): Boolean = fileEditorWithProviders.value !== INITIAL_EMPTY
 
   @Internal
-  protected open suspend fun beforeFileOpen(scope: CoroutineScope, model: EditorCompositeModel) {}
+  protected open suspend fun beforeFileOpen(scope: CoroutineScope, model: EditorCompositeModel) {
+  }
+
   @Internal
-  protected open suspend fun afterFileOpen(scope: CoroutineScope, model: EditorCompositeModel) {}
+  protected open suspend fun afterFileOpen(scope: CoroutineScope, model: EditorCompositeModel) {
+  }
 
   private suspend fun handleModel(model: EditorCompositeModel) {
     val fileEditorWithProviders = model.fileEditorAndProviderList
@@ -249,6 +267,7 @@ open class EditorComposite internal constructor(
           selectedFileEditorProvider = selectedFileEditor,
         )
         afterFileOpen(this, model)
+        shownDeferred.complete(Unit)
 
         writeIntentReadAction {
           goodPublisher.fileOpenedSync(fileEditorManager, file, fileEditorWithProviders)
@@ -280,6 +299,7 @@ open class EditorComposite internal constructor(
     val states = oldBadForRemoteDevGetStates(fileEditorWithProviders = fileEditorWithProviders, state = model.state)
     applyFileEditorsInEdt(fileEditorWithProviders = fileEditorWithProviders, selectedFileEditorProvider = null, states = states)
   }
+
   private fun List<FileEditorWithProvider>.assignEditorProperties(): Unit = forEach { it.fileEditor.assignProperties() }
 
   private fun oldBadForRemoteDevGetStates(
@@ -312,14 +332,36 @@ open class EditorComposite internal constructor(
       return
     }
 
-    val beforePublisher = project.messageBus.syncAndPreloadPublisher(FileEditorManagerListener.Before.FILE_EDITOR_MANAGER)
+    val messageBus = project.messageBus
+    val goodPublisher = messageBus.syncAndPreloadPublisher(FileOpenedSyncListener.TOPIC)
+    val deprecatedPublisher = messageBus.syncAndPreloadPublisher(FileEditorManagerListener.FILE_EDITOR_MANAGER)
+
+    val beforePublisher = messageBus.syncAndPreloadPublisher(FileEditorManagerListener.Before.FILE_EDITOR_MANAGER)
 
     val fileEditorManager = FileEditorManager.getInstance(project)
 
-    beforePublisher!!.beforeFileOpened(fileEditorManager, file)
+    computeOrLogException(
+      lambda = { beforePublisher!!.beforeFileOpened(fileEditorManager, file) },
+      errorMessage = { "exception during beforeFileOpened notification" },
+    )
 
     val states = oldBadForRemoteDevGetStates(fileEditorWithProviders = fileEditorWithProviders, state = model.state)
     applyFileEditorsInEdt(fileEditorWithProviders = fileEditorWithProviders, selectedFileEditorProvider = null, states = states)
+
+    shownDeferred.complete(Unit)
+
+    coroutineScope.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+      initDeferred.await()
+
+      writeIntentReadAction {
+        goodPublisher.fileOpenedSync(fileEditorManager, file, fileEditorWithProviders)
+        @Suppress("DEPRECATION")
+        deprecatedPublisher.fileOpenedSync(fileEditorManager, file, fileEditorWithProviders)
+
+        val publisher = project.messageBus.syncAndPreloadPublisher(FileEditorManagerListener.FILE_EDITOR_MANAGER)
+        publisher.fileOpened(fileEditorManager, file)
+      }
+    }
   }
 
   @RequiresEdt
@@ -489,9 +531,6 @@ open class EditorComposite internal constructor(
       field = pinned
       ClientProperty.put(compositePanel, JBTabsImpl.PINNED, if (field) true else null)
     }
-
-  private val _isPreviewFlow = MutableStateFlow(false)
-  internal val isPreviewFlow: StateFlow<Boolean> = _isPreviewFlow.asStateFlow()
 
   /**
    * Whether the composite is opened as a preview tab or not
@@ -765,7 +804,7 @@ open class EditorComposite internal constructor(
       Disposer.dispose(fileEditor)
     }
 
-    fileEditorWithProviderList.update { oldList -> oldList.toMutableList().also { it.removeAll(toRemove)} }
+    fileEditorWithProviderList.update { oldList -> oldList.toMutableList().also { it.removeAll(toRemove) } }
 
     if (fileEditorWithProviderList.value.isEmpty()) {
       compositePanel.removeAll()
@@ -952,12 +991,12 @@ internal class EditorCompositePanel(@JvmField val composite: EditorComposite) : 
     skeletonScope.cancel()
     removeAll()
 
-      val scrollPanes = UIUtil.uiTraverser(newComponent)
-        .expand { o -> o === newComponent || o is JPanel || o is JLayeredPane }
-        .filter(JScrollPane::class.java)
-      for (scrollPane in scrollPanes) {
-        scrollPane.border = SideBorder(JBColor.border(), SideBorder.NONE)
-      }
+    val scrollPanes = UIUtil.uiTraverser(newComponent)
+      .expand { o -> o === newComponent || o is JPanel || o is JLayeredPane }
+      .filter(JScrollPane::class.java)
+    for (scrollPane in scrollPanes) {
+      scrollPane.border = SideBorder(JBColor.border(), SideBorder.NONE)
+    }
 
     add(newComponent, BorderLayout.CENTER)
     this.focusComponent = focusComponent

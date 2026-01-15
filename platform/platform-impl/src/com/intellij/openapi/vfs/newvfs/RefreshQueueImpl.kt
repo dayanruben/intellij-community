@@ -241,10 +241,10 @@ class RefreshQueueImpl(coroutineScope: CoroutineScope) : RefreshQueue(), Disposa
   ) {
     var t = System.nanoTime()
     if (backgroundWriteAction) {
-      session.fireEventsInBackgroundWriteAction(events, changeAppliers)
+      session.fireEventsInBackgroundWriteAction(events, changeAppliers, excludeAsyncListeners = true)
     }
     else {
-      session.fireEvents(events, changeAppliers, true)
+      session.fireEvents(events, changeAppliers, excludeAsyncListeners = true)
     }
     t = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t)
     VfsUsageCollector.logEventProcessing(evTimeInQueue.toLong(), TimeUnit.NANOSECONDS.toMillis(evListenerTime.toLong()), evRetries.toInt(), t, events.size)
@@ -337,10 +337,10 @@ class RefreshQueueImpl(coroutineScope: CoroutineScope) : RefreshQueue(), Disposa
       var t = System.nanoTime()
       val compoundEvents = events.map { event: VFileEvent -> CompoundVFileEvent(event) }
       if (EDT.isCurrentThreadEdt()) {
-        session.fireEvents(compoundEvents, listOf(), false)
+        session.fireEvents(compoundEvents, listOf(), excludeAsyncListeners = false)
       }
       else {
-        session.fireEventsInBackgroundWriteAction(compoundEvents, listOf())
+        session.fireEventsInBackgroundWriteAction(compoundEvents, listOf(), excludeAsyncListeners = false)
       }
       t = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t)
       VfsUsageCollector.logEventProcessing(-1L, -1L, -1, t, compoundEvents.size)

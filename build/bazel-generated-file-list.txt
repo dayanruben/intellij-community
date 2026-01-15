@@ -248,6 +248,8 @@ fleet/preferences
 fleet/reporting/api
 fleet/reporting/shared
 fleet/rhizomedb
+fleet/rhizomedb.transactor
+fleet/rhizomedb.transactor.rebase
 fleet/rpc
 fleet/rpc.server
 fleet/util/codepoints
@@ -420,6 +422,7 @@ libraries/jgoodies/common
 libraries/jgoodies/forms
 libraries/jsonpath
 libraries/jsoup
+libraries/jspecify
 libraries/jsvg
 libraries/junit4
 libraries/junit5
@@ -993,6 +996,8 @@ plugins/grazie/xml
 plugins/grazie/yaml
 plugins/groovy
 plugins/groovy-live-templates
+plugins/groovy/ant
+plugins/groovy/byteCodeViewer
 plugins/groovy/git
 plugins/groovy/groovy-psi
 plugins/groovy/groovy-uast-tests

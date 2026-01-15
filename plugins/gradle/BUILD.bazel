@@ -78,6 +78,7 @@ jvm_library(
     "//platform/util/coroutines",
     "//platform/execution",
     "//platform/forms_rt:java-guiForms-rt",
+    "//libraries/jspecify",
   ],
   exports = [
     "//platform/external-system-api:externalSystem",

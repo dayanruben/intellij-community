@@ -96,6 +96,8 @@
     <module name="fleet.reporting.api" loading="embedded"/>
     <module name="fleet.reporting.shared" loading="embedded"/>
     <module name="fleet.rhizomedb" loading="embedded"/>
+    <module name="fleet.rhizomedb.transactor" loading="embedded"/>
+    <module name="fleet.rhizomedb.transactor.rebase" loading="embedded"/>
     <module name="fleet.rpc" loading="embedded"/>
     <module name="fleet.util.codepoints" loading="embedded"/>
     <module name="fleet.util.core" loading="embedded"/>
@@ -385,6 +387,7 @@
     <module name="intellij.platform.langInjection.backend"/>
     <module name="intellij.libraries.grpc"/>
     <module name="intellij.libraries.grpc.netty.shaded"/>
+    <module name="intellij.libraries.jspecify"/>
     <module name="intellij.platform.structuralSearch"/>
     <!-- endregion -->
   </content>

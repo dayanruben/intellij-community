@@ -486,7 +486,7 @@ class EditorWindow internal constructor(
     focusNew: Boolean,
     fileIsSecondaryComponent: Boolean = true,
     forceFocus: Boolean = false,
-    explicitlySetCompositeProvider: (() -> EditorComposite?)?,
+    internalHint: FileEditorOpenOptionsHint?,
   ): EditorWindow? {
     checkConsistency()
     if (tabCount < 1) {
@@ -501,7 +501,7 @@ class EditorWindow internal constructor(
           window = target,
           _file = virtualFile,
           entry = selectedComposite.takeIf { it.file == virtualFile }?.currentStateAsFileEntry(),
-          options = FileEditorOpenOptions(requestFocus = focusNew, forceFocus = forceFocus, explicitlyOpenCompositeProvider = null),
+          options = FileEditorOpenOptions(requestFocus = focusNew, forceFocus = forceFocus, internalHint = null),
         )
       }
       return target
@@ -544,7 +544,7 @@ class EditorWindow internal constructor(
         pin = getComposite(nextFile)?.isPinned ?: false,
         selectAsCurrent = focusNew,
         forceFocus = forceFocus,
-        explicitlyOpenCompositeProvider = explicitlySetCompositeProvider
+        internalHint = internalHint
       ),
     ) ?: return newWindow
     if (!focusNew) {
@@ -977,7 +977,8 @@ class EditorWindow internal constructor(
     return null
   }
 
-  private fun findComponentIndex(composite: EditorComposite): Int = tabbedPane.tabs.tabs.indexOfFirst { it.component === composite.component }
+  private fun findComponentIndex(composite: EditorComposite): Int =
+    tabbedPane.tabs.tabs.indexOfFirst { it.component === composite.component }
 
   internal fun findTabByComposite(composite: EditorComposite): TabInfo? = tabbedPane.tabs.tabs.firstOrNull { it.composite === composite }
 
