@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.quickfix
 
@@ -100,31 +100,25 @@ internal object OptInFixesFactory : KotlinIntentionActionsFactory() {
         val result = mutableListOf<CandidateData>()
         var current: PsiElement? = this
 
-        fun CandidateData.addToResult() {
-            if (result.any { this.element == it.element }) return
-            result.add(this)
-        }
-
         val closestDeclaration = this.findParentOfType<KtDeclaration>(strict = false)
 
         while (current != null) {
-            when {
-                current is KtClassOrObject && closestDeclaration != current -> OptInGeneralUtils.findContainingClassOrObjectCandidate(
+            when (current) {
+                is KtClassOrObject if closestDeclaration != current -> OptInGeneralUtils.findContainingClassOrObjectCandidate(
                     current
-                )?.addToResult()
+                )?.addTo(result)
 
-                current is KtCallExpression -> current.findSamConstructorCallCandidate()?.addToResult()
-                current is KtDeclaration &&
-                        (current is KtDeclarationWithBody && !current.isLambda()
-                                || current is KtTypeAlias
-                                || current is KtProperty
-                                || current is KtClassOrObject) ->
-                    OptInGeneralUtils.findContainingDeclarationCandidate(current).addToResult()
+                is KtCallExpression -> current.findSamConstructorCallCandidate()?.addTo(result)
+                is KtDeclaration if (current is KtDeclarationWithBody && !current.isLambda()
+                        || current is KtTypeAlias
+                        || current is KtProperty
+                        || current is KtClassOrObject) ->
+                    OptInGeneralUtils.findContainingDeclarationCandidate(current).addTo(result)
             }
             current = current.parent
         }
 
-        this.findStatementCandidate()?.addToResult()
+        OptInGeneralUtils.findStatementCandidate(this)?.addTo(result)
 
         // For the case where two different elements have the same name
         return result.sortedBy { it.kind == AddAnnotationFix.Kind.Self }
@@ -132,22 +126,14 @@ internal object OptInFixesFactory : KotlinIntentionActionsFactory() {
 
     private fun KtDeclarationWithBody.isLambda() = descriptor?.name?.asString() == "<anonymous>"
 
-    private fun KtElement.findStatementCandidate(): CandidateData? {
-        require(this.containingFile.isScript())
-        var statementElement: KtElement = this
-        while (statementElement.parent !is KtBlockExpression && statementElement.parent !is KtClassBody) statementElement =
-            statementElement.parent as? KtElement ?: return null
-        return CandidateData(statementElement, AddAnnotationFix.Kind.Self)
-    }
-
     private fun KtCallExpression.findSamConstructorCallCandidate(): CandidateData? {
         val parent = this.parent
         if (parent !is KtBlockExpression && parent !is KtScriptInitializer && parent !is KtAnnotatedExpression) return null
         val resolvedCall = this.resolveToCall() ?: return null
         if (resolvedCall.resultingDescriptor !is SamConstructorDescriptor) return null
-        val element = when {
-            parent is KtScriptInitializer -> parent
-            parent is KtAnnotatedExpression && parent.parent is KtScriptInitializer -> parent.parent
+        val element = when (parent) {
+            is KtScriptInitializer -> parent
+            is KtAnnotatedExpression if parent.parent is KtScriptInitializer -> parent.parent
             else -> this
         }
         val name = resolvedCall.resultingDescriptor.name.asString()

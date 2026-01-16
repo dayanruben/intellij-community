@@ -4,6 +4,7 @@
     <plugin id="org.toml.lang"/>
     <module name="intellij.kotlin.gradle.gradle"/>
     <module name="intellij.kotlin.gradle.tooling"/>
+    <module name="kotlin.gradle.scripting.shared"/>
   </dependencies>
 
   <extensions defaultExtensionNs="com.intellij">
@@ -13,6 +14,9 @@
     <lang.elementManipulator
             forClass="org.jetbrains.kotlin.psi.KtDotQualifiedExpression"
             implementationClass="org.jetbrains.kotlin.idea.gradle.versionCatalog.toml.KotlinDotQualifiedExpressionManipulator"/>
+    <completion.contributor language="TOML"
+                            id="KotlinGradleTomlCompletionContributor"
+                            implementationClass="org.jetbrains.kotlin.idea.gradle.versionCatalog.toml.completion.KotlinGradleTomlCompletionContributor"/>
   </extensions>
 
 </idea-plugin>

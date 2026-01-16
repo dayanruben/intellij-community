@@ -8,14 +8,12 @@ import com.intellij.notebooks.visualization.cellSelectionModel
 import com.intellij.notebooks.visualization.getCells
 import com.intellij.notebooks.visualization.ui.EditorLayerController.Companion.EDITOR_LAYER_CONTROLLER_KEY
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.client.ClientSystemInfo
 import com.intellij.openapi.editor.event.EditorMouseEventArea
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.observable.properties.AtomicProperty
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.removeUserData
 import com.intellij.ui.ComponentUtil
-import java.awt.event.InputEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseMotionAdapter
@@ -68,7 +66,14 @@ class DecoratedEditor private constructor(
         if (editorImpl.getMouseEventArea(event) != EditorMouseEventArea.EDITING_AREA) {
           editorImpl.setMode(NotebookEditorMode.COMMAND)
         }
-        updateSelectionAfterClick(hoveredCell.interval, event.isCtrlPressed(), event.isShiftPressed(), event.button)
+
+        updateSelectionAfterClick(
+          hoveredCell.interval,
+          event.button,
+          event.isControlDown,
+          event.isShiftDown,
+          event.isAltDown
+        )
       }
 
       private fun sendMouseEventToNestedScroll(event: MouseEvent) {
@@ -83,15 +88,28 @@ class DecoratedEditor private constructor(
     editorComponentWrapper.addEditorMouseWheelEvent { nestedScrollingSupport.processMouseWheelEvent(it) }
   }
 
-  override fun inlayClicked(clickedCell: NotebookCellLines.Interval, ctrlPressed: Boolean, shiftPressed: Boolean, mouseButton: Int) {
+  override fun inlayClicked(clickedCell: NotebookCellLines.Interval, event: MouseEvent) {
     editorImpl.setMode(NotebookEditorMode.COMMAND)
-    updateSelectionAfterClick(clickedCell, ctrlPressed, shiftPressed, mouseButton)
+
+    updateSelectionAfterClick(
+      clickedCell,
+      event.button,
+      event.isControlDown,
+      event.isShiftDown,
+      event.isAltDown
+    )
   }
 
-  fun updateSelectionAfterClick(clickedCell: NotebookCellLines.Interval, ctrlPressed: Boolean, shiftPressed: Boolean, mouseButton: Int) {
+  fun updateSelectionAfterClick(
+    clickedCell: NotebookCellLines.Interval,
+    mouseButton: Int,
+    isCtrlPressed: Boolean,
+    isShiftPressed: Boolean,
+    isAltPressed: Boolean,
+  ) {
     val model = editorImpl.cellSelectionModel!!
     when {
-      ctrlPressed -> {
+      isCtrlPressed -> {
         if (model.isSelectedCell(clickedCell)) {
           model.removeSelection(clickedCell)
         }
@@ -99,7 +117,7 @@ class DecoratedEditor private constructor(
           model.selectCell(clickedCell, makePrimary = true)
         }
       }
-      shiftPressed -> {
+      isShiftPressed -> {
         // select or deselect all cells from primary to the selected one
         val primaryCell = model.primarySelectedCell
         val line1 = primaryCell.lines.first
@@ -115,13 +133,16 @@ class DecoratedEditor private constructor(
           }
         }
         else {
-          for (cell in (affectedSelectedCells - cellsInRange)) {
+          for (cell in (affectedSelectedCells - cellsInRange.toSet())) {
             model.removeSelection(cell)
           }
-          for (cell in (cellsInRange - affectedSelectedCells)) {
+          for (cell in (cellsInRange - affectedSelectedCells.toSet())) {
             model.selectCell(cell)
           }
         }
+      }
+      isAltPressed -> {
+        // don't change selection in this case
       }
       mouseButton == MouseEvent.BUTTON1 && !model.isSelectedCell(clickedCell) -> {
         model.selectSingleCell(clickedCell)
@@ -130,6 +151,10 @@ class DecoratedEditor private constructor(
   }
 
   companion object {
+    /** lists assumed to be ordered and non-empty  */
+    private fun hasIntersection(cells: List<NotebookCellLines.Interval>, others: List<NotebookCellLines.Interval>): Boolean =
+      !(cells.last().ordinal < others.first().ordinal || cells.first().ordinal > others.last().ordinal)
+
     fun install(original: EditorImpl, manager: NotebookCellInlayManager) {
       val decoratedEditor = DecoratedEditor(original, manager)
       val controller = EditorLayerController(
@@ -143,14 +168,5 @@ class DecoratedEditor private constructor(
       }
     }
   }
+
 }
-
-/** lists assumed to be ordered and non-empty  */
-private fun hasIntersection(cells: List<NotebookCellLines.Interval>, others: List<NotebookCellLines.Interval>): Boolean =
-  !(cells.last().ordinal < others.first().ordinal || cells.first().ordinal > others.last().ordinal)
-
-private fun MouseEvent.isCtrlPressed(): Boolean =
-  (modifiersEx and if (ClientSystemInfo.isMac()) InputEvent.META_DOWN_MASK else InputEvent.CTRL_DOWN_MASK) != 0
-
-private fun MouseEvent.isShiftPressed(): Boolean =
-  (modifiersEx and InputEvent.SHIFT_DOWN_MASK) != 0

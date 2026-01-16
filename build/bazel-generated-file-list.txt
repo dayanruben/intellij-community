@@ -303,6 +303,8 @@ java/ide-resources
 java/idea-ui
 java/java-analysis-api
 java/java-analysis-impl
+java/java-backend
+java/java-copyright
 java/java-features-trainer
 java/java-frontback-impl
 java/java-frontback-psi-api
@@ -313,6 +315,7 @@ java/java-impl-inspections
 java/java-impl-refactorings
 java/java-indexing-api
 java/java-indexing-impl
+java/java-promo
 java/java-psi-api
 java/java-psi-impl
 java/java-runtime
@@ -1001,6 +1004,7 @@ plugins/groovy/byteCodeViewer
 plugins/groovy/git
 plugins/groovy/groovy-psi
 plugins/groovy/groovy-uast-tests
+plugins/groovy/intellij.groovy.copyright
 plugins/groovy/jps-plugin
 plugins/groovy/rt
 plugins/groovy/rt-constants

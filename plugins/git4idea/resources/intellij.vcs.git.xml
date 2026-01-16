@@ -683,7 +683,7 @@
                  description="Show actions for a tracked branch as a sub-popup in the local branch actions popup in Git branches popup."/>
     <registryKey key="git.drop.selected.changes.enabled" defaultValue="true"
                  description="Enables the 'Drop Selected Changes' action in Git log changes tree context menu."/>
-    <registryKey key="git.in.memory.commit.editing.operations.enabled" defaultValue="false"
+    <registryKey key="git.in.memory.commit.editing.operations.enabled" defaultValue="true"
                  description="Starts in-memory variants of interactive rebase operations in suitable scenarios, leading to better performance"/>
     <registryKey key="git.in.memory.interactive.rebase.notify.errors" defaultValue="false"
                  description="Show notification when in-memory interactive rebase fails and fallbacks to the regular one"/>
@@ -832,6 +832,10 @@
                  description="Show notification about modal commit deprecation if the version is specified"
                  restartRequired="false"/>
 
+    <registryKey key="git.log.provider.experimental.refs.collection" defaultValue="false"
+                 description="Reuse refs from GitRepository instead of relying on log command"
+                 restartRequired="false"/>
+
     <vcs.actions.ScheduleForAdditionActionExtension implementation="git4idea.actions.GitAdd"/>
     <completion.contributor language="TEXT" implementationClass="git4idea.commit.GitCommitCompletionContributor"
                             order="first, before commitCompletion"/>
@@ -953,6 +957,8 @@
     <gitRawAnnotationProvider implementation="git4idea.annotate.GitAnnotationProvider$DefaultGitAnnotationProvider"/>
 
     <gitRepoIconProvider implementation="git4idea.ui.ColorManagerRepoIconProvider"/>
+
+    <gitFetchHandler implementation="git4idea.repo.GitRepositoryTagsHolderFetchHandler"/>
   </extensions>
 
   <extensionPoints>
@@ -1003,7 +1009,6 @@
               topic="git4idea.config.GitVcsSettings$GitVcsSettingsListener"/>
     <listener os="windows" class="git4idea.config.GitNewVersionCheckerStarter"
               topic="com.intellij.openapi.vcs.VcsMappingListener"/>
-    <listener class="git4idea.workingTrees.ui.GitWorkingTreeToolwindowUpdateListener"
-              topic="com.intellij.vcs.git.repo.GitRepositoriesHolder$UpdatesListener"/>
+
   </projectListeners>
 </idea-plugin>

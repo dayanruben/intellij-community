@@ -28,3 +28,6 @@
 - name: lib/modules/intellij.groovy.byteCodeViewer.jar
   contentModules:
   - name: intellij.groovy.byteCodeViewer
+- name: lib/modules/intellij.groovy.copyright.jar
+  contentModules:
+  - name: intellij.groovy.copyright

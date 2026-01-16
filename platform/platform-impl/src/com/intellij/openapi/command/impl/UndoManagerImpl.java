@@ -284,6 +284,11 @@ public class UndoManagerImpl extends UndoManager {
   }
 
   @ApiStatus.Internal
+  public void clearAndRepairStacks(@Nullable FileEditor editor) {
+    clearStacks(editor);
+  }
+
+  @ApiStatus.Internal
   protected void undoOrRedo(@Nullable FileEditor editor, boolean isUndo) {
     UndoClientState state = getClientState(editor);
     if (state != null) {
@@ -445,7 +450,7 @@ public class UndoManagerImpl extends UndoManager {
   public void flushCurrentCommandMerger() {
     UndoClientState state = getClientState();
     if (state != null) {
-      state.flushCommandMerger(UndoCommandFlushReason.MANAGER_FORCE);
+      state.flushCommandMerger(CommandMergerFlushReason.MANAGER_FORCE);
     }
   }
 
