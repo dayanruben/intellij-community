@@ -27,6 +27,7 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.formatter.WhiteSpaceFormattingStrategy;
 import com.intellij.psi.formatter.WhiteSpaceFormattingStrategyFactory;
 import com.intellij.util.concurrency.ThreadingAssertions;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.StringTokenizer;
 import com.intellij.xml.util.XmlStringUtil;
@@ -61,6 +62,7 @@ final class DocumentFoldingInfo implements CodeFoldingState {
     myFile = FileDocumentManager.getInstance().getFile(document);
   }
 
+  @RequiresEdt
   void loadFromEditor(@NotNull Editor editor) {
     ThreadingAssertions.assertEventDispatchThread();
     LOG.assertTrue(!editor.isDisposed());
@@ -124,7 +126,7 @@ final class DocumentFoldingInfo implements CodeFoldingState {
       }
 
       if (ranges == null) {
-        ranges = buildRanges(editor, psiFile);
+        ranges = buildRanges(psiFile, editor.getDocument());
       }
       FoldingDescriptor descriptor = ranges.get(element);
       if (descriptor == null) {
@@ -169,13 +171,13 @@ final class DocumentFoldingInfo implements CodeFoldingState {
     region.setExpanded(expanded);
   }
 
-  private static @NotNull Map<PsiElement, FoldingDescriptor> buildRanges(@NotNull Editor editor, @NotNull PsiFile psiFile) {
+  private static @NotNull Map<PsiElement, FoldingDescriptor> buildRanges(@NotNull PsiFile psiFile, @NotNull Document document) {
     FoldingBuilder foldingBuilder = LanguageFolding.INSTANCE.forLanguage(psiFile.getLanguage());
     ASTNode node = psiFile.getNode();
     if (node == null) {
       return Collections.emptyMap();
     }
-    FoldingDescriptor[] descriptors = LanguageFolding.buildFoldingDescriptors(foldingBuilder, psiFile, editor.getDocument(), true);
+    FoldingDescriptor[] descriptors = LanguageFolding.buildFoldingDescriptors(foldingBuilder, psiFile, document, true);
     Map<PsiElement, FoldingDescriptor> ranges = HashMap.newHashMap(descriptors.length);
     for (FoldingDescriptor descriptor : descriptors) {
       ASTNode ast = descriptor.getElement();

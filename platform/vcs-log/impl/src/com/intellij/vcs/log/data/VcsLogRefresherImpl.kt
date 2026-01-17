@@ -240,16 +240,17 @@ class VcsLogRefresherImpl(
         LOG.trace { "Recent log loaded in ${loadTime.inWholeMilliseconds} ms" }
         checkCanceled()
         refreshSessionData.put(currentAttemptData)
-
-        val (compoundLog, joinTime) = measureTimedValue { multiRepoJoin(refreshSessionData.commits) }
-        LOG.trace { "Recent log joined in ${joinTime.inWholeMilliseconds} ms" }
-        checkCanceled()
+        val compoundLog = multiRepoJoin(refreshSessionData.commits)
         val allNewRefs = currentRefs.toMutableMap().apply {
           replaceAll { root, refs ->
             refreshSessionData.getRefs(root) ?: refs
           }
         }
-        val joinedFullLog = join(permanentGraph.allCommits.toList(), compoundLog, currentRefs, allNewRefs)
+        checkCanceled()
+        val (joinedFullLog, joinTime) = measureTimedValue {
+          join(permanentGraph.allCommits.toList(), compoundLog, currentRefs, allNewRefs)
+        }
+        LOG.trace { "Recent log joined in ${joinTime.inWholeMilliseconds} ms" }
         if (joinedFullLog != null) {
           val (result, buildTime) = measureTimedValue {
             VcsLogGraphDataFactory.buildData(joinedFullLog, allNewRefs, providers, storage, true)
@@ -335,7 +336,7 @@ class VcsLogRefresherImpl(
           }
           LOG.trace { "Recent commits compacted in ${compactTime.inWholeMilliseconds} ms" }
           checkCanceled()
-          val (compressedRefs, compressingTime) = measureTimedValue { CompressedRefs(data.refs, storage) }
+          val (compressedRefs, compressingTime) = measureTimedValue { RootRefsModel.create(data.refsIterable, storage) }
           LOG.trace { "Refs compressed in ${compressingTime.inWholeMilliseconds} ms" }
           refreshSessionData.put(root, commits, compressedRefs)
 
@@ -375,7 +376,7 @@ class VcsLogRefresherImpl(
             }
           }
           LOG.trace { "Full data loaded and compacted in ${readTime.inWholeMilliseconds} ms" }
-          refreshSessionData.put(root, graphCommits, CompressedRefs(data.refs, storage))
+          refreshSessionData.put(root, graphCommits, RootRefsModel.create(data.refs, storage))
 
           val storeTime = measureTime { commitDataConsumer?.storeData(root, graphCommits, data.users) }
           LOG.trace { "Stored full data: ${graphCommits.size} commits, ${data.users.size} users in ${storeTime.inWholeMilliseconds} ms" }

@@ -18,9 +18,11 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
+import com.intellij.util.ui.StatusText
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.vcs.git.repo.GitRepositoriesHolder
 import git4idea.GitWorkingTree
+import git4idea.actions.workingTree.GitCreateWorkingTreeService
 import git4idea.actions.workingTree.GitWorkingTreeTabActionsDataKeys
 import git4idea.i18n.GitBundle
 import git4idea.repo.GitRepository
@@ -38,6 +40,7 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
   companion object {
     //registered with com.intellij.statistics.actionCustomPlaceAllowlist ExtensionPoint
     internal const val GIT_WORKING_TREE_TOOLWINDOW_TAB_TOOLBAR: String = "GitWorkingTreeToolWindowTabToolbar"
+    internal const val GIT_WORKING_TREE_TOOLWINDOW_TAB_EMPTY_LIST: String = "GitWorkingTreeToolWindowTabEmptyList"
   }
 
   override fun initTabContent(content: Content) {
@@ -67,7 +70,7 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
 
     init {
       list.cellRenderer = WorkingTreesListRenderer()
-      list.emptyText.text = GitBundle.message("toolwindow.working.trees.tab.empty.text")
+      initEmptyText(list.emptyText)
       addToCenter(list)
 
       list.addMouseListener(object : PopupHandler() {
@@ -90,6 +93,19 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
               model.reload(project)
             }
           }
+        }
+      }
+    }
+
+    private fun initEmptyText(emptyText: StatusText) {
+      emptyText.text = GitBundle.message("toolwindow.working.trees.tab.empty.text")
+      emptyText.appendLine(GitBundle.message("toolwindow.working.trees.tab.empty.text.create.working.tree"),
+                           SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) { _ ->
+        val repository = model.repository
+        if (repository != null) {
+          GitCreateWorkingTreeService.getInstance().collectDataAndCreateWorkingTree(repository,
+                                                                                    null,
+                                                                                    GIT_WORKING_TREE_TOOLWINDOW_TAB_EMPTY_LIST)
         }
       }
     }

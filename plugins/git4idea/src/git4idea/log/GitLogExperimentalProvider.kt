@@ -4,7 +4,6 @@ package git4idea.log
 import com.intellij.dvcs.repo.getRepositoryUnlessFresh
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.Project
@@ -19,7 +18,6 @@ import com.intellij.vcs.log.data.VcsLogSorter
 import com.intellij.vcs.log.impl.LogDataImpl
 import com.intellij.vcsUtil.VcsFileUtil
 import fleet.util.logging.logger
-import git4idea.GitTag
 import git4idea.GitUtil
 import git4idea.commands.Git
 import git4idea.history.GitLogOutputSplitter
@@ -38,6 +36,8 @@ private val LOG = logger<GitLogExperimentalProvider>()
 
 @Service(Service.Level.PROJECT)
 internal class GitLogExperimentalProvider(private val project: Project) {
+  private val vcsLogObjectsFactory = project.service<VcsLogObjectsFactory>()
+
   suspend fun readRecentCommits(
     root: VirtualFile,
     requirements: VcsLogProvider.Requirements,
@@ -50,8 +50,8 @@ internal class GitLogExperimentalProvider(private val project: Project) {
     } ?: return LogDataImpl.empty()
 
     return withContext(Dispatchers.Default) {
-      val branches = project.serviceAsync<VcsLogObjectsFactory>().createBranchesRefs(repository)
-      val tagsLoader = TagsLoader(repository, refsLoadingPolicy, requirements.commitCount)
+      val branches = vcsLogObjectsFactory.createBranchesRefsSequence(repository)
+      val tagsLoader = TagsLoader.create(repository, refsLoadingPolicy)
 
       // need to query more to sort them manually; this doesn't affect performance: it is equal for -1000 and -2000
       val commitsFromLogCommand = getCommits(root, requirements.commitCount * 2)
@@ -62,14 +62,13 @@ internal class GitLogExperimentalProvider(private val project: Project) {
         VcsLogSorter.sortByDateTopoOrder(allCommits).take(requirements.commitCount)
       }
 
-      val allRefs = branches + tagsLoader.getTags()
-      LogDataImpl(allRefs, sortedCommits)
+      val allRefs = branches + tagsLoader.tags.asSequence()
+      SequenceBasedLogData(allRefs, sortedCommits)
     }
   }
 
   private suspend fun getCommits(root: VirtualFile, commitCount: Int): List<VcsCommitMetadata> {
     checkCanceled()
-    val factory = project.serviceAsync<VcsLogObjectsFactory>()
     val parser = GitLogParser.createDefaultParser(project, *GitLogUtil.COMMIT_METADATA_OPTIONS)
     val handler = GitLogUtil.createGitHandler(project, root).apply {
       setStdoutSuppressed(true)
@@ -87,7 +86,7 @@ internal class GitLogExperimentalProvider(private val project: Project) {
 
     val commits = mutableListOf<VcsCommitMetadata>()
     val handlerListener = GitLogOutputSplitter(handler, parser, { record: GitLogRecord ->
-      commits.add(GitLogUtil.createMetadata(root, record, factory))
+      commits.add(GitLogUtil.createMetadata(root, record, vcsLogObjectsFactory))
     })
     VcsTracer.traceSuspending(Log.LoadingCommitMetadata) {
       it.withVcsAttributes(root)
@@ -107,6 +106,13 @@ internal class GitLogExperimentalProvider(private val project: Project) {
   }
 }
 
+private class SequenceBasedLogData(
+  refsSequence: Sequence<VcsRef>,
+  override val commits: List<VcsCommitMetadata>,
+) : VcsLogProvider.DetailedLogData {
+  override val refsIterable: Iterable<VcsRef> = refsSequence.asIterable()
+}
+
 /**
  * There might be some commits reachable only from tags. To list them, `--tags` should be
  * added to `git log` command. However, it causes a noticeable slowdown in repositories with many tags.
@@ -114,27 +120,12 @@ internal class GitLogExperimentalProvider(private val project: Project) {
  */
 private class TagsLoader(
   private val repository: GitRepository,
-  refsLoadingPolicy: VcsLogProvider.RefsLoadingPolicy,
-  requestedCommits: Int,
+  val tags: Collection<VcsRef>,
+  /**
+   * Tags that which were added or which hash was changed after the previous refresh
+   */
+  val modifiedTags: Collection<VcsRef>,
 ) {
-  private val tags: Map<GitTag, Hash>
-  private val unseenTags: Map<GitTag, Hash>
-
-  private val commitsToLoad = 20.coerceAtMost(requestedCommits)
-
-  init {
-    when (refsLoadingPolicy) {
-      is VcsLogProvider.RefsLoadingPolicy.LoadAllRefs -> {
-        tags = repository.tagsHolder.state.value.tagsToCommitHashes
-        unseenTags = getNewTags(tags, refsLoadingPolicy)
-      }
-      is VcsLogProvider.RefsLoadingPolicy.FromLoadedCommits -> {
-        tags = emptyMap()
-        unseenTags = emptyMap()
-      }
-    }
-  }
-
   suspend fun loadCommitsReachableOnlyFromTags(commitsFromLog: List<VcsCommitMetadata>): Collection<VcsCommitMetadata> {
     val unreachableTags = getUnreachableTags(commitsFromLog)
     if (unreachableTags.isEmpty()) {
@@ -145,11 +136,10 @@ private class TagsLoader(
     val commits = HashSet<VcsCommitMetadata>()
     VcsTracer.traceSuspending(LoadingCommitsOnTaggedBranch) {
       it.withVcsAttributes(repository.root)
-      val maxCountParam = listOf("--max-count=$commitsToLoad")
-      val tagNames = unreachableTags.map(GitTag::name)
+      val maxCountParam = listOf("--max-count=$COMMITS_TO_LOAD")
 
       withContext(Dispatchers.IO) {
-        VcsFileUtil.foreachChunk(tagNames, 1) { tagsChunk ->
+        VcsFileUtil.foreachChunk(unreachableTags, 1) { tagsChunk ->
           val parameters = ArrayUtilRt.toStringArray(maxCountParam + tagsChunk)
           val logData = GitLogUtil.collectMetadata(repository.project, repository.root, *parameters)
           commits.addAll(logData.commits)
@@ -159,33 +149,39 @@ private class TagsLoader(
     return commits
   }
 
-  fun getTags(): Collection<VcsRef> {
-    val factory = repository.project.service<VcsLogObjectsFactory>()
-    return tags.map { (tag, hash) -> factory.createTag(repository, tag, hash) }
-  }
-
-  private fun getUnreachableTags(commits: List<VcsCommitMetadata>): List<GitTag> {
-    if (unseenTags.isEmpty()) return emptyList()
+  /**
+   * Returns a list of modified tags that are not reachable from the loaded commits.
+   */
+  private fun getUnreachableTags(commits: List<VcsCommitMetadata>): List<String> {
+    if (modifiedTags.isEmpty()) return emptyList()
 
     val commitsHashes = commits.mapTo(mutableSetOf()) { it.id }
-    return unseenTags.mapNotNull { (tag, commitHash) ->
-      if (commitsHashes.contains(commitHash)) null else tag
+    return modifiedTags.mapNotNull {
+      if (commitsHashes.contains(it.commitHash)) null else it.name
     }
   }
 
   companion object {
-    private fun getNewTags(
-      tags: Map<GitTag, Hash>,
-      refsLoadingPolicy: VcsLogProvider.RefsLoadingPolicy.LoadAllRefs,
-    ): Map<GitTag, Hash> {
-      val newTags = tags.toMutableMap()
-      for (ref in refsLoadingPolicy.previouslyLoadedRefs.tags()) {
-        if (newTags.isEmpty()) break
-        val tag = GitTag(ref.name)
-        if (newTags[tag] == ref.commitHash) {
-          newTags.remove(tag)
+    private const val COMMITS_TO_LOAD = 20
+
+    fun create(repository: GitRepository, refsLoadingPolicy: VcsLogProvider.RefsLoadingPolicy): TagsLoader {
+      val (allTags, modifiedTags) = when (refsLoadingPolicy) {
+        is VcsLogProvider.RefsLoadingPolicy.LoadAllRefs -> {
+          val factory = repository.project.service<VcsLogObjectsFactory>()
+          val allTags =
+            repository.tagsHolder.state.value.tagsToCommitHashes.map { (tag, hash) -> factory.createTag(repository, tag.name, hash) }
+          val modifiedTags = getModifiedTags(allTags, refsLoadingPolicy.previouslyLoadedRefs)
+          Pair(allTags, modifiedTags)
         }
+        is VcsLogProvider.RefsLoadingPolicy.FromLoadedCommits -> Pair(emptyList(), emptyList())
       }
+
+      return TagsLoader(repository, allTags, modifiedTags)
+    }
+
+    private fun getModifiedTags(tags: Collection<VcsRef>, previousRefs: VcsRefsContainer): Collection<VcsRef> {
+      val previousTags = previousRefs.tags().associateBy { it.name }
+      val newTags = tags.filter { tag -> previousTags[tag.name]?.commitHash != tag.commitHash }
       LOG.debug { "${newTags.size} newly added tags" }
       return newTags
     }

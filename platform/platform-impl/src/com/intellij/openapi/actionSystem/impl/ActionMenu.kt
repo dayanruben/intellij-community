@@ -4,7 +4,6 @@ package com.intellij.openapi.actionSystem.impl
 import com.intellij.diagnostic.UILatencyLogger
 import com.intellij.ide.DataManager
 import com.intellij.ide.IdeEventQueue
-import com.intellij.ide.IdeEventQueue.Companion.getInstance
 import com.intellij.ide.ui.UISettings
 import com.intellij.internal.inspector.UiInspectorActionUtil
 import com.intellij.internal.inspector.UiInspectorContextProvider
@@ -15,7 +14,7 @@ import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.ex.MainMenuPresentationAware
 import com.intellij.openapi.actionSystem.impl.ActionPresentationDecorator.decorateTextIfNeeded
 import com.intellij.openapi.actionSystem.impl.actionholder.createActionRef
-import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.ui.JBPopupMenu
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader.getDarkIcon
@@ -37,13 +36,20 @@ import com.intellij.ui.plaf.beg.BegMenuItemUI
 import com.intellij.ui.plaf.beg.IdeaMenuUI
 import com.intellij.util.FontUtil
 import com.intellij.util.ReflectionUtil
-import com.intellij.util.SingleAlarm
+import com.intellij.util.cancelOnDispose
 import com.intellij.util.concurrency.EdtScheduler
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StartupUiUtil
+import com.intellij.util.ui.launchOnShow
 import com.intellij.util.ui.moveToFitChildPopupX
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.withContext
 import java.awt.*
 import java.awt.event.AWTEventListener
 import java.awt.event.ComponentEvent
@@ -55,6 +61,7 @@ import javax.swing.event.ChangeListener
 import javax.swing.event.MenuEvent
 import javax.swing.event.MenuListener
 import kotlin.math.abs
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 @Suppress("RedundantConstructorKeyword")
@@ -435,69 +442,92 @@ class ActionMenu constructor(
   }
 }
 
+@OptIn(FlowPreview::class)
 private class UsabilityHelper(component: Component) : IdeEventQueue.NonLockedEventDispatcher, AWTEventListener, Disposable {
-  private var component: Component?
-  private var startMousePoint: Point?
-  private var xClosestToTargetSoFar = 0
-  private var closestHorizontalDistanceSoFar = 0
+  /**
+   * The parent popup menu window.
+   *
+   * To make this whole thing Wayland-agnostic, all computations are done in this window's coordinate system.
+   * This makes it possible to avoid relying on screen coordinates.
+   *
+   * This window is never null (until dispose) because the helper is only created when the menu is showing.
+   */
+  private var window: Component? = ComponentUtil.getWindow(component)
+  private var component: Component? = component
+  private var eventToRedispatch: MouseEvent? = null
+  private val pendingDispatchFlow = MutableStateFlow(false)
+  private var done = false
+
+  // The stuff above needs to be cleaned up on dispose to avoid leaks.
+  // The stuff below only holds cached computations.
+
+  private var startMousePoint: Point? = null
+  private var targetBounds: Rectangle? = null
   private var upperTargetPoint: Point? = null
   private var lowerTargetPoint: Point? = null
-  private var callbackAlarm: SingleAlarm? = null
-  private var eventToRedispatch: MouseEvent? = null
+  private var xClosestToTargetSoFar = 0
+  private var closestHorizontalDistanceSoFar = 0
 
   init {
-    callbackAlarm = SingleAlarm(
-      task = {
-        Disposer.dispose(callbackAlarm!!)
-        callbackAlarm = null
-        if (eventToRedispatch != null) {
-          getInstance().dispatchEvent(eventToRedispatch!!)
+    component.launchOnShow("ActionMenu.UsabilityHelper") {
+      pendingDispatchFlow.debounce(50.milliseconds).collect { dispatch ->
+        val event = eventToRedispatch
+        if (!done && event != null && dispatch) {
+          done = true // must be set before dispatching to disable this dispatcher
+          withContext(Dispatchers.EDT) { // needed to dispatch
+            IdeEventQueue.getInstance().dispatchEvent(event)
+          }
+          eventToRedispatch = null
+          cancel()
         }
-      },
-      delay = 50,
-      parentDisposable = this,
-      modalityState = ModalityState.any(),
-    )
-    this.component = component
-    val info = MouseInfo.getPointerInfo()
-    startMousePoint = info?.location
-    if (startMousePoint != null) {
-      xClosestToTargetSoFar = startMousePoint!!.x
-      Toolkit.getDefaultToolkit().addAWTEventListener(this, AWTEvent.COMPONENT_EVENT_MASK)
-      getInstance().addDispatcher(this, this)
-    }
+      }
+    }.cancelOnDispose(this)
+    Toolkit.getDefaultToolkit().addAWTEventListener(this, AWTEvent.COMPONENT_EVENT_MASK)
+    IdeEventQueue.getInstance().addDispatcher(this, this)
   }
 
   override fun eventDispatched(event: AWTEvent) {
-    if (event !is ComponentEvent) {
+    if (event !is ComponentEvent || window == null || component == null || done) {
       return
     }
 
     val component = event.component
     val popup = ComponentUtil.getParentOfType(JPopupMenu::class.java, component)
-    if (popup != null && popup.invoker === this.component && popup.isShowing()) {
+    val popupParent = popup?.parent
+    if (popup != null && popupParent != null && popup.invoker === this.component && popup.isShowing()) {
       val bounds = popup.bounds
       if (bounds.isEmpty) {
         return
       }
 
-      bounds.location = popup.locationOnScreen
-      if (startMousePoint!!.x < bounds.x) {
-        upperTargetPoint = Point(bounds.x, bounds.y)
-        lowerTargetPoint = Point(bounds.x, bounds.y + bounds.height)
-        closestHorizontalDistanceSoFar = abs(upperTargetPoint!!.x - xClosestToTargetSoFar)
-      }
-      if (startMousePoint!!.x > bounds.x + bounds.width) {
-        upperTargetPoint = Point(bounds.x + bounds.width, bounds.y)
-        lowerTargetPoint = Point(bounds.x + bounds.width, bounds.y + bounds.height)
-        closestHorizontalDistanceSoFar = abs(upperTargetPoint!!.x - xClosestToTargetSoFar)
-      }
+      bounds.location = SwingUtilities.convertPoint(popupParent, popup.location, window)
+      this.targetBounds = bounds
+      computeTargetPointsIfPossible()
+    }
+  }
+
+  private fun computeTargetPointsIfPossible() {
+    if (upperTargetPoint != null && lowerTargetPoint != null) return // already computed
+    val bounds = targetBounds ?: return // the child popup position is not known yet
+    val startMousePoint = this.startMousePoint ?: return // the mouse position is not known yet
+    if (startMousePoint.x < bounds.x) {
+      upperTargetPoint = Point(bounds.x, bounds.y)
+      lowerTargetPoint = Point(bounds.x, bounds.y + bounds.height)
+      closestHorizontalDistanceSoFar = abs(upperTargetPoint!!.x - xClosestToTargetSoFar)
+    }
+    if (startMousePoint.x > bounds.x + bounds.width) {
+      upperTargetPoint = Point(bounds.x + bounds.width, bounds.y)
+      lowerTargetPoint = Point(bounds.x + bounds.width, bounds.y + bounds.height)
+      closestHorizontalDistanceSoFar = abs(upperTargetPoint!!.x - xClosestToTargetSoFar)
     }
   }
 
   override fun dispatch(e: AWTEvent): Boolean {
-    val callbackAlarm = callbackAlarm
-    if (e !is MouseEvent || upperTargetPoint == null || lowerTargetPoint == null || callbackAlarm == null) {
+    val component = this.component
+    val window = this.window
+    val parent = component?.parent
+
+    if (e !is MouseEvent || window == null || component == null || parent == null || done) {
       return false
     }
 
@@ -505,9 +535,20 @@ private class UsabilityHelper(component: Component) : IdeEventQueue.NonLockedEve
       return false
     }
 
-    val point = e.locationOnScreen
-    val bounds = component!!.bounds
-    bounds.location = component!!.locationOnScreen
+    if (startMousePoint == null) {
+      startMousePoint = SwingUtilities.convertPoint(e.component, e.point, window)
+      xClosestToTargetSoFar = startMousePoint!!.x
+    }
+
+    computeTargetPointsIfPossible()
+
+    if (upperTargetPoint == null || lowerTargetPoint == null) { // the child popup is not shown yet
+      return false
+    }
+
+    val point = SwingUtilities.convertPoint(e.component, e.point, window)
+    val bounds = component.bounds
+    bounds.location = SwingUtilities.convertPoint(component.parent, component.location, window)
     val insideTarget = bounds.contains(point)
     val horizontalDistance = abs(upperTargetPoint!!.x - point.x)
     if (!insideTarget && horizontalDistance < closestHorizontalDistanceSoFar) {
@@ -521,21 +562,15 @@ private class UsabilityHelper(component: Component) : IdeEventQueue.NonLockedEve
         .contains(point)
     )
     eventToRedispatch = e
-    if (!isMouseMovingTowardsSubmenu) {
-      callbackAlarm.request()
-    }
-    else {
-      callbackAlarm.cancel()
-    }
+    pendingDispatchFlow.value = !isMouseMovingTowardsSubmenu
     return true
   }
 
   override fun dispose() {
+    done = true
+    window = null
     component = null
     eventToRedispatch = null
-    lowerTargetPoint = null
-    upperTargetPoint = null
-    startMousePoint = null
     Toolkit.getDefaultToolkit().removeAWTEventListener(this)
   }
 }
