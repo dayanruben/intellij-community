@@ -65,8 +65,8 @@ kotlin {
     api(project(":fleet.ktor.client.core"))
     implementation(project(":fleet.build.fs"))
   }
-  sourceSets.jvmTest.dependencies {
-    implementation(project(":fleet.junit"))
+  sourceSets.commonTest.dependencies {
+    implementation(project(":fleet.test.runtime"))
   }
   // KOTLIN__MARKER_END
 }

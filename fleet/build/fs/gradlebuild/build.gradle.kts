@@ -65,8 +65,8 @@ kotlin {
       isTransitive = false
     }
   }
-  sourceSets.jvmTest.dependencies {
-    implementation(project(":fleet.junit"))
+  sourceSets.commonTest.dependencies {
+    implementation(project(":fleet.test.runtime"))
   }
   // KOTLIN__MARKER_END
 }
