@@ -313,15 +313,13 @@ describe('task MCP integration', {timeout: 30000}, () => {
       assert.equal(result.epic_id, epic.issue.id)
     })
 
-    it('can mark a child in progress on create', async () => {
-      const epic = await client.callTool('task_start', {user_request: 'Decompose Start Test'})
+    it('auto-starts a single child on create', async () => {
+      const epic = await client.callTool('task_start', {user_request: 'Decompose Auto Start Test'})
 
       const result = await client.callTool('task_decompose', {
         epic_id: epic.issue.id,
-        start_child_index: 0,
         sub_issues: [
-          {title: 'Sub 1', description: 'First', acceptance: 'Done', design: 'Simple'},
-          {title: 'Sub 2', description: 'Second', acceptance: 'Done', design: 'Simple'}
+          {title: 'Sub 1', description: 'First', acceptance: 'Done', design: 'Simple'}
         ]
       })
 
@@ -388,24 +386,16 @@ describe('task MCP integration', {timeout: 30000}, () => {
   })
 
   describe('task_done', () => {
-    it('closes epic with review prompt', async () => {
+    it('closes epic directly', async () => {
       const epic = await client.callTool('task_start', {user_request: 'Close Test'})
 
-      // First call should prompt for review (epics need review)
-      const first = await client.callTool('task_done', {
+      const result = await client.callTool('task_done', {
         id: epic.issue.id,
-        summary: 'Completed successfully'
+        reason: 'Completed successfully'
       })
-      assert.equal(first.kind, 'need_user')
-      assert.equal(first.next, 'confirm_close')
 
-      // Confirm closure
-      const confirmed = await client.callTool('task_done', {
-        id: epic.issue.id,
-        confirmed: true
-      })
-      assert.equal(confirmed.kind, 'closed')
-      assert.equal(confirmed.closed, epic.issue.id)
+      assert.equal(result.kind, 'closed')
+      assert.equal(result.closed, epic.issue.id)
     })
 
     it('closes low-priority task directly', async () => {
@@ -418,7 +408,7 @@ describe('task MCP integration', {timeout: 30000}, () => {
 
       const result = await client.callTool('task_done', {
         id,
-        summary: 'Done'
+        reason: 'Done'
       })
 
       // P3 task should close without review

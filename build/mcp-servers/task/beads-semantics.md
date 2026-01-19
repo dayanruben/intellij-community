@@ -21,22 +21,26 @@
 - When applying `memory_limit`, return the most recent entries (latest), not the earliest.
 - If `truncated` is true, `more` may include counts of omitted items: `{findings, decisions}`.
 
+## Input validation
+- Tool inputs are strict; unknown fields are rejected.
+- Defaults: `view=summary`, `meta_max_chars=400`, `memory_limit=0`.
+
 ## Tool outputs (canonical)
 - `task_status()` -> `kind: "need_user" | "summary" | "empty" | "error"`
 - `task_status(id, memory_limit?, view?, meta_max_chars?)` -> `kind: "issue" | "error"` (optional `memory`)
 - `task_start(user_request, memory_limit?, view?, meta_max_chars?)` -> `kind: "issue" (is_new=true) | "need_user" | "empty"`
 - `task_start(id, memory_limit?, view?, meta_max_chars?)` -> `kind: "issue"` (is_new=false, status `in_progress`)
 - `task_progress(..., memory_limit?)` -> `kind: "progress" | "need_user" | "error"` (optional `memory`)
-- `task_decompose(epic_id, sub_issues)` -> `kind: "created" (ids, epic_id, started_child_id) | "error"`
+- `task_decompose(epic_id, sub_issues)` -> `kind: "created" (ids, epic_id, started_child_id) | "error"` (auto-starts when a single child is created)
 - `task_create(title, ...)` -> `kind: "created" (id) | "error"`
-- `task_done(id, summary)` -> `kind: "need_user" (confirm_close) | "closed" (closed, next_ready, epic_status, parent_id)`
-- `task_done(id, confirmed=true)` -> `kind: "closed" (closed, next_ready, epic_status, parent_id)`
+- `task_done(id, reason)` -> `kind: "closed" (closed, next_ready, epic_status, parent_id)`
 - `task_reopen(id, reason, memory_limit?, view?, meta_max_chars?)` -> `kind: "issue" | "error"` (optional `memory`)
 
 ## Status updates via Task MCP
 - Start/claim: `task_start(id)` or `task_progress(id, status="in_progress")`
+- After multi-child decomposition, call `task_start(id)` on the chosen child to set `in_progress`.
 - Block/defer: `task_progress(id, status="blocked"|"deferred")`
-- Close: `task_done(id, summary)` (may require confirm flow)
+- Close: `task_done(id, reason)`
 - Reopen: `task_reopen(id, reason)`
 
 ## Structure via Task MCP

@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 import {bd, bdJson, bdShowOne} from './bd-client.mjs'
-import {addSectionComments, buildMemoryFromEntries, buildPendingNotes, extractMemoryFromIssue, prepareSectionUpdates} from './notes.mjs'
+import {addSectionComments, buildMemoryFromEntries, extractMemoryFromIssue, prepareSectionUpdates} from './notes.mjs'
 import {buildIssueView} from './task-issue-view.mjs'
 import {
   buildCreateSubTaskChoice,
@@ -16,7 +16,7 @@ import {
   buildSummary,
   buildTaskChoice
 } from './task-responses.mjs'
-import {buildInProgressSummary, createEpic, getReadyChildren, needsReview} from './task-helpers.mjs'
+import {buildInProgressSummary, createEpic, getReadyChildren} from './task-helpers.mjs'
 
 /**
  * @typedef {{
@@ -208,7 +208,7 @@ export const toolHandlers = {
     const updateArgs = ['update', args.id]
     if (args.status) updateArgs.push('--status', args.status)
     if (update.shouldStripNotes) {
-      updateArgs.push('--notes', buildPendingNotes(update.notesSections.pending_close))
+      updateArgs.push('--notes', '')
     }
     if (updateArgs.length > 2) {
       await bd(updateArgs)
@@ -217,25 +217,8 @@ export const toolHandlers = {
     const memory = compactMemory(buildMemoryFromEntries(
       update.finalFindings,
       update.finalDecisions,
-      update.notesSections.pending_close,
       args.memory_limit
     ))
-
-    if (args.completed && needsReview(issue)) {
-      const response = buildNeedUser({
-        question: `Review completed work (${issue.issue_type}/P${issue.priority ?? 2}). What next?`,
-        header: 'Review',
-        choices: [
-          {label: 'Close issue', description: 'Work is complete', action: 'close_issue'},
-          {label: 'Needs correction', description: 'Continue fixing', action: 'needs_correction'},
-          {label: 'Add more changes', description: 'Continue without closing', action: 'continue_work'}
-        ],
-        next: 'review_completed'
-      })
-      if (memory) response.memory = memory
-      response.status = args.status || issue.status
-      return response
-    }
 
     return buildProgress({memory, status: args.status || issue.status})
   },
@@ -253,14 +236,6 @@ export const toolHandlers = {
       }
     }
 
-    if (args.start_child_index !== undefined) {
-      if (!Number.isInteger(args.start_child_index)) {
-        return buildError('start_child_index must be an integer')
-      }
-      if (args.start_child_index < 0 || args.start_child_index >= args.sub_issues.length) {
-        return buildError(`start_child_index ${args.start_child_index} out of range (0-${args.sub_issues.length - 1})`)
-      }
-    }
 
     const ids = []
     for (const sub of args.sub_issues) {
@@ -279,9 +254,9 @@ export const toolHandlers = {
       }
     }
 
-    let startedChildId = null
-    if (args.start_child_index !== undefined) {
-      startedChildId = ids[args.start_child_index]
+    let startedChildId
+    if (args.sub_issues.length === 1) {
+      startedChildId = ids[0]
       await bd(['update', startedChildId, '--status', 'in_progress'])
     }
 
@@ -289,7 +264,9 @@ export const toolHandlers = {
       await bd(['update', args.epic_id, '--acceptance', args.update_epic_acceptance])
     }
 
-    return buildCreated({ids, epic_id: args.epic_id, started_child_id: startedChildId})
+    const payload = {ids, epic_id: args.epic_id}
+    if (startedChildId) payload.started_child_id = startedChildId
+    return buildCreated(payload)
   },
 
   task_create: async (args) => {
@@ -327,18 +304,14 @@ export const toolHandlers = {
       }
     }
 
-    const updateNotes = async (pendingClose) => {
-      const pendingCloseChanged = JSON.stringify(pendingClose ?? null)
-        !== JSON.stringify(update.notesSections.pending_close ?? null)
-      if (update.shouldStripNotes || pendingCloseChanged) {
-        await bd(['update', args.id, '--notes', buildPendingNotes(pendingClose)])
+    const clearNotesIfNeeded = async () => {
+      if (update.shouldStripNotes) {
+        await bd(['update', args.id, '--notes', ''])
       }
     }
 
     // Helper to perform actual close and return result
     const doClose = async (summary) => {
-      await updateNotes(null)
-
       await bd(['close', args.id, '--reason', summary])
 
       let epicStatus = null
@@ -367,44 +340,13 @@ export const toolHandlers = {
       return buildClosed({closed: args.id, next_ready: nextReady, epic_status: epicStatus, parent_id: parentId})
     }
 
-    // If confirmed, retrieve stored pending_close data and close
-    if (args.confirmed) {
-      const pending = update.notesSections.pending_close
-      if (!pending) {
-        return buildError('No pending close found. Call task_done with summary first.')
-      }
-
-      await applyComments()
-      return await doClose(pending.summary)
-    }
-
-    // First call - check if review needed
-    if (needsReview(issue)) {
-      if (!args.summary) {
-        return buildError('summary required for issues that need review')
-      }
-
-      await applyComments()
-      await updateNotes({summary: args.summary})
-
-      return buildNeedUser({
-        question: `Close ${issue.issue_type} "${issue.title}"?`,
-        header: 'Confirm',
-        choices: [
-          {label: 'Close', description: 'Work is complete', action: 'confirm_close'},
-          {label: 'Keep open', description: 'Continue working', action: 'keep_open'}
-        ],
-        next: 'confirm_close'
-      })
-    }
-
-    // No review needed - close directly
-    if (!args.summary) {
-      return buildError('summary required')
+    if (!args.reason) {
+      return buildError('reason required')
     }
 
     await applyComments()
-    return await doClose(args.summary)
+    await clearNotesIfNeeded()
+    return await doClose(args.reason)
   },
 
   task_reopen: async (args) => {
