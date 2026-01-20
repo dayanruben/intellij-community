@@ -1,93 +1,46 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.folding.impl
 
-import com.intellij.codeInsight.folding.impl.CodeFoldingZombie.Companion.putRegion
-import com.intellij.openapi.editor.impl.zombie.Necromancy
-import com.intellij.util.io.DataInputOutputUtil.*
-import com.intellij.util.io.IOUtil.readUTF
-import com.intellij.util.io.IOUtil.writeUTF
+import com.intellij.openapi.editor.impl.zombie.LimbedNecromancy
 import java.io.DataInput
 import java.io.DataOutput
 
-internal object CodeFoldingNecromancy : Necromancy<CodeFoldingZombie> {
 
-  override fun spellLevel(): Int = 2
+internal object CodeFoldingNecromancy : LimbedNecromancy<CodeFoldingZombie, FoldLimb>(spellLevel=3) {
 
-  override fun isDeepBury(): Boolean = false
-
-  override fun buryZombie(grave: DataOutput, zombie: CodeFoldingZombie) {
-    writeRegionCount(grave, zombie)
-    writeRegions(grave, zombie)
-    writeGroupedRegions(grave, zombie)
+  override fun formZombie(limbs: List<FoldLimb>): CodeFoldingZombie {
+    return CodeFoldingZombie(limbs)
   }
 
-  private fun writeRegionCount(output: DataOutput, zombie: CodeFoldingZombie) {
-    val regionCount = zombie.regions.size + zombie.groupedRegions.values.sumOf { it.size }
-    writeINT(output, regionCount)
+  override fun buryLimb(grave: DataOutput, limb: FoldLimb) {
+    writeInt(grave, limb.startOffset)
+    writeInt(grave, limb.endOffset)
+    writeString(grave, limb.placeholderText)
+    writeLongNullable(grave, limb.groupId)
+    writeBool(grave, limb.neverExpands)
+    writeBool(grave, limb.isExpanded)
+    writeBool(grave, limb.isCollapsedByDefault)
+    writeBool(grave, limb.isFrontendCreated)
   }
 
-  private fun writeRegions(output: DataOutput, zombie: CodeFoldingZombie) {
-    for (region in zombie.regions) {
-      writeRegion(output, region)
-    }
-  }
-
-  private fun writeGroupedRegions(output: DataOutput, zombie: CodeFoldingZombie) {
-    for ((_, regions) in zombie.groupedRegions) {
-      for (region in regions) {
-        writeRegion(output, region)
-      }
-    }
-  }
-
-  private fun writeRegion(output: DataOutput, region: CodeFoldingRegion) {
-    writeINT(output, region.startOffset)
-    writeINT(output, region.endOffset)
-    writeUTF(output, region.placeholderText)
-    writeGroupId(output, region.groupId)
-    output.writeBoolean(region.neverExpands)
-    output.writeBoolean(region.isExpanded)
-    output.writeBoolean(region.isCollapsedByDefault)
-    output.writeBoolean(region.isFrontendCreated)
-  }
-
-  private fun writeGroupId(output: DataOutput, groupId: Long?) {
-    if (groupId == null) {
-      output.writeBoolean(false)
-    } else {
-      output.writeBoolean(true)
-      writeLONG(output, groupId)
-    }
-  }
-
-  override fun exhumeZombie(grave: DataInput): CodeFoldingZombie {
-    val regionCount = readINT(grave)
-    val regions = ArrayList<CodeFoldingRegion>()
-    val groupedRegions = HashMap<Long, MutableList<CodeFoldingRegion>>()
-    repeat(regionCount) {
-      val region = read(grave)
-      putRegion(region, regions, groupedRegions)
-    }
-    return CodeFoldingZombie(regions, groupedRegions)
-  }
-
-  private fun read(input: DataInput): CodeFoldingRegion {
-    val start = readINT(input)
-    val end = readINT(input)
-    val placeholder = readUTF(input)
-    val groupId = readGroupId(input)
-    val neverExpands = input.readBoolean()
-    val isExpanded = input.readBoolean()
-    val isCollapsedByDefault = input.readBoolean()
-    val isFrontendCreated = input.readBoolean()
-    return CodeFoldingRegion(start, end, placeholder, groupId, neverExpands, isExpanded, isCollapsedByDefault, isFrontendCreated)
-  }
-
-  private fun readGroupId(input: DataInput): Long? {
-    return if (input.readBoolean()) {
-      readLONG(input)
-    } else {
-      null
-    }
+  override fun exhumeLimb(grave: DataInput): FoldLimb {
+    val startOffset:              Int = readInt(grave)
+    val endOffset:                Int = readInt(grave)
+    val placeholderText:       String = readString(grave)
+    val groupId:                Long? = readLongNullable(grave)
+    val neverExpands:         Boolean = readBool(grave)
+    val isExpanded:           Boolean = readBool(grave)
+    val isCollapsedByDefault: Boolean = readBool(grave)
+    val isFrontendCreated:    Boolean = readBool(grave)
+    return FoldLimb(
+      startOffset,
+      endOffset,
+      placeholderText,
+      groupId,
+      neverExpands,
+      isExpanded,
+      isCollapsedByDefault,
+      isFrontendCreated,
+    )
   }
 }

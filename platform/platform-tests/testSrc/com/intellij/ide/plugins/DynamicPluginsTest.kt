@@ -1418,13 +1418,13 @@ private fun loadPluginInTest(
 }
 
 private fun assertNoLoadingErrors(pluginId: PluginId) {
-  val error = PluginManagerCore.getLoadingError(pluginId)
+  val error = PluginManagerCore.getPluginNonLoadReason(pluginId)
   assertThat(error).isNull()
 }
 
 private fun assertDisabledDependencyLoadingError(pluginId: PluginId, dependencyId: PluginId) {
-  val error = PluginManagerCore.getLoadingError(pluginId)
-  assertThat(error).isNotNull().isInstanceOf(PluginDependencyIsDisabled::class.java)
-  val disabledDependency = (error as PluginDependencyIsDisabled).dependencyId
+  val error = PluginManagerCore.getPluginNonLoadReason(pluginId)
+  assertThat(error).isNotNull().isInstanceOfAny(PluginDependencyIsDisabled::class.java, PluginDependencyCannotBeLoaded::class.java)
+  val disabledDependency = (error as? PluginDependencyIsDisabled)?.dependencyId ?: (error as? PluginDependencyCannotBeLoaded)!!.dependency.pluginId
   assertThat(disabledDependency).isNotNull().isEqualTo(dependencyId)
 }

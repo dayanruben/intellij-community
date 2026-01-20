@@ -52,6 +52,7 @@ import com.intellij.util.io.Decompressor;
 import com.intellij.util.system.OS;
 import com.intellij.util.text.VersionComparatorUtil;
 import com.intellij.util.ui.IoErrorText;
+import kotlin.Unit;
 import org.jetbrains.annotations.*;
 
 import javax.swing.*;
@@ -1009,7 +1010,7 @@ public final class ConfigImportHelper {
     @NotNull List<IdeaPluginDescriptor> pluginsToMigrate,
     @NotNull List<IdeaPluginDescriptor> pluginsToDownload
   ) {
-    @Nullable PluginLoadingResult oldIdeLoadingResult = null;
+    @Nullable PluginDescriptorLoadingResult oldIdePlugins = null;
     try {
       /* FIXME
        * in production, bundledPluginPath from the options is always null, it is set only in tests.
@@ -1018,14 +1019,9 @@ public final class ConfigImportHelper {
        * in production, if bundledPluginPath is null, the path from our IDE instance (!) bundled plugin path is used instead
        * so it looks like in production we effectively use bundled plugin path from the current IDE, not from the old one
        */
-      var pluginLists = PluginDescriptorLoader.loadDescriptorsFromOtherIde(
+      oldIdePlugins = PluginDescriptorLoader.loadDescriptorsFromOtherIde(
         oldPluginsDir, options.bundledPluginPath, options.compatibleBuildNumber
       );
-      var initContext = new ProductPluginInitContext(
-        options.compatibleBuildNumber, Collections.emptySet(), Collections.emptySet(), brokenPluginVersions
-      );
-      oldIdeLoadingResult = new PluginLoadingResult();
-      oldIdeLoadingResult.initAndAddAll(pluginLists, initContext);
     }
     catch (ExecutionException | InterruptedException e) {
       return false;
@@ -1034,31 +1030,49 @@ public final class ConfigImportHelper {
       options.log.info("Non-existing plugins directory: " + oldPluginsDir, e);
     }
 
-    if (oldIdeLoadingResult != null) {
+    if (oldIdePlugins != null) {
+      var initContext = new ProductPluginInitContext(
+        options.compatibleBuildNumber, Collections.emptySet(), Collections.emptySet(), brokenPluginVersions
+      );
+      var nonLoadablePlugins = new HashMap<PluginId, PluginMainDescriptor>();
+      var loadablePlugins = PluginInitContextSelectPluginsToLoadKt.selectPluginsToLoad(
+        initContext,
+        oldIdePlugins.getDiscoveredPlugins(),
+        (plugin, reason) -> {
+          if (reason instanceof PluginVersionIsSuperseded) {
+            return Unit.INSTANCE;
+          }
+          var previousNonLoadable = nonLoadablePlugins.get(plugin.getPluginId());
+          if (previousNonLoadable == null || VersionComparatorUtil.compare(plugin.getVersion(), previousNonLoadable.getVersion()) > 0) {
+            nonLoadablePlugins.put(plugin.getPluginId(), plugin);
+          }
+          return Unit.INSTANCE;
+        }
+      ).getPlugins();
+      // TODO 'plugin is broken' is already applied by 'selectPluginsToLoad'
       if (Boolean.getBoolean(UPDATE_ONLY_INCOMPATIBLE_PLUGINS_PROPERTY)) {
-        partitionNonBundled(oldIdeLoadingResult.getIdMap().values(), pluginsToDownload, pluginsToMigrate, descriptor -> {
+        partitionNonBundled(loadablePlugins, pluginsToDownload, pluginsToMigrate, descriptor -> {
           var brokenVersions = brokenPluginVersions != null ? brokenPluginVersions.get(descriptor.getPluginId()) : null;
           return brokenVersions != null && brokenVersions.contains(descriptor.getVersion());
         });
-        partitionNonBundled(oldIdeLoadingResult.getIncompleteIdMap().values(), pluginsToDownload, pluginsToMigrate, __ -> true);
+        partitionNonBundled(nonLoadablePlugins.values(), pluginsToDownload, pluginsToMigrate, __ -> true);
       }
       else {
         // The first partition in the branch above puts only broken plugins to pluginsToDownload.
         // Here we also put there plugins for which updates are available (or they are broken).
         // So the only difference is that here we try to download more plugins.
         var nonBundledPlugins = new ArrayList<IdeaPluginDescriptor>();
-        partitionNonBundled(oldIdeLoadingResult.getIdMap().values(), nonBundledPlugins, pluginsToMigrate, __ -> true);
-        partitionNonBundled(oldIdeLoadingResult.getIncompleteIdMap().values(), nonBundledPlugins, pluginsToMigrate, __ -> true);
+        partitionNonBundled(loadablePlugins, nonBundledPlugins, pluginsToMigrate, __ -> true);
+        partitionNonBundled(nonLoadablePlugins.values(), nonBundledPlugins, pluginsToMigrate, __ -> true);
         var updates = fetchPluginUpdatesFromMarketplace(options, ContainerUtil.map2Set(nonBundledPlugins, d -> d.getPluginId()));
-
-        partitionNonBundled(oldIdeLoadingResult.getIdMap().values(), pluginsToDownload, pluginsToMigrate, d -> {
+        partitionNonBundled(loadablePlugins, pluginsToDownload, pluginsToMigrate, d -> {
           if (updates != null && updates.containsKey(d.getPluginId()) && !updates.get(d.getPluginId()).getVersion().equals(d.getVersion())) {
             return true;
           }
           var brokenVersions = brokenPluginVersions != null ? brokenPluginVersions.get(d.getPluginId()) : null;
           return brokenVersions != null && brokenVersions.contains(d.getVersion());
         });
-        partitionNonBundled(oldIdeLoadingResult.getIncompleteIdMap().values(), pluginsToDownload, pluginsToMigrate, __ -> true);
+        partitionNonBundled(nonLoadablePlugins.values(), pluginsToDownload, pluginsToMigrate, __ -> true);
       }
     }
     return true;
