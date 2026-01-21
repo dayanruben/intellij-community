@@ -4125,5 +4125,54 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                        _: C2 = c1
                    """);
   }
+
+  // PY-85030
+  public void testStructuralTypeAndStrictUnion() {
+    doTestByText("""
+                   responses = {
+                       100: "abc",
+                   }
+                   
+                   def process(status):
+                       if isinstance(status, int):
+                           status = responses[status]
+                       return status.lower().replace(" ", "-")
+                   
+                   def do(arg):
+                       title = "abc" if arg else 100
+                       return process(title)
+                   """);
+  }
+
+  // PY-85030
+  public void testStructuralTypeAndDefiniteReassignmentUnderCondition() {
+    doTestByText("""
+                   def f(p):
+                       if p:
+                           p = "foo"
+                       else:
+                           p = "bar"
+                       return p.lower()
+                   
+                   f(42)
+                   """);
+  }
+
+  // PY-86655
+  public void testStructuralTypeAsyncForRequiresAiter() {
+    doTestByText("""
+                   async def async_for(p):
+                       async for i in p:
+                           pass
+                   
+                   
+                   async def async_iter():
+                       yield 42
+                   
+                   
+                   async_for(async_iter())
+                   async_for(<warning descr="Type 'list[int]' doesn't have expected attribute '__aiter__'">[1, 2, 3]</warning>)
+                   """);
+  }
 }
 

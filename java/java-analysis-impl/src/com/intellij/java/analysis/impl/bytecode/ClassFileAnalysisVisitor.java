@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.analysis.impl.bytecode;
 
-import com.intellij.java.analysis.bytecode.ClassFileAnalyzer;
 import com.intellij.java.analysis.bytecode.JvmBytecodeDeclarationProcessor;
 import com.intellij.java.analysis.bytecode.JvmBytecodeReferenceProcessor;
 import com.intellij.java.analysis.bytecode.JvmClassBytecodeDeclaration;
@@ -11,14 +10,10 @@ import org.jetbrains.org.objectweb.asm.*;
 import org.jetbrains.org.objectweb.asm.signature.SignatureReader;
 import org.jetbrains.org.objectweb.asm.signature.SignatureVisitor;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
-final class ClassFileAnalyzerImpl extends ClassVisitor implements ClassFileAnalyzer {
+final class ClassFileAnalysisVisitor extends ClassVisitor {
   private static final Label LABEL = new Label();
 
   private final AnnotationDependencyVisitor myAnnotationVisitor = new AnnotationDependencyVisitor();
@@ -26,25 +21,21 @@ final class ClassFileAnalyzerImpl extends ClassVisitor implements ClassFileAnaly
   private final DependencyFieldVisitor myFieldVisitor = new DependencyFieldVisitor();
   private final @Nullable JvmBytecodeDeclarationProcessor myDeclarationProcessor;
   private final @Nullable JvmBytecodeReferenceProcessor myReferenceProcessor;
+  private final @Nullable ClassAncestorResolver myImplicitAncestorReferencesResolver;
 
   private JvmClassBytecodeDeclaration myCurrentClass;
 
-  ClassFileAnalyzerImpl(@Nullable JvmBytecodeDeclarationProcessor declarationProcessor,
-                        @Nullable JvmBytecodeReferenceProcessor referenceProcessor) {
+  ClassFileAnalysisVisitor(@Nullable JvmBytecodeDeclarationProcessor declarationProcessor,
+                           @Nullable JvmBytecodeReferenceProcessor referenceProcessor,
+                           @Nullable ClassAncestorResolver implicitAncestorReferencesResolver) {
     super(Opcodes.API_VERSION);
     myDeclarationProcessor = declarationProcessor;
     myReferenceProcessor = referenceProcessor;
+    myImplicitAncestorReferencesResolver = implicitAncestorReferencesResolver;
   }
 
-  @Override
-  public void processFile(@NotNull Path path) throws IOException {
-    // ASM ClassReader in any case reads the whole file into memory
-    processData(Files.readAllBytes(path));
-  }
-
-  @Override
-  public void processData(byte @NotNull [] data) {
-    ClassReader cr = new ClassReader(data) {
+  void processFileContent(byte @NotNull [] classFileContent) {
+    ClassReader cr = new ClassReader(classFileContent) {
       @Override
       protected Label readLabel(int offset, Label[] labels) {
         if (offset >= labels.length) {
@@ -61,11 +52,6 @@ final class ClassFileAnalyzerImpl extends ClassVisitor implements ClassFileAnaly
   }
 
   @Override
-  public void processInputStream(@NotNull InputStream inputStream) throws IOException {
-    processData(inputStream.readAllBytes());
-  }
-
-  @Override
   public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
     myCurrentClass = getOrCreateClassDeclaration(name);
     if (myDeclarationProcessor != null) {
@@ -78,6 +64,15 @@ final class ClassFileAnalyzerImpl extends ClassVisitor implements ClassFileAnaly
     }
     else {
       addSignature(signature);
+    }
+    processImplicitSuperclassReferences(myCurrentClass);
+  }
+
+  private void processImplicitSuperclassReferences(JvmClassBytecodeDeclaration referencedClass) {
+    if (myReferenceProcessor != null && myImplicitAncestorReferencesResolver != null) {
+      for (String superclass : myImplicitAncestorReferencesResolver.getAllAncestors(referencedClass.getBinaryClassName())) {
+        myReferenceProcessor.processClassReference(getOrCreateClassDeclaration(superclass), myCurrentClass);
+      }
     }
   }
 
@@ -203,6 +198,7 @@ final class ClassFileAnalyzerImpl extends ClassVisitor implements ClassFileAnaly
       JvmClassBytecodeDeclaration targetClass = addName(owner);
       addMethodDesc(desc);
       processMethodReference(targetClass, name, desc);
+      processImplicitSuperclassReferences(targetClass);
     }
 
     @Override

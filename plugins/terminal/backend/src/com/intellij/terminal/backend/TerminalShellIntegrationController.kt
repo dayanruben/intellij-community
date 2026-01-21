@@ -5,9 +5,6 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.util.EventDispatcher
 import com.jediterm.terminal.Terminal
 import org.jetbrains.plugins.terminal.block.reworked.TerminalShellIntegrationEventsListener
-import org.jetbrains.plugins.terminal.exp.completion.TerminalShellSupport
-import org.jetbrains.plugins.terminal.session.impl.TerminalAliasesInfo
-import org.jetbrains.plugins.terminal.util.ShellType
 import java.util.*
 
 internal class TerminalShellIntegrationController(terminalController: Terminal) {
@@ -24,32 +21,14 @@ internal class TerminalShellIntegrationController(terminalController: Terminal) 
           "command_finished" -> processCommandFinishedEvent(args)
           "prompt_started" -> dispatcher.multicaster.promptStarted()
           "prompt_finished" -> dispatcher.multicaster.promptFinished()
-          "aliases_received" -> {
-            val aliasesString = args.getOrNull(1)
-            val aliases = if (aliasesString?.isNotEmpty() == true) {
-              parseAliases(aliasesString, ShellType.ZSH.name)
-            }
-            else emptyMap()
-            dispatcher.multicaster.aliasesReceived(TerminalAliasesInfo(aliases))
-          }
+          "aliases_received" -> processAliasesReceivedEvent(args)
+          "completion_finished" -> processCompletionFinishedEvent(args)
           else -> LOG.warn("Unknown shell integration event: $args")
         }
       }
       catch (t: Throwable) {
         LOG.warn("Exception during processing shell integration event: $args", t)
       }
-    }
-  }
-
-  private fun parseAliases(text: String, shellName: String): Map<String, String> {
-    val shellSupport = TerminalShellSupport.findByShellName(shellName)
-                       ?: return emptyMap()
-    return try {
-      shellSupport.parseAliases(text)
-    }
-    catch (t: Throwable) {
-      LOG.error("Failed to parse aliases: $text", t)
-      emptyMap()
     }
   }
 
@@ -75,6 +54,16 @@ internal class TerminalShellIntegrationController(terminalController: Terminal) 
     }
   }
 
+  private fun processAliasesReceivedEvent(args: List<String>) {
+    val aliasesRaw = Param.RESULT.getDecodedValue(args.getOrNull(1))
+    dispatcher.multicaster.aliasesReceived(aliasesRaw)
+  }
+
+  private fun processCompletionFinishedEvent(args: List<String>) {
+    val result = Param.RESULT.getDecodedValue(args.getOrNull(1))
+    dispatcher.multicaster.completionFinished(result)
+  }
+
   fun addListener(listener: TerminalShellIntegrationEventsListener) {
     dispatcher.addListener(listener)
   }
@@ -86,7 +75,8 @@ internal class TerminalShellIntegrationController(terminalController: Terminal) 
   private enum class Param {
     COMMAND,
     EXIT_CODE,
-    CURRENT_DIRECTORY;
+    CURRENT_DIRECTORY,
+    RESULT;
 
     private val paramNameWithSeparator: String = "${paramName()}="
 

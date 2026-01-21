@@ -269,15 +269,17 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
     final ScopeOwner owner = ScopeUtil.getScopeOwner(this);
     final String name = getName();
 
-    final Ref<Boolean> parameterWasReassigned = Ref.create(false);
     final Ref<Boolean> noneComparison = Ref.create(false);
+    final PyResolveContext resolveContext = PyResolveContext.defaultContext(context);
 
     if (owner != null && name != null) {
+      // TODO revise this whole approach to constructing structural types.
+      //  Instead of selectively skipping conditional branches in a visitor, use CFG and consider
+      //  all attribute access reachable on the original untyped parameter, not intercepted by
+      //  reassignments or type narrowing.
       owner.accept(new PyRecursiveElementVisitor() {
         @Override
         public void visitPyElement(@NotNull PyElement node) {
-          if (parameterWasReassigned.get()) return;
-
           if (node instanceof ScopeOwner && node != owner) {
             return;
           }
@@ -304,8 +306,6 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
 
         @Override
         public void visitPyIfStatement(@NotNull PyIfStatement node) {
-          if (parameterWasReassigned.get()) return;
-
           final PyExpression ifCondition = node.getIfPart().getCondition();
           if (ifCondition != null) {
             ifCondition.accept(this);
@@ -320,8 +320,6 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
 
         @Override
         public void visitPyCallExpression(@NotNull PyCallExpression node) {
-          if (parameterWasReassigned.get()) return;
-
           Optional
             .ofNullable(node.getCallee())
             .filter(callee -> "len".equals(callee.getName()) && isReferenceToParameter(node.getArgument(0, PyReferenceExpression.class)))
@@ -335,24 +333,26 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
 
         @Override
         public void visitPyForStatement(@NotNull PyForStatement node) {
-          if (parameterWasReassigned.get()) return;
-
           if (isReferenceToParameter(node.getForPart().getSource())) {
-            usedAttributes.add(PyNames.ITER);
+            usedAttributes.add(node.isAsync() ? PyNames.AITER : PyNames.ITER);
           }
 
           super.visitPyForStatement(node);
         }
 
         @Override
-        public void visitPyTargetExpression(@NotNull PyTargetExpression node) {
-          if (parameterWasReassigned.get()) return;
-
-          if (isReferenceToParameter(node)) {
-            parameterWasReassigned.set(true);
+        public void visitPyMatchStatement(@NotNull PyMatchStatement node) {
+          PyExpression subject = node.getSubject();
+          if (subject != null) {
+            subject.accept(this);
           }
-          else {
-            super.visitPyTargetExpression(node);
+        }
+
+        @Override
+        public void visitPyConditionalExpression(@NotNull PyConditionalExpression node) {
+          PyExpression condition = node.getCondition();
+          if (condition != null) {
+            condition.accept(this);
           }
         }
 
@@ -378,8 +378,10 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
         @Contract("null -> false")
         private boolean isReferenceToParameter(@Nullable PsiElement element) {
           if (element == null) return false;
-          final PsiReference reference = element.getReference();
-          return reference != null && reference.isReferenceTo(PyNamedParameterImpl.this);
+          if (!(element instanceof PyReferenceExpression || element instanceof PyTargetExpression)) return false;
+          if (((PyQualifiedExpression)element).isQualified()) return false;
+          List<@Nullable PsiElement> definitions = PyUtil.multiResolveTopPriority(element, resolveContext);
+          return ContainerUtil.all(definitions, e -> e == PyNamedParameterImpl.this);
         }
       });
     }

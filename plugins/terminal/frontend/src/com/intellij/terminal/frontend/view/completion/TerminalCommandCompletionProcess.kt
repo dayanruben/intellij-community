@@ -22,9 +22,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
-import org.jetbrains.plugins.terminal.view.TerminalOffset
-import org.jetbrains.plugins.terminal.view.TerminalOutputModel
-import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalShellIntegration
 import java.util.function.Supplier
 import javax.swing.Icon
 
@@ -49,6 +46,11 @@ internal class TerminalCommandCompletionProcess(
 
   private var restartOnPrefixChange = false
   var restartPending = false
+    private set
+
+  var beforePrefixReplacementLength: Int = 0
+    private set
+  var afterPrefixReplacementLength: Int = 0
     private set
 
   init {
@@ -100,10 +102,17 @@ internal class TerminalCommandCompletionProcess(
     lookup.setArranger(arranger)
   }
 
-  fun addItems(items: List<CompletionResult>) {
+  fun addItems(
+    items: List<CompletionResult>,
+    beforePrefixReplacementLength: Int,
+    afterPrefixReplacementLength: Int,
+  ) {
     if (lookup.isLookupDisposed) {
       return
     }
+
+    this.beforePrefixReplacementLength = beforePrefixReplacementLength
+    this.afterPrefixReplacementLength = afterPrefixReplacementLength
 
     val curArranger = arranger ?: error("CompletionLookupArrangerImpl is null")
     curArranger.batchUpdate {
@@ -194,6 +203,7 @@ internal class TerminalCommandCompletionProcess(
     cancel()
 
     TerminalCommandCompletionService.getInstance(project).invokeCompletion(
+      context.terminalView,
       context.editor,
       context.outputModel,
       context.shellIntegration,
@@ -239,14 +249,3 @@ internal class TerminalCommandCompletionProcess(
     throw NotImplementedError()
   }
 }
-
-internal data class TerminalCommandCompletionContext(
-  val project: Project,
-  val editor: Editor,
-  val outputModel: TerminalOutputModel,
-  val shellIntegration: TerminalShellIntegration,
-  val commandStartOffset: TerminalOffset,
-  val initialCursorOffset: TerminalOffset,
-  val commandText: String,
-  val isAutoPopup: Boolean,
-)

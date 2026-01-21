@@ -1,6 +1,5 @@
 package com.intellij.terminal.frontend.view.completion
 
-import com.google.common.base.Ascii
 import com.intellij.codeInsight.lookup.*
 import com.intellij.codeInsight.lookup.impl.EmptyLookupItem
 import com.intellij.codeInsight.lookup.impl.LookupImpl
@@ -12,7 +11,6 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.terminal.TerminalUiSettingsManager
-import com.intellij.terminal.completion.spec.ShellCompletionSuggestion
 import com.intellij.terminal.frontend.view.impl.TerminalInput
 import kotlinx.coroutines.cancel
 import org.jetbrains.plugins.terminal.block.reworked.TerminalCommandCompletion
@@ -65,33 +63,12 @@ internal class TerminalLookupManagerListener : LookupManagerListener {
 
 private class TerminalLookupListener : LookupListener {
   override fun beforeItemSelected(event: LookupEvent): Boolean {
-    val terminalInput = event.lookup.editor.getUserData(TerminalInput.Companion.KEY) ?: return false
     val item = event.item
-    val lookup = event.lookup as LookupImpl
-    val completionChar = event.completionChar
-
     if (item == null || !item.isValid() || item is EmptyLookupItem) {
       return false
     }
 
-    // First step - remove the typed prefix
-    val commandSize = lookup.itemPattern(item).length
-    if (commandSize > 0) {
-      terminalInput.sendBytes(ByteArray(commandSize) { Ascii.DEL })
-    }
-
-    // Second step - insert the completion item
-    terminalInput.sendString(item.lookupString)
-
-    // Third step - move the cursor to the custom position if it is specified
-    val suggestion = item.`object` as ShellCompletionSuggestion
-    val cursorOffset = suggestion.insertValue?.indexOf("{cursor}")
-    if (cursorOffset != null && cursorOffset != -1) {
-      val delta = item.lookupString.length - cursorOffset
-      repeat(delta) {
-        terminalInput.sendLeft()
-      }
-    }
+    insertTerminalCompletionItem(event.lookup as LookupImpl, item)
 
     // if one of the listeners returns false - the item is not inserted
     return false

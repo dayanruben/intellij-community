@@ -77,7 +77,11 @@ data object TerminalPromptFinishedEvent : TerminalShellIntegrationEvent
 
 @ApiStatus.Internal
 @Serializable
-data class TerminalAliasesReceivedEvent(val aliases: TerminalAliasesInfo) : TerminalShellIntegrationEvent
+data class TerminalAliasesReceivedEvent(val aliasesRaw: String) : TerminalShellIntegrationEvent
+
+@ApiStatus.Internal
+@Serializable
+data class TerminalCompletionFinishedEvent(val result: String) : TerminalShellIntegrationEvent
 
 /**
  * A backend-only event indicating that there may be hyperlink events to pull from the highlighter.

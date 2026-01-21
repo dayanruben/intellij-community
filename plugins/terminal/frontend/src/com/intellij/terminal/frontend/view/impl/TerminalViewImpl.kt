@@ -47,7 +47,6 @@ import org.jetbrains.plugins.terminal.block.completion.spec.impl.TerminalCommand
 import org.jetbrains.plugins.terminal.block.output.TerminalOutputEditorInputMethodSupport
 import org.jetbrains.plugins.terminal.block.output.TerminalTextHighlighter
 import org.jetbrains.plugins.terminal.block.reworked.TerminalAiInlineCompletion
-import org.jetbrains.plugins.terminal.block.reworked.TerminalAliasesStorage
 import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModel
 import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModelImpl
 import org.jetbrains.plugins.terminal.block.reworked.lang.TerminalOutputPsiFile
@@ -159,6 +158,7 @@ class TerminalViewImpl(
     val alternateBufferModel = MutableTerminalOutputModelImpl(alternateBufferEditor.document, maxOutputLength = 0)
     val alternateBufferModelController = TerminalOutputModelControllerImpl(alternateBufferModel)
     val alternateBufferEventsHandler = TerminalEventsHandlerImpl(
+      terminalView = this,
       sessionModel,
       alternateBufferEditor,
       encodingManager,
@@ -207,6 +207,7 @@ class TerminalViewImpl(
     outputEditor.putUserData(TerminalTypeAhead.KEY, outputModelController)
 
     outputEditorEventsHandler = TerminalEventsHandlerImpl(
+      terminalView = this,
       sessionModel,
       outputEditor,
       encodingManager,
@@ -254,9 +255,6 @@ class TerminalViewImpl(
       coroutineScope = hyperlinkScope,
     )
 
-    val terminalAliasesStorage = TerminalAliasesStorage()
-    outputEditor.putUserData(TerminalAliasesStorage.KEY, terminalAliasesStorage)
-
     controller = TerminalSessionController(
       sessionModel,
       outputModelController,
@@ -271,7 +269,7 @@ class TerminalViewImpl(
       outputModelController,
       sessionModel,
       shellIntegrationDeferred,
-      terminalAliasesStorage,
+      startupOptionsDeferred,
       coroutineScope.childScope("TerminalShellIntegrationEventsHandler"),
     )
     controller.addEventsHandler(shellIntegrationEventsHandler)

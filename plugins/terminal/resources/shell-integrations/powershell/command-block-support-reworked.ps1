@@ -44,8 +44,7 @@ function Global:Prompt() {
   if ($Global:__JetBrainsIntellijState.IsInitialized -eq $false) {
     $Global:__JetBrainsIntellijState.IsInitialized = $true
     $Result += Global:__JetBrainsIntellijOSC "initialized;current_directory=$(Global:__JetBrainsIntellijEncode $CurrentDirectory)"
-    # Return the empty aliases list for now
-    $Result += Global:__JetBrainsIntellijOSC "aliases_received"
+    $Result += Global:__JetBrainsIntellijGetAliases
   }
   elseif ($Global:__JetBrainsIntellijState.IsCommandRunning -eq $true){
     $Global:__JetBrainsIntellijState.IsCommandRunning = $false
@@ -76,4 +75,35 @@ function Global:PSConsoleHostReadLine {
   }
 
   return $Command
+}
+
+function Global:__JetBrainsIntellijGetAliases {
+  $Aliases = Get-Alias | ForEach-Object { [PSCustomObject]@{ name = $_.Name; definition = $_.Definition } }
+  $AliasesJson = $Aliases | ConvertTo-Json -Compress
+  $OSC = Global:__JetBrainsIntellijOSC "aliases_received;result=$(Global:__JetBrainsIntellijEncode $AliasesJson)"
+  return $OSC
+}
+
+function Global:__JetBrainsIntellijSendCompletions {
+	$CommandText = ""
+	$CursorIndex = 0
+	[Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$CommandText, [ref]$CursorIndex)
+
+	$Completions = TabExpansion2 -inputScript $CommandText -cursorColumn $CursorIndex
+  if ($Completions -ne $null) {
+    $ResultObject = [PSCustomObject]@{
+      CommandText = $CommandText
+      CursorIndex = $CursorIndex
+      ReplacementIndex = $Completions.ReplacementIndex
+      ReplacementLength = $Completions.ReplacementLength
+      CompletionMatches = $Completions.CompletionMatches
+    }
+    $ResultJson = $ResultObject | ConvertTo-Json -Compress
+    $ResultOSC = Global:__JetBrainsIntellijOSC "completion_finished;result=$(Global:__JetBrainsIntellijEncode $ResultJson)"
+  	Write-Host -NoNewLine $ResultOSC
+  }
+}
+
+Set-PSReadLineKeyHandler -Chord 'F12,e' -ScriptBlock {
+	Global:__JetBrainsIntellijSendCompletions
 }

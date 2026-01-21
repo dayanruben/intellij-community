@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.debugger.impl.backend
 
 import com.intellij.ide.rpc.FrontendDocumentId
@@ -152,7 +152,7 @@ internal class BackendXDebugSessionApi : XDebugSessionApi {
     computeVariants: suspend (XSmartStepIntoHandler<*>, XSourcePosition) -> List<XSmartStepIntoVariant>?,
   ): List<XSmartStepIntoTargetDto>? {
     val session = sessionId.findValue() ?: return null
-    val scope = session.currentSuspendCoroutineScope ?: return null
+    val scope = session.getSuspendContextModel()?.coroutineScope ?: return null
     val handler = session.debugProcess.smartStepIntoHandler ?: return null
     val sourcePosition = session.topFramePosition ?: return null
     try {
@@ -310,10 +310,10 @@ internal suspend fun createBackendDocument(
 }
 
 internal fun XDebugSessionImpl.suspendData(): SuspendData? {
-  val suspendContext = suspendContext ?: return null
-  val suspendScope = currentSuspendCoroutineScope ?: return null
-  val suspendContextId = suspendContext.getOrStoreGlobally(suspendScope, this)
-  val suspendContextDto = XSuspendContextDto(suspendContextId, suspendContext is XSteppingSuspendContext)
+  val currentSuspendContextModel = getSuspendContextModel() ?: return null
+  val suspendContext = currentSuspendContextModel.suspendContext
+  val suspendScope = currentSuspendContextModel.coroutineScope
+  val suspendContextDto = XSuspendContextDto(currentSuspendContextModel.id, suspendContext is XSteppingSuspendContext)
   val executionStackDto = suspendContext.activeExecutionStack?.toRpc(suspendScope, this)
   val stackFrameDto = currentStackFrame?.toRpc(suspendScope, this)
   val topSourcePositionDto = topFramePosition?.toRpc()
