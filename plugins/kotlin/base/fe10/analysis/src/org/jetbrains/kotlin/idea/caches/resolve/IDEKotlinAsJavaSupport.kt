@@ -10,6 +10,8 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
 import com.intellij.psi.search.GlobalSearchScope
+import org.jetbrains.kotlin.K1Deprecation
+import org.jetbrains.kotlin.analysis.api.KaPlatformInterface
 import org.jetbrains.kotlin.analysis.api.platform.modification.createProjectWideLibraryModificationTracker
 import org.jetbrains.kotlin.analysis.api.platform.modification.createProjectWideSourceModificationTracker
 import org.jetbrains.kotlin.analysis.decompiled.light.classes.DecompiledLightClassesFactory
@@ -42,6 +44,7 @@ import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtScript
 import org.jetbrains.kotlin.resolve.scopes.MemberScope
 
+@K1Deprecation
 class IDEKotlinAsJavaSupport(project: Project) : KotlinAsJavaSupportBase<IdeaModuleInfo>(project) {
     override fun findClassOrObjectDeclarations(fqName: FqName, searchScope: GlobalSearchScope): Collection<KtClassOrObject> {
         val scope = KotlinSourceFilterScope.projectSourcesAndLibraryClasses(searchScope, project)
@@ -89,7 +92,10 @@ class IDEKotlinAsJavaSupport(project: Project) : KotlinAsJavaSupportBase<IdeaMod
         else -> false
     }
 
+    @OptIn(KaPlatformInterface::class)
     override fun projectWideOutOfBlockModificationTracker(): ModificationTracker = project.createProjectWideSourceModificationTracker()
+
+    @OptIn(KaPlatformInterface::class)
     override fun librariesTracker(element: PsiElement): ModificationTracker = project.createProjectWideLibraryModificationTracker()
 
     override fun getSubPackages(fqn: FqName, scope: GlobalSearchScope): Collection<FqName> =

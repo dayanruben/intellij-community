@@ -252,6 +252,7 @@ private fun publicApi(index: ApiIndex, classSignatures: List<ClassBinarySignatur
             memberSignature.access.access,
             annotationExperimental = memberSignature.annotations.isExperimental() || companionAnnotations.isExperimental,
             annotationNonExtendable = memberSignature.annotations.isNonExtendable(),
+            annotationDeprecated = memberSignature.annotations.isDeprecated() || companionAnnotations.isDeprecated,
           ),
         )
       }
@@ -264,6 +265,7 @@ private fun publicApi(index: ApiIndex, classSignatures: List<ClassBinarySignatur
         signature.access.access,
         signature.annotations.isExperimental(),
         signature.annotations.isNonExtendable(),
+        signature.annotations.isDeprecated(),
       ),
       supers = signature.supertypes,
       members,
@@ -326,11 +328,12 @@ private fun <R> withClassRoot(classRoot: Path, block: (root: Path) -> R): R {
         block(it.rootDirectories.single())
       }
     }
+    !classRoot.exists() -> error("Classes output root does not exist: $classRoot")
     else -> error("Unsupported classes output root: $classRoot")
   }
 }
 
-internal data class ApiAnnotations(val isInternal: Boolean, val isExperimental: Boolean) {
+internal data class ApiAnnotations(val isInternal: Boolean, val isExperimental: Boolean, val isDeprecated: Boolean) {
 
   operator fun plus(other: ApiAnnotations): ApiAnnotations {
     if (other == unannotated && this == unannotated) {
@@ -339,11 +342,12 @@ internal data class ApiAnnotations(val isInternal: Boolean, val isExperimental: 
     return ApiAnnotations(
       isInternal || other.isInternal,
       isExperimental || other.isExperimental,
+      isDeprecated || other.isDeprecated,
     )
   }
 }
 
-private val unannotated = ApiAnnotations(false, false)
+private val unannotated = ApiAnnotations(false, false, false)
 
 /**
  * @receiver sequence of paths to class files
@@ -363,11 +367,14 @@ private fun Sequence<Path>.packages(): Map<String, ApiAnnotations> {
 private const val API_STATUS_INTERNAL_DESCRIPTOR = "Lorg/jetbrains/annotations/ApiStatus\$Internal;"
 private const val API_STATUS_EXPERIMENTAL_DESCRIPTOR = "Lorg/jetbrains/annotations/ApiStatus\$Experimental;"
 private const val API_STATUS_NON_EXTENDABLE = "Lorg/jetbrains/annotations/ApiStatus\$NonExtendable;"
+private const val JAVA_DEPRECATED = "Ljava/lang/Deprecated;"
+private const val KOTLIN_DEPRECATED = "Lkotlin/Deprecated;"
 
 private fun List<AnnotationNode>?.apiAnnotations(): ApiAnnotations {
   if (this == null) return unannotated
   var isInternal = false
   var isExperimental = false
+  var isDeprecated = false
   for (node in this) {
     if (node.desc == API_STATUS_INTERNAL_DESCRIPTOR) {
       isInternal = true
@@ -375,9 +382,12 @@ private fun List<AnnotationNode>?.apiAnnotations(): ApiAnnotations {
     if (node.desc == API_STATUS_EXPERIMENTAL_DESCRIPTOR) {
       isExperimental = true
     }
+    if (node.desc == JAVA_DEPRECATED || node.desc == KOTLIN_DEPRECATED) {
+      isDeprecated = true
+    }
   }
-  if (isInternal || isExperimental) {
-    return ApiAnnotations(isInternal, isExperimental)
+  if (isInternal || isExperimental || isDeprecated) {
+    return ApiAnnotations(isInternal, isExperimental, isDeprecated)
   }
   else {
     return unannotated
@@ -398,6 +408,10 @@ private fun List<AnnotationNode>?.isExperimental(): Boolean {
 
 private fun List<AnnotationNode>?.isNonExtendable(): Boolean {
   return hasAnnotation(API_STATUS_NON_EXTENDABLE)
+}
+
+private fun List<AnnotationNode>?.isDeprecated(): Boolean {
+  return this != null && any { it.desc == JAVA_DEPRECATED || it.desc == KOTLIN_DEPRECATED }
 }
 
 private typealias ClassResolver = (String) -> ClassBinarySignature?

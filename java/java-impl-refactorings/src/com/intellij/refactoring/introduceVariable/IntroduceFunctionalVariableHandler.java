@@ -53,8 +53,12 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
         }
         PsiElement anchorStatement =
           elements[0] instanceof PsiComment ? elements[0] : CommonJavaRefactoringUtil.getParentStatement(elements[0], false);
-        PsiElement tempContainer = checkAnchorStatement(project, editor, anchorStatement);
-        if (tempContainer == null) return;
+        ErrorOrContainer errorOrContainer = getTempContainer(anchorStatement);
+
+
+        if (errorOrContainer instanceof ErrorOrContainer.Error(@NlsContexts.DialogMessage String message)) {
+          showErrorMessage(project, editor, message);
+        }
 
         PsiElement[] elementsInCopy = IntroduceParameterHandler.getElementsInCopy(project, file, elements);
         MyExtractMethodProcessor processor =
@@ -195,7 +199,7 @@ public class IntroduceFunctionalVariableHandler extends IntroduceVariableHandler
 
 
   @Override
-  protected void showErrorMessage(Project project, Editor editor, @NlsContexts.DialogMessage String message) {
+  protected void showErrorMessage(@NotNull Project project, Editor editor, @NlsContexts.DialogMessage @NotNull String message) {
     CommonRefactoringUtil
       .showErrorHint(project, editor, message, IntroduceFunctionalVariableAction.getRefactoringName(), HelpID.INTRODUCE_VARIABLE);
   }

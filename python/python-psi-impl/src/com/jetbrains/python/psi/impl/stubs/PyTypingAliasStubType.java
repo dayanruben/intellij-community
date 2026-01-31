@@ -48,9 +48,18 @@ import static com.jetbrains.python.psi.PyUtil.as;
 public final class PyTypingAliasStubType extends CustomTargetExpressionStubType<PyTypingAliasStub> {
   private static final int STRING_LITERAL_LENGTH_THRESHOLD = 100;
 
-  private static final Pattern TYPE_ANNOTATION_LIKE = Pattern.compile("\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*" +
-                                                                      "(\\.\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*)*" +
-                                                                      "(\\[.*])?$");
+  public static final Pattern RE_TYPE_HINT_LIKE_STRING = Pattern.compile(
+    """
+      (?x)
+      \\s*
+      \\S+(\\[.*])?   # initial type like: "list[int]"
+      (\\s*[|&]\\s*   # union or intersection operators: " | " or " & "
+        \\S+(\\[.*])? # operand types
+      )*              # repeating
+      \\s*
+      """,
+    Pattern.DOTALL
+  );
 
   private static final TokenSet VALID_TYPE_ANNOTATION_ELEMENTS = TokenSet.create(PyElementTypes.REFERENCE_EXPRESSION,
                                                                                  PyElementTypes.SUBSCRIPTION_EXPRESSION,
@@ -59,7 +68,8 @@ public final class PyTypingAliasStubType extends CustomTargetExpressionStubType<
                                                                                  PyElementTypes.LIST_LITERAL_EXPRESSION,
                                                                                  PyElementTypes.STRING_LITERAL_EXPRESSION,
                                                                                  PyElementTypes.NONE_LITERAL_EXPRESSION,
-                                                                                 PyElementTypes.ELLIPSIS_LITERAL_EXPRESSION);
+                                                                                 PyElementTypes.ELLIPSIS_LITERAL_EXPRESSION,
+                                                                                 PyElementTypes.STAR_EXPRESSION);
 
   @Override
   public @Nullable PyTypingAliasStub createStub(@NotNull PyTargetExpression psi) {
@@ -80,7 +90,18 @@ public final class PyTypingAliasStubType extends CustomTargetExpressionStubType<
       return null;
     }
 
-    if (isExplicitTypeAlias(target) || (looksLikeTypeHint(value) && target.getAnnotation() == null)) {
+    if (isExplicitTypeAlias(target)) {
+      return value;
+    }
+    // Typing specification doesn't allow fully quoted values of implicit type aliases
+    // because they ambiguous with ordinary top-level string variables.
+    // For instance:
+    //
+    // FOO = "int | str"
+    //
+    // is not considered a valid type alias, even though the string content looks like a type hint.
+    // See "BadTypeAlias14" in aliases_implicit.py of the conformance test suite.
+    if (target.getAnnotation() == null && !(value instanceof PyStringLiteralExpression) && looksLikeTypeHint(value)) {
       return value;
     }
     return null;
@@ -153,7 +174,7 @@ public final class PyTypingAliasStubType extends CustomTargetExpressionStubType<
 
       @Override
       public void visitPyBinaryExpression(@NotNull PyBinaryExpression node) {
-        if (node.getOperator() != PyTokenTypes.OR) {
+        if (!(node.getOperator() == PyTokenTypes.OR || node.getOperator() == PyTokenTypes.AND)) {
           illegal[0] = true;
           return;
         }
@@ -170,7 +191,7 @@ public final class PyTypingAliasStubType extends CustomTargetExpressionStubType<
                               || node.getStringNodes().size() != 1
                               || node.getTextLength() > STRING_LITERAL_LENGTH_THRESHOLD
                               || !node.getStringElements().getFirst().getPrefix().isEmpty()
-                              || !TYPE_ANNOTATION_LIKE.matcher(node.getStringValue()).matches());
+                              || !RE_TYPE_HINT_LIKE_STRING.matcher(node.getStringValue()).matches());
         if (nonTrivial) {
           illegal[0] = true;
         }

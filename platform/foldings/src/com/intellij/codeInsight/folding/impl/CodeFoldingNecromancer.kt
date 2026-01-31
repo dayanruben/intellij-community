@@ -2,6 +2,7 @@
 package com.intellij.codeInsight.folding.impl
 
 import com.intellij.codeInsight.folding.CodeFoldingManager
+import com.intellij.formatting.visualLayer.visualFormattingElementKey
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.runReadAction
@@ -55,7 +56,10 @@ private class CodeFoldingNecromancer(
 
   override fun cutIntoLimbs(recipe: TurningRecipe): List<FoldLimb> {
     return recipe.editor.foldingModel.allFoldRegions
-      .filter { it.getUserData(ZOMBIE_REGION_KEY) == null }
+      .filter {
+        it.getUserData(ZOMBIE_REGION_KEY) == null &&
+        it.getUserData(visualFormattingElementKey) != true // `VisualFormattingNecromancer` handles vf
+      }
       .map { FoldLimb(it) }
   }
 
@@ -82,11 +86,14 @@ private class CodeFoldingNecromancer(
     val document = recipe.document
     val codeFoldingManager = project.serviceAsync<CodeFoldingManager>()
     val psiDocumentManager = project.serviceAsync<PsiDocumentManager>()
+    val editor = recipe.editorSupplier()
+    var modStamp:Long = 0
     val foldingState = readAction {
       if (psiDocumentManager.isCommitted(document)) {
+        modStamp = document.modificationStamp
         catchingExceptions {
           blockingContextToIndicator {
-            codeFoldingManager.buildInitialFoldings(document)
+            codeFoldingManager.updateFoldRegionsAsync(editor, true)
           }
         }
       } else {
@@ -94,12 +101,11 @@ private class CodeFoldingNecromancer(
       }
     }
     if (foldingState != null) {
-      val editor = recipe.editorSupplier()
       withContext(Dispatchers.EDT) {
-        if (editor.foldingModel.isFoldingEnabled) {
+        if (editor.foldingModel.isFoldingEnabled && modStamp == document.modificationStamp) {
           runReadAction { // set to editor with RA IJPL-159083
             SlowOperations.knownIssue("IJPL-165088").use {
-              foldingState.setToEditor(editor)
+              foldingState.run()
             }
           }
         }

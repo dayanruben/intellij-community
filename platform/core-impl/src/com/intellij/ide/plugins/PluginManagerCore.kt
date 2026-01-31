@@ -118,7 +118,8 @@ object PluginManagerCore {
     var initFuture: Deferred<PluginSet>? = null
 
     @Synchronized
-    fun addPluginLoadingErrors(errors: List<PluginLoadingError>) {
+    fun setErrorsForNotificationReporterAndLogger(errors: List<PluginLoadingError>) {
+      pluginErrors.clear()
       pluginErrors.addAll(errors)
     }
 
@@ -331,9 +332,12 @@ object PluginManagerCore {
     descriptorLoadingErrors: List<PluginDescriptorLoadingError>,
     duplicateModuleMap: Map<PluginId, List<PluginMainDescriptor>>,
     cycleErrors: List<PluginLoadingError>,
+    initContext: PluginInitializationContext,
   ): List<PluginLoadingError> {
     // name shadowing is intended
-    val pluginNonLoadReasons = pluginNonLoadReasons.filterValues { it !is PluginIsMarkedDisabled }
+    val pluginNonLoadReasons = pluginNonLoadReasons.filterValues {
+      it !is PluginIsMarkedDisabled && !initContext.isPluginDisabled(it.plugin.pluginId)
+    }
     val globalErrors = ArrayList<PluginLoadingError>().apply {
       for (descriptorLoadingError in descriptorLoadingErrors) {
         add(PluginLoadingError(
@@ -613,7 +617,9 @@ object PluginManagerCore {
                 incompletePlugins[plugin.pluginId] = plugin
               }
             }
-            if (pluginList.source == PluginsSourceContext.Bundled && exclusionReason is PluginVersionIsSuperseded) {
+            if ((pluginList.source == PluginsSourceContext.Bundled ||
+                 pluginList.source == PluginsSourceContext.ClassPathProvided) && // FIXME checking only Bundled should be sufficient here
+                exclusionReason is PluginVersionIsSuperseded) {
               shadowedBundledIds.add(plugin.pluginId)
             }
           }
@@ -682,13 +688,13 @@ object PluginManagerCore {
     }
 
     pluginsState.addPluginNonLoadReasons(pluginNonLoadReasons.filter { it.value !is PluginIsMarkedDisabled })
-    val errorList = preparePluginErrors(
+    pluginsState.setErrorsForNotificationReporterAndLogger(preparePluginErrors(
       pluginNonLoadReasons = pluginNonLoadReasons,
       descriptorLoadingErrors = descriptorLoadingErrors,
       duplicateModuleMap = duplicateModuleMap ?: emptyMap(),
-      cycleErrors = cycleErrors
-    )
-    pluginsState.addPluginLoadingErrors(errorList)
+      cycleErrors = cycleErrors,
+      initContext = initContext,
+    ))
 
     if (initContext.checkEssentialPlugins) {
       checkEssentialPluginsAreAvailable(idMap, initContext.essentialPlugins, pluginNonLoadReasons)

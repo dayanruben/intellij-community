@@ -15,6 +15,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.util.asSafely
 import org.jetbrains.annotations.Nls
+import org.jetbrains.kotlin.K1Deprecation
 import org.jetbrains.kotlin.builtins.functions.FunctionClassDescriptor
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.ClassifierDescriptor
@@ -35,6 +36,7 @@ import org.jetbrains.kotlin.resolve.descriptorUtil.classValueType
 import org.jetbrains.kotlin.types.typeUtil.isTypeParameter
 import java.lang.ref.WeakReference
 
+@K1Deprecation
 class CreateExtensionCallableFromUsageFix<E : KtElement>(
     originalExpression: E,
     private val callableInfosFactory: (E) -> List<CallableInfo>?
@@ -48,6 +50,7 @@ class CreateExtensionCallableFromUsageFix<E : KtElement>(
         get() = element?.let { callableInfosFactory(it) } ?: emptyList()
 }
 
+@K1Deprecation
 class CreateCallableFromUsageFix<E : KtElement>(
     originalExpression: E,
     private val callableInfosFactory: (E) -> List<CallableInfo>?
@@ -62,6 +65,7 @@ class CreateCallableFromUsageFix<E : KtElement>(
 
 }
 
+@K1Deprecation
 abstract class AbstractCreateCallableFromUsageFixWithTextAndFamilyName<E : KtElement>(
     providedText: String,
     @Nls private val familyName: String,
@@ -73,6 +77,7 @@ abstract class AbstractCreateCallableFromUsageFixWithTextAndFamilyName<E : KtEle
     override fun getFamilyName(): String = familyName
 }
 
+@K1Deprecation
 abstract class CreateCallableFromUsageFixBase<E : KtElement>(
     originalExpression: E,
     val isExtension: Boolean
@@ -100,14 +105,14 @@ abstract class CreateCallableFromUsageFixBase<E : KtElement>(
         val callableInfos = notEmptyCallableInfos() ?: return ""
         val callableInfo = callableInfos.first()
         val receiverTypeInfo = callableInfo.receiverTypeInfo
-        val renderedCallablesByKind = callableInfos.groupBy({ it.kind }, valueTransform = {
+        val renderedCallablesByKind = callableInfos.groupBy({ it.kind }, valueTransform = { info ->
             buildString {
-                if (it.name.isNotEmpty()) {
+                if (info.name.isNotEmpty()) {
                     val receiverType = if (!receiverTypeInfo.isOfThis) {
                         CallableBuilderConfiguration(callableInfos, element, isExtension = isExtension)
                             .createBuilder()
                             .computeTypeCandidates(receiverTypeInfo)
-                            .firstOrNull { candidate -> if (it.isAbstract) candidate.theType.isAbstract() else true }
+                            .firstOrNull { candidate -> if (info.isAbstract) candidate.theType.isAbstract() else true }
                             ?.theType
                     } else null
 
@@ -128,7 +133,7 @@ abstract class CreateCallableFromUsageFixBase<E : KtElement>(
                         }
                     }
 
-                    append(it.name)
+                    append(info.name)
                 }
             }
         })
@@ -294,13 +299,13 @@ abstract class CreateCallableFromUsageFixBase<E : KtElement>(
 
         val popupTitle = KotlinBundle.message("choose.target.class.or.interface")
         val receiverTypeInfo = callableInfo.receiverTypeInfo
-        val receiverTypeCandidates = callableBuilder.computeTypeCandidates(receiverTypeInfo).let {
+        val receiverTypeCandidates = callableBuilder.computeTypeCandidates(receiverTypeInfo).let { typeCandidates ->
             if (callableInfo.isAbstract)
-                it.filter { it.theType.isAbstract() }
+                typeCandidates.filter { it.theType.isAbstract() }
             else if (!isExtension && receiverTypeInfo != TypeInfo.Empty)
-                it.filter { !it.theType.isTypeParameter() }
+                typeCandidates.filter { !it.theType.isTypeParameter() }
             else
-                it
+                typeCandidates
         }
         if (receiverTypeCandidates.isNotEmpty()) {
             val staticContextRequired = receiverTypeInfo.staticContextRequired

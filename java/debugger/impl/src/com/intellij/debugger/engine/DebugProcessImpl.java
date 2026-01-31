@@ -10,6 +10,7 @@ import com.intellij.debugger.engine.events.DebuggerCommandImpl;
 import com.intellij.debugger.engine.events.DebuggerContextCommandImpl;
 import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
 import com.intellij.debugger.engine.jdi.ThreadReferenceProxy;
+import com.intellij.debugger.engine.jdi.VirtualMachineProxy;
 import com.intellij.debugger.engine.requests.MethodReturnValueWatcher;
 import com.intellij.debugger.engine.requests.RequestManagerImpl;
 import com.intellij.debugger.engine.requests.StepRequestor;
@@ -125,13 +126,13 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   private final Deque<VirtualMachineData> myStashedVirtualMachines = new LinkedList<>();
 
-  private volatile VirtualMachineProxyImpl myVirtualMachineProxy = null;
   protected final CheckedDisposable disposable = Disposer.newCheckedDisposable();
   protected final DisposableWrapperList<DebugProcessListener> myDebugProcessListeners = new DisposableWrapperList<>(); // propagate exceptions from listeners
   protected final EventDispatcher<EvaluationListener> myEvaluationDispatcher = EventDispatcher.create(EvaluationListener.class);
 
   private final List<ProcessListener> myProcessListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final StringBuilder myTextBeforeStart = new StringBuilder();
+  protected @Nullable Method myIsUnderBreakpointCheckFn;
 
   protected enum State {INITIAL, ATTACHED, DETACHING, DETACHED}
 
@@ -223,7 +224,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   private DebuggerManagerThreadImpl createManagerThread() {
     CoroutineScope projectScope = ((XDebuggerManagerImpl)XDebuggerManager.getInstance(project)).getCoroutineScope();
-    return new DebuggerManagerThreadImpl(disposable, projectScope, this);
+    return new DebuggerManagerThreadImpl(disposable, projectScope);
   }
 
   @ApiStatus.Internal
@@ -432,7 +433,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
     checkVirtualMachineVersion(vm);
     VirtualMachineProxyImpl proxy = new VirtualMachineProxyImpl(this, vm);
-    myVirtualMachineProxy = proxy;
+    DebuggerManagerThreadImpl.getCurrentThread().setVmProxy(proxy);
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       Alarm alarm = new Alarm(disposable);
       alarm.addRequest(() -> myDebuggerManagerThread.schedule(PrioritizedTask.Priority.HIGH, () -> {
@@ -488,7 +489,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
    * @param size the step size. One of {@link StepRequest#STEP_LINE} or {@link StepRequest#STEP_MIN}
    * @param hint may be null
    */
-  protected void doStep(@NotNull SuspendContextImpl suspendContext, final ThreadReferenceProxyImpl stepThread, int size, int depth,
+  @ApiStatus.Internal
+  public void doStep(@NotNull SuspendContextImpl suspendContext, final ThreadReferenceProxyImpl stepThread, int size, int depth,
                         RequestHint hint, Object commandToken) {
     if (stepThread == null) {
       return;
@@ -926,7 +928,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   public boolean canRedefineClasses() {
-    final VirtualMachineProxyImpl vm = myVirtualMachineProxy;
+    VirtualMachineProxyImpl vm = getManagerThread().getVmProxy();
     return vm != null && vm.canRedefineClasses();
   }
 
@@ -957,22 +959,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   /**
    * Get the current VM proxy connected to the process.
    * The VM can change due to a single debug process can be connected to several VMs (see {@link DebugProcessImpl#reattach(DebugEnvironment, boolean, Runnable)})
-   * Prefer {@link SuspendContextImpl#getVirtualMachineProxy()} when possible.
+   * Use {@link VirtualMachineProxyImpl#getCurrent()} instead
    */
   @Override
   @ApiStatus.Obsolete
   public @NotNull VirtualMachineProxyImpl getVirtualMachineProxy() {
-    DebuggerManagerThreadImpl.assertIsManagerThread();
-    final VirtualMachineProxyImpl vm = myVirtualMachineProxy;
-    if (vm == null) {
-      if (isInInitialState()) {
-        throw new IllegalStateException("Virtual machine is not initialized yet");
-      }
-      else {
-        throw new VMDisconnectedException();
-      }
-    }
-    return vm;
+    return VirtualMachineProxyImpl.getCurrent();
   }
 
   @Override
@@ -1034,15 +1026,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     DebuggerManagerThreadImpl.assertIsManagerThread();
 
     if (myState.compareAndSet(State.INITIAL, State.DETACHING) || myState.compareAndSet(State.ATTACHED, State.DETACHING)) {
+      DebuggerManagerThreadImpl managerThread = myDebuggerManagerThread;
       try {
         if (!keepManagerThread) {
-          myDebuggerManagerThread.close();
+          managerThread.close();
         }
       }
       finally {
         if (!(myConnection instanceof RemoteConnectionStub)) {
-          VirtualMachineData vmData = new VirtualMachineData(myVirtualMachineProxy, myConnection, myDebuggerManagerThread);
-          myVirtualMachineProxy = null;
+          VirtualMachineData vmData = new VirtualMachineData(managerThread.getVmProxy(), myConnection, managerThread);
           myPositionManager = CompoundPositionManager.DISABLED;
           myReturnValueWatcher = null;
           myNodeRenderersMap.clear();
@@ -1072,6 +1064,9 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           vmData.vm.dispose(); // to be on the safe side ensure that VM mirror, if present, is disposed and invalidated
         }
         catch (Throwable ignored) {
+        }
+        finally {
+          DebuggerManagerThreadImpl.getCurrentThread().setVmProxy(null);
         }
       }
 
@@ -1181,7 +1176,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   public boolean isCurrentVirtualMachine(@NotNull VirtualMachineProxyImpl vmProxy) {
-    VirtualMachine vm = ObjectUtils.doIfNotNull(myVirtualMachineProxy, it -> it.getVirtualMachine());
+    VirtualMachineProxyImpl current = getManagerThread().getVmProxy();
+    VirtualMachine vm = ObjectUtils.doIfNotNull(current, it -> it.getVirtualMachine());
     return vmProxy.getVirtualMachine() == vm;
   }
 
@@ -1762,8 +1758,10 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     return ContainerUtil.filter(getCurrentVm(suspendContext).classesByName(className), ReferenceType::isPrepared);
   }
 
-  private VirtualMachineProxyImpl getCurrentVm(@Nullable SuspendContext suspendContext) {
-    return suspendContext != null ? ((SuspendContextImpl)suspendContext).getVirtualMachineProxy() : getVirtualMachineProxy();
+  private static VirtualMachineProxyImpl getCurrentVm(@Nullable SuspendContext suspendContext) {
+    return suspendContext != null
+           ? ((SuspendContextImpl)suspendContext).getVirtualMachineProxy()
+           : VirtualMachineProxyImpl.getCurrent();
   }
 
   private static boolean isVisibleFromClassLoader(@NotNull ClassLoaderReference fromLoader, final ReferenceType refType) {
@@ -1851,7 +1849,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   public void logThreads() {
     if (LOG.isDebugEnabled()) {
       try {
-        Collection<ThreadReferenceProxyImpl> allThreads = getVirtualMachineProxy().allThreads();
+        Collection<ThreadReferenceProxyImpl> allThreads = VirtualMachineProxyImpl.getCurrent().allThreads();
         for (ThreadReferenceProxyImpl threadReferenceProxy : allThreads) {
           LOG.debug("Thread name=" + threadReferenceProxy.name() + " suspendCount()=" + threadReferenceProxy.getSuspendCount());
         }
@@ -1903,7 +1901,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     @Override
     protected void action() {
       if (isAttached()) {
-        VirtualMachineProxyImpl virtualMachineProxy = getVirtualMachineProxy();
+        VirtualMachineProxyImpl virtualMachineProxy = VirtualMachineProxyImpl.getCurrent();
 
         if (!virtualMachineProxy.canBeModified()) {
           closeCurrentProcess(false);
@@ -2197,7 +2195,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           && isResumeOnlyCurrentThread()
           && context.getSuspendPolicy() == EventRequest.SUSPEND_ALL
           && myContextThread != null) {
-        getVirtualMachineProxy().suspend();
+        VirtualMachineProxyImpl.getCurrent().suspend();
 
         // The current suspend context should be released, so all related commands should be canceled
         getSuspendManager().resume(context);
@@ -2326,7 +2324,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     private boolean isDebuggerAgentAvailable() {
-      return !getVirtualMachineProxy().classesByName("com.intellij.rt.debugger.agent.DebuggerAgent").isEmpty();
+      return !VirtualMachineProxy.getCurrent().classesByName("com.intellij.rt.debugger.agent.DebuggerAgent").isEmpty();
     }
 
     @Override
@@ -2336,22 +2334,17 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       }
       logThreads();
       if (Registry.is("debugger.evaluate.on.pause")) {
-        tryPauseWithEvaluatableContext();
+        stopOnAnyMethodEntryAndGetSuspendContext();
       } else {
         fallbackPauseWithNonEvaluatableContext();
         DebuggerStatistics.logEvaluatablePauseDisabled(project);
       }
     }
 
-    private void tryPauseWithEvaluatableContext() {
-      DebugProcessImpl process = getVirtualMachineProxy().getDebugProcess();
-      stopOnAnyMethodEntryAndGetSuspendContext(process);
-    }
-
-    private void stopOnAnyMethodEntryAndGetSuspendContext(DebugProcessImpl process) {
+    private void stopOnAnyMethodEntryAndGetSuspendContext() {
       var evaluatableContextObtained = new DebuggerCompletableFuture<Void>();
       var evaluatableContextFuture = new DebuggerCompletableFuture<SuspendContextImpl>();
-      var requestor = new FilteredRequestorImpl(process.project) {
+      var requestor = new FilteredRequestorImpl(project) {
         @Override
         public boolean shouldIgnoreThreadFiltering() {
           // Such low-level requests are not supposed to be filtered out by thread filter (which is set during stepping, for example)
@@ -2360,7 +2353,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
         @Override
         public boolean processLocatableEvent(@NotNull SuspendContextCommandImpl action, LocatableEvent event) {
-          process.getRequestsManager().deleteRequest(this);
+          getRequestsManager().deleteRequest(this);
           var evaluatableContext = action.getSuspendContext();
           // evaluatableContextObtained future is used to timeout on getting the suspendContext,
           // evaluatableContextFuture actually stores the suspendContext.
@@ -2379,7 +2372,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           return DebuggerSettings.SUSPEND_ALL;
         }
       };
-      var request = process.getRequestsManager().createMethodEntryRequest(requestor);
+      var request = getRequestsManager().createMethodEntryRequest(requestor);
       request.setSuspendPolicy(EventRequest.SUSPEND_ALL);
       DebuggerUtilsAsync.setEnabled(request, true);
 
@@ -2387,11 +2380,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       evaluatableContextObtained
         .orTimeout(timeout, TimeUnit.MILLISECONDS)
         .whenComplete((evaluatableContext, error) -> {
-          process.getManagerThread().schedule(new DebuggerCommandImpl() {
+          getManagerThread().schedule(new DebuggerCommandImpl() {
             @Override
             protected void action() {
               if (error != null) {
-                process.getRequestsManager().deleteRequest(requestor);
+                getRequestsManager().deleteRequest(requestor);
                 // Check if the request was processed concurrently (before it was removed on a timeout) and saved the suspendContext.
                 if (evaluatableContextFuture.isDone()) {
                   var evaluatableContext = evaluatableContextFuture.get();
@@ -2437,7 +2430,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     private void fallbackPauseWithNonEvaluatableContext() {
-      getVirtualMachineProxy().suspend();
+      var vmProxy = VirtualMachineProxyImpl.getCurrent();
+      vmProxy.suspend();
       mySuspendManager.myExplicitlyResumedThreads.clear();
       mySuspendManager.resumeAllSuspendAllContexts(null);
       SuspendContextImpl suspendContext = mySuspendManager.pushSuspendContext(EventRequest.SUSPEND_ALL, 0);
@@ -3019,6 +3013,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     if (myReturnValueWatcher != null) {
       myReturnValueWatcher.enable(thread.getThreadReference());
     }
+  }
+
+  @ApiStatus.Internal
+  public void setIsUnderBreakpointCheckFn(@NotNull Method isUnderBreakpointCheckFn) {
+    this.myIsUnderBreakpointCheckFn = isUnderBreakpointCheckFn;
   }
 
   @ApiStatus.Internal

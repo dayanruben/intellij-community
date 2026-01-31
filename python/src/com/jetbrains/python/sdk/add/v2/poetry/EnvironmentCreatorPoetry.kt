@@ -25,7 +25,7 @@ import com.jetbrains.python.sdk.add.v2.PythonSupportedEnvironmentManagers.POETRY
 import com.jetbrains.python.sdk.add.v2.PythonSupportedEnvironmentManagers.PYTHON
 import com.jetbrains.python.sdk.add.v2.VenvExistenceValidationState.Error
 import com.jetbrains.python.sdk.add.v2.VenvExistenceValidationState.Invisible
-import com.jetbrains.python.sdk.basePath
+import com.jetbrains.python.sdk.baseDir
 import com.jetbrains.python.sdk.poetry.configurePoetryEnvironment
 import com.jetbrains.python.sdk.poetry.createNewPoetrySdk
 import com.jetbrains.python.statistics.InterpreterType
@@ -104,11 +104,17 @@ internal class EnvironmentCreatorPoetry<P : PathHolder>(
     }
   }
 
-  override suspend fun setupEnvSdk(moduleBasePath: Path, baseSdks: List<Sdk>, basePythonBinaryPath: P?, installPackages: Boolean): PyResult<Sdk> {
+  override suspend fun setupEnvSdk(moduleBasePath: Path): PyResult<Sdk> {
+    val basePythonBinaryPath = model.getOrInstallBasePython()
+
     module?.let { service<PoetryConfigService>().setInProjectEnv(it) }
     return when (basePythonBinaryPath) {
-      is PathHolder.Eel -> createNewPoetrySdk(moduleBasePath, baseSdks, basePythonBinaryPath.path, installPackages)
-      else -> return PyResult.localizedError(PyBundle.message("target.is.not.supported", basePythonBinaryPath))
+      is PathHolder.Eel -> createNewPoetrySdk(
+        moduleBasePath = moduleBasePath,
+        basePythonBinaryPath = basePythonBinaryPath.path,
+        installPackages = false
+      )
+      else -> PyResult.localizedError(PyBundle.message("target.is.not.supported", basePythonBinaryPath))
     }
   }
 
@@ -135,7 +141,8 @@ internal class EnvironmentCreatorPoetry<P : PathHolder>(
 
 @Service(Service.Level.APP)
 @State(name = "PyPoetrySettings", storages = [Storage("pyPoetrySettings.xml")])
-private class PoetryConfigService : SerializablePersistentStateComponent<PoetryConfigService.PyPoetrySettingsState>(PyPoetrySettingsState()) {
+private class PoetryConfigService :
+  SerializablePersistentStateComponent<PoetryConfigService.PyPoetrySettingsState>(PyPoetrySettingsState()) {
   class PyPoetrySettingsState : BaseState() {
     var isInProjectEnv = false
   }
@@ -144,7 +151,7 @@ private class PoetryConfigService : SerializablePersistentStateComponent<PoetryC
     val hasPoetryToml = findPoetryToml(module) != null
     if (state.isInProjectEnv || hasPoetryToml) {
       val modulePath = withContext(Dispatchers.IO) {
-        PyProjectToml.findFile(module)?.parent?.toNioPath() ?: module.basePath?.let { Path.of(it) }
+        PyProjectToml.findFile(module)?.parent?.toNioPath() ?: module.baseDir?.path?.let { Path.of(it) }
       }
       configurePoetryEnvironment(modulePath, "virtualenvs.in-project", state.isInProjectEnv.toString(), "--local")
     }

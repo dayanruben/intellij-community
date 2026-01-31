@@ -12,6 +12,7 @@ import com.intellij.debugger.engine.*;
 import com.intellij.debugger.engine.evaluation.*;
 import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator;
 import com.intellij.debugger.engine.evaluation.expression.UnBoxingEvaluator;
+import com.intellij.debugger.engine.jdi.VirtualMachineProxy;
 import com.intellij.debugger.engine.requests.RequestManagerImpl;
 import com.intellij.debugger.jdi.GeneratedLocation;
 import com.intellij.debugger.jdi.GeneratedReferenceType;
@@ -121,21 +122,6 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
       }
     }
     return null;
-  }
-
-  /**
-   * Does not handle array types correctly
-   * @deprecated use {@link DebuggerUtils#instanceOf(Type, String)}
-   */
-  @Deprecated(forRemoval = true)
-  public static boolean isAssignableFrom(@NotNull String baseQualifiedName, @NotNull Type checkedType) {
-    if (checkedType instanceof ReferenceType) {
-      if (CommonClassNames.JAVA_LANG_OBJECT.equals(baseQualifiedName)) {
-        return true;
-      }
-      return getSuperClass(baseQualifiedName, (ReferenceType)checkedType) != null;
-    }
-    return baseQualifiedName.equals(checkedType.name());
   }
 
   @Deprecated
@@ -1125,7 +1111,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
           return true;
         }
         if (methodClassName != null) {
-          if (ContainerUtil.exists(process.getVirtualMachineProxy().classesByName(className), t -> instanceOf(t, methodClassName))) {
+          if (ContainerUtil.exists(VirtualMachineProxy.getCurrent().classesByName(className), t -> instanceOf(t, methodClassName))) {
             return true;
           }
           PsiClass aClass = PositionManagerImpl.findClass(process.getProject(), className, process.getSearchScope(), true);

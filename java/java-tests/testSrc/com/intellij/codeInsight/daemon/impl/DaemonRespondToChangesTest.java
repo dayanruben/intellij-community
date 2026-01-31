@@ -34,7 +34,6 @@ import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.ide.GeneralSettings;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.ide.highlighter.XmlFileType;
-import com.intellij.idea.IJIgnore;
 import com.intellij.javaee.ExternalResourceManagerExImpl;
 import com.intellij.lang.LanguageFilter;
 import com.intellij.lang.annotation.AnnotationHolder;
@@ -89,7 +88,6 @@ import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.storage.HeavyProcessLatch;
 import com.intellij.util.ref.GCWatcher;
-import com.intellij.util.ui.UIUtil;
 import com.intellij.xml.util.CheckDtdReferencesInspection;
 import kotlin.Unit;
 import org.intellij.lang.annotations.Language;
@@ -374,7 +372,7 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
         catch (InterruptedException e) {
           LOG.error(e);
         }
-        UIUtil.dispatchAllInvocationEvents(); //flush
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue(); //flush
       });
     }
     finally {
@@ -2010,7 +2008,6 @@ public class DaemonRespondToChangesTest extends DaemonAnalyzerTestCase {
     assertInvalidPSIElementHighlightingIsRemovedImmediatelyAfterRepairingChange(text, "';' expected", () -> backspace());
   }
 
-  @IJIgnore(issue = "IDEA-383615")
   public void testInvalidPSIElementsCreatedByTypingNearThemMustBeRemovedImmediatelyMeaningLongBeforeTheHighlightingPassFinished2() {
     @Language("JAVA")
     String text = """

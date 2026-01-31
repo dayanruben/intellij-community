@@ -667,8 +667,10 @@ public class PsiViewerDialog extends DialogWrapper implements UiDataProvider {
 
   @Override
   protected void doOKAction() {
-    doUpdatePsi();
-    focusTree();
+    WriteIntentReadAction.run(() -> {
+      doUpdatePsi();
+      focusTree();
+    });
   }
 
   private void doUpdatePsi() {
@@ -791,7 +793,9 @@ public class PsiViewerDialog extends DialogWrapper implements UiDataProvider {
                                    ? (PsiElement)elementObject
                                    : elementObject instanceof ASTNode ? ((ASTNode)elementObject).getPsi() : null;
         if (element != null) {
-          TextRange rangeInHostFile = InjectedLanguageManager.getInstance(myProject).injectedToHost(element, element.getTextRange());
+          TextRange rangeInHostFile = ReadAction.compute(
+            () -> InjectedLanguageManager.getInstance(myProject).injectedToHost(element, element.getTextRange())
+          );
           int start = rangeInHostFile.getStartOffset();
           int end = rangeInHostFile.getEndOffset();
           PsiElement rootPsiElement = myTreeStructure.getRootPsiElement();
@@ -817,7 +821,7 @@ public class PsiViewerDialog extends DialogWrapper implements UiDataProvider {
             });
           }
           myPsiViewerPropertiesTabViewModel.setSelectedPsiElement(element);
-          updateReferences(element);
+          WriteIntentReadAction.run(() -> updateReferences(element));
         }
       }
     }
@@ -1157,7 +1161,6 @@ public class PsiViewerDialog extends DialogWrapper implements UiDataProvider {
   private static <T> T computeSlowOperationsSafeInBgThread(@NotNull Project project,
                                                            @NlsContexts.DialogTitle @NotNull String progressDialogTitle,
                                                            @NotNull Callable<T> callable) {
-
     return ProgressManager.getInstance().run(new Task.WithResult<>(project, progressDialogTitle, true) {
       @Override
       protected T compute(@NotNull ProgressIndicator indicator) throws RuntimeException {

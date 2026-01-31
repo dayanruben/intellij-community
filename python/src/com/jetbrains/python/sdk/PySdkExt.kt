@@ -31,6 +31,7 @@ import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.ui.EDT
 import com.intellij.webcore.packaging.PackagesNotificationPanel
 import com.jetbrains.python.PyBundle
+import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.errorProcessing.emit
 import com.jetbrains.python.isCondaVirtualEnv
@@ -100,7 +101,7 @@ fun filterSystemWideSdks(existingSdks: List<Sdk>): List<Sdk> {
 @Internal
 fun configurePythonSdk(project: Project, module: Module, sdk: Sdk) {
   // in case module contains root of the project we consider it as a project wide interpreter
-  if (project.basePath == module.basePath) {
+  if (project.basePath == module.baseDir?.path) {
     project.pythonSdk = sdk
   }
 
@@ -171,11 +172,6 @@ fun detectVirtualEnvs(module: Module?, existingSdks: List<Sdk>, context: UserDat
   filterSuggestedPaths(VirtualEnvSdkFlavor.getInstance(), existingSdks, module, context)
 
 @Internal
-fun filterSharedCondaEnvs(module: Module?, existingSdks: List<Sdk>): List<Sdk> {
-  return existingSdks.filter { isPythonSdk(it) && it.isCondaVirtualEnv && !it.isAssociatedWithAnotherModule(module) }
-}
-
-@Internal
 fun filterAssociatedSdks(module: Module, existingSdks: List<Sdk>): List<Sdk> {
   return existingSdks.filter { isPythonSdk(it) && it.isAssociatedWithModule(module) }
 }
@@ -237,16 +233,22 @@ fun createSdkByGenerateTask(
 @Internal
 suspend fun createSdk(
   pythonBinaryPath: PathHolder.Eel,
-  existingSdks: List<Sdk>,
-  associatedProjectPath: String?,
+  associatedModulePath: String,
   suggestedSdkName: String?,
   sdkAdditionalData: PythonSdkAdditionalData? = null,
 ): PyResult<Sdk> {
+  val pythonBinaryPathAsString = pythonBinaryPath.path.pathString
+  val existingSdks = PythonSdkUtil.getAllSdks()
+  existingSdks.find {
+    it.sdkAdditionalData?.javaClass == sdkAdditionalData?.javaClass &&
+    it.homePath == pythonBinaryPathAsString
+  }?.let { return PyResult.success(it) }
+
   val pythonBinaryVirtualFile = withContext(Dispatchers.IO) {
-    StandardFileSystems.local().refreshAndFindFileByPath(pythonBinaryPath.path.pathString)
+    StandardFileSystems.local().refreshAndFindFileByPath(pythonBinaryPathAsString)
   } ?: return PyResult.localizedError(PyBundle.message("python.sdk.python.executable.not.found", pythonBinaryPath))
 
-  val sdkName = suggestedSdkName ?: suggestAssociatedSdkName(pythonBinaryPath.path.pathString, associatedProjectPath)
+  val sdkName = suggestedSdkName ?: suggestAssociatedSdkName(pythonBinaryPathAsString, associatedModulePath)
   val sdk = SdkConfigurationUtil.setupSdk(
     existingSdks.toTypedArray(),
     pythonBinaryVirtualFile,
@@ -268,7 +270,7 @@ internal fun showSdkExecutionException(sdk: Sdk?, e: ExecutionException, @NlsCon
 
 @Internal
 fun Sdk.isAssociatedWithModule(module: Module?): Boolean {
-  val basePath = module?.basePath
+  val basePath = module?.baseDir?.path
   val associatedPath = associatedModulePath
   if (basePath != null && associatedPath == basePath) return true
   if (isAssociatedWithAnotherModule(module)) return false
@@ -277,7 +279,7 @@ fun Sdk.isAssociatedWithModule(module: Module?): Boolean {
 
 @Internal
 fun Sdk.isAssociatedWithAnotherModule(module: Module?): Boolean {
-  val basePath = module?.basePath ?: return false
+  val basePath = module?.baseDir?.path ?: return false
   val associatedPath = associatedModulePath ?: return false
   return basePath != associatedPath
 }
@@ -327,7 +329,7 @@ suspend fun PyDetectedSdk.setupSdk(
   existingSdks: List<Sdk>,
   doAssociate: Boolean,
 ) {
-  val newSdk = setupAssociated(existingSdks, module.basePath, doAssociate).getOr {
+  val newSdk = setupAssociated(existingSdks, module.baseDir?.path, doAssociate).getOr {
     ShowingMessageErrorSync.emit(it.error, module.project)
     return
   }
@@ -493,15 +495,11 @@ private fun Sdk.isLocatedInsideBaseDir(baseDir: Path?): Boolean {
 }
 
 @Internal
-@RequiresBackgroundThread
-fun PyDetectedSdk.pyvenvContains(pattern: String): Boolean = runReadAction {
+suspend fun PythonBinary.pyvenvContains(pattern: String): Boolean = withContext(Dispatchers.IO) {
   // TODO: Support for remote targets as well
   //  (probably the best way is to prepare a helper python script to check config file and run using exec service)
-  if (isTargetBased()) {
-    return@runReadAction false
-  }
-  val pyvenvFile = homeDirectory?.parent?.parent?.findFile("pyvenv.cfg") ?: return@runReadAction false
-  val text = FileDocumentManager.getInstance().getDocument(pyvenvFile)?.text ?: return@runReadAction false
+  val pyvenvFile = this@pyvenvContains.parent?.parent?.resolve("pyvenv.cfg")?.refreshAndFindVirtualFile() ?: return@withContext false
+  val text = readAction { FileDocumentManager.getInstance().getDocument(pyvenvFile)?.text } ?: return@withContext false
   pattern in text
 }
 
@@ -620,6 +618,7 @@ val Sdk.sdkSeemsValid: Boolean
 fun setPythonSdk(module: Module, sdk: Sdk) {
   module.pythonSdk = sdk
 }
+
 @Internal
 @Deprecated("Use module.pythonSdk", replaceWith = ReplaceWith("module.pythonSdk"), level = DeprecationLevel.ERROR)
-fun getPythonSdk(module: Module): Sdk?  = module.pythonSdk
+fun getPythonSdk(module: Module): Sdk? = module.pythonSdk

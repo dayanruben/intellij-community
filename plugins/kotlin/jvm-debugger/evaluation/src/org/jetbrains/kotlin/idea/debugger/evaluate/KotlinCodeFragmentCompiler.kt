@@ -3,6 +3,7 @@ package org.jetbrains.kotlin.idea.debugger.evaluate
 
 import com.intellij.debugger.engine.evaluation.EvaluateException
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil
+import com.intellij.debugger.engine.evaluation.IncorrectCodeFragmentException
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -12,10 +13,14 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiRecursiveElementVisitor
 import com.intellij.util.Range
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.KaPlatformInterface
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.compile.KaCodeFragmentCapturedValue
 import org.jetbrains.kotlin.analysis.api.components.*
 import org.jetbrains.kotlin.analysis.api.platform.restrictedAnalysis.KaRestrictedAnalysisException
+import org.jetbrains.kotlin.cli.FrontendConfigurationKeys
+import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
+import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.idea.base.codeInsight.compiler.KotlinCompilerIdeAllowedErrorFilter
@@ -80,6 +85,7 @@ class K2KotlinCodeFragmentCompiler : KotlinCodeFragmentCompiler {
         }
     }
 
+    @OptIn(KaPlatformInterface::class)
     private fun unwrapEvaluationException(e: Throwable): Throwable {
         var current = e
         while (true) {
@@ -146,7 +152,7 @@ class K2KotlinCodeFragmentCompiler : KotlinCodeFragmentCompiler {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
+    @OptIn(KaExperimentalApi::class, ExperimentalCompilerApi::class)
     private fun compiledCodeFragmentDataK2Impl(context: ExecutionContext, codeFragment: KtCodeFragment): CompiledCodeFragmentData {
         val module = codeFragment.module
 
@@ -157,6 +163,7 @@ class K2KotlinCodeFragmentCompiler : KotlinCodeFragmentCompiler {
             put(CommonConfigurationKeys.LANGUAGE_VERSION_SETTINGS, codeFragment.languageVersionSettings)
             put(CODE_FRAGMENT_CLASS_NAME, GENERATED_CLASS_NAME)
             put(CODE_FRAGMENT_METHOD_NAME, GENERATED_FUNCTION_NAME)
+            put(FrontendConfigurationKeys.EXTENSIONS_STORAGE, CompilerPluginRegistrar.ExtensionStorage())
         }
 
         return analyze(codeFragment) {
