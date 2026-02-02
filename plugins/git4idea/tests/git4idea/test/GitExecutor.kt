@@ -13,18 +13,33 @@ import com.intellij.openapi.vcs.Executor.overwrite
 import com.intellij.openapi.vcs.Executor.splitCommandInParameters
 import com.intellij.openapi.vcs.Executor.touch
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.platform.eel.EelApi
+import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.testFramework.vcs.ExecutableHelper
 import com.intellij.vcs.log.util.VcsLogUtil
 import git4idea.commands.Git
 import git4idea.commands.GitBinaryHandler
 import git4idea.commands.GitLineHandler
 import git4idea.commands.getGitCommandInstance
+import git4idea.config.GitExecutableDetector
 import git4idea.repo.GitRepository
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import java.io.File
+import kotlin.test.assertNotNull
 
-fun gitExecutable() = GitExecutorHolder.PathHolder.GIT_EXECUTABLE
+fun gitExecutable() = gitExecutable(eelApi = null)
+fun gitExecutable(eelApi: EelApi?): String {
+  if (GitExecutorHolder.PathHolder.CACHED_TARGET != eelApi || GitExecutorHolder.PathHolder.GIT_EXECUTABLE == null) {
+    val pathToGit = if (eelApi != null) {
+      GitExecutableDetector().getExecutable(null, eelApi.userInfo.home.asNioPath(), true)
+    }
+    else ExecutableHelper.findGitExecutable()
+    GitExecutorHolder.PathHolder.GIT_EXECUTABLE = assertNotNull(pathToGit)
+    GitExecutorHolder.PathHolder.CACHED_TARGET = eelApi
+  }
+  return assertNotNull(GitExecutorHolder.PathHolder.GIT_EXECUTABLE)
+}
 
 @JvmOverloads
 fun GitRepository.git(command: String, ignoreNonZeroExitCode: Boolean = false) = cd { git(project, command, ignoreNonZeroExitCode) }
@@ -69,6 +84,7 @@ private fun add(project: Project, path: String = ".") = git(project, "add --verb
 
 fun GitRepository.addCommit(message: String) = cd { addCommit(project, message) }
 fun GitPlatformTest.addCommit(message: String) = addCommit(project, message)
+fun GitPlatformTestContext.addCommit(message: String) = addCommit(project, message)
 private fun addCommit(project: Project, message: String): String {
   add(project)
   return commit(project, message)
@@ -83,6 +99,7 @@ private fun branch(project: Project, name: String) = git(project, "branch $name"
 
 fun GitRepository.checkout(vararg params: String) = cd { checkout(project, *params) }
 fun GitPlatformTest.checkout(vararg params: String) = checkout(project, *params)
+fun GitPlatformTestContext.checkout(vararg params: String) = checkout(project, *params)
 private fun checkout(project: Project, vararg params: String) = git(project, "checkout ${params.joinToString(" ")}")
 
 fun GitRepository.checkoutNew(branchName: String, startPoint: String = "") = cd { checkoutNew(project, branchName, startPoint) }
@@ -102,6 +119,10 @@ private fun commit(project: Project, message: String): String {
 fun GitRepository.tac(file: String, content: String = "content" + Math.random()) = cd { tac(project, file, content) }
 
 fun GitPlatformTest.tac(file: String, content: String = "content" + Math.random()) = tac(project, file, content)
+fun GitPlatformTestContext.tac(file: String, content: String = "content" + Math.random()): String {
+  touch(file, content)
+  return addCommit(project, "Touched $file")
+}
 private fun tac(project: Project, file: String, content: String): String {
   touch(file, content)
   return addCommit(project, "Touched $file")
@@ -193,7 +214,8 @@ internal fun GitRepository.file(fileName: String): TestFile {
 private class GitExecutorHolder {
   //using inner class to avoid extra work during class loading of unrelated tests
   object PathHolder {
-    internal val GIT_EXECUTABLE = ExecutableHelper.findGitExecutable()!!
+    var GIT_EXECUTABLE: String? = null
+    var CACHED_TARGET: EelApi? = null
   }
 }
 
