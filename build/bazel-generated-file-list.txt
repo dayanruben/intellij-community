@@ -501,6 +501,8 @@ libraries/xml-rpc
 libraries/xstream
 libraries/xtext-xbase
 libraries/xz
+mps/build
+mps/build/intellij.mps.resources
 notebooks/notebook-ui
 notebooks/visualization
 platform/analysis-api
@@ -1398,7 +1400,6 @@ plugins/properties/copyright
 plugins/properties/properties-common
 plugins/properties/properties-psi-api
 plugins/properties/properties-psi-impl
-plugins/properties/properties-resource-bundle-editor
 plugins/properties/tests
 plugins/rareJavaRefactorings
 plugins/remote-control

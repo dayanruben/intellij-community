@@ -4,6 +4,7 @@ import com.intellij.collaboration.async.collectScoped
 import com.intellij.collaboration.async.withInitial
 import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.collaboration.ui.codereview.comment.CommentedCodeFrameRenderer
+import com.intellij.collaboration.ui.codereview.editor.CodeReviewInlayModel.Ranged.Adjustable.AdjustmentDisabledReason
 import com.intellij.diff.util.LineRange
 import com.intellij.diff.util.Side
 import com.intellij.ide.IdeTooltip
@@ -120,25 +121,19 @@ private suspend fun EditorEx.showAdjustableOutline(
 ) {
   ResizableOutlineHandler.showResizableOutline(
     this,
+    inlayModel,
     inlayRenderer,
     activeRangesTracker,
     range,
     editorModel::canCreateComment
-  ) { edge, line ->
-    if (range.getLineAt(edge) != line) {
-      when (edge) {
-        LineRangeEdge.START -> inlayModel.adjustRange(newStart = line)
-        LineRangeEdge.END -> inlayModel.adjustRange(newEnd = line)
-      }
-    }
-  }
+  )
 }
 
 private class ResizableOutlineHandler private constructor(
   private val editor: EditorEx,
+  private val inlayModel: CodeReviewInlayModel.Ranged.Adjustable,
   private val currentRange: LineRange,
   private val canCreateComment: (editorLine: Int) -> Boolean,
-  private val onDragFinished: (edge: LineRangeEdge, editorLine: Int) -> Unit,
 ) : EditorMouseListener, EditorMouseMotionListener, VisibleAreaListener, DocumentListener, Disposable {
   private val resizeCursor = try {
     Cursor.getPredefinedCursor(Cursor.N_RESIZE_CURSOR)
@@ -146,20 +141,20 @@ private class ResizableOutlineHandler private constructor(
   catch (_: IllegalArgumentException) {
     Cursor.getDefaultCursor()
   }
-  private var currentTooltip: IdeTooltip? = null
+  private val tooltipManager = OutlineTooltipManager(editor)
   private val dragState = MutableStateFlow<DragState?>(null)
 
   companion object {
     suspend fun showResizableOutline(
       editor: EditorEx,
+      inlayModel: CodeReviewInlayModel.Ranged.Adjustable,
       inlayRenderer: CodeReviewComponentInlayRenderer,
       activeRangesTracker: CodeReviewActiveRangesTracker,
       initialRange: LineRange,
       canCreateComment: (editorLine: Int) -> Boolean,
-      onDragFinished: (edge: LineRangeEdge, editorLine: Int) -> Unit,
     ): Nothing =
       withContext(Dispatchers.UiImmediate) {
-        val handler = ResizableOutlineHandler(editor, initialRange, canCreateComment, onDragFinished)
+        val handler = ResizableOutlineHandler(editor, inlayModel, initialRange, canCreateComment)
         try {
           editor.gutterComponentEx.mousePosition.let {
             handler.updateCursorAndTooltip(editor.gutterComponentEx, it)
@@ -205,7 +200,7 @@ private class ResizableOutlineHandler private constructor(
   }
 
   override fun mousePressed(e: EditorMouseEvent) {
-    if (e.isConsumed) return
+    if (e.isConsumed || inlayModel.adjustmentDisabledReason.value != null) return
     val point = e.mouseEvent.point ?: return
     val edge = getEdgeAt(point) ?: return
     startDragging(edge)
@@ -263,8 +258,14 @@ private class ResizableOutlineHandler private constructor(
 
   private fun finishDragging(): Boolean {
     val state = dragState.getAndUpdate { null } ?: return false
-    onDragFinished(state.edge, state.line)
-
+    with(state) {
+      if (currentRange.getLineAt(edge) != line) {
+        when (edge) {
+          LineRangeEdge.START -> inlayModel.adjustRange(newStart = line)
+          LineRangeEdge.END -> inlayModel.adjustRange(newEnd = line)
+        }
+      }
+    }
     updateCursorAndTooltip()
     return true
   }
@@ -323,24 +324,32 @@ private class ResizableOutlineHandler private constructor(
 
   private fun updateCursorAndTooltip(component: Component? = null, point: Point? = null) {
     if (component == null || point == null) {
-      hideTooltip()
+      tooltipManager.hideTooltip()
       setEditorCursor(null)
       return
     }
 
     if (dragState.value != null) {
-      hideTooltip()
+      tooltipManager.hideTooltip()
       setEditorCursor(resizeCursor)
       return
     }
 
     val onEdge = getEdgeAt(point) != null
     if (onEdge) {
-      showTooltip(component, point)
-      setEditorCursor(resizeCursor)
+      val adjustmentDisabledReason = inlayModel.adjustmentDisabledReason.value
+      when (adjustmentDisabledReason) {
+        AdjustmentDisabledReason.SUGGESTED_CHANGE -> {
+          tooltipManager.showTooltip(component, point, OutlineTooltipManager.TooltipReason.SUGGESTION)
+        }
+        else -> {
+          tooltipManager.showTooltip(component, point, OutlineTooltipManager.TooltipReason.MLC_EXPLANATION)
+          setEditorCursor(resizeCursor)
+        }
+      }
     }
     else {
-      hideTooltip()
+      tooltipManager.hideTooltip()
       setEditorCursor(null)
     }
   }
@@ -367,15 +376,24 @@ private class ResizableOutlineHandler private constructor(
     }
   }
 
-  private fun showTooltip(component: Component, point: Point) {
+  private data class DragState(val edge: LineRangeEdge, val line: Int)
+}
+
+private class OutlineTooltipManager(private val editor: Editor) {
+  private var currentTooltip: IdeTooltip? = null
+
+  fun showTooltip(component: Component, point: Point, tooltipReason: TooltipReason) {
     val offsetPoint = Point(point.x, point.y + editor.lineHeight) // offset for tooltip placement
+    val tooltipMessage = TooltipReason.getTooltipMessage(tooltipReason)
+
     currentTooltip?.let {
       it.component = component
       it.point = offsetPoint
+      it.tipComponent.toolTipText = tooltipMessage
     }
 
     if (currentTooltip == null) {
-      val label = JLabel(CollaborationToolsBundle.message("review.comments.code.outline.tooltip"))
+      val label = JLabel(TooltipReason.getTooltipMessage(tooltipReason))
       currentTooltip = IdeTooltip(component, offsetPoint, label)
         .setPreferredPosition(Balloon.Position.below)
         .setShowCallout(false)
@@ -383,14 +401,24 @@ private class ResizableOutlineHandler private constructor(
     IdeTooltipManager.getInstance().show(currentTooltip!!, false)
   }
 
-  private fun hideTooltip() {
+  fun hideTooltip() {
     currentTooltip?.let {
       IdeTooltipManager.getInstance().hide(it)
     }
     currentTooltip = null
   }
 
-  private data class DragState(val edge: LineRangeEdge, val line: Int)
+  enum class TooltipReason {
+    SUGGESTION,
+    MLC_EXPLANATION;
+
+    companion object {
+      fun getTooltipMessage(tooltipReason: TooltipReason) = when (tooltipReason) {
+        SUGGESTION -> CollaborationToolsBundle.message("review.comments.code.outline.tooltip.suggestion.disabling")
+        MLC_EXPLANATION -> CollaborationToolsBundle.message("review.comments.code.outline.tooltip.explanation")
+      }
+    }
+  }
 }
 
 private fun JComponent.isFocusedOrHovered(): Flow<Boolean> {

@@ -11,7 +11,9 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.buildNsUnawareJdom
 import com.intellij.openapi.util.registry.EarlyAccessRegistryManager
 import com.intellij.ui.ExperimentalUI
+import com.intellij.util.PlatformUtils
 import kotlinx.coroutines.Deferred
+import java.nio.file.NoSuchFileException
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -23,6 +25,7 @@ private val LOG = logger<ClassicUiToIslandsMigration>()
  * * [ExperimentalUI.forcedSwitchedUi]
  * * [ExperimentalUI.SHOW_NEW_UI_ONBOARDING_ON_START]
  * * [ExperimentalUI.switchedFromClassicToIslandsInSession]
+ * * [ExperimentalUI.switchedFromClassicToIslandsLafMigration]
  * * [ExperimentalUI.cleanUpClassicUIFromDisabled]
  */
 internal object ClassicUiToIslandsMigration {
@@ -48,13 +51,20 @@ internal object ClassicUiToIslandsMigration {
         return
       }
 
-      if (InitialConfigImportState.isNewUser()
-          || EarlyAccessRegistryManager.getBoolean("ide.experimental.ui")
-          || !isAllowedUserLafToMigrate()) {
+      val isNewUser = InitialConfigImportState.isNewUser()
+      val experimentalUi = EarlyAccessRegistryManager.getBoolean("ide.experimental.ui")
+      val allowedUserLafToMigrate = isAllowedUserLafToMigrate()
+
+      LOG.info("Detect if switching to Islands needed: isNewUser=$isNewUser, experimentalUi=$experimentalUi, allowedUserLafToMigrate=$allowedUserLafToMigrate")
+
+      if (isNewUser || experimentalUi || !allowedUserLafToMigrate) {
         EarlyAccessRegistryManager.setAndFlush(mapOf(ExperimentalUI.SWITCHED_FROM_CLASSIC_TO_ISLANDS to "false"))
       }
       else {
+        LOG.info("Switching is needed and has been initiated")
+
         ExperimentalUI.switchedFromClassicToIslandsInSession = true
+        ExperimentalUI.switchedFromClassicToIslandsLafMigration = true
         EarlyAccessRegistryManager.setAndFlush(mapOf("ide.experimental.ui" to "true", ExperimentalUI.SWITCHED_FROM_CLASSIC_TO_ISLANDS to "true"))
 
         // We don't know yet if the classic UI is installed, therefore, always disable the plugin
@@ -84,6 +94,8 @@ internal object ClassicUiToIslandsMigration {
     }
 
     DisabledPluginsState.setEnabledState(setOf(classicUI), true)
+
+    LOG.info("Classic UI removed from disabled plugins")
   }
 
   private fun addClassicUiToDisabledPlugins() {
@@ -97,24 +109,33 @@ internal object ClassicUiToIslandsMigration {
     }
 
     DisabledPluginsState.setEnabledState(setOf(classicUI), false)
+
+    LOG.info("Classic UI added to disabled plugins")
+
     cleanUpClassicUIFromDisabledPlugins.compareAndSet(false, true)
   }
 
   private fun isAllowedUserLafToMigrate(): Boolean {
-    return when (getUserLaf()) {
-      "Darcula", "JetBrainsLightTheme" -> true
+    val defaultDarkLaf = if (PlatformUtils.isRider()) "RiderDark" else "Darcula"
+    val defaultLightLaf = if (PlatformUtils.isRider()) "RiderLight" else "JetBrainsLightTheme"
+
+    return when (getUserLaf(defaultDarkLaf)) {
+      defaultDarkLaf, defaultLightLaf -> true
       else -> false
     }
   }
 
-  private fun getUserLaf(): String? {
+  private fun getUserLaf(defaultDarkLaf: String): String? {
     try {
       val lafPath = PathManager.getOptionsDir().resolve("laf.xml")
       val element = buildNsUnawareJdom(lafPath)
-      val componentElement = element.getChild("component") ?: return null
-      val lafElement = componentElement.getChild("laf") ?: return "Darcula"
 
-      return lafElement.getAttributeValue("themeId")
+      return element.getChild("component")
+               ?.getChild("laf")
+               ?.getAttributeValue("themeId") ?: defaultDarkLaf
+    }
+    catch (_: NoSuchFileException) {
+      return defaultDarkLaf
     }
     catch (e: Throwable) {
       LOG.info("Cannot parse laf.xml", e)
