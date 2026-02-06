@@ -19,6 +19,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.zip.Zip64Mode
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
@@ -59,7 +60,6 @@ import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentLinkedQueue
-import kotlin.collections.flatten
 
 internal suspend fun buildNonBundledPlugins(
   pluginsToPublish: Set<PluginLayout>,
@@ -145,8 +145,15 @@ private suspend fun buildNonBundledPlugins(
       }
       else {
         val outputProvider = context.outputProvider
+        val pluginModule = outputProvider.findRequiredModule(plugin.mainModule)
+        var cachedPluginXml: String? = null
+        val pluginXmlSupplier: suspend () -> String = {
+          cachedPluginXml ?: getUnprocessedPluginXmlContent(pluginModule, outputProvider)
+            .decodeToString()
+            .also { cachedPluginXml = it }
+        }
         plugin.versionEvaluator.evaluate(
-          pluginXmlSupplier = { getUnprocessedPluginXmlContent(outputProvider.findRequiredModule(plugin.mainModule), outputProvider).decodeToString() },
+          pluginXmlSupplier = pluginXmlSupplier,
           ideBuildVersion = context.pluginBuildNumber,
           context = context,
         ).pluginVersion
@@ -181,7 +188,7 @@ private suspend fun buildNonBundledPlugins(
               span.addEvent("doesn't exist, skipped", Attributes.of(AttributeKey.stringKey("path"), "$destFile"))
             }
             else {
-              validatePlugin(file = destFile, context = context, span = span)
+              validatePlugin(file = destFile, span = span, context = context)
             }
           }
         }
@@ -326,7 +333,9 @@ private fun archivePlugin(optimized: Boolean, target: Path, compress: Boolean, s
 
 private suspend fun buildKeymapPlugins(targetDir: Path, context: BuildContext): List<Pair<Path, ByteArray>> {
   val keymapDir = context.paths.communityHomeDir.resolve("platform/platform-resources/src/keymaps")
-  Files.createDirectories(targetDir)
+  withContext(Dispatchers.IO) {
+    Files.createDirectories(targetDir)
+  }
   return spanBuilder("build keymap plugins").use(Dispatchers.IO) {
     listOf(
       arrayOf("Mac OS X", "Mac OS X 10.5+"),
@@ -366,7 +375,7 @@ private fun buildBlockMap(file: Path, json: JSON) {
   }
 }
 
-private fun validatePlugin(file: Path, context: BuildContext, span: Span) {
+private fun validatePlugin(file: Path, span: Span, context: BuildContext) {
   val pluginManager = IdePluginManager.createManager()
   val result = pluginManager.createPlugin(pluginFile = file, validateDescriptor = true)
   // todo fix AddStatisticsEventLogListenerTemporary
@@ -374,7 +383,7 @@ private fun validatePlugin(file: Path, context: BuildContext, span: Span) {
     is PluginCreationSuccess -> result.plugin.pluginId
     is PluginCreationFail -> (pluginManager.createPlugin(pluginFile = file, validateDescriptor = false) as? PluginCreationSuccess)?.plugin?.pluginId
   }
-  for (problem in context.productProperties.validatePlugin(id, result, context)) {
+  for (problem in context.productProperties.validatePlugin(id, result)) {
     val problemType = problem::class.java.simpleName
     span.addEvent(
       "plugin validation failed", Attributes.of(

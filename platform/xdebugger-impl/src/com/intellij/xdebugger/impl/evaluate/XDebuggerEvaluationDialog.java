@@ -3,7 +3,13 @@ package com.intellij.xdebugger.impl.evaluate;
 
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.featureStatistics.FeatureUsageTracker;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CustomShortcutSet;
+import com.intellij.openapi.actionSystem.DataKey;
+import com.intellij.openapi.actionSystem.DataSink;
+import com.intellij.openapi.actionSystem.UiDataProvider;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.client.ClientSystemInfo;
 import com.intellij.openapi.editor.Editor;
@@ -12,17 +18,21 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.platform.debugger.impl.shared.proxy.XDebugSessionProxy;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.components.BorderLayoutPanel;
-import com.intellij.xdebugger.*;
+import com.intellij.xdebugger.XDebugSession;
+import com.intellij.xdebugger.XDebugSessionListener;
+import com.intellij.xdebugger.XDebuggerBundle;
+import com.intellij.xdebugger.XExpression;
+import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.evaluation.EvaluationMode;
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider;
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator;
 import com.intellij.xdebugger.impl.XDebuggerUtilImpl;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
-import com.intellij.platform.debugger.impl.shared.proxy.XDebugSessionProxy;
-import com.intellij.xdebugger.impl.proxy.MonolithSessionProxyKt;
+import com.intellij.platform.debugger.impl.ui.XDebuggerEntityConverter;
 import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl;
 import com.intellij.xdebugger.impl.ui.XDebugSessionTab;
 import com.intellij.xdebugger.impl.ui.XDebuggerEditorBase;
@@ -34,9 +44,15 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.KeyStroke;
 import javax.swing.tree.TreeNode;
-import java.awt.*;
+import java.awt.Dimension;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -56,6 +72,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
   private EvaluationMode myMode;
   private XSourcePosition mySourcePosition;
   private final SwitchModeAction mySwitchModeAction;
+  private boolean myIsEvaluating = false;
 
   /**
    * Use {@link XDebuggerEvaluationDialog#XDebuggerEvaluationDialog(XDebugSessionProxy, XDebuggerEditorsProvider, XExpression, XSourcePosition, boolean)} instead
@@ -66,7 +83,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
                                    @NotNull XExpression text,
                                    @Nullable XSourcePosition sourcePosition,
                                    boolean isCodeFragmentEvaluationSupported) {
-    this(MonolithSessionProxyKt.asProxy(session),
+    this(XDebuggerEntityConverter.asProxy(session),
          editorsProvider, text, sourcePosition, isCodeFragmentEvaluationSupported);
   }
 
@@ -180,6 +197,22 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
       @Override
       public void sessionPaused() {
         updateSourcePosition();
+      }
+
+      @Override
+      public void settingsChanged() {
+        if (myIsEvaluating) { // filter out rebuildViews after our own evaluation
+          myIsEvaluating = false;
+          return;
+        }
+        ApplicationManager.getApplication().invokeLater(() -> {
+          XDebuggerEditorBase inputEditor = getInputEditor();
+          // recreate document to support value marks update
+          inputEditor.setExpression(inputEditor.getExpression());
+          if (myTreePanel.getTree().getRoot() instanceof EvaluatingExpressionRootNode rootNode) {
+            rootNode.rebuild();
+          }
+        });
       }
     }, myDisposable);
   }
@@ -377,7 +410,9 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
   }
 
   public void evaluationDone() {
-    if (mySession != null) mySession.rebuildViews();
+    if (mySession == null) return;
+    myIsEvaluating = true;
+    mySession.rebuildViews();
   }
 
   @Override

@@ -24,8 +24,12 @@ import org.jetbrains.plugins.terminal.fus.TerminalUsageTriggerCollector;
 import org.jetbrains.plugins.terminal.runner.LocalOptionsConfigurer;
 import org.jetbrains.plugins.terminal.runner.LocalShellIntegrationInjector;
 import org.jetbrains.plugins.terminal.runner.LocalTerminalStartCommandBuilder;
-import org.jetbrains.plugins.terminal.starter.*;
 import org.jetbrains.plugins.terminal.shell_integration.TerminalPSReadLineUpdateUtil;
+import org.jetbrains.plugins.terminal.starter.ShellCustomizer;
+import org.jetbrains.plugins.terminal.starter.ShellExecCommand;
+import org.jetbrains.plugins.terminal.starter.ShellExecCommandImpl;
+import org.jetbrains.plugins.terminal.starter.ShellExecOptions;
+import org.jetbrains.plugins.terminal.starter.ShellExecOptionsImpl;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -96,7 +100,7 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
     EelPath workingDirectoryEelPath = findWorkingDirectoryEelPath(workingDirectory, eelDescriptor);
 
     if (workingDirectoryEelPath != null) {
-      AtomicReference<ShellExecCommand> shellExecCommandRef = new AtomicReference<>(new ShellExecCommand(shellCommand));
+      AtomicReference<ShellExecCommand> shellExecCommandRef = new AtomicReference<>(new ShellExecCommandImpl(shellCommand));
       ShellCustomizer.Companion.getEP_NAME().processWithPluginDescriptor((customizer, __) -> {
         ShellExecOptions execOptions = new ShellExecOptionsImpl(
           eelDescriptor,

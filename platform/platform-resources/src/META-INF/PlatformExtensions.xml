@@ -912,12 +912,6 @@
       id="EditorDeleteLine.checkHandler"
     />
 
-    <registryKey key="remdev.completion.on.frontend"
-                 defaultValue="false"
-                 description="Enables frontend completion support"
-                 restartRequired="true"
-    />
-
     <typedHandler implementation="com.intellij.codeInsight.inline.completion.listeners.typing.InlineCompletionTypedHandlerDelegate"/>
     <inline.completion.suppress.state.supplier
       implementation="com.intellij.codeInsight.inline.completion.suppress.InlineCompletionSuppressStateByInlinePromptSupplier"/>
@@ -1878,7 +1872,7 @@
                  description="Limit of recent items for search everywhere tabs"/>
 
     <registryKey key="search.everywhere.round.text.field"
-                 defaultValue="false"
+                 defaultValue="true"
                  description="Enables round search text field"/>
 
     <registryKey key="highlighting.passes.cache"

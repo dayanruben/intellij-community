@@ -20,7 +20,12 @@ import com.intellij.ui.tabs.impl.themes.TabTheme
 import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import java.awt.*
+import java.awt.Color
+import java.awt.Component
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.Point
+import java.awt.Rectangle
 import kotlin.math.floor
 
 internal class IslandsTabPainterAdapter(isDefault: Boolean, debugger: Boolean, var isEnabled: Boolean) : TabPainterAdapter {
@@ -51,7 +56,7 @@ internal class IslandsTabPainterAdapter(isDefault: Boolean, debugger: Boolean, v
     try {
       GraphicsUtil.setupAAPainting(g2)
 
-      tabs.setFirstTabOffset(JBUI.scale(3))
+      tabs.setFirstTabOffset(IslandsTabPainter.firstTabOffset)
       (tabPainter as IslandsTabPainter).paintTab(g2, tabs.tabsPosition, rect, info.tabColor, active, hovered, selected)
     }
     finally {
@@ -225,5 +230,7 @@ internal open class IslandsTabPainter(isDefault: Boolean, isToolWindow: Boolean)
         false -> if (compactMode) 2 else 4
       }
     }
+
+    internal val firstTabOffset = JBUI.scale(3)
   }
 }

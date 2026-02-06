@@ -26,20 +26,20 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.platform.debugger.impl.shared.XDebuggerUtilImplShared;
 import com.intellij.pom.Navigatable;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.XSourcePosition;
-import com.intellij.xdebugger.impl.XDebuggerUtilImpl;
 import com.intellij.xdebugger.impl.settings.DataViewsConfigurableUi;
 import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl;
 import com.intellij.xdebugger.ui.DebuggerColors;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
+import javax.swing.SwingUtilities;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ExecutionPointHighlighter {
@@ -241,7 +241,7 @@ public class ExecutionPointHighlighter {
       return (OpenFileDescriptor)navigatable;
     }
     else {
-      return XDebuggerUtilImpl.createOpenFileDescriptor(project, position);
+      return XDebuggerUtilImplShared.createOpenFileDescriptor(project, position);
     }
   }
 

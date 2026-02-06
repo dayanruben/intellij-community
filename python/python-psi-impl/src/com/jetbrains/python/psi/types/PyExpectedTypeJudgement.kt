@@ -261,9 +261,19 @@ object PyExpectedTypeJudgement {
           name = "Parameters",
           fields = fields,
           dictClass = dictClass,
-          definitionLevel = PyTypedDictType.DefinitionLevel.INSTANCE,
-          ancestors = emptyList(),
-          declaration = mapping.callableType?.declarationElement
+          isDefinition = false,
+          // TODO: This is incorrect:
+          // `PyTypedDict` declaration is either a `PyClass` node:
+          // ```
+          // class TD(typing.TypedDict):
+          //   ...
+          // ```
+          //
+          // or a `PyTargetExpression` node:
+          // ```
+          // TD = typing.TypedDict("TD", {})
+          // ```
+          declaration = mapping.callableType?.callable ?: return null
         )
       }
       // TODO merge the type of `**kwargs` with the types of other mapped parameters here
@@ -462,21 +472,22 @@ object PyExpectedTypeJudgement {
     val elementTypes = tupleType.elementTypes
     val variadicRepeatCount = tupleExpr.elements.size - elementTypes.size + 1
     var arrayIdx = 0
-    for (idx in 0 until tupleType.elementTypes.size) {
-      val elemType = tupleType.elementTypes[idx]
-      if (elemType is PyUnpackedTupleType && elemType.isUnbound) {
-        repeat(variadicRepeatCount) {
-          tupleTypeArray[arrayIdx++] = elemType.elementTypes.firstOrNull()
+    for (elemType in elementTypes.take(tupleTypeArray.size)) {
+      when (elemType) {
+        is PyUnpackedTupleType if (elemType.isUnbound) -> {
+          repeat(variadicRepeatCount) {
+            tupleTypeArray[arrayIdx++] = elemType.elementTypes.firstOrNull()
+          }
         }
-        continue
-      }
-      if (elemType is PyTupleType && elemType.isHomogeneous) {
-        repeat(variadicRepeatCount) {
-          tupleTypeArray[arrayIdx++] = elemType.elementTypes.firstOrNull()
+        is PyTupleType if (elemType.isHomogeneous) -> {
+          repeat(variadicRepeatCount) {
+            tupleTypeArray[arrayIdx++] = elemType.elementTypes.firstOrNull()
+          }
         }
-        continue
+        else -> {
+          tupleTypeArray[arrayIdx++] = elemType
+        }
       }
-      tupleTypeArray[arrayIdx++] = elemType
     }
     if (indexOfExpr < tupleTypeArray.size) {
       return tupleTypeArray[indexOfExpr]

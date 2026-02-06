@@ -4,6 +4,7 @@ import com.intellij.collaboration.async.collectScoped
 import com.intellij.collaboration.async.withInitial
 import com.intellij.collaboration.messages.CollaborationToolsBundle
 import com.intellij.collaboration.ui.codereview.comment.CommentedCodeFrameRenderer
+import com.intellij.diff.util.DiffUtil
 import com.intellij.collaboration.ui.codereview.editor.CodeReviewInlayModel.Ranged.Adjustable.AdjustmentDisabledReason
 import com.intellij.diff.util.LineRange
 import com.intellij.diff.util.Side
@@ -14,7 +15,13 @@ import com.intellij.openapi.application.UI
 import com.intellij.openapi.application.UiImmediate
 import com.intellij.openapi.editor.CustomFoldRegion
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.event.*
+import com.intellij.openapi.editor.event.DocumentEvent
+import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.openapi.editor.event.EditorMouseEvent
+import com.intellij.openapi.editor.event.EditorMouseListener
+import com.intellij.openapi.editor.event.EditorMouseMotionListener
+import com.intellij.openapi.editor.event.VisibleAreaEvent
+import com.intellij.openapi.editor.event.VisibleAreaListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
@@ -32,10 +39,26 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
-import java.awt.*
+import java.awt.AlphaComposite
+import java.awt.Component
+import java.awt.Cursor
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.Point
 import java.beans.PropertyChangeListener
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -165,6 +188,7 @@ private class ResizableOutlineHandler private constructor(
 
           handler.dragState.collectScoped { dragState ->
             if (dragState == null) {
+              if(initialRange.end > DiffUtil.getLineCount(editor.document)-1) return@collectScoped
               inlayRenderer.isVisible = true
               editor.showOutline(activeRangesTracker, initialRange)
             }
@@ -306,7 +330,7 @@ private class ResizableOutlineHandler private constructor(
    * @return null if the line under [y] is not commentable or the new range is invalid (start after end)
    */
   private fun DragState.withLineUnderYIfCommentable(y: Int): DragState? {
-    val lineUnderY = editor.xyToLogicalPosition(Point(0, y)).line
+    val lineUnderY = editor.xyToLogicalPosition(Point(0, y)).line.coerceIn(0, DiffUtil.getLineCount(editor.document)-1)
     val isCurrentBoundary = lineUnderY == line
     if (!canCreateComment(lineUnderY) && !isCurrentBoundary) return null
 
@@ -341,6 +365,9 @@ private class ResizableOutlineHandler private constructor(
       when (adjustmentDisabledReason) {
         AdjustmentDisabledReason.SUGGESTED_CHANGE -> {
           tooltipManager.showTooltip(component, point, OutlineTooltipManager.TooltipReason.SUGGESTION)
+        }
+        AdjustmentDisabledReason.SINGLE_COMMIT_REVIEW -> {
+          tooltipManager.showTooltip(component, point, OutlineTooltipManager.TooltipReason.SINGLE_COMMIT_REVIEW)
         }
         else -> {
           tooltipManager.showTooltip(component, point, OutlineTooltipManager.TooltipReason.MLC_EXPLANATION)
@@ -410,12 +437,14 @@ private class OutlineTooltipManager(private val editor: Editor) {
 
   enum class TooltipReason {
     SUGGESTION,
-    MLC_EXPLANATION;
+    MLC_EXPLANATION,
+    SINGLE_COMMIT_REVIEW;
 
     companion object {
       fun getTooltipMessage(tooltipReason: TooltipReason) = when (tooltipReason) {
         SUGGESTION -> CollaborationToolsBundle.message("review.comments.code.outline.tooltip.suggestion.disabling")
         MLC_EXPLANATION -> CollaborationToolsBundle.message("review.comments.code.outline.tooltip.explanation")
+        SINGLE_COMMIT_REVIEW -> CollaborationToolsBundle.message("review.comments.code.outline.tooltip.commit.review.disabling")
       }
     }
   }
