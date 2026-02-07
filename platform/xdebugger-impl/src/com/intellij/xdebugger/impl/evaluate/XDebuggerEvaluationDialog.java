@@ -33,7 +33,7 @@ import com.intellij.xdebugger.impl.XDebuggerUtilImpl;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
 import com.intellij.platform.debugger.impl.ui.XDebuggerEntityConverter;
-import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl;
+import com.intellij.xdebugger.settings.XDebuggerSettingsManager;
 import com.intellij.xdebugger.impl.ui.XDebugSessionTab;
 import com.intellij.xdebugger.impl.ui.XDebuggerEditorBase;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
@@ -56,6 +56,7 @@ import java.awt.Dimension;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 public class XDebuggerEvaluationDialog extends DialogWrapper {
@@ -72,7 +73,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
   private EvaluationMode myMode;
   private XSourcePosition mySourcePosition;
   private final SwitchModeAction mySwitchModeAction;
-  private boolean myIsEvaluating = false;
+  private final AtomicBoolean mySkipRefresh = new AtomicBoolean(false);
 
   /**
    * Use {@link XDebuggerEvaluationDialog#XDebuggerEvaluationDialog(XDebugSessionProxy, XDebuggerEditorsProvider, XExpression, XSourcePosition, boolean)} instead
@@ -167,7 +168,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
 
     myTreePanel.getTree().expandNodesOnLoad(XDebuggerEvaluationDialog::isFirstChild);
 
-    EvaluationMode mode = XDebuggerSettingManagerImpl.getInstanceImpl().getGeneralSettings().getEvaluationDialogMode();
+    EvaluationMode mode = XDebuggerSettingsManager.getInstance().getGeneralSettings().getEvaluationDialogMode();
     if (mode == EvaluationMode.CODE_FRAGMENT && !isCodeFragmentEvaluationSupported) {
       mode = EvaluationMode.EXPRESSION;
     }
@@ -201,14 +202,12 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
 
       @Override
       public void settingsChanged() {
-        if (myIsEvaluating) { // filter out rebuildViews after our own evaluation
-          myIsEvaluating = false;
+        if (mySkipRefresh.getAndSet(false)) { // filter out rebuildViews after our own evaluation
           return;
         }
         ApplicationManager.getApplication().invokeLater(() -> {
           XDebuggerEditorBase inputEditor = getInputEditor();
-          // recreate document to support value marks update
-          inputEditor.setExpression(inputEditor.getExpression());
+          inputEditor.rebuildDocument();
           if (myTreePanel.getTree().getRoot() instanceof EvaluatingExpressionRootNode rootNode) {
             rootNode.rebuild();
           }
@@ -411,7 +410,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
 
   public void evaluationDone() {
     if (mySession == null) return;
-    myIsEvaluating = true;
+    mySkipRefresh.set(true);
     mySession.rebuildViews();
   }
 
@@ -426,7 +425,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
       XExpression text = getInputEditor().getExpression();
       EvaluationMode newMode = (myMode == EvaluationMode.EXPRESSION) ? EvaluationMode.CODE_FRAGMENT : EvaluationMode.EXPRESSION;
       // remember only on user selection
-      XDebuggerSettingManagerImpl.getInstanceImpl().getGeneralSettings().setEvaluationDialogMode(newMode);
+      XDebuggerSettingsManager.getInstance().getGeneralSettings().setEvaluationDialogMode(newMode);
       DebuggerEvaluationStatisticsCollector.MODE_SWITCH.log(myProject, newMode);
       switchToMode(newMode, text);
     }

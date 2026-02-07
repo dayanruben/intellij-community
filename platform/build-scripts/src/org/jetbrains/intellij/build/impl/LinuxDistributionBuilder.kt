@@ -3,9 +3,7 @@ package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.buildData.productInfo.ProductInfoLaunchData
-import com.intellij.platform.runtime.product.ProductMode
 import io.opentelemetry.api.trace.Span
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -61,7 +59,7 @@ class LinuxDistributionBuilder(
   override val targetLibcImpl: LinuxLibcImpl,
   private val context: BuildContext,
 ) : OsSpecificDistributionBuilder {
-  private val iconPngPath = (if (context.applicationInfo.isEAP) customizer.iconPngPathForEAP else null) ?: customizer.iconPngPath
+  private val iconPngPath = locateIconForLinuxLauncher(customizer, context)
 
   override val targetOs: OsFamily
     get() = OsFamily.LINUX
@@ -477,10 +475,11 @@ class LinuxDistributionBuilder(
 
   private fun writeLinuxVmOptions(distBinDir: Path, context: BuildContext): Path {
     val vmOptionsPath = distBinDir.resolve("${context.productProperties.baseFileName}64.vmoptions")
-    val waylandOptions = if (context.productProperties.productMode == ProductMode.FRONTEND)
-      emptySequence() // Wayland auto-detection is disabled for JetBrains Client until rem-dev specific compatibility issues are resolved (IJPL-231136)
-    else
-      sequenceOf("-Dawt.toolkit.name=auto")
+    val waylandOptions = when (context.productProperties.platformPrefix) {
+      "JetBrainsClient" -> emptySequence() // Wayland auto-detection is disabled for JetBrains Client until rem-dev specific compatibility issues are resolved (IJPL-231136)
+      "Gateway" -> emptySequence() // and for Gateway until system tray will be supported in Wayland toolkit in JBR (IJPL-231661/JBR-9966)
+      else -> sequenceOf("-Dawt.toolkit.name=auto")
+    }
     val vmOptions = VmOptionsGenerator.generate(context).asSequence() + sequenceOf("-Dsun.tools.attach.tmp.only=true", "-Dawt.lock.fair=true") + waylandOptions
     VmOptionsGenerator.writeVmOptions(vmOptionsPath, vmOptions, separator = "\n")
     return vmOptionsPath
