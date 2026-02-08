@@ -118,13 +118,6 @@ public final class FSRecordsImpl implements Closeable {
   private static final boolean USE_MRU_FILE_NAME_CACHE = "mru".equals(NAME_CACHE_IMPL);
 
 
-  private static final String CONTENT_STORAGE_IMPL = System.getProperty("vfs.content-storage.impl", "over-mmapped-file");
-  public static final boolean USE_CONTENT_STORAGE_OVER_NEW_FILE_PAGE_CACHE = "over-lock-free-page-cache".equals(CONTENT_STORAGE_IMPL);
-  public static final boolean USE_CONTENT_STORAGE_OVER_MMAPPED_FILE = "over-mmapped-file".equals(CONTENT_STORAGE_IMPL);
-
-  private static final String CONTENT_HASH_IMPL = System.getProperty("vfs.content-hash-storage.impl", "over-mmapped-file");
-  public static final boolean USE_CONTENT_HASH_STORAGE_OVER_MMAPPED_FILE = "over-mmapped-file".equals(CONTENT_HASH_IMPL);
-
   /**
    * Cutoff for VFSContentStorage: file content larger than this threshold store with compression.
    * Range 4k-8k seems to be optimal, gauged by experiments on IntelliJ source tree:  with such thresholds only
@@ -189,22 +182,14 @@ public final class FSRecordsImpl implements Closeable {
   }
 
   public static int currentImplementationVersion() {
-    //bumped main version (63 -> 64) because AppendOnlyLog ids assignment algo changed
-    int mainVFSFormatVersion = 64;
+    //bumped main version (64 -> 65) because 'names.dat.mmap' -> 'names.dat' renaming
+    int mainVFSFormatVersion = 65;
     //@formatter:off (nextMask better be aligned)
     return nextMask(mainVFSFormatVersion + (PersistentFSRecordsStorageFactory.storageImplementation().getId()), /* acceptable range is [0..255] */ 8,
-           nextMask(!USE_CONTENT_STORAGE_OVER_MMAPPED_FILE,  //former USE_CONTENT_HASHES=true, this is why negation
-           nextMask(IOUtil.useNativeByteOrderForByteBuffers(), // TODO RC: memory-mapped storages ignore that property
-           nextMask(false, // former USE_ATTRIBUTES_OVER_NEW_FILE_PAGE_CACHE, free to re-use
-           nextMask(true,  // former 'inline attributes', feel free to re-use
            nextMask(getBooleanProperty(FSRecords.IDE_USE_FS_ROOTS_DATA_LOADER, false),
-           nextMask(true,  // former USE_ATTRIBUTES_OVER_MMAPPED_FILE, free to re-use
-           nextMask(true,  // former USE_SMALL_ATTR_TABLE, feel free to re-use
-           nextMask(true,  // former PersistentHashMapValueStorage.COMPRESSION_ENABLED, feel free to re-use
-           nextMask(false, // former FileSystemUtil.DO_NOT_RESOLVE_SYMLINKS, feel free to re-use
-           nextMask(ZipHandlerBase.getUseCrcInsteadOfTimestampPropertyValue(),
-           nextMask(true,  // former USE_FAST_NAMES_IMPLEMENTATION, free to reuse
-           nextMask(true   /* former USE_STREAMLINED_ATTRIBUTES_IMPLEMENTATION, free to reuse */, 0)))))))))))));
+           nextMask(ZipHandlerBase.getUseCrcInsteadOfTimestampPropertyValue(), 0
+           //22 bits are free to use for any configurable VFS property of which VFS binary format/file layout depends
+           )));
     //@formatter:on
   }
 
