@@ -5,7 +5,10 @@ import com.intellij.internal.statistic.StructuredIdeActivity
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.progress.*
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.progress.impl.ProgressManagerImpl
 import com.intellij.openapi.progress.impl.ProgressSuspender
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase
@@ -202,7 +205,7 @@ open class MergingQueueGuiExecutor<T : MergeableQueueTask<T>> protected construc
 
   protected open val taskId: Any? = null
 
-  private val schedulingDispatcher = Dispatchers.Default.limitedParallelism(1)
+  private val schedulingDispatcher = Dispatchers.IO.limitedParallelism(1)
 
   @OptIn(InternalCoroutinesApi::class)
   private fun startInBackgroundWithVisibleOrInvisibleProgress(

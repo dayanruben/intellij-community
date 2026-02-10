@@ -867,6 +867,10 @@ plugins/ByteCodeViewer
 plugins/IntelliLang
 plugins/IntelliLang/backend
 plugins/IntelliLang/tests
+plugins/agent-workbench/chat
+plugins/agent-workbench/codex/common
+plugins/agent-workbench/plugin
+plugins/agent-workbench/sessions
 plugins/ant
 plugins/ant/jps-plugin
 plugins/built-in-help
@@ -1262,9 +1266,14 @@ plugins/kotlin/jvm-debugger/evaluation/k2
 plugins/kotlin/jvm-debugger/sequence
 plugins/kotlin/jvm-debugger/test
 plugins/kotlin/jvm-debugger/test/compose
+plugins/kotlin/jvm-debugger/test/compose/testFramework
 plugins/kotlin/jvm-debugger/test/k2
+plugins/kotlin/jvm-debugger/test/k2/testFramework
 plugins/kotlin/jvm-debugger/test/kotlin.jvm-debugger.test.k1
+plugins/kotlin/jvm-debugger/test/kotlin.jvm-debugger.test.k1/testFramework
 plugins/kotlin/jvm-debugger/test/parcelize
+plugins/kotlin/jvm-debugger/test/parcelize/testFramework
+plugins/kotlin/jvm-debugger/testFramework
 plugins/kotlin/jvm-decompiler
 plugins/kotlin/jvm/k1
 plugins/kotlin/jvm/k2
@@ -1559,6 +1568,7 @@ tools/intellij.tools.ide.metrics.benchmark
 tools/intellij.tools.ide.metrics.collector
 tools/intellij.tools.ide.metrics.collector.starter
 tools/intellij.tools.ide.starter
+tools/intellij.tools.ide.starter.bazel
 tools/intellij.tools.ide.starter.build.server
 tools/intellij.tools.ide.starter.driver
 tools/intellij.tools.ide.starter.junit5

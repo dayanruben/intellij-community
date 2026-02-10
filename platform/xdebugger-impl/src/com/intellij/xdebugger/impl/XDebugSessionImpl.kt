@@ -601,6 +601,7 @@ class XDebugSessionImpl @JvmOverloads constructor(
       val runContentDescriptorId = CompletableDeferred<RunContentDescriptorIdImpl>()
       val tabLayouterDto = CompletableDeferred<XDebugTabLayouterDto>()
       val executionEnvironmentId = executionEnvironment?.storeGlobally(localTabScope)
+
       val tabInfo = XDebuggerSessionTabInfo(myIcon?.rpcId(), forceNewDebuggerUi, withFramesCustomization, defaultFramesViewKey,
                                             executionEnvironmentId, executionEnvironment?.toDto(localTabScope),
                                             additionalTabComponentManager.id, tabClosedChannel,
