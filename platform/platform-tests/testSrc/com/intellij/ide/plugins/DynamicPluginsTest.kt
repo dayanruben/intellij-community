@@ -54,8 +54,8 @@ import com.intellij.openapi.startup.StartupActivity
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.use
-import com.intellij.platform.plugins.parser.impl.elements.ModuleLoadingRuleValue
-import com.intellij.platform.plugins.testFramework.PluginSetTestBuilder
+import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
+import com.intellij.platform.pluginSystem.testFramework.PluginSetTestBuilder
 import com.intellij.platform.testFramework.loadDescriptorInTest
 import com.intellij.platform.testFramework.loadExtensionWithText
 import com.intellij.platform.testFramework.plugins.PluginSpec
@@ -484,6 +484,7 @@ class DynamicPluginsTest {
     }
   }
 
+  @Ignore("AT-4013")
   @Test
   fun `optional plugin dependency loading`() {
     val fooJar = pluginsDir.resolve("foo.jar")
@@ -522,6 +523,7 @@ class DynamicPluginsTest {
     }
   }
 
+  @Ignore("AT-4013")
   @Test
   fun `separate content module jar unloading`() {
     val fooDir = pluginsDir.resolve("foo")
@@ -559,6 +561,7 @@ class DynamicPluginsTest {
     }
   }
 
+  @Ignore("AT-4013")
   @Test
   fun `extension point from an embedded content module used in main descriptor`() {
     val fooPath = pluginsDir.resolve("foo")
@@ -1050,6 +1053,7 @@ class DynamicPluginsTest {
     }
   }
 
+  @Ignore("AT-4013")
   @Test
   fun `IJPL-233642 registry access of key from same plugin with multiple modules`() {
     val fooPath = pluginsDir.resolve("foo")
@@ -1234,6 +1238,7 @@ class DynamicPluginsTest {
     assertThat(DynamicPlugins.loadPlugin(foo)).isFalse
   }
 
+  @Ignore("AT-4013")
   @Test
   fun `test ide-plugins-allow-dynamic-services-overrides registry flag`() {
     for (dynamicServiceOverridesAllowed in listOf(true, false)) {

@@ -471,6 +471,9 @@ libraries/netty/codec-compression
 libraries/netty/codec-http
 libraries/netty/handler-proxy
 libraries/opencsv
+libraries/opentelemetry-exporter-otlp
+libraries/opentelemetry-exporter-sender-jdk
+libraries/opentelemetry-sdk-autoconfigure-spi
 libraries/oro-matcher
 libraries/plexus-utils
 libraries/protobuf
@@ -711,8 +714,8 @@ platform/platform-util-netty
 platform/pluginManager/backend
 platform/pluginManager/frontend
 platform/pluginManager/shared
-platform/plugins/parser/impl
-platform/plugins/testFramework
+platform/pluginSystem/parser/impl
+platform/pluginSystem/testFramework
 platform/polySymbols
 platform/polySymbols/backend
 platform/pratt
@@ -1489,6 +1492,7 @@ python/aliasProvider
 python/build
 python/build/build-debug-binaries
 python/common
+python/conda
 python/huggingFace
 python/ide/customization.shared
 python/ide/impl
@@ -1575,6 +1579,7 @@ tools/intellij.tools.ide.starter.junit5
 tools/intellij.tools.ide.util.common
 tools/launcher-generator
 tools/reproducibleBuilds.diff
+tools/tests
 uast/testFramework
 uast/uast-common
 uast/uast-common-ide

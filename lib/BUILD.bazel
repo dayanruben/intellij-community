@@ -2564,32 +2564,32 @@ jvm_import(
 )
 
 copy_file(
-  name = "io.github.pdvrieze.xmlutil/core-jvm-0.86.3.jar_copy",
-  src = "@io_github_pdvrieze_xmlutil-core-jvm-0_86_3_http//file",
-  out = "io.github.pdvrieze.xmlutil/core-jvm-0.86.3.jar",
+  name = "io.github.pdvrieze.xmlutil/core-0.91.3.jar_copy",
+  src = "@io_github_pdvrieze_xmlutil-core-0_91_3_http//file",
+  out = "io.github.pdvrieze.xmlutil/core-0.91.3.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
-  name = "fleet-io-github-pdvrieze-xmlutil-core-jvm",
-  jar = "@io_github_pdvrieze_xmlutil-core-jvm-0_86_3_http//file",
-  source_jar = "@io_github_pdvrieze_xmlutil-core-jvm-0_86_3-sources_http//file",
+  name = "fleet-io-github-pdvrieze-xmlutil-core",
+  jar = "@io_github_pdvrieze_xmlutil-core-0_91_3_http//file",
+  source_jar = "@io_github_pdvrieze_xmlutil-core-0_91_3-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 copy_file(
-  name = "io.github.pdvrieze.xmlutil/serialization-jvm-0.86.3.jar_copy",
-  src = "@io_github_pdvrieze_xmlutil-serialization-jvm-0_86_3_http//file",
-  out = "io.github.pdvrieze.xmlutil/serialization-jvm-0.86.3.jar",
+  name = "io.github.pdvrieze.xmlutil/serialization-jvm-0.91.3.jar_copy",
+  src = "@io_github_pdvrieze_xmlutil-serialization-jvm-0_91_3_http//file",
+  out = "io.github.pdvrieze.xmlutil/serialization-jvm-0.91.3.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "fleet-io-github-pdvrieze-xmlutil-serialization-jvm",
-  jar = "@io_github_pdvrieze_xmlutil-serialization-jvm-0_86_3_http//file",
-  source_jar = "@io_github_pdvrieze_xmlutil-serialization-jvm-0_86_3-sources_http//file",
+  jar = "@io_github_pdvrieze_xmlutil-serialization-jvm-0_91_3_http//file",
+  source_jar = "@io_github_pdvrieze_xmlutil-serialization-jvm-0_91_3-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -11900,6 +11900,51 @@ jvm_import(
   name = "commons-beanutils-commons-beanutils-1_10_0_http_import",
   jar = "@commons-beanutils-commons-beanutils-1_10_0_http//file",
   source_jar = "@commons-beanutils-commons-beanutils-1_10_0-sources_http//file"
+)
+
+copy_file(
+  name = "io.opentelemetry/opentelemetry-exporter-otlp-1.48.0.jar_copy",
+  src = "@io_opentelemetry-opentelemetry-exporter-otlp-1_48_0_http//file",
+  out = "io.opentelemetry/opentelemetry-exporter-otlp-1.48.0.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-opentelemetry-exporter-otlp-opentelemetry-exporter-otlp-library",
+  jar = "@io_opentelemetry-opentelemetry-exporter-otlp-1_48_0_http//file",
+  source_jar = "@io_opentelemetry-opentelemetry-exporter-otlp-1_48_0-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "io.opentelemetry/opentelemetry-exporter-sender-jdk-1.48.0.jar_copy",
+  src = "@io_opentelemetry-opentelemetry-exporter-sender-jdk-1_48_0_http//file",
+  out = "io.opentelemetry/opentelemetry-exporter-sender-jdk-1.48.0.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-opentelemetry-exporter-sender-jdk-opentelemetry-exporter-sender-jdk",
+  jar = "@io_opentelemetry-opentelemetry-exporter-sender-jdk-1_48_0_http//file",
+  source_jar = "@io_opentelemetry-opentelemetry-exporter-sender-jdk-1_48_0-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "io.opentelemetry/opentelemetry-sdk-extension-autoconfigure-spi-1.48.0.jar_copy",
+  src = "@io_opentelemetry-opentelemetry-sdk-extension-autoconfigure-spi-1_48_0_http//file",
+  out = "io.opentelemetry/opentelemetry-sdk-extension-autoconfigure-spi-1.48.0.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-opentelemetry-sdk-autoconfigure-spi-opentelemetry-sdk-autoconfigure-spi",
+  jar = "@io_opentelemetry-opentelemetry-sdk-extension-autoconfigure-spi-1_48_0_http//file",
+  source_jar = "@io_opentelemetry-opentelemetry-sdk-extension-autoconfigure-spi-1_48_0-sources_http//file",
+  visibility = ["//visibility:public"]
 )
 
 copy_file(
