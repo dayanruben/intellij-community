@@ -232,6 +232,23 @@ class PyTypeHintsInspection : PyInspection() {
     }
 
     override fun visitPyTypeParameter(typeParameter: PyTypeParameter) {
+      typeParameter.boundExpression?.let { bound ->
+        val bound = PyPsiUtils.flattenParens(bound)!!
+        when (typeParameter.kind) {
+          PyAstTypeParameter.Kind.TypeVar -> {
+            if (bound is PyTupleExpression) {
+              for (element in bound.elements) {
+                checkAnnotation(element)
+              }
+            }
+            else {
+              checkAnnotation(bound)
+            }
+          }
+          PyAstTypeParameter.Kind.TypeVarTuple -> checkAnnotation(bound)
+          PyAstTypeParameter.Kind.ParamSpec -> checkParamSpecDefaultValue(bound)
+        }
+      }
       val defaultExpression = typeParameter.defaultExpression ?: return
       when (typeParameter.kind) {
         PyAstTypeParameter.Kind.TypeVar -> {
@@ -400,7 +417,11 @@ class PyTypeHintsInspection : PyInspection() {
     }
 
     override fun visitPyAnnotation(node: PyAnnotation) {
-      val annotationValue = node.value ?: return
+      val value = node.value ?: return
+      checkAnnotation(value)
+    }
+
+    private fun checkAnnotation(annotationValue: PyExpression) {
       if (!isValidTypeHint(annotationValue, myTypeEvalContext)) {
         registerProblem(annotationValue, PyPsiBundle.message("INSP.type.hints.type.hint.is.not.valid"))
       }
@@ -408,20 +429,20 @@ class PyTypeHintsInspection : PyInspection() {
       checkForwardReferencesInBinaryExpression(annotationValue)
 
       checkRawConcatenateUsage(annotationValue)
-      checkParamSpecComponentInNonParameterAnnotation(node, annotationValue)
+      checkParamSpecComponentInNonParameterAnnotation(annotationValue)
       val type = Ref.deref(PyTypingTypeProvider.getType(annotationValue, myTypeEvalContext))
       if (type is PyTupleType) {
         checkTupleIsValid(annotationValue, type)
       }
 
-      fun PyAnnotation.findSelvesInAnnotation(context: TypeEvalContext): List<PyReferenceExpression> =
-        PsiTreeUtil.findChildrenOfAnyType(this.value, false, PyReferenceExpression::class.java).filter { refExpr ->
+      fun PyExpression.findSelvesInAnnotation(context: TypeEvalContext): List<PyReferenceExpression> =
+        PsiTreeUtil.findChildrenOfAnyType(this, false, PyReferenceExpression::class.java).filter { refExpr ->
           PyTypingTypeProvider.resolveToQualifiedNames(refExpr, context).any {
             PyTypingTypeProvider.SELF == it || PyTypingTypeProvider.SELF_EXT == it
           }
         }
 
-      val selves = node.findSelvesInAnnotation(myTypeEvalContext)
+      val selves = annotationValue.findSelvesInAnnotation(myTypeEvalContext)
       if (selves.isEmpty()) {
         return
       }
@@ -432,7 +453,7 @@ class PyTypeHintsInspection : PyInspection() {
         }
       }
 
-      val functionParent = PsiTreeUtil.getParentOfType(node, PyFunction::class.java)
+      val functionParent = PsiTreeUtil.getParentOfType(annotationValue, PyFunction::class.java)
       if (functionParent != null) {
         if (PyAstFunction.Modifier.STATICMETHOD == functionParent.modifier && PyNames.NEW != functionParent.name) {
           registerProblemForSelves(PyPsiBundle.message("INSP.type.hints.self.use.in.staticmethod"))
@@ -442,7 +463,12 @@ class PyTypeHintsInspection : PyInspection() {
         if (parameters.isNotEmpty()) {
           val firstParameter = parameters[0]
           val annotation = (firstParameter as? PyNamedParameter)?.annotation
-          if (annotation != null && firstParameter.isSelf && annotation.findSelvesInAnnotation(myTypeEvalContext).isEmpty()) {
+          if (
+            annotation != null && firstParameter.isSelf &&
+            annotation.value
+              ?.findSelvesInAnnotation(myTypeEvalContext)
+              ?.isEmpty() == true
+          ) {
             val message = if (PyAstFunction.Modifier.CLASSMETHOD == functionParent.modifier)
               PyPsiBundle.message("INSP.type.hints.self.use.for.cls.parameter.with.self.annotation")
             else
@@ -1766,7 +1792,8 @@ class PyTypeHintsInspection : PyInspection() {
       }
     }
 
-    private fun checkParamSpecComponentInNonParameterAnnotation(annotation: PyAnnotation, annotationValue: PyExpression) {
+    private fun checkParamSpecComponentInNonParameterAnnotation(annotationValue: PyExpression) {
+      val annotation = annotationValue.parent
       val component = ParamSpecComponent.getParamSpecComponent(annotationValue, myTypeEvalContext) ?: return
       val owner = annotation.parent
       if (owner is PyNamedParameter) return
