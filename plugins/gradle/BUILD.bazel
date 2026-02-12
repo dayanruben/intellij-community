@@ -79,6 +79,8 @@ jvm_library(
     "//platform/forms_rt:java-guiForms-rt",
     "//libraries/jspecify",
     "//platform/util/text-matching",
+    "@lib//:org-codehaus-groovy-groovy-provided",
+    "@lib//:org-codehaus-groovy-groovy-ant-provided",
   ],
   exports = [
     "//platform/external-system-api:externalSystem",
@@ -140,6 +142,7 @@ jvm_library(
     "@lib//:junit4",
     "//plugins/gradle",
     "//plugins/gradle:gradle-common",
+    "//plugins/gradle/plugin",
     "//platform/analysis-api:analysis",
     "//platform/backend/workspace",
     "//platform/core-api:core",

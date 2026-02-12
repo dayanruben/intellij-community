@@ -147,10 +147,39 @@ class InstalledPluginsTab extends PluginsTab {
     ((SearchUpDownPopupController)myInstalledSearchPanel.controller).setEventHandler(eventHandler);
     myInstalledPanel.showLoadingIcon();
 
-    PluginsGroup userInstalled =
-      new PluginsGroup(IdeBundle.message("plugins.configurable.userInstalled"), PluginsGroupType.INSTALLED);
-
+    PluginsGroup userInstalled = new PluginsGroup(IdeBundle.message("plugins.configurable.userInstalled"), PluginsGroupType.INSTALLED);
     PluginsGroup installing = new PluginsGroup(IdeBundle.message("plugins.configurable.installing"), PluginsGroupType.INSTALLING);
+
+    myUpdateAll.setVisible(false);
+    myUpdateAllBundled.setVisible(false);
+    myUpdateCounter.setVisible(false);
+    myUpdateCounterBundled.setVisible(false);
+
+    LinkListener<Object> updateAllListener = new LinkListener<>() {
+      @Override
+      public void linkSelected(LinkLabel<Object> aSource, Object aLinkData) {
+        myUpdateAll.setEnabled(false);
+        myUpdateAllBundled.setEnabled(false);
+
+        for (UIPluginGroup group : getInstalledGroups()) {
+          if (group.isBundledUpdatesGroup) {
+            continue;
+          }
+          for (ListPluginComponent plugin : group.plugins) {
+            plugin.updatePlugin();
+          }
+        }
+      }
+    };
+
+    myUpdateAll.setListener(updateAllListener, null);
+    userInstalled.addSecondaryAction(myUpdateAll);
+    userInstalled.addSecondaryAction(myUpdateCounter);
+
+    myUpdateAllBundled.setListener(updateAllListener, null);
+    myBundledUpdateGroup.addSecondaryAction(myUpdateAllBundled);
+    myBundledUpdateGroup.addSecondaryAction(myUpdateCounterBundled);
+
     PluginManagerPanelFactory.INSTANCE.createInstalledPanel(myCoroutineScope, myPluginModelFacade.getModel(), model -> {
       try {
         myPluginModelFacade.getModel().setDownloadedGroup(myInstalledPanel, userInstalled, installing);
@@ -184,32 +213,6 @@ class InstalledPluginsTab extends PluginsTab {
           ContainerUtil.filter(visibleNonBundledPlugins, it -> !installedPluginIds.contains(it.getPluginId()));
         userInstalled.addModels(nonBundledPlugins);
 
-        LinkListener<Object> updateAllListener = new LinkListener<>() {
-          @Override
-          public void linkSelected(LinkLabel<Object> aSource, Object aLinkData) {
-            myUpdateAll.setEnabled(false);
-            myUpdateAllBundled.setEnabled(false);
-
-            for (UIPluginGroup group : getInstalledGroups()) {
-              if (group.excluded) {
-                continue;
-              }
-              for (ListPluginComponent plugin : group.plugins) {
-                plugin.updatePlugin();
-              }
-            }
-          }
-        };
-
-        myUpdateAll.setVisible(false);
-        myUpdateAllBundled.setVisible(false);
-        myUpdateCounter.setVisible(false);
-        myUpdateCounterBundled.setVisible(false);
-
-        myUpdateAll.setListener(updateAllListener, null);
-        userInstalled.addRightAction(myUpdateAll);
-        userInstalled.addRightAction(myUpdateCounter);
-
         if (!userInstalled.getModels().isEmpty()) {
           userInstalled.sortByName();
 
@@ -238,10 +241,6 @@ class InstalledPluginsTab extends PluginsTab {
             myInstalledPanel.addGroup(group);
             myPluginModelFacade.getModel().addEnabledGroup(group);
           });
-
-        myUpdateAllBundled.setListener(updateAllListener, null);
-        myBundledUpdateGroup.addRightAction(myUpdateAllBundled);
-        myBundledUpdateGroup.addRightAction(myUpdateCounterBundled);
 
         myPluginUpdatesService.calculateUpdates(updates -> {
           if (ContainerUtil.isEmpty(updates)) {
@@ -423,7 +422,7 @@ class InstalledPluginsTab extends PluginsTab {
       }
       if (!myBundledUpdateGroup.getModels().isEmpty()) {
         getInstalledPanel().addGroup(myBundledUpdateGroup, 0);
-        myBundledUpdateGroup.ui.excluded = true;
+        myBundledUpdateGroup.ui.isBundledUpdatesGroup = true;
 
         for (PluginUiModel descriptor : updates) {
           ListPluginComponent component = myBundledUpdateGroup.ui.findComponent(descriptor.getPluginId());
@@ -570,12 +569,12 @@ class InstalledPluginsTab extends PluginsTab {
       this.addModels(descriptors);
       sortByName();
 
-      rightAction = new PluginManagerConfigurablePanel.LinkLabelButton<>("",
-                                                                         null,
-                                                                         (__, ___) -> setEnabledState());
+      mainAction = new PluginManagerConfigurablePanel.LinkLabelButton<>("",
+                                                                        null,
+                                                                        (__, ___) -> setEnabledState());
       boolean hasPluginsAvailableForEnableDisable =
         ContainerUtil.exists(descriptors, it -> !pluginsRequiresUltimate.get(it.getPluginId()));
-      rightAction.setVisible(hasPluginsAvailableForEnableDisable);
+      mainAction.setVisible(hasPluginsAvailableForEnableDisable);
       titleWithEnabled(myPluginModelFacade);
     }
 
@@ -588,7 +587,7 @@ class InstalledPluginsTab extends PluginsTab {
     public void titleWithCount(int enabled) {
       myIsEnable = enabled == 0;
       String key = myIsEnable ? "plugins.configurable.enable.all" : "plugins.configurable.disable.all";
-      rightAction.setText(IdeBundle.message(key));
+      mainAction.setText(IdeBundle.message(key));
     }
 
     private void setEnabledState() {
@@ -744,8 +743,8 @@ class InstalledPluginsTab extends PluginsTab {
           });
         }
         else if (parser.needUpdate) {
-          result.rightAction = new LinkLabelButton<>(IdeBundle.message("plugin.manager.update.all"), null, (__, ___) -> {
-            result.rightAction.setEnabled(false);
+          result.mainAction = new LinkLabelButton<>(IdeBundle.message("plugin.manager.update.all"), null, (__, ___) -> {
+            result.mainAction.setEnabled(false);
 
             for (ListPluginComponent plugin : result.ui.plugins) {
               plugin.updatePlugin();

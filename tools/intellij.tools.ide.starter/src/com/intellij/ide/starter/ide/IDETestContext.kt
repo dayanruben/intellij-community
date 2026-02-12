@@ -81,11 +81,12 @@ open class IDETestContext(
   companion object {
     const val OPENTELEMETRY_FILE: String = "opentelemetry.json"
 
-    private val SEARCH_EVERYWHERE_REGISTRY_KEYS: List<String> get() = listOf(
+    val SEARCH_EVERYWHERE_REGISTRY_KEYS: List<String> get() = listOf(
       "search.everywhere.new.enabled",
       "search.everywhere.new.rider.enabled",
       "search.everywhere.new.idea.enabled",
       "search.everywhere.new.pycharm.enabled",
+      "search.everywhere.new.clion.enabled",
       "search.everywhere.new.cwm.client.enabled",
       "search.everywhere.new.allow.ab"
     )
@@ -344,12 +345,10 @@ open class IDETestContext(
     addSystemProperty("llm.show.ai.promotion.window.on.start", false)
   }
 
-  @Suppress("TestOnlyProblems")
   fun disableSplitSearchEverywhere(): IDETestContext = applyVMOptionsPatch {
     SEARCH_EVERYWHERE_REGISTRY_KEYS.forEach { addSystemProperty(it, false) }
   }
 
-  @Suppress("TestOnlyProblems")
   fun enableSplitSearchEverywhere(): IDETestContext = applyVMOptionsPatch {
     SEARCH_EVERYWHERE_REGISTRY_KEYS.forEach { addSystemProperty(it, true) }
   }

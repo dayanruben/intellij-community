@@ -346,10 +346,6 @@
               use-shortcut-of="Git.CreateNewBranch"/>
       <reference ref="Git.CreateNewTag"/>
       <separator/>
-      <reference ref="Git.Show.WorkingTrees"/>
-      <separator/>
-      <reference ref="Git.CreateNewWorkingTree"/>
-      <separator/>
       <add-to-group group-id="Vcs.Log.ContextMenu" relative-to-action="Vcs.Log.GoToChild" anchor="before"/>
     </group>
 
@@ -558,10 +554,13 @@
     <action id="Git.WorkingTrees.Open" class="git4idea.workingTrees.ui.OpenWorkingTreeAction">
       <mouse-shortcut keymap="$default" keystroke="button1 doubleClick"/>
     </action>
+    <action id="Git.WorkingTrees.Refresh" class="git4idea.workingTrees.ui.RefreshWorkingTreesAction"
+            icon="AllIcons.General.Refresh" use-shortcut-of="Synchronize"/>
 
     <group id="Git.WorkingTrees.ToolwindowGroup.Toolbar">
       <reference ref="Git.CreateNewWorkingTree"/>
       <reference ref="Git.WorkingTrees.Remove"/>
+      <reference ref="Git.WorkingTrees.Refresh"/>
       <separator/>
       <reference ref="ContextHelp"/>
     </group>
@@ -580,6 +579,8 @@
     <advancedSetting id="git.read.content.with" enumClass="git4idea.util.GitTextConvMode" default="FILTERS"
                      groupKey="advanced.settings.git"/>
     <advancedSetting id="git.use.push.force.with.lease" default="true" groupKey="advanced.settings.git"/>
+    <!-- Even though the setting name contains "outgoing", it affects only background execution of ls-remote or fetch.
+         Check its description or usage for details. -->
     <advancedSetting id="git.update.incoming.outgoing.info" default="true" groupKey="advanced.settings.git"/>
     <advancedSetting id="git.update.info.auto.open.enabled" default="true" bundle="messages.GitBundle" groupKey="advanced.settings.git"/>
     <advancedSetting id="git.commit.do.not.run.commit.hooks" default="false"  groupKey="advanced.settings.git"/>

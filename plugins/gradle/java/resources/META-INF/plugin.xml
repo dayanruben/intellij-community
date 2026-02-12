@@ -8,8 +8,11 @@
     Provides Java Gradle projects import, run configuration and profiler integrations.
   </description>
 
-  <depends>com.intellij.java</depends>
-  <depends>com.intellij.gradle</depends>
+  <dependencies>
+    <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
+    <module name="intellij.gradle"/>
+    <!-- endregion -->
+  </dependencies>
 
   <module value="com.intellij.modules.gradle.java"/>
   <module value="org.jetbrains.plugins.gradle.java"/>

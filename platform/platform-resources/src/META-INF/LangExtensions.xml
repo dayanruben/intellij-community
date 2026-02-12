@@ -94,7 +94,7 @@
     <registryKey defaultValue="true" description="Use EEL for file watching." key="use.eel.file.watcher" restartRequired="true"/>
     <registryKey defaultValue="true" key="cache.nulls.for.pushed.properties" restartRequired="true"
                  description="Cache null values for pushed properties to avoid reading nulls from disk every time."/>
-    <registryKey defaultValue="true" key="use.workspace.model.for.calculation.library.scope"
+    <registryKey defaultValue="false" key="use.workspace.model.for.calculation.library.scope"
                  description="Calculation of LibraryScopeCache using WorkspaceModel entities"/>
     <registryKey defaultValue="true" key="se.enable.non.indexable.files.contributor" restartRequired="false"
                  description="Search files in non-indexable filesets with NonIndexableFilesSEContributor"/>
@@ -676,6 +676,10 @@
                             implementationClass="com.intellij.codeInsight.completion.ReferenceBasedCompletionContributor"/>
     <completion.contributor language="any" id="commands" order="first, after liveTemplates"
                             implementationClass="com.intellij.codeInsight.completion.command.CommandCompletionContributor"/>
+
+    <modcompletion.completionItemProvider language="any" implementationClass="com.intellij.codeInsight.template.impl.LiveTemplateModCompletionItemProvider"
+                                          id="liveTemplates" order="first"/>
+
     <codeCompletionConfigurable provider="com.intellij.codeInsight.completion.command.configuration.CommandCompletionConfigurableProvider"/>
 
     <applicationService serviceImplementation="com.intellij.execution.console.ConsoleFoldingSettings"/>

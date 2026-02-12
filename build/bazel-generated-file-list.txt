@@ -721,6 +721,7 @@ platform/polySymbols/backend
 platform/pratt
 platform/progress/backend
 platform/progress/shared
+platform/project-frame
 platform/project/backend
 platform/project/shared
 platform/projectModel-api
@@ -800,6 +801,7 @@ platform/testFramework/junit5/eel
 platform/testFramework/junit5/highlighting
 platform/testFramework/junit5/projectStructure
 platform/testFramework/monorepo
+platform/testFramework/selfContainedProjects
 platform/testFramework/teamCity
 platform/testFramework/ui
 platform/testRunner
@@ -851,6 +853,8 @@ platform/vcs-log/impl
 platform/vcs-tests
 platform/warmup
 platform/warmup/performanceTesting
+platform/welcome-screen
+platform/welcome-screen-impl
 platform/whatsNew
 platform/workspace/jps
 platform/workspace/jps/tests
@@ -871,6 +875,7 @@ plugins/IntelliLang
 plugins/IntelliLang/backend
 plugins/IntelliLang/tests
 plugins/agent-workbench/chat
+plugins/agent-workbench/claude/common
 plugins/agent-workbench/codex/common
 plugins/agent-workbench/plugin
 plugins/agent-workbench/sessions
@@ -997,6 +1002,7 @@ plugins/gradle/jps-plugin
 plugins/gradle/kotlin/tests
 plugins/gradle/native
 plugins/gradle/native/tooling
+plugins/gradle/plugin
 plugins/gradle/properties
 plugins/gradle/toml
 plugins/gradle/tooling-extension-api
