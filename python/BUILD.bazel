@@ -23,6 +23,7 @@ jvm_library(
     ":pycharm-community_resources_1",
   ],
   deps = [
+    "@lib//:kotlin-stdlib",
     "//platform/platform-impl:ide-impl",
     "//platform/lang-api:lang",
     "//platform/lang-impl",
@@ -285,8 +286,6 @@ jvm_library(
     "//platform/ui.jcef",
     "//libraries/io",
     "//platform/util/progress",
-    "//platform/feedback",
-    "//libraries/kotlinx/datetime",
     "//platform/platform-impl/remote",
     "//platform/platform-impl/ui",
     "//libraries/jackson/module-kotlin:libraries-jackson-module-kotlin",

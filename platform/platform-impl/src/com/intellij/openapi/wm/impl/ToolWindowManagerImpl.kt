@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "OverridingDeprecatedMember", "ReplaceNegatedIsEmptyWithIsNotEmpty",
                "PrivatePropertyName")
 @file:OptIn(FlowPreview::class)
@@ -242,14 +242,18 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
         delay = SystemProperties.getIntProperty("actionSystem.keyGestureDblClickTime", 300),
         coroutineScope = coroutineScope,
       )
+      val projectFrameLayoutProfile = resolveProjectFrameToolWindowLayoutProfile(project = project, isNewUi = isNewUi)
       if (state.noStateLoaded) {
-        loadDefault()
+        loadDefault(projectFrameLayoutProfile)
       }
       @Suppress("LeakingThis")
       state.scheduledLayout.afterChange(this) { dl ->
         dl?.let { toolWindowSetInitializer.scheduleSetLayout(it) }
       }
       state.scheduledLayout.get()?.let { toolWindowSetInitializer.scheduleSetLayout(it) }
+      applyProjectFrameLayoutPolicy(projectFrameLayoutProfile) { layout ->
+        toolWindowSetInitializer.scheduleSetLayout(layout)
+      }
     }
   }
 
@@ -424,7 +428,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
       val updateHeadersRequests = MutableSharedFlow<Unit>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
       coroutineScope.launch {
         updateHeadersRequests
-          .debounce(50)
+          .debounce(50.milliseconds)
           .collectLatest {
             for (project in getOpenedProjects()) {
               val toolWindowManager = project.serviceAsync<ToolWindowManager>() as ToolWindowManagerImpl
@@ -773,8 +777,14 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
     }
   }
 
-  private fun loadDefault() {
-    toolWindowSetInitializer.scheduleSetLayout(ToolWindowDefaultLayoutManager.getInstance().getLayoutCopy())
+  private fun loadDefault(
+    projectFrameLayoutProfile: ProjectFrameToolWindowLayoutProfile? = resolveProjectFrameToolWindowLayoutProfile(
+      project = project,
+      isNewUi = isNewUi,
+    ),
+  ) {
+    val layout = projectFrameLayoutProfile?.profile?.layout ?: ToolWindowDefaultLayoutManager.getInstance().getLayoutCopy()
+    toolWindowSetInitializer.scheduleSetLayout(layout)
   }
 
   @Deprecated("Use {@link ToolWindowManagerListener#TOPIC}", level = DeprecationLevel.ERROR)

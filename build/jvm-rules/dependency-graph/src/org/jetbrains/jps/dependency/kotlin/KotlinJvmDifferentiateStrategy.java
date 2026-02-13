@@ -43,28 +43,24 @@ import org.jetbrains.jps.util.Pair;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
 import static org.jetbrains.jps.util.Iterators.asIterable;
-import static org.jetbrains.jps.util.Iterators.asIterator;
 import static org.jetbrains.jps.util.Iterators.collect;
 import static org.jetbrains.jps.util.Iterators.contains;
 import static org.jetbrains.jps.util.Iterators.filter;
 import static org.jetbrains.jps.util.Iterators.find;
 import static org.jetbrains.jps.util.Iterators.flat;
 import static org.jetbrains.jps.util.Iterators.isEmpty;
-import static org.jetbrains.jps.util.Iterators.lazyIterator;
 import static org.jetbrains.jps.util.Iterators.map;
 import static org.jetbrains.jps.util.Iterators.recurse;
 import static org.jetbrains.jps.util.Iterators.unique;
@@ -833,12 +829,17 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
   }
 
   private void affectLookupUsages(DifferentiateContext context, Iterable<JvmNodeReferenceID> symbolOwners, String symbolName, Utils utils, @Nullable Predicate<Node<?, ?>> constraint) {
+    // on source level the lookup symbol can be defined in a companion object
+    Iterable<JvmNodeReferenceID> companions = map(flat(map(symbolOwners, o -> utils.getNodes(o, JvmClass.class))), cls -> {
+      String companionName = KJvmUtils.getCompanionObjectName(cls);
+      return companionName != null? new JvmNodeReferenceID(cls.getName() + "/" + companionName) : null;
+    });
     // since '$' is both a valid bytecode name symbol and inner class name separator, for every class name containing '$' use additional classname with '/'
-    Iterable<JvmNodeReferenceID> owners = filter(flat(symbolOwners, map(symbolOwners, o -> {
+    Iterable<JvmNodeReferenceID> owners = filter(flat(List.of(symbolOwners, companions, map(symbolOwners, o -> {
       String original = o.getNodeName();
       String normalized = original.replace('$', '/'); // inner class names on Kotlin lookups level use '/' separators instead of '$'
       return normalized.equals(original)? null : new JvmNodeReferenceID(normalized);
-    })), Objects::nonNull);
+    }))), Objects::nonNull);
 
     affectUsages(context, "lookup '" + symbolName + "'" , owners, id -> {
       String kotlinName = KJvmUtils.getKotlinName(id, utils);
@@ -888,93 +889,6 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
   private boolean affectConflictingTypeAliasDeclarations(DifferentiateContext context, JvmNodeReferenceID typeAliasId, Utils utils) {
     BackDependencyIndex aliasIndex = Objects.requireNonNull(context.getGraph().getIndex(TypealiasesIndex.NAME));
     return affectNodeSourcesIfNotCompiled(context, aliasIndex.getDependencies(typeAliasId), utils, "Possible conflict with an equally named type alias in the same compilation chunk; Scheduling for recompilation sources: ");
-  }
-
-  private static class PathElement<T> {
-    public final @Nullable PathElement<T> parent;
-    public final T item;
-
-    PathElement(@Nullable PathElement<T> parent, T item) {
-      this.parent = parent;
-      this.item = item;
-    }
-
-    boolean isPathEndMarker() {
-      return false;
-    }
-
-    PathElement<T> asEndMarker() {
-      return new PathElement<>(parent, item) {
-        @Override
-        boolean isPathEndMarker() {
-          return true;
-        }
-      };
-    }
-
-    @NotNull Iterator<PathElement<T>> getPathIterator() {
-      return new Iterator<>() {
-        private PathElement<T> next = PathElement.this;
-        @Override
-        public boolean hasNext() {
-          return next != null;
-        }
-
-        @Override
-        public PathElement<T> next() {
-          PathElement<T> rv = next;
-          if (rv == null) {
-            throw new NoSuchElementException();
-          }
-          next = next.parent;
-          return rv;
-        }
-      };
-    }
-  }
-
-  private static <T> Iterable<PathElement<T>> enumeratePathsDepth(final T fromItem, final Function<? super T, ? extends Iterable<? extends T>> step, Predicate<? super T> stopTraversalCond) {
-    return new Iterable<>() {
-      @NotNull
-      @Override
-      public Iterator<PathElement<T>> iterator() {
-        return new Object() {
-          private final Set<T> currentPathItems = new HashSet<>();
-
-          private Iterator<PathElement<T>> recurse(PathElement<T> pe) {
-            if (!currentPathItems.add(pe.item)) {
-              // already visited, do not cycle
-              return Collections.emptyIterator();
-            }
-
-            if (stopTraversalCond.test(pe.item)) {
-              currentPathItems.remove(pe.item);
-              return asIterator(pe);
-            }
-
-            Iterator<PathElement<T>> nextLevel = lazyIterator(() -> map(step.apply(pe.item), next -> new PathElement<>(pe, next)).iterator());
-            return flat(
-              asIterator(pe),
-              flat(
-                flat(map(nextLevel, this::recurse)),
-                asIterator(pe.asEndMarker())
-              )
-            );
-          }
-
-          Iterator<PathElement<T>> traverse(T item) {
-            return filter(recurse(new PathElement<>(null, item)), pe -> {
-              if (pe.isPathEndMarker()) {
-                currentPathItems.remove(pe.item);
-                return false;
-              }
-              return true;
-            });
-          }
-
-        }.traverse(fromItem);
-      }
-    };
   }
 
 }

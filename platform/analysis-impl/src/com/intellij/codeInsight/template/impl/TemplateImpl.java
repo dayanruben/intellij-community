@@ -14,6 +14,7 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.options.SchemeElement;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.NlsContexts;
@@ -406,6 +407,10 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
   /**
    * Performs a template execution within ModCommand context. The template is not actually executed, but
    * contributes to {@link ModPsiUpdater} to form the final {@link ModCommand}.
+   * <p>
+   *   Note that not all the template behavior is implemented yet, and not everything is supported in ModCommands at all,
+   *   so expect that complex templates that use rare features may not work correctly.
+   * </p>
    * 
    * @param updater {@link ModPsiUpdater} to use.
    */
@@ -418,7 +423,8 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
     document.insertString(start, text);
     RangeMarker wholeTemplate = document.createRangeMarker(start, start + text.length());
     Map<String, Variable> variableMap = StreamEx.of(getVariables()).toMap(Variable::getName, Function.identity());
-    PsiDocumentManager manager = PsiDocumentManager.getInstance(updater.getProject());
+    Project project = updater.getProject();
+    PsiDocumentManager manager = PsiDocumentManager.getInstance(project);
     List<Segment> segments = getSegments();
     record MarkerInfo(Segment segment, RangeMarker marker) {}
     List<MarkerInfo> markers = ContainerUtil.map(segments, segment -> {
@@ -457,6 +463,12 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
         }
       }
     }
+    for (TemplateOptionalProcessor proc : DumbService.getDumbAwareExtensions(project, TemplateOptionalProcessor.EP_NAME)) {
+      if (proc instanceof ModCommandAwareTemplateOptionalProcessor mcProcessor) {
+        mcProcessor.processText(this, updater, wholeTemplate);
+      }
+    }
+
     if (isToReformat()) {
       List<MarkerInfo> emptyValues = new ArrayList<>();
       for (MarkerInfo info : markers) {
@@ -466,7 +478,7 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
         }
       }
       manager.commitDocument(document);
-      CodeStyleManager.getInstance(updater.getProject())
+      CodeStyleManager.getInstance(project)
         .reformatText(updater.getPsiFile(), wholeTemplate.getStartOffset(), wholeTemplate.getEndOffset());
       for (MarkerInfo value : emptyValues) {
         document.deleteString(value.marker.getStartOffset(), value.marker.getEndOffset());

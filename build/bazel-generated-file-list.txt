@@ -997,7 +997,12 @@ plugins/gradle/gradle-declarative-sync
 plugins/gradle/gradle-dependency-updater
 plugins/gradle/intellij.gradle.analysis
 plugins/gradle/java
+plugins/gradle/java/coverage
+plugins/gradle/java/groovy
+plugins/gradle/java/groovy/ml
+plugins/gradle/java/groovy/toml
 plugins/gradle/java/performance
+plugins/gradle/java/toml
 plugins/gradle/jps-plugin
 plugins/gradle/kotlin/tests
 plugins/gradle/native

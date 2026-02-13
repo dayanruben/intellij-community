@@ -19,6 +19,7 @@ import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.components.PathMacroManager
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler
@@ -244,7 +245,7 @@ abstract class KotlinLightCodeInsightFixtureTestCase : KotlinLightCodeInsightFix
     protected fun getProjectDescriptorFromFileDirective(): LightProjectDescriptor {
         val file = mainFile()
         if (!file.exists()) {
-            return KotlinLightProjectDescriptor.INSTANCE
+            return getDefaultProjectDescriptor()
         }
 
         try {
@@ -344,6 +345,7 @@ abstract class KotlinLightCodeInsightFixtureTestCase : KotlinLightCodeInsightFix
     }
 
     protected open fun getDefaultProjectDescriptor(): KotlinLightProjectDescriptor = KotlinLightProjectDescriptor.INSTANCE
+
     protected fun performNotWriteEditorAction(actionId: String): Boolean {
         val dataContext = (myFixture.editor as EditorEx).dataContext
 
@@ -510,10 +512,21 @@ private fun configureCompilerOptions(fileText: String, project: Project, module:
             val compilerSettings = facetSettings.compilerSettings ?: CompilerSettings().also {
                 facetSettings.compilerSettings = it
             }
-            compilerSettings.additionalArguments = options
+
+            val expandedOptions =
+                // it is allowed to use KOTLIN_BUNDLE path macros in test data in the same way as project import does
+                // TEST_* path macros work for tests only
+                if (options.contains($$"$KOTLIN_BUNDLED$") || options.contains($$"$TEST_")) {
+                    val pathMacroManager = PathMacroManager.getInstance(project)
+                    pathMacroManager.expandPath(options)
+                } else {
+                    options
+                }
+
+            compilerSettings.additionalArguments = expandedOptions
             facetSettings.updateMergedArguments()
 
-            KotlinCompilerSettings.getInstance(project).update { this.additionalArguments = options }
+            KotlinCompilerSettings.getInstance(project).update { this.additionalArguments = expandedOptions }
         }
 
         return true

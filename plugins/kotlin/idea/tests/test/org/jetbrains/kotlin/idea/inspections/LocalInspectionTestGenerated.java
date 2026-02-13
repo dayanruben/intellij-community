@@ -16297,6 +16297,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractK1LocalInspec
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("listOfPathOfPlusPathOf.kt")
+        public void testListOfPathOfPlusPathOf() throws Exception {
+            runTest("testData/inspectionsLocal/suspiciousCallOnCollectionToAddOrRemovePath/listOfPathOfPlusPathOf.kt");
+        }
+
         @TestMetadata("minusListOfPath.kt")
         public void testMinusListOfPath() throws Exception {
             runTest("testData/inspectionsLocal/suspiciousCallOnCollectionToAddOrRemovePath/minusListOfPath.kt");
@@ -19822,6 +19827,40 @@ public abstract class LocalInspectionTestGenerated extends AbstractK1LocalInspec
             @TestMetadata("nullOrIsEmpty5.kt")
             public void testNullOrIsEmpty5() throws Exception {
                 runTest("testData/inspectionsLocal/verboseNullabilityAndEmptiness/complex/nullOrIsEmpty5.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/inspectionsLocal/verboseNullabilityAndEmptiness/custom")
+        public static class Custom extends AbstractK1LocalInspectionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("customIsBlank.kt")
+            public void testCustomIsBlank() throws Exception {
+                runTest("testData/inspectionsLocal/verboseNullabilityAndEmptiness/custom/customIsBlank.kt");
+            }
+
+            @TestMetadata("customIsEmpty.kt")
+            public void testCustomIsEmpty() throws Exception {
+                runTest("testData/inspectionsLocal/verboseNullabilityAndEmptiness/custom/customIsEmpty.kt");
+            }
+
+            @TestMetadata("customIsNotBlank.kt")
+            public void testCustomIsNotBlank() throws Exception {
+                runTest("testData/inspectionsLocal/verboseNullabilityAndEmptiness/custom/customIsNotBlank.kt");
+            }
+
+            @TestMetadata("customIsNotEmpty.kt")
+            public void testCustomIsNotEmpty() throws Exception {
+                runTest("testData/inspectionsLocal/verboseNullabilityAndEmptiness/custom/customIsNotEmpty.kt");
             }
         }
 
