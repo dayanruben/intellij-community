@@ -1,17 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.ex
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.project.ProjectManagerListener
-import com.intellij.util.containers.CollectionFactory
-import kotlinx.coroutines.CoroutineScope
+import com.intellij.openapi.util.NotNullLazyKey
 import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.VisibleForTesting
@@ -30,6 +26,11 @@ enum class ProjectFrameCapability {
    * Suppresses VCS-oriented UI in the frame.
    */
   SUPPRESS_VCS_UI,
+
+  /**
+   * Suppresses Project View UI in the frame.
+   */
+  SUPPRESS_PROJECT_VIEW,
 
   /**
    * Disables file colors for the frame.
@@ -95,7 +96,7 @@ interface ProjectFrameCapabilitiesProvider {
 @Service(Service.Level.APP)
 @Internal
 @Experimental
-class ProjectFrameCapabilitiesService(coroutineScope: CoroutineScope) {
+class ProjectFrameCapabilitiesService {
   companion object {
     @VisibleForTesting
     val EP_NAME: ExtensionPointName<ProjectFrameCapabilitiesProvider> = ExtensionPointName("com.intellij.projectFrameCapabilitiesProvider")
@@ -106,14 +107,10 @@ class ProjectFrameCapabilitiesService(coroutineScope: CoroutineScope) {
     fun getInstanceSync(): ProjectFrameCapabilitiesService = service()
   }
 
-  private val capabilitiesByProject = CollectionFactory.createConcurrentWeakMap<Project, Set<ProjectFrameCapability>>()
-
-  init {
-    ApplicationManager.getApplication().messageBus.connect(coroutineScope).subscribe(ProjectManager.TOPIC, object : ProjectManagerListener {
-      override fun projectClosed(project: Project) {
-        capabilitiesByProject.remove(project)
-      }
-    })
+  private val capabilitiesByProject = NotNullLazyKey.createLazyKey<Set<ProjectFrameCapability>, Project>(
+    "project.frame.capabilities"
+  ) { project ->
+    computeProjectFrameCapabilities(project)
   }
 
   fun has(project: Project, capability: ProjectFrameCapability): Boolean {
@@ -167,7 +164,7 @@ class ProjectFrameCapabilitiesService(coroutineScope: CoroutineScope) {
     if (project.isDisposed) {
       return emptySet()
     }
-    return capabilitiesByProject.computeIfAbsent(project, ::computeProjectFrameCapabilities)
+    return capabilitiesByProject.getValue(project)
   }
 }
 

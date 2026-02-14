@@ -265,7 +265,15 @@ f:com.intellij.collaboration.api.json.JsonHttpApiHelperKt
 - f:attachSearch(javax.swing.JList,com.intellij.ui.SearchTextField,kotlin.jvm.functions.Function1):V
 - f:cleanupUrl(java.lang.String):java.lang.String
 - f:createTagLabel(com.intellij.collaboration.ui.SingleValueModel):javax.swing.JComponent
+- f:createTagLabel(com.intellij.collaboration.ui.SingleValueModel,java.awt.Color):javax.swing.JComponent
+- f:createTagLabel(com.intellij.collaboration.ui.SingleValueModel,java.awt.Color,java.awt.Color):javax.swing.JComponent
+- f:createTagLabel(com.intellij.collaboration.ui.SingleValueModel,java.awt.Color,java.awt.Color,Z):javax.swing.JComponent
 - f:createTagLabel(java.lang.String):javax.swing.JComponent
+- f:createTagLabel(java.lang.String,java.awt.Color):javax.swing.JComponent
+- f:createTagLabel(java.lang.String,java.awt.Color,java.awt.Color):javax.swing.JComponent
+- f:createTagLabel(java.lang.String,java.awt.Color,java.awt.Color,Z):javax.swing.JComponent
+- bs:createTagLabel$default(com.intellij.collaboration.ui.CollaborationToolsUIUtil,com.intellij.collaboration.ui.SingleValueModel,java.awt.Color,java.awt.Color,Z,I,java.lang.Object):javax.swing.JComponent
+- bs:createTagLabel$default(com.intellij.collaboration.ui.CollaborationToolsUIUtil,java.lang.String,java.awt.Color,java.awt.Color,Z,I,java.lang.Object):javax.swing.JComponent
 - f:defaultButton(javax.swing.JButton):javax.swing.JButton
 - f:focusPanel(javax.swing.JComponent):V
 - f:getAnimatedLoadingIcon():javax.swing.Icon
@@ -350,6 +358,11 @@ f:com.intellij.collaboration.api.json.JsonHttpApiHelperKt
 - <init>(java.awt.LayoutManager,Z):V
 - <init>(Z):V
 - p:paintComponent(java.awt.Graphics):V
+*f:com.intellij.collaboration.ui.LabeledListComponentsFactory
+- sf:INSTANCE:com.intellij.collaboration.ui.LabeledListComponentsFactory
+- f:createGrid(java.util.List):javax.swing.JPanel
+- f:createLabelPanel(kotlinx.coroutines.flow.StateFlow,java.lang.String,java.lang.String):javax.swing.JPanel
+- f:createListPanel(kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function3,kotlin.jvm.functions.Function1):javax.swing.JPanel
 *f:com.intellij.collaboration.ui.ListenableProgressIndicator
 - com.intellij.openapi.progress.util.ProgressIndicatorBase
 - <init>():V
@@ -1234,12 +1247,9 @@ f:com.intellij.collaboration.ui.codereview.diff.viewer.DiffViewerUtilKt
 - f:showChooserPopup(com.intellij.ui.awt.RelativePoint,java.util.List,kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation):java.lang.Object
 - bs:showChooserPopup$default(com.intellij.collaboration.ui.codereview.list.search.ChooserPopupUtil,com.intellij.ui.awt.RelativePoint,java.util.List,kotlin.jvm.functions.Function1,com.intellij.collaboration.ui.codereview.list.search.PopupConfig,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
 - bs:showChooserPopup$default(com.intellij.collaboration.ui.codereview.list.search.ChooserPopupUtil,com.intellij.ui.awt.RelativePoint,java.util.List,kotlin.jvm.functions.Function1,javax.swing.ListCellRenderer,com.intellij.collaboration.ui.codereview.list.search.PopupConfig,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
-- f:showComputedResultChooserPopup(com.intellij.ui.awt.RelativePoint,kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function1,com.intellij.collaboration.ui.codereview.list.search.PopupConfig,kotlin.coroutines.Continuation):java.lang.Object
-- f:showComputedResultChooserPopup(com.intellij.ui.awt.RelativePoint,kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function1,javax.swing.ListCellRenderer,com.intellij.collaboration.ui.codereview.list.search.PopupConfig,kotlin.coroutines.Continuation):java.lang.Object
-- f:showComputedResultChooserPopup(com.intellij.ui.awt.RelativePoint,kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function1,javax.swing.ListCellRenderer,kotlin.coroutines.Continuation):java.lang.Object
-- f:showComputedResultChooserPopup(com.intellij.ui.awt.RelativePoint,kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation):java.lang.Object
-- bs:showComputedResultChooserPopup$default(com.intellij.collaboration.ui.codereview.list.search.ChooserPopupUtil,com.intellij.ui.awt.RelativePoint,kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function1,com.intellij.collaboration.ui.codereview.list.search.PopupConfig,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
-- bs:showComputedResultChooserPopup$default(com.intellij.collaboration.ui.codereview.list.search.ChooserPopupUtil,com.intellij.ui.awt.RelativePoint,kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function1,javax.swing.ListCellRenderer,com.intellij.collaboration.ui.codereview.list.search.PopupConfig,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
+- f:showChooserPopupWithIncrementalLoading(com.intellij.ui.awt.RelativePoint,kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function1,com.intellij.collaboration.ui.codereview.list.search.PopupConfig,kotlin.coroutines.Continuation):java.lang.Object
+- f:showChooserPopupWithIncrementalLoading(com.intellij.ui.awt.RelativePoint,kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation):java.lang.Object
+- bs:showChooserPopupWithIncrementalLoading$default(com.intellij.collaboration.ui.codereview.list.search.ChooserPopupUtil,com.intellij.ui.awt.RelativePoint,kotlinx.coroutines.flow.StateFlow,kotlin.jvm.functions.Function1,com.intellij.collaboration.ui.codereview.list.search.PopupConfig,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
 *f:com.intellij.collaboration.ui.codereview.list.search.DropDownComponentFactory
 - <init>(kotlinx.coroutines.flow.MutableStateFlow):V
 - f:create(kotlinx.coroutines.CoroutineScope,java.lang.String,java.util.List,kotlin.jvm.functions.Function0,kotlin.jvm.functions.Function1):javax.swing.JComponent
@@ -1630,10 +1640,7 @@ f:com.intellij.collaboration.ui.codereview.diff.viewer.DiffViewerUtilKt
 - sf:awaitClose(com.intellij.openapi.ui.popup.JBPopup,kotlin.coroutines.Continuation):java.lang.Object
 - sf:showAndAwait(com.intellij.openapi.ui.popup.JBPopup,com.intellij.ui.awt.RelativePoint,com.intellij.collaboration.ui.codereview.list.search.ShowDirection,kotlin.coroutines.Continuation):java.lang.Object
 - sf:showAndAwaitListSubmission(com.intellij.openapi.ui.popup.JBPopup,com.intellij.ui.awt.RelativePoint,com.intellij.collaboration.ui.codereview.list.search.ShowDirection,kotlin.coroutines.Continuation):java.lang.Object
-- sf:showAndAwaitSubmission(com.intellij.openapi.ui.popup.JBPopup,javax.swing.JList,com.intellij.ui.awt.RelativePoint,com.intellij.collaboration.ui.codereview.list.search.ShowDirection,kotlin.jvm.functions.Function0,kotlin.coroutines.Continuation):java.lang.Object
-- bs:showAndAwaitSubmission$default(com.intellij.openapi.ui.popup.JBPopup,javax.swing.JList,com.intellij.ui.awt.RelativePoint,com.intellij.collaboration.ui.codereview.list.search.ShowDirection,kotlin.jvm.functions.Function0,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
-- sf:showAndAwaitSubmissions(com.intellij.openapi.ui.popup.JBPopup,javax.swing.ListModel,com.intellij.ui.awt.RelativePoint,com.intellij.collaboration.ui.codereview.list.search.ShowDirection,kotlin.jvm.functions.Function0,kotlin.coroutines.Continuation):java.lang.Object
-- bs:showAndAwaitSubmissions$default(com.intellij.openapi.ui.popup.JBPopup,javax.swing.ListModel,com.intellij.ui.awt.RelativePoint,com.intellij.collaboration.ui.codereview.list.search.ShowDirection,kotlin.jvm.functions.Function0,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
+- sf:showAndAwaitSubmission(com.intellij.openapi.ui.popup.JBPopup,javax.swing.JList,com.intellij.ui.awt.RelativePoint,com.intellij.collaboration.ui.codereview.list.search.ShowDirection,kotlin.coroutines.Continuation):java.lang.Object
 *:com.intellij.collaboration.ui.util.popup.PopupItemPresentation
 - a:getFullText():java.lang.String
 - a:getIcon():javax.swing.Icon
@@ -1652,13 +1659,10 @@ f:com.intellij.collaboration.ui.codereview.diff.viewer.DiffViewerUtilKt
 - getIcon():javax.swing.Icon
 - getShortText():java.lang.String
 *:com.intellij.collaboration.ui.util.popup.SelectablePopupItemPresentation
-- *sf:Companion:com.intellij.collaboration.ui.util.popup.SelectablePopupItemPresentation$Companion
 - a:getFullText():java.lang.String
 - a:getIcon():javax.swing.Icon
 - a:getShortText():java.lang.String
 - a:isSelected():Z
-*f:com.intellij.collaboration.ui.util.popup.SelectablePopupItemPresentation$Companion
-- f:fromPresenter(kotlin.jvm.functions.Function1,com.intellij.collaboration.ui.codereview.details.SelectableWrapper):com.intellij.collaboration.ui.util.popup.SelectablePopupItemPresentation
 *f:com.intellij.collaboration.ui.util.popup.SelectablePopupItemPresentation$Simple
 - com.intellij.collaboration.ui.util.popup.SelectablePopupItemPresentation
 - <init>(java.lang.String,javax.swing.Icon,java.lang.String,Z):V
@@ -1731,6 +1735,10 @@ f:com.intellij.collaboration.util.CodeReviewFilesUtil
 *:com.intellij.collaboration.util.Hideable
 - a:getHiddenState():kotlinx.coroutines.flow.StateFlow
 - a:setHidden(Z):V
+*f:com.intellij.collaboration.util.IncrementallyComputedValueKt
+- sf:collectIncrementallyTo(kotlinx.coroutines.flow.Flow,kotlinx.coroutines.flow.FlowCollector,kotlin.coroutines.Continuation):java.lang.Object
+- sf:onNoValue(com.intellij.collaboration.util.IncrementallyComputedValue,kotlin.jvm.functions.Function0):com.intellij.collaboration.util.IncrementallyComputedValue
+- sf:onValueAvailable(com.intellij.collaboration.util.IncrementallyComputedValue,kotlin.jvm.functions.Function1):com.intellij.collaboration.util.IncrementallyComputedValue
 *f:com.intellij.collaboration.util.KeyValuePair
 - <init>(com.intellij.openapi.util.Key,java.lang.Object):V
 - f:component1():com.intellij.openapi.util.Key

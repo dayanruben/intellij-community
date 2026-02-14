@@ -170,53 +170,53 @@ internal class LoadedGitLabMergeRequest(
     .mapScoped { details -> GitLabMergeRequestChangesImpl(this, api, glMetadata, projectMapping, details) }
     .modelFlow(cs, LOG)
 
-  private val stateEventsHolder =
+  override val stateEvents by lazy {
     startGitLabRestETagListLoaderIn(
       cs,
       getMergeRequestStateEventsUri(glProject, iid),
       { it.id },
 
       requestReloadFlow = mergeRequestReloadRequest.withInitial(Unit),
-      requestRefreshFlow = mergeRequestRefreshRequest.combine(stateEventsRefreshRequest.withInitial(Unit)) { _, _ -> }
+      requestRefreshFlow = mergeRequestRefreshRequest.combine(stateEventsRefreshRequest.withInitial(Unit)) { _, _ -> },
+      shouldTryToLoadAll = true
     ) { uri, eTag ->
-        api.rest.loadUpdatableJsonList<GitLabResourceStateEventDTO>(
-          GitLabApiRequestName.REST_GET_MERGE_REQUEST_STATE_EVENTS, uri, eTag
-        )
-    }
-  override val stateEvents =
-    stateEventsHolder.resultOrErrorFlow.modelFlow(cs, LOG)
+      api.rest.loadUpdatableJsonList<GitLabResourceStateEventDTO>(
+        GitLabApiRequestName.REST_GET_MERGE_REQUEST_STATE_EVENTS, uri, eTag
+      )
+    }.resultOrErrorFlow.modelFlow(cs, LOG)
+  }
 
-  private val labelEventsHolder =
+  override val labelEvents by lazy {
     startGitLabRestETagListLoaderIn(
       cs,
       getMergeRequestLabelEventsUri(glProject, iid),
       { it.id },
 
       requestReloadFlow = mergeRequestReloadRequest.withInitial(Unit),
-      requestRefreshFlow = mergeRequestRefreshRequest
+      requestRefreshFlow = mergeRequestRefreshRequest,
+      shouldTryToLoadAll = true
     ) { uri, eTag ->
-        api.rest.loadUpdatableJsonList<GitLabResourceLabelEventDTO>(
-          GitLabApiRequestName.REST_GET_MERGE_REQUEST_LABEL_EVENTS, uri, eTag
-        )
-    }
-  override val labelEvents =
-    labelEventsHolder.resultOrErrorFlow.modelFlow(cs, LOG)
+      api.rest.loadUpdatableJsonList<GitLabResourceLabelEventDTO>(
+        GitLabApiRequestName.REST_GET_MERGE_REQUEST_LABEL_EVENTS, uri, eTag
+      )
+    }.resultOrErrorFlow.modelFlow(cs, LOG)
+  }
 
-  private val milestoneEventsHolder =
+  override val milestoneEvents by lazy {
     startGitLabRestETagListLoaderIn(
       cs,
       getMergeRequestMilestoneEventsUri(glProject, iid),
       { it.id },
 
       requestReloadFlow = mergeRequestReloadRequest.withInitial(Unit),
-      requestRefreshFlow = mergeRequestRefreshRequest
+      requestRefreshFlow = mergeRequestRefreshRequest,
+      shouldTryToLoadAll = true
     ) { uri, eTag ->
-        api.rest.loadUpdatableJsonList<GitLabResourceMilestoneEventDTO>(
-          GitLabApiRequestName.REST_GET_MERGE_REQUEST_MILESTONE_EVENTS, uri, eTag
-        )
-    }
-  override val milestoneEvents =
-    milestoneEventsHolder.resultOrErrorFlow.modelFlow(cs, LOG)
+      api.rest.loadUpdatableJsonList<GitLabResourceMilestoneEventDTO>(
+        GitLabApiRequestName.REST_GET_MERGE_REQUEST_MILESTONE_EVENTS, uri, eTag
+      )
+    }.resultOrErrorFlow.modelFlow(cs, LOG)
+  }
 
   private val _isLoading: MutableStateFlow<Boolean> = MutableStateFlow(false)
   override val isLoading: SharedFlow<Boolean> = _isLoading.asSharedFlow()
@@ -288,7 +288,6 @@ internal class LoadedGitLabMergeRequest(
   override fun refreshData() {
     cs.launch {
       updateData()
-      startRefreshCycle()
     }
   }
 
@@ -300,20 +299,14 @@ internal class LoadedGitLabMergeRequest(
 
   private suspend fun updateData() {
     mergeRequestRefreshRequest.emit(Unit)
-    discussionsContainer.checkUpdates()
-  }
-
-  private suspend fun startRefreshCycle() {
-    stateEventsHolder.loadAll()
-    labelEventsHolder.loadAll()
-    milestoneEventsHolder.loadAll()
+    discussionsContainer.requestDiscussionsRefresh()
   }
 
   override suspend fun merge(commitMessage: String) {
     withContext(cs.coroutineContext + Dispatchers.IO) {
       runMerge(commitMessage, withSquash = false)
     }
-    discussionsContainer.checkUpdates()
+    discussionsContainer.requestDiscussionsRefresh()
     GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.MERGE)
   }
 
@@ -321,7 +314,7 @@ internal class LoadedGitLabMergeRequest(
     withContext(cs.coroutineContext + Dispatchers.IO) {
       runMerge(commitMessage, withSquash = true)
     }
-    discussionsContainer.checkUpdates()
+    discussionsContainer.requestDiscussionsRefresh()
     GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.SQUASH_MERGE)
   }
 
@@ -329,7 +322,7 @@ internal class LoadedGitLabMergeRequest(
     withContext(cs.coroutineContext + Dispatchers.IO) {
       runRebase()
     }
-    discussionsContainer.checkUpdates()
+    discussionsContainer.requestDiscussionsRefresh()
     GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.REBASE)
   }
 
@@ -383,7 +376,7 @@ internal class LoadedGitLabMergeRequest(
         .getResultOrThrow()
       updateMergeRequestData(updatedMergeRequest)
     }
-    discussionsContainer.checkUpdates()
+    discussionsContainer.requestDiscussionsRefresh()
     GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.POST_REVIEW)
   }
 
@@ -399,7 +392,7 @@ internal class LoadedGitLabMergeRequest(
 
       updateMergeRequestData(updatedMergeRequest)
     }
-    discussionsContainer.checkUpdates()
+    discussionsContainer.requestDiscussionsRefresh()
     GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.SET_REVIEWERS)
   }
 
@@ -411,7 +404,7 @@ internal class LoadedGitLabMergeRequest(
         updateMergeRequestData(updatedMergeRequest)
       }
     }
-    discussionsContainer.checkUpdates()
+    discussionsContainer.requestDiscussionsRefresh()
     GitLabStatistics.logMrActionExecuted(project, GitLabStatistics.MergeRequestAction.REVIEWER_REREVIEW)
   }
 

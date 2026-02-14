@@ -1,4 +1,4 @@
-<idea-plugin visibility="internal">
+<idea-plugin visibility="public">
   <dependencies>
     <module name="intellij.platform.frontend"/>
     <module name="intellij.platform.inline.completion"/>
@@ -184,5 +184,7 @@
   <projectListeners>
     <listener class="com.intellij.terminal.frontend.view.completion.TerminalLookupManagerListener"
               topic="com.intellij.codeInsight.lookup.LookupManagerListener"/>
+    <listener class="com.intellij.terminal.frontend.toolwindow.impl.ExperimentalTerminalMigrationNotifier"
+              topic="com.intellij.terminal.frontend.toolwindow.TerminalTabsManagerListener"/>
   </projectListeners>
 </idea-plugin>

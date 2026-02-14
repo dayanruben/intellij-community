@@ -449,6 +449,9 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
         if (REPORT_REDUNDANT_NULLABILITY_ANNOTATION_IN_THE_SCOPE_OF_ANNOTATED_CONTAINER) {
           NullabilityAnnotationInfo containerInfo = wrapper.findContainerInfoForRedundantAnnotation();
           if (containerInfo != null) {
+            if (containerInfo.getNullability() == Nullability.NOT_NULL && manager.isNonNullUsedForInstrumentation(wrapper.annotation())) {
+              return;
+            }
             reportRedundantInContainerScope(wrapper.annotation(), containerInfo);
           }
         }
@@ -1145,7 +1148,7 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
                     "inspection.nullable.problems.parameter.overrides.NotNull", getPresentableAnnoName(notNullSuper));
     }
     if (isNotNullParameterOverridingNonAnnotated(nullableManager, parameter, superParameters)) {
-      NullabilityAnnotationInfo info = nullableManager.findOwnNullabilityInfo(parameter);
+      NullabilityAnnotationInfo info = nullableManager.findEffectiveNullabilityInfo(parameter);
       assert info != null;
       PsiAnnotation notNullAnnotation = info.getAnnotation();
       boolean physical = PsiTreeUtil.isAncestor(parameter, notNullAnnotation, true);
@@ -1193,8 +1196,8 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
                                                            PsiParameter parameter,
                                                            List<? extends PsiParameter> superParameters) {
     if (!REPORT_NOTNULL_PARAMETERS_OVERRIDES_NOT_ANNOTATED) return false;
-    NullabilityAnnotationInfo info = nullableManager.findOwnNullabilityInfo(parameter);
-    return info != null && info.getNullability() == Nullability.NOT_NULL && !info.isInferred() &&
+    NullabilityAnnotationInfo info = nullableManager.findEffectiveNullabilityInfo(parameter);
+    return info != null && info.getNullability() == Nullability.NOT_NULL && info.getInheritedFrom() == null && !info.isInferred() &&
            ContainerUtil.exists(superParameters, sp -> isSuperNotAnnotated(nullableManager, parameter, sp));
   }
 

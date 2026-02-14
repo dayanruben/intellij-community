@@ -20,9 +20,8 @@ import org.jetbrains.plugins.gitlab.api.GitLabProjectCoordinates
 import org.jetbrains.plugins.gitlab.api.GitLabServerMetadata
 import org.jetbrains.plugins.gitlab.api.GitLabVersion
 import org.jetbrains.plugins.gitlab.api.SinceGitLab
-import org.jetbrains.plugins.gitlab.api.dto.GitLabGraphQLMutationResultDTO
 import org.jetbrains.plugins.gitlab.api.dto.GitLabGroupDTO
-import org.jetbrains.plugins.gitlab.api.dto.GitLabLabelDTO
+import org.jetbrains.plugins.gitlab.api.dto.GitLabLabelGQLDTO
 import org.jetbrains.plugins.gitlab.api.dto.GitLabNamespaceDTO
 import org.jetbrains.plugins.gitlab.api.dto.GitLabNamespaceRestDTO
 import org.jetbrains.plugins.gitlab.api.dto.GitLabProjectDTO
@@ -37,7 +36,6 @@ import org.jetbrains.plugins.gitlab.api.gitLabQuery
 import org.jetbrains.plugins.gitlab.api.restApiUri
 import org.jetbrains.plugins.gitlab.api.withErrorStats
 import org.jetbrains.plugins.gitlab.api.withQuery
-import org.jetbrains.plugins.gitlab.mergerequest.api.dto.GitLabMergeRequestDTO
 import org.jetbrains.plugins.gitlab.util.GitLabApiRequestName
 import java.net.URI
 import java.net.http.HttpRequest.BodyPublishers
@@ -102,7 +100,7 @@ suspend fun GitLabApi.isProjectForked(project: GitLabProjectCoordinates): Boolea
 
 
 @SinceGitLab("13.1", note = "No exact version")
-fun GitLabApi.GraphQL.createAllProjectLabelsFlow(project: GitLabProjectCoordinates): Flow<List<GitLabLabelDTO>> =
+fun GitLabApi.GraphQL.createAllProjectLabelsFlow(project: GitLabProjectCoordinates): Flow<List<GitLabLabelGQLDTO>> =
   ApiPageUtil.createGQLPagesFlow { page ->
     val parameters = page.asParameters() + mapOf(
       "fullPath" to project.projectPath.fullPath()
@@ -188,36 +186,8 @@ private data class GitLabUserNamespacesResult(
   data class CurrentUser(val namespace: GitLabNamespaceDTO)
 }
 
-@SinceGitLab("13.1")
-suspend fun GitLabApi.GraphQL.createMergeRequest(
-  project: GitLabProjectCoordinates,
-  sourceBranch: String,
-  targetBranch: String,
-  title: String,
-  description: String?,
-): HttpResponse<out GitLabGraphQLMutationResultDTO<GitLabMergeRequestDTO>?> {
-  val parameters = mapOf(
-    "projectId" to project.projectPath.fullPath(),
-    "sourceBranch" to sourceBranch,
-    "targetBranch" to targetBranch,
-    "title" to title,
-    "description" to description
-  )
-
-  val request = gitLabQuery(GitLabGQLQuery.MERGE_REQUEST_CREATE, parameters)
-  return withErrorStats(GitLabGQLQuery.MERGE_REQUEST_CREATE) {
-    loadResponse<GitLabCreateMergeRequestResult>(request, "mergeRequestCreate")
-  }
-}
-
-private class LabelConnection(pageInfo: GraphQLCursorPageInfoDTO, nodes: List<GitLabLabelDTO>)
-  : GraphQLConnectionDTO<GitLabLabelDTO>(pageInfo, nodes)
+private class LabelConnection(pageInfo: GraphQLCursorPageInfoDTO, nodes: List<GitLabLabelGQLDTO>)
+  : GraphQLConnectionDTO<GitLabLabelGQLDTO>(pageInfo, nodes)
 
 private class WorkItemConnection(pageInfo: GraphQLCursorPageInfoDTO, nodes: List<GitLabWorkItemDTO>)
   : GraphQLConnectionDTO<GitLabWorkItemDTO>(pageInfo, nodes)
-
-private class GitLabCreateMergeRequestResult(
-  mergeRequest: GitLabMergeRequestDTO,
-  errors: List<String>?,
-  override val value: GitLabMergeRequestDTO = mergeRequest,
-) : GitLabGraphQLMutationResultDTO<GitLabMergeRequestDTO>(errors)

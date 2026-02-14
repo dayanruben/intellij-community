@@ -876,7 +876,9 @@ plugins/IntelliLang/backend
 plugins/IntelliLang/tests
 plugins/agent-workbench/chat
 plugins/agent-workbench/claude/common
+plugins/agent-workbench/claude/sessions
 plugins/agent-workbench/codex/common
+plugins/agent-workbench/codex/sessions
 plugins/agent-workbench/plugin
 plugins/agent-workbench/sessions
 plugins/ant
@@ -1002,6 +1004,7 @@ plugins/gradle/java/groovy
 plugins/gradle/java/groovy/ml
 plugins/gradle/java/groovy/toml
 plugins/gradle/java/performance
+plugins/gradle/java/properties
 plugins/gradle/java/toml
 plugins/gradle/jps-plugin
 plugins/gradle/kotlin/tests
