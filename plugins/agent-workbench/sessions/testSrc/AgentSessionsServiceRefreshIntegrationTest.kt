@@ -2,6 +2,7 @@
 package com.intellij.agent.workbench.sessions
 
 import com.intellij.testFramework.junit5.TestApplication
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -11,23 +12,25 @@ class AgentSessionsServiceRefreshIntegrationTest {
   @Test
   fun refreshMergesMixedProviderThreadsAndMarksUnknownCount() = runBlocking {
     withService(
-      sessionSources = listOf(
-        ScriptedSessionSource(
-          provider = AgentSessionProvider.CODEX,
-          canReportExactThreadCount = false,
-          listFromOpenProject = { path, _ ->
-            if (path == PROJECT_PATH) listOf(thread(id = "codex-1", updatedAt = 100, provider = AgentSessionProvider.CODEX))
-            else emptyList()
-          },
-        ),
-        ScriptedSessionSource(
-          provider = AgentSessionProvider.CLAUDE,
-          listFromOpenProject = { path, _ ->
-            if (path == PROJECT_PATH) listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
-            else emptyList()
-          },
-        ),
-      ),
+      sessionSourcesProvider = {
+        listOf(
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CODEX,
+            canReportExactThreadCount = false,
+            listFromOpenProject = { path, _ ->
+              if (path == PROJECT_PATH) listOf(thread(id = "codex-1", updatedAt = 100, provider = AgentSessionProvider.CODEX))
+              else emptyList()
+            },
+          ),
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CLAUDE,
+            listFromOpenProject = { path, _ ->
+              if (path == PROJECT_PATH) listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
+              else emptyList()
+            },
+          ),
+        )
+      },
       projectEntriesProvider = {
         listOf(openProjectEntry(PROJECT_PATH, "Project A"))
       },
@@ -48,20 +51,22 @@ class AgentSessionsServiceRefreshIntegrationTest {
   @Test
   fun refreshShowsProviderWarningWhenOneProviderFails() = runBlocking {
     withService(
-      sessionSources = listOf(
-        ScriptedSessionSource(
-          provider = AgentSessionProvider.CODEX,
-          canReportExactThreadCount = false,
-          listFromOpenProject = { _, _ -> throw IllegalStateException("codex failed") },
-        ),
-        ScriptedSessionSource(
-          provider = AgentSessionProvider.CLAUDE,
-          listFromOpenProject = { path, _ ->
-            if (path == PROJECT_PATH) listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
-            else emptyList()
-          },
-        ),
-      ),
+      sessionSourcesProvider = {
+        listOf(
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CODEX,
+            canReportExactThreadCount = false,
+            listFromOpenProject = { _, _ -> throw IllegalStateException("codex failed") },
+          ),
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CLAUDE,
+            listFromOpenProject = { path, _ ->
+              if (path == PROJECT_PATH) listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
+              else emptyList()
+            },
+          ),
+        )
+      },
       projectEntriesProvider = {
         listOf(openProjectEntry(PROJECT_PATH, "Project A"))
       },
@@ -83,17 +88,19 @@ class AgentSessionsServiceRefreshIntegrationTest {
   @Test
   fun refreshShowsBlockingErrorWhenAllProvidersFail() = runBlocking {
     withService(
-      sessionSources = listOf(
-        ScriptedSessionSource(
-          provider = AgentSessionProvider.CODEX,
-          canReportExactThreadCount = false,
-          listFromOpenProject = { _, _ -> throw IllegalStateException("codex failed") },
-        ),
-        ScriptedSessionSource(
-          provider = AgentSessionProvider.CLAUDE,
-          listFromOpenProject = { _, _ -> throw IllegalStateException("claude failed") },
-        ),
-      ),
+      sessionSourcesProvider = {
+        listOf(
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CODEX,
+            canReportExactThreadCount = false,
+            listFromOpenProject = { _, _ -> throw IllegalStateException("codex failed") },
+          ),
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CLAUDE,
+            listFromOpenProject = { _, _ -> throw IllegalStateException("claude failed") },
+          ),
+        )
+      },
       projectEntriesProvider = {
         listOf(openProjectEntry(PROJECT_PATH, "Project A"))
       },
@@ -113,21 +120,23 @@ class AgentSessionsServiceRefreshIntegrationTest {
   @Test
   fun refreshDoesNotMarkUnknownCountWhenOnlyUnknownProviderFails() = runBlocking {
     withService(
-      sessionSources = listOf(
-        ScriptedSessionSource(
-          provider = AgentSessionProvider.CODEX,
-          canReportExactThreadCount = false,
-          listFromOpenProject = { _, _ -> throw IllegalStateException("codex failed") },
-        ),
-        ScriptedSessionSource(
-          provider = AgentSessionProvider.CLAUDE,
-          canReportExactThreadCount = true,
-          listFromOpenProject = { path, _ ->
-            if (path == PROJECT_PATH) listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
-            else emptyList()
-          },
-        ),
-      ),
+      sessionSourcesProvider = {
+        listOf(
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CODEX,
+            canReportExactThreadCount = false,
+            listFromOpenProject = { _, _ -> throw IllegalStateException("codex failed") },
+          ),
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CLAUDE,
+            canReportExactThreadCount = true,
+            listFromOpenProject = { path, _ ->
+              if (path == PROJECT_PATH) listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
+              else emptyList()
+            },
+          ),
+        )
+      },
       projectEntriesProvider = {
         listOf(openProjectEntry(PROJECT_PATH, "Project A"))
       },
@@ -141,6 +150,116 @@ class AgentSessionsServiceRefreshIntegrationTest {
       assertThat(project.errorMessage).isNull()
       assertThat(project.hasUnknownThreadCount).isFalse()
       assertThat(project.threads.map { it.id }).containsExactly("claude-1")
+    }
+  }
+
+  @Test
+  fun refreshUsesLatestSessionSourcesFromProvider() = runBlocking {
+    var sessionSources = listOf(
+      ScriptedSessionSource(
+        provider = AgentSessionProvider.CODEX,
+        listFromOpenProject = { path, _ ->
+          if (path == PROJECT_PATH) listOf(thread(id = "codex-1", updatedAt = 100, provider = AgentSessionProvider.CODEX))
+          else emptyList()
+        },
+      ),
+    )
+
+    withService(
+      sessionSourcesProvider = { sessionSources },
+      projectEntriesProvider = {
+        listOf(openProjectEntry(PROJECT_PATH, "Project A"))
+      },
+    ) { service ->
+      service.refresh()
+      waitForCondition {
+        service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }?.threads?.map { it.id } == listOf("codex-1")
+      }
+
+      sessionSources = listOf(
+        ScriptedSessionSource(
+          provider = AgentSessionProvider.CLAUDE,
+          listFromOpenProject = { path, _ ->
+            if (path == PROJECT_PATH) listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
+            else emptyList()
+          },
+        )
+      )
+
+      service.refresh()
+      waitForCondition {
+        service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }?.threads?.map { it.id } == listOf("claude-1")
+      }
+
+      val project = service.state.value.projects.single { it.path == PROJECT_PATH }
+      assertThat(project.threads.map { it.id }).containsExactly("claude-1")
+    }
+  }
+
+  @Test
+  fun providerUpdateRefreshesOnlyMatchingProviderThreads() = runBlocking {
+    val codexUpdates = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    var codexUpdatedAt = 100L
+
+    withService(
+      sessionSourcesProvider = {
+        listOf(
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CODEX,
+            canReportExactThreadCount = false,
+            updates = codexUpdates,
+            listFromOpenProject = { path, _ ->
+              if (path == PROJECT_PATH) {
+                listOf(thread(id = "codex-1", updatedAt = codexUpdatedAt, provider = AgentSessionProvider.CODEX))
+              }
+              else {
+                emptyList()
+              }
+            },
+            listFromClosedProject = { path ->
+              if (path == PROJECT_PATH) {
+                listOf(thread(id = "codex-1", updatedAt = codexUpdatedAt, provider = AgentSessionProvider.CODEX))
+              }
+              else {
+                emptyList()
+              }
+            },
+          ),
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.CLAUDE,
+            listFromOpenProject = { path, _ ->
+              if (path == PROJECT_PATH) listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
+              else emptyList()
+            },
+            listFromClosedProject = { path ->
+              if (path == PROJECT_PATH) listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
+              else emptyList()
+            },
+          ),
+        )
+      },
+      projectEntriesProvider = {
+        listOf(openProjectEntry(PROJECT_PATH, "Project A"))
+      },
+    ) { service ->
+      service.refresh()
+      waitForCondition {
+        service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }?.hasLoaded == true
+      }
+
+      codexUpdatedAt = 300L
+      codexUpdates.emit(Unit)
+
+      waitForCondition {
+        val project = service.state.value.projects.firstOrNull { it.path == PROJECT_PATH } ?: return@waitForCondition false
+        val codexThread = project.threads.firstOrNull { it.provider == AgentSessionProvider.CODEX } ?: return@waitForCondition false
+        codexThread.updatedAt == 300L
+      }
+
+      val project = service.state.value.projects.single { it.path == PROJECT_PATH }
+      assertThat(project.threads.map { it.id }).containsExactly("codex-1", "claude-1")
+      assertThat(project.threads.first { it.provider == AgentSessionProvider.CLAUDE }.updatedAt).isEqualTo(200L)
+      assertThat(project.threads.first { it.provider == AgentSessionProvider.CODEX }.updatedAt).isEqualTo(300L)
     }
   }
 }

@@ -16,7 +16,24 @@ single_version_override(
   module_name = "rules_jvm_external",
   version = '6.10',
   patches = [
-    "rules-jvm-external-6.10-make-coursier-repo-targets-shell-free-and-hermetic.patch"
+    "rules-jvm-external-6.10-make-coursier-repo-targets-shell-free-and-hermetic.patch",
+    "rules-jvm-external-6.10-default-to-maven-resolver.patch",
+  ],
+)
+
+single_version_override(
+  module_name = "rules_android",
+  version = "0.7.1",
+  patches = [
+    "rules-android-0.7.1-pin-maven-installs.patch",
+  ],
+)
+
+single_version_override(
+  module_name = "bazel_worker_java",
+  version = "0.0.10",
+  patches = [
+    "worker-java-0.0.9-pin-bazel-worker-maven.patch",
   ],
 )
 
@@ -53,18 +70,6 @@ maven.install(
     ],
 )
 use_repo(maven, "j2b_maven")
-
-bazel_dep(name = "hermetic_cc_toolchain", version = "4.0.1")
-
-toolchains = use_extension("@hermetic_cc_toolchain//toolchain:ext.bzl", "toolchains", dev_dependency = True)  # `dev_dependency = True` because of https://github.com/bazel-contrib/toolchains_llvm/issues/569
-
-use_repo(toolchains, "zig_sdk")
-
-register_toolchains(
-    "@zig_sdk//toolchain/...",
-    "@zig_sdk//libc_aware/toolchain/...",
-    dev_dependency = True,
-)  # `dev_dependency = True` to avoid registering toolchains in modules using that module
 
 bazel_dep(name = "rules_python", version = "1.7.0")
 

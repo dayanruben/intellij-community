@@ -6,11 +6,9 @@ package com.intellij.agent.workbench.sessions
 // @spec community/plugins/agent-workbench/spec/actions/new-thread.spec.md
 
 import com.intellij.agent.workbench.chat.AgentChatEditorService
-import com.intellij.agent.workbench.codex.common.CodexCliNotFoundException
-import com.intellij.agent.workbench.codex.sessions.SharedCodexAppServerService
+import com.intellij.agent.workbench.chat.AgentChatTabSelectionService
+import com.intellij.agent.workbench.sessions.providers.AgentSessionProviderBridges
 import com.intellij.agent.workbench.sessions.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.providers.codex.CodexCliCommands
-import com.intellij.agent.workbench.sessions.providers.createDefaultAgentSessionSources
 import com.intellij.ide.RecentProjectsManager
 import com.intellij.ide.RecentProjectsManagerBase
 import com.intellij.ide.impl.OpenProjectTask
@@ -29,12 +27,17 @@ import com.intellij.openapi.ui.DoNotAskOption
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.io.FileUtilRt
+import com.intellij.openapi.wm.ToolWindowManager
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +50,7 @@ import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.name
+import kotlin.time.Duration.Companion.milliseconds
 
 private val LOG = logger<AgentSessionsService>()
 
@@ -55,30 +59,31 @@ private const val OPEN_PROJECT_ACTION_KEY_PREFIX = "project-open"
 private const val CREATE_SESSION_ACTION_KEY_PREFIX = "session-create"
 private const val OPEN_THREAD_ACTION_KEY_PREFIX = "thread-open"
 private const val OPEN_SUB_AGENT_ACTION_KEY_PREFIX = "subagent-open"
+private const val SOURCE_UPDATE_DEBOUNCE_MS = 350L
 
 @Service(Service.Level.APP)
 internal class AgentSessionsService private constructor(
   private val serviceScope: CoroutineScope,
-  private val sessionSources: List<AgentSessionSource>,
+  private val sessionSourcesProvider: () -> List<AgentSessionSource>,
   private val projectEntriesProvider: suspend (AgentSessionsService) -> List<ProjectEntry>,
   subscribeToProjectLifecycle: Boolean,
 ) {
   @Suppress("unused")
   constructor(serviceScope: CoroutineScope) : this(
     serviceScope = serviceScope,
-    sessionSources = createDefaultAgentSessionSources(),
+    sessionSourcesProvider = AgentSessionProviderBridges::sessionSources,
     projectEntriesProvider = { service -> service.collectProjects() },
     subscribeToProjectLifecycle = true,
   )
 
   internal constructor(
     serviceScope: CoroutineScope,
-    sessionSources: List<AgentSessionSource>,
+    sessionSourcesProvider: () -> List<AgentSessionSource>,
     projectEntriesProvider: suspend () -> List<ProjectEntry>,
     subscribeToProjectLifecycle: Boolean = false,
   ) : this(
     serviceScope = serviceScope,
-    sessionSources = sessionSources,
+    sessionSourcesProvider = sessionSourcesProvider,
     projectEntriesProvider = { _ -> projectEntriesProvider() },
     subscribeToProjectLifecycle = subscribeToProjectLifecycle,
   )
@@ -88,11 +93,15 @@ internal class AgentSessionsService private constructor(
   private val actionGate = SingleFlightActionGate()
   private val onDemandLoading = LinkedHashSet<String>()
   private val onDemandWorktreeLoading = LinkedHashSet<String>()
+  private val sourceRefreshJobs = Object2ObjectOpenHashMap<AgentSessionProvider, Job>()
+  private val sourceRefreshJobsLock = Any()
 
   private val mutableState = MutableStateFlow(AgentSessionsState())
   val state: StateFlow<AgentSessionsState> = mutableState.asStateFlow()
 
   init {
+    observeSessionSourceUpdates()
+
     if (subscribeToProjectLifecycle) {
       ApplicationManager.getApplication().messageBus.connect(serviceScope)
         .subscribe(ProjectManager.TOPIC, object : ProjectManagerListener {
@@ -107,6 +116,161 @@ internal class AgentSessionsService private constructor(
           }
         })
     }
+  }
+
+  private fun observeSessionSourceUpdates() {
+    serviceScope.launch {
+      for (source in sessionSourcesProvider()) {
+        launch {
+          source.updates.collect {
+            scheduleSourceRefresh(source.provider)
+          }
+        }
+      }
+    }
+  }
+
+  private fun scheduleSourceRefresh(provider: AgentSessionProvider) {
+    synchronized(sourceRefreshJobsLock) {
+      sourceRefreshJobs.remove(provider)?.cancel()
+      val job = serviceScope.launch(Dispatchers.IO) {
+        delay(SOURCE_UPDATE_DEBOUNCE_MS.milliseconds)
+        if (!isSourceRefreshGateActive()) return@launch
+        refreshLoadedProviderThreads(provider)
+      }
+      sourceRefreshJobs[provider] = job
+      job.invokeOnCompletion {
+        synchronized(sourceRefreshJobsLock) {
+          if (sourceRefreshJobs[provider] === job) {
+            sourceRefreshJobs.remove(provider)
+          }
+        }
+      }
+    }
+  }
+
+  private suspend fun refreshLoadedProviderThreads(provider: AgentSessionProvider) {
+    if (!refreshMutex.tryLock()) return
+    try {
+      val source = sessionSourcesProvider().firstOrNull { it.provider == provider } ?: return
+      val stateSnapshot = mutableState.value
+      val targetPaths = collectLoadedPaths(stateSnapshot)
+      if (targetPaths.isEmpty()) return
+
+      val prefetched = try {
+        source.prefetchThreads(targetPaths)
+      }
+      catch (_: Throwable) {
+        emptyMap()
+      }
+
+      val outcomes = Object2ObjectOpenHashMap<String, ProviderRefreshOutcome>(targetPaths.size)
+      for (path in targetPaths) {
+        val prefetchedThreads = prefetched[path]
+        if (prefetchedThreads != null) {
+          outcomes[path] = ProviderRefreshOutcome(threads = prefetchedThreads)
+          continue
+        }
+
+        try {
+          outcomes[path] = ProviderRefreshOutcome(threads = source.listThreadsFromClosedProject(path))
+        }
+        catch (e: Throwable) {
+          if (e is CancellationException) throw e
+          LOG.warn("Failed to refresh ${provider.value} sessions for $path", e)
+          outcomes[path] = ProviderRefreshOutcome(
+            warningMessage = resolveProviderWarningMessage(provider, e),
+          )
+        }
+      }
+
+      mutableState.update { state ->
+        var changed = false
+        val nextProjects = state.projects.map { project ->
+          val updatedProject = if (project.hasLoaded) {
+            val outcome = outcomes[project.path]
+            if (outcome != null) {
+              changed = true
+              project.withProviderRefreshOutcome(provider, outcome)
+            }
+            else {
+              project
+            }
+          }
+          else {
+            project
+          }
+
+          val nextWorktrees = updatedProject.worktrees.map { worktree ->
+            if (!worktree.hasLoaded) return@map worktree
+            val outcome = outcomes[worktree.path] ?: return@map worktree
+            changed = true
+            worktree.withProviderRefreshOutcome(provider, outcome)
+          }
+
+          if (nextWorktrees == updatedProject.worktrees) {
+            updatedProject
+          }
+          else {
+            updatedProject.copy(worktrees = nextWorktrees)
+          }
+        }
+
+        if (!changed) {
+          state
+        }
+        else {
+          state.copy(
+            projects = nextProjects,
+            lastUpdatedAt = System.currentTimeMillis(),
+          )
+        }
+      }
+    }
+    finally {
+      refreshMutex.unlock()
+    }
+  }
+
+  private fun collectLoadedPaths(state: AgentSessionsState): List<String> {
+    val paths = ObjectOpenHashSet<String>()
+    for (project in state.projects) {
+      if (project.hasLoaded) {
+        paths.add(project.path)
+      }
+      for (worktree in project.worktrees) {
+        if (worktree.hasLoaded) {
+          paths.add(worktree.path)
+        }
+      }
+    }
+    return ArrayList(paths)
+  }
+
+  private suspend fun isSourceRefreshGateActive(): Boolean = withContext(Dispatchers.EDT) {
+    val openProjects = ProjectManager.getInstance().openProjects
+    if (openProjects.isEmpty()) {
+      val stateSnapshot = mutableState.value
+      return@withContext stateSnapshot.projects.any { project ->
+        project.isOpen || project.worktrees.any { it.isOpen }
+      }
+    }
+
+    openProjects.any { project ->
+      isSessionsToolWindowVisible(project) || isAgentChatActive(project)
+    }
+  }
+
+  private fun isSessionsToolWindowVisible(project: Project): Boolean {
+    return ToolWindowManager.getInstance(project)
+      .getToolWindow(AGENT_SESSIONS_TOOL_WINDOW_ID)
+      ?.isVisible == true
+  }
+
+  private fun isAgentChatActive(project: Project): Boolean {
+    return runCatching {
+      project.service<AgentChatTabSelectionService>().selectedChatTab.value != null
+    }.getOrDefault(false)
   }
 
   fun refresh() {
@@ -151,6 +315,7 @@ internal class AgentSessionsService private constructor(
         mutableState.update { it.copy(projects = initialProjects, lastUpdatedAt = System.currentTimeMillis()) }
 
         // Collect all open paths for prefetching (batch Codex calls)
+        val sessionSources = sessionSourcesProvider()
         val openPaths = entries.flatMap { entry ->
           buildList {
             if (entry.project != null) add(entry.path)
@@ -197,7 +362,7 @@ internal class AgentSessionsService private constructor(
                     }
                     catch (e: Throwable) {
                       if (e is CancellationException) throw e
-                      LOG.warn("Failed to load ${source.provider.name} sessions for ${entry.path}", e)
+                      LOG.warn("Failed to load ${source.provider.value} sessions for ${entry.path}", e)
                       AgentSessionSourceLoadResult(
                         provider = source.provider,
                         result = Result.failure(e),
@@ -258,7 +423,7 @@ internal class AgentSessionsService private constructor(
                       }
                       catch (e: Throwable) {
                         if (e is CancellationException) throw e
-                        LOG.warn("Failed to load ${source.provider.name} sessions for ${wt.path}", e)
+                        LOG.warn("Failed to load ${source.provider.value} sessions for ${wt.path}", e)
                         AgentSessionSourceLoadResult(
                           provider = source.provider,
                           result = Result.failure(e),
@@ -376,6 +541,7 @@ internal class AgentSessionsService private constructor(
   fun openChatThread(path: String, thread: AgentSessionThread, currentProject: Project? = null) {
     val normalized = normalizePath(path)
     val key = buildOpenThreadActionKey(path = normalized, thread = thread)
+    markClaudeQuotaHintEligible(thread.provider)
     actionGate.launch(
       scope = serviceScope,
       key = key,
@@ -400,6 +566,7 @@ internal class AgentSessionsService private constructor(
   fun openChatSubAgent(path: String, thread: AgentSessionThread, subAgent: AgentSubAgent, currentProject: Project? = null) {
     val normalized = normalizePath(path)
     val key = buildOpenSubAgentActionKey(path = normalized, thread = thread, subAgent = subAgent)
+    markClaudeQuotaHintEligible(thread.provider)
     actionGate.launch(
       scope = serviceScope,
       key = key,
@@ -416,38 +583,41 @@ internal class AgentSessionsService private constructor(
   fun createNewSession(
     path: String,
     provider: AgentSessionProvider,
-    yolo: Boolean = false,
+    mode: AgentSessionLaunchMode = AgentSessionLaunchMode.STANDARD,
     currentProject: Project? = null,
   ) {
     val normalized = normalizePath(path)
-    val key = buildCreateSessionActionKey(normalized, provider, yolo)
+    val key = buildCreateSessionActionKey(normalized, provider, mode)
+    markClaudeQuotaHintEligible(provider)
     actionGate.launch(
       scope = serviceScope,
       key = key,
       policy = SingleFlightPolicy.DROP,
       progress = dedicatedFrameOpenProgressRequest(currentProject),
       onDrop = {
-        LOG.debug("Dropped duplicate create session action for $normalized:$provider:yolo=$yolo")
+        LOG.debug("Dropped duplicate create session action for $normalized:$provider:mode=$mode")
       },
     ) {
       service<AgentSessionsTreeUiStateService>().setLastUsedProvider(provider)
 
-      val identity: String
-      val command: List<String>
-      when (provider) {
-        AgentSessionProvider.CLAUDE -> {
-          command = buildAgentSessionNewCommand(provider, yolo)
-          identity = buildAgentSessionNewIdentity(provider)
-        }
-        AgentSessionProvider.CODEX -> {
-          val codexService = service<SharedCodexAppServerService>()
-          val thread = codexService.createThread(cwd = normalized, yolo = yolo)
-          command = CodexCliCommands.buildResumeCommand(thread.id)
-          identity = buildAgentSessionIdentity(provider, thread.id)
-        }
+      val bridge = AgentSessionProviderBridges.find(provider)
+      if (bridge == null) {
+        LOG.warn("No session provider bridge registered for ${provider.value}")
+        appendProviderUnavailableWarning(normalized, provider)
+        return@launch
+      }
+      if (mode !in bridge.supportedLaunchModes) {
+        LOG.warn("Session provider bridge ${provider.value} does not support launch mode $mode")
+        appendProviderUnavailableWarning(normalized, provider)
+        return@launch
       }
 
-      openNewChat(normalized, identity, command)
+      val launchSpec = bridge.createNewSession(path = normalized, mode = mode)
+      val identity = launchSpec.sessionId?.let { sessionId ->
+        buildAgentSessionIdentity(provider, sessionId)
+      } ?: buildAgentSessionNewIdentity(provider)
+
+      openNewChat(normalized, identity, launchSpec.command)
     }
   }
 
@@ -524,6 +694,7 @@ internal class AgentSessionsService private constructor(
     path: String,
     loadOperation: suspend (AgentSessionSource) -> List<AgentSessionThread>,
   ): AgentSessionLoadResult {
+    val sessionSources = sessionSourcesProvider()
     val sourceResults = coroutineScope {
       sessionSources.map { source ->
         async {
@@ -532,7 +703,7 @@ internal class AgentSessionsService private constructor(
           }
           catch (throwable: Throwable) {
             if (throwable is CancellationException) throw throwable
-            LOG.warn("Failed to load ${source.provider.name} sessions for $path", throwable)
+            LOG.warn("Failed to load ${source.provider.value} sessions for $path", throwable)
             Result.failure(throwable)
           }
           AgentSessionSourceLoadResult(
@@ -551,28 +722,123 @@ internal class AgentSessionsService private constructor(
   }
 
   private fun resolveErrorMessage(provider: AgentSessionProvider, t: Throwable): @NlsContexts.DialogMessage String {
-    return when (t) {
-      is CodexCliNotFoundException -> resolveCliMissingMessage(provider)
-      else -> AgentSessionsBundle.message("toolwindow.error")
-    }
+    return if (isCliMissingError(provider, t)) resolveCliMissingMessage(provider)
+    else AgentSessionsBundle.message("toolwindow.error")
   }
 
   private fun resolveCliMissingMessage(provider: AgentSessionProvider): @NlsContexts.DialogMessage String {
-    return AgentSessionsBundle.message(agentSessionCliMissingMessageKey(provider))
+    return if (AgentSessionProviderBridges.find(provider) != null) {
+      AgentSessionsBundle.message(agentSessionCliMissingMessageKey(provider))
+    }
+    else {
+      providerUnavailableMessage(provider)
+    }
   }
 
   private fun resolveProviderWarningMessage(provider: AgentSessionProvider, t: Throwable): @NlsContexts.DialogMessage String {
-    return when (t) {
-      is CodexCliNotFoundException -> resolveCliMissingMessage(provider)
-      else -> AgentSessionsBundle.message("toolwindow.warning.provider.unavailable", resolveProviderLabel(provider))
-    }
+    return if (isCliMissingError(provider, t)) resolveCliMissingMessage(provider)
+    else AgentSessionsBundle.message("toolwindow.warning.provider.unavailable", resolveProviderLabel(provider))
+  }
+
+  private fun isCliMissingError(provider: AgentSessionProvider, t: Throwable): Boolean {
+    return AgentSessionProviderBridges.find(provider)?.isCliMissingError(t) == true
   }
 
   private fun resolveProviderLabel(provider: AgentSessionProvider): String {
-    return when (provider) {
-      AgentSessionProvider.CODEX -> AgentSessionsBundle.message("toolwindow.provider.codex")
-      AgentSessionProvider.CLAUDE -> AgentSessionsBundle.message("toolwindow.provider.claude")
+    val bridge = AgentSessionProviderBridges.find(provider)
+    return if (bridge != null) AgentSessionsBundle.message(bridge.displayNameKey) else provider.value
+  }
+
+  private fun providerUnavailableMessage(provider: AgentSessionProvider): String {
+    return AgentSessionsBundle.message("toolwindow.warning.provider.unavailable", resolveProviderLabel(provider))
+  }
+
+  private fun appendProviderUnavailableWarning(path: String, provider: AgentSessionProvider) {
+    val warning = AgentSessionProviderWarning(provider = provider, message = providerUnavailableMessage(provider))
+    mutableState.update { state ->
+      var updated = false
+      val nextProjects = state.projects.map { project ->
+        if (project.path == path) {
+          updated = true
+          project.copy(providerWarnings = mergeProviderWarning(project.providerWarnings, warning))
+        }
+        else {
+          val nextWorktrees = project.worktrees.map { worktree ->
+            if (worktree.path == path) {
+              updated = true
+              worktree.copy(providerWarnings = mergeProviderWarning(worktree.providerWarnings, warning))
+            }
+            else {
+              worktree
+            }
+          }
+          if (nextWorktrees == project.worktrees) project else project.copy(worktrees = nextWorktrees)
+        }
+      }
+      if (!updated) state else state.copy(projects = nextProjects, lastUpdatedAt = System.currentTimeMillis())
     }
+  }
+
+  private fun mergeProviderWarning(
+    warnings: List<AgentSessionProviderWarning>,
+    warning: AgentSessionProviderWarning,
+  ): List<AgentSessionProviderWarning> {
+    if (warnings.any { it.provider == warning.provider && it.message == warning.message }) {
+      return warnings
+    }
+    return warnings + warning
+  }
+
+  private fun AgentProjectSessions.withProviderRefreshOutcome(
+    provider: AgentSessionProvider,
+    outcome: ProviderRefreshOutcome,
+  ): AgentProjectSessions {
+    val mergedThreads = outcome.threads?.let { threads ->
+      mergeThreadsForProvider(this.threads, provider, threads)
+    } ?: this.threads
+    return copy(
+      threads = mergedThreads,
+      providerWarnings = replaceProviderWarning(this.providerWarnings, provider, outcome.warningMessage),
+    )
+  }
+
+  private fun AgentWorktree.withProviderRefreshOutcome(
+    provider: AgentSessionProvider,
+    outcome: ProviderRefreshOutcome,
+  ): AgentWorktree {
+    val mergedThreads = outcome.threads?.let { threads ->
+      mergeThreadsForProvider(this.threads, provider, threads)
+    } ?: this.threads
+    return copy(
+      threads = mergedThreads,
+      providerWarnings = replaceProviderWarning(this.providerWarnings, provider, outcome.warningMessage),
+    )
+  }
+
+  private fun replaceProviderWarning(
+    warnings: List<AgentSessionProviderWarning>,
+    provider: AgentSessionProvider,
+    warningMessage: String?,
+  ): List<AgentSessionProviderWarning> {
+    val withoutProvider = warnings.filterNot { it.provider == provider }
+    return if (warningMessage == null) {
+      withoutProvider
+    }
+    else {
+      withoutProvider + AgentSessionProviderWarning(provider = provider, message = warningMessage)
+    }
+  }
+
+  private fun mergeThreadsForProvider(
+    existingThreads: List<AgentSessionThread>,
+    provider: AgentSessionProvider,
+    newProviderThreads: List<AgentSessionThread>,
+  ): List<AgentSessionThread> {
+    val mergedThreads = ArrayList<AgentSessionThread>(existingThreads.size + newProviderThreads.size)
+    existingThreads.filterTo(mergedThreads) { it.provider != provider }
+    mergedThreads.addAll(newProviderThreads)
+    mergedThreads.sortByDescending { it.updatedAt }
+    return mergedThreads
   }
 
   private suspend fun openOrFocusProjectInternal(path: String) {
@@ -636,8 +902,15 @@ internal class AgentSessionsService private constructor(
     return "$OPEN_PROJECT_ACTION_KEY_PREFIX:$path"
   }
 
-  private fun buildCreateSessionActionKey(path: String, provider: AgentSessionProvider, yolo: Boolean): String {
-    return "$CREATE_SESSION_ACTION_KEY_PREFIX:$path:$provider:yolo=$yolo"
+  private fun markClaudeQuotaHintEligible(provider: AgentSessionProvider) {
+    if (provider != AgentSessionProvider.CLAUDE) {
+      return
+    }
+    service<AgentSessionsTreeUiStateService>().markClaudeQuotaHintEligible()
+  }
+
+  private fun buildCreateSessionActionKey(path: String, provider: AgentSessionProvider, mode: AgentSessionLaunchMode): String {
+    return "$CREATE_SESSION_ACTION_KEY_PREFIX:$path:$provider:mode=$mode"
   }
 
   private fun buildOpenThreadActionKey(path: String, thread: AgentSessionThread): String {
@@ -1122,6 +1395,11 @@ internal class AgentSessionsService private constructor(
 
     return null
   }
+
+  private data class ProviderRefreshOutcome(
+    val threads: List<AgentSessionThread>? = null,
+    val warningMessage: String? = null,
+  )
 
   internal data class ProjectEntry(
     val path: String,

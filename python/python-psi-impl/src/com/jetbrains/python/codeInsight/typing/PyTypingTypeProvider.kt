@@ -117,6 +117,7 @@ import com.jetbrains.python.psi.types.PySelfType
 import com.jetbrains.python.psi.types.PyTupleType
 import com.jetbrains.python.psi.types.PyType
 import com.jetbrains.python.psi.types.PyTypeChecker
+import com.jetbrains.python.psi.types.PyTypeChecker.collectGenerics
 import com.jetbrains.python.psi.types.PyTypeParameterMapping
 import com.jetbrains.python.psi.types.PyTypeParameterType
 import com.jetbrains.python.psi.types.PyTypeParser
@@ -1076,7 +1077,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         .map { getType(it!!, context) }
         .map { Ref.deref(it) }
         .flatMap {
-          val typeParams = PyTypeChecker.collectGenerics(it, context.typeContext)
+          val typeParams = it.collectGenerics(context.typeContext)
           StreamEx.of<PyType>(typeParams.typeVars).append(typeParams.typeVarTuples)
             .append(StreamEx.of(typeParams.paramSpecs))
         }
@@ -1653,9 +1654,14 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     private fun getOptionalType(element: PsiElement, context: Context): Ref<PyType?>? {
       if (element is PySubscriptionExpression) {
         if (resolvesToQualifiedNames(element.operand, context.typeContext, OPTIONAL)) {
-          val indexExpr = element.indexExpression
-          if (indexExpr != null) {
-            val typeRef: Ref<PyType?>? = getType(indexExpr, context)
+          val indexExpr = PyPsiUtils.flattenParens(element.indexExpression)
+          val argExpr: PyExpression? = when (indexExpr) {
+            is PyTupleExpression -> indexExpr.elements.singleOrNull() ?: indexExpr
+            else -> indexExpr
+          }
+
+          if (argExpr != null) {
+            val typeRef: Ref<PyType?>? = getType(argExpr, context)
             if (typeRef != null) {
               return Ref(PyUnionType.union(typeRef.get(), getInstance(element).noneType))
             }
@@ -2048,7 +2054,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     private fun getUnionType(element: PsiElement, context: Context): Ref<PyType?>? {
       if (element is PySubscriptionExpression) {
         if (resolvesToQualifiedNames(element.operand, context.typeContext, UNION)) {
-          val union = PyUnionType.union(getIndexTypes(element, context))
+          val union = PyUnionType.unionOrNever(getIndexTypes(element, context))
           return if (union != null) Ref(union) else null
         }
       }
@@ -2386,9 +2392,9 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         }
         .append(PyTypingTypeProvider().getReturnType(function, context))
         .map { Ref.deref(it) }
-        .map { PyTypeChecker.collectGenerics(it, context) }
+        .map { it.collectGenerics(context) }
         .flatMap {
-          StreamEx.of<PyTypeParameterType>(it!!.typeVars)
+          StreamEx.of<PyTypeParameterType>(it.typeVars)
             .append(it.paramSpecs)
             .append(it.typeVarTuples)
         }
@@ -2447,7 +2453,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
 
     private fun getIndexTypes(expression: PySubscriptionExpression, context: Context): MutableList<PyType?> {
       val types: MutableList<PyType?> = ArrayList()
-      val indexExpr = expression.indexExpression
+      val indexExpr = PyPsiUtils.flattenParens(expression.indexExpression)
       if (indexExpr is PyTupleExpression) {
         for (expr in indexExpr.elements) {
           types.add(Ref.deref<PyType?>(getType(expr, context)))
@@ -2507,7 +2513,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           if (typeHint is PyReferenceExpression) {
             if (assignedType !is PyTypeParameterType) {
               val typeAliasTypeParams =
-                PyTypeChecker.collectGenerics(assignedType, context.typeContext).allTypeParameters
+                assignedType.collectGenerics(context.typeContext).allTypeParameters
               if (!typeAliasTypeParams.isEmpty()) {
                 return Ref(
                   PyTypeChecker.parameterizeType(
@@ -2577,12 +2583,34 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
             if (operandType is PyClassType) {
               if (operandType !is PyTupleType && PyNames.TUPLE == operandType.pyClass.qualifiedName) {
                 if (indexExpr is PyTupleExpression) {
-                  val elements = indexExpr.elements
-                  if (elements.size == 2 && elements[1] is PyEllipsisLiteralExpression) {
-                    return PyTupleType.createHomogeneous(element, indexTypes[0])
+                  val indexElements = indexExpr.elements.map { PyPsiUtils.flattenParens(it) }
+
+                  val lastIsEllipsis =
+                    indexElements.isNotEmpty() && indexElements.last() is PyEllipsisLiteralExpression
+
+                  if (lastIsEllipsis) {
+                    if (indexElements.size != 2) return null
+                    if (indexElements.first() is PyEllipsisLiteralExpression) return null
+
+                    val indexType = indexTypes.first()
+                    if (indexType is PyPositionalVariadicType) return null
+
+                    return PyTupleType.createHomogeneous(element, indexType)
+                  }
+                  else {
+                    for (indexElement in indexElements) {
+                      if (indexElement is PyEllipsisLiteralExpression) return null
+                      if (indexElement is PyTupleExpression && indexElement.elements.isEmpty()) {
+                        if (indexElements.size != 1) return null
+                      }
+                    }
+                    return PyTupleType.create(element, indexTypes)
                   }
                 }
-                return PyTupleType.create(element, indexTypes)
+                else {
+                  if (indexExpr is PyEllipsisLiteralExpression) return null
+                  return PyTupleType.create(element, indexTypes)
+                }
               }
 
               if (isGeneric(operandType, context.typeContext)) {

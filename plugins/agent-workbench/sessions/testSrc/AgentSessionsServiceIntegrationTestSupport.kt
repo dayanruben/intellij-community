@@ -8,6 +8,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 import kotlin.time.Duration.Companion.milliseconds
@@ -18,6 +20,7 @@ internal const val WORKTREE_PATH = "/work/project-feature"
 internal class ScriptedSessionSource(
   override val provider: AgentSessionProvider,
   override val canReportExactThreadCount: Boolean = true,
+  override val updates: Flow<Unit> = emptyFlow(),
   private val listFromOpenProject: suspend (path: String, project: Project) -> List<AgentSessionThread> = { _, _ -> emptyList() },
   private val listFromClosedProject: suspend (path: String) -> List<AgentSessionThread> = { _ -> emptyList() },
 ) : AgentSessionSource {
@@ -41,7 +44,7 @@ internal fun thread(id: String, updatedAt: Long, provider: AgentSessionProvider)
 }
 
 internal suspend fun withService(
-  sessionSources: List<AgentSessionSource>,
+  sessionSourcesProvider: () -> List<AgentSessionSource>,
   projectEntriesProvider: suspend () -> List<AgentSessionsService.ProjectEntry>,
   action: suspend (AgentSessionsService) -> Unit,
 ) {
@@ -50,7 +53,7 @@ internal suspend fun withService(
   try {
     val service = AgentSessionsService(
       serviceScope = scope,
-      sessionSources = sessionSources,
+      sessionSourcesProvider = sessionSourcesProvider,
       projectEntriesProvider = projectEntriesProvider,
       subscribeToProjectLifecycle = false,
     )
@@ -131,4 +134,3 @@ internal suspend fun waitForCondition(timeoutMs: Long = 5_000, condition: () -> 
   }
   throw AssertionError("Condition was not satisfied within ${timeoutMs}ms")
 }
-

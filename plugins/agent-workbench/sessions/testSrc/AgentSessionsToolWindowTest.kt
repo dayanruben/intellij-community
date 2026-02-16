@@ -35,6 +35,71 @@ class AgentSessionsToolWindowTest {
   }
 
   @Test
+  fun claudeQuotaHintIsShownWhenRequested() {
+    composeRule.setContentWithTheme {
+      agentSessionsToolWindowContent(
+        state = AgentSessionsState(projects = emptyList(), lastUpdatedAt = 1L),
+        onRefresh = {},
+        onOpenProject = {},
+        showClaudeQuotaHint = true,
+      )
+    }
+
+    composeRule.onNodeWithText(AgentSessionsBundle.message("toolwindow.claude.quota.hint.title"))
+      .assertIsDisplayed()
+    composeRule.onNodeWithText(AgentSessionsBundle.message("toolwindow.claude.quota.hint.body"))
+      .assertIsDisplayed()
+    composeRule.onNodeWithText(AgentSessionsBundle.message("toolwindow.claude.quota.hint.enable"))
+      .assertIsDisplayed()
+    composeRule.onNodeWithText(AgentSessionsBundle.message("toolwindow.claude.quota.hint.dismiss"))
+      .assertIsDisplayed()
+  }
+
+  @Test
+  fun claudeQuotaHintEnableInvokesCallback() {
+    var enabled = false
+
+    composeRule.setContentWithTheme {
+      agentSessionsToolWindowContent(
+        state = AgentSessionsState(projects = emptyList(), lastUpdatedAt = 1L),
+        onRefresh = {},
+        onOpenProject = {},
+        showClaudeQuotaHint = true,
+        onEnableClaudeQuotaWidget = { enabled = true },
+      )
+    }
+
+    composeRule.onNodeWithText(AgentSessionsBundle.message("toolwindow.claude.quota.hint.enable"))
+      .performClick()
+
+    composeRule.runOnIdle {
+      assertThat(enabled).isTrue()
+    }
+  }
+
+  @Test
+  fun claudeQuotaHintDismissInvokesCallback() {
+    var dismissed = false
+
+    composeRule.setContentWithTheme {
+      agentSessionsToolWindowContent(
+        state = AgentSessionsState(projects = emptyList(), lastUpdatedAt = 1L),
+        onRefresh = {},
+        onOpenProject = {},
+        showClaudeQuotaHint = true,
+        onDismissClaudeQuotaHint = { dismissed = true },
+      )
+    }
+
+    composeRule.onNodeWithText(AgentSessionsBundle.message("toolwindow.claude.quota.hint.dismiss"))
+      .performClick()
+
+    composeRule.runOnIdle {
+      assertThat(dismissed).isTrue()
+    }
+  }
+
+  @Test
   fun projectsDoNotShowGlobalEmptyStateWhenNoThreadsLoadedYet() {
     val projects = listOf(
       AgentProjectSessions(
@@ -103,7 +168,7 @@ class AgentSessionsToolWindowTest {
   fun hoveringProjectRowShowsQuickCreateSessionActionAndDoesNotInvokeOpenCallback() {
     var createdSessionPath: String? = null
     var createdSessionProvider: AgentSessionProvider? = null
-    var createdSessionYolo: Boolean? = null
+    var createdSessionMode: AgentSessionLaunchMode? = null
     var openedPath: String? = null
     val projectPath = "/work/project-plus"
     val projects = listOf(
@@ -119,16 +184,16 @@ class AgentSessionsToolWindowTest {
         state = AgentSessionsState(projects = projects),
         onRefresh = {},
         onOpenProject = { openedPath = it },
-        onCreateSession = { path, provider, yolo ->
+        onCreateSession = { path, provider, mode ->
           createdSessionPath = path
           createdSessionProvider = provider
-          createdSessionYolo = yolo
+          createdSessionMode = mode
         },
         lastUsedProvider = AgentSessionProvider.CLAUDE,
       )
     }
 
-    val quickActionLabel = AgentSessionsBundle.message("toolwindow.provider.claude")
+    val quickActionLabel = providerDisplayName(AgentSessionProvider.CLAUDE)
     composeRule.onAllNodesWithContentDescription(quickActionLabel).assertCountEquals(0)
 
     composeRule.onNodeWithText("Project Plus")
@@ -142,7 +207,7 @@ class AgentSessionsToolWindowTest {
     composeRule.runOnIdle {
       assertThat(createdSessionPath).isEqualTo(projectPath)
       assertThat(createdSessionProvider).isEqualTo(AgentSessionProvider.CLAUDE)
-      assertThat(createdSessionYolo).isFalse()
+      assertThat(createdSessionMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
       assertThat(openedPath).isNull()
     }
   }
@@ -176,7 +241,7 @@ class AgentSessionsToolWindowTest {
     }
 
     composeRule.onNodeWithText("Session One").assertIsDisplayed()
-    composeRule.onNodeWithText(AgentSessionsBundle.message("toolwindow.provider.claude")).assertIsDisplayed()
+    composeRule.onNodeWithText(providerDisplayName(AgentSessionProvider.CLAUDE)).assertIsDisplayed()
   }
 
   @Test
@@ -689,9 +754,6 @@ class AgentSessionsToolWindowTest {
 }
 
 private fun providerUnavailableMessage(provider: AgentSessionProvider): String {
-  val providerLabel = when (provider) {
-    AgentSessionProvider.CODEX -> AgentSessionsBundle.message("toolwindow.provider.codex")
-    AgentSessionProvider.CLAUDE -> AgentSessionsBundle.message("toolwindow.provider.claude")
-  }
+  val providerLabel = providerDisplayName(provider)
   return AgentSessionsBundle.message("toolwindow.warning.provider.unavailable", providerLabel)
 }
