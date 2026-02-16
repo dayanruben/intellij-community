@@ -104,6 +104,9 @@ data class GitProjectInfo(
       if (!hasCommit) Git.pull(projectHome)
       Git.reset(repositoryDirectory = projectHome, commitHash = commitHash)
     }
+    else if (commitHash.isEmpty() && branchName.isNotEmpty()) {
+      Git.reset(repositoryDirectory = projectHome, commitHash = "origin/$branchName")
+    }
   }
 
   private fun isGitMetadataExist(repoRoot: Path) = repoRoot.listDirectoryEntries(".git").isNotEmpty()
@@ -143,6 +146,7 @@ data class GitProjectInfo(
         // for some reason the repository is corrupted => delete directory with repo completely for clean checkout
         !isGitMetadataExist(repoRoot) -> {
           repoRoot.deleteRecursively()
+          @Suppress("RedundantUnitExpression")
           Unit
         }
 
