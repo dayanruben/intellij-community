@@ -45,7 +45,8 @@ internal fun thread(id: String, updatedAt: Long, provider: AgentSessionProvider)
 
 internal suspend fun withService(
   sessionSourcesProvider: () -> List<AgentSessionSource>,
-  projectEntriesProvider: suspend () -> List<AgentSessionsService.ProjectEntry>,
+  projectEntriesProvider: suspend () -> List<ProjectEntry>,
+  treeUiState: SessionsTreeUiState = InMemorySessionsTreeUiState(),
   action: suspend (AgentSessionsService) -> Unit,
 ) {
   @Suppress("RAW_SCOPE_CREATION")
@@ -55,6 +56,7 @@ internal suspend fun withService(
       serviceScope = scope,
       sessionSourcesProvider = sessionSourcesProvider,
       projectEntriesProvider = projectEntriesProvider,
+      treeUiState = treeUiState,
       subscribeToProjectLifecycle = false,
     )
     action(service)
@@ -67,9 +69,9 @@ internal suspend fun withService(
 internal fun openProjectEntry(
   path: String,
   name: String,
-  worktrees: List<AgentSessionsService.WorktreeEntry> = emptyList(),
-): AgentSessionsService.ProjectEntry {
-  return AgentSessionsService.ProjectEntry(
+  worktrees: List<WorktreeEntry> = emptyList(),
+): ProjectEntry {
+  return ProjectEntry(
     path = path,
     name = name,
     project = openProjectProxy(name),
@@ -80,9 +82,9 @@ internal fun openProjectEntry(
 internal fun closedProjectEntry(
   path: String,
   name: String,
-  worktrees: List<AgentSessionsService.WorktreeEntry> = emptyList(),
-): AgentSessionsService.ProjectEntry {
-  return AgentSessionsService.ProjectEntry(
+  worktrees: List<WorktreeEntry> = emptyList(),
+): ProjectEntry {
+  return ProjectEntry(
     path = path,
     name = name,
     project = null,

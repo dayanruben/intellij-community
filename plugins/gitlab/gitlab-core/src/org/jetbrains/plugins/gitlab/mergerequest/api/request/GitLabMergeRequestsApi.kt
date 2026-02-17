@@ -37,7 +37,7 @@ import java.net.http.HttpResponse
  * Creates a merge request
  *
  * Note: reviewer_ids parameter has different behavior depending on the user's subscription plan
- *  [org.jetbrains.plugins.gitlab.api.data.GitLabPlan.FREE] -- sets only one reviewer from the list (the last one)
+ *  [org.jetbrains.plugins.gitlab.api.dto.GitLabPlan.FREE] -- sets only one reviewer from the list (the last one)
  *  OTHER -- sets all reviewers from the list
  */
 @SinceGitLab("14.0", note = "No exact version, but definitely exists in minimal")
@@ -49,7 +49,9 @@ suspend fun GitLabApi.Rest.createMergeRequest(
   description: String? = null,
   reviewerIds: List<String>? = null,
   assigneeIds: List<String>? = null,
-  labels: List<String>? = null
+  labels: List<String>? = null,
+  squashBeforeMerge: Boolean? = null,
+  removeSourceBranch: Boolean? = null,
 ): HttpResponse<out GitLabMergeRequestShortRestDTO> {
   val uri = projectApiUrl(projectId)
     .resolveRelative("merge_requests")
@@ -61,6 +63,8 @@ suspend fun GitLabApi.Rest.createMergeRequest(
       "reviewer_ids" eq reviewerIds
       "assignee_ids" eq assigneeIds
       "labels" eq labels
+      "squash" eq squashBeforeMerge
+      "remove_source_branch" eq removeSourceBranch
     }
   val request = request(uri).POST(HttpRequest.BodyPublishers.noBody()).build()
   return withErrorStats(GitLabApiRequestName.REST_CREATE_MERGE_REQUEST) {
@@ -217,7 +221,7 @@ suspend fun GitLabApi.GraphQL.mergeRequestUpdate(
  * Sets the reviewers in the Merge Request
  *
  * Note: this request has different behavior depending on the user's subscription plan
- *  [org.jetbrains.plugins.gitlab.api.data.GitLabPlan.FREE] -- sets only one reviewer from the list (the last one)
+ *  [org.jetbrains.plugins.gitlab.api.dto.GitLabPlan.FREE] -- sets only one reviewer from the list (the last one)
  *  OTHER -- sets all reviewers from the list
  */
 @SinceGitLab("13.8")
@@ -244,7 +248,7 @@ suspend fun GitLabApi.Rest.mergeRequestSetReviewers(
  * Sets the reviewers in the Merge Request
  *
  * Note: this request has different behavior depending on the user's subscription plan
- *  [org.jetbrains.plugins.gitlab.api.data.GitLabPlan.FREE] -- sets only one reviewer from the list (the last one)
+ *  [org.jetbrains.plugins.gitlab.api.dto.GitLabPlan.FREE] -- sets only one reviewer from the list (the last one)
  *  OTHER -- sets all reviewers from the list
  */
 @SinceGitLab("15.3")
@@ -268,17 +272,40 @@ suspend fun GitLabApi.GraphQL.mergeRequestSetReviewers(
 suspend fun GitLabApi.GraphQL.mergeRequestAccept(
   projectPath: GitLabProjectPath,
   mrIid: String,
-  commitMessage: String,
+  commitMessage: String?,
   sha: String,
-  withSquash: Boolean,
-  shouldRemoveSourceBranch: Boolean
+  shouldRemoveSourceBranch: Boolean,
 ): HttpResponse<out GitLabGraphQLMutationResultDTO<GitLabMergeRequestDTO>?> {
   val parameters = mapOf(
     "projectId" to projectPath.fullPath(),
     "mergeRequestId" to mrIid,
     "commitMessage" to commitMessage,
     "sha" to sha,
-    "withSquash" to withSquash,
+    "withSquash" to false,
+    "shouldRemoveSourceBranch" to shouldRemoveSourceBranch
+  )
+  val request = gitLabQuery(GitLabGQLQuery.MERGE_REQUEST_ACCEPT, parameters)
+  return withErrorStats(GitLabGQLQuery.MERGE_REQUEST_ACCEPT) {
+    loadResponse<GitLabMergeRequestResult>(request, "mergeRequestAccept")
+  }
+}
+
+@SinceGitLab("13.10")
+suspend fun GitLabApi.GraphQL.mergeRequestAcceptSquash(
+  projectPath: GitLabProjectPath,
+  mrIid: String,
+  commitMessage: String?,
+  squashCommitMessage: String?,
+  sha: String,
+  shouldRemoveSourceBranch: Boolean,
+): HttpResponse<out GitLabGraphQLMutationResultDTO<GitLabMergeRequestDTO>?> {
+  val parameters = mapOf(
+    "projectId" to projectPath.fullPath(),
+    "mergeRequestId" to mrIid,
+    "commitMessage" to commitMessage,
+    "squashCommitMessage" to squashCommitMessage,
+    "sha" to sha,
+    "withSquash" to true,
     "shouldRemoveSourceBranch" to shouldRemoveSourceBranch
   )
   val request = gitLabQuery(GitLabGQLQuery.MERGE_REQUEST_ACCEPT, parameters)

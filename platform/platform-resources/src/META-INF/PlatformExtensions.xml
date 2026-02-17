@@ -470,6 +470,10 @@
     <applicationService serviceInterface="com.intellij.openapi.vfs.encoding.EncodingManager"
                         serviceImplementation="com.intellij.openapi.vfs.encoding.EncodingManagerImpl"/>
     <applicationService serviceImplementation="com.intellij.ide.plugins.PluginManagerUISettings"/>
+    <registryKey key="ide.plugins.category.promotion.enabled"
+                 defaultValue="true"
+                 restartRequired="true"
+                 description="Enable plugin category promotion panels with priority sorting in the Installed plugins tab"/>
     <postStartupActivity implementation="com.intellij.ide.actions.IdeScalePostStartupActivity"/>
 
     <applicationService serviceInterface="com.intellij.codeInsight.hint.HintManager" open="true"
@@ -2114,7 +2118,6 @@
               topic="com.intellij.ide.ui.UISettingsListener"/>
     <listener class="com.intellij.ui.MacCustomAppIconStartupService" topic="com.intellij.ide.AppLifecycleListener"/>
     <listener class="com.intellij.openapi.editor.actions.ResetFontSizeAppInitListener" topic="com.intellij.ide.AppLifecycleListener"/>
-    <listener class="com.intellij.openapi.wm.impl.WindowButtonsAppLifecycleListener" topic="com.intellij.ide.AppLifecycleListener" os="linux"/>
 
     <listener class="com.intellij.ui.ExperimentalUiAppLifecycleListener" topic="com.intellij.ide.AppLifecycleListener"/>
     <listener class="com.intellij.ide.ui.laf.LafAndEditorColorSchemeDynamicPluginListener"

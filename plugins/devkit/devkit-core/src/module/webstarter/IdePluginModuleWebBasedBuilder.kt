@@ -23,6 +23,9 @@ import com.intellij.ide.starters.shared.LibraryLinkType
 import com.intellij.ide.starters.shared.StarterLanguage
 import com.intellij.ide.starters.shared.StarterProjectType
 import com.intellij.ide.starters.shared.hyperLink
+import com.intellij.internal.statistic.eventLog.fus.MachineIdManager
+import com.intellij.openapi.application.ApplicationInfo
+import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleType
@@ -65,7 +68,7 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
 
   override fun getBuilderId(): String = "ide-plugin-web-starter"
   override fun getWeight(): Int = JVM_WEIGHT + 1000
-  override fun getDefaultServerUrl(): String = "https://plugins.jetbrains.com/new"
+  override fun getDefaultServerUrl(): String = "https://plugins.jetbrains.com/generator"
   override fun getNodeIcon(): Icon = AllIcons.Nodes.Plugin
   override fun getPresentableName(): String = message("module.builder.title")
   override fun getDescription(): String = message("module.description")
@@ -80,11 +83,11 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
   private fun parsePacks(packs: ArrayNode): WebStarterServerOptions {
     val categories = mutableMapOf<String, PackCategory>()
     for (pack in packs) {
-      val info = pack["manifest"] as? ObjectNode ?: continue
-      val properties = info["properties"] as? ArrayNode
+      if (pack !is ObjectNode) continue
+      val properties = pack["properties"] as? ArrayNode
       if (isHiddenInWizard(properties)) continue
-      val category = parseAndGetOrCreateCategory(info, categories) ?: continue
-      category.extensions.add(createDependency(info))
+      val category = parseAndGetOrCreateCategory(pack, categories) ?: continue
+      category.extensions.add(createDependency(pack))
     }
     categories.values.forEach { it.extensions.sortBy(WebStarterDependency::title) }
     return WebStarterServerOptions(emptyList(), sortCategoriesByOrder(categories))
@@ -160,7 +163,14 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
     val userAgent = getUserAgent()
     return HttpRequests
       .post(url.toExternalForm(), HttpRequests.JSON_CONTENT_TYPE)
-      .tuner { it.setRequestProperty("Client-Name", userAgent) }
+      .tuner {
+        it.setRequestProperty("Client-Name", userAgent)
+        it.setRequestProperty("X-Product-Name", ApplicationNamesInfo.getInstance().fullProductName)
+        it.setRequestProperty("X-Product-Version", ApplicationInfo.getInstance().fullVersion)
+        MachineIdManager.getAnonymizedMachineId("ij-plugin-generator")?.let { userId ->
+          it.setRequestProperty("X-User-ID", userId)
+        }
+      }
       .userAgent(userAgent)
       .connectTimeout(10000)
       .isReadResponseOnError(true)

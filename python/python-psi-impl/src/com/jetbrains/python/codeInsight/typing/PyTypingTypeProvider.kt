@@ -122,6 +122,9 @@ import com.jetbrains.python.psi.types.PyTypeParameterMapping
 import com.jetbrains.python.psi.types.PyTypeParameterType
 import com.jetbrains.python.psi.types.PyTypeParser
 import com.jetbrains.python.psi.types.PyTypeUtil
+import com.jetbrains.python.psi.types.PyTypeUtil.convertToType
+import com.jetbrains.python.psi.types.PyTypeUtil.toKeywordContainerType
+import com.jetbrains.python.psi.types.PyTypeUtil.toPositionalContainerType
 import com.jetbrains.python.psi.types.PyTypeVarTupleType
 import com.jetbrains.python.psi.types.PyTypeVarTupleTypeImpl
 import com.jetbrains.python.psi.types.PyTypeVarType
@@ -200,10 +203,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     }
     val type = Ref.deref<PyType?>(getType(typeHint, context))
     if (param.isPositionalContainer && type !is PyParamSpecType) {
-      return Ref(PyTypeUtil.toPositionalContainerType(param, type))
+      return Ref(param.toPositionalContainerType(type))
     }
     if (param.isKeywordContainer && type !is PyParamSpecType) {
-      return Ref(PyTypeUtil.toKeywordContainerType(param, type))
+      return Ref(param.toKeywordContainerType(type))
     }
     if (PyNames.NONE == param.defaultValueText) {
       return Ref(PyUnionType.union(type, getInstance(param).noneType))
@@ -401,10 +404,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
               val type = getTypeFromTypeHint(current, context)
               if (type != null) {
                 if (current.isPositionalContainer) {
-                  return Ref.create(PyTypeUtil.toPositionalContainerType(current, type.get()))
+                  return Ref.create(current.toPositionalContainerType(type.get()))
                 }
                 else if (current.isKeywordContainer) {
-                  return Ref.create(PyTypeUtil.toKeywordContainerType(current, type.get()))
+                  return Ref.create(current.toKeywordContainerType(type.get()))
                 }
                 return type
               }
@@ -529,12 +532,12 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         if (type.isProtocol(context)) {
           var yieldType: PyType?
 
-          val syncUpcast = PyTypeUtil.convertToType(type, "typing.Iterable", type.pyClass, context)
+          val syncUpcast = type.convertToType("typing.Iterable", type.pyClass, context)
           if (syncUpcast is PyCollectionType) {
             yieldType = syncUpcast.iteratedItemType
             return GeneratorTypeDescriptor(yieldType, null, null, false)
           }
-          val asyncUpcast = PyTypeUtil.convertToType(type, "typing.AsyncIterable", type.pyClass, context)
+          val asyncUpcast = type.convertToType("typing.AsyncIterable", type.pyClass, context)
           if (asyncUpcast is PyCollectionType) {
             yieldType = asyncUpcast.iteratedItemType
             return GeneratorTypeDescriptor(yieldType, null, null, true)
@@ -1388,22 +1391,9 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         if (classType != null) {
           return classType
         }
-        if (context.typeRepresentationMode) {
-          if (resolved.text == "Unknown") {
-            return Ref()
-          }
-          if (resolved is PyFunctionTypeRepresentation) {
-            val result = context.typeContext.getType(resolved)
-            if (result != null) {
-              return Ref(result)
-            }
-          }
-          if (resolved is PySubscriptionExpression) {
-            val moduleType: Ref<PyType?>? = getModuleType(resolved)
-            if (moduleType != null) {
-              return moduleType
-            }
-          }
+        val typeEngineType = getTypeEngineType(typeHint, context)
+        if (typeEngineType != null) {
+          return typeEngineType
         }
         return null
       }
@@ -1415,6 +1405,47 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           context.removeTypeAlias(alias)
         }
       }
+    }
+
+    private fun getTypeEngineType(typeHint: PyExpression, context: Context): Ref<PyType?>? {
+      if (!context.typeRepresentationMode) return null
+      if (typeHint.text == "Unknown") {
+        return Ref()
+      }
+      if (typeHint is PyFunctionTypeRepresentation) {
+        val result = context.typeContext.getType(typeHint)
+        if (result != null) {
+          return Ref(result)
+        }
+      }
+      if (typeHint is PySubscriptionExpression) {
+        val moduleType: Ref<PyType?>? = getModuleType(typeHint)
+        if (moduleType != null) {
+          return moduleType
+        }
+      }
+      if (typeHint is PyBinaryExpression && typeHint.operator === PyTokenTypes.AT) {
+        val name: String = typeHint.leftExpression.text
+        val scopeExpression = typeHint.rightExpression!!
+        if (name == SELF) {
+          val type = getType(scopeExpression, context) ?: return null
+
+          val scopeType = type.get()
+          if (scopeType is PyClassType) {
+            return Ref(PySelfType(scopeType))
+          }
+        }
+        val scopeOwner = if (scopeExpression is PyReferenceExpression) {
+          scopeExpression.asQualifiedName()?.let { qualifiedName ->
+            val scopeElement = PyResolveUtil.resolveFullyQualifiedName(qualifiedName, scopeExpression, context.typeContext)
+            scopeElement as? PyQualifiedNameOwner
+          }
+        }
+        else null
+        val result = PyTypeVarTypeImpl(name, null).withScopeOwner(scopeOwner)
+        return Ref(result)
+      }
+      return null
     }
 
     private fun getModuleType(moduleDefinition: PySubscriptionExpression): Ref<PyType?>? {
@@ -1541,8 +1572,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         return type.withScopeOwner(getTypeParameterScope(type.name, typeHint, context)).withDeclarationElement(targetExpr)
       }
       if (type is PyTypeVarTupleTypeImpl) {
-        return type.withScopeOwner(getTypeParameterScope(type.name, typeHint, context))
-          .withDeclarationElement(targetExpr)
+        return type.withScopeOwner(getTypeParameterScope(type.name, typeHint, context)).withDeclarationElement(targetExpr)
       }
       return type
     }
@@ -2129,7 +2159,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
                 val boundExpression = element.getKeywordArgument("bound")
                 val bound = if (boundExpression == null) null else Ref.deref(getType(boundExpression, context))
                 val variance: PyTypeVarType.Variance = getTypeVarVarianceFromDeclaration(element)
-                return PyTypeVarTypeImpl(name, constraints, bound, defaultType, variance)
+                val assignStmt = element.getParent() as? PyAssignmentStatement
+                val mappingPair = assignStmt?.targetsToValuesMapping?.firstOrNull { pair -> pair.second == element }
+                val declarationElement = mappingPair?.first as? PyQualifiedNameOwner
+                return PyTypeVarTypeImpl(name, constraints, bound, defaultType, variance).withDeclarationElement(declarationElement)
               }
 
               PyAstTypeParameter.Kind.ParamSpec -> {
@@ -2145,6 +2178,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       return null
     }
 
+    @Suppress("KotlinConstantConditions") // caused by systematical if conditions
     private fun getTypeVarVarianceFromDeclaration(assignedCall: PyCallExpression): PyTypeVarType.Variance {
       val covariant = PyEvaluator.evaluateAsBooleanNoResolve(assignedCall.getKeywordArgument("covariant"), false)
       val contravariant = PyEvaluator.evaluateAsBooleanNoResolve(assignedCall.getKeywordArgument("contravariant"), false)
@@ -2155,6 +2189,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       }
       else if (contravariant && !covariant) {
         return PyTypeVarType.Variance.CONTRAVARIANT
+      }
+      else if (contravariant && covariant) {
+        // Note that Python does not officially support bivariance. Change this to invariant if necessary.
+        return PyTypeVarType.Variance.BIVARIANT
       }
       else if (inferVariance) {
         return PyTypeVarType.Variance.INFER_VARIANCE
@@ -2237,7 +2275,8 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
             else if (boundExpression != null) {
               boundType = Ref.deref<PyType?>(getTypePreventingRecursion(boundExpression, context))
             }
-            return PyTypeVarTypeImpl(name, constraints, boundType, defaultType, PyTypeVarType.Variance.INFER_VARIANCE)
+            val variance = if (scopeOwner is PyFunction) PyTypeVarType.Variance.INVARIANT else PyTypeVarType.Variance.INFER_VARIANCE
+            return PyTypeVarTypeImpl(name, constraints, boundType, defaultType, variance)
               .withScopeOwner(scopeOwner)
               .withDeclarationElement(declarationElement)
           }

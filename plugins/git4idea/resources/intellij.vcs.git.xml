@@ -508,10 +508,10 @@
 
     <group id="Vcs.ToolbarWidget.CreateRepository" searchable="false">
       <group id="Vcs.ToolbarWidget.ShareProject" popup="true" searchable="false">
-        <reference ref="Start.Use.Vcs"/>
       </group>
       <reference ref="Git.Init"/>
       <separator/>
+      <reference ref="Start.Use.Vcs"/>
     </group>
 
     <action id="main.toolbar.git.MergeRebase" class="git4idea.ui.toolbar.GitMergeRebaseWidget">
@@ -699,9 +699,6 @@
                  description="If enabled, Git will use a sequencer to cherry-pick multiple commits as a range (e.g., 'git cherry-pick A^..C') instead of applying each commit individually."/>
     <registryKey key="git.commit.staged.saver.use.index.info" defaultValue="true"
                  description="Uses an optimized approach to save and restore the index during changelist commits, improving performance"/>
-    <registryKey defaultValue="false"
-                 description="Use 'git status' without lock. Disabling may speed up commit but could result in stale data."
-                 key="git.status.no.lock"/>
 
     <search.projectOptionsTopHitProvider implementation="git4idea.config.GitOptionsTopHitProvider"/>
     <vcs name="Git" vcsClass="git4idea.GitVcs" displayName="Git" administrativeAreaName=".git"/>

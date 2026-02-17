@@ -182,9 +182,15 @@ public final class EditorPainter implements TextDrawingCallback {
   }
 
   void repaintCarets() {
-    EditorImpl editor = myView.getEditor();
-    EditorImpl.CaretRectangle[] locations = editor.getCaretLocations(false);
+    EditorImpl.CaretRectangle[] locations = myView.getEditor().getCaretLocations(false);
     if (locations == null) return;
+
+    repaintCarets(locations);
+  }
+
+  void repaintCarets(EditorImpl.CaretRectangle @NotNull [] locations) {
+    EditorImpl editor = myView.getEditor();
+
     int caretHeight = myView.getCaretHeight();
     int topOverhang = editor.getSettings().isFullLineHeightCursor() ? 0 : myView.getTopOverhang();
     for (EditorImpl.CaretRectangle location : locations) {
@@ -437,7 +443,7 @@ public final class EditorPainter implements TextDrawingCallback {
     }
 
     private Color selectionBackgroundColor() {
-      return myEditor.getColorsScheme().getColor(EditorColors.SELECTION_BACKGROUND_COLOR);
+      return myEditor.getSelectionModel().getTextAttributes().getBackgroundColor();
     }
 
     private void paintBackground() {
@@ -597,10 +603,7 @@ public final class EditorPainter implements TextDrawingCallback {
               float paintWidth = endX - startX;
               if (shouldUseNewSelection() && mySelectionLinePainter.isCFRInSelection(cfr)) {
                 paintWidth = cfr.getWidthInPixels();
-                backgroundAttributes.setBackgroundColor(
-                  myEditor.getColorsScheme()
-                    .getColor(EditorColors.SELECTION_BACKGROUND_COLOR)
-                );
+                backgroundAttributes.setBackgroundColor(selectionBackgroundColor());
 
                 float start = startX - (myEditor.isRightAligned() ? selectionExtensionWidth : 0.0f);
                 float end = start + paintWidth + (myEditor.isRightAligned() ? 0.0f : selectionExtensionWidth);
@@ -1481,7 +1484,7 @@ public final class EditorPainter implements TextDrawingCallback {
         private Color backgroundColor;
 
         private MyProcessor(boolean selection) {
-          backgroundColor = selection ? myEditor.getColorsScheme().getColor(EditorColors.SELECTION_BACKGROUND_COLOR) : null;
+          backgroundColor = selection ? selectionBackgroundColor() : null;
           layer = backgroundColor == null ? Integer.MIN_VALUE : HighlighterLayer.SELECTION;
         }
 

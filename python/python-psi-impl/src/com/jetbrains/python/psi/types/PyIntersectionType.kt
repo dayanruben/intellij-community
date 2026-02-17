@@ -12,8 +12,8 @@ import org.jetbrains.annotations.ApiStatus
 import java.util.Collections
 
 @ApiStatus.Experimental
-class PyIntersectionType private constructor(members: Collection<PyType?>) : PyType {
-  val members: Set<PyType?> = Collections.unmodifiableSet<PyType?>(LinkedHashSet(members))
+class PyIntersectionType private constructor(members: Collection<PyType?>) : PyCompoundType {
+  override val members: Set<PyType?> = Collections.unmodifiableSet<PyType?>(LinkedHashSet(members))
 
   override fun resolveMember(
     name: String,
@@ -51,7 +51,7 @@ class PyIntersectionType private constructor(members: Collection<PyType?>) : PyT
     }
   }
 
-  override fun <T> acceptTypeVisitor(visitor: PyTypeVisitor<T>): T {
+  override fun <T> acceptTypeVisitor(visitor: PyTypeVisitor<T>): T? {
     if (visitor is PyTypeVisitorExt<T>) {
       return visitor.visitPyIntersectionType(this)
     }

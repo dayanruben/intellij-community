@@ -25,6 +25,7 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.io.NioFiles
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.util.text.StringUtilRt
@@ -115,6 +116,10 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
   private val pooledUnresponsiveIntervalLazy: RegistryValue by lazy {
     RegistryManager.getInstance().get("performance.watcher.pooled.unresponsive.interval.ms")
   }
+  private val maxDumpDurationLazy: RegistryValue by lazy {
+    RegistryManager.getInstance().get("performance.watcher.maxDumpDuration.ms")
+  }
+
 
   private val isActive: Boolean = !ApplicationManager.getApplication().isHeadlessEnvironment
   private var smokeAndMirrorsCounter: Int = 0
@@ -153,8 +158,10 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
 
     startEdtSampling()
 
-    CoroutineDispatcherWatcher(Dispatchers.Default, coroutineScope, ::pooledUnresponsiveInterval).watchDispatcher()
-    CoroutineDispatcherWatcher(Dispatchers.IO, coroutineScope, ::pooledUnresponsiveInterval).watchDispatcher()
+    if (Registry.`is`("performance.watcher.pooled.enabled")) {
+      CoroutineDispatcherWatcher(Dispatchers.Default, coroutineScope, ::pooledUnresponsiveInterval).watchDispatcher()
+      CoroutineDispatcherWatcher(Dispatchers.IO, coroutineScope, ::pooledUnresponsiveInterval).watchDispatcher()
+    }
   }
 
   private fun startEdtSampling() {
@@ -270,7 +277,11 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
 
   /** to limit the number of dumps and the size of performance snapshot  */
   override val maxDumpDuration: Int
-    get() = (dumpInterval * 20).coerceIn(0, 40000) // 20 files max
+    get() {
+      val value = maxDumpDurationLazy.asInteger()
+      return if (value <= 0) 0 else value
+    }
+
   override val jitProblem: String?
     get() = jitWatcher.jitProblem
 

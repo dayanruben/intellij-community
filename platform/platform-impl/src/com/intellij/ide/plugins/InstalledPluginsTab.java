@@ -25,9 +25,11 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.actionSystem.KeepPopupOnPerform;
 import com.intellij.openapi.actionSystem.ToggleAction;
+import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.ui.components.fields.ExtendableTextComponent;
@@ -46,6 +48,7 @@ import javax.swing.JLabel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
@@ -63,6 +66,9 @@ import static com.intellij.ide.plugins.PluginManagerConfigurablePanel.showRightB
 
 @ApiStatus.Internal
 class InstalledPluginsTab extends PluginsTab {
+  private static final ExtensionPointName<PluginCategoryPromotionProvider> PROMOTION_EP_NAME =
+    ExtensionPointName.create("com.intellij.pluginCategoryPromotionProvider");
+
   private final @NotNull PluginModelFacade myPluginModelFacade;
   private final @NotNull PluginUpdatesService myPluginUpdatesService;
   private final @NotNull CoroutineScope myCoroutineScope;
@@ -75,8 +81,10 @@ class InstalledPluginsTab extends PluginsTab {
   private final PluginsGroup myBundledUpdateGroup =
     new PluginsGroup(IdeBundle.message("plugins.configurable.bundled.updates"), PluginsGroupType.BUNDLED_UPDATE);
 
-  private final LinkLabel<Object> myUpdateAll = new PluginManagerConfigurablePanel.LinkLabelButton<>(IdeBundle.message("plugin.manager.update.all"), null);
-  private final LinkLabel<Object> myUpdateAllBundled = new PluginManagerConfigurablePanel.LinkLabelButton<>(IdeBundle.message("plugin.manager.update.all"), null);
+  private final LinkLabel<Object> myUpdateAll =
+    new PluginManagerConfigurablePanel.LinkLabelButton<>(IdeBundle.message("plugin.manager.update.all"), null);
+  private final LinkLabel<Object> myUpdateAllBundled =
+    new PluginManagerConfigurablePanel.LinkLabelButton<>(IdeBundle.message("plugin.manager.update.all"), null);
   private final JLabel myUpdateCounter = new CountComponent();
   private final JLabel myUpdateCounterBundled = new CountComponent();
 
@@ -214,14 +222,52 @@ class InstalledPluginsTab extends PluginsTab {
         }
 
         String defaultCategory = IdeBundle.message("plugins.configurable.other.bundled");
+
+        Map<String, Supplier<JComponent>> promotionPanelSuppliers = new HashMap<>();
+        if (Registry.is("ide.plugins.category.promotion.enabled")) {
+          for (PluginCategoryPromotionProvider provider : PROMOTION_EP_NAME.getExtensionList()) {
+            promotionPanelSuppliers.put(provider.getCategoryName(), provider::createPromotionPanel);
+          }
+        }
+
         visibleBundledPlugins
           .stream()
           .collect(Collectors.groupingBy(descriptor -> StringUtil.defaultIfEmpty(descriptor.getDisplayCategory(), defaultCategory)))
           .entrySet()
           .stream()
-          .map(entry -> new ComparablePluginsGroup(entry.getKey(), entry.getValue(), model.getVisiblePluginsRequiresUltimate()))
-          .sorted((o1, o2) ->
-                    defaultCategory.equals(o1.title) ? 1 : defaultCategory.equals(o2.title) ? -1 : o1.compareTo(o2))
+          .map(entry -> {
+            ComparablePluginsGroup group =
+              new ComparablePluginsGroup(entry.getKey(), entry.getValue(), model.getVisiblePluginsRequiresUltimate());
+            if (Registry.is("ide.plugins.category.promotion.enabled")) {
+              Supplier<JComponent> promotionPanelSupplier = promotionPanelSuppliers.get(entry.getKey());
+              if (promotionPanelSupplier != null) {
+                JComponent promotionPanel = promotionPanelSupplier.get();
+                if (promotionPanel != null) {
+                  group.setPromotionPanel(promotionPanel);
+                }
+              }
+            }
+            return group;
+          })
+          .sorted((o1, o2) -> {
+            if (Registry.is("ide.plugins.category.promotion.enabled")) {
+              boolean isPriorityO1 = false;
+              boolean isPriorityO2 = false;
+              for (PluginCategoryPromotionProvider provider : PROMOTION_EP_NAME.getExtensionList()) {
+                if (provider.isPriorityCategory()) {
+                  String priorityCategory = provider.getCategoryName();
+                  if (priorityCategory.equals(o1.title)) isPriorityO1 = true;
+                  if (priorityCategory.equals(o2.title)) isPriorityO2 = true;
+                }
+              }
+              if (isPriorityO1 != isPriorityO2) {
+                return isPriorityO1 ? -1 : 1;
+              }
+            }
+            if (defaultCategory.equals(o1.title)) return 1;
+            if (defaultCategory.equals(o2.title)) return -1;
+            return o1.compareTo(o2);
+          })
           .forEachOrdered(group -> {
             group.getPreloadedModel().setErrors(model.getErrors());
             group.getPreloadedModel().setPluginInstallationStates(model.getInstallationStates());

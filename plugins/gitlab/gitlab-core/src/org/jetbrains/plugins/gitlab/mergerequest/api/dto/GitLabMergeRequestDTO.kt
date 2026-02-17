@@ -42,7 +42,16 @@ class GitLabMergeRequestDTO(
   val targetProject: GitLabProjectDTO,
   val sourceProject: GitLabProjectDTO?, // Is null when the source project is a private fork or is unavailable
   val userPermissions: GitLabMergeRequestPermissionsDTO,
+  val squash: Boolean, // property set on the MR
+  val squashOnMerge: Boolean, // [squash] can be overridden by project settings, and this is the final value after override
+  val squashReadOnly: Boolean, // if [squash] can be changed for this MR
+  val defaultSquashCommitMessage: String?,
+  val defaultMergeCommitMessage: String?,
+  // set after the merge is triggered, ignore for our purposes
+  // fetched purely to avoid confusion with [forceRemoveSourceBranch]
   val shouldRemoveSourceBranch: Boolean?,
+  // if it was set during MR creation at all, basically false if null
+  val forceRemoveSourceBranch: Boolean?,
   val shouldBeRebased: Boolean,
   val rebaseInProgress: Boolean,
   @SinceGitLab("13.5") approvedBy: UserCoreConnection,

@@ -9,26 +9,23 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
-import org.jetbrains.plugins.gitlab.api.dto.GitLabProjectDTO
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccount
 import org.jetbrains.plugins.gitlab.data.GitLabImageLoader
-import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabLazyProject
+import org.jetbrains.plugins.gitlab.data.GitLabProjectDetails
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabProject
+import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabProjectImpl
 import org.jetbrains.plugins.gitlab.util.GitLabProjectMapping
 import java.util.UUID
 
 /**
  * A low-level helper representing a GitLab project, to which the app was authorized to connect
- *
- * @param actualProjectCoordinates coordinates of the project e.g., after rename
  */
 class GitLabProjectConnection(
   project: Project,
   private val scope: CoroutineScope,
   override val repo: GitLabProjectMapping,
-  actualProjectCoordinates: GitLabProjectCoordinates,
-  glProject: GitLabProjectDTO,
+  projectDetails: GitLabProjectDetails,
   override val account: GitLabAccount,
   val currentUser: GitLabUserDTO,
   apiClient: GitLabApi,
@@ -41,14 +38,15 @@ class GitLabProjectConnection(
 
   val imageLoader: GitLabImageLoader = GitLabImageLoader(apiClient)
 
-  val projectData: GitLabProject = GitLabLazyProject(project,
+  val projectData: GitLabProject = GitLabProjectImpl(project,
                                                      scope,
                                                      apiClient,
                                                      glMetadata,
-                                                     glProject,
+                                                     projectDetails,
                                                      currentUser,
                                                      tokenRefreshFlow,
-                                                     actualProjectCoordinates,
+                                                     // handle the project rename
+                                                     repo.repository.copy(projectPath = projectDetails.path),
                                                      repo.remote)
 
   val serverVersion: GitLabVersion? = glMetadata?.version

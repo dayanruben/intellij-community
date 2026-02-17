@@ -9702,9 +9702,39 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/complexReceiver.kt");
         }
 
+        @TestMetadata("elementNameCollision.kt")
+        public void testElementNameCollision() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/elementNameCollision.kt");
+        }
+
+        @TestMetadata("elementNameCollisionMultiple.kt")
+        public void testElementNameCollisionMultiple() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/elementNameCollisionMultiple.kt");
+        }
+
+        @TestMetadata("elementNameCollisionNestedLoop.kt")
+        public void testElementNameCollisionNestedLoop() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/elementNameCollisionNestedLoop.kt");
+        }
+
+        @TestMetadata("elementNameCollisionParameter.kt")
+        public void testElementNameCollisionParameter() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/elementNameCollisionParameter.kt");
+        }
+
         @TestMetadata("forNotTarget.kt")
         public void testForNotTarget() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/forNotTarget.kt");
+        }
+
+        @TestMetadata("getMethod.kt")
+        public void testGetMethod() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/getMethod.kt");
+        }
+
+        @TestMetadata("getMethodDifferentArray.kt")
+        public void testGetMethodDifferentArray() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/getMethodDifferentArray.kt");
         }
 
         @TestMetadata("implicitReceiver.kt")
@@ -9770,6 +9800,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("notUsedAsIndex.kt")
         public void testNotUsedAsIndex() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/notUsedAsIndex.kt");
+        }
+
+        @TestMetadata("qualifiedReceiverDifferentCollection.kt")
+        public void testQualifiedReceiverDifferentCollection() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/qualifiedReceiverDifferentCollection.kt");
         }
 
         @TestMetadata("rangeTo.kt")
@@ -9840,6 +9875,26 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("usedForOtherArray.kt")
         public void testUsedForOtherArray() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/usedForOtherArray.kt");
+        }
+
+        @TestMetadata("withIndexBasic.kt")
+        public void testWithIndexBasic() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/withIndexBasic.kt");
+        }
+
+        @TestMetadata("withIndexElementNameCollision.kt")
+        public void testWithIndexElementNameCollision() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/withIndexElementNameCollision.kt");
+        }
+
+        @TestMetadata("withIndexMultipleArrayAccess.kt")
+        public void testWithIndexMultipleArrayAccess() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/withIndexMultipleArrayAccess.kt");
+        }
+
+        @TestMetadata("withIndexRangeTo.kt")
+        public void testWithIndexRangeTo() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/withIndexRangeTo.kt");
         }
     }
 
@@ -13430,6 +13485,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/backingFieldTypeIsASubtype.kt");
             }
 
+            @TestMetadata("backingPropertyIsVar.kt")
+            public void testBackingPropertyIsVar() throws Exception {
+                runTest("testData/inspectionsLocal/convertToExplicitBackingFields/backingPropertyIsVar.kt");
+            }
+
             @TestMetadata("commentsInsideBrackets.kt")
             public void testCommentsInsideBrackets() throws Exception {
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/commentsInsideBrackets.kt");
@@ -13508,6 +13568,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("simpleWithInheritance.kt")
             public void testSimpleWithInheritance() throws Exception {
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/simpleWithInheritance.kt");
+            }
+
+            @TestMetadata("thisForNestedScopes.kt")
+            public void testThisForNestedScopes() throws Exception {
+                runTest("testData/inspectionsLocal/convertToExplicitBackingFields/thisForNestedScopes.kt");
             }
 
             @TestMetadata("twoGetters.kt")

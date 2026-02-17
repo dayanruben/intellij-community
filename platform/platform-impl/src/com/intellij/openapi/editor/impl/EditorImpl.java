@@ -203,7 +203,6 @@ import com.intellij.util.ui.TimerUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.UiNotifyConnector;
 import kotlin.Unit;
-import kotlinx.coroutines.Job;
 import org.intellij.lang.annotations.JdkConstants;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.ApiStatus;
@@ -287,7 +286,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TooManyListenersException;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -342,6 +340,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   boolean myCursorSetExternally;
 
   private final @NotNull EditorCaretRepaintService caretRepaintService = EditorCaretRepaintService.getInstance();
+  private final @NotNull EditorCaretMoveProcessor caretMoveProcessor;
 
   private static final Integer SCROLL_PANE_LAYER = 0;
   private static final Integer STICKY_PANEL_LAYER = 200;
@@ -491,6 +490,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private boolean myCurrentDragIsSubstantial;
   private boolean myForcePushHappened;
   private boolean myMouseIsInDrag;
+  private boolean myIsInFocus = true;
 
   private @Nullable VisualPosition mySuppressedByBreakpointsLastPressPosition;
 
@@ -612,6 +612,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
     myIndentsModel = new IndentsModelImpl(this);
     myCaretCursor = new CaretCursor();
+    caretMoveProcessor = EditorCaretMoveProcessorFactory.createProcessor(this);
 
     myState.setVerticalScrollBarOrientation(VERTICAL_SCROLLBAR_RIGHT);
 
@@ -833,21 +834,52 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   public void focusGained(@NotNull FocusEvent e) {
     myCaretCursor.activate();
     gainedFocus.set(true);
+
     for (Caret caret : myCaretModel.getAllCarets()) {
       int caretLine = caret.getLogicalPosition().line;
       repaintLines(caretLine, caretLine);
     }
+
     fireFocusGained(e);
+
+    SwingUtilities.invokeLater(() -> {
+      if (isDisposed()) return;
+
+      if (myKeepSelectionOnMousePress && myMousePressedEvent != null) {
+        return;
+      }
+
+      setFocusGained();
+    });
+  }
+
+  private void setFocusGained() {
+    if (myIsInFocus) return;
+
+    myIsInFocus = true;
+    mySelectionModel.reinitSettings();
+    for (Caret caret : myCaretModel.getAllCarets()) {
+      if (caret.hasSelection()) {
+        repaint(caret.getSelectionStart(), caret.getSelectionEnd());
+      }
+    }
   }
 
   @Override
   public void focusLost(@NotNull FocusEvent e) {
+    myIsInFocus = false;
+    mySelectionModel.reinitSettings();
+
     clearCaretThread();
     for (Caret caret : myCaretModel.getAllCarets()) {
       int caretLine = caret.getLogicalPosition().line;
       repaintLines(caretLine, caretLine);
     }
     fireFocusLost(e);
+  }
+
+  boolean isInFocus() {
+    return myIsInFocus;
   }
 
   private void queueErrorStipeRepaintRequest(int start, int end) {
@@ -1366,10 +1398,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         Disposer.dispose(myAdEditorModel);
       }
       clearCaretThread();
-      if (caretAnimationJob != null) {
-        caretAnimationJob.cancel(null);
-        caretAnimationJob = null;
-      }
+      caretMoveProcessor.clear();
 
       myFocusListeners.clear();
       myMouseListeners.clear();
@@ -2989,6 +3018,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         return;
       }
 
+      setFocusGained();
       if (mySuppressedByBreakpointsLastPressPosition != null) {
         getCaretModel().removeSecondaryCarets();
         getCaretModel().moveToVisualPosition(mySuppressedByBreakpointsLastPressPosition);
@@ -3358,15 +3388,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
-  @ApiStatus.Internal
-  final ConcurrentHashMap<Caret, kotlin.Pair<Point2D, @Nullable LogicalPosition>> lastPosMap = new ConcurrentHashMap<>();
-
-  @ApiStatus.Internal
-  @Nullable
-  Job caretAnimationJob = null;
-
-  private final @NotNull EditorCaretMoveService caretMoveService = EditorCaretMoveService.getInstance();
-
   private boolean shouldSetCursorPositionImmediately() {
     return !getSettings().isAnimatedCaret() ||
            gainedFocus.getAndSet(false) ||
@@ -3377,12 +3398,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   private void setCursorPosition() {
-    synchronized (caretMoveService) {
-      if (shouldSetCursorPositionImmediately()) {
-        caretMoveService.setCursorPositionImmediately(this);
-      } else {
-        caretMoveService.setCursorPosition(this);
-      }
+    if (shouldSetCursorPositionImmediately()) {
+      caretMoveProcessor.setCursorPositionImmediately();
+    } else {
+      caretMoveProcessor.setCursorPosition();
     }
   }
 
@@ -3581,6 +3600,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
     void repaint() {
       myView.repaintCarets();
+    }
+
+    void repaint(CaretRectangle @NotNull [] locations) {
+      myView.repaintCarets(locations);
     }
 
     private boolean isEditorInputFocusOwner() {
@@ -4531,6 +4554,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
             Math.abs(e.getY() - myMousePressedEvent.getY()) < getLineHeight()) {
           runMouseClickedCommand(e);
         }
+        setFocusGained();
       });
     }
 

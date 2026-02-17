@@ -1005,6 +1005,7 @@ plugins/gradle/java/groovy
 plugins/gradle/java/groovy/ml
 plugins/gradle/java/groovy/toml
 plugins/gradle/java/performance
+plugins/gradle/java/plugin
 plugins/gradle/java/properties
 plugins/gradle/java/toml
 plugins/gradle/jps-plugin
@@ -1124,6 +1125,7 @@ plugins/kotlin/base/psi
 plugins/kotlin/base/resources
 plugins/kotlin/base/scripting/scripting.k1
 plugins/kotlin/base/scripting/scripting.k2
+plugins/kotlin/base/scripting/scripting.scratch.definition
 plugins/kotlin/base/scripting/scripting.shared
 plugins/kotlin/base/statistics
 plugins/kotlin/base/test

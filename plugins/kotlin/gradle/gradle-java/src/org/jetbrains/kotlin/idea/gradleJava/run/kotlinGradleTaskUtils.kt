@@ -172,9 +172,6 @@ fun KtNamedFunction.getConfigurationName(): String? {
 }
 
 @RequiresReadLock
-fun kmpJvmGradleTaskParameters(function: KtNamedFunction): String = "${mainClassScriptParameter(function)} $quietParameter"
-
-@RequiresReadLock
 internal fun mainClassScriptParameter(function: KtFunction): String = "-DmainClass=${function.containingKtFile.javaFileFacadeFqName}"
 
 /**
@@ -195,10 +192,24 @@ fun configureKmpJvmRunConfigurationFromMainFunction(
     configuration.isDebugAllEnabled = false
     configuration.isDebugServerProcess = false
 
+    val scriptParameterList = when (runTask.gradlePluginType) {
+        KotlinGradlePluginType.Jvm -> {
+            configuration.isComposeJvm = true
+            val mainFunctionClassFqn = ReadAction.compute<String, Throwable> { function.containingKtFile.javaFileFacadeFqName.asString() }
+            configuration.mainFunctionClassFqn = mainFunctionClassFqn
+            listOf(quietParameter)
+        }
+
+        KotlinGradlePluginType.Multiplatform ->{
+            val mainClassParameter = ReadAction.compute<String, Throwable> { mainClassScriptParameter(function) }
+            listOf(mainClassParameter, quietParameter)
+        }
+    }
+
     configuration.settings.apply {
         externalProjectPath = ExternalSystemApiUtil.getExternalProjectPath(module)
         taskNames = listOf(runTask.taskName)
-        scriptParameters = ReadAction.compute<String, Throwable> { kmpJvmGradleTaskParameters(function) }
+        scriptParameters = scriptParameterList.joinToString(" ")
     }
 }
 
@@ -207,7 +218,7 @@ private const val quietParameter: String = "--quiet"
 fun getGradleExtensions(moduleDataNode: DataNode<*>): List<GradleExtension>? =
     ExternalSystemApiUtil.find(moduleDataNode, GradleExtensionsDataService.KEY)?.data?.extensions
 
-internal enum class KotlinGradlePluginType {
+enum class KotlinGradlePluginType {
     Jvm,
     Multiplatform;
 

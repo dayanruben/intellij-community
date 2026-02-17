@@ -217,7 +217,12 @@ private fun dumpItemDtos(allDumpItems: List<DumpItem>, maxItems: Int): ThreadDum
                           isDeadLocked = it.isDeadLocked,
                           stackTraceIndex = stackTraceIndex,
                           iconToolTipIndex = iconToolTipToIndex[it.iconToolTip]!!.toByte(),
-                          firstLine = firstLine)
+                          firstLine = firstLine,
+                          isContainer = it.isContainer,
+                          id = it.id,
+                          parentId = it.parentId,
+                          canBeHidden = it.canBeHidden
+    )
   }
 
   return ThreadDumpWithAwaitingDependencies(items = items,
