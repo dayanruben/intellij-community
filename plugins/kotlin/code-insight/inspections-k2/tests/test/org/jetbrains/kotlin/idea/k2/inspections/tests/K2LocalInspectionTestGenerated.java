@@ -8345,6 +8345,50 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/coroutines/uselessCallOnFlow")
+    public static class UselessCallOnFlow extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("FilterIsExactInstance.kt")
+        public void testFilterIsExactInstance() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/coroutines/uselessCallOnFlow/FilterIsExactInstance.kt");
+        }
+
+        @TestMetadata("FilterIsExactInstanceFake.kt")
+        public void testFilterIsExactInstanceFake() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/coroutines/uselessCallOnFlow/FilterIsExactInstanceFake.kt");
+        }
+
+        @TestMetadata("FilterNotNull.kt")
+        public void testFilterNotNull() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/coroutines/uselessCallOnFlow/FilterNotNull.kt");
+        }
+
+        @TestMetadata("FilterNotNullFake.kt")
+        public void testFilterNotNullFake() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/coroutines/uselessCallOnFlow/FilterNotNullFake.kt");
+        }
+
+        @TestMetadata("MapNotNullWithLambda.kt")
+        public void testMapNotNullWithLambda() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/coroutines/uselessCallOnFlow/MapNotNullWithLambda.kt");
+        }
+
+        @TestMetadata("MapNotNullWithLambdaFake.kt")
+        public void testMapNotNullWithLambdaFake() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/coroutines/uselessCallOnFlow/MapNotNullWithLambdaFake.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/inspectionsLocal/joinDeclarationAndAssignment")
     public abstract static class JoinDeclarationAndAssignment extends AbstractK2LocalInspectionTest {
         @RunWith(JUnit3RunnerWithInners.class)
@@ -13475,6 +13519,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("abstractClassOverride.kt")
+            public void testAbstractClassOverride() throws Exception {
+                runTest("testData/inspectionsLocal/convertToExplicitBackingFields/abstractClassOverride.kt");
+            }
+
             @TestMetadata("backTicksAsName.kt")
             public void testBackTicksAsName() throws Exception {
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/backTicksAsName.kt");
@@ -13488,6 +13537,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("backingPropertyIsVar.kt")
             public void testBackingPropertyIsVar() throws Exception {
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/backingPropertyIsVar.kt");
+            }
+
+            @TestMetadata("backingPropertyWithGetter.kt")
+            public void testBackingPropertyWithGetter() throws Exception {
+                runTest("testData/inspectionsLocal/convertToExplicitBackingFields/backingPropertyWithGetter.kt");
             }
 
             @TestMetadata("commentsInsideBrackets.kt")
@@ -13523,6 +13577,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("interface.kt")
             public void testInterface() throws Exception {
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/interface.kt");
+            }
+
+            @TestMetadata("kdocFromBackingField.kt")
+            public void testKdocFromBackingField() throws Exception {
+                runTest("testData/inspectionsLocal/convertToExplicitBackingFields/kdocFromBackingField.kt");
+            }
+
+            @TestMetadata("mutableBackingField.kt")
+            public void testMutableBackingField() throws Exception {
+                runTest("testData/inspectionsLocal/convertToExplicitBackingFields/mutableBackingField.kt");
             }
 
             @TestMetadata("nonPrivateBackingField.kt")
@@ -13573,6 +13637,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("thisForNestedScopes.kt")
             public void testThisForNestedScopes() throws Exception {
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/thisForNestedScopes.kt");
+            }
+
+            @TestMetadata("thisInGetters.kt")
+            public void testThisInGetters() throws Exception {
+                runTest("testData/inspectionsLocal/convertToExplicitBackingFields/thisInGetters.kt");
             }
 
             @TestMetadata("twoGetters.kt")

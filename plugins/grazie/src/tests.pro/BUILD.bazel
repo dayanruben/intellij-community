@@ -70,8 +70,17 @@ jvm_library(
     "@lib//:grazie-tests-pro-ai-grazie-model-swagger-annotations-jvm",
     "//platform/testFramework/junit5",
     "//platform/testFramework/junit5:junit5_test_lib",
+    "//images:images-tests_test_lib",
+    "//RegExpSupport:regexp-tests_test_lib",
+    "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
+    "//python/services/system-python:python-community-services-systemPython-tests_test_lib",
+    "//python/python-pyproject:pyproject-tests_test_lib",
+    "//python/services/internal-impl:python-community-services-internal-impl-tests_test_lib",
   ],
-  runtime_deps = [":tests.pro"]
+  runtime_deps = [
+    ":tests.pro",
+    "//python/python-venv:venv-tests_test_lib",
+  ]
 )
 ### auto-generated section `build intellij.grazie.tests.pro` end
 

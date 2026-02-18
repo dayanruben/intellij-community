@@ -783,5 +783,12 @@
       </library>
     </orderEntry>
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.images.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.regexp.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.debugger.impl.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.python.venv.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.python.community.services.systemPython.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.python.pyproject.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.python.community.services.internal.impl.tests" scope="TEST" />
   </component>
 </module>
