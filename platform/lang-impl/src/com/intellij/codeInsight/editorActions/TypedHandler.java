@@ -22,6 +22,7 @@ import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.RuntimeFlagsKt;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.impl.UndoManagerImpl;
 import com.intellij.openapi.command.undo.UndoManager;
@@ -102,6 +103,10 @@ public final class TypedHandler extends TypedActionHandlerBase {
 
   private static @NotNull FileType getFileType(@NotNull PsiFile file, @NotNull Editor editor) {
     FileType fileType = file.getFileType();
+    if (RuntimeFlagsKt.isEditorLockFreeTypingEnabled()) {
+      // PsiUtilBase.getLanguageInEditor requires RA
+      return fileType;
+    }
     Language language = PsiUtilBase.getLanguageInEditor(editor, file.getProject());
     if (language != null && language != PlainTextLanguage.INSTANCE) {
       LanguageFileType associatedFileType = language.getAssociatedFileType();
@@ -292,6 +297,9 @@ public final class TypedHandler extends TypedActionHandlerBase {
                                        @NotNull Project project,
                                        @NotNull Editor editor,
                                        @NotNull PsiFile file) {
+    if (RuntimeFlagsKt.isEditorLockFreeTypingEnabled()) {
+      return false;
+    }
     boolean warned = false;
     for (TypedHandlerDelegate delegate : TypedHandlerDelegate.EP_NAME.getExtensionList()) {
       TypedHandlerDelegate.Result result = action.call(delegate, charTyped, project, editor, file);
@@ -354,7 +362,7 @@ public final class TypedHandler extends TypedActionHandlerBase {
 
     PsiElement element;
     Language language;
-    if (file instanceof PsiFileWithOneLanguage) {
+    if (file instanceof PsiFileWithOneLanguage || RuntimeFlagsKt.isEditorLockFreeTypingEnabled()) {
       language = file.getLanguage();
 
       // we know the language, so let's try to avoid inferring the element at caret
@@ -460,14 +468,15 @@ public final class TypedHandler extends TypedActionHandlerBase {
                                         char lparenChar) {
     int offset = editor.getCaretModel().getOffset();
     HighlighterIterator iterator = editor.getHighlighter().createIterator(offset);
-    boolean atEndOfDocument = offset == editor.getDocument().getTextLength();
+    Document document = editor.getUiDocument();
+    boolean atEndOfDocument = offset == document.getTextLength();
 
     if (!atEndOfDocument) iterator.retreat();
     if (iterator.atEnd()) return;
     BraceMatcher braceMatcher = BraceMatchingUtil.getBraceMatcher(fileType, iterator);
     if (iterator.atEnd()) return;
     IElementType braceTokenType = iterator.getTokenType();
-    CharSequence fileText = editor.getDocument().getCharsSequence();
+    CharSequence fileText = document.getCharsSequence();
     if (!braceMatcher.isLBraceToken(iterator, fileText, fileType)) return;
 
     if (!iterator.atEnd()) {
@@ -498,7 +507,7 @@ public final class TypedHandler extends TypedActionHandlerBase {
       if (callDelegates(TypedHandlerDelegate::beforeClosingParenInserted, text.charAt(0), project, editor, file)) {
         return;
       }
-      editor.getDocument().insertString(offset, text);
+      document.insertString(offset, text);
       TabOutScopesTracker.getInstance().registerEmptyScope(editor, offset);
     }
   }

@@ -6,6 +6,7 @@ import com.intellij.openapi.vfs.DeprecatedVirtualFileSystem
 import com.intellij.openapi.vfs.NonPhysicalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
+import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.ConcurrentHashMap
 
 internal class AgentChatVirtualFileSystem : DeprecatedVirtualFileSystem(), NonPhysicalFileSystem {
@@ -14,7 +15,9 @@ internal class AgentChatVirtualFileSystem : DeprecatedVirtualFileSystem(), NonPh
   override fun getProtocol(): String = AGENT_CHAT_PROTOCOL
 
   override fun findFileByPath(path: String): VirtualFile? {
-    val descriptor = AgentChatFileDescriptor.parsePath(path) ?: return null
+    val tabKey = AgentChatFileDescriptor.parsePath(path) ?: return null
+    val metadataStore = AgentChatTabMetadataStores.getInstance()
+    val descriptor = metadataStore.loadDescriptor(tabKey) ?: AgentChatFileDescriptor.unresolved(tabKey)
     return getOrCreateFile(descriptor)
   }
 
@@ -38,14 +41,15 @@ internal class AgentChatVirtualFileSystem : DeprecatedVirtualFileSystem(), NonPh
 internal const val AGENT_CHAT_PROTOCOL: String = "agent-chat"
 
 internal object AgentChatVirtualFileSystems {
-  private val fallbackInstance = AgentChatVirtualFileSystem()
-
-  fun getInstanceOrFallback(): AgentChatVirtualFileSystem {
-    if (ApplicationManager.getApplication() == null) {
-      return fallbackInstance
+  fun getInstance(): AgentChatVirtualFileSystem {
+    checkNotNull(ApplicationManager.getApplication()) {
+      "AgentChatVirtualFileSystem requires an initialized application"
     }
-
     val fileSystem = VirtualFileManager.getInstance().getFileSystem(AGENT_CHAT_PROTOCOL)
-    return (fileSystem as? AgentChatVirtualFileSystem) ?: fallbackInstance
+    return (fileSystem as? AgentChatVirtualFileSystem)
+      ?: error("AgentChatVirtualFileSystem is not registered for protocol $AGENT_CHAT_PROTOCOL")
   }
+
+  @TestOnly
+  fun createStandaloneForTest(): AgentChatVirtualFileSystem = AgentChatVirtualFileSystem()
 }

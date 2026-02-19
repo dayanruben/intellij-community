@@ -1,9 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl
 
+import com.intellij.openapi.application.WriteIntentReadAction
+import com.intellij.openapi.application.isEditorLockFreeTypingEnabled
 import com.intellij.openapi.editor.EditorThreading
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.util.application
+import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.ui.EDT
 import org.jetbrains.annotations.ApiStatus
 
@@ -31,6 +34,39 @@ class EditorThreadingImpl : EditorThreading {
     }
     else {
       application.runReadAction(action)
+    }
+  }
+
+  override fun <T, E : Throwable> doComputeWritable(action: ThrowableComputable<T, E>): T {
+    return if (EDT.isCurrentThreadEdt() && isEditorLockFreeTypingEnabled) {
+      action.compute()
+    }
+    else {
+      WriteIntentReadAction.computeThrowable(action)
+    }
+  }
+
+  override fun doRunWritable(action: Runnable) {
+    if (EDT.isCurrentThreadEdt() && isEditorLockFreeTypingEnabled) {
+      action.run()
+    }
+    else {
+      WriteIntentReadAction.run(action)
+    }
+  }
+
+  override fun doAssertWriteAllowed() {
+    if (!(EDT.isCurrentThreadEdt() && isEditorLockFreeTypingEnabled)) {
+      ThreadingAssertions.assertWriteAccess()
+    }
+  }
+
+  override fun doWrite(action: Runnable) {
+    if (EDT.isCurrentThreadEdt() && isEditorLockFreeTypingEnabled) {
+      action.run()
+    }
+    else {
+      application.runWriteAction(action)
     }
   }
 }
