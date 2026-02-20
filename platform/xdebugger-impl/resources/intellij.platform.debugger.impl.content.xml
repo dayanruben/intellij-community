@@ -79,8 +79,6 @@
     <applicationService serviceInterface="com.intellij.xdebugger.attach.XAttachRecentItemsMatcher" open="true"
                         serviceImplementation="com.intellij.xdebugger.impl.actions.DefaultAttachRecentItemsMatcher"/>
 
-    <gutterMarkPreprocessor implementation="com.intellij.xdebugger.impl.breakpoints.BreakpointGutterIconMerge"/>
-
     <runDashboardCustomizer implementation="com.intellij.xdebugger.impl.dashboard.XDebuggerRunDashboardCustomizer" order="first"/>
     <xdebugger.managerProxy implementation="com.intellij.xdebugger.impl.proxy.MonolithXDebugManagerProxy" order="last"/>
     <xdebugger.monolithAccessPoint implementation="com.intellij.xdebugger.impl.proxy.XDebuggerMonolithAccessPointImpl"/>
@@ -95,10 +93,6 @@
                  description="Debugger implementation for split mode. Enable it in monolith as well to have the same experience as in RD."
                  key="xdebugger.toolwindow.split"
                  restartRequired="true"/>
-
-    <registryKey defaultValue="false"
-                 description="Use LUXed evaluation debugger popup"
-                 key="xdebugger.lux.evaluation.popup"/>
 
     <registryKey defaultValue="true"
                  description="Throw warnings and errors about misusages of frontend components on the backend (and vice versa)"

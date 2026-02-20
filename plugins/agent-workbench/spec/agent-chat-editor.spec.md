@@ -8,13 +8,15 @@ targets:
   - ../plugin/resources/META-INF/plugin.xml
   - ../plugin-content.yaml
   - ../sessions/src/*.kt
+  - ../sessions/resources/intellij.agent.workbench.sessions.xml
+  - ../sessions/resources/messages/AgentSessionsBundle.properties
   - ../sessions/testSrc/*.kt
 ---
 
 # Agent Chat Editor
 
 Status: Draft
-Date: 2026-02-18
+Date: 2026-02-19
 
 ## Summary
 Define how thread/sub-agent selections open chat editor tabs. Routing honors dedicated-frame mode, reuses tabs by session identity, persists/restores chat tabs through a protocol-backed virtual file system, and lazily initializes heavy terminal content on first explicit tab selection.
@@ -44,6 +46,7 @@ Define how thread/sub-agent selections open chat editor tabs. Routing honors ded
 - Metadata file payload must include identity and runtime fields: project hash/path, thread identity/sub-agent, thread id, shell command, title, and updated timestamp.
 - Metadata files are canonical restore state for Agent chat tabs; URL compatibility with previous descriptor-encoded format is not required.
 - Stale or invalid metadata files must be pruned periodically.
+- Successful thread archive from Agent Threads must close all matching open chat tabs and delete matching metadata files for the same normalized project path + thread identity.
 - Chat editor creation must be lazy for heavy terminal content:
   - tab/editor shell is created immediately,
   - terminal session is created only after first explicit selection/focus of that tab.
@@ -54,6 +57,13 @@ Define how thread/sub-agent selections open chat editor tabs. Routing honors ded
 - The editor tab title must use the thread title (fallback to `Agent Chat` when blank).
 - Editor tab title must be provided via `EditorTabTitleProvider` and must not depend on virtual file name mutations.
 - Reopening an already open chat tab for the same identity with a newer thread title must update the existing tab title.
+- Editor-tab popup actions for the selected Agent chat tab must include:
+  - `Open in Agent Threads`;
+  - `Archive Thread` (enabled only when provider supports archive);
+  - `Copy Thread ID`.
+- `Open in Agent Threads` from editor-tab popup must ensure thread visibility (`ensureThreadVisible`) before activating Agent Threads tool window.
+- `Archive Thread` from editor-tab popup must delegate to the same archive service flow used by Agent Threads tree actions.
+- Session entity labels must use `Thread`; `Chat` naming is limited to editor-tab/file surface.
 - The shell command used to start chat sessions is provider-specific:
   - Codex: `codex resume <threadId>`
   - Claude: `claude --resume <threadId>`
@@ -61,6 +71,8 @@ Define how thread/sub-agent selections open chat editor tabs. Routing honors ded
 
 [@test] ../sessions/testSrc/AgentSessionsOpenModeRoutingTest.kt
 [@test] ../sessions/testSrc/AgentSessionsToolWindowTest.kt
+[@test] ../sessions/testSrc/AgentSessionsEditorTabActionsTest.kt
+[@test] ../sessions/testSrc/AgentSessionsGearActionsTest.kt
 [@test] ../chat/testSrc/AgentChatEditorServiceTest.kt
 [@test] ../chat/testSrc/AgentChatFileEditorProviderTest.kt
 [@test] ../chat/testSrc/AgentChatTabSelectionServiceTest.kt
@@ -69,6 +81,7 @@ Define how thread/sub-agent selections open chat editor tabs. Routing honors ded
 - Single click on a thread row opens the chat editor.
 - Single click on a sub-agent row opens a separate chat editor tab for that sub-agent.
 - Editor tab name is the thread title; editor icon uses an Agent/communication glyph.
+- Editor-tab popup exposes thread lifecycle/navigation actions (`Open in Agent Threads`, `Archive Thread`, `Copy Thread ID`) for selected chat tabs.
 - By default, chat editor opens in a dedicated frame.
 - Users can disable dedicated-frame mode from Advanced Settings to restore current-project-frame behavior.
 - After restart, all previously open chat tabs are restored in their prior project frame context.
@@ -84,8 +97,10 @@ Define how thread/sub-agent selections open chat editor tabs. Routing honors ded
 - If the project path is invalid or project opening fails, do not open a chat editor tab.
 - If provider/session identity cannot be resolved, fail safely without crashing the UI.
 - If a restored tab metadata file is missing/corrupt/invalid (or has missing path/identity/command), skip and close that tab and show a non-blocking warning notification.
+- Restore validation failures must delete the tab metadata file immediately.
 - Restore warnings for the same tab/reason must be deduplicated per IDE session to avoid startup notification spam.
 - If terminal initialization fails on first tab activation, close the tab and show a warning notification.
+- Terminal initialization failures must delete the tab metadata file immediately.
 
 ## Testing / Local Run
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionsOpenModeRoutingTest'`

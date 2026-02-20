@@ -14,7 +14,7 @@ targets:
 # Agent Threads Tool Window
 
 Status: Draft
-Date: 2026-02-16
+Date: 2026-02-19
 
 ## Summary
 Define the Agent Threads tool window as a provider-agnostic, project-scoped session browser. Threads from supported providers are aggregated per project/worktree, rendered in one tree, opened through a shared chat routing flow, and optionally archived when the provider supports archive.
@@ -62,8 +62,16 @@ Define the Agent Threads tool window as a provider-agnostic, project-scoped sess
   - Claude: `claude --resume <sessionId>`
 - New-session action behavior (provider options, Codex/Claude command mapping, and Full Auto semantics) is defined in `spec/actions/new-thread.spec.md` and must be used by both project and worktree rows.
 - Thread context menu must expose `Archive` only when the corresponding provider bridge advertises archive capability.
+- Editor tab popup actions for the currently selected Agent chat tab must expose:
+  - `Open in Agent Threads`,
+  - `Archive Thread`,
+  - `Copy Thread ID`.
+- Editor-tab `Archive Thread` must reuse the same provider archive-capability gate as thread-row archive action.
+- Editor-tab `Open in Agent Threads` must call `ensureThreadVisible(path, provider, threadId)` before activating the Agent Threads tool window.
+- User-visible labels for session entities must use `Thread`; `Chat` terminology is reserved for editor-tab/file surface.
 - Archive action requests must be deduplicated per `(path, provider, threadId)` while in flight.
 - Successful archive must optimistically remove the thread from current state and then trigger refresh.
+- Successful archive must close all open Agent chat tabs for the same normalized project path and thread identity (`provider:threadId`) and delete corresponding chat metadata files.
 - Archive failures (provider missing, unsupported, or backend error) must resolve to provider-unavailable warning behavior.
 - Codex thread discovery must default to rollout session files; app-server thread discovery remains an explicit compatibility override path.
 - Codex thread title normalization and filtering rules are defined in `spec/agent-sessions-codex-rollout-source.spec.md` and must be used for Codex thread rows.
@@ -74,6 +82,8 @@ Define the Agent Threads tool window as a provider-agnostic, project-scoped sess
 [@test] ../sessions/testSrc/AgentSessionsServiceOnDemandIntegrationTest.kt
 [@test] ../sessions/testSrc/AgentSessionsServiceConcurrencyIntegrationTest.kt
 [@test] ../sessions/testSrc/AgentSessionsServiceArchiveIntegrationTest.kt
+[@test] ../sessions/testSrc/AgentSessionsEditorTabActionsTest.kt
+[@test] ../sessions/testSrc/AgentSessionsGearActionsTest.kt
 [@test] ../sessions/testSrc/AgentSessionsToolWindowTest.kt
 [@test] ../sessions/testSrc/AgentSessionsTreeUiStateServiceTest.kt
 
@@ -83,6 +93,7 @@ Define the Agent Threads tool window as a provider-agnostic, project-scoped sess
 - Provider warning rows are non-blocking and shown inline in the same project/worktree section.
 - Blocking errors show retry action inline.
 - `More...`/`More…` behavior follows `spec/agent-sessions-thread-visibility.spec.md`.
+- Agent chat editor tabs expose `Open in Agent Threads`, `Archive Thread`, and `Copy Thread ID` in editor-tab context menu when a chat tab is selected.
 
 ## Data & Backend
 - Open projects use long-lived provider sessions where available.
@@ -94,6 +105,7 @@ Define the Agent Threads tool window as a provider-agnostic, project-scoped sess
 - Missing provider CLI/tooling must resolve to provider-specific user-facing messages.
 - Unexpected provider failures must resolve to generic provider-unavailable warnings when partial data exists.
 - Refresh/load failures must preserve already loaded thread data when possible.
+- Archive chat-metadata cleanup failures must be logged and must not block successful thread removal and refresh behavior.
 
 ## Testing / Local Run
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionLoadAggregationTest'`

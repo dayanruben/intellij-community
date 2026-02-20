@@ -247,7 +247,6 @@
                         serviceImplementation="com.intellij.lang.LocalizationStateServiceImpl"/>
     <projectService serviceInterface="com.intellij.platform.ide.navigation.NavigationService"
                     serviceImplementation="com.intellij.platform.ide.navigation.impl.IdeNavigationService"/>
-    <projectService serviceImplementation="com.intellij.platform.ide.navigation.impl.IdeNavigationServiceExecutor" open="true"/>
     <applicationService serviceInterface="com.intellij.ide.util.PsiNavigationSupport" open="true"
                         serviceImplementation="com.intellij.ide.util.PsiNavigationSupportImpl"/>
 
@@ -431,7 +430,6 @@
       implementation="com.intellij.codeInsight.hints.declarative.impl.DeclarativeInlayHintsMouseMotionListener"/>
     <highlightingPassFactory implementation="com.intellij.codeInsight.daemon.impl.InlayHintsPassFactoryInternal"/>
     <highlightingPassFactory implementation="com.intellij.codeInsight.hints.declarative.impl.DeclarativeInlayHintsPassFactory"/>
-    <applicationService serviceImplementation="com.intellij.codeInsight.hints.declarative.impl.DeclarativeInlayActionService" open="true"/>
 
     <projectConfigurable provider="com.intellij.codeInsight.hints.settings.InlaySettingsConfigurableProvider"
                          id="inlay.hints"
@@ -460,6 +458,8 @@
       implementation="com.intellij.codeInsight.hints.declarative.impl.DeclarativeHintsDefaultProviderFactory"/>
     <codeInsight.inlayActionHandler implementationClass="com.intellij.codeInsight.hints.declarative.PsiPointerInlayActionNavigationHandler"
                                     handlerId="psi.pointer.navigation.handler"/>
+    <codeInsight.inlayInteractionHandler
+      implementation="com.intellij.codeInsight.hints.declarative.impl.interaction.DefaultInlayInteractionHandler" order="last"/>
 
     <applicationService serviceInterface="com.intellij.framework.detection.FileContentPattern$ParseXml"
                         serviceImplementation="com.intellij.util.xml.NanoXmlParserImpl"/>
@@ -820,10 +820,17 @@
     <search.topHitProvider implementation="com.intellij.application.options.editor.CodeFoldingOptionsTopHitProvider"/>
     <editorOptionsProvider instance="com.intellij.application.options.editor.CodeFoldingConfigurable" id="editor.preferences.folding"
                            key="group.code.folding" bundle="messages.ApplicationBundle"/>
-    <editorOptionsProvider instance="com.intellij.application.options.CodeCompletionConfigurable" id="editor.preferences.completion"
+    <editorOptionsProvider dynamic="true" instance="com.intellij.application.options.editor.completion.CompletionConfigurable" id="editor.preferences.completion"
                            key="title.code.completion" bundle="messages.ApplicationBundle"/>
-    <editorOptionsProvider instance="com.intellij.codeInsight.inline.completion.options.InlineCompletionConfigurable" id="editor.preferences.inline.completion"
-                           key="title.inline.completion" bundle="messages.ApplicationBundle"/>
+    <!-- Editor | Code Completion subpages registered via EP instead of direct instantiation -->
+    <editorCompletionConfigurable
+      instance="com.intellij.application.options.CodeCompletionConfigurable"
+      id="editor.preferences.completion.popup"
+    />
+    <editorCompletionConfigurable
+      instance="com.intellij.codeInsight.inline.completion.options.InlineCompletionConfigurable"
+      id="editor.preferences.completion.inline"/>
+
     <projectConfigurable instance="com.intellij.application.options.editor.AutoImportOptionsConfigurable"
                          id="editor.preferences.import"
                          parentId="preferences.editor"

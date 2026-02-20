@@ -3,8 +3,7 @@ package com.intellij.agent.workbench.chat
 
 // @spec community/plugins/agent-workbench/spec/agent-chat-editor.spec.md
 
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.UI
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
@@ -14,9 +13,6 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.VirtualFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.nio.file.InvalidPathException
-import java.nio.file.Path
-import kotlin.io.path.invariantSeparatorsPathString
 
 private class AgentChatEditorServiceLog
 
@@ -74,13 +70,13 @@ suspend fun openChat(
   }
 }
 
-suspend fun collectOpenAgentChatProjectPaths(): Set<String> = runOnEdt {
+suspend fun collectOpenAgentChatProjectPaths(): Set<String> = withContext(Dispatchers.UI) {
   val paths = LinkedHashSet<String>()
   for (project in ProjectManager.getInstance().openProjects) {
     val manager = runCatching { FileEditorManagerEx.getInstanceEx(project) }.getOrNull() ?: continue
     for (openFile in manager.openFiles) {
       val chatFile = openFile as? AgentChatVirtualFile ?: continue
-      paths.add(normalizeChatProjectPath(chatFile.projectPath))
+      paths.add(normalizeAgentChatProjectPath(chatFile.projectPath))
     }
   }
   paths
@@ -93,26 +89,50 @@ suspend fun updateOpenAgentChatTabTitles(
     return 0
   }
 
-  var updatedTabs = 0
+  val updatedDescriptors = ArrayList<AgentChatFileDescriptor>()
+  var updatedTabs: Int
+  var updatedPresentations: Int
   val metadataStore = AgentChatTabMetadataStores.getInstance()
-  runOnEdt {
+  withContext(Dispatchers.UI) {
+    val managerByFile = LinkedHashMap<AgentChatVirtualFile, LinkedHashSet<FileEditorManagerEx>>()
+    val changedFiles = LinkedHashSet<AgentChatVirtualFile>()
+
     for (project in ProjectManager.getInstance().openProjects) {
       val manager = runCatching { FileEditorManagerEx.getInstanceEx(project) }.getOrNull() ?: continue
       for (openFile in manager.openFiles) {
         val chatFile = openFile as? AgentChatVirtualFile ?: continue
+        managerByFile.getOrPut(chatFile) { LinkedHashSet() }.add(manager)
         val targetTitle = titleByPathAndThreadIdentity[
-          normalizeChatProjectPath(chatFile.projectPath) to chatFile.threadIdentity
+          normalizeAgentChatProjectPath(chatFile.projectPath) to chatFile.threadIdentity
         ] ?: continue
         if (chatFile.updateThreadTitle(targetTitle)) {
-          metadataStore.upsert(chatFile.toDescriptor())
-          manager.updateFilePresentation(chatFile)
-          updatedTabs++
+          updatedDescriptors.add(chatFile.toDescriptor())
+          changedFiles.add(chatFile)
         }
       }
     }
+
+    updatedTabs = changedFiles.size
+    updatedPresentations = 0
+    for (chatFile in changedFiles) {
+      val managers = managerByFile[chatFile] ?: continue
+      for (manager in managers) {
+        manager.updateFilePresentation(chatFile)
+        updatedPresentations++
+      }
+    }
   }
+
+  if (updatedDescriptors.isNotEmpty()) {
+    withContext(Dispatchers.IO) {
+      for (descriptor in updatedDescriptors) {
+        metadataStore.upsert(descriptor)
+      }
+    }
+  }
+
   LOG.debug {
-    "updateOpenAgentChatTabTitles updatedTabs=$updatedTabs, requested=${titleByPathAndThreadIdentity.size}"
+    "updateOpenAgentChatTabTitles updatedTabs=$updatedTabs, updatedPresentations=$updatedPresentations, requested=${titleByPathAndThreadIdentity.size}"
   }
   return updatedTabs
 }
@@ -129,22 +149,4 @@ private fun findExistingChat(
     }
   }
   return null
-}
-
-private suspend fun <T> runOnEdt(action: () -> T): T {
-  if (ApplicationManager.getApplication()?.isDispatchThread == true) {
-    return action()
-  }
-  return withContext(Dispatchers.EDT) {
-    action()
-  }
-}
-
-private fun normalizeChatProjectPath(path: String): String {
-  return try {
-    Path.of(path).invariantSeparatorsPathString
-  }
-  catch (_: InvalidPathException) {
-    path
-  }
 }
