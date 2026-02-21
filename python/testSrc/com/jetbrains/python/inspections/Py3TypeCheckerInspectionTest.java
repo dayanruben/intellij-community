@@ -4272,6 +4272,14 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                    """);
   }
 
+  // PY-64359
+  public void testTupleDictValues() {
+    doTestByText("""
+                   def f(a: dict[str, int]):
+                       b: tuple[int, ...] = tuple(a.values())
+                   """);
+  }
+
   // PY-86873
   public void testNestedListUnpacking() {
     doTestByText("""
@@ -4279,6 +4287,22 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                        [[node_a], second_edge] = edges
                        a: int = node_a
                        c: list[int] = second_edge
+                   """);
+  }
+
+  public void testWildcardSignatures() {
+    doTestByText("""
+                   from typing import Protocol
+                   
+                   class Expected(Protocol):
+                       def __call__(self, *args, **kwargs): ...
+                   
+                   class Actual(Protocol):
+                       def __call__(self, a: float, *, key: str): ...
+                   
+                   def foo(e: Expected, a: Actual):
+                       _: Expected = a
+                       _: Actual = e
                    """);
   }
 }

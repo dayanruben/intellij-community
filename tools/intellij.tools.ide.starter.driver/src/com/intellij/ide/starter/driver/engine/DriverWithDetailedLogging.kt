@@ -2,7 +2,6 @@ package com.intellij.ide.starter.driver.engine
 
 import com.intellij.driver.client.Driver
 import com.intellij.driver.client.Remote
-import com.intellij.driver.client.impl.JmxCallException
 import com.intellij.driver.model.LockSemantics
 import com.intellij.driver.model.OnDispatcher
 import com.intellij.driver.sdk.ui.ui
@@ -62,11 +61,12 @@ internal class DriverWithDetailedLogging(private val driver: Driver, logUiHierar
   }
 
   private fun createErrorScreenshotOrNull(): String? {
-    try {
-      return this.takeScreenshot("driverError")
+    return try {
+      this.takeScreenshot("driverError")
     }
-    catch (_: JmxCallException) {
-      return null
+    catch (e: Exception) {
+      logError("Failed to take error screenshot: ${e.message}")
+      null
     }
   }
 
@@ -74,7 +74,8 @@ internal class DriverWithDetailedLogging(private val driver: Driver, logUiHierar
     try {
       ui.robotProvider.saveHierarchy(path)
     }
-    catch (_: Throwable) {
+    catch (e: Exception) {
+      logError("Failed to save UI hierarchy: ${e.message}")
     }
   }
 

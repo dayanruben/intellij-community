@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:OptIn(ExperimentalPathApi::class)
 package org.jetbrains.idea.devkit.actions.updateFromSources
 
@@ -39,6 +39,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.task.ProjectTaskManager
 import com.intellij.testFramework.LightVirtualFile
 import com.intellij.util.Restarter
+import com.intellij.util.system.OS
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.idea.devkit.DevKitBundle
 import org.jetbrains.jps.cmdline.ClasspathBootstrap
@@ -94,7 +95,7 @@ fun updateFromSources(project: Project, beforeRestart: () -> Unit, restartAutoma
         .toHashSet()
     )
     PluginManagerCore.plugins
-      .filter { it.isBundled && !it.isEnabled }
+      .filter { it.isBundled && PluginManagerCore.isDisabled(it.pluginId) }
       .map { it.pluginPath }
       .filter { it.isDirectory() }
       .mapTo(pluginDirectoriesToSkip) { it.name }
@@ -103,7 +104,7 @@ fun updateFromSources(project: Project, beforeRestart: () -> Unit, restartAutoma
     bundledPluginDirsToSkip = list
     nonBundledPluginDirsToInclude = PluginManagerCore.plugins
       .asSequence()
-      .filter { !it.isBundled && it.isEnabled }
+      .filterNot { it.isBundled || PluginManagerCore.isDisabled(it.pluginId) }
       .map { it.pluginPath }
       .filter { it.isDirectory() }
       .map { it.name }
@@ -145,7 +146,7 @@ private fun checkIdeHome(workIdeHome: Path): String? {
   if (workIdeHome.listDirectoryEntries().isEmpty()) {
     return null
   }
-  for (name in listOf("bin", if (SystemInfo.isMac) "Resources/build.txt" else "build.txt")) {
+  for (name in listOf("bin", if (OS.CURRENT == OS.macOS) "Resources/build.txt" else "build.txt")) {
     if (workIdeHome.resolve(name).notExists()) {
       return DevKitBundle.message("action.UpdateIdeFromSourcesAction.error.work.home.not.valid.ide.home.not.exists", name)
     }
@@ -188,19 +189,18 @@ private fun runUpdateScript(
           }
 
           if (event.exitCode != 0) {
-            showError(
-              project,
-              DevKitBundle.message("action.UpdateIdeFromSourcesAction.task.failed.content", event.exitCode),
+            val actions = mutableListOf(
               NotificationAction.createSimple(DevKitBundle.message("action.UpdateIdeFromSourcesAction.notification.action.view.output")) {
                 FileEditorManager.getInstance(project).openFile(LightVirtualFile("output.txt", output.joinToString("")), true)
               },
-              NotificationAction.createSimple(DevKitBundle.message("action.UpdateIdeFromSourcesAction.notification.action.view.debug.log")) {
-                LocalFileSystem.getInstance().refreshAndFindFileByNioFile(deployDir.resolve("log/debug.log"))?.let { logFile ->
-                  logFile.refresh(true, false)
-                  FileEditorManager.getInstance(project).openFile(logFile, true)
-                }
-              }
             )
+            LocalFileSystem.getInstance().refreshAndFindFileByNioFile(deployDir.resolve("log/debug.log"))?.let { logFile ->
+              logFile.refresh(true, false)
+              actions += NotificationAction.createSimple(DevKitBundle.message("action.UpdateIdeFromSourcesAction.notification.action.view.debug.log")) {
+                FileEditorManager.getInstance(project).openFile(logFile, true)
+              }
+            }
+            showError(project, DevKitBundle.message("action.UpdateIdeFromSourcesAction.task.failed.content", event.exitCode), *actions.toTypedArray())
             return
           }
 
@@ -254,7 +254,7 @@ private fun startCopyingFiles(builtDistPath: Path, workIdeHome: Path, project: P
 }
 
 private fun generateUpdateCommand(builtDistDir: Path, workIdeHome: Path): Array<String> {
-  if (SystemInfo.isWindows) {
+  if (OS.CURRENT == OS.Windows) {
     val restartLogFile = PathManager.getLogDir().resolve("update-from-sources.log")
     val updateScript = Files.createTempFile("update-from-sources", ".cmd")
     val builtDistPath = builtDistDir.toAbsolutePath().toString()
