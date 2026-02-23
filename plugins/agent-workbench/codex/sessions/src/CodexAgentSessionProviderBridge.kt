@@ -39,7 +39,7 @@ internal class CodexAgentSessionProviderBridge(
   override val supportsArchiveThread: Boolean
     get() = true
 
-  override fun isCliAvailable(): Boolean = CodexCliUtils.isAvailable()
+  override fun isCliAvailable(): Boolean = CodexCliUtils.findExecutable() != null
 
   override fun buildResumeCommand(sessionId: String): List<String> = listOf(CodexCliUtils.CODEX_COMMAND, "resume", sessionId)
 

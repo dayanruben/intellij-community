@@ -1,8 +1,14 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:OptIn(EelDelicateApi::class)
 
-package com.intellij.platform.eel
+package com.intellij.platform.eel.impl
 
+import com.intellij.platform.eel.EelConnectionError
+import com.intellij.platform.eel.EelLowLevelObjectsPool
+import com.intellij.platform.eel.EelProxy
+import com.intellij.platform.eel.EelTunnelsApi
+import com.intellij.platform.eel.ReadResult
+import com.intellij.platform.eel.ThrowsChecked
 import com.intellij.platform.eel.channels.EelChannelException
 import com.intellij.platform.eel.channels.EelDelicateApi
 import com.intellij.platform.eel.channels.EelReceiveChannel
@@ -23,37 +29,39 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.logging.Logger
 import kotlin.time.Duration.Companion.seconds
 
-// TODO Maybe move to eel.impl?
-@ThrowsChecked(EelConnectionError::class)
-internal suspend fun eelProxyImpl(
-  acceptorFactory: @ThrowsChecked(EelConnectionError::class) suspend () -> EelTunnelsApi.ConnectionAcceptor,
-  connectionFactory: @ThrowsChecked(EelConnectionError::class) suspend () -> EelTunnelsApi.Connection,
-  onConnection: ((EelTunnelsApi.Connection) -> Unit)?,
-  onConnectionClosed: ((EelTunnelsApi.Connection) -> Unit)?,
-  onConnectionError: ((EelConnectionError) -> Unit)?,
-  debugLabel: String?,
-  acceptorInfo: Pair<EelTunnelsApi, Any?>?,
-  connectorInfo: Pair<EelTunnelsApi, Any?>?,
-  fakeProxyPossible: Boolean,
-): EelProxy {
-  val fakeListenAddress =
-    if (fakeProxyPossible) fakeListenAddress(acceptorInfo, connectorInfo)
-    else null
+internal class MyEelProxyImpl : EelProxyImpl {
+  @ThrowsChecked(EelConnectionError::class)
+  override suspend fun eelProxyImpl(
+    acceptorFactory: @ThrowsChecked(EelConnectionError::class) suspend () -> EelTunnelsApi.ConnectionAcceptor,
+    connectionFactory: @ThrowsChecked(EelConnectionError::class) suspend () -> EelTunnelsApi.Connection,
+    onConnection: ((EelTunnelsApi.Connection) -> Unit)?,
+    onConnectionClosed: ((EelTunnelsApi.Connection) -> Unit)?,
+    onConnectionError: ((EelConnectionError) -> Unit)?,
+    debugLabel: String?,
+    acceptorInfo: Pair<EelTunnelsApi, Any?>?,
+    connectorInfo: Pair<EelTunnelsApi, Any?>?,
+    fakeProxyPossible: Boolean,
+  ): EelProxy {
+    val fakeListenAddress =
+      if (fakeProxyPossible) fakeListenAddress(acceptorInfo, connectorInfo)
+      else null
 
-  return if (fakeListenAddress != null) {
-    FakeEelProxy(fakeListenAddress)
-  }
-  else {
-    RealEelProxy(
-      acceptor = acceptorFactory(),
-      remoteConnectionFactory = connectionFactory,
-      onConnection = onConnection,
-      onConnectionClosed = onConnectionClosed,
-      onConnectionError = onConnectionError,
-      debugLabel = debugLabel ?: "Eel proxy ${System.nanoTime()}",
-    )
+    return if (fakeListenAddress != null) {
+      FakeEelProxy(fakeListenAddress)
+    }
+    else {
+      RealEelProxy(
+        acceptor = acceptorFactory(),
+        remoteConnectionFactory = connectionFactory,
+        onConnection = onConnection,
+        onConnectionClosed = onConnectionClosed,
+        onConnectionError = onConnectionError,
+        debugLabel = debugLabel ?: "Eel proxy ${System.nanoTime()}",
+      )
+    }
   }
 }
 
@@ -230,4 +238,4 @@ private suspend inline fun finalization(crossinline body: suspend CoroutineScope
   }
 }
 
-private val LOG = java.util.logging.Logger.getLogger("com.intellij.platform.eel.EelProxy")
+private val LOG = Logger.getLogger("com.intellij.platform.eel.EelProxy")

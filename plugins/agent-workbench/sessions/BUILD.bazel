@@ -31,6 +31,7 @@ jvm_library(
     "//libraries/jackson/jackson",
     "@lib//:jna",
     "//platform/project-frame",
+    "//platform/projectModel-impl",
   ],
   plugins = ["@lib//:compose-plugin"]
 )
@@ -88,6 +89,8 @@ jvm_library(
     "//libraries/assertj-core:assertj-core_test_lib",
     "//platform/project-frame",
     "//platform/project-frame:project-frame_test_lib",
+    "//platform/projectModel-impl",
+    "//platform/projectModel-impl:projectModel-impl_test_lib",
   ],
   runtime_deps = [
     "//platform/platform-impl:ide-impl_test_lib",

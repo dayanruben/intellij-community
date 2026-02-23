@@ -5,6 +5,7 @@ import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.ShellStartupOptions
+import org.jetbrains.plugins.terminal.TerminalStartupEnvironmentMode
 import org.jetbrains.plugins.terminal.session.impl.dto.TerminalSizeDto
 import org.jetbrains.plugins.terminal.session.impl.dto.toDto
 import org.jetbrains.plugins.terminal.session.impl.dto.toTermSize
@@ -21,6 +22,7 @@ data class ShellStartupOptionsDto(
   @Contextual
   val initialTermSize: TerminalSizeDto?,
   val envVariables: Map<String, String>,
+  val startupEnvironmentMode: TerminalStartupEnvironmentMode = TerminalStartupEnvironmentMode.MINIMAL,
 )
 
 @ApiStatus.Internal
@@ -30,6 +32,7 @@ fun ShellStartupOptions.toDto(): ShellStartupOptionsDto {
     shellCommand,
     initialTermSize?.toDto(),
     envVariables,
+    startupEnvironmentMode,
   )
 }
 
@@ -40,5 +43,6 @@ fun ShellStartupOptionsDto.toShellStartupOptions(): ShellStartupOptions {
     .shellCommand(shellCommand)
     .initialTermSize(initialTermSize?.toTermSize())
     .envVariables(envVariables)
+    .startupEnvironmentMode(startupEnvironmentMode)
     .build()
 }

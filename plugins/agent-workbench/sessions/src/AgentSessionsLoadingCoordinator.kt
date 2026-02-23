@@ -1,4 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("ReplaceGetOrSet")
+
 package com.intellij.agent.workbench.sessions
 
 import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindTarget
@@ -6,6 +8,7 @@ import com.intellij.agent.workbench.chat.collectOpenAgentChatProjectPaths
 import com.intellij.agent.workbench.chat.rebindOpenAgentChatPendingTabs
 import com.intellij.agent.workbench.chat.updateOpenAgentChatTabPresentation
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
 import com.intellij.agent.workbench.sessions.providers.AgentSessionProviderBridges
 import com.intellij.agent.workbench.sessions.providers.AgentSessionSource
 import com.intellij.openapi.diagnostic.debug
@@ -72,23 +75,23 @@ internal class AgentSessionsLoadingCoordinator(
         ensureSourceUpdateObservers()
         val entries = projectEntriesProvider()
         val currentState = stateStore.snapshot()
-        val currentProjectsByPath = currentState.projects.associateBy { normalizePath(it.path) }
+        val currentProjectsByPath = currentState.projects.associateBy { normalizeAgentWorkbenchPath(it.path) }
         val openPaths = entries.flatMap { entry ->
           buildList {
-            if (entry.project != null) add(normalizePath(entry.path))
-            entry.worktreeEntries.filter { it.project != null }.forEach { add(normalizePath(it.path)) }
+            if (entry.project != null) add(normalizeAgentWorkbenchPath(entry.path))
+            entry.worktreeEntries.filter { it.project != null }.forEach { add(normalizeAgentWorkbenchPath(it.path)) }
           }
         }
         treeUiState.retainOpenProjectThreadPreviews(openPaths.toSet())
         val knownPaths = entries.flatMap { entry ->
           buildList {
-            add(normalizePath(entry.path))
-            entry.worktreeEntries.forEach { add(normalizePath(it.path)) }
+            add(normalizeAgentWorkbenchPath(entry.path))
+            entry.worktreeEntries.forEach { add(normalizeAgentWorkbenchPath(it.path)) }
           }
         }
         val initialVisibleThreadCounts = stateStore.buildInitialVisibleThreadCounts(knownPaths)
         val initialProjects = entries.map { entry ->
-          val normalizedEntryPath = normalizePath(entry.path)
+          val normalizedEntryPath = normalizeAgentWorkbenchPath(entry.path)
           val existing = currentProjectsByPath[normalizedEntryPath]
           val cachedPreviews = if (entry.project != null) {
             treeUiState.getOpenProjectThreadPreviews(normalizedEntryPath)
@@ -109,8 +112,8 @@ internal class AgentSessionsLoadingCoordinator(
             errorMessage = existing?.errorMessage,
             providerWarnings = existing?.providerWarnings ?: emptyList(),
             worktrees = entry.worktreeEntries.map { wt ->
-              val normalizedWorktreePath = normalizePath(wt.path)
-              val existingWt = existing?.worktrees?.firstOrNull { normalizePath(it.path) == normalizedWorktreePath }
+              val normalizedWorktreePath = normalizeAgentWorkbenchPath(wt.path)
+              val existingWt = existing?.worktrees?.firstOrNull { normalizeAgentWorkbenchPath(it.path) == normalizedWorktreePath }
               val cachedWorktreePreviews = if (wt.project != null) {
                 treeUiState.getOpenProjectThreadPreviews(normalizedWorktreePath)
               }
@@ -160,46 +163,26 @@ internal class AgentSessionsLoadingCoordinator(
         coroutineScope {
           for (entry in entries) {
             launch {
-              val normalizedEntryPath = normalizePath(entry.path)
+              val normalizedEntryPath = normalizeAgentWorkbenchPath(entry.path)
               if (entry.project == null) {
                 stateStore.updateProject(normalizedEntryPath) { it.copy(isLoading = false) }
                 return@launch
               }
-              val sourceResults = java.util.concurrent.CopyOnWriteArrayList<AgentSessionSourceLoadResult>()
-              coroutineScope {
-                for (source in sessionSources) {
-                  launch {
-                    val sourceResult = loadSourceResultForOpenProject(
-                      source = source,
-                      normalizedPath = normalizedEntryPath,
-                      project = entry.project,
-                      prefetchedByProvider = prefetchedByProvider,
-                      originalPath = entry.path,
-                    )
-                    sourceResults.add(sourceResult)
-                    // Incremental UI update — clear spinner as soon as any source succeeds
-                    val partial = mergeAgentSessionSourceLoadResults(
-                      sourceResults = sourceResults.toList(),
-                      resolveErrorMessage = ::resolveErrorMessage,
-                      resolveWarningMessage = ::resolveProviderWarningMessage,
-                    )
-                    val anySuccess = sourceResults.any { it.result.isSuccess }
-                    stateStore.updateProject(normalizedEntryPath) { project ->
-                      project.copy(
-                        threads = partial.threads,
-                        providerWarnings = partial.providerWarnings,
-                        isLoading = if (anySuccess) false else project.isLoading,
-                      )
-                    }
-                  }
+              val finalResult = loadSourcesIncrementally(
+                sessionSources = sessionSources,
+                normalizedPath = normalizedEntryPath,
+                project = entry.project,
+                prefetchedByProvider = prefetchedByProvider,
+                originalPath = entry.path,
+              ) { partial, anySuccess ->
+                stateStore.updateProject(normalizedEntryPath) { project ->
+                  project.copy(
+                    threads = partial.threads,
+                    providerWarnings = partial.providerWarnings,
+                    isLoading = if (anySuccess) false else project.isLoading,
+                  )
                 }
               }
-              // All sources done — final update with error/warning consolidation
-              val finalResult = mergeAgentSessionSourceLoadResults(
-                sourceResults = sourceResults.toList(),
-                resolveErrorMessage = ::resolveErrorMessage,
-                resolveWarningMessage = ::resolveProviderWarningMessage,
-              )
               stateStore.updateProject(normalizedEntryPath) { project ->
                 project.copy(
                   isLoading = false,
@@ -216,45 +199,27 @@ internal class AgentSessionsLoadingCoordinator(
             }
             for (wt in entry.worktreeEntries) {
               launch {
-                val normalizedEntryPath = normalizePath(entry.path)
-                val normalizedWorktreePath = normalizePath(wt.path)
+                val normalizedEntryPath = normalizeAgentWorkbenchPath(entry.path)
+                val normalizedWorktreePath = normalizeAgentWorkbenchPath(wt.path)
                 if (wt.project == null) {
                   stateStore.updateWorktree(normalizedEntryPath, normalizedWorktreePath) { it.copy(isLoading = false) }
                   return@launch
                 }
-                val sourceResults = java.util.concurrent.CopyOnWriteArrayList<AgentSessionSourceLoadResult>()
-                coroutineScope {
-                  for (source in sessionSources) {
-                    launch {
-                      val sourceResult = loadSourceResultForOpenProject(
-                        source = source,
-                        normalizedPath = normalizedWorktreePath,
-                        project = wt.project,
-                        prefetchedByProvider = prefetchedByProvider,
-                        originalPath = wt.path,
-                      )
-                      sourceResults.add(sourceResult)
-                      val partial = mergeAgentSessionSourceLoadResults(
-                        sourceResults = sourceResults.toList(),
-                        resolveErrorMessage = ::resolveErrorMessage,
-                        resolveWarningMessage = ::resolveProviderWarningMessage,
-                      )
-                      val anySuccess = sourceResults.any { it.result.isSuccess }
-                      stateStore.updateWorktree(normalizedEntryPath, normalizedWorktreePath) { worktree ->
-                        worktree.copy(
-                          threads = partial.threads,
-                          providerWarnings = partial.providerWarnings,
-                          isLoading = if (anySuccess) false else worktree.isLoading,
-                        )
-                      }
-                    }
+                val finalResult = loadSourcesIncrementally(
+                  sessionSources = sessionSources,
+                  normalizedPath = normalizedWorktreePath,
+                  project = wt.project,
+                  prefetchedByProvider = prefetchedByProvider,
+                  originalPath = wt.path,
+                ) { partial, anySuccess ->
+                  stateStore.updateWorktree(normalizedEntryPath, normalizedWorktreePath) { worktree ->
+                    worktree.copy(
+                      threads = partial.threads,
+                      providerWarnings = partial.providerWarnings,
+                      isLoading = if (anySuccess) false else worktree.isLoading,
+                    )
                   }
                 }
-                val finalResult = mergeAgentSessionSourceLoadResults(
-                  sourceResults = sourceResults.toList(),
-                  resolveErrorMessage = ::resolveErrorMessage,
-                  resolveWarningMessage = ::resolveProviderWarningMessage,
-                )
                 stateStore.updateWorktree(normalizedEntryPath, normalizedWorktreePath) { worktree ->
                   worktree.copy(
                     isLoading = false,
@@ -333,7 +298,7 @@ internal class AgentSessionsLoadingCoordinator(
   }
 
   fun suppressArchivedThread(path: String, provider: AgentSessionProvider, threadId: String) {
-    val normalizedPath = normalizePath(path)
+    val normalizedPath = normalizeAgentWorkbenchPath(path)
     synchronized(archiveSuppressionsLock) {
       archiveSuppressions.add(ArchiveSuppression(path = normalizedPath, provider = provider, threadId = threadId))
     }
@@ -341,7 +306,7 @@ internal class AgentSessionsLoadingCoordinator(
 
   fun loadProjectThreadsOnDemand(path: String) {
     serviceScope.launch(Dispatchers.IO) {
-      val normalized = normalizePath(path)
+      val normalized = normalizeAgentWorkbenchPath(path)
       if (!markOnDemandLoading(normalized)) return@launch
       try {
         stateStore.updateProject(normalized) { project ->
@@ -372,8 +337,8 @@ internal class AgentSessionsLoadingCoordinator(
 
   fun loadWorktreeThreadsOnDemand(projectPath: String, worktreePath: String) {
     serviceScope.launch(Dispatchers.IO) {
-      val normalizedProject = normalizePath(projectPath)
-      val normalizedWorktree = normalizePath(worktreePath)
+      val normalizedProject = normalizeAgentWorkbenchPath(projectPath)
+      val normalizedWorktree = normalizeAgentWorkbenchPath(worktreePath)
       if (!markWorktreeOnDemandLoading(normalizedProject, normalizedWorktree)) return@launch
       try {
         stateStore.updateWorktree(normalizedProject, normalizedWorktree) { worktree ->
@@ -682,21 +647,6 @@ internal class AgentSessionsLoadingCoordinator(
     }
   }
 
-  private fun collectLoadedPaths(state: AgentSessionsState): List<String> {
-    val paths = LinkedHashSet<String>()
-    for (project in state.projects) {
-      if (project.hasLoaded) {
-        paths.add(project.path)
-      }
-      for (worktree in project.worktrees) {
-        if (worktree.hasLoaded) {
-          paths.add(worktree.path)
-        }
-      }
-    }
-    return ArrayList(paths)
-  }
-
   private suspend fun syncOpenChatTabPresentation(
     provider: AgentSessionProvider,
     outcomes: Map<String, ProviderRefreshOutcome>,
@@ -810,7 +760,7 @@ internal class AgentSessionsLoadingCoordinator(
     originalPath: String,
   ): AgentSessionSourceLoadResult {
     return try {
-      val prefetched = prefetchedByProvider[source.provider]?.get(normalizedPath)
+      val prefetched = prefetchedByProvider.get(source.provider)?.get(normalizedPath)
       val threads = applyArchiveSuppressions(
         path = normalizedPath,
         provider = source.provider,
@@ -832,12 +782,48 @@ internal class AgentSessionsLoadingCoordinator(
     }
   }
 
+  private suspend fun loadSourcesIncrementally(
+    sessionSources: List<AgentSessionSource>,
+    normalizedPath: String,
+    project: Project,
+    prefetchedByProvider: Map<AgentSessionProvider, Map<String, List<AgentSessionThread>>>,
+    originalPath: String,
+    onPartialResult: (AgentSessionLoadResult, Boolean) -> Unit,
+  ): AgentSessionLoadResult {
+    val sourceResults = java.util.concurrent.CopyOnWriteArrayList<AgentSessionSourceLoadResult>()
+    coroutineScope {
+      for (source in sessionSources) {
+        launch {
+          val sourceResult = loadSourceResultForOpenProject(
+            source = source,
+            normalizedPath = normalizedPath,
+            project = project,
+            prefetchedByProvider = prefetchedByProvider,
+            originalPath = originalPath,
+          )
+          sourceResults.add(sourceResult)
+          val partial = mergeAgentSessionSourceLoadResults(
+            sourceResults = sourceResults.toList(),
+            resolveErrorMessage = ::resolveErrorMessage,
+            resolveWarningMessage = ::resolveProviderWarningMessage,
+          )
+          onPartialResult(partial, sourceResults.any { it.result.isSuccess })
+        }
+      }
+    }
+    return mergeAgentSessionSourceLoadResults(
+      sourceResults = sourceResults.toList(),
+      resolveErrorMessage = ::resolveErrorMessage,
+      resolveWarningMessage = ::resolveProviderWarningMessage,
+    )
+  }
+
   private fun applyArchiveSuppressions(
     path: String,
     provider: AgentSessionProvider,
     threads: List<AgentSessionThread>,
   ): List<AgentSessionThread> {
-    val normalizedPath = normalizePath(path)
+    val normalizedPath = normalizeAgentWorkbenchPath(path)
     val suppressedThreadIds = synchronized(archiveSuppressionsLock) {
       archiveSuppressions.asSequence()
         .filter { suppression -> suppression.path == normalizedPath && suppression.provider == provider }
@@ -849,6 +835,21 @@ internal class AgentSessionsLoadingCoordinator(
     }
     return threads.filterNot { thread -> thread.id in suppressedThreadIds }
   }
+}
+
+private fun collectLoadedPaths(state: AgentSessionsState): List<String> {
+  val paths = LinkedHashSet<String>()
+  for (project in state.projects) {
+    if (project.hasLoaded) {
+      paths.add(project.path)
+    }
+    for (worktree in project.worktrees) {
+      if (worktree.hasLoaded) {
+        paths.add(worktree.path)
+      }
+    }
+  }
+  return ArrayList(paths)
 }
 
 private fun resolveErrorMessage(provider: AgentSessionProvider, t: Throwable): String {
@@ -966,10 +967,6 @@ private fun List<AgentSessionThread>.toThreadPreviews(): List<AgentSessionThread
       provider = thread.provider,
     )
   }
-}
-
-private fun normalizePath(path: String): String {
-  return normalizeSessionsProjectPath(path)
 }
 
 private data class ProviderRefreshOutcome(

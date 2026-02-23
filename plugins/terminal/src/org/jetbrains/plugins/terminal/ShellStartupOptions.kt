@@ -18,6 +18,21 @@ import org.jetbrains.plugins.terminal.util.ShellIntegration
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
+@ApiStatus.Experimental
+enum class TerminalStartupEnvironmentMode {
+  /**
+   * Use minimal parent environment variables.
+   * This mode does not read user shell startup files.
+   */
+  MINIMAL,
+
+  /**
+   * Use default parent environment variables.
+   * On local machines this mode can include environment loaded by IDE at startup.
+   */
+  DEFAULT,
+}
+
 class ShellStartupOptions private constructor(builder: Builder) {
   val workingDirectory: String? = builder.workingDirectory
   val shellCommand: List<String>? = builder.shellCommand
@@ -28,11 +43,12 @@ class ShellStartupOptions private constructor(builder: Builder) {
   val widget: TerminalWidget? = builder.widget
   val shellIntegration: ShellIntegration? = builder.shellIntegration
   val envVariables: Map<String, String> = builder.envVariables
+  val startupEnvironmentMode: TerminalStartupEnvironmentMode = builder.startupEnvironmentMode
   internal val startupMoment: TerminalStartupMoment? = builder.startupMoment
 
   fun builder(): Builder {
     return Builder(workingDirectory, shellCommand, initialShellCommand, commandHistoryFileProvider, initialTermSize,
-                   widget, shellIntegration, envVariables, startupMoment)
+                   widget, shellIntegration, envVariables, startupEnvironmentMode, startupMoment)
   }
 
   override fun toString(): String {
@@ -42,6 +58,7 @@ class ShellStartupOptions private constructor(builder: Builder) {
            ", initialTermSize=[$initialTermSize]" +
            ", shellIntegration=$shellIntegration" +
            ", envVariables=$envVariables" +
+           ", startupEnvironmentMode=$startupEnvironmentMode" +
            ", widget=${widget != null}"
   }
 
@@ -80,6 +97,7 @@ class ShellStartupOptions private constructor(builder: Builder) {
     var widget: TerminalWidget?,
     var shellIntegration: ShellIntegration? = null,
     var envVariables: Map<String, String> = createEnvVariablesMap(),
+    var startupEnvironmentMode: TerminalStartupEnvironmentMode = TerminalStartupEnvironmentMode.MINIMAL,
     internal var startupMoment: TerminalStartupMoment? = null,
   ) {
 
@@ -88,6 +106,7 @@ class ShellStartupOptions private constructor(builder: Builder) {
     fun workingDirectory(workingDirectory: String?) = also { this.workingDirectory = workingDirectory }
     fun shellCommand(shellCommand: List<String>?) = also { this.shellCommand = shellCommand }
     fun envVariables(envs: Map<String, String>) = also { this.envVariables = envs }
+    fun startupEnvironmentMode(mode: TerminalStartupEnvironmentMode) = also { this.startupEnvironmentMode = mode }
     fun commandHistoryFileProvider(commandHistoryFileProvider: (() -> Path?)?) = also { this.commandHistoryFileProvider = commandHistoryFileProvider }
     fun initialTermSize(initialTermSize: TermSize?) = also { this.initialTermSize = initialTermSize }
     fun widget(widget: TerminalWidget?) = also { this.widget = widget }

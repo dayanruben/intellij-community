@@ -41,4 +41,5 @@ class CodexAgentSessionProviderBridgeTest {
       assertThat(yolo.command).containsExactly("codex", "--full-auto")
     }
   }
+
 }

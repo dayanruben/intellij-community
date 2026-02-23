@@ -129,6 +129,7 @@ jvm_library(
     "@lib//:junit5-provided",
     "@lib//:junit5Params-provided",
     "@lib//:assert_j",
+    "@lib//:byte-buddy",
     "@lib//:kotlin-stdlib",
     "//libraries/kotlinx/coroutines/core",
     "//libraries/kotlinx/coroutines/core:core_test_lib",
