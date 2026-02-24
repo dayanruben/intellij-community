@@ -2,12 +2,8 @@
 package com.intellij.agent.workbench.sessions
 
 import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
+import com.intellij.agent.workbench.sessions.core.AgentSessionProviderIconIds
 import org.jetbrains.jewel.ui.icon.PathIconKey
-
-object AgentSessionProviderIconIds {
-  const val CLAUDE: String = "claude"
-  const val CODEX: String = "codex"
-}
 
 internal object AgentSessionsIconKeys {
   val Claude: PathIconKey = PathIconKey("icons/claude@14x14.svg", AgentWorkbenchCommonIcons::class.java)

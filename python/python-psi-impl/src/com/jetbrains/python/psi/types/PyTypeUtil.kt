@@ -62,10 +62,10 @@ object PyTypeUtil {
    * pair of members.
    */
   fun PyType?.isOverlappingWith(type2: PyType?, context: TypeEvalContext): Boolean {
-    if (this is PyUnionLikeType) {
+    if (this is PyUnionType || this is PyUnsafeUnionType) {
       return this.members.any { it.isOverlappingWith(type2, context) }
     }
-    if (type2 is PyUnionLikeType) {
+    if (type2 is PyUnionType || type2 is PyUnsafeUnionType) {
       return type2.members.any { this.isOverlappingWith(it, context) }
     }
     return match(this, type2, context)
@@ -162,7 +162,7 @@ object PyTypeUtil {
    */
   @JvmStatic
   fun PyType?.toStream(): StreamEx<PyType?> =
-    if (this is PyCompoundType)
+    if (this is PyCompositeType)
       StreamEx.of(this.members)
     else
       StreamEx.of(this)
@@ -256,11 +256,11 @@ object PyTypeUtil {
 
   val PyType?.components: List<PyType?>
     @ApiStatus.Experimental
-    get() = if (this is PyCompoundType) members.toList() else listOf(this)
+    get() = if (this is PyCompositeType) members.toList() else listOf(this)
 
   val PyType?.componentSequence: Sequence<PyType?>
     @ApiStatus.Experimental
-    get() = if (this is PyCompoundType) members.asSequence() else sequenceOf(this)
+    get() = if (this is PyCompositeType) members.asSequence() else sequenceOf(this)
 
   private fun toUnion(unionFactory: (List<PyType?>) -> PyType?): Collector<PyType?, *, PyType?> {
     return Collectors.collectingAndThen(Collectors.toList(), unionFactory)
@@ -290,7 +290,7 @@ object PyTypeUtil {
   }
 
   @JvmStatic
-  fun PyType.inheritsAny(context: TypeEvalContext): Boolean {
+  fun PyType?.inheritsAny(context: TypeEvalContext): Boolean {
     return this is PyClassLikeType && this.getAncestorTypes(context).contains(null)
   }
 

@@ -12,6 +12,10 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
+import com.intellij.agent.workbench.sessions.core.AgentSessionLaunchMode
+import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
+import com.intellij.agent.workbench.sessions.core.AgentSessionThread
+import com.intellij.agent.workbench.sessions.core.AgentSubAgent
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Rule
 import org.junit.Test
@@ -162,6 +166,67 @@ class AgentSessionsToolWindowTest {
     composeRule.onNodeWithText("10m").assertIsDisplayed()
     composeRule.onAllNodesWithText(AgentSessionsBundle.message("toolwindow.action.open"))
       .assertCountEquals(0)
+  }
+
+  @Test
+  fun openProjectsDoNotShowOpenBadge() {
+    val projects = listOf(
+      AgentProjectSessions(
+        path = "/work/project-open",
+        name = "Project Open",
+        isOpen = true,
+      ),
+      AgentProjectSessions(
+        path = "/work/project-closed",
+        name = "Project Closed",
+        isOpen = false,
+      ),
+    )
+
+    composeRule.setContentWithTheme {
+      agentSessionsToolWindowContent(
+        state = AgentSessionsState(projects = projects),
+        onRefresh = {},
+        onOpenProject = {},
+      )
+    }
+
+    composeRule.onNodeWithText("Project Open").assertIsDisplayed()
+    composeRule.onNodeWithText("Project Closed").assertIsDisplayed()
+    composeRule.onAllNodesWithText("OPEN")
+      .assertCountEquals(0)
+  }
+
+  @Test
+  fun allOpenProjectsRemainVisibleWhenClosedQuotaIsReached() {
+    val projects = listOf(
+      AgentProjectSessions(path = "/work/project-1", name = "Project 1", isOpen = false),
+      AgentProjectSessions(path = "/work/project-2", name = "Project 2", isOpen = false),
+      AgentProjectSessions(path = "/work/project-3", name = "Project 3", isOpen = false),
+      AgentProjectSessions(path = "/work/project-open-a", name = "Project Open A", isOpen = true),
+      AgentProjectSessions(path = "/work/project-4", name = "Project 4", isOpen = false),
+      AgentProjectSessions(path = "/work/project-open-b", name = "Project Open B", isOpen = true),
+      AgentProjectSessions(path = "/work/project-5", name = "Project 5", isOpen = false),
+    )
+
+    composeRule.setContentWithTheme {
+      agentSessionsToolWindowContent(
+        state = AgentSessionsState(projects = projects),
+        onRefresh = {},
+        onOpenProject = {},
+        visibleClosedProjectCount = 3,
+      )
+    }
+
+    composeRule.onNodeWithText("Project 1").assertIsDisplayed()
+    composeRule.onNodeWithText("Project 2").assertIsDisplayed()
+    composeRule.onNodeWithText("Project 3").assertIsDisplayed()
+    composeRule.onNodeWithText("Project Open A").assertIsDisplayed()
+    composeRule.onNodeWithText("Project Open B").assertIsDisplayed()
+    composeRule.onAllNodesWithText("Project 4").assertCountEquals(0)
+    composeRule.onAllNodesWithText("Project 5").assertCountEquals(0)
+    composeRule.onNodeWithText(AgentSessionsBundle.message("toolwindow.action.more.count", 2))
+      .assertIsDisplayed()
   }
 
   @Test
@@ -661,7 +726,7 @@ class AgentSessionsToolWindowTest {
         state = AgentSessionsState(projects = projects),
         onRefresh = {},
         onOpenProject = {},
-        visibleProjectCount = 10,
+        visibleClosedProjectCount = 10,
       )
     }
 
@@ -953,7 +1018,7 @@ class AgentSessionsToolWindowTest {
         state = AgentSessionsState(projects = projects),
         onRefresh = {},
         onOpenProject = {},
-        visibleProjectCount = 10,
+        visibleClosedProjectCount = 10,
       )
     }
 
