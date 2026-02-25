@@ -2,25 +2,25 @@ package com.intellij.python.pyproject.model.internal
 
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.registry.Registry
+import com.intellij.python.pyproject.model.PyProjectModelSettings
 import com.intellij.python.pyproject.model.internal.autoImportBridge.PyProjectAutoImportService
 import com.intellij.python.pyproject.model.internal.platformBridge.startVenvExclusion
 import org.jetbrains.annotations.ApiStatus
 
 
-private val enabled: Boolean get() = Registry.`is`("intellij.python.pyproject.model")
-
 /**
- * Starts autoimport process if [enabled] or simply "skips" to the next step: [notifyModelRebuilt].
+ * Starts autoimport process if [PyProjectModelSettings.isFeatureEnabled] or simply "skips" to the next step: [notifyModelRebuilt].
  * This method usually called by [com.intellij.python.pyproject.model.internal.platformBridge.PyProjectSyncActivity] except for new projects.
  * In this case, it is postponed till project generation (see usages).
  *
- * This method can only be called once (see [PyProjectAutoImportService.start])
+ * This method can only be called **once** (call [PyProjectAutoImportService.start] to enable/disable import logic)
  */
 @ApiStatus.Internal
 suspend fun startAutoImportIfNeeded(project: Project) {
   startVenvExclusion(project)
-  if (enabled) {
+  askUserIfPyProjectMustBeEnabled(project)
+  // Only start autoImport if both: registry and user flags are enabled
+  if (PyProjectModelSettings.isFeatureEnabled && PyProjectModelSettings.getInstance(project).usePyprojectToml) {
     project.service<PyProjectAutoImportService>().start()
   }
   else {

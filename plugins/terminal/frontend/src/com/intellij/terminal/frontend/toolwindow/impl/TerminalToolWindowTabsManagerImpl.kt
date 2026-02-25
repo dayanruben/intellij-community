@@ -52,7 +52,6 @@ import org.jetbrains.plugins.terminal.JBTerminalSystemSettingsProvider
 import org.jetbrains.plugins.terminal.ShellStartupOptions
 import org.jetbrains.plugins.terminal.TerminalEngine
 import org.jetbrains.plugins.terminal.TerminalOptionsProvider
-import org.jetbrains.plugins.terminal.TerminalStartupEnvironmentMode
 import org.jetbrains.plugins.terminal.TerminalTabCloseListener
 import org.jetbrains.plugins.terminal.TerminalToolWindowFactory
 import org.jetbrains.plugins.terminal.TerminalToolWindowInitializer
@@ -68,6 +67,7 @@ import org.jetbrains.plugins.terminal.block.ui.TerminalUiUtils
 import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
 import org.jetbrains.plugins.terminal.fus.TerminalOpeningWay
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
+import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 import java.lang.ref.WeakReference
 import kotlin.time.Duration.Companion.seconds
 
@@ -340,9 +340,7 @@ internal class TerminalToolWindowTabsManagerImpl(
     val baseOptions = ShellStartupOptions.Builder()
       .shellCommand(builder.shellCommand)
       .workingDirectory(builder.workingDirectory)
-      .startupEnvironmentMode(
-        if (builder.useDefaultStartupEnvironment) TerminalStartupEnvironmentMode.DEFAULT else TerminalStartupEnvironmentMode.MINIMAL
-      )
+      .processType(builder.processType)
 
     return if (calculateSizeFromComponent) {
       withContext(Dispatchers.UI + ModalityState.any().asContextElement()) {
@@ -421,6 +419,7 @@ internal class TerminalToolWindowTabsManagerImpl(
         with(builder) {
           shellCommand(tab.shellCommand)
           workingDirectory(tab.workingDirectory)
+          processType(tab.processType ?: TerminalProcessType.SHELL)
           tabName(tab.name)
           userDefinedName(tab.isUserDefinedName)
           backendTabId(tab.id)
@@ -446,6 +445,8 @@ internal class TerminalToolWindowTabsManagerImpl(
       private set
     var shellCommand: List<String>? = null
       private set
+    var processType: TerminalProcessType = TerminalProcessType.SHELL
+      private set
     var tabName: String? = null
       private set
     var isUserDefinedName: Boolean = false
@@ -459,8 +460,6 @@ internal class TerminalToolWindowTabsManagerImpl(
     var shouldAddToToolWindow: Boolean = true
       private set
     var startupFusInfo: TerminalStartupFusInfo? = null
-      private set
-    var useDefaultStartupEnvironment: Boolean = false
       private set
 
     var backendTabId: Int? = null
@@ -480,8 +479,8 @@ internal class TerminalToolWindowTabsManagerImpl(
       return this
     }
 
-    override fun useDefaultStartupEnvironment(useDefault: Boolean): TerminalToolWindowTabBuilder {
-      useDefaultStartupEnvironment = useDefault
+    override fun processType(processType: TerminalProcessType): TerminalToolWindowTabBuilder {
+      this.processType = processType
       return this
     }
 

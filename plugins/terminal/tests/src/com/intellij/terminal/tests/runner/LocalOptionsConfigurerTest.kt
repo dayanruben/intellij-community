@@ -16,9 +16,9 @@ import kotlinx.coroutines.CompletableDeferred
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.terminal.ShellStartupOptions
 import org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider
-import org.jetbrains.plugins.terminal.TerminalStartupEnvironmentMode
 import org.jetbrains.plugins.terminal.runner.LocalOptionsConfigurer
 import org.jetbrains.plugins.terminal.runner.LocalTerminalStartCommandBuilder.convertShellPathToCommand
+import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 import org.jetbrains.plugins.terminal.util.TerminalEnvironment
 import org.jetbrains.plugins.terminal.util.TerminalEnvironment.TERMINAL_EMULATOR
 import org.jetbrains.plugins.terminal.util.TerminalEnvironment.TERM_SESSION_ID
@@ -111,9 +111,26 @@ internal class LocalOptionsConfigurerTest : BasePlatformTestCase() {
     assertEquals("MY_CUSTOM_ENV_VALUE1", actual.envVariables["MY_CUSTOM_ENV1"])
   }
 
-  fun testDefaultStartupEnvironmentModeUsesEnvironmentMap() {
+  fun testShellTerminalProcessTypeUsesSystemEnvironment() {
     setDefaultStartingDirectory(tempDirectory.pathString)
-    setPassParentEnvironmentVariablesForTest()
+
+    val probeName = "TERMINAL_MINIMAL_ENV_PROBE_${System.nanoTime()}"
+    assertThat(System.getenv()).doesNotContainKey(probeName)
+    setEnvironmentMapForTest(EnvironmentUtil.getEnvironmentMap() + (probeName to "DEFAULT_ENV_VALUE"))
+
+    val actual = LocalOptionsConfigurer.configureStartupOptions(
+      ShellStartupOptions.Builder()
+        .shellCommand(listOf("some-shell"))
+        .processType(TerminalProcessType.SHELL)
+        .build(),
+      project
+    )
+
+    assertThat(actual.envVariables).doesNotContainKey(probeName)
+  }
+
+  fun testNonShellTerminalProcessTypeUsesEnvironmentMap() {
+    setDefaultStartingDirectory(tempDirectory.pathString)
 
     val probeName = "TERMINAL_DEFAULT_ENV_PROBE_${System.nanoTime()}"
     val probeValue = "DEFAULT_ENV_VALUE"
@@ -122,32 +139,13 @@ internal class LocalOptionsConfigurerTest : BasePlatformTestCase() {
 
     val actual = LocalOptionsConfigurer.configureStartupOptions(
       ShellStartupOptions.Builder()
-        .shellCommand(listOf("dummy-shell"))
-        .startupEnvironmentMode(TerminalStartupEnvironmentMode.DEFAULT)
+        .shellCommand(listOf("non-shell"))
+        .processType(TerminalProcessType.NON_SHELL)
         .build(),
       project
     )
 
     assertEquals(probeValue, actual.envVariables[probeName])
-  }
-
-  fun testMinimalStartupEnvironmentModeUsesSystemEnvironment() {
-    setDefaultStartingDirectory(tempDirectory.pathString)
-    setPassParentEnvironmentVariablesForTest()
-
-    val probeName = "TERMINAL_MINIMAL_ENV_PROBE_${System.nanoTime()}"
-    assertThat(System.getenv()).doesNotContainKey(probeName)
-    setEnvironmentMapForTest(EnvironmentUtil.getEnvironmentMap() + (probeName to "DEFAULT_ENV_VALUE"))
-
-    val actual = LocalOptionsConfigurer.configureStartupOptions(
-      ShellStartupOptions.Builder()
-        .shellCommand(listOf("dummy-shell"))
-        .startupEnvironmentMode(TerminalStartupEnvironmentMode.MINIMAL)
-        .build(),
-      project
-    )
-
-    assertThat(actual.envVariables).doesNotContainKey(probeName)
   }
 
   fun testWslEnvSetup() {
@@ -298,12 +296,11 @@ internal class LocalOptionsConfigurerTest : BasePlatformTestCase() {
     setValueForTest(TerminalProjectOptionsProvider.getInstance(project)::shellPath, shellPath)
   }
 
-  private fun setPassParentEnvironmentVariablesForTest() {
-    val optionsProvider = TerminalProjectOptionsProvider.getInstance(project)
-    val previous = optionsProvider.getEnvData()
-    optionsProvider.setEnvData(EnvironmentVariablesData.create(previous.envs, true))
+  private fun <V> setValueForTest(prop: KMutableProperty0<V>, newValue: V) {
+    val prevValue = prop.get()
+    prop.set(newValue)
     Disposer.register(testRootDisposable) {
-      optionsProvider.setEnvData(previous)
+      prop.set(prevValue)
     }
   }
 
@@ -312,14 +309,6 @@ internal class LocalOptionsConfigurerTest : BasePlatformTestCase() {
     EnvironmentUtil.setEnvironmentLoader(CompletableDeferred(environmentMap))
     Disposer.register(testRootDisposable) {
       EnvironmentUtil.setEnvironmentLoader(CompletableDeferred(previous))
-    }
-  }
-
-  private fun <V> setValueForTest(prop: KMutableProperty0<V>, newValue: V) {
-    val prevValue = prop.get()
-    prop.set(newValue)
-    Disposer.register(testRootDisposable) {
-      prop.set(prevValue)
     }
   }
 }

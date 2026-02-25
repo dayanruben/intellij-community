@@ -4,6 +4,7 @@ import com.intellij.ui.content.ContentManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
+import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 
 /**
  * Builder for creating a new [TerminalToolWindowTab].
@@ -31,12 +32,13 @@ interface TerminalToolWindowTabBuilder {
   fun shellCommand(command: List<String>?): TerminalToolWindowTabBuilder
 
   /**
-   * If `true`, the shell process inherits the default parent environment.
-   * If `false`, a minimal parent environment is used.
+   * Specifies the type of the process that should be started in the terminal.
+   * It directly affects what base set of environment variables is used to start the process.
    *
-   * `false` by default.
+   * If not specified, the default value is [TerminalProcessType.SHELL].
+   * Specify [TerminalProcessType.NON_SHELL] if you start some arbitrary PTY process that is not a shell.
    */
-  fun useDefaultStartupEnvironment(useDefault: Boolean): TerminalToolWindowTabBuilder
+  fun processType(processType: TerminalProcessType): TerminalToolWindowTabBuilder
 
   /**
    * The title show in the tool window tab.

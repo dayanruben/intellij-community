@@ -4,8 +4,10 @@ package com.intellij.ide.ui.laf.darcula.ui;
 import com.intellij.ide.ui.laf.intellij.IdeaPopupMenuUI;
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.toolbar.ShowMode;
 import com.intellij.ui.ExperimentalUI;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.border.Border;
@@ -19,12 +21,14 @@ import java.awt.Insets;
  */
 public class DarculaMenuItemBorder implements Border, UIResource {
 
+  @ApiStatus.Internal
   public static @NotNull JBInsets menuBarItemInnerInsets() {
     return JBUI.insets(2);
   }
 
-  public static @NotNull JBInsets menuBarItemOuterInsets() {
-    return JBUI.emptyInsets();
+  @ApiStatus.Internal
+  public static @NotNull JBInsets menuBarItemOuterInsets(int height) {
+    return JBUI.insets(height / JBUIScale.scale(8), 0);
   }
 
   @Override

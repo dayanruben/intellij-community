@@ -242,15 +242,15 @@ internal fun fetchMinimalEnvironmentVariablesBlocking(eelDescriptor: EelDescript
   } 
 }
 
-internal suspend fun fetchDefaultEnvironmentVariables(api: EelApi): Map<String, String> {
+internal suspend fun EelApi.fetchDefaultEnvironmentVariables(): Map<String, String> {
   return try {
-    when (val exec = api.exec) {
-      is EelExecPosixApi -> exec.environmentVariables().default().eelIt().await()
+    when (val exec = this.exec) {
+      is EelExecPosixApi -> exec.environmentVariables().onlyActual(true).default().eelIt().await()
       is EelExecWindowsApi -> exec.environmentVariables().eelIt().await()
     }
   }
   catch (err: EelExecApi.EnvironmentVariablesException) {
-    log.warn("Failed to fetch default environment variables for ${api.descriptor}, using an empty environment", err)
+    log.warn("Failed to fetch default environment variables for ${this.descriptor}, using an empty environment", err)
     return emptyMap()
   }
 }
@@ -260,10 +260,9 @@ internal fun fetchDefaultEnvironmentVariablesBlocking(eelDescriptor: EelDescript
     return EnvironmentUtil.getEnvironmentMap()
   }
   return runBlockingMaybeCancellable {
-    fetchDefaultEnvironmentVariables(eelDescriptor.toEelApi())
+    eelDescriptor.toEelApi().fetchDefaultEnvironmentVariables()
   }
 }
-
 
 internal class ShellProcessHolder(
   val eelProcess: EelProcess,

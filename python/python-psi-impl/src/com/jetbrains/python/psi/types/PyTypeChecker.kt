@@ -16,6 +16,7 @@ import com.jetbrains.python.PythonRuntimeService
 import com.jetbrains.python.ast.PyAstFunction
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
+import com.jetbrains.python.codeInsight.typing.getProtocolMembers
 import com.jetbrains.python.codeInsight.typing.inspectProtocolSubclass
 import com.jetbrains.python.codeInsight.typing.isProtocol
 import com.jetbrains.python.psi.AccessDirection
@@ -44,6 +45,7 @@ import com.jetbrains.python.psi.types.PyTypeChecker.match
 import com.jetbrains.python.psi.types.PyTypeUtil.getEffectiveBound
 import com.jetbrains.python.psi.types.PyTypeUtil.toStream
 import com.jetbrains.python.pyi.PyiFile
+import com.jetbrains.python.pyi.PyiUtil
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import org.jetbrains.annotations.ApiStatus
 import java.util.Collections
@@ -932,11 +934,37 @@ object PyTypeChecker {
 
     val context = matchContext.context
 
-    if (expected is PyClassLikeType && !isCallableProtocol(expected, context)) {
-      return if (PyTypingTypeProvider.CALLABLE == expected.classQName)
-        Optional.of(actual.isCallable)
-      else
-        Optional.empty()
+    if (expected is PyClassLikeType) {
+      if (isCallableProtocol(expected, context)) {
+        val protocolMembers = expected.getProtocolMembers(context)
+        if (protocolMembers.size != 1 || protocolMembers[0].name != "__call__") {
+          return Optional.of(false)
+        }
+      }
+      else {
+        return if (PyTypingTypeProvider.CALLABLE == expected.classQName)
+          Optional.of(actual.isCallable)
+        else
+          Optional.empty()
+      }
+    }
+
+    if (expected is PyClassType && actual is PyFunctionType && isCallableProtocol(expected, context)) {
+      val expectedOverloads = expected.findMember(PyNames.CALL, PyResolveContext.defaultContext(context)).map { it.type }
+      val actualCallable = actual.callable
+      val actualOverloads = if (actualCallable is PyFunction) {
+        PyiUtil.getOverloads(actualCallable, context)
+          .map { context.getType(it) }
+          .takeIf { it.isNotEmpty() } ?: listOf(actual)
+      }
+      else {
+        listOf(actual)
+      }
+      return Optional.of(expectedOverloads.all { expectedCall ->
+        actualOverloads.any { actualCall ->
+          match(dropSelfIfNeeded(expected, expectedCall, context), actualCall, matchContext).orElse(true)
+        }
+      })
     }
 
     if (expected.isCallable && actual.isCallable) {
