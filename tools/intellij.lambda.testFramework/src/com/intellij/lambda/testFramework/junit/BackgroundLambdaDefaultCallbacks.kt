@@ -1,11 +1,11 @@
 package com.intellij.lambda.testFramework.junit
 
 import com.intellij.ide.starter.coroutine.CommonScope.testSuiteSupervisorScope
+import com.intellij.lambda.testFramework.starter.IdeInstance
 import com.intellij.lambda.testFramework.starter.IdeInstance.ide
 import com.intellij.lambda.testFramework.starter.IdeInstance.isStarted
 import com.intellij.lambda.testFramework.utils.IdeWithLambda
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.testFramework.recordErrorsLoggedInTheCurrentThreadAndReportThemAsFailures
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.extension.AfterAllCallback
 import org.junit.jupiter.api.extension.AfterEachCallback
@@ -28,21 +28,39 @@ class BackgroundLambdaDefaultCallbacks : BeforeAllCallback, BeforeEachCallback, 
 
   override fun beforeEach(context: ExtensionContext) {
     val contextName = context.requiredTestClass.name + "." + context.requiredTestMethod.name + " " + context.displayName
-    runLifecycleCallback("Before each", contextName) {
-      ide.beforeEach(contextName)
+    tryOrRestartIde(context) {
+      runLifecycleCallback("Before each", contextName) {
+        ide.beforeEach(contextName)
+      }
     }
   }
 
   override fun afterEach(context: ExtensionContext) {
     val contextName = context.requiredTestClass.name + "." + context.requiredTestMethod.name + " " + context.displayName
-    runLifecycleCallback("After each", contextName) {
-      ide.afterEach(contextName)
+    tryOrRestartIde(context) {
+      runLifecycleCallback("After each", contextName) {
+        ide.afterEach(contextName)
+      }
+    }
+   }
+
+  private fun tryOrRestartIde(context: ExtensionContext, action: IdeWithLambda.() -> Unit) {
+    try {
+      ide.action()
+    }
+    catch (_: Throwable) {
+      IdeInstance.stopIde()
+      IdeInstance.publishArtifacts()
+      IdeInstance.startIde(IdeInstance.currentIdeMode)
+      beforeAll(context)
     }
   }
 
   override fun afterAll(context: ExtensionContext) {
-    runLifecycleCallback("After all", context.requiredTestClass.name) {
-      ide.afterAll(context.requiredTestClass.name)
+    tryOrRestartIde(context) {
+      runLifecycleCallback("After all", context.requiredTestClass.name) {
+        ide.afterAll(context.requiredTestClass.name)
+      }
     }
   }
 
@@ -56,13 +74,9 @@ class BackgroundLambdaDefaultCallbacks : BeforeAllCallback, BeforeEachCallback, 
       thisLogger().warn("IDE wasn't started yet. Skipping $callbackName for $contextName")
       return@synchronized
     }
-    recordErrorsLoggedInTheCurrentThreadAndReportThemAsFailures {
-      runCatching {
-        @Suppress("RAW_RUN_BLOCKING")
-        runBlocking(testSuiteSupervisorScope.coroutineContext) {
-          ide.action()
-        }
-      }.onFailure { thisLogger().error("Problems in $callbackName: ${it.message}", it, contextName) }
+    @Suppress("RAW_RUN_BLOCKING")
+    runBlocking(testSuiteSupervisorScope.coroutineContext) {
+      ide.action()
     }
   }
 }
