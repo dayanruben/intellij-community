@@ -1,14 +1,14 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.testFramework.bucketing
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.SerializationFeature
 import com.intellij.GroupBasedTestClassFilter
 import com.intellij.TestCaseLoader
 import com.intellij.TestCaseLoader.TEST_RUNNERS_COUNT
 import com.intellij.TestCaseLoader.TEST_RUNNER_INDEX
 import com.intellij.testFramework.TeamCityLogger
 import org.jetbrains.annotations.ApiStatus
+import tools.jackson.databind.SerializationFeature
+import tools.jackson.databind.json.JsonMapper
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -113,7 +113,7 @@ internal object TestsDurationBucketingUtils {
         dumpData["classes"] = classes.sorted()
       }
 
-      val objectMapper = ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT)
+      val objectMapper = JsonMapper.builder().enable(SerializationFeature.INDENT_OUTPUT).build()
       val outputFile = Path.of(System.getProperty("java.io.tmpdir"))
         .resolve("test-bucketing-dump-${System.currentTimeMillis()}.json")
         .createParentDirectories()
@@ -163,8 +163,8 @@ internal object TestsDurationBucketingUtils {
     println("*** Calculated bucket partitions, average bucket time is ${averageTime}")
     if (TeamCityLogger.isUnderTC) {
       println(String.format("##teamcity[buildStatisticValue key='buckets.averageMs' value='%d']", averageTime.inWholeMilliseconds))
-      val bucket = buckets[currentBucketIndex]
-      println(String.format("##teamcity[buildStatisticValue key='buckets.currentMs' value='%d']", bucket.totalTime.inWholeMilliseconds))
+      val bucket = buckets.getOrNull(currentBucketIndex)
+      println(String.format("##teamcity[buildStatisticValue key='buckets.currentMs' value='%d']", bucket?.totalTime?.inWholeMilliseconds ?: 0))
     }
     filters.forEachIndexed { index, filter ->
       val bucket = buckets[index]

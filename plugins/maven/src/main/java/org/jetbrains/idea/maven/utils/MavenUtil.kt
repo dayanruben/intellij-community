@@ -24,6 +24,7 @@ import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkEx
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil
 import com.intellij.openapi.externalSystem.service.execution.InvalidJavaHomeException
 import com.intellij.openapi.externalSystem.service.execution.InvalidSdkException
+import com.intellij.openapi.externalSystem.service.execution.getJavaHomeForEel
 import com.intellij.openapi.externalSystem.service.project.trusted.ExternalSystemTrustedProjectDialog
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
@@ -32,6 +33,7 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
+import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.DumbService.Companion.isDumbAware
 import com.intellij.openapi.project.Project
@@ -1855,25 +1857,44 @@ object MavenUtil {
       if (res != null && res.getSdkType() is JavaSdkType) {
         return res
       }
-      return JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk()
+      if (project.getEelDescriptor() != LocalEelDescriptor) {
+        return resolveJavaHomeSdk(project)
+      }
+      else {
+        return JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk()
+      }
     }
 
     if (name == MavenRunnerSettings.USE_JAVA_HOME) {
-      val javaHome = ExternalSystemJdkUtil.getJavaHome()
-      if (StringUtil.isEmptyOrSpaces(javaHome)) {
-        throw InvalidJavaHomeException(javaHome)
-      }
-      try {
-        return JavaSdk.getInstance().createJdk("", javaHome!!)
-      }
-      catch (e: IllegalArgumentException) {
-        throw InvalidJavaHomeException(javaHome)
-      }
+      return resolveJavaHomeSdk(project)
     }
 
     val projectJdk: Sdk? = getSdkByExactName(name)
     if (projectJdk != null) return projectJdk
     throw InvalidSdkException(name)
+  }
+
+  /**
+   * Resolves JAVA_HOME for the project's environment (local or remote via EEL).
+   */
+  private fun resolveJavaHome(project: Project): String? {
+    val eelDescriptor = project.getEelDescriptor()
+    return runBlockingCancellable {
+      getJavaHomeForEel(eelDescriptor)
+    }?.toString()
+  }
+
+  private fun resolveJavaHomeSdk(project: Project): Sdk {
+    val javaHome = resolveJavaHome(project)
+    if (javaHome.isNullOrBlank()) {
+      throw InvalidJavaHomeException(javaHome)
+    }
+    try {
+      return JavaSdk.getInstance().createJdk("", javaHome)
+    }
+    catch (_: IllegalArgumentException) {
+      throw InvalidJavaHomeException(javaHome)
+    }
   }
 
   private fun getSdkByExactName(name: String): Sdk? {
