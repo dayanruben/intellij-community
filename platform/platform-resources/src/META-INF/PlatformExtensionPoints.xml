@@ -178,7 +178,7 @@
                     dynamic="true"/>
 
     <extensionPoint name="openInBrowserFloatingToolbarSuppressor"
-                    interface="com.intellij.ide.browsers.actions.OpenInBrowserBaseGroupAction$OpenInBrowserFloatingToolbarSuppressor"
+                    interface="com.intellij.ide.browsers.actions.OpenInBrowserFloatingToolbarSuppressor"
                     dynamic="true"/>
 
     <extensionPoint name="actionPromoter" interface="com.intellij.openapi.actionSystem.ActionPromoter" dynamic="true"/>
@@ -718,6 +718,10 @@
     <extensionPoint name="pluginCategoryPromotionProvider"
                     interface="com.intellij.ide.plugins.PluginCategoryPromotionProvider"
                     dynamic="false"/>
+
+    <extensionPoint name="fileChooserCustomizer"
+                    interface="com.intellij.openapi.fileChooser.FileChooserCustomizer"
+                    dynamic="true"/>
 
 
     <extensionPoint name="openAnotherToolHandler" interface="com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.OpenAnotherToolHandler" dynamic="true"/>

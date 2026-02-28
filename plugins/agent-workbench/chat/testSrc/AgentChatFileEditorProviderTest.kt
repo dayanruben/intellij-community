@@ -2,6 +2,7 @@
 package com.intellij.agent.workbench.chat
 
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
 import com.intellij.icons.AllIcons
 import com.intellij.ui.IconManager
 import org.assertj.core.api.Assertions.assertThat
@@ -259,6 +260,55 @@ class AgentChatFileEditorProviderTest {
   }
 
   @Test
+  fun deleteByThreadWithSubAgentRemovesOnlyMatchingSubAgentStateEntries() {
+    val store = AgentChatTabsStateService(null)
+    val matchingBase = AgentChatTabSnapshot.create(
+      projectHash = "hash-1",
+      projectPath = "/work/project-a",
+      threadIdentity = "codex:thread-1",
+      threadId = "thread-1",
+      threadTitle = "Thread",
+      subAgentId = null,
+      shellCommand = listOf("codex", "resume", "thread-1"),
+    )
+    val matchingSubAgent = AgentChatTabSnapshot.create(
+      projectHash = "hash-1",
+      projectPath = "/work/project-a",
+      threadIdentity = "codex:thread-1",
+      threadId = "sub-alpha",
+      threadTitle = "Thread",
+      subAgentId = "alpha",
+      shellCommand = listOf("codex", "resume", "sub-alpha"),
+    )
+    val otherSubAgent = AgentChatTabSnapshot.create(
+      projectHash = "hash-1",
+      projectPath = "/work/project-a",
+      threadIdentity = "codex:thread-1",
+      threadId = "sub-beta",
+      threadTitle = "Thread",
+      subAgentId = "beta",
+      shellCommand = listOf("codex", "resume", "sub-beta"),
+    )
+
+    store.upsert(matchingBase)
+    store.upsert(matchingSubAgent)
+    store.upsert(otherSubAgent)
+    try {
+      val deleted = store.deleteByThread("/work/project-a", "codex:thread-1", subAgentId = "alpha")
+
+      assertThat(deleted).isEqualTo(1)
+      assertThat(store.load(matchingSubAgent.tabKey)).isNull()
+      assertThat(store.load(matchingBase.tabKey)).isNotNull
+      assertThat(store.load(otherSubAgent.tabKey)).isNotNull
+    }
+    finally {
+      store.delete(matchingBase.tabKey)
+      store.delete(matchingSubAgent.tabKey)
+      store.delete(otherSubAgent.tabKey)
+    }
+  }
+
+  @Test
   fun mapsCodexThreadIdentityToCodexIcon() {
     val icon = providerIcon(threadIdentity = "codex:thread-1")
 
@@ -274,16 +324,17 @@ class AgentChatFileEditorProviderTest {
 
   @Test
   fun usesFallbackIconForUnknownProviderIdentity() {
-    val icon = providerIcon(threadIdentity = "unknown:thread-1")
+    val icon = providerIcon(threadIdentity = "unknown:thread-1", threadActivity = AgentThreadActivity.READY)
 
-    assertThat(icon).isNotEqualTo(AllIcons.Toolwindows.ToolWindowMessages)
+    assertThat(icon).isEqualTo(AllIcons.Toolwindows.ToolWindowMessages)
   }
 
   @Test
-  fun addsDistinctBadgesForDifferentThreadActivities() {
+  fun usesUnbadgedProviderIconForReadyAndBadgedIconForNonReadyActivity() {
     val readyIcon = providerIcon(threadIdentity = "codex:thread-1", threadActivity = AgentThreadActivity.READY)
     val unreadIcon = providerIcon(threadIdentity = "codex:thread-1", threadActivity = AgentThreadActivity.UNREAD)
 
+    assertThat(readyIcon).isEqualTo(AgentWorkbenchCommonIcons.Codex_14x14)
     assertThat(unreadIcon).isNotEqualTo(readyIcon)
   }
 }

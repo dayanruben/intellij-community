@@ -1,7 +1,12 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:OptIn(IntellijInternalApi::class)
+
 package com.intellij.platform.searchEverywhere.frontend.ui
 
 import com.intellij.icons.AllIcons
+import com.intellij.ide.rpc.ThrottledAccumulatedItems
+import com.intellij.ide.rpc.ThrottledItems
+import com.intellij.ide.rpc.ThrottledOneItem
 import com.intellij.ide.DataManager
 import com.intellij.ide.actions.searcheverywhere.ExtendedInfo
 import com.intellij.ide.actions.searcheverywhere.HintHelper
@@ -37,11 +42,15 @@ import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListItemDescriptorAdapter
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.searchEverywhere.SeItemData
 import com.intellij.platform.searchEverywhere.SeProviderId
+import com.intellij.platform.searchEverywhere.SeResultAddedEvent
+import com.intellij.platform.searchEverywhere.SeResultEvent
+import com.intellij.platform.searchEverywhere.SeResultReplacedEvent
 import com.intellij.platform.searchEverywhere.data.SeDataKeys
 import com.intellij.platform.searchEverywhere.frontend.AutoToggleAction
 import com.intellij.platform.searchEverywhere.frontend.SeSearchStatePublisher
@@ -50,6 +59,7 @@ import com.intellij.platform.searchEverywhere.frontend.SeSelectionResultClose
 import com.intellij.platform.searchEverywhere.frontend.SeSelectionResultText
 import com.intellij.platform.searchEverywhere.frontend.SeSelectionState
 import com.intellij.platform.searchEverywhere.frontend.SearchEverywhereFrontendBundle
+import com.intellij.platform.searchEverywhere.frontend.ml.SeMlService
 import com.intellij.platform.searchEverywhere.frontend.tabs.actions.SeActionItemPresentationRenderer
 import com.intellij.platform.searchEverywhere.frontend.tabs.all.SeAllTab
 import com.intellij.platform.searchEverywhere.frontend.tabs.files.SeTargetItemPresentationRenderer
@@ -292,6 +302,11 @@ class SePopupContentPane(
     launch {
       vm.currentTabFlow.flatMapLatest {
         withContext(Dispatchers.EDT) {
+          // If there was a previous search that didn't complete, report its results to ML
+          if (!isSearchCompleted.load() && resultListModel.size > 0) {
+            SeMlService.getInstanceIfEnabled()?.onStateFinished(currentResultsInList.toList())
+          }
+
           resultListModel.reset()
           semanticWarning.value = resultListModel.isValidAndHasOnlySemantic
         }
@@ -329,6 +344,8 @@ class SePopupContentPane(
               resultListModel.removeLoadingItem()
               searchStatePublisher.searchStoppedProducingResults(searchId, resultListModel.size, true)
 
+              SeMlService.getInstanceIfEnabled()?.onStateFinished(currentResultsInList.toList())
+
               if (!resultListModel.isValid || resultListModel.isEmpty) {
                 if (!textField.text.isEmpty()) {
                   val currentTab = vm.currentTab
@@ -364,6 +381,9 @@ class SePopupContentPane(
               val wasFrozen = resultListModel.freezer.isEnabled
 
               resultListModel.addFromThrottledEvent(searchContext, event)
+              if (event.hasResultsUpdates()) {
+                SeMlService.getInstanceIfEnabled()?.notifySearchResultsUpdated()
+              }
               semanticWarning.value = resultListModel.isValidAndHasOnlySemantic
 
               // Freeze back if it was frozen before
@@ -1176,3 +1196,9 @@ class SePopupContentPane(
     const val DEFAULT_FREEZING_DELAY_MS: Long = 800
   }
 }
+
+private fun ThrottledItems<SeResultEvent>.hasResultsUpdates(): Boolean =
+  when (this) {
+    is ThrottledOneItem<SeResultEvent> -> item is SeResultAddedEvent || item is SeResultReplacedEvent
+    is ThrottledAccumulatedItems<SeResultEvent> -> items.any { it is SeResultAddedEvent || it is SeResultReplacedEvent }
+  }
