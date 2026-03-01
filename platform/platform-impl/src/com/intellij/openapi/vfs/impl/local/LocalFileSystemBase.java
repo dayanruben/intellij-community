@@ -30,11 +30,12 @@ import com.intellij.openapi.vfs.newvfs.impl.FakeVirtualFile;
 import com.intellij.openapi.vfs.newvfs.impl.VirtualDirectoryImpl;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
+import com.intellij.platform.eel.fs.EelFileUtils;
 import com.intellij.platform.eel.provider.LocalEelDescriptor;
+import com.intellij.platform.eel.provider.LocalEelMachine;
 import com.intellij.util.PathUtilRt;
 import com.intellij.util.SlowOperations;
 import com.intellij.util.SystemProperties;
-import com.intellij.util.ThrowableConsumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.PreemptiveSafeFileOutputStream;
 import com.intellij.util.io.SafeFileOutputStream;
@@ -279,7 +280,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
 
   private boolean auxCopy(VirtualFile file, VirtualFile toDir, String copyName) throws IOException {
     for (var handler : handlers()) {
-      if (handler.copy(file, toDir, copyName) != null) return true;
+      if (handler.copyFile(file, toDir, copyName)) return true;
     }
     return false;
   }
@@ -305,9 +306,9 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
     return false;
   }
 
-  private void auxNotifyCompleted(ThrowableConsumer<LocalFileOperationsHandler, IOException> consumer) {
+  private void auxNotifyCompleted() {
     for (var handler : handlers()) {
-      handler.afterDone(consumer);
+      handler.completed();
     }
   }
 
@@ -328,7 +329,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
       NioFiles.createDirectories(nioFile);
     }
 
-    auxNotifyCompleted(handler -> handler.createDirectory(parent, name));
+    auxNotifyCompleted();
 
     //FIXME RC: why we return FakeVirtualFile (extends StubVirtualFile) here?
     //          it is quite strange/surprising implementation to use
@@ -365,7 +366,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
       }
     }
 
-    auxNotifyCompleted(handler -> handler.createFile(parent, name));
+    auxNotifyCompleted();
 
     return new FakeVirtualFile(parent, name);
   }
@@ -401,7 +402,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
       if (MOVE_TO_TRASH.get(file) == Boolean.TRUE) {
         TrashBin.moveToTrash(nioFile);
       }
-      else {
+      else if (LocalEelMachine.INSTANCE.ownsPath(nioFile)) {
         var callback = DELETE_CALLBACK.get(file);
         if (callback != null) {
           NioFiles.deleteRecursively(nioFile, callback);
@@ -411,8 +412,11 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
           NioFiles.deleteRecursively(nioFile);
         }
       }
+      else {
+        EelFileUtils.deleteRecursively(nioFile);
+      }
     }
-    auxNotifyCompleted(handler -> handler.delete(file));
+    auxNotifyCompleted();
   }
 
   @Override
@@ -510,7 +514,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
       }
     }
 
-    auxNotifyCompleted(handler -> handler.move(file, newParent));
+    auxNotifyCompleted();
   }
 
   @Override
@@ -541,7 +545,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
       }
     }
 
-    auxNotifyCompleted(handler -> handler.rename(file, newName));
+    auxNotifyCompleted();
   }
 
   @Override
@@ -570,7 +574,7 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
       NioFiles.copyRecursively(nioFile, nioTarget);
     }
 
-    auxNotifyCompleted(handler -> handler.copy(file, newParent, newName));
+    auxNotifyCompleted();
 
     return new FakeVirtualFile(newParent, newName);
   }
@@ -612,11 +616,6 @@ public abstract class LocalFileSystemBase extends LocalFileSystem {
 
     var rootPath = FileUtil.extractRootPath(normalizedPath);
     return rootPath != null ? rootPath : "";
-  }
-
-  @Override
-  public int getRank() {
-    return 1;
   }
 
   @Override

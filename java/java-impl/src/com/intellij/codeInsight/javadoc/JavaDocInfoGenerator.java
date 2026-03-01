@@ -103,6 +103,7 @@ import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.PsiNewExpression;
 import com.intellij.psi.PsiPackage;
+import com.intellij.psi.PsiPackageStatement;
 import com.intellij.psi.PsiParameter;
 import com.intellij.psi.PsiParameterList;
 import com.intellij.psi.PsiPattern;
@@ -815,6 +816,10 @@ public class JavaDocInfoGenerator {
       case PsiJavaModule module -> generateModuleJavaDoc(buffer, module, true);
       // package-info case
       case PsiDocComment comment -> generatePackageJavaDoc(buffer, comment, true);
+      case PsiPackageStatement packageStatement -> {
+        PsiDocComment docComment = packageStatement.getDocComment();
+        if (docComment != null) generatePackageJavaDoc(buffer, docComment, true);
+      }
       case null, default -> {
         return null;
       }
@@ -1236,12 +1241,14 @@ public class JavaDocInfoGenerator {
   }
 
   private void generateDefaultPackageDoc(StringBuilder buffer, PsiPackage aPackage, boolean generatePrologue) {
+    PsiClass[] classes = aPackage.getClasses();
+    if (classes.length == 0) return;
     if (generatePrologue) generatePrologue(buffer);
     HtmlBuilder hb = new HtmlBuilder();
     hb.append(HtmlChunk.tag("h3").addText(JavaBundle.message("package.classes")));
     Comparator<PsiClass> comparator = Comparator.comparing(PsiClass::getName, Comparator.nullsLast(Comparator.naturalOrder()));
     Set<String> links = new HashSet<>();
-    Arrays.stream(aPackage.getClasses()).sorted(comparator).forEach(psiClass -> {
+    Arrays.stream(classes).sorted(comparator).forEach(psiClass -> {
       String link = generateLink(psiClass, psiClass.getName());
       if (link != null && links.add(link)) {
         hb.append(HtmlChunk.tag("div")
