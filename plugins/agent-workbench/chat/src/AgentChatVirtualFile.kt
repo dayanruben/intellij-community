@@ -46,6 +46,9 @@ internal class AgentChatVirtualFile internal constructor(
   var shellCommand: List<String> = emptyList()
     private set
 
+  @Volatile
+  private var startupShellCommandOverride: List<String>? = null
+
   var threadId: String = ""
     private set
 
@@ -62,6 +65,15 @@ internal class AgentChatVirtualFile internal constructor(
     private set
 
   var pendingLaunchMode: String? = null
+    private set
+
+  var initialComposedMessage: String? = null
+    private set
+
+  var initialMessageToken: String? = null
+    private set
+
+  var initialMessageSent: Boolean = false
     private set
 
   @TestOnly
@@ -140,6 +152,18 @@ internal class AgentChatVirtualFile internal constructor(
     this.threadId = threadId
   }
 
+  @Synchronized
+  fun setStartupShellCommandOverride(shellCommand: List<String>) {
+    startupShellCommandOverride = shellCommand
+  }
+
+  @Synchronized
+  fun consumeStartupShellCommand(): List<String> {
+    val startupCommand = startupShellCommandOverride
+    startupShellCommandOverride = null
+    return startupCommand ?: shellCommand
+  }
+
   fun updatePendingMetadata(
     pendingCreatedAtMs: Long?,
     pendingFirstInputAtMs: Long?,
@@ -155,6 +179,33 @@ internal class AgentChatVirtualFile internal constructor(
     this.pendingCreatedAtMs = pendingCreatedAtMs
     this.pendingFirstInputAtMs = pendingFirstInputAtMs
     this.pendingLaunchMode = pendingLaunchMode
+    return true
+  }
+
+  fun updateInitialMessageMetadata(
+    initialComposedMessage: String?,
+    initialMessageToken: String?,
+    initialMessageSent: Boolean,
+  ): Boolean {
+    val normalizedMessage = initialComposedMessage?.takeIf { it.isNotBlank() }
+    if (
+      this.initialComposedMessage == normalizedMessage &&
+      this.initialMessageToken == initialMessageToken &&
+      this.initialMessageSent == initialMessageSent
+    ) {
+      return false
+    }
+    this.initialComposedMessage = normalizedMessage
+    this.initialMessageToken = initialMessageToken
+    this.initialMessageSent = initialMessageSent
+    return true
+  }
+
+  fun markInitialMessageSent(): Boolean {
+    if (initialComposedMessage.isNullOrBlank() || initialMessageSent) {
+      return false
+    }
+    initialMessageSent = true
     return true
   }
 
@@ -195,6 +246,9 @@ internal class AgentChatVirtualFile internal constructor(
     if (updatePendingMetadata(pendingCreatedAtMs = null, pendingFirstInputAtMs = null, pendingLaunchMode = null)) {
       changed = true
     }
+    if (updateInitialMessageMetadata(initialComposedMessage = null, initialMessageToken = null, initialMessageSent = false)) {
+      changed = true
+    }
 
     if (changed) {
       LOG.debug {
@@ -231,6 +285,11 @@ internal class AgentChatVirtualFile internal constructor(
       pendingFirstInputAtMs = snapshot.runtime.pendingFirstInputAtMs,
       pendingLaunchMode = snapshot.runtime.pendingLaunchMode,
     )
+    updateInitialMessageMetadata(
+      initialComposedMessage = snapshot.runtime.initialComposedMessage,
+      initialMessageToken = snapshot.runtime.initialMessageToken,
+      initialMessageSent = snapshot.runtime.initialMessageSent,
+    )
   }
 
   private fun updateThreadCoordinates() {
@@ -257,6 +316,9 @@ internal class AgentChatVirtualFile internal constructor(
         pendingCreatedAtMs = pendingCreatedAtMs,
         pendingFirstInputAtMs = pendingFirstInputAtMs,
         pendingLaunchMode = pendingLaunchMode,
+        initialComposedMessage = initialComposedMessage,
+        initialMessageToken = initialMessageToken,
+        initialMessageSent = initialMessageSent,
       ),
     )
   }

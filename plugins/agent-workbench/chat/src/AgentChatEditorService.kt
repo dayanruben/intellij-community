@@ -7,6 +7,7 @@ package com.intellij.agent.workbench.chat
 
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
@@ -14,6 +15,7 @@ import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorProvider
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.openapi.project.Project
@@ -21,11 +23,19 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.VirtualFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.TestOnly
+import java.util.concurrent.atomic.AtomicReference
 
 private class AgentChatEditorServiceLog
 
 private val LOG = logger<AgentChatEditorServiceLog>()
 private const val CODEX_PROVIDER_ID = "codex"
+private val fileEditorProviderOverrideForTests: AtomicReference<FileEditorProvider?> = AtomicReference(null)
+
+@TestOnly
+fun setAgentChatFileEditorProviderOverrideForTests(provider: FileEditorProvider?) {
+  fileEditorProviderOverrideForTests.set(provider)
+}
 
 data class AgentChatPendingTabRebindTarget(
   @JvmField val threadIdentity: String,
@@ -78,6 +88,7 @@ suspend fun openChat(
   projectPath: String,
   threadIdentity: String,
   shellCommand: List<String>,
+  startupShellCommandOverride: List<String>? = null,
   threadId: String,
   threadTitle: String,
   subAgentId: String?,
@@ -85,9 +96,16 @@ suspend fun openChat(
   pendingCreatedAtMs: Long? = null,
   pendingFirstInputAtMs: Long? = null,
   pendingLaunchMode: String? = null,
+  initialComposedMessage: String? = null,
+  initialMessageToken: String? = null,
+  initialMessageSent: Boolean = false,
 ) {
   val manager = FileEditorManagerEx.getInstanceExAsync(project)
   val existing = findExistingChat(manager.openFiles, threadIdentity, subAgentId)
+  val startupOverrideForNewTab = if (existing == null) startupShellCommandOverride else null
+  val snapshotInitialComposedMessage = if (startupOverrideForNewTab != null) null else initialComposedMessage
+  val snapshotInitialMessageToken = if (startupOverrideForNewTab != null) null else initialMessageToken
+  val snapshotInitialMessageSent = if (startupOverrideForNewTab != null) false else initialMessageSent
   LOG.debug {
     "openChat(project=${project.name}, path=$projectPath, identity=$threadIdentity, " +
     "subAgentId=$subAgentId, existing=${existing != null}, title=$threadTitle)"
@@ -106,6 +124,9 @@ suspend fun openChat(
     pendingCreatedAtMs = pendingCreatedAtMs,
     pendingFirstInputAtMs = pendingFirstInputAtMs,
     pendingLaunchMode = pendingLaunchMode,
+    initialComposedMessage = snapshotInitialComposedMessage,
+    initialMessageToken = snapshotInitialMessageToken,
+    initialMessageSent = snapshotInitialMessageSent,
   )
   val file = existing ?: fileSystem.getOrCreateFile(snapshot)
   if (existing != null) {
@@ -126,20 +147,47 @@ suspend fun openChat(
     else {
       false
     }
+    val initialMessageUpdated = if (
+      initialComposedMessage != null ||
+      initialMessageToken != null ||
+      initialMessageSent
+    ) {
+      existing.updateInitialMessageMetadata(
+        initialComposedMessage = initialComposedMessage,
+        initialMessageToken = initialMessageToken,
+        initialMessageSent = initialMessageSent,
+      )
+    }
+    else {
+      false
+    }
     tabsService.upsert(existing.toSnapshot())
     LOG.debug {
       "openChat existing tab update(identity=$threadIdentity, subAgentId=$subAgentId): " +
       "titleUpdated=$titleUpdated, activityUpdated=$activityUpdated, currentName=${existing.name}," +
       " currentTitle=${existing.threadTitle}, currentActivity=${existing.threadActivity}"
     }
-    if (titleUpdated || activityUpdated || pendingUpdated) {
+    if (titleUpdated || activityUpdated || pendingUpdated || initialMessageUpdated) {
       manager.updateFilePresentation(existing)
+    }
+    if (initialMessageUpdated && !existing.initialMessageSent) {
+      flushPendingInitialMessageForOpenEditors(manager = manager, file = existing)
     }
   }
   else {
+    if (startupOverrideForNewTab != null) {
+      file.setStartupShellCommandOverride(startupOverrideForNewTab)
+    }
     tabsService.upsert(file.toSnapshot())
     LOG.debug {
       "openChat created new tab(identity=$threadIdentity, subAgentId=$subAgentId, fileName=${file.name}, activity=$threadActivity)"
+    }
+  }
+  if (ApplicationManager.getApplication().isUnitTestMode) {
+    val provider = fileEditorProviderOverrideForTests.get()
+    if (provider != null) {
+      // TestEditorManagerImpl uses FileEditorProvider.KEY for non-text editors and otherwise falls back to doOpenTextEditor.
+      file.putUserData(FileEditorProvider.KEY, provider)
     }
   }
   manager.openFile(
@@ -483,6 +531,17 @@ private fun findExistingChat(
     }
   }
   return null
+}
+
+private fun flushPendingInitialMessageForOpenEditors(
+  manager: FileEditorManagerEx,
+  file: AgentChatVirtualFile,
+) {
+  manager.getAllEditors(file)
+    .filterIsInstance<AgentChatFileEditor>()
+    .forEach { editor ->
+      editor.flushPendingInitialMessageIfInitialized()
+    }
 }
 
 private fun isPendingThreadIdentity(threadIdentity: String): Boolean {

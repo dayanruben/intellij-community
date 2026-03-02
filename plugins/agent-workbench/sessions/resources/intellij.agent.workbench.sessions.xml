@@ -1,15 +1,17 @@
 <idea-plugin>
   <resource-bundle>messages.AgentSessionsBundle</resource-bundle>
 
+  <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
-    <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
-    <module name="intellij.agent.workbench.common"/>
+    <plugin id="org.jetbrains.plugins.terminal"/>
     <module name="intellij.agent.workbench.chat"/>
+    <module name="intellij.agent.workbench.common"/>
     <module name="intellij.agent.workbench.sessions.core"/>
-    <!-- endregion -->
   </dependencies>
+  <!-- endregion -->
 
   <extensions defaultExtensionNs="com.intellij">
+    <agent.workbench.promptLauncher implementation="com.intellij.agent.workbench.sessions.service.AgentSessionsPromptLauncherBridge"/>
     <toolWindow
       id="agent.workbench.sessions"
       anchor="right"
@@ -28,9 +30,14 @@
     <projectFrameActionExclusion frameType="AGENT_DEDICATED" place="MainToolbar" id="MainToolbarVCSGroup"/>
     <projectFrameActionExclusion frameType="AGENT_DEDICATED" place="MainToolbar" id="ExecutionTargetsToolbarGroup"/>
     <projectFrameActionExclusion frameType="AGENT_DEDICATED" place="MainToolbar" id="NewUiRunWidget"/>
+    <projectFrameActionExclusion frameType="AGENT_DEDICATED" place="MainToolbar" id="AIAssistantHubPopupAction"/>
     <statusBarWidgetFactory
       id="claude.quota"
       implementation="com.intellij.agent.workbench.sessions.claude.ClaudeQuotaStatusBarWidgetFactory"/>
+  </extensions>
+
+  <extensions defaultExtensionNs="org.jetbrains.plugins.terminal">
+    <hyperlinkNavigationInterceptor implementation="com.intellij.agent.workbench.sessions.service.AgentWorkbenchTerminalHyperlinkNavigationInterceptor"/>
   </extensions>
 
   <actions resource-bundle="messages.AgentSessionsBundle">
@@ -81,6 +88,8 @@
       <reference ref="AgentWorkbenchSessions.TreePopup.NewThread"/>
       <separator/>
       <reference ref="AgentWorkbenchSessions.TreePopup.Archive"/>
+      <separator/>
+      <reference ref="CopyReferencePopupGroup"/>
     </group>
     <action
       id="AgentWorkbenchSessions.ArchiveThreadFromEditorTab"

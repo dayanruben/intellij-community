@@ -1,8 +1,8 @@
 ---
 name: Agent Threads Tool Window
-description: Requirements for the Swing Async Tree implementation of Agent Threads, including aggregation, loading, activation, and tree lifecycle behavior.
+description: Requirements for the Swing Async Tree implementation of Agent Threads, including aggregation, loading, activation, tree lifecycle behavior, and UI-controller decomposition.
 targets:
-  - ../sessions/src/*.kt
+  - ../sessions/src/**/*.kt
   - ../sessions/resources/intellij.agent.workbench.sessions.xml
   - ../sessions/resources/messages/AgentSessionsBundle.properties
   - ../sessions/intellij.agent.workbench.sessions.iml
@@ -14,7 +14,7 @@ targets:
 # Agent Threads Tool Window
 
 Status: Draft
-Date: 2026-02-28
+Date: 2026-03-01
 
 ## Summary
 Define Agent Threads as a provider-agnostic, project-scoped browser implemented with native IntelliJ Swing tree APIs (`StructureTreeModel` + `AsyncTreeModel` + `Tree`).
@@ -45,6 +45,20 @@ Shared contracts remain in `spec/agent-core-contracts.spec.md`.
 ## Architecture Decision
 - The sessions tool window must use IntelliJ-native Swing async tree infrastructure.
   Rationale: this aligns interaction semantics with platform conventions, removes duplicate UI stacks in the plugin, and reduces maintenance/testing overhead.
+  [@test] ../sessions/testSrc/AgentSessionsToolWindowFactorySwingTest.kt
+
+- The sessions tool-window UI implementation must be decomposed into small, single-purpose Swing modules instead of a monolithic panel file.
+  Required decomposition:
+  - composition root panel (`AgentSessionsToolWindowPanel`),
+  - tree state controller,
+  - tree interaction controller,
+  - tree data-context provider,
+  - row-action overlay,
+  - renderer/layout/presentation helpers,
+  - quota-hint controller/panel.
+  [@test] ../sessions/testSrc/AgentSessionsSwingTreeCellRendererTest.kt
+  [@test] ../sessions/testSrc/AgentSessionsSwingTreeInteractionTest.kt
+  [@test] ../sessions/testSrc/AgentSessionsSwingQuotaHintTest.kt
   [@test] ../sessions/testSrc/AgentSessionsToolWindowFactorySwingTest.kt
 
 ## Requirements
@@ -128,6 +142,9 @@ Shared contracts remain in `spec/agent-core-contracts.spec.md`.
 - Context-menu selection policy must preserve multi-selection when right-clicking an already selected row and retarget selection when right-clicking an unselected row.
   [@test] ../sessions/testSrc/AgentSessionsSwingTreeInteractionTest.kt
 
+- Sessions tree popup for project/worktree rows must preserve platform `CopyReferencePopupGroup` so `Copy Path` / `Copy Reference` actions (including keymap shortcuts) remain available.
+  [@test] ../sessions/testSrc/AgentSessionsGearActionsTest.kt
+
 - Thread and sub-agent open routing must follow mode policy defined in `spec/agent-dedicated-frame.spec.md`.
   [@test] ../sessions/testSrc/AgentSessionsOpenModeRoutingTest.kt
 
@@ -168,6 +185,11 @@ Shared contracts remain in `spec/agent-core-contracts.spec.md`.
   [@test] ../sessions/testSrc/AgentSessionsToolWindowFactorySwingTest.kt
   [@test] ../sessions/testSrc/AgentSessionsGearActionsTest.kt
 
+- `AgentSessionsToolWindowPanel` must stay a thin composition root and delegate behavior to extracted controllers/services.
+  [@test] ../sessions/testSrc/AgentSessionsSwingTreeCellRendererTest.kt
+  [@test] ../sessions/testSrc/AgentSessionsSwingTreeInteractionTest.kt
+  [@test] ../sessions/testSrc/AgentSessionsSwingQuotaHintTest.kt
+
 - Claude quota hint visibility and acknowledgement must follow eligibility/ack/widget-enabled gating rules.
   [@test] ../sessions/testSrc/AgentSessionsSwingQuotaHintTest.kt
   [@test] ../sessions/testSrc/AgentSessionsClaudeQuotaWidgetActionRegistrationTest.kt
@@ -184,6 +206,7 @@ Shared contracts remain in `spec/agent-core-contracts.spec.md`.
 - Expand/collapse remains available through disclosure controls and keyboard tree actions.
 - Project/worktree rows expose new-session affordances when hovered/selected.
 - Project/worktree rows being refreshed show a right-side loading indicator in the row action area while refresh is in progress.
+- Project/worktree row context menus include the standard platform copy path/reference group.
 - Provider warnings are inline and non-blocking when partial data exists.
 - Blocking errors are inline and non-openable.
 
