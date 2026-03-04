@@ -167,6 +167,7 @@ internal interface AgentChatTerminalTabs {
 
 private object ToolWindowAgentChatTerminalTabs : AgentChatTerminalTabs {
   override fun createTab(project: Project, file: AgentChatVirtualFile): AgentChatTerminalTab {
+    val startupLaunchSpec = file.consumeStartupLaunchSpec()
     val terminalTab = TerminalToolWindowTabsManager.getInstance(project)
       .createTabBuilder()
       .shouldAddToToolWindow(false)
@@ -174,7 +175,8 @@ private object ToolWindowAgentChatTerminalTabs : AgentChatTerminalTabs {
       .workingDirectory(file.projectPath)
       .processType(TerminalProcessType.NON_SHELL)
       .tabName(file.threadTitle)
-      .shellCommand(file.consumeStartupShellCommand())
+      .shellCommand(startupLaunchSpec.command)
+      .envVariables(startupLaunchSpec.envVariables)
       .createTab()
     return ToolWindowAgentChatTerminalTab(terminalTab)
   }

@@ -13,6 +13,7 @@
       <module fileurl="file://$PROJECT_DIR$/fleet/build/license/fleet.build.license.iml" filepath="$PROJECT_DIR$/fleet/build/license/fleet.build.license.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/platform/fleet.build.platform.iml" filepath="$PROJECT_DIR$/fleet/build/platform/fleet.build.platform.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/s3/fleet.build.s3.iml" filepath="$PROJECT_DIR$/fleet/build/s3/fleet.build.s3.iml" />
+      <module fileurl="file://$PROJECT_DIR$/fleet/build/scrambling/fleet.build.scrambling.iml" filepath="$PROJECT_DIR$/fleet/build/scrambling/fleet.build.scrambling.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/sign/fleet.build.sign.iml" filepath="$PROJECT_DIR$/fleet/build/sign/fleet.build.sign.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/bundles/fleet.bundles.iml" filepath="$PROJECT_DIR$/fleet/bundles/fleet.bundles.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/codecache/fleet.codecache.iml" filepath="$PROJECT_DIR$/fleet/codecache/fleet.codecache.iml" />
@@ -58,6 +59,8 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/json/intellij.agent.workbench.json.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/json/intellij.agent.workbench.json.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/plugin/intellij.agent.workbench.plugin.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/plugin/intellij.agent.workbench.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/prompt/intellij.agent.workbench.prompt.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/prompt/intellij.agent.workbench.prompt.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/prompt-testrunner/intellij.agent.workbench.prompt.testrunner.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/prompt-testrunner/intellij.agent.workbench.prompt.testrunner.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/prompt-vcs/intellij.agent.workbench.prompt.vcs.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/prompt-vcs/intellij.agent.workbench.prompt.vcs.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/sessions/intellij.agent.workbench.sessions.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/sessions/intellij.agent.workbench.sessions.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/sessions-core/intellij.agent.workbench.sessions.core.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/sessions-core/intellij.agent.workbench.sessions.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/android-adb/intellij.android.adb.iml" filepath="$PROJECT_DIR$/android/android-adb/intellij.android.adb.iml" />
@@ -1393,7 +1396,6 @@
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/monorepo/intellij.platform.testFramework.monorepo.iml" filepath="$PROJECT_DIR$/platform/testFramework/monorepo/intellij.platform.testFramework.monorepo.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/selfContainedProjects/intellij.platform.testFramework.selfContainedProjects.iml" filepath="$PROJECT_DIR$/platform/testFramework/selfContainedProjects/intellij.platform.testFramework.selfContainedProjects.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/teamCity/intellij.platform.testFramework.teamCity.iml" filepath="$PROJECT_DIR$/platform/testFramework/teamCity/intellij.platform.testFramework.teamCity.iml" />
-      <module fileurl="file://$PROJECT_DIR$/platform/testFramework/ui/intellij.platform.testFramework.ui.iml" filepath="$PROJECT_DIR$/platform/testFramework/ui/intellij.platform.testFramework.ui.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testRunner/intellij.platform.testRunner.iml" filepath="$PROJECT_DIR$/platform/testRunner/intellij.platform.testRunner.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/platform-tests/intellij.platform.tests.iml" filepath="$PROJECT_DIR$/platform/platform-tests/intellij.platform.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/threadDumpParser/intellij.platform.threadDumpParser.iml" filepath="$PROJECT_DIR$/platform/threadDumpParser/intellij.platform.threadDumpParser.iml" />
@@ -1695,9 +1697,6 @@
       <module fileurl="file://$PROJECT_DIR$/xml/xmlbeans/intellij.xml.xmlbeans.iml" filepath="$PROJECT_DIR$/xml/xmlbeans/intellij.xml.xmlbeans.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/xpath/intellij.xpath.iml" filepath="$PROJECT_DIR$/plugins/xpath/intellij.xpath.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/xpath/xslt-rt/intellij.xpath.rt.iml" filepath="$PROJECT_DIR$/plugins/xpath/xslt-rt/intellij.xpath.rt.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/xslt-debugger/intellij.xslt.debugger.iml" filepath="$PROJECT_DIR$/plugins/xslt-debugger/intellij.xslt.debugger.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/xslt-debugger/engine/impl/intellij.xslt.debugger.impl.rt.iml" filepath="$PROJECT_DIR$/plugins/xslt-debugger/engine/impl/intellij.xslt.debugger.impl.rt.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/xslt-debugger/engine/intellij.xslt.debugger.rt.iml" filepath="$PROJECT_DIR$/plugins/xslt-debugger/engine/intellij.xslt.debugger.rt.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/yaml/intellij.yaml.iml" filepath="$PROJECT_DIR$/plugins/yaml/intellij.yaml.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/yaml/backend/intellij.yaml.backend.iml" filepath="$PROJECT_DIR$/plugins/yaml/backend/intellij.yaml.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/all-tests/kotlin.all-tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/all-tests/kotlin.all-tests.iml" />

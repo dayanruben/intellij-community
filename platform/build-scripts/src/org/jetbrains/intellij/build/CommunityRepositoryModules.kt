@@ -77,15 +77,6 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.tasks.compatibility")
       spec.withModule("intellij.tasks.java")
     },
-    pluginAuto(listOf("intellij.xslt.debugger")) { spec ->
-      spec.withModule("intellij.xslt.debugger.rt", "xslt-debugger-rt.jar")
-      spec.withModule("intellij.xslt.debugger.impl.rt", "rt/xslt-debugger-impl-rt.jar")
-      spec.withModuleLibrary("Saxon-6.5.5", "intellij.xslt.debugger.impl.rt", "rt/saxon.jar")
-      spec.withModuleLibrary("Saxon-9HE", "intellij.xslt.debugger.impl.rt", "rt/saxon9he.jar")
-      spec.withModuleLibrary("Xalan-2.7.3", "intellij.xslt.debugger.impl.rt", "rt/xalan-2.7.3.jar")
-      spec.withModuleLibrary("Serializer-2.7.3", "intellij.xslt.debugger.impl.rt", "rt/serializer-2.7.3.jar")
-      spec.withModuleLibrary("RMI Stubs", "intellij.xslt.debugger.rt", "rmi-stubs.jar")
-    },
     plugin("intellij.maven") { spec ->
 
       spec.doNotCopyModuleLibrariesAutomatically(
@@ -235,11 +226,6 @@ object CommunityRepositoryModules {
       spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_RELEASE
     },
     pluginAuto(listOf("intellij.lombok", "intellij.lombok.generated")),
-    plugin("intellij.platform.testFramework.ui") { spec ->
-      spec.withModuleLibrary("intellij.remoterobot.remote.fixtures", spec.mainModule, "")
-      spec.withModuleLibrary("intellij.remoterobot.robot.server.core", spec.mainModule, "")
-      spec.withProjectLibrary("okhttp")
-    },
     pluginAuto(listOf("intellij.performanceTesting")),
     pluginAuto(listOf("intellij.performanceTesting.ui")),
     pluginAuto(listOf("intellij.vcs.github")),

@@ -1,6 +1,7 @@
 package com.intellij.agent.workbench.chat
 
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.LoadingOrder
@@ -13,7 +14,6 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.fileEditorManagerFixture
@@ -22,7 +22,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.milliseconds
@@ -46,13 +45,6 @@ class AgentChatEditorServiceTest {
         LoadingOrder.FIRST,
         project,
       )
-    }
-  }
-
-  @AfterEach
-  fun tearDown(): Unit = timeoutRunBlocking {
-    runInUi {
-      (VirtualFileManager.getInstance().getFileSystem(AGENT_CHAT_PROTOCOL) as? AgentChatVirtualFileSystem)?.clearFilesForTests()
     }
   }
 
@@ -83,6 +75,7 @@ class AgentChatEditorServiceTest {
       threadIdentity = "CODEX:thread-startup-1",
       shellCommand = codexCommand,
       startupShellCommandOverride = listOf("codex", "--", "-draft prompt\nsecond line"),
+      startupShellEnvOverride = mapOf("DISABLE_AUTOUPDATER" to "1"),
       threadId = "thread-startup-1",
       threadTitle = "Startup prompt thread",
       subAgentId = null,
@@ -95,6 +88,35 @@ class AgentChatEditorServiceTest {
     assertThat(file.initialComposedMessage).isNull()
     assertThat(file.initialMessageToken).isNull()
     assertThat(file.initialMessageSent).isFalse()
+  }
+
+  @Test
+  fun testNewTabStartupLaunchSpecOverrideMergesEnvAndFallsBackToBase(): Unit = timeoutRunBlocking {
+    val baseEnv = mapOf("PATH" to "/usr/local/bin", "TERM" to "xterm-256color")
+    val startupEnv = mapOf("PATH" to "/custom/bin", "DISABLE_AUTOUPDATER" to "1")
+    openChatInModal(
+      threadIdentity = "CODEX:thread-startup-env",
+      shellCommand = codexCommand,
+      shellEnvVariables = baseEnv,
+      startupShellCommandOverride = listOf("codex", "--", "-draft with env"),
+      startupShellEnvOverride = startupEnv,
+      threadId = "thread-startup-env",
+      threadTitle = "Startup env thread",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    assertThat(file.shellCommand).containsExactlyElementsOf(codexCommand)
+    assertThat(file.shellEnvVariables).containsExactlyEntriesOf(baseEnv)
+
+    val startupLaunchSpec = file.consumeStartupLaunchSpec()
+    assertThat(startupLaunchSpec.command).containsExactly("codex", "--", "-draft with env")
+    assertThat(startupLaunchSpec.envVariables)
+      .containsExactlyEntriesOf(mapOf("PATH" to "/custom/bin", "TERM" to "xterm-256color", "DISABLE_AUTOUPDATER" to "1"))
+
+    val fallbackLaunchSpec = file.consumeStartupLaunchSpec()
+    assertThat(fallbackLaunchSpec.command).containsExactlyElementsOf(codexCommand)
+    assertThat(fallbackLaunchSpec.envVariables).containsExactlyEntriesOf(baseEnv)
   }
 
   @Test
@@ -111,6 +133,7 @@ class AgentChatEditorServiceTest {
       threadIdentity = "CODEX:thread-existing-startup",
       shellCommand = codexCommand,
       startupShellCommandOverride = listOf("codex", "--", "Should be ignored for open tab"),
+      startupShellEnvOverride = mapOf("DISABLE_AUTOUPDATER" to "1"),
       threadId = "thread-existing-startup",
       threadTitle = "Existing thread",
       subAgentId = null,
@@ -685,7 +708,9 @@ class AgentChatEditorServiceTest {
   private suspend fun openChatInModal(
     threadIdentity: String,
     shellCommand: List<String>,
+    shellEnvVariables: Map<String, String> = emptyMap(),
     startupShellCommandOverride: List<String>? = null,
+    startupShellEnvOverride: Map<String, String>? = null,
     threadId: String,
     threadTitle: String,
     subAgentId: String?,
@@ -700,7 +725,10 @@ class AgentChatEditorServiceTest {
       projectPath = projectPath,
       threadIdentity = threadIdentity,
       shellCommand = shellCommand,
-      startupShellCommandOverride = startupShellCommandOverride,
+      shellEnvVariables = shellEnvVariables,
+      startupLaunchSpecOverride = startupShellCommandOverride?.let { command ->
+        AgentSessionTerminalLaunchSpec(command = command, envVariables = startupShellEnvOverride.orEmpty())
+      },
       threadId = threadId,
       threadTitle = threadTitle,
       subAgentId = subAgentId,
