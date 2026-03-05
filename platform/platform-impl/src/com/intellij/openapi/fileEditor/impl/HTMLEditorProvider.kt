@@ -1,10 +1,10 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileEditor.impl
 
 import com.intellij.ide.browsers.actions.WebPreviewFileType
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorPolicy
@@ -14,25 +14,20 @@ import com.intellij.openapi.fileEditor.impl.HTMLEditorProvider.Companion.JS_FUNC
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsContexts.DialogTitle
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
-import com.intellij.testFramework.LightVirtualFile
-import com.intellij.ui.jcef.JBCefApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
 import java.io.InputStream
 import java.net.URI
 
 class HTMLEditorProvider : FileEditorProvider, DumbAware {
   @Suppress("CompanionObjectInExtension")
   companion object {
-    private val REQUEST_KEY: Key<Request> = Key.create("html.editor.request.key")
-    private val EDITOR_KEY: Key<FileEditor> = Key.create("html.editor.component.key")
-
     const val JS_FUNCTION_NAME: String = "jbCefQuery"
 
     @JvmStatic
@@ -52,17 +47,14 @@ class HTMLEditorProvider : FileEditorProvider, DumbAware {
 
     @JvmStatic
     fun openEditor(project: Project, @DialogTitle title: String, request: Request, fileType: FileType): FileEditor? {
-      val file = getSyntheticFileToOpen(request, title, fileType)
-      return FileEditorManager.getInstance(project)
-        .openFile(file, true)
-        .find { it is HTMLFileEditor }
+      return openEditor(project, title, request, fileType, ignoreJcef = false)
     }
 
-    private fun getSyntheticFileToOpen(request: Request, @DialogTitle title: String, fileType: FileType): VirtualFile {
-      logger<HTMLEditorProvider>().info(if (request.url == null) "HTML (${request.html!!.length} chars)" else "URL=${request.url}")
-      val file = LightVirtualFile(title, fileType, "")
-      REQUEST_KEY.set(file, request)
-      return file
+    @TestOnly
+    @ApiStatus.Internal
+    @JvmStatic
+    fun openEditorWithoutJcef(project: Project, @DialogTitle title: String, request: Request, fileType: FileType): FileEditor? {
+      return openEditor(project, title, request, fileType, ignoreJcef = true)
     }
 
     /**
@@ -70,7 +62,7 @@ class HTMLEditorProvider : FileEditorProvider, DumbAware {
      */
     @ApiStatus.Experimental
     suspend fun openEditorAsync(project: Project, @DialogTitle title: String, request: Request): FileEditor? {
-      val file = getSyntheticFileToOpen(request, title, WebPreviewFileType.INSTANCE)
+      val file = HTMLVirtualFile.createFile(project, title, request, WebPreviewFileType.INSTANCE, ignoreJcef = false)
       val fileEditorManager = FileEditorManager.getInstance(project)
       val fileEditors = if (fileEditorManager is FileEditorManagerEx) {
         fileEditorManager.openFile(file, FileEditorOpenOptions(requestFocus = true, waitForCompositeOpen = false))
@@ -93,28 +85,42 @@ class HTMLEditorProvider : FileEditorProvider, DumbAware {
     fun openEditorWithoutBlocking(project: Project, @DialogTitle title: String, request: Request) {
       project.service<CoreUiCoroutineScopeHolder>().coroutineScope.launch { openEditorAsync(project, title, request) }
     }
+
+    @JvmStatic
+    private fun openEditor(
+      project: Project,
+      title: @DialogTitle String,
+      request: Request,
+      fileType: FileType,
+      ignoreJcef: Boolean,
+    ): FileEditor? {
+      logger<HTMLEditorProvider>().info(if (request.url == null) "HTML (${request.html!!.length} chars)" else "URL=${request.url}")
+      val file = HTMLVirtualFile.createFile(project, title, request, fileType, ignoreJcef)
+      return FileEditorManager.getInstance(project)
+        .openFile(file, true)
+        .find { it is HTMLFileEditor }
+    }
   }
 
   @ApiStatus.Internal
   override fun createEditor(project: Project, file: VirtualFile): FileEditor {
-    return file.getUserData(EDITOR_KEY)
-           ?: HTMLFileEditor(project, file as LightVirtualFile, REQUEST_KEY.get(file)!!).also { file.putUserData(EDITOR_KEY, it) }
-  }
-
-  @ApiStatus.Internal
-  override fun disposeEditor(editor: FileEditor) {
-    try {
-      editor.file?.let { file ->
-        file.putUserData(EDITOR_KEY, null)
-        file.putUserData(REQUEST_KEY, null)
-      }
+    require(file is HTMLVirtualFile) {
+      "cannot create html editor for non-html file, actual $file"
     }
-    finally {
-      super.disposeEditor(editor)
+    require(!file.isDisposed()) {
+      "html request is already disposed"
+    }
+    return if (file.shouldUseMockEditor()) {
+      HTMLFileEditorMock(file)
+    }
+    else {
+      HTMLFileEditorImpl(project, file, file.htmlRequest)
     }
   }
 
-  override fun accept(project: Project, file: VirtualFile): Boolean = JBCefApp.isSupported() && file.getUserData(REQUEST_KEY) != null
+  override fun accept(project: Project, file: VirtualFile): Boolean {
+    return file is HTMLVirtualFile && !file.isDisposed() && file.isJcefSupported()
+  }
 
   override fun acceptRequiresReadAction(): Boolean = false
 
@@ -196,6 +202,9 @@ class HTMLEditorProvider : FileEditorProvider, DumbAware {
   interface JsQueryHandler {
     suspend fun query(id: Long, request: String): String
   }
+
+  @ApiStatus.Internal
+  interface HTMLFileEditor : FileEditor
 
   @ApiStatus.Internal
   interface ResourceHandler {
