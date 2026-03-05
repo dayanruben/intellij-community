@@ -8,24 +8,41 @@ import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTab
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabsManager
+import com.intellij.terminal.frontend.view.TerminalViewSessionState
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.yield
 import org.jetbrains.plugins.terminal.startup.TerminalProcessType
+import org.jetbrains.plugins.terminal.view.TerminalContentChangeEvent
+import org.jetbrains.plugins.terminal.view.TerminalOutputModel
+import org.jetbrains.plugins.terminal.view.TerminalOutputModelListener
 import java.awt.BorderLayout
 import java.beans.PropertyChangeListener
 import java.util.concurrent.CancellationException
 import javax.swing.JComponent
 import javax.swing.JPanel
+import kotlin.time.Duration.Companion.milliseconds
 
 internal class AgentChatFileEditor(
   private val project: Project,
@@ -52,6 +69,7 @@ internal class AgentChatFileEditor(
   private var tab: AgentChatTerminalTab? = null
   private var initializationStarted: Boolean = false
   private var disposed: Boolean = false
+  private var pendingInitialMessageJob: Job? = null
 
   override fun getComponent(): JComponent = component
 
@@ -81,6 +99,8 @@ internal class AgentChatFileEditor(
 
   override fun dispose() {
     disposed = true
+    pendingInitialMessageJob?.cancel()
+    pendingInitialMessageJob = null
     tab?.let { terminalTab ->
       terminalTabs.closeTab(project, terminalTab)
     }
@@ -97,7 +117,7 @@ internal class AgentChatFileEditor(
       val createdTab = terminalTabs.createTab(project, file)
       tab = createdTab
       subscribePendingFirstInput(createdTab)
-      sendInitialMessageIfNeeded(createdTab)
+      scheduleInitialMessageSend(createdTab)
       component.removeAll()
       component.add(createdTab.component, BorderLayout.CENTER)
       component.revalidate()
@@ -111,9 +131,9 @@ internal class AgentChatFileEditor(
     }
   }
 
-  internal fun flushPendingInitialMessageIfInitialized(): Boolean {
-    val initializedTab = tab ?: return false
-    return sendInitialMessageIfNeeded(initializedTab)
+  internal fun flushPendingInitialMessageIfInitialized() {
+    val initializedTab = tab ?: return
+    scheduleInitialMessageSend(initializedTab)
   }
 
   private fun subscribePendingFirstInput(createdTab: AgentChatTerminalTab) {
@@ -131,13 +151,67 @@ internal class AgentChatFileEditor(
     }
   }
 
-  private fun sendInitialMessageIfNeeded(createdTab: AgentChatTerminalTab): Boolean {
-    val initialMessage = file.initialComposedMessage?.trim().orEmpty()
-    if (initialMessage.isEmpty() || file.initialMessageSent) {
+  private fun scheduleInitialMessageSend(createdTab: AgentChatTerminalTab) {
+    if (!file.hasPendingInitialMessageForDispatch()) {
+      return
+    }
+    if (createdTab.sessionState.value == TerminalViewSessionState.Terminated) {
+      return
+    }
+    if (pendingInitialMessageJob?.isActive == true) {
+      return
+    }
+    pendingInitialMessageJob = createdTab.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+      val state = createdTab.sessionState.first { it != TerminalViewSessionState.NotStarted }
+      if (state != TerminalViewSessionState.Running) {
+        return@launch
+      }
+      while (true) {
+        when (createdTab.awaitInitialMessageReadiness(
+          timeoutMs = INITIAL_MESSAGE_READINESS_TIMEOUT_MS,
+          idleMs = INITIAL_MESSAGE_OUTPUT_IDLE_MS,
+        )) {
+          AgentChatTerminalInputReadiness.READY -> {
+            sendInitialMessageIfReady(createdTab)
+            return@launch
+          }
+          AgentChatTerminalInputReadiness.TIMEOUT -> {
+            if (file.shouldDelayInitialMessageOnReadinessTimeout()) {
+              yield()
+              continue
+            }
+            sendInitialMessageIfReady(createdTab)
+            return@launch
+          }
+          AgentChatTerminalInputReadiness.TERMINATED -> return@launch
+        }
+      }
+    }.also { job ->
+      job.invokeOnCompletion {
+        if (pendingInitialMessageJob === job) {
+          pendingInitialMessageJob = null
+        }
+      }
+    }
+  }
+
+  private fun sendInitialMessageIfReady(createdTab: AgentChatTerminalTab): Boolean {
+    if (createdTab.sessionState.value != TerminalViewSessionState.Running) {
       return false
     }
-    createdTab.sendText(initialMessage, shouldExecute = true)
-    if (!file.markInitialMessageSent()) {
+    val dispatch = file.acquireInitialMessageDispatch() ?: return false
+    try {
+      createdTab.sendText(dispatch.message, shouldExecute = true)
+    }
+    catch (e: CancellationException) {
+      file.cancelInitialMessageDispatch(dispatch)
+      throw e
+    }
+    catch (_: Throwable) {
+      file.cancelInitialMessageDispatch(dispatch)
+      return false
+    }
+    if (!file.completeInitialMessageDispatch(dispatch)) {
       return false
     }
     serviceIfCreated<AgentChatTabsService>()?.upsert(file.toSnapshot())
@@ -154,9 +228,18 @@ internal interface AgentChatTerminalTab {
   val component: JComponent
   val preferredFocusableComponent: JComponent
   val coroutineScope: CoroutineScope
+  val sessionState: StateFlow<TerminalViewSessionState>
   val keyEventsFlow: Flow<*>
 
+  suspend fun awaitInitialMessageReadiness(timeoutMs: Long, idleMs: Long): AgentChatTerminalInputReadiness
+
   fun sendText(text: String, shouldExecute: Boolean)
+}
+
+internal enum class AgentChatTerminalInputReadiness {
+  READY,
+  TIMEOUT,
+  TERMINATED,
 }
 
 internal interface AgentChatTerminalTabs {
@@ -178,7 +261,11 @@ private object ToolWindowAgentChatTerminalTabs : AgentChatTerminalTabs {
       .shellCommand(startupLaunchSpec.command)
       .envVariables(startupLaunchSpec.envVariables)
       .createTab()
-    return ToolWindowAgentChatTerminalTab(terminalTab)
+    return ToolWindowAgentChatTerminalTab(
+      delegate = terminalTab,
+      projectPath = file.projectPath,
+      provider = file.provider,
+    )
   }
 
   override fun closeTab(project: Project, tab: AgentChatTerminalTab) {
@@ -203,6 +290,8 @@ internal fun closeTerminalToolWindowTab(
 
 private class ToolWindowAgentChatTerminalTab(
   val delegate: TerminalToolWindowTab,
+  private val projectPath: String,
+  private val provider: AgentSessionProvider?,
 ) : AgentChatTerminalTab {
   override val component: JComponent
     get() = delegate.content.component
@@ -213,8 +302,82 @@ private class ToolWindowAgentChatTerminalTab(
   override val coroutineScope: CoroutineScope
     get() = delegate.view.coroutineScope
 
+  override val sessionState: StateFlow<TerminalViewSessionState>
+    get() = delegate.view.sessionState
+
   override val keyEventsFlow: Flow<*>
     get() = delegate.view.keyEventsFlow
+
+  override suspend fun awaitInitialMessageReadiness(timeoutMs: Long, idleMs: Long): AgentChatTerminalInputReadiness {
+    if (delegate.view.sessionState.value == TerminalViewSessionState.Terminated) {
+      return AgentChatTerminalInputReadiness.TERMINATED
+    }
+
+    val readinessDeferred = CompletableDeferred<AgentChatTerminalInputReadiness>()
+    val outputListenerDisposable = Disposer.newDisposable("agent-chat-initial-message-readiness")
+    var idleJob: Job? = null
+    var terminationJob: Job? = null
+    var sawMeaningfulOutput = false
+
+    fun rescheduleIdleCompletion() {
+      if (!sawMeaningfulOutput || readinessDeferred.isCompleted) {
+        return
+      }
+      idleJob?.cancel()
+      idleJob = delegate.view.coroutineScope.launch {
+        delay(idleMs.milliseconds)
+        readinessDeferred.complete(AgentChatTerminalInputReadiness.READY)
+      }
+    }
+
+    try {
+      withContext(Dispatchers.EDT) {
+        val listener = object : TerminalOutputModelListener {
+          override fun afterContentChanged(event: TerminalContentChangeEvent) {
+            if (event.isTypeAhead || event.isTrimming || readinessDeferred.isCompleted || event.newText.isEmpty()) {
+              return
+            }
+            if (event.newText.any(::isMeaningfulTerminalOutputChar)) {
+              sawMeaningfulOutput = true
+              if (provider == AgentSessionProvider.CODEX) {
+                notifyCodexTerminalOutputForRefresh(projectPath)
+              }
+            }
+            if (sawMeaningfulOutput) {
+              rescheduleIdleCompletion()
+            }
+          }
+        }
+        val outputModels = delegate.view.outputModels
+        outputModels.regular.addListener(outputListenerDisposable, listener)
+        outputModels.alternative.addListener(outputListenerDisposable, listener)
+
+        if (hasAnyMeaningfulTerminalOutput(outputModels.regular) || hasAnyMeaningfulTerminalOutput(outputModels.alternative)) {
+          sawMeaningfulOutput = true
+          if (provider == AgentSessionProvider.CODEX) {
+            notifyCodexTerminalOutputForRefresh(projectPath)
+          }
+          rescheduleIdleCompletion()
+        }
+      }
+
+      terminationJob = delegate.view.coroutineScope.launch {
+        delegate.view.sessionState.first { it == TerminalViewSessionState.Terminated }
+        readinessDeferred.complete(AgentChatTerminalInputReadiness.TERMINATED)
+      }
+
+      return withTimeoutOrNull(timeoutMs.milliseconds) {
+        readinessDeferred.await()
+      } ?: AgentChatTerminalInputReadiness.TIMEOUT
+    }
+    finally {
+      idleJob?.cancel()
+      terminationJob?.cancel()
+      withContext(Dispatchers.EDT) {
+        Disposer.dispose(outputListenerDisposable)
+      }
+    }
+  }
 
   override fun sendText(text: String, shouldExecute: Boolean) {
     val normalizedText = text.trim()
@@ -228,3 +391,18 @@ private class ToolWindowAgentChatTerminalTab(
     sendTextBuilder.send(normalizedText)
   }
 }
+
+private fun hasAnyMeaningfulTerminalOutput(model: TerminalOutputModel): Boolean {
+  val end = model.endOffset
+  val availableChars = end - model.startOffset
+  val start = if (availableChars > READINESS_SCAN_LIMIT_CHARS) end - READINESS_SCAN_LIMIT_CHARS else model.startOffset
+  return model.getText(start, end).any(::isMeaningfulTerminalOutputChar)
+}
+
+private fun isMeaningfulTerminalOutputChar(char: Char): Boolean {
+  return !char.isWhitespace() && char != '%'
+}
+
+private const val INITIAL_MESSAGE_READINESS_TIMEOUT_MS: Long = 2_000
+private const val INITIAL_MESSAGE_OUTPUT_IDLE_MS: Long = 250
+private const val READINESS_SCAN_LIMIT_CHARS: Long = 8_192

@@ -3,6 +3,7 @@ package com.intellij.agent.workbench.chat
 
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
+import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -80,6 +81,11 @@ internal class AgentChatVirtualFile internal constructor(
   var initialMessageSent: Boolean = false
     private set
 
+  var initialMessageTimeoutPolicy: AgentInitialMessageTimeoutPolicy = AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK
+    private set
+
+  private var initialMessageDispatchInFlight: AgentChatInitialMessageDispatch? = null
+
   @TestOnly
   internal constructor(
     projectPath: String,
@@ -91,6 +97,7 @@ internal class AgentChatVirtualFile internal constructor(
     subAgentId: String?,
     threadActivity: AgentThreadActivity = AgentThreadActivity.READY,
     projectHash: String = "",
+    initialMessageTimeoutPolicy: AgentInitialMessageTimeoutPolicy = AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK,
   ) : this(
     fileSystem = createStandaloneAgentChatVirtualFileSystemForTest(),
     resolution = AgentChatTabResolution.Resolved(AgentChatTabSnapshot.create(
@@ -103,6 +110,7 @@ internal class AgentChatVirtualFile internal constructor(
       shellCommand = shellCommand,
       shellEnvVariables = shellEnvVariables,
       threadActivity = threadActivity,
+      initialMessageTimeoutPolicy = initialMessageTimeoutPolicy,
     ))
   )
 
@@ -194,31 +202,83 @@ internal class AgentChatVirtualFile internal constructor(
     return true
   }
 
+  @Synchronized
   fun updateInitialMessageMetadata(
     initialComposedMessage: String?,
     initialMessageToken: String?,
     initialMessageSent: Boolean,
+    initialMessageTimeoutPolicy: AgentInitialMessageTimeoutPolicy = AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK,
   ): Boolean {
     val normalizedMessage = initialComposedMessage?.takeIf { it.isNotBlank() }
     if (
       this.initialComposedMessage == normalizedMessage &&
       this.initialMessageToken == initialMessageToken &&
-      this.initialMessageSent == initialMessageSent
+      this.initialMessageSent == initialMessageSent &&
+      this.initialMessageTimeoutPolicy == initialMessageTimeoutPolicy
     ) {
       return false
     }
     this.initialComposedMessage = normalizedMessage
     this.initialMessageToken = initialMessageToken
     this.initialMessageSent = initialMessageSent
+    this.initialMessageTimeoutPolicy = initialMessageTimeoutPolicy
+    initialMessageDispatchInFlight = null
     return true
   }
 
-  fun markInitialMessageSent(): Boolean {
-    if (initialComposedMessage.isNullOrBlank() || initialMessageSent) {
+  @Synchronized
+  fun hasPendingInitialMessageForDispatch(): Boolean {
+    return !initialMessageSent && !initialComposedMessage.isNullOrBlank()
+  }
+
+  @Synchronized
+  fun shouldDelayInitialMessageOnReadinessTimeout(): Boolean {
+    if (initialMessageSent || initialMessageTimeoutPolicy != AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS) {
+      return false
+    }
+    val message = initialComposedMessage?.trim().orEmpty()
+    return message.isNotEmpty()
+  }
+
+  @Synchronized
+  fun acquireInitialMessageDispatch(): AgentChatInitialMessageDispatch? {
+    if (initialMessageSent) {
+      return null
+    }
+    val message = initialComposedMessage?.trim().orEmpty()
+    if (message.isEmpty()) {
+      return null
+    }
+    val token = initialMessageToken
+    val inFlight = initialMessageDispatchInFlight
+    if (inFlight != null && inFlight.message == message && inFlight.token == token) {
+      return null
+    }
+    return AgentChatInitialMessageDispatch(message = message, token = token).also {
+      initialMessageDispatchInFlight = it
+    }
+  }
+
+  @Synchronized
+  fun completeInitialMessageDispatch(dispatch: AgentChatInitialMessageDispatch): Boolean {
+    if (initialMessageDispatchInFlight !== dispatch) {
+      return false
+    }
+    val currentMessage = initialComposedMessage?.trim().orEmpty()
+    if (currentMessage.isEmpty() || initialMessageSent || initialMessageToken != dispatch.token || currentMessage != dispatch.message) {
+      initialMessageDispatchInFlight = null
       return false
     }
     initialMessageSent = true
+    initialMessageDispatchInFlight = null
     return true
+  }
+
+  @Synchronized
+  fun cancelInitialMessageDispatch(dispatch: AgentChatInitialMessageDispatch) {
+    if (initialMessageDispatchInFlight === dispatch) {
+      initialMessageDispatchInFlight = null
+    }
   }
 
   fun markPendingFirstInputAtMsIfAbsent(timestampMs: Long): Boolean {
@@ -259,7 +319,12 @@ internal class AgentChatVirtualFile internal constructor(
     if (updatePendingMetadata(pendingCreatedAtMs = null, pendingFirstInputAtMs = null, pendingLaunchMode = null)) {
       changed = true
     }
-    if (updateInitialMessageMetadata(initialComposedMessage = null, initialMessageToken = null, initialMessageSent = false)) {
+    if (updateInitialMessageMetadata(
+        initialComposedMessage = null,
+        initialMessageToken = null,
+        initialMessageSent = false,
+        initialMessageTimeoutPolicy = AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK,
+      )) {
       changed = true
     }
 
@@ -310,6 +375,7 @@ internal class AgentChatVirtualFile internal constructor(
       initialComposedMessage = snapshot.runtime.initialComposedMessage,
       initialMessageToken = snapshot.runtime.initialMessageToken,
       initialMessageSent = snapshot.runtime.initialMessageSent,
+      initialMessageTimeoutPolicy = snapshot.runtime.initialMessageTimeoutPolicy,
     )
   }
 
@@ -341,10 +407,16 @@ internal class AgentChatVirtualFile internal constructor(
         initialComposedMessage = initialComposedMessage,
         initialMessageToken = initialMessageToken,
         initialMessageSent = initialMessageSent,
+        initialMessageTimeoutPolicy = initialMessageTimeoutPolicy,
       ),
     )
   }
 }
+
+internal class AgentChatInitialMessageDispatch internal constructor(
+  val message: String,
+  val token: String?,
+)
 
 private fun resolveFileName(tabKey: String): String {
   return "chat-$tabKey"

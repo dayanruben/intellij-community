@@ -1413,7 +1413,6 @@ plugins/maven-server-api
 plugins/maven-server-api/test
 plugins/maven/artifact-resolver-m31
 plugins/maven/artifact-resolver/common
-plugins/maven/error-prone-compiler
 plugins/maven/jps-plugin
 plugins/maven/maven-event-listener
 plugins/maven/maven-server-indexer
@@ -1422,6 +1421,7 @@ plugins/maven/maven3-server-common
 plugins/maven/maven3-server-impl
 plugins/maven/maven36-server-impl
 plugins/maven/maven40-server-impl
+plugins/maven/performanceTesting
 plugins/maven/proofreading
 plugins/maven/src/test
 plugins/maven/testFramework
