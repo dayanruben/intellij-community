@@ -145,7 +145,6 @@ internal class BuildTasksImpl(private val context: BuildContextImpl) : BuildTask
     BundledMavenDownloader.downloadMaven3Libs(context.paths.communityHomeDirRoot)
     BundledMavenDownloader.downloadMavenDistribution(context.paths.communityHomeDirRoot)
     BundledMavenDownloader.downloadMavenTelemetryDependencies(context.paths.communityHomeDirRoot)
-    buildDistribution(context = context, isUpdateFromSources = true)
     val arch = if (SystemInfoRt.isMac && CpuArch.isIntel64() && CpuArch.isEmulated()) {
       JvmArchitecture.aarch64
     }
@@ -153,6 +152,7 @@ internal class BuildTasksImpl(private val context: BuildContextImpl) : BuildTask
       JvmArchitecture.currentJvmArch
     }
     context.options.targetArch = arch
+    buildDistribution(context = context, isUpdateFromSources = true)
     val targetLibcImpl = LibcImpl.current(OsFamily.currentOs)
     layoutShared(context)
     if (includeBinAndRuntime) {
@@ -1173,6 +1173,10 @@ private suspend fun crossPlatformZip(
         // Linux and Windows: we don't add specific dist dirs for ARM, so, copy dist files explicitly
         // macOS: we don't copy dist files to avoid extra copy operation
         val content = distFile.content
+
+        // Skip OS-specific plugin-classpath.txt; not published in cross-platform SDK
+        if (distFile.relativePath == PLUGIN_CLASSPATH && distFile.os != null) continue
+
         if (zipFileUniqueGuard.putIfAbsent(distFile.relativePath, content) == null) {
           when (content) {
             is LocalDistFileContent -> out.entry(distFile.relativePath, content.file)
