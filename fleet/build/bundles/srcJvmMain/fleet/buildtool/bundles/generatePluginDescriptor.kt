@@ -213,14 +213,8 @@ suspend fun generatePluginDescriptor(
     deps = dependencies,
     meta = metadata + listOfNotNull(
       KnownMeta.PartsCoordinates to Json.encodeToString(Coordinates.serializer(), partsCoordinates),
-      iconCoordinates?.let {
-        KnownMeta.DefaultIconCoordinates to Json.encodeToString(Coordinates.serializer(),
-                                                                it)
-      },
-      iconDarkCoordinates?.let {
-        KnownMeta.DarkIconCoordinates to Json.encodeToString(Coordinates.serializer(),
-                                                             it)
-      },
+      iconCoordinates?.let { KnownMeta.DefaultIconCoordinates to Json.encodeToString(Coordinates.serializer(), it) },
+      iconDarkCoordinates?.let { KnownMeta.DarkIconCoordinates to Json.encodeToString(Coordinates.serializer(), it) },
       KnownMeta.SupportedProducts to supportedProducts.joinToString(","),
     ).toMap(),
     signature = null)
@@ -329,7 +323,6 @@ private const val FLEET_KERNEL_PLUGIN_SERVICE: String = "fleet.kernel.plugins.Pl
  * There is a matching constant in `SchemaDocumentationWorker` in `fleet-schema-plugin`. Please keep them in sync.
  */
 const val JSON_DOCUMENTATION_FILENAME_EXTENSION: String = ".documentation.json"
-
 internal fun Set<Path>.unwrapJarFiles() = flatMap {
   when {
     it.isDirectory() -> it.listDirectoryEntries("*.jar")

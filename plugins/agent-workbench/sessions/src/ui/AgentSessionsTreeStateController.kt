@@ -6,8 +6,8 @@ import com.intellij.agent.workbench.chat.AgentChatTabSelectionService
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
-import com.intellij.agent.workbench.sessions.service.AgentSessionsService
-import com.intellij.agent.workbench.sessions.state.AgentSessionsTreeUiStateService
+import com.intellij.agent.workbench.sessions.state.AgentSessionTreeUiStateService
+import com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService
 import com.intellij.agent.workbench.sessions.tree.SessionTreeId
 import com.intellij.agent.workbench.sessions.tree.SessionTreeModel
 import com.intellij.agent.workbench.sessions.tree.SessionTreeModelDiff
@@ -24,23 +24,25 @@ import kotlinx.coroutines.Dispatchers.Default
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.CompletableFuture
 import javax.swing.SwingUtilities
 
 internal class AgentSessionsTreeStateController(
-  private val service: AgentSessionsService,
-  private val chatSelectionService: AgentChatTabSelectionService,
-  private val treeUiStateService: AgentSessionsTreeUiStateService,
-  private val tree: Tree,
-  private val getSessionTreeModel: () -> SessionTreeModel,
-  private val setSessionTreeModel: (SessionTreeModel) -> Unit,
-  private val onLastUsedProviderChanged: (AgentSessionProvider?) -> Unit,
-  private val onBeforeModelSwap: () -> Unit,
-  private val invalidateTreeModel: (SessionTreeModelDiff) -> CompletableFuture<*>,
-  private val expandNode: (SessionTreeId) -> Unit,
-  private val selectNode: (SessionTreeId) -> Unit,
+    private val sessionsStateFlow: StateFlow<AgentSessionsState>,
+    private val chatSelectionService: AgentChatTabSelectionService,
+  private val treeUiStateService: AgentSessionTreeUiStateService,
+  private val uiPreferencesStateService: AgentSessionUiPreferencesStateService,
+    private val tree: Tree,
+    private val getSessionTreeModel: () -> SessionTreeModel,
+    private val setSessionTreeModel: (SessionTreeModel) -> Unit,
+    private val onLastUsedProviderChanged: (AgentSessionProvider?) -> Unit,
+    private val onBeforeModelSwap: () -> Unit,
+    private val invalidateTreeModel: (SessionTreeModelDiff) -> CompletableFuture<*>,
+    private val expandNode: (SessionTreeId) -> Unit,
+    private val selectNode: (SessionTreeId) -> Unit,
 ) {
   @Suppress("RAW_SCOPE_CREATION")
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.EDT)
@@ -52,7 +54,7 @@ internal class AgentSessionsTreeStateController(
 
   fun start() {
     scope.launch {
-      service.state.collect { newState ->
+      sessionsStateFlow.collect { newState ->
         sessionsState = newState
         rebuildTree()
       }
@@ -66,7 +68,7 @@ internal class AgentSessionsTreeStateController(
     }
 
     scope.launch {
-      treeUiStateService.lastUsedProviderFlow.collect { provider ->
+      uiPreferencesStateService.lastUsedProviderFlow.collect { provider ->
         onLastUsedProviderChanged(provider)
       }
     }

@@ -13,10 +13,12 @@ import com.intellij.agent.workbench.sessions.ui.SessionTreeCellRenderer
 import com.intellij.agent.workbench.sessions.ui.SessionTreeRowActionPresentation
 import com.intellij.agent.workbench.sessions.ui.buildSessionTreeThreadRowPresentation
 import com.intellij.agent.workbench.sessions.ui.buildSessionTreeThreadTooltipHtml
+import com.intellij.agent.workbench.sessions.ui.clipSessionTreeMiddleText
 import com.intellij.agent.workbench.sessions.ui.computeSessionTreeThreadTrailingPaint
 import com.intellij.agent.workbench.sessions.ui.configureSessionTreeRenderingProperties
 import com.intellij.agent.workbench.sessions.ui.extractSessionTreeId
 import com.intellij.agent.workbench.sessions.ui.isSessionTreeRowClipped
+import com.intellij.agent.workbench.sessions.ui.projectBranchText
 import com.intellij.agent.workbench.sessions.ui.resolveSessionTreeThreadTimePaintX
 import com.intellij.agent.workbench.sessions.ui.resolveSessionTreeThreadTooltipWidth
 import com.intellij.agent.workbench.sessions.ui.sessionTreeRowActionRightPadding
@@ -24,6 +26,7 @@ import com.intellij.agent.workbench.sessions.ui.sessionTreeRowActionsRightBounda
 import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.ProductIcons
 import com.intellij.ide.util.treeView.NodeDescriptor
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.render.RenderingHelper
@@ -102,6 +105,26 @@ class AgentSessionsSwingTreeCellRendererTest {
   }
 
   @Test
+  fun middleClipperReservesTrailingBranchWidthForStandaloneDuplicateProjectPaths() {
+    val tree = createTree(width = 420)
+    val metrics = tree.getFontMetrics(tree.font)
+    val projectPath = "/home/haze/work/ultimate-2/toolbox"
+    val branchSuffix = " [feature-x]"
+    val availableWidth = metrics.stringWidth("/home/haze/work/ultimate-2/${StringUtil.ELLIPSIS} [feature-x]")
+
+    val clipped = clipSessionTreeMiddleText(
+      text = projectPath,
+      fontMetrics = metrics,
+      availTextWidth = availableWidth,
+      rightReservedWidth = metrics.stringWidth(branchSuffix),
+    )
+
+    assertThat(clipped).isNotEqualTo(projectPath)
+    assertThat(clipped).contains(StringUtil.ELLIPSIS)
+    assertThat(metrics.stringWidth(clipped) + metrics.stringWidth(branchSuffix)).isLessThanOrEqualTo(availableWidth)
+  }
+
+  @Test
   fun projectRowsUseProjectNodeIcon() {
     val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", isOpen = true)
     val projectId = SessionTreeId.Project(project.path)
@@ -117,6 +140,119 @@ class AgentSessionsSwingTreeCellRendererTest {
     renderer.getTreeCellRendererComponent(tree, descriptorValue(projectId), false, false, false, 0, false)
 
     assertThat(renderer.icon).isEqualTo(ProductIcons.getInstance().getProjectNodeIcon())
+  }
+
+  @Test
+  fun projectRowsDoNotShowBranchLabelWhenWorktreesExist() {
+    val project = AgentProjectSessions(
+      path = "/work/project-a",
+      name = "Project A",
+      branch = "feature-base",
+      isOpen = true,
+      worktrees = listOf(
+        AgentWorktree(
+          path = "/work/project-feature",
+          name = "project-feature",
+          branch = "feature-x",
+          isOpen = false,
+        )
+      ),
+    )
+    val projectId = SessionTreeId.Project(project.path)
+    val renderer = SessionTreeCellRenderer(
+      nowProvider = { 0L },
+      rowActionsProvider = { _, _, _ -> null },
+      nodeResolver = { id ->
+        if (id == projectId) SessionTreeNode.Project(project) else null
+      },
+    )
+    val tree = createTree(width = 420)
+
+    renderer.getTreeCellRendererComponent(tree, descriptorValue(projectId), false, false, false, 0, false)
+
+    assertThat(projectBranchText(project)).isNull()
+    assertThat(renderer.getCharSequence(true).toString()).isEqualTo("Project A")
+    assertThat(renderer.ipad.right).isEqualTo(0)
+  }
+
+  @Test
+  fun projectRowsDoNotShowDefaultMainBranchLabelWithoutWorktrees() {
+    val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", branch = "main", isOpen = true)
+    val projectId = SessionTreeId.Project(project.path)
+    val renderer = SessionTreeCellRenderer(
+      nowProvider = { 0L },
+      rowActionsProvider = { _, _, _ -> null },
+      nodeResolver = { id ->
+        if (id == projectId) SessionTreeNode.Project(project) else null
+      },
+    )
+    val tree = createTree(width = 420)
+
+    renderer.getTreeCellRendererComponent(tree, descriptorValue(projectId), false, false, false, 0, false)
+
+    assertThat(projectBranchText(project)).isNull()
+    assertThat(renderer.getCharSequence(true).toString()).isEqualTo("Project A")
+    assertThat(renderer.ipad.right).isEqualTo(0)
+  }
+
+  @Test
+  fun projectRowsDoNotShowDefaultMasterBranchLabelWithoutWorktrees() {
+    val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", branch = "master", isOpen = true)
+    val projectId = SessionTreeId.Project(project.path)
+    val renderer = SessionTreeCellRenderer(
+      nowProvider = { 0L },
+      rowActionsProvider = { _, _, _ -> null },
+      nodeResolver = { id ->
+        if (id == projectId) SessionTreeNode.Project(project) else null
+      },
+    )
+    val tree = createTree(width = 420)
+
+    renderer.getTreeCellRendererComponent(tree, descriptorValue(projectId), false, false, false, 0, false)
+
+    assertThat(projectBranchText(project)).isNull()
+    assertThat(renderer.getCharSequence(true).toString()).isEqualTo("Project A")
+    assertThat(renderer.ipad.right).isEqualTo(0)
+  }
+
+  @Test
+  fun projectRowsShowNonDefaultStandaloneBranchLabel() {
+    val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", branch = "feature-x", isOpen = true)
+    val projectId = SessionTreeId.Project(project.path)
+    val renderer = SessionTreeCellRenderer(
+      nowProvider = { 0L },
+      rowActionsProvider = { _, _, _ -> null },
+      nodeResolver = { id ->
+        if (id == projectId) SessionTreeNode.Project(project) else null
+      },
+    )
+    val tree = createTree(width = 420)
+
+    renderer.getTreeCellRendererComponent(tree, descriptorValue(projectId), false, false, false, 0, false)
+
+    assertThat(projectBranchText(project)).isEqualTo(" [feature-x]")
+    assertThat(renderer.ipad.right).isGreaterThan(0)
+  }
+
+  @Test
+  fun duplicateProjectRowsUsePathLabelAndStillShowStandaloneBranch() {
+    val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", branch = "feature-x", isOpen = true)
+    val projectId = SessionTreeId.Project(project.path)
+    val renderer = SessionTreeCellRenderer(
+      nowProvider = { 0L },
+      rowActionsProvider = { _, _, _ -> null },
+      nodeResolver = { id ->
+        if (id == projectId) SessionTreeNode.Project(project) else null
+      },
+      duplicateProjectNamesProvider = { setOf("Project A") },
+    )
+    val tree = createTree(width = 420)
+
+    renderer.getTreeCellRendererComponent(tree, descriptorValue(projectId), false, false, false, 0, false)
+
+    assertThat(projectBranchText(project)).isEqualTo(" [feature-x]")
+    assertThat(renderer.getCharSequence(true).toString()).isEqualTo("/work/project-a")
+    assertThat(renderer.ipad.right).isGreaterThan(0)
   }
 
   @Test
@@ -312,6 +448,41 @@ class AgentSessionsSwingTreeCellRendererTest {
     assertThat(renderedIcon.iconHeight).isEqualTo(providerBaseIcon.iconHeight)
     assertThat(renderedIcon).isNotSameAs(AllIcons.Toolwindows.ToolWindowMessages)
     assertThat(renderer.getCharSequence(true).toString()).doesNotContain("\u25CF")
+  }
+
+  @Test
+  fun threadTrailingMetadataOmitsInlineStatusForNonReadyThread() {
+    val now = 28L * 24L * 60L * 60L * 1000L
+    val tree = createTree(width = 460)
+    val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", isOpen = true)
+    val thread = AgentSessionThread(
+      provider = AgentSessionProvider.CODEX,
+      id = "thread-1",
+      title = "Need input",
+      updatedAt = 14L * 24L * 60L * 60L * 1000L,
+      archived = false,
+      activity = AgentThreadActivity.UNREAD,
+    )
+    val threadId = SessionTreeId.Thread(project.path, thread.provider, thread.id)
+    val renderer = SessionTreeCellRenderer(
+      nowProvider = { now },
+      rowActionsProvider = { _, _, _ -> null },
+      nodeResolver = { id ->
+        if (id == threadId) SessionTreeNode.Thread(project, thread) else null
+      },
+      providerIconProvider = { EmptyIcon.create(12, 12) },
+    )
+
+    renderer.getTreeCellRendererComponent(tree, descriptorValue(threadId), false, false, true, 0, false)
+
+    val trailing = renderer.trailingThreadPaintForTest
+    assertThat(trailing).isNotNull()
+    trailing ?: return
+
+    assertThat(trailing.statusLabel).isNull()
+    assertThat(trailing.statusTextWidth).isEqualTo(0)
+    assertThat(trailing.statusColumnWidth).isEqualTo(0)
+    assertThat(renderer.accessibleContext.accessibleName).contains(AgentSessionsBundle.message("toolwindow.thread.status.needs.input"))
   }
 
   @Test

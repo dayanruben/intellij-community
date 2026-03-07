@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.smartPointers;
 
 import com.intellij.codeInsight.multiverse.CodeInsightContext;
@@ -28,6 +28,11 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
+/**
+ * Tracks a regular PSI element inside a file via an {@link Identikit} (element type + optional anchor)
+ * and text offsets. Offsets are kept in sync with document edits through {@link SmartPointerTracker}.
+ * The main workhorse of the hierarchy.
+ */
 @ApiStatus.Internal
 public class SelfElementInfo extends SmartPointerElementInfo {
   private static final FileDocumentManager ourFileDocManager = FileDocumentManager.getInstance();
@@ -38,8 +43,6 @@ public class SelfElementInfo extends SmartPointerElementInfo {
   private final boolean myForInjected;
   private int myStartOffset;
   private int myEndOffset;
-
-  // todo IJPL-339 layout of the object got bigger +8bytes
 
   SelfElementInfo(@Nullable ProperTextRange range,
                   @NotNull Identikit identikit,
@@ -178,7 +181,7 @@ public class SelfElementInfo extends SmartPointerElementInfo {
   }
 
   public static @Nullable PsiDirectory restoreDirectoryFromVirtual(@NotNull VirtualFile virtualFile, @NotNull Project project) {
-    return ReadAction.compute(() -> {
+    return ReadAction.computeBlocking(() -> {
       if (project.isDisposed()) return null;
       VirtualFile child = restoreVFile(virtualFile);
       if (child == null || !child.isValid()) return null;
@@ -213,7 +216,7 @@ public class SelfElementInfo extends SmartPointerElementInfo {
       SelfElementInfo otherInfo = (SelfElementInfo)other;
       if (!getVirtualFile().equals(other.getVirtualFile()) || myIdentikit != otherInfo.myIdentikit) return false;
 
-      return ReadAction.compute(() -> {
+      return ReadAction.computeBlocking(() -> {
         Segment range1 = getPsiRange(manager);
         Segment range2 = otherInfo.getPsiRange(manager);
         return range1 != null && range2 != null

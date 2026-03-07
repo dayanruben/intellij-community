@@ -2478,17 +2478,17 @@ http_file(
 )
 
 http_file(
-  name = "org_jetbrains_intellij_deps-gradle-api-9_4_0-rc-1_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/gradle-api/9.4.0-rc-1/gradle-api-9.4.0-rc-1.jar",
-  sha256 = "ad619900a4c554e441aec16f4918da7bad184d6f98c0dd8cdbbf0a39d83f2cba",
-  downloaded_file_path = "gradle-api-9.4.0-rc-1.jar"
+  name = "org_jetbrains_intellij_deps-gradle-api-9_4_0_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/gradle-api/9.4.0/gradle-api-9.4.0.jar",
+  sha256 = "fbbfe6153ad6c5eb566b1943be45c090f7a8267f7e82ef28c856f482b6fa4bec",
+  downloaded_file_path = "gradle-api-9.4.0.jar"
 )
 
 http_file(
-  name = "org_jetbrains_intellij_deps-gradle-api-9_4_0-rc-1-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/gradle-api/9.4.0-rc-1/gradle-api-9.4.0-rc-1-sources.jar",
-  sha256 = "5fdb0cff1653bc25a0eab50496444e3c8e7cc35082d75d4d0dc3f8353cc1d5c9",
-  downloaded_file_path = "gradle-api-9.4.0-rc-1-sources.jar"
+  name = "org_jetbrains_intellij_deps-gradle-api-9_4_0-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/gradle-api/9.4.0/gradle-api-9.4.0-sources.jar",
+  sha256 = "ed9b5465ea7dc2458bb8adec261a5e142af18a4ceeb9c34c2285815a1fcf7605",
+  downloaded_file_path = "gradle-api-9.4.0-sources.jar"
 )
 
 http_file(
@@ -7609,6 +7609,20 @@ http_file(
 )
 
 http_file(
+  name = "org_jetbrains_kotlin-kotlin-objcexport-header-generator-for-ide-2_4_0-dev-5206_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-objcexport-header-generator-for-ide/2.4.0-dev-5206/kotlin-objcexport-header-generator-for-ide-2.4.0-dev-5206.jar",
+  sha256 = "eb6e5016f516abbd965eb312b295237788b8c09e137c16a0a8254a4474bfaffa",
+  downloaded_file_path = "kotlin-objcexport-header-generator-for-ide-2.4.0-dev-5206.jar"
+)
+
+http_file(
+  name = "org_jetbrains_kotlin-kotlin-objcexport-header-generator-for-ide-2_4_0-dev-5206-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-objcexport-header-generator-for-ide/2.4.0-dev-5206/kotlin-objcexport-header-generator-for-ide-2.4.0-dev-5206-sources.jar",
+  sha256 = "d9e80540ac6ac061f7bcbfe4e7076fa64eaea067c0cb51bcc4aa583e383cf781",
+  downloaded_file_path = "kotlin-objcexport-header-generator-for-ide-2.4.0-dev-5206-sources.jar"
+)
+
+http_file(
   name = "org_jetbrains_kotlin-kotlin-script-runtime-2_4_0-dev-5206_http",
   url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-script-runtime/2.4.0-dev-5206/kotlin-script-runtime-2.4.0-dev-5206.jar",
   sha256 = "4f0af51b278e901008c186c9e73f53d0376b9de18b0c58d7e17090531cfc2c15",
@@ -7676,6 +7690,20 @@ http_file(
   url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-scripting-jvm/2.4.0-dev-5206/kotlin-scripting-jvm-2.4.0-dev-5206-sources.jar",
   sha256 = "7448c25496ee80b75634d8074cd306e6fabc500bbb3174b2a5c1ef992b940abd",
   downloaded_file_path = "kotlin-scripting-jvm-2.4.0-dev-5206-sources.jar"
+)
+
+http_file(
+  name = "org_jetbrains_kotlin-kotlin-swift-export-for-ide-2_4_0-dev-5206_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-swift-export-for-ide/2.4.0-dev-5206/kotlin-swift-export-for-ide-2.4.0-dev-5206.jar",
+  sha256 = "510210945975ca6685ae99c1dfc596d7e9728c8772de666424d870c42a66de6a",
+  downloaded_file_path = "kotlin-swift-export-for-ide-2.4.0-dev-5206.jar"
+)
+
+http_file(
+  name = "org_jetbrains_kotlin-kotlin-swift-export-for-ide-2_4_0-dev-5206-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-swift-export-for-ide/2.4.0-dev-5206/kotlin-swift-export-for-ide-2.4.0-dev-5206-sources.jar",
+  sha256 = "306586b021c550bd966b245625380f0808d12026e74340919bffe692096a3f9c",
+  downloaded_file_path = "kotlin-swift-export-for-ide-2.4.0-dev-5206-sources.jar"
 )
 
 http_file(

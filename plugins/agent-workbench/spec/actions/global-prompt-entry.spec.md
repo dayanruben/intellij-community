@@ -10,14 +10,15 @@ targets:
   - ../../prompt/resources/intellij.agent.workbench.prompt.xml
   - ../../prompt/resources/messages/AgentPromptBundle.properties
   - ../../sessions-core/src/prompt/AgentPromptLauncherBridge.kt
-  - ../../sessions/src/service/AgentSessionsPromptLauncherBridge.kt
+  - ../../sessions/src/service/AgentSessionPromptLauncherBridge.kt
+  - ../../prompt/testSrc/ui/AgentPromptProviderSelectionDecisionsTest.kt
   - ../../prompt/testSrc/ui/AgentPromptSubmitValidationDecisionsTest.kt
   - ../../prompt/testSrc/ui/AgentPromptFooterHintDecisionsTest.kt
   - ../../prompt/testSrc/ui/AgentPromptPlanModeDecisionsTest.kt
   - ../../prompt/testSrc/ui/AgentPromptEnterHandlersTest.kt
   - ../../prompt/testSrc/ui/AgentPromptPaletteViewStructureTest.kt
   - ../../prompt/testSrc/ui/AgentPromptPaletteViewLayoutTest.kt
-  - ../../sessions/testSrc/AgentSessionsPromptLauncherBridgeTest.kt
+  - ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 ---
 
 # Global Prompt Entry
@@ -70,7 +71,7 @@ Prompt-context collection and rendering contracts are specified separately in `s
   - selected Sessions tree context path (project/thread/worktree),
   - selected chat tab source path,
   - most recent non-dedicated project path.
-  [@test] ../../sessions/testSrc/AgentSessionsPromptLauncherBridgeTest.kt
+  [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 
 - If no working project path can be resolved automatically, submit must prompt user to choose from available non-dedicated project candidates; cancel keeps popup open and shows project-path validation error.
 
@@ -90,7 +91,16 @@ Prompt-context collection and rendering contracts are specified separately in `s
   - explicit existing-task selection hint is shown only when mode is `EXISTING_TASK`, selection is empty, and provider is non-Codex.
   [@test] ../../prompt/testSrc/ui/AgentPromptFooterHintDecisionsTest.kt
 
+- Provider restore order for opening the prompt must be:
+  - prompt draft `providerId`,
+  - shared preferred provider exposed by `AgentPromptLauncherBridge.preferredProvider()`,
+  - provider-list default ordering.
+  [@test] ../../prompt/testSrc/ui/AgentPromptProviderSelectionDecisionsTest.kt
+
 - Submit flow must route through `AgentPromptLauncherBridge` using `AgentPromptLaunchRequest`; prompt popup must not directly call provider session sources.
+
+- Successful prompt launch must update the shared preferred provider used by future prompt openings and new-thread affordances.
+  [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 
 - Codex-only Plan mode toggle contract:
   - Toggle is visible only when selected provider is `CODEX`.
@@ -124,7 +134,7 @@ Prompt-context collection and rendering contracts are specified separately in `s
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptEnterHandlersTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptPaletteViewStructureTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptPaletteViewLayoutTest'`
-- `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionsPromptLauncherBridgeTest'`
+- `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionPromptLauncherBridgeTest'`
 
 ## Open Questions / Risks
 - Keymap conflict resolution for `Cmd/Ctrl+\\` still relies on duplicate keymap declarations and does not enforce a runtime winner.
