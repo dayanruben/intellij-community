@@ -1,13 +1,20 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.service
 
+import com.intellij.agent.workbench.chat.AgentChatConcreteCodexTabRebindReport
+import com.intellij.agent.workbench.chat.AgentChatConcreteCodexTabRebindRequest
+import com.intellij.agent.workbench.chat.AgentChatConcreteCodexTabSnapshot
 import com.intellij.agent.workbench.chat.AgentChatPendingCodexTabRebindReport
 import com.intellij.agent.workbench.chat.AgentChatPendingCodexTabRebindRequest
 import com.intellij.agent.workbench.chat.AgentChatPendingCodexTabSnapshot
 import com.intellij.agent.workbench.chat.AgentChatTabSelectionService
+import com.intellij.agent.workbench.chat.agentChatScopedRefreshSignals
+import com.intellij.agent.workbench.chat.clearOpenConcreteAgentChatNewThreadRebindAnchors
+import com.intellij.agent.workbench.chat.collectOpenConcreteAgentChatTabsAwaitingNewThreadRebindByPath
 import com.intellij.agent.workbench.chat.collectOpenConcreteAgentChatThreadIdentitiesByPath
-import com.intellij.agent.workbench.chat.collectOpenPendingCodexTabsByPath
-import com.intellij.agent.workbench.chat.rebindOpenPendingCodexTabs
+import com.intellij.agent.workbench.chat.collectOpenPendingAgentChatTabsByPath
+import com.intellij.agent.workbench.chat.rebindOpenConcreteAgentChatTabs
+import com.intellij.agent.workbench.chat.rebindOpenPendingAgentChatTabs
 import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
 import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderBridges
@@ -36,19 +43,33 @@ import kotlinx.coroutines.withContext
 private val LOG = logger<AgentSessionRefreshService>()
 
 @Service(Service.Level.APP)
-internal class AgentSessionRefreshService(
-    private val serviceScope: CoroutineScope,
-    private val sessionSourcesProvider: () -> List<AgentSessionSource>,
-    private val projectEntriesProvider: suspend () -> List<ProjectEntry>,
-    private val stateStore: AgentSessionsStateStore,
-    private val warmState: SessionWarmState,
-    private val openPendingCodexTabsProvider: suspend () -> Map<String, List<AgentChatPendingCodexTabSnapshot>> =
-    ::collectOpenPendingCodexTabsByPath,
+class AgentSessionRefreshService internal constructor(
+  private val serviceScope: CoroutineScope,
+  private val sessionSourcesProvider: () -> List<AgentSessionSource>,
+  private val projectEntriesProvider: suspend () -> List<ProjectEntry>,
+  private val stateStore: AgentSessionsStateStore,
+  private val warmState: SessionWarmState,
+    private val openPendingCodexTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingCodexTabSnapshot>> =
+    ::collectOpenPendingAgentChatTabsByPath,
+    private val openConcreteCodexTabsAwaitingNewThreadRebindProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatConcreteCodexTabSnapshot>> =
+    ::collectOpenConcreteAgentChatTabsAwaitingNewThreadRebindByPath,
     private val openConcreteChatThreadIdentitiesByPathProvider: suspend () -> Map<String, Set<String>> =
     ::collectOpenConcreteAgentChatThreadIdentitiesByPath,
     private val openAgentChatPendingTabsBinder: (
+    AgentSessionProvider,
     Map<String, List<AgentChatPendingCodexTabRebindRequest>>,
-  ) -> AgentChatPendingCodexTabRebindReport = ::rebindOpenPendingCodexTabs,
+  ) -> AgentChatPendingCodexTabRebindReport = ::rebindOpenPendingAgentChatTabs,
+    private val openAgentChatConcreteTabsBinder: (
+    AgentSessionProvider,
+    Map<String, List<AgentChatConcreteCodexTabRebindRequest>>,
+  ) -> AgentChatConcreteCodexTabRebindReport = ::rebindOpenConcreteAgentChatTabs,
+    private val clearOpenConcreteCodexTabAnchors: (
+    AgentSessionProvider,
+    Map<String, List<AgentChatConcreteCodexTabSnapshot>>,
+  ) -> Int = ::clearOpenConcreteAgentChatNewThreadRebindAnchors,
+    private val codexScopedRefreshSignalsProvider: (AgentSessionProvider) -> kotlinx.coroutines.flow.Flow<Set<String>> = { provider ->
+      agentChatScopedRefreshSignals(provider)
+    },
     subscribeToProjectLifecycle: Boolean,
 ) {
   @Suppress("unused")
@@ -73,9 +94,13 @@ internal class AgentSessionRefreshService(
     stateStore = stateStore,
     contentRepository = contentRepository,
     isRefreshGateActive = ::isSourceRefreshGateActive,
+    codexScopedRefreshSignalsProvider = codexScopedRefreshSignalsProvider,
     openPendingCodexTabsProvider = openPendingCodexTabsProvider,
+    openConcreteCodexTabsAwaitingNewThreadRebindProvider = openConcreteCodexTabsAwaitingNewThreadRebindProvider,
     openConcreteChatThreadIdentitiesByPathProvider = openConcreteChatThreadIdentitiesByPathProvider,
     openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinder,
+    openAgentChatConcreteTabsBinder = openAgentChatConcreteTabsBinder,
+    clearOpenConcreteCodexTabAnchors = clearOpenConcreteCodexTabAnchors,
   )
 
   init {
@@ -165,7 +190,7 @@ internal class AgentSessionRefreshService(
     source.markThreadAsRead(threadId, updatedAt)
   }
 
-  internal fun markThreadAsRead(path: String, provider: AgentSessionProvider, threadId: String, updatedAt: Long) {
+  fun markThreadAsRead(path: String, provider: AgentSessionProvider, threadId: String, updatedAt: Long) {
     contentRepository.markThreadAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)
     val source = sessionSourcesProvider().firstOrNull { it.provider == provider } ?: return
     source.markThreadAsRead(threadId, updatedAt)

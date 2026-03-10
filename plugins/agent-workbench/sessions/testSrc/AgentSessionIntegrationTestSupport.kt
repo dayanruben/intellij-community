@@ -41,7 +41,22 @@ import kotlin.time.Duration.Companion.milliseconds
 internal const val PROJECT_PATH = "/work/project-a"
 internal const val WORKTREE_PATH = "/work/project-feature"
 
-internal class AgentSessionStateSyncTestFacade(
+data class TestProjectCatalogEntry(
+  @JvmField val path: String,
+  @JvmField val name: String,
+  @JvmField val worktrees: List<TestWorktreeCatalogEntry> = emptyList(),
+  @JvmField val branch: String? = null,
+  @JvmField val isOpen: Boolean = true,
+)
+
+data class TestWorktreeCatalogEntry(
+  @JvmField val path: String,
+  @JvmField val name: String,
+  @JvmField val branch: String?,
+  @JvmField val isOpen: Boolean = false,
+)
+
+class AgentSessionStateSyncTestFacade(
   private val stateStore: AgentSessionsStateStore,
   private val syncService: AgentSessionRefreshService,
 ) {
@@ -130,6 +145,18 @@ internal fun thread(
     provider = provider,
     activity = activity,
     subAgents = subAgents,
+  )
+}
+
+suspend fun withTestService(
+  sessionSourcesProvider: () -> List<AgentSessionSource>,
+  projectEntriesProvider: suspend () -> List<TestProjectCatalogEntry>,
+  action: suspend (AgentSessionStateSyncTestFacade) -> Unit,
+) {
+  withService(
+    sessionSourcesProvider = sessionSourcesProvider,
+    projectEntriesProvider = { projectEntriesProvider().map { it.toProjectEntry() } },
+    action = action,
   )
 }
 
@@ -253,9 +280,9 @@ internal suspend fun withServiceAndArchiveAndLaunch(
       projectEntriesProvider = projectEntriesProvider,
       stateStore = stateStore,
       warmState = warmState,
-      openPendingCodexTabsProvider = openPendingCodexTabsProvider,
+      openPendingCodexTabsProvider = { _ -> openPendingCodexTabsProvider() },
       openConcreteChatThreadIdentitiesByPathProvider = openConcreteChatThreadIdentitiesByPathProvider,
-      openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinder,
+      openAgentChatPendingTabsBinder = { _, requestsByPath -> openAgentChatPendingTabsBinder(requestsByPath) },
       subscribeToProjectLifecycle = false,
     )
     val service = AgentSessionStateSyncTestFacade(
@@ -290,6 +317,21 @@ internal suspend fun withServiceAndArchiveAndLaunch(
   finally {
     scope.cancel()
   }
+}
+
+fun openTestProjectEntry(
+  path: String,
+  name: String,
+  worktrees: List<TestWorktreeCatalogEntry> = emptyList(),
+  branch: String? = null,
+): TestProjectCatalogEntry {
+  return TestProjectCatalogEntry(
+    path = path,
+    name = name,
+    branch = branch,
+    worktrees = worktrees,
+    isOpen = true,
+  )
 }
 
 internal fun openProjectEntry(
@@ -356,7 +398,7 @@ private fun defaultValue(returnType: Class<*>): Any? {
   }
 }
 
-internal suspend fun waitForCondition(timeoutMs: Long = 5_000, condition: () -> Boolean) {
+suspend fun waitForCondition(timeoutMs: Long = 5_000, condition: () -> Boolean) {
   val deadline = System.currentTimeMillis() + timeoutMs
   while (System.currentTimeMillis() < deadline) {
     if (condition()) {
@@ -365,4 +407,23 @@ internal suspend fun waitForCondition(timeoutMs: Long = 5_000, condition: () -> 
     delay(20.milliseconds)
   }
   throw AssertionError("Condition was not satisfied within ${timeoutMs}ms")
+}
+
+private fun TestProjectCatalogEntry.toProjectEntry(): ProjectEntry {
+  return ProjectEntry(
+    path = path,
+    name = name,
+    project = if (isOpen) openProjectProxy(name) else null,
+    branch = branch,
+    worktreeEntries = worktrees.map { it.toWorktreeEntry() },
+  )
+}
+
+private fun TestWorktreeCatalogEntry.toWorktreeEntry(): WorktreeEntry {
+  return WorktreeEntry(
+    path = path,
+    name = name,
+    branch = branch,
+    project = if (isOpen) openProjectProxy(name) else null,
+  )
 }

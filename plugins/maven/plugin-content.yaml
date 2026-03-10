@@ -86,6 +86,9 @@
   module: intellij.maven
   files:
   - name: $MAVEN_REPOSITORY$/org/jetbrains/idea/maven/maven-indexer-api-rt/2023/maven-indexer-api-rt-2023.jar
+- name: lib/maven-frontend.jar
+  contentModules:
+  - name: intellij.maven.model
 - name: lib/maven-jps.jar
   modules:
   - name: intellij.maven.jps
@@ -96,6 +99,9 @@
   modules:
   - name: intellij.idea.community.build.dependencies
   - name: intellij.maven
+- name: lib/modules/intellij.maven.completion.jar
+  contentModules:
+  - name: intellij.maven.completion
 - name: lib/modules/intellij.maven.errorProne.compiler.jar
   contentModules:
   - name: intellij.maven.errorProne.compiler

@@ -4448,4 +4448,70 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                    c.next = Node()
                    """);
   }
+
+  // PY-87575
+  public void testIterDefinedInMetaclass() {
+    myFixture.enableInspections(PyAssertTypeInspection.class);
+    doTestByText("""
+     from collections.abc import Iterator
+     from typing import assert_type
+     
+     # always has the the highest priority on type
+     class MyIterMeta(type):
+         def __iter__(self) -> Iterator[int]: ...
+     
+     class MyClass(metaclass=MyIterMeta): ...
+     
+     class MyRedefinedIter(MyClass):
+         def __iter__(self) -> Iterator[bool]: ...
+     
+     # str redefines __iter__
+     class MyFromStr(str, MyRedefinedIter): ...
+     
+     assert_type(iter(MyClass), Iterator[int])
+     assert_type(iter(MyRedefinedIter), Iterator[int])
+     assert_type(iter(MyFromStr), Iterator[int])
+     assert_type(iter(MyRedefinedIter()), Iterator[bool])
+     assert_type(iter(MyFromStr()), Iterator[str])
+     """);
+  }
+
+  // PY-87344
+  public void testTypeOfIteratorOfEnumTypeAndInstance() {
+    doTestByText("""
+                   from enum import Enum
+                   from typing import Self
+                   
+                   class Color(Enum):
+                       RED = "red"
+                   
+                       @classmethod
+                       def all(cls) -> set[Self]:
+                           return set(cls)
+                   
+                       def foo(self):
+                           # __iter__ is defined in EnumMeta, thus, for definitions only
+                           return set(<warning descr="Expected type 'Iterable[Any]' (matched generic type 'Iterable[_T]'), got 'Self@Color' instead">self</warning>)
+                   """);
+  }
+
+  // PY-87344
+  public void testTypeOfIteratorOfStrEnumTypeAndInstance() {
+    doTestByText("""
+                   from enum import StrEnum
+                   from typing import Self
+                   
+                   
+                   class Variant(StrEnum):
+                       CREATED = "created"
+                   
+                       @classmethod
+                       def values(cls) -> set[Self]:
+                           return set(cls)
+                   
+                       def foo(self):
+                           # StrEnum inherits str which inherits Iterable[str], thus, iterable for both instance and definition
+                           return set(self) # OK
+                   """);
+  }
 }

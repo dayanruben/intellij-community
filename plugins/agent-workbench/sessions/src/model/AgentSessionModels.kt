@@ -6,8 +6,9 @@ import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.AgentSessionThread
 import com.intellij.agent.workbench.sessions.state.DEFAULT_VISIBLE_CLOSED_PROJECT_COUNT
 import com.intellij.openapi.util.NlsSafe
+import javax.swing.Icon
 
-internal sealed interface ArchiveThreadTarget {
+sealed interface ArchiveThreadTarget {
   val path: String
   val provider: AgentSessionProvider
   val threadId: String
@@ -29,7 +30,7 @@ internal sealed interface ArchiveThreadTarget {
   }
 }
 
-internal fun normalizeArchiveThreadTarget(target: ArchiveThreadTarget): ArchiveThreadTarget {
+fun normalizeArchiveThreadTarget(target: ArchiveThreadTarget): ArchiveThreadTarget {
   val normalizedPath = normalizeAgentWorkbenchPath(target.path)
   return when (target) {
     is ArchiveThreadTarget.Thread -> {
@@ -42,7 +43,7 @@ internal fun normalizeArchiveThreadTarget(target: ArchiveThreadTarget): ArchiveT
   }
 }
 
-internal fun archiveThreadTargetKey(target: ArchiveThreadTarget): String {
+fun archiveThreadTargetKey(target: ArchiveThreadTarget): String {
   val normalizedTarget = normalizeArchiveThreadTarget(target)
   return when (normalizedTarget) {
     is ArchiveThreadTarget.Thread -> {
@@ -55,12 +56,23 @@ internal fun archiveThreadTargetKey(target: ArchiveThreadTarget): String {
   }
 }
 
-internal data class AgentSessionProviderWarning(
+data class AgentSessionProviderWarning(
   val provider: AgentSessionProvider,
   @JvmField val message: @NlsSafe String,
 )
 
-internal data class AgentWorktree(
+class ProjectBuildSystemBadge(
+  @JvmField val id: String,
+  @JvmField val icon: Icon,
+) {
+  override fun equals(other: Any?): Boolean = other is ProjectBuildSystemBadge && id == other.id
+
+  override fun hashCode(): Int = id.hashCode()
+
+  override fun toString(): String = "ProjectBuildSystemBadge(id=$id)"
+}
+
+data class AgentWorktree(
   @JvmField val path: String,
   @JvmField val name: @NlsSafe String,
   @JvmField val branch: @NlsSafe String?,
@@ -73,10 +85,11 @@ internal data class AgentWorktree(
   @JvmField val providerWarnings: List<AgentSessionProviderWarning> = emptyList(),
 )
 
-internal data class AgentProjectSessions(
+data class AgentProjectSessions(
   @JvmField val path: String,
   @JvmField val name: @NlsSafe String,
   @JvmField val branch: @NlsSafe String? = null,
+  @JvmField val buildSystemBadge: ProjectBuildSystemBadge? = null,
   @JvmField val isOpen: Boolean,
   @JvmField val threads: List<AgentSessionThread> = emptyList(),
   @JvmField val isLoading: Boolean = false,
@@ -87,7 +100,7 @@ internal data class AgentProjectSessions(
   @JvmField val worktrees: List<AgentWorktree> = emptyList(),
 )
 
-internal data class AgentSessionsState(
+data class AgentSessionsState(
   @JvmField val projects: List<AgentProjectSessions> = emptyList(),
   @JvmField val lastUpdatedAt: Long? = null,
   @JvmField val visibleClosedProjectCount: Int = DEFAULT_VISIBLE_CLOSED_PROJECT_COUNT,

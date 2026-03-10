@@ -314,19 +314,6 @@ public final class FileManagerImpl implements FileManagerEx {
     return viewProvider == null ? vFile.getUserData(myPsiHardRefKey) : viewProvider;
   }
 
-  /**
-   * @return associated psi file, it's it cached in {@link #myVFileToViewProviderMap}
-   * It tries to not perform any expensive ops like creating files/reparse/resurrecting PsiFile from temp comatose state.
-   */
-  @ApiStatus.Internal
-  @Override
-  public @Nullable PsiFile getRawCachedFile(@NotNull VirtualFile vFile, @NotNull CodeInsightContext context) {
-    FileViewProvider viewProvider = getRawCachedViewProvider(vFile, context);
-    return viewProvider == null ? null :
-           viewProvider instanceof AbstractFileViewProvider ? ((AbstractFileViewProvider)viewProvider).getCachedPsi(viewProvider.getBaseLanguage())
-                                                            : viewProvider.getPsi(viewProvider.getBaseLanguage());
-  }
-
   private @NotNull @Unmodifiable List<FileViewProvider> getRawCachedViewProviders(@NotNull VirtualFile vFile) {
     List<FileViewProvider> providers = myVFileToViewProviderMap.getAllProviders(vFile);
     if (!providers.isEmpty()) {
@@ -443,7 +430,6 @@ public final class FileManagerImpl implements FileManagerEx {
 
   private boolean myProcessingFileTypesChange;
 
-  @ApiStatus.Internal
   @Override
   public void processFileTypesChanged(boolean clearViewProviders) {
     if (myProcessingFileTypesChange) return;
@@ -470,7 +456,6 @@ public final class FileManagerImpl implements FileManagerEx {
   }
 
   @RequiresWriteLock
-  @ApiStatus.Internal
   @Override
   public void possiblyInvalidatePhysicalPsi() {
     removeInvalidDirs();
@@ -479,7 +464,6 @@ public final class FileManagerImpl implements FileManagerEx {
     });
   }
 
-  @ApiStatus.Internal
   @Override
   public void dispatchPendingEvents() {
     Project project = myManager.getProject();
@@ -631,7 +615,6 @@ public final class FileManagerImpl implements FileManagerEx {
     return getVFileToPsiDirMap().get(vFile);
   }
 
-  @ApiStatus.Internal
   @Override
   public void removeFilesAndDirsRecursively(@NotNull VirtualFile vFile) {
     DebugUtil.performPsiModification("removeFilesAndDirsRecursively", () -> {
@@ -668,7 +651,6 @@ public final class FileManagerImpl implements FileManagerEx {
     clearPsiCaches(viewProvider);
   }
 
-  @ApiStatus.Internal
   @Override
   public @Nullable PsiFile getCachedPsiFileInner(@NotNull VirtualFile file, @NotNull CodeInsightContext context) {
     FileViewProvider viewProvider = findCachedViewProvider(file, context);
@@ -693,14 +675,12 @@ public final class FileManagerImpl implements FileManagerEx {
   }
 
   @RequiresWriteLock
-  @ApiStatus.Internal
   @Override
   public void removeInvalidFilesAndDirs(boolean useFind) {
     removeInvalidDirs(); // note: important to update directories the map first - findFile uses findDirectory!
     new InvalidFileProcessor(this, myManager.getProject(), myVFileToViewProviderMap, useFind).processInvalidFiles();
   }
 
-  @ApiStatus.Internal
   public static boolean areViewProvidersEquivalent(@NotNull FileViewProvider view1, @NotNull FileViewProvider view2) {
     if (view1.getClass() != view2.getClass() || view1.getFileType() != view2.getFileType()) return false;
 
@@ -729,7 +709,6 @@ public final class FileManagerImpl implements FileManagerEx {
     }
   }
 
-  @ApiStatus.Internal
   @Override
   public void reloadPsiAfterTextChange(@NotNull FileViewProvider viewProvider, @NotNull VirtualFile vFile) {
     if (!areViewProvidersEquivalent(viewProvider, createFileViewProvider(vFile, false))) {
@@ -840,7 +819,10 @@ public final class FileManagerImpl implements FileManagerEx {
     if (viewProvider == null || viewProvider.getUserData(IN_COMA) != null) {
       return null;
     }
-    return ((AbstractFileViewProvider)viewProvider).getCachedPsi(viewProvider.getBaseLanguage());
+
+    Language language = viewProvider.getBaseLanguage();
+    return viewProvider instanceof AbstractFileViewProvider ? ((AbstractFileViewProvider)viewProvider).getCachedPsi(language)
+                                                            : viewProvider.getPsi(language);
   }
 
   private @NotNull CodeInsightContext getRawContext(@NotNull FileViewProvider fileViewProvider) {

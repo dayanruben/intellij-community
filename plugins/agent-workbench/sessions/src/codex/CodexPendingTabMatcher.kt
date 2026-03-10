@@ -2,24 +2,24 @@
 package com.intellij.agent.workbench.sessions.codex
 
 import com.intellij.agent.workbench.chat.AgentChatPendingCodexTabSnapshot
-import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindTarget
+import com.intellij.agent.workbench.chat.AgentChatTabRebindTarget
 
 internal data class CodexPendingTabBinding(
-  val pendingTabKey: String,
-  val pendingThreadIdentity: String,
-  val target: AgentChatPendingTabRebindTarget,
+  @JvmField val pendingTabKey: String,
+  @JvmField val pendingThreadIdentity: String,
+  @JvmField val target: AgentChatTabRebindTarget,
 )
 
 internal data class CodexPendingTabMatchResult(
-  val bindingsByPath: Map<String, List<CodexPendingTabBinding>>,
-  val ambiguousPendingThreadIdentitiesByPath: Map<String, Set<String>>,
-  val noMatchPendingThreadIdentitiesByPath: Map<String, Set<String>>,
+  @JvmField val bindingsByPath: Map<String, List<CodexPendingTabBinding>>,
+  @JvmField val ambiguousPendingThreadIdentitiesByPath: Map<String, Set<String>>,
+  @JvmField val noMatchPendingThreadIdentitiesByPath: Map<String, Set<String>>,
 )
 
 internal object CodexPendingTabMatcher {
   fun match(
     pendingTabsByPath: Map<String, List<AgentChatPendingCodexTabSnapshot>>,
-    candidatesByPath: Map<String, List<AgentChatPendingTabRebindTarget>>,
+    candidatesByPath: Map<String, List<AgentChatTabRebindTarget>>,
     openConcreteIdentitiesByPath: Map<String, Set<String>>,
     preWindowMs: Long,
     postWindowMs: Long,
@@ -61,7 +61,7 @@ internal object CodexPendingTabMatcher {
 
   private fun matchPath(
     pendingTabs: List<AgentChatPendingCodexTabSnapshot>,
-    candidates: List<AgentChatPendingTabRebindTarget>,
+    candidates: List<AgentChatTabRebindTarget>,
     openConcreteIdentities: Set<String>,
     preWindowMs: Long,
     postWindowMs: Long,
@@ -98,7 +98,7 @@ internal object CodexPendingTabMatcher {
       initialEdgeCounts[pendingTab.pendingTabKey] = connectedCandidates.size
     }
 
-    val bindings = LinkedHashMap<String, AgentChatPendingTabRebindTarget>()
+    val bindings = LinkedHashMap<String, AgentChatTabRebindTarget>()
     while (true) {
       val forcedPairs = pendingEdges.entries
         .asSequence()
@@ -157,8 +157,8 @@ internal object CodexPendingTabMatcher {
     )
   }
 
-  private fun deduplicateCandidates(candidates: List<AgentChatPendingTabRebindTarget>): Map<String, AgentChatPendingTabRebindTarget> {
-    val result = LinkedHashMap<String, AgentChatPendingTabRebindTarget>()
+  private fun deduplicateCandidates(candidates: List<AgentChatTabRebindTarget>): Map<String, AgentChatTabRebindTarget> {
+    val result = LinkedHashMap<String, AgentChatTabRebindTarget>()
     for (candidate in candidates) {
       val existing = result[candidate.threadIdentity]
       if (existing == null || candidate.threadUpdatedAt >= existing.threadUpdatedAt) {
@@ -169,8 +169,8 @@ internal object CodexPendingTabMatcher {
   }
 
   private data class PathMatchResult(
-    val bindings: List<CodexPendingTabBinding>,
-    val ambiguousPendingThreadIdentities: Set<String>,
-    val noMatchPendingThreadIdentities: Set<String>,
+    @JvmField val bindings: List<CodexPendingTabBinding>,
+    @JvmField val ambiguousPendingThreadIdentities: Set<String>,
+    @JvmField val noMatchPendingThreadIdentities: Set<String>,
   )
 }
