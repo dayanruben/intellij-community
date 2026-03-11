@@ -1,3 +1,7 @@
+.ownership/lib
+.ownership/lib-test
+.ownership/monorepo-resolver
+.ownership/runtime-resolver
 RegExpSupport
 aether-dependency-resolver
 android-customization
@@ -510,6 +514,7 @@ libraries/xml-rpc
 libraries/xstream
 libraries/xtext-xbase
 libraries/xz
+module-set-plugins/generated/intellij.moduleSet.plugin.debugger.streams
 module-set-plugins/generated/intellij.moduleSet.plugin.main
 module-set-plugins/generated/intellij.moduleSet.plugin.recentFiles
 module-set-plugins/generated/intellij.moduleSet.plugin.vcs.frontend
@@ -1219,8 +1224,6 @@ plugins/kotlin/compiler-plugins/parcelize/common
 plugins/kotlin/compiler-plugins/parcelize/gradle
 plugins/kotlin/compiler-plugins/parcelize/k1
 plugins/kotlin/compiler-plugins/parcelize/k2
-plugins/kotlin/compiler-plugins/parcelize/tests
-plugins/kotlin/compiler-plugins/parcelize/tests/k1
 plugins/kotlin/compiler-plugins/parcelize/tests/k2
 plugins/kotlin/compiler-plugins/sam-with-receiver/common
 plugins/kotlin/compiler-plugins/sam-with-receiver/gradle

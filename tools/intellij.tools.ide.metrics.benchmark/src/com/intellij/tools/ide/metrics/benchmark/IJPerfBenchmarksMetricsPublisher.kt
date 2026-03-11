@@ -7,6 +7,7 @@ import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.teamcity.TeamCityClient
+import com.intellij.codeowners.runtime.resolver.TestClassCodeOwnerResolverImpl
 import com.intellij.testFramework.UsefulTestCase
 import com.intellij.tools.ide.metrics.collector.MetricsCollector
 import com.intellij.tools.ide.metrics.collector.metrics.PerformanceMetrics
@@ -20,7 +21,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.util.Properties
-import java.util.ServiceLoader
 import kotlin.io.path.Path
 import kotlin.io.path.writer
 import kotlin.time.Duration.Companion.milliseconds
@@ -56,8 +56,13 @@ internal class IJPerfBenchmarksMetricsPublisher {
       return tempPropertiesFile.toPath()
     }
 
-    private val codeOwnerResolver: BenchmarkCodeOwnerResolver? by lazy {
-      ServiceLoader.load(BenchmarkCodeOwnerResolver::class.java).firstOrNull()
+    private val codeOwnerResolver: TestClassCodeOwnerResolverImpl? by lazy {
+      try {
+        TestClassCodeOwnerResolverImpl()
+      }
+      catch (_: Exception) {
+        null
+      }
     }
 
     private val teamCityClient = TeamCityClient(

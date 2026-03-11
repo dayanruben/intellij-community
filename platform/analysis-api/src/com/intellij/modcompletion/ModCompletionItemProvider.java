@@ -8,6 +8,7 @@ import com.intellij.codeInsight.completion.PrefixMatcher;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageExtension;
 import com.intellij.lang.LanguageExtensionWithAny;
+import com.intellij.openapi.project.PossiblyDumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiElement;
@@ -22,7 +23,7 @@ import java.util.List;
  * A language-specific provider for {@link ModCompletionItem} completion options 
  */
 @NotNullByDefault
-public interface ModCompletionItemProvider {
+public interface ModCompletionItemProvider extends PossiblyDumbAware {
   LanguageExtension<ModCompletionItemProvider> EP_NAME = new LanguageExtensionWithAny<>("com.intellij.modcompletion.completionItemProvider");
 
   /**
@@ -32,6 +33,15 @@ public interface ModCompletionItemProvider {
    * @param sink a consumer to pass completion items to
    */
   void provideItems(CompletionContext context, ModCompletionResult sink);
+
+  /**
+   * @return true if provider is enabled in general. By default, this is controlled by a registry key 
+   * (see {@link #modCommandCompletionEnabled()}), given the experimental nature of {@link ModCompletionItemProvider}.
+   * One may override this method to return {@code true} unconditionally for contributors that are known to be stable.
+   */
+  default boolean isEnabled() {
+    return modCommandCompletionEnabled();
+  }
 
   /**
    * @param context context to use

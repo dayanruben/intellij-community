@@ -28,6 +28,7 @@ import java.io.StringWriter
 import java.nio.file.Path
 import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.name
+import kotlin.io.path.nameWithoutExtension
 
 data class CorePluginDescription(
   val mainModuleName: String,
@@ -37,6 +38,7 @@ data class CorePluginDescription(
 val COMMUNITY_CORE_PLUGINS = listOf(
   CorePluginDescription(mainModuleName = "intellij.idea.community.customization", rootPluginXmlName = "IdeaPlugin.xml"),
   CorePluginDescription(mainModuleName = "intellij.pycharm.community", rootPluginXmlName = "PyCharmCorePlugin.xml"),
+  CorePluginDescription(mainModuleName = "intellij.mps.resources"),
 )
 
 /**
@@ -73,6 +75,8 @@ data class PluginValidationOptions(
    * Set of implementation classes of existing application-level and project-level components which shouldn't be reported as errors. 
    */
   val componentImplementationClassesToIgnore: Set<String> = emptySet(),
+
+  val filesNamedLikeContentModuleDescriptorsButIncludedViaXiInclude: Set<String> = emptySet(),
 
   /**
    * Names of service interfaces that are overridden by plugins which sources are located outside the current project, and therefore need
@@ -244,6 +248,41 @@ internal class PluginModelValidator(
 
       // in the end, after processing content and dependencies
       checkDepends(pluginInfo, descriptor)
+    }
+
+    for (contentModuleDescriptor in simplifiedPluginModel.contentModuleDescriptorsIncludedViaXiInclude) {
+      val moduleName = contentModuleDescriptor.nameWithoutExtension
+      val moduleInfo = moduleNameToInfo[moduleName] ?: continue
+      val pluginInfo = contentModuleToContainingPlugins[moduleName]?.firstOrNull()
+      if (pluginInfo != null) {
+        //todo: this case is already fixed in khbminus/ij-light/IJPL-222430-unmbed-thin-client branch, remove this condition after it's merged to master
+        if (moduleName == "intellij.rider.rdclient.languages") {
+          continue
+        }
+
+        reportError(
+          """
+            |Module '$moduleName' is registered as a content module in '${pluginInfo.pluginId}', but its descriptor ${contentModuleDescriptor.name}
+            |is also included via xi:include tag. 
+            |It is not allowed, because it means that the classloader for the module is configured differently in different cases, and it's
+            |not possible to automatically determine the dependencies for the module.
+          """.trimMargin(),
+          moduleInfo.sourceModule,
+          mapOf("descriptorFile" to moduleInfo.descriptorFile),
+        )
+      }
+      else if (contentModuleDescriptor.name !in validationOptions.filesNamedLikeContentModuleDescriptorsButIncludedViaXiInclude) {
+        reportError(
+          message = """
+                    |File '${contentModuleDescriptor.name}' is named as a content module descriptor, but actually it's included via xi:include tag.
+                    |Such configuration causes confusion, and it's better to avoid it.
+                    |If it's really hard to register it as a real plugin content module (even with loading=embedded), rename the file and 
+                    |move it to META-INF directory to avoid confusion.
+                  """.trimMargin(),
+          moduleInfo.sourceModule,
+          params = mapOf("descriptorFile" to moduleInfo.descriptorFile)
+        )
+      }
     }
 
     return PluginValidationResult(_errors, pluginIdToInfo)
