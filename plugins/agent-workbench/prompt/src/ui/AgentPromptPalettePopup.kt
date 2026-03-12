@@ -14,6 +14,7 @@ import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptContextEnvel
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptContextItem
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptInvocationData
+import com.intellij.agent.workbench.sessions.core.prompt.AGENT_PROMPT_INVOCATION_PREFER_EXTENSIONS_KEY
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLaunchError
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLauncherBridge
@@ -149,8 +150,9 @@ internal class AgentPromptPalettePopup(
     val draft = restoreDraft()
     activeTaskKey = resolveTaskKey(tabbedPane.selectedComponent as? JPanel)
     restoreTaskDrafts(draft)
-    if (activeExtensionTabs.isNotEmpty()) {
-      selectFirstExtensionTab()
+    val preferExtensions = invocationData.attributes[AGENT_PROMPT_INVOCATION_PREFER_EXTENSIONS_KEY] == true
+    if (preferExtensions) {
+      selectAutoSelectExtensionTab()
     }
     loadPromptTextForSelectedTab()
     clearStatus()
@@ -178,6 +180,7 @@ internal class AgentPromptPalettePopup(
         popup = null
         existingTaskController.dispose()
         popupScope.cancel("Agent prompt popup closed")
+        saveProviderPreferences()
         if (clearDraftOnClose) {
           uiStateService.clearDraft()
         }
@@ -311,6 +314,7 @@ internal class AgentPromptPalettePopup(
 
   private fun showProviderChooser() {
     providerSelector.showChooser(onUnavailable = ::showError) {
+      selectedLaunchMode = providerSelector.selectedLaunchMode
       if (currentTargetMode() == PromptTargetMode.EXISTING_TASK) {
         existingTaskController.clearSelection()
         reloadExistingTasks()
@@ -367,9 +371,10 @@ internal class AgentPromptPalettePopup(
     }
   }
 
-  private fun selectFirstExtensionTab() {
-    val firstExtension = activeExtensionTabs.firstOrNull() ?: return
-    val index = (0 until tabbedPane.tabCount).firstOrNull { tabbedPane.getComponentAt(it) === firstExtension.tabPanel }
+  private fun selectAutoSelectExtensionTab() {
+    val items = contextEntries.map { it.item }
+    val target = activeExtensionTabs.firstOrNull { it.extension.shouldAutoSelect(items) } ?: return
+    val index = (0 until tabbedPane.tabCount).firstOrNull { tabbedPane.getComponentAt(it) === target.tabPanel }
     if (index != null) {
       tabbedPane.selectedIndex = index
     }
@@ -694,18 +699,24 @@ internal class AgentPromptPalettePopup(
 
   private fun restoreDraft(): AgentPromptUiDraft {
     val draft = uiStateService.loadDraft()
+    val providerPrefs = uiStateService.loadProviderPreferences()
     val contextRestoreSnapshot = uiStateService.loadContextRestoreSnapshot()
     val launcher = launcherProvider()
 
     promptArea.text = draft.promptText
-    providerSelector.restoreProviderOptionSelections(draft.providerOptionsByProviderId)
+    val effectiveProviderOptions = draft.providerOptionsByProviderId.ifEmpty { providerPrefs.providerOptionsByProviderId }
+    providerSelector.restoreProviderOptionSelections(effectiveProviderOptions)
     val persistedProvider = resolveRestoredPromptProvider(
-      draftProviderId = draft.providerId,
+      draftProviderId = draft.providerId ?: providerPrefs.providerId,
       preferredProvider = launcher?.preferredProvider(),
       availableProviders = providerSelector.availableProviders,
     )
-    providerSelector.selectProvider(persistedProvider)
-    if (draft.providerOptionsByProviderId.isEmpty()) {
+    val restoredLaunchMode = providerPrefs.launchModeName?.let { name ->
+      AgentSessionLaunchMode.entries.firstOrNull { it.name == name }
+    }
+    providerSelector.selectProvider(persistedProvider, restoredLaunchMode)
+    selectedLaunchMode = providerSelector.selectedLaunchMode
+    if (effectiveProviderOptions.isEmpty()) {
       providerSelector.applyLegacyPlanModeSelection(providerSelector.selectedProvider?.bridge?.provider, draft.planModeEnabled)
     }
     updateProviderOptionsVisibility()
@@ -734,6 +745,16 @@ internal class AgentPromptPalettePopup(
     }
 
     return draft
+  }
+
+  private fun saveProviderPreferences() {
+    uiStateService.saveProviderPreferences(
+      AgentPromptUiProviderPreferences(
+        providerId = providerSelector.selectedProvider?.bridge?.provider?.value,
+        launchModeName = providerSelector.selectedLaunchMode.name,
+        providerOptionsByProviderId = providerSelector.providerOptionSelections(),
+      )
+    )
   }
 
   private fun saveDraft() {

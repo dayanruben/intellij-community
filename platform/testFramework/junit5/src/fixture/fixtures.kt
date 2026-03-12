@@ -5,6 +5,7 @@ package com.intellij.testFramework.junit5.fixture
 
 import com.intellij.execution.RunManager
 import com.intellij.ide.impl.OpenProjectTask
+import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.UiWithModelAccess
@@ -139,6 +140,21 @@ fun TestFixture<Project>.fileOrDirInProjectFixture(relativePath: String): TestFi
   initialized(file) {}
 }
 
+/**
+ * Finds an existing [PsiFile] in the project by [relativePath].
+ * Unlike [psiFileFixture], this does not create a new file but locates one that already exists in the project.
+ */
+@TestOnly
+fun TestFixture<Project>.existingPsiFileFixture(relativePath: String): TestFixture<PsiFile> = testFixture {
+  val project = this@existingPsiFileFixture.init()
+  val virtualFile = fileOrDirInProjectFixture(relativePath).init()
+  val psiFile = readAction {
+    PsiManager.getInstance(project).findFile(virtualFile)
+    ?: error("Cannot find PsiFile for $virtualFile")
+  }
+  initialized(psiFile) {}
+}
+
 @TestOnly
 fun TestFixture<Project>.moduleInProjectFixture(name: String): TestFixture<Module> = testFixture {
   val project = init()
@@ -165,11 +181,25 @@ fun projectFixture(
   openAfterCreation: Boolean = false,
 ): TestFixture<Project> = testFixture {
   // Background service preloading might trigger service loading after a project gets disposed leading to a test failure.
-  val openProjectTask = openProjectTask.copy(preloadServices = false)
   val path = pathFixture.init()
-  val project = ProjectManagerEx.getInstanceEx().newProjectAsync(path, openProjectTask)
-  if (openAfterCreation) {
-    ProjectManagerEx.getInstanceEx().openProject(path, openProjectTask.withProject(project))
+  // if project already contains .idea folder we should open it instead of creating a new project
+  val isValidIdeaProject = ProjectUtil.isValidProjectPath(path)
+  // we should respect if user explicitly set isNewProject
+  val isNewProject = !isValidIdeaProject || openProjectTask.isNewProject
+  val openProjectTask = openProjectTask.copy(preloadServices = false, isNewProject = isNewProject)
+
+  val projectManager = ProjectManagerEx.getInstanceEx()
+
+  val project = if (!isNewProject) {
+    projectManager.openProjectAsync(path, openProjectTask)!!
+  } else {
+    val newProject = projectManager.newProjectAsync(path, openProjectTask)
+
+    if (openAfterCreation) {
+      projectManager.openProjectAsync(path, openProjectTask.withProject(newProject))
+    }
+
+    newProject
   }
   // Wait until components fully loaded. Otherwise, we might start loading then when a project is already disposed when a test is too fast.
   project.serviceAsync<RunManager>()

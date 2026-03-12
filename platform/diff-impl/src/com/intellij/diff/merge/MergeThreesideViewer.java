@@ -337,15 +337,29 @@ public class MergeThreesideViewer extends ThreesideTextDiffViewerEx {
       return new ResolveActionResult(false, true);
     }
 
-    boolean confirmed = MessageDialogBuilder
-      .yesNo(
-        DiffBundle.message("apply.partially.resolved.merge.dialog.title"),
-        DiffBundle.message("merge.dialog.apply.partially.resolved.changes.confirmation.message",
-                           changesCount, conflictsCount)
-      )
-      .yesText(DiffBundle.message("apply.changes.and.mark.resolved"))
-      .noText(DiffBundle.message("continue.merge"))
-      .ask(myPanel.getRootPane());
+    boolean confirmed;
+    if (IterativeResolveSupport.hasIterativeData(myMergeRequest)) {
+      confirmed = MessageDialogBuilder
+        .yesNo(
+          DiffBundle.message("apply.partially.resolved.iterative.merge.dialog.title"),
+          DiffBundle.message("iterative.merge.dialog.apply.partially.resolved.changes.confirmation.message", conflictsCount, changesCount)
+        )
+        .yesText(DiffBundle.message("iterative.merge.dialog.apply.partially.resolved.changes.yes"))
+        .noText(DiffBundle.message("iterative.merge.dialog.apply.partially.resolved.changes.no"))
+        .icon(Messages.getWarningIcon())
+        .ask(myPanel.getRootPane());
+    }
+    else {
+      confirmed = MessageDialogBuilder
+        .yesNo(
+          DiffBundle.message("apply.partially.resolved.merge.dialog.title"),
+          DiffBundle.message("merge.dialog.apply.partially.resolved.changes.confirmation.message",
+                             changesCount, conflictsCount)
+        )
+        .yesText(DiffBundle.message("apply.changes.and.mark.resolved"))
+        .noText(DiffBundle.message("continue.merge"))
+        .ask(myPanel.getRootPane());
+    }
 
     if (!confirmed) {
       return new ResolveActionResult(true, false);
@@ -388,16 +402,35 @@ public class MergeThreesideViewer extends ThreesideTextDiffViewerEx {
   private void onMergeEvent(MergeEvent event) {
     if (event instanceof MergeEvent.ChangeResolved changeResolved) {
       TextMergeChange change = changeResolved.getChange();
-
+      if (myAggregator != null) {
+        if (change.isResolvedWithAI()) {
+          myAggregator.wasResolvedByAi(change.getIndex());
+        }
+      }
       applyForHighlighters(change, highlighters -> {
         if (change.isResolved()) highlighters.destroyInnerHighlighters();
       });
       onChangeResolved(change);
     }
 
+    if (event instanceof MergeEvent.ChangeReset changeReset) {
+      TextMergeChange change = changeReset.getChange();
+
+      if (myAggregator != null) {
+        if (change.isResolvedWithAI()) {
+          myAggregator.wasRolledBackAfterAI(change.getIndex());
+        }
+      }
+    }
+
     if (event instanceof MergeEvent.ChangeSideResolved sideResolved) {
       TextMergeChange change = sideResolved.getChange();
       Side side = sideResolved.getSide();
+      if (myAggregator != null) {
+        if (change.isResolvedWithAI()) {
+          myAggregator.wasResolvedByAi(change.getIndex());
+        }
+      }
       applyForHighlighters(change, highlighters -> {
         if (change.isResolved()) {
           highlighters.destroyInnerHighlighters();
@@ -410,8 +443,16 @@ public class MergeThreesideViewer extends ThreesideTextDiffViewerEx {
     }
 
     if (event instanceof MergeEvent.ChangeProcessed changeProcessed) {
-      reinstallAllHighlighters(changeProcessed.getChange());
-      myInnerDiffWorker.scheduleRediff(changeProcessed.getChange());
+      TextMergeChange change = changeProcessed.getChange();
+      if (myAggregator != null) {
+        myAggregator.wasEdited(change.getIndex());
+        if (change.isResolvedWithAI()) {
+          myAggregator.wasEditedAfterAi(change.getIndex());
+        }
+      }
+
+      reinstallAllHighlighters(change);
+      myInnerDiffWorker.scheduleRediff(change);
     }
 
     if (event instanceof MergeEvent.BulkProcessingFinished) {
@@ -800,7 +841,10 @@ public class MergeThreesideViewer extends ThreesideTextDiffViewerEx {
         RelativePoint point = new RelativePoint(component, new Point(component.getWidth() / 2, JBUIScale.scale(5)));
 
         String title = DiffBundle.message("merge.all.changes.processed.title.text");
-        @NlsSafe String message = XmlStringUtil.wrapInHtmlTag(DiffBundle.message("merge.all.changes.processed.message.text"), "a");
+        String messageKey = IterativeResolveSupport.hasIterativeData(myMergeRequest)
+                            ? "iterative.merge.all.changes.processed.message.text"
+                            : "merge.all.changes.processed.message.text";
+        @NlsSafe String message = XmlStringUtil.wrapInHtmlTag(DiffBundle.message(messageKey), "a");
         DiffBalloons.showSuccessPopup(title, message, point, this, () -> {
           if (isDisposed() || myLoadingPanel.isLoading()) return;
           doFinishMerge(MergeResult.RESOLVED, MergeResultSource.NOTIFICATION);

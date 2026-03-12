@@ -129,11 +129,6 @@ abstract class AbstractAllIntellijEntitiesGenerationTest {
     }
     //@formatter:on
 
-    writeAction {
-      val ultimateEditorconfig = VfsUtil.findFile(Path.of(IdeaTestExecutionPolicy.getHomePathWithPolicy()).resolve(".editorconfig"), true)
-      VfsUtil.copyFile(this@AbstractAllIntellijEntitiesGenerationTest, ultimateEditorconfig!!, projectRoot)
-    }
-
     val module = project.modules.first()
     val model = readAction { ModuleRootManager.getInstance(module).getModifiableModel() }
 
@@ -173,7 +168,7 @@ abstract class AbstractAllIntellijEntitiesGenerationTest {
   }
 
   @DisplayName("test generation of all entities in intellij codebase")
-  @ParameterizedTest(name = "{0}")
+  @ParameterizedTest(name = "Module {0}")
   @MethodSource("modules")
   open fun `test generation of all entities in intellij codebase`(
     moduleName: String,
@@ -190,7 +185,7 @@ abstract class AbstractAllIntellijEntitiesGenerationTest {
   }
 
   //@IJIgnore(issue = "IDEA-364751")
-  @ParameterizedTest(name = "{0}")
+  @ParameterizedTest(name = "Module {0}")
   @MethodSource("modules")
   @DisplayName("test update code")
   fun `test update code`(
@@ -226,6 +221,13 @@ abstract class AbstractAllIntellijEntitiesGenerationTest {
 
     writeAction {
       VfsUtil.copyDirectory(this, ultimateSourceRootPath, actualSrcRoot, null)
+    }
+
+    writeAction {
+      val mergedEditorconfigContent = mergeEditorconfigsUpToTheDirectory(ultimateSourceRoot)!!
+
+      val editorconfigFile = projectRoot.findOrCreateChildData(this@AbstractAllIntellijEntitiesGenerationTest, ".editorconfig")
+      VfsUtil.saveText(editorconfigFile, mergedEditorconfigContent)
     }
 
     val isTestModule = ultimateSourceRoot.rootTypeId == JAVA_TEST_ROOT_ENTITY_TYPE_ID
@@ -443,6 +445,43 @@ abstract class AbstractAllIntellijEntitiesGenerationTest {
       return modulesToCheck
     }
   }
+}
+
+private fun mergeEditorconfigsUpToTheDirectory(ultimateSourceRoot: SourceRootEntity): String? {
+  val homeDir = Path.of(IdeaTestExecutionPolicy.getHomePathWithPolicy())
+  val sourceRootPath = ultimateSourceRoot.url.toVirtualFile()
+
+  val dirs = mutableListOf<VirtualFile>()
+
+  var dir: VirtualFile? = sourceRootPath
+  while (dir != null) {
+    dirs.add(dir)
+    if (dir == homeDir) return null
+    dir = dir.parent
+  }
+
+  val contents = mutableListOf<String>()
+
+  for (dir in dirs) {
+    val editorconfigFile = dir.findChild(".editorconfig")
+    if (editorconfigFile != null) {
+      val text = VfsUtil.loadText(editorconfigFile)
+      contents.add(";${editorconfigFile.url}\n" + text)
+      if (text.contains("root = true")) {
+        break
+      }
+    }
+  }
+
+  val merged = buildString {
+    contents.reversed().forEachIndexed { index, content ->
+      // Keep root=true only in the first file, strip from rest
+      val normalized = if (index > 0) content.replace(Regex("(?m)^root\\s*=\\s*true\\s*$"), "") else content
+      append(normalized.trim())
+      append("\n")
+    }
+  }
+  return merged
 }
 
 private suspend fun loadProjectIntellijProject(): Pair<MutableEntityStorage, JpsProjectSerializers> {

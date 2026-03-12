@@ -20,6 +20,7 @@ jvm_library(
     "//platform/lang-api:lang",
     "//platform/platform-impl:ide-impl",
     "//platform/lang-core",
+    "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
   ],
   runtime_deps = [
     "//platform/lang-impl",
@@ -48,8 +49,13 @@ jvm_library(
     "//platform/platform-impl:ide-impl",
     "//platform/lang-core",
     "//platform/lang-core:lang-core_test_lib",
+    "@lib//:junit5",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
+    "//platform/testFramework/junit5",
+    "//platform/testFramework/junit5:junit5_test_lib",
+    "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
+    "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
   ],
   runtime_deps = [
     "//platform/lang-impl:lang-impl_test_lib",

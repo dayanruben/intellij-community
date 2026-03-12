@@ -3239,6 +3239,7 @@ c:com.intellij.openapi.vcs.merge.MultipleFileMergeDialog
 - p:beforeResolve(java.util.Collection):Z
 - p:createActions():javax.swing.Action[]
 - p:createCenterPanel():javax.swing.JComponent
+- p:createSouthPanel():javax.swing.JComponent
 - p:dispose():V
 - doCancelAction():V
 - p:getDimensionServiceKey():java.lang.String
