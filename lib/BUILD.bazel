@@ -7336,17 +7336,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.intellij.deps/debugger-agent-1.144.jar_copy",
-  src = "@org_jetbrains_intellij_deps-debugger-agent-1_144_http//file",
-  out = "org.jetbrains.intellij.deps/debugger-agent-1.144.jar",
+  name = "org.jetbrains.intellij.deps/debugger-agent-1.147.jar_copy",
+  src = "@org_jetbrains_intellij_deps-debugger-agent-1_147_http//file",
+  out = "org.jetbrains.intellij.deps/debugger-agent-1.147.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "java-debugger-agent-holder-debugger-agent",
-  jar = "@org_jetbrains_intellij_deps-debugger-agent-1_144_http//file",
-  source_jar = "@org_jetbrains_intellij_deps-debugger-agent-1_144-sources_http//file",
+  jar = "@org_jetbrains_intellij_deps-debugger-agent-1_147_http//file",
+  source_jar = "@org_jetbrains_intellij_deps-debugger-agent-1_147-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -7753,21 +7753,6 @@ jvm_import(
   name = "jetbrains-intellij-deps-rwmutex-idea",
   jar = "@org_jetbrains_intellij_deps-rwmutex-idea-0_0_10_http//file",
   source_jar = "@org_jetbrains_intellij_deps-rwmutex-idea-0_0_10-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "org.jetbrains.kotlin/kotlin-annotations-jvm-2.2.21.jar_copy",
-  src = "@org_jetbrains_kotlin-kotlin-annotations-jvm-2_2_21_http//file",
-  out = "org.jetbrains.kotlin/kotlin-annotations-jvm-2.2.21.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "jetbrains-kotlin-annotations-jvm",
-  jar = "@org_jetbrains_kotlin-kotlin-annotations-jvm-2_2_21_http//file",
-  source_jar = "@org_jetbrains_kotlin-kotlin-annotations-jvm-2_2_21-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -18680,17 +18665,17 @@ java_library(
 )
 
 copy_file(
-  name = "org.jetbrains.intellij.deps/intellij-coverage-agent-1.0.771.jar_copy",
-  src = "@org_jetbrains_intellij_deps-intellij-coverage-agent-1_0_771_http//file",
-  out = "org.jetbrains.intellij.deps/intellij-coverage-agent-1.0.771.jar",
+  name = "org.jetbrains.intellij.deps/intellij-coverage-agent-1.0.773.jar_copy",
+  src = "@org_jetbrains_intellij_deps-intellij-coverage-agent-1_0_773_http//file",
+  out = "org.jetbrains.intellij.deps/intellij-coverage-agent-1.0.773.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "platform-coverage-agent-intellij-coverage",
-  jar = "@org_jetbrains_intellij_deps-intellij-coverage-agent-1_0_771_http//file",
-  source_jar = "@org_jetbrains_intellij_deps-intellij-coverage-agent-1_0_771-sources_http//file",
+  jar = "@org_jetbrains_intellij_deps-intellij-coverage-agent-1_0_773_http//file",
+  source_jar = "@org_jetbrains_intellij_deps-intellij-coverage-agent-1_0_773-sources_http//file",
   visibility = ["//visibility:public"]
 )
 

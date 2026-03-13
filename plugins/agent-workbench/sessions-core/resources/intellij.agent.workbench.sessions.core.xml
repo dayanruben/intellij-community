@@ -30,9 +30,14 @@
       qualifiedName="com.intellij.agent.workbench.promptPaletteExtension"
       interface="com.intellij.agent.workbench.sessions.core.prompt.AgentPromptPaletteExtension"
       dynamic="true"/>
+    <extensionPoint
+      qualifiedName="com.intellij.agent.workbench.promptManualContextSource"
+      interface="com.intellij.agent.workbench.sessions.core.prompt.AgentPromptManualContextSourceBridge"
+      dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
+    <statistics.counterUsagesCollector implementationClass="com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchFusCollector"/>
     <agent.workbench.promptContextRenderer implementation="com.intellij.agent.workbench.sessions.core.prompt.AgentPromptSnippetContextRendererBridge"/>
     <agent.workbench.promptContextRenderer implementation="com.intellij.agent.workbench.sessions.core.prompt.AgentPromptFileContextRendererBridge"/>
     <agent.workbench.promptContextRenderer implementation="com.intellij.agent.workbench.sessions.core.prompt.AgentPromptSymbolContextRendererBridge"/>

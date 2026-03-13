@@ -2,6 +2,7 @@
 package com.intellij.agent.workbench.prompt.ui
 
 import com.dynatrace.hash4j.hashing.HashValue128
+import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptContextItem
 import com.intellij.openapi.components.SerializablePersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
@@ -36,19 +37,12 @@ internal data class AgentPromptUiDraft(
 internal data class AgentPromptUiContextRestoreSnapshot(
     @JvmField val contextFingerprint: HashValue128? = null,
     @JvmField val removedContextItemIds: List<String> = emptyList(),
-)
-
-@Serializable
-internal data class AgentPromptUiProviderPreferences(
-    @JvmField val providerId: String? = null,
-    @JvmField val launchModeName: String? = null,
-    @JvmField val providerOptionsByProviderId: Map<String, Set<String>> = emptyMap(),
+    @JvmField val manualContextItemsBySourceId: Map<String, AgentPromptContextItem> = emptyMap(),
 )
 
 @Serializable
 internal data class AgentPromptUiState(
     @JvmField val draft: AgentPromptUiDraft = AgentPromptUiDraft(),
-    @JvmField val providerPreferences: AgentPromptUiProviderPreferences = AgentPromptUiProviderPreferences(),
 )
 
 @Service(Service.Level.PROJECT)
@@ -72,14 +66,6 @@ internal class AgentPromptUiSessionStateService
 
     fun saveContextRestoreSnapshot(newSnapshot: AgentPromptUiContextRestoreSnapshot) {
         contextRestoreSnapshot = newSnapshot
-    }
-
-    fun loadProviderPreferences(): AgentPromptUiProviderPreferences {
-        return state.providerPreferences
-    }
-
-    fun saveProviderPreferences(preferences: AgentPromptUiProviderPreferences) {
-        updateState { current -> current.copy(providerPreferences = preferences) }
     }
 
     fun clearDraft() {

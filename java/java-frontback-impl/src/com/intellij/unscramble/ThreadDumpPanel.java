@@ -70,6 +70,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /**
  * @author Jeka
@@ -198,7 +199,7 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
     toolbarActions.add(filterAction);
     toolbarActions.add(new CopyToClipboardAction(project));
     toolbarActions.add(new SortThreadsAction());
-    toolbarActions.add(new ExportToTextFileToolbarAction(createDumpToFileExporter(project, myThreadDump)));
+    toolbarActions.add(new ExportToTextFileToolbarAction(createDumpToFileExporter(project)));
     toolbarActions.add(new MergeStacktracesAction());
     toolbarActions.add(new ShowDumpItemGroups());
     toolbarActions.add(new ShowOnlyPlatformThreads());
@@ -418,13 +419,12 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
       boolean isTruncated = myDumpItemsTruncated > 0;
-      StringBuilder buf = new StringBuilder();
-      String firstLine = isTruncated ? "Truncated thread dump" : "Full thread dump";
-      buf.append(firstLine).append("\n\n");
-      for (DumpItem state : myThreadDump) {
-        buf.append(state.getStackTrace()).append("\n\n");
-      }
-      CopyPasteManager.getInstance().setContents(new StringSelection(buf.toString()));
+      CopyPasteManager.getInstance().setContents(new StringSelection(
+        IntelliJThreadDumpSerializationKt.serializeIntelliJThreadDump(
+          new ArrayList<>(myThreadDump),
+          createAdditionalThreadDumpComments(isTruncated)
+        )
+      ));
 
       String message = isTruncated
                        ? JavaFrontbackBundle.message("notification.text.truncated.thread.dump.was.successfully.copied.to.clipboard")
@@ -530,30 +530,38 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
     }
   }
 
-  private static ExporterToTextFile createDumpToFileExporter(Project project, List<DumpItem> dumpItems) {
-    return new MyToFileExporter(project, dumpItems);
+  private ExporterToTextFile createDumpToFileExporter(Project project) {
+    return new MyToFileExporter(project, myThreadDump, () -> myDumpItemsTruncated > 0);
   }
 
   public static ExporterToTextFile createToFileExporter(Project project, List<ThreadState> threadStates) {
-    return new MyToFileExporter(project, DumpItemKt.toDumpItems(threadStates));
+    return new MyToFileExporter(project, DumpItemKt.toDumpItems(threadStates), () -> false);
   }
 
-  private static final class MyToFileExporter implements ExporterToTextFile {
+  private static @NotNull List<String> createAdditionalThreadDumpComments(boolean isTruncated) {
+    return List.of(
+      isTruncated ? "Truncated thread dump" : "Full thread dump"
+    );
+  }
+
+  private static class MyToFileExporter implements ExporterToTextFile {
     private final Project myProject;
     private final List<? extends DumpItem> myThreadStates;
+    private final BooleanSupplier myIsTruncatedSupplier;
 
-    private MyToFileExporter(Project project, List<? extends DumpItem> threadStates) {
+    private MyToFileExporter(Project project, List<? extends DumpItem> threadStates, BooleanSupplier isTruncatedSupplier) {
       myProject = project;
       myThreadStates = threadStates;
+      myIsTruncatedSupplier = isTruncatedSupplier;
     }
 
     @Override
     public @NotNull String getReportText() {
-      StringBuilder sb = new StringBuilder();
-      for (DumpItem state : myThreadStates) {
-        sb.append(state.getStackTrace()).append("\n\n");
-      }
-      return sb.toString();
+      boolean isTruncated = myIsTruncatedSupplier.getAsBoolean();
+      return IntelliJThreadDumpSerializationKt.serializeIntelliJThreadDump(
+        new ArrayList<>(myThreadStates),
+        createAdditionalThreadDumpComments(isTruncated)
+      );
     }
 
     private static final @NonNls String DEFAULT_REPORT_FILE_NAME = "threads_report.txt";

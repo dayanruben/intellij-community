@@ -10,8 +10,10 @@ import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewTh
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsGoToSourceProjectFromEditorTabAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsSelectThreadInToolWindowAction
 import com.intellij.agent.workbench.sessions.actions.providerIcon
+import com.intellij.ui.BadgeIcon
 import com.intellij.agent.workbench.sessions.core.AgentSessionLaunchMode
 import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
+import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.TestActionEvent
@@ -28,6 +30,7 @@ class AgentSessionsEditorTabActionsTest {
     var launchedProvider: AgentSessionProvider? = null
     var launchedMode: AgentSessionLaunchMode? = null
     var launchedProjectName: String? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
     val codexBridge = TestAgentSessionProviderBridge(
       provider = AgentSessionProvider.CODEX,
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD, AgentSessionLaunchMode.YOLO),
@@ -43,11 +46,12 @@ class AgentSessionsEditorTabActionsTest {
       resolveContext = { context },
       allBridges = { listOf(codexBridge, claudeBridge) },
       lastUsedProvider = { AgentSessionProvider.CLAUDE },
-      createNewSession = { path, provider, mode, project ->
+      createNewSession = { path, provider, mode, project, capturedEntryPoint ->
         launchedPath = path
         launchedProvider = provider
         launchedMode = mode
         launchedProjectName = project.name
+        entryPoint = capturedEntryPoint
       },
     )
     val event = TestActionEvent.createTestEvent(action)
@@ -63,6 +67,55 @@ class AgentSessionsEditorTabActionsTest {
     assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CLAUDE)
     assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
     assertThat(launchedProjectName).isEqualTo(context.project.name)
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.EDITOR_TAB_QUICK)
+  }
+
+  @Test
+  fun editorTabQuickNewThreadUsesYoloModeWhenLastUsedLaunchModeIsYolo() {
+    val context = editorContext(path = "/tmp/editor-project")
+    var launchedPath: String? = null
+    var launchedProvider: AgentSessionProvider? = null
+    var launchedMode: AgentSessionLaunchMode? = null
+    var launchedProjectName: String? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
+    val codexBridge = TestAgentSessionProviderBridge(
+      provider = AgentSessionProvider.CODEX,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD, AgentSessionLaunchMode.YOLO),
+      cliAvailable = true,
+      yoloSessionLabelKey = "toolwindow.action.new.session.codex.yolo",
+    )
+    val claudeBridge = TestAgentSessionProviderBridge(
+      provider = AgentSessionProvider.CLAUDE,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+    )
+    val action = AgentSessionsEditorTabNewThreadQuickAction(
+      resolveContext = { context },
+      allBridges = { listOf(codexBridge, claudeBridge) },
+      lastUsedProvider = { AgentSessionProvider.CODEX },
+      lastUsedLaunchMode = { AgentSessionLaunchMode.YOLO },
+      createNewSession = { path, provider, mode, project, capturedEntryPoint ->
+        launchedPath = path
+        launchedProvider = provider
+        launchedMode = mode
+        launchedProjectName = project.name
+        entryPoint = capturedEntryPoint
+      },
+    )
+    val event = TestActionEvent.createTestEvent(action)
+
+    action.update(event)
+
+    assertThat(event.presentation.isEnabledAndVisible).isTrue()
+    assertThat(event.presentation.icon).isInstanceOf(BadgeIcon::class.java)
+
+    action.actionPerformed(event)
+
+    assertThat(launchedPath).isEqualTo(context.path)
+    assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CODEX)
+    assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.YOLO)
+    assertThat(launchedProjectName).isEqualTo(context.project.name)
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.EDITOR_TAB_QUICK)
   }
 
   @Test
@@ -70,6 +123,7 @@ class AgentSessionsEditorTabActionsTest {
     val context = editorContext()
     var launchedProvider: AgentSessionProvider? = null
     var launchedMode: AgentSessionLaunchMode? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
     val fallbackProvider = AgentSessionProvider.from("fallback")
     val codexYoloOnlyBridge = TestAgentSessionProviderBridge(
       provider = AgentSessionProvider.CODEX,
@@ -86,9 +140,10 @@ class AgentSessionsEditorTabActionsTest {
       resolveContext = { context },
       allBridges = { listOf(codexYoloOnlyBridge, fallbackBridge) },
       lastUsedProvider = { AgentSessionProvider.CODEX },
-      createNewSession = { _, provider, mode, _ ->
+      createNewSession = { _, provider, mode, _, capturedEntryPoint ->
         launchedProvider = provider
         launchedMode = mode
+        entryPoint = capturedEntryPoint
       },
     )
     val event = TestActionEvent.createTestEvent(action)
@@ -102,6 +157,7 @@ class AgentSessionsEditorTabActionsTest {
 
     assertThat(launchedProvider).isEqualTo(fallbackProvider)
     assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.EDITOR_TAB_QUICK)
   }
 
   @Test
@@ -111,6 +167,7 @@ class AgentSessionsEditorTabActionsTest {
     var launchedProvider: AgentSessionProvider? = null
     var launchedMode: AgentSessionLaunchMode? = null
     var launchedProjectName: String? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
     val codexBridge = TestAgentSessionProviderBridge(
       provider = AgentSessionProvider.CODEX,
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD, AgentSessionLaunchMode.YOLO),
@@ -125,11 +182,12 @@ class AgentSessionsEditorTabActionsTest {
     val group = AgentSessionsEditorTabNewThreadPopupGroup(
       resolveContext = { context },
       allBridges = { listOf(codexBridge, claudeBridge) },
-      createNewSession = { path, provider, mode, project ->
+      createNewSession = { path, provider, mode, project, capturedEntryPoint ->
         launchedPath = path
         launchedProvider = provider
         launchedMode = mode
         launchedProjectName = project.name
+        entryPoint = capturedEntryPoint
       },
     )
     val event = TestActionEvent.createTestEvent(group)
@@ -152,6 +210,7 @@ class AgentSessionsEditorTabActionsTest {
     assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CODEX)
     assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.YOLO)
     assertThat(launchedProjectName).isEqualTo(context.project.name)
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.EDITOR_TAB_POPUP)
   }
 
   @Test
@@ -180,7 +239,7 @@ class AgentSessionsEditorTabActionsTest {
     val unsupported = AgentSessionsEditorTabArchiveThreadAction(
       resolveContext = { context },
       canArchiveProvider = { false },
-      archiveThreads = { _, _ -> },
+      archiveThreads = { _, _, _ -> },
     )
     val unsupportedEvent = TestActionEvent.createTestEvent(unsupported)
     unsupported.update(unsupportedEvent)
@@ -190,7 +249,7 @@ class AgentSessionsEditorTabActionsTest {
     val supported = AgentSessionsEditorTabArchiveThreadAction(
       resolveContext = { context },
       canArchiveProvider = { true },
-      archiveThreads = { _, _ -> },
+      archiveThreads = { _, _, _ -> },
     )
     val supportedEvent = TestActionEvent.createTestEvent(supported)
     supported.update(supportedEvent)
@@ -203,13 +262,15 @@ class AgentSessionsEditorTabActionsTest {
     val context = editorContext(threadTitle = "Refactor session setup")
     var archivedTargets: List<ArchiveThreadTarget>? = null
     var preferredSingleArchivedLabel: String? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
 
     val action = AgentSessionsEditorTabArchiveThreadAction(
       resolveContext = { context },
       canArchiveProvider = { true },
-      archiveThreads = { targets, label ->
+      archiveThreads = { targets, label, capturedEntryPoint ->
         archivedTargets = targets
         preferredSingleArchivedLabel = label
+        entryPoint = capturedEntryPoint
       },
     )
 
@@ -223,6 +284,7 @@ class AgentSessionsEditorTabActionsTest {
       )
     )
     assertThat(preferredSingleArchivedLabel).isEqualTo("Refactor session setup")
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.EDITOR_TAB_POPUP)
   }
 
   @Test
@@ -236,13 +298,15 @@ class AgentSessionsEditorTabActionsTest {
     )
     var archivedTargets: List<ArchiveThreadTarget>? = null
     var preferredSingleArchivedLabel: String? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
 
     val action = AgentSessionsEditorTabArchiveThreadAction(
       resolveContext = { context },
       canArchiveProvider = { true },
-      archiveThreads = { targets, label ->
+      archiveThreads = { targets, label, capturedEntryPoint ->
         archivedTargets = targets
         preferredSingleArchivedLabel = label
+        entryPoint = capturedEntryPoint
       },
     )
 
@@ -258,6 +322,7 @@ class AgentSessionsEditorTabActionsTest {
       )
     )
     assertThat(preferredSingleArchivedLabel).isEqualTo("Sub-agent label")
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.EDITOR_TAB_POPUP)
   }
 
   @Test
@@ -300,11 +365,15 @@ class AgentSessionsEditorTabActionsTest {
   fun goToSourceProjectActionOpensSourceProjectInDedicatedFrame() {
     val context = editorContext(threadId = "thread-42", sessionId = "thread-42")
     var openedPath: String? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
 
     val action = AgentSessionsGoToSourceProjectFromEditorTabAction(
       resolveContext = { context },
       isDedicatedProject = { true },
-      openProject = { path -> openedPath = path },
+      openProject = { path, capturedEntryPoint ->
+        openedPath = path
+        entryPoint = capturedEntryPoint
+      },
     )
     val event = TestActionEvent.createTestEvent(action)
 
@@ -313,6 +382,7 @@ class AgentSessionsEditorTabActionsTest {
 
     action.actionPerformed(event)
     assertThat(openedPath).isEqualTo(context.path)
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.EDITOR_TAB_POPUP)
   }
 
   @Test
@@ -320,7 +390,7 @@ class AgentSessionsEditorTabActionsTest {
     val action = AgentSessionsGoToSourceProjectFromEditorTabAction(
       resolveContext = { editorContext(threadId = "thread-42", sessionId = "thread-42") },
       isDedicatedProject = { false },
-      openProject = { _ -> error("should not open project when not in dedicated frame") },
+      openProject = { _, _ -> error("should not open project when not in dedicated frame") },
     )
     val event = TestActionEvent.createTestEvent(action)
 

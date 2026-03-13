@@ -2,8 +2,10 @@
 package com.intellij.agent.workbench.sessions.core.prompt
 
 import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
+import com.intellij.agent.workbench.sessions.core.AgentSessionLaunchMode
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.project.Project
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -13,6 +15,14 @@ interface AgentPromptLauncherBridge {
   fun preferredProvider(): AgentSessionProvider? {
     return null
   }
+
+  fun loadProviderPreferences(): ProviderPreferences {
+    return ProviderPreferences()
+  }
+
+  fun saveProviderPreferences(preferences: ProviderPreferences) {
+  }
+
 
   fun observeExistingThreads(
     projectPath: String,
@@ -35,9 +45,19 @@ interface AgentPromptLauncherBridge {
     return null
   }
 
+  fun resolveSourceProject(invocationData: AgentPromptInvocationData): Project? {
+    return invocationData.project
+  }
+
   fun listWorkingProjectPathCandidates(invocationData: AgentPromptInvocationData): List<AgentPromptProjectPathCandidate> {
     return emptyList()
   }
+
+  data class ProviderPreferences(
+    @JvmField val providerId: String? = null,
+    @JvmField val launchMode: AgentSessionLaunchMode? = null,
+    @JvmField val providerOptionsByProviderId: Map<String, Set<String>> = emptyMap(),
+  )
 }
 
 private class AgentPromptLauncherBridgeLog

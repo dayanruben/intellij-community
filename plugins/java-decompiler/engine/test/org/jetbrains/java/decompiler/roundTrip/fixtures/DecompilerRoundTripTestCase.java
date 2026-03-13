@@ -3,6 +3,7 @@ package org.jetbrains.java.decompiler.roundTrip.fixtures;
 
 import org.jetbrains.java.decompiler.DecompilerTestDataUtil;
 import org.jetbrains.java.decompiler.main.extern.IFernflowerPreferences;
+import org.jetbrains.java.decompiler.DecompilerFileComparisonFailedError;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Timeout;
 
@@ -13,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -36,7 +38,7 @@ public abstract class DecompilerRoundTripTestCase {
    * @param companionFileSystemItems additional filesystem items (e.g., directories or files) that
    *                                 contain companion source files required for compilation
    */
-  protected void doTest(Compiler compiler, String sourceFile, String... companionFileSystemItems) {
+  protected void doTest(Compiler compiler, String sourceFile, List<String> compileOptions, String... companionFileSystemItems) {
     Path testDataDir = DecompilerTestDataUtil.findTestDataDir().resolve("roundTrip");
     Path baseDir = testDataDir.resolve(testCaseDir());
     Path resultsDir = baseDir.resolve(RESULTS_DIR);
@@ -46,11 +48,10 @@ public abstract class DecompilerRoundTripTestCase {
       expectedFile = resultsDir.resolve(sourceFile + ".dec");
     }
 
-    String actual = compileDecompile(baseDir, compiler, sourceFile, companionFileSystemItems);
+    String actual = compileDecompile(baseDir, compiler, sourceFile, compileOptions, companionFileSystemItems);
     try {
       if (Files.exists(expectedFile)) {
-        String expectedContent = Files.readString(expectedFile);
-        Assertions.assertEquals(expectedContent, actual);
+        DecompilerFileComparisonFailedError.assertContent(expectedFile, actual);
       } else {
         Files.createDirectories(resultsDir);
         Files.writeString(resultsDir.resolve(sourceFile + "." + compiler.getId() + ".dec"), actual, StandardOpenOption.CREATE_NEW);
@@ -61,7 +62,13 @@ public abstract class DecompilerRoundTripTestCase {
     }
   }
 
-  private String compileDecompile(Path baseDir, Compiler compiler, String sourceFile, String... companionFileSystemItems) {
+  private String compileDecompile(
+    Path baseDir,
+    Compiler compiler,
+    String sourceFile,
+    List<String> compileOptions,
+    String... companionFileSystemItems
+  ) {
     Path srcDir = baseDir.resolve(SRC_DIR);
 
     Set<Path> allSources = new HashSet<>();
@@ -79,7 +86,7 @@ public abstract class DecompilerRoundTripTestCase {
       }
     }
 
-    Map<String, byte[]> classBytes = compiler.compile(allSources);
+    Map<String, byte[]> classBytes = compiler.compile(allSources, compileOptions);
     return RoundTripTestUtil.decompileInMemory(getDecompilerOptions(), classBytes, sourceFile);
   }
 

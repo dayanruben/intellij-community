@@ -34,12 +34,14 @@ import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiParameter;
 import com.intellij.psi.PsiReferenceExpression;
 import com.intellij.psi.PsiStatement;
+import com.intellij.psi.PsiType;
 import com.intellij.psi.SyntheticElement;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.psi.util.JavaPsiRecordUtil;
 import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
@@ -47,6 +49,7 @@ import com.intellij.util.containers.MultiMap;
 import com.siyeh.ig.callMatcher.CallMatcher;
 import com.siyeh.ig.memory.InnerClassReferenceVisitor;
 import com.siyeh.ig.psiutils.MethodUtils;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -245,9 +248,22 @@ public final class ConvertToRecordFix implements LocalQuickFix {
     }
 
     private boolean isValid() {
+      if (StreamEx.of(myClass.getFields()).distinct(2).findFirst().isPresent()) {
+        // The class has duplicate fields.
+        // Return early because duplicate field names produce broken maps (fieldNamesToInitializers is keyed by name).
+        return false;
+      }
+
       int possibleCanonicalConstructorCount = 0;
       for (var constructorCandidate : myMethodsToConstructorCandidates.values()) {
-        if (constructorCandidate == null) return false; // the constructor was invalid
+        if (constructorCandidate == null) return false; // the constructor is invalid
+
+        if (StreamEx.of(constructorCandidate.constructor.getParameterList().getParameters()).distinct(2).findFirst().isPresent()) {
+          // The constructor has duplicate parameters.
+          // Return early because duplicate parameter names produce broken delegating constructor calls.
+          return false;
+        }
+
         if (!throwsOnlyUncheckedExceptions(constructorCandidate.constructor())) return false;
         if (containsObjectMethodCalls(constructorCandidate.constructor())) return false;
         if (constructorCandidate.kind == RecordConstructorCandidate.Kind.CANONICAL) {
@@ -263,8 +279,76 @@ public final class ConvertToRecordFix implements LocalQuickFix {
           possibleCanonicalConstructorCount++;
         }
       }
-      if (!myMethodsToConstructorCandidates.isEmpty() && possibleCanonicalConstructorCount != 1) return false;
+      if (possibleCanonicalConstructorCount > 1) {
+        // At most one constructor can be canonical; others must be DELEGATING or CUSTOM.
+        return false;
+      }
+      if (possibleCanonicalConstructorCount == 0 && myMethodsToConstructorCandidates.size() == 1) {
+        // A heuristic to reduce noisy-ness:
+        // If there's no constructor that could become a record canonical constructor after conversion, then
+        // only report if the existing will-be delegating constructor has the same number of parameters as the number of instance fields.
+        List<PsiField> instanceFields = new ArrayList<>(myFieldsToAccessorCandidates.keySet());
+        PsiParameter[] parameters =
+          myMethodsToConstructorCandidates.entrySet().iterator().next().getValue().constructor().getParameterList().getParameters();
 
+        if (instanceFields.size() != parameters.length) return false;
+        if (parameters.length > 0 && parameters[parameters.length - 1].isVarArgs()) return false;
+      }
+      if (possibleCanonicalConstructorCount == 0) {
+        // We must not suggest conversion when a CUSTOM constructor's param is a strict supertype of the field's class.
+        // For example, if the field is List, and the constructor param is Collection.
+        //
+        // Why?
+        //
+        // After conversion, the new implicit canonical constructor (with field types) would become more specific
+        // and could silently "steal" call sites (due to how overload resolution works in Java).
+        //
+        // A possible solution could be adding explicit casts to constructor call sites to preserve semantics.
+        // The problem with this solution is that there may be downstream call sites that we can't see.
+        // This is why we simply do not suggest conversion in this case.
+        for (var constructorCandidate : myMethodsToConstructorCandidates.values()) {
+          if (constructorCandidate == null || constructorCandidate.kind() != RecordConstructorCandidate.Kind.CUSTOM) continue;
+          for (var entry : constructorCandidate.paramsToFields().entrySet()) {
+            PsiField field = entry.getValue();
+            if (field == null) continue;
+            PsiType paramType = entry.getKey().getType();
+            PsiType fieldType = field.getType();
+            PsiType paramTypeErased = TypeConversionUtil.erasure(paramType);
+            PsiType fieldTypeErased = TypeConversionUtil.erasure(fieldType);
+            if (!paramTypeErased.equals(fieldTypeErased) && TypeConversionUtil.isAssignable(paramTypeErased, fieldTypeErased)) {
+              return false;
+            }
+          }
+        }
+        // Check for reordering ambiguity: if the canonical constructor (field-order types) and
+        // a custom constructor (param-order types) have the same arity, the reordering could create
+        // two signatures where neither is more specific, making overload resolution ambiguous at some call sites.
+        // We only reject when all positions have type overlap (a type assignable to both exists),
+        // but the directionality is mixed — that's true ambiguity.
+        // If any position has no overlap (like "int" and "String"), the signatures are incompatible and no call site can match both.
+        List<PsiField> orderedFields = new ArrayList<>(myFieldsToAccessorCandidates.keySet());
+        for (var constructorCandidate : myMethodsToConstructorCandidates.values()) {
+          if (constructorCandidate == null || constructorCandidate.kind() != RecordConstructorCandidate.Kind.CUSTOM) continue;
+          PsiParameter[] params = constructorCandidate.constructor().getParameterList().getParameters();
+          if (params.length != orderedFields.size()) continue;
+          boolean allPositionsHaveOverlap = true;
+          boolean canonicalMoreSpecific = true;
+          boolean customMoreSpecific = true;
+          for (int i = 0; i < params.length; i++) {
+            PsiType canonicalType = orderedFields.get(i).getType();
+            PsiType customType = params[i].getType();
+            boolean canonicalFitsCustom = TypeConversionUtil.isAssignable(customType, canonicalType);
+            boolean customFitsCanonical = TypeConversionUtil.isAssignable(canonicalType, customType);
+            if (!canonicalFitsCustom && !customFitsCanonical) {
+              allPositionsHaveOverlap = false;
+              break;
+            }
+            if (!canonicalFitsCustom) canonicalMoreSpecific = false;
+            if (!customFitsCanonical) customMoreSpecific = false;
+          }
+          if (allPositionsHaveOverlap && !canonicalMoreSpecific && !customMoreSpecific) return false;
+        }
+      }
       if (myFieldsToAccessorCandidates.size() == 0) return false;
       for (var entry : myFieldsToAccessorCandidates.entrySet()) {
         PsiField field = entry.getKey();

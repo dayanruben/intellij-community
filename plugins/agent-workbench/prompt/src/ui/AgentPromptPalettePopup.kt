@@ -2,6 +2,7 @@
 package com.intellij.agent.workbench.prompt.ui
 
 // @spec community/plugins/agent-workbench/spec/actions/global-prompt-entry.spec.md
+// @spec community/plugins/agent-workbench/spec/agent-workbench-telemetry.spec.md
 
 import com.dynatrace.hash4j.hashing.HashValue128
 import com.intellij.CommonBundle
@@ -19,6 +20,9 @@ import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLaunchError
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLauncherBridge
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLaunchers
+import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptManualContextPickerRequest
+import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptManualContextSourceBridge
+import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptManualContextSources
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptPaletteExtension
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptPaletteExtensions
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptProjectPathCandidate
@@ -42,9 +46,11 @@ import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.LanguageTextField
 import com.intellij.ui.SimpleTextAttributes
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
+import com.intellij.util.ui.DialogUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.NamedColorUtil
 import kotlinx.coroutines.CoroutineScope
@@ -59,6 +65,30 @@ import javax.swing.JPanel
 import javax.swing.event.ChangeListener
 
 private const val CONTEXT_SOFT_CAP_CHARS = AgentPromptContextEnvelopeFormatter.DEFAULT_SOFT_CAP_CHARS
+
+internal data class ManualContextAvailability(
+  @JvmField val sourceProject: Project,
+  @JvmField val sources: List<AgentPromptManualContextSourceBridge>,
+)
+
+internal fun resolveManualContextAvailability(
+  hostProject: Project,
+  invocationData: AgentPromptInvocationData,
+  launcher: AgentPromptLauncherBridge?,
+  sources: List<AgentPromptManualContextSourceBridge>,
+): ManualContextAvailability? {
+  val sourceProject = when {
+    launcher == null -> hostProject
+    else -> launcher.resolveSourceProject(invocationData) ?: return null
+  }
+
+  return ManualContextAvailability(
+    sourceProject = sourceProject,
+    sources = sources
+      .filter { source -> source.isAvailable(sourceProject) }
+      .sortedWith(compareBy(AgentPromptManualContextSourceBridge::order, AgentPromptManualContextSourceBridge::sourceId)),
+  )
+}
 
 private class AgentPromptTextField(project: Project) : LanguageTextField(
   MarkdownFileType.INSTANCE.language, project, "", false,
@@ -114,9 +144,11 @@ internal class AgentPromptPalettePopup(
   private var popupActive: Boolean = false
   private var clearDraftOnClose: Boolean = false
   private var canSubmitNow: Boolean = false
+  private var autoContextEntries: List<ContextEntry> = emptyList()
   private var contextEntries: List<ContextEntry> = emptyList()
-  private var initialContextFingerprint: HashValue128? = null
-  private val removedLogicalItemIds = LinkedHashSet<String>()
+  private var initialAutoContextFingerprint: HashValue128? = null
+  private val removedAutoLogicalItemIds = LinkedHashSet<String>()
+  private val manualContextItemsBySourceId: MutableMap<String, AgentPromptContextItem> = LinkedHashMap()
   private var selectedLaunchMode: AgentSessionLaunchMode = AgentSessionLaunchMode.STANDARD
   private var selectedWorkingProjectPath: String? = null
   private var existingTaskSearchQuery: String = ""
@@ -196,6 +228,8 @@ internal class AgentPromptPalettePopup(
 
   private fun createContentPanel(): JPanel {
     val promptProviderOptionsPanel = createProviderOptionsPanel()
+    val promptAddContextLink = createAddContextLink()
+    contextChips.trailingComponent = promptAddContextLink
     val view = createAgentPromptPaletteView(
       promptArea = promptArea,
       contextChipsPanel = contextChips.component,
@@ -230,6 +264,87 @@ internal class AgentPromptPalettePopup(
       isOpaque = false
       isVisible = false
     }
+  }
+
+  private fun createAddContextLink(): ActionLink? {
+    val availability = resolveManualContextAvailability() ?: return null
+    if (availability.sources.isEmpty()) {
+      return null
+    }
+
+    lateinit var link: ActionLink
+    link = ActionLink(AgentPromptBundle.message("popup.context.add")) {
+      showManualContextSourceChooser(anchorComponent = link)
+    }.apply {
+      autoHideOnDisable = false
+      isFocusable = false
+      setDropDownLinkIcon()
+      DialogUtil.registerMnemonic(this)
+    }
+    return link
+  }
+
+  private fun resolveManualContextAvailability(launcher: AgentPromptLauncherBridge? = launcherProvider()): ManualContextAvailability? {
+    return resolveManualContextAvailability(
+      hostProject = project,
+      invocationData = invocationData,
+      launcher = launcher,
+      sources = AgentPromptManualContextSources.allSources(),
+    )
+  }
+
+  private fun showManualContextSourceChooser(anchorComponent: ActionLink) {
+    val launcher = launcherProvider()
+    val availability = resolveManualContextAvailability(launcher) ?: return
+    val sourceProject = availability.sourceProject
+    val sources = availability.sources
+    if (sources.isEmpty()) {
+      return
+    }
+
+    JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(sources)
+      .setTitle(AgentPromptBundle.message("popup.context.source.chooser.title"))
+      .setRenderer(object : ColoredListCellRenderer<AgentPromptManualContextSourceBridge>() {
+        override fun customizeCellRenderer(
+          list: JList<out AgentPromptManualContextSourceBridge>,
+          value: AgentPromptManualContextSourceBridge?,
+          index: Int,
+          selected: Boolean,
+          hasFocus: Boolean,
+        ) {
+          value ?: return
+          append(value.getDisplayName(), SimpleTextAttributes.REGULAR_ATTRIBUTES)
+        }
+      })
+      .setItemChosenCallback { source ->
+        source.showPicker(
+          AgentPromptManualContextPickerRequest(
+            hostProject = project,
+            sourceProject = sourceProject,
+            invocationData = invocationData,
+            workingProjectPath = resolveWorkingProjectPath(launcher),
+            currentItem = manualContextItemsBySourceId[source.sourceId],
+            anchorComponent = anchorComponent,
+            onSelected = { item -> applyManualContextSelection(source = source, item = item) },
+            onError = ::showError,
+          )
+        )
+      }
+      .createPopup()
+      .showUnderneathOf(anchorComponent)
+  }
+
+  private fun applyManualContextSelection(
+    source: AgentPromptManualContextSourceBridge,
+    item: AgentPromptContextItem,
+  ) {
+    manualContextItemsBySourceId[source.sourceId] = item
+    refreshContextEntries()
+    resolveExtensionTabs()
+    updateTargetModeUi()
+    updateSendAvailability()
+    showInfo(AgentPromptBundle.message("popup.status.context.added"))
   }
 
   private fun onExistingTaskSelected(selected: ThreadEntry) {
@@ -327,11 +442,29 @@ internal class AgentPromptPalettePopup(
 
   private fun loadInitialContext() {
     val resolved = contextResolverService.collectDefaultContext(invocationData)
-    val projectPath = resolveWorkingProjectPath(launcherProvider()) ?: project.basePath
-    initialContextFingerprint = computeContextFingerprint(resolved)
-    removedLogicalItemIds.clear()
-    contextEntries = resolved.map { item -> ContextEntry(item = item, projectBasePath = projectPath) }
+    initialAutoContextFingerprint = computeContextFingerprint(resolved)
+    removedAutoLogicalItemIds.clear()
+    autoContextEntries = resolved.map { item ->
+      ContextEntry(
+        item = item,
+        origin = ContextEntryOrigin.AUTO,
+      )
+    }
+    manualContextItemsBySourceId.clear()
+    refreshContextEntries()
+  }
+
+  private fun refreshContextEntries(launcher: AgentPromptLauncherBridge? = launcherProvider()) {
+    contextEntries = buildVisibleContextEntries(launcher)
     contextChips.render(contextEntries)
+  }
+
+  private fun buildVisibleContextEntries(launcher: AgentPromptLauncherBridge? = launcherProvider()): List<ContextEntry> {
+    return materializeVisibleContextEntries(
+      autoEntries = autoContextEntries,
+      manualItemsBySourceId = manualContextItemsBySourceId,
+      projectPath = resolveContextProjectBasePath(launcher),
+    )
   }
 
   private fun resolveExtensionTabs() {
@@ -423,16 +556,30 @@ internal class AgentPromptPalettePopup(
   }
 
   private fun removeContextEntry(entry: ContextEntry) {
-    val beforeEntries = contextEntries
-    val updatedEntries = resolveContextEntriesAfterRemoval(beforeEntries, entry.id)
-    removedLogicalItemIds.addAll(
-      collectRemovedLogicalItemIds(
-        beforeEntries = beforeEntries,
-        afterEntries = updatedEntries,
+    if (entry.origin == ContextEntryOrigin.MANUAL) {
+      val updatedManualItems = resolveManualContextItemsAfterRemoval(
+        manualItemsBySourceId = manualContextItemsBySourceId,
+        removedEntry = entry,
+        projectPath = resolveContextProjectBasePath(launcherProvider()),
       )
-    )
-    contextEntries = updatedEntries
-    contextChips.render(contextEntries)
+      if (updatedManualItems == manualContextItemsBySourceId) {
+        return
+      }
+      manualContextItemsBySourceId.clear()
+      manualContextItemsBySourceId.putAll(updatedManualItems)
+    }
+    else {
+      val beforeEntries = autoContextEntries
+      val updatedEntries = resolveContextEntriesAfterRemoval(beforeEntries, entry.id)
+      removedAutoLogicalItemIds.addAll(
+        collectRemovedLogicalItemIds(
+          beforeEntries = beforeEntries,
+          afterEntries = updatedEntries,
+        )
+      )
+      autoContextEntries = updatedEntries
+    }
+    refreshContextEntries()
     resolveExtensionTabs()
     updateTargetModeUi()
     updateSendAvailability()
@@ -499,9 +646,12 @@ internal class AgentPromptPalettePopup(
       selectedExistingTaskId = existingTaskController.selectedExistingTaskId,
     )
     if (validationErrorKey != null) {
-      if (validationErrorKey == "popup.error.project.path" &&
-          launcher != null &&
-          promptWorkingProjectPathSelection(launcher) { submit() }) {
+      if (shouldRetrySubmitAfterWorkingProjectPathSelection(
+          validationErrorKey = validationErrorKey,
+          requestWorkingProjectPathSelection = launcher?.let { promptLauncher ->
+            { promptWorkingProjectPathSelection(promptLauncher) { submit() } }
+          },
+        )) {
         return
       }
       val message = if (validationErrorKey == "popup.error.provider.unavailable") {
@@ -510,6 +660,11 @@ internal class AgentPromptPalettePopup(
       else {
         AgentPromptBundle.message(validationErrorKey)
       }
+      reportPromptSubmitBlocked(
+        validationErrorKey = validationErrorKey,
+        provider = selectedProviderEntry?.bridge?.provider,
+        launchMode = selectedLaunchMode,
+      )
       showError(message)
       return
     }
@@ -518,7 +673,7 @@ internal class AgentPromptPalettePopup(
     val providerEntry = selectedProviderEntry ?: return
     val effectiveProjectPath = projectPath ?: return
 
-    val selectedContextItems = contextEntries.map(ContextEntry::item)
+    val selectedContextItems = buildVisibleContextEntries(launcher).map(ContextEntry::item)
     val contextSelection = resolveContextSelection(selectedContextItems, effectiveProjectPath) ?: return
     val launcherBridge = launcher ?: return
 
@@ -574,7 +729,10 @@ internal class AgentPromptPalettePopup(
       AgentPromptLaunchError.PROVIDER_UNAVAILABLE -> AgentPromptBundle.message("popup.error.launch.provider")
       AgentPromptLaunchError.UNSUPPORTED_LAUNCH_MODE -> AgentPromptBundle.message("popup.error.launch.mode")
       AgentPromptLaunchError.TARGET_THREAD_NOT_FOUND -> AgentPromptBundle.message("popup.error.launch.thread.not.found")
-      AgentPromptLaunchError.INTERNAL_ERROR -> AgentPromptBundle.message("popup.error.launch.internal")
+      AgentPromptLaunchError.CANCELLED,
+      AgentPromptLaunchError.DROPPED_DUPLICATE,
+      AgentPromptLaunchError.INTERNAL_ERROR,
+        -> AgentPromptBundle.message("popup.error.launch.internal")
       null -> AgentPromptBundle.message("popup.error.launch.internal")
     }
     showError(errorMessage)
@@ -652,6 +810,19 @@ internal class AgentPromptPalettePopup(
       ?.takeIf { path -> path.isNotBlank() }
   }
 
+  private fun resolveContextProjectBasePath(launcher: AgentPromptLauncherBridge?): String? {
+    val workingProjectPath = resolveWorkingProjectPath(launcher)
+    if (workingProjectPath != null) {
+      return workingProjectPath
+    }
+    return if (launcher == null) {
+      project.basePath?.takeIf { path -> path.isNotBlank() }
+    }
+    else {
+      null
+    }
+  }
+
   private fun promptWorkingProjectPathSelection(launcher: AgentPromptLauncherBridge, onSelected: () -> Unit): Boolean {
     val candidates = launcher.listWorkingProjectPathCandidates(invocationData)
       .asSequence()
@@ -684,6 +855,9 @@ internal class AgentPromptPalettePopup(
       })
       .setItemChosenCallback { candidate ->
         selectedWorkingProjectPath = candidate.path
+        refreshContextEntries(launcher)
+        resolveExtensionTabs()
+        updateTargetModeUi()
         if (currentTargetMode() == PromptTargetMode.EXISTING_TASK) {
           existingTaskController.clearSelection()
           reloadExistingTasks()
@@ -699,21 +873,19 @@ internal class AgentPromptPalettePopup(
 
   private fun restoreDraft(): AgentPromptUiDraft {
     val draft = uiStateService.loadDraft()
-    val providerPrefs = uiStateService.loadProviderPreferences()
+    val providerPrefs = launcherProvider()?.loadProviderPreferences() ?: AgentPromptLauncherBridge.ProviderPreferences()
     val contextRestoreSnapshot = uiStateService.loadContextRestoreSnapshot()
     val launcher = launcherProvider()
 
     promptArea.text = draft.promptText
-    val effectiveProviderOptions = draft.providerOptionsByProviderId.ifEmpty { providerPrefs.providerOptionsByProviderId }
+    val effectiveProviderOptions = providerPrefs.providerOptionsByProviderId.ifEmpty { draft.providerOptionsByProviderId }
     providerSelector.restoreProviderOptionSelections(effectiveProviderOptions)
     val persistedProvider = resolveRestoredPromptProvider(
-      draftProviderId = draft.providerId ?: providerPrefs.providerId,
+      draftProviderId = providerPrefs.providerId ?: draft.providerId,
       preferredProvider = launcher?.preferredProvider(),
       availableProviders = providerSelector.availableProviders,
     )
-    val restoredLaunchMode = providerPrefs.launchModeName?.let { name ->
-      AgentSessionLaunchMode.entries.firstOrNull { it.name == name }
-    }
+    val restoredLaunchMode = providerPrefs.launchMode
     providerSelector.selectProvider(persistedProvider, restoredLaunchMode)
     selectedLaunchMode = providerSelector.selectedLaunchMode
     if (effectiveProviderOptions.isEmpty()) {
@@ -724,21 +896,24 @@ internal class AgentPromptPalettePopup(
     setTargetMode(draft.targetMode)
     existingTaskSearchQuery = draft.existingTaskSearch
     existingTaskController.selectedExistingTaskId = draft.selectedExistingTaskId
-    removedLogicalItemIds.clear()
-    if (contextRestoreSnapshot.contextFingerprint == initialContextFingerprint) {
+    removedAutoLogicalItemIds.clear()
+    if (contextRestoreSnapshot.contextFingerprint == initialAutoContextFingerprint) {
       val normalizedRemovedIds = normalizeRemovedContextItemIds(contextRestoreSnapshot.removedContextItemIds)
-      removedLogicalItemIds.addAll(normalizedRemovedIds)
+      removedAutoLogicalItemIds.addAll(normalizedRemovedIds)
       val restoredEntries = applyDraftContextRemovals(
-        entries = contextEntries,
-        currentFingerprint = initialContextFingerprint,
+        entries = autoContextEntries,
+        currentFingerprint = initialAutoContextFingerprint,
         draftFingerprint = contextRestoreSnapshot.contextFingerprint,
         removedLogicalItemIds = normalizedRemovedIds,
       )
-      if (restoredEntries != contextEntries) {
-        contextEntries = restoredEntries
-        contextChips.render(contextEntries)
+      if (restoredEntries != autoContextEntries) {
+        autoContextEntries = restoredEntries
       }
     }
+    manualContextItemsBySourceId.clear()
+    manualContextItemsBySourceId.putAll(contextRestoreSnapshot.manualContextItemsBySourceId)
+    refreshContextEntries()
+    resolveExtensionTabs()
 
     if (draft.targetMode == PromptTargetMode.EXISTING_TASK) {
       reloadExistingTasks()
@@ -748,10 +923,10 @@ internal class AgentPromptPalettePopup(
   }
 
   private fun saveProviderPreferences() {
-    uiStateService.saveProviderPreferences(
-      AgentPromptUiProviderPreferences(
+    launcherProvider()?.saveProviderPreferences(
+      AgentPromptLauncherBridge.ProviderPreferences(
         providerId = providerSelector.selectedProvider?.bridge?.provider?.value,
-        launchModeName = providerSelector.selectedLaunchMode.name,
+        launchMode = providerSelector.selectedLaunchMode,
         providerOptionsByProviderId = providerSelector.providerOptionSelections(),
       )
     )
@@ -783,8 +958,9 @@ internal class AgentPromptPalettePopup(
     )
     uiStateService.saveContextRestoreSnapshot(
       AgentPromptUiContextRestoreSnapshot(
-        contextFingerprint = initialContextFingerprint,
-        removedContextItemIds = normalizeRemovedContextItemIds(removedLogicalItemIds),
+        contextFingerprint = initialAutoContextFingerprint,
+        removedContextItemIds = normalizeRemovedContextItemIds(removedAutoLogicalItemIds),
+        manualContextItemsBySourceId = LinkedHashMap(manualContextItemsBySourceId),
       )
     )
   }

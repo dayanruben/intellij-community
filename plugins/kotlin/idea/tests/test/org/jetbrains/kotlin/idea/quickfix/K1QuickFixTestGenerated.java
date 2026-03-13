@@ -4652,9 +4652,9 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                         runTest("testData/quickfix/createFromUsage/createClass/callExpression/inReturn2.kt");
                     }
 
-                    @TestMetadata("notApplicableInReturn.kt")
-                    public void testNotApplicableInReturn() throws Exception {
-                        runTest("testData/quickfix/createFromUsage/createClass/callExpression/notApplicableInReturn.kt");
+                    @TestMetadata("inReturnWithInapplicableFunctionType.kt")
+                    public void testInReturnWithInapplicableFunctionType() throws Exception {
+                        runTest("testData/quickfix/createFromUsage/createClass/callExpression/inReturnWithInapplicableFunctionType.kt");
                     }
 
                     @TestMetadata("parameterClassIsInternal.kt")
@@ -16591,6 +16591,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("withContextWithReturns.kt")
         public void testWithContextWithReturns() throws Exception {
             runTest("testData/quickfix/runBlockingInSuspendFunction/withContextWithReturns.kt");
+        }
+
+        @TestMetadata("withTypeParameter.kt")
+        public void testWithTypeParameter() throws Exception {
+            runTest("testData/quickfix/runBlockingInSuspendFunction/withTypeParameter.kt");
         }
     }
 
