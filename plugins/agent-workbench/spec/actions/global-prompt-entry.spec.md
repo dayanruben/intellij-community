@@ -4,6 +4,7 @@ description: Requirements for global prompt action behavior, target routing, man
 targets:
   - ../../prompt/src/actions/AgentWorkbenchGlobalPromptAction.kt
   - ../../prompt/src/actions/AgentWorkbenchGlobalPromptAutoSelectAction.kt
+  - ../../prompt/src/actions/AgentWorkbenchPromptShortcutActionPromoter.kt
   - ../../prompt/src/ui/AgentPromptPalettePopup.kt
   - ../../prompt/src/ui/AgentPromptPaletteView.kt
   - ../../prompt/src/ui/AgentPromptPaletteModels.kt
@@ -22,6 +23,7 @@ targets:
   - ../../prompt/testSrc/ui/AgentPromptPaletteViewStructureTest.kt
   - ../../prompt/testSrc/ui/AgentPromptPaletteViewLayoutTest.kt
   - ../../prompt/testSrc/ui/AgentPromptUiSessionStateServiceTest.kt
+  - ../../prompt/testSrc/actions/AgentWorkbenchPromptActionPromoterTest.kt
   - ../../prompt-vcs/testSrc/context/AgentPromptVcsCommitManualContextSourceTest.kt
   - ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 ---
@@ -49,7 +51,17 @@ Prompt-context collection and rendering contracts are specified separately in `s
 ## Requirements
 - Global action id `AgentWorkbenchPrompt.OpenGlobalPalette` must be available only when a project is open.
 
+- When `AgentWorkbenchPrompt.OpenGlobalPalette` is invoked while the global prompt popup is already visible for the same project, the existing popup must be focused instead of creating a second popup instance.
+
+- Re-focusing an already visible popup must preserve its live state, including prompt text, selected tab, provider selection, and context chips.
+  [@test] ../../prompt/testSrc/ui/AgentPromptPalettePopupServiceTest.kt
+
+- When both `AgentWorkbenchPrompt.OpenGlobalPalette` and `AIAssistant.Editor.AskAiAssistantInEditor` are applicable for `Cmd+\\` / `Ctrl+\\` in an editor context, `AgentWorkbenchPrompt.OpenGlobalPalette` must be executed first.
+
 - Global action id `AgentWorkbenchPrompt.OpenGlobalPaletteAutoSelect` must be available only when a project is open. It opens the same popup but with EP-driven extension tab auto-selection (see below).
+
+- When `AgentWorkbenchPrompt.OpenGlobalPaletteAutoSelect` is invoked while the global prompt popup is already visible for the same project, it must behave the same as the standard action and only focus the existing popup.
+  [@test] ../../prompt/testSrc/ui/AgentPromptPalettePopupServiceTest.kt
 
 - Prompt target mode must support exactly:
   - `PromptTargetMode.NEW_TASK`,
@@ -175,15 +187,13 @@ Prompt-context collection and rendering contracts are specified separately in `s
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptFooterHintDecisionsTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptPlanModeDecisionsTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptEnterHandlersTest'`
+- `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.actions.AgentWorkbenchPromptActionPromoterTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptPaletteViewStructureTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptPaletteViewLayoutTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptUiSessionStateServiceTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.context.AgentPromptProjectPathsManualContextSourceTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.vcs.context.AgentPromptVcsCommitManualContextSourceTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionPromptLauncherBridgeTest'`
-
-## Open Questions / Risks
-- Keymap conflict resolution for `Cmd/Ctrl+\\` still relies on duplicate keymap declarations and does not enforce a runtime winner.
 
 ## References
 - `../prompt-context/prompt-context-contracts.spec.md`

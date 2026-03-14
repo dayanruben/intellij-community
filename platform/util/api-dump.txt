@@ -238,6 +238,8 @@ com.intellij.openapi.util.text.CharFilter
 - a:accept(C):Z
 Fc:com.intellij.openapi.util.text.StringUtil
 - s:endsWithIgnoreWhitespaces(java.lang.CharSequence,java.lang.CharSequence):Z
+- s:padLeft(java.lang.StringBuilder,java.lang.CharSequence,I,I):V
+- s:padRight(java.lang.StringBuilder,java.lang.CharSequence,I,I):V
 com.intellij.ui.IconManager
 - sf:Companion:com.intellij.ui.IconManager$Companion
 - colorize(java.awt.Graphics2D,javax.swing.Icon,java.awt.Color):javax.swing.Icon
@@ -604,6 +606,8 @@ c:com.intellij.util.system.OS$UnixInfo
 f:com.intellij.util.system.OS$WindowsInfo
 - com.intellij.util.system.OS$OsInfo
 - getBuildNumber():java.lang.Long
+f:com.intellij.util.text.StringTokenizer
+- resetCurrentPosition(I):V
 f:com.intellij.util.text.TextRangeUtil
 - s:mergeRanges(java.util.List):java.util.List
 - s:mergeRanges(java.util.List,I):java.util.List

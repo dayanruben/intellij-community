@@ -12057,6 +12057,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractK1LocalInspec
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("ambiguousContextArgument.kt")
+        public void testAmbiguousContextArgument() throws Exception {
+            runTest("testData/inspectionsLocal/removeExplicitTypeArguments/ambiguousContextArgument.kt");
+        }
+
         @TestMetadata("arrayOf.kt")
         public void testArrayOf() throws Exception {
             runTest("testData/inspectionsLocal/removeExplicitTypeArguments/arrayOf.kt");
@@ -19005,6 +19010,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractK1LocalInspec
             @TestMetadata("if.kt")
             public void testIf() throws Exception {
                 runTest("testData/inspectionsLocal/useExpressionBody/if.kt");
+            }
+
+            @TestMetadata("KDoc.kt")
+            public void testKDoc() throws Exception {
+                runTest("testData/inspectionsLocal/useExpressionBody/KDoc.kt");
             }
 
             @TestMetadata("leftBrace.kt")

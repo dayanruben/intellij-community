@@ -8,7 +8,6 @@ import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.editor.colors.CodeInsightColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
-import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.IconManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.scale.JBUIScale
@@ -27,6 +26,8 @@ open class HighlightDisplayLevel(severity: HighlightSeverity) {
   data class SeverityDescriptor(
     @JvmField val severity: HighlightSeverity,
     @JvmField val attributesKey: TextAttributesKey,
+    // Provider-backed severities pass the shared lazy icon instance here, so both icon variants
+    // resolve on demand and continue to participate in IconLoader's patcher/transform lifecycle.
     @JvmField val icon: Icon?,
   )
 
@@ -69,14 +70,6 @@ open class HighlightDisplayLevel(severity: HighlightSeverity) {
       LEVEL_MAP[level.severity.name] = level
     }
 
-    private fun createPresentation(
-      key: TextAttributesKey,
-      icon: Icon?,
-      outlineIcon: Icon? = icon,
-    ): LevelPresentation {
-      return LevelPresentation(key = key, icon = icon, outlineIcon = outlineIcon)
-    }
-
     private fun updateLevel(level: HighlightDisplayLevel, severity: HighlightSeverity, presentation: LevelPresentation) {
       val (icon, outlineIcon) = createIcons(presentation)
       level.severity = severity
@@ -101,6 +94,8 @@ open class HighlightDisplayLevel(severity: HighlightSeverity) {
 
     private fun createIcons(presentation: LevelPresentation): Pair<Icon, Icon> {
       presentation.icon?.let { icon ->
+        // Custom severities historically reuse the same icon object for both regular and outline
+        // presentations unless the caller explicitly supplies a different outline icon.
         return icon to (presentation.outlineIcon ?: icon)
       }
 
@@ -114,22 +109,16 @@ open class HighlightDisplayLevel(severity: HighlightSeverity) {
       }
     }
 
-    private fun presentationFrom(descriptor: SeverityDescriptor): LevelPresentation {
-      return createPresentation(key = descriptor.attributesKey, icon = descriptor.icon)
-    }
-
     private fun createHighlightDisplayLevel(
       severity: HighlightSeverity,
       key: TextAttributesKey,
       icon: Icon,
       outlineIcon: Icon,
     ): HighlightDisplayLevel {
-      val presentation = createPresentation(key = key, icon = icon, outlineIcon = outlineIcon)
-      val (effectiveIcon, effectiveOutlineIcon) = createIcons(presentation)
       return HighlightDisplayLevel(
         severity = severity,
-        icon = effectiveIcon,
-        outlineIcon = effectiveOutlineIcon,
+        icon = HighlightDisplayLevelColorizedIcon(key = key, baseIcon = icon),
+        outlineIcon = HighlightDisplayLevelColorizedIcon(key = key, baseIcon = outlineIcon),
       )
     }
 
@@ -209,7 +198,7 @@ open class HighlightDisplayLevel(severity: HighlightSeverity) {
 
     @JvmStatic
     fun registerSeverity(severity: HighlightSeverity, key: TextAttributesKey, icon: Icon?) {
-      val presentation = createPresentation(key = key, icon = icon)
+      val presentation = LevelPresentation(key = key, icon = icon, outlineIcon = icon)
       synchronized(LEVEL_LOCK) {
         val level = LEVEL_MAP[severity.name]
         if (level == null) {
@@ -222,7 +211,6 @@ open class HighlightDisplayLevel(severity: HighlightSeverity) {
       }
     }
 
-    @JvmStatic
     fun syncProvidedSeverities(severities: Map<String, SeverityDescriptor>) {
       synchronized(LEVEL_LOCK) {
         val remainingProvided = LinkedHashMap<String, HighlightDisplayLevel>()
@@ -236,7 +224,7 @@ open class HighlightDisplayLevel(severity: HighlightSeverity) {
             shadowedLevelBackups.putIfAbsent(levelName, LevelStateBackup(level.severity, level.icon, level.outlineIcon))
           }
 
-          val presentation = presentationFrom(descriptor)
+          val presentation = LevelPresentation(key = descriptor.attributesKey, icon = descriptor.icon, outlineIcon = descriptor.icon)
           val severity = descriptor.severity
           if (level == null) {
             val (icon, outlineIcon) = createIcons(presentation)
@@ -257,7 +245,6 @@ open class HighlightDisplayLevel(severity: HighlightSeverity) {
       }
     }
 
-    @JvmStatic
     val emptyIconDim: Int
       get() = JBUIScale.scale(14)
 
@@ -283,11 +270,14 @@ sealed interface HighlightDisplayLevelColoredIcon : Icon {
 
 private class HighlightDisplayLevelColorIcon(size: Int, color: Color) : ColorIcon(size, color), HighlightDisplayLevelColoredIcon {
   override fun getColor(): Color = iconColor
+
   override fun getIcon(): Icon = this
 }
 
-private class HighlightDisplayLevelColorizedIcon(private val key: TextAttributesKey,
-                                                 baseIcon: Icon) : Icon, HighlightDisplayLevelColoredIcon {
+private class HighlightDisplayLevelColorizedIcon(
+  private val key: TextAttributesKey,
+  baseIcon: Icon,
+) : Icon, HighlightDisplayLevelColoredIcon {
   private val baseIcon = IconManager.getInstance().colorizedIcon(baseIcon = baseIcon, colorProvider = ::getColor)
 
   private var lastEditorColorManagerModCounter = -1L
@@ -298,7 +288,7 @@ private class HighlightDisplayLevelColorizedIcon(private val key: TextAttributes
 
   private fun getColorFromAttributes(key: TextAttributesKey): Color? {
     val editorColorManager = EditorColorsManager.getInstance()
-                             ?: return (key.getDefaultAttributes() ?: TextAttributes.ERASE_MARKER).errorStripeColor
+                             ?: return key.getDefaultAttributes().errorStripeColor
     lastColor?.takeIf { editorColorManager.schemeModificationCounter == lastEditorColorManagerModCounter}?.let {
       return it
     }

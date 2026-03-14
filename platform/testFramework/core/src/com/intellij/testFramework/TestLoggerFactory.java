@@ -32,13 +32,12 @@ import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.RandomAccessFile;
 import java.io.StringWriter;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
@@ -207,10 +206,9 @@ public final class TestLoggerFactory implements Logger.Factory {
   }
 
   private void buffer(@NotNull LogLevel level, @NotNull String category, @Nullable String message, @Nullable Throwable t) {
-    var source = category.substring(Math.max(category.length() - 30, 0));
-    var format = String.format("%1$tH:%1$tM:%1$tS,%1$tL %2$-6s %3$30s - ", System.currentTimeMillis(), level.getLevelName(), source);
     synchronized (myBuffer) {
-      myBuffer.append(format);
+      formatTimeStampLevelAndSource(level, category);
+      myBuffer.append(" - ");
       if (message != null) {
         myBuffer.append(message);
       }
@@ -225,6 +223,30 @@ public final class TestLoggerFactory implements Logger.Factory {
         myBuffer.delete(0, myBuffer.length() - MAX_BUFFER_LENGTH + MAX_BUFFER_LENGTH / 4);
       }
     }
+  }
+
+  private long cachedTime;
+  private String cachedFormattedTime;
+  private static final DateTimeFormatter TIME_STAMP_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss,SSS");
+  // faster version of `String.format("%1$tH:%1$tM:%1$tS,%1$tL %2$-6s %3$30s", System.currentTimeMillis(), level.getLevelName(), source);`
+  // uses pre-parsed time format string and caches the formatted timestamp, because it doesn't change very often,
+  // uses allocation-free padLeft/padRight to avoid reparsing format string for appending category and level
+  private void formatTimeStampLevelAndSource(@NotNull LogLevel level, @NotNull String category) {
+    long currentTime = System.currentTimeMillis();
+    String formattedTime;
+    if (currentTime == cachedTime) {
+      formattedTime = cachedFormattedTime;
+    }
+    else {
+      formattedTime = TIME_STAMP_FORMAT.format(LocalTime.now());
+      cachedFormattedTime = formattedTime;
+      cachedTime = currentTime;
+    }
+    myBuffer.append(formattedTime);
+    myBuffer.append(' ');
+    StringUtil.padRight(myBuffer, level.getLevelName(), 6, 6);
+    myBuffer.append(' ');
+    StringUtil.padLeft(myBuffer, category, 30, 30);
   }
 
   /// Report full contents, not limited to 20 characters of ComparisonFailure#MAX\_CONTEXT\_LENGTH
@@ -573,34 +595,7 @@ public final class TestLoggerFactory implements Logger.Factory {
 
     @Override
     public boolean isDebugEnabled() {
-      return !Accessor.isInStressTest() || super.isDebugEnabled();
-    }
-
-    /// Calling [com.intellij.openapi.application.ex.ApplicationManagerEx#isInStressTest] reflectively to avoid dependency on a platform module
-    private static class Accessor {
-      private static final @NotNull MethodHandle isInStressTest = getMethodHandle();
-
-      private static @NotNull MethodHandle getMethodHandle() {
-        try {
-          var clazz = Class.forName("com.intellij.openapi.application.ex.ApplicationManagerEx");
-          var handle = MethodHandles.privateLookupIn(clazz, MethodHandles.lookup()).findStatic(clazz, "isInStressTest", MethodType.methodType(boolean.class));
-          var result = handle.invokeWithArguments();
-          assert result instanceof Boolean;
-          return handle;
-        }
-        catch (Throwable e) {
-          throw new RuntimeException(e);
-        }
-      }
-
-      private static boolean isInStressTest() {
-        try {
-          return (boolean)isInStressTest.invokeWithArguments();
-        }
-        catch (Throwable ignored) {
-          return false;
-        }
-      }
+      return !isInStressTest() || super.isDebugEnabled();
     }
   }
 

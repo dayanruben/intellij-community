@@ -5991,6 +5991,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("../../../idea/tests/testData/inspectionsLocal/useExpressionBody/if.kt");
             }
 
+            @TestMetadata("KDoc.kt")
+            public void testKDoc() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/useExpressionBody/KDoc.kt");
+            }
+
             @TestMetadata("leftBrace.kt")
             public void testLeftBrace() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/useExpressionBody/leftBrace.kt");
@@ -18005,6 +18010,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
 
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("ambiguousContextArgument.kt")
+        public void testAmbiguousContextArgument() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeExplicitTypeArguments/ambiguousContextArgument.kt");
         }
 
         @TestMetadata("arrayOf.kt")

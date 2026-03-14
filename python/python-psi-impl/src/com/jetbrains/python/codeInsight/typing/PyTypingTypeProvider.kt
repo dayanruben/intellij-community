@@ -22,7 +22,6 @@ import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.QualifiedName
-import com.intellij.util.Function
 import com.intellij.util.containers.Stack
 import com.jetbrains.python.PyCustomType
 import com.jetbrains.python.PyNames
@@ -91,6 +90,7 @@ import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.resolve.PyResolveUtil
 import com.jetbrains.python.psi.resolve.RatedResolveResult
 import com.jetbrains.python.psi.stubs.PyModuleNameIndex
+import com.jetbrains.python.psi.types.PyAnyType
 import com.jetbrains.python.psi.types.PyCallableParameterImpl
 import com.jetbrains.python.psi.types.PyCallableParameterListType
 import com.jetbrains.python.psi.types.PyCallableParameterListTypeImpl
@@ -140,7 +140,6 @@ import org.jetbrains.annotations.ApiStatus
 import java.util.Collections
 import java.util.Objects
 import java.util.Optional
-import java.util.function.UnaryOperator
 import java.util.regex.Pattern
 
 class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
@@ -1115,26 +1114,6 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       )
     }
 
-    private fun collectTypeParametersFromTypeAliasStatement(
-      typeAliasStatement: PyTypeAliasStatement,
-      context: Context,
-    ): MutableList<PyTypeParameterType?> {
-      val typeParameterList = typeAliasStatement.typeParameterList
-      if (typeParameterList != null) {
-        val typeParameters = typeParameterList.typeParameters
-        return StreamEx.of(typeParameters)
-          .map<PyTypeParameterType?> { typeParameter: PyTypeParameter? ->
-            getTypeParameterTypeFromTypeParameter(
-              typeParameter!!,
-              context
-            )
-          }
-          .nonNull()
-          .toList()
-      }
-      return mutableListOf()
-    }
-
     @JvmStatic
     fun isGeneric(descendant: PyWithAncestors, context: TypeEvalContext): Boolean {
       if (descendant is PyClass && descendant.typeParameterList != null ||
@@ -1389,7 +1368,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         if (typeEngineType != null) {
           return typeEngineType
         }
-        return null
+        return PyAnyType.unknown?.let { Ref(it) }
       }
       finally {
         if (resolved is PyClass) {
@@ -1621,10 +1600,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
 
     private fun getAnyType(element: PsiElement, context: Context): Ref<PyType?>? {
       if (ANY == getQualifiedName(element)) {
-        return Ref()
+        return Ref(PyAnyType.any)
       }
       if (context.typeRepresentationMode && ANY == element.text) {
-        return Ref()
+        return Ref(PyAnyType.any)
       }
       return null
     }
@@ -2295,36 +2274,20 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     ): PyQualifiedNameOwner? {
       if (!context.isComputeTypeParameterScopeEnabled) return null
 
-      val typeHintContext: PsiElement = getStubRetainedTypeHintContext(typeHint)
+      val typeHintContext = getStubRetainedTypeHintContext(typeHint)
       val typeParamOwnerCandidates =
-        StreamEx.iterate<PsiElement?>(
-          typeHintContext,
-          { Objects.nonNull(it) },
-          UnaryOperator { owner: PsiElement? ->
-            PsiTreeUtil.getStubOrPsiParentOfType(
-              owner,
-              ScopeOwner::class.java
-            )
-          })
-          .filter { owner: PsiElement? -> owner is PyFunction || owner is PyClass }
-          .select(PyQualifiedNameOwner::class.java)
+        generateSequence(typeHintContext) { PsiTreeUtil.getStubOrPsiParentOfType(it, ScopeOwner::class.java) }
+          .filter { it is PyFunction || it is PyClass }
+          .map { it as PyQualifiedNameOwner }
           .toList()
 
       val closestOwner = typeParamOwnerCandidates.firstOrNull()
       if (closestOwner is PyFunction) {
-        val typeParameterType = StreamEx.of(typeParamOwnerCandidates)
-          .skip(1)
-          .map {
-            findSameTypeParameterInDefinition(
-              it,
-              name,
-              context
-            )
-          }
-          .nonNull()
-          .findFirst()
-        if (typeParameterType.isPresent) {
-          return typeParameterType.get().scopeOwner
+        val typeParameterType = typeParamOwnerCandidates.asSequence()
+          .drop(1)
+          .firstNotNullOfOrNull { findSameTypeParameterInDefinition(it, name, context) }
+        if (typeParameterType != null) {
+          return typeParameterType.scopeOwner
         }
       }
       if (closestOwner != null) {
@@ -2581,26 +2544,20 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         }
         val indexTypes = if (typeHint is PySubscriptionExpression)
           getIndexTypes(typeHint, context)
-        else mutableListOf()
+        else emptyList()
 
-        val typeAliasTypeParams: MutableList<PyTypeParameterType?> =
-          collectTypeParametersFromTypeAliasStatement(typeAliasStatement, context)
+        val typeParameters = typeAliasStatement.typeParameterList?.typeParameters ?: emptyList()
+        val typeAliasTypeParams = typeParameters.mapNotNull { getTypeParameterTypeFromTypeParameter(it, context) }
         if (!typeAliasTypeParams.isEmpty()) {
-          val substitutions =
-            PyTypeChecker.mapTypeParametersToSubstitutions(
-              typeAliasTypeParams,
-              indexTypes,
-              PyTypeParameterMapping.Option.USE_DEFAULTS,
-              PyTypeParameterMapping.Option.MAP_UNMATCHED_EXPECTED_TYPES_TO_ANY
-            )
-
-          return if (substitutions != null) Ref(
-            PyTypeChecker.substitute(
-              assignedType,
-              substitutions,
-              context.typeContext
-            )
+          val substitutions = PyTypeChecker.mapTypeParametersToSubstitutions(
+            typeAliasTypeParams,
+            indexTypes,
+            PyTypeParameterMapping.Option.USE_DEFAULTS,
+            PyTypeParameterMapping.Option.MAP_UNMATCHED_EXPECTED_TYPES_TO_ANY
           )
+
+          return if (substitutions != null)
+            Ref(PyTypeChecker.substitute(assignedType, substitutions, context.typeContext))
           else null
         }
         return assignedTypeRef

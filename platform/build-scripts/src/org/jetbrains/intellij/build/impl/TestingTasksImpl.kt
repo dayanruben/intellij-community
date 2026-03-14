@@ -242,6 +242,9 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
       if (options.testPatterns != null) {
         errorOptionIgnored(testConfigurationsOptionName, "intellij.build.test.patterns")
       }
+      if (options.testSimplePatterns != null) {
+        errorOptionIgnored(testConfigurationsOptionName, "intellij.build.test.simple.patterns")
+      }
       if (options.testGroups != TestingOptions.ALL_EXCLUDE_DEFINED_GROUP) {
         errorOptionIgnored(testConfigurationsOptionName, "intellij.build.test.groups")
       }
@@ -252,8 +255,21 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
         errorOptionIgnored(testConfigurationsOptionName, "intellij.build.test.search.scope")
       }
     }
-    else if (options.testPatterns != null && options.testGroups != TestingOptions.ALL_EXCLUDE_DEFINED_GROUP) {
-      errorOptionIgnored("intellij.build.test.patterns", "intellij.build.test.groups")
+    else if (options.testPatterns != null) {
+      if (options.testSimplePatterns != null) {
+        errorOptionIgnored("intellij.build.test.patterns", "intellij.build.test.simple.patterns")
+      }
+      if (options.testGroups != TestingOptions.ALL_EXCLUDE_DEFINED_GROUP) {
+        errorOptionIgnored("intellij.build.test.patterns", "intellij.build.test.groups")
+      }
+    }
+    else if (options.testSimplePatterns != null) {
+      if (TeamCityHelper.isUnderTeamCity) {
+        context.messages.logErrorAndThrow("'intellij.build.test.simple.patterns' option should be used only for local runs")
+      }
+      if (options.testGroups != TestingOptions.ALL_EXCLUDE_DEFINED_GROUP) {
+        errorOptionIgnored("intellij.build.test.simple.patterns", "intellij.build.test.groups")
+      }
     }
 
     if (options.validateMainModule && mainModule.isNullOrEmpty()) {
@@ -342,6 +358,9 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
         append("No tests were found in '$mainModule' classpath ")
         if (options.testPatterns != null) {
           append("with test patterns '${options.testPatterns}'")
+        }
+        else if (options.testSimplePatterns != null) {
+          append("with test simple patterns '${options.testSimplePatterns}'")
         }
         else {
           append("for test groups '${options.testGroups}'")
@@ -443,11 +462,9 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     var testClasspath = buildList {
       addAll(context.getModuleRuntimeClasspath(mainJpsModule, forTests = true))
 
-      if (isBootstrapSuiteDefault) {
-        //module with "com.intellij.TestAll" which output should be found in `testClasspath + modulePath`
-        val testFrameworkCoreModule = outputProvider.findRequiredModule("intellij.platform.testFramework.core")
-        addAll(context.getModuleRuntimeClasspath(testFrameworkCoreModule, false) )
-      }
+      //module with "com.intellij.TestAll" which output should be found in `testClasspath + modulePath`
+      val testFrameworkCoreModule = outputProvider.findRequiredModule("intellij.platform.testFramework.core")
+      addAll(context.getModuleRuntimeClasspath(testFrameworkCoreModule, false) )
     }.distinct()
 
     val moduleInfoFile = JpsJavaExtensionService.getInstance().getJavaModuleIndex(context.project).getModuleInfoFile(mainJpsModule, true)
@@ -487,7 +504,6 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     testPatterns?.let { systemProperties.putIfAbsent("intellij.build.test.patterns", it) }
     testGroups?.let { systemProperties.putIfAbsent("intellij.build.test.groups", it) }
     testTags?.let { systemProperties.putIfAbsent("intellij.build.test.tags", it) }
-    systemProperties.putIfAbsent(TestingTasks.BOOTSTRAP_TESTCASES_PROPERTY, "com.intellij.AllTests")
     systemProperties.putIfAbsent(TestingOptions.PERFORMANCE_TESTS_ONLY_FLAG, options.isPerformanceTestsOnly.toString())
     val allJvmArgs = ArrayList(jvmArgs)
     prepareEnvForTestRun(jvmArgs = allJvmArgs, systemProperties = systemProperties, classPath = bootstrapClasspath, remoteDebugging = remoteDebugging)
@@ -767,7 +783,27 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     devBuildServerSettings: DevBuildServerSettings?,
   ) {
     val messages = context.messages
-    if (options.isDedicatedTestRuntime != "false") {
+    if (options.testSimplePatterns != null) {
+      val exitCode = block("running tests w/ simple patterns") {
+        runJUnit5Engine(
+          mainModule = mainModule,
+          systemProperties = systemProperties,
+          jvmArgs = jvmArgs,
+          envVariables = envVariables,
+          bootstrapClasspath = bootstrapClasspath,
+          modulePath = modulePath,
+          testClasspath = testClasspath,
+          suiteName = "__class__",
+          methodName = options.testSimplePatterns,
+          devBuildSettings = devBuildServerSettings,
+        )
+      }
+
+      if (exitCode == 1) throw RuntimeException("Tests failed")
+      else if (exitCode == NO_TESTS_ERROR) throw NoTestsFound()
+      else if (exitCode != 0) throw RuntimeException("Unexpected exit code $exitCode when running tests w/ simple patterns")
+    }
+    else if (options.isDedicatedTestRuntime != "false") {
       if (options.isDedicatedTestRuntime != "class" && options.isDedicatedTestRuntime != "package") {
         messages.logErrorAndThrow("Unsupported 'intellij.build.test.dedicated.runtime' value: ${options.isDedicatedTestRuntime}. Expected 'class', 'package' or 'false'")
       }
@@ -1156,7 +1192,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
         appendJUnitStarter(classpath, context)
       }
 
-      if (!isBootstrapSuiteDefault || options.isDedicatedTestRuntime != "false" || suiteName == null || suiteName == "__classpathroot__") {
+      if (options.isDedicatedTestRuntime != "false" || suiteName == null || suiteName == "__class__" || suiteName == "__classpathroot__") {
         classpath.addAll(testClasspath)
       }
 
@@ -1249,9 +1285,6 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     }
     return exitCode
   }
-
-  private val isBootstrapSuiteDefault: Boolean
-    get() = options.bootstrapSuite == TestingOptions.BOOTSTRAP_SUITE_DEFAULT
 }
 
 private fun appendJUnitStarter(classPath: MutableList<String>, context: CompilationContext) {

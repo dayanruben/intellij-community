@@ -47,6 +47,7 @@ import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
@@ -71,6 +72,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Collectors;
 
 /**
  * @author Jeka
@@ -116,6 +118,7 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
     myFilterField = createSearchTextField();
     myFilterPanel = createFilterPanel();
     myThreadTree = createThreadsTree(consoleView);
+    myThreadTree.getEmptyText().setText(JavaFrontbackBundle.message("thread.dump.nothing.to.show"));
 
     configureToolbar(project, consoleView, toolbarActions);
 
@@ -229,15 +232,9 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
   }
 
   private void updateThreadsTree() {
-    String text = myFilterPanel.isVisible() ? myFilterField.getText() : "";
-    var path = myThreadTree.getSelectionPath();
-    var selection = path != null ? (DumpItem)((DefaultMutableTreeNode)path.getLastPathComponent()).getUserObject() : null;
-    int selectedIndex = 0;
-    int index = 0;
-    ArrayList<DumpItem> filteredThreadStates = new ArrayList<>();
     var uiSettings = UISettings.getInstance().getState();
     boolean useMerged = uiSettings.getMergeEqualStackTraces();
-    boolean showVirtualThreadContainers = uiSettings.getShowVirtualThreadContainers();
+    boolean showDumpItemsHierarchy = uiSettings.getShowDumpItemsHierarchy();
     boolean showOnlyPlatformThreads = uiSettings.getShowOnlyPlatformThreads();
     List<DumpItem> threadStates = useMerged ? myMergedThreadDump : myThreadDump;
 
@@ -245,16 +242,24 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
     var model = (DefaultTreeModel)myThreadTree.getModel();
     var treeRoot = ((DefaultMutableTreeNode)model.getRoot());
 
+    var path = myThreadTree.getSelectionPath();
+    var selection = path != null ? (DumpItem)((DefaultMutableTreeNode)path.getLastPathComponent()).getUserObject() : null;
+    DefaultMutableTreeNode selectedNode = null;
+
     if (treeRoot != null) {
       treeRoot.removeAllChildren();
 
-      if (showVirtualThreadContainers && !showOnlyPlatformThreads) {
+      String text = myFilterPanel.isVisible() ? myFilterField.getText() : "";
+      var filteredThreadStates = threadStates.stream().filter(item -> matchesFilter(item, text)).toList();
+      var filteredTreeIds = filteredThreadStates.stream().map(DumpItem::getTreeId).collect(Collectors.toSet());
+
+      if (showDumpItemsHierarchy && !showOnlyPlatformThreads) {
         // Build map from parent item name to the list of it's child items
         var rootItems = new ArrayList<DumpItem>();
         var parentIdToChildren = new HashMap<Long, List<DumpItem>>();
-        for (var item : threadStates) {
+        for (var item : filteredThreadStates) {
           var parentId = item.getParentTreeId();
-          if (parentId != null) {
+          if (parentId != null && filteredTreeIds.contains(parentId)) {
             parentIdToChildren.computeIfAbsent(parentId, k -> new ArrayList<>()).add(item);
           } else {
             rootItems.add(item);
@@ -269,22 +274,26 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
             buildDumpItemsTree(rootNode, parentIdToChildren);
           }
         }
-      } else {
-        // Show flat dump
-        for (DumpItem state : threadStates) {
-          if (StringUtil.containsIgnoreCase(state.getStackTrace(), text) || StringUtil.containsIgnoreCase(state.getName(), text)) {
-            filteredThreadStates.add(state);
-            if (selection == state) {
-              selectedIndex = index;
+        // Find previously selected node in the hierarchical tree
+        if (selection != null) {
+          var enumeration = treeRoot.depthFirstEnumeration();
+          while (enumeration.hasMoreElements()) {
+            var node = (DefaultMutableTreeNode)enumeration.nextElement();
+            if (node.getUserObject() == selection) {
+              selectedNode = node;
+              break;
             }
-            index++;
           }
         }
+      } else {
+        // Show flat dump
+        for (DumpItem state : filteredThreadStates) {
+          if (state.isContainer()) continue;
+          if (showOnlyPlatformThreads && state.getCanBeHidden()) continue;
 
-        for (DumpItem threadState : filteredThreadStates) {
-          if (threadState.isContainer()) continue;
-          if (showOnlyPlatformThreads && threadState.getCanBeHidden()) continue;
-          treeRoot.add(new DefaultMutableTreeNode(threadState));
+          var node = new DefaultMutableTreeNode(state);
+          treeRoot.add(node);
+          if (selection == state) selectedNode = node;
         }
       }
     }
@@ -299,7 +308,15 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
       myNotificationPanel.setVisible(false);
     }
     if (treeRoot != null && treeRoot.getChildCount() > 0) {
-      myThreadTree.setSelectionRow(selectedIndex);
+      if (selectedNode != null) {
+        var selectionPath = new TreePath(selectedNode.getPath());
+        myThreadTree.expandPath(selectionPath);
+        myThreadTree.setSelectionPath(selectionPath);
+        myThreadTree.scrollPathToVisible(selectionPath);
+      }
+      else {
+        myThreadTree.setSelectionRow(0);
+      }
     }
     myThreadTree.revalidate();
     myThreadTree.repaint();
@@ -317,6 +334,12 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
       currentNode.add(childNode);
       buildDumpItemsTree(childNode, parentIdToChildren);
     }
+  }
+
+  private static boolean matchesFilter(DumpItem item, String text) {
+    return text.isEmpty() ||
+           StringUtil.containsIgnoreCase(item.getStackTrace(), text) ||
+           StringUtil.containsIgnoreCase(item.getName(), text);
   }
 
   private static void highlightOccurrences(String filter, Project project, Editor editor) {
@@ -492,7 +515,7 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
 
     @Override
     public boolean isSelected(@NotNull AnActionEvent e) {
-      return UISettings.getInstance().getState().getShowVirtualThreadContainers();
+      return UISettings.getInstance().getState().getShowDumpItemsHierarchy();
     }
 
     @Override
@@ -502,7 +525,7 @@ public final class ThreadDumpPanel extends JPanel implements NoStackTraceFolding
 
     @Override
     public void setSelected(@NotNull AnActionEvent e, boolean state) {
-      UISettings.getInstance().getState().setShowVirtualThreadContainers(state);
+      UISettings.getInstance().getState().setShowDumpItemsHierarchy(state);
       updateThreadsTree();
     }
   }
