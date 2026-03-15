@@ -5,7 +5,9 @@ import com.intellij.agent.workbench.sessions.core.AgentSessionLaunchMode
 import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptContextEnvelopeFormatter
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptInitialMessageRequest
+import com.intellij.openapi.project.Project
 import javax.swing.Icon
+import javax.swing.JComponent
 
 enum class AgentInitialMessageStartupPolicy {
   TRY_STARTUP_COMMAND,
@@ -15,6 +17,11 @@ enum class AgentInitialMessageStartupPolicy {
 enum class AgentInitialMessageTimeoutPolicy {
   ALLOW_TIMEOUT_FALLBACK,
   REQUIRE_EXPLICIT_READINESS,
+}
+
+enum class AgentInitialMessageDispatchCompletionPolicy {
+  IMMEDIATE,
+  RETRY_ON_CODEX_PLAN_BUSY,
 }
 
 data class AgentInitialMessagePlan(
@@ -37,9 +44,8 @@ data class AgentInitialMessagePlan(
 
 data class AgentInitialMessageDispatchPlan(
   @JvmField val startupLaunchSpecOverride: AgentSessionTerminalLaunchSpec? = null,
-  @JvmField val initialComposedMessage: String? = null,
+  @JvmField val postStartDispatchSteps: List<AgentInitialMessageDispatchStep> = emptyList(),
   @JvmField val initialMessageToken: String? = null,
-  @JvmField val initialMessageTimeoutPolicy: AgentInitialMessageTimeoutPolicy = AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK,
 ) {
   companion object {
     @JvmField
@@ -47,7 +53,18 @@ data class AgentInitialMessageDispatchPlan(
   }
 }
 
-interface AgentSessionProviderBridge {
+data class AgentInitialMessageDispatchStep(
+  @JvmField val text: String,
+  @JvmField val timeoutPolicy: AgentInitialMessageTimeoutPolicy = AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK,
+  @JvmField val completionPolicy: AgentInitialMessageDispatchCompletionPolicy = AgentInitialMessageDispatchCompletionPolicy.IMMEDIATE,
+)
+
+data class AgentPendingSessionMetadata(
+  @JvmField val createdAtMs: Long,
+  @JvmField val launchMode: String?,
+)
+
+interface AgentSessionProviderDescriptor {
   val provider: AgentSessionProvider
   val displayNameKey: String
   val displayNameFallback: String
@@ -70,6 +87,27 @@ interface AgentSessionProviderBridge {
     get() = false
 
   val suppressPromptExistingTaskSelectionHint: Boolean
+    get() = false
+
+  val editorTabActionIds: List<String>
+    get() = emptyList()
+
+  val supportsPendingEditorTabRebind: Boolean
+    get() = false
+
+  val supportsNewThreadRebind: Boolean
+    get() = false
+
+  val emitsScopedRefreshSignals: Boolean
+    get() = false
+
+  val refreshPathAfterCreateNewSession: Boolean
+    get() = false
+
+  val archiveRefreshDelayMs: Long
+    get() = 0L
+
+  val suppressArchivedThreadsDuringRefresh: Boolean
     get() = false
 
   val sessionSource: AgentSessionSource
@@ -104,6 +142,16 @@ interface AgentSessionProviderBridge {
   suspend fun unarchiveThread(path: String, threadId: String): Boolean = false
 
   fun buildInitialMessagePlan(request: AgentPromptInitialMessageRequest): AgentInitialMessagePlan
+
+  fun onConversationOpened() {
+  }
+
+  fun resolvePendingSessionMetadata(
+    identity: String,
+    launchSpec: AgentSessionTerminalLaunchSpec,
+  ): AgentPendingSessionMetadata? = null
+
+  fun createToolWindowNorthComponent(project: Project): JComponent? = null
 
   fun isCliMissingError(throwable: Throwable): Boolean = false
 }

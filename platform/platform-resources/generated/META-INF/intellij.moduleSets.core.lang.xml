@@ -133,6 +133,7 @@
     <module name="intellij.platform.analysis" loading="embedded"/>
     <module name="intellij.platform.analysis.impl" loading="embedded"/>
     <module name="intellij.platform.ide.core" loading="embedded"/>
+    <module name="intellij.platform.ide.core.plugins" loading="embedded"/>
     <!-- endregion -->
     <!-- endregion -->
 
@@ -171,6 +172,8 @@
     <module name="intellij.platform.lang.core" loading="embedded"/>
     <module name="intellij.platform.lang" loading="embedded"/>
     <module name="intellij.platform.lang.impl" loading="embedded"/>
+    <module name="intellij.platform.statistics" loading="embedded"/>
+    <module name="intellij.platform.statistics.config" loading="embedded"/>
     <module name="intellij.platform.ide.impl" loading="embedded"/>
     <module name="intellij.platform.ide.concurrency" loading="embedded"/>
     <module name="intellij.platform.builtInServer" loading="embedded"/>

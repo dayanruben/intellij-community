@@ -42,6 +42,7 @@
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.ide.concurrency"/>
+    <module name="intellij.platform.ide.core.plugins"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.kernel"/>
@@ -51,6 +52,7 @@
     <module name="intellij.platform.projectFrame"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
+    <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.diff"/>
     <module name="intellij.platform.welcomeScreen.impl"/>

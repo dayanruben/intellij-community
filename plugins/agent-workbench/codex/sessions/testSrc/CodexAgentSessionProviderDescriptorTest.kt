@@ -8,6 +8,7 @@ import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptContextRende
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptPayload
 import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
+import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageStartupPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
 import com.intellij.testFramework.junit5.TestApplication
@@ -18,13 +19,18 @@ import org.junit.jupiter.api.Test
 import java.nio.file.Path
 
 @TestApplication
-class CodexAgentSessionProviderBridgeTest {
-    private val bridge = CodexAgentSessionProviderBridge()
+class CodexAgentSessionProviderDescriptorTest {
+    private val bridge = CodexAgentSessionProviderDescriptor()
 
     @Test
     fun buildResumeLaunchSpec() {
         assertThat(bridge.buildResumeLaunchSpec("thread-1").command)
             .containsExactly("codex", "-c", "check_for_update_on_startup=false", "resume", "thread-1")
+    }
+
+    @Test
+    fun promptOptionsUseSharedPlanModeOption() {
+        assertThat(bridge.promptOptions).containsExactly(AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION)
     }
 
     @Test
@@ -317,6 +323,6 @@ class CodexAgentSessionProviderBridgeTest {
     }
 }
 
-private fun messageFor(bridge: CodexAgentSessionProviderBridge, request: AgentPromptInitialMessageRequest): String {
+private fun messageFor(bridge: CodexAgentSessionProviderDescriptor, request: AgentPromptInitialMessageRequest): String {
     return checkNotNull(bridge.buildInitialMessagePlan(request).message)
 }

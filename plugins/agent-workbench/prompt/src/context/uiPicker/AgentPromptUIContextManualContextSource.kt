@@ -2,9 +2,10 @@
 package com.intellij.agent.workbench.prompt.context.uiPicker
 
 import com.intellij.agent.workbench.prompt.AgentPromptBundle
-import com.intellij.agent.workbench.prompt.context.buildScreenshotContextItem
+import com.intellij.agent.workbench.prompt.context.AgentPromptScreenshotContextItem.buildScreenshotContextItem
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptContextItem
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptManualContextPickerRequest
+import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptManualContextSelectionMode
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptManualContextSourceBridge
 import com.intellij.idea.AppMode
 import com.intellij.openapi.project.Project
@@ -21,6 +22,9 @@ internal class AgentPromptUIContextManualContextSource : AgentPromptManualContex
   override val order: Int
     get() = 30
 
+  override val selectionMode: AgentPromptManualContextSelectionMode
+    get() = AgentPromptManualContextSelectionMode.APPEND
+
   override fun isAvailable(project: Project): Boolean {
     return !AppMode.isRemoteDevHost()
   }
@@ -32,6 +36,7 @@ internal class AgentPromptUIContextManualContextSource : AgentPromptManualContex
   override fun showPicker(request: AgentPromptManualContextPickerRequest) {
     val session = UIContextPickerSession(
       project = request.sourceProject,
+      anchorComponent = request.anchorComponent,
       onPicked = { component, screenshot ->
         request.onSelected(buildUIContextItem(component, screenshot))
       },

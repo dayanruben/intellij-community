@@ -275,6 +275,7 @@ object CoreModuleSets {
     moduleSet(rpcMinimal())
 
     embeddedModule("intellij.platform.ide.core")
+    embeddedModule("intellij.platform.ide.core.plugins")
   }
 
   /**
@@ -344,7 +345,8 @@ object CoreModuleSets {
     embeddedModule("intellij.platform.lang")
     embeddedModule("intellij.platform.lang.impl")
 
-    // IDE implementation (depends on lang.core, so must come after)
+    embeddedModule("intellij.platform.statistics")
+    embeddedModule("intellij.platform.statistics.config")
     embeddedModule("intellij.platform.ide.impl")
 
     // Additional dependencies specific to lang.impl and ide.impl

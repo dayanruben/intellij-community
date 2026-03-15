@@ -6,7 +6,7 @@ import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptChipRenderIn
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptContextEnvelopeFormatter
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptContextItem
 import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptContextRenderers
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderBridge
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
@@ -18,10 +18,10 @@ import javax.swing.JList
 import javax.swing.ListCellRenderer
 
 internal data class ProviderEntry(
-  @JvmField val bridge: AgentSessionProviderBridge,
-  @JvmField val displayName: @Nls String,
-  @JvmField val isCliAvailable: Boolean,
-  @JvmField val icon: Icon,
+    @JvmField val bridge: AgentSessionProviderDescriptor,
+    @JvmField val displayName: @Nls String,
+    @JvmField val isCliAvailable: Boolean,
+    @JvmField val icon: Icon,
 )
 
 internal data class ContextEntry(
@@ -30,6 +30,7 @@ internal data class ContextEntry(
   @JvmField val id: String = item.rendererId + ":" + item.title + ":" + item.body.hashCode(),
   @JvmField val origin: ContextEntryOrigin = ContextEntryOrigin.AUTO,
   @JvmField val manualSourceId: String? = null,
+  @JvmField val backingItem: AgentPromptContextItem = item,
 ) {
   val logicalItemId: String?
     get() = item.itemId

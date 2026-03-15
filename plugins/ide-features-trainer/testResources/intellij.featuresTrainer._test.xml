@@ -3,6 +3,7 @@
   <dependencies>
     <plugin id="training"/>
     <module name="intellij.libraries.assertj.core"/>
+    <module name="intellij.libraries.guava"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -14,6 +15,7 @@
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
+    <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.testFramework"/>
     <module name="intellij.platform.util.ex"/>
   </dependencies>
