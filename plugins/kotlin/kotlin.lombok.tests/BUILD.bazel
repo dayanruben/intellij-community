@@ -37,10 +37,18 @@ jvm_library(
     "//plugins/kotlin/base/plugin:plugin_test_lib",
     "//java/openapi:java",
     "//java/openapi:java_test_lib",
+    "//plugins/lombok:lombok-tests",
+    "//plugins/lombok:lombok-tests_test_lib",
   ],
   runtime_deps = [":kotlin.lombok.tests"]
 )
 ### auto-generated section `build intellij.kotlin.lombok.tests` end
+
+### auto-generated section `iml intellij.kotlin.lombok.tests` start
+exports_files([
+  "intellij.kotlin.lombok.tests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.kotlin.lombok.tests` end
 
 ### auto-generated section `test intellij.kotlin.lombok.tests` start
 load("@community//build:tests-options.bzl", "jps_test")

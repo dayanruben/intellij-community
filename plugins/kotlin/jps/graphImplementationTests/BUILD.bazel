@@ -55,6 +55,8 @@ jvm_library(
     "//RegExpSupport:regexp-tests_test_lib",
     "//platform/xdebugger-impl:debugger-impl-tests",
     "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests_test_lib",
   ],
   runtime_deps = [
     ":graphImplementationTests",
@@ -62,6 +64,12 @@ jvm_library(
   ]
 )
 ### auto-generated section `build kotlin.jps.graphImplementationTests` end
+
+### auto-generated section `iml kotlin.jps.graphImplementationTests` start
+exports_files([
+  "kotlin.jps.graphImplementationTests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml kotlin.jps.graphImplementationTests` end
 
 ### auto-generated section `test kotlin.jps.graphImplementationTests` start
 load("@community//build:tests-options.bzl", "jps_test")

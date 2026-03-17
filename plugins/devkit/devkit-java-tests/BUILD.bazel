@@ -129,6 +129,10 @@ jvm_library(
     "//platform/code-style-api:codeStyle_test_lib",
     "//platform/util/concurrency",
     "//platform/util/concurrency:concurrency_test_lib",
+    "//plugins/devkit/runtimeModuleRepository/jps:devkit-runtimeModuleRepository-jps-tests",
+    "//plugins/devkit/runtimeModuleRepository/jps:devkit-runtimeModuleRepository-jps-tests_test_lib",
+    "//plugins/devkit/intellij.devkit.themes:themes-tests",
+    "//plugins/devkit/intellij.devkit.themes:themes-tests_test_lib",
   ],
   exports = [
     "//java/java-backend:backend",
@@ -142,6 +146,12 @@ jvm_library(
   ]
 )
 ### auto-generated section `build intellij.devkit.java.tests` end
+
+### auto-generated section `iml intellij.devkit.java.tests` start
+exports_files([
+  "intellij.devkit.java.tests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.devkit.java.tests` end
 
 ### auto-generated section `test intellij.devkit.java.tests` start
 load("@community//build:tests-options.bzl", "jps_test")

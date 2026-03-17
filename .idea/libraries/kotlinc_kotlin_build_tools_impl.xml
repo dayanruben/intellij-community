@@ -1,18 +1,18 @@
 <component name="libraryTable">
   <library name="kotlinc.kotlin-build-tools-impl" type="repository">
-    <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:kotlin-build-tools-impl:2.4.0-dev-5744">
+    <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:kotlin-build-tools-impl:2.4.0-dev-6573">
       <verification>
-        <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-build-tools-impl/2.4.0-dev-5744/kotlin-build-tools-impl-2.4.0-dev-5744.jar">
-          <sha256sum>e2938eb532ee82b202520c5be3891541e3e44ff513d2ceae5d426808d08c9ecb</sha256sum>
+        <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-build-tools-impl/2.4.0-dev-6573/kotlin-build-tools-impl-2.4.0-dev-6573.jar">
+          <sha256sum>d8a6b934c6c35b2e6c77e0d7657fa1a829c78dfed7826791033ba9a7d64d8471</sha256sum>
         </artifact>
       </verification>
     </properties>
     <CLASSES>
-      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-build-tools-impl/2.4.0-dev-5744/kotlin-build-tools-impl-2.4.0-dev-5744.jar!/" />
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-build-tools-impl/2.4.0-dev-6573/kotlin-build-tools-impl-2.4.0-dev-6573.jar!/" />
     </CLASSES>
     <JAVADOC />
     <SOURCES>
-      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-build-tools-impl/2.4.0-dev-5744/kotlin-build-tools-impl-2.4.0-dev-5744-sources.jar!/" />
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-build-tools-impl/2.4.0-dev-6573/kotlin-build-tools-impl-2.4.0-dev-6573-sources.jar!/" />
     </SOURCES>
   </library>
 </component>

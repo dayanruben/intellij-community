@@ -43,6 +43,8 @@ jvm_library(
     "@lib//:slf4j-api",
     "//java/java-runtime:rt",
     "//java/java-runtime:rt_test_lib",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests_test_lib",
   ],
   exports = [
     "//plugins/junit_rt:junit-rt",
@@ -51,6 +53,12 @@ jvm_library(
   runtime_deps = [":test"]
 )
 ### auto-generated section `build kotlin.base.test` end
+
+### auto-generated section `iml kotlin.base.test` start
+exports_files([
+  "kotlin.base.test.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml kotlin.base.test` end
 
 ### auto-generated section `test kotlin.base.test` start
 load("@community//build:tests-options.bzl", "jps_test")

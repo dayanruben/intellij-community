@@ -313,6 +313,8 @@ jvm_library(
     "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
     "//platform/locking-impl",
     "//platform/locking-impl:locking-impl_test_lib",
+    "//platform/smRunner:smRunner-tests",
+    "//platform/smRunner:smRunner-tests_test_lib",
   ],
   exports = [
     "//plugins/java-i18n",
@@ -334,6 +336,12 @@ jvm_library(
   ]
 )
 ### auto-generated section `build intellij.java.tests` end
+
+### auto-generated section `iml intellij.java.tests` start
+exports_files([
+  "intellij.java.tests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.java.tests` end
 
 ### auto-generated section `test intellij.java.tests` start
 load("@community//build:tests-options.bzl", "jps_test")

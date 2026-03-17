@@ -39,7 +39,15 @@ jvm_library(
     "//plugins/kotlin/jvm-debugger/testFramework:testFramework_test_lib",
     "//plugins/kotlin/tests-compose",
     "//plugins/kotlin/tests-compose:tests-compose_test_lib",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests_test_lib",
   ],
   runtime_deps = [":testFramework"]
 )
 ### auto-generated section `build intellij.kotlin.jvm.debugger.test.compose.testFramework` end
+
+### auto-generated section `iml intellij.kotlin.jvm.debugger.test.compose.testFramework` start
+exports_files([
+  "intellij.kotlin.jvm.debugger.test.compose.testFramework.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.kotlin.jvm.debugger.test.compose.testFramework` end

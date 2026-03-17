@@ -32,6 +32,17 @@ CUSTOM_MODULES = {
     ),
 }
 
+STANDALONE_BAZEL_REPOS = [
+    struct(
+        repo_name = "@jps_to_bazel",
+        repo_root_parts = ["community", "platform", "build-scripts", "bazel"],
+    ),
+    struct(
+        repo_name = "@rules_jvm",
+        repo_root_parts = ["community", "build", "jvm-rules"],
+    ),
+]
+
 def _extract_relative_path(url):
     """Extract relative path from a $MODULE_DIR$ URL, allowing the module dir itself."""
     marker = "$MODULE_DIR$"
@@ -243,7 +254,7 @@ def _camel_to_snake_case(s, replacement = "-"):
         result.append(c.lower())
     return "".join(result)
 
-def module_name_to_target(module_name, build_dir_parts, community_root_parts, ultimate_root_parts):
+def module_name_to_target(module_name, build_dir_parts, community_root_parts, ultimate_root_parts, community_root_dir_name = "community"):
     """Derive the Bazel target name from a JPS module name.
 
     Mirrors jpsModuleNameToBazelBuildName in BazelBuildFileGenerator.kt.
@@ -253,6 +264,8 @@ def module_name_to_target(module_name, build_dir_parts, community_root_parts, ul
         build_dir_parts: path segments of the BUILD directory relative to project root
         community_root_parts: path segments of the community root relative to project root (e.g., ["community"] or [])
         ultimate_root_parts: path segments of the ultimate root relative to project root (e.g., [] or None for community-only)
+        community_root_dir_name: filesystem directory name of the community root (used in community-only mode
+            where build_dir_parts are relative to community root and the parent dir name cannot be derived)
     """
     custom = CUSTOM_MODULES.get(module_name)
     if custom:
@@ -286,11 +299,14 @@ def module_name_to_target(module_name, build_dir_parts, community_root_parts, ul
             parent_dir_name = build_dir_parts[-2]
     else:
         # community-only mode: ultimateRoot is null in Kotlin
-        # baseBuildDir == null → false
-        # baseBuildDir.parent == null → false (for normal paths)
-        # → falls through to baseBuildDir.parent.fileName
+        # In Kotlin, baseBuildDir.parent.fileName gives the filesystem directory name.
+        # When build_dir_parts is relative to the community root and has >1 segments,
+        # build_dir_parts[-2] works. But when it has exactly 1 segment, the parent is
+        # the community root itself, so we use community_root_dir_name.
         if len(build_dir_parts) > 1:
             parent_dir_name = build_dir_parts[-2]
+        elif len(build_dir_parts) == 1:
+            parent_dir_name = community_root_dir_name
 
     if parent_dir_name != None:
         prefix = parent_dir_name + "."
@@ -299,22 +315,76 @@ def module_name_to_target(module_name, build_dir_parts, community_root_parts, ul
 
     return result.replace(".", "-")
 
+def _package_label_to_build_dir_parts(package_label, community_root_parts):
+    for repo in STANDALONE_BAZEL_REPOS:
+        prefix = repo.repo_name + "//"
+        if package_label.startswith(prefix):
+            rel_path = package_label[len(prefix):]
+            return repo.repo_root_parts + (rel_path.split("/") if rel_path else [])
+    if package_label.startswith("@community//"):
+        rel_path = package_label[len("@community//"):]
+        return community_root_parts + (rel_path.split("/") if rel_path else [])
+    if package_label.startswith("//"):
+        rel_path = package_label[len("//"):]
+        return rel_path.split("/") if rel_path else []
+    fail("Unsupported Bazel package label: %s" % package_label)
+
+def _compute_package_info(module_name, build_dir_parts, is_community, community_root_parts):
+    custom = CUSTOM_MODULES.get(module_name)
+    if custom:
+        return struct(
+            package_prefix = custom.bazel_package,
+            effective_build_dir_parts = _package_label_to_build_dir_parts(custom.bazel_package, community_root_parts),
+        )
+
+    if community_root_parts and is_community:
+        for repo in STANDALONE_BAZEL_REPOS:
+            if _all_start_with([build_dir_parts], repo.repo_root_parts):
+                rel_parts = build_dir_parts[len(repo.repo_root_parts):]
+                rel_path = "/".join(rel_parts)
+                return struct(
+                    package_prefix = repo.repo_name + "//" + rel_path,
+                    effective_build_dir_parts = build_dir_parts,
+                )
+
+    if is_community:
+        rel_parts = build_dir_parts[len(community_root_parts):]
+        rel_path = "/".join(rel_parts)
+        return struct(
+            package_prefix = "@community//" + rel_path,
+            effective_build_dir_parts = build_dir_parts,
+        )
+
+    rel_path = "/".join(build_dir_parts)
+    return struct(
+        package_prefix = "//" + rel_path,
+        effective_build_dir_parts = build_dir_parts,
+    )
+
+def compute_iml_target(module_name, build_dir_parts, iml_rel_path, is_community, community_root_parts):
+    """Compute the Bazel file label for a module's .iml file."""
+    package_info = _compute_package_info(module_name, build_dir_parts, is_community, community_root_parts)
+    iml_parts = iml_rel_path.split("/") if iml_rel_path else []
+    effective_build_dir_parts = package_info.effective_build_dir_parts
+
+    if not _all_start_with([iml_parts], effective_build_dir_parts):
+        fail(
+            "IML path for module '%s' is not under Bazel package '%s': %s" % (
+                module_name,
+                package_info.package_prefix,
+                iml_rel_path,
+            ),
+        )
+
+    relative_iml_parts = iml_parts[len(effective_build_dir_parts):]
+    return package_info.package_prefix + ":" + "/".join(relative_iml_parts)
+
 def compute_module_targets(module_name, build_dir_parts, target_name, is_community, community_root_parts):
     """Compute production and test target labels for a module.
 
     Returns struct with production (list) and test (list) target labels.
     """
-    custom = CUSTOM_MODULES.get(module_name)
-    if custom:
-        package_prefix = custom.bazel_package
-    elif is_community:
-        # Compute relative path from community root
-        rel_parts = build_dir_parts[len(community_root_parts):]
-        rel_path = "/".join(rel_parts)
-        package_prefix = "@community//" + rel_path
-    else:
-        rel_path = "/".join(build_dir_parts)
-        package_prefix = "//" + rel_path
+    package_prefix = _compute_package_info(module_name, build_dir_parts, is_community, community_root_parts).package_prefix
 
     # Always use colon form — the JSON output always uses "$packagePrefix:$targetName"
     label = package_prefix + ":" + target_name

@@ -98,6 +98,10 @@ jvm_library(
     "//jps/model-api:model_test_lib",
     "//platform/execution",
     "//platform/execution:execution_test_lib",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests_test_lib",
+    "//plugins/devkit/intellij.devkit.themes:themes-tests",
+    "//plugins/devkit/intellij.devkit.themes:themes-tests_test_lib",
   ],
   runtime_deps = [
     ":kotlin-fir-tests",
@@ -106,6 +110,12 @@ jvm_library(
   ]
 )
 ### auto-generated section `build intellij.devkit.kotlin.fir.tests` end
+
+### auto-generated section `iml intellij.devkit.kotlin.fir.tests` start
+exports_files([
+  "intellij.devkit.kotlin.fir.tests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.devkit.kotlin.fir.tests` end
 
 ### auto-generated section `test intellij.devkit.kotlin.fir.tests` start
 load("@community//build:tests-options.bzl", "jps_test")

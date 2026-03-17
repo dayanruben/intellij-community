@@ -96,6 +96,12 @@ jvm_library(
 )
 ### auto-generated section `build intellij.kotlin.analysis.platform` end
 
+### auto-generated section `iml intellij.kotlin.analysis.platform` start
+exports_files([
+  "intellij.kotlin.analysis.platform.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.kotlin.analysis.platform` end
+
 ### auto-generated section `build intellij.kotlin.analysis.platform.tests` start
 create_kotlinc_options(
   name = "custom_kotlin-analysis-platform-tests",
@@ -213,10 +219,18 @@ jvm_library(
     "//plugins/kotlin/base/indices/tests:tests_test_lib",
     "//plugins/kotlin/base/fir/project-structure:kotlin-projectStructure-tests",
     "//plugins/kotlin/base/fir/project-structure:kotlin-projectStructure-tests_test_lib",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests_test_lib",
   ],
   runtime_deps = [":kotlin-analysis-platform-tests"]
 )
 ### auto-generated section `build intellij.kotlin.analysis.platform.tests` end
+
+### auto-generated section `iml intellij.kotlin.analysis.platform.tests` start
+exports_files([
+  "intellij.kotlin.analysis.platform.tests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.kotlin.analysis.platform.tests` end
 
 ### auto-generated section `test intellij.kotlin.analysis.platform.tests` start
 load("@community//build:tests-options.bzl", "jps_test")

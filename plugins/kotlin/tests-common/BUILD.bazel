@@ -86,6 +86,8 @@ jvm_library(
     "//libraries/fastutil:fastutil_test_lib",
     "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
     "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests_test_lib",
   ],
   runtime_deps = [
     ":common-tests",
@@ -93,6 +95,12 @@ jvm_library(
   ]
 )
 ### auto-generated section `build intellij.kotlin.common.tests` end
+
+### auto-generated section `iml intellij.kotlin.common.tests` start
+exports_files([
+  "intellij.kotlin.common.tests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.kotlin.common.tests` end
 
 ### auto-generated section `test intellij.kotlin.common.tests` start
 load("@community//build:tests-options.bzl", "jps_test")

@@ -146,6 +146,8 @@ jvm_library(
     "//plugins/kotlin/base/statistics:statistics_test_lib",
     "//plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.k2:kotlin-gradle-scripting",
     "//plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.k2:kotlin-gradle-scripting_test_lib",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests_test_lib",
   ],
   runtime_deps = [
     ":tests",
@@ -153,6 +155,12 @@ jvm_library(
   ]
 )
 ### auto-generated section `build kotlin.project-wizard.tests` end
+
+### auto-generated section `iml kotlin.project-wizard.tests` start
+exports_files([
+  "kotlin.project-wizard.tests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml kotlin.project-wizard.tests` end
 
 ### auto-generated section `test kotlin.project-wizard.tests` start
 load("@community//build:tests-options.bzl", "jps_test")

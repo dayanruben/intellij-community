@@ -49,6 +49,8 @@ jvm_library(
     "//plugins/junit/java-tests:java-tests_test_lib",
     "//plugins/kotlin/base/plugin",
     "//plugins/kotlin/base/plugin:plugin_test_lib",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests_test_lib",
   ],
   exports = [
     "//plugins/kotlin/plugin/common",
@@ -63,6 +65,12 @@ jvm_library(
   runtime_deps = [":kotlin-tests-shared"]
 )
 ### auto-generated section `build intellij.junit.kotlin.tests.shared` end
+
+### auto-generated section `iml intellij.junit.kotlin.tests.shared` start
+exports_files([
+  "intellij.junit.kotlin.tests.shared.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.junit.kotlin.tests.shared` end
 
 ### auto-generated section `test intellij.junit.kotlin.tests.shared` start
 load("@community//build:tests-options.bzl", "jps_test")

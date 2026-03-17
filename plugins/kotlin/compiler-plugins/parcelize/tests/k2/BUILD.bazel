@@ -41,10 +41,18 @@ jvm_library(
     "//plugins/kotlin/intellij.kotlin.base.test:base-test",
     "//plugins/kotlin/intellij.kotlin.base.test:base-test_test_lib",
     "@lib//:kotlinc-analysis-api-impl-base",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests",
+    "//plugins/kotlin/base/plugin:kotlin-base-plugin-tests_test_lib",
   ],
   runtime_deps = [":kotlin-compilerPlugins-parcelize-tests"]
 )
 ### auto-generated section `build intellij.kotlin.compilerPlugins.parcelize.tests` end
+
+### auto-generated section `iml intellij.kotlin.compilerPlugins.parcelize.tests` start
+exports_files([
+  "intellij.kotlin.compilerPlugins.parcelize.tests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.kotlin.compilerPlugins.parcelize.tests` end
 
 ### auto-generated section `test intellij.kotlin.compilerPlugins.parcelize.tests` start
 load("@community//build:tests-options.bzl", "jps_test")

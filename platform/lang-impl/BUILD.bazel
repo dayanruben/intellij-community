@@ -265,6 +265,12 @@ jvm_library(
 )
 ### auto-generated section `build intellij.platform.lang.impl` end
 
+### auto-generated section `iml intellij.platform.lang.impl` start
+exports_files([
+  "intellij.platform.lang.impl.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.platform.lang.impl` end
+
 ### auto-generated section `build intellij.platform.lang.tests` start
 jvm_library(
   name = "lang-tests",
@@ -353,7 +359,6 @@ jvm_library(
     "//libraries/oro-matcher:oro-matcher_test_lib",
     "@lib//:junit4",
     "//platform/platform-impl:ide-impl",
-    "//platform/platform-impl:ide-impl_test_lib",
     "//platform/lang-impl",
     "//platform/lang-impl:lang-impl_test_lib",
     "//platform/usageView",
@@ -459,6 +464,8 @@ jvm_library(
     "//platform/forms_rt:java-guiForms-rt_test_lib",
     "//platform/project-frame",
     "//platform/project-frame:project-frame_test_lib",
+    "//platform/platform-impl:ide-impl-tests",
+    "//platform/platform-impl:ide-impl-tests_test_lib",
   ],
   exports = [
     "//platform/lang-api:lang",
@@ -478,11 +485,18 @@ jvm_library(
   ],
   runtime_deps = [
     ":lang-tests",
+    "//platform/platform-impl:ide-impl_test_lib",
     "//platform/ide-core-impl:ide-core-impl_test_lib",
     "//platform/platform-util-io:ide-util-io_test_lib",
   ]
 )
 ### auto-generated section `build intellij.platform.lang.tests` end
+
+### auto-generated section `iml intellij.platform.lang.tests` start
+exports_files([
+  "intellij.platform.lang.tests.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.platform.lang.tests` end
 
 ### auto-generated section `test intellij.platform.lang.tests` start
 load("@community//build:tests-options.bzl", "jps_test")

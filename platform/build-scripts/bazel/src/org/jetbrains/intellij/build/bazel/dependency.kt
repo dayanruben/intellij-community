@@ -22,13 +22,9 @@ import java.util.logging.Logger
 import kotlin.io.path.Path
 import kotlin.io.path.copyTo
 import kotlin.io.path.createDirectories
-import kotlin.io.path.exists
-import kotlin.io.path.extension
-import kotlin.io.path.inputStream
 import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.name
 import kotlin.io.path.nameWithoutExtension
-import kotlin.io.path.readBytes
 import kotlin.io.path.relativeTo
 
 internal data class BazelLabel(
@@ -90,7 +86,7 @@ internal fun generateDeps(
 
       // intellij.platform.configurationStore.tests uses internal symbols from intellij.platform.configurationStore.impl
       val dependencyModuleName = dependencyModule.name
-      val effectiveDepContainer = if (isTestFriend(dependencyModuleName, testModuleProperties)) associates else deps
+      val effectiveDepContainer = if (isTestFriend(dependencyModuleName, testModuleProperties) && dependencyModuleDescriptor.sources.isNotEmpty()) associates else deps
       addDep(
         isTest = isTest,
         scope = scope,
@@ -136,12 +132,9 @@ internal fun generateDeps(
           val libSnapshotsDir = libraryContainer.buildFile.parent.resolve("snapshots").createDirectories()
           val targetName = camelToSnakeCase(escapeBazelLabel(firstFile.nameWithoutExtension))
 
-          val localFilesWithChecksum = files.map { file ->
-            val checksum = file.inputStream().sha256().take(20)
-            val localFile = libSnapshotsDir.resolve("${file.nameWithoutExtension}-${checksum}.${file.extension}")
-            if (!localFile.exists() || !localFile.readBytes().contentEquals(file.readBytes())) {
-              file.copyTo(localFile, overwrite = true)
-            }
+          val localFiles = files.map { file ->
+            val localFile = libSnapshotsDir.resolve(file.name)
+            file.copyTo(localFile, overwrite = true)
             localFile
           }
 
@@ -153,7 +146,7 @@ internal fun generateDeps(
           )
           context.addLocalLibrary(
             lib = LocalLibrary(
-              files = localFilesWithChecksum,
+              files = localFiles,
               target = libraryTarget,
               bazelBuildFileDir = libSnapshotsDir,
             ),
@@ -576,7 +569,7 @@ private fun needsBackwardCompatibleTestDependency(
   if (name.startsWith("intellij.platform.ide.")) {
     /// Newly extracted modules from platform-impl are not test-framework modules for sure, and no one should depend on their test targets.
     // todo - move ToolWindowManagerTest from platform-lang to platform-impl tests
-    return name == "intellij.platform.ide.impl" && dependentModule.module.name == "intellij.platform.lang.tests"
+    return name == "intellij.platform.ide.impl.tests" && dependentModule.module.name == "intellij.platform.lang.tests"
   }
   else {
     // If we depend on module A and A includes test sources, we must add a dependency not only on A’s production library target but also on its test library target.

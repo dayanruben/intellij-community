@@ -5042,6 +5042,40 @@ public class Py3TypeTest extends PyTestCase {
     );
   }
 
+  // PY-87909
+  public void testGenericDataclassField() {
+    doTest("int", """
+      from dataclasses import dataclass
+      
+      
+      @dataclass
+      class A[T]:
+          t: T
+      
+      
+      expr = A(1).t
+      """
+    );
+  }
+
+  public void testGenericDataclassFieldWithLegacyGenericSyntax() {
+    doTest("int", """
+      from dataclasses import dataclass
+      from typing import Generic, TypeVar
+      
+      T = TypeVar("T")
+      
+      
+      @dataclass
+      class A(Generic[T]):
+          t: T
+      
+      
+      expr = A(1).t
+      """
+    );
+  }
+
   public void testQuotedForwardReferenceInTypeHint() {
     doTest("MyClass", """
       def foo(x: "MyClass"):
@@ -5393,6 +5427,18 @@ public class Py3TypeTest extends PyTestCase {
     doTest("list[type[float]]", """
       expr = [float]
     """);
+  }
+  
+  // PY-88234
+  public void testQualifiedAttributeTypeNotConfusedWithSameNameParameter() {
+    doTest( "int | str", """    
+      class Beta:
+          x: int
+      
+          def doit(self, x: str):
+              expr = self.x and x
+              #           ^ - should not be str"""
+    );
   }
 
   private void doTest(final String expectedType, final String text) {
