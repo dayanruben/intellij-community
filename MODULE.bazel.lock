@@ -221,7 +221,7 @@
   "moduleExtensions": {
     "//build:jbr-toolchains.bzl%jbr_toolchains": {
       "general": {
-        "bzlTransitiveDigest": "IoZVPL761JWZPcAq6R0SrzxpWtF1Y6NpBHVWswvi+Xc=",
+        "bzlTransitiveDigest": "nyfCHsWn5uviilX7Z8T3VKhjuMBlM+Ljv3AripgvwJU=",
         "usagesDigest": "t3DMrqbThY2EiblJcntBvQ56ZYlJ8DZtkw69yIOFV2M=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
@@ -346,7 +346,7 @@
     },
     "//build:jps_dynamic_deps_community.bzl%jps_dynamic_deps_community_extension": {
       "general": {
-        "bzlTransitiveDigest": "na5dI3bQpI9ye1/HsEJ4gMFBa5ZWdWK0q5xdE585uSo=",
+        "bzlTransitiveDigest": "8cK6oCqmhZ5CcaND+crwgod/nFwZnW2NKoA+fAM5udg=",
         "usagesDigest": "OSsQY2hkpxdAkgfVzTh+Q1KLtzAuQDVI0/8sRki7FfU=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},

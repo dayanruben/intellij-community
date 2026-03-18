@@ -27,6 +27,8 @@
     <module name="intellij.maven.errorProne.compiler"/>
     <module name="intellij.maven.groovy"/>
     <module name="intellij.maven.completion"/>
+    <module name="intellij.maven.jps"/>
+    <module name="intellij.maven.jps.ide"/>
   </content>
 
 </idea-plugin>

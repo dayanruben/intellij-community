@@ -316,17 +316,13 @@ public final class FileManagerImpl implements FileManagerEx {
 
   private @NotNull @Unmodifiable List<FileViewProvider> getRawCachedViewProviders(@NotNull VirtualFile vFile) {
     List<FileViewProvider> providers = myVFileToViewProviderMap.getAllProviders(vFile);
-    if (!providers.isEmpty()) {
-      if (providers.size() == 1) {
-        return Collections.singletonList(providers.get(0));
-      }
-      else {
-        return new ArrayList<>(providers);
-      }
+    if (providers.isEmpty()) {
+      FileViewProvider provider = vFile.getUserData(myPsiHardRefKey);
+      return ContainerUtil.createMaybeSingletonList(provider);
     }
-
-    FileViewProvider provider = vFile.getUserData(myPsiHardRefKey);
-    return ContainerUtil.createMaybeSingletonList(provider);
+    else {
+      return providers;
+    }
   }
 
   @Override
@@ -676,9 +672,9 @@ public final class FileManagerImpl implements FileManagerEx {
 
   @RequiresWriteLock
   @Override
-  public void removeInvalidFilesAndDirs(boolean useFind) {
+  public void updatePsiAfterVfsMoveOrDelete(boolean isMove) {
     removeInvalidDirs(); // note: important to update directories the map first - findFile uses findDirectory!
-    new InvalidFileProcessor(this, myManager.getProject(), myVFileToViewProviderMap, useFind).processInvalidFiles();
+    new InvalidFileProcessor(this, myManager.getProject(), myVFileToViewProviderMap, isMove).processInvalidFilesAfterVfsMoveOrDelete();
   }
 
   public static boolean areViewProvidersEquivalent(@NotNull FileViewProvider view1, @NotNull FileViewProvider view2) {
