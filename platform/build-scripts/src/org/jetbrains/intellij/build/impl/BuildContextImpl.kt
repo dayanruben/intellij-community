@@ -17,7 +17,6 @@ import io.opentelemetry.api.trace.Span
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.DelicateCoroutinesApi
 import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -317,7 +316,7 @@ class BuildContextImpl internal constructor(
     compilationContext.notifyArtifactBuilt(artifactPath)
   }
 
-  private val _frontendModuleFilter by lazy {
+  private val _frontendModuleFilter = suspendingLazy("frontend module filter") {
     val rootModule = productProperties.embeddedFrontendRootModule
     if (rootModule != null && options.enableEmbeddedFrontend) {
       val productModules = loadRawProductModules(rootModule, ProductMode.FRONTEND)
@@ -328,7 +327,7 @@ class BuildContextImpl internal constructor(
     }
   }
 
-  override fun getFrontendModuleFilter(): FrontendModuleFilter = _frontendModuleFilter
+  override suspend fun getFrontendModuleFilter(): FrontendModuleFilter = _frontendModuleFilter.await()
 
   private val _contentModuleFilter by lazy { computeContentModuleFilter() }
 
@@ -510,7 +509,7 @@ class BuildContextImpl internal constructor(
     return ProductModulesSerialization.readProductModulesAndMergeIncluded(productModulesFile.inputStream(), productModulesFile.pathString, resolver)
   }
 
-  private val devModeProductRunner = asyncLazy("dev mode product runner") {
+  private val devModeProductRunner = suspendingLazy("dev mode product runner") {
     createDevModeProductRunner(this@BuildContextImpl)
   }
 
@@ -543,7 +542,7 @@ class BuildContextImpl internal constructor(
     PluginAutoPublishList(this)
   }
 
-  private val distributionState: Deferred<DistributionBuilderState> = asyncLazy("Creating distribution state") {
+  private val distributionState = suspendingLazy("Creating distribution state") {
     createDistributionState(this@BuildContextImpl)
   }
 

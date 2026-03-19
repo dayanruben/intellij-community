@@ -11,6 +11,7 @@ import com.intellij.lang.ParserDefinition;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.application.AppUIExecutor;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.EditorLockFreeTyping;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
@@ -235,7 +236,9 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
   }
 
   protected void assertReadAccessAllowed() {
-    if (myViewProvider.getVirtualFile() instanceof ReadOnlyLightVirtualFile) return;
+    VirtualFile virtualFile = myViewProvider.getVirtualFile();
+    if (virtualFile instanceof ReadOnlyLightVirtualFile) return;
+    if (!EditorLockFreeTyping.isReadAccessNeeded(virtualFile)) return;
     ApplicationManager.getApplication().assertReadAccessAllowed();
   }
 

@@ -134,6 +134,11 @@
               topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
   </projectListeners>
 
+  <applicationListeners>
+    <listener class="com.jetbrains.python.sdk.PySdkTransferredRootsListener"
+              topic="com.jetbrains.python.sdk.PySdkListener"/>
+  </applicationListeners>
+
   <extensions defaultExtensionNs="com.intellij">
     <registryKey key="use.python.for.local.conda"
                  defaultValue="true"
@@ -185,8 +190,8 @@
 
     <applicationService serviceImplementation="com.jetbrains.python.packaging.pip.PypiPackageCache"/>
     <applicationService serviceImplementation="com.jetbrains.python.packaging.PyPackageService"/>
-    <applicationService serviceInterface="com.jetbrains.python.module.PyModuleService"
-                        serviceImplementation="com.jetbrains.python.module.PyModuleServiceImpl"/>
+    <projectService serviceInterface="com.jetbrains.python.module.PyModuleService"
+                    serviceImplementation="com.jetbrains.python.module.PyModuleServiceImpl"/>
     <applicationService serviceInterface="com.jetbrains.python.psi.resolve.PackageAvailabilityService"
                         serviceImplementation="com.jetbrains.python.packaging.PackageAvailabilityServiceImpl"/>
     <typedHandler implementation="com.jetbrains.python.codeInsight.PyMethodNameTypedHandler" id="pyMethodNameTypedHandler"/>

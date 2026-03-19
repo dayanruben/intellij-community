@@ -259,7 +259,6 @@ fleet/test-runtime
 fleet/util/codepoints
 fleet/util/codepoints/test
 fleet/util/core
-fleet/util/datetime
 fleet/util/logging/api
 fleet/util/logging/slf4j
 fleet/util/modules
@@ -1464,6 +1463,7 @@ plugins/rareJavaRefactorings
 plugins/remote-control
 plugins/repository-search
 plugins/repository-search/common
+plugins/repository-search/completion
 plugins/restructuredtext
 plugins/search-everywhere-ml
 plugins/search-everywhere-ml/ranking/core

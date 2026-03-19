@@ -132,7 +132,7 @@ public final class TypedHandler extends TypedActionHandlerBase {
       return;
     }
     PsiDocumentManager psiDocumentManager = PsiDocumentManager.getInstance(project);
-    Document originalDocument = originalEditor.getDocument();
+    Document originalDocument = originalEditor.getUiDocument();
     TypedDelegateImpl.fireNewTypingStarted(originalEditor, dataContext, charTyped);
     originalEditor.getCaretModel().runForEachCaret(caret -> {
       doExecutePerCaret(
@@ -162,7 +162,7 @@ public final class TypedHandler extends TypedActionHandlerBase {
       psiDocumentManager.doPostponedOperationsAndUnblockDocument(originalDocument); // to clean up after previous caret processing
     }
     Editor editor = injectedEditorIfCharTypedIsSignificant(charTyped, originalEditor, originalFile);
-    PsiFile file = editor == originalEditor ? originalFile : Objects.requireNonNull(psiDocumentManager.getPsiFile(editor.getDocument()));
+    PsiFile file = getPsiFileForEditor(psiDocumentManager, originalFile, originalEditor, editor);
     try {
       if (caret == originalEditor.getCaretModel().getPrimaryCaret()) {
         boolean handled = TypedDelegateImpl.fireCheckAutoPopup(project, file, editor, charTyped);
@@ -174,7 +174,7 @@ public final class TypedHandler extends TypedActionHandlerBase {
       if (editor instanceof EditorWindow editorWindow && !editorWindow.isValid()) {
         // delegate must have invalidated injected editor by calling commitDocument() or similar
         editor = injectedEditorIfCharTypedIsSignificant(charTyped, originalEditor, originalFile);
-        file = editor == originalEditor ? originalFile : Objects.requireNonNull(psiDocumentManager.getPsiFile(editor.getDocument()));
+        file = getPsiFileForEditor(psiDocumentManager, originalFile, originalEditor, editor);
       }
       if (!editor.isInsertMode()) {
         TypedCharImpl.typeChar(originalEditor, project, charTyped);
@@ -194,7 +194,7 @@ public final class TypedHandler extends TypedActionHandlerBase {
       if (TypedQuoteImpl.beforeQuoteTyped(project, file, editor, charTyped)) {
         return;
       }
-      long modStampBefore = editor.getDocument().getModificationStamp();
+      long modStampBefore = editor.getUiDocument().getModificationStamp();
       TypedCharImpl.typeChar(originalEditor, project, charTyped);
       AutoHardWrapHandler.getInstance().wrapLineIfNecessary(originalEditor, dataContext, modStampBefore);
       if (editor.isDisposed()) { // can be that injected editor disappear
@@ -225,7 +225,7 @@ public final class TypedHandler extends TypedActionHandlerBase {
           // IDEA-52375/WEB-9105/KTNB-470 fix: last quote in editable fragment should be handled by outer language quote handler,
           // except injection-first editors
           TextRange hostRange = documentWindow.getHostRange(offset);
-          CharSequence sequence = editor.getDocument().getCharsSequence();
+          CharSequence sequence = editor.getUiDocument().getCharsSequence();
           if (sequence.length() > offset && charTyped != Character.codePointAt(sequence, offset) ||
               hostRange != null && (
                 hostRange.contains(offset) ||
@@ -256,5 +256,21 @@ public final class TypedHandler extends TypedActionHandlerBase {
       );
     }
     EditorModificationUtilEx.deleteSelectedText(editor);
+  }
+
+  private static PsiFile getPsiFileForEditor(
+    @NotNull PsiDocumentManager psiDocumentManager,
+    @NotNull PsiFile originalFile,
+    @NotNull Editor originalEditor,
+    Editor editor
+  ) {
+    if (editor == originalEditor) {
+      return originalFile;
+    }
+    Document document = editor.getDocument();
+    return Objects.requireNonNull(
+      psiDocumentManager.getPsiFile(document),
+      "no psi for document " + document
+    );
   }
 }

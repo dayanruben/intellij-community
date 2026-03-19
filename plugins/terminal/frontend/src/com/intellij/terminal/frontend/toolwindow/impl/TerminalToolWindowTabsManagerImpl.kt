@@ -67,6 +67,7 @@ import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
 import org.jetbrains.plugins.terminal.fus.TerminalOpeningWay
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
 import org.jetbrains.plugins.terminal.startup.TerminalProcessType
+import org.jetbrains.plugins.terminal.util.TerminalTitleUtils.createDefaultTabName
 import java.lang.ref.WeakReference
 import kotlin.time.Duration.Companion.seconds
 
@@ -165,7 +166,8 @@ internal class TerminalToolWindowTabsManagerImpl(
     TerminalTabCloseListenerImpl.install(content, project, parentDisposable = content)
 
     val tabScope = coroutineScope.childScope("TerminalToolWindowTab")
-    updateTabNameOnTitleChange(terminal.title, content, tabScope.childScope("Tab name updating"))
+    content.displayName = terminal.getTitleText()
+    updateTabNameOnTitleChange(terminal, content, tabScope.childScope("Tab name updating"))
 
     // Terminate the session if the tab was closed.
     // But if the tab was detached, leave the session alive.
@@ -241,8 +243,15 @@ internal class TerminalToolWindowTabsManagerImpl(
 
   private fun createTerminalViewAndStartSession(builder: TerminalToolWindowTabBuilderImpl): TerminalView {
     val terminal = createTerminalView(builder.startupFusInfo)
-    val tabName = builder.tabName ?: createDefaultTabName(getToolWindow())
-    terminal.title.change { defaultTitle = tabName }
+    terminal.title.change {
+      if (builder.isUserDefinedName) {
+        userDefinedTitle = builder.tabName
+      }
+      else {
+        defaultTitle = builder.tabName ?: createDefaultTabName(getToolWindow())
+      }
+    }
+
     createBackendTabAndStartSession(terminal, builder)
 
     project.messageBus.syncPublisher(TerminalTabsManagerListener.TOPIC).terminalViewCreated(terminal)
@@ -283,7 +292,7 @@ internal class TerminalToolWindowTabsManagerImpl(
 
     // Ideally, the backend tab should be under the tab scope, but now it has the lifecycle of the terminal scope
     updateBackendTabNameOnTitleChange(
-      terminal.title,
+      terminal,
       backendTabId,
       project,
       scope = terminal.coroutineScope.childScope("Backend tab name updating")

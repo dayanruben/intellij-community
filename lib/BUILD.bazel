@@ -924,6 +924,21 @@ jvm_import(
 )
 
 copy_file(
+  name = "com.squareup.okio/okio-jvm-3.9.0.jar_copy",
+  src = "@com_squareup_okio-okio-jvm-3_9_0_http//file",
+  out = "com.squareup.okio/okio-jvm-3.9.0.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "codeowners-ownership-okio",
+  jar = "@com_squareup_okio-okio-jvm-3_9_0_http//file",
+  source_jar = "@com_squareup_okio-okio-jvm-3_9_0-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
   name = "org.junit.jupiter/junit-jupiter-engine-5.12.2.jar_copy",
   src = "@org_junit_jupiter-junit-jupiter-engine-5_12_2_http//file",
   out = "org.junit.jupiter/junit-jupiter-engine-5.12.2.jar",
@@ -2216,17 +2231,17 @@ java_library(
 )
 
 copy_file(
-  name = "jetbrains.fleet/expects-compiler-plugin-2.3.20-RC2-0.1.jar_copy",
-  src = "@jetbrains_fleet-expects-compiler-plugin-2_3_20-RC2-0_1_http//file",
-  out = "jetbrains.fleet/expects-compiler-plugin-2.3.20-RC2-0.1.jar",
+  name = "jetbrains.fleet/expects-compiler-plugin-2.3.20-0.1.jar_copy",
+  src = "@jetbrains_fleet-expects-compiler-plugin-2_3_20-0_1_http//file",
+  out = "jetbrains.fleet/expects-compiler-plugin-2.3.20-0.1.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "expects-compiler-plugin",
-  jar = "@jetbrains_fleet-expects-compiler-plugin-2_3_20-RC2-0_1_http//file",
-  source_jar = "@jetbrains_fleet-expects-compiler-plugin-2_3_20-RC2-0_1-sources_http//file",
+  jar = "@jetbrains_fleet-expects-compiler-plugin-2_3_20-0_1_http//file",
+  source_jar = "@jetbrains_fleet-expects-compiler-plugin-2_3_20-0_1-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -7688,17 +7703,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.jediterm/jediterm-core-3.63.jar_copy",
-  src = "@org_jetbrains_jediterm-jediterm-core-3_63_http//file",
-  out = "org.jetbrains.jediterm/jediterm-core-3.63.jar",
+  name = "org.jetbrains.jediterm/jediterm-core-3.64.jar_copy",
+  src = "@org_jetbrains_jediterm-jediterm-core-3_64_http//file",
+  out = "org.jetbrains.jediterm/jediterm-core-3.64.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "jediterm-core",
-  jar = "@org_jetbrains_jediterm-jediterm-core-3_63_http//file",
-  source_jar = "@org_jetbrains_jediterm-jediterm-core-3_63-sources_http//file",
+  jar = "@org_jetbrains_jediterm-jediterm-core-3_64_http//file",
+  source_jar = "@org_jetbrains_jediterm-jediterm-core-3_64-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -7822,17 +7837,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.kotlin/kotlin-compose-compiler-plugin-2.3.20-RC2.jar_copy",
-  src = "@org_jetbrains_kotlin-kotlin-compose-compiler-plugin-2_3_20-RC2_http//file",
-  out = "org.jetbrains.kotlin/kotlin-compose-compiler-plugin-2.3.20-RC2.jar",
+  name = "org.jetbrains.kotlin/kotlin-compose-compiler-plugin-2.3.20.jar_copy",
+  src = "@org_jetbrains_kotlin-kotlin-compose-compiler-plugin-2_3_20_http//file",
+  out = "org.jetbrains.kotlin/kotlin-compose-compiler-plugin-2.3.20.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "jetbrains-kotlin-compose-compiler-plugin",
-  jar = "@org_jetbrains_kotlin-kotlin-compose-compiler-plugin-2_3_20-RC2_http//file",
-  source_jar = "@org_jetbrains_kotlin-kotlin-compose-compiler-plugin-2_3_20-RC2-sources_http//file",
+  jar = "@org_jetbrains_kotlin-kotlin-compose-compiler-plugin-2_3_20_http//file",
+  source_jar = "@org_jetbrains_kotlin-kotlin-compose-compiler-plugin-2_3_20-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -9019,17 +9034,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.kotlin/kotlin-metadata-jvm-2.3.20-RC2.jar_copy",
-  src = "@org_jetbrains_kotlin-kotlin-metadata-jvm-2_3_20-RC2_http//file",
-  out = "org.jetbrains.kotlin/kotlin-metadata-jvm-2.3.20-RC2.jar",
+  name = "org.jetbrains.kotlin/kotlin-metadata-jvm-2.3.20.jar_copy",
+  src = "@org_jetbrains_kotlin-kotlin-metadata-jvm-2_3_20_http//file",
+  out = "org.jetbrains.kotlin/kotlin-metadata-jvm-2.3.20.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "kotlin-metadata",
-  jar = "@org_jetbrains_kotlin-kotlin-metadata-jvm-2_3_20-RC2_http//file",
-  source_jar = "@org_jetbrains_kotlin-kotlin-metadata-jvm-2_3_20-RC2-sources_http//file",
+  jar = "@org_jetbrains_kotlin-kotlin-metadata-jvm-2_3_20_http//file",
+  source_jar = "@org_jetbrains_kotlin-kotlin-metadata-jvm-2_3_20-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -9049,47 +9064,47 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.kotlin/kotlin-reflect-2.3.20-RC2.jar_copy",
-  src = "@org_jetbrains_kotlin-kotlin-reflect-2_3_20-RC2_http//file",
-  out = "org.jetbrains.kotlin/kotlin-reflect-2.3.20-RC2.jar",
+  name = "org.jetbrains.kotlin/kotlin-reflect-2.3.20.jar_copy",
+  src = "@org_jetbrains_kotlin-kotlin-reflect-2_3_20_http//file",
+  out = "org.jetbrains.kotlin/kotlin-reflect-2.3.20.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "kotlin-reflect",
-  jar = "@org_jetbrains_kotlin-kotlin-reflect-2_3_20-RC2_http//file",
-  source_jar = "@org_jetbrains_kotlin-kotlin-reflect-2_3_20-RC2-sources_http//file",
+  jar = "@org_jetbrains_kotlin-kotlin-reflect-2_3_20_http//file",
+  source_jar = "@org_jetbrains_kotlin-kotlin-reflect-2_3_20-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 copy_file(
-  name = "org.jetbrains.kotlin/kotlin-script-runtime-2.3.20-RC2.jar_copy",
-  src = "@org_jetbrains_kotlin-kotlin-script-runtime-2_3_20-RC2_http//file",
-  out = "org.jetbrains.kotlin/kotlin-script-runtime-2.3.20-RC2.jar",
+  name = "org.jetbrains.kotlin/kotlin-script-runtime-2.3.20.jar_copy",
+  src = "@org_jetbrains_kotlin-kotlin-script-runtime-2_3_20_http//file",
+  out = "org.jetbrains.kotlin/kotlin-script-runtime-2.3.20.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "kotlin-script-runtime",
-  jar = "@org_jetbrains_kotlin-kotlin-script-runtime-2_3_20-RC2_http//file",
-  source_jar = "@org_jetbrains_kotlin-kotlin-script-runtime-2_3_20-RC2-sources_http//file",
+  jar = "@org_jetbrains_kotlin-kotlin-script-runtime-2_3_20_http//file",
+  source_jar = "@org_jetbrains_kotlin-kotlin-script-runtime-2_3_20-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 copy_file(
-  name = "org.jetbrains.kotlin/kotlin-stdlib-2.3.20-RC2.jar_copy",
-  src = "@org_jetbrains_kotlin-kotlin-stdlib-2_3_20-RC2_http//file",
-  out = "org.jetbrains.kotlin/kotlin-stdlib-2.3.20-RC2.jar",
+  name = "org.jetbrains.kotlin/kotlin-stdlib-2.3.20.jar_copy",
+  src = "@org_jetbrains_kotlin-kotlin-stdlib-2_3_20_http//file",
+  out = "org.jetbrains.kotlin/kotlin-stdlib-2.3.20.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "kotlin-stdlib",
-  jar = "@org_jetbrains_kotlin-kotlin-stdlib-2_3_20-RC2_http//file",
-  source_jar = "@org_jetbrains_kotlin-kotlin-stdlib-2_3_20-RC2-sources_http//file",
+  jar = "@org_jetbrains_kotlin-kotlin-stdlib-2_3_20_http//file",
+  source_jar = "@org_jetbrains_kotlin-kotlin-stdlib-2_3_20-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -9101,17 +9116,17 @@ java_library(
 )
 
 copy_file(
-  name = "org.jetbrains.kotlin/kotlin-test-2.3.20-RC2.jar_copy",
-  src = "@org_jetbrains_kotlin-kotlin-test-2_3_20-RC2_http//file",
-  out = "org.jetbrains.kotlin/kotlin-test-2.3.20-RC2.jar",
+  name = "org.jetbrains.kotlin/kotlin-test-2.3.20.jar_copy",
+  src = "@org_jetbrains_kotlin-kotlin-test-2_3_20_http//file",
+  out = "org.jetbrains.kotlin/kotlin-test-2.3.20.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "kotlin-test",
-  jar = "@org_jetbrains_kotlin-kotlin-test-2_3_20-RC2_http//file",
-  source_jar = "@org_jetbrains_kotlin-kotlin-test-2_3_20-RC2-sources_http//file",
+  jar = "@org_jetbrains_kotlin-kotlin-test-2_3_20_http//file",
+  source_jar = "@org_jetbrains_kotlin-kotlin-test-2_3_20-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -9184,17 +9199,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.kotlin/kotlin-test-junit-2.3.20-RC2.jar_copy",
-  src = "@org_jetbrains_kotlin-kotlin-test-junit-2_3_20-RC2_http//file",
-  out = "org.jetbrains.kotlin/kotlin-test-junit-2.3.20-RC2.jar",
+  name = "org.jetbrains.kotlin/kotlin-test-junit-2.3.20.jar_copy",
+  src = "@org_jetbrains_kotlin-kotlin-test-junit-2_3_20_http//file",
+  out = "org.jetbrains.kotlin/kotlin-test-junit-2.3.20.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "kotlin-test-junit",
-  jar = "@org_jetbrains_kotlin-kotlin-test-junit-2_3_20-RC2_http//file",
-  source_jar = "@org_jetbrains_kotlin-kotlin-test-junit-2_3_20-RC2-sources_http//file",
+  jar = "@org_jetbrains_kotlin-kotlin-test-junit-2_3_20_http//file",
+  source_jar = "@org_jetbrains_kotlin-kotlin-test-junit-2_3_20-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -12363,17 +12378,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.jediterm/jediterm-ui-3.63.jar_copy",
-  src = "@org_jetbrains_jediterm-jediterm-ui-3_63_http//file",
-  out = "org.jetbrains.jediterm/jediterm-ui-3.63.jar",
+  name = "org.jetbrains.jediterm/jediterm-ui-3.64.jar_copy",
+  src = "@org_jetbrains_jediterm-jediterm-ui-3_64_http//file",
+  out = "org.jetbrains.jediterm/jediterm-ui-3.64.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "libraries-jediterm-ui-jediterm-ui",
-  jar = "@org_jetbrains_jediterm-jediterm-ui-3_63_http//file",
-  source_jar = "@org_jetbrains_jediterm-jediterm-ui-3_63-sources_http//file",
+  jar = "@org_jetbrains_jediterm-jediterm-ui-3_64_http//file",
+  source_jar = "@org_jetbrains_jediterm-jediterm-ui-3_64-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -17771,17 +17786,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "jetbrains.fleet/noria-compiler-plugin-2.3.20-RC2-0.1.jar_copy",
-  src = "@jetbrains_fleet-noria-compiler-plugin-2_3_20-RC2-0_1_http//file",
-  out = "jetbrains.fleet/noria-compiler-plugin-2.3.20-RC2-0.1.jar",
+  name = "jetbrains.fleet/noria-compiler-plugin-2.3.20-0.1.jar_copy",
+  src = "@jetbrains_fleet-noria-compiler-plugin-2_3_20-0_1_http//file",
+  out = "jetbrains.fleet/noria-compiler-plugin-2.3.20-0.1.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "noria-compiler-plugin",
-  jar = "@jetbrains_fleet-noria-compiler-plugin-2_3_20-RC2-0_1_http//file",
-  source_jar = "@jetbrains_fleet-noria-compiler-plugin-2_3_20-RC2-0_1-sources_http//file",
+  jar = "@jetbrains_fleet-noria-compiler-plugin-2_3_20-0_1_http//file",
+  source_jar = "@jetbrains_fleet-noria-compiler-plugin-2_3_20-0_1-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -17796,14 +17811,6 @@ copy_file(
   name = "com.squareup.okhttp3/okhttp-5.0.0-alpha.14.jar_copy",
   src = "@com_squareup_okhttp3-okhttp-5_0_0-alpha_14_http//file",
   out = "com.squareup.okhttp3/okhttp-5.0.0-alpha.14.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "com.squareup.okio/okio-jvm-3.9.0.jar_copy",
-  src = "@com_squareup_okio-okio-jvm-3_9_0_http//file",
-  out = "com.squareup.okio/okio-jvm-3.9.0.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
@@ -19911,32 +19918,32 @@ jvm_import(
 )
 
 copy_file(
-  name = "jetbrains.fleet/rhizomedb-compiler-plugin-2.3.20-RC2-0.1.jar_copy",
-  src = "@jetbrains_fleet-rhizomedb-compiler-plugin-2_3_20-RC2-0_1_http//file",
-  out = "jetbrains.fleet/rhizomedb-compiler-plugin-2.3.20-RC2-0.1.jar",
+  name = "jetbrains.fleet/rhizomedb-compiler-plugin-2.3.20-0.1.jar_copy",
+  src = "@jetbrains_fleet-rhizomedb-compiler-plugin-2_3_20-0_1_http//file",
+  out = "jetbrains.fleet/rhizomedb-compiler-plugin-2.3.20-0.1.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "rhizomedb-compiler-plugin",
-  jar = "@jetbrains_fleet-rhizomedb-compiler-plugin-2_3_20-RC2-0_1_http//file",
-  source_jar = "@jetbrains_fleet-rhizomedb-compiler-plugin-2_3_20-RC2-0_1-sources_http//file",
+  jar = "@jetbrains_fleet-rhizomedb-compiler-plugin-2_3_20-0_1_http//file",
+  source_jar = "@jetbrains_fleet-rhizomedb-compiler-plugin-2_3_20-0_1-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
 copy_file(
-  name = "com.jetbrains.fleet/rpc-compiler-plugin-2.3.20-RC2-0.1.jar_copy",
-  src = "@com_jetbrains_fleet-rpc-compiler-plugin-2_3_20-RC2-0_1_http//file",
-  out = "com.jetbrains.fleet/rpc-compiler-plugin-2.3.20-RC2-0.1.jar",
+  name = "com.jetbrains.fleet/rpc-compiler-plugin-2.3.20-0.1.jar_copy",
+  src = "@com_jetbrains_fleet-rpc-compiler-plugin-2_3_20-0_1_http//file",
+  out = "com.jetbrains.fleet/rpc-compiler-plugin-2.3.20-0.1.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "rpc-compiler-plugin",
-  jar = "@com_jetbrains_fleet-rpc-compiler-plugin-2_3_20-RC2-0_1_http//file",
-  source_jar = "@com_jetbrains_fleet-rpc-compiler-plugin-2_3_20-RC2-0_1-sources_http//file",
+  jar = "@com_jetbrains_fleet-rpc-compiler-plugin-2_3_20-0_1_http//file",
+  source_jar = "@com_jetbrains_fleet-rpc-compiler-plugin-2_3_20-0_1-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
