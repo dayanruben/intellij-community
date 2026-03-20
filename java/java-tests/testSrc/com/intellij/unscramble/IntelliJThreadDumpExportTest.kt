@@ -4,17 +4,19 @@ package com.intellij.unscramble
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ex.PathManagerEx
 import com.intellij.testFramework.TestDataPath
+import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.ui.SimpleTextAttributes
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.Test
+import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import javax.swing.Icon
 import kotlin.io.path.Path
 
+@TestApplication
 @TestDataPath($$"$CONTENT_ROOT/testData/threadDump")
 internal class IntelliJThreadDumpExportTest {
   @Test
-  fun `serializer writes documented format and skips info items`() {
+  fun `serializer writes documented format and includes info items`() {
     val expectedDumpText = loadGoldenThreadDump("serializedFull")
 
     val actualDumpText = serializeIntelliJThreadDump(createDumpItemsForExport(), listOf("Full thread dump"))
@@ -89,7 +91,7 @@ internal class IntelliJThreadDumpExportTest {
   }
 
   @Test
-  fun `serializer writes metadata without body and skips containers without ids`() {
+  fun `serializer writes metadata, includes info items, and skips containers without ids`() {
     val actualDumpText = serializeIntelliJThreadDump(
       listOf(
         dumpItem(
@@ -114,6 +116,8 @@ internal class IntelliJThreadDumpExportTest {
       """
       # This dump may be opened in IntelliJ IDEA using Analyze Stack Trace or Thread Dump...
       
+      Collection of extended dump was disabled.
+      
       ${IntelliJThreadDumpMetadata.META_DATA_MARKER}
       {
           "version": 1,
@@ -134,6 +138,25 @@ internal class IntelliJThreadDumpExportTest {
     )
   }
 
+  @Test
+  fun `serializer prefers exported stack trace over ui stack trace`() {
+    val actualDumpText = serializeIntelliJThreadDump(
+      listOf(
+        dumpItem(
+          name = "scope:1",
+          stackTrace = "\"scope:1@300\"\n[dispatcher=Dispatchers.Default]",
+          exportedStackTrace = "\"scope:1@300\" virtual tid=0x0 nid=NA suspended [Coroutine] [dispatcher=Dispatchers.Default]",
+          treeId = 300L,
+          parentTreeId = null,
+          isContainer = false,
+        ),
+      ),
+    )
+
+    assertThat(actualDumpText).contains("\"scope:1@300\" virtual tid=0x0 nid=NA suspended [Coroutine] [dispatcher=Dispatchers.Default]")
+    assertThat(actualDumpText).doesNotContain("\"scope:1@300\"\n[dispatcher=Dispatchers.Default]")
+  }
+
   private fun createDumpItemsForExport(): List<DumpItem> {
     val dumpText = loadThreadDump("commonIntelliJFormat.txt")
     return buildList {
@@ -151,6 +174,7 @@ internal class IntelliJThreadDumpExportTest {
   private fun dumpItem(
     name: String,
     stackTrace: String,
+    exportedStackTrace: String = stackTrace,
     treeId: Long?,
     parentTreeId: Long?,
     isContainer: Boolean,
@@ -159,6 +183,7 @@ internal class IntelliJThreadDumpExportTest {
       override val name: String = name
       override val stateDesc: String = ""
       override val stackTrace: String = stackTrace
+      override val exportedStackTrace: String = exportedStackTrace
       override val interestLevel: Int = 0
       override val icon: Icon = AllIcons.Actions.Resume
       override val iconToolTip: String? = null

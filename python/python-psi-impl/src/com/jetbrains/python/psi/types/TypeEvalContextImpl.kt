@@ -206,11 +206,11 @@ open class TypeEvalContextImpl internal constructor(
       }
 
       assertValid(type, element)
+      PyAnyType.validate(type)
       myEvaluated[element] = type ?: PyNullType
       type
-    }
+    } ?: PyAnyType.unknown
   }
-
 
   override fun getReturnType(callable: PyCallable): PyType? {
     if (canDelegateToLibraryContext(callable)) {
@@ -225,6 +225,7 @@ open class TypeEvalContextImpl internal constructor(
     return RecursionManager.doPreventingRecursion(callable to this, false) {
       val type = callable.getReturnType(this, KeyImpl)
       assertValid(type, callable)
+      PyAnyType.validate(type)
       myEvaluatedReturn[callable] = type ?: PyNullType
       type
     }

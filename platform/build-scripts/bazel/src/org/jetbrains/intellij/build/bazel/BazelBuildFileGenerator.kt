@@ -619,9 +619,7 @@ internal class BazelBuildFileGenerator(
       productionCompileTargets.add(moduleDescriptor.targetAsLabel)
       productionCompileJars.add(moduleDescriptor.targetAsLabel)
 
-      if (sources.isNotEmpty()) {
-        option("module_name", module.name)
-      }
+      option("module_name", module.name)
 
       visibility(arrayOf("//visibility:public"))
       if (customModule == null) {
@@ -879,6 +877,7 @@ internal class BazelBuildFileGenerator(
       // In a community-only checkout, root-level module names still keep the `main.` segment.
       baseBuildDir == communityRoot || baseBuildDir == ultimateRoot -> null
       baseBuildDir.parent == ultimateRoot -> "idea"
+      baseBuildDir.parent == communityRoot -> "community"
       else -> baseBuildDir.parent?.fileName.toString()
     }
 

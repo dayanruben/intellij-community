@@ -160,7 +160,7 @@ object CommunityModuleSets {
     embeddedModule("intellij.platform.find")
     module("intellij.platform.find.backend")
     module("intellij.platform.editor.frontend")
-    embeddedModule("intellij.platform.managed.cache")
+    module("intellij.platform.managed.cache")
     module("intellij.platform.managed.cache.backend")
 
     module("intellij.platform.todo")
@@ -374,6 +374,7 @@ object CommunityModuleSets {
     module("intellij.rd.ide.model.generated")
     module("intellij.rd.platform")
     module("intellij.rd.ui")
+    module("intellij.platform.split.protocol")
   }
 
   /**

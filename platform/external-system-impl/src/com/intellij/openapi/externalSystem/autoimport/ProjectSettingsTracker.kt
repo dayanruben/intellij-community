@@ -72,9 +72,13 @@ class ProjectSettingsTracker(
     return file.calculateCrc(project, projectAware.projectId.systemId)
   }
 
-  fun isUpToDate() = projectStatus.isUpToDate()
+  fun isUpToDate(): Boolean {
+    return projectStatus.isUpToDate()
+  }
 
-  fun getModificationType() = projectStatus.getModificationType()
+  fun getModificationType(): ExternalSystemModificationType {
+    return projectStatus.getModificationType()
+  }
 
   fun getSettingsContext(): ExternalSystemSettingsFilesReloadContext {
     val status = settingsFilesStatus.get()
@@ -141,7 +145,9 @@ class ProjectSettingsTracker(
     return status
   }
 
-  fun getState() = State(projectStatus.isDirty(), settingsFilesStatus.get().oldCRC.toMap())
+  fun getState(): State {
+    return State(projectStatus.isDirty(), settingsFilesStatus.get().oldCRC.toMap())
+  }
 
   fun loadState(state: State) {
     val operationStamp = Stamp.nextStamp()
@@ -169,7 +175,7 @@ class ProjectSettingsTracker(
     if (isInvalidateCache || isRefreshVfs) {
       settingsAsyncSupplier.invalidate()
     }
-    settingsAsyncSupplier.supply(parentDisposable) { settingsPaths ->
+    settingsAsyncSupplier.supply { settingsPaths ->
       if (isRefreshVfs) {
         val settingsFiles = settingsPaths.mapNotNull { Path.of(it) }
         if (settingsFiles.isNotEmpty()) {
@@ -226,15 +232,13 @@ class ProjectSettingsTracker(
     }
   }
 
-  fun beforeApplyChanges(
-    parentDisposable: Disposable,
-    listener: () -> Unit
-  ) = applyChangesOperation.whenOperationStarted(parentDisposable, listener)
+  fun beforeApplyChanges(parentDisposable: Disposable, listener: () -> Unit) {
+    applyChangesOperation.whenOperationStarted(parentDisposable, listener)
+  }
 
-  fun afterApplyChanges(
-    parentDisposable: Disposable,
-    listener: () -> Unit
-  ) = applyChangesOperation.whenOperationFinished(parentDisposable, listener)
+  fun afterApplyChanges(parentDisposable: Disposable, listener: () -> Unit) {
+    applyChangesOperation.whenOperationFinished(parentDisposable, listener)
+  }
 
   init {
     projectAware.subscribe(ProjectListener(), parentDisposable)
@@ -364,14 +368,15 @@ class ProjectSettingsTracker(
     }
 
     private val supplier = BackgroundAsyncSupplier(
-      project,
+      project = project,
       supplier = AsyncSupplier.blocking(::getOrCollectSettingsFiles),
       shouldKeepTasksAsynchronous = ::isAsyncChangesProcessing,
       backgroundExecutor = backgroundExecutor,
+      parentDisposable = parentDisposable,
     )
 
-    override fun supply(parentDisposable: Disposable, consumer: (Set<String>) -> Unit) {
-      supplier.supply(parentDisposable) {
+    override fun supply(consumer: (Set<String>) -> Unit) {
+      supplier.supply {
         consumer(it + settingsFilesStatus.get().oldCRC.keys)
       }
     }

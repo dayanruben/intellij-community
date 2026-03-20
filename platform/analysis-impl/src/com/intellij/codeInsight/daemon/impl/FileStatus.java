@@ -43,7 +43,7 @@ final class FileStatus {
     LOG.debug("new FileStatus()");
   }
 
-  int @NotNull [] getAllKnownPassIds(@NotNull Project project) {
+  static int @NotNull [] getAllKnownPassIds(@NotNull Project project) {
     IntList r = IntArrayList.of(Pass.UPDATE_ALL, Pass.EXTERNAL_TOOLS, Pass.LOCAL_INSPECTIONS, Pass.LINE_MARKERS, Pass.SLOW_LINE_MARKERS, Pass.INJECTED_GENERAL);
     TextEditorHighlightingPassRegistrarEx registrar = (TextEditorHighlightingPassRegistrarEx)TextEditorHighlightingPassRegistrar.getInstance(project);
     for (DirtyScopeTrackingHighlightingPassFactory factory : registrar.getDirtyScopeTrackingFactories()) {
@@ -77,7 +77,7 @@ final class FileStatus {
       this.defensivelyMarked.remove(passId);
     }
   }
-  void markDefensivelyMarkedForAllPasses(@NotNull Project project) {
+  void markDefensivelyForAllPasses(@NotNull Project project) {
     for (int passId : getAllKnownPassIds(project)) {
       setDefensivelyMarked(true, passId);
     }

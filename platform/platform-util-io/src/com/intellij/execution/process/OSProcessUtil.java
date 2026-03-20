@@ -21,6 +21,7 @@ public final class OSProcessUtil {
   }
 
   /// Forceful termination of a process tree.
+  /// Returns `true` is the attempt was successful.
   public static boolean killProcessTree(@NotNull Process process) {
     if (OS.CURRENT == OS.Windows) {
       try {
@@ -41,7 +42,22 @@ public final class OSProcessUtil {
       }
     }
     else {
-      return UnixProcessManager.sendSigKillToProcessTree(process);
+      ProcessHandle handle;
+      try {
+        handle = process.toHandle();
+      }
+      catch (UnsupportedOperationException e) {
+        // workaround for `com.pty4j.unix.UnixPtyProcess` (https://github.com/JetBrains/pty4j/issues/179)
+        handle = ProcessHandle.of(process.pid()).orElse(null);
+      }
+      if (handle != null) {
+        var handles = handle.descendants().toList();
+        for (var iterator = handles.listIterator(handles.size()); iterator.hasPrevious(); ) {
+          iterator.previous().destroyForcibly();
+        }
+      }
+      process.destroyForcibly();
+      return true;
     }
   }
 
@@ -86,8 +102,8 @@ public final class OSProcessUtil {
 
   /// Terminates the specified process gracefully: on Windows, sends Ctrl-C, on Unix, sends the SIGINT signal.
   ///
-  /// Just sending CTRL+C event on Windows might not be enough to terminate the process (PY-50064).
-  /// Use [#terminateProcessGracefully(Process)], or handle the case when the process doesn't terminate.
+  /// Just sending a CTRL+C event on Windows might not be enough to terminate the process (PY-50064).
+  /// Use [#terminateProcessGracefully(Process)] or handle the case when the process doesn't terminate.
   ///
   /// @throws UnsupportedOperationException if it cannot interrupt the process
   /// @see KillableProcessHandler#destroyProcessGracefully()

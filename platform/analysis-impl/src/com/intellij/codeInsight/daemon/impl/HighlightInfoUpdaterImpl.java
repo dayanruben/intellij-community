@@ -47,6 +47,7 @@ import com.intellij.openapi.util.UserDataHolderEx;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.FileViewProvider;
+import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
@@ -155,7 +156,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
     }
   }
 
-  private static CollectionFactory.EvictionListener<PsiElement, List<? extends HighlightInfo>, List<? extends HighlightInfo>> psiElementEvictionListener(@NotNull Project project) {
+  private static @NotNull CollectionFactory.EvictionListener<PsiElement, List<? extends HighlightInfo>, List<? extends HighlightInfo>> psiElementEvictionListener(@NotNull Project project) {
     return (__, hash, evicted) -> {
       if (LOG.isTraceEnabled()) {
         LOG.trace("psiElementEvictionListener: {" + hash+"} -> ("+(evicted == null ? 0 : evicted.size())+"): "+evicted);
@@ -239,16 +240,15 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
 
   private static void addEvictedInfos(@NotNull Project project, @NotNull List<? extends HighlightInfo> infos) {
     if (!infos.isEmpty()) {
-      boolean changed = false;
       if (LOG.isTraceEnabled()) {
         LOG.trace("addEvictedInfos: " + render(infos)+currentProgressInfo()+Thread.currentThread());
       }
-      Map<Document, Collection<HighlightInfo>> evictedMap = new HashMap<>();
+      Map<Document, Collection<HighlightInfo>> evictedMap = HashMap.newHashMap(infos.size());
       for (HighlightInfo info : infos) {
         RangeHighlighterEx highlighter = info.getHighlighter();
         if (highlighter != null) {
           Document hostDocument = highlighter.getDocument();
-          evictedMap.computeIfAbsent(hostDocument, __->new HashSet<>()).addAll(infos);
+          evictedMap.computeIfAbsent(hostDocument, __->HashSet.newHashSet(infos.size())).addAll(infos);
         }
       }
       for (Map.Entry<Document, Collection<HighlightInfo>> entry : evictedMap.entrySet()) {
@@ -264,18 +264,25 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
           newInfos = evictedInfos.toArray(new HighlightInfo[0]);
         }
         while (!((UserDataHolderEx)document).replace(EVICTED_PSI_ELEMENTS, storedInfos, newInfos));
-        changed |= newInfos.length != 0;
         if (LOG.isTraceEnabled()) {
           LOG.trace("addEvictedInfos("+document+"): stored " + render(List.of(newInfos)));
         }
-      }
-      if (changed) {
-        ReadAction.run(() -> {
-          if (!project.isDisposed()) {
-            // some passes could already be running and have no idea that some of the existing range highlighters are obsolete and must be disposed and possibly (re)created
-            DaemonCodeAnalyzer.getInstance(project).restart("PSI elements were evicted");
-          }
-        });
+        if (newInfos.length != (storedInfos == null ? 0 : storedInfos.length)) {
+          ReadAction.run(() -> {
+            if (!project.isDisposed()) {
+              PsiFile psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document);
+              // some passes could already be running and have no idea that some of the existing range highlighters are obsolete and must be disposed and possibly (re)created
+              String reason = "PSI elements were evicted";
+              DaemonCodeAnalyzer analyzer = DaemonCodeAnalyzer.getInstance(project);
+              if (psiFile == null) {
+                analyzer.restart(reason);
+              }
+              else {
+                analyzer.restart(psiFile, reason);
+              }
+            }
+          });
+        }
       }
     }
   }
@@ -440,7 +447,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
         List<? extends HighlightInfo> oldL = toolHighlights.elementHighlights.get(psiElement);
         List<? extends HighlightInfo> oldInfos = oldL == null ? List.of() : ContainerUtil.sorted(oldL, BY_OFFSETS_AND_HASH_ERRORS_FIRST); // need to-resort in case the range-highlighters invalidated and offsets are skewed
         List<HighlightInfo> toRemove = ContainerUtil.sorted(byPsiEntry.getValue(), BY_OFFSETS_AND_HASH_ERRORS_FIRST);
-        List<HighlightInfo> resultInfos = new ArrayList<>();
+        List<HighlightInfo> resultInfos = new ArrayList<>(oldInfos.size());
         ContainerUtil.processSortedListsInOrder(oldInfos, toRemove, BY_OFFSETS_AND_HASH_ERRORS_FIRST, true, (info, result) -> {
           if (result == ContainerUtil.MergeResult.COPIED_FROM_LIST1) {
             resultInfos.add(info);
@@ -537,10 +544,14 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
     // first, visit all weak maps to call their processQueue() to induce `psiFileEvictionListener` to be called
     Map<FileViewProvider, Map<Object, ToolHighlights>> hostMap = getOrCreateHostMap(document);
     ((ReferenceQueueable)hostMap).processQueue();
+    ProgressManager.checkCanceled();
     hostMap.values()
       .stream()
       .flatMap(m -> m.values().stream())
-      .forEach(toolHighlights -> ((ReferenceQueueable)toolHighlights.elementHighlights).processQueue());
+      .forEach(toolHighlights -> {
+        ((ReferenceQueueable)toolHighlights.elementHighlights).processQueue();
+        ProgressManager.checkCanceled();
+      });
   }
 
   @ApiStatus.Internal
@@ -571,7 +582,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
     PsiFile hostFile = injectedLanguageManager.getTopLevelFile(psiFile);
     Document hostDocument = hostFile.getFileDocument();
     Map<FileViewProvider, Map<Object, ToolHighlights>> hostMap = getOrCreateHostMap(hostDocument);
-    List<Map<Object, ToolHighlights>> maps = new ArrayList<>();
+    List<Map<Object, ToolHighlights>> maps = new ArrayList<>(hostMap.size());
     // for invalid files, remove all highlighters inside immediately, there's no chance they'll ever be reused
     hostMap.entrySet().removeIf(entry -> {
       FileViewProvider viewProvider = entry.getKey();
@@ -1084,6 +1095,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
                                         @NotNull Consumer<? super ManagedHighlighterRecycler> invalidPsiRecyclerConsumer) {
     ManagedHighlighterRecycler.runWithRecycler(session, "runWithInvalidPsiRecycler", invalidPsiRecycler -> {
       processQueues(session.getDocument());
+      ProgressManager.checkCanceled();
       recycleInvalidPsiElements(session.getPsiFile(), session, invalidPsiRecycler, toolIdPredicate);
       ScheduledFuture<?> future;
       if (invalidPsiRecycler.forAllInGarbageBin().isEmpty()) {

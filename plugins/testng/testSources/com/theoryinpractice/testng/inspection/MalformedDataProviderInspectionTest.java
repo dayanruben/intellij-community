@@ -29,6 +29,18 @@ public class MalformedDataProviderInspectionTest extends LightJavaCodeInsightFix
     myFixture.testHighlighting(true, false, false, "InstanceDataProviderFromForeignClass.java");
   }
 
+  public void testClassLevelDataProviderClass() {
+    myFixture.testHighlighting(true, false, false, "ClassLevelDataProviderClass.java");
+  }
+
+  public void testAbstractClassProvider() {
+    myFixture.testHighlighting(true, false, false, "AbstractClassProvider.java");
+  }
+
+  public void testInheritedClassLevelDataProviderClass() {
+    myFixture.testHighlighting(true, false, false, "InheritedClassLevelDataProviderClass.java");
+  }
+
   @NotNull
   @Override
   protected String getTestDataPath() {

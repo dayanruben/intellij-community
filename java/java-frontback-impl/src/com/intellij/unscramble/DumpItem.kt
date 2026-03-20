@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.unscramble
 
 import com.intellij.icons.AllIcons
@@ -12,6 +12,7 @@ import org.jetbrains.annotations.Nls
 import java.awt.Color
 import java.util.Objects
 import javax.swing.Icon
+import kotlin.compareTo
 
 @ApiStatus.Internal
 interface DumpItem {
@@ -20,6 +21,13 @@ interface DumpItem {
   val stateDesc: @NlsSafe String
 
   val stackTrace: @NlsSafe String
+
+  /**
+   * Serialized [stackTrace] used when exporting the [DumpItem].
+   * Defaults to the same text that is shown in the UI.
+   */
+  val exportedStackTrace: String
+    get() = stackTrace
 
   val interestLevel: Int
 
@@ -115,20 +123,29 @@ interface MergeableToken {
 class CompoundDumpItem<T : DumpItem>(
   val originalItem: T,
   val counter: Int,
+  override val parentTreeId: Long? = originalItem.parentTreeId
 ) : DumpItem by originalItem {
 
   override val name: String = originalItem.name + (if (counter == 1) "" else " [and ${counter - 1} similar]")
 
   companion object {
     @JvmStatic
-    fun mergeThreadDumpItems(originalItems: List<MergeableDumpItem>): List<DumpItem> =
-      originalItems
-        .groupingBy { it.mergeableToken }
-        .eachCount()
-        .map { (token, count) ->
-          val item = token.item
-          if (count > 1) CompoundDumpItem(item, count) else item
+    fun mergeThreadDumpItems(originalItems: List<MergeableDumpItem>): List<DumpItem> {
+      val groups = originalItems.groupBy { it.mergeableToken }
+      // Map every original treeId to the treeId of the representative of the merge group
+      val idToCompoundId = hashMapOf<Long, Long?>()
+      for ((token, items) in groups) {
+        val compoundId = token.item.treeId
+        for (item in items) {
+          item.treeId?.let { idToCompoundId[it] = compoundId }
         }
+      }
+      return groups.map { (token, items) ->
+        val item = token.item
+        val parentId = item.parentTreeId?.let { idToCompoundId.getOrDefault(it, it) }
+        CompoundDumpItem(item, items.size, parentId)
+      }
+    }
   }
 }
 
@@ -138,13 +155,16 @@ fun toDumpItems(threadStates: List<ThreadState>): List<MergeableDumpItem> =
 
 @ApiStatus.Internal
 fun toDumpItems(threadStates: List<ThreadState>, threadContainerDescriptors: List<JavaThreadContainerDesc>): List<MergeableDumpItem> {
-  val threadDumpItems = threadStates.map(::JavaThreadDumpItem)
+  val threadDumpItems = threadStates.map { ThreadDumpItemFactory.createDumpItem(it) }
 
   val statesToItems = threadStates.zip(threadDumpItems).toMap()
 
   for ((threadState, dumpItem) in statesToItems) {
     val awaitingItems = threadState.awaitingThreads.mapNotNull { statesToItems[it] }.toSet()
-    dumpItem.setAwaitingItems(awaitingItems)
+    // TODO: JavaThreadDumpItem should be created in ThreadDumpItemFactory as well
+    if (dumpItem is JavaThreadDumpItem) {
+      dumpItem.setAwaitingItems(awaitingItems)
+    }
   }
 
   val threadContainerDumpItems = threadContainerDescriptors.map {
@@ -163,7 +183,7 @@ fun toDumpItems(threadStates: List<ThreadState>, threadContainerDescriptors: Lis
 @ApiStatus.Internal
 data class JavaThreadContainerDesc(val name: String, val containerId: Long, val parentId: Long?)
 
-private class JavaThreadDumpItem(private val threadState: ThreadState) : MergeableDumpItem {
+internal class JavaThreadDumpItem(private val threadState: ThreadState) : MergeableDumpItem {
   override val name: String = threadState.name
 
   override val isContainer: Boolean
