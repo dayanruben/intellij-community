@@ -1,14 +1,13 @@
 package com.intellij.mcpserver.impl
 
 import com.intellij.mcpserver.McpToolFilterProvider
-import com.intellij.mcpserver.McpToolFilterProvider.DisallowMcpTools
-import com.intellij.mcpserver.McpToolFilterProvider.McpToolFilter
 import com.intellij.mcpserver.McpToolFilterProvider.McpToolFilterContext
-import com.intellij.mcpserver.McpToolFilterProvider.McpToolFilterModification
+import com.intellij.mcpserver.McpToolInvocationMode
 import com.intellij.openapi.util.registry.Registry
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.merge
 
 /**
@@ -31,34 +30,24 @@ private val TOOL_REGISTRY_KEYS: Map<String, String> = mapOf()
  */
 internal class IndividualRegistryKeyMcpToolFilterProvider : McpToolFilterProvider {
 
-  override fun getFilters(clientInfo: Implementation?, sessionOptions: McpServerService.McpSessionOptions?): List<McpToolFilter> {
+  override fun applyFilters(context: McpToolFilterContext, clientInfo: Implementation?, sessionOptions: McpServerService.McpSessionOptions?, invocationMode: McpToolInvocationMode) {
     val disabledToolNames = TOOL_REGISTRY_KEYS
       .filter { (_, registryKey) -> !Registry.`is`(registryKey) }
       .map { (toolFqn, _) -> toolFqn }
       .toSet()
-    return if (disabledToolNames.isNotEmpty()) {
-      listOf(IndividualToolFilter(disabledToolNames))
-    }
-    else {
-      emptyList()
+    if (disabledToolNames.isNotEmpty()) {
+      context.turnOff { it.descriptor.name in disabledToolNames }
     }
   }
 
-  override fun getUpdates(clientInfo: Implementation?, scope: CoroutineScope, sessionOptions: McpServerService.McpSessionOptions?): Flow<Unit> {
+  override fun getUpdates(clientInfo: Implementation?, scope: CoroutineScope, sessionOptions: McpServerService.McpSessionOptions?, invocationMode: McpToolInvocationMode): Flow<Unit> {
     val flows = TOOL_REGISTRY_KEYS.values.map { registryKey ->
       Registry.get(registryKey).asBooleanFlow()
     }
-    return flows.merge().let { flow ->
-      kotlinx.coroutines.flow.flow {
-        flow.collect { emit(Unit) }
+    return flows.merge().let { mergedFlow ->
+      flow {
+        mergedFlow.collect { emit(Unit) }
       }
-    }
-  }
-
-  private class IndividualToolFilter(private val disabledToolNames: Set<String>) : McpToolFilter {
-    override fun modify(context: McpToolFilterContext): McpToolFilterModification {
-      val toolsToDisallow = context.allowedTools.filter { it.descriptor.name in disabledToolNames }.toSet()
-      return DisallowMcpTools(toolsToDisallow)
     }
   }
 }

@@ -528,6 +528,7 @@ platform/analysis-impl
 platform/backend
 platform/backend/observation
 platform/backend/workspace
+platform/backend/workspace.impl
 platform/bookmarks
 platform/bookmarks/backend
 platform/bookmarks/frontend
@@ -1028,6 +1029,7 @@ plugins/gradle-maven
 plugins/gradle/completion
 plugins/gradle/completion/kotlin
 plugins/gradle/completion/kotlin/tests
+plugins/gradle/completion/toml
 plugins/gradle/gradle-declarative-sync
 plugins/gradle/gradle-dependency-updater
 plugins/gradle/intellij.gradle.analysis
@@ -1046,7 +1048,6 @@ plugins/gradle/native/tooling
 plugins/gradle/plugin
 plugins/gradle/properties
 plugins/gradle/settings
-plugins/gradle/toml
 plugins/gradle/tooling-extension-api
 plugins/gradle/tooling-extension-impl
 plugins/gradle/tooling-proxy
@@ -1466,6 +1467,10 @@ plugins/repository-search
 plugins/repository-search/common
 plugins/repository-search/completion
 plugins/restructuredtext
+plugins/search-everywhere-lucene
+plugins/search-everywhere-lucene/backend
+plugins/search-everywhere-lucene/common
+plugins/search-everywhere-lucene/frontend
 plugins/search-everywhere-ml
 plugins/search-everywhere-ml/ranking/core
 plugins/search-everywhere-ml/ranking/ext

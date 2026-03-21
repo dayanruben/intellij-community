@@ -1,7 +1,5 @@
 package com.intellij.mcpserver
 
-import com.intellij.util.PatternUtil
-
 /**
  * Filter for selecting which MCP tools should be exposed in a server session.
  *
@@ -13,19 +11,35 @@ sealed interface McpToolFilter {
   /**
    * Checks if a tool with the given name should be included in the session.
    *
-   * @param toolName the name of the tool to check
+   * @param tool the tool to check
    * @return true if the tool should be included, false otherwise
    */
-  fun shouldInclude(toolName: String): Boolean
+  fun shouldInclude(tool: McpTool): Boolean
 
+  data object AllowNonExperimental : McpToolFilter {
+    override fun shouldInclude(tool: McpTool): Boolean = !tool.descriptor.category.isExperimental
+  }
+
+  data object AlwaysIncluded : McpToolFilter {
+    override fun shouldInclude(tool: McpTool): Boolean = tool.descriptor.category.alwaysIncluded
+  }
+
+  interface TextMcpToolFilter : McpToolFilter {
+    override fun shouldInclude(tool: McpTool): Boolean = shouldInclude(tool.descriptor.fullyQualifiedName)
+    fun shouldInclude(toolName: String): Boolean
+  }
   /**
    * Allow-all filter: all tools are included.
    *
    * This is the default filter when no restrictions are needed.
    * Use this instead of null to explicitly indicate no filtering.
    */
-  data object AllowAll : McpToolFilter {
+  data object AllowAll : TextMcpToolFilter {
     override fun shouldInclude(toolName: String): Boolean = true
+  }
+
+  data object ProhibitAll : TextMcpToolFilter {
+    override fun shouldInclude(toolName: String): Boolean = false
   }
 
   /**
@@ -36,7 +50,7 @@ sealed interface McpToolFilter {
    *
    * @property allowedTools set of tool names that should be included
    */
-  data class AllowList(val allowedTools: Set<String>) : McpToolFilter {
+  data class AllowList(val allowedTools: Set<String>) : TextMcpToolFilter {
     override fun shouldInclude(toolName: String): Boolean = toolName.split('.').last() in allowedTools
   }
 
@@ -52,35 +66,13 @@ sealed interface McpToolFilter {
    * - Then allows all tools under `com.intellij.mcpserver.toolsets.general`
    * - Then disallows the specific tool `get_file_text_by_path` from any package
    *
-   * @property maskList comma-separated list of mask patterns with +/- prefixes
+   * @param maskList comma-separated list of mask patterns with +/- prefixes
    */
-  class MaskBased(private val maskList: String) : McpToolFilter {
-    private enum class Action { ALLOW, DISALLOW }
-
-    private data class MaskEntry(val pattern: java.util.regex.Pattern, val action: Action)
-
-    private val masks: List<MaskEntry> = maskList
-      .split(",")
-      .map { it.trim() }
-      .filter { it.isNotEmpty() }
-      .map { mask ->
-        val (pattern, action) = when {
-          mask.startsWith("-") -> mask.substring(1) to Action.DISALLOW
-          mask.startsWith("+") -> mask.substring(1) to Action.ALLOW
-          else -> mask to Action.ALLOW
-        }
-        MaskEntry(PatternUtil.fromMask(pattern), action)
-      }
+  class MaskBased(maskList: String) : TextMcpToolFilter {
+    private val maskList: MaskList = MaskList(maskList)
 
     override fun shouldInclude(toolName: String): Boolean {
-      // Default is to include if no masks match
-      var result = true
-      for (entry in masks) {
-        if (entry.pattern.matcher(toolName).matches()) {
-          result = entry.action == Action.ALLOW
-        }
-      }
-      return result
+      return maskList.matches(toolName)
     }
 
     companion object {
@@ -88,10 +80,13 @@ sealed interface McpToolFilter {
        * Creates a MaskBased filter from a mask list string.
        *
        * @param maskList comma-separated list of mask patterns with +/- prefixes
-       * @return a new MaskBased filter, or AllowAll if the mask list is empty
+       * @return a new MaskBased filter that denies all if maskList is empty, or AllowAll if null/blank
        */
       fun fromMaskList(maskList: String?): McpToolFilter {
-        return if (maskList == null || maskList.isBlank()) AllowAll else MaskBased(maskList)
+        if (maskList.isNullOrBlank()) {
+          return ProhibitAll // Empty mask = deny all
+        }
+        return MaskBased(maskList)
       }
     }
   }

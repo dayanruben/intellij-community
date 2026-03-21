@@ -12,8 +12,7 @@ import com.jetbrains.python.packaging.packageRequirements.PackageCollectionPacka
 import com.jetbrains.python.packaging.packageRequirements.PackageNode
 import com.jetbrains.python.packaging.packageRequirements.PackageStructureNode
 import com.jetbrains.python.packaging.packageRequirements.PythonPackageRequirementsTreeExtractor
-import com.jetbrains.python.packaging.packageRequirements.PythonPackageRequirementsTreeExtractor.Companion.parseTree
-import com.jetbrains.python.packaging.packageRequirements.TreeParser
+import com.jetbrains.python.packaging.packageRequirements.PythonPackageRequirementsTreeExtractor.Companion.parseTrees
 import com.jetbrains.python.packaging.packageRequirements.PythonPackageRequirementsTreeExtractorProvider
 import com.jetbrains.python.packaging.packageRequirements.WorkspaceMemberPackageStructureNode
 import com.jetbrains.python.getOrNull
@@ -31,7 +30,7 @@ internal class UvPackageRequirementsTreeExtractor(private val sdk: Sdk, private 
     val workspaceTree = buildWorkspaceStructure(uv, declaredPackageNames, uvExecutionContext.workingDir)
     if (workspaceTree != null) return workspaceTree
 
-    val declaredPackages = declaredPackageNames.map { extractPackageTree(uv, it) }
+    val declaredPackages = extractDeclaredPackagesFromProjectTree(uv, declaredPackageNames)
     val undeclaredPackages = extractUndeclaredPackages(uv, declaredPackageNames)
     return PackageCollectionPackageStructureNode(declaredPackages, undeclaredPackages)
   }
@@ -40,7 +39,23 @@ internal class UvPackageRequirementsTreeExtractor(private val sdk: Sdk, private 
     val output = uv.listPackageRequirementsTree(PythonPackage(packageName, "", false)).getOr {
       return createLeafNode(packageName)
     }
-    return parseTree(output.lines())
+    return parseTrees(output.lines()).firstOrNull() ?: createLeafNode(packageName)
+  }
+
+  /**
+   * Extracts declared package trees using a single `uv tree --frozen` call.
+   * Falls back to per-package extraction if the project tree call fails.
+   */
+  private suspend fun extractDeclaredPackagesFromProjectTree(
+    uv: UvLowLevel<*>,
+    declaredPackageNames: Set<String>,
+  ): List<PackageNode> {
+    val output = uv.listProjectStructureTree().getOrNull()
+      ?: return declaredPackageNames.map { extractPackageTree(uv, it) }
+    val projectRoot = parseTrees(output.lines()).firstOrNull()
+      ?: return declaredPackageNames.map { extractPackageTree(uv, it) }
+    val childrenByName = projectRoot.children.associateBy { it.name.name }
+    return declaredPackageNames.map { name -> childrenByName[name] ?: createLeafNode(name) }
   }
 
   private fun createLeafNode(packageName: String): PackageNode =
@@ -110,23 +125,9 @@ internal class UvPackageRequirementsTreeExtractor(private val sdk: Sdk, private 
   }
 
   private suspend fun extractUndeclaredPackages(uv: UvLowLevel<*>, declaredPackageNames: Set<String>): List<PackageNode> {
-    val output = uv?.listAllPackagesTree()?.getOrNull() ?: return emptyList()
-    return splitIntoPackageGroups(output.lines()).map { parseTree(it) }
+    val output = uv.listAllPackagesTree().getOrNull() ?: return emptyList()
+    return parseTrees(output.lines())
       .filter { it.name.name !in declaredPackageNames }
-  }
-
-  private fun splitIntoPackageGroups(lines: List<String>): List<List<String>> {
-    val groups = mutableListOf<MutableList<String>>()
-    for (line in lines) {
-      if (line.isBlank()) continue
-      if (TreeParser.isRootLine(line)) {
-        groups.add(mutableListOf(line))
-      }
-      else {
-        groups.lastOrNull()?.add(line)
-      }
-    }
-    return groups
   }
 }
 

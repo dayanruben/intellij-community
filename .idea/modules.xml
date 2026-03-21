@@ -512,6 +512,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/completion/kotlin/intellij.gradle.completion.kotlin.iml" filepath="$PROJECT_DIR$/plugins/gradle/completion/kotlin/intellij.gradle.completion.kotlin.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/completion/kotlin/tests/intellij.gradle.completion.kotlin.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/completion/kotlin/tests/intellij.gradle.completion.kotlin.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/completion/intellij.gradle.completion.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/completion/intellij.gradle.completion.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/gradle/completion/toml/intellij.gradle.completion.toml.iml" filepath="$PROJECT_DIR$/plugins/gradle/completion/toml/intellij.gradle.completion.toml.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/gradle-declarative-sync/intellij.gradle.declarativeSync.iml" filepath="$PROJECT_DIR$/plugins/gradle/gradle-declarative-sync/intellij.gradle.declarativeSync.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/gradle-declarative-sync/intellij.gradle.declarativeSync.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/gradle-declarative-sync/intellij.gradle.declarativeSync.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/gradle-dependency-updater/intellij.gradle.dependencyUpdater.iml" filepath="$PROJECT_DIR$/plugins/gradle/gradle-dependency-updater/intellij.gradle.dependencyUpdater.iml" />
@@ -536,7 +537,6 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/properties/intellij.gradle.properties.iml" filepath="$PROJECT_DIR$/plugins/gradle/properties/intellij.gradle.properties.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/settings/intellij.gradle.settings.iml" filepath="$PROJECT_DIR$/plugins/gradle/settings/intellij.gradle.settings.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/intellij.gradle.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/intellij.gradle.tests.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/gradle/toml/intellij.gradle.toml.iml" filepath="$PROJECT_DIR$/plugins/gradle/toml/intellij.gradle.toml.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/tooling-extension-api/intellij.gradle.toolingExtension.iml" filepath="$PROJECT_DIR$/plugins/gradle/tooling-extension-api/intellij.gradle.toolingExtension.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/tooling-extension-impl/intellij.gradle.toolingExtension.impl.iml" filepath="$PROJECT_DIR$/plugins/gradle/tooling-extension-impl/intellij.gradle.toolingExtension.impl.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/tooling-extension-impl/intellij.gradle.toolingExtension.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/tooling-extension-impl/intellij.gradle.toolingExtension.tests.iml" />
@@ -1173,6 +1173,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/backend/observation/intellij.platform.backend.observation.iml" filepath="$PROJECT_DIR$/platform/backend/observation/intellij.platform.backend.observation.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/backend/observation/intellij.platform.backend.observation.tests.iml" filepath="$PROJECT_DIR$/platform/backend/observation/intellij.platform.backend.observation.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/backend/workspace/intellij.platform.backend.workspace.iml" filepath="$PROJECT_DIR$/platform/backend/workspace/intellij.platform.backend.workspace.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/backend/workspace.impl/intellij.platform.backend.workspace.impl.iml" filepath="$PROJECT_DIR$/platform/backend/workspace.impl/intellij.platform.backend.workspace.impl.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/platform-tests/benchmarks/intellij.platform.benchmarks.iml" filepath="$PROJECT_DIR$/platform/platform-tests/benchmarks/intellij.platform.benchmarks.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/bookmarks/intellij.platform.bookmarks.iml" filepath="$PROJECT_DIR$/platform/bookmarks/intellij.platform.bookmarks.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/bookmarks/backend/intellij.platform.bookmarks.backend.iml" filepath="$PROJECT_DIR$/platform/bookmarks/backend/intellij.platform.bookmarks.backend.iml" />
@@ -1740,6 +1741,10 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/restructuredtext/intellij.restructuredtext.iml" filepath="$PROJECT_DIR$/plugins/restructuredtext/intellij.restructuredtext.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/python-restructuredtext/intellij.restructuredtext.python.iml" filepath="$PROJECT_DIR$/python/python-restructuredtext/intellij.restructuredtext.python.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/restructuredtext/intellij.restructuredtext.tests.iml" filepath="$PROJECT_DIR$/plugins/restructuredtext/intellij.restructuredtext.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/search-everywhere-lucene/backend/intellij.searchEverywhereLucene.backend.iml" filepath="$PROJECT_DIR$/plugins/search-everywhere-lucene/backend/intellij.searchEverywhereLucene.backend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/search-everywhere-lucene/common/intellij.searchEverywhereLucene.common.iml" filepath="$PROJECT_DIR$/plugins/search-everywhere-lucene/common/intellij.searchEverywhereLucene.common.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/search-everywhere-lucene/frontend/intellij.searchEverywhereLucene.frontend.iml" filepath="$PROJECT_DIR$/plugins/search-everywhere-lucene/frontend/intellij.searchEverywhereLucene.frontend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/search-everywhere-lucene/intellij.searchEverywhereLucene.plugin.iml" filepath="$PROJECT_DIR$/plugins/search-everywhere-lucene/intellij.searchEverywhereLucene.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/search-everywhere-ml/intellij.searchEverywhereMl.iml" filepath="$PROJECT_DIR$/plugins/search-everywhere-ml/intellij.searchEverywhereMl.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/search-everywhere-ml/ranking/core/intellij.searchEverywhereMl.ranking.core.iml" filepath="$PROJECT_DIR$/plugins/search-everywhere-ml/ranking/core/intellij.searchEverywhereMl.ranking.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/search-everywhere-ml/ranking/core/intellij.searchEverywhereMl.ranking.core.tests.iml" filepath="$PROJECT_DIR$/plugins/search-everywhere-ml/ranking/core/intellij.searchEverywhereMl.ranking.core.tests.iml" />

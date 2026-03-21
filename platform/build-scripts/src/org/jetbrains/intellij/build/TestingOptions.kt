@@ -7,13 +7,7 @@ import com.intellij.util.text.nullize
 import org.jetbrains.intellij.build.TestingOptions.Companion.ALL_EXCLUDE_DEFINED_GROUP
 import org.jetbrains.intellij.build.impl.JUnitRunConfigurationProperties
 
-private val OLD_TEST_GROUP = System.getProperty("idea.test.group", TestingOptions.ALL_EXCLUDE_DEFINED_GROUP)
-private val OLD_TEST_PATTERNS = System.getProperty("idea.test.patterns")
 private val OLD_PLATFORM_PREFIX = System.getProperty("idea.platform.prefix")
-private val OLD_DEBUG_PORT = System.getProperty("debug.port")?.toIntOrNull() ?: 0
-private val OLD_SUSPEND_DEBUG_PROCESS = System.getProperty("debug.suspend", "n") == "y"
-private val OLD_JVM_MEMORY_OPTIONS = System.getProperty("test.jvm.memory")
-private val OLD_MAIN_MODULE = System.getProperty("module.to.make")
 
 /**
  * Options available for tests running on TeamCity.
@@ -33,16 +27,16 @@ open class TestingOptions {
   /**
    * Semicolon-separated names of test groups tests from which should be executed, by default all tests will be executed.
    *
-   *  Test groups are defined in testGroups.properties files and there is an implicit [ALL_EXCLUDE_DEFINED_GROUP] group for tests which aren't
-   * included into any group and 'ALL' group for all tests. By default, [ALL_EXCLUDE_DEFINED_GROUP] group is used.
+   * Test groups are defined in testGroups.properties files and there is an implicit [ALL_EXCLUDE_DEFINED_GROUP] group for tests which aren't
+   * included into any group and 'ALL' group for all tests.
    */
-  var testGroups: String = System.getProperty("intellij.build.test.groups").nullize(nullizeSpaces = true) ?: OLD_TEST_GROUP
+  var testGroups: String? = System.getProperty("intellij.build.test.groups").nullize(nullizeSpaces = true)
 
   /**
    * Semicolon-separated patterns for test class names which need to be executed. Wildcard '*' is supported. If this option is specified,
    * [testGroups] will be ignored.
    */
-  var testPatterns: String? = System.getProperty("intellij.build.test.patterns").nullize(nullizeSpaces = true) ?: OLD_TEST_PATTERNS
+  var testPatterns: String? = System.getProperty("intellij.build.test.patterns").nullize(nullizeSpaces = true)
 
   /**
    * Semicolon-separated JUnit 5 tag expressions to include; only tests tagged with at least one of these are executed.
@@ -82,97 +76,24 @@ open class TestingOptions {
   /**
    * Specifies port on which the testing process will listen for connections, by default, a random port will be used.
    */
-  var debugPort: Int = System.getProperty("intellij.build.test.debug.port")?.toIntOrNull() ?: OLD_DEBUG_PORT
+  var debugPort: Int = System.getProperty("intellij.build.test.debug.port")?.toIntOrNull() ?: 0
 
   /**
    * If `true` to suspend the testing process until a debugger connects to it.
    */
-  var isSuspendDebugProcess: Boolean = getBooleanProperty("intellij.build.test.debug.suspend", OLD_SUSPEND_DEBUG_PROCESS)
+  var isSuspendDebugProcess: Boolean = getBooleanProperty("intellij.build.test.debug.suspend")
 
   /**
    * Custom JVM memory options (e.g. -Xmx) for the testing process.
    */
-  var jvmMemoryOptions: String? = System.getProperty("intellij.build.test.jvm.memory.options", OLD_JVM_MEMORY_OPTIONS)
+  var jvmMemoryOptions: String? = System.getProperty("intellij.build.test.jvm.memory.options")
 
   /**
    * Specifies a module which classpath will be used to search the test classes by default.
    *
    * If [searchScope] is set to `singleModule`, only tests from the main module are searched.
    */
-  var mainModule: String? = System.getProperty("intellij.build.test.main.module")?.let {
-    when (it) {  // temporarily remap the main module for TC compatibility
-      "intellij.appcode.build" -> "intellij.appcode.build.tests"
-      "intellij.aqua.wi" -> "intellij.aqua.wi.tests"
-      "intellij.azureDevops" -> "intellij.azureDevops.tests"
-      "intellij.blade" -> "intellij.blade.tests"
-      "intellij.codeServer.build" -> "intellij.codeServer.build.tests"
-      "intellij.completionMlRanking.experiments" -> "intellij.completionMlRanking.experiments.tests"
-      "intellij.dataWrangler.impl" -> "intellij.dataWrangler.impl.tests"
-      "intellij.datagrip.build" -> "intellij.datagrip.build.tests"
-      "intellij.dataspell.build" -> "intellij.dataspell.build.tests"
-      "intellij.dependencyAnalysis" -> "intellij.dependencyAnalysis.tests"
-      "intellij.devkit.workspaceModel.k1" -> "intellij.devkit.workspaceModel.k1.tests"
-      "intellij.devkit.workspaceModel.k2" -> "intellij.devkit.workspaceModel.k2.tests"
-      "intellij.edu.remote.build" -> "intellij.edu.remote.build.tests"
-      "intellij.fullLine.experiments" -> "intellij.fullLine.experiments.tests"
-      "intellij.goland.build" -> "intellij.goland.build.tests"
-      "intellij.ide.starter.extended" -> "intellij.ide.starter.extended.tests"
-      "intellij.idea.ultimate.build.packages.auth" -> "intellij.idea.ultimate.build.packages.auth.tests"
-      "intellij.kmm.kdoctor" -> "intellij.kmm.kdoctor.tests"
-      "intellij.kmm.kdoctor.android" -> "intellij.kmm.kdoctor.android.tests"
-      "intellij.kmm.kdoctor.xcode" -> "intellij.kmm.kdoctor.xcode.tests"
-      "intellij.kmm.statistics" -> "intellij.kmm.statistics.tests"
-      "intellij.lombok" -> "intellij.lombok.tests"
-      "intellij.marketplace" -> "intellij.marketplace.tests"
-      "intellij.ml.llm.agents.acp" -> "intellij.ml.llm.agents.acp.tests"
-      "intellij.ml.llm.agents.acp.embeddedMcp" -> "intellij.ml.llm.agents.acp.embeddedMcp.tests"
-      "intellij.ml.llm.agents.claude.code" -> "intellij.ml.llm.agents.claude.code.tests"
-      "intellij.ml.llm.agents.codex" -> "intellij.ml.llm.agents.codex.tests"
-      "intellij.ml.llm.agents.frontend" -> "intellij.ml.llm.agents.frontend.tests"
-      "intellij.ml.llm.agents.impl" -> "intellij.ml.llm.agents.impl.tests"
-      "intellij.ml.llm.agents.skills" -> "intellij.ml.llm.agents.skills.tests"
-      "intellij.ml.llm.askai" -> "intellij.ml.llm.askai.tests"
-      "intellij.ml.llm.aui.events" -> "intellij.ml.llm.aui.events.tests"
-      "intellij.ml.llm.chat" -> "intellij.ml.llm.chat.tests"
-      "intellij.ml.llm.codeGeneration" -> "intellij.ml.llm.codeGeneration.tests"
-      "intellij.ml.llm.completion" -> "intellij.ml.llm.completion.tests"
-      "intellij.ml.llm.ds.next" -> "intellij.ml.llm.ds.next.tests"
-      "intellij.ml.llm.embeddings" -> "intellij.ml.llm.embeddings.tests"
-      "intellij.ml.llm.experimental.aidiff" -> "intellij.ml.llm.experimental.aidiff.tests"
-      "intellij.ml.llm.experimental.insights" -> "intellij.ml.llm.experimental.insights.tests"
-      "intellij.ml.llm.experiments" -> "intellij.ml.llm.experiments.tests"
-      "intellij.ml.llm.inlinePromptDetector" -> "intellij.ml.llm.inlinePromptDetector.tests"
-      "intellij.ml.llm.java.embeddings" -> "intellij.ml.llm.java.embeddings.tests"
-      "intellij.ml.llm.java.inlinePromptDetector" -> "intellij.ml.llm.java.inlinePromptDetector.tests"
-      "intellij.ml.llm.provider.ollama" -> "intellij.ml.llm.provider.ollama.tests"
-      "intellij.ml.llm.sql" -> "intellij.ml.llm.sql.tests"
-      "intellij.ml.llm.sql.completion" -> "intellij.ml.llm.sql.completion.tests"
-      "intellij.ml.llm.sql.inlinePromptDetector" -> "intellij.ml.llm.sql.inlinePromptDetector.tests"
-      "intellij.ml.llm.starter" -> "intellij.ml.llm.starter.tests"
-      "intellij.ml.llm.vcs" -> "intellij.ml.llm.vcs.tests"
-      "intellij.ml.llm.yaml.inlinePromptDetector" -> "intellij.ml.llm.yaml.inlinePromptDetector.tests"
-      "intellij.phpstorm.build" -> "intellij.phpstorm.build.tests"
-      "intellij.platform.buildScripts.productDsl" -> "intellij.platform.buildScripts.productDsl.tests"
-      "intellij.platform.credentialStore.impl" -> "intellij.platform.credentialStore.impl.tests"
-      "intellij.platform.images.build" -> "intellij.platform.images.build.tests"
-      "intellij.platform.testFramework" -> "intellij.platform.testFramework.tests"
-      "intellij.pycharm.community.build" -> "intellij.pycharm.community.build.tests"
-      "intellij.pycharm.pro.build" -> "intellij.pycharm.pro.build.tests"
-      "intellij.qodana.rust" -> "intellij.qodana.rust.tests"
-      "intellij.remoteDev.extras.meta.build" -> "intellij.remoteDev.extras.meta.build.tests"
-      "intellij.rider.test.framework.integration.junit" -> "intellij.rider.test.framework.integration.junit.tests"
-      "intellij.ruby.build" -> "intellij.ruby.build.tests"
-      "intellij.rustrover.build" -> "intellij.rustrover.build.tests"
-      "intellij.settingsSync.core" -> "intellij.settingsSync.core.tests"
-      "intellij.space" -> "intellij.space.tests"
-      "intellij.space.vcs" -> "intellij.space.vcs.tests"
-      "intellij.tools.ide.starter.junit5" -> "intellij.tools.ide.starter.junit5.tests"
-      "intellij.vcs.gitlab" -> "intellij.vcs.gitlab.tests"
-      "intellij.webstorm.build" -> "intellij.webstorm.build.tests"
-      "language-server.building" -> "language-server.building.tests"
-      else -> it
-    }
-  } ?: OLD_MAIN_MODULE
+  var mainModule: String? = System.getProperty("intellij.build.test.main.module").nullize(nullizeSpaces = true)
 
   /**
    * Abort tests execution if [mainModule] does not match the module specified in the Run Configuration from [testConfigurations].
