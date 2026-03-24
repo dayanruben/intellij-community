@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.inspections;
 
+import com.intellij.idea.TestFor;
 import com.intellij.openapi.util.RecursionManager;
 import com.intellij.openapi.util.StackOverflowPreventedException;
 import com.intellij.openapi.util.registry.Registry;
@@ -4525,7 +4526,7 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                    def f(x: Any) -> Any:
                        return x
                    
-                   cb: Proto = <warning descr="Expected type 'Proto', got '(x: Any) -> Any' instead">f</warning>""");
+                   cb: Proto = <warning descr="Expected type 'Proto', got 'Overload[(x: str) -> str, (x: A) -> A]' instead">f</warning>""");
   }
 
   public void testWildcardSignatures() {
@@ -4631,6 +4632,174 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                        def foo(self):
                            # StrEnum inherits str which inherits Iterable[str], thus, iterable for both instance and definition
                            return set(self) # OK
+                   """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleInGenericExplicitIsValid() {
+    doTestByText("""
+      from typing import Literal
+      
+      class A[T]:
+          def __init__(self, t: T): ...
+      
+      A[list[tuple[Literal[1]]]]([(1,)])
+      
+      _: list[tuple[Literal[1]]] = [(1,)]
+      _: list[tuple[int]] = [(1,)]
+      """);
+  }
+
+  @TestFor(issues="PY-52839")
+  public void testOverloadAssignabilityToCallable() {
+    doTestByText("""
+                   from typing import Callable, overload
+                   
+                   @overload
+                   def foo(x: int) -> int: ...
+                   
+                   @overload
+                   def foo(x: str) -> str: ...
+                   
+                   def foo(x: object) -> object: ...
+                   
+                   _: Callable[[int], int] = foo  # ok
+                   _: Callable[[str], str] = foo  # ok
+                   _: Callable[[int], str] = <warning descr="Expected type '(int) -> str', got 'Overload[(x: int) -> int, (x: str) -> str]' instead">foo</warning>
+                   """);
+  }
+
+  @TestFor(issues="PY-52839")
+  public void testAssignabilityToOverload() {
+    doTestByText("""
+                   from typing import Callable, overload
+                   
+                   @overload
+                   def foo(x: int) -> int: ...
+                   
+                   @overload
+                   def foo(x: str) -> str: ...
+                   
+                   def foo(x: object) -> object: ...
+                   
+                   @overload
+                   def foo2(x: str) -> str: ...
+                   
+                   @overload
+                   def foo2(x: int) -> int: ...
+                   
+                   def foo2(x: object) -> object: ...
+                   
+                   @overload
+                   def bar(x: int) -> int: ...
+                   
+                   @overload
+                   def bar(x: str) -> int: ...
+                   
+                   def bar(x: object) -> object: ...
+
+                   def baz(x: int) -> int: ...
+                   
+                   l = [foo]
+                   l.append(foo)  # ok
+                   l.append(foo2)  # ok
+                   l.append(<warning descr="Expected type 'Overload[(x: int) -> int, (x: str) -> str]' (matched generic type '_T'), got 'Overload[(x: int) -> int, (x: str) -> int]' instead">bar</warning>)
+                   l.append(<warning descr="Expected type 'Overload[(x: int) -> int, (x: str) -> str]' (matched generic type '_T'), got '(x: int) -> int' instead">baz</warning>)
+                   """);
+  }
+
+  @TestFor(issues="PY-52839")
+  public void testOverloadWithCallableProtocol() {
+    doTestByText("""
+                   from typing import overload, Protocol
+
+                   class ConverterProtocol(Protocol):
+                       @overload
+                       def __call__(self, x: int) -> str: ...
+
+                       @overload
+                       def __call__(self, x: str) -> int: ...
+
+                   class CompatibleCallable:
+                       @overload
+                       def __call__(self, x: str) -> int: ...
+                   
+                       @overload
+                       def __call__(self, x: int) -> str: ...
+
+                       def __call__(self, x: object) -> object: ...
+
+                   class IncompatibleCallable:
+                       @overload
+                       def __call__(self, x: int) -> int: ...
+
+                       @overload
+                       def __call__(self, x: str) -> str: ...
+
+                       def __call__(self, x: object) -> object: ...
+
+
+                   @overload
+                   def converter_func(x: str) -> int: ...
+                   
+                   @overload
+                   def converter_func(x: int) -> str: ...
+
+                   def converter_func(x: object) -> object: ...
+                   
+                   @overload
+                   def bad_converter_func(x: str) -> str: ...
+                   
+                   @overload
+                   def bad_converter_func(x: int) -> int: ...
+
+                   def bad_converter_func(x: object) -> object: ...
+
+                   c1: ConverterProtocol = CompatibleCallable()  # ok
+                   c2: ConverterProtocol = <warning descr="Expected type 'ConverterProtocol', got 'IncompatibleCallable' instead">IncompatibleCallable()</warning>
+                   c3: ConverterProtocol = converter_func  # ok
+                   c3: ConverterProtocol = <warning descr="Expected type 'ConverterProtocol', got 'Overload[(x: str) -> str, (x: int) -> int]' instead">bad_converter_func</warning>
+
+                   def t(c: ConverterProtocol):
+                       l3 = [converter_func]
+                       l3.append(c)
+
+                       l4 = [bad_converter_func]
+                       l4.append(<warning descr="Expected type 'Overload[(x: str) -> str, (x: int) -> int]' (matched generic type '_T'), got 'ConverterProtocol' instead">c</warning>)
+                   """);
+  }
+
+  @TestFor(issues="PY-52839")
+  public void testOverloadSubsetMatching() {
+    doTestByText("""
+                   from typing import overload, Callable
+
+                   @overload
+                   def many_overloads(x: int) -> int: ...
+
+                   @overload
+                   def many_overloads(x: str) -> str: ...
+
+                   @overload
+                   def many_overloads(x: float) -> float: ...
+
+                   def many_overloads(x: object) -> object: ...
+
+
+                   @overload
+                   def few_overloads(x: str) -> str: ...
+
+                   @overload
+                   def few_overloads(x: int) -> int: ...
+                   
+                   def few_overloads(x: object) -> object: ...
+
+                   # Assigning to list infers the overload type
+                   l1 = [few_overloads]
+                   l1.append(many_overloads)  # ok
+
+                   l2 = [many_overloads]
+                   l2.append(<warning descr="Expected type 'Overload[(x: int) -> int, (x: str) -> str, (x: float | int) -> float | int]' (matched generic type '_T'), got 'Overload[(x: str) -> str, (x: int) -> int]' instead">few_overloads</warning>)
                    """);
   }
 }

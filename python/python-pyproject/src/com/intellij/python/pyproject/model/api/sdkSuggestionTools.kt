@@ -5,6 +5,7 @@ import com.intellij.openapi.project.guessModuleDir
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.common.tools.ToolId
 import com.intellij.python.pyproject.model.internal.suggestSdkImpl
+import com.intellij.python.pyproject.statistics.PyProjectTomlCollector
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.onSuccess
 import com.jetbrains.python.sdk.configuration.CreateSdkInfo
@@ -105,7 +106,7 @@ private fun CreateSdkInfoWithTool.asDTO(moduleDir: Directory?): ModuleCreateInfo
  * Returns the configured SDK, or `null` if no SDK could be configured.
  */
 @ApiStatus.Internal
-suspend fun Module.autoConfigureSdkIfNeeded(): PyResult<Sdk>? = pythonSdkConfigurationMutex.withLock {
+suspend fun Module.autoConfigureSdkIfNeeded(): PyResult<Sdk>? = project.pythonSdkConfigurationMutex.withLock {
   val moduleInfo = getModuleInfo() ?: return@withLock null
 
   when (moduleInfo) {
@@ -115,6 +116,7 @@ suspend fun Module.autoConfigureSdkIfNeeded(): PyResult<Sdk>? = pythonSdkConfigu
           moduleInfo.createSdkInfo.getSdkCreator(this).createSdk().onSuccess {sdk ->
             pythonSdk = sdk
             sdk.setAssociationToModule(this)
+            PyProjectTomlCollector.sdkCreatedAutomatically(moduleInfo.toolId)
           }
         }
         is CreateSdkInfo.WillCreateEnv, is CreateSdkInfo.WillInstallTool -> null

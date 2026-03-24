@@ -49,7 +49,7 @@ public class Py3TypeTest extends PyTestCase {
               elif not is_empty(x, y):
                   break""");
   }
-  
+
   // See PyReferenceExpressionImpl.getQualifiedReferenceType for explanations.
   public void testQualifiedNameResolution() {
     doTest("str", """
@@ -5515,6 +5515,84 @@ public class Py3TypeTest extends PyTestCase {
       
       expr = str | A
       """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleInListWidens() {
+    doTest("list[tuple[int, str]]", """
+      t = (1, 'hello')
+      expr = [t]
+    """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleInTupleIsLiteral() {
+    var t = "tuple[Literal[1], Literal['hello']]";
+    doTest("tuple[" + t + ", " + t + "]", """
+      t = (1, 'hello')
+      expr = (t, t)
+    """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleInGenericWidens() {
+    doTest("list[tuple[int, str]]", """
+      def f[T](t: T) -> list[T]: ...
+      expr = f((1, "hello"))
+    """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleAsGenericInTupleNarrows() {
+    var t = "tuple[Literal[1], Literal['hello']]";
+    doTest("tuple[list[tuple[int, str]], " + t + "]" + " | " + t, """
+      def f[T](t: T) -> tuple[list[T], T] | T: ...
+      expr = f((1, 'hello'))
+    """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleAsBareTypeVariableIsLiteral() {
+    doTest("tuple[Literal[1], Literal[\"hello\"]]", """
+      def f[T](t: T) -> T: ...
+      expr = f((1, "hello"))
+    """);
+  }
+
+  public void testOverloadImpl() {
+    doTest("Overload[(x: int) -> str, (x: str) -> int]", """
+      from typing import overload
+      
+      @overload
+      def foo(x: int) -> str: ...
+      
+      @overload
+      def foo(x: str) -> int: ...
+      
+      def foo(x): ...
+      
+      expr = foo
+      """);
+  }
+
+  public void testOverloadStub() {
+    runWithAdditionalFileInLibDir(
+      "stub.pyi", """
+        from typing import overload
+        
+        @overload
+        def foo(x: int) -> str: ...
+        
+        @overload
+        def foo(x: str) -> int: ...
+        """, (x) -> {
+        doTest("Overload[(x: int) -> str, (x: str) -> int]", """
+          from stub import foo
+          
+          expr = foo
+          """);
+      }
+    );
   }
 
   private void doTest(final String expectedType, final String text) {

@@ -13,8 +13,8 @@ targets:
   - ../../prompt-vcs/src/context/AgentPromptVcsCommitManualContextSource.kt
   - ../../prompt/resources/intellij.agent.workbench.prompt.xml
   - ../../prompt/resources/messages/AgentPromptBundle.properties
-  - ../../sessions-core/src/prompt/AgentPromptLauncherBridge.kt
-  - ../../sessions-core/src/prompt/AgentPromptPaletteExtension.kt
+  - ../../prompt/core/src/AgentPromptLauncherBridge.kt
+  - ../../prompt/core/src/AgentPromptPaletteExtension.kt
   - ../../sessions/src/service/AgentSessionPromptLauncherBridge.kt
   - ../../prompt/testSrc/ui/AgentPromptProviderSelectionDecisionsTest.kt
   - ../../prompt/testSrc/ui/AgentPromptSubmitValidationDecisionsTest.kt
@@ -105,7 +105,7 @@ Suggested prompt generation, rendering, and Codex polishing are specified separa
 - If no working project path can be resolved automatically, submit must prompt user to choose from available non-dedicated project candidates; cancel keeps popup open and shows project-path validation error.
 
 - Keyboard behavior contract:
-  - `Enter` runs submit action,
+  - `Enter` runs submit action from the prompt editor and from the existing-task selector when it owns focus,
   - `Shift+Enter` inserts line break,
   - `Tab` submits only when tab-queue shortcut is enabled; otherwise it selects the next available prompt tab and wraps around,
   - `Shift+Tab` selects the previous available prompt tab and wraps around.
@@ -193,11 +193,11 @@ Suggested prompt generation, rendering, and Codex polishing are specified separa
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptFooterHintDecisionsTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptPlanModeDecisionsTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptEnterHandlersTest'`
-- `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.actions.AgentWorkbenchPromptActionPromoterTest'`
+- `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.actions.AgentWorkbenchPromptActionPromoterTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptPaletteViewStructureTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptPaletteViewLayoutTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.AgentPromptUiSessionStateServiceTest'`
-- `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.context.AgentPromptProjectPathsManualContextSourceTest'`
+- `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.ui.context.AgentPromptProjectPathsManualContextSourceTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.prompt.vcs.context.AgentPromptVcsCommitManualContextSourceTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionPromptLauncherBridgeTest'`
 

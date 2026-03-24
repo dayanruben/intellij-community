@@ -54,7 +54,8 @@ public class DaemonRespondToChangesPerfTest extends ProductionDaemonAnalyzerTest
 
   @PerformanceUnitTest
   public void testHugeAppendChainDoesNotCauseSOE_Stress() {
-    StringBuilder text = new StringBuilder("class S { String ffffff =  new StringBuilder()\n");
+    StringBuilder text = new StringBuilder(2000*".append(2000)\n".length()+100);
+    text.append("class S { String ffffff =  new StringBuilder()\n");
     for (int i=0; i<2000; i++) {
       text.append(".append(").append(i).append(")\n");
     }
@@ -198,7 +199,7 @@ public class DaemonRespondToChangesPerfTest extends ProductionDaemonAnalyzerTest
     assertTrue(ave < 300);
   }
 
-  static void dumpThreadsToConsole() {
+  private static void dumpThreadsToConsole() {
     System.err.println("----all threads---");
     for (Thread thread : Thread.getAllStackTraces().keySet()) {
 

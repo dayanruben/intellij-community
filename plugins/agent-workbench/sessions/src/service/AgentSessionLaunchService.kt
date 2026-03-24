@@ -10,16 +10,16 @@ package com.intellij.agent.workbench.sessions.service
 import com.intellij.agent.workbench.chat.openChat
 import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
 import com.intellij.agent.workbench.common.parseAgentWorkbenchPathOrNull
+import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
+import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.agent.workbench.common.session.AgentSubAgent
+import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
+import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchError
+import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
+import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.core.AgentSessionLaunchMode
-import com.intellij.agent.workbench.sessions.core.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThread
-import com.intellij.agent.workbench.sessions.core.AgentSubAgent
 import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchSpecs
-import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptInitialMessageRequest
-import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLaunchError
-import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLaunchRequest
-import com.intellij.agent.workbench.sessions.core.prompt.AgentPromptLaunchResult
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchPlan
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
@@ -320,6 +320,7 @@ class AgentSessionLaunchService internal constructor(
           baseLaunchSpec = launchSpec,
           identity = identity,
           initialMessagePlan = initialMessagePlan,
+          allowStartupPromptOverride = true,
         )
         logPreparedNewSessionLaunch(
           provider = provider,
@@ -530,6 +531,7 @@ private fun buildInitialMessageDispatchPlan(
     baseLaunchSpec: AgentSessionTerminalLaunchSpec,
     identity: String,
     initialMessagePlan: AgentInitialMessagePlan,
+    allowStartupPromptOverride: Boolean,
 ): AgentInitialMessageDispatchPlan {
   val postStartDispatchSteps = buildPostStartDispatchSteps(
     provider = descriptor.provider,
@@ -543,6 +545,7 @@ private fun buildInitialMessageDispatchPlan(
       descriptor = descriptor,
       baseLaunchSpec = baseLaunchSpec,
       initialMessagePlan = initialMessagePlan,
+      allowStartupPromptOverride = allowStartupPromptOverride,
     ),
     postStartDispatchSteps = postStartDispatchSteps,
     initialMessageToken = buildInitialMessageToken(identity = identity, steps = postStartDispatchSteps),
@@ -553,7 +556,12 @@ private fun buildStartupLaunchSpecOverride(
     descriptor: AgentSessionProviderDescriptor,
     baseLaunchSpec: AgentSessionTerminalLaunchSpec,
     initialMessagePlan: AgentInitialMessagePlan,
+    allowStartupPromptOverride: Boolean,
 ): AgentSessionTerminalLaunchSpec? {
+  // Existing-thread launches intentionally deliver the prompt after the chat opens.
+  if (!allowStartupPromptOverride) {
+    return null
+  }
   if (initialMessagePlan.startupPolicy != AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND) {
     return null
   }
@@ -660,6 +668,7 @@ private suspend fun resolvePromptInitialMessageDispatchPlan(
     baseLaunchSpec = resumeLaunchSpec,
     identity = identity,
     initialMessagePlan = initialMessagePlan,
+    allowStartupPromptOverride = false,
   )
 }
 
