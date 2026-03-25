@@ -6,6 +6,8 @@ import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.java.workspace.entities.JavaModuleSettingsEntity
 import com.intellij.java.workspace.entities.JavaSourceRootPropertiesEntity
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.WriteActionListener
+import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
@@ -35,6 +37,8 @@ import com.intellij.testFramework.LightVirtualFile
 import com.intellij.util.io.URLUtil
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.findModule
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.kotlin.analysis.api.platform.KotlinAnalysisInWriteActionListener
+import org.jetbrains.kotlin.analysis.api.platform.analysisMessageBus
 import org.jetbrains.kotlin.analysis.api.platform.modification.KotlinModuleStateModificationKind
 import org.jetbrains.kotlin.analysis.api.platform.modification.publishGlobalModuleStateModificationEvent
 import org.jetbrains.kotlin.analysis.api.platform.modification.publishGlobalSourceModuleStateModificationEvent
@@ -70,8 +74,24 @@ private val STDLIB_PATTERN = Pattern.compile("kotlin-stdlib-(\\d*)\\.(\\d*)\\.(\
  * An exception is [SingleFileModuleModificationListener], which publishes module-level events for single-file modules that don't have
  * dependents.
  */
+@ApiStatus.Internal
 @Service(Service.Level.PROJECT)
 class FirIdeModuleStateModificationService(val project: Project) : Disposable {
+    /**
+     * The event publishing state of [ProjectFileDocumentListener].
+     *
+     * This is stored in the modification service because listeners should be stateless.
+     */
+    private val projectFileEventPublishingState = ThreadLocal.withInitial { EventPublishingState.NONE }
+
+    init {
+        ApplicationManagerEx.getApplicationEx().addWriteActionListener(EventPublishingStateResetWriteActionListener(), this)
+
+        project.analysisMessageBus
+            .connect(this)
+            .subscribe(KotlinAnalysisInWriteActionListener.TOPIC, EventPublishingStateResetAnalysisInWriteActionListener())
+    }
+
     internal class BuiltinsFileDocumentListener(private val project: Project) : FileDocumentManagerListener {
         private val builtinsFiles: Set<String> by lazy {
             val result = mutableSetOf<String>()
@@ -183,8 +203,15 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
         }
     }
 
+    /**
+     * To avoid performance problems associated with excessive publishing of global modification events, the listener only publishes a
+     * modification event when necessary and ignores further events.
+     */
     internal class ProjectFileDocumentListener(private val project: Project) : FileDocumentManagerListener {
         override fun fileWithNoDocumentChanged(file: VirtualFile) {
+            val modificationService = getInstance(project)
+            if (modificationService.projectFileEventPublishingState.get() == EventPublishingState.GLOBAL_EVENT_PUBLISHED) return
+
             // `FileDocumentManagerListener` may receive events from other projects via `FileDocumentManagerImpl`'s `AsyncFileListener`.
             if (!project.isInitialized || !ProjectFileIndex.getInstance(project).isInContent(file)) {
                 return
@@ -201,6 +228,8 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
             // fired which doesn't provide any explicit changes, so we need to publish a global modification event because the file's
             // content may have been changed externally.
             project.publishGlobalModuleStateModificationEvent()
+
+            modificationService.projectFileEventPublishingState.set(EventPublishingState.GLOBAL_EVENT_PUBLISHED)
         }
     }
 
@@ -336,10 +365,57 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
         return oldModule != null || newModule != null
     }
 
+    /**
+     * Resets the [projectFileEventPublishingState] at write action boundaries so that each write action starts with a clean state.
+     */
+    private inner class EventPublishingStateResetWriteActionListener : WriteActionListener {
+        override fun writeActionStarted(action: Class<*>) {
+            // Defensive cleanup: Ensure we start a write action with a clean state in case something went wrong previously.
+            projectFileEventPublishingState.remove()
+        }
+
+        override fun writeActionFinished(action: Class<*>) {
+            projectFileEventPublishingState.remove()
+        }
+    }
+
+    /**
+     * Resets the [projectFileEventPublishingState] around `analyze` calls within a write action. After `analyze` populates caches, further
+     * modifications in the same write action need to be able to invalidate those caches again.
+     */
+    private inner class EventPublishingStateResetAnalysisInWriteActionListener : KotlinAnalysisInWriteActionListener {
+        override fun onEnteringAnalysisInWriteAction() {
+            // Defensive: Reset state when entering analysis in case modifications happen during the `analyze` call.
+            projectFileEventPublishingState.remove()
+        }
+
+        override fun afterLeavingAnalysisInWriteAction() {
+            // Primary: Caches may have been filled during `analyze`, so further modifications need to be able to invalidate caches again.
+            projectFileEventPublishingState.remove()
+        }
+    }
+
     override fun dispose() {}
 
     companion object {
         fun getInstance(project: Project): FirIdeModuleStateModificationService =
             project.getService(FirIdeModuleStateModificationService::class.java)
     }
+}
+
+/**
+ * Tracks which level of global modification event has been published in the current write action.
+ *
+ * @see FirIdeModuleStateModificationService.projectFileEventPublishingState
+ */
+private enum class EventPublishingState {
+    /**
+     * No global modification event has been published in the current write action.
+     */
+    NONE,
+
+    /**
+     * A global (full) module state modification event has been published in the current write action.
+     */
+    GLOBAL_EVENT_PUBLISHED,
 }
