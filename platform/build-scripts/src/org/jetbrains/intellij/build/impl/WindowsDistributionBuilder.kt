@@ -28,7 +28,6 @@ import org.jetbrains.intellij.build.WindowsLibcImpl
 import org.jetbrains.intellij.build.executeStep
 import org.jetbrains.intellij.build.impl.OsSpecificDistributionBuilder.Companion.suffix
 import org.jetbrains.intellij.build.impl.client.createFrontendContextForLaunchers
-import org.jetbrains.intellij.build.impl.languageServer.generateLspServerLaunchData
 import org.jetbrains.intellij.build.impl.productInfo.PRODUCT_INFO_FILE_NAME
 import org.jetbrains.intellij.build.impl.productInfo.generateEmbeddedFrontendLaunchData
 import org.jetbrains.intellij.build.impl.productInfo.generateProductInfoJson
@@ -48,6 +47,7 @@ import org.jetbrains.intellij.build.io.substituteTemplatePlaceholders
 import org.jetbrains.intellij.build.io.transformFile
 import org.jetbrains.intellij.build.io.zip
 import org.jetbrains.intellij.build.io.zipWithCompression
+import org.jetbrains.intellij.build.isLanguageServer
 import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
@@ -108,7 +108,7 @@ internal class WindowsDistributionBuilder(
 
       Files.writeString(distBinDir.resolve(PROPERTIES_FILE_NAME), StringUtilRt.convertLineSeparators(ideaProperties!!, "\r\n"))
 
-      if (context.options.isLanguageServer) {
+      if (context.isLanguageServer) {
         // no icon
       }
       else {
@@ -348,7 +348,7 @@ internal class WindowsDistributionBuilder(
       val executableBaseName = "${context.productProperties.baseFileName}64"
       val launcherPropertiesPath = context.paths.tempDir.resolve("launcher-${arch.dirName}.properties")
       val icoFile =
-        if (context.options.isLanguageServer) null
+        if (context.isLanguageServer) null
         else locateIcoFileForWindowsLauncher(customizer, context)
 
       val productVersion = context.buildNumber
@@ -523,17 +523,15 @@ private suspend fun writeProductJsonFile(targetDir: Path, arch: JvmArchitecture,
         bootClassPathJarNames = context.bootClassPathJarNames,
         additionalJvmArguments = context.getAdditionalJvmArguments(OsFamily.WINDOWS, arch),
         mainClass = context.ideMainClassName,
-        customCommands = when {
-          context.options.isLanguageServer -> listOf(
-            generateLspServerLaunchData(context)
-          )
-          else -> listOfNotNull(
+        customCommands = run {
+          val base = listOfNotNull(
             generateEmbeddedFrontendLaunchData(arch, OsFamily.WINDOWS, context) {
               "bin/${it.productProperties.baseFileName}64.exe.vmoptions"
             },
             generateQodanaLaunchData(context, arch, OsFamily.WINDOWS),
             generateStdioMcpRunnerLaunchData(context, OsFamily.WINDOWS)
           )
+          context.productProperties.launcherCommandsCustomizer?.invoke(base, context) ?: base
         },
       )
     ),

@@ -22,7 +22,6 @@ import org.jetbrains.intellij.build.executeStep
 import org.jetbrains.intellij.build.impl.OsSpecificDistributionBuilder.Companion.suffix
 import org.jetbrains.intellij.build.impl.client.createFrontendContextForLaunchers
 import org.jetbrains.intellij.build.impl.client.getAdditionalEmbeddedClientVmOptions
-import org.jetbrains.intellij.build.impl.languageServer.generateLspServerLaunchData
 import org.jetbrains.intellij.build.impl.productInfo.PRODUCT_INFO_FILE_NAME
 import org.jetbrains.intellij.build.impl.productInfo.generateEmbeddedFrontendLaunchData
 import org.jetbrains.intellij.build.impl.productInfo.generateProductInfoJson
@@ -37,6 +36,7 @@ import org.jetbrains.intellij.build.io.copyFileToDir
 import org.jetbrains.intellij.build.io.moveFileToDir
 import org.jetbrains.intellij.build.io.runProcess
 import org.jetbrains.intellij.build.io.substituteTemplatePlaceholders
+import org.jetbrains.intellij.build.isLanguageServer
 import org.jetbrains.intellij.build.isWindows
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
@@ -175,7 +175,7 @@ class LinuxDistributionBuilder(
   override fun writeVmOptions(distBinDir: Path): Path = writeLinuxVmOptions(distBinDir, context)
 
   private fun generateReadme(unixDistPath: Path) {
-    if (context.options.isLanguageServer) return
+    if (context.isLanguageServer) return
     val fullName = context.applicationInfo.fullProductName
     val sourceFile = context.paths.communityHomeDir.resolve("platform/build-scripts/resources/linux/Install-Linux-tar.txt")
     val targetFile = unixDistPath.resolve("Install-Linux-tar.txt")
@@ -388,17 +388,15 @@ class LinuxDistributionBuilder(
           additionalJvmArguments = context.getAdditionalJvmArguments(OsFamily.LINUX, arch),
           mainClass = context.ideMainClassName,
           startupWmClass = getLinuxFrameClass(context),
-          customCommands = when {
-            context.options.isLanguageServer -> listOf(
-              generateLspServerLaunchData(context)
-            )
-            else -> listOfNotNull(
+          customCommands = run {
+            val base = listOfNotNull(
               generateEmbeddedFrontendLaunchData(arch, OsFamily.LINUX, context) {
                 "bin/${it.productProperties.baseFileName}64.vmoptions"
               },
               generateQodanaLaunchData(context, arch, OsFamily.LINUX),
               generateStdioMcpRunnerLaunchData(context, OsFamily.LINUX)
             )
+            context.productProperties.launcherCommandsCustomizer?.invoke(base, context) ?: base
           }
         )
       ),
