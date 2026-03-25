@@ -2,13 +2,6 @@
 
   <extensions defaultExtensionNs="com.intellij">
     <registryKey
-            defaultValue="false"
-            description="Whether module-specific instead of global modification events should be published for project structure changes."
-            key="kotlin.analysis.enableModuleSpecificProjectStructureModificationEvents"
-            restartRequired="true"
-    />
-
-    <registryKey
             defaultValue="5"
             description="The maximum number of files that the tree change preprocessor will process in a single write action before publishing a global modification event."
             key="kotlin.analysis.treeChangePreprocessor.fileProcessingLimit"

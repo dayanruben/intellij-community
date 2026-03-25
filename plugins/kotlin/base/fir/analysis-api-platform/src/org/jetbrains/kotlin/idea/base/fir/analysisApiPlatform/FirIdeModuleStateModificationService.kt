@@ -9,14 +9,11 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
-import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootEvent
 import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.openapi.roots.ProjectFileIndex
-import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
@@ -24,8 +21,6 @@ import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
-import com.intellij.platform.backend.workspace.toVirtualFileUrl
-import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.jps.entities.ContentRootEntity
 import com.intellij.platform.workspace.jps.entities.FacetEntity
 import com.intellij.platform.workspace.jps.entities.LibraryEntity
@@ -46,17 +41,13 @@ import org.jetbrains.kotlin.analysis.api.platform.modification.publishGlobalSour
 import org.jetbrains.kotlin.analysis.api.platform.modification.publishModuleStateModificationEvent
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
 import org.jetbrains.kotlin.analysis.decompiler.psi.BuiltinsVirtualFileProviderBaseImpl
-import org.jetbrains.kotlin.idea.base.projectStructure.toKaLibraryModules
 import org.jetbrains.kotlin.idea.base.util.caching.SdkEntityChangeListener
 import org.jetbrains.kotlin.idea.base.util.caching.getChanges
-import org.jetbrains.kotlin.idea.base.util.caching.newEntity
 import org.jetbrains.kotlin.idea.facet.isKotlinFacet
 import org.jetbrains.kotlin.idea.util.AbstractSingleFileModuleBeforeFileEventListener
-import org.jetbrains.kotlin.idea.util.toKaModulesForModificationEvents
 import org.jetbrains.kotlin.idea.workspaceModel.KotlinSettingsEntity
 import org.jetbrains.kotlin.utils.addIfNotNull
 import org.jetbrains.kotlin.utils.alwaysTrue
-import org.jetbrains.kotlin.utils.mapToSetOrEmpty
 import java.net.URL
 import java.util.regex.Pattern
 
@@ -68,13 +59,16 @@ private val STDLIB_PATTERN = Pattern.compile("kotlin-stdlib-(\\d*)\\.(\\d*)\\.(\
  *
  * ### Avoidance of module-level modification events
  *
- * We generally *avoid* module-level modification events for performance reasons: A module modification event triggers dependents
- * computation, which can become very expensive when many modules are affected (such as on project sync).
+ * We generally *avoid* module-level modification events for performance reasons: A module modification event triggers the computation of
+ * dependents, which can become very expensive when many modules are affected (such as on project sync).
  *
  * The only advantage of a module-level event over a global event is that fewer analysis caches are invalidated, allowing for faster
  * re-analysis. This is not very relevant to project structure changes: When the user is actively working in the IDE, project structure
  * changes are rare, so the potential performance benefit is minimal. At the same time, during heavy operations like project sync,
  * module-level modification events can lead to freezes (see KT-82449).
+ *
+ * An exception is [SingleFileModuleModificationListener], which publishes module-level events for single-file modules that don't have
+ * dependents.
  */
 @Service(Service.Level.PROJECT)
 class FirIdeModuleStateModificationService(val project: Project) : Disposable {
@@ -146,41 +140,19 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
                 return
             }
 
-            val workspaceModel = project.workspaceModel
-
-            val affectedJarFiles = events.mapNotNullTo(mutableSetOf()) { event ->
+            val hasAffectedJarFiles = events.any { event ->
                 val file = when (event) {
                     // For all other events, the workspace model should do the job.
                     is VFileContentChangeEvent -> event.file
-                    else -> return@mapNotNullTo null
+                    else -> return@any false
                 }
 
                 // React only on jars.
-                file.takeIf { it.extension.equals("jar", ignoreCase = true) }
+                file.extension.equals("jar", ignoreCase = true)
             }
 
-            if (affectedJarFiles.isNotEmpty()) {
-                if (ARE_MODULE_SPECIFIC_EVENTS_ENABLED) {
-                    affectedJarFiles.forEach { file ->
-                        // For performance reasons, we only process the JAR files here as we need to get their `KaModule`s for publishing
-                        // module-specific events. Specifically, `StandardFileSystems.jar().findFileByPath` can be slow and cause freezes.
-                        val jarRoot = StandardFileSystems.jar().findFileByPath(file.path + URLUtil.JAR_SEPARATOR)
-                            ?: return@forEach
-
-                        val url = jarRoot.toVirtualFileUrl(workspaceModel.getVirtualFileUrlManager())
-
-                        workspaceModel
-                            .currentSnapshot
-                            .getVirtualFileUrlIndex()
-                            .findEntitiesByUrl(url)
-                            .filterIsInstance<LibraryEntity>()
-                            .forEach { libraryEntity ->
-                                libraryEntity.publishModuleStateModificationEvent(project)
-                            }
-                    }
-                } else {
-                    project.publishGlobalModuleStateModificationEvent()
-                }
+            if (hasAffectedJarFiles) {
+                project.publishGlobalModuleStateModificationEvent()
             }
         }
 
@@ -254,157 +226,82 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
 
     @ApiStatus.Internal
     fun beforeWorkspaceModelChanged(event: VersionedStorageChange) {
-        val libraryChanges = computeLibraryChanges(event)
-        if (libraryChanges.isNotEmpty()) {
-            if (ARE_MODULE_SPECIFIC_EVENTS_ENABLED) {
-                libraryChanges.forEach { libraryChange ->
-                    libraryChange.library.publishModuleStateModificationEvent(project, libraryChange.kind)
-                }
-            } else {
-                project.publishGlobalModuleStateModificationEvent()
+        if (hasLibraryChanges(event)) {
+            project.publishGlobalModuleStateModificationEvent()
 
-                // Since we've already published a full global module state modification event, we don't need to publish another one for
-                // modules.
-                return
-            }
+            // Since we've already published a full global module state modification event, we don't need to publish another one for
+            // modules.
+            return
         }
 
-        val moduleChanges = computeModuleChanges(event)
-        if (moduleChanges.isNotEmpty()) {
-            if (ARE_MODULE_SPECIFIC_EVENTS_ENABLED) {
-                moduleChanges.forEach { moduleChange ->
-                    moduleChange.module.publishModuleStateModificationEvent(moduleChange.kind)
-                }
-            } else {
-                project.publishGlobalSourceModuleStateModificationEvent()
-            }
+        if (hasModuleChanges(event)) {
+            project.publishGlobalSourceModuleStateModificationEvent()
         }
     }
 
-    private data class LibraryChange(val library: LibraryEntity, val kind: KotlinModuleStateModificationKind)
-
-    private fun computeLibraryChanges(event: VersionedStorageChange): Set<LibraryChange> = buildSet {
-        val libraryEntities = event.getChanges<LibraryEntity>().ifEmpty { return@buildSet }
-
-        for (change in libraryEntities) {
+    private fun hasLibraryChanges(event: VersionedStorageChange): Boolean =
+        event.getChanges<LibraryEntity>().any { change ->
             when (change) {
-                is EntityChange.Added -> {}
-                is EntityChange.Removed -> {
-                    change.oldEntity
-                        .takeIf { it.tableId !is GlobalLibraryTableId }
-                        ?.let { add(LibraryChange(it, KotlinModuleStateModificationKind.REMOVAL)) }
-                }
-
-                is EntityChange.Replaced -> {
-                    change.newEntity()
-                        ?.takeIf { it.tableId !is GlobalLibraryTableId }
-                        ?.let { add(LibraryChange(it, KotlinModuleStateModificationKind.UPDATE)) }
-                }
-            }
-        }
-    }
-
-    private data class ModuleChange(val module: Module, val kind: KotlinModuleStateModificationKind)
-
-    /**
-     * Since we have multiple sources of module changes, we sometimes need to deduplicate changes for the same module. In particular, we
-     * want to prefer removal events over update events but still only publish a single modification event per module. [ModuleChangeTracker]
-     * solves this by prioritizing [KotlinModuleStateModificationKind.REMOVAL].
-     */
-    private class ModuleChangeTracker {
-        private val modificationKindByModule = mutableMapOf<Module, KotlinModuleStateModificationKind>()
-
-        val changes: Set<ModuleChange>
-            get() = modificationKindByModule.entries.mapToSetOrEmpty { (module, kind) -> ModuleChange(module, kind) }
-
-        fun mark(module: Module, kind: KotlinModuleStateModificationKind = KotlinModuleStateModificationKind.UPDATE) {
-            // `REMOVAL` overrules `UPDATE`: removing something is a more destructive operation than updating it.
-            if (modificationKindByModule[module] == KotlinModuleStateModificationKind.REMOVAL) {
-                return
-            }
-            modificationKindByModule[module] = kind
-        }
-    }
-
-    private fun computeModuleChanges(event: VersionedStorageChange): Set<ModuleChange> {
-        val tracker = ModuleChangeTracker()
-
-        trackModuleEntityChanges(event, tracker)
-        trackInternalModuleChanges(event, tracker)
-
-        return tracker.changes
-    }
-
-    /**
-     * Tracks the set of removed and replaced [Module]s that should be invalidated.
-     */
-    private fun trackModuleEntityChanges(event: VersionedStorageChange, tracker: ModuleChangeTracker) {
-        val moduleEntities = event.getChanges<ModuleEntity>()
-        val moduleSettingChanges: List<EntityChange<JavaModuleSettingsEntity>> = event.getChanges<JavaModuleSettingsEntity>()
-
-        fun <T : WorkspaceEntity> processEntities(changes: List<EntityChange<T>>, toModule: (T) -> ModuleEntity?) {
-            for (change: EntityChange<T> in changes) {
-                when (change) {
-                    is EntityChange.Added -> {}
-                    is EntityChange.Removed -> {
-                        toModule(change.oldEntity)?.findModule(event.storageBefore)?.let { module ->
-                            tracker.mark(module, kind = KotlinModuleStateModificationKind.REMOVAL)
-                        }
-                    }
-
-                    is EntityChange.Replaced -> {
-                        toModule(change.newEntity)?.findModule(event.storageAfter)?.let { module ->
-                            tracker.mark(module)
-                        }
-                    }
-                }
+                is EntityChange.Added -> false
+                is EntityChange.Removed -> change.oldEntity.tableId !is GlobalLibraryTableId
+                is EntityChange.Replaced -> change.newEntity.tableId !is GlobalLibraryTableId
             }
         }
 
-        processEntities(moduleEntities) { it }
-        processEntities(moduleSettingChanges) { it.module }
-    }
+    private fun hasModuleChanges(event: VersionedStorageChange): Boolean =
+        hasModuleEntityChanges(event) || hasContentRootChanges(event) || hasFacetChanges(event)
 
-    /**
-     * Tracks the set of modules that have internal changes.
-     * All such changes are treated as [UPDATE][KotlinModuleStateModificationKind.UPDATE]
-     *
-     * Some examples: changes in content roots, or in the module facet.
-     */
-    private fun trackInternalModuleChanges(
-        event: VersionedStorageChange,
-        tracker: ModuleChangeTracker,
-    ) {
-        computeContentRootChanges(event).forEach(tracker::mark)
-        computeFacetChanges(event).forEach(tracker::mark)
-    }
-
-    private fun computeContentRootChanges(event: VersionedStorageChange): Set<Module> = buildSet {
-        event.getChanges<ContentRootEntity>().mapNotNullTo(this) {
-            event.getChangedModule(it.oldEntity, it.newEntity)
+    private fun hasModuleEntityChanges(event: VersionedStorageChange): Boolean {
+        fun <T : WorkspaceEntity> hasRelevantChange(
+            changes: List<EntityChange<T>>,
+            toModule: (T) -> ModuleEntity?,
+        ): Boolean = changes.any { change ->
+            when (change) {
+                is EntityChange.Added -> false
+                is EntityChange.Removed -> toModule(change.oldEntity)?.findModule(event.storageBefore) != null
+                is EntityChange.Replaced -> toModule(change.newEntity)?.findModule(event.storageAfter) != null
+            }
         }
 
-        event.getChanges<SourceRootEntity>().mapNotNullTo(this) {
-            event.getChangedModule(it.oldEntity?.contentRoot, it.newEntity?.contentRoot)
-        }
-
-        event.getChanges<JavaSourceRootPropertiesEntity>().mapNotNullTo(this) {
-            event.getChangedModule(it.oldEntity?.sourceRoot?.contentRoot, it.newEntity?.sourceRoot?.contentRoot)
-        }
+        return hasRelevantChange(event.getChanges<ModuleEntity>()) { it } ||
+                hasRelevantChange(event.getChanges<JavaModuleSettingsEntity>()) { it.module }
     }
 
-    private fun VersionedStorageChange.getChangedModule(
+    private fun hasContentRootChanges(event: VersionedStorageChange): Boolean =
+        hasContentRootEntityChanges(event) ||
+                hasSourceRootEntityChanges(event) ||
+                hasJavaSourceRootPropertiesEntityChanges(event)
+
+    private fun hasContentRootEntityChanges(event: VersionedStorageChange): Boolean =
+        event.getChanges<ContentRootEntity>().any {
+            event.hasChangedModule(it.oldEntity, it.newEntity)
+        }
+
+    private fun hasSourceRootEntityChanges(event: VersionedStorageChange): Boolean =
+        event.getChanges<SourceRootEntity>().any {
+            event.hasChangedModule(it.oldEntity?.contentRoot, it.newEntity?.contentRoot)
+        }
+
+    private fun hasJavaSourceRootPropertiesEntityChanges(event: VersionedStorageChange): Boolean =
+        event.getChanges<JavaSourceRootPropertiesEntity>().any {
+            event.hasChangedModule(it.oldEntity?.sourceRoot?.contentRoot, it.newEntity?.sourceRoot?.contentRoot)
+        }
+
+    private fun VersionedStorageChange.hasChangedModule(
         contentRootBefore: ContentRootEntity?,
-        contentRootAfter: ContentRootEntity?
-    ): Module? = getChangedModule(
+        contentRootAfter: ContentRootEntity?,
+    ): Boolean = hasChangedModule(
         contentRootBefore,
         contentRootAfter,
         moduleSelector = ContentRootEntity::module,
     )
 
-    private fun computeFacetChanges(event: VersionedStorageChange): Set<Module> = buildSet {
-        event.getChanges<FacetEntity>().mapNotNullTo(this) {
-            event.getChangedModule(
+    private fun hasFacetChanges(event: VersionedStorageChange): Boolean =
+        hasFacetEntityChanges(event) || hasKotlinSettingsEntityChanges(event)
+
+    private fun hasFacetEntityChanges(event: VersionedStorageChange): Boolean =
+        event.getChanges<FacetEntity>().any {
+            event.hasChangedModule(
                 oldEntity = it.oldEntity,
                 newEntity = it.newEntity,
                 entityFilter = FacetEntity::isKotlinFacet,
@@ -412,22 +309,22 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
             )
         }
 
-        event.getChanges<KotlinSettingsEntity>().mapNotNullTo(this) {
-            event.getChangedModule(
+    private fun hasKotlinSettingsEntityChanges(event: VersionedStorageChange): Boolean =
+        event.getChanges<KotlinSettingsEntity>().any {
+            event.hasChangedModule(
                 oldEntity = it.oldEntity,
                 newEntity = it.newEntity,
                 entityFilter = KotlinSettingsEntity::isKotlinFacet,
                 moduleSelector = KotlinSettingsEntity::module,
             )
         }
-    }
 
-    private fun <T : WorkspaceEntity> VersionedStorageChange.getChangedModule(
+    private fun <T : WorkspaceEntity> VersionedStorageChange.hasChangedModule(
         oldEntity: T?,
         newEntity: T?,
-        entityFilter: (T) -> Boolean = alwaysTrue<T>(),
+        entityFilter: (T) -> Boolean = alwaysTrue(),
         moduleSelector: (T) -> ModuleEntity?,
-    ): Module? {
+    ): Boolean {
         val oldModule = oldEntity?.takeIf(entityFilter)?.let(moduleSelector)?.findModule(storageBefore)
         val newModule = newEntity?.takeIf(entityFilter)?.let(moduleSelector)?.findModule(storageAfter)
         if (newModule != null && oldModule != null) {
@@ -436,7 +333,7 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
             }
         }
 
-        return oldModule ?: newModule
+        return oldModule != null || newModule != null
     }
 
     override fun dispose() {}
@@ -444,44 +341,5 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
     companion object {
         fun getInstance(project: Project): FirIdeModuleStateModificationService =
             project.getService(FirIdeModuleStateModificationService::class.java)
-
-        internal const val ENABLE_MODULE_SPECIFIC_MODIFICATION_EVENTS_KEY =
-            "kotlin.analysis.enableModuleSpecificProjectStructureModificationEvents"
-
-        /**
-         * Whether module-specific modification events should be published instead of global modification events (the default).
-         *
-         * @see FirIdeModuleStateModificationService
-         */
-        private val ARE_MODULE_SPECIFIC_EVENTS_ENABLED: Boolean
-            get() {
-                // We cannot make this lazy due to timing issues with setting the registry key during test setup.
-                //
-                // Assuming the property would be lazy, we would run into one of two problems:
-                //
-                // - When trying to set the key before `super.setUp()` is called in tests, the registry is not yet initialized, so the key
-                //   cannot be set.
-                // - When the key is set after `super.setUp()`, project setup in tests will already have published a workspace model event,
-                //   meaning that a lazy value of `ARE_MODULE_SPECIFIC_EVENTS_ENABLED` would already have been initialized.
-                return Registry.`is`(ENABLE_MODULE_SPECIFIC_MODIFICATION_EVENTS_KEY, false)
-            }
-    }
-}
-
-private fun Module.publishModuleStateModificationEvent(
-    modificationKind: KotlinModuleStateModificationKind = KotlinModuleStateModificationKind.UPDATE,
-) {
-    toKaModulesForModificationEvents().forEach { kaModule ->
-        kaModule.publishModuleStateModificationEvent(modificationKind)
-    }
-}
-
-private fun LibraryEntity.publishModuleStateModificationEvent(
-    project: Project,
-    modificationKind: KotlinModuleStateModificationKind = KotlinModuleStateModificationKind.UPDATE,
-) {
-    toKaLibraryModules(project).forEach { module ->
-        module.publishModuleStateModificationEvent(modificationKind)
-        module.librarySources?.publishModuleStateModificationEvent(modificationKind)
     }
 }
