@@ -1,6 +1,7 @@
 package com.jetbrains.python.psi.types
 
 import com.intellij.psi.PsiElement
+import com.jetbrains.python.PyNames
 import com.jetbrains.python.codeInsight.parseStdDataclassParameters
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider.Companion.GENERIC
@@ -30,7 +31,7 @@ import com.jetbrains.python.psi.PyTypeDeclarationStatement
 import com.jetbrains.python.psi.types.PyInferredVarianceJudgment.attributeDoesNotAffectVarianceInference
 import com.jetbrains.python.psi.types.PyInferredVarianceJudgment.combineVariance
 import com.jetbrains.python.psi.types.PyInferredVarianceJudgment.functionDoesNotAffectVarianceInference
-import com.jetbrains.python.psi.types.PyInferredVarianceJudgment.getInferredVariance
+import com.jetbrains.python.psi.types.PyInferredVarianceJudgment.getDeclaredOrInferredVariance
 import com.jetbrains.python.psi.types.PyTypeVarType.Variance
 import com.jetbrains.python.psi.types.PyTypeVarType.Variance.BIVARIANT
 import com.jetbrains.python.psi.types.PyTypeVarType.Variance.CONTRAVARIANT
@@ -133,12 +134,15 @@ object PyExpectedVarianceJudgment {
 
   private fun getTypeParameterVarianceAtIndex(qualifierType: PyClassType, index: Int, context: TypeEvalContext): Variance? {
     if (qualifierType is PyCollectionType) {
+      if (qualifierType.classQName == PyNames.TUPLE) {
+        return COVARIANT
+      }
       // check definition type since generic type aliases are parameterized, i.e.: `A_Alias_1 = ClassA[T_co]` will be ClassA[Any]
       val definitionType = PyTypeChecker.findGenericDefinitionType(qualifierType.pyClass, context) ?: qualifierType
       val typeParamType = definitionType.elementTypes.getOrNull(index) as? PyTypeVarType
         ?: qualifierType.elementTypes.getOrNull(index) as? PyTypeVarType
         ?: return null
-      return getInferredVariance(typeParamType, context)
+      return getDeclaredOrInferredVariance(typeParamType, context)
     }
     return null
   }
