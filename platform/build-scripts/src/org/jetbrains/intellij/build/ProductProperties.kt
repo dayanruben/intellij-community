@@ -195,6 +195,11 @@ abstract class ProductProperties {
   var contentModulesToScramble: List<String> = emptyList()
 
   /**
+   * The list of classes to check for scrambling.
+   */
+  var requiredScrambledClasses: List<String> = emptyList()
+
+  /**
    * Path to an alternative scramble script which will should be used for a product.
    */
   var alternativeScrambleStubPath: Path? = null
@@ -298,6 +303,11 @@ abstract class ProductProperties {
    * Launcher commands customizer
    */
   var launcherCommandsCustomizer: ((List<CustomCommandLaunchData>, BuildContext) -> List<CustomCommandLaunchData>)? = null
+
+  /**
+   * Custom frontend module filter
+   */
+  var frontendModuleFilter: (suspend (BuildContext) -> FrontendModuleFilter)? = null
 
   /**
    * Base file name (without an extension) for product archives and installers (*.exe, *.tar.gz, *.dmg).
