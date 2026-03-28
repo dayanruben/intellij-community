@@ -46,11 +46,14 @@ import com.intellij.openapi.application.WriteIntentReadAction;
 import com.intellij.openapi.application.impl.InternalUICustomization;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
+import com.intellij.openapi.diagnostic.AttachmentFactory;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.diagnostic.RuntimeExceptionWithAttachments;
 import com.intellij.openapi.diff.impl.DiffUtil;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.CaretState;
 import com.intellij.openapi.editor.CustomFoldRegion;
+import com.intellij.openapi.editor.CustomWrapModel;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorBundle;
@@ -63,6 +66,7 @@ import com.intellij.openapi.editor.EditorModificationUtil;
 import com.intellij.openapi.editor.EditorModificationUtilEx;
 import com.intellij.openapi.editor.EditorSettings;
 import com.intellij.openapi.editor.EditorThreading;
+import com.intellij.openapi.editor.EmptyCustomWrapModel;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.IndentsModel;
 import com.intellij.openapi.editor.Inlay;
@@ -171,6 +175,7 @@ import com.intellij.ui.ColorUtil;
 import com.intellij.ui.DirtyUI;
 import com.intellij.ui.EditorNotifications;
 import com.intellij.ui.ExperimentalUI;
+import com.intellij.ui.IslandsState;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.NewUI;
 import com.intellij.ui.components.JBLayeredPane;
@@ -409,6 +414,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private final @NotNull FoldingModelImpl myFoldingModel;
   private final @NotNull ScrollingModelImpl myScrollingModel;
   private final @NotNull CaretModelImpl myCaretModel;
+  private final @NotNull CustomWrapModel myCustomWrapModel;
   private final @NotNull SoftWrapModelImpl mySoftWrapModel;
   private final @NotNull InlayModelImpl myInlayModel;
 
@@ -584,7 +590,12 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     myScrollingModel = new ScrollingModelImpl(this);
     myInlayModel = new InlayModelImpl(this);
     Disposer.register(myCaretModel, myInlayModel);
-    mySoftWrapModel = new SoftWrapModelImpl(this);
+    myCustomWrapModel = CustomWrapModel.isCustomWrapsSupportEnabled()
+                        ? new CustomWrapModelImpl(this)
+                        : EmptyCustomWrapModel.INSTANCE;
+    mySoftWrapModel = Registry.is("editor.use.new.soft.wraps.impl")
+                      ? new ExperimentalSoftWrapModelImpl(this)
+                      : new LegacySoftWrapModelImpl(this);
 
     myCommandProcessor = CommandProcessor.getInstance();
 
@@ -713,6 +724,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     getElfDocument().addDocumentListener(new EditorDocumentAdapter(), myCaretModel);
     getElfDocument().addDocumentListener(mySoftWrapModel, myCaretModel);
     getElfDocument().addDocumentListener(myMarkupModel, myCaretModel);
+    if (myCustomWrapModel instanceof CustomWrapModelImpl customWrapModelImpl) {
+      getElfDocument().addDocumentListener(customWrapModelImpl, myCaretModel);
+    }
 
     myFoldingModel.addListener(mySoftWrapModel, myCaretModel);
 
@@ -815,6 +829,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
           clearCachedCodeStyleSettings();
         }
       });
+
+    myCustomWrapModel.addListener(mySoftWrapModel, myCaretModel);
   }
 
   public void applyFocusMode() {
@@ -1261,6 +1277,12 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   @Override
   public @NotNull SoftWrapModelImpl getSoftWrapModel() {
     return mySoftWrapModel;
+  }
+
+  @ApiStatus.Experimental
+  @Override
+  public @NotNull CustomWrapModel getCustomWrapModel() {
+    return myCustomWrapModel;
   }
 
   @Override
@@ -2677,6 +2699,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
            + ", soft wraps: " + (mySoftWrapModel.isSoftWrappingEnabled() ? "on" : "off")
            + ", caret model: " + getCaretModel().dumpState()
            + ", soft wraps data: " + getSoftWrapModel().dumpState()
+           + "\ncustom wraps data: " + ((myCustomWrapModel instanceof CustomWrapModelImpl) ? ((CustomWrapModelImpl)myCustomWrapModel).dumpState() : myCustomWrapModel.toString())
            + "\n\nfolding data: " + getFoldingModel().dumpState()
            + "\ninlay model: " + getInlayModel().dumpState()
            + (myDocument instanceof DocumentImpl ? "\n\ndocument info: " + ((DocumentImpl)myDocument).dumpState() : "")
@@ -5492,7 +5515,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @ApiStatus.Internal
   public boolean shouldUseNewSelection() {
-    return !Registry.is("editor.old.full.horizontal.selection.enabled") && !isColumnMode() && !hasBidiText();
+    return !Registry.is("editor.old.full.horizontal.selection.enabled")
+           && !isColumnMode()
+           && !hasBidiText()
+           && IslandsState.Companion.isEnabled();
   }
 
   @TestOnly
@@ -5857,5 +5883,12 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       return myElfDocument;
     }
     return getDocument();
+  }
+
+  @ApiStatus.Internal
+  public void assertOrDumpState(boolean condition, String message) {
+    if (!condition) {
+      throw new RuntimeExceptionWithAttachments(message, AttachmentFactory.createContext(dumpState()));
+    }
   }
 }
