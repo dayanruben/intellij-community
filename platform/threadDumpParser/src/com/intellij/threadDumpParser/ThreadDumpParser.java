@@ -42,7 +42,6 @@ public final class ThreadDumpParser {
   private static final Pattern ourThreadStateCarryingVirtualPattern = Pattern.compile("Carrying virtual thread #(\\d+)");
   private static final Pattern ourWaitingForLockPattern = Pattern.compile("- waiting (on|to lock) <(.+)>");
   private static final Pattern ourParkingToWaitForLockPattern = Pattern.compile("- parking to wait for {2}<(.+)>");
-  private static final Pattern ourWaitingForReleasePattern = Pattern.compile("waiting for .+ to release lock on (.+)");
   private static final @NonNls String PUMP_EVENT = "java.awt.EventDispatchThread.pumpOneEventForFilters";
   private static final Pattern ourIdleTimerThreadPattern = Pattern.compile("java\\.lang\\.Object\\.wait\\([^()]+\\)\\s+at java\\.util\\.TimerThread\\.mainLoop");
   private static final Pattern ourIdleSwingTimerThreadPattern = Pattern.compile("java\\.lang\\.Object\\.wait\\([^()]+\\)\\s+at javax\\.swing\\.TimerQueue\\.run");
@@ -51,6 +50,7 @@ public final class ThreadDumpParser {
   private static final Pattern ourLockedOwnableSynchronizersPattern = Pattern.compile("- <(0x[\\da-f]+)> \\(.*\\)");
   private static final Set<String> ourIgnoredThreadStateParts = Set.of("virtual", "unmounted");
   private static final Pattern ourLockedPattern = Pattern.compile("- locked (?:<(.+?)>|(\\S+))");
+  private static final Pattern ourWaitingForReleasePattern = Pattern.compile("waiting for .+ to release lock on (?:<(.+?)>|(\\S+))");
 
   private static final String[] IMPORTANT_THREAD_DUMP_WORDS = ContainerUtil.ar("tid", "nid", "wait", "parking", "prio", "os_prio", "java");
 
@@ -339,7 +339,7 @@ public final class ThreadDumpParser {
       List<String> monitors = threadState.getOwnedMonitorsAtDepth(frameIndex);
       if (monitors != null) {
         for (String monitor : monitors) {
-          buffer.append("\t  - locked ").append(monitor).append('\n');
+          buffer.append(lockedMonitor(monitor)).append('\n');
         }
       }
 
@@ -350,11 +350,15 @@ public final class ThreadDumpParser {
     List<String> unknownDepth = threadState.getOwnedMonitorsAtDepth(-1);
     if (unknownDepth != null) {
       for (String monitor : unknownDepth) {
-        buffer.append("\t  - locked <").append(monitor).append(">").append('\n');
+        buffer.append(lockedMonitor(monitor)).append('\n');
       }
     }
 
     threadState.setStackTrace(buffer.toString(), threadState.isEmptyStackTrace());
+  }
+
+  private static String lockedMonitor(String monitor) {
+    return "\t  - locked " + monitor;
   }
 
   private static boolean isStackFrame(String line) {
@@ -401,7 +405,7 @@ public final class ThreadDumpParser {
     }
     m = ourWaitingForReleasePattern.matcher(stackTrace);
     if (m.find()) {
-      return m.group(1);
+      return m.group(1) != null ? m.group(1) : m.group(2);
     }
     return null;
   }

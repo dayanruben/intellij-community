@@ -313,7 +313,6 @@ internal class JavaThreadDumpItem(private val threadState: ThreadState) : Mergea
       if (threadState.awaitingThreads != otherThreadState.awaitingThreads) return false
       if (threadState.deadlockedThreads != otherThreadState.deadlockedThreads) return false
       if (this.comparableStackTrace != other.comparableStackTrace) return false
-      if (this.item.parentTreeId != other.item.parentTreeId) return false
       return true
     }
 
@@ -327,8 +326,7 @@ internal class JavaThreadDumpItem(private val threadState: ThreadState) : Mergea
         threadState.extraState,
         threadState.awaitingThreads,
         threadState.deadlockedThreads,
-        comparableStackTrace,
-        parentTreeId
+        comparableStackTrace
       )
     }
   }
@@ -355,7 +353,7 @@ private class JavaThreadContainerItem(private val containerName: String, overrid
   override val interestLevel: Int
     get() = Int.MAX_VALUE // todo dependent on the number of children, for now kept on top
   override val icon: Icon
-    get() = IconsCache.getIconWithVirtualOverlay(AllIcons.Debugger.ThreadGroup)
+    get() = AllIcons.Debugger.ThreadGroup
   override val iconToolTip: @Nls String
     get() = JavaFrontbackBundle.message("dump.item.java.thread.icon.tooltip.container")
   override val isDeadLocked: Boolean
