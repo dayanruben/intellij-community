@@ -48,6 +48,7 @@ class KotlinEventLimitOutOfBlockModificationTest : AbstractKotlinModificationEve
                 FileWithText("b.kt", "fun bar(): Int = 20"),
                 FileWithText("c.kt", "fun baz(): Int = 30"),
                 FileWithText("d.kt", "fun qux(): Int = 40"),
+                FileWithText("e.kt", "fun qax(): Int = 50"),
             )
         }
 
@@ -70,6 +71,7 @@ class KotlinEventLimitOutOfBlockModificationTest : AbstractKotlinModificationEve
         val fileB = moduleA.findSourceKtFile("b.kt")
         val fileC = moduleA.findSourceKtFile("c.kt")
         val fileD = moduleA.findSourceKtFile("d.kt")
+        val fileE = moduleA.findSourceKtFile("e.kt")
 
         fun deleteTypeReference(file: KtFile) {
             file.firstTopLevelFunction.typeReference!!.delete()
@@ -114,6 +116,14 @@ class KotlinEventLimitOutOfBlockModificationTest : AbstractKotlinModificationEve
             deleteTypeReference(fileD)
 
             moduleTracker.assertModifiedExactly(times = 2)
+            globalTracker.assertModifiedOnce()
+        }
+
+        // Ensure that event limits are reset in a new write action.
+        runUndoTransparentWriteAction {
+            deleteTypeReference(fileE)
+
+            moduleTracker.assertModifiedExactly(times = 3)
             globalTracker.assertModifiedOnce()
         }
     }

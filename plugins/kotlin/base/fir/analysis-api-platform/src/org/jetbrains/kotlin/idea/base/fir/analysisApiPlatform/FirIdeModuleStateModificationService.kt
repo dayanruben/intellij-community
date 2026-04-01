@@ -78,11 +78,14 @@ private val STDLIB_PATTERN = Pattern.compile("kotlin-stdlib-(\\d*)\\.(\\d*)\\.(\
 @Service(Service.Level.PROJECT)
 class FirIdeModuleStateModificationService(val project: Project) : Disposable {
     /**
-     * The event publishing state of [ProjectFileDocumentListener].
+     * The event publishing state of [ProjectFileDocumentListener]. This is stored in the modification service because listeners should be
+     * stateless.
      *
-     * This is stored in the modification service because listeners should be stateless.
+     * The state is only accessed during write actions, so it is not used concurrently. However, it might be accessed from multiple threads
+     * in sequence, so it should still be volatile.
      */
-    private val projectFileEventPublishingState = ThreadLocal.withInitial { EventPublishingState.NONE }
+    @Volatile
+    private var projectFileEventPublishingState = EventPublishingState.NONE
 
     init {
         ApplicationManagerEx.getApplicationEx().addWriteActionListener(EventPublishingStateResetWriteActionListener(), this)
@@ -210,7 +213,7 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
     internal class ProjectFileDocumentListener(private val project: Project) : FileDocumentManagerListener {
         override fun fileWithNoDocumentChanged(file: VirtualFile) {
             val modificationService = getInstance(project)
-            if (modificationService.projectFileEventPublishingState.get() == EventPublishingState.GLOBAL_EVENT_PUBLISHED) return
+            if (modificationService.projectFileEventPublishingState == EventPublishingState.GLOBAL_EVENT_PUBLISHED) return
 
             // `FileDocumentManagerListener` may receive events from other projects via `FileDocumentManagerImpl`'s `AsyncFileListener`.
             if (!project.isInitialized || !ProjectFileIndex.getInstance(project).isInContent(file)) {
@@ -229,7 +232,7 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
             // content may have been changed externally.
             project.publishGlobalModuleStateModificationEvent()
 
-            modificationService.projectFileEventPublishingState.set(EventPublishingState.GLOBAL_EVENT_PUBLISHED)
+            modificationService.projectFileEventPublishingState = EventPublishingState.GLOBAL_EVENT_PUBLISHED
         }
     }
 
@@ -369,13 +372,30 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
      * Resets the [projectFileEventPublishingState] at write action boundaries so that each write action starts with a clean state.
      */
     private inner class EventPublishingStateResetWriteActionListener : WriteActionListener {
+        /**
+         * Tracks the depth of the current write action so that states are only reset when entering/exiting the outermost write action.
+         *
+         * The counter is only accessed during write actions, so it is not used concurrently. However, it might be accessed from multiple
+         * threads in sequence, so it should still be volatile.
+         */
+        @Volatile
+        private var writeActionDepth = 0
+
         override fun writeActionStarted(action: Class<*>) {
-            // Defensive cleanup: Ensure we start a write action with a clean state in case something went wrong previously.
-            projectFileEventPublishingState.remove()
+            if (writeActionDepth == 0) {
+                // Defensive cleanup: Ensure we start a write action with a clean state in case something went wrong previously.
+                projectFileEventPublishingState = EventPublishingState.NONE
+            }
+
+            writeActionDepth += 1
         }
 
         override fun writeActionFinished(action: Class<*>) {
-            projectFileEventPublishingState.remove()
+            writeActionDepth -= 1
+
+            if (writeActionDepth == 0) {
+                projectFileEventPublishingState = EventPublishingState.NONE
+            }
         }
     }
 
@@ -386,12 +406,12 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
     private inner class EventPublishingStateResetAnalysisInWriteActionListener : KotlinAnalysisInWriteActionListener {
         override fun onEnteringAnalysisInWriteAction() {
             // Defensive: Reset state when entering analysis in case modifications happen during the `analyze` call.
-            projectFileEventPublishingState.remove()
+            projectFileEventPublishingState = EventPublishingState.NONE
         }
 
         override fun afterLeavingAnalysisInWriteAction() {
             // Primary: Caches may have been filled during `analyze`, so further modifications need to be able to invalidate caches again.
-            projectFileEventPublishingState.remove()
+            projectFileEventPublishingState = EventPublishingState.NONE
         }
     }
 

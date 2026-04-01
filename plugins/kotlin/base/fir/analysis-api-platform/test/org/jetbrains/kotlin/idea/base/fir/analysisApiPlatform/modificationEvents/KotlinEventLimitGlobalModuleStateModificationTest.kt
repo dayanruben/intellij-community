@@ -117,6 +117,7 @@ class KotlinEventLimitGlobalModuleStateModificationTest : AbstractKotlinModifica
         val moduleB = createModuleInTmpDir("b")
         val moduleC = createModuleInTmpDir("c")
         val moduleD = createModuleInTmpDir("d")
+        val moduleE = createModuleInTmpDir("e")
 
         val globalTracker = createGlobalSourceModuleStateTracker()
 
@@ -130,6 +131,12 @@ class KotlinEventLimitGlobalModuleStateModificationTest : AbstractKotlinModifica
 
             moduleA.addDependency(moduleD)
             globalTracker.assertModifiedExactly(times = 3)
+        }
+
+        // Ensure that event limits are reset in a new write action.
+        runUndoTransparentWriteAction {
+            moduleA.addDependency(moduleE)
+            globalTracker.assertModifiedExactly(times = 4)
         }
     }
 
@@ -171,12 +178,13 @@ class KotlinEventLimitGlobalModuleStateModificationTest : AbstractKotlinModifica
         val libraryA = createProjectLibrary("a")
         val libraryB = createProjectLibrary("b")
         val libraryC = createProjectLibrary("c")
-        val moduleD = createModuleInTmpDir("d")
-        createModuleInTmpDir("e")
+        val libraryD = createProjectLibrary("d")
+        val moduleE = createModuleInTmpDir("e")
+        createModuleInTmpDir("f")
 
-        moduleD.addDependency(libraryA)
-        moduleD.addDependency(libraryB)
-        moduleD.addDependency(libraryC)
+        moduleE.addDependency(libraryA)
+        moduleE.addDependency(libraryB)
+        moduleE.addDependency(libraryC)
 
         val globalTracker = createGlobalModuleStateTracker()
 
@@ -190,6 +198,12 @@ class KotlinEventLimitGlobalModuleStateModificationTest : AbstractKotlinModifica
 
             libraryC.swapRoot()
             globalTracker.assertModifiedExactly(times = 3)
+        }
+
+        // Ensure that event limits are reset in a new write action.
+        runUndoTransparentWriteAction {
+            libraryD.swapRoot()
+            globalTracker.assertModifiedExactly(times = 4)
         }
     }
 
