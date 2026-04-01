@@ -5,12 +5,16 @@ import com.intellij.openapi.application.runUndoTransparentWriteAction
 import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.roots.libraries.Library
 import com.intellij.openapi.vfs.writeText
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.platform.modification.KotlinModificationEventKind
+import org.jetbrains.kotlin.idea.base.projectStructure.KaSourceModuleKind
+import org.jetbrains.kotlin.idea.base.projectStructure.toKaLibraryModules
+import org.jetbrains.kotlin.idea.base.projectStructure.toKaSourceModule
 import org.jetbrains.kotlin.idea.test.addDependency
 import org.jetbrains.kotlin.idea.test.addEmptyClassesRoot
 import org.jetbrains.kotlin.psi.KtFile
@@ -225,6 +229,89 @@ class KotlinEventLimitGlobalModuleStateModificationTest : AbstractKotlinModifica
 
             libraryC.swapRoot()
             globalTracker.assertModifiedExactly(times = 3)
+        }
+    }
+
+    /**
+     * One of the most critical consumers of module state modification events is the
+     * [K2IDEProjectStructureProvider][org.jetbrains.kotlin.idea.base.fir.projectStructure.provider.K2IDEProjectStructureProvider].
+     *
+     * Accessing [KaModule][org.jetbrains.kotlin.analysis.api.projectStructure.KaModule]s is a very frequent operation that is available
+     * even outside `analyze` blocks. The project structure provider can be used during write actions, for example, to find the correct
+     * `KaModule` for a tree change event. To limit excessive memory usage, the project structure provider caches `KaModule`s.
+     *
+     * If we limit modification events, we might clear the cache too early and miss important project structure updates (if the same module
+     * is also cached later during that same write action). For example, consider the following scenario:
+     *
+     * 1. **Module A is modified:** A modification event is published and the `KaModule` cache is cleared.
+     * 2. **Client requests KaModule B:** `KaModule` B is computed and cached in the project structure provider.
+     * 3. **Module B is modified:** No modification event is published due to event limits/throttling.
+     * 4. **Another client requests KaModule B:** The client receives the outdated (stale) version of B because it was cached *before* its
+     *    modification but *after* the initial cache clear.
+     *
+     * Or in summary: Clear cache (only once due to event limit) → Request and cache `KaModule` B → Modify module B → Stale cache.
+     *
+     * Because of this, event limits in the module state modification service are only applied to "file with no document" changes, so
+     * workspace model events currently cannot cause problems, and the test is trivial. However, this test is important as a smoke test for
+     * future changing to the module state modification service.
+     */
+    fun `test event limits do not cause the project structure provider to return stale source 'KaModule's`() {
+        val moduleA = createModule("a")
+        val moduleB = createModule("b")
+        val dependencyModule = createModule("dependency")
+
+        runUndoTransparentWriteAction {
+            // Trigger event limit.
+            moduleB.addDependency(dependencyModule)
+
+            val kaModuleBeforeModification =
+                moduleA.toKaSourceModule(KaSourceModuleKind.PRODUCTION)
+                    ?: error("Cannot find `KaSourceModule` for module A")
+            val dependenciesBefore = kaModuleBeforeModification.directRegularDependencies
+
+            moduleA.addDependency(dependencyModule)
+
+            val kaModuleAfterModification =
+                moduleA.toKaSourceModule(KaSourceModuleKind.PRODUCTION)
+                    ?: error("Cannot find `KaSourceModule` for module A after modification")
+            val dependenciesAfter = kaModuleAfterModification.directRegularDependencies
+
+            Assert.assertNotEquals(
+                "The dependencies of module A should be different after adding a dependency. The `KaModule` cache is likely stale",
+                dependenciesBefore,
+                dependenciesAfter,
+            )
+        }
+    }
+
+    /**
+     * See the following test above for details: `test event limits do not cause the project structure provider to return stale source
+     * 'KaModule's`.
+     */
+    @OptIn(KaExperimentalApi::class)
+    fun `test event limits do not cause the project structure provider to return stale library 'KaModule's`() {
+        val libraryA = createProjectLibrary("a")
+        val libraryB = createProjectLibrary("b")
+
+        runUndoTransparentWriteAction {
+            // Trigger event limit.
+            libraryB.swapRoot()
+
+            val kaModuleBeforeModification = libraryA.toKaLibraryModules(project).single()
+            val rootsBefore = kaModuleBeforeModification.binaryVirtualFiles
+            assertNotEmpty(rootsBefore)
+
+            libraryA.swapRoot()
+
+            val kaModuleAfterModification = libraryA.toKaLibraryModules(project).single()
+            val rootsAfter = kaModuleAfterModification.binaryVirtualFiles
+            assertNotEmpty(rootsAfter)
+
+            Assert.assertNotEquals(
+                "The roots of library A should be different after swapping roots. The `KaModule` cache is likely stale",
+                rootsBefore,
+                rootsAfter,
+            )
         }
     }
 
