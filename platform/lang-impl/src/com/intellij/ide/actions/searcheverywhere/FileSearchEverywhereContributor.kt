@@ -15,6 +15,7 @@ import com.intellij.ide.util.gotoByName.GotoFileModel
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
@@ -33,6 +34,7 @@ import com.intellij.ui.DirtyUI
 import com.intellij.util.Processor
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
+import java.util.function.BiConsumer
 import java.util.function.Function
 import javax.swing.JList
 import javax.swing.ListCellRenderer
@@ -153,11 +155,10 @@ open class FileSearchEverywhereContributor(event: AnActionEvent, contributorModu
     return consumer.process(FoundItemDescriptor(element, degree))
   }
 
-  override fun getDataForItem(element: Any, dataId: String): Any? {
-    if (CommonDataKeys.PSI_FILE.`is`(dataId) && element is PsiFile) {
-      return element
+  override fun getDataProviders(): List<BiConsumer<Any, DataSink>> = super.getDataProviders() + BiConsumer { element, sink ->
+    if (element is PsiFile) {
+      sink.lazy(CommonDataKeys.PSI_FILE) { element }
     }
-    return super.getDataForItem(element, dataId)
   }
 
   override fun getItemDescription(element: Any): String? {
