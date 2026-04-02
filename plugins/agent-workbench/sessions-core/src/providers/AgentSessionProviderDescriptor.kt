@@ -24,6 +24,23 @@ enum class AgentInitialMessageDispatchCompletionPolicy {
   RETRY_ON_CODEX_PLAN_BUSY,
 }
 
+enum class AgentThreadRenameContext {
+  TREE_POPUP,
+  EDITOR_TAB,
+}
+
+sealed interface AgentThreadRenameHandler {
+  val supportedContexts: Set<AgentThreadRenameContext>
+
+  interface Backend : AgentThreadRenameHandler {
+    suspend fun execute(path: String, threadId: String, normalizedName: String): Boolean
+  }
+
+  interface ChatDispatch : AgentThreadRenameHandler {
+    fun buildDispatchPlan(normalizedName: String): AgentInitialMessageDispatchPlan?
+  }
+}
+
 data class AgentInitialMessagePlan(
   @JvmField val message: String?,
   @JvmField val startupPolicy: AgentInitialMessageStartupPolicy = AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND,
@@ -116,8 +133,8 @@ interface AgentSessionProviderDescriptor {
   val supportsArchiveThread: Boolean
     get() = false
 
-  val supportsRenameThread: Boolean
-    get() = false
+  val threadRenameHandler: AgentThreadRenameHandler?
+    get() = null
 
   val supportsPlanMode: Boolean
     get() = false
@@ -141,8 +158,6 @@ interface AgentSessionProviderDescriptor {
   suspend fun createNewSession(path: String, mode: AgentSessionLaunchMode): AgentSessionLaunchSpec
 
   suspend fun archiveThread(path: String, threadId: String): Boolean = false
-
-  suspend fun renameThread(path: String, threadId: String, name: String): Boolean = false
 
   suspend fun unarchiveThread(path: String, threadId: String): Boolean = false
 
