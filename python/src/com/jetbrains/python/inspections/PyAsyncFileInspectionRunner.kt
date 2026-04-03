@@ -4,22 +4,24 @@ package com.jetbrains.python.inspections
 import com.github.benmanes.caffeine.cache.CacheLoader
 import com.github.benmanes.caffeine.cache.Caffeine
 import com.github.benmanes.caffeine.cache.LoadingCache
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.application.ApplicationManager
-import com.jetbrains.python.PythonPluginDisposable
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.coroutines.sync.OverflowSemaphore
 import com.intellij.psi.PsiFile
 import com.intellij.ui.EditorNotifications
 import com.intellij.ui.components.ActionLink
+import com.jetbrains.python.PythonPluginDisposable
 import com.jetbrains.python.inspections.interpreter.BusyGuardExecutor
 import com.jetbrains.python.inspections.interpreter.InterpreterFix
 import com.jetbrains.python.orLogException
@@ -64,7 +66,6 @@ class PyAsyncFileInspectionRunner(
 
   private val cache: LoadingCache<Module, Deferred<InspectionRunnerResult>> = Caffeine.newBuilder()
     .refreshAfterWrite(cacheTtl.toJavaDuration())
-    .weakKeys()
     .evictionListener<Module, Deferred<InspectionRunnerResult>> { _, value, _ -> value?.cancel() }
     .build(object : CacheLoader<Module, Deferred<InspectionRunnerResult>> {
       override fun load(key: Module): Deferred<InspectionRunnerResult> {
@@ -171,6 +172,9 @@ class InterpreterFixExecutor(private val project: Project, internal val scope: C
 
   override fun execute(action: suspend () -> Unit) {
     scope.launch {
+      edtWriteAction {
+        FileDocumentManager.getInstance().saveAllDocuments()
+      }
       tryWithSdkConfigurationLock(project) { action() }.orLogException(LOG)
     }
   }
