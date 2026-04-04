@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.runInterruptible
@@ -212,7 +213,11 @@ class ProcessExecutor(
     val stderrThread = redirectProcessOutput(process, false, stderrRedirect)
     val ioThreads = listOfNotNull(inputThread, stdoutThread, stderrThread)
 
+    // can't use process.isAlive: after killProcessTree sends a signal,
+    // the OS may not reap the process immediately, so isAlive can briefly return true
+    // — causing the finally block to redundantly re-run cleanup
     var processFinished = false
+
     fun killProcess(gracefully: Boolean) {
       if (processFinished) return
       catchAll { runBlocking(Dispatchers.IO) { onProcessCreatedJob.cancelAndJoin() } }
@@ -255,8 +260,9 @@ class ProcessExecutor(
     }
     finally {
       if (!processFinished) {
-        logOutput("   ... terminating process `$presentableName` because of scope cancellation or failed attempt to do it in the timeou hook ...")
-        killProcess(gracefully = false)
+        logOutput("   ... terminating process `$presentableName` because of scope cancellation or failed attempt to do it in the timeout hook ...")
+        val gracefully = !currentCoroutineContext().isActive
+        killProcess(gracefully = gracefully)
       }
 
       try {
