@@ -656,73 +656,6 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.bouncycastle/bcpg-jdk18on-1.83.jar_copy",
-  src = "@org_bouncycastle-bcpg-jdk18on-1_83_http//file",
-  out = "org.bouncycastle/bcpg-jdk18on-1.83.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "bouncy-castle-pgp",
-  jar = "@org_bouncycastle-bcpg-jdk18on-1_83_http//file",
-  source_jar = "@org_bouncycastle-bcpg-jdk18on-1_83-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "org.bouncycastle/bcpkix-jdk18on-1.83.jar_copy",
-  src = "@org_bouncycastle-bcpkix-jdk18on-1_83_http//file",
-  out = "org.bouncycastle/bcpkix-jdk18on-1.83.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "org.bouncycastle/bcutil-jdk18on-1.83.jar_copy",
-  src = "@org_bouncycastle-bcutil-jdk18on-1_83_http//file",
-  out = "org.bouncycastle/bcutil-jdk18on-1.83.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "org.bouncycastle/bcprov-jdk18on-1.83.jar_copy",
-  src = "@org_bouncycastle-bcprov-jdk18on-1_83_http//file",
-  out = "org.bouncycastle/bcprov-jdk18on-1.83.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-java_library(
-  name = "bouncy-castle-provider",
-  exports = [
-    ":org_bouncycastle-bcpkix-jdk18on-1_83_http_import",
-    ":org_bouncycastle-bcutil-jdk18on-1_83_http_import",
-    ":org_bouncycastle-bcprov-jdk18on-1_83_http_import",
-  ],
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "org_bouncycastle-bcpkix-jdk18on-1_83_http_import",
-  jar = "@org_bouncycastle-bcpkix-jdk18on-1_83_http//file",
-  source_jar = "@org_bouncycastle-bcpkix-jdk18on-1_83-sources_http//file"
-)
-
-jvm_import(
-  name = "org_bouncycastle-bcutil-jdk18on-1_83_http_import",
-  jar = "@org_bouncycastle-bcutil-jdk18on-1_83_http//file",
-  source_jar = "@org_bouncycastle-bcutil-jdk18on-1_83-sources_http//file"
-)
-
-jvm_import(
-  name = "org_bouncycastle-bcprov-jdk18on-1_83_http_import",
-  jar = "@org_bouncycastle-bcprov-jdk18on-1_83_http//file",
-  source_jar = "@org_bouncycastle-bcprov-jdk18on-1_83-sources_http//file"
-)
-
-copy_file(
   name = "net.bytebuddy/byte-buddy-1.17.7.jar_copy",
   src = "@net_bytebuddy-byte-buddy-1_17_7_http//file",
   out = "net.bytebuddy/byte-buddy-1.17.7.jar",
@@ -1025,36 +958,6 @@ jvm_import(
 )
 
 copy_file(
-  name = "commons-cli/commons-cli-1.11.0.jar_copy",
-  src = "@commons-cli-commons-cli-1_11_0_http//file",
-  out = "commons-cli/commons-cli-1.11.0.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "commons-cli",
-  jar = "@commons-cli-commons-cli-1_11_0_http//file",
-  source_jar = "@commons-cli-commons-cli-1_11_0-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "commons-codec/commons-codec-1.21.0.jar_copy",
-  src = "@commons-codec-commons-codec-1_21_0_http//file",
-  out = "commons-codec/commons-codec-1.21.0.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "commons-codec",
-  jar = "@commons-codec-commons-codec-1_21_0_http//file",
-  source_jar = "@commons-codec-commons-codec-1_21_0-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
   name = "org.apache.commons/commons-compress-1.28.0.jar_copy",
   src = "@org_apache_commons-commons-compress-1_28_0_http//file",
   out = "org.apache.commons/commons-compress-1.28.0.jar",
@@ -1066,21 +969,6 @@ jvm_import(
   name = "commons-compress",
   jar = "@org_apache_commons-commons-compress-1_28_0_http//file",
   source_jar = "@org_apache_commons-commons-compress-1_28_0-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "org.apache.commons/commons-lang3-3.20.0.jar_copy",
-  src = "@org_apache_commons-commons-lang3-3_20_0_http//file",
-  out = "org.apache.commons/commons-lang3-3.20.0.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "commons-lang3",
-  jar = "@org_apache_commons-commons-lang3-3_20_0_http//file",
-  source_jar = "@org_apache_commons-commons-lang3-3_20_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -6949,21 +6837,6 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.java-websocket/Java-WebSocket-1.6.0.jar_copy",
-  src = "@org_java-websocket-Java-WebSocket-1_6_0_http//file",
-  out = "org.java-websocket/Java-WebSocket-1.6.0.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "java-_web_socket",
-  jar = "@org_java-websocket-Java-WebSocket-1_6_0_http//file",
-  source_jar = "@org_java-websocket-Java-WebSocket-1_6_0-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
   name = "org.apache.maven.resolver/maven-resolver-connector-basic-1.9.22.jar_copy",
   src = "@org_apache_maven_resolver-maven-resolver-connector-basic-1_9_22_http//file",
   out = "org.apache.maven.resolver/maven-resolver-connector-basic-1.9.22.jar",
@@ -10937,6 +10810,73 @@ jvm_import(
 )
 
 copy_file(
+  name = "org.bouncycastle/bcpg-jdk18on-1.83.jar_copy",
+  src = "@org_bouncycastle-bcpg-jdk18on-1_83_http//file",
+  out = "org.bouncycastle/bcpg-jdk18on-1.83.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-bouncy-castle-pgp-bouncy-castle-pgp",
+  jar = "@org_bouncycastle-bcpg-jdk18on-1_83_http//file",
+  source_jar = "@org_bouncycastle-bcpg-jdk18on-1_83-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "org.bouncycastle/bcpkix-jdk18on-1.83.jar_copy",
+  src = "@org_bouncycastle-bcpkix-jdk18on-1_83_http//file",
+  out = "org.bouncycastle/bcpkix-jdk18on-1.83.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "org.bouncycastle/bcutil-jdk18on-1.83.jar_copy",
+  src = "@org_bouncycastle-bcutil-jdk18on-1_83_http//file",
+  out = "org.bouncycastle/bcutil-jdk18on-1.83.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "org.bouncycastle/bcprov-jdk18on-1.83.jar_copy",
+  src = "@org_bouncycastle-bcprov-jdk18on-1_83_http//file",
+  out = "org.bouncycastle/bcprov-jdk18on-1.83.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "libraries-bouncy-castle-provider-bouncy-castle-provider",
+  exports = [
+    ":org_bouncycastle-bcpkix-jdk18on-1_83_http_import",
+    ":org_bouncycastle-bcutil-jdk18on-1_83_http_import",
+    ":org_bouncycastle-bcprov-jdk18on-1_83_http_import",
+  ],
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "org_bouncycastle-bcpkix-jdk18on-1_83_http_import",
+  jar = "@org_bouncycastle-bcpkix-jdk18on-1_83_http//file",
+  source_jar = "@org_bouncycastle-bcpkix-jdk18on-1_83-sources_http//file"
+)
+
+jvm_import(
+  name = "org_bouncycastle-bcutil-jdk18on-1_83_http_import",
+  jar = "@org_bouncycastle-bcutil-jdk18on-1_83_http//file",
+  source_jar = "@org_bouncycastle-bcutil-jdk18on-1_83-sources_http//file"
+)
+
+jvm_import(
+  name = "org_bouncycastle-bcprov-jdk18on-1_83_http_import",
+  jar = "@org_bouncycastle-bcprov-jdk18on-1_83_http//file",
+  source_jar = "@org_bouncycastle-bcprov-jdk18on-1_83-sources_http//file"
+)
+
+copy_file(
   name = "com.github.ben-manes.caffeine/caffeine-3.2.3.jar_copy",
   src = "@com_github_ben-manes_caffeine-caffeine-3_2_3_http//file",
   out = "com.github.ben-manes.caffeine/caffeine-3.2.3.jar",
@@ -11169,6 +11109,36 @@ jvm_import(
 )
 
 copy_file(
+  name = "commons-cli/commons-cli-1.11.0.jar_copy",
+  src = "@commons-cli-commons-cli-1_11_0_http//file",
+  out = "commons-cli/commons-cli-1.11.0.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-commons-cli-commons-cli",
+  jar = "@commons-cli-commons-cli-1_11_0_http//file",
+  source_jar = "@commons-cli-commons-cli-1_11_0-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "commons-codec/commons-codec-1.21.0.jar_copy",
+  src = "@commons-codec-commons-codec-1_21_0_http//file",
+  out = "commons-codec/commons-codec-1.21.0.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-commons-codec-commons-codec",
+  jar = "@commons-codec-commons-codec-1_21_0_http//file",
+  source_jar = "@commons-codec-commons-codec-1_21_0-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
   name = "org.jetbrains.intellij.deps/commons-imaging-1.0-RC-1.jar_copy",
   src = "@org_jetbrains_intellij_deps-commons-imaging-1_0-RC-1_http//file",
   out = "org.jetbrains.intellij.deps/commons-imaging-1.0-RC-1.jar",
@@ -11195,6 +11165,21 @@ jvm_import(
   name = "libraries-commons-io-commons-io",
   jar = "@commons-io-commons-io-2_21_0_http//file",
   source_jar = "@commons-io-commons-io-2_21_0-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "org.apache.commons/commons-lang3-3.20.0.jar_copy",
+  src = "@org_apache_commons-commons-lang3-3_20_0_http//file",
+  out = "org.apache.commons/commons-lang3-3.20.0.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-commons-lang3-commons-lang3",
+  jar = "@org_apache_commons-commons-lang3-3_20_0_http//file",
+  source_jar = "@org_apache_commons-commons-lang3-3_20_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -12235,6 +12220,21 @@ jvm_import(
   name = "libraries-jackson3-module-kotlin-jackson3-module-kotlin",
   jar = "@tools_jackson_module-jackson-module-kotlin-3_1_0-rc1_http//file",
   source_jar = "@tools_jackson_module-jackson-module-kotlin-3_1_0-rc1-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "org.java-websocket/Java-WebSocket-1.6.0.jar_copy",
+  src = "@org_java-websocket-Java-WebSocket-1_6_0_http//file",
+  out = "org.java-websocket/Java-WebSocket-1.6.0.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-java-websocket-_java-_web_socket",
+  jar = "@org_java-websocket-Java-WebSocket-1_6_0_http//file",
+  source_jar = "@org_java-websocket-Java-WebSocket-1_6_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
