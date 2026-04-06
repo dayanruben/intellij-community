@@ -155,6 +155,18 @@
                      enabledByDefault="true" level="WEAK WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.PluginXmlPluginLogoInspection"
                      key="inspection.plugin.xml.plugin.logo.display.name"/>
+    <localInspection language="XML" shortName="SplitModeXmlApiUsage" applyToDialects="false"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
+                     enabledByDefault="true" level="WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.remotedev.SplitModeXmlApiUsageInspection"
+                     key="inspection.split.mode.xml.api.usage.display.name"/>
+    <localInspection language="XML" shortName="SplitModeMixedDependencies" applyToDialects="false"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
+                     enabledByDefault="true" level="ERROR"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.remotedev.SplitModeMixedDependenciesInspection"
+                     key="inspection.split.mode.mixed.dependencies.display.name"/>
     <localInspection language="XML" applyToDialects="false"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
@@ -225,6 +237,13 @@
                      enabledByDefault="true" level="WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.internal.UndesirableClassUsageInspection"
                      key="inspection.undesirable.class.usage.display.name"/>
+
+    <localInspection language="UAST" shortName="SplitModeApiUsage"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.code"
+                     enabledByDefault="true" level="WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.remotedev.SplitModeApiUsageInspection"
+                     key="inspection.split.mode.api.usage.display.name"/>
     <localInspection language="UAST" shortName="FileEqualsUsage"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.code"
@@ -732,7 +751,6 @@
     <console.folding order="first" implementation="org.jetbrains.idea.devkit.run.FailedTestDebugLogConsoleFolding"/>
 
     <applicationService serviceImplementation="org.jetbrains.idea.devkit.actions.updateFromSources.UpdateFromSourcesSettings"/>
-
     <projectService serviceImplementation="org.jetbrains.idea.devkit.run.JUnitDevKitUnitTestingSettings"
                     configurationSchemaKey="unitTesting"/>
 
@@ -775,6 +793,7 @@
     <useScopeEnlarger implementation="org.jetbrains.idea.devkit.references.DomTargetUseScopeEnlarger"/>
 
     <postStartupActivity implementation="org.jetbrains.idea.devkit.templates.UpdateFileTemplatesSchemeToProjectActivity"/>
+    <postStartupActivity implementation="org.jetbrains.idea.devkit.inspections.remotedev.RestrictionsLoadingActivity"/>
   </extensions>
 
   <extensions defaultExtensionNs="DevKit.lang">
