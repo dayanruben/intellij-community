@@ -1,6 +1,6 @@
-# Agent Workbench Spec Format
+# Shared Spec Format
 
-This is the single spec format for this plugin. Specs live in `spec/` and must be Markdown files ending in `.spec.md`.
+This is the shared spec format for plugin-local specs in this repository. Specs should live under the owning plugin's `spec/` directory and must be Markdown files ending in `.spec.md`.
 
 ## Required Structure
 - YAML frontmatter with `name`, `description`, and `targets` (at least one file path or glob).
@@ -13,15 +13,14 @@ This is the single spec format for this plugin. Specs live in `spec/` and must b
 
 ```markdown
 ---
-name: Agent Threads Tool Window
-description: Requirements for the Agent Threads tool window and app-server integration.
+name: Sample Feature Spec
+description: Requirements for a plugin feature and its owning implementation.
 targets:
-  - ../sessions/src/*.kt
-  - ../sessions/resources/intellij.agent.workbench.sessions.xml
-  - ../sessions/resources/messages/AgentSessionsBundle.properties
+  - ../src/com/example/feature/*.kt
+  - ../resources/messages/ExampleBundle.properties
 ---
 
-# Agent Threads Tool Window
+# Sample Feature Spec
 
 Status: Draft
 Date: 2026-02-03
@@ -37,7 +36,7 @@ Provide a concise description of the feature, scope, and intent.
 
 ## Requirements
 - Each requirement must be testable and specific.
-  [@test] ../sessions/testSrc/AgentSessionsToolWindowTest.kt
+  [@test] ../testSrc/com/example/feature/ExampleFeatureTest.kt
 
 ## User Experience
 - Describe UI states and interactions.

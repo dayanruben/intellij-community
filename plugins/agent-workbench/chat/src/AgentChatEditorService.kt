@@ -156,7 +156,7 @@ suspend fun openChat(
   pendingFirstInputAtMs: Long? = null,
   pendingLaunchMode: String? = null,
   initialMessageDispatchPlan: AgentInitialMessageDispatchPlan = AgentInitialMessageDispatchPlan.EMPTY,
-) {
+): VirtualFile {
   val manager = FileEditorManagerEx.getInstanceExAsync(project)
 
   val tabKey = AgentChatTabKey.fromIdentity(
@@ -265,11 +265,8 @@ suspend fun openChat(
   if (pendingProvider != null && AgentSessionProviders.find(pendingProvider)?.emitsScopedRefreshSignals == true) {
     notifyAgentChatTerminalOutputForRefresh(provider = pendingProvider, projectPath = projectPath)
   }
-}
 
-@Suppress("unused")
-suspend fun collectOpenAgentChatProjectPaths(): Set<String> {
-  return collectOpenAgentChatProjectPaths(includePendingOnly = false)
+  return file
 }
 
 suspend fun collectOpenPendingAgentChatProjectPaths(): Set<String> {
@@ -738,13 +735,6 @@ fun clearOpenConcreteAgentChatNewThreadRebindAnchors(
   return cleared
 }
 
-@Suppress("unused")
-fun clearOpenConcreteCodexNewThreadRebindAnchors(
-  tabsByProjectPath: Map<String, List<AgentChatConcreteTabSnapshot>>,
-): Int {
-  return clearOpenConcreteAgentChatNewThreadRebindAnchors(AgentSessionProvider.CODEX, tabsByProjectPath)
-}
-
 suspend fun updateOpenAgentChatTabPresentation(
   titleByPathAndThreadIdentity: Map<Pair<String, String>, String>,
   activityByPathAndThreadIdentity: Map<Pair<String, String>, AgentThreadActivity>,
@@ -809,16 +799,6 @@ suspend fun updateOpenAgentChatTabPresentation(
     " requestedTitles=${normalizedTitlesByPathAndThreadIdentity.size}, requestedActivities=${normalizedActivitiesByPathAndThreadIdentity.size}"
   }
   return updatedTabs
-}
-
-@Suppress("unused")
-suspend fun updateOpenAgentChatTabTitles(
-  titleByPathAndThreadIdentity: Map<Pair<String, String>, String>,
-): Int {
-  return updateOpenAgentChatTabPresentation(
-    titleByPathAndThreadIdentity = titleByPathAndThreadIdentity,
-    activityByPathAndThreadIdentity = emptyMap(),
-  )
 }
 
 suspend fun collectSelectedChatThreadIdentity(): Pair<AgentSessionProvider, String>? = withContext(Dispatchers.UI) {
