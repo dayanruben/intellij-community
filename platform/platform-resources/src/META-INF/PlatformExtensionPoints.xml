@@ -234,6 +234,9 @@
     <extensionPoint name="statistic.eventLog.fusStateEventTracker" interface="com.intellij.internal.statistic.eventLog.fus.FeatureUsageStateEventTracker" dynamic="false"/>
     <extensionPoint name="statistic.eventLog.externalEventLogSettings" interface="com.intellij.internal.statistic.eventLog.ExternalEventLogSettings" dynamic="true"/>
     <extensionPoint name="statistic.eventLog.externalListenerProvider" interface="com.intellij.internal.statistic.eventLog.ExternalEventLogListenerProviderExtension" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.internal.statistic.extensibility.eventLogToolWindowEPLogProvider"
+                    interface="com.intellij.internal.statistic.extensibility.StatisticsEventLogToolWindowEPLogProvider"
+                    dynamic="true"/>
 
     <extensionPoint name="productivityFeaturesProvider" interface="com.intellij.featureStatistics.ProductivityFeaturesProvider"
                     dynamic="true"/>
@@ -718,6 +721,16 @@
     <extensionPoint name="pluginCategoryPromotionProvider"
                     interface="com.intellij.ide.plugins.PluginCategoryPromotionProvider"
                     dynamic="false"/>
+
+    <extensionPoint name="minimapStructureMarkerPolicy"
+                    interface="com.intellij.ide.minimap.model.MinimapStructureMarkerPolicy"
+                    dynamic="true"/>
+    <extensionPoint name="minimapLayerFactory"
+                    interface="com.intellij.ide.minimap.layers.MinimapLayerFactory"
+                    dynamic="true"/>
+    <extensionPoint name="minimapFileSupportPolicy"
+                    interface="com.intellij.ide.minimap.model.MinimapFileSupportPolicy"
+                    dynamic="true"/>
 
     <extensionPoint name="fileChooserCustomizer"
                     interface="com.intellij.openapi.fileChooser.FileChooserCustomizer"

@@ -1,6 +1,8 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.runtime.repository.serialization
 
+import com.intellij.platform.runtime.repository.RuntimeModuleId
+import com.intellij.platform.runtime.repository.RuntimeModuleId.DEFAULT_NAMESPACE
 import com.intellij.platform.runtime.repository.RuntimeModuleId.raw
 import com.intellij.platform.runtime.repository.RuntimeModuleLoadingRule
 import com.intellij.platform.runtime.repository.RuntimeModuleVisibility
@@ -59,7 +61,7 @@ class JarRepositorySerializationTest {
             </dependencies>
           </module>
         """.trimIndent())
-      xml("ij.platform.util.rt.xml", """
+      xml("ij.platform.util.rt_custom.xml", """
           <module name="ij.platform.util.rt" namespace="custom" visibility="public">
             <resources>
               <resource-root path="ij-util-rt.jar"/>
@@ -73,7 +75,8 @@ class JarRepositorySerializationTest {
   fun `bootstrap module classpath`() {
     check(listOf(
       createModuleDescriptor("foo", listOf("foo.jar"), emptyList()),
-      createModuleDescriptor("bar", listOf("bar.jar"), listOf("foo")),
+      create(raw("bar", RuntimeModuleId.LEGACY_JPS_MODULE_NAMESPACE), listOf("bar.jar"),
+      listOf(raw("foo", DEFAULT_NAMESPACE))),
     ), emptyList(), "bar", "bar.jar foo.jar") {
       xml("foo.xml", """
           <module name="foo" namespace="jetbrains" visibility="public">
@@ -82,8 +85,8 @@ class JarRepositorySerializationTest {
             </resources>
           </module>
         """.trimIndent())
-      xml("bar.xml", """
-          <module name="bar" namespace="jetbrains" visibility="public">
+      xml($$"bar_$legacy_jps_module.xml", $$"""
+          <module name="bar" namespace="$legacy_jps_module" visibility="public">
             <dependencies>
               <module name="foo"/>
             </dependencies>

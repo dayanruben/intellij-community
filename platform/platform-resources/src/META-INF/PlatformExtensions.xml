@@ -1832,12 +1832,22 @@
                        key="presentation.assistant.notification"/>
 
     <!-- Minimap -->
-    <registryKey key="editor.minimap.enabled" defaultValue="false" description="Enables minimap"/>
+    <registryKey key="editor.minimap.mode" defaultValue="[disabled*|legacy|new]"
+                 description="Minimap mode: disabled, legacy, new"/>
     <editorFactoryListener implementation="com.intellij.ide.minimap.MinimapEditorFactoryListener"/>
     <applicationService serviceImplementation="com.intellij.ide.minimap.settings.MinimapSettings"/>
     <applicationConfigurable id="com.intellij.minimap" parentId="editor"
-                             provider="com.intellij.ide.minimap.settings.MinimapConfigurableProvider"
-                             key="settings.name" bundle="messages.MinimapBundle"/>
+                             key="settings.name" bundle="messages.MinimapBundle"
+                             provider="com.intellij.ide.minimap.settings.MinimapConfigurableProvider"/>
+    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.LegacyPreviewLayerFactory"/>
+    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.TokenFillerLayerFactory"/>
+    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.SelectionLayerFactory"/>
+    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.DiagnosticsLayerFactory"/>
+    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.FoldMarkersLayerFactory"/>
+    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.BreakpointsLayerFactory"/>
+    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.HoverLayerFactory"/>
+    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.CaretLayerFactory"/>
+    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.ThumbLayerFactory"/>
     <registryKey key="popup.advertiser.speed.search" defaultValue="false" description="Shows speed search advertiser in popups"/>
     <registryKey key="wayland.true.popups" defaultValue="true" description="Show popups in Wayland as true popups (allows remembering the location, but limits them to the IDE window)"/>
     <registryKey key="wayland.screen.vInsets" defaultValue="50" description="The sum of vertical screen insets (top + bottom) assumed for Wayland (because it doesn't report the actual insets)"/>

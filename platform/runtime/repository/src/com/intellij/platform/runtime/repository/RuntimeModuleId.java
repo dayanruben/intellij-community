@@ -18,6 +18,8 @@ public final class RuntimeModuleId {
   @ApiStatus.Internal
   public static final String LEGACY_JPS_MODULE_NAMESPACE = "$legacy_jps_module";
   @ApiStatus.Internal
+  public static final String LEGACY_JPS_MODULE_TESTS_NAMESPACE = "$legacy_jps_module_tests";
+  @ApiStatus.Internal
   public static final String LEGACY_JPS_LIBRARY_NAMESPACE = "$legacy_jps_library";
   private final String myName;
   private final String myNamespace;
@@ -25,15 +27,6 @@ public final class RuntimeModuleId {
   private RuntimeModuleId(@NotNull String name, @NotNull String namespace) {
     myName = name;
     myNamespace = namespace;
-  }
-
-  /**
-   * @deprecated there is no standard string representation of a runtime module ID.
-   * Use {@link #getPresentableName()} for presentation purposes, in other cases use {@link #getNamespace()} and {@link #getName()}.
-   */
-  @Deprecated(forRemoval = true)
-  public @NotNull String getStringId() {
-    return myName;
   }
 
   public @NotNull String getName() {
@@ -52,21 +45,74 @@ public final class RuntimeModuleId {
   }
 
   /**
-   * @deprecated use {@link #raw(String, String)} instead.
-   */
-  @Deprecated(forRemoval = true)
-  @ApiStatus.Internal
-  public static @NotNull RuntimeModuleId raw(@NotNull String stringId) {
-    return new RuntimeModuleId(stringId, DEFAULT_NAMESPACE);
-  }
-
-  /**
    * Creates ID from a raw string representation as it's written in the runtime module repository.
    * This method is supposed to be used to generate and transform the module repository only, other code should use other methods.
    */
   @ApiStatus.Internal
   public static @NotNull RuntimeModuleId raw(@NotNull String moduleName, @NotNull String namespace) {
     return new RuntimeModuleId(moduleName, namespace);
+  }
+
+  /**
+   * Creates ID of a runtime module corresponding to a plugin content module with the name {@code moduleName} in the namespace {@code namespace}.
+   */
+  public static @NotNull RuntimeModuleId contentModule(@NotNull String moduleName, @NotNull String namespace) {
+    return new RuntimeModuleId(moduleName, namespace);
+  }
+
+  @ApiStatus.Internal
+  public static @NotNull RuntimeModuleId legacyJpsModule(@NotNull String moduleName) {
+    return new RuntimeModuleId(moduleName, LEGACY_JPS_MODULE_NAMESPACE);
+  }
+
+  /**
+   * Creates ID of a runtime module corresponding to the test part of module {@code moduleName} in intellij project configuration.
+   */
+  public static @NotNull RuntimeModuleId moduleTests(@NotNull String moduleName) {
+    return new RuntimeModuleId(moduleName, LEGACY_JPS_MODULE_TESTS_NAMESPACE);
+  }
+
+  /**
+   * Creates ID of a runtime module corresponding to the project-level library {@code libraryName} in intellij project configuration.
+   */
+  public static @NotNull RuntimeModuleId projectLibrary(@NotNull String libraryName) {
+    return new RuntimeModuleId(libraryName, LEGACY_JPS_LIBRARY_NAMESPACE);
+  }
+
+  @Override
+  public String toString() {
+    return "RuntimeModuleId{name=" + myName + ", namespace=" + myNamespace + "}";
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    return myName.equals(((RuntimeModuleId)o).myName) && myNamespace.equals(((RuntimeModuleId)o).myNamespace);
+  }
+
+  @Override
+  public int hashCode() {
+    return myName.hashCode() * 31 + myNamespace.hashCode();
+  }
+
+  //<editor-fold desc="deprecated methods" defaultstate="collapsed">
+  /**
+   * @deprecated there is no standard string representation of a runtime module ID.
+   * Use {@link #getPresentableName()} for presentation purposes, in other cases use {@link #getNamespace()} and {@link #getName()}.
+   */
+  @Deprecated(forRemoval = true)
+  public @NotNull String getStringId() {
+    return myName;
+  }
+
+  /**
+   * @deprecated use {@link #raw(String, String)} instead.
+   */
+  @Deprecated(forRemoval = true)
+  @ApiStatus.Internal
+  public static @NotNull RuntimeModuleId raw(@NotNull String stringId) {
+    return new RuntimeModuleId(stringId, DEFAULT_NAMESPACE);
   }
 
   /**
@@ -79,32 +125,6 @@ public final class RuntimeModuleId {
   }
 
   /**
-   * Creates ID of a runtime module corresponding to a plugin content module with the name {@code moduleName} in the namespace {@code namespace}.
-   */
-  public static @NotNull RuntimeModuleId contentModule(@NotNull String moduleName, @NotNull String namespace) {
-    return new RuntimeModuleId(moduleName, namespace);
-  }
-
-  @ApiStatus.Internal
-  public static @NotNull RuntimeModuleId legacyJpsModule(@NotNull String moduleName) {
-    return new RuntimeModuleId(moduleName, "jps");
-  }
-
-  /**
-   * Creates ID of a runtime module corresponding to the test part of module {@code moduleName} in intellij project configuration.
-   */
-  public static @NotNull RuntimeModuleId moduleTests(@NotNull String moduleName) {
-    return new RuntimeModuleId(moduleName + TESTS_NAME_SUFFIX, DEFAULT_NAMESPACE);
-  }
-
-  /**
-   * Creates ID of a runtime module corresponding to the project-level library {@code libraryName} in intellij project configuration.
-   */
-  public static @NotNull RuntimeModuleId projectLibrary(@NotNull String libraryName) {
-    return new RuntimeModuleId(libraryName, LEGACY_JPS_LIBRARY_NAMESPACE);
-  }
-
-  /**
    * @deprecated module-level libraries are now merged with corresponding modules at runtime, it doesn't make sense to have separate IDs for
    * them.
    */
@@ -112,21 +132,5 @@ public final class RuntimeModuleId {
   public static @NotNull RuntimeModuleId moduleLibrary(@NotNull String moduleName, @NotNull String libraryName) {
     return new RuntimeModuleId("lib." + moduleName + "." + libraryName, DEFAULT_NAMESPACE);
   }
-
-  @Override
-  public String toString() {
-    return "RuntimeModuleId{name=" + myName + ", namespace=" + myNamespace + "}";
-  }
-
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
-    return myName.equals(((RuntimeModuleId)o).myName);
-  }
-
-  @Override
-  public int hashCode() {
-    return myName.hashCode();
-  }
+  //</editor-fold>
 }

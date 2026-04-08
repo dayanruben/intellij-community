@@ -48,6 +48,7 @@ import org.jetbrains.kotlin.idea.completion.impl.k2.allowsOnlyNamedArguments
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.K2TypeInstantiationContributor.InheritanceSubstitutionResult.SubstitutionNotPossible
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.K2TypeInstantiationContributor.InheritanceSubstitutionResult.SuccessfulSubstitution
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.K2TypeInstantiationContributor.InheritanceSubstitutionResult.UnresolvedParameter
+import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.helpers.KtSymbolWithOrigin
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.helpers.getAliasNameIfExists
 import org.jetbrains.kotlin.idea.completion.impl.k2.isAfterRangeOperator
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.ImportStrategy
@@ -55,6 +56,7 @@ import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.factories.KotlinFirL
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.factories.KotlinFirLookupElementFactory.createAnonymousObjectLookupElement
 import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.ExpectedTypeWeigher
 import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.ExpectedTypeWeigher.matchesExpectedType
+import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.Weighers.applyWeighs
 import org.jetbrains.kotlin.idea.imports.ImportMapper
 import org.jetbrains.kotlin.idea.searching.inheritors.findAllInheritors
 import org.jetbrains.kotlin.idea.util.positionContext.KotlinNameReferencePositionContext
@@ -189,19 +191,19 @@ internal class K2TypeInstantiationContributor : K2CompletionContributor<KotlinNa
             return
         }
 
-        // If we have an alias in scope, then we do not need to import anything, just use the alias name.
-        val importStrategy = if (aliasName == null) {
-            // Note: we explicitly do this for the original symbol rather than the kotlinAlias because
-            // the constructor symbols will belong to Java anyways.
-            context.importStrategyDetector.detectImportStrategyForClassifierSymbol(symbol)
-        } else ImportStrategy.DoNothing
-
         val kotlinAliasSymbolOrSelf = symbol.mapJavaToKotlinAliasOrSelf()
         val substitutionResult = substituteTypeArgumentsToMatchExpectedSupertype(
             inheritorSymbol = kotlinAliasSymbolOrSelf,
             expectedSuperTypeParameterMapping = expectedTypeParamMap,
             expectedSuperType = expectedType,
         )
+
+        val importStrategy = if (aliasName == null) {
+            context.importStrategyDetector.detectImportStrategyForClassifierSymbol(kotlinAliasSymbolOrSelf)
+        } else {
+            // If we have an alias in scope, then we do not need to import anything, just use the alias name.
+            ImportStrategy.DoNothing
+        }
 
         // Note: These if statements are not necessarily mutually exclusive, e.g., for open classes.
         if (isObject) {
@@ -349,6 +351,7 @@ internal class K2TypeInstantiationContributor : K2CompletionContributor<KotlinNa
     ) {
         val element = createAnonymousObjectLookupElement(symbol, typeArguments, importingStrategy, aliasName)
         element.matchesExpectedType = ExpectedTypeWeigher.MatchesExpectedType.MATCHES
+        element.applyWeighs(KtSymbolWithOrigin(symbol))
         addElement(element)
     }
 
@@ -364,6 +367,7 @@ internal class K2TypeInstantiationContributor : K2CompletionContributor<KotlinNa
             aliasName = aliasName,
         )?.let { element ->
             element.matchesExpectedType = ExpectedTypeWeigher.MatchesExpectedType.MATCHES
+            element.applyWeighs(KtSymbolWithOrigin(symbol))
             addElement(element)
         }
     }
@@ -394,6 +398,7 @@ internal class K2TypeInstantiationContributor : K2CompletionContributor<KotlinNa
             inputTypeArgumentsAreRequired = inputTypeArgumentsAreRequired,
         )?.let { element ->
             element.matchesExpectedType = ExpectedTypeWeigher.MatchesExpectedType.MATCHES
+            element.applyWeighs(KtSymbolWithOrigin(symbol))
             addElement(element)
         }
     }
