@@ -491,7 +491,7 @@
 
     <extensionPoint name="projectCloseHandler" interface="com.intellij.openapi.project.ProjectCloseHandler" dynamic="true"/>
 
-    <extensionPoint name="projectServiceContainerCustomizer" interface="com.intellij.openapi.project.impl.ProjectServiceContainerCustomizer" dynamic="false"/>
+    <extensionPoint name="projectServiceContainerCustomizer" interface="com.intellij.openapi.project.impl.ProjectServiceContainerCustomizer" dynamic="true"/>
     <extensionPoint name="projectPreInit" interface="com.intellij.openapi.startup.InitProjectActivity" dynamic="false"/>
 
     <extensionPoint name="actionConfigurationCustomizer" interface="com.intellij.openapi.actionSystem.impl.ActionConfigurationCustomizer" dynamic="false"/>
@@ -734,6 +734,10 @@
 
     <extensionPoint name="fileChooserCustomizer"
                     interface="com.intellij.openapi.fileChooser.FileChooserCustomizer"
+                    dynamic="true"/>
+
+    <extensionPoint qualifiedName="com.intellij.universalFileChooserContributor"
+                    interface="com.intellij.openapi.fileChooser.universal.UniversalFileChooserContributor"
                     dynamic="true"/>
 
 

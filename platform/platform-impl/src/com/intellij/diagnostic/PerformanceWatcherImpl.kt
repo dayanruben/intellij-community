@@ -48,6 +48,7 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
@@ -75,12 +76,14 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 import kotlin.io.path.fileSize
 import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
 import kotlin.io.path.useDirectoryEntries
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
 
@@ -135,7 +138,7 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
             return@collectLatest
           }
 
-          delay(unresponsiveInterval.toLong())
+          delay(unresponsiveInterval.toLong().milliseconds)
           task.edtFrozen()
         }
       }
@@ -173,7 +176,7 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
         }
 
         while (true) {
-          delay(samplingIntervalMs)
+          delay(samplingIntervalMs.milliseconds)
           samplePerformance(samplingIntervalMs)
         }
       }
@@ -570,6 +573,7 @@ private class CoroutineDispatcherWatcher(
 ) {
   @Volatile
   private var lastSampleNs = System.nanoTime()
+  private var reportedDumpsCount = 0
 
   fun watchDispatcher() {
     startPooledThreadSampling()
@@ -578,10 +582,10 @@ private class CoroutineDispatcherWatcher(
 
   private fun startPooledThreadSampling() {
     LOG.debug("$dispatcher thread sampling started")
-    coroutineScope.launch(CoroutineName("$dispatcher sampling") + dispatcher) {
+    coroutineScope.launchWithSafeContext(CoroutineName("$dispatcher sampling") + dispatcher) {
       try {
         while (true) {
-          delay(pooledSamplingInterval)
+          delay(pooledSamplingInterval.milliseconds)
           lastSampleNs = System.nanoTime()
         }
       }
@@ -594,27 +598,52 @@ private class CoroutineDispatcherWatcher(
   private fun startPooledThreadWatcher() {
     LOG.debug("$dispatcher thread watcher started")
     @Suppress("OPT_IN_USAGE")
-    coroutineScope.launch(CoroutineName("$dispatcher watcher") + blockingDispatcher) {
+    coroutineScope.launchWithSafeContext(CoroutineName("$dispatcher watcher") + blockingDispatcher) {
       try {
         var lastReportedNs = System.nanoTime()
 
         while (true) {
-          delay(pooledSamplingInterval)
+          delay(pooledSamplingInterval.milliseconds)
 
-          val unresponsiveIntervalMs = getUnresponsiveIntervalMs()
+          val useProgressiveInterval = Registry.`is`("performance.watcher.pooled.progressive.interval", true)
+          val baseUnresponsiveIntervalMs = getUnresponsiveIntervalMs()
+          val unresponsiveIntervalMs = when {
+            !useProgressiveInterval -> baseUnresponsiveIntervalMs
+            reportedDumpsCount < 3 -> baseUnresponsiveIntervalMs
+            else -> baseUnresponsiveIntervalMs * reportedDumpsCount.coerceAtMost(40)
+          }
+
           if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - lastSampleNs) <= unresponsiveIntervalMs ||
               TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - lastReportedNs) <= unresponsiveIntervalMs) {
             continue
           }
 
-          val file = PerformanceWatcher.getInstance().dumpThreads("$dispatcher", true, true)
-          LOG.info("Thread pool exhaustion: ${dispatcher} is not responding for $unresponsiveIntervalMs ms." + if (file == null) "" else "; thread dump is saved to '$file'")
+          val maxDumps = Registry.intValue("performance.watcher.pooled.maximum.dumps", 10)
+          if (reportedDumpsCount < maxDumps || maxDumps == -1) {
+            val file = PerformanceWatcher.getInstance().dumpThreads("$dispatcher", true, true)
+            LOG.info("Thread pool exhaustion: ${dispatcher} is not responding for $unresponsiveIntervalMs ms." + if (file == null) "" else "; thread dump is saved to '$file'")
+          }
+          else {
+            LOG.info("Thread pool exhaustion: ${dispatcher} is not responding for $unresponsiveIntervalMs ms.")
+          }
+
           lastReportedNs = System.nanoTime()
+          reportedDumpsCount++
         }
       }
       finally {
         LOG.debug("$dispatcher watcher stopped")
       }
+    }
+  }
+
+  private fun CoroutineScope.launchWithSafeContext(context: CoroutineContext, block: suspend () -> Unit) {
+    // See IJPL-234553
+    // We keep the Job from application scope to get cancellation, but strip everything else that might influence the coroutine execution
+    val effectiveContext = context + coroutineContext[Job]!!
+    @Suppress("OPT_IN_USAGE")
+    GlobalScope.launch(effectiveContext) {
+      block()
     }
   }
 }

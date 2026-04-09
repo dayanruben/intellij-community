@@ -80,11 +80,18 @@ exports_files([
 ### auto-generated section `iml intellij.platform.polySymbols` end
 
 ### auto-generated section `build intellij.platform.polySymbols.testFramework` start
+resourcegroup(
+  name = "polySymbols-testFramework_resources",
+  srcs = glob(["testFrameworkResources/**/*"]),
+  strip_prefix = "testFrameworkResources"
+)
+
 jvm_library(
   name = "polySymbols-testFramework",
   module_name = "intellij.platform.polySymbols.testFramework",
   visibility = ["//visibility:public"],
   srcs = glob(["testFramework/**/*.kt", "testFramework/**/*.java", "testFramework/**/*.form"], allow_empty = True),
+  resources = [":polySymbols-testFramework_resources"],
   deps = [
     "//platform/lang-impl",
     "//platform/editor-ui-api:editor-ui",
@@ -106,14 +113,11 @@ jvm_library(
     "//libraries/jackson/module-kotlin:libraries-jackson-module-kotlin",
     "//libraries/fastutil",
     "//libraries/commons/compress",
-    "//libraries/markdown",
     "//libraries/gson",
-    "//platform/markdown-utils",
     "//platform/testFramework",
     "//java/java-runtime:rt",
     "//platform/indexing-api:indexing",
     "//platform/ide-core",
-    "//plugins/editorconfig/backend",
     "//platform/code-style-api:codeStyle",
     "//platform/util:util-ui",
     "//platform/util/jdom",
@@ -145,14 +149,11 @@ jvm_library(
     "//libraries/jackson/module-kotlin:libraries-jackson-module-kotlin_test_lib",
     "//libraries/fastutil:fastutil_test_lib",
     "//libraries/commons/compress:compress_test_lib",
-    "//libraries/markdown:markdown_test_lib",
     "//libraries/gson:gson_test_lib",
-    "//platform/markdown-utils:markdown-utils_test_lib",
     "//platform/testFramework:testFramework_test_lib",
     "//java/java-runtime:rt_test_lib",
     "//platform/indexing-api:indexing_test_lib",
     "//platform/ide-core:ide-core_test_lib",
-    "//plugins/editorconfig/backend:backend_test_lib",
     "//platform/code-style-api:codeStyle_test_lib",
     "//platform/util:util-ui_test_lib",
     "//platform/util/jdom:jdom_test_lib",

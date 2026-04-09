@@ -336,9 +336,10 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
         mainModule = context.findRequiredModule(runConfigurationProperties.moduleName),
         testGroups = null,
         testPatterns = runConfigurationProperties.testClassPatterns.joinToString(separator = ";"),
-        jvmArgs = removeStandardJvmOptions(runConfigurationProperties.vmParameters) + additionalJvmOptions
-                  + "-Dintellij.build.run.configuration.name=${runConfigurationProperties.name}",
-        systemProperties = systemProperties,
+        jvmArgs = removeStandardJvmOptions(runConfigurationProperties.vmParameters) + additionalJvmOptions,
+        systemProperties = systemProperties + listOf(
+          "intellij.build.test.process.name" to runConfigurationProperties.name,
+        ),
         envVariables = runConfigurationProperties.envVariables,
         remoteDebugging = false,
         searchForTestsAcrossModuleDependencies = runConfigurationProperties.testSearchScope == JUnitRunConfigurationProperties.TestSearchScope.MODULE_WITH_DEPENDENCIES,
@@ -442,7 +443,9 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
             testPatterns = options.testPatterns,
             testTags = options.testTags,
             jvmArgs = additionalJvmOptions,
-            systemProperties = systemProperties,
+            systemProperties = systemProperties + listOf(
+              "intellij.build.test.process.name" to testModule.name,
+            ),
             remoteDebugging = false,
             searchForTestsAcrossModuleDependencies = false,
             rootExcludeCondition = rootExcludeCondition,
@@ -454,7 +457,9 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
       }
     }
 
-    if (suppressedExceptions.isNotEmpty() && suppressedExceptions.size == testModules.size) {
+    if (suppressedExceptions.size == testModules.size &&
+        // a bucket might be empty for run configurations with too few tests due to imperfect tests balancing
+        options.bucketsCount < 2) {
       throw RuntimeException("No tests were found in '${mainModule.name}' module classpath w/ simple patterns '${options.testSimplePatterns}', patterns '${options.testPatterns}', or groups '${options.testGroups}'").apply {
         suppressedExceptions.forEach(::addSuppressed)
       }
@@ -1290,7 +1295,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
 }
 
 private fun appendJUnitStarter(classPath: MutableList<String>, context: CompilationContext) {
-  for ((libName, moduleName) in arrayOf("JUnit5" to null, "JUnit5Launcher" to null, "JUnit5Vintage" to "intellij.libraries.junit5.vintage", "JUnit5Jupiter" to null)) {
+  for ((libName, moduleName) in arrayOf("JUnit5" to null, "JUnit5Launcher" to null, "JUnit5Vintage" to "intellij.libraries.junit5.vintage", "JUnit5Jupiter" to "intellij.libraries.junit5.jupiter")) {
     for (library in context.outputProvider.findLibraryRoots(libName, moduleName)) {
       classPath.add(library.toString())
     }

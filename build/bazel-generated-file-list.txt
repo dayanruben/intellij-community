@@ -1,5 +1,4 @@
-.ownership/lib
-.ownership/lib-test
+.ownership
 .ownership/monorepo-resolver
 .ownership/runtime-resolver
 RegExpSupport
@@ -942,6 +941,7 @@ plugins/compose/intellij.compose.ide.plugin.k1
 plugins/compose/intellij.compose.ide.plugin.k2
 plugins/compose/intellij.compose.ide.plugin.projectStructureTests
 plugins/compose/intellij.compose.ide.plugin.resources
+plugins/compose/intellij.compose.ide.plugin.resources.android
 plugins/compose/intellij.compose.ide.plugin.shared
 plugins/configuration-script
 plugins/copyright
