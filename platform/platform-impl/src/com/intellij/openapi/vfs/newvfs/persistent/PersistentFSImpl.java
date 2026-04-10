@@ -48,6 +48,7 @@ import com.intellij.openapi.vfs.encoding.EncodingManager;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.openapi.vfs.encoding.Utf8BomOptionProvider;
 import com.intellij.openapi.vfs.ex.temp.TempFileSystem;
+import com.intellij.openapi.vfs.impl.SymlinksCapableFileSystem;
 import com.intellij.openapi.vfs.impl.local.LocalFileSystemBase;
 import com.intellij.openapi.vfs.impl.local.LocalFileSystemImpl;
 import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem;
@@ -90,7 +91,6 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.BitUtil;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.ExceptionUtilRt;
-import com.intellij.util.PathUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.Suppressions;
 import com.intellij.util.UriUtil;
@@ -1721,8 +1721,10 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     for (Map.Entry<VirtualDirectoryImpl, Collection<VFileDeleteEvent>> entry : deletions.entrySet()) {
       VirtualDirectoryImpl parent = entry.getKey();
       Collection<VFileDeleteEvent> deleteEvents = entry.getValue();
-      // no valid containing directory; applying events the old way - one by one
       if (parent == null || !parent.isValid()) {
+        // no valid containing directory; applying events the old way - one by one:
+        //TODO RC: why do we ever need to process invalid directory?
+        //         Shouldn't we just skip it altogether, since it must be already deleted along with it's descendants?
         deleteEvents.forEach(this::applyEvent);
         return;
       }
@@ -1732,13 +1734,15 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       IntSet childrenIdsDeleted = new IntOpenHashSet(deleteEvents.size());
       List<ChildInfo> deleted = new ArrayList<>(deleteEvents.size());
       for (VFileDeleteEvent event : deleteEvents) {
-        VirtualFile file = event.getFile();
-        int id = fileId(file);
-        childrenNamesDeleted.add(file.getNameSequence());
-        childrenIdsDeleted.add(id);
-        vfsPeer.deleteRecordRecursively(id);
-        invalidateSubtree(file, "Bulk file deletions", event);
-        deleted.add(new ChildInfoImpl(id, ChildInfoImpl.UNKNOWN_ID_YET, null, null, null));
+        VirtualFile child = event.getFile();
+        int childId = fileId(child);
+
+        childrenNamesDeleted.add(child.getNameSequence());
+        childrenIdsDeleted.add(childId);
+        deleted.add(new ChildInfoImpl(childId, ChildInfoImpl.UNKNOWN_ID_YET, null, null, null));
+
+        vfsPeer.deleteRecordRecursively(childId);
+        invalidateSubtree((VirtualFileSystemEntry)child, "Bulk file deletions", event);
       }
       deleted.sort(ChildInfo.BY_ID);
       vfsPeer.update(parent, parentId, oldChildren -> oldChildren.subtract(deleted), /*setAllChildrenCached: */ false);
@@ -2628,29 +2632,29 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     }
 
     vfsPeer.deleteRecordRecursively(fileIdToDelete);
+    invalidateSubtree((VirtualFileSystemEntry)file, "File deleted", event);
 
-    invalidateSubtree(file, "File deleted", event);
     incStructuralModificationCount();
   }
 
-  private static void invalidateSubtree(@NotNull VirtualFile file, @NotNull Object source, @NotNull Object reason) {
-    VirtualFileSystemEntry root = (VirtualFileSystemEntry)file;
+  /**
+   * Invalidates the root and all its descendants, recursively: deepest nodes are invalidated first, the root is the last.
+   * Invalidation is done only in in-memory VFS structures ({@link VfsData}) -- persistent VFS structures (FSRecords) are not touched.
+   */
+  private static void invalidateSubtree(@NotNull VirtualFileSystemEntry root, @NotNull Object source, @NotNull Object reason) {
     if (root.isDirectory()) {
-      Queue<VirtualFile> queue = new ArrayDeque<>(root.getCachedChildren());
-      while (!queue.isEmpty()) {
-        VirtualFileSystemEntry child = (VirtualFileSystemEntry)queue.remove();
-        queue.addAll(child.getCachedChildren());
-        doInvalidate(child, source, reason);
+      for (VirtualFile child : root.getCachedChildren()) {
+        invalidateSubtree((VirtualFileSystemEntry)child, source, reason);
       }
     }
-    doInvalidate(root, source, reason);
+    invalidateSingleNode(root, source, reason);
   }
 
-  private static void doInvalidate(@NotNull VirtualFileSystemEntry file, @NotNull Object source, @NotNull Object reason) {
+  private static void invalidateSingleNode(@NotNull VirtualFileSystemEntry file, @NotNull Object source, @NotNull Object reason) {
     if (file.is(VFileProperty.SYMLINK)) {
       VirtualFileSystem fs = file.getFileSystem();
-      if (fs instanceof LocalFileSystemImpl) {
-        ((LocalFileSystemImpl)fs).symlinkRemoved(file.getId());
+      if (fs instanceof SymlinksCapableFileSystem scfs && scfs.isSymlinksSupported()) {
+        scfs.symlinkRemoved(file.getId());
       }
     }
     file.invalidate(source, reason);
@@ -2690,8 +2694,8 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     int id = fileId(file);
     vfsPeer.storeSymlinkTarget(id, target);
     VirtualFileSystem fs = file.getFileSystem();
-    if (fs instanceof LocalFileSystemImpl) {
-      ((LocalFileSystemImpl)fs).symlinkUpdated(id, file.getParent(), file.getNameSequence(), file.getPath(), target);
+    if (fs instanceof SymlinksCapableFileSystem scfs && scfs.isSymlinksSupported()) {
+      scfs.symlinkUpdated(id, file.getParent(), file.getNameSequence(), file.getPath(), target);
     }
   }
 

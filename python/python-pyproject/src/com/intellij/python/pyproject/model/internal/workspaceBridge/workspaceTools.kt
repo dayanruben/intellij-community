@@ -1,5 +1,7 @@
 package com.intellij.python.pyproject.model.internal.workspaceBridge
 
+import com.intellij.java.workspace.entities.javaSourceRoots
+import com.intellij.java.workspace.entities.modifyJavaSourceRootPropertiesEntity
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.project.Project
@@ -7,6 +9,8 @@ import com.intellij.openapi.roots.ExternalProjectSystemRegistry
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.jps.JpsImportedEntitySource
+import com.intellij.platform.workspace.jps.entities.customSourceRootProperties
+import com.intellij.platform.workspace.jps.entities.modifyCustomSourceRootPropertiesEntity
 import com.intellij.platform.workspace.jps.entities.ContentRootEntity
 import com.intellij.platform.workspace.jps.entities.ContentRootEntityBuilder
 import com.intellij.platform.workspace.jps.entities.DependencyScope
@@ -24,7 +28,9 @@ import com.intellij.platform.workspace.jps.entities.SourceRootEntityBuilder
 import com.intellij.platform.workspace.jps.entities.SourceRootTypeId
 import com.intellij.platform.workspace.jps.entities.exModuleOptions
 import com.intellij.platform.workspace.jps.entities.modifyContentRootEntity
+import com.intellij.platform.workspace.jps.entities.modifyExcludeUrlEntity
 import com.intellij.platform.workspace.jps.entities.modifyModuleEntity
+import com.intellij.platform.workspace.jps.entities.modifySourceRootEntity
 import com.intellij.platform.workspace.jps.entities.sdkId
 import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.platform.workspace.storage.EntityStorage
@@ -194,15 +200,31 @@ private fun renameSameModuleAndMoveSources(syncStorage: EntityStorage, projectSt
           name = syncModuleEntity.name
           entitySource = syncModuleEntity.entitySource
         }
+        val pythonEntitySource = syncModuleEntity.entitySource
         for (projectRootEntity in projectModuleEntity.contentRoots.toList()) {
           projectStorage.modifyContentRootEntity(projectRootEntity) {
-            entitySource = syncModuleEntity.entitySource
-            logger.debug {
-              buildString {
-                appendLine("modify content root:")
-                appendLine("root: ${projectRootEntity.url}")
-                appendLine("source: ${syncModuleEntity.entitySource}")
+            entitySource = pythonEntitySource
+          }
+          // Source roots (and their children) and exclude URLs must also get the Python entity source,
+          // so that replaceBySource relabels them instead of treating them as mismatched (PY-87499).
+          for (sourceRoot in projectRootEntity.sourceRoots) {
+            projectStorage.modifySourceRootEntity(sourceRoot) {
+              entitySource = pythonEntitySource
+            }
+            for (javaSourceRoot in sourceRoot.javaSourceRoots) {
+              projectStorage.modifyJavaSourceRootPropertiesEntity(javaSourceRoot) {
+                entitySource = pythonEntitySource
               }
+            }
+            sourceRoot.customSourceRootProperties?.let {
+              projectStorage.modifyCustomSourceRootPropertiesEntity(it) {
+                entitySource = pythonEntitySource
+              }
+            }
+          }
+          for (excludeUrl in projectRootEntity.excludedUrls) {
+            projectStorage.modifyExcludeUrlEntity(excludeUrl) {
+              entitySource = pythonEntitySource
             }
           }
         }
@@ -240,12 +262,19 @@ private abstract class RootFixer<E : WorkspaceEntity, B : WorkspaceEntity.Builde
   protected abstract fun getRoots(rootEntity: ContentRootEntityBuilder): List<B>
   protected abstract fun setRoots(roots: List<B>, rootBuilder: ContentRootEntityBuilder)
   protected abstract fun getVirtualUrl(entity: B): VirtualFileUrl
+  protected abstract fun setEntitySource(entity: B, entitySource: EntitySource)
 
   fun addRoots(to: ContentRootEntityBuilder, from: ContentRootEntity) {
     val dstRoots = getRoots(to)
 
+    // Copied roots must have the same entity source as the parent content root,
+    // otherwise replaceBySource will skip them as non-matching children (PY-87499).
+    val targetEntitySource = to.entitySource
     @Suppress("UNCHECKED_CAST")
-    val newRoots = (getRoots(from).map { it.createEntityTreeCopy() as B } + dstRoots).distinctBy { getVirtualUrl(it).url }
+    val copiedRoots = getRoots(from).map {
+      (it.createEntityTreeCopy() as B).also { copy -> setEntitySource(copy, targetEntitySource) }
+    }
+    val newRoots = (copiedRoots + dstRoots).distinctBy { getVirtualUrl(it).url }
     setRoots(newRoots, to)
   }
 }
@@ -263,6 +292,18 @@ private object SourceRootFixer : RootFixer<SourceRootEntity, SourceRootEntityBui
   }
 
   override fun getVirtualUrl(entity: SourceRootEntityBuilder): VirtualFileUrl = entity.url
+
+  override fun setEntitySource(entity: SourceRootEntityBuilder, entitySource: EntitySource) {
+    entity.entitySource = entitySource
+    // Child property entities must also match, otherwise the JPS serializer
+    // sees a mismatched FileInDirectory source and drops the .iml association (PY-87499).
+    for (javaSourceRoot in entity.javaSourceRoots) {
+      javaSourceRoot.entitySource = entitySource
+    }
+    entity.customSourceRootProperties?.let {
+      it.entitySource = entitySource
+    }
+  }
 }
 
 private object ExcludeRootFixer : RootFixer<ExcludeUrlEntity, ExcludeUrlEntityBuilder>() {
@@ -278,6 +319,10 @@ private object ExcludeRootFixer : RootFixer<ExcludeUrlEntity, ExcludeUrlEntityBu
   }
 
   override fun getVirtualUrl(entity: ExcludeUrlEntityBuilder): VirtualFileUrl = entity.url
+
+  override fun setEntitySource(entity: ExcludeUrlEntityBuilder, entitySource: EntitySource) {
+    entity.entitySource = entitySource
+  }
 }
 
 private val rootFixers = arrayOf(ExcludeRootFixer, SourceRootFixer)

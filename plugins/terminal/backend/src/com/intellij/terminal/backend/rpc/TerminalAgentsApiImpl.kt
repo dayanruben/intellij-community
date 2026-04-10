@@ -9,14 +9,12 @@ import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.environmentVariables
 import com.intellij.platform.eel.fs.EelFileInfo
 import com.intellij.platform.eel.fs.EelFileSystemApi
-import com.intellij.platform.eel.fs.stat
 import com.intellij.platform.eel.getOrNull
 import com.intellij.platform.eel.isWindows
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.toEelApi
-import com.intellij.platform.eel.where
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.project.findProject
 import org.jetbrains.annotations.ApiStatus
@@ -89,28 +87,83 @@ private object TerminalAgentResolver {
     terminalAgent: TerminalAgent,
     context: TerminalAgentResolutionContext,
   ): String? {
-    val relativePath = when(context.osFamily) {
-      EelOsFamily.Windows -> terminalAgent.windowsHomeBinaryPath
-      EelOsFamily.Posix -> terminalAgent.unixHomeBinaryPath
+    return when (context.osFamily) {
+      EelOsFamily.Windows -> findWindowsBinaryPath(terminalAgent, context)
+      EelOsFamily.Posix -> findPosixBinaryPath(terminalAgent, context)
     }
-    if (relativePath != null) {
-      val home = context.eelApi.fs.user.home
-      val result = home.resolve(relativePath)
-      if (context.eelApi.fs.isRegularFile(result)) {
-        return result.toString()
+  }
+
+  private suspend fun findPosixBinaryPath(
+    terminalAgent: TerminalAgent,
+    context: TerminalAgentResolutionContext,
+  ): String? {
+    return context.eelApi.exec.findExeFilesInPath(terminalAgent.binaryName).firstOrNull()?.toString()
+           ?: findPosixKnownLocationBinaryPath(terminalAgent, context)
+  }
+
+  private suspend fun findWindowsBinaryPath(
+    terminalAgent: TerminalAgent,
+    context: TerminalAgentResolutionContext,
+  ): String? {
+    for (extension in terminalAgent.windowsExecutableExtensions) {
+      val path = context.eelApi.exec.findExeFilesInPath("${terminalAgent.binaryName}.$extension").firstOrNull()
+      if (path != null) {
+        return path.toString()
       }
     }
+    return findWindowsKnownLocationBinaryPath(terminalAgent, context)
+  }
 
-    val binaryName = when (context.osFamily) {
-      EelOsFamily.Windows -> if (terminalAgent.binaryName.endsWith(".exe", ignoreCase = true)) terminalAgent.binaryName else "${terminalAgent.binaryName}.exe"
-      EelOsFamily.Posix -> terminalAgent.binaryName
+  private suspend fun findPosixKnownLocationBinaryPath(
+    terminalAgent: TerminalAgent,
+    context: TerminalAgentResolutionContext,
+  ): String? {
+    for (candidate in terminalAgent.posixKnownLocationCandidates) {
+      val folder = resolveKnownLocationCandidate(candidate, context) ?: continue
+      val path = folder.resolve(terminalAgent.binaryName)
+      if (context.eelApi.fs.isRegularFile(path)) {
+        return path.toString()
+      }
     }
-    return context.eelApi.exec.where(binaryName)?.toString()
+    return null
+  }
+
+  private suspend fun findWindowsKnownLocationBinaryPath(
+    terminalAgent: TerminalAgent,
+    context: TerminalAgentResolutionContext,
+  ): String? {
+    for (candidate in terminalAgent.windowsKnownLocationCandidates) {
+      val folder = resolveKnownLocationCandidate(candidate, context) ?: continue
+      for (extension in terminalAgent.windowsExecutableExtensions) {
+        val path = folder.resolve("${terminalAgent.binaryName}.$extension")
+        if (context.eelApi.fs.isRegularFile(path)) {
+          return path.toString()
+        }
+      }
+    }
+    return null
+  }
+
+  private fun resolveKnownLocationCandidate(candidate: String, context: TerminalAgentResolutionContext): EelPath? {
+    return if (candidate.startsWith(HOME_MARKER)) {
+      val homeRelative = candidate.removePrefix(HOME_MARKER).removePrefix("/").removeSuffix("\\")
+      context.eelApi.fs.user.home.resolve(homeRelative)
+    }
+    else {
+      runCatching {
+        EelPath.parse(candidate, context.eelApi.descriptor)
+      }.getOrElse { error ->
+        thisLogger().error("Parsing candidate path: $candidate", error)
+        null
+      }
+    }
   }
 
   private suspend fun EelFileSystemApi.isRegularFile(path: EelPath): Boolean {
-    return stat(path).justResolve().eelIt().getOrNull()?.type is EelFileInfo.Type.Regular
+    return stat(path, EelFileSystemApi.SymlinkPolicy.JUST_RESOLVE).getOrNull()?.type is EelFileInfo.Type.Regular
   }
+
+  private const val HOME_MARKER: String = $$"$HOME"
 }
 
 @ApiStatus.Internal
