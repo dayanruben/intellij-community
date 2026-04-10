@@ -27,6 +27,8 @@ interface HotSwapUiExtension {
   fun createTooltip(): HelpTooltip? = null
   val shouldAddHideButton: Boolean get() = true
   val shouldAddText: Boolean get() = true
+  val hotSwapButtonAccessibleName: String? get() = null
+  val toolbarAccessibleName: String? get() = null
   fun moreAction(): AnAction? = null
   fun popupMenuActions(): DefaultActionGroup? = null
 
