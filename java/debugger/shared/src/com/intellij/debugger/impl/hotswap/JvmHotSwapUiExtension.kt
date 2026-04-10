@@ -26,7 +26,7 @@ internal class JvmHotSwapUiExtension : HotSwapUiExtension {
     get() = XDebuggerBundle.message("xdebugger.hotswap.tooltip.apply")
 
   override val toolbarAccessibleName: String
-    get() = XDebuggerBundle.message("xdebugger.hotswap.code.changed")
+    get() = XDebuggerBundle.message("xdebugger.hotswap.toolbar.accessible.name")
 
   override fun popupMenuActions() = DefaultActionGroup(ToggleShowButtonAction())
 }

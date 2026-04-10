@@ -5,7 +5,9 @@ import com.intellij.ide.HelpTooltip
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.project.Project
+import com.intellij.platform.debugger.impl.rpc.HotSwapVisibleStatus
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Nls
 import javax.swing.Icon
 
 @ApiStatus.Internal
@@ -27,8 +29,12 @@ interface HotSwapUiExtension {
   fun createTooltip(): HelpTooltip? = null
   val shouldAddHideButton: Boolean get() = true
   val shouldAddText: Boolean get() = true
+  @get:Nls
   val hotSwapButtonAccessibleName: String? get() = null
+  @get:Nls
   val toolbarAccessibleName: String? get() = null
+  fun announceHotSwapStatus(project: Project, status: HotSwapVisibleStatus) {}
+
   fun moreAction(): AnAction? = null
   fun popupMenuActions(): DefaultActionGroup? = null
 
