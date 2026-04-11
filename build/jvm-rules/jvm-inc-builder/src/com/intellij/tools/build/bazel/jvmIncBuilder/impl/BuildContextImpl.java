@@ -139,6 +139,10 @@ public class BuildContextImpl implements BuildContext {
       String stripPrefix = parts[0];
       String addPrefix = parts[1];
       Map<NodeSource, String> resourcesMap = new HashMap<>();
+      if (parts.length == 2) {
+        // no resource files after strip_prefix:add_prefix, ignore empty tree artifacts from fleet_plugin_services_resources rule
+        continue;
+      }
       for (String file : parts[2].split(":")) {
         Path path = baseDir.resolve(file).normalize();
         String digest = getDigest.apply(file);

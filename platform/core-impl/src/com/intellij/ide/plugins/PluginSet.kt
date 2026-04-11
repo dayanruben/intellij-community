@@ -18,13 +18,24 @@ class PluginSet internal constructor(
   private val enabledPluginAndV1ModuleMap: Map<PluginId, PluginModuleDescriptor>,
   private val enabledModules: List<PluginModuleDescriptor>,
   private val topologicalComparator: Comparator<PluginModuleDescriptor>,
+  val resolvedPluginSet: ResolvedPluginSet?,
 ) {
   /**
    * You must not use this method before [ClassLoaderConfigurator.configure].
    */
   fun getEnabledModules(): List<PluginModuleDescriptor> = enabledModules
 
-  internal fun getSortedDependencies(moduleDescriptor: PluginModuleDescriptor): List<PluginModuleDescriptor> {
+  internal fun getSortedDependencies(moduleDescriptor: IdeaPluginDescriptorImpl): List<PluginModuleDescriptor> {
+    if (moduleDescriptor is DependsSubDescriptor) {
+      if (resolvedPluginSet == null || resolvedPluginSet.isExcluded(moduleDescriptor)) {
+        return Collections.emptyList()
+      }
+      val main = moduleDescriptor.getMainDescriptor()
+      return resolvedPluginSet.getDirectResolvedDependencies(moduleDescriptor).asSequence()
+        .filterIsInstance<PluginModuleDescriptor>()
+        .filter { it !== main }
+        .toList()
+    }
     return sortedModulesWithDependencies.directDependencies.getOrDefault(moduleDescriptor, Collections.emptyList())
   }
 
@@ -56,17 +67,23 @@ class PluginSet internal constructor(
     unsortedPlugins.removeIf { it.legacyEquals(plugin) }
     unsortedPlugins.add(plugin)
 
-    return PluginSetBuilder(unsortedPlugins)
+    // FIXME handle potential conflict
+    // FIXME this method loses information (takes only currently loaded plugins)
+    val newUnambiguousPluginSet = UnambiguousPluginSet.tryBuild(unsortedPlugins.toList())
+                                  ?: error("plugin substitution creates a conflict: $plugin")
+    return PluginSetBuilder(ProductPluginInitContext(), newUnambiguousPluginSet)
   }
 
   fun withoutPlugin(plugin: PluginMainDescriptor, disable: Boolean = true): PluginSetBuilder {
-    return if (disable) {
-      PluginSetBuilder(allPlugins)
+    val newAllPlugins = if (disable) {
+      allPlugins
     } else {
       val newAllPlugins = LinkedHashSet(allPlugins)
       newAllPlugins.removeIf { it.legacyEquals(plugin) }
-      PluginSetBuilder(newAllPlugins)
+      newAllPlugins
     }
+    val newUnambiguousPluginSet = UnambiguousPluginSet.tryBuild(newAllPlugins.toList())!!
+    return PluginSetBuilder(ProductPluginInitContext(), newUnambiguousPluginSet)
   }
 
   /**
@@ -106,8 +123,67 @@ class PluginSet internal constructor(
     }
     return result
   }
+
+  fun getModulesOrderedForClassLoaderConfiguration(): Sequence<PluginModuleDescriptor> {
+    return if (resolvedPluginSet != null) {
+      resolvedPluginSet.runtimeModuleGroupGraph.sortedGroups.asSequence()
+        .flatMap { it.sortedDescriptors }.filterIsInstance<PluginModuleDescriptor>()
+    } else {
+      enabledModules.asSequence()
+    }
+  }
+
+  var descriptorsSequenceForRegistrationInBisectMode: Sequence<IdeaPluginDescriptorImpl>? = null
+
+  fun sequenceResolvedSortedDescriptorsForRegistration(): Sequence<IdeaPluginDescriptorImpl> {
+    if (descriptorsSequenceForRegistrationInBisectMode != null) {
+      return descriptorsSequenceForRegistrationInBisectMode!!
+    }
+    return if (resolvedPluginSet != null) {
+      resolvedPluginSet.sortedResolvedDescriptors.asSequence()
+    } else {
+      sequence {
+        for (module in enabledModules) {
+          yield(module)
+          sequenceSubDescriptorsForRegistration(module)
+        }
+      }
+    }
+  }
 }
 
 private fun IdeaPluginDescriptorImpl.legacyEquals(other: Any?): Boolean {
   return this === other || other is IdeaPluginDescriptorImpl && pluginId == other.pluginId && descriptorPath == other.descriptorPath
+}
+
+@ApiStatus.Internal
+fun executeRegisterTaskForOldContent(mainPluginDescriptor: IdeaPluginDescriptorImpl, task: (IdeaPluginDescriptorImpl) -> Unit) {
+  sequence {
+    sequenceSubDescriptorsForRegistration(mainPluginDescriptor)
+  }.forEach {
+    task(it)
+  }
+}
+
+@ApiStatus.Internal
+suspend fun SequenceScope<IdeaPluginDescriptorImpl>.sequenceSubDescriptorsForRegistration(moduleDescriptor: IdeaPluginDescriptorImpl) {
+  if (!moduleDescriptor.isMarkedForLoading) {
+    return
+  }
+  for (dep in moduleDescriptor.dependencies) {
+    val subDescriptor = dep.subDescriptor
+    if (subDescriptor?.isMarkedForLoading != true) {
+      continue
+    }
+
+    yield(subDescriptor)
+
+    for (subDep in subDescriptor.dependencies) {
+      val d = subDep.subDescriptor
+      if (d?.isMarkedForLoading == true) {
+        yield(d)
+        assert(d.dependencies.isEmpty() || d.dependencies.all { it.subDescriptor == null })
+      }
+    }
+  }
 }

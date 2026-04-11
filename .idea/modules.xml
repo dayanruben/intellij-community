@@ -10,6 +10,7 @@
       <module fileurl="file://$PROJECT_DIR$/fleet/build/codecache/fleet.build.codecache.iml" filepath="$PROJECT_DIR$/fleet/build/codecache/fleet.build.codecache.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/fs/fleet.build.fs.iml" filepath="$PROJECT_DIR$/fleet/build/fs/fleet.build.fs.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/http/fleet.build.http.iml" filepath="$PROJECT_DIR$/fleet/build/http/fleet.build.http.iml" />
+      <module fileurl="file://$PROJECT_DIR$/fleet/build/kernel.plugins.processor/fleet.build.kernel.plugins.processor.iml" filepath="$PROJECT_DIR$/fleet/build/kernel.plugins.processor/fleet.build.kernel.plugins.processor.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/license/fleet.build.license.iml" filepath="$PROJECT_DIR$/fleet/build/license/fleet.build.license.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/platform/fleet.build.platform.iml" filepath="$PROJECT_DIR$/fleet/build/platform/fleet.build.platform.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/s3/fleet.build.s3.iml" filepath="$PROJECT_DIR$/fleet/build/s3/fleet.build.s3.iml" />
@@ -892,6 +893,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/eval4j/intellij.kotlin.jvm.debugger.eval4j.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/eval4j/intellij.kotlin.jvm.debugger.eval4j.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/eval4j/intellij.kotlin.jvm.debugger.eval4j.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/eval4j/intellij.kotlin.jvm.debugger.eval4j.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/evaluation/k2/intellij.kotlin.jvm.debugger.evaluation.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/evaluation/k2/intellij.kotlin.jvm.debugger.evaluation.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/performance/intellij.kotlin.jvm.debugger.performance.test.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/performance/intellij.kotlin.jvm.debugger.performance.test.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/k2/intellij.kotlin.jvm.debugger.test.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/k2/intellij.kotlin.jvm.debugger.test.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/compose/intellij.kotlin.jvm.debugger.test.compose.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/compose/intellij.kotlin.jvm.debugger.test.compose.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/compose/testFramework/intellij.kotlin.jvm.debugger.test.compose.testFramework.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/compose/testFramework/intellij.kotlin.jvm.debugger.test.compose.testFramework.iml" />

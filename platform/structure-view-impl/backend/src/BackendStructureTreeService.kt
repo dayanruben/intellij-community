@@ -1,21 +1,20 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.structureView.backend
 
-import com.intellij.ide.actions.ViewStructureAction
 import com.intellij.ide.structureView.StructureViewModel
 import com.intellij.ide.structureView.StructureViewModel.ElementInfoProvider
 import com.intellij.ide.structureView.StructureViewModel.ExpandInfoProvider
 import com.intellij.ide.structureView.StructureViewTreeElement
 import com.intellij.ide.structureView.TreeBasedStructureViewBuilder
 import com.intellij.ide.structureView.logical.PhysicalAndLogicalStructureViewBuilder
+import com.intellij.ide.structureView.newStructureView.StructureViewComponent
 import com.intellij.ide.structureView.newStructureView.StructureViewSelectVisitorState
+import com.intellij.ide.structureView.newStructureView.StructureViewUtil
 import com.intellij.ide.structureView.newStructureView.TreeModelWrapper
+import com.intellij.ide.structureView.newStructureView.getElementInfoProvider
 import com.intellij.ide.util.FileStructureFilter
 import com.intellij.ide.util.FileStructureNodeProvider
 import com.intellij.ide.util.FileStructurePopup
-import com.intellij.ide.structureView.newStructureView.StructureViewComponent
-import com.intellij.ide.structureView.newStructureView.StructureViewUtil
-import com.intellij.ide.structureView.newStructureView.getElementInfoProvider
 import com.intellij.ide.util.treeView.AbstractTreeNode
 import com.intellij.ide.util.treeView.smartTree.SmartTreeStructure
 import com.intellij.ide.util.treeView.smartTree.TreeElementWrapper
@@ -34,6 +33,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IntRef
 import com.intellij.platform.structureView.impl.DelegatingNodeProvider
+import com.intellij.platform.structureView.impl.ShowStructurePopupRequest
 import com.intellij.platform.structureView.impl.StructureViewScopeHolder
 import com.intellij.platform.structureView.impl.dto.DeferredNodesDto
 import com.intellij.platform.structureView.impl.dto.NodeProviderNodesDto
@@ -41,6 +41,8 @@ import com.intellij.platform.structureView.impl.dto.StructureViewDtoId
 import com.intellij.platform.structureView.impl.dto.StructureViewModelDto
 import com.intellij.platform.structureView.impl.dto.StructureViewTreeElementDto
 import com.intellij.platform.structureView.impl.dto.TreeNodesDto
+import com.intellij.platform.structureView.impl.util.StructurePopupUtil
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.ui.PlaceHolder
 import com.intellij.ui.tree.StructureTreeModel
@@ -52,6 +54,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -67,16 +70,30 @@ import javax.swing.tree.TreePath
 
 internal class BackendStructureTreeService(private val session: ClientAppSession) {
   private val structureViews = ConcurrentHashMap<Int, StructureViewEntry>()
+  private val showPopupRequestFlow by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    MutableSharedFlow<ShowStructurePopupRequest>(
+      extraBufferCapacity = 1,
+      onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+  }
 
   fun getStructureViewEntry(id: StructureViewDtoId): StructureViewEntry? {
     return structureViews[id.id]
+  }
+
+  fun getShowPopupRequestFlow(): Flow<ShowStructurePopupRequest> {
+    return showPopupRequestFlow
+  }
+
+  suspend fun emitShowPopupRequest(request: ShowStructurePopupRequest) {
+    showPopupRequestFlow.emit(request)
   }
 
   internal suspend fun createStructureViewModel(
     id: StructureViewDtoId,
     project: Project,
     fileEditor: FileEditor,
-    navigationCallback: ((AbstractTreeNode<*>) -> Unit)?
+    navigationCallback: ((AbstractTreeNode<*>) -> Unit)?,
   ): StructureViewModelDto? {
     // the model with this id has been created but hasn't been received by the frontend
     structureViews[id.id]?.disposable?.let {
@@ -97,12 +114,14 @@ internal class BackendStructureTreeService(private val session: ClientAppSession
       dto = run {
         val treeModel: StructureViewModel? = withContext(Dispatchers.EDT) {
           writeIntentReadAction {
+            PsiDocumentManager.getInstance(project).commitAllDocuments()
+
             val structureViewBuilder = fileEditor.structureViewBuilder ?: return@writeIntentReadAction null
             when (structureViewBuilder) {
               is PhysicalAndLogicalStructureViewBuilder -> {
                 val view = structureViewBuilder.createPhysicalStructureView(fileEditor, project)
                 Disposer.register(disposable, view)
-                ViewStructureAction.createStructureViewModel(project, fileEditor, view)
+                StructurePopupUtil.createStructureViewModel(project, fileEditor, view)
               }
               is TreeBasedStructureViewBuilder -> {
                 structureViewBuilder.createStructureViewModel(EditorUtil.getEditorEx(fileEditor))
@@ -110,7 +129,7 @@ internal class BackendStructureTreeService(private val session: ClientAppSession
               else -> {
                 val view = structureViewBuilder.createStructureView(fileEditor, project)
                 Disposer.register(disposable, view)
-                ViewStructureAction.createStructureViewModel(project, fileEditor, view)
+                StructurePopupUtil.createStructureViewModel(project, fileEditor, view)
               }
             }
           }

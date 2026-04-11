@@ -81,10 +81,12 @@ sealed class IdeaPluginDescriptorImpl(
   internal fun createDependsSubDescriptor(
     subBuilder: PluginDescriptorBuilder,
     descriptorPath: String,
+    dependsTargetId: PluginId,
   ): DependsSubDescriptor = DependsSubDescriptor(
     parent = this,
     raw = subBuilder.build(),
-    descriptorPath = descriptorPath
+    descriptorPath = descriptorPath,
+    dependsTargetId = dependsTargetId,
   )
 }
 
@@ -145,6 +147,7 @@ class DependsSubDescriptor(
   val parent: IdeaPluginDescriptorImpl,
   raw: RawPluginDescriptor,
   private val descriptorPath: String,
+  val dependsTargetId: PluginId,
 ) : IdeaPluginDescriptorImpl(raw) {
   init {
     check(parent is PluginMainDescriptor || parent is DependsSubDescriptor)
@@ -154,7 +157,7 @@ class DependsSubDescriptor(
     get() = parent.useCoreClassLoader
   override val isIndependentFromCoreClassLoader: Boolean = raw.isIndependentFromCoreClassLoader
 
-  override val moduleDependencies: ModuleDependencies = convertDependencies(raw.dependencies, null)
+  override val moduleDependencies: ModuleDependencies = ModuleDependencies.EMPTY
 
   private val rawResourceBundleBaseName: String? = raw.resourceBundleBaseName
 
@@ -164,6 +167,7 @@ class DependsSubDescriptor(
 
   override fun toString(): String =
     "DependsSubDescriptor(" +
+    "target=$dependsTargetId, " +
     "descriptorPath=$descriptorPath" +
     (if (packagePrefix == null) "" else ", package=$packagePrefix") +
     ") <- $parent"
@@ -387,6 +391,24 @@ val IdeaPluginDescriptorImpl.contentModules: List<ContentModuleDescriptor>
 @get:Internal
 val IdeaPluginDescriptorImpl.isLoaded: Boolean
   get() = pluginClassLoader != null
+
+@Internal
+suspend fun SequenceScope<IdeaPluginDescriptorImpl>.yieldAllDescriptors(plugin: PluginMainDescriptor) {
+  yield(plugin)
+  yieldAllDependsSubDescriptors(plugin)
+  yieldAll(plugin.contentModules)
+}
+
+/** does not include [descriptor] itself */
+@Internal
+suspend fun SequenceScope<IdeaPluginDescriptorImpl>.yieldAllDependsSubDescriptors(descriptor: IdeaPluginDescriptorImpl) {
+  for (dep in descriptor.pluginDependencies) {
+    dep.subDescriptor?.let {
+      yield(it)
+      yieldAllDependsSubDescriptors(it)
+    }
+  }
+}
 
 internal fun convertDependencies(dependencies: List<DependenciesElement>, parent: PluginMainDescriptor?): ModuleDependencies {
   if (dependencies.isEmpty()) {

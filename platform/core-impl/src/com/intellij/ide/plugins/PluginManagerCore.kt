@@ -6,6 +6,7 @@ import com.intellij.diagnostic.Activity
 import com.intellij.diagnostic.CoroutineTracerShim
 import com.intellij.diagnostic.LoadingState
 import com.intellij.ide.plugins.DisabledPluginsState.Companion.invalidate
+import com.intellij.ide.plugins.PluginInitializationDiagnosticUtils.getIdString
 import com.intellij.ide.plugins.cl.PluginAwareClassLoader
 import com.intellij.idea.AppMode
 import com.intellij.openapi.application.ApplicationInfo
@@ -21,8 +22,6 @@ import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.HtmlChunk
-import com.intellij.ui.IconManager
-import com.intellij.ui.PlatformIcons
 import com.intellij.util.PlatformUtils
 import com.intellij.util.lang.ZipEntryResolverPool
 import com.intellij.util.system.CpuArch
@@ -45,13 +44,12 @@ import java.util.IdentityHashMap
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.function.Supplier
-import javax.swing.JOptionPane
 import kotlin.io.path.name
 
 private const val PLATFORM_ALIAS_DEPENDENCY_PREFIX = "com.intellij.module"
 
-private val QODANA_PLUGINS_THIRD_PARTY_ACCEPT = System.getProperty("idea.qodana.thirdpartyplugins.accept").toBoolean()
-private val FLEET_BACKEND_PLUGINS_THIRD_PARTY_ACCEPT = System.getProperty("fleet.backend.third-party.plugins.accept").toBoolean()
+internal val QODANA_PLUGINS_THIRD_PARTY_ACCEPT = System.getProperty("idea.qodana.thirdpartyplugins.accept").toBoolean()
+internal val FLEET_BACKEND_PLUGINS_THIRD_PARTY_ACCEPT = System.getProperty("fleet.backend.third-party.plugins.accept").toBoolean()
 
 /**
  * See [Plugin Model](https://youtrack.jetbrains.com/articles/IJPL-A-31/Plugin-Model) documentation.
@@ -512,6 +510,12 @@ object PluginManagerCore {
   }
 
   @ApiStatus.Internal
+  @VisibleForTesting
+  fun fallbackToOldPluginSetResolution(): Boolean = _fallbackToOldPluginSetResolution
+
+  private val _fallbackToOldPluginSetResolution: Boolean = System.getProperty("revert.IJPL236591", "true") == "true"
+
+  @ApiStatus.Internal
   fun initializePlugins(
     descriptorLoadingErrors: List<PluginDescriptorLoadingError>,
     initContext: PluginInitializationContext,
@@ -544,23 +548,30 @@ object PluginManagerCore {
         }
       }
     }
-    val ambiguousPluginSet = AmbiguousPluginSet.build(pluginsToLoad.plugins + incompletePlugins.values)
+    val totalPluginSet = AmbiguousPluginSet.build(pluginsToLoad.plugins + incompletePlugins.values)
     val pluginNonLoadReasons = incompletePlugins.values.associateByTo(mutableMapOf(), { it.pluginId }, { excludedFromLoading[it]!! })
-    val fullIdMap = ambiguousPluginSet.buildFullPluginIdMapping().mapValues { it.value.first() }
-    val fullContentModuleIdMap = ambiguousPluginSet.buildFullContentModuleIdMapping().mapValues { it.value.first() }
+    val fullIdMap = totalPluginSet.buildFullPluginIdMapping().mapValues { it.value.first() }
+    val fullContentModuleIdMap = totalPluginSet.buildFullContentModuleIdMapping().mapValues { it.value.first() }
 
     if (initContext.checkEssentialPlugins && pluginsToLoad.resolvePluginId(CORE_ID) == null) {
       throw EssentialPluginMissingException(listOf("$CORE_ID (platform prefix: ${System.getProperty(PlatformUtils.PLATFORM_PREFIX_KEY)})"))
         .apply { pluginNonLoadReasons[CORE_ID]?.let { addSuppressed(Exception(it.logMessage)) } }
     }
 
-    checkThirdPartyPluginsPrivacyConsent(parentActivity, pluginsToLoad)
+    if (initContext is ProductPluginInitContext) {
+      // TODO: this `if` should not exist and third party plugins without consent should be excluded by [PluginInitializationContext.provideModuleExclusionsImposedByProductRules]
+      val checkResult = initContext.checkThirdPartyPluginsPrivacyConsent(parentActivity, pluginsToLoad)
+      if (checkResult != null) {
+        pluginsState.thirdPartyPluginsNoteAccepted = checkResult.privacyNoteAccepted
+        for (pluginToExclude in checkResult.pluginsToExcludeFromLoading) {
+          pluginToExclude.isMarkedForLoading = false
+        }
+      }
+    }
 
-    val pluginSetBuilder = PluginSetBuilder(pluginsToLoad.plugins.toSet())
-    val cycleErrors = pluginSetBuilder.checkPluginCycles()
     val pluginsToDisable = HashMap<PluginId, PluginStateChangeData>()
     val pluginsToEnable = HashMap<PluginId, PluginStateChangeData>()
-    
+
     fun registerLoadingError(loadingError: PluginNonLoadReason) {
       pluginNonLoadReasons[loadingError.plugin.pluginId] = loadingError
       pluginsToDisable[loadingError.plugin.pluginId] = PluginStateChangeData(loadingError.plugin.pluginId, loadingError.plugin.name)
@@ -576,12 +587,66 @@ object PluginManagerCore {
     }
 
     val idMap = pluginsToLoad.buildFullPluginIdMapping()
+    val (pluginSet, cycleErrors) = if (fallbackToOldPluginSetResolution()) {
+      oldPluginSetBuilder(initContext, pluginsToLoad, incompletePlugins, idMap, fullIdMap, fullContentModuleIdMap, pluginNonLoadReasons, ::registerLoadingError)
+    }
+    else {
+      val resolvedPluginSet = initContext.resolveConstraints(pluginsToLoad)
+      PluginInitializationDiagnosticUtils.logExclusionTree(resolvedPluginSet, incompletePlugins)
+      val (adaptedPluginSet, cycleErrors) = adaptResolvedPluginSetAsOldPluginSet(
+        resolvedPluginSet = resolvedPluginSet,
+        incompletePlugins = incompletePlugins,
+        registerLoadingError = ::registerLoadingError,
+      )
+
+      PluginInitializationDiagnosticUtils.runNewPluginSetDiagnosticsIfNeeded(
+        initContext, pluginsToLoad, incompletePlugins, idMap, fullIdMap, fullContentModuleIdMap, pluginNonLoadReasons, adaptedPluginSet
+      )
+
+      adaptedPluginSet to cycleErrors
+    }
+
+    pluginsState.addPluginNonLoadReasons(pluginNonLoadReasons.filter { it.value !is PluginIsMarkedDisabled })
+    pluginsState.setErrorsForNotificationReporterAndLogger(preparePluginErrors(pluginNonLoadReasons, descriptorLoadingErrors, cycleErrors, initContext))
+
+    if (initContext.checkEssentialPlugins) {
+      checkEssentialPluginsAreAvailable(idMap, initContext.essentialPlugins, pluginNonLoadReasons)
+    }
+
+    ClassLoaderConfigurator(pluginSet, coreLoader).configure()
+    return PluginManagerState(
+      pluginSet = pluginSet,
+      pluginToDisable = pluginsToDisable.values.toList(),
+      pluginToEnable = pluginsToEnable.values.toList(),
+      incompletePluginsForLogging = incompletePlugins.values.toList(),
+      shadowedBundledPlugins = shadowedBundledIds,
+    )
+  }
+
+  internal fun oldPluginSetBuilder(
+    initContext: PluginInitializationContext,
+    pluginsToLoad: UnambiguousPluginSet,
+    incompletePlugins: HashMap<PluginId, PluginMainDescriptor>,
+    idMap: Map<PluginId, PluginModuleDescriptor>,
+    fullIdMap: Map<PluginId, PluginModuleDescriptor>,
+    fullContentModuleIdMap: Map<PluginModuleId, ContentModuleDescriptor>,
+    pluginNonLoadReasons: MutableMap<PluginId, PluginNonLoadReason>,
+    registerLoadingError: (PluginNonLoadReason) -> Unit,
+  ): Pair<PluginSet, List<PluginLoadingError>> {
+    val pluginSetBuilder = PluginSetBuilder(initContext, pluginsToLoad)
+    val cycleErrors = pluginSetBuilder.checkPluginCycles()
     val additionalErrors = pluginSetBuilder.computeEnabledModuleMap(
       incompletePlugins = incompletePlugins.values.toList(),
       initContext = initContext,
       disabler = { descriptor, disabledModuleToProblematicPlugin ->
         val loadingError = pluginSetBuilder.initEnableState(
-          descriptor, idMap, fullIdMap, fullContentModuleIdMap, initContext::isPluginDisabled, pluginNonLoadReasons, disabledModuleToProblematicPlugin
+          descriptor = descriptor,
+          idMap = idMap,
+          fullIdMap = fullIdMap,
+          fullContentModuleIdMap = fullContentModuleIdMap,
+          isPluginDisabled = initContext::isPluginDisabled,
+          errors = pluginNonLoadReasons,
+          disabledModuleToProblematicPlugin = disabledModuleToProblematicPlugin,
         )
         if (loadingError != null) {
           registerLoadingError(loadingError)
@@ -595,30 +660,178 @@ object PluginManagerCore {
     for (loadingError in additionalErrors) {
       registerLoadingError(loadingError)
     }
-
-    pluginsState.addPluginNonLoadReasons(pluginNonLoadReasons.filter { it.value !is PluginIsMarkedDisabled })
-    pluginsState.setErrorsForNotificationReporterAndLogger(preparePluginErrors(pluginNonLoadReasons, descriptorLoadingErrors, cycleErrors, initContext))
-
-    if (initContext.checkEssentialPlugins) {
-      checkEssentialPluginsAreAvailable(idMap, initContext.essentialPlugins, pluginNonLoadReasons)
-    }
-
     val pluginSet = pluginSetBuilder.createPluginSet(incompletePlugins.values.toList())
-    ClassLoaderConfigurator(pluginSet, coreLoader).configure()
-    return PluginManagerState(pluginSet, pluginsToDisable.values.toList(), pluginsToEnable.values.toList(), incompletePlugins.values.toList(), shadowedBundledIds)
+    return pluginSet to cycleErrors
   }
 
-  /**
-   * processes postponed consent check from the previous run (e.g., when the previous run was headless)
-   * see usages of [ThirdPartyPluginsWithoutConsentFile.appendAliens]
-   */
-  private fun checkThirdPartyPluginsPrivacyConsent(parentActivity: Activity?, idMap: UnambiguousPluginSet) {
-    val activity = parentActivity?.startChild("3rd-party plugins consent")
-    val aliens = ThirdPartyPluginsWithoutConsentFile.consumeAliensFile().mapNotNull { idMap.resolvePluginId(it)?.getMainDescriptor() }
-    if (!aliens.isEmpty()) {
-      checkThirdPartyPluginsPrivacyConsent(aliens)
+  private fun adaptResolvedPluginSetAsOldPluginSet(
+    resolvedPluginSet: ResolvedPluginSet,
+    incompletePlugins: Map<PluginId, PluginMainDescriptor>,
+    registerLoadingError: (PluginNonLoadReason) -> Unit,
+  ): Pair<PluginSet, List<PluginLoadingError>> {
+    val cycleErrors = ArrayList<PluginLoadingError>()
+    val broadResolveContext = lazy { AmbiguousPluginSet.build(resolvedPluginSet.originalPluginSet.plugins + incompletePlugins.values) }
+    for (plugin in resolvedPluginSet.originalPluginSet.plugins) {
+      for (descriptor in plugin.sequenceAllDescriptors()) {
+        descriptor.isMarkedForLoading = resolvedPluginSet.isResolved(descriptor)
+        if (!descriptor.isMarkedForLoading) {
+          adaptExclusionReasonAsCycleError(resolvedPluginSet, descriptor, cycleErrors)
+        }
+      }
+      val exclusionReason = resolvedPluginSet.getExclusionReason(plugin)
+      if (exclusionReason != null) {
+        adaptExclusionReasonAsNonLoadReason(exclusionReason, plugin, resolvedPluginSet, registerLoadingError, broadResolveContext)
+      }
+      else {
+        // TODO do we want to somehow report conflicts for optional content modules? or message in the log is enough?
+        for (contentModule in plugin.contentModules) {
+          val contentModuleExclusionReason = resolvedPluginSet.getExclusionReason(contentModule)
+          if (contentModuleExclusionReason is PackagePrefixConflictWithAnotherModule) {
+            registerLoadingError(PluginPackagePrefixConflict(plugin, contentModuleExclusionReason.descriptor, contentModuleExclusionReason.preferredConflictingModule))
+          }
+        }
+      }
     }
-    activity?.end()
+    // module -> index
+    val resolvedModules = LinkedHashMap<PluginModuleDescriptor, Int>(resolvedPluginSet.sortedResolvedDescriptors.size)
+    for ((index, descriptor) in resolvedPluginSet.sortedResolvedDescriptors.withIndex()) {
+      if (descriptor is PluginModuleDescriptor) {
+        resolvedModules[descriptor] = index
+      }
+    }
+    val topologicalComparator = toCoreAwareComparator(Comparator { o1, o2 ->
+      compareValues(resolvedModules[o1]!!, resolvedModules[o2]!!)
+    })
+    val enabledPluginAndV1ModuleMap = HashMap<PluginId, PluginModuleDescriptor>()
+    for (pluginId in resolvedPluginSet.originalPluginSet.sequenceAllPluginIds()) {
+      val module = resolvedPluginSet.originalPluginSet.resolvePluginId(pluginId)!!
+      if (resolvedPluginSet.isResolved(module)) {
+        enabledPluginAndV1ModuleMap[pluginId] = module
+      }
+    }
+    val pluginSet = PluginSet(
+      sortedModulesWithDependencies = ModulesWithDependencies(
+        modules = resolvedModules.keys.toList(),
+        directDependencies = resolvedModules.keys.associateWith {
+          resolvedPluginSet.getDirectResolvedDependencies(it).filterIsInstance<PluginModuleDescriptor>().sortedWith(topologicalComparator)
+        }
+      ),
+      allPlugins = (resolvedPluginSet.originalPluginSet.plugins + incompletePlugins.values).toSet(),
+      enabledPlugins = resolvedPluginSet.originalPluginSet.plugins.filter { resolvedPluginSet.isResolved(it) },
+      enabledModuleMap = resolvedModules.keys.asSequence().filterIsInstance<ContentModuleDescriptor>().associateBy { it.moduleId },
+      enabledPluginAndV1ModuleMap = enabledPluginAndV1ModuleMap,
+      enabledModules = resolvedModules.keys.toList(),
+      topologicalComparator = topologicalComparator,
+      resolvedPluginSet = resolvedPluginSet,
+    )
+    return pluginSet to cycleErrors
+  }
+
+  private fun adaptExclusionReasonAsCycleError(
+    resolvedPluginSet: ResolvedPluginSet,
+    descriptor: IdeaPluginDescriptorImpl,
+    cycleErrors: ArrayList<PluginLoadingError>,
+  ) {
+    val exclusionReason = resolvedPluginSet.getExclusionReason(descriptor)
+    when (exclusionReason) {
+      is PartOfDependencyCycle -> {
+        val error = PluginSetBuilder.createCyclePluginLoadingError(exclusionReason.dependencyCycle.nodesWithDependenciesOnCycle.keys.filterIsInstance<PluginModuleDescriptor>()) {
+          emptySequence<Nothing>().iterator() // lost diagnostics on cycle chain – doesn't matter since the cycle is logged properly by logExclusionTree
+        }
+        if (cycleErrors.none { it.htmlMessage.toString() == error.htmlMessage.toString() }) { // slow path anyway
+          cycleErrors.add(error)
+        }
+      }
+      is PartOfRuntimeModuleGroupDependencyCycle -> {
+        val cycle = exclusionReason.dependencyCycle.nodesWithDependenciesOnCycle.keys.asSequence()
+          .flatMap { it.sortedDescriptors }.distinct().filterIsInstance<PluginModuleDescriptor>().toList()
+        val error = PluginSetBuilder.createCyclePluginLoadingError(cycle) { emptySequence<Nothing>().iterator() }
+        if (cycleErrors.none { it.htmlMessage.toString() == error.htmlMessage.toString() }) { // slow path anyway
+          cycleErrors.add(error)
+        }
+      }
+      else -> { /* no-op */ }
+    }
+  }
+
+  private fun adaptExclusionReasonAsNonLoadReason(
+    exclusionReason: DescriptorExclusionReason,
+    plugin: PluginMainDescriptor,
+    resolvedPluginSet: ResolvedPluginSet,
+    registerLoadingError: (PluginNonLoadReason) -> Unit,
+    broadResolveContext: Lazy<AmbiguousPluginSet>,
+  ) {
+    val shouldNotifyUser = !plugin.isImplementationDetail && !pluginRequiresUltimatePluginButItsDisabled(
+      initContext = resolvedPluginSet.initContext,
+      ambiguousPluginSet = resolvedPluginSet.originalPluginSet.asAmbiguousPluginSet(),
+      plugin
+    )
+
+    fun processRootCause(exclusionReason: DescriptorExclusionReason) {
+      when (exclusionReason) {
+        is DependencyIsNotResolved -> {
+          // TODO maybe leave disabled plugins in the [originalPluginSet] so we don't have to do this here
+          val dependency = exclusionReason.dependency
+          val possibleDependencies = broadResolveContext.value.resolveReference(dependency)
+          val initContext = resolvedPluginSet.initContext
+          val disabledPlugin = possibleDependencies.firstOrNull { initContext.isPluginDisabled(it.pluginId) }
+          if (disabledPlugin != null) {
+            registerLoadingError(PluginDependencyIsDisabled(plugin, disabledPlugin.pluginId, shouldNotifyUser))
+          }
+          else {
+            registerLoadingError(PluginDependencyIsNotInstalled(plugin, exclusionReason.dependency.getIdString(), shouldNotifyUser))
+          }
+        }
+        is DependencyIsNotVisible -> {
+          // TODO bad mapping
+          registerLoadingError(PluginDependencyIsNotInstalled(plugin, exclusionReason.dependencyModule.pluginId.idString, shouldNotifyUser))
+        }
+        is ExcludedByEnvironmentConfiguration -> {
+          logger.warn("Unexpected exclusion reason for a plugin: ${exclusionReason.javaClass.simpleName} $plugin")
+        }
+        is IncompatibleWithAnotherModule -> {
+          registerLoadingError(PluginIsIncompatibleWithAnotherPlugin(plugin, exclusionReason.preferredIncompatibleModule, shouldNotifyUser))
+        }
+        is PackagePrefixConflictWithAnotherModule -> {
+          registerLoadingError(PluginPackagePrefixConflict(plugin, exclusionReason.descriptor, exclusionReason.preferredConflictingModule))
+        }
+        is ProductRulesImposedExclusion -> {
+          val productReason = exclusionReason.productReason as? IntellijImposedModuleExclusionReason
+          if (productReason == null) {
+            logger.warn("Unexpected product-based exclusion of plugin: ${exclusionReason.productReason} $plugin")
+          }
+          else when (productReason) {
+            is PluginHasExpiredLicense -> {
+              // not handled in old init, FIXME later
+              logger.warn("Plugin $plugin has expired license")
+            }
+            is ThirdPartyPrivacyNoticeIsNotAccepted -> {
+              logger.warn("Plugin $plugin is excluded because the third-party privacy notice is not accepted")
+            }
+          }
+        }
+        is PartOfDependencyCycle -> {} // logged elsewhere
+        is PartOfRuntimeModuleGroupDependencyCycle -> {} // logged elsewhere
+        is ChainedExclusion -> error("expected a root cause: $exclusionReason")
+      }
+    }
+
+    if (exclusionReason is ChainedExclusion) {
+      val exclusionChain = exclusionReason.descriptor.sequenceDescriptorExclusionChain(resolvedPluginSet::getExclusionReason)
+      val boundaryExclusion = exclusionChain.windowed(2).firstOrNull { (pluginModule, other) -> other.pluginId != pluginModule.pluginId }
+      if (boundaryExclusion != null) {
+        val excludedRequiredDescriptor = boundaryExclusion[1]
+        registerLoadingError(PluginDependencyCannotBeLoaded(plugin, excludedRequiredDescriptor, shouldNotifyUser))
+      }
+      else {
+        val rootCauseDescriptor = exclusionChain.last()
+        val rootCause = resolvedPluginSet.getExclusionReason(rootCauseDescriptor)!!
+        processRootCause(rootCause)
+      }
+    }
+    else {
+      processRootCause(exclusionReason)
+    }
   }
 
   private fun checkEssentialPluginsAreAvailable(
@@ -650,60 +863,11 @@ object PluginManagerCore {
     }
   }
 
-  private fun checkThirdPartyPluginsPrivacyConsent(aliens: List<IdeaPluginDescriptorImpl>) {
-    fun disableThirdPartyPlugins() {
-      for (descriptor in aliens) {
-        descriptor.isMarkedForLoading = false
-      }
-      PluginEnabler.HEADLESS.disable(aliens)
-    }
-
-    if (GraphicsEnvironment.isHeadless()) {
-      if (QODANA_PLUGINS_THIRD_PARTY_ACCEPT || FLEET_BACKEND_PLUGINS_THIRD_PARTY_ACCEPT) {
-        pluginsState.thirdPartyPluginsNoteAccepted = true
-        return
-      }
-      logger.info("3rd-party plugin privacy note not accepted yet; disabling plugins for this headless session")
-      for (descriptor in aliens) {
-        descriptor.isMarkedForLoading = false
-      }
-      //write the list of third-party plugins back to ensure that the privacy note will be shown next time
-      ThirdPartyPluginsWithoutConsentFile.appendAliens(aliens.map { it.pluginId })
-    }
-    else if (AppMode.isRemoteDevHost()) {
-      logger.warn("""
-        |New third-party plugins were installed, they will be disabled because asking for consent to use third-party plugins during startup
-        |isn't supported in remote development mode:
-        |  ${aliens.joinToString(separator = "\n  ") { it.name }} 
-        |Use '--give-consent-to-use-third-party-plugins' option in 'installPlugins' option to approve installed third-party plugins automatically.
-        |""".trimMargin())
-      disableThirdPartyPlugins()
-    }
-    else if (!askThirdPartyPluginsPrivacyConsent(aliens)) {
-      logger.info("3rd-party plugin privacy note declined; disabling plugins")
-      disableThirdPartyPlugins()
-      pluginsState.thirdPartyPluginsNoteAccepted = false
-    }
-    else {
-      pluginsState.thirdPartyPluginsNoteAccepted = true
-    }
-  }
-
   @ApiStatus.Internal
   fun consumeThirdPartyPluginsNoteAcceptedFlag(): Boolean? {
     val result = pluginsState.thirdPartyPluginsNoteAccepted
     pluginsState.thirdPartyPluginsNoteAccepted = null
     return result
-  }
-
-  private fun askThirdPartyPluginsPrivacyConsent(descriptors: List<IdeaPluginDescriptorImpl>): Boolean {
-    val title = CoreBundle.message("third.party.plugins.privacy.note.title")
-    val pluginList = descriptors.joinToString(separator = "<br>") { "&nbsp;&nbsp;&nbsp;${getPluginNameAndVendor(it)}" }
-    val text = CoreBundle.message("third.party.plugins.privacy.note.text", pluginList, ApplicationInfoImpl.getShadowInstance().shortCompanyName)
-    val buttons = arrayOf(CoreBundle.message("third.party.plugins.privacy.note.accept"), CoreBundle.message("third.party.plugins.privacy.note.disable"))
-    val icon = IconManager.getInstance().getPlatformIcon(PlatformIcons.WarningDialog)
-    val choice = JOptionPane.showOptionDialog(null, text, title, JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE, icon, buttons, buttons[0])
-    return choice == 0
   }
 
   @JvmStatic
@@ -857,7 +1021,8 @@ object PluginManagerCore {
         if (dependency.getMainDescriptor() === pluginDescriptor) {
           logger.debug { "Plugin ${pluginDescriptor.pluginId} is required for essential plugin $essentialPluginId" }
           FileVisitResult.TERMINATE
-        } else {
+        }
+        else {
           FileVisitResult.CONTINUE
         }
       }
@@ -1058,4 +1223,25 @@ fun isPlatformOrJetBrainsDistributionPlugin(aClass: Class<*>): Boolean {
     PluginManagerCore.isRunningFromSources() -> true
     else -> PluginUtils.getPluginDescriptorIfIdeaClassLoaderIsUsed(aClass) == null
   }
+}
+
+
+@ApiStatus.Internal
+private fun pluginRequiresUltimatePluginButItsDisabled(
+  initContext: PluginInitializationContext,
+  ambiguousPluginSet: AmbiguousPluginSet,
+  plugin: PluginMainDescriptor,
+): Boolean {
+  if (!initContext.isPluginDisabled(PluginManagerCore.ULTIMATE_PLUGIN_ID)) {
+    return false
+  }
+  val ultimate = ambiguousPluginSet.resolvePluginId(PluginManagerCore.ULTIMATE_PLUGIN_ID).firstOrNull()
+                 ?: return false
+  val requiredModules = PluginDependencyAnalysis.getRequiredTransitiveModules(
+    initContext = initContext,
+    plugins = listOf(plugin),
+    ambiguousPluginSet = ambiguousPluginSet,
+    unresolvedStrictDependenciesCollector = null,
+  )
+  return ultimate in requiredModules
 }

@@ -1362,16 +1362,24 @@ private fun loadPluginDependencyDescriptors(
   visitedFiles: MutableList<String>,
 ) {
   for (dependency in descriptor.pluginDependencies) {
-    // because of https://youtrack.jetbrains.com/issue/IDEA-206274, configFile maybe not only for optional dependencies
-    val configFile = dependency.configFile ?: continue
-    if (pathResolver.isFlat && context.checkOptionalConfigShortName(configFile, descriptor)) {
+    if (isKotlinPlugin(dependency.pluginId) && isIncompatibleWithKotlinPlugin(descriptor)) {
+      LOG.warn("Plugin ${descriptor} depends on Kotlin plugin via `${dependency.configFile}` " +
+               "but the plugin is not compatible with the Kotlin plugin in the  ${if (isKotlinPluginK1Mode()) "K1" else "K2"} mode. " +
+               "So, the `${dependency.configFile}` was not loaded")
       continue
     }
 
-    if (isKotlinPlugin(dependency.pluginId) && isIncompatibleWithKotlinPlugin(descriptor)) {
-      LOG.warn("Plugin ${descriptor} depends on Kotlin plugin via `${configFile}` " +
-               "but the plugin is not compatible with the Kotlin plugin in the  ${if (isKotlinPluginK1Mode()) "K1" else "K2"} mode. " +
-               "So, the `${configFile}` was not loaded")
+    // because of https://youtrack.jetbrains.com/issue/IDEA-206274, configFile maybe not only for optional dependencies
+
+    if (dependency.isOptional && dependency.configFile == null && context.createEmptyDependsDescriptorForOptionalDependsWithoutConfigFile) {
+      // generate an empty "depends" descriptor; this is needed so that new plugin set resolver can associate the dependency with the sub-descriptor
+      val subDescriptor = descriptor.createDependsSubDescriptor(PluginDescriptorBuilder.builder(), "", dependsTargetId = dependency.pluginId)
+      dependency.setSubDescriptor(subDescriptor)
+      continue
+    }
+
+    val configFile = dependency.configFile ?: continue
+    if (pathResolver.isFlat && context.checkOptionalConfigShortName(configFile, descriptor)) {
       continue
     }
 
@@ -1385,7 +1393,7 @@ private fun loadPluginDependencyDescriptors(
     }
 
     if (raw == null) {
-      val message = "Plugin $descriptor misses optional descriptor $configFile"
+      val message = "Plugin '${descriptor.name}' (${descriptor.pluginId}) misses optional descriptor '$configFile' ($descriptor)"
       if (context.isMissingSubDescriptorIgnored) {
         LOG.info(message)
         if (resolveError != null) {
@@ -1401,7 +1409,7 @@ private fun loadPluginDependencyDescriptors(
     checkCycle(descriptor, configFile, visitedFiles)
     visitedFiles.add(configFile)
     try {
-      val subDescriptor = descriptor.createDependsSubDescriptor(raw, configFile)
+      val subDescriptor = descriptor.createDependsSubDescriptor(raw, configFile, dependsTargetId = dependency.pluginId)
       loadPluginDependencyDescriptors(descriptor = subDescriptor, context = context, pathResolver = pathResolver, dataLoader = dataLoader, visitedFiles = visitedFiles)
       dependency.setSubDescriptor(subDescriptor)
     }

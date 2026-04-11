@@ -226,6 +226,7 @@ fleet/build/cli
 fleet/build/codecache
 fleet/build/fs
 fleet/build/http
+fleet/build/kernel.plugins.processor
 fleet/build/license
 fleet/build/platform
 fleet/build/s3
@@ -1334,6 +1335,7 @@ plugins/kotlin/jvm-debugger/test/kotlin.jvm-debugger.test.k1
 plugins/kotlin/jvm-debugger/test/kotlin.jvm-debugger.test.k1/testFramework
 plugins/kotlin/jvm-debugger/test/parcelize
 plugins/kotlin/jvm-debugger/test/parcelize/testFramework
+plugins/kotlin/jvm-debugger/test/performance
 plugins/kotlin/jvm-debugger/testFramework
 plugins/kotlin/jvm-decompiler
 plugins/kotlin/jvm/k1

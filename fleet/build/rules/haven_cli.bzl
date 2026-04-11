@@ -6,8 +6,9 @@ HAVEN_CLI_ATTR = {
         allow_single_file = True,
     ),
     "_haven_cli": attr.label(
-        default = "//fleet/build/cli:haven_deploy.jar",
+        default = "//fleet/build/cli-worker:haven-cli-worker_deploy.jar",
         allow_single_file = True,
+        cfg = "exec",
     ),
     "_tool_java_runtime": attr.label(
         default = Label("@bazel_tools//tools/jdk:current_java_runtime"),
@@ -30,6 +31,11 @@ def run_haven_cli(
         outputs = outputs,
         tools = [ctx.file._haven_cli_launcher, ctx.file._haven_cli, java_runtime.files] + tools,
         executable = java_runtime.java_executable_exec_path,
+        execution_requirements = {
+            "supports-workers": "1",
+            "supports-worker-cancellation": "1",
+            "supports-path-mapping": "1",
+        },
         arguments = [
             ctx.file._haven_cli_launcher.path,
             ctx.file._haven_cli.path,

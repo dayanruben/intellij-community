@@ -54,7 +54,3 @@ f:com.intellij.ide.impl.StructureViewWrapperImpl
 - com.intellij.ide.structureView.newStructureView.TreeActionsOwner
 - a:isActionActive(com.intellij.ide.util.treeView.smartTree.TreeAction):Z
 - a:setActionActive(com.intellij.ide.util.treeView.smartTree.TreeAction,Z):V
-*f:com.intellij.platform.structureView.impl.commands.ViewStructureCompletionCommandProvider
-- com.intellij.codeInsight.completion.command.commands.ActionCommandProvider
-- <init>():V
-- supportNewLineCompletion():Z

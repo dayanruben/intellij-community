@@ -33,6 +33,8 @@ interface RustLicenseReader {
 class CargoAboutLicenseReader(
   val cargoAboutBinary: Path,
   val cargoAboutConfiguration: Path,
+  val cargoBinary: Path? = null,
+  val rustcBinary: Path? = null,
 ) : RustLicenseReader {
   private val json = Json {
     ignoreUnknownKeys = true
@@ -41,7 +43,18 @@ class CargoAboutLicenseReader(
 
   @OptIn(ExperimentalSerializationApi::class)
   override suspend fun generateLicensesFile(cargoManifest: Path, output: Path, logger: Logger): Path {
-    val entries = readCargoAboutLicenses(cargoManifest, logger).licenses.flatMap { license ->
+    val licenses = readCargoAboutLicenses(cargoManifest, logger).licenses
+
+    // TODO: should we fail on that maybe?
+    val noLicensePathLicenses = licenses.filter { it.relativeLicensePath == null }
+    if (noLicensePathLicenses.isNotEmpty()) {
+      logger.warn("""
+        |Some crates are missing license URL information, specify a clarification in 'fleet/native/about.toml' for:
+        |${noLicensePathLicenses.flatMap { it.crates }.joinToString("\n|") { " - ${it.name} (${it.version})" }}
+      """.trimMargin())
+    }
+
+    val entries = licenses.flatMap { license ->
       license.crates.map { crate ->
         JetbrainsLicenceEntry(
           name = crate.name,
@@ -68,6 +81,7 @@ class CargoAboutLicenseReader(
     val cmd = listOf(
       cargoAboutBinary.absolutePathString(),
       "generate",
+      "--locked",
       "--format=json",
       "--manifest-path=${cargoManifest.absolutePathString()}",
       "--config=${cargoAboutConfiguration.absolutePathString()}",
@@ -77,6 +91,11 @@ class CargoAboutLicenseReader(
     val result = runProcessAndCaptureOutput(
       workingDir = workingDir,
       command = cmd,
+      environment = listOfNotNull(
+        cargoBinary?.let { "CARGO" to it.absolutePathString() },
+        rustcBinary?.let { "RUSTC" to it.absolutePathString() },
+        "CARGO_HOME" to workingDir.resolve("cargo_home").absolutePathString() // ensure CARGO_HOME is located to a writable directory, and does not pollute the host machine
+      ).toMap(),
       outputListener = object : ProcessOutputListener {
         override fun onStdoutLine(line: String, pid: Long) = logger.info("[cargo-about] [$pid] $line")
         override fun onStderrLine(line: String, pid: Long) = logger.error("[cargo-about] [$pid] $line")
@@ -137,12 +156,9 @@ private data class CargoAboutCrate(
   val repository: String?,
   @SerialName(value = "manifest_path") val manifestPath: String,
 ) {
-  fun licenseUrl(relativeLicensePath: Path?): String? = relativeLicensePath?.let { path ->
-    if (repository != null) {
-      "${repository.removeSuffix("/")}/blob/HEAD/$path"
-    }
-    else {
-      "https://docs.rs/crate/${name}/${version}/source/$path"
-    }
+  fun licenseUrl(relativeLicensePath: Path?): String? = when {
+    relativeLicensePath == null -> null
+    repository != null -> "${repository.removeSuffix("/")}/blob/HEAD/$relativeLicensePath"
+    else -> "https://docs.rs/crate/${name}/${version}/source/$relativeLicensePath"
   }
 }

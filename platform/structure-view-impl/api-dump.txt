@@ -1,5 +1,5 @@
 f:com.intellij.ide.actions.ViewStructureAction
-- s:createPopup(com.intellij.openapi.project.Project,com.intellij.openapi.fileEditor.FileEditor):com.intellij.platform.structureView.impl.StructurePopup
+- s:createPopup(com.intellij.openapi.project.Project,com.intellij.openapi.fileEditor.FileEditor):com.intellij.ide.util.FileStructurePopup
 f:com.intellij.ide.structureView.StructureViewBundle
 - s:message(java.lang.String,java.lang.Object[]):java.lang.String
 - s:messagePointer(java.lang.String,java.lang.Object[]):java.util.function.Supplier

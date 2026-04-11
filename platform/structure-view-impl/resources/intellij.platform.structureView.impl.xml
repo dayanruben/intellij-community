@@ -33,7 +33,7 @@
     <extensionPoint name="structurePopupProvider" interface="com.intellij.platform.structureView.impl.StructurePopupProvider" dynamic="true"/>
   </extensionPoints>
   <actions>
-    <action id="FileStructurePopup" class="com.intellij.ide.actions.ViewStructureAction">
+    <action id="FileStructurePopup" class="com.intellij.platform.structureView.impl.actions.ViewStructureAction">
       <add-to-group group-id="GoToCodeGroup" anchor="before" relative-to-action="ShowFilePath"/>
     </action>
   </actions>
@@ -52,6 +52,6 @@
 
     <structurePopupProvider implementation="com.intellij.ide.util.OldStructurePopupProviderImpl"/>
 
-    <registryKey key="frontend.structure.popup" defaultValue="false" description="Enables frontend side file structure popup" />
+    <registryKey key="frontend.structure.popup" defaultValue="false" description="Enables frontend side file structure popup" restartRequired="true" />
   </extensions>
 </idea-plugin>

@@ -1,10 +1,13 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins
 
+import com.intellij.ide.plugins.ProductPluginInitContext.Companion.defaultProductCompatibilityDependenciesProvider
+import com.intellij.ide.plugins.ProductRulesImposedExclusion.ProductRulesImposedExclusionReason
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
+import com.intellij.platform.pluginSystem.testFramework.EmptyTestPluginInitContext
 import com.intellij.platform.pluginSystem.testFramework.PluginSetTestBuilder
 import com.intellij.platform.testFramework.plugins.buildDir
 import com.intellij.platform.testFramework.plugins.content
@@ -41,19 +44,15 @@ class PluginDependencyAnalysisTest {
     essentialPlugins: Set<PluginId> = emptySet(),
     environmentConfiguredModules: Map<PluginModuleId, PluginInitializationContext.EnvironmentConfiguredModuleData> = emptyMap(),
   ): PluginInitializationContext {
-    return object : PluginInitializationContext {
+    return object : EmptyTestPluginInitContext() {
       override val productBuildNumber: BuildNumber = BuildNumber.fromString("241.0")!!
       override val essentialPlugins: Set<PluginId> = essentialPlugins
-      override fun isPluginDisabled(id: PluginId): Boolean = false
-      override fun isPluginExpired(id: PluginId): Boolean = false
-      override fun isPluginBroken(id: PluginId, version: String?): Boolean = false
-      override val requirePlatformAliasDependencyForLegacyPlugins: Boolean = false
-      override val checkEssentialPlugins: Boolean = false
-      override val explicitPluginSubsetToLoad: Set<PluginId>? = null
-      override val disablePluginLoadingCompletely: Boolean = false
-      override val pluginsPerProjectConfig: PluginsPerProjectConfig? = null
       override val currentProductModeId: String = "test"
       override val environmentConfiguredModules: Map<PluginModuleId, PluginInitializationContext.EnvironmentConfiguredModuleData> = environmentConfiguredModules
+      override fun provideCompatibilityDependencies(descriptor: IdeaPluginDescriptorImpl, pluginSet: UnambiguousPluginSet): Sequence<PluginDependencyAnalysis.DependencyRef> =
+        defaultProductCompatibilityDependenciesProvider(descriptor, pluginSet)
+      override fun provideModuleExclusionsImposedByProductRules(pluginSet: UnambiguousPluginSet): Sequence<Pair<PluginModuleDescriptor, ProductRulesImposedExclusionReason>> =
+        emptySequence()
     }
   }
 
@@ -538,6 +537,34 @@ class PluginDependencyAnalysisTest {
       assertThat(result).hasSize(1)
       val pluginDep = result[0] as PluginDependencyAnalysis.DependencyRef.Plugin
       assertThat(pluginDep.pluginId.idString).isEqualTo("bar")
+    }
+
+    @Test
+    fun `depends sub-descriptor includes target dependency`() {
+      plugin("bar") {
+        version = "1.0"
+      }.buildDir(pluginsDirPath.resolve("bar"))
+
+      plugin("baz") {
+        version = "1.0"
+      }.buildDir(pluginsDirPath.resolve("baz"))
+
+      plugin("foo") {
+        version = "1.0"
+        depends("bar", "bar.xml") {
+          depends("baz")
+        }
+      }.buildDir(pluginsDirPath.resolve("foo"))
+
+      val plugins = discoverPlugins()
+      val fooPlugin = plugins.first { it.pluginId.idString == "foo" }
+      val subDescriptor = fooPlugin.dependencies.first { it.pluginId.idString == "bar" }.subDescriptor!!
+      val result = PluginDependencyAnalysis.sequenceStrictDependencies(subDescriptor).toList()
+
+      val pluginIds = result.filterIsInstance<PluginDependencyAnalysis.DependencyRef.Plugin>()
+        .map { it.pluginId.idString }
+
+      assertThat(pluginIds).containsExactlyInAnyOrder("bar", "baz")
     }
   }
 

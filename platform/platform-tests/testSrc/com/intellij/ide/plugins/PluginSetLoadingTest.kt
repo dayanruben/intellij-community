@@ -2,6 +2,7 @@
 package com.intellij.ide.plugins
 
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
 import com.intellij.platform.pluginSystem.testFramework.PluginSetTestBuilder
@@ -434,6 +435,17 @@ class PluginSetLoadingTest {
   }
 
   @Test
+  fun `findEnabledPlugin resolves plugin alias to declaring plugin`() {
+    plugin("com.example.owner") {
+      pluginAlias("com.example.owner.alias")
+    }.buildDir(pluginsDirPath.resolve("owner"))
+
+    val pluginSet = buildPluginSet()
+    val owner = pluginSet.getEnabledPlugin("com.example.owner")
+    assertThat(pluginSet.findEnabledPlugin(PluginId.getId("com.example.owner.alias"))).isSameAs(owner)
+  }
+
+  @Test
   fun `plugin with duplicate content module fails to load`() {
     plugin("foo") {
       content {
@@ -573,6 +585,57 @@ class PluginSetLoadingTest {
     }.buildDir(pluginsDirPath.resolve("core"))
     val pluginSet = buildPluginSet()
     assertThat(pluginSet).hasExactlyEnabledPlugins(PluginManagerCore.CORE_PLUGIN_ID, *ids.map { "intellij.textmate.$it" }.toTypedArray())
+  }
+
+  @Test
+  fun `getEnabledModules honors module dependencies`() {
+    plugin("com.intellij") {
+      pluginAlias("com.intellij.modules.microservices")
+    }.buildDir(pluginsDirPath.resolve("com.intellij"))
+
+    plugin("com.intellij.microservices.ui") {
+      name = "Endpoints"
+      vendor = "JetBrains"
+      category = "Microservices"
+      dependencies {
+        plugin("com.intellij.modules.microservices")
+      }
+    }.buildDir(pluginsDirPath.resolve("com.intellij.microservices.ui"))
+
+    plugin("com.jetbrains.restClient") {
+      name = "HTTP Client"
+      category = "Other Tools"
+      vendor = "JetBrains"
+      dependencies {
+        plugin("com.intellij.modules.microservices")
+      }
+      content {
+        module("intellij.restClient.microservicesUI") {
+          dependencies {
+            plugin("com.intellij.microservices.ui")
+          }
+        }
+      }
+    }.buildDir(pluginsDirPath.resolve("com.jetbrains.restClient"))
+
+    val pluginSet = buildPluginSet()
+    assertThat(PluginManagerCore.getAndClearPluginLoadingErrors()).isEmpty()
+    val moduleOrder = pluginSet.getEnabledModules().map { it.getPluginId().idString + ":" + it.contentModuleName }
+    val validOrders = listOf(
+      listOf(
+        "com.intellij:null",
+        "com.jetbrains.restClient:null",
+        "com.intellij.microservices.ui:null",
+        "com.jetbrains.restClient:intellij.restClient.microservicesUI"
+      ),
+      listOf(
+        "com.intellij:null",
+        "com.intellij.microservices.ui:null",
+        "com.jetbrains.restClient:null",
+        "com.jetbrains.restClient:intellij.restClient.microservicesUI"
+      )
+    ) // both are correct
+    assert(moduleOrder in validOrders) { "Invalid module order: $moduleOrder" }
   }
 
   private fun writeDescriptor(id: String, @Language("xml") data: String) {

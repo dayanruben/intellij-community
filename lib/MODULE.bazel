@@ -1813,6 +1813,48 @@ http_file(
 )
 
 http_file(
+  name = "com_google_devtools_ksp-symbol-processing-aa-embeddable-2_3_6_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/devtools/ksp/symbol-processing-aa-embeddable/2.3.6/symbol-processing-aa-embeddable-2.3.6.jar",
+  sha256 = "7caea2d426680a6a77007bca60d40ea1c9218f3db6ae9d16c54f0ffefc4e1b5b",
+  downloaded_file_path = "symbol-processing-aa-embeddable-2.3.6.jar"
+)
+
+http_file(
+  name = "com_google_devtools_ksp-symbol-processing-aa-embeddable-2_3_6-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/devtools/ksp/symbol-processing-aa-embeddable/2.3.6/symbol-processing-aa-embeddable-2.3.6-sources.jar",
+  sha256 = "5c1542e273f217077d30fdcbbd4ce8343e6135327ab724bed6e5422e0b07e6ad",
+  downloaded_file_path = "symbol-processing-aa-embeddable-2.3.6-sources.jar"
+)
+
+http_file(
+  name = "com_google_devtools_ksp-symbol-processing-api-2_3_6_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/devtools/ksp/symbol-processing-api/2.3.6/symbol-processing-api-2.3.6.jar",
+  sha256 = "55df837d54b1bfdd7cdbe53bd84deeae374677ec4a729a9af154d3fee3c00230",
+  downloaded_file_path = "symbol-processing-api-2.3.6.jar"
+)
+
+http_file(
+  name = "com_google_devtools_ksp-symbol-processing-api-2_3_6-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/devtools/ksp/symbol-processing-api/2.3.6/symbol-processing-api-2.3.6-sources.jar",
+  sha256 = "fa550c668bc3df824e20a81b29800763a0c7062e7753ac9726abd0594ba9652a",
+  downloaded_file_path = "symbol-processing-api-2.3.6-sources.jar"
+)
+
+http_file(
+  name = "com_google_devtools_ksp-symbol-processing-common-deps-2_3_6_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/devtools/ksp/symbol-processing-common-deps/2.3.6/symbol-processing-common-deps-2.3.6.jar",
+  sha256 = "f75ece6d1d4a8978fc9cfe2c895c3232347ddbab5c084b04d0ce876b1d7c9604",
+  downloaded_file_path = "symbol-processing-common-deps-2.3.6.jar"
+)
+
+http_file(
+  name = "com_google_devtools_ksp-symbol-processing-common-deps-2_3_6-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/devtools/ksp/symbol-processing-common-deps/2.3.6/symbol-processing-common-deps-2.3.6-sources.jar",
+  sha256 = "899d38d22baffb64655570b735ce663f36ffb9d614ab919e58698992938b3cef",
+  downloaded_file_path = "symbol-processing-common-deps-2.3.6-sources.jar"
+)
+
+http_file(
   name = "io_github_pdvrieze_xmlutil-core-0_91_3_http",
   url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/github/pdvrieze/xmlutil/core/0.91.3/core-0.91.3.jar",
   sha256 = "4af1acef851d201c7bfe3fd579057197f71b3b6570a02d04fe63c32bc5b29e93",
@@ -2188,6 +2230,34 @@ http_file(
   url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/intellij/platform/util-zip-squashed/252.16432/util-zip-squashed-252.16432-sources.jar",
   sha256 = "bbeb2dc5abdeb292fb85d1162d3db9f3d576036d4e45efc4183775845fcd1a04",
   downloaded_file_path = "util-zip-squashed-252.16432-sources.jar"
+)
+
+http_file(
+  name = "ch_qos_logback-logback-classic-1_3_14_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/ch/qos/logback/logback-classic/1.3.14/logback-classic-1.3.14.jar",
+  sha256 = "f9b07a6dba4df3899381df7e597df450134e1879b1f3a757456b3cd1c8d94e2f",
+  downloaded_file_path = "logback-classic-1.3.14.jar"
+)
+
+http_file(
+  name = "ch_qos_logback-logback-core-1_3_14_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/ch/qos/logback/logback-core/1.3.14/logback-core-1.3.14.jar",
+  sha256 = "9f53159af18a9d438bc398c970db3bb7e17ddb07b04bbb3b01dfe3454dd18862",
+  downloaded_file_path = "logback-core-1.3.14.jar"
+)
+
+http_file(
+  name = "ch_qos_logback-logback-classic-1_3_14-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/ch/qos/logback/logback-classic/1.3.14/logback-classic-1.3.14-sources.jar",
+  sha256 = "444495b60de43a374a5acfe66f55f92a7420315c1cf8ed5f6cb5278070f5189b",
+  downloaded_file_path = "logback-classic-1.3.14-sources.jar"
+)
+
+http_file(
+  name = "ch_qos_logback-logback-core-1_3_14-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/ch/qos/logback/logback-core/1.3.14/logback-core-1.3.14-sources.jar",
+  sha256 = "5178f8508319dfadfa771559bdfb2d921ab3009730d2d65a5c100ea9dadf3209",
+  downloaded_file_path = "logback-core-1.3.14-sources.jar"
 )
 
 http_file(
@@ -5572,17 +5642,17 @@ http_file(
 )
 
 http_file(
-  name = "org_jetbrains_intellij_deps-debugger-agent-1_161_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/debugger-agent/1.161/debugger-agent-1.161.jar",
-  sha256 = "ab903c9065490a1b2cb8fe703a27a1331d0583130a3b7f3ff3cd001bc36ac904",
-  downloaded_file_path = "debugger-agent-1.161.jar"
+  name = "org_jetbrains_intellij_deps-debugger-agent-1_168_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/debugger-agent/1.168/debugger-agent-1.168.jar",
+  sha256 = "974a78a1be985706e313edb58c77794721fc54daa3f6afa825a0631ca780a2f5",
+  downloaded_file_path = "debugger-agent-1.168.jar"
 )
 
 http_file(
-  name = "org_jetbrains_intellij_deps-debugger-agent-1_161-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/debugger-agent/1.161/debugger-agent-1.161-sources.jar",
-  sha256 = "b70c0ce5121e9e5a9bd56eee5d7193c90038f687d1df9fd884def639d12dc5fe",
-  downloaded_file_path = "debugger-agent-1.161-sources.jar"
+  name = "org_jetbrains_intellij_deps-debugger-agent-1_168-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/debugger-agent/1.168/debugger-agent-1.168-sources.jar",
+  sha256 = "47895eec0926288ef003c3b46463a5c6ed7c12afed5854f41aafc5d0ca4bf532",
+  downloaded_file_path = "debugger-agent-1.168-sources.jar"
 )
 
 http_file(
@@ -6993,20 +7063,6 @@ http_file(
 )
 
 http_file(
-  name = "org_jetbrains_kotlin-analysis-api-impl-base-tests-for-ide-2_4_0-dev-9153_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/analysis-api-impl-base-tests-for-ide/2.4.0-dev-9153/analysis-api-impl-base-tests-for-ide-2.4.0-dev-9153.jar",
-  sha256 = "c6deada2fac53b8ea6523dbda77597b128006674616f140f04df23264c6d1aa3",
-  downloaded_file_path = "analysis-api-impl-base-tests-for-ide-2.4.0-dev-9153.jar"
-)
-
-http_file(
-  name = "org_jetbrains_kotlin-analysis-api-impl-base-tests-for-ide-2_4_0-dev-9153-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/analysis-api-impl-base-tests-for-ide/2.4.0-dev-9153/analysis-api-impl-base-tests-for-ide-2.4.0-dev-9153-sources.jar",
-  sha256 = "c6deada2fac53b8ea6523dbda77597b128006674616f140f04df23264c6d1aa3",
-  downloaded_file_path = "analysis-api-impl-base-tests-for-ide-2.4.0-dev-9153-sources.jar"
-)
-
-http_file(
   name = "org_jetbrains_kotlin-analysis-api-k2-for-ide-2_4_0-dev-9153_http",
   url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/analysis-api-k2-for-ide/2.4.0-dev-9153/analysis-api-k2-for-ide-2.4.0-dev-9153.jar",
   sha256 = "adac8fc43819f989291772e94bfffbf7c7fd0b5824a6150c7572c3623f2d5582",
@@ -7018,20 +7074,6 @@ http_file(
   url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/analysis-api-k2-for-ide/2.4.0-dev-9153/analysis-api-k2-for-ide-2.4.0-dev-9153-sources.jar",
   sha256 = "dc06635af6d6d42354b577d3a3f4c926c52e85d2c169cb040da008c3fea61459",
   downloaded_file_path = "analysis-api-k2-for-ide-2.4.0-dev-9153-sources.jar"
-)
-
-http_file(
-  name = "org_jetbrains_kotlin-analysis-api-k2-tests-for-ide-2_4_0-dev-9153_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/analysis-api-k2-tests-for-ide/2.4.0-dev-9153/analysis-api-k2-tests-for-ide-2.4.0-dev-9153.jar",
-  sha256 = "f825439ebf558e0b5554a9ca268c845e455b14cf4d0a7ddaf977ae560ea71d20",
-  downloaded_file_path = "analysis-api-k2-tests-for-ide-2.4.0-dev-9153.jar"
-)
-
-http_file(
-  name = "org_jetbrains_kotlin-analysis-api-k2-tests-for-ide-2_4_0-dev-9153-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/analysis-api-k2-tests-for-ide/2.4.0-dev-9153/analysis-api-k2-tests-for-ide-2.4.0-dev-9153-sources.jar",
-  sha256 = "8269363fb43e13ab216dfa331ea2fab395679bd82d9d60372412a794178b65aa",
-  downloaded_file_path = "analysis-api-k2-tests-for-ide-2.4.0-dev-9153-sources.jar"
 )
 
 http_file(
