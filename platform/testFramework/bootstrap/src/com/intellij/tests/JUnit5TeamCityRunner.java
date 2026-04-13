@@ -665,10 +665,15 @@ public final class JUnit5TeamCityRunner {
       }
       else {
         if (status == TestExecutionResult.Status.FAILED) {
+          String testProcessName = System.getProperty("intellij.build.test.process.name", "");
+          if (!testProcessName.isEmpty()) testProcessName = "(" + testProcessName + ")";
+          String buildConfName = System.getProperty("teamcity.buildConfName", "");
+          if (!buildConfName.isEmpty()) buildConfName = "[" + buildConfName + "]";
+          final String testName = CLASS_CONFIGURATION + testProcessName + buildConfName;
           myPrintStream.println(new TestSuiteStarted(getName(testIdentifier)));  // root (e.g. JupiterTestEngine)
-          myPrintStream.println(new TestStarted(CLASS_CONFIGURATION, false, null));
-          testFailure(CLASS_CONFIGURATION, ServiceMessageTypes.TEST_FAILED, throwableOptional, 0, reason);
-          myPrintStream.println(new TestFinished(CLASS_CONFIGURATION, 0));
+          myPrintStream.println(new TestStarted(testName, false, null));
+          testFailure(testName, ServiceMessageTypes.TEST_FAILED, throwableOptional, 0, reason);
+          myPrintStream.println(new TestFinished(testName, 0));
           myPrintStream.println(new TestSuiteFinished(getName(testIdentifier)));
         }
         if (myReportAsBootstrapTestsSuite && testIdentifier.getUniqueId().equals(VINTAGE_UNIQUE_ID)) {  // mask JUnit 3/4 suite names
