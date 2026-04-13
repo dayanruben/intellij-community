@@ -22,12 +22,6 @@ internal class JvmHotSwapUiExtension : HotSwapUiExtension {
   override val hotSwapIcon: Icon
     get() = AllIcons.Debugger.DebuggerSync
 
-  override val hotSwapButtonAccessibleName: String
-    get() = XDebuggerBundle.message("xdebugger.hotswap.tooltip.apply")
-
-  override val toolbarAccessibleName: String
-    get() = XDebuggerBundle.message("xdebugger.hotswap.toolbar.accessible.name")
-
   override fun popupMenuActions() = DefaultActionGroup(ToggleShowButtonAction())
 }
 
