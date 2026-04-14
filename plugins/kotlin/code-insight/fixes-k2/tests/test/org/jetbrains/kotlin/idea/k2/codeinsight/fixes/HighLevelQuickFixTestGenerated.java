@@ -6260,6 +6260,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                     runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/property/valOnClassObject.kt");
                 }
 
+                @TestMetadata("valOnNestedUserObject.kt")
+                public void testValOnNestedUserObject() throws Exception {
+                    runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/property/valOnNestedUserObject.kt");
+                }
+
                 @TestMetadata("valOnUserObject.kt")
                 public void testValOnUserObject() throws Exception {
                     runTest("../../../idea/tests/testData/quickfix/createFromUsage/createVariable/property/valOnUserObject.kt");
@@ -7640,6 +7645,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 @TestMetadata("typeReference.kt")
                 public void testTypeReference() throws Exception {
                     runTest("../../../idea/tests/testData/quickfix/deprecatedSymbolUsage/typeArguments/typeReference.kt");
+                }
+
+                @TestMetadata("unsubstitutedTypeParameters.kt")
+                public void testUnsubstitutedTypeParameters() throws Exception {
+                    runTest("../../../idea/tests/testData/quickfix/deprecatedSymbolUsage/typeArguments/unsubstitutedTypeParameters.kt");
                 }
             }
 

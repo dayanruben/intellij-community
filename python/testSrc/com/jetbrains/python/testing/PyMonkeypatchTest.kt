@@ -26,6 +26,8 @@ class PyMonkeypatchTest : PyTestCase() {
 
   override fun setUp() {
     super.setUp()
+    TestRunnerService.getInstance(myFixture.module).selectedFactory =
+      PythonTestConfigurationType.getInstance().pyTestFactory
     myFixture.copyDirectoryToProject("", "")
   }
 
@@ -217,6 +219,46 @@ class PyMonkeypatchTest : PyTestCase() {
     val refs = strArg!!.references
     assertTrue("Should have references", refs.isNotEmpty())
     assertNotNull("class_attr should resolve", refs.last().resolve())
+  }
+
+  // --- Non-test function should not get references ---
+
+  fun testNonTestFunctionNoReferences() {
+    myFixture.configureByFile("test_non_test_function.py")
+    val file = myFixture.file as PyFile
+    val nonTestFunc = file.findTopLevelFunction("bar")!!
+    val strArg = findFirstStringArg(nonTestFunc)
+    assertNotNull("Expected string literal", strArg)
+
+    // "example_module.MyClass" in a non-test function should NOT get monkeypatch references
+    val refs = strArg!!.references.filter { it.javaClass.name.contains("Monkeypatch") || it.javaClass.name.contains("Mock") }
+    assertTrue("Non-test function should not get monkeypatch references", refs.isEmpty())
+  }
+
+  fun testNonTestFunctionObjectFormNoReferences() {
+    myFixture.configureByFile("test_non_test_function.py")
+    val file = myFixture.file as PyFile
+    val nonTestFunc = file.findTopLevelFunction("bar")!!
+    // Find the second call: monkeypatch.setattr(MyClass, "my_method", ...)
+    val calls = nonTestFunc.statementList.statements
+      .filterIsInstance<com.jetbrains.python.psi.PyExpressionStatement>()
+      .mapNotNull { it.expression as? PyCallExpression }
+    val strArg = calls.getOrNull(1)?.argumentList?.arguments?.getOrNull(1) as? PyStringLiteralExpression
+    assertNotNull("Expected string literal in second call", strArg)
+
+    val refs = strArg!!.references.filter { it.javaClass.name.contains("Monkeypatch") || it.javaClass.name.contains("Mock") }
+    assertTrue("Non-test function should not get monkeypatch references", refs.isEmpty())
+  }
+
+  fun testTestFunctionStillGetsReferences() {
+    myFixture.configureByFile("test_non_test_function.py")
+    val file = myFixture.file as PyFile
+    val testFunc = file.findTopLevelFunction("test_foo")!!
+    val strArg = findFirstStringArg(testFunc)
+    assertNotNull("Expected string literal", strArg)
+
+    val refs = PyMockPatchTargetReferenceSet(strArg!!, false).createReferences()
+    assertTrue("Test function should still get references", refs.isNotEmpty())
   }
 
   // --- Helpers ---
