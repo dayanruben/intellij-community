@@ -184,9 +184,9 @@ fun parseStdOrDataclassTransformDataclassParameters(cls: PyClass, context: TypeE
   }
 }
 
-fun parseDataclassParameters(cls: PyClass, context: TypeEvalContext): PyDataclassParameters? {
-  return PyUtil.getNullableParameterizedCachedValue(cls, context) {
-    return@getNullableParameterizedCachedValue StubAwareComputation.on(cls)
+fun parseDataclassParameters(cls: PyClass, context: TypeEvalContext): PyDataclassParameters? =
+  PyUtil.getNullableParameterizedCachedValue(cls, context) {
+    StubAwareComputation.on(cls)
       .withCustomStub { stub -> stub.getCustomStub(PyDataclassStub::class.java) }
       .overStub { dataclassStub ->
         resolveDataclassParameters(cls, dataclassStub
@@ -195,12 +195,11 @@ fun parseDataclassParameters(cls: PyClass, context: TypeEvalContext): PyDataclas
       .overAst {
         val (dataclassStub, dataclassParamArgMapping) = parseDataclassParametersFromAST(it, context)
                                                         ?: (PyDataclassStubImpl.NON_PARAMETERIZED_DATACLASS_TRANSFORM_CANDIDATE_STUB to null)
-        return@overAst resolveDataclassParameters(cls, dataclassStub, dataclassParamArgMapping, context)
+        resolveDataclassParameters(cls, dataclassStub, dataclassParamArgMapping, context)
       }
       .withStubBuilder { PyDataclassStubImpl.create(it) }
       .compute(context)
   }
-}
 
 /**
  * This method MUST be used only while building stub for dataclass.
@@ -680,8 +679,7 @@ private fun resolveDataclassParameters(
       val dataclassTransformDecorator: PyDecorator? = dataclassTransformTargets
         .filterIsInstance<PyDecoratable>()
         .flatMap { it.decoratorList?.decorators.orEmpty().asSequence() }
-        .filter { it.qualifiedName?.lastComponent == PyDataclassNames.DataclassTransform.DATACLASS_TRANSFORM_NAME }
-        .firstOrNull()
+        .firstOrNull { it.qualifiedName?.lastComponent == PyDataclassNames.DataclassTransform.DATACLASS_TRANSFORM_NAME }
 
       if (dataclassTransformDecorator != null) {
         val dataclassTransformStub: PyDataclassTransformDecoratorStub? = StubAwareComputation.on(dataclassTransformDecorator)

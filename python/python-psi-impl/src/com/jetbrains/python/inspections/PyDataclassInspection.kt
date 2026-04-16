@@ -38,6 +38,8 @@ import com.jetbrains.python.psi.PyUtil
 import com.jetbrains.python.psi.impl.ParamHelper
 import com.jetbrains.python.psi.impl.PyCallExpressionHelper
 import com.jetbrains.python.psi.impl.PyEvaluator
+import com.jetbrains.python.psi.impl.stubs.PyDataclassFieldStubImpl
+import com.jetbrains.python.psi.stubs.PyDataclassFieldStub
 import com.jetbrains.python.psi.types.PyClassType
 import com.jetbrains.python.psi.types.PyCollectionType
 import com.jetbrains.python.psi.types.PyStructuralType
@@ -252,14 +254,28 @@ class PyDataclassInspection : PyInspection() {
     private fun checkMutatingFrozenAttribute(expression: PyQualifiedExpression) {
       val cls = getInstancePyClass(expression.qualifier) ?: return
 
-      if (StreamEx
-          .of(cls).append(cls.getAncestorClasses(myTypeEvalContext))
-          .mapNotNull { parseDataclassParameters(it, myTypeEvalContext) }
-          .any { it.frozen == true }) {
+      val allClasses = listOf(cls) + cls.getAncestorClasses(myTypeEvalContext)
+      val allClassesAttributes = allClasses.mapNotNull { parseDataclassParameters(it, myTypeEvalContext) }
+      if (
+        allClassesAttributes.any { it.frozen == true }
+        || expression.isFrozenDataclassField(allClasses)
+      ) {
         registerProblem(expression,
                         PyPsiBundle.message("INSP.dataclasses.object.attribute.read.only", cls.name, expression.name),
                         ProblemHighlightType.GENERIC_ERROR)
       }
+    }
+
+    private fun PyQualifiedExpression.isFrozenDataclassField(allClasses: List<PyClass>): Boolean {
+      val fieldName = name ?: return false
+      val fieldDecl = allClasses.firstNotNullOfOrNull {
+        it.findClassAttribute(fieldName, false, myTypeEvalContext)
+      } ?: return false
+
+      val stub = fieldDecl.stub?.getCustomStub(PyDataclassFieldStub::class.java)
+                 ?: PyDataclassFieldStubImpl.create(fieldDecl)
+                 ?: return false
+      return stub.frozen() == true
     }
 
     private fun getDataclassHierarchyOrder(cls: PyClass, operator: String?): Pair<ClassOrder, PyDataclassParameters.Type?> {

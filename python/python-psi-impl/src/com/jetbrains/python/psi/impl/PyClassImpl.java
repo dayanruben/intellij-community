@@ -1525,12 +1525,12 @@ public class PyClassImpl extends PyBaseElementImpl<PyClassStub> implements PyCla
   private @NotNull List<PyClassLikeType> doGetSuperClassTypes(@NotNull TypeEvalContext context) {
     final List<PyClassLikeType> result = new ArrayList<>();
 
-    // In some cases stub may not provide all information, so we use stubs only if AST access id disabled
-    if (!context.maySwitchToAST(this)) {
-      fillSuperClassesNoSwitchToAst(context, getStub(), result);
+    // In some cases stub may not provide all information, so we use stubs only if AST access is disabled
+    if (context.maySwitchToAST(this)) {
+      fillSuperClassesSwitchingToAst(context, result);
     }
     else {
-      fillSuperClassesSwitchingToAst(context, result);
+      fillSuperClassesNoSwitchToAst(context, getStub(), result);
     }
 
     PyPsiUtils.assertValid(this);
