@@ -466,8 +466,40 @@ public class PyTypingTest extends PyTestCase {
 
   // PY-37515
   public void testNoStringLiteralInjectionUnderCall() {
-    doTestNoInjectedText("class Model:\n" +
-                         "    field: call('<caret>List[str]')");
+    doTestNoInjectedText("x: call('<caret>List[str]')");
+  }
+
+  @TestFor(issues="PY-82245")
+  public void testStringLiteralInjectionUnderCallWithNestedTypeForm() {
+    doTestInjectedText("x: call(set['<caret>str'])");
+  }
+
+  @TestFor(issues="PY-88670")
+  public void testStringLiteralInjectionBaseClasses() {
+    doTestInjectedText("class A(set['<caret>int']): pass");
+  }
+
+  @TestFor(issues="PY-82245")
+  public void testStringLiteralInjectionNestedSubscriptionBaseClass() {
+    doTestInjectedText("class A(set[set['<caret>int']]): pass");
+  }
+
+  @TestFor(issues="PY-88670")
+  public void testNoStringLiteralInjectionForNonTypeBaseClass() {
+    doTestNoInjectedText("class A(namedtuple('Model', '<caret>int')): pass");
+  }
+
+  @TestFor(issues="PY-88670")
+  public void testNoStringLiteralInjectionForNonGenericMetaclass() {
+    doTestNoInjectedText(
+      """
+        class M(type):
+            def __getitem__(self, item): ...
+        
+        class A(metaclass=M): pass
+        
+        print(A["<caret>foo"])
+        """);
   }
 
   // PY-15810
@@ -7077,7 +7109,11 @@ public class PyTypingTest extends PyTestCase {
     assertNull(host);
   }
 
-  private void doTestInjectedText(@NotNull String text, @NotNull String expected) {
+  private void doTestInjectedText(@NotNull String text) {
+    doTestInjectedText(text, null);
+  }
+
+  private void doTestInjectedText(@NotNull String text, String expected) {
     myFixture.configureByText(PythonFileType.INSTANCE, text);
     final InjectedLanguageManager languageManager = InjectedLanguageManager.getInstance(myFixture.getProject());
     final PsiLanguageInjectionHost host = languageManager.getInjectionHost(getElementAtCaret());
@@ -7086,7 +7122,9 @@ public class PyTypingTest extends PyTestCase {
     assertNotNull(files);
     assertFalse(files.isEmpty());
     final PsiElement injected = files.get(0).getFirst();
-    assertEquals(expected, injected.getText());
+    if (expected != null) {
+      assertEquals(expected, injected.getText());
+    }
     assertFalse(PsiTreeUtil.hasErrorElements(injected));
   }
 
