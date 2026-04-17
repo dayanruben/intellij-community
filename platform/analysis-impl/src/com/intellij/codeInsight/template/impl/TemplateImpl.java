@@ -551,37 +551,82 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
   }
 
   /**
-   * If {@code variable} is a non-editable variable that actually mirrors the value of some
-   * editable variable, returns that editable variable's name. Verified in two steps:
+   * Decides whether {@code variable} (a non-editable) should be linked to some editable as a
+   * dependent field, and what string to put in {@link
+   * com.intellij.modcommand.ModStartTemplate.DependantVariableField#dependantVariableName}.
+   *
+   * <p>Two strategies per editable candidate:
    * <ol>
-   *   <li>Computed values must match — fast exit.</li>
-   *   <li>A re-evaluation of {@code variable}'s expression with a unique {@link #MIRROR_SENTINEL}
-   *       string substituted for the editable candidate variable must return the same.</li>
+   *   <li><b>Identity mirror</b>: when the computed values already coincide, a
+   *       {@link #MIRROR_SENTINEL} probe confirms the expression is pass-through on the
+   *       editable's value (e.g. {@code escapeString(EXPR)} on an identifier). Returns the
+   *       editable's <b>simple name</b> — LSP snippet mirroring works with it.</li>
+   *   <li><b>Non-identity dependency</b>: we walk the parsed {@link Expression} tree. If it
+   *       contains a {@link VariableNode} referencing the editable's name (e.g.
+   *       {@code iterableComponentType(ITERABLE_TYPE)}), returns the full <b>expression
+   *       string</b>. The classic template engine will re-evaluate that expression on every
+   *       edit via {@code TemplateBuilderImpl}.</li>
    * </ol>
-   * Otherwise returns {@code null} and the non-editable stays as static text.
+   * We can't use the sentinel probe for non-identity detection: a sentinel value is an
+   * unresolvable identifier in PSI, and many macros (e.g. {@code iterableComponentType})
+   * return {@code null} then, regardless of whether they would really recompute on a real
+   * edit. The AST walk is also stricter than a text match — it ignores variable names that
+   * happen to appear inside string literals or other constant expressions.
+   *
+   * <p>Returns {@code null} if no editable influences this variable's value.
    */
-  private static @Nullable String detectMirrorOf(@NotNull Variable variable,
-                                                  @NotNull Collection<Variable> allVariables,
-                                                  @NotNull Map<String, String> calculatedValues,
-                                                  @NotNull TextRange markerRange,
-                                                  @NotNull PsiElement element,
-                                                  @NotNull PsiFile file) {
+  private static @Nullable String detectDependantName(@NotNull Variable variable,
+                                                       @NotNull Collection<Variable> allVariables,
+                                                       @NotNull Map<String, String> calculatedValues,
+                                                       @NotNull TextRange markerRange,
+                                                       @NotNull PsiElement element,
+                                                       @NotNull PsiFile file) {
     String name = variable.getName();
     String value = calculatedValues.get(name);
-    if (value == null || value.isEmpty()) return null;
+    if (value == null) return null;
+    Expression expression = variable.getExpression();
+    String exprString = variable.getExpressionString();
     for (Variable other : allVariables) {
       if (!other.isAlwaysStopAt()) continue;
       String otherName = other.getName();
       if (otherName.equals(name)) continue;
-      if (!value.equals(calculatedValues.get(otherName))) continue;
-      Map<String, String> probe = new LinkedHashMap<>(calculatedValues);
-      probe.put(otherName, MIRROR_SENTINEL);
-      Result result = variable.getExpression().calculateResult(new DummyContext(markerRange, element, file, probe));
-      if (result != null && MIRROR_SENTINEL.equals(result.toString())) {
-        return otherName;
+      String otherValue = calculatedValues.get(otherName);
+      if (otherValue == null) continue;
+      // Identity case: verify pass-through with a sentinel probe.
+      if (value.equals(otherValue)) {
+        Map<String, String> probe = new LinkedHashMap<>(calculatedValues);
+        probe.put(otherName, MIRROR_SENTINEL);
+        Result probeResult = expression.calculateResult(new DummyContext(markerRange, element, file, probe));
+        if (probeResult != null && MIRROR_SENTINEL.equals(probeResult.toString())) {
+          return otherName;
+        }
+      }
+      // Non-identity dependency: expression AST must reference the editable as a VariableNode.
+      // Also need the original expression string so the classic template engine can re-parse it.
+      if (!exprString.isEmpty() && expressionReferences(expression, otherName)) {
+        return exprString;
       }
     }
     return null;
+  }
+
+  /**
+   * Walks an {@link Expression} tree looking for a {@link VariableNode} whose name matches
+   * {@code variableName}. Only recognises nodes produced by the template-expression parser —
+   * programmatic custom {@code Expression} subclasses can't be introspected and return false.
+   */
+  private static boolean expressionReferences(@NotNull Expression expression, @NotNull String variableName) {
+    if (expression instanceof VariableNode vn) {
+      if (variableName.equals(vn.getName())) return true;
+      Expression init = vn.getInitialValue();
+      return init != null && expressionReferences(init, variableName);
+    }
+    if (expression instanceof MacroCallNode mn) {
+      for (Expression param : mn.getParameters()) {
+        if (expressionReferences(param, variableName)) return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -639,16 +684,16 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
       manager.commitDocument(document);
       PsiElement firstElement = updater.getPsiFile().findElementAt(firstInfo.marker.getStartOffset());
       if (firstElement == null) continue;
-      String mirrorOf = detectMirrorOf(variable, variables, calculatedValues,
-                                       firstInfo.marker.getTextRange(), firstElement, updater.getPsiFile());
-      if (mirrorOf == null) continue;
+      String dependantName = detectDependantName(variable, variables, calculatedValues,
+                                                 firstInfo.marker.getTextRange(), firstElement, updater.getPsiFile());
+      if (dependantName == null) continue;
       for (int idx : occurrences) {
         MarkerInfo info = markers.get(idx);
         manager.commitDocument(document);
         PsiElement element = updater.getPsiFile().findElementAt(info.marker.getStartOffset());
         if (element == null) continue;
         builder.field(element, info.marker.getTextRange().shiftLeft(element.getTextRange().getStartOffset()),
-                      name, mirrorOf, false);
+                      name, dependantName, false);
         any = true;
       }
     }

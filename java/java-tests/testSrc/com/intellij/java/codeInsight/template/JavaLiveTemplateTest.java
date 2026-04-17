@@ -1135,12 +1135,50 @@ public class JavaLiveTemplateTest extends LiveTemplateTestCase {
     myFixture.checkResult("""
                             class X {
                                 static void main(String[] args) {
-                                    for (String <selection>arg<caret></selection> : args) {
+                                    for (String arg : <selection>args<caret></selection>) {
                                        \s
                                     }
                                 }
                             }
                             """);
+  }
+
+  public void testModCommandIterElementTypeIsDependent() {
+    TemplateImpl template = TemplateSettings.getInstance().getTemplate("iter", "Java");
+    configureByJavaText("Test.java", """
+      class X {
+          static void main(String[] args) {
+              <caret>
+          }
+      }
+      """);
+
+    ActionContext context = myFixture.getActionContext();
+    ModCommand cmd = ModCommand.psiUpdate(context, updater -> TemplateManagerImpl.updateTemplate(template, updater));
+
+    List<ModStartTemplate.TemplateField> fields = cmd.unpack().stream()
+      .filter(ModStartTemplate.class::isInstance)
+      .map(ModStartTemplate.class::cast)
+      .flatMap(s -> s.fields().stream())
+      .toList();
+
+    // Editable fields in declaration order: ITERABLE_TYPE first, VAR second.
+    List<String> editableOrder = fields.stream()
+      .filter(ModStartTemplate.ExpressionField.class::isInstance)
+      .map(f -> ((ModStartTemplate.ExpressionField) f).varName())
+      .toList();
+    assertEquals(List.of("ITERABLE_TYPE", "VAR"), editableOrder);
+
+    // ELEMENT_TYPE is registered as DependantVariableField with the raw expression string so
+    // the template engine re-evaluates the macro on ITERABLE_TYPE edits.
+    ModStartTemplate.DependantVariableField elementTypeField = fields.stream()
+      .filter(ModStartTemplate.DependantVariableField.class::isInstance)
+      .map(f -> (ModStartTemplate.DependantVariableField) f)
+      .filter(f -> "ELEMENT_TYPE".equals(f.varName()))
+      .findFirst()
+      .orElseThrow(() -> new AssertionError("ELEMENT_TYPE DependantVariableField missing"));
+    assertEquals("iterableComponentType(ITERABLE_TYPE)", elementTypeField.dependantVariableName());
+    assertFalse(elementTypeField.alwaysStopAt());
   }
 
   public void testModCommandSoutv() {
@@ -1175,7 +1213,7 @@ public class JavaLiveTemplateTest extends LiveTemplateTestCase {
     TemplateImpl template = new TemplateImpl("test", "X = $X$ Y = $Y$", "user");
     template.addVariable("X", new TextExpression("FOO"), new TextExpression("FOO"), true);
     // Y's expression: uppercase of X's value. On input "FOO" the result is "FOO" (matches X),
-    // but it's NOT a real mirror — the sentinel probe in detectMirrorOf must reject it.
+    // but it's NOT a real mirror — the sentinel probe in detectDependantName must reject it.
     Expression upper = new Expression() {
       @Override
       public Result calculateResult(ExpressionContext c) {
