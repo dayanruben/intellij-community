@@ -18,24 +18,30 @@ import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowContextMenuActionBase
 import com.intellij.openapi.wm.ToolWindowId
+import com.intellij.ui.ComponentUtil
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBPanelWithEmptyText
 import com.intellij.ui.content.Content
 import com.intellij.util.application
+import org.jetbrains.annotations.ApiStatus
 import java.awt.event.KeyEvent
 import java.util.Collections
 import javax.swing.JComponent
 import javax.swing.KeyStroke
 
 private val ORIGINAL_PREFERRED_FOCUSABLE_KEY: Key<JComponent?> = Key.create<JComponent>("component.preferredFocusableComponent")
+private const val TERMINAL_TOOL_WINDOW_ID: String = "Terminal"
+private val ALLOWED_TOOL_WINDOW_IDS: Set<String> = setOf(
+  ToolWindowId.VCS,
+  ToolWindowId.RUN,
+  ToolWindowId.SERVICES,
+  TERMINAL_TOOL_WINDOW_ID,
+)
 
 internal class ToolWindowTabInEditorDefaultHelper : ToolWindowTabInEditorHelper {
   override fun updatePresentation(e: AnActionEvent, toolWindow: ToolWindow, tabEditorFile: ToolWindowTabFile?) {
     val content = ToolWindowContextMenuActionBase.getContextContent(e)
-    val enabled = content != null &&
-                  toolWindow.id != ToolWindowId.STRUCTURE_VIEW &&
-                  toolWindow.id != ToolWindowId.PROBLEMS_VIEW ||
-                  tabEditorFile != null
+    val enabled = (content != null && toolWindow.id in ALLOWED_TOOL_WINDOW_IDS) || tabEditorFile != null
 
     e.presentation.isEnabledAndVisible = enabled
     if (!enabled) return
@@ -107,6 +113,17 @@ internal class Placeholder(
       Disposer.dispose(file.component)
     }
   }
+}
+
+@ApiStatus.Internal
+fun <T : JComponent> Content.findComponentOfType(klass: Class<T>): T? {
+  val unwrappedComponent = (component as? Placeholder)?.file?.component ?: component
+
+  if (klass.isInstance(unwrappedComponent)) {
+    return klass.cast(unwrappedComponent)
+  }
+
+  return ComponentUtil.findComponentsOfType(unwrappedComponent, klass).firstOrNull()
 }
 
 internal fun moveContentToEditor(

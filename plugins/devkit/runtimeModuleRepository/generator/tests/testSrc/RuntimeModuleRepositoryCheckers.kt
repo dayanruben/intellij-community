@@ -46,6 +46,8 @@ internal fun generateAndValidateRuntimeModuleRepository(project: JpsProject): Li
                                            namespace = RuntimeModuleId.DEFAULT_NAMESPACE,
                                            visibility = RuntimeModuleVisibility.PUBLIC)
     }
+
+    override fun findContentModuleDataForTests(jpsModule: JpsModule): ContentModuleRegistrationData? = null
   }
   val generatedDescriptors =
     RuntimeModuleRepositoryGenerator.generateRuntimeModuleDescriptorsForWholeProject(project,
@@ -56,11 +58,12 @@ internal fun generateAndValidateRuntimeModuleRepository(project: JpsProject): Li
 }
 
 private fun validate(descriptors: List<RawRuntimeModuleDescriptor>) {
-  RuntimeModuleRepositoryValidator.validate(descriptors,  object : RuntimeModuleRepositoryValidator.ErrorReporter {
-    override fun reportDuplicatingId(moduleId: RuntimeModuleId) {
-      error("Duplicating module id: $moduleId")
+  val errorReporter = object : RuntimeModuleRepositoryValidator.ErrorReporter {
+    override fun reportError(errorMessage: String) {
+      error(errorMessage)
     }
-  })
+  }
+  RuntimeModuleRepositoryValidator.validate(descriptors, pluginHeaders = emptyList(), errorReporter)
 }
 
 class RawDescriptorListBuilder {

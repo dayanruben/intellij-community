@@ -409,7 +409,7 @@ private fun suppressWarnings(project: JpsProject) {
 
 private suspend fun defineJavaSdk(context: CompilationContext) {
   val homePath = context.getStableJdkHome()
-  val jbrVersionName = "jbr-21"
+  val jbrVersionName = "jbr-25"
   defineJdk(global = context.projectModel.global, jdkName = jbrVersionName, homeDir = homePath)
   readModulesFromReleaseFile(model = context.projectModel, sdkName = jbrVersionName, sdkHome = homePath)
 
@@ -424,9 +424,9 @@ private suspend fun defineJavaSdk(context: CompilationContext) {
     val sdkName = sdkRef.sdkName
     val vendorPrefixEnd = sdkName.indexOf('-')
     val sdkNameWithoutVendor = (if (vendorPrefixEnd == -1) sdkName else sdkName.substring(vendorPrefixEnd + 1))
-    check(sdkNameWithoutVendor.startsWith("21")) {
+    check(sdkNameWithoutVendor.startsWith("25")) {
       "Project model at ${context.paths.projectHome} [module ${module.name}] requested SDK $sdkNameWithoutVendor, " +
-      "but only '21' is supported as SDK in intellij project"
+      "but only '25' is supported as SDK in intellij project"
     }
 
     if (context.projectModel.global.libraryCollection.findLibrary(sdkName) == null) {
