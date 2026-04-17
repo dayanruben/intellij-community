@@ -15,7 +15,7 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 
 @ApiStatus.Internal
-open class ChangeList(private val storage: ChangeListStorage) {
+class ChangeList(private val storage: ChangeListStorage) {
   private var changeSetDepth = 0
   private var currentChangeSet: ChangeSet? = null
 
