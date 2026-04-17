@@ -28,7 +28,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.SmartList;
-import com.intellij.util.containers.ContainerUtil;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
@@ -36,7 +35,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -91,6 +92,11 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
   private static final @NonNls String SELECTION_START = "SELECTION_START";
   private static final @NonNls String SELECTION_END = "SELECTION_END";
   public static final @NonNls String ARG = "ARG";
+
+  /** Designed to be alphanumeric-only so identity-like transforms (e.g. {@code escapeString})
+   *  return it verbatim, letting the mirror check distinguish real pass-through expressions
+   *  from transformations that merely happened to coincide on the current input. */
+  private static final String MIRROR_SENTINEL = "__IJTemplateMirrorSentinel_X9A3Z7Q__";
 
   public static final Set<String> INTERNAL_VARS_SET = Set.of(
     END, SELECTION, SELECTION_START, SELECTION_END);
@@ -430,18 +436,22 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
     Project project = updater.getProject();
     PsiDocumentManager manager = PsiDocumentManager.getInstance(project);
     List<Segment> segments = getSegments();
-    List<MarkerInfo> markers = new ArrayList<>(ContainerUtil.map(segments, segment -> {
+    // Build markers and a name→indices index in one pass; the index gives the O(1) lookups used
+    // below by `computeInitialVariableValues` and the editable-field loop.
+    List<MarkerInfo> markers = new ArrayList<>(segments.size());
+    Map<String, List<Integer>> indicesByName = new HashMap<>();
+    for (int i = 0; i < segments.size(); i++) {
+      Segment segment = segments.get(i);
       RangeMarker marker = document.createRangeMarker(start + segment.offset, start + segment.offset);
       if (!END.equals(segment.name)) {
         // can be a conflict if EXPR and END are together
         marker.setGreedyToRight(true);
       }
-      return new MarkerInfo(segment, marker);
-    }));
-    // resolve non-editable (isAlwaysStopAt=false) variables firstly, so their computed values
-    // can be substituted into the document before the interactive template session starts.
-    Map<String, String> calculatedValues =
-      preCalculateNonEditableVariables(variableMap, markers, manager, updater);
+      markers.add(new MarkerInfo(segment, marker));
+      indicesByName.computeIfAbsent(segment.name, k -> new ArrayList<>()).add(i);
+    }
+
+    Map<String, String> calculatedValues = computeInitialVariableValues(markers, indicesByName, manager, updater);
 
     RangeMarker endMarker = resolveEndMarker(markers, variableMap, calculatedValues, document, processor, updater.getPsiFile());
     for (TemplateOptionalProcessor proc : DumbService.getDumbAwareExtensions(project, TemplateOptionalProcessor.EP_NAME)) {
@@ -464,26 +474,12 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
     if (isToReformat()) {
       adjustEndLineIndent(document, endMarker, project, updater);
     }
-    // Create template fields for editable variables.
     // Done after formatting so that field ranges match the final document state.
-    ModTemplateBuilder builder = null;
-    for (MarkerInfo info : markers) {
-      Segment segment = info.segment;
-      if (segment.name.equals(END)) continue;
-      Variable variable = variableMap.get(segment.name);
-      if (variable != null && variable.isAlwaysStopAt()) {
-        manager.commitDocument(document);
-        PsiElement element = updater.getPsiFile().findElementAt(info.marker.getStartOffset());
-        if (element != null) {
-          if (builder == null) builder = updater.templateBuilder();
-          //see `result = defaultValue.calculateResult(context)` in TemplateState.recalcSegment
-          Expression expression = withDefaultFallback(variable.getExpression(), variable.getDefaultValueExpression());
-          builder.field(element, info.marker.getTextRange().shiftLeft(element.getTextRange().getStartOffset()),
-                        segment.name, expression);
-        }
-      }
-    }
-    if (builder != null) {
+    ModTemplateBuilder builder = updater.templateBuilder();
+    boolean fieldsCreated = registerEditableFields(builder, markers, indicesByName, manager, updater);
+    fieldsCreated |= registerMirrorFields(builder, markers, indicesByName, calculatedValues, manager, updater);
+
+    if (fieldsCreated) {
       builder.finishAt(endMarker.getStartOffset());
     } else {
       updater.moveCaretTo(endMarker.getStartOffset());
@@ -554,6 +550,111 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
     return null;
   }
 
+  /**
+   * If {@code variable} is a non-editable variable that actually mirrors the value of some
+   * editable variable, returns that editable variable's name. Verified in two steps:
+   * <ol>
+   *   <li>Computed values must match — fast exit.</li>
+   *   <li>A re-evaluation of {@code variable}'s expression with a unique {@link #MIRROR_SENTINEL}
+   *       string substituted for the editable candidate variable must return the same.</li>
+   * </ol>
+   * Otherwise returns {@code null} and the non-editable stays as static text.
+   */
+  private static @Nullable String detectMirrorOf(@NotNull Variable variable,
+                                                  @NotNull Collection<Variable> allVariables,
+                                                  @NotNull Map<String, String> calculatedValues,
+                                                  @NotNull TextRange markerRange,
+                                                  @NotNull PsiElement element,
+                                                  @NotNull PsiFile file) {
+    String name = variable.getName();
+    String value = calculatedValues.get(name);
+    if (value == null || value.isEmpty()) return null;
+    for (Variable other : allVariables) {
+      if (!other.isAlwaysStopAt()) continue;
+      String otherName = other.getName();
+      if (otherName.equals(name)) continue;
+      if (!value.equals(calculatedValues.get(otherName))) continue;
+      Map<String, String> probe = new LinkedHashMap<>(calculatedValues);
+      probe.put(otherName, MIRROR_SENTINEL);
+      Result result = variable.getExpression().calculateResult(new DummyContext(markerRange, element, file, probe));
+      if (result != null && MIRROR_SENTINEL.equals(result.toString())) {
+        return otherName;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Registers editable variables as interactive template fields in declaration order, so tab-stop
+   * order matches template semantics rather than segment text order.
+   *
+   * @return {@code true} if at least one field was registered on {@code builder}.
+   */
+  private boolean registerEditableFields(@NotNull ModTemplateBuilder builder,
+                                          @NotNull List<MarkerInfo> markers,
+                                          @NotNull Map<String, List<Integer>> indicesByName,
+                                          @NotNull PsiDocumentManager manager,
+                                          @NotNull ModPsiUpdater updater) {
+    Document document = updater.getDocument();
+    boolean any = false;
+    for (Variable variable : getVariables()) {
+      if (!variable.isAlwaysStopAt()) continue;
+      String name = variable.getName();
+      for (int idx : indicesByName.getOrDefault(name, List.of())) {
+        MarkerInfo info = markers.get(idx);
+        manager.commitDocument(document);
+        PsiElement element = updater.getPsiFile().findElementAt(info.marker.getStartOffset());
+        if (element == null) continue;
+        //see `result = defaultValue.calculateResult(context)` in TemplateState.recalcSegment
+        Expression expression = withDefaultFallback(variable.getExpression(), variable.getDefaultValueExpression());
+        builder.field(element, info.marker.getTextRange().shiftLeft(element.getTextRange().getStartOffset()),
+                      name, expression);
+        any = true;
+      }
+    }
+    return any;
+  }
+
+  /**
+   * Registers non-editable variables that mirror an editable one as dependent fields, so a later
+   * edit of the editable field keeps both positions in sync
+   *
+   * @return {@code true} if at least one mirror field was registered on {@code builder}.
+   */
+  private boolean registerMirrorFields(@NotNull ModTemplateBuilder builder,
+                                        @NotNull List<MarkerInfo> markers,
+                                        @NotNull Map<String, List<Integer>> indicesByName,
+                                        @NotNull Map<String, String> calculatedValues,
+                                        @NotNull PsiDocumentManager manager,
+                                        @NotNull ModPsiUpdater updater) {
+    Document document = updater.getDocument();
+    boolean any = false;
+    ArrayList<Variable> variables = getVariables();
+    for (Variable variable : variables) {
+      if (variable.isAlwaysStopAt()) continue;
+      String name = variable.getName();
+      List<Integer> occurrences = indicesByName.getOrDefault(name, List.of());
+      if (occurrences.isEmpty()) continue;
+      MarkerInfo firstInfo = markers.get(occurrences.getFirst());
+      manager.commitDocument(document);
+      PsiElement firstElement = updater.getPsiFile().findElementAt(firstInfo.marker.getStartOffset());
+      if (firstElement == null) continue;
+      String mirrorOf = detectMirrorOf(variable, variables, calculatedValues,
+                                       firstInfo.marker.getTextRange(), firstElement, updater.getPsiFile());
+      if (mirrorOf == null) continue;
+      for (int idx : occurrences) {
+        MarkerInfo info = markers.get(idx);
+        manager.commitDocument(document);
+        PsiElement element = updater.getPsiFile().findElementAt(info.marker.getStartOffset());
+        if (element == null) continue;
+        builder.field(element, info.marker.getTextRange().shiftLeft(element.getTextRange().getStartOffset()),
+                      name, mirrorOf, false);
+        any = true;
+      }
+    }
+    return any;
+  }
+
   private static void reformatTemplate(@NotNull Document document, @NotNull PsiDocumentManager manager,
                                         @NotNull Project project, @NotNull ModPsiUpdater updater,
                                         @NotNull RangeMarker wholeTemplate, @NotNull List<MarkerInfo> markers) {
@@ -596,144 +697,97 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
   private record MarkerInfo(Segment segment, RangeMarker marker) {}
 
   /**
-   * Pre-calculates values for non-editable ({@code isAlwaysStopAt=false}) variables before processing segments.
-   * Iterates multiple passes to resolve inter-variable dependencies (e.g., {@code escapeString(EXPR)} depending on {@code EXPR}).
+   * Evaluates every template variable in declaration order, substituting the computed value
+   * into the document so later variables can see it (via PSI scan or
+   * {@link ExpressionContext#getVariableValue}).
+   *
+   * <p>Mutates {@code markers}: entries covering substituted values are replaced via
+   * {@link #substituteAtMarker} (old {@link RangeMarker}s are disposed and re-created with
+   * exact ranges). Indices in {@code markers} stay stable.
+   *
+   * @return map of variable name → computed value.
    */
-  private static @NotNull Map<String, String> preCalculateNonEditableVariables(
-    @NotNull Map<String, Variable> variableMap,
+  private @NotNull Map<String, String> computeInitialVariableValues(
     @NotNull List<MarkerInfo> markers,
+    @NotNull Map<String, List<Integer>> indicesByName,
     @NotNull PsiDocumentManager manager,
     @NotNull ModPsiUpdater updater
   ) {
     Map<String, String> calculatedValues = new LinkedHashMap<>();
-    Set<String> nonEditableVarNames = new HashSet<>();
-    for (Variable variable : variableMap.values()) {
-      if (!variable.isAlwaysStopAt()) {
-        nonEditableVarNames.add(variable.getName());
-      }
-    }
-    if (nonEditableVarNames.isEmpty()) {
-      return calculatedValues;
-    }
-    manager.commitDocument(updater.getDocument());
     Document document = updater.getDocument();
-    List<MarkerInfo> editablePlaceholders = new ArrayList<>();
-    for (MarkerInfo info : markers) {
-      String name = info.segment.name;
-      if (INTERNAL_VARS_SET.contains(name)) continue;
-      if (nonEditableVarNames.contains(name)) continue;
-      Variable variable = variableMap.get(name);
-      if (variable == null) continue;
-      if (info.marker.getStartOffset() != info.marker.getEndOffset()) continue;
-      info.marker.setGreedyToLeft(true);
-      document.insertString(info.marker.getStartOffset(), "a");
-      info.marker.setGreedyToLeft(false);
-      editablePlaceholders.add(info);
-    }
-    if (!editablePlaceholders.isEmpty()) {
+    ArrayList<Variable> variables = getVariables();
+    for (Variable variable : variables) {
+      String name = variable.getName();
+      if (calculatedValues.containsKey(name)) continue;
+      // indices are in segment (= text) order by construction.
+      List<Integer> occurrences = indicesByName.getOrDefault(name, List.of());
+      if (occurrences.isEmpty()) continue;
+      manager.commitDocument(document);
+      MarkerInfo primary = markers.get(occurrences.getFirst());
+      PsiElement element = updater.getPsiFile().findElementAt(primary.marker.getStartOffset());
+      if (element == null) continue;
+      //see `result = defaultValue.calculateResult(context)` in TemplateState.recalcSegment
+      Expression expression = withDefaultFallback(variable.getExpression(), variable.getDefaultValueExpression());
+      Result result = expression.calculateResult(
+        new DummyContext(primary.marker.getTextRange(), element, updater.getPsiFile(), calculatedValues));
+      if (result == null) continue;
+      String value = result.toString();
+      if (value.isEmpty()) continue;
+      calculatedValues.put(name, value);
+      // Substitute at every marker carrying this name, right-to-left so earlier markers don't shift.
+      for (int i = occurrences.size() - 1; i >= 0; i--) {
+        substituteAtMarker(markers, occurrences.get(i), value, document);
+      }
       manager.commitDocument(document);
     }
-    for (int pass = 0; pass < nonEditableVarNames.size(); pass++) {
-      int resolvedBefore = calculatedValues.size();
-      for (MarkerInfo info : markers) {
-        String name = info.segment.name;
-        if (!nonEditableVarNames.contains(name) || calculatedValues.containsKey(name)) continue;
-        Variable variable = variableMap.get(name);
-        if (variable == null) {
-          continue;
-        }
-        PsiElement element = updater.getPsiFile().findElementAt(info.marker.getStartOffset());
-        if (element == null) {
-          continue;
-        }
-        Result result = variable.getExpression().calculateResult(
-          new DummyContext(info.marker.getTextRange(), element, updater.getPsiFile(), calculatedValues));
-        if (result != null) {
-          calculatedValues.put(name, result.toString());
-        }
-      }
-      if (calculatedValues.size() == resolvedBefore) break;
-      Document doc = updater.getDocument();
-      // Group zero-length non-editable markers by their current offset.
-      // Combined insertion avoids marker interaction issues when multiple markers share the same offset.
-      Map<Integer, List<Integer>> offsetToIndices = new LinkedHashMap<>();
-      for (int i = 0; i < markers.size(); i++) {
-        MarkerInfo info = markers.get(i);
-        String name = info.segment.name;
-        if (!nonEditableVarNames.contains(name)) continue;
-        if (info.marker.getStartOffset() != info.marker.getEndOffset()) continue; // already has text
-        offsetToIndices.computeIfAbsent(info.marker.getStartOffset(), k -> new ArrayList<>()).add(i);
-      }
-      for (var entry : offsetToIndices.entrySet()) {
-        List<Integer> indices = entry.getValue();
-        // Use current marker offset — earlier insertions in this loop may have shifted it
-        int offset = markers.get(indices.getFirst()).marker.getStartOffset();
-        // Build combined text in template order (indices are already in template order)
-        StringBuilder combined = new StringBuilder();
-        int[] textStarts = new int[indices.size()];
-        int[] textEnds = new int[indices.size()];
-        for (int i = 0; i < indices.size(); i++) {
-          MarkerInfo info = markers.get(indices.get(i));
-          String value = calculatedValues.get(info.segment.name);
-          String textToInsert = value != null ? value : "a";
-          textStarts[i] = combined.length();
-          combined.append(textToInsert);
-          textEnds[i] = combined.length();
-        }
-        // Single combined insertion avoids marker interaction issues
-        doc.insertString(offset, combined.toString());
-        // Replace old zero-length markers with accurately-ranged new ones
-        for (int i = 0; i < indices.size(); i++) {
-          int idx = indices.get(i);
-          MarkerInfo old = markers.get(idx);
-          old.marker.dispose();
-          int newStart = offset + textStarts[i];
-          int newEnd = offset + textEnds[i];
-          RangeMarker newMarker = doc.createRangeMarker(newStart, newEnd);
-          if (!END.equals(old.segment.name)) {
-            newMarker.setGreedyToRight(true);
-          }
-          markers.set(idx, new MarkerInfo(old.segment, newMarker));
-        }
-      }
-      manager.commitDocument(doc);
-    }
-    // Substitute final resolved values for markers that still contain placeholders from earlier passes.
-    Document doc = updater.getDocument();
-    for (MarkerInfo info : markers) {
-      String name = info.segment.name;
-      if (!nonEditableVarNames.contains(name)) continue;
-      String value = calculatedValues.get(name);
-      if (value == null) continue;
-      int markerStart = info.marker.getStartOffset();
-      int markerEnd = info.marker.getEndOffset();
-      if (markerStart != markerEnd) {
-        doc.replaceString(markerStart, markerEnd, value);
-      }
-    }
-    // Clean up placeholders for variables that were never resolved
-    boolean cleaned = false;
-    for (MarkerInfo info : markers) {
-      String name = info.segment.name;
-      if (nonEditableVarNames.contains(name) && !calculatedValues.containsKey(name) &&
-          info.marker.getStartOffset() != info.marker.getEndOffset()) {
-        doc.deleteString(info.marker.getStartOffset(), info.marker.getEndOffset());
-        cleaned = true;
-      }
-    }
-    if (cleaned) {
-      manager.commitDocument(doc);
-    }
-    // Clean up placeholders inserted for editable variables
-    for (MarkerInfo info : editablePlaceholders) {
-      if (info.marker.getStartOffset() != info.marker.getEndOffset()) {
-        doc.deleteString(info.marker.getStartOffset(), info.marker.getEndOffset());
-      }
-    }
-    if (!editablePlaceholders.isEmpty()) {
-      manager.commitDocument(doc);
-    }
     return calculatedValues;
+  }
+
+  /**
+   * Substitutes {@code value} at {@code markers.get(idx)}, repositioning any zero-length
+   * siblings at the same offset (e.g. {@code $FINAL$$TYPE$}) so they don't greedy-extend
+   * over the insertion.
+   */
+  private static void substituteAtMarker(@NotNull List<MarkerInfo> markers, int idx,
+                                          @NotNull String value, @NotNull Document document) {
+    MarkerInfo target = markers.get(idx);
+    int start = target.marker.getStartOffset();
+    int end = target.marker.getEndOffset();
+    if (start != end) {
+      document.replaceString(start, end, value);
+      return;
+    }
+    List<Integer> atOffset = zeroLengthMarkersAt(markers, start);
+    for (int i : atOffset) {
+      markers.get(i).marker.dispose();
+    }
+    document.insertString(start, value);
+    int end2 = start + value.length();
+    // Target covers the inserted text; siblings stay zero-length, placed before or after
+    // the insertion according to their segment-list order relative to the target.
+    markers.set(idx, recreateMarker(document, target.segment, start, end2));
+    for (int i : atOffset) {
+      if (i == idx) continue;
+      int pos = i < idx ? start : end2;
+      markers.set(i, recreateMarker(document, markers.get(i).segment, pos, pos));
+    }
+  }
+
+  private static @NotNull List<Integer> zeroLengthMarkersAt(@NotNull List<MarkerInfo> markers, int offset) {
+    List<Integer> result = new ArrayList<>();
+    for (int i = 0; i < markers.size(); i++) {
+      RangeMarker m = markers.get(i).marker;
+      if (m.getStartOffset() == offset && m.getEndOffset() == offset) result.add(i);
+    }
+    return result;
+  }
+
+  private static @NotNull MarkerInfo recreateMarker(@NotNull Document document, @NotNull Segment segment, int start, int end) {
+    RangeMarker marker = document.createRangeMarker(start, end);
+    if (!END.equals(segment.name)) {
+      marker.setGreedyToRight(true);
+    }
+    return new MarkerInfo(segment, marker);
   }
 
   /**

@@ -67,6 +67,21 @@ public interface ModTemplateBuilder {
                                     boolean alwaysStopAt);
 
   /**
+   * Add a new dependent variable field covering {@code rangeInElement} of {@code element}.
+   * Useful when the mirrored value lives inside a PSI element.
+   *
+   * @param element element whose range contains the mirrored region
+   * @param rangeInElement range of the element to treat as the field range
+   * @param varName variable name
+   * @param dependantVariableName dependant variable name
+   * @param alwaysStopAt whether to always stop at this field
+   * @return this builder
+   */
+  @NotNull ModTemplateBuilder field(@NotNull PsiElement element, @NotNull TextRange rangeInElement,
+                                    @NotNull String varName, @NotNull String dependantVariableName,
+                                    boolean alwaysStopAt);
+
+  /**
    * Add a finish position to the template. The caret will be moved to a given position after the template is finished
    * 
    * @param offset finish position (offset within the file)

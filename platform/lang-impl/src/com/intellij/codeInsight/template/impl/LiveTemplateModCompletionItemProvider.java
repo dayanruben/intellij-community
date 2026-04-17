@@ -50,7 +50,7 @@ final class LiveTemplateModCompletionItemProvider implements ModCompletionItemPr
     @Override
     public ModCompletionItemPresentation presentation() {
       String description = contextObject().getDescription();
-      return new ModCompletionItemPresentation(MarkupText.plainText(contextObject().getKey()))
+      return new ModCompletionItemPresentation(MarkupText.plainText(contextObject().getKey() + " (MC)"))
         .withMainIcon(() -> AllIcons.Nodes.Template)
         .withDetailText(description == null ? MarkupText.empty() : MarkupText.plainText(description));
     }

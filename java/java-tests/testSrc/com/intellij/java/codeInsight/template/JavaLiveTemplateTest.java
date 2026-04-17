@@ -5,11 +5,16 @@ import com.intellij.JavaTestUtil;
 import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.daemon.impl.quickfix.EmptyExpression;
 import com.intellij.codeInsight.lookup.Lookup;
+import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.codeInsight.template.Expression;
+import com.intellij.codeInsight.template.ExpressionContext;
 import com.intellij.codeInsight.template.JavaCodeContextType;
 import com.intellij.codeInsight.template.JavaStringContextType;
+import com.intellij.codeInsight.template.Result;
 import com.intellij.codeInsight.template.Template;
 import com.intellij.codeInsight.template.TemplateActionContext;
 import com.intellij.codeInsight.template.TemplateContextType;
+import com.intellij.codeInsight.template.TextResult;
 import com.intellij.codeInsight.template.actions.SaveAsTemplateAction;
 import com.intellij.codeInsight.template.impl.ConstantNode;
 import com.intellij.codeInsight.template.impl.EmptyNode;
@@ -28,6 +33,7 @@ import com.intellij.codeInsight.template.macro.VariableOfTypeMacro;
 import com.intellij.modcommand.ActionContext;
 import com.intellij.modcommand.ModCommand;
 import com.intellij.modcommand.ModCommandExecutor;
+import com.intellij.modcommand.ModStartTemplate;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.pom.java.JavaFeature;
@@ -41,6 +47,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -1110,6 +1117,109 @@ public class JavaLiveTemplateTest extends LiveTemplateTestCase {
                                     for (int <selection>i<caret></selection> = 0; i < ; i++) {
                                        \s
                                     }
+                                }
+                            }
+                            """);
+  }
+
+  public void testModCommandIter() {
+    TemplateImpl template = TemplateSettings.getInstance().getTemplate("iter", "Java");
+    configureByJavaText("Test.java", """
+      class X {
+          static void main(String[] args) {
+              <caret>
+          }
+      }
+      """);
+    runModCommand(template);
+    myFixture.checkResult("""
+                            class X {
+                                static void main(String[] args) {
+                                    for (String <selection>arg<caret></selection> : args) {
+                                       \s
+                                    }
+                                }
+                            }
+                            """);
+  }
+
+  public void testModCommandSoutv() {
+    TemplateImpl template = TemplateSettings.getInstance().getTemplate("soutv", "Java");
+    configureByJavaText("Test.java", """
+      class X {
+          void m() {
+              int ar = 1;
+              <caret>
+          }
+      }
+      """);
+    runModCommand(template);
+    myFixture.checkResult("""
+                            class X {
+                                void m() {
+                                    int ar = 1;
+                                    System.out.println("ar = " + <selection>ar<caret></selection>);
+                                }
+                            }
+                            """);
+  }
+
+  public void testModCommandTransformingExprIsNotMirrored() {
+    configureByJavaText("Test.java", """
+      class X {
+          void m() {
+              <caret>
+          }
+      }
+      """);
+    TemplateImpl template = new TemplateImpl("test", "X = $X$ Y = $Y$", "user");
+    template.addVariable("X", new TextExpression("FOO"), new TextExpression("FOO"), true);
+    // Y's expression: uppercase of X's value. On input "FOO" the result is "FOO" (matches X),
+    // but it's NOT a real mirror — the sentinel probe in detectMirrorOf must reject it.
+    Expression upper = new Expression() {
+      @Override
+      public Result calculateResult(ExpressionContext c) {
+        TextResult v = c.getVariableValue("X");
+        return v == null ? null : new TextResult(v.toString().toUpperCase(Locale.ROOT));
+      }
+
+      @Override
+      public LookupElement[] calculateLookupItems(ExpressionContext c) {
+        return null;
+      }
+    };
+    template.addVariable("Y", upper, upper, false);
+
+    ActionContext context = myFixture.getActionContext();
+    ModCommand cmd = ModCommand.psiUpdate(context, updater -> TemplateManagerImpl.updateTemplate(template, updater));
+
+    long mirrors = cmd.unpack().stream()
+      .filter(ModStartTemplate.class::isInstance)
+      .map(ModStartTemplate.class::cast)
+      .flatMap(s -> s.fields().stream())
+      .filter(ModStartTemplate.DependantVariableField.class::isInstance)
+      .count();
+    assertEquals("Y must not be registered as a mirror because uppercase(sentinel) != sentinel",
+                 0L, mirrors);
+  }
+
+  public void testModCommandRepeatedVariableAtSameOffset() {
+    configureByJavaText("Test.java", """
+      class X {
+          void m() {
+              <caret>
+          }
+      }
+      """);
+    // Template text has $X$$X$ — two segments of the same variable at the same text offset.
+    TemplateImpl template = new TemplateImpl("test", "($X$$X$)", "user");
+    template.addVariable("X", new TextExpression("AB"), new TextExpression("AB"), true);
+
+    runModCommand(template);
+    myFixture.checkResult("""
+                            class X {
+                                void m() {
+                                    (<selection>AB<caret></selection>AB)
                                 }
                             }
                             """);
