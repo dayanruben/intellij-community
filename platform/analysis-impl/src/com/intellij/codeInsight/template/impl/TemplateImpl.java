@@ -550,61 +550,69 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
     return null;
   }
 
+  private record DependencySpec(@NotNull String dependantName, @Nullable String defaultValue) {}
+
   /**
-   * Decides whether {@code variable} (a non-editable) should be linked to some editable as a
-   * dependent field, and what string to put in {@link
-   * com.intellij.modcommand.ModStartTemplate.DependantVariableField#dependantVariableName}.
+   * Decides whether {@code variable} (a non-editable) should be linked as a dependent field.
    *
-   * <p>Two strategies per editable candidate:
    * <ol>
-   *   <li><b>Identity mirror</b>: when the computed values already coincide, a
-   *       {@link #MIRROR_SENTINEL} probe confirms the expression is pass-through on the
-   *       editable's value (e.g. {@code escapeString(EXPR)} on an identifier). Returns the
-   *       editable's <b>simple name</b> — LSP snippet mirroring works with it.</li>
-   *   <li><b>Non-identity dependency</b>: we walk the parsed {@link Expression} tree. If it
-   *       contains a {@link VariableNode} referencing the editable's name (e.g.
-   *       {@code iterableComponentType(ITERABLE_TYPE)}), returns the full <b>expression
-   *       string</b>. The classic template engine will re-evaluate that expression on every
-   *       edit via {@code TemplateBuilderImpl}.</li>
+   *   <li><b>Identity mirror</b>: if some editable has the same computed value AND a
+   *       {@link #MIRROR_SENTINEL} probe confirms the expression is pass-through on that
+   *       editable's value (e.g. {@code escapeString(EXPR)} on an identifier), returns the
+   *       editable's <b>simple name</b> so LSP snippet mirroring works with it.</li>
+   *   <li><b>Non-identity dependency via AST</b>: if the expression's AST contains a
+   *       {@link VariableNode} referencing some editable's name (e.g.
+   *       {@code iterableComponentType(ITERABLE_TYPE)}), returns the full <b>expression string</b>
+   *       plus the XML default so the classic template engine re-parses and re-evaluates the
+   *       macro on every edit and falls back to the default when it returns {@code null}.</li>
+   *   <li><b>PSI-reading macro</b>: any other {@link MacroCallNode} expression (e.g.
+   *       {@code rightSideType()} has no parameters but reads the surrounding PSI) is also
+   *       registered with expression string + XML default, so recompute-on-edit works even when
+   *       there's no {@code VariableNode} to walk.</li>
    * </ol>
-   * We can't use the sentinel probe for non-identity detection: a sentinel value is an
-   * unresolvable identifier in PSI, and many macros (e.g. {@code iterableComponentType})
-   * return {@code null} then, regardless of whether they would really recompute on a real
-   * edit. The AST walk is also stricter than a text match — it ignores variable names that
-   * happen to appear inside string literals or other constant expressions.
    *
-   * <p>Returns {@code null} if no editable influences this variable's value.
+   * <p>Returns {@code null} if the expression isn't a macro call or has no textual form
+   * ({@code getExpressionString()} is empty — typical for programmatic {@link Expression}
+   * subclasses).
    */
-  private static @Nullable String detectDependantName(@NotNull Variable variable,
-                                                       @NotNull Collection<Variable> allVariables,
-                                                       @NotNull Map<String, String> calculatedValues,
-                                                       @NotNull TextRange markerRange,
-                                                       @NotNull PsiElement element,
-                                                       @NotNull PsiFile file) {
+  private static @Nullable DependencySpec detectDependantSpec(@NotNull Variable variable,
+                                                               @NotNull Collection<Variable> allVariables,
+                                                               @NotNull Map<String, String> calculatedValues,
+                                                               @NotNull TextRange markerRange,
+                                                               @NotNull PsiElement element,
+                                                               @NotNull PsiFile file) {
     String name = variable.getName();
     String value = calculatedValues.get(name);
     if (value == null) return null;
     Expression expression = variable.getExpression();
     String exprString = variable.getExpressionString();
+    // Detection strategies, in order: (1) identity mirror (sentinel-probe), (2) AST reference
+    // to an editable VariableNode, (3) parameterless macro with a non-empty XML default.
+    // Parameterless macros without a default stay unregistered so the initial reformat pass
+    // isn't lost to `TemplateBuilderImpl.initInlineTemplate`'s wipe + no-reformat re-insert.
     for (Variable other : allVariables) {
       if (!other.isAlwaysStopAt()) continue;
       String otherName = other.getName();
       if (otherName.equals(name)) continue;
       String otherValue = calculatedValues.get(otherName);
       if (otherValue == null) continue;
-      // Identity case: verify pass-through with a sentinel probe.
       if (value.equals(otherValue)) {
         Map<String, String> probe = new LinkedHashMap<>(calculatedValues);
         probe.put(otherName, MIRROR_SENTINEL);
         Result probeResult = expression.calculateResult(new DummyContext(markerRange, element, file, probe));
         if (probeResult != null && MIRROR_SENTINEL.equals(probeResult.toString())) {
-          return otherName;
+          return new DependencySpec(otherName, null);
         }
       }
-      // Non-identity dependency: expression AST must reference the editable as a VariableNode.
-      // Also need the original expression string so the classic template engine can re-parse it.
       if (!exprString.isEmpty() && expressionReferences(expression, otherName)) {
-        return exprString;
+        String defaultValue = variable.getDefaultValueString();
+        return new DependencySpec(exprString, defaultValue.isEmpty() ? null : defaultValue);
+      }
+    }
+    if (expression instanceof MacroCallNode && !exprString.isEmpty()) {
+      String defaultValue = variable.getDefaultValueString();
+      if (!defaultValue.isEmpty()) {
+        return new DependencySpec(exprString, defaultValue);
       }
     }
     return null;
@@ -684,31 +692,37 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
       manager.commitDocument(document);
       PsiElement firstElement = updater.getPsiFile().findElementAt(firstInfo.marker.getStartOffset());
       if (firstElement == null) continue;
-      String dependantName = detectDependantName(variable, variables, calculatedValues,
+      DependencySpec spec = detectDependantSpec(variable, variables, calculatedValues,
                                                  firstInfo.marker.getTextRange(), firstElement, updater.getPsiFile());
-      if (dependantName == null) continue;
+      if (spec == null) continue;
       for (int idx : occurrences) {
         MarkerInfo info = markers.get(idx);
         manager.commitDocument(document);
         PsiElement element = updater.getPsiFile().findElementAt(info.marker.getStartOffset());
         if (element == null) continue;
         builder.field(element, info.marker.getTextRange().shiftLeft(element.getTextRange().getStartOffset()),
-                      name, dependantName, false);
+                      name, spec.dependantName(), spec.defaultValue(), false);
         any = true;
       }
     }
     return any;
   }
 
+  private record InflatedSegment(MarkerInfo info, boolean preSpaceBefore, boolean preSpaceAfter) {}
+
   private static void reformatTemplate(@NotNull Document document, @NotNull PsiDocumentManager manager,
                                         @NotNull Project project, @NotNull ModPsiUpdater updater,
                                         @NotNull RangeMarker wholeTemplate, @NotNull List<MarkerInfo> markers) {
-    List<MarkerInfo> emptyValues = new ArrayList<>();
+    List<InflatedSegment> emptyValues = new ArrayList<>();
     for (MarkerInfo info : markers) {
       if (END.equals(info.segment.name)) continue;
-      if (info.marker.getStartOffset() == info.marker.getEndOffset()) {
-        document.insertString(info.marker.getStartOffset(), "a");
-        emptyValues.add(info);
+      int pos = info.marker.getStartOffset();
+      if (pos == info.marker.getEndOffset()) {
+        CharSequence chars = document.getCharsSequence();
+        boolean preSpaceBefore = pos > 0 && chars.charAt(pos - 1) == ' ';
+        boolean preSpaceAfter = pos < chars.length() && chars.charAt(pos) == ' ';
+        document.insertString(pos, PLACEHOLDER);
+        emptyValues.add(new InflatedSegment(info, preSpaceBefore, preSpaceAfter));
       }
     }
     manager.commitDocument(document);
@@ -720,8 +734,20 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
       reformatStart = lineStart;
     }
     CodeStyleManager.getInstance(project).reformatText(updater.getPsiFile(), reformatStart, reformatEnd);
-    for (MarkerInfo value : emptyValues) {
-      document.deleteString(value.marker.getStartOffset(), value.marker.getEndOffset());
+    for (InflatedSegment seg : emptyValues) {
+      int start = seg.info.marker.getStartOffset();
+      int end = seg.info.marker.getEndOffset();
+      // If the reformat added a space that wasn't there before inflation (e.g. formatter put
+      // a space on both sides of the placeholder in `=$_IJT_$ iterator`), consume one space
+      // so empty values collapse cleanly. If both sides already had spaces before inflation
+      // (e.g. `instanceof  ?`), leave both in place so the template's literal spacing is kept.
+      CharSequence chars = document.getCharsSequence();
+      boolean postSpaceBefore = start > 0 && chars.charAt(start - 1) == ' ';
+      boolean postSpaceAfter = end < chars.length() && chars.charAt(end) == ' ';
+      if (postSpaceBefore && postSpaceAfter && !(seg.preSpaceBefore() && seg.preSpaceAfter())) {
+        end++;
+      }
+      document.deleteString(start, end);
     }
   }
 
@@ -761,23 +787,32 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
     Map<String, String> calculatedValues = new LinkedHashMap<>();
     Document document = updater.getDocument();
     ArrayList<Variable> variables = getVariables();
+    Set<String> processed = new HashSet<>();
     for (Variable variable : variables) {
       String name = variable.getName();
       if (calculatedValues.containsKey(name)) continue;
       // indices are in segment (= text) order by construction.
       List<Integer> occurrences = indicesByName.getOrDefault(name, List.of());
-      if (occurrences.isEmpty()) continue;
+      // Don't inflate variables that have already been evaluated — their empty state is
+      // intentional (result was null/empty).
+      if (occurrences.isEmpty()) {
+        processed.add(name);
+        continue;
+      }
+      List<Integer> inflated = inflateEmptySegments(markers, variables, indicesByName, document, processed);
       manager.commitDocument(document);
       MarkerInfo primary = markers.get(occurrences.getFirst());
       PsiElement element = updater.getPsiFile().findElementAt(primary.marker.getStartOffset());
-      if (element == null) continue;
       //see `result = defaultValue.calculateResult(context)` in TemplateState.recalcSegment
       Expression expression = withDefaultFallback(variable.getExpression(), variable.getDefaultValueExpression());
-      Result result = expression.calculateResult(
+      Result result = element == null ? null : expression.calculateResult(
         new DummyContext(primary.marker.getTextRange(), element, updater.getPsiFile(), calculatedValues));
+      restoreEmptySegments(markers, inflated, document);
+      manager.commitDocument(document);
+      processed.add(name);
       if (result == null) continue;
       String value = result.toString();
-      if (value.isEmpty()) continue;
+      if (value == null || value.isEmpty()) continue;
       calculatedValues.put(name, value);
       // Substitute at every marker carrying this name, right-to-left so earlier markers don't shift.
       for (int i = occurrences.size() - 1; i >= 0; i--) {
@@ -787,6 +822,48 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
     }
     return calculatedValues;
   }
+
+  /**
+   * Fills every zero-length segment whose name matches a variable with a placeholder (the
+   * variable's macro {@link com.intellij.codeInsight.template.Macro#getDefaultValue() default}
+   * {@link #PLACEHOLDER}). Returns the marker indices that were inflated, to be passed back to
+   * {@link #restoreEmptySegments}.
+   */
+  private static @NotNull List<Integer> inflateEmptySegments(@NotNull List<MarkerInfo> markers,
+                                                              @NotNull List<Variable> variables,
+                                                              @NotNull Map<String, List<Integer>> indicesByName,
+                                                              @NotNull Document document,
+                                                              @NotNull Set<String> skipAlreadyProcessed) {
+    List<Integer> inflated = new ArrayList<>();
+    for (Variable variable : variables) {
+      String name = variable.getName();
+      if (skipAlreadyProcessed.contains(name)) continue;
+      for (int idx : indicesByName.getOrDefault(name, List.of())) {
+        MarkerInfo info = markers.get(idx);
+        if (info.marker.getStartOffset() != info.marker.getEndOffset()) continue;
+        substituteAtMarker(markers, idx, PLACEHOLDER, document);
+        inflated.add(idx);
+      }
+    }
+    return inflated;
+  }
+
+  private static void restoreEmptySegments(@NotNull List<MarkerInfo> markers,
+                                            @NotNull List<Integer> inflated,
+                                            @NotNull Document document) {
+    for (int i = inflated.size() - 1; i >= 0; i--) {
+      MarkerInfo info = markers.get(inflated.get(i));
+      document.deleteString(info.marker.getStartOffset(), info.marker.getEndOffset());
+    }
+  }
+
+  /**
+   * Short, Java-legal identifier used as a placeholder for empty template segments during
+   * macro evaluation and reformat. Chosen to not collide with identifiers a user would
+   * reasonably declare, and to stay short enough not to push surrounding code past the
+   * right margin during reformat.
+   */
+  private static final String PLACEHOLDER = "$_IJT_$";
 
   /**
    * Substitutes {@code value} at {@code markers.get(idx)}, repositioning any zero-length

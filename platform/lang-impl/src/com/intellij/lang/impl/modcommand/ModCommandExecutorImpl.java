@@ -381,8 +381,10 @@ public class ModCommandExecutorImpl extends ModCommandBatchExecutorImpl {
               builder.replaceElement(templateElement, shiftedRange, expression);
             }
           }
-          case ModStartTemplate.DependantVariableField(TextRange range, String varName, String variableName, boolean alwaysStopAt) ->
-            builder.replaceElement(templateElement, range.shiftLeft(templateStart), varName, variableName, alwaysStopAt);
+          case ModStartTemplate.DependantVariableField(TextRange range, String varName, String variableName,
+                                                       boolean alwaysStopAt, String defaultValue) ->
+            builder.replaceElement(templateElement, range.shiftLeft(templateStart), varName, variableName,
+                                   defaultValue, alwaysStopAt);
           // Use exact offset to preserve precise caret position (e.g., inside a loop body),
           // rather than mapping to a PSI element whose range may be wider than the desired offset.
           case ModStartTemplate.EndField(TextRange range) -> {

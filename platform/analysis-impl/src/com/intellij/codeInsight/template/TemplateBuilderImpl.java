@@ -40,6 +40,7 @@ public class TemplateBuilderImpl implements TemplateBuilder {
   private final Map<RangeMarker, Boolean> myAlwaysStopAtMap = new HashMap<>();
   private final Map<RangeMarker, Boolean> mySkipOnStartMap = new HashMap<>();
   private final Map<RangeMarker, String> myVariableNamesMap = new HashMap<>();
+  private final Map<RangeMarker, String> myDefaultValuesMap = new HashMap<>();
   private final Set<RangeMarker> myElements = new TreeSet<>(RangeMarker.BY_START_OFFSET);
 
   private RangeMarker myEndElement;
@@ -146,6 +147,23 @@ public class TemplateBuilderImpl implements TemplateBuilder {
     myAlwaysStopAtMap.put(key, alwaysStopAt ? Boolean.TRUE : Boolean.FALSE);
     myVariableNamesMap.put(key, primaryVariableName);
     myVariableExpressions.put(key, otherVariableName);
+    myElements.add(key);
+  }
+
+  /**
+   * Same as {@link #replaceElement(PsiElement, TextRange, String, String, boolean)} but with an
+   * explicit default-value expression string. When {@code defaultValueString} is non-null,
+   * {@link #initTemplate} uses it as the variable's {@code defaultValueExpression}; otherwise
+   * the behaviour matches the 5-arg overload (expression doubles as its own default).
+   */
+  public void replaceElement(PsiElement element, TextRange textRange, String primaryVariableName,
+                             String otherVariableName, @Nullable String defaultValueString, boolean alwaysStopAt) {
+    final TextRange elementTextRange = InjectedLanguageManager.getInstance(element.getProject()).injectedToHost(element, element.getTextRange());
+    final RangeMarker key = myDocument.createRangeMarker(textRange.shiftRight(elementTextRange.getStartOffset()));
+    myAlwaysStopAtMap.put(key, alwaysStopAt ? Boolean.TRUE : Boolean.FALSE);
+    myVariableNamesMap.put(key, primaryVariableName);
+    myVariableExpressions.put(key, otherVariableName);
+    if (defaultValueString != null) myDefaultValuesMap.put(key, defaultValueString);
     myElements.add(key);
   }
 
@@ -309,7 +327,8 @@ public class TemplateBuilderImpl implements TemplateBuilder {
         final String variableName = myVariableNamesMap.get(element) == null
                                     ? String.valueOf(expression.hashCode())
                                     : myVariableNamesMap.get(element);
-        template.addVariable(variableName, dependantVariable, dependantVariable, alwaysStopAt);
+        final String defaultValue = myDefaultValuesMap.getOrDefault(element, dependantVariable);
+        template.addVariable(variableName, dependantVariable, defaultValue, alwaysStopAt);
       }
     }
 

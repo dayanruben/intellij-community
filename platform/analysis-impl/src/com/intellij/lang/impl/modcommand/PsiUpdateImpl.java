@@ -584,6 +584,23 @@ final class PsiUpdateImpl {
         }
 
         @Override
+        public @NotNull ModTemplateBuilder field(@NotNull PsiElement element,
+                                                 @NotNull TextRange rangeInElement,
+                                                 @NotNull String varName,
+                                                 @NotNull String dependantVariableName,
+                                                 @Nullable String defaultValue,
+                                                 boolean alwaysStopAt) {
+          TextRange elementRange = getRange(element);
+          if (elementRange == null) {
+            throw new IllegalStateException("Unable to restore element for template");
+          }
+          TextRange rangeForTemplate = templateRange(elementRange, rangeInElement);
+          TextRange range = mapRange(rangeForTemplate);
+          myTemplateFields.add(new ModStartTemplate.DependantVariableField(range, varName, dependantVariableName, alwaysStopAt, defaultValue));
+          return this;
+        }
+
+        @Override
         public @NotNull ModTemplateBuilder finishAt(int offset) {
           TextRange range = mapRange(TextRange.create(offset, offset));
           myTemplateFields.add(new ModStartTemplate.EndField(range));
