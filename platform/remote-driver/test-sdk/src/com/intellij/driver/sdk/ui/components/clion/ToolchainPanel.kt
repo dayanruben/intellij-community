@@ -24,6 +24,10 @@ class ToolchainPanel(data: ComponentData) : SettingsDialogUiComponent(data) {
   fun ToolchainPanel.getToolchainField(name: String): JTextFieldUI =
     textField("//div[@accessiblename='$name:' and @class='ExtendableTextField']")
 
+  // Toolset TextField for Windows toolchain is missing accessible name
+  private fun ToolchainPanel.getToolsetField(): JTextFieldUI =
+    textField("//div[@class='JBLabel' and @accessiblename='Toolset:']/following-sibling::div[@class='ToolchainActionItemsComboboxWithBrowseExtension'][1]//div[@class='ExtendableTextField']")
+
   fun addNewToolchain(toolchain: Toolchain) {
     if (toolchain.name == ToolchainNames.DEFAULT) {
       getToolchainList().clickItem(toolchain.name.toString())
@@ -74,6 +78,13 @@ class ToolchainPanel(data: ComponentData) : SettingsDialogUiComponent(data) {
     if (debugger.name.startsWith("CUSTOM")) {
       getToolchainField("Debugger").text = debugger.getDebuggerPath()
     }
+  }
+
+  fun setToolset(path: String) {
+    getToolsetField().click()
+    keyboard { key(KeyEvent.VK_DOWN) }
+    getToolsetField().text = path
+    keyboard { enter() }
   }
 
   fun ToolchainPanel.setupCMake(cmakePath: String) {

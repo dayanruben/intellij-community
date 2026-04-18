@@ -1,15 +1,21 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.smartPointers
 
+import com.intellij.codeInsight.multiverse.CodeInsightContext
+import com.intellij.codeInsight.multiverse.CodeInsightContextManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.impl.FrozenDocument
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.LowMemoryWatcher
 import com.intellij.openapi.util.Segment
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.util.CommonProcessors
 import com.intellij.util.Processor
+import com.intellij.util.concurrency.annotations.RequiresWriteLock
+import com.intellij.util.containers.CollectionFactory
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
@@ -28,32 +34,50 @@ import java.util.Arrays
  */
 @ApiStatus.Internal
 class SmartPointerTracker {
-  private val refList = WeakPointerReferenceList()
+  @Volatile
+  private var isPossiblyInvalidated: Boolean = false
+  private val selfInfoList = WeakPointerReferenceList()
+  private val fileInfoList = WeakPointerReferenceList()
   private val markerCache = MarkerCache(this)
   private var mySorted = false
+  private val holderCache = CollectionFactory.createConcurrentWeakKeySoftValueMap<CodeInsightContext, FileHolder>()
+  private val pendingContextMappings = mutableListOf<Map<CodeInsightContext, CodeInsightContext?>>()
 
-  @JvmName("addReference")
+  @JvmName("startTracking")
   @Synchronized
-  internal fun addReference(pointer: SmartPsiElementPointerImpl<*>) {
-    val elementInfo = pointer.elementInfo
-    require(elementInfo is SelfElementInfo)
-    val reference = PointerReference(pointer, this)
-    refList.add(reference)
-    mySorted = false
-    if (pointer.selfInfo.hasRange()) {
-      markerCache.rangeChanged()
+  internal fun startTracking(pointer: SmartPsiElementPointerImpl<*>) {
+    val elementInfo = pointer.elementInfo as ContextAwareInfo
+
+    when (elementInfo) {
+      is SelfElementInfo -> {
+        val reference = SelfElementPointerReference(pointer, this)
+        selfInfoList.add(reference)
+        mySorted = false
+        if (pointer.selfInfo.hasRange()) {
+          markerCache.rangeChanged()
+        }
+      }
+      is FileElementInfo -> {
+        val reference = FilePointerReference(pointer, this)
+        fileInfoList.add(reference)
+      }
+      else -> {
+        throw IllegalArgumentException("Unexpected element info: $elementInfo")
+      }
     }
   }
 
-  @JvmName("removeReference")
   @Synchronized
-  internal fun removeReference(reference: PointerReference) {
-    refList.remove(reference)
+  private fun removeReference(reference: PointerReference) {
+    when (reference) {
+      is SelfElementPointerReference -> selfInfoList.remove(reference)
+      is FilePointerReference -> fileInfoList.remove(reference)
+    }
   }
 
   private fun ensureSorted() {
     if (mySorted) return
-    refList.sort { p1, p2 ->
+    selfInfoList.sort { p1, p2 ->
       MarkerCache.INFO_COMPARATOR.compare(p1.selfInfo, p2.selfInfo)
     }
     mySorted = true
@@ -102,7 +126,7 @@ class SmartPointerTracker {
   @Synchronized
   internal fun fastenBelts(manager: SmartPointerManagerEx) {
     processQueue()
-    refList.processAlivePointers { pointer ->
+    selfInfoList.processAlivePointers { pointer ->
       pointer.selfInfo.fastenBelt(manager)
       true
     }
@@ -111,7 +135,7 @@ class SmartPointerTracker {
   @JvmName("updatePointerTargetsAfterReparse")
   @Synchronized
   internal fun updatePointerTargetsAfterReparse() {
-    refList.processAlivePointers { pointer ->
+    selfInfoList.processAlivePointers { pointer ->
       if (pointer !is SmartPsiFileRangePointerImpl) {
         updatePointerTarget(pointer, pointer.psiRange)
       }
@@ -155,8 +179,8 @@ class SmartPointerTracker {
   internal fun getSortedInfos(): List<SelfElementInfo> {
     ensureSorted()
 
-    val infos = ArrayList<SelfElementInfo>(refList.size)
-    refList.processAlivePointers { pointer ->
+    val infos = ArrayList<SelfElementInfo>(selfInfoList.size)
+    selfInfoList.processAlivePointers { pointer ->
       val info = pointer.selfInfo
       if (!info.hasRange()) return@processAlivePointers false
 
@@ -166,27 +190,171 @@ class SmartPointerTracker {
     return infos
   }
 
+  @Synchronized
+  internal fun getFileInfos(): List<FileElementInfo> = buildList(fileInfoList.size) {
+    fileInfoList.processAlivePointers { pointer ->
+      val info = pointer.elementInfo as FileElementInfo
+      this@buildList.add(info)
+      true
+    }
+  }
+
   @TestOnly
   @Synchronized
-  fun getSize(): Int = refList.size
+  fun getSize(): Int = selfInfoList.size
+
+  @RequiresWriteLock
+  @Synchronized
+  fun possiblyInvalidate() {
+    isPossiblyInvalidated = true
+  }
+
+  fun isContextPossiblyInvalidated(): Boolean =
+    isPossiblyInvalidated // does not require synchronization, only writes should be synchronized
+
+  @Synchronized
+  internal fun pushContextMapping(mapping: Map<CodeInsightContext, CodeInsightContext?>) {
+    pendingContextMappings.add(mapping)
+  }
 
   private val SmartPsiElementPointerImpl<*>.selfInfo: SelfElementInfo
     get() = this.elementInfo as SelfElementInfo
 
-  internal class PointerReference(
+  @Synchronized
+  fun revalidate(virtualFile: VirtualFile, project: Project) {
+    if (!isPossiblyInvalidated) return
+
+    isPossiblyInvalidated = false
+
+    val allInfos = getSortedInfos() + getFileInfos()
+    if (allInfos.isEmpty()) {
+      pendingContextMappings.clear()
+      return
+    }
+
+    if (pendingContextMappings.isNotEmpty()) {
+      val composedMapping = composeMappings(pendingContextMappings)
+      pendingContextMappings.clear()
+
+      for (info in allInfos) {
+        val ctx = info.fileHolder.context ?: continue
+        if (ctx in composedMapping) {
+          info.fileHolder = createFileHolderInterned(virtualFile, composedMapping[ctx])
+        }
+      }
+
+      for (oldCtx in composedMapping.keys) {
+        holderCache.remove(oldCtx)
+      }
+      return
+    }
+
+    // Fallback: no stored mappings available
+    val oldContexts = allInfos.mapNotNullTo(mutableSetOf()) { it.fileHolder.context }
+    val actualContexts = CodeInsightContextManager.getInstance(project).getCodeInsightContexts(virtualFile).toSet()
+    val deadContexts = oldContexts.subtract(actualContexts)
+
+    if (deadContexts.isEmpty()) {
+      return
+    }
+
+    if (deadContexts.size == 1 && actualContexts.size == 1 && oldContexts.size == 1) {
+      val actualContext = actualContexts.single()
+      val deadContext = deadContexts.single()
+      val newHolder = createFileHolderInterned(virtualFile, actualContext)
+      for (info in allInfos) {
+        info.fileHolder = newHolder
+      }
+      holderCache.remove(deadContext)
+      holderCache[actualContext] = newHolder
+      return
+    }
+
+    for (info in allInfos) {
+      if (info.fileHolder.context in deadContexts) {
+        info.fileHolder = createFileHolderInterned(virtualFile, null)
+      }
+    }
+    for (deadContext in deadContexts) {
+      holderCache.remove(deadContext)
+    }
+  }
+
+  internal fun createFileHolderInterned(virtualFile: VirtualFile, context: CodeInsightContext?): FileHolder =
+    holderCache.computeIfAbsent(context ?: NullContext) { c -> FileHolder.create(c.takeUnless { it === NullContext }, virtualFile) }
+
+  private object NullContext: CodeInsightContext
+
+  private fun composeMappings(
+    mappings: List<Map<CodeInsightContext, CodeInsightContext?>>,
+  ): Map<CodeInsightContext, CodeInsightContext?> {
+    val composed = mutableMapOf<CodeInsightContext, CodeInsightContext?>()
+    for (mapping in mappings) {
+      for (key in composed.keys) {
+        val value = composed[key]
+        if (value != null && value in mapping) {
+          composed[key] = mapping[value]
+        }
+      }
+      for ((key, value) in mapping) {
+        if (key !in composed) {
+          composed[key] = value
+        }
+      }
+    }
+    return composed
+  }
+
+  /**
+   * A weak reference to a `SmartPsiElementPointerImpl`.
+   * Is used for storing smart pointers in [WeakPointerReferenceList].
+   * Gets automatically removed from the list once the referent is garbage-collected.
+   *
+   * There are two subclasses:
+   * - [SelfElementPointerReference] for self-pointers
+   * - [FilePointerReference] for file-pointers
+   *
+   * We need them to be able to remove the reference from the corresponding list ([selfInfoList] or [fileInfoList]) when the referent is garbage-collected.
+   */
+  internal sealed class PointerReference(
     pointer: SmartPsiElementPointerImpl<*>,
-    val tracker: SmartPointerTracker
+    private val tracker: SmartPointerTracker
   ) : WeakReference<SmartPsiElementPointerImpl<*>?>(pointer, ourQueue) {
     var index = -2
 
     init {
       pointer.pointerReference = this
     }
+
+    fun isContextPossiblyInvalidated(): Boolean =
+      tracker.isContextPossiblyInvalidated()
+
+    fun delete() {
+      tracker.removeReference(this)
+    }
   }
 
+  private class FilePointerReference(
+    pointer: SmartPsiElementPointerImpl<*>,
+    tracker: SmartPointerTracker
+  ) : PointerReference(pointer, tracker)
+
+  private class SelfElementPointerReference(
+    pointer: SmartPsiElementPointerImpl<*>,
+    tracker: SmartPointerTracker
+  ) : PointerReference(pointer, tracker)
+
+  /**
+   * Manages a list of weak references to `SmartPsiElementPointerImpl` objects.
+   *
+   * Works in collaboration with [PointerReference].
+   *
+   * Not synchronized.
+   */
   private class WeakPointerReferenceList {
     private var references = arrayOfNulls<PointerReference>(10)
     private var nextAvailableIndex = 0
+
     var size: Int = 0
       private set
 
@@ -203,37 +371,12 @@ class SmartPointerTracker {
       size++
     }
 
-    private fun needsExpansion(): Boolean =
-      nextAvailableIndex >= references.size
-
-    private fun isTooSparse(): Boolean =
-      nextAvailableIndex > size * 2
-
-    private fun resize() {
-      val newReferences = arrayOfNulls<PointerReference>(size * 3 / 2 + 1)
-      var index = 0
-      // don't use processAlivePointers/removeReference since it can unregister the whole pointer list, and we're not prepared to that
-      for (ref in references) {
-        if (ref != null) {
-          storePointerReference(newReferences, index++, ref)
-        }
-      }
-      assert(index == size) { "$index != $size" }
-      references = newReferences
-      nextAvailableIndex = index
-    }
-
-    private fun storePointerReference(references: Array<PointerReference?>, index: Int, ref: PointerReference) {
-      references[index] = ref
-      ref.index = index
-    }
-
     fun remove(reference: PointerReference) {
       val index = reference.index
       if (index < 0) return
 
       if (reference != references[index]) {
-        throw AssertionError("At " + index + " expected " + reference + ", found " + references[index])
+        throw AssertionError("At $index expected $reference, found ${references[index]}")
       }
       reference.index = -1
       references[index] = null
@@ -268,6 +411,31 @@ class SmartPointerTracker {
       Arrays.fill(references, pointers.size, nextAvailableIndex, null)
       nextAvailableIndex = pointers.size
     }
+
+    private fun needsExpansion(): Boolean =
+      nextAvailableIndex >= references.size
+
+    private fun isTooSparse(): Boolean =
+      nextAvailableIndex > size * 2
+
+    private fun resize() {
+      val newReferences = arrayOfNulls<PointerReference>(size * 3 / 2 + 1)
+      var index = 0
+      // don't use processAlivePointers/removeReference since it can unregister the whole pointer list, and we're not prepared to that
+      for (ref in references) {
+        if (ref != null) {
+          storePointerReference(newReferences, index++, ref)
+        }
+      }
+      assert(index == size) { "$index != $size" }
+      references = newReferences
+      nextAvailableIndex = index
+    }
+
+    private fun storePointerReference(references: Array<PointerReference?>, index: Int, ref: PointerReference) {
+      references[index] = ref
+      ref.index = index
+    }
   }
 
   companion object {
@@ -288,7 +456,7 @@ class SmartPointerTracker {
 
         check(reference.get() == null) { "Queued reference has referent!" }
 
-        reference.tracker.removeReference(reference)
+        reference.delete()
       }
     }
   }

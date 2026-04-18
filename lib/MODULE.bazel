@@ -273,20 +273,6 @@ http_file(
 )
 
 http_file(
-  name = "org_assertj-assertj-core-4_0_0-M1_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/assertj/assertj-core/4.0.0-M1/assertj-core-4.0.0-M1.jar",
-  sha256 = "03852ab5b4419c1b0b3689930cdc1ac4f0c437a0c8094a900370dcb170cfbb46",
-  downloaded_file_path = "assertj-core-4.0.0-M1.jar"
-)
-
-http_file(
-  name = "org_assertj-assertj-core-4_0_0-M1-sources_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/assertj/assertj-core/4.0.0-M1/assertj-core-4.0.0-M1-sources.jar",
-  sha256 = "ea1d879460edd40ca7b646955a5b39796ed41d2b38998ee97487833f149df44b",
-  downloaded_file_path = "assertj-core-4.0.0-M1-sources.jar"
-)
-
-http_file(
   name = "org_assertj-assertj-swing-3_17_1_http",
   url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/assertj/assertj-swing/3.17.1/assertj-swing-3.17.1.jar",
   sha256 = "e36445438d72d83cc48015dcb3f14d9a97eaa42c4663a9826db2bb50e4c7713b",
@@ -8015,6 +8001,20 @@ http_file(
 )
 
 http_file(
+  name = "org_assertj-assertj-core-4_0_0-M1_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/assertj/assertj-core/4.0.0-M1/assertj-core-4.0.0-M1.jar",
+  sha256 = "03852ab5b4419c1b0b3689930cdc1ac4f0c437a0c8094a900370dcb170cfbb46",
+  downloaded_file_path = "assertj-core-4.0.0-M1.jar"
+)
+
+http_file(
+  name = "org_assertj-assertj-core-4_0_0-M1-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/assertj/assertj-core/4.0.0-M1/assertj-core-4.0.0-M1-sources.jar",
+  sha256 = "ea1d879460edd40ca7b646955a5b39796ed41d2b38998ee97487833f149df44b",
+  downloaded_file_path = "assertj-core-4.0.0-M1-sources.jar"
+)
+
+http_file(
   name = "dk_brics-automaton-1_12-4_http",
   url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/dk/brics/automaton/1.12-4/automaton-1.12-4.jar",
   sha256 = "3941b48f2e9281aab7234395c549cbb399b3dc80fed2e13999a80db47f94b041",
@@ -9352,17 +9352,17 @@ http_file(
 )
 
 http_file(
-  name = "com_ibm_icu-icu4j-77_1_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/ibm/icu/icu4j/77.1/icu4j-77.1.jar",
-  sha256 = "b3640b9f416a4411fd33c59abbeea8fd57d024c23e1819bf9673220a97499fe3",
-  downloaded_file_path = "icu4j-77.1.jar"
+  name = "com_ibm_icu-icu4j-78_3_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/ibm/icu/icu4j/78.3/icu4j-78.3.jar",
+  sha256 = "e962c1758d9659ea1e1fbab99c58683f654d304e1126ace19aaabfe39e0edb25",
+  downloaded_file_path = "icu4j-78.3.jar"
 )
 
 http_file(
-  name = "com_ibm_icu-icu4j-77_1-sources_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/ibm/icu/icu4j/77.1/icu4j-77.1-sources.jar",
-  sha256 = "2dd9da85182efca525aa269db573e0ed54943767d6af3afc50d0ede51e63d01a",
-  downloaded_file_path = "icu4j-77.1-sources.jar"
+  name = "com_ibm_icu-icu4j-78_3-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/ibm/icu/icu4j/78.3/icu4j-78.3-sources.jar",
+  sha256 = "b8458be1c296aec6c52ea8f195f27e833c5d6030fa15a4b361a0e83030c3c3fe",
+  downloaded_file_path = "icu4j-78.3-sources.jar"
 )
 
 http_file(
@@ -9534,17 +9534,17 @@ http_file(
 )
 
 http_file(
-  name = "org_jetbrains_intellij_deps_jcef-jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_21-261-b50_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-261-b50/jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-261-b50.jar",
-  sha256 = "b275a4fbff6f712768a937001ee4550fc7d2cde22bdb54c7bcecd9393aba7c13",
-  downloaded_file_path = "jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-261-b50.jar"
+  name = "org_jetbrains_intellij_deps_jcef-jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_21-262-b28_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-262-b28/jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-262-b28.jar",
+  sha256 = "1775368c2338d0cb00809e4c67a73c1577ac493a6d7ddc98ad361615f5a2b9f6",
+  downloaded_file_path = "jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-262-b28.jar"
 )
 
 http_file(
-  name = "org_jetbrains_intellij_deps_jcef-jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_21-261-b50-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-261-b50/jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-261-b50-sources.jar",
-  sha256 = "e998029b3a533c593b12c671655f01aabf34c6b7583f9e6dc3e805d072592a58",
-  downloaded_file_path = "jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-261-b50-sources.jar"
+  name = "org_jetbrains_intellij_deps_jcef-jcef-137_0_17-gf354b0e-chromium-137_0_7151_104-api-1_21-262-b28-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-262-b28/jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-262-b28-sources.jar",
+  sha256 = "a967641067ca79df40b2add9b84e220f2eb4d84623e5284184ef5d39b874cc58",
+  downloaded_file_path = "jcef-137.0.17-gf354b0e-chromium-137.0.7151.104-api-1.21-262-b28-sources.jar"
 )
 
 http_file(

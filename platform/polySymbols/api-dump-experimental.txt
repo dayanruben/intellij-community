@@ -462,6 +462,9 @@
 - sf:INSTANCE:com.intellij.polySymbols.context.PolyContextSourceProximityProvider$SourceKind$ProjectToolExecutable
 - equals(java.lang.Object):Z
 - hashCode():I
+*f:com.intellij.polySymbols.css.CssArgumentProperty
+- com.intellij.polySymbols.PolySymbolProperty
+- sf:INSTANCE:com.intellij.polySymbols.css.CssArgumentProperty
 *f:com.intellij.polySymbols.css.CssSymbolKinds
 - sf:CSS_CLASSES:com.intellij.polySymbols.PolySymbolKind
 - sf:CSS_FUNCTIONS:com.intellij.polySymbols.PolySymbolKind
@@ -470,7 +473,6 @@
 - sf:CSS_PSEUDO_CLASSES:com.intellij.polySymbols.PolySymbolKind
 - sf:CSS_PSEUDO_ELEMENTS:com.intellij.polySymbols.PolySymbolKind
 - sf:NAMESPACE_CSS:java.lang.String
-- sf:PROP_CSS_ARGUMENTS:com.intellij.polySymbols.PolySymbolProperty
 *:com.intellij.polySymbols.customElements.CustomElementsSymbol
 - com.intellij.polySymbols.PolySymbol
 - com.intellij.polySymbols.query.PolySymbolScope
@@ -500,7 +502,6 @@
 *:com.intellij.polySymbols.documentation.PolySymbolDocumentation
 - *sf:Companion:com.intellij.polySymbols.documentation.PolySymbolDocumentation$Companion
 - appendFootnote(java.lang.String):com.intellij.polySymbols.documentation.PolySymbolDocumentation
-- a:build(kotlin.jvm.functions.Function1):com.intellij.platform.backend.documentation.DocumentationResult
 - s:builder(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement):com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
 - s:create(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement,kotlin.jvm.functions.Function1):com.intellij.polySymbols.documentation.PolySymbolDocumentation
 - a:getApiStatus():com.intellij.polySymbols.PolySymbolApiStatus
@@ -534,7 +535,7 @@
 - f:create(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement,kotlin.jvm.functions.Function1):com.intellij.polySymbols.documentation.PolySymbolDocumentation
 *:com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
 - a:apiStatus(com.intellij.polySymbols.PolySymbolApiStatus):com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
-- a:build():com.intellij.polySymbols.documentation.PolySymbolDocumentation
+- a:copyFrom(com.intellij.polySymbols.PolySymbol):Z
 - a:defaultValue(java.lang.String):com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
 - a:definition(java.lang.String):com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
 - a:definitionDetails(java.lang.String):com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
@@ -557,39 +558,29 @@
 - a:getName():java.lang.String
 - a:header(java.lang.String):com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
 - a:icon(javax.swing.Icon):com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
+- a:iconProvider(kotlin.jvm.functions.Function1):V
 - a:library(java.lang.String):com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
 - a:name(java.lang.String):com.intellij.polySymbols.documentation.PolySymbolDocumentationBuilder
-- a:setApiStatus(com.intellij.polySymbols.PolySymbolApiStatus):V
-- a:setDefaultValue(java.lang.String):V
-- a:setDefinition(java.lang.String):V
-- a:setDefinitionDetails(java.lang.String):V
-- a:setDescription(java.lang.String):V
-- a:setDocUrl(java.lang.String):V
-- a:setFootnote(java.lang.String):V
-- a:setHeader(java.lang.String):V
-- a:setIcon(javax.swing.Icon):V
-- a:setLibrary(java.lang.String):V
-- a:setName(java.lang.String):V
 *:com.intellij.polySymbols.documentation.PolySymbolDocumentationCustomizer
 - *sf:Companion:com.intellij.polySymbols.documentation.PolySymbolDocumentationCustomizer$Companion
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:customize(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement,com.intellij.polySymbols.documentation.PolySymbolDocumentation):com.intellij.polySymbols.documentation.PolySymbolDocumentation
 *f:com.intellij.polySymbols.documentation.PolySymbolDocumentationCustomizer$Companion
-*:com.intellij.polySymbols.documentation.PolySymbolDocumentationProvider
-- computePresentation(com.intellij.polySymbols.PolySymbol):com.intellij.platform.backend.presentation.TargetPresentation
-- a:createDocumentation(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement):com.intellij.polySymbols.documentation.PolySymbolDocumentation
-- loadIcon(java.lang.String):javax.swing.Icon
+*@:com.intellij.polySymbols.documentation.PolySymbolDocumentationDsl
+- java.lang.annotation.Annotation
 *:com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget
 - com.intellij.platform.backend.documentation.DocumentationTarget
 - *sf:Companion:com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget$Companion
-- s:create(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement,com.intellij.polySymbols.documentation.PolySymbolDocumentationProvider):com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget
+- s:create(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement,com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget$PresentationProvider,kotlin.jvm.functions.Function3):com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget
 - s:create(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement,kotlin.jvm.functions.Function3):com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget
 - a:getDocumentation():com.intellij.polySymbols.documentation.PolySymbolDocumentation
 - a:getLocation():com.intellij.psi.PsiElement
 - a:getSymbol():com.intellij.polySymbols.PolySymbol
 *f:com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget$Companion
-- f:create(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement,com.intellij.polySymbols.documentation.PolySymbolDocumentationProvider):com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget
+- f:create(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement,com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget$PresentationProvider,kotlin.jvm.functions.Function3):com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget
 - f:create(com.intellij.polySymbols.PolySymbol,com.intellij.psi.PsiElement,kotlin.jvm.functions.Function3):com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget
+*:com.intellij.polySymbols.documentation.PolySymbolDocumentationTarget$PresentationProvider
+- a:getPresentation(com.intellij.polySymbols.PolySymbol):com.intellij.platform.backend.presentation.TargetPresentation
 *a:com.intellij.polySymbols.framework.PolySymbolFramework
 - *sf:Companion:com.intellij.polySymbols.framework.PolySymbolFramework$Companion
 - sf:KIND_FRAMEWORK:java.lang.String

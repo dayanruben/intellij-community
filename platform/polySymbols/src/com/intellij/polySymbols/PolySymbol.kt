@@ -16,6 +16,7 @@ import com.intellij.platform.backend.navigation.NavigationTarget
 import com.intellij.platform.backend.presentation.TargetPresentation
 import com.intellij.polySymbols.context.PolyContext
 import com.intellij.polySymbols.documentation.PolySymbolDocumentationCustomizer
+import com.intellij.polySymbols.documentation.PolySymbolDocumentationDsl
 import com.intellij.polySymbols.impl.PolySymbolPropertyGetter
 import com.intellij.polySymbols.query.PolySymbolMatch
 import com.intellij.polySymbols.query.PolySymbolMatchCustomizer
@@ -116,6 +117,7 @@ import kotlin.reflect.KClass
  * See also: [Implementing Poly Symbols](https://plugins.jetbrains.com/docs/intellij/websymbols-implementation.html)
  */
 @Suppress("INAPPLICABLE_JVM_NAME")
+@PolySymbolDocumentationDsl
 interface PolySymbol : Symbol, NavigatableSymbol, PolySymbolPrioritizedScope {
 
   /**
@@ -299,21 +301,6 @@ interface PolySymbol : Symbol, NavigatableSymbol, PolySymbolPrioritizedScope {
    */
   fun isEquivalentTo(symbol: Symbol): Boolean =
     this == symbol
-
-  /**
-   * Poly Symbols can have various naming conventions.
-   * This method is used by the framework to determine a new name for a symbol based on its occurrence
-   *
-   * Note: do not implement - to be removed
-   */
-  @ApiStatus.Internal
-  fun adjustNameForRefactoring(
-    queryExecutor: PolySymbolQueryExecutor,
-    oldName: PolySymbolQualifiedName,
-    newName: String,
-    occurence: String,
-  ): String =
-    queryExecutor.namesProvider.adjustRename(oldName, newName, occurence)
 
   sealed interface Priority : Comparable<Priority> {
 

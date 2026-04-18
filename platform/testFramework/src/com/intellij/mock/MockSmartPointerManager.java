@@ -77,6 +77,11 @@ public class MockSmartPointerManager extends SmartPointerManagerEx {
   }
 
   @Override
+  public @NotNull SmartPointerTracker getOrCreateTracker(@NotNull VirtualFile file) {
+    return new SmartPointerTracker();
+  }
+
+  @Override
   public void updatePointers(@NotNull Document document, @NotNull FrozenDocument frozen, @NotNull List<? extends DocumentEvent> events) {
 
   }
@@ -94,6 +99,10 @@ public class MockSmartPointerManager extends SmartPointerManagerEx {
   @Override
   public @NotNull PsiDocumentManagerEx getPsiDocumentManager() {
     return (PsiDocumentManagerEx)PsiDocumentManager.getInstance(myProject);
+  }
+
+  @Override
+  public void possiblyInvalidate() {
   }
 
   @Override

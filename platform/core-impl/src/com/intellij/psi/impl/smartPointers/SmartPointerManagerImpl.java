@@ -21,6 +21,7 @@ import com.intellij.psi.SmartPsiFileRange;
 import com.intellij.psi.impl.PsiDocumentManagerEx;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.testFramework.LightVirtualFile;
+import com.intellij.util.concurrency.annotations.RequiresWriteLock;
 import com.intellij.util.containers.CollectionFactory;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentMap;
 
+import static com.intellij.codeInsight.multiverse.CodeInsightContexts.isSharedSourceSupportEnabled;
 import static com.intellij.reference.SoftReference.dereference;
 
 @ApiStatus.Internal
@@ -157,13 +159,10 @@ public final class SmartPointerManagerImpl extends SmartPointerManagerEx {
 
   private <E extends PsiElement> void trackPointer(@NotNull SmartPsiElementPointerImpl<E> pointer, @NotNull VirtualFile containingFile) {
     SmartPointerElementInfo info = pointer.getElementInfo();
-    if (!(info instanceof SelfElementInfo)) return;
+    if (!(info instanceof ContextAwareInfo)) return;
 
-    SmartPointerTracker tracker = getTracker(containingFile);
-    if (tracker == null) {
-      tracker = getOrCreateTracker(containingFile);
-    }
-    tracker.addReference(pointer);
+    SmartPointerTracker tracker = getOrCreateTracker(containingFile);
+    tracker.startTracking(pointer);
   }
 
   @Override
@@ -192,7 +191,7 @@ public final class SmartPointerManagerImpl extends SmartPointerManagerEx {
         if (reference.get() != pointer) {
           throw new IllegalStateException("Reference points to " + reference.get());
         }
-        reference.getTracker().removeReference(reference);
+        reference.delete();
       }
     }
   }
@@ -203,7 +202,8 @@ public final class SmartPointerManagerImpl extends SmartPointerManagerEx {
     return file instanceof LightVirtualFile ? dereference(file.getUserData(LIGHT_TRACKER_KEY)) : myPhysicalTrackers.get(file);
   }
 
-  private @NotNull SmartPointerTracker getOrCreateTracker(@NotNull VirtualFile file) {
+  @Override
+  public @NotNull SmartPointerTracker getOrCreateTracker(@NotNull VirtualFile file) {
     synchronized (myPhysicalTrackers) {
       SmartPointerTracker tracker = getTracker(file);
       if (tracker == null) {
@@ -254,5 +254,20 @@ public final class SmartPointerManagerImpl extends SmartPointerManagerEx {
   @NotNull
   public PsiDocumentManagerEx getPsiDocumentManager() {
     return myPsiDocManager;
+  }
+
+  @RequiresWriteLock
+  @Override
+  public void possiblyInvalidate() {
+    if (!isSharedSourceSupportEnabled(myProject)) {
+      return;
+    }
+    synchronized (myPhysicalTrackers) {
+      for (SmartPointerTracker value : myPhysicalTrackers.values()) {
+        if (value != null) {
+          value.possiblyInvalidate();
+        }
+      }
+    }
   }
 }

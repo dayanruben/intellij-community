@@ -16,7 +16,7 @@ jvm_library(
   deps = [
     "@lib//:kotlin-stdlib",
     "//libraries/guava",
-    "@lib//:assert_j",
+    "//libraries/assertj-core",
     "@lib//:assertj-swing",
     "//platform/analysis-api:analysis",
     "//platform/util-ex",
@@ -57,10 +57,7 @@ jvm_library(
     "//platform/execution",
     "//platform/xdebugger-impl/ui",
   ],
-  exports = [
-    "@lib//:assert_j",
-    "@lib//:assertj-swing",
-  ]
+  exports = ["@lib//:assertj-swing"]
 )
 
 jvm_library(
@@ -68,15 +65,13 @@ jvm_library(
   module_name = "intellij.featuresTrainer",
   visibility = ["//visibility:public"],
   srcs = glob([], allow_empty = True),
-  exports = [
-    "@lib//:assert_j",
-    "@lib//:assertj-swing",
-  ],
+  exports = ["@lib//:assertj-swing"],
   runtime_deps = [
     ":featuresTrainer",
     "//libraries/kotlin/test:libraries-kotlinTest",
     "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
     "//libraries/guava:guava_test_lib",
+    "//libraries/assertj-core:assertj-core_test_lib",
     "//platform/analysis-api:analysis_test_lib",
     "//platform/util-ex:util-ex_test_lib",
     "//platform/code-style-api:codeStyle_test_lib",
@@ -144,10 +139,7 @@ jvm_library(
   module_name = "intellij.featuresTrainer.tests",
   visibility = ["//visibility:public"],
   srcs = glob([], allow_empty = True),
-  exports = [
-    "@lib//:assert_j",
-    "@lib//:assertj-swing",
-  ]
+  exports = ["@lib//:assertj-swing"]
 )
 
 jvm_library(
@@ -165,7 +157,8 @@ jvm_library(
     "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
     "//libraries/guava",
     "//libraries/guava:guava_test_lib",
-    "@lib//:assert_j",
+    "//libraries/assertj-core",
+    "//libraries/assertj-core:assertj-core_test_lib",
     "@lib//:assertj-swing",
     "//platform/analysis-api:analysis",
     "//platform/analysis-api:analysis_test_lib",
@@ -246,10 +239,7 @@ jvm_library(
     "//platform/xdebugger-impl/ui",
     "//platform/xdebugger-impl/ui:ui_test_lib",
   ],
-  exports = [
-    "@lib//:assert_j",
-    "@lib//:assertj-swing",
-  ],
+  exports = ["@lib//:assertj-swing"],
   runtime_deps = [
     ":featuresTrainer-tests",
     "//platform/platform-impl:ide-impl_test_lib",

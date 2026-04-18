@@ -1,0 +1,49 @@
+Subject: [PATCH] Upgrade `@llvm`
+Add support for MSVC ABI from `@llvm`
+---
+Index: rs/experimental/platforms/triples.bzl
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/rs/experimental/platforms/triples.bzl b/rs/experimental/platforms/triples.bzl
+--- a/rs/experimental/platforms/triples.bzl	(revision c986a973731717c0160e3a84279f0bb206a56105)
++++ b/rs/experimental/platforms/triples.bzl	(revision 99f4de045558eca5508f50de862dba3515e7603f)
+@@ -10,6 +10,12 @@
+     "msvc": "@rules_rs//rs/experimental/platforms/constraints:windows_msvc",
+ }
+
++_WINDOWS_LLVM_ABI_CONSTRAINTS = {
++    "gnu": "@llvm//constraints/abi:gnu",
++    "gnullvm": "@llvm//constraints/abi:gnullvm",
++    "msvc": "@llvm//constraints/abi:msvc",
++}
++
+ def triple_to_constraint_set(target_triple):
+     constraints = _triple_to_constraint_set(target_triple)
+     t = triple(target_triple)
+@@ -23,6 +29,7 @@
+             constraints.append("@llvm//constraints/libc:gnu.2.28")
+     elif t.system == "windows":
+         constraints.append(_WINDOWS_ABI_CONSTRAINTS[t.abi])
++        constraints.append(_WINDOWS_LLVM_ABI_CONSTRAINTS[t.abi])
+
+     return constraints
+
+Index: MODULE.bazel
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/MODULE.bazel b/MODULE.bazel
+--- a/MODULE.bazel	(revision 99f4de045558eca5508f50de862dba3515e7603f)
++++ b/MODULE.bazel	(revision bc8791a81388699fe12fc9d7dc954e6d17c774f9)
+@@ -52,7 +52,7 @@
+ bazel_dep(name = "package_metadata", version = "0.0.5")
+ bazel_dep(name = "platforms", version = "0.0.5")
+ bazel_dep(name = "rules_cc", version = "0.2.8")
+-bazel_dep(name = "llvm", version = "0.6.0")
++bazel_dep(name = "llvm", version = "0.7.1")
+ bazel_dep(name = "aspect_tools_telemetry", version = "0.3.2")
+
+ tel = use_extension("@aspect_tools_telemetry//:extension.bzl", "telemetry")
