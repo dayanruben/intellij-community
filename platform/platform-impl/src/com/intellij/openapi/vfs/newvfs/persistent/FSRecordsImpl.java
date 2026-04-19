@@ -27,6 +27,7 @@ import com.intellij.openapi.vfs.newvfs.persistent.namecache.FileNameCache;
 import com.intellij.openapi.vfs.newvfs.persistent.namecache.MRUFileNameCache;
 import com.intellij.openapi.vfs.newvfs.persistent.namecache.SLRUFileNameCache;
 import com.intellij.openapi.vfs.newvfs.persistent.recovery.VFSInitializationResult;
+import com.intellij.platform.util.io.storages.appendonlylog.InvalidRecordIdException;
 import com.intellij.serviceContainer.AlreadyDisposedException;
 import com.intellij.util.BitUtil;
 import com.intellij.util.ExceptionUtil;
@@ -1627,8 +1628,13 @@ public final class FSRecordsImpl implements Closeable {
     try {
       return contentAccessor.readContent(fileId);
     }
+    catch (InvalidRecordIdException e) {
+      //MAYBE RC: should we call handleError() to mark VFS corrupted here?
+      throw new RuntimeException(e.getMessage() + " {" + connection.describeConsistencyStatus() + "}", e);
+    }
     catch (InterruptedIOException ie) {
-      //RC: goal is to just bypass handleError(), which likely marks VFS corrupted,
+      //TODO RC: do we still need these branch? Current VFSContentStorage impl never throws InterruptedIOException!
+      //RC: goal is to avoid handleError(): handleError() likely marks VFS corrupted,
       //    but thread interruption during _read_ doesn't corrupt anything
       throw new RuntimeException(ie);
     }
@@ -1636,6 +1642,8 @@ public final class FSRecordsImpl implements Closeable {
       throw oom;
     }
     catch (ZipException e) {
+      //TODO RC: do we still need these branch? Currently VFSContentStorage impl uses LZ4 instead of java.util.zip
+
       // we use zip to compress content
       String fileName = getName(fileId);
       long length = getLength(fileId);
@@ -1653,8 +1661,13 @@ public final class FSRecordsImpl implements Closeable {
     try {
       return contentAccessor.readContentByContentId(contentId);
     }
+    catch (InvalidRecordIdException e) {
+      //MAYBE RC: should we call handleError() to mark VFS corrupted here?
+      throw new RuntimeException(e.getMessage() + " {" + connection.describeConsistencyStatus() + "}", e);
+    }
     catch (InterruptedIOException ie) {
-      //RC: goal is to just not go into handleError(), which likely marks VFS corrupted,
+      //TODO RC: do we still need these branch? Current VFSContentStorage impl never throws InterruptedIOException!
+      //RC: goal is to avoid handleError(): handleError() likely marks VFS corrupted,
       //    but thread interruption during _read_ doesn't corrupt anything
       throw new RuntimeException(ie);
     }
