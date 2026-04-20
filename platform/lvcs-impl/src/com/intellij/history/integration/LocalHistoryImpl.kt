@@ -10,6 +10,8 @@ import com.intellij.history.LocalHistoryException
 import com.intellij.history.core.ByteContentRetriever
 import com.intellij.history.core.ChangeAndPathProcessor
 import com.intellij.history.core.ChangeList
+import com.intellij.history.core.ChangeListStorageImpl
+import com.intellij.history.core.InMemoryChangeListStorage
 import com.intellij.history.core.LabelImpl
 import com.intellij.history.core.LocalHistoryFacade
 import com.intellij.history.core.changes.Change
@@ -21,9 +23,11 @@ import com.intellij.history.integration.revertion.DifferenceReverter
 import com.intellij.history.utils.LocalHistoryLog
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.options.advanced.AdvancedSettingsChangeListener
+import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
@@ -36,17 +40,19 @@ import com.intellij.platform.lvcs.impl.RevisionId
 import com.intellij.platform.lvcs.impl.diff.findEntry
 import com.intellij.platform.lvcs.impl.operations.getRevertCommandName
 import com.intellij.util.SystemProperties
-import com.intellij.util.io.delete
+import com.intellij.util.application
+import com.intellij.util.asSafely
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
 
 @ApiStatus.Internal
@@ -65,29 +71,28 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
     private fun getProjectId(p: Project): String = p.getLocationHash()
   }
 
-  private var daysToKeep = AdvancedSettings.getInt(DAYS_TO_KEEP)
-
   override val isEnabled: Boolean
     get() = !isDisabled
 
   private var isDisabled: Boolean = false
 
-  override var facade: LocalHistoryFacade? = null
+  private val state = AtomicReference<State>(State.Initializing)
+  private val stateIfInitialized: State.Initialized?
+    get() = state.get().asSafely<State.Initialized>()
+
+  private fun isInitialized(): Boolean = stateIfInitialized != null
+
+  override val facade: LocalHistoryFacade?
+    get() = stateIfInitialized?.facade
 
   val gateway: IdeaGateway = IdeaGateway.getInstance()
-
-  private var flusherTask: Job? = null
-  private val initialFlush = AtomicBoolean(true)
-
-  private var eventDispatcher: LocalHistoryEventDispatcher? = null
-  private val isInitialized = AtomicBoolean()
 
   init {
     init()
   }
 
   internal fun getEventDispatcher(): LocalHistoryEventDispatcher? {
-    return eventDispatcher
+    return stateIfInitialized?.eventDispatcher
   }
 
   private fun init() {
@@ -103,81 +108,85 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
       return
     }
 
-    ShutDownTracker.getInstance().registerShutdownTask(Runnable { doDispose() })
-    initHistory()
-    app.getMessageBus().simpleConnect().subscribe(AdvancedSettingsChangeListener.TOPIC, object : AdvancedSettingsChangeListener {
-      override fun advancedSettingChanged(id: String, oldValue: Any, newValue: Any) {
-        if (id == DAYS_TO_KEEP) {
-          daysToKeep = newValue as Int
-        }
-      }
-    })
+    ShutDownTracker.getInstance().registerShutdownTask(Runnable { doDispose(drop = false) })
 
-    flusherTask = coroutineScope.launch {
+    val storage = try {
+      val storageDir = PathManager.getSystemDir().resolve("LocalHistory")
+      ChangeListStorageImpl(storageDir)
+    }
+    catch (e: Throwable) {
+      LocalHistoryLog.LOG.warn("cannot create storage, in-memory implementation will be used", e)
+      InMemoryChangeListStorage()
+    }
+    val changeList = ChangeList(storage)
+    val flusherTask = changeList.launchFlusher()
+    val facade = LocalHistoryFacade(changeList)
+    val eventDispatcher = LocalHistoryEventDispatcher(facade, gateway)
+
+    registerDeletionHandler(facade)
+    state.set(State.Initialized(changeList, flusherTask, facade, eventDispatcher))
+  }
+
+  private fun ChangeList.launchFlusher(): Job {
+    val initialFlush = AtomicBoolean(true)
+    var daysToKeep = AdvancedSettings.getInt(DAYS_TO_KEEP)
+    application.getMessageBus().connect(coroutineScope)
+      .subscribe(AdvancedSettingsChangeListener.TOPIC, object : AdvancedSettingsChangeListener {
+        override fun advancedSettingChanged(id: String, oldValue: Any, newValue: Any) {
+          if (id == DAYS_TO_KEEP) {
+            daysToKeep = newValue as Int
+          }
+        }
+      })
+
+    return coroutineScope.launch {
       while (true) {
         delay(1.seconds)
 
-        val changeList = facade?.changeList ?: continue
+        checkCanceled()
         withContext(Dispatchers.IO) {
           if (initialFlush.compareAndSet(true, false)) {
-            changeList.purgeObsolete()
+            val period = daysToKeep.days.inWholeMilliseconds
+            LocalHistoryLog.LOG.debug("Purging local history...")
+            purgeObsolete(period)
           }
-          coroutineContext.ensureActive()
-          changeList.force()
+          checkCanceled()
+          force()
         }
       }
     }
-    registerDeletionHandler()
-    isInitialized.set(true)
   }
 
-  private fun registerDeletionHandler() {
-    val deletionHandler = LocalHistoryFilesDeletionHandler(facade!!, gateway)
+  private fun registerDeletionHandler(facade: LocalHistoryFacade) {
+    val deletionHandler = LocalHistoryFilesDeletionHandler(facade, gateway)
     LocalFileSystem.getInstance().registerAuxiliaryFileOperationsHandler(deletionHandler)
     Disposer.register(this) {
       LocalFileSystem.getInstance().unregisterAuxiliaryFileOperationsHandler(deletionHandler)
     }
   }
 
-  private fun initHistory() {
-    facade = LocalHistoryFacade()
-    eventDispatcher = LocalHistoryEventDispatcher(facade!!, gateway)
-  }
-
   override fun dispose() {
-    doDispose()
+    doDispose(drop = false)
   }
 
-  private fun doDispose() {
-    if (!isInitialized.getAndSet(false)) {
+  private fun doDispose(drop: Boolean) {
+    val state = state.getAndSet(State.Disposed)
+    if (state !is State.Initialized) {
       return
     }
-
-    flusherTask?.let {
-      it.cancel()
-      flusherTask = null
-    }
-    facade?.changeList?.close()
+    state.flusherTask.cancel()
+    state.changeList.close(drop)
     LocalHistoryLog.LOG.debug("Local history storage successfully closed.")
-  }
-
-  private fun ChangeList.purgeObsolete() {
-    val period = daysToKeep * 1000L * 60L * 60L * 24L
-    LocalHistoryLog.LOG.debug("Purging local history...")
-    purgeObsolete(period)
   }
 
   @TestOnly
   fun cleanupForNextTest() {
-    doDispose()
-    facade?.storageDir?.delete()
+    doDispose(drop = true)
     init()
   }
 
   override fun startAction(name: @NlsContexts.Label String?, activityId: ActivityId?): LocalHistoryAction {
-    if (!isInitialized()) {
-      return LocalHistoryAction.NULL
-    }
+    val eventDispatcher = stateIfInitialized?.eventDispatcher ?: return LocalHistoryAction.NULL
 
     val a = LocalHistoryActionImpl(eventDispatcher, name, activityId)
     a.start()
@@ -185,12 +194,10 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
   }
 
   override fun putEventLabel(project: Project, name: @NlsContexts.Label String, activityId: ActivityId): Label {
-    if (!isInitialized()) {
-      return Label.NULL_INSTANCE
-    }
+    val facade = stateIfInitialized?.facade ?: return Label.NULL_INSTANCE
 
     val action = startAction(name, activityId)
-    val label = label(facade!!.putUserLabel(name, getProjectId(project)))
+    val label = label(facade.putUserLabel(name, getProjectId(project)))
     action.finish()
     return label
   }
@@ -200,17 +207,15 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
   }
 
   override fun putSystemLabel(project: Project, name: @NlsContexts.Label String, color: Int): Label {
-    if (!isInitialized()) {
-      return Label.NULL_INSTANCE
-    }
+    val facade = stateIfInitialized?.facade ?: return Label.NULL_INSTANCE
 
-    gateway.registerUnsavedDocuments(facade!!)
-    return label(facade!!.putSystemLabel(name, getProjectId(project), color))
+    gateway.registerUnsavedDocuments(facade)
+    return label(facade.putSystemLabel(name, getProjectId(project), color))
   }
 
   @ApiStatus.Internal
   fun addVFSListenerAfterLocalHistoryOne(virtualFileListener: BulkFileListener, disposable: Disposable) {
-    eventDispatcher!!.addVirtualFileListener(virtualFileListener, disposable)
+    (state.get() as State.Initialized).eventDispatcher.addVirtualFileListener(virtualFileListener, disposable)
   }
 
   private fun label(label: LabelImpl): Label {
@@ -243,8 +248,6 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
   }
 
   override fun isUnderControl(file: VirtualFile): Boolean = isInitialized() && gateway.isVersioned(file)
-
-  private fun isInitialized(): Boolean = isInitialized.get()
 
   @Throws(LocalHistoryException::class)
   private fun revertToLabel(project: Project, f: VirtualFile, label: LabelImpl) {
@@ -283,4 +286,16 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
       throw LocalHistoryException("Couldn't revert ${f.getName()} to local history label.", e)
     }
   }
+}
+
+private sealed interface State {
+  object Initializing : State
+  class Initialized(
+    val changeList: ChangeList,
+    val flusherTask: Job,
+    val facade: LocalHistoryFacade,
+    val eventDispatcher: LocalHistoryEventDispatcher,
+  ) : State
+
+  object Disposed : State
 }

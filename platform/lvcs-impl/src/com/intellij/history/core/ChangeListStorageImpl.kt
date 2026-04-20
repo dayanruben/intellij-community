@@ -8,12 +8,10 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.newvfs.ManagingFS
-import com.intellij.util.Consumer
 import com.intellij.util.io.ClosedStorageException
 import com.intellij.util.io.delete
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet
 import it.unimi.dsi.fastutil.ints.IntSet
-import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 import java.io.IOException
 import java.nio.file.Files
@@ -23,8 +21,7 @@ import java.text.DateFormat
 private const val VERSION = 7
 private const val STORAGE_FILE: @NonNls String = "changes"
 
-@ApiStatus.Internal
-class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
+internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
   //TODO RC: use mmapped storage instead of old-school? Less freezes, and also more reliability
   private val storage: LocalHistoryStorage
   private var lastId: Long = 0
@@ -33,12 +30,18 @@ class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
   private val unitTestMode = ApplicationManager.getApplication().isUnitTestMode()
 
   init {
-    storage = initStorage(storageDir)
+    storage = initStorage()
   }
 
   @Synchronized
   @Throws(IOException::class)
-  private fun initStorage(storageDir: Path): LocalHistoryStorage {
+  private fun dropStorage() {
+    storageDir.delete()
+  }
+
+  @Synchronized
+  @Throws(IOException::class)
+  private fun initStorage(): LocalHistoryStorage {
     val path = storageDir.resolve(STORAGE_FILE)
     val fromScratch = unitTestMode && !Files.exists(path)
 
@@ -58,7 +61,7 @@ class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
           LocalHistoryLog.LOG.info("FS has been rebuild, rebuilding local history...")
         }
         Disposer.dispose(storage)
-        storageDir.delete()
+        dropStorage()
         storage = LocalHistoryStorage(path)
       }
       storage.setVersion(VERSION)
@@ -101,8 +104,8 @@ class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
 
     Disposer.dispose(storage)
     try {
-      storageDir.delete()
-      initStorage(storageDir)
+      dropStorage()
+      initStorage()
     }
     catch (ex: Throwable) {
       LocalHistoryLog.LOG.error("cannot recreate storage", ex)
@@ -121,8 +124,11 @@ class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
       .notify(null)
   }
 
-  override fun close() {
+  override fun close(drop: Boolean) {
     Disposer.dispose(storage)
+    if (drop) {
+      dropStorage()
+    }
   }
 
   override fun force() {
@@ -198,7 +204,7 @@ class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
   }
 
   @Synchronized
-  override fun purge(period: Long, intervalBetweenActivities: Int, processor: Consumer<in ChangeSet?>) {
+  override fun purge(period: Long, intervalBetweenActivities: Long) {
     if (isCompletelyBroken) return
 
     val recursionGuard = IntOpenHashSet(1000)
@@ -208,7 +214,10 @@ class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
 
       var eachBlockId = firstObsoleteId
       while (eachBlockId != 0) {
-        processor.consume(storage.readBlock(eachBlockId).changeSet)
+        val changeSet = storage.readBlock(eachBlockId).changeSet
+        for (each in changeSet.contentsToPurge) {
+          each.release()
+        }
         eachBlockId = storage.getPrevRecordSafely(eachBlockId, recursionGuard)
       }
       storage.deleteRecordsUpTo(firstObsoleteId)
@@ -219,7 +228,7 @@ class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
   }
 
   @Throws(IOException::class)
-  private fun findFirstObsoleteBlock(period: Long, intervalBetweenActivities: Int, recursionGuard: IntSet): Int {
+  private fun findFirstObsoleteBlock(period: Long, intervalBetweenActivities: Long, recursionGuard: IntSet): Int {
     var prevTimestamp = 0L
     var length = 0L
 

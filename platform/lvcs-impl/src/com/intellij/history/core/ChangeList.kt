@@ -13,21 +13,22 @@ import com.intellij.openapi.util.NlsContexts
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
+import kotlin.time.Duration.Companion.hours
 
 @ApiStatus.Internal
 class ChangeList(private val storage: ChangeListStorage) {
   private var changeSetDepth = 0
   private var currentChangeSet: ChangeSet? = null
 
-  private var intervalBetweenActivities = 12 * 60 * 60 * 1000 // 12 hours
+  private var intervalBetweenActivities = 12.hours.inWholeMilliseconds
 
   @Synchronized
-  fun close() {
+  fun close(drop: Boolean) {
     if (!ApplicationManager.getApplication().isUnitTestMode) {
       LocalHistoryLog.LOG.assertTrue(currentChangeSet == null || currentChangeSet!!.isEmpty,
                                      "current changes won't be saved: $currentChangeSet")
     }
-    storage.close()
+    storage.close(drop)
   }
 
   fun force(): Unit = storage.force()
@@ -144,16 +145,12 @@ class ChangeList(private val storage: ChangeListStorage) {
   }
 
   fun purgeObsolete(period: Long) {
-    storage.purge(period, intervalBetweenActivities) { changeSet ->
-      for (each in changeSet.contentsToPurge) {
-        each.release()
-      }
-    }
+    storage.purge(period, intervalBetweenActivities)
     storage.force()
   }
 
   @TestOnly
-  fun setIntervalBetweenActivities(value: Int) {
+  fun setIntervalBetweenActivities(value: Long) {
     intervalBetweenActivities = value
   }
 }

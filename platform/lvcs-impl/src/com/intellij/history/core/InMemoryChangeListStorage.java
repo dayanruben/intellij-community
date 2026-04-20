@@ -2,9 +2,9 @@
 package com.intellij.history.core;
 
 import com.intellij.history.core.changes.ChangeSet;
-import com.intellij.util.Consumer;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -16,7 +16,7 @@ public final class InMemoryChangeListStorage implements ChangeListStorage {
   private final List<ChangeSet> mySets = new ArrayList<>();
 
   @Override
-  public void close() {
+  public void close(boolean drop) {
   }
 
   @Override
@@ -29,18 +29,18 @@ public final class InMemoryChangeListStorage implements ChangeListStorage {
   }
 
   @Override
-  public @Nullable ChangeSetHolder readPrevious(int id, IntSet recursionGuard) {
+  public @Nullable ChangeSetHolder readPrevious(int id, @NotNull IntSet recursionGuard) {
     if (mySets.isEmpty()) return null;
     if (id == -1) return new ChangeSetHolder(mySets.size() - 1, mySets.get(mySets.size() - 1));
     return id == 0 ? null : new ChangeSetHolder(id - 1, mySets.get(id - 1));
   }
 
   @Override
-  public void writeNextSet(ChangeSet changeSet) {
+  public void writeNextSet(@NotNull ChangeSet changeSet) {
     mySets.add(changeSet);
   }
 
   @Override
-  public void purge(long period, int intervalBetweenActivities, Consumer<? super ChangeSet> processor) {
+  public void purge(long period, long intervalBetweenActivities) {
   }
 }
