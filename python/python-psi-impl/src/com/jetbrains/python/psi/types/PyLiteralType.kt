@@ -67,7 +67,11 @@ private sealed interface PyLiteralValue {
 /**
  * Represents literal type introduced in PEP 586.
  */
-class PyLiteralType private constructor(cls: PyClass, private val value: PyLiteralValue) : PyClassTypeImpl(cls, false) {
+class PyLiteralType private constructor(
+  cls: PyClass,
+  private val value: PyLiteralValue,
+  isDefinition: Boolean = false,
+) : PyClassTypeImpl(cls, isDefinition) {
 
   override val name: String = "Literal[${expressionText}]"
 
@@ -112,6 +116,14 @@ class PyLiteralType private constructor(cls: PyClass, private val value: PyLiter
       return visitor.visitPyLiteralType(this)
     }
     return visitor.visitPyClassType(this)
+  }
+
+  override fun toClass(): PyClassType {
+    return if (myIsDefinition) this else PyLiteralType(pyClass, value, true)
+  }
+
+  override fun toInstance(): PyClassType {
+    return if (!myIsDefinition) this else PyLiteralType(pyClass, value, false)
   }
 
   companion object {
