@@ -54,6 +54,11 @@
               topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
     <listener class="org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.FirIdeModuleStateModificationService$GeneralWorkspaceModelChangeListener"
               topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
+    <listener class="org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.FirIdeModuleStateModificationService$EventPublishingStateResetAnalysisInWriteActionListener"
+              topic="org.jetbrains.kotlin.analysis.api.platform.KotlinAnalysisInWriteActionListener"/>
+
+    <listener class="org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.FirIdeOutOfBlockModificationService$StateResetAnalysisInWriteActionListener"
+              topic="org.jetbrains.kotlin.analysis.api.platform.KotlinAnalysisInWriteActionListener"/>
 
     <listener class="org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.FirIdeDumbModeInvalidationListener"
               topic="com.intellij.openapi.project.DumbModeListenerBackgroundable"/>

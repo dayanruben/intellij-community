@@ -23,7 +23,6 @@ import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtilBase
 import com.intellij.psi.util.parentOfType
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.platform.KotlinAnalysisInWriteActionListener
-import org.jetbrains.kotlin.analysis.api.platform.analysisMessageBus
 import org.jetbrains.kotlin.analysis.api.platform.modification.KaElementModificationType
 import org.jetbrains.kotlin.analysis.api.platform.modification.KaSourceModificationLocality
 import org.jetbrains.kotlin.analysis.api.platform.modification.KaSourceModificationService
@@ -67,10 +66,6 @@ class FirIdeOutOfBlockModificationService(private val project: Project) : Dispos
 
     init {
         ApplicationManagerEx.getApplicationEx().addWriteActionListener(StateResetWriteActionListener(), this)
-
-        project.analysisMessageBus
-            .connect(this)
-            .subscribe(KotlinAnalysisInWriteActionListener.TOPIC, StateResetAnalysisInWriteActionListener())
     }
 
     private fun handleTreeChangeEvent(event: PsiTreeChangeEventImpl) {
@@ -314,16 +309,19 @@ class FirIdeOutOfBlockModificationService(private val project: Project) : Dispos
      *
      * To ensure that further modifications can correctly clean caches *again*, we have to reset the state of the tree change preprocessor.
      */
-    private inner class StateResetAnalysisInWriteActionListener : KotlinAnalysisInWriteActionListener {
+    internal class StateResetAnalysisInWriteActionListener(private val project: Project) : KotlinAnalysisInWriteActionListener {
+        private val modificationService: FirIdeOutOfBlockModificationService
+            get() = getInstance(project)
+
         override fun onEnteringAnalysisInWriteAction() {
             // Resetting the state when *entering* analysis in a write action is not strictly necessary because we don't expect any
             // modifications to happen during the `analyze` call. However, if we do have some modifications during the `analyze` call, we
             // might miss them without the state reset. As it's technically possible, it's better to be safe.
-            treeChangeProcessingState = TreeChangeProcessingState.Idle
+            modificationService.treeChangeProcessingState = TreeChangeProcessingState.Idle
         }
 
         override fun afterLeavingAnalysisInWriteAction() {
-            treeChangeProcessingState = TreeChangeProcessingState.Idle
+            modificationService.treeChangeProcessingState = TreeChangeProcessingState.Idle
         }
     }
 

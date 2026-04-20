@@ -38,7 +38,6 @@ import com.intellij.util.io.URLUtil
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.findModule
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.platform.KotlinAnalysisInWriteActionListener
-import org.jetbrains.kotlin.analysis.api.platform.analysisMessageBus
 import org.jetbrains.kotlin.analysis.api.platform.modification.KotlinModuleStateModificationKind
 import org.jetbrains.kotlin.analysis.api.platform.modification.publishGlobalModuleStateModificationEvent
 import org.jetbrains.kotlin.analysis.api.platform.modification.publishGlobalSourceModuleStateModificationEvent
@@ -89,10 +88,6 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
 
     init {
         ApplicationManagerEx.getApplicationEx().addWriteActionListener(EventPublishingStateResetWriteActionListener(), this)
-
-        project.analysisMessageBus
-            .connect(this)
-            .subscribe(KotlinAnalysisInWriteActionListener.TOPIC, EventPublishingStateResetAnalysisInWriteActionListener())
     }
 
     internal class BuiltinsFileDocumentListener(private val project: Project) : FileDocumentManagerListener {
@@ -403,15 +398,20 @@ class FirIdeModuleStateModificationService(val project: Project) : Disposable {
      * Resets the [projectFileEventPublishingState] around `analyze` calls within a write action. After `analyze` populates caches, further
      * modifications in the same write action need to be able to invalidate those caches again.
      */
-    private inner class EventPublishingStateResetAnalysisInWriteActionListener : KotlinAnalysisInWriteActionListener {
+    internal class EventPublishingStateResetAnalysisInWriteActionListener(
+        private val project: Project,
+    ) : KotlinAnalysisInWriteActionListener {
+        private val modificationService: FirIdeModuleStateModificationService
+            get() = getInstance(project)
+
         override fun onEnteringAnalysisInWriteAction() {
             // Defensive: Reset state when entering analysis in case modifications happen during the `analyze` call.
-            projectFileEventPublishingState = EventPublishingState.NONE
+            modificationService.projectFileEventPublishingState = EventPublishingState.NONE
         }
 
         override fun afterLeavingAnalysisInWriteAction() {
             // Primary: Caches may have been filled during `analyze`, so further modifications need to be able to invalidate caches again.
-            projectFileEventPublishingState = EventPublishingState.NONE
+            modificationService.projectFileEventPublishingState = EventPublishingState.NONE
         }
     }
 
