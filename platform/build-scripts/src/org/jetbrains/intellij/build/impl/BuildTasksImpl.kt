@@ -589,6 +589,13 @@ private fun CoroutineScope.createMavenArtifactJob(platformLayout: PlatformLayout
         outputDir = "proprietary-maven-artifacts"
       )
     }
+    for (spec in mavenArtifacts.aggregatorPomArtifacts) {
+      mavenArtifactsBuilder.generateAggregatorPom(
+        spec = spec,
+        outputDir = "maven-artifacts",
+        builtArtifacts = builtArtifacts,
+      )
+    }
     mavenArtifactsBuilder.validate(builtArtifacts)
   }
 }
@@ -835,6 +842,7 @@ private suspend fun buildCrossPlatformZip(distResults: List<DistributionForOsTas
           bootClassPathJarNames = context.bootClassPathJarNames,
           additionalJvmArguments = context.getAdditionalJvmArguments(os = OsFamily.WINDOWS, arch = arch, isPortableDist = true),
           mainClass = context.ideMainClassName,
+          stdioRedirectArg = context.productProperties.stdioRedirectArg,
         ),
         ProductInfoLaunchData.create(
           os = OsFamily.LINUX.osName,
@@ -845,6 +853,7 @@ private suspend fun buildCrossPlatformZip(distResults: List<DistributionForOsTas
           bootClassPathJarNames = context.bootClassPathJarNames,
           additionalJvmArguments = context.getAdditionalJvmArguments(os = OsFamily.LINUX, arch = arch, isPortableDist = true),
           mainClass = context.ideMainClassName,
+          stdioRedirectArg = context.productProperties.stdioRedirectArg,
           startupWmClass = getLinuxFrameClass(context),
         ),
         ProductInfoLaunchData.create(
@@ -856,6 +865,7 @@ private suspend fun buildCrossPlatformZip(distResults: List<DistributionForOsTas
           bootClassPathJarNames = context.bootClassPathJarNames,
           additionalJvmArguments = context.getAdditionalJvmArguments(os = OsFamily.MACOS, arch = arch, isPortableDist = true),
           mainClass = context.ideMainClassName,
+          stdioRedirectArg = context.productProperties.stdioRedirectArg,
         )
       )
     }.toList(),
