@@ -151,7 +151,7 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
             purgeObsolete(period)
           }
           checkCanceled()
-          force()
+          flush()
         }
       }
     }

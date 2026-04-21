@@ -96,10 +96,9 @@ internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeLi
 
   override fun purgeObsolete(period: Long, intervalBetweenActivities: Long) {
     storage.purge(period, intervalBetweenActivities)
-    storage.force()
   }
 
-  fun force(): Unit = storage.force()
+  fun flush(): Unit = storage.force()
 
   @Synchronized
   fun close(drop: Boolean) {
