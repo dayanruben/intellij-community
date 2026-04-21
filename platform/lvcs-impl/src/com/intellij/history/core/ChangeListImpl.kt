@@ -72,40 +72,23 @@ internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeLi
   }
 
   // todo synchronization issue: changeset may me modified while being iterated
-  @Synchronized
   override fun iterChanges(): Iterable<ChangeSet> {
     return Iterable {
       object : Iterator<ChangeSet> {
         private val recursionGuard = IntOpenHashSet(1000)
-
-        private var currentBlock: ChangeSetHolder? = null
-        private var next = fetchNext()
+        private var next = synchronized(this@ChangeListImpl) {
+          currentChangeSet?.let { ChangeSetHolder(-1, it) }
+          ?: storage.readPrevious(-1, recursionGuard)
+        }
 
         override fun hasNext(): Boolean = next != null
 
         override fun next(): ChangeSet {
           val result = next!!
-          next = fetchNext()
-          return result
-        }
-
-        private fun fetchNext(): ChangeSet? {
-          if (currentBlock == null) {
-            synchronized(this@ChangeListImpl) {
-              currentBlock = if (currentChangeSet != null) {
-                ChangeSetHolder(-1, currentChangeSet)
-              }
-              else {
-                storage.readPrevious(-1, recursionGuard)
-              }
-            }
+          next = synchronized(this@ChangeListImpl) {
+            storage.readPrevious(result.id, recursionGuard)
           }
-          else {
-            synchronized(this@ChangeListImpl) {
-              currentBlock = storage.readPrevious(currentBlock!!.id, recursionGuard)
-            }
-          }
-          return currentBlock?.changeSet
+          return result.changeSet
         }
       }
     }
