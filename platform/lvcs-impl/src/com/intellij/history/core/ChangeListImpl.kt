@@ -4,46 +4,31 @@ package com.intellij.history.core
 import com.intellij.history.ActivityId
 import com.intellij.history.core.changes.Change
 import com.intellij.history.core.changes.ChangeSet
-import com.intellij.history.core.changes.ChangeVisitor
-import com.intellij.history.core.changes.ChangeVisitor.StopVisitingException
 import com.intellij.history.utils.LocalHistoryLog
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.Clock
 import com.intellij.openapi.util.NlsContexts
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet
-import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import kotlin.time.Duration.Companion.hours
 
-@ApiStatus.Internal
-class ChangeListImpl(private val storage: ChangeListStorage) {
+internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeList {
   private var changeSetDepth = 0
   private var currentChangeSet: ChangeSet? = null
 
   private var intervalBetweenActivities = 12.hours.inWholeMilliseconds
 
   @Synchronized
-  fun close(drop: Boolean) {
-    if (!ApplicationManager.getApplication().isUnitTestMode) {
-      LocalHistoryLog.LOG.assertTrue(currentChangeSet == null || currentChangeSet!!.isEmpty,
-                                     "current changes won't be saved: $currentChangeSet")
-    }
-    storage.close(drop)
-  }
-
-  fun force(): Unit = storage.force()
+  override fun nextId(): Long = storage.nextId()
 
   @Synchronized
-  fun nextId(): Long = storage.nextId()
-
-  @Synchronized
-  fun addChange(c: Change) {
+  override fun addChange(c: Change) {
     assert(changeSetDepth != 0)
     currentChangeSet!!.addChange(c)
   }
 
   @Synchronized
-  fun beginChangeSet() {
+  override fun beginChangeSet() {
     changeSetDepth++
     if (changeSetDepth > 1) return
 
@@ -55,7 +40,7 @@ class ChangeListImpl(private val storage: ChangeListStorage) {
   }
 
   @Synchronized
-  fun forceBeginChangeSet(): ChangeSet? {
+  override fun forceBeginChangeSet(): ChangeSet? {
     val lastChangeSet = if (changeSetDepth > 0) doEndChangeSet(null, null) else null
 
     changeSetDepth++
@@ -64,7 +49,7 @@ class ChangeListImpl(private val storage: ChangeListStorage) {
   }
 
   @Synchronized
-  fun endChangeSet(name: @NlsContexts.Label String?, activityId: ActivityId?): ChangeSet? {
+  override fun endChangeSet(name: @NlsContexts.Label String?, activityId: ActivityId?): ChangeSet? {
     LocalHistoryLog.LOG.assertTrue(changeSetDepth > 0, "not balanced 'begin/end-change set' calls")
 
     changeSetDepth--
@@ -90,12 +75,9 @@ class ChangeListImpl(private val storage: ChangeListStorage) {
     return lastChangeSet
   }
 
-  @get:TestOnly
-  val changesInTests: List<ChangeSet> get() = iterChanges().toList()
-
   // todo synchronization issue: changeset may me modified while being iterated
   @Synchronized
-  fun iterChanges(): Iterable<ChangeSet> {
+  override fun iterChanges(): Iterable<ChangeSet> {
     return Iterable {
       object : Iterator<ChangeSet> {
         private val recursionGuard = IntOpenHashSet(1000)
@@ -133,24 +115,24 @@ class ChangeListImpl(private val storage: ChangeListStorage) {
     }
   }
 
-  fun accept(v: ChangeVisitor) {
-    try {
-      for (change in iterChanges()) {
-        change.accept(v)
-      }
-    }
-    catch (_: StopVisitingException) {
-    }
-    v.finished()
-  }
-
-  fun purgeObsolete(period: Long) {
+  override fun purgeObsolete(period: Long) {
     storage.purge(period, intervalBetweenActivities)
     storage.force()
   }
 
   @TestOnly
-  fun setIntervalBetweenActivities(value: Long) {
+  override fun setIntervalBetweenActivities(value: Long) {
     intervalBetweenActivities = value
+  }
+
+  fun force(): Unit = storage.force()
+
+  @Synchronized
+  fun close(drop: Boolean) {
+    if (!ApplicationManager.getApplication().isUnitTestMode) {
+      LocalHistoryLog.LOG.assertTrue(currentChangeSet == null || currentChangeSet!!.isEmpty,
+                                     "current changes won't be saved: $currentChangeSet")
+    }
+    storage.close(drop)
   }
 }
