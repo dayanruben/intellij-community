@@ -30,7 +30,7 @@ private fun logAsTeamcityTestFailure(error: LoggedError) {
   }.getOrNull()
 
   val testName = message ?: "Error logged without message"
-  TeamCityReporter.reportTestLifecycle(testName, TeamCityReporter.TestOutcome.FAILED, message ?: "", stackTraceContent, owner, additionalSanitization = true)
+  TeamCityReporter.reportTestLifecycle(testName, TeamCityReporter.TestOutcome.FAILED, message ?: "", stackTraceContent, owner)
 }
 
 private fun findMessage(t: Throwable): String? {
