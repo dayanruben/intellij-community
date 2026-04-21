@@ -8,6 +8,7 @@ import com.intellij.history.core.changes.ChangeVisitor
 import com.intellij.openapi.util.NlsContexts
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
+import kotlin.time.Duration.Companion.hours
 
 @ApiStatus.Internal
 interface ChangeList {
@@ -18,10 +19,8 @@ interface ChangeList {
   fun addChange(c: Change)
   fun endChangeSet(name: @NlsContexts.Label String?, activityId: ActivityId?): ChangeSet?
 
-  fun purgeObsolete(period: Long)
-
-  @TestOnly
-  fun setIntervalBetweenActivities(value: Long)
+  fun purgeObsolete(period: Long, intervalBetweenActivities: Long)
+  fun purgeObsolete(period: Long): Unit = purgeObsolete(period, DEFAULT_INTERVAL_BETWEEN_ACTIVITIES_MILLISECONDS)
 
   fun iterChanges(): Iterable<ChangeSet>
 
@@ -38,4 +37,8 @@ interface ChangeList {
 
   @get:TestOnly
   val changesInTests: List<ChangeSet> get() = iterChanges().toList()
+
+  companion object {
+    private val DEFAULT_INTERVAL_BETWEEN_ACTIVITIES_MILLISECONDS: Long = 12.hours.inWholeMilliseconds
+  }
 }

@@ -9,14 +9,10 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.Clock
 import com.intellij.openapi.util.NlsContexts
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet
-import org.jetbrains.annotations.TestOnly
-import kotlin.time.Duration.Companion.hours
 
 internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeList {
   private var changeSetDepth = 0
   private var currentChangeSet: ChangeSet? = null
-
-  private var intervalBetweenActivities = 12.hours.inWholeMilliseconds
 
   @Synchronized
   override fun nextId(): Long = storage.nextId()
@@ -115,14 +111,9 @@ internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeLi
     }
   }
 
-  override fun purgeObsolete(period: Long) {
+  override fun purgeObsolete(period: Long, intervalBetweenActivities: Long) {
     storage.purge(period, intervalBetweenActivities)
     storage.force()
-  }
-
-  @TestOnly
-  override fun setIntervalBetweenActivities(value: Long) {
-    intervalBetweenActivities = value
   }
 
   fun force(): Unit = storage.force()
