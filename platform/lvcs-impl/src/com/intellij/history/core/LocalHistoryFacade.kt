@@ -40,12 +40,12 @@ import org.jetbrains.annotations.TestOnly
  * E.g., modifying content, renaming, changing read-only status, moving, and deleting.
  * It also allows adding and managing system and user labels and aggregate changes by [ActivityId]
  */
-class LocalHistoryFacade internal constructor(private val changeList: ChangeList) {
+class LocalHistoryFacade internal constructor(private val changeList: ChangeListImpl) {
   private val listeners: MutableList<Listener> = ContainerUtil.createLockFreeCopyOnWriteList()
 
   @get:ApiStatus.Internal
   @get:TestOnly
-  val changeListInTests: ChangeList get() = changeList
+  val changeListInTests: ChangeListImpl get() = changeList
   internal val changes: Iterable<ChangeSet> get() = changeList.iterChanges()
 
   fun beginChangeSet() {

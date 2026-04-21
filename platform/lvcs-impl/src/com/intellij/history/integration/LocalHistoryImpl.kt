@@ -9,7 +9,7 @@ import com.intellij.history.LocalHistoryAction
 import com.intellij.history.LocalHistoryException
 import com.intellij.history.core.ByteContentRetriever
 import com.intellij.history.core.ChangeAndPathProcessor
-import com.intellij.history.core.ChangeList
+import com.intellij.history.core.ChangeListImpl
 import com.intellij.history.core.ChangeListStorageImpl
 import com.intellij.history.core.InMemoryChangeListStorage
 import com.intellij.history.core.LabelImpl
@@ -118,7 +118,7 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
       LocalHistoryLog.LOG.warn("cannot create storage, in-memory implementation will be used", e)
       InMemoryChangeListStorage()
     }
-    val changeList = ChangeList(storage)
+    val changeList = ChangeListImpl(storage)
     val flusherTask = changeList.launchFlusher()
     val facade = LocalHistoryFacade(changeList)
     val eventDispatcher = LocalHistoryEventDispatcher(facade, gateway)
@@ -127,7 +127,7 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
     state.set(State.Initialized(changeList, flusherTask, facade, eventDispatcher))
   }
 
-  private fun ChangeList.launchFlusher(): Job {
+  private fun ChangeListImpl.launchFlusher(): Job {
     val initialFlush = AtomicBoolean(true)
     var daysToKeep = AdvancedSettings.getInt(DAYS_TO_KEEP)
     application.getMessageBus().connect(coroutineScope)
@@ -291,7 +291,7 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
 private sealed interface State {
   object Initializing : State
   class Initialized(
-    val changeList: ChangeList,
+    val changeList: ChangeListImpl,
     val flusherTask: Job,
     val facade: LocalHistoryFacade,
     val eventDispatcher: LocalHistoryEventDispatcher,

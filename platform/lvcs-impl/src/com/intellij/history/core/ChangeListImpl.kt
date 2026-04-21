@@ -16,7 +16,7 @@ import org.jetbrains.annotations.TestOnly
 import kotlin.time.Duration.Companion.hours
 
 @ApiStatus.Internal
-class ChangeList(private val storage: ChangeListStorage) {
+class ChangeListImpl(private val storage: ChangeListStorage) {
   private var changeSetDepth = 0
   private var currentChangeSet: ChangeSet? = null
 
@@ -113,7 +113,7 @@ class ChangeList(private val storage: ChangeListStorage) {
 
         private fun fetchNext(): ChangeSet? {
           if (currentBlock == null) {
-            synchronized(this@ChangeList) {
+            synchronized(this@ChangeListImpl) {
               currentBlock = if (currentChangeSet != null) {
                 ChangeSetHolder(-1, currentChangeSet)
               }
@@ -123,7 +123,7 @@ class ChangeList(private val storage: ChangeListStorage) {
             }
           }
           else {
-            synchronized(this@ChangeList) {
+            synchronized(this@ChangeListImpl) {
               currentBlock = storage.readPrevious(currentBlock!!.id, recursionGuard)
             }
           }
