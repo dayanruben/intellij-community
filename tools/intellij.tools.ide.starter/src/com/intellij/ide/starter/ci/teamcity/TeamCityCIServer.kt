@@ -35,20 +35,6 @@ open class TeamCityCIServer(
     TeamCityClient.publishTeamCityArtifacts(source = source, artifactPath = artifactPath, artifactName = artifactName)
   }
 
-  fun reportTest(testName: String, message: String, details: String, linkToLogs: String? = null, isFailure: Boolean) {
-    val outcome = if (isFailure) TestOutcome.FAILED else TestOutcome.SUCCESS
-    val metadata = buildList {
-      linkToLogs?.let { add(TestMetadata(name = "Link to Logs and artifacts", value = it, type = TeamCityReporter.MetadataType.LINK)) }
-      CurrentTestMethod.get()?.let { add(TestMetadata(name = "Test name", value = it.fullName())) }
-      if (isFailure && isJetbrainsBuildserver) {
-        add(bisectMetadata())
-      }
-    }
-    TeamCityReporter.reportTestLifecycle(testName, outcome, message, details,
-                                        owner = if (isFailure) codeOwnerResolver.getOwnerGroupName() else null,
-                                        metadata = metadata)
-  }
-
   fun addBisectMetadata(testName: String? = null, flowId: String? = null, testClassFqn: String? = CurrentTestMethod.get()?.clazz) {
     val meta = bisectMetadata(testClassFqn)
     TeamCityReporter.reportTestMetadata(testName = testName, type = meta.type, flowId = flowId, name = meta.name, value = meta.value)
@@ -61,16 +47,21 @@ open class TeamCityCIServer(
   }
 
   override fun reportTestFailure(testName: String, message: String, details: String, linkToLogs: String?) {
-    reportTest(testName, message, details, linkToLogs, isFailure = true)
-  }
-
-  fun reportPassedTest(testName: String, message: String, details: String, linkToLogs: String? = null) {
-    reportTest(testName, message, details, linkToLogs, isFailure = false)
+    val metadata = buildList {
+      linkToLogs?.let { add(TestMetadata(name = "Link to Logs and artifacts", value = it, type = TeamCityReporter.MetadataType.LINK)) }
+      CurrentTestMethod.get()?.let { add(TestMetadata(name = "Test name", value = it.fullName())) }
+      if (isJetbrainsBuildserver) {
+        add(bisectMetadata())
+      }
+    }
+    TeamCityReporter.reportTestLifecycle(testName, TestOutcome.FAILED, message, details,
+                                         owner = codeOwnerResolver.getOwnerGroupName(),
+                                         metadata = metadata, syntheticTest = true)
   }
 
   override fun ignoreTestFailure(testName: String, message: String, details: String?) {
     val metadata = details?.let { listOf(TestMetadata(name = "Details", value = it)) } ?: emptyList()
-    TeamCityReporter.reportTestLifecycle(testName, TestOutcome.IGNORED, message, metadata = metadata)
+    TeamCityReporter.reportTestLifecycle(testName, TestOutcome.IGNORED, message, metadata = metadata, syntheticTest = true)
   }
 
   override fun isTestFailureShouldBeIgnored(message: String): Boolean {

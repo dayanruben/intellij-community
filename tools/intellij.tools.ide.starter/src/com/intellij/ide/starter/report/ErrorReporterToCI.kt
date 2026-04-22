@@ -135,11 +135,11 @@ object ErrorReporterToCI : ErrorReporter {
       val linkToMuteArticle = "\nThis test fail is an exception! \n" +
                               "You can find instructions about muting this error in this link https://youtrack.jetbrains.com/articles/IJPL-A-1185/How-to-create-a-new-mapping"
       if (CIServer.instance.isTestFailureShouldBeIgnored(messageText) || CIServer.instance.isTestFailureShouldBeIgnored(stackTraceContent)) {
-        CIServer.instance.ignoreTestFailure(testName = "(${generifyErrorMessage(syntheticTestName)})",
+        CIServer.instance.ignoreTestFailure(testName = syntheticTestName,
                                             message = failureDetailsMessage)
       }
       else {
-        CIServer.instance.reportTestFailure(testName = "(${generifyErrorMessage(syntheticTestName)})",
+        CIServer.instance.reportTestFailure(testName = syntheticTestName,
                                             message = failureDetailsMessage + linkToMuteArticle,
                                             details = stackTraceContent,
                                             linkToLogs = urlToLogs)
