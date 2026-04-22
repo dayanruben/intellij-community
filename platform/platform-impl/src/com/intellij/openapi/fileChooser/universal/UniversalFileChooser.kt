@@ -22,6 +22,7 @@ import com.intellij.openapi.fileChooser.PathChooserDialog
 import com.intellij.openapi.fileChooser.ex.FileSystemTreeImpl
 import com.intellij.openapi.fileChooser.tree.FileTreeModel
 import com.intellij.openapi.fileChooser.universal.UniversalFileChooserContributor.MountStatus
+import com.intellij.openapi.fileChooser.universal.UniversalFileChooserContributor.VirtualRoot
 import com.intellij.openapi.observable.util.whenDisposed
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
@@ -86,6 +87,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Predicate
+import javax.swing.DefaultListModel
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JList
@@ -97,6 +99,7 @@ import javax.swing.event.TreeWillExpandListener
 import javax.swing.tree.ExpandVetoException
 import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
+import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.time.Duration.Companion.seconds
 
 @ApiStatus.Internal
@@ -311,7 +314,8 @@ object UniversalFileChooser {
     ) {
       val topComponent: JComponent
       val fileTree: FileSystemTreeImpl
-      private val roots: MutableList<Path> = mutableListOf()
+      private val roots: MutableList<String> = mutableListOf()
+      private val virtualRootMap: MutableMap<Path, VirtualRoot> = ConcurrentHashMap()
       var fileToSelect: VirtualFile? = null
       private val breadcrumbs = Breadcrumbs()
       private var currentCrumbs: List<FileCrumb> = emptyList()
@@ -330,7 +334,11 @@ object UniversalFileChooser {
       private val contentPanel = JPanel(cardLayout)
       private val tree = Tree()
       private var toolbar: ActionToolbar? = null
-      private val mountStatusCache: MutableMap<Path, MountStatus> = ConcurrentHashMap()
+      private val mountStatusCache: MutableMap<String, MountStatus> = ConcurrentHashMap()
+      private val presentationCache: MutableMap<String, UniversalFileChooserContributor.Presentation> = ConcurrentHashMap()
+      private val virtualRootListModel = DefaultListModel<VirtualRoot>()
+      private val virtualRootList = JBList(virtualRootListModel)
+      private val virtualRootScrollPane: JComponent
 
       @Volatile
       private var cacheUpdateJob: Job? = null
@@ -340,9 +348,21 @@ object UniversalFileChooser {
 
       init {
 
-        val descriptorCopy = FileChooserDescriptor(descriptor)
+        val descriptorCopy = object : FileChooserDescriptor(descriptor) {
+          override fun getComment(file: VirtualFile): @NlsSafe String? {
+            val nioPath = runCatching { file.toNioPath() }.getOrNull() ?: return null
+            val name = presentationCache[nioPath.invariantSeparatorsPathString]?.presentableName ?: return null
+            return "  $name"
+          }
+
+          override fun getIcon(file: VirtualFile?): Icon? {
+            val nioPath = runCatching { file?.toNioPath() }.getOrNull() ?: return null
+            val icon = presentationCache[nioPath.invariantSeparatorsPathString]?.icon ?: return super.getIcon(file)
+            return icon
+          }
+        }
         descriptorCopy.putUserData(FileTreeModel.SYSTEM_ROOTS_FILTER,
-                                   Predicate { path: Path? -> roots.contains(path) })
+                                   Predicate { path: Path? -> path != null && roots.contains(path.invariantSeparatorsPathString) })
 
         tree.isRootVisible = false
         tree.showsRootHandles = true
@@ -396,9 +416,31 @@ object UniversalFileChooser {
           }
         })
 
+        virtualRootList.selectionMode = ListSelectionModel.SINGLE_SELECTION
+        virtualRootList.cellRenderer = listCellRenderer("") {
+          text(" ")
+          icon(value.presentation.icon ?: AllIcons.Nodes.Folder)
+          text(value.presentation.presentableName)
+        }
+        virtualRootList.addListSelectionListener {
+          tree.clearSelection()
+          toolbar.updateActionsAsync()
+        }
+        tree.addTreeSelectionListener {
+          if (tree.selectionCount > 0 && !virtualRootList.isSelectionEmpty) {
+            virtualRootList.clearSelection()
+          }
+          toolbar.updateActionsAsync()
+        }
+
+        virtualRootScrollPane = ScrollPaneFactory.createScrollPane(virtualRootList).apply { isVisible = false }
+        val treeContentPanel = JPanel(BorderLayout())
+        treeContentPanel.add(virtualRootScrollPane, BorderLayout.NORTH)
+        treeContentPanel.add(scrollPane, BorderLayout.CENTER)
+
         val loadingLabel = JBLabel(IdeBundle.message("universal.file.chooser.label.loading"), SwingConstants.CENTER)
         contentPanel.add(loadingLabel, LOADING_CARD)
-        contentPanel.add(scrollPane, TREE_CARD)
+        contentPanel.add(treeContentPanel, TREE_CARD)
 
         val mainPanel = panel {
           row {
@@ -429,9 +471,29 @@ object UniversalFileChooser {
         scope.launch {
           withContext(Dispatchers.IO) {
             val elements = contributor.getRoots()
+            val fetchedVirtualRoots = contributor.getVirtualRoots()
+            val presentations = mutableMapOf<String, UniversalFileChooserContributor.Presentation>()
+            for (element in elements) {
+              val presentation = contributor.getPresentation(element)
+              if (presentation != null) {
+                presentations[element.invariantSeparatorsPathString] = presentation
+              }
+            }
             runOnEdt {
               roots.clear()
-              roots.addAll(elements)
+              roots.addAll(elements.map { it.invariantSeparatorsPathString })
+              presentationCache.clear()
+              presentationCache.putAll(presentations)
+              virtualRootMap.clear()
+              virtualRootListModel.clear()
+              for (vr in fetchedVirtualRoots) {
+                val path = runCatching { Path.of(vr.id) }.getOrNull() ?: continue
+                if (path.invariantSeparatorsPathString !in roots) {
+                  virtualRootMap[path] = vr
+                  virtualRootListModel.addElement(vr)
+                }
+              }
+              virtualRootScrollPane.isVisible = virtualRootListModel.size() > 0
               mountStatusCache.clear()
               for (root in roots) {
                 mountStatusCache[root] = MountStatus.Unmounted
@@ -447,27 +509,27 @@ object UniversalFileChooser {
 
       private fun startCacheUpdates() {
         cacheUpdateJob?.cancel()
-        val changed = mutableSetOf<Path>()
+        val changed = mutableSetOf<String>()
         cacheUpdateJob = scope.launch {
           while (true) {
             changed.clear()
             withContext(Dispatchers.IO) {
               for (root in roots) {
-                val newStatus = contributor.getMountStatus(root)
+                val newStatus = contributor.getMountStatus(Path.of(root))
                 if (mountStatusCache.put(root, newStatus) != newStatus) {
                   changed.add(root)
                 }
               }
             }
-            changed.forEach { handleMountStatusChange(it) }
+            changed.forEach { handleMountStatusChange(Path.of(it)) }
             delay(3.seconds)
           }
         }
       }
 
       private fun handleMountStatusChange(root: Path) {
-        runOnEdt {
-          when (mountStatusCache[root]) {
+        scope.launch {
+          when (mountStatusCache[root.invariantSeparatorsPathString]) {
             MountStatus.Unmounted -> runOnEdt {
               collapseUnmountedRoot(root)
               toolbar?.updateActionsAsync()
@@ -527,11 +589,7 @@ object UniversalFileChooser {
 
           override fun update(e: AnActionEvent) {
             val parent = fileTree.getNewFileParent()
-            val nioPath = parent?.let { runCatching { it.toNioPath() }.getOrNull() }
-            val state = runCatching {
-              nioPath != null && Files.isDirectory(nioPath) && Files.isWritable(nioPath)
-            }
-            e.presentation.isEnabled = state.getOrNull() == true
+            e.presentation.isEnabled = parent != null && parent.isDirectory && parent.isWritable
           }
 
           override fun actionPerformed(e: AnActionEvent) {
@@ -564,12 +622,12 @@ object UniversalFileChooser {
           override fun update(e: AnActionEvent) {
             val selected = fileTree.selectedFile
             val nioPath = selected?.let { runCatching { it.toNioPath() }.getOrNull() }
-            if (nioPath == null || roots.contains(nioPath) || !Files.isWritable(nioPath)) {
+            if (nioPath == null || roots.contains(nioPath.invariantSeparatorsPathString) || !selected.isWritable) {
               e.presentation.isEnabled = false; return
             }
-            if (Files.isDirectory(nioPath)) {
-              val empty = runCatching { Files.list(nioPath).use { !it.findFirst().isPresent } }.getOrDefault(false)
-              if (!empty) {
+            if (selected.isDirectory) {
+              val children = selected.children
+              if (children == null || children.isNotEmpty()) {
                 e.presentation.isEnabled = false; return
               }
             }
@@ -629,31 +687,59 @@ object UniversalFileChooser {
           override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
           override fun update(e: AnActionEvent) {
+            val selectedVirtualRoot = virtualRootList.selectedValue
+            e.presentation.icon = AllIcons.Actions.Execute
+            e.presentation.text = IdeBundle.message("universal.file.chooser.action.mount.status.unmounted")
+            if (selectedVirtualRoot != null) {
+              e.presentation.isVisible = true
+              e.presentation.isEnabled = !isMountActionInProgress
+              return
+            }
             val selected = fileTree.selectedFile
             if (selected == null) {
               e.presentation.isVisible = false
               return
             }
-            val status = runBlockingCancellable { contributor.getMountStatus(selected.toNioPath()) }
+            val nioPath = runCatching { selected.toNioPath() }.getOrNull()
+            if (nioPath == null) {
+              e.presentation.isVisible = false
+              return
+            }
+            val status = runBlockingCancellable { contributor.getMountStatus(nioPath) }
             when (status) {
               MountStatus.Permanent -> {
                 e.presentation.isVisible = false
               }
               MountStatus.Mounted -> {
                 e.presentation.isVisible = true
-                e.presentation.text = IdeBundle.message("universal.file.chooser.action.mount.status.mounted")
-                e.presentation.icon = AllIcons.Actions.Suspend
               }
               MountStatus.Unmounted -> {
                 e.presentation.isVisible = true
-                e.presentation.text = IdeBundle.message("universal.file.chooser.action.mount.status.unmounted")
-                e.presentation.icon = AllIcons.Actions.Execute
               }
             }
-            e.presentation.isEnabled = !isMountActionInProgress
+            e.presentation.isEnabled = !isMountActionInProgress && status != MountStatus.Mounted
           }
 
           override fun actionPerformed(e: AnActionEvent) {
+            val selectedVirtualRoot = virtualRootList.selectedValue
+            if (selectedVirtualRoot != null) {
+              isMountActionInProgress = true
+              cacheUpdateJob?.cancel()
+              topComponent.cursor = Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR)
+              scope.launch {
+                try {
+                  withContext(Dispatchers.IO) {
+                    contributor.mountVirtualRoot(selectedVirtualRoot)
+                  }
+                }
+                finally {
+                  topComponent.cursor = Cursor.getDefaultCursor()
+                  isMountActionInProgress = false
+                  loadRoots()
+                }
+              }
+              return
+            }
             fileTree.selectedFile?.let { selected ->
               val root = selected.toNioPath().root
               isMountActionInProgress = true
@@ -663,17 +749,8 @@ object UniversalFileChooser {
                 try {
                   withContext(Dispatchers.IO) {
                     val status = contributor.getMountStatus(root)
-                    when (status) {
-                      MountStatus.Mounted -> {
-                        runOnEdt {
-                          collapseUnmountedRoot(root)
-                        }
-                        contributor.unmount(root)
-                      }
-                      MountStatus.Unmounted -> {
-                        contributor.mount(root)
-                      }
-                      else -> {}
+                    if (status == MountStatus.Unmounted) {
+                      contributor.mount(root)
                     }
                   }
                 }
@@ -705,7 +782,7 @@ object UniversalFileChooser {
         }
       }
 
-      private fun findRootPath(nioPath: Path): Path? {
+      private fun findRootPath(nioPath: Path): String? {
         return roots.firstOrNull { root -> nioPath.startsWith(root) }
       }
 
@@ -727,7 +804,7 @@ object UniversalFileChooser {
           val treePath = tree.getPathForRow(i) ?: continue
           val file = FileSystemTreeImpl.getVirtualFile(treePath) ?: continue
           val nioPath = runCatching { file.toNioPath() }.getOrNull() ?: continue
-          if (nioPath.toString() == rootPath.toString()) {
+          if (nioPath.invariantSeparatorsPathString == rootPath) {
             tree.collapsePath(treePath)
             return
           }

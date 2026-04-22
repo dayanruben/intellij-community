@@ -1,4 +1,5 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// @spec community/plugins/agent-workbench/spec/agent-sessions.spec.md
 package com.intellij.agent.workbench.sessions.service
 
 import com.intellij.agent.workbench.chat.AgentChatOpenTabsRefreshSnapshot
@@ -7,8 +8,10 @@ import com.intellij.agent.workbench.chat.updateOpenAgentChatTabPresentation
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshThreadSeed
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.agent.workbench.sessions.core.providers.UNKNOWN_AGENT_SESSION_REFRESH_THREAD_UPDATED_AT
 import com.intellij.agent.workbench.sessions.core.providers.describeScope
 import com.intellij.agent.workbench.sessions.core.providers.isUnscoped
 import com.intellij.agent.workbench.sessions.model.AgentProjectSessions
@@ -19,6 +22,7 @@ import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import com.intellij.agent.workbench.sessions.util.buildAgentSessionIdentity
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
+import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,8 +37,10 @@ internal class AgentSessionProviderRefreshRunner(
     private val archiveSuppressionSupport: AgentSessionArchiveSuppressionSupport,
     private val refreshSupportProvider: (AgentSessionProvider) -> AgentSessionThreadRebindSupport?,
     private val resolveProviderWarningMessage: (AgentSessionProvider, Throwable) -> String,
-    private val openAgentChatSnapshotProvider: suspend () -> AgentChatOpenTabsRefreshSnapshot = ::collectOpenAgentChatRefreshSnapshot,
-    private val openAgentChatTabPresentationUpdater: suspend (
+  private val openAgentChatSnapshotProvider: suspend () -> AgentChatOpenTabsRefreshSnapshot = ::collectOpenAgentChatRefreshSnapshot,
+  private val openAgentChatTabPresentationUpdater: suspend (
+    AgentSessionProvider,
+    Set<String>,
     Map<Pair<String, String>, String>,
     Map<Pair<String, String>, AgentThreadActivity>,
   ) -> Int = ::updateOpenAgentChatTabPresentation,
@@ -147,10 +153,16 @@ internal class AgentSessionProviderRefreshRunner(
         emptyMap()
       }
       else {
+        val refreshThreadSeedsByPath = buildRefreshThreadSeedsByPath(
+          provider = provider,
+          outcomes = outcomes,
+          hintThreadIdsByPath = hintThreadIdsByPath.filterKeys { it in refreshHintPaths },
+          forcedThreadIds = updateEvent.threadIds,
+        )
         try {
           source.prefetchRefreshHints(
             paths = refreshHintPaths.toList(),
-            knownThreadIdsByPath = hintThreadIdsByPath.filterKeys { it in refreshHintPaths },
+            refreshThreadSeedsByPath = refreshThreadSeedsByPath,
           )
         }
         catch (e: Throwable) {
@@ -266,10 +278,16 @@ internal class AgentSessionProviderRefreshRunner(
     outcomes: Map<String, ProviderRefreshOutcome>,
     refreshId: Long,
   ) {
+    // `refreshedPaths` is the authoritative refresh scope for shared-presentation eviction.
+    // Warning-only outcomes intentionally stay out of this set because state keeps the last
+    // concrete threads for those paths, so evicting presentation there would regress open tabs
+    // back to bootstrap titles/activity without a real provider snapshot.
+    val authoritativePaths = LinkedHashSet<String>()
     val titleByPathAndThreadIdentity = LinkedHashMap<Pair<String, String>, String>()
     val activityByPathAndThreadIdentity = LinkedHashMap<Pair<String, String>, AgentThreadActivity>()
     for ((path, outcome) in outcomes) {
       val threads = outcome.threads ?: continue
+      authoritativePaths += path
       for (thread in threads) {
         if (thread.provider != provider) continue
         val identityKey = path to buildAgentSessionIdentity(thread.provider, thread.id)
@@ -278,11 +296,9 @@ internal class AgentSessionProviderRefreshRunner(
       }
     }
 
-    if (titleByPathAndThreadIdentity.isEmpty() && activityByPathAndThreadIdentity.isEmpty()) {
-      return
-    }
-
     val updatedTabs = openAgentChatTabPresentationUpdater(
+      provider,
+      authoritativePaths,
       titleByPathAndThreadIdentity,
       activityByPathAndThreadIdentity,
     )
@@ -292,10 +308,10 @@ internal class AgentSessionProviderRefreshRunner(
     }
   }
 
-  private fun calculateNewProviderThreadIdsByPath(
-    provider: AgentSessionProvider,
-    outcomes: Map<String, ProviderRefreshOutcome>,
-    knownThreadIdsByPath: Map<String, Set<String>>,
+private fun calculateNewProviderThreadIdsByPath(
+  provider: AgentSessionProvider,
+  outcomes: Map<String, ProviderRefreshOutcome>,
+  knownThreadIdsByPath: Map<String, Set<String>>,
   ): Map<String, Set<String>> {
     val result = LinkedHashMap<String, Set<String>>()
     for ((path, outcome) in outcomes) {
@@ -426,6 +442,45 @@ private fun collectLoadedProviderThreadIdsByPath(
         .map { it.id }
         .toCollection(LinkedHashSet())
     }
+  }
+  return result
+}
+
+private fun buildRefreshThreadSeedsByPath(
+  provider: AgentSessionProvider,
+  outcomes: Map<String, ProviderRefreshOutcome>,
+  hintThreadIdsByPath: Map<String, Set<String>>,
+  forcedThreadIds: Set<String>?,
+): Map<String, Set<AgentSessionRefreshThreadSeed>> {
+  if (hintThreadIdsByPath.isEmpty()) {
+    return emptyMap()
+  }
+
+  val forcedThreadIds = forcedThreadIds.orEmpty()
+  val result = LinkedHashMap<String, Set<AgentSessionRefreshThreadSeed>>(hintThreadIdsByPath.size)
+  for ((path, threadIds) in hintThreadIdsByPath) {
+    val updatedAtByThreadId = Object2LongOpenHashMap<String>()
+    updatedAtByThreadId.defaultReturnValue(UNKNOWN_AGENT_SESSION_REFRESH_THREAD_UPDATED_AT)
+    outcomes[path]
+      ?.threads
+      .orEmpty()
+      .asSequence()
+      .filter { thread -> thread.provider == provider }
+      .forEach { thread ->
+        updatedAtByThreadId.put(thread.id, thread.updatedAt)
+      }
+
+    val seeds = LinkedHashSet<AgentSessionRefreshThreadSeed>(threadIds.size)
+    threadIds.forEach { threadId ->
+      seeds.add(
+        AgentSessionRefreshThreadSeed(
+          threadId = threadId,
+          updatedAt = updatedAtByThreadId.getLong(threadId),
+          forceRefresh = threadId in forcedThreadIds,
+        )
+      )
+    }
+    result[path] = seeds
   }
   return result
 }

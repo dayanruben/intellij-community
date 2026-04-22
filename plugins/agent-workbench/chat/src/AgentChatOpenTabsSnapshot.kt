@@ -109,9 +109,10 @@ internal fun collectOpenAgentChatTabsSnapshot(
         managerByFile.computeIfAbsent(chatFile) { LinkedHashSet() }.add(exManager)
       }
 
-      if (chatFile.provider != null && !hasPendingThreadIdentity && chatFile.subAgentId == null) {
+      val provider = chatFile.provider
+      if (provider != null && !hasPendingThreadIdentity && chatFile.subAgentId == null) {
         concreteFilesByProviderAndPathAndTabKey
-          .computeIfAbsent(chatFile.provider!!) { LinkedHashMap() }
+          .computeIfAbsent(provider) { LinkedHashMap() }
           .computeIfAbsent(normalizedProjectPath) { LinkedHashMap() }
           .putIfAbsent(chatFile.tabKey, chatFile)
       }
@@ -225,6 +226,20 @@ internal class AgentChatOpenTabsSnapshot(
 
   fun findConcreteFile(provider: AgentSessionProvider, normalizedPath: String, tabKey: String): AgentChatVirtualFile? {
     return concreteFilesByProviderAndPathAndTabKey[provider]?.get(normalizedPath)?.get(tabKey)
+  }
+
+  fun findOpenTopLevelConcreteEntry(
+    normalizedPath: String,
+    provider: AgentSessionProvider,
+    threadId: String,
+  ): AgentChatOpenFileEntry? {
+    return entries.firstOrNull { entry ->
+      entry.normalizedProjectPath == normalizedPath &&
+      !entry.file.isPendingThread &&
+      entry.file.subAgentId == null &&
+      entry.file.provider == provider &&
+      entry.file.threadId == threadId
+    }
   }
 
   fun managersFor(file: AgentChatVirtualFile): Set<FileEditorManagerEx> {

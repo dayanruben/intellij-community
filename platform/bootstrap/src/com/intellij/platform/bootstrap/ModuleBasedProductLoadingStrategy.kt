@@ -91,7 +91,7 @@ internal class ModuleBasedProductLoadingStrategy(internal val moduleRepository: 
     }
     val mainGroupClassPath = embeddedModulesWithDependencies.flatMapTo(LinkedHashSet()) { it.resourceRootPaths }
     val classPath = (bootstrapClassLoader as PathClassLoader).classPath
-    logger<ModuleBasedProductLoadingStrategy>().info("New classpath roots:\n${(mainGroupClassPath - classPath.baseUrls.toSet()).joinToString("\n")}")
+    logger<ModuleBasedProductLoadingStrategy>().info("New classpath roots:\n${(mainGroupClassPath - classPath.files.toSet()).joinToString("\n")}")
     classPath.addFiles(mainGroupClassPath)
   }
 
@@ -128,7 +128,7 @@ internal class ModuleBasedProductLoadingStrategy(internal val moduleRepository: 
       )
     }
     val custom = loadCustomPluginDescriptors(scope, customPluginDir, loadingContext, zipPool)
-    val bundled = if (SystemProperties.getBooleanProperty("intellij.platform.module.based.loader.use.plugin.module.groups", true)) {
+    val bundled = if (SystemProperties.getBooleanProperty("intellij.platform.module.based.loader.use.plugin.module.groups", false)) {
       logger<ModuleBasedProductLoadingStrategy>().info("Loading bundled plugins using module groups")
       loadBundledPluginDescriptorsFromProductModules(scope, loadingContext, zipPool)
     }

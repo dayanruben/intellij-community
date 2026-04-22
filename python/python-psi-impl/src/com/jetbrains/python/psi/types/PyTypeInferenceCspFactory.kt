@@ -1,5 +1,6 @@
 package com.jetbrains.python.psi.types
 
+import com.intellij.openapi.util.registry.Registry
 import com.jetbrains.python.psi.PyArgumentList
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallSiteExpression
@@ -12,7 +13,7 @@ import com.jetbrains.python.psi.types.PyRecursiveTypeVisitor.PyTypeTraverser
 import com.jetbrains.python.psi.types.PyTypeChecker.GenericSubstitutions
 import com.jetbrains.python.psi.types.PyTypeChecker.collectGenerics
 import com.jetbrains.python.psi.types.PyTypeChecker.hasGenerics
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance
 import org.jetbrains.annotations.ApiStatus
 
 class NotSupportedException : RuntimeException()
@@ -26,6 +27,9 @@ object PyTypeInferenceCspFactory {
     val callSite = argsMapping.callSiteExpression
     val callableType = argsMapping.callableType
     val receiver = callSite.getReceiver(callableType?.callable)
+    if (!Registry.`is`("python.use.csp.type.inference")) {
+      return PyTypeChecker.unifyReceiver(receiver, context)
+    }
     try {
       return doUnifyFunctionCall(callSite, receiver, callableType, argsMapping.mappedParameters, context) ?: GenericSubstitutions()
     }
@@ -42,6 +46,9 @@ object PyTypeInferenceCspFactory {
     mappedParameters: Map<PyExpression, PyCallableParameter>,
     context: TypeEvalContext,
   ): GenericSubstitutions? {
+    if (!Registry.`is`("python.use.csp.type.inference")) {
+      return PyTypeChecker.unifyGenericCall(receiver, mappedParameters, context)
+    }
     try {
       return doUnifyFunctionCall(callSite, receiver, callableType, mappedParameters, context)
     }
