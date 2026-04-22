@@ -3,53 +3,51 @@ package com.intellij.openapi.editor.impl
 
 import com.intellij.diagnostic.Dumpable
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.CustomWrap
 import com.intellij.openapi.editor.CustomWrapModel
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.ex.PrioritizedDocumentListener
 import com.intellij.openapi.editor.impl.customwrap.CustomWrapImpl
-import com.intellij.openapi.util.Disposer
-import com.intellij.util.containers.ContainerUtil
+import com.intellij.util.DocumentUtil
+import com.intellij.util.EventDispatcher
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
+import org.jetbrains.annotations.TestOnly
 
 internal class CustomWrapModelImpl(private val editor: EditorImpl) : CustomWrapModel, PrioritizedDocumentListener, Dumpable {
-  private val tree: CustomWrapTree = CustomWrapTree(editor.elfDocument)
-  private val listeners = ContainerUtil.createLockFreeCopyOnWriteList<CustomWrapModel.Listener>()
+  private val document = editor.elfDocument
+  private val tree: CustomWrapTree = CustomWrapTree(document)
+  private val eventDispatcher = EventDispatcher.create(CustomWrapModel.Listener::class.java)
 
   fun addListener(listener: CustomWrapModel.Listener) {
-    listeners.add(listener)
+    eventDispatcher.addListener(listener)
   }
 
   override fun addListener(listener: CustomWrapModel.Listener, disposable: Disposable) {
-    listeners.add(listener)
-    Disposer.register(disposable) {
-      listeners.remove(listener)
-    }
+    eventDispatcher.addListener(listener, disposable)
   }
 
   fun removeListener(listener: CustomWrapModel.Listener) {
-    listeners.remove(listener)
+    eventDispatcher.removeListener(listener)
   }
 
   private fun notifyAdded(wrap: CustomWrapImpl) {
-    for (listener in listeners) {
-      listener.customWrapAdded(wrap)
-    }
+    eventDispatcher.multicaster.customWrapAdded(wrap)
   }
 
   private fun notifyRemoved(wrap: CustomWrapImpl) {
-    for (listener in listeners) {
-      listener.customWrapRemoved(wrap)
-    }
-  }
-
-  internal fun notifyMerged() {
-    editor.softWrapModel.customWrapsMerged()
+    eventDispatcher.multicaster.customWrapRemoved(wrap)
   }
 
   override fun addWrap(offset: Int, indentInColumns: Int, priority: Int): CustomWrap? {
-    val wrap = CustomWrapImpl(offset, editor.document, this, indentInColumns, priority)
+    val document = document
+    if (offset < 0 || offset > document.textLength) return null
+    if (!isValidCustomWrapOffset(offset, document)) {
+      return null
+    }
+    val wrap = CustomWrapImpl(offset, document, this, indentInColumns, priority)
     tree.addInterval(wrap, offset, offset, false, false, false, 0)
     notifyAdded(wrap)
     return wrap
@@ -80,9 +78,7 @@ internal class CustomWrapModelImpl(private val editor: EditorImpl) : CustomWrapM
   }
 
   override fun removeWrap(wrap: CustomWrap) {
-    if (tree.removeInterval(wrap as CustomWrapImpl)) {
-      notifyRemoved(wrap)
-    }
+    tree.removeInterval(wrap as CustomWrapImpl)
   }
 
   override fun hasWraps(): Boolean = tree.size() > 0
@@ -90,7 +86,7 @@ internal class CustomWrapModelImpl(private val editor: EditorImpl) : CustomWrapM
   private var wrapsAtCaret: List<CustomWrapImpl> = emptyList()
 
   override fun beforeDocumentChange(event: DocumentEvent) {
-    if (editor.document.isInBulkUpdate) return
+    if (document.isInBulkUpdate) return
     // todo check it did not change during bulk op
     val offset = event.offset
     if (event.getOldLength() == 0 && offset == editor.caretModel.offset) {
@@ -118,21 +114,36 @@ internal class CustomWrapModelImpl(private val editor: EditorImpl) : CustomWrapM
   override fun dumpState(): @NonNls String {
     return "${getWraps()}"
   }
-
-  private class CustomWrapTree(document: Document) : HardReferencingRangeMarkerTree<CustomWrapImpl>(document) {
-    class Node(
-      rangeMarkerTree: RangeMarkerTree<CustomWrapImpl>,
-      key: CustomWrapImpl,
-      start: Int,
-      end: Int,
-      stickingToRight: Boolean,
-    ) : RMNode<CustomWrapImpl>(rangeMarkerTree, key, start, end, false, false, stickingToRight) {
-      override fun addIntervalsFrom(otherNode: IntervalNode<CustomWrapImpl>) {
-        super.addIntervalsFrom(otherNode)
-        intervals.firstOrNull()?.get()?.model?.notifyMerged()
-      }
+  
+  @TestOnly
+  fun validateState() {
+    val customWraps = getWraps()
+    for (wrap in customWraps) {
+      LOG.assertTrue(isValidCustomWrapOffset(wrap.offset, document))
     }
+    if (document.isInBulkUpdate) {
+      return
+    }
+    val notCollapsedUniqueWraps: List<CustomWrap> = customWraps
+      // only not collapsed
+      .filter {
+        val foldRegion = editor.foldingModel.getCollapsedRegionAtOffset(it.offset)
+        foldRegion == null || it.offset == foldRegion.startOffset
+      }
+      // only one wrap per offset
+      .fold(mutableListOf()) { acc, wrap ->
+        val prev = acc.lastOrNull()
+        if (prev == null || prev.offset < wrap.offset) {
+          acc.add(wrap)
+        }
+        acc
+      }
+    val softWraps = editor.softWrapModel.getRegisteredSoftWrapsEx()
+    val customSoftWraps = softWraps.filter { it.isCustomSoftWrap }
+    LOG.assertTrue(notCollapsedUniqueWraps.size == customSoftWraps.size)
+  }
 
+  private inner class CustomWrapTree(document: Document) : HardReferencingRangeMarkerTree<CustomWrapImpl>(document) {
     public override fun size(): Int {
       return super.size()
     }
@@ -149,22 +160,18 @@ internal class CustomWrapModelImpl(private val editor: EditorImpl) : CustomWrapM
       return super.addInterval(interval, start, end, greedyToLeft, greedyToRight, stickingToRight, layer)
     }
 
-    override fun createNewNode(
-      key: CustomWrapImpl,
-      start: Int,
-      end: Int,
-      greedyToLeft: Boolean,
-      greedyToRight: Boolean,
-      stickingToRight: Boolean,
-      layer: Int,
-    ): RMNode<CustomWrapImpl> {
-      return Node(this, key, start, end, stickingToRight)
-    }
-
-    override fun fireBeforeRemoved(marker: CustomWrapImpl) {
-      marker.model.notifyRemoved(marker)
+    override fun fireAfterRemoved(marker: CustomWrapImpl) {
+      notifyRemoved(marker)
     }
   }
 }
 
+private val LOG = logger<CustomWrapModelImpl>()
+
 private val CUSTOM_WRAP_COMPARATOR = compareBy<CustomWrapImpl> { it.offset }.thenBy { it.priority }
+
+@ApiStatus.Internal
+fun isValidCustomWrapOffset(offset: Int, document: Document): Boolean =
+  !DocumentUtil.isInsideCharacterPair(document, offset)
+  && !DocumentUtil.isAtLineStart(offset, document)
+  && !DocumentUtil.isAtLineEnd(offset, document)

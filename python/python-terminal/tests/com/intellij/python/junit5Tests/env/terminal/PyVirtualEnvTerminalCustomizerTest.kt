@@ -10,6 +10,7 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.eel.EelExecApi
 import com.intellij.platform.eel.ExecuteProcessException
 import com.intellij.platform.eel.ThrowsChecked
+import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.localEel
 import com.intellij.platform.eel.provider.utils.readWholeText
 import com.intellij.platform.eel.provider.utils.sendWholeText
@@ -97,7 +98,7 @@ class PyVirtualEnvTerminalCustomizerTest {
 
   @ThrowsChecked(ExecuteProcessException::class)
   @CartesianTest
-  fun shellActivationTest(
+  fun testShellActivation(
     @CartesianTest.Values(booleans = [true, false]) useConda: Boolean,
     @CartesianTest.Enum shellType: ShellType,
     @CondaEnv condaEnv: PyCondaEnv,
@@ -205,6 +206,7 @@ class PyVirtualEnvTerminalCustomizerTest {
       env)
 
     val options = ShellStartupOptions.Builder()
+      .setFinalWorkingDirectoryEelPath(workDir.asEelPath())
       .envVariables(env)
       .shellCommand(command.toList())
       .shellIntegration(ShellIntegration(shellType, false))

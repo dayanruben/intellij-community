@@ -209,7 +209,6 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(ModifierRequiredFixFactories.addOperatorModifierFixFactory)
         registerFactory(AddSemicolonBeforeLambdaExpressionFixFactory.addSemicolonBeforeLambdaExpressionFixFactory)
         registerFactory(AbstractSuperCallFixFactories.errorFixFactory)
-        registerFactory(AbstractSuperCallFixFactories.warningFactory)
         registerFactory(JavaClassOnCompanionFixFactories.factory)
         registerFactory(ChangeTypeQuickFixFactories.implicitNothingReturnTypeFixFactory)
         registerFactory(ChangeTypeQuickFixFactories.implicitNothingPropertyTypeFixFactory)
@@ -546,6 +545,8 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
 
     private val superType = KtQuickFixesListBuilder.registerPsiQuickFix {
         registerFactory(SuperClassNotInitializedFactories.changeToConstructorCall)
+        registerFactory(MoveToSealedMatchingPackageFixFactory.sealedInheritorInDifferentModule)
+        registerFactory(MoveToSealedMatchingPackageFixFactory.sealedInheritorInDifferentPackage)
     }
 
     private val vararg = KtQuickFixesListBuilder.registerPsiQuickFix {
@@ -701,7 +702,6 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerPsiQuickFixes(KaFirDiagnostic.OverloadsAnnotationClassConstructorError::class, RemoveAnnotationFix.JvmOverloads)
 
         registerPsiQuickFixes(KaFirDiagnostic.WrongExtensionFunctionType::class, RemoveAnnotationFix.ExtensionFunctionType)
-        registerPsiQuickFixes(KaFirDiagnostic.WrongExtensionFunctionTypeWarning::class, RemoveAnnotationFix.ExtensionFunctionType)
     }
 
     private val contextParameters = KtQuickFixesListBuilder.registerPsiQuickFix {

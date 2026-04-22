@@ -38,7 +38,6 @@ jvm_library(
     "//plugins/kotlin/base/facet",
     "//plugins/kotlin/base/util",
     "//plugins/kotlin/base/resources:kotlin-base-resources",
-    "//plugins/kotlin/preferences",
   ]
 )
 
@@ -70,8 +69,6 @@ jvm_library(
     "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
     "@lib//:kotlin-test-junit",
     "@lib//:junit5",
-    "//java/testFramework",
-    "//java/testFramework:testFramework_test_lib",
     "//platform/external-system-api:externalSystem_test_lib",
     "//platform/external-system-impl:externalSystem-impl_test_lib",
     "//platform/testFramework",
@@ -81,7 +78,6 @@ jvm_library(
     "//plugins/kotlin/base/facet:facet_test_lib",
     "//plugins/kotlin/base/util:util_test_lib",
     "//plugins/kotlin/base/resources:kotlin-base-resources_test_lib",
-    "//plugins/kotlin/preferences:preferences_test_lib",
   ]
 )
 ### auto-generated section `build intellij.kotlin.onboarding` end

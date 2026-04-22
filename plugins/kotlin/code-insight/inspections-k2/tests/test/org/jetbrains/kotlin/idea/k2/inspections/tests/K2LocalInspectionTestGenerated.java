@@ -1487,6 +1487,60 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/intentions/removeSingleExpressionStringTemplate")
+    public static class RemoveSingleExpressionStringTemplate extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("emptyString.kt")
+        public void testEmptyString() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeSingleExpressionStringTemplate/emptyString.kt");
+        }
+
+        @TestMetadata("justString.kt")
+        public void testJustString() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeSingleExpressionStringTemplate/justString.kt");
+        }
+
+        @TestMetadata("multipleStringTemplate.kt")
+        public void testMultipleStringTemplate() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeSingleExpressionStringTemplate/multipleStringTemplate.kt");
+        }
+
+        @TestMetadata("singleExpressionStringTemplate.kt")
+        public void testSingleExpressionStringTemplate() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeSingleExpressionStringTemplate/singleExpressionStringTemplate.kt");
+        }
+
+        @TestMetadata("singleExpressionStringTemplateNullableString.kt")
+        public void testSingleExpressionStringTemplateNullableString() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeSingleExpressionStringTemplate/singleExpressionStringTemplateNullableString.kt");
+        }
+
+        @TestMetadata("singleExpressionStringTemplateWithMethodCall.kt")
+        public void testSingleExpressionStringTemplateWithMethodCall() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeSingleExpressionStringTemplate/singleExpressionStringTemplateWithMethodCall.kt");
+        }
+
+        @TestMetadata("singleExpressionStringTemplateWithNonStringType.kt")
+        public void testSingleExpressionStringTemplateWithNonStringType() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeSingleExpressionStringTemplate/singleExpressionStringTemplateWithNonStringType.kt");
+        }
+
+        @TestMetadata("stringTemplateWithText.kt")
+        public void testStringTemplateWithText() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeSingleExpressionStringTemplate/stringTemplateWithText.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/inspectionsLocal/enumValuesSoftDeprecate")
     public static class EnumValuesSoftDeprecate extends AbstractK2LocalInspectionTest {
         @java.lang.Override
@@ -8292,6 +8346,125 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty")
+    public static class ReplaceSizeCheckWithIsNotEmpty extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("array.kt")
+        public void testArray() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/array.kt");
+        }
+
+        @TestMetadata("array2.kt")
+        public void testArray2() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/array2.kt");
+        }
+
+        @TestMetadata("collection.kt")
+        public void testCollection() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/collection.kt");
+        }
+
+        @TestMetadata("gt.kt")
+        public void testGt() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/gt.kt");
+        }
+
+        @TestMetadata("gteq.kt")
+        public void testGteq() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/gteq.kt");
+        }
+
+        @TestMetadata("list.kt")
+        public void testList() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/list.kt");
+        }
+
+        @TestMetadata("list2.kt")
+        public void testList2() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/list2.kt");
+        }
+
+        @TestMetadata("listCount.kt")
+        public void testListCount() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/listCount.kt");
+        }
+
+        @TestMetadata("listCountWithPredicate.kt")
+        public void testListCountWithPredicate() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/listCountWithPredicate.kt");
+        }
+
+        @TestMetadata("lt.kt")
+        public void testLt() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/lt.kt");
+        }
+
+        @TestMetadata("lteq.kt")
+        public void testLteq() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/lteq.kt");
+        }
+
+        @TestMetadata("map.kt")
+        public void testMap() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/map.kt");
+        }
+
+        @TestMetadata("oppositeSign.kt")
+        public void testOppositeSign() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/oppositeSign.kt");
+        }
+
+        @TestMetadata("oppositeSign2.kt")
+        public void testOppositeSign2() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/oppositeSign2.kt");
+        }
+
+        @TestMetadata("primitiveArray.kt")
+        public void testPrimitiveArray() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/primitiveArray.kt");
+        }
+
+        @TestMetadata("rangeCount.kt")
+        public void testRangeCount() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/rangeCount.kt");
+        }
+
+        @TestMetadata("set.kt")
+        public void testSet() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/set.kt");
+        }
+
+        @TestMetadata("sizeCheck.kt")
+        public void testSizeCheck() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/sizeCheck.kt");
+        }
+
+        @TestMetadata("string.kt")
+        public void testString() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/string.kt");
+        }
+
+        @TestMetadata("string2.kt")
+        public void testString2() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/string2.kt");
+        }
+
+        @TestMetadata("stringCount.kt")
+        public void testStringCount() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/replaceSizeCheckWithIsNotEmpty/stringCount.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/inspectionsLocal/coroutines/redundantRunCatching")
     public static class RedundantRunCatching extends AbstractK2LocalInspectionTest {
         @java.lang.Override
@@ -14120,6 +14293,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/replaceWithShadowing.kt");
             }
 
+            @TestMetadata("scopeIsNotClass.kt")
+            public void testScopeIsNotClass() throws Exception {
+                runTest("testData/inspectionsLocal/convertToExplicitBackingFields/scopeIsNotClass.kt");
+            }
+
             @TestMetadata("simple.kt")
             public void testSimple() throws Exception {
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/simple.kt");
@@ -14980,60 +15158,6 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 public void testType() throws Exception {
                     runTest("testData/inspectionsLocal/removeRedundantQualifierName/type.kt");
                 }
-            }
-        }
-
-        @RunWith(JUnit3RunnerWithInners.class)
-        @TestMetadata("testData/inspectionsLocal/removeSingleExpressionStringTemplate")
-        public static class RemoveSingleExpressionStringTemplate extends AbstractK2LocalInspectionTest {
-            @java.lang.Override
-            @org.jetbrains.annotations.NotNull
-            public final KotlinPluginMode getPluginMode() {
-                return KotlinPluginMode.K2;
-            }
-
-            private void runTest(String testDataFilePath) throws Exception {
-                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
-            }
-
-            @TestMetadata("emptyString.kt")
-            public void testEmptyString() throws Exception {
-                runTest("testData/inspectionsLocal/removeSingleExpressionStringTemplate/emptyString.kt");
-            }
-
-            @TestMetadata("justString.kt")
-            public void testJustString() throws Exception {
-                runTest("testData/inspectionsLocal/removeSingleExpressionStringTemplate/justString.kt");
-            }
-
-            @TestMetadata("multipleStringTemplate.kt")
-            public void testMultipleStringTemplate() throws Exception {
-                runTest("testData/inspectionsLocal/removeSingleExpressionStringTemplate/multipleStringTemplate.kt");
-            }
-
-            @TestMetadata("singleExpressionStringTemplate.kt")
-            public void testSingleExpressionStringTemplate() throws Exception {
-                runTest("testData/inspectionsLocal/removeSingleExpressionStringTemplate/singleExpressionStringTemplate.kt");
-            }
-
-            @TestMetadata("singleExpressionStringTemplateNullableString.kt")
-            public void testSingleExpressionStringTemplateNullableString() throws Exception {
-                runTest("testData/inspectionsLocal/removeSingleExpressionStringTemplate/singleExpressionStringTemplateNullableString.kt");
-            }
-
-            @TestMetadata("singleExpressionStringTemplateWithMethodCall.kt")
-            public void testSingleExpressionStringTemplateWithMethodCall() throws Exception {
-                runTest("testData/inspectionsLocal/removeSingleExpressionStringTemplate/singleExpressionStringTemplateWithMethodCall.kt");
-            }
-
-            @TestMetadata("singleExpressionStringTemplateWithNonStringType.kt")
-            public void testSingleExpressionStringTemplateWithNonStringType() throws Exception {
-                runTest("testData/inspectionsLocal/removeSingleExpressionStringTemplate/singleExpressionStringTemplateWithNonStringType.kt");
-            }
-
-            @TestMetadata("stringTemplateWithText.kt")
-            public void testStringTemplateWithText() throws Exception {
-                runTest("testData/inspectionsLocal/removeSingleExpressionStringTemplate/stringTemplateWithText.kt");
             }
         }
 
@@ -20396,6 +20520,135 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("withManyQuestionMarks.kt")
         public void testWithManyQuestionMarks() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/javaCollectionsWithNullableTypes/withManyQuestionMarks.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith")
+    public static class DeprecatedCallableAddReplaceWith extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("AlreadyWithReplaceWith.kt")
+        public void testAlreadyWithReplaceWith() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/AlreadyWithReplaceWith.kt");
+        }
+
+        @TestMetadata("CommentInBody.kt")
+        public void testCommentInBody() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/CommentInBody.kt");
+        }
+
+        @TestMetadata("DeclarationInside.kt")
+        public void testDeclarationInside() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/DeclarationInside.kt");
+        }
+
+        @TestMetadata("DeprecationLevelHidden.kt")
+        public void testDeprecationLevelHidden() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/DeprecationLevelHidden.kt");
+        }
+
+        @TestMetadata("ExceptionInPropertyDestructuringEntry.kt")
+        public void testExceptionInPropertyDestructuringEntry() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/ExceptionInPropertyDestructuringEntry.kt");
+        }
+
+        @TestMetadata("ExpressionBody.kt")
+        public void testExpressionBody() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/ExpressionBody.kt");
+        }
+
+        @TestMetadata("If.kt")
+        public void testIf() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/If.kt");
+        }
+
+        @TestMetadata("Imports.kt")
+        public void testImports() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/Imports.kt");
+        }
+
+        @TestMetadata("NoCompanionObjectImport.kt")
+        public void testNoCompanionObjectImport() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/NoCompanionObjectImport.kt");
+        }
+
+        @TestMetadata("NoDefaultImport.kt")
+        public void testNoDefaultImport() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/NoDefaultImport.kt");
+        }
+
+        @TestMetadata("NoReturn.kt")
+        public void testNoReturn() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/NoReturn.kt");
+        }
+
+        @TestMetadata("NotAvailableOnDocComment.kt")
+        public void testNotAvailableOnDocComment() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/NotAvailableOnDocComment.kt");
+        }
+
+        @TestMetadata("PrivateSymbolUsed.kt")
+        public void testPrivateSymbolUsed() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/PrivateSymbolUsed.kt");
+        }
+
+        @TestMetadata("QualifiedCall.kt")
+        public void testQualifiedCall() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/QualifiedCall.kt");
+        }
+
+        @TestMetadata("ReplaceWithHasNamedArgument.kt")
+        public void testReplaceWithHasNamedArgument() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/ReplaceWithHasNamedArgument.kt");
+        }
+
+        @TestMetadata("Return.kt")
+        public void testReturn() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/Return.kt");
+        }
+
+        @TestMetadata("ReturnInside.kt")
+        public void testReturnInside() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/ReturnInside.kt");
+        }
+
+        @TestMetadata("Simple.kt")
+        public void testSimple() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/Simple.kt");
+        }
+
+        @TestMetadata("StringLiteral.kt")
+        public void testStringLiteral() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/StringLiteral.kt");
+        }
+
+        @TestMetadata("StringTemplate.kt")
+        public void testStringTemplate() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/StringTemplate.kt");
+        }
+
+        @TestMetadata("TwoStatements.kt")
+        public void testTwoStatements() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/TwoStatements.kt");
+        }
+
+        @TestMetadata("ValProperty.kt")
+        public void testValProperty() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/ValProperty.kt");
+        }
+
+        @TestMetadata("ValPropertyWithReturn.kt")
+        public void testValPropertyWithReturn() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/deprecatedCallableAddReplaceWith/ValPropertyWithReturn.kt");
         }
     }
 

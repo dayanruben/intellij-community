@@ -1,5 +1,11 @@
 package com.intellij.lang.properties.codeInspection;
 
+import com.intellij.codeInspection.GlobalInspectionContext;
+import com.intellij.codeInspection.InspectionEngine;
+import com.intellij.codeInspection.InspectionManager;
+import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.QuickFix;
+import com.intellij.codeInspection.ex.LocalInspectionToolWrapper;
 import com.intellij.lang.properties.PropertiesImplUtil;
 import com.intellij.lang.properties.RemovePropertyFromBundleFix;
 import com.intellij.lang.properties.codeInspection.unused.UnusedPropertyInspection;
@@ -7,6 +13,7 @@ import com.intellij.lang.properties.psi.Property;
 import com.intellij.modcommand.ActionContext;
 import com.intellij.modcommand.ModCommand;
 import com.intellij.modcommand.ModCommandExecutor;
+import com.intellij.modcommand.ModCommandQuickFix;
 import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
@@ -22,9 +29,11 @@ import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.testFramework.VfsTestUtil;
 import com.intellij.testFramework.builders.ModuleFixtureBuilder;
 import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase;
+import com.intellij.util.containers.ContainerUtil;
 import org.intellij.lang.annotations.Language;
 
 import java.io.IOException;
+import java.util.List;
 
 public class UnusedPropertyInspectionTest extends CodeInsightFixtureTestCase<ModuleFixtureBuilder<?>> {
   @Override
@@ -111,4 +120,61 @@ public class UnusedPropertyInspectionTest extends CodeInsightFixtureTestCase<Mod
                  VfsUtilCore.loadText(myFixture.findFileInTempDir("q_en.properties")));
   }
 
+  public void testRemovePropertyFromAllLocalesWithEscapedKey() {
+    PsiFile defaultFile = myFixture.addFileToProject("p.properties", "foo\\ bar=value\nother=kept");
+    PsiFile enFile = myFixture.addFileToProject("p_en.properties", "foo\\ bar=en\nother=kept_en");
+    PsiFile frFile = myFixture.addFileToProject("p_fr.properties", "foo\\ bar=fr\nother=kept_fr");
+    myFixture.configureFromExistingVirtualFile(defaultFile.getVirtualFile());
+
+    Property property = (Property)PropertiesImplUtil.getPropertiesFile(defaultFile).findPropertyByKey("foo bar");
+    assertNotNull(property);
+
+    RemovePropertyFromBundleFix fix = new RemovePropertyFromBundleFix(property);
+    ActionContext context = ActionContext.from(myFixture.getEditor(), defaultFile);
+    ModCommand command = fix.asModCommandAction().perform(context);
+
+    CommandProcessor.getInstance().executeCommand(getProject(), () ->
+      ModCommandExecutor.getInstance().executeInteractively(context, command, myFixture.getEditor()), null, null);
+
+    assertNull(PropertiesImplUtil.getPropertiesFile(defaultFile).findPropertyByKey("foo bar"));
+    assertNull(PropertiesImplUtil.getPropertiesFile(enFile).findPropertyByKey("foo bar"));
+    assertNull(PropertiesImplUtil.getPropertiesFile(frFile).findPropertyByKey("foo bar"));
+
+    assertNotNull(PropertiesImplUtil.getPropertiesFile(defaultFile).findPropertyByKey("other"));
+    assertNotNull(PropertiesImplUtil.getPropertiesFile(enFile).findPropertyByKey("other"));
+    assertNotNull(PropertiesImplUtil.getPropertiesFile(frFile).findPropertyByKey("other"));
+  }
+
+  public void testBatchFixRemovesUnusedFromAllBundleFiles() {
+    PsiFile defaultFile = myFixture.addFileToProject("q.properties", "unused=value\nused=value_used\n");
+    PsiFile enFile = myFixture.addFileToProject("q_en.properties", "unused=en\nused=used_en\n");
+    PsiFile frFile = myFixture.addFileToProject("q_fr.properties", "unused=fr\nused=used_fr\n");
+    myFixture.configureFromExistingVirtualFile(defaultFile.getVirtualFile());
+
+    // Run inspection in batch mode (isOnTheFly=false).
+    LocalInspectionToolWrapper wrapper = new LocalInspectionToolWrapper(new UnusedPropertyInspection());
+    GlobalInspectionContext inspectionContext = InspectionManager.getInstance(getProject()).createNewGlobalContext();
+    List<ProblemDescriptor> descriptors = InspectionEngine.runInspectionOnFile(defaultFile, wrapper, inspectionContext);
+    ProblemDescriptor unusedDescriptor = ContainerUtil.find(descriptors,
+      d -> ((Property)d.getPsiElement().getParent()).getUnescapedKey().equals("unused"));
+    assertNotNull(unusedDescriptor);
+
+    QuickFix<?>[] fixes = unusedDescriptor.getFixes();
+    assertEquals(1, fixes.length);
+
+    ModCommandQuickFix fix = (ModCommandQuickFix)fixes[0];
+    ActionContext actionContext = ActionContext.from(unusedDescriptor);
+    ModCommand command = fix.perform(getProject(), unusedDescriptor);
+
+    CommandProcessor.getInstance().executeCommand(getProject(), () ->
+      ModCommandExecutor.getInstance().executeInteractively(actionContext, command, myFixture.getEditor()), null, null);
+
+    assertNull(PropertiesImplUtil.getPropertiesFile(defaultFile).findPropertyByKey("unused"));
+    assertNull(PropertiesImplUtil.getPropertiesFile(enFile).findPropertyByKey("unused"));
+    assertNull(PropertiesImplUtil.getPropertiesFile(frFile).findPropertyByKey("unused"));
+
+    assertNotNull(PropertiesImplUtil.getPropertiesFile(defaultFile).findPropertyByKey("used"));
+    assertNotNull(PropertiesImplUtil.getPropertiesFile(enFile).findPropertyByKey("used"));
+    assertNotNull(PropertiesImplUtil.getPropertiesFile(frFile).findPropertyByKey("used"));
+  }
 }
