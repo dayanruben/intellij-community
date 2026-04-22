@@ -35,9 +35,9 @@ internal val DefaultGoLand = IdeInfo(
 )
 
 /**
- * Registers GoLand [IdeInfo] in DI and initializes Dev Build Server support.
+ * Registers GoLand [IdeInfo] in DI.
  */
-class GoLandDevBuildServerListener : IdeProductInit {
+class GoLandProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.GOLAND
   override val ideInfo: IdeInfo = DefaultGoLand
 }

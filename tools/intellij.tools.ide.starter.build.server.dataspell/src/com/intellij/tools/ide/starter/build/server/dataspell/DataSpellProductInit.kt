@@ -27,9 +27,9 @@ internal val DefaultDataSpell = IdeInfo(
 )
 
 /**
- * Registers DataSpell [IdeInfo] in DI and initializes Dev Build Server support.
+ * Registers DataSpell [IdeInfo] in DI.
  */
-class DataSpellDevBuildServerListener : IdeProductInit {
+class DataSpellProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.DATASPELL
   override val ideInfo: IdeInfo = DefaultDataSpell
 }

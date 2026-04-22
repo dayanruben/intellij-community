@@ -29,7 +29,7 @@ internal val DefaultRubyMine = IdeInfo(
 /**
  * Registers RubyMine [IdeInfo] in DI and initializes Dev Build Server support.
  */
-class RubyMineDevBuildServerListener : IdeProductInit {
+class RubyMineProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.RUBYMINE
   override val ideInfo: IdeInfo = DefaultRubyMine
 }

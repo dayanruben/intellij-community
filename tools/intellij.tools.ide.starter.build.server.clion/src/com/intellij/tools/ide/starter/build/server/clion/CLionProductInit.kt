@@ -28,9 +28,9 @@ internal val DefaultCLion = IdeInfo(
 )
 
 /**
- * Registers CLion [IdeInfo] in DI and initializes Dev Build Server support.
+ * Registers CLion [IdeInfo] in DI.
  */
-class CLionDevBuildServerListener : IdeProductInit {
+class CLionProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.CLION
   override val ideInfo: IdeInfo = DefaultCLion
 }

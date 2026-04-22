@@ -27,9 +27,9 @@ internal val DefaultGateway = IdeInfo(
 )
 
 /**
- * Registers Gateway [IdeInfo] in DI and initializes Dev Build Server support.
+ * Registers Gateway [IdeInfo] in DI.
  */
-class GatewayDevBuildServerListener : IdeProductInit {
+class GatewayProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.GATEWAY
   override val ideInfo: IdeInfo = DefaultGateway
 }

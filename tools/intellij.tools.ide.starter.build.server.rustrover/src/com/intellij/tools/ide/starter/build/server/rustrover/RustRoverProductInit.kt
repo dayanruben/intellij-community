@@ -30,7 +30,7 @@ internal val DefaultRustRover = IdeInfo(
 /**
  * Registers RustRover [IdeInfo] in DI and initializes Dev Build Server support.
  */
-class RustRoverDevBuildServerListener : IdeProductInit {
+class RustRoverProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.RUSTROVER
   override val ideInfo: IdeInfo = DefaultRustRover
 }

@@ -30,7 +30,7 @@ internal val DefaultPyCharmCommunity = IdeInfo(
 /**
  * Registers PyCharm Community [IdeInfo] in DI and initializes Dev Build Server support.
  */
-class PyCharmCommunityDevBuildServerListener : IdeProductInit {
+class PyCharmCommunityProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.PYCHARM_COMMUNITY
   override val ideInfo: IdeInfo = DefaultPyCharmCommunity
 }

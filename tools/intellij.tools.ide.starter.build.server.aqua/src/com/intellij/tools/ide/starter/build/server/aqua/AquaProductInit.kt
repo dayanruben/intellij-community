@@ -29,7 +29,7 @@ internal val DefaultAqua = IdeInfo(
 /**
  * Registers Aqua [IdeInfo] in DI and initializes Dev Build Server support.
  */
-class AquaDevBuildServerListener : IdeProductInit {
+class AquaProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.AQUA
   override val ideInfo: IdeInfo = DefaultAqua
 }

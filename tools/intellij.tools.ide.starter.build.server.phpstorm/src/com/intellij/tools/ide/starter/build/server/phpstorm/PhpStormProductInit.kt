@@ -28,9 +28,9 @@ internal val DefaultPhpStorm = IdeInfo(
 )
 
 /**
- * Registers PhpStorm [IdeInfo] in DI and initializes Dev Build Server support.
+ * Registers PhpStorm [IdeInfo] in DI.
  */
-class PhpStormDevBuildServerListener : IdeProductInit {
+class PhpStormProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.PHPSTORM
   override val ideInfo: IdeInfo = DefaultPhpStorm
 }

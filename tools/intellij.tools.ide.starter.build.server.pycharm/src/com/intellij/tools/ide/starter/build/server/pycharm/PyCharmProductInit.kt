@@ -30,7 +30,7 @@ internal val DefaultPyCharm = IdeInfo(
 /**
  * Registers PyCharm Professional [IdeInfo] in DI and initializes Dev Build Server support.
  */
-class PyCharmDevBuildServerListener : IdeProductInit {
+class PyCharmProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.PYCHARM
   override val ideInfo: IdeInfo = DefaultPyCharm
 }

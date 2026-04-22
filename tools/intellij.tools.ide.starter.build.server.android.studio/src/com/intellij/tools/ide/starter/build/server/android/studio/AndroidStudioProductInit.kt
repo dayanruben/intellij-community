@@ -27,9 +27,9 @@ internal val DefaultAndroidStudio = IdeInfo(
 )
 
 /**
- * Registers Android Studio [IdeInfo] in DI and initializes Dev Build Server support.
+ * Registers Android Studio [IdeInfo] in DI.
  */
-class AndroidStudioDevBuildServerListener : IdeProductInit {
+class AndroidStudioProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.ANDROID_STUDIO
   override val ideInfo: IdeInfo = DefaultAndroidStudio
 }

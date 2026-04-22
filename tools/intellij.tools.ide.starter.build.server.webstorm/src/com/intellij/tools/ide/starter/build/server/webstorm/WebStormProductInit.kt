@@ -30,7 +30,7 @@ internal val DefaultWebStorm = IdeInfo(
 /**
  * Registers WebStorm [IdeInfo] in DI and initializes Dev Build Server support.
  */
-class WebStormDevBuildServerListener : IdeProductInit {
+class WebStormProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.WEBSTORM
   override val ideInfo: IdeInfo = DefaultWebStorm
 }

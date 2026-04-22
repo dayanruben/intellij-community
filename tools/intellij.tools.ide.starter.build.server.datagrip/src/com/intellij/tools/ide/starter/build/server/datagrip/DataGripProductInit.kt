@@ -27,9 +27,9 @@ internal val DefaultDataGrip = IdeInfo(
 )
 
 /**
- * Registers DataGrip [IdeInfo] in DI and initializes Dev Build Server support.
+ * Registers DataGrip [IdeInfo] in DI.
  */
-class DataGripDevBuildServerListener : IdeProductInit {
+class DataGripProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.DATAGRIP
   override val ideInfo: IdeInfo = DefaultDataGrip
 }

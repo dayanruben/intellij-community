@@ -28,9 +28,9 @@ internal val DefaultIdeaUltimate = IdeInfo(
 )
 
 /**
- * Registers IntelliJ IDEA Ultimate [IdeInfo] in DI and initializes Dev Build Server support.
+ * Registers IntelliJ IDEA Ultimate [IdeInfo] in DI.
  */
-class IdeaUltimateDevBuildServerListener : IdeProductInit {
+class IdeaUltimateProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.IDEA_ULTIMATE
   override val ideInfo: IdeInfo = DefaultIdeaUltimate
 }

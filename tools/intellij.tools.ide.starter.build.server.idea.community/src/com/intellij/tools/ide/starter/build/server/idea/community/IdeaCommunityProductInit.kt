@@ -28,9 +28,9 @@ internal val DefaultIdeaCommunity = IdeInfo(
 )
 
 /**
- * Registers IntelliJ IDEA Community [IdeInfo] in DI and initializes Dev Build Server support.
+ * Registers IntelliJ IDEA Community [IdeInfo] in DI.
  */
-class IdeaCommunityDevBuildServerListener : IdeProductInit {
+class IdeaCommunityProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.IDEA_COMMUNITY
   override val ideInfo: IdeInfo = DefaultIdeaCommunity
 }

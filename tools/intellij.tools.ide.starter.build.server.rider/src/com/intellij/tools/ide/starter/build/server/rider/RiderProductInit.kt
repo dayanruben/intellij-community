@@ -30,7 +30,7 @@ internal val DefaultRider = IdeInfo(
 /**
  * Registers Rider [IdeInfo] in DI and initializes Dev Build Server support.
  */
-class RiderDevBuildServerListener : IdeProductInit {
+class RiderProductInit : IdeProductInit {
   override val ideInfoType: IdeInfoType = IdeInfoType.RIDER
   override val ideInfo: IdeInfo = DefaultRider
 }
