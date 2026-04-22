@@ -55,20 +55,27 @@ internal suspend fun generateRuntimeModuleRepositoryForDistribution(
   context: BuildContext,
   platformLayout: PlatformLayout,
 ) {
-  val repositoryEntries = ArrayList<RuntimeModuleRepositoryEntry>()
   val osSpecificDistPaths = listOf(null to context.paths.distAllDir) +
                             SUPPORTED_DISTRIBUTIONS.map { it to getOsAndArchSpecificDistDirectory(osFamily = it.os, arch = it.arch, libc = it.libcImpl, context = context) }
-  for (entry in contentReport.bundled()) {
-    val (distribution, rootPath) = osSpecificDistPaths.find { entry.path.startsWith(it.second) } ?: continue
+
+  fun convertToRuntimeModuleRepositoryEntry(entry: DistributionFileEntry): RuntimeModuleRepositoryEntry? {
+    val (distribution, rootPath) = osSpecificDistPaths.find { entry.path.startsWith(it.second) } ?: return null
 
     val pathInDist = rootPath.relativize(entry.path).invariantSeparatorsPathString
-    repositoryEntries.add(RuntimeModuleRepositoryEntry(distribution = distribution, relativePath = pathInDist, origin = entry))
+    return RuntimeModuleRepositoryEntry(distribution = distribution, relativePath = pathInDist, origin = entry)
   }
 
-  if (repositoryEntries.all { it.distribution == null } && contentReport.bundledPlugins.all { it.os == null && it.arch == null }) {
+  val platformEntries = contentReport.platform.mapNotNull(::convertToRuntimeModuleRepositoryEntry)
+  val bundledPluginEntries = contentReport.bundledPlugins.flatMap {
+    it.distribution.mapNotNull(::convertToRuntimeModuleRepositoryEntry)
+  }
+
+  if (platformEntries.all { it.distribution == null } && bundledPluginEntries.all { it.distribution == null }
+      && contentReport.bundledPlugins.all { it.os == null && it.arch == null }) {
     generateRepositoryForDistribution(
       targetDirectory = context.paths.distAllDir,
-      entries = repositoryEntries,
+      platformEntries = platformEntries,
+      bundledPluginEntries = bundledPluginEntries,
       bundledPlugins = contentReport.bundledPlugins,
       platformLayout = platformLayout,
       context = context,
@@ -78,16 +85,18 @@ internal suspend fun generateRuntimeModuleRepositoryForDistribution(
     SUPPORTED_DISTRIBUTIONS
       .filter { context.shouldBuildDistributionForOS(it.os, it.arch) }
       .forEach { distribution ->
-      val targetDirectory = getOsAndArchSpecificDistDirectory(osFamily = distribution.os, arch = distribution.arch, libc = distribution.libcImpl, context = context)
-      val actualEntries = repositoryEntries.filter { it.distribution == null || it.distribution == distribution }
-      val actualPlugins = contentReport.bundledPlugins.filter { (it.os == null || it.os == distribution.os) && (it.arch == null || it.arch == distribution.arch) }
-      generateRepositoryForDistribution(
-        targetDirectory = targetDirectory,
-        entries = actualEntries,
-        bundledPlugins = actualPlugins,
-        context = context,
-        platformLayout = platformLayout,
-      )
+        val targetDirectory = getOsAndArchSpecificDistDirectory(osFamily = distribution.os, arch = distribution.arch, libc = distribution.libcImpl, context = context)
+        val actualPlatformEntries = platformEntries.filter { it.distribution == null || it.distribution == distribution }
+        val actualBundledPluginEnries = bundledPluginEntries.filter { it.distribution == null || it.distribution == distribution }
+        val actualPlugins = contentReport.bundledPlugins.filter { (it.os == null || it.os == distribution.os) && (it.arch == null || it.arch == distribution.arch) }
+        generateRepositoryForDistribution(
+          targetDirectory = targetDirectory,
+          platformEntries = actualPlatformEntries,
+          bundledPluginEntries = actualBundledPluginEnries,
+          bundledPlugins = actualPlugins,
+          context = context,
+          platformLayout = platformLayout,
+        )
     }
   }
 }
@@ -102,16 +111,27 @@ internal suspend fun generateRuntimeModuleRepositoryForDevBuild(
   context: BuildContext,
   platformLayout: PlatformLayout
 ) {
-  val actualEntries = contentReport.bundled().map { entry ->
+  val platformEntries = contentReport.platform.map { entry ->
     RuntimeModuleRepositoryEntry(
       distribution = null,
       relativePath = targetDirectory.relativize(entry.path).invariantSeparatorsPathString,
       origin = entry,
     )
   }
+  val bundledPluginEntries = contentReport.bundledPlugins.flatMap { plugin ->
+    plugin.distribution.map { entry ->
+      RuntimeModuleRepositoryEntry(
+        distribution = null,
+        relativePath = targetDirectory.relativize(entry.path).invariantSeparatorsPathString,
+        origin = entry,
+      )
+    }
+
+  }
   generateRepositoryForDistribution(
     targetDirectory = targetDirectory,
-    entries = actualEntries.toList(),
+    platformEntries = platformEntries,
+    bundledPluginEntries = bundledPluginEntries,
     bundledPlugins = contentReport.bundledPlugins,
     platformLayout = platformLayout,
     context = context,
@@ -176,11 +196,13 @@ private data class RuntimeModuleRepositoryEntry(
 
 private suspend fun generateRepositoryForDistribution(
   targetDirectory: Path,
-  entries: List<RuntimeModuleRepositoryEntry>,
+  platformEntries: List<RuntimeModuleRepositoryEntry>,
+  bundledPluginEntries: List<RuntimeModuleRepositoryEntry>,
   context: BuildContext,
   bundledPlugins: List<PluginBuildDescriptor>,
   platformLayout: PlatformLayout,
 ) {
+  val entries = platformEntries + bundledPluginEntries
   val mainPathsForResources = computeMainPathsForResourcesCopiedToMultiplePlaces(entries, context)
   fun isMainPath(element: JpsNamedElement, path: String): Boolean {
     val mainPath = mainPathsForResources[element]
@@ -229,7 +251,14 @@ private suspend fun generateRepositoryForDistribution(
   addMappingsForDuplicatingLibraries(libraryPaths, moduleProductionPaths)
 
   val additionalFrontendPlugins = computeDescriptorsForAdditionalFrontendPlugins(context, bundledPlugins, platformLayout)
-  val contentModuleDetector = ContentModuleDetectorImpl(platformLayout, bundledPlugins + additionalFrontendPlugins, context.project)
+  val corePluginDescriptorModuleName = context.productProperties.applicationInfoModule
+  val contentModuleDetector = ContentModuleDetectorImpl(
+    platformLayout,
+    corePluginDescriptorModuleName,
+    platformEntries.map { it.origin },
+    bundledPlugins + additionalFrontendPlugins,
+    context.project
+  )
   val distDescriptors = RuntimeModuleRepositoryGenerator.generateRuntimeModuleDescriptors(
     includedProduction = moduleProductionPaths.keySet(),
     includedTests = moduleTestPaths.keySet(),
