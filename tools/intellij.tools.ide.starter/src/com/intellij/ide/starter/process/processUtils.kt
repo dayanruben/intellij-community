@@ -10,6 +10,7 @@ import com.intellij.ide.starter.process.ProcessKiller.killProcesses
 import com.intellij.ide.starter.process.exec.ExecOutputRedirect
 import com.intellij.ide.starter.process.exec.ProcessExecutor
 import com.intellij.ide.starter.runner.IDERunContext
+import com.intellij.platform.testFramework.teamCity.TeamCityReporter.SyntheticTestKind
 import com.intellij.tools.ide.util.common.PrintFailuresMode
 import com.intellij.tools.ide.util.common.logOutput
 import com.intellij.tools.ide.util.common.withRetry
@@ -77,7 +78,8 @@ suspend fun findAndKillLeftoverProcessesFromTestRuns(reportErrors: Boolean = fal
                                                     "Processes were collected based on command line, containing '${
                                                       substringToSearch.joinToString(", ")
                                                     }'.\n" +
-                                                    processInfosToKill.joinToString("\n") { it.description }, details = "")
+                                                    processInfosToKill.joinToString("\n") { it.description }, details = "",
+                                          kind = SyntheticTestKind.TEST_INFRA_EXCEPTION)
     }
   }
 }

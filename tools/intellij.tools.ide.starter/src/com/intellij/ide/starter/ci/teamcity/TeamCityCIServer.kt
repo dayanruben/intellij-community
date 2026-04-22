@@ -7,6 +7,7 @@ import com.intellij.ide.starter.di.di
 import com.intellij.ide.starter.runner.CurrentTestMethod
 import com.intellij.platform.testFramework.teamCity.TeamCityReporter.TestMetadata
 import com.intellij.platform.testFramework.teamCity.TeamCityReporter.TestOutcome
+import com.intellij.platform.testFramework.teamCity.TeamCityReporter.SyntheticTestKind
 import com.intellij.platform.testFramework.teamCity.TeamCityReporter
 import com.intellij.tools.ide.util.common.logOutput
 import org.kodein.di.direct
@@ -46,7 +47,10 @@ open class TeamCityCIServer(
     return TestMetadata(name = "Start bisect", value = url, type = TeamCityReporter.MetadataType.LINK)
   }
 
-  override fun reportTestFailure(testName: String, message: String, details: String, linkToLogs: String?) {
+  override fun reportTestFailure(
+    testName: String, message: String, details: String, linkToLogs: String?,
+    kind: SyntheticTestKind,
+  ) {
     val metadata = buildList {
       linkToLogs?.let { add(TestMetadata(name = "Link to Logs and artifacts", value = it, type = TeamCityReporter.MetadataType.LINK)) }
       CurrentTestMethod.get()?.let { add(TestMetadata(name = "Test name", value = it.fullName())) }
@@ -56,12 +60,15 @@ open class TeamCityCIServer(
     }
     TeamCityReporter.reportTestLifecycle(testName, TestOutcome.FAILED, message, details,
                                          owner = codeOwnerResolver.getOwnerGroupName(),
-                                         metadata = metadata, syntheticTest = true)
+                                         metadata = metadata, syntheticTestKind = kind)
   }
 
-  override fun ignoreTestFailure(testName: String, message: String, details: String?) {
+  override fun ignoreTestFailure(
+    testName: String, message: String, details: String?,
+    kind: SyntheticTestKind,
+  ) {
     val metadata = details?.let { listOf(TestMetadata(name = "Details", value = it)) } ?: emptyList()
-    TeamCityReporter.reportTestLifecycle(testName, TestOutcome.IGNORED, message, metadata = metadata, syntheticTest = true)
+    TeamCityReporter.reportTestLifecycle(testName, TestOutcome.IGNORED, message, metadata = metadata, syntheticTestKind = kind)
   }
 
   override fun isTestFailureShouldBeIgnored(message: String): Boolean {

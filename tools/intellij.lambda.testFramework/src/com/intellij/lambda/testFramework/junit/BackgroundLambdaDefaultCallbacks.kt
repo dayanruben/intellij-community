@@ -11,6 +11,7 @@ import com.intellij.ide.starter.runner.IDERunContext
 import com.intellij.ide.starter.utils.catchAll
 import com.intellij.lambda.testFramework.utils.IdeWithLambda
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.platform.testFramework.teamCity.TeamCityReporter
 import com.intellij.remoteDev.tests.impl.utils.getArtifactsFileName
 import com.intellij.remoteDev.tests.impl.utils.getTimeoutHonouringDebug
 import com.intellij.remoteDev.tests.impl.utils.runLogged
@@ -111,7 +112,7 @@ class BackgroundLambdaDefaultCallbacks : BeforeAllCallback, BeforeEachCallback, 
         }
       }
       if (!context.executionException.isPresent) {
-        CIServer.instance.reportTestFailure(message, message + "\n" + e.printToString(), "")
+        CIServer.instance.reportTestFailure(message, message + "\n" + e.printToString(), "", kind = TeamCityReporter.SyntheticTestKind.TEST_INFRA_EXCEPTION)
       }
       else {
         thisLogger().warn(message, e)

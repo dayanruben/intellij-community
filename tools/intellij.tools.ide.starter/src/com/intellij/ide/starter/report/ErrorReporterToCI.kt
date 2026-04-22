@@ -6,6 +6,7 @@ import com.intellij.ide.starter.report.ErrorReporter.Companion.STACKTRACE_FILENA
 import com.intellij.ide.starter.report.ErrorReporter.Companion.SYNTHETIC_TESTNAME_FILENAME
 import com.intellij.ide.starter.report.ErrorReporter.Companion.ACTIVE_TESTNAME_FILENAME
 import com.intellij.ide.starter.runner.IDERunContext
+import com.intellij.platform.testFramework.teamCity.TeamCityReporter
 import com.intellij.platform.testFramework.teamCity.generifyErrorMessage
 import com.intellij.util.SystemProperties
 import java.nio.file.Files
@@ -136,13 +137,15 @@ object ErrorReporterToCI : ErrorReporter {
                               "You can find instructions about muting this error in this link https://youtrack.jetbrains.com/articles/IJPL-A-1185/How-to-create-a-new-mapping"
       if (CIServer.instance.isTestFailureShouldBeIgnored(messageText) || CIServer.instance.isTestFailureShouldBeIgnored(stackTraceContent)) {
         CIServer.instance.ignoreTestFailure(testName = syntheticTestName,
-                                            message = failureDetailsMessage)
+                                            message = failureDetailsMessage,
+                                            kind = TeamCityReporter.SyntheticTestKind.IDE_EXCEPTION)
       }
       else {
         CIServer.instance.reportTestFailure(testName = syntheticTestName,
                                             message = failureDetailsMessage + linkToMuteArticle,
                                             details = stackTraceContent,
-                                            linkToLogs = urlToLogs)
+                                            linkToLogs = urlToLogs,
+                                            kind = TeamCityReporter.SyntheticTestKind.IDE_EXCEPTION)
         AllureReport.reportFailure(runContext.contextName, messageText + linkToMuteArticle,
                                    stackTraceContent,
                                    links = AllureLink.single("Link to Logs and artifacts",

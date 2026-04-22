@@ -17,8 +17,28 @@ import java.util.UUID
 @ApiStatus.Internal
 object TeamCityReporter {
 
-  private fun String.syntheticTestName(): String =
-    "($this)"
+  /**
+   * Kind of a synthetic test reported via [reportTestLifecycle]. Determines the prefix
+   * wrapped around the test name so the three groups can be told apart on TeamCity
+   * (for muting, ownership, dashboards, etc.).
+   *
+   * - [IDE_EXCEPTION]: unhandled IDE exception / freeze / timeout captured from the IDE
+   *   under test.
+   * - [TEST_INFRA_EXCEPTION]: failure of the test infrastructure itself - port
+   *   allocation, leftover processes, VM options validation, missing IDE directories,
+   *   etc. These are harness bugs, not IDE bugs, and should be muted / owned separately.
+   * - [SOFT_ASSERT_FAILURE]: a soft-assert-style failure reported from inside a test that
+   *   does not want to fail the whole test but still wants to surface a test-like
+   *   entry on TeamCity.
+   */
+  enum class SyntheticTestKind(val prefix: String) {
+    IDE_EXCEPTION("IdeException"),
+    TEST_INFRA_EXCEPTION("TestInfraException"),
+    SOFT_ASSERT_FAILURE("SoftAssertFailure"),
+  }
+
+  private fun String.syntheticTestName(kind: SyntheticTestKind): String =
+    "(${kind.prefix} $this)"
 
   /**
    * Truncates and escapes a string for safe inclusion in a TeamCity service message value.
@@ -246,6 +266,9 @@ object TeamCityReporter {
    * @param flowId           flow id to use for all emitted messages; defaults to a fresh UUID.
    *                         Pass the flow id exposed by [reportTestSuiteLifecycle] to group this
    *                         test under that suite in TeamCity.
+   * @param syntheticTestKind if non-null, wraps the test name into `(<prefix> <name>)` so the
+   *                         event is reported as a synthetic test of the given [SyntheticTestKind].
+   *                         `null` (default) emits the test name as-is (regular test).
    * @param block            runs between `testStarted` and `testFinished`; any stdout/stderr
    *                         produced inside is captured by TeamCity as this test's output.
    *                         Defaults to a no-op. Exceptions thrown inside [block] are caught
@@ -258,13 +281,13 @@ object TeamCityReporter {
     details: String = "", owner: String? = null, metadata: List<TestMetadata> = emptyList(),
     generifyTestName: Boolean = true,
     flowId: String = UUID.randomUUID().toString(),
-    syntheticTest: Boolean = false,
+    syntheticTestKind: SyntheticTestKind? = null,
     block: (() -> Unit)? = null,
   ) {
     val effectiveName =
       testName
         .let { if (generifyTestName) generifyErrorMessage(it) else it }
-        .let { if (syntheticTest) it.syntheticTestName() else it }
+        .let { if (syntheticTestKind != null) it.syntheticTestName(syntheticTestKind) else it }
 
     reportTestStarted(effectiveName, flowId, nodeId = effectiveName, parentNodeId = "0", captureStandardOutput = block != null)
     try {
