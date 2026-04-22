@@ -6,6 +6,7 @@ import com.intellij.codeInsight.template.impl.ConstantNode;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -78,6 +79,7 @@ public interface ModTemplateBuilder {
    * @param alwaysStopAt whether to always stop at this field
    * @return this builder
    */
+  @ApiStatus.Experimental
   @NotNull ModTemplateBuilder field(@NotNull PsiElement element, @NotNull TextRange rangeInElement,
                                     @NotNull String varName, @NotNull String dependantVariableName,
                                     boolean alwaysStopAt);
@@ -92,6 +94,7 @@ public interface ModTemplateBuilder {
    *                     constants by the macro parser); {@code null} means reuse
    *                     {@code dependantVariableName} as the default.
    */
+  @ApiStatus.Experimental
   @NotNull ModTemplateBuilder field(@NotNull PsiElement element, @NotNull TextRange rangeInElement,
                                     @NotNull String varName, @NotNull String dependantVariableName,
                                     @Nullable String defaultValue, boolean alwaysStopAt);

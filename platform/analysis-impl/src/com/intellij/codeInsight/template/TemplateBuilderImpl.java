@@ -156,6 +156,7 @@ public class TemplateBuilderImpl implements TemplateBuilder {
    * {@link #initTemplate} uses it as the variable's {@code defaultValueExpression}; otherwise
    * the behaviour matches the 5-arg overload (expression doubles as its own default).
    */
+  @ApiStatus.Experimental
   public void replaceElement(PsiElement element, TextRange textRange, String primaryVariableName,
                              String otherVariableName, @Nullable String defaultValueString, boolean alwaysStopAt) {
     final TextRange elementTextRange = InjectedLanguageManager.getInstance(element.getProject()).injectedToHost(element, element.getTextRange());

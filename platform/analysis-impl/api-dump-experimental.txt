@@ -64,6 +64,7 @@ c:com.intellij.codeInsight.intention.impl.config.LazyEditor
 c:com.intellij.codeInsight.template.TemplateBuilderImpl
 - com.intellij.codeInsight.template.TemplateBuilder
 - *:addVariableOccurrence(com.intellij.psi.PsiElement,com.intellij.openapi.util.TextRange,java.lang.String):V
+- *:replaceElement(com.intellij.psi.PsiElement,com.intellij.openapi.util.TextRange,java.lang.String,java.lang.String,java.lang.String,Z):V
 - *:setEndVariableAt(I):V
 *:com.intellij.codeInspection.ui.InspectionProblemAddedListener
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
