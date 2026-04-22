@@ -17,6 +17,9 @@ import java.util.UUID
 @ApiStatus.Internal
 object TeamCityReporter {
 
+  private fun String.syntheticTestName(): String =
+    "($this)"
+
   /**
    * Truncates and escapes a string for safe inclusion in a TeamCity service message value.
    * Uses the same escaping as [ServiceMessage.asString] to guarantee consistency.
@@ -52,18 +55,18 @@ object TeamCityReporter {
    *                               for parallel output
    * @param nodeId                 optional tree node identifier (for test-tree hierarchy)
    * @param parentNodeId           optional parent node identifier (for test-tree hierarchy)
-   * @param captureStandardOutput  if `"true"`, TeamCity captures stdout/stderr for this test
+   * @param captureStandardOutput  if `true`, TeamCity captures stdout/stderr for this test
    */
-  fun reportTestStarted(
+  private fun reportTestStarted(
     testName: String, flowId: String? = null, nodeId: String? = null,
-    parentNodeId: String? = null, captureStandardOutput: String? = null,
+    parentNodeId: String? = null, captureStandardOutput: Boolean? = null,
   ) {
     println(serviceMessage("testStarted", buildMap {
       put("name", testName)
       flowId?.let { put("flowId", it) }
       nodeId?.let { put("nodeId", it) }
       parentNodeId?.let { put("parentNodeId", it) }
-      captureStandardOutput?.let { put("captureStandardOutput", it) }
+      captureStandardOutput?.let { put("captureStandardOutput", it.toString()) }
     }))
   }
 
@@ -230,8 +233,7 @@ object TeamCityReporter {
   /**
    * Reports a complete test lifecycle (started → outcome → metadata → finished) to stdout.
    *
-   * Automatically generates a unique [flowId][java.util.UUID] and places the test
-   * under the root node (`parentNodeId = "0"`).
+   * The test is placed under the root node (`parentNodeId = "0"`).
    *
    * @param testName         the test name
    * @param outcome          the test result
@@ -241,30 +243,79 @@ object TeamCityReporter {
    * @param metadata         additional [TestMetadata] entries to attach
    * @param generifyTestName if `true` (default), [generifyErrorMessage] replaces volatile parts
    *                         (numbers, hashes, hex) with placeholders for stable test grouping in TC
+   * @param flowId           flow id to use for all emitted messages; defaults to a fresh UUID.
+   *                         Pass the flow id exposed by [reportTestSuiteLifecycle] to group this
+   *                         test under that suite in TeamCity.
+   * @param block            runs between `testStarted` and `testFinished`; any stdout/stderr
+   *                         produced inside is captured by TeamCity as this test's output.
+   *                         Defaults to a no-op. Exceptions thrown inside [block] are caught
+   *                         and logged, so the caller's intended outcome, `owner` metadata, and
+   *                         [metadata] are still emitted afterwards. `testFinished` is emitted
+   *                         in `finally`, so the test is always closed even if [block] throws.
    */
   fun reportTestLifecycle(
     testName: String, outcome: TestOutcome, message: String = "",
     details: String = "", owner: String? = null, metadata: List<TestMetadata> = emptyList(),
     generifyTestName: Boolean = true,
+    flowId: String = UUID.randomUUID().toString(),
+    syntheticTest: Boolean = false,
+    block: (() -> Unit)? = null,
   ) {
-    val effectiveName = if (generifyTestName) generifyErrorMessage(testName) else testName
-    val flowId = UUID.randomUUID().toString()
-    reportTestStarted(effectiveName, flowId, nodeId = effectiveName, parentNodeId = "0", captureStandardOutput = null)
-    when (outcome) {
-      TestOutcome.FAILED -> {
-        if (owner != null) {
-          reportTestMetadata(effectiveName, owner, "Code Owner", flowId, type = MetadataType.TEXT)
+    val effectiveName =
+      testName
+        .let { if (generifyTestName) generifyErrorMessage(it) else it }
+        .let { if (syntheticTest) it.syntheticTestName() else it }
+
+    reportTestStarted(effectiveName, flowId, nodeId = effectiveName, parentNodeId = "0", captureStandardOutput = block != null)
+    try {
+      runCatching { block?.invoke() }.onFailure {
+        println("Block invocation failed: ${it.stackTraceToString()}")
+      }
+      when (outcome) {
+        TestOutcome.FAILED -> {
+          if (owner != null) {
+            reportTestMetadata(effectiveName, owner, "Code Owner", flowId, type = MetadataType.TEXT)
+          }
+          reportTestFailed(effectiveName, message, flowId, nodeId = effectiveName, parentNodeId = "0", details = details)
         }
-        reportTestFailed(effectiveName, message, flowId, nodeId = effectiveName, parentNodeId = "0", details = details)
+        TestOutcome.IGNORED -> {
+          reportTestIgnored(effectiveName, message, flowId, nodeId = effectiveName, parentNodeId = null)
+        }
+        TestOutcome.SUCCESS -> {}
       }
-      TestOutcome.IGNORED -> {
-        reportTestIgnored(effectiveName, message, flowId, nodeId = effectiveName, parentNodeId = null)
+      for (entry in metadata) {
+        reportTestMetadata(effectiveName, entry.value, entry.name, flowId, entry.type)
       }
-      TestOutcome.SUCCESS -> {}
     }
-    for (entry in metadata) {
-      reportTestMetadata(effectiveName, entry.value, entry.name, flowId, entry.type)
+    finally {
+      reportTestFinished(effectiveName, flowId, nodeId = effectiveName, parentNodeId = "0", duration = null)
     }
-    reportTestFinished(effectiveName, flowId, nodeId = effectiveName, parentNodeId = "0", duration = null)
+  }
+
+  /**
+   * Reports a test-suite lifecycle (`testSuiteStarted` → [block] → `testSuiteFinished`) to stdout.
+   *
+   * Uses [flowId] for the suite markers (defaults to a fresh UUID) and passes it to [block].
+   * Forward that flow id to nested [reportTestLifecycle] calls so TeamCity groups the tests
+   * under the suite. The `testSuiteFinished` marker is always emitted, even if [block] throws.
+   *
+   * @param suiteName the test-suite name
+   * @param flowId    flow id used for the suite markers and exposed to [block]. Defaults to a
+   *                  fresh UUID; pass an existing id to share it across multiple suites.
+   * @param block     receives the suite's flow id and emits the nested test events
+   *                  (e.g. [reportTestLifecycle] calls that forward this flow id)
+   */
+  fun reportTestSuiteLifecycle(
+    suiteName: String,
+    flowId: String = UUID.randomUUID().toString(),
+    block: (flowId: String) -> Unit,
+  ) {
+    reportTestSuiteStarted(suiteName, flowId)
+    try {
+      block(flowId)
+    }
+    finally {
+      reportTestSuiteFinished(suiteName, flowId)
+    }
   }
 }
