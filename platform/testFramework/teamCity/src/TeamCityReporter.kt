@@ -79,7 +79,7 @@ object TeamCityReporter {
    * @param parentNodeId optional parent node identifier (for test-tree hierarchy)
    * @param duration     optional test duration in milliseconds (as a string)
    */
-  fun reportTestFinished(
+  private fun reportTestFinished(
     testName: String, flowId: String? = null, nodeId: String? = null,
     parentNodeId: String? = null, duration: String? = null,
   ) {
@@ -102,7 +102,7 @@ object TeamCityReporter {
    * @param parentNodeId optional parent node identifier (for test-tree hierarchy)
    * @param details      optional failure details / stack trace
    */
-  fun reportTestFailed(
+  private fun reportTestFailed(
     testName: String, message: String, flowId: String? = null,
     nodeId: String? = null, parentNodeId: String? = null, details: String? = null,
   ) {
@@ -125,7 +125,7 @@ object TeamCityReporter {
    * @param nodeId       optional tree node identifier (for test-tree hierarchy)
    * @param parentNodeId optional parent node identifier (for test-tree hierarchy)
    */
-  fun reportTestIgnored(
+  private fun reportTestIgnored(
     testName: String, message: String, flowId: String? = null,
     nodeId: String? = null, parentNodeId: String? = null,
   ) {
@@ -139,12 +139,12 @@ object TeamCityReporter {
   }
 
   /** Prints a `##teamcity[testSuiteStarted …]` message to stdout. */
-  fun reportTestSuiteStarted(suiteName: String, flowId: String? = null) {
+  private fun reportTestSuiteStarted(suiteName: String, flowId: String? = null) {
     println(TestSuiteStarted(suiteName).apply { flowId?.let { setFlowId(it) } }.asString())
   }
 
   /** Prints a `##teamcity[testSuiteFinished …]` message to stdout. */
-  fun reportTestSuiteFinished(suiteName: String, flowId: String? = null) {
+  private fun reportTestSuiteFinished(suiteName: String, flowId: String? = null) {
     println(TestSuiteFinished(suiteName).apply { flowId?.let { setFlowId(it) } }.asString())
   }
 
