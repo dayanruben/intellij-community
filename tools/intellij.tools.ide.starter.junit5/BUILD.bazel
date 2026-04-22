@@ -126,6 +126,8 @@ jvm_library(
     "@lib//:junit5-provided",
     "//tools/intellij.tools.ide.starter:ide-starter",
     "//tools/intellij.tools.ide.starter:ide-starter_test_lib",
+    "//tools/intellij.tools.ide.starter.build.server:ide-starter-build-server",
+    "//tools/intellij.tools.ide.starter.build.server:ide-starter-build-server_test_lib",
     "//tools/intellij.tools.ide.starter.product.goland:ide-starter-product-goland",
     "//tools/intellij.tools.ide.starter.product.goland:ide-starter-product-goland_test_lib",
     "//tools/intellij.tools.ide.starter.product.idea.community:ide-starter-product-idea-community",
