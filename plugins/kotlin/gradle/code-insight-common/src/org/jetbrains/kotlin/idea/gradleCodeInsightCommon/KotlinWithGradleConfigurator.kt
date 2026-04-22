@@ -7,7 +7,6 @@ import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.extensions.Extensions
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.module.ModuleUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.project.modules
@@ -43,6 +42,7 @@ import org.jetbrains.kotlin.idea.configuration.buildSystemType
 import org.jetbrains.kotlin.idea.configuration.getJvmTargetNumber
 import org.jetbrains.kotlin.idea.configuration.getRootModule
 import org.jetbrains.kotlin.idea.configuration.getTargetBytecodeVersionFromModule
+import org.jetbrains.kotlin.idea.configuration.hasKotlinNativeRuntimeInScope
 import org.jetbrains.kotlin.idea.configuration.hasKotlinPluginEnabled
 import org.jetbrains.kotlin.idea.extensions.gradle.KotlinGradleConstants.GRADLE_PLUGIN_ID
 import org.jetbrains.kotlin.idea.extensions.gradle.KotlinGradleConstants.GROUP_ID
@@ -71,7 +71,7 @@ abstract class KotlinWithGradleConfigurator : BaseKotlinProjectConfigurator() {
             module.getBuildScriptPsiFile() to module.project.getTopLevelBuildScriptPsiFile()
         }
 
-        if (moduleBuildFile == null && topLevelBuildFile == null) {
+        if (moduleBuildFile == null && topLevelBuildFile == null || isKotlinNativeRuntimeInScope(moduleSourceRootGroup)) {
             return ConfigureKotlinStatus.NON_APPLICABLE
         }
 
@@ -80,6 +80,10 @@ abstract class KotlinWithGradleConfigurator : BaseKotlinProjectConfigurator() {
         }
 
         return ConfigureKotlinStatus.CAN_BE_CONFIGURED
+    }
+
+    private fun isKotlinNativeRuntimeInScope(moduleSourceRootGroup: ModuleSourceRootGroup): Boolean {
+        return moduleSourceRootGroup.sourceRootModules.any(::hasKotlinNativeRuntimeInScope)
     }
 
     private fun PsiFile.isConfiguredByAnyGradleConfigurator(): Boolean {
