@@ -466,6 +466,7 @@ class KotlinBuildScriptManipulator(
         findScriptInitializer("plugins")?.getBlock()?.findPluginInPluginsGroup(pluginName) != null
 
     private fun KtBlockExpression.findPlugin(pluginName: String): KtCallExpression? {
+        if (pluginName.isBlank()) return null
         return PsiTreeUtil.getChildrenOfType(this, KtCallExpression::class.java)?.find {
             (it.calleeExpression?.text == "plugin" ||
                     it.calleeExpression?.text == "id") &&
@@ -479,6 +480,7 @@ class KotlinBuildScriptManipulator(
     }
 
     private fun KtBlockExpression.findPluginInPluginsGroup(pluginName: String): PluginExpression? {
+        if (pluginName.isBlank()) return null
         return findPluginExpressions { methodName, arguments ->
             val firstArgument = arguments.singleOrNull() ?: return@findPluginExpressions false
             "${methodName}(${firstArgument.text})" == pluginName
