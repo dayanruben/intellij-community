@@ -38,6 +38,7 @@ import git4idea.i18n.GitBundle
 import git4idea.repo.GitRepository
 import git4idea.workingTrees.GitWorkingTreesNewBadgeUtil
 import git4idea.workingTrees.GitWorkingTreesService
+import git4idea.workingTrees.GitWorktreeSupportStatus
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.Nls
 import java.awt.Component
@@ -150,7 +151,10 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
 
     fun reload(project: Project) {
       clear()
-      val currentRepository = GitWorkingTreesService.getRepoForWorkingTreesSupport(project)
+      val currentRepository = when (val status = GitWorkingTreesService.getWorktreeSupportStatus(project)) {
+        is GitWorktreeSupportStatus.SingleRepository -> status.repository
+        else -> null
+      }
       repository = currentRepository
       val workingTrees = currentRepository?.workingTreeHolder?.getWorkingTrees()
       if (workingTrees != null && workingTrees.size > 1) {
@@ -247,4 +251,3 @@ internal class GitWorkingTreesContentVisibilityPredicate : Predicate<Project> {
     return shouldWorkingTreesTabBeShown
   }
 }
-
