@@ -120,7 +120,12 @@ interface PyAstFunction : PsiNameIdentifierOwner, PyAstCompoundStatement,
     /**
      * Function is decorated with {@code @staticmethod}, its first param is as in a regular function.
      */
-    STATICMETHOD,
+    STATICMETHOD;
+
+    val decoratorName: String get() = when (this) {
+      CLASSMETHOD -> PyNames.CLASSMETHOD
+      STATICMETHOD -> PyNames.STATICMETHOD
+    }
   }
 
   override fun getContainingClass(): PyAstClass? =
