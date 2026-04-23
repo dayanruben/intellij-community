@@ -25,9 +25,6 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.runReadAction
-import com.intellij.openapi.options.advanced.AdvancedSettings
-import com.intellij.openapi.options.advanced.AdvancedSettingsChangeListener
-import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
@@ -40,26 +37,19 @@ import com.intellij.platform.lvcs.impl.RevisionId
 import com.intellij.platform.lvcs.impl.diff.findEntry
 import com.intellij.platform.lvcs.impl.operations.getRevertCommandName
 import com.intellij.util.SystemProperties
-import com.intellij.util.application
 import com.intellij.util.asSafely
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
 
 @ApiStatus.Internal
 class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistoryEx() {
   companion object {
-    private const val DAYS_TO_KEEP = "localHistory.daysToKeep"
-
     /**
      * @see [LocalHistory.getInstance]
      * @see [LocalHistoryEx.facade]
@@ -127,35 +117,13 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
     state.set(State.Initialized(changeList, flusherTask, facade, eventDispatcher))
   }
 
-  private fun ChangeListImpl.launchFlusher(): Job {
-    val initialFlush = AtomicBoolean(true)
-    var daysToKeep = AdvancedSettings.getInt(DAYS_TO_KEEP)
-    application.getMessageBus().connect(coroutineScope)
-      .subscribe(AdvancedSettingsChangeListener.TOPIC, object : AdvancedSettingsChangeListener {
-        override fun advancedSettingChanged(id: String, oldValue: Any, newValue: Any) {
-          if (id == DAYS_TO_KEEP) {
-            daysToKeep = newValue as Int
-          }
-        }
-      })
-
-    return coroutineScope.launch {
+  private fun ChangeListImpl.launchFlusher(): Job =
+    coroutineScope.launch {
       while (true) {
         delay(1.seconds)
-
-        checkCanceled()
-        withContext(Dispatchers.IO) {
-          if (initialFlush.compareAndSet(true, false)) {
-            val period = daysToKeep.days.inWholeMilliseconds
-            LocalHistoryLog.LOG.debug("Purging local history...")
-            purgeObsolete(period)
-          }
-          checkCanceled()
-          flush()
-        }
+        flush()
       }
     }
-  }
 
   private fun registerDeletionHandler(facade: LocalHistoryFacade) {
     val deletionHandler = LocalHistoryFilesDeletionHandler(facade, gateway)

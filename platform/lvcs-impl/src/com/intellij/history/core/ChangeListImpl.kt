@@ -6,11 +6,21 @@ import com.intellij.history.core.changes.Change
 import com.intellij.history.core.changes.ChangeSet
 import com.intellij.history.utils.LocalHistoryLog
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.options.advanced.AdvancedSettings
+import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.util.Clock
 import com.intellij.openapi.util.NlsContexts
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration.Companion.days
+
+private const val DAYS_TO_KEEP_PROPERTY_KEY = "localHistory.daysToKeep"
 
 internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeList {
+  private val purged = AtomicBoolean(false)
+
   private var changeSetDepth = 0
   private var currentChangeSet: ChangeSet? = null
 
@@ -98,7 +108,19 @@ internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeLi
     storage.purge(period, intervalBetweenActivities)
   }
 
-  fun flush(): Unit = storage.force()
+  suspend fun flush() {
+    val daysToKeep = AdvancedSettings.getInt(DAYS_TO_KEEP_PROPERTY_KEY)
+    withContext(Dispatchers.IO) {
+      if (purged.compareAndSet(false, true)) {
+        val period = daysToKeep.days.inWholeMilliseconds
+        LocalHistoryLog.LOG.debug("Purging local history...")
+        purgeObsolete(period)
+      }
+      checkCanceled()
+
+      storage.force()
+    }
+  }
 
   @Synchronized
   fun close(drop: Boolean) {
