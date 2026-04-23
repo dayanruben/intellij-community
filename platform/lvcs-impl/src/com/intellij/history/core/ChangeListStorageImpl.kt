@@ -146,7 +146,7 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
   }
 
   @Synchronized
-  override fun readPrevious(id: Int, recursionGuard: IntSet): ChangeSetHolder? {
+  private fun readPrevious(id: Int, recursionGuard: IntSet): ChangeSetHolder? {
     if (isCompletelyBroken) return null
 
     var prevId = 0
@@ -185,6 +185,21 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
 
       handleError(e, message)
       return null
+    }
+  }
+
+  override fun iterate(): Iterator<ChangeSet> {
+    return object : Iterator<ChangeSet> {
+      private val recursionGuard = IntOpenHashSet(1000)
+      private var next = readPrevious(-1, recursionGuard)
+
+      override fun hasNext(): Boolean = next != null
+
+      override fun next(): ChangeSet {
+        val result = next!!
+        next = readPrevious(result.id, recursionGuard)
+        return result.changeSet
+      }
     }
   }
 

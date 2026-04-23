@@ -2,13 +2,13 @@
 package com.intellij.history.core;
 
 import com.intellij.history.core.changes.ChangeSet;
-import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 @ApiStatus.Internal
 public final class InMemoryChangeListStorage implements ChangeListStorage {
@@ -29,10 +29,23 @@ public final class InMemoryChangeListStorage implements ChangeListStorage {
   }
 
   @Override
-  public @Nullable ChangeSetHolder readPrevious(int id, @NotNull IntSet recursionGuard) {
-    if (mySets.isEmpty()) return null;
-    if (id == -1) return new ChangeSetHolder(mySets.size() - 1, mySets.get(mySets.size() - 1));
-    return id == 0 ? null : new ChangeSetHolder(id - 1, mySets.get(id - 1));
+  public @NotNull Iterator<@NotNull ChangeSet> iterate() {
+    return new Iterator<>() {
+      private int index = mySets.size() - 1;
+
+      @Override
+      public boolean hasNext() {
+        return index >= 0;
+      }
+
+      @Override
+      public ChangeSet next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        return mySets.get(index--);
+      }
+    };
   }
 
   @Override

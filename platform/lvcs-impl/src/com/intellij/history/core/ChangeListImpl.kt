@@ -10,7 +10,6 @@ import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.util.Clock
 import com.intellij.openapi.util.NlsContexts
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
@@ -85,20 +84,26 @@ internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeLi
   override fun iterChanges(): Iterable<ChangeSet> {
     return Iterable {
       object : Iterator<ChangeSet> {
-        private val recursionGuard = IntOpenHashSet(1000)
-        private var next = synchronized(this@ChangeListImpl) {
-          currentChangeSet?.let { ChangeSetHolder(-1, it) }
-          ?: storage.readPrevious(-1, recursionGuard)
+        private var starterCurrentSet = synchronized(this@ChangeListImpl) {
+          currentChangeSet
+        }
+        private val storageIterator: Iterator<ChangeSet> by lazy {
+          storage.iterate()
         }
 
-        override fun hasNext(): Boolean = next != null
+        override fun hasNext(): Boolean = synchronized(this@ChangeListImpl) {
+          starterCurrentSet != null || storageIterator.hasNext()
+        }
 
-        override fun next(): ChangeSet {
-          val result = next!!
-          next = synchronized(this@ChangeListImpl) {
-            storage.readPrevious(result.id, recursionGuard)
+        override fun next(): ChangeSet = synchronized(this@ChangeListImpl) {
+          val current = starterCurrentSet
+          if (current != null) {
+            starterCurrentSet = null
+            current
           }
-          return result.changeSet
+          else {
+            storageIterator.nextOrNull() ?: error("No more changesets available")
+          }
         }
       }
     }
@@ -130,4 +135,8 @@ internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeLi
     }
     storage.close(drop)
   }
+}
+
+private fun <T> Iterator<T>.nextOrNull(): T? {
+  return if (hasNext()) next() else null
 }

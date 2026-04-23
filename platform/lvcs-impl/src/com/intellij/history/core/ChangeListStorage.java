@@ -2,10 +2,10 @@
 package com.intellij.history.core;
 
 import com.intellij.history.core.changes.ChangeSet;
-import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+
+import java.util.Iterator;
 
 @ApiStatus.Internal
 public interface ChangeListStorage {
@@ -15,10 +15,14 @@ public interface ChangeListStorage {
 
   long nextId();
 
-  @Nullable
-  ChangeSetHolder readPrevious(int id, @NotNull IntSet recursionGuard);
-
   void purge(long period, long intervalBetweenActivities);
 
   void writeNextSet(@NotNull ChangeSet changeSet);
+
+  /**
+   * Returns an iterator over the change sets in the storage.
+   *
+   * @return iterator over change sets, starting from the last written change set at the time of the call
+   */
+  @NotNull Iterator<@NotNull ChangeSet> iterate();
 }
