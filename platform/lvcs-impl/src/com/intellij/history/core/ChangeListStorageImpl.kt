@@ -208,7 +208,7 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
     if (isCompletelyBroken) return
 
     try {
-      storage.writeStream(storage.createNextRecord(), true).use { out ->
+      storage.writeStream(storage.createNextRecord(changeSet.timestamp), true).use { out ->
         changeSet.write(out)
       }
       storage.setLastId(lastId)
