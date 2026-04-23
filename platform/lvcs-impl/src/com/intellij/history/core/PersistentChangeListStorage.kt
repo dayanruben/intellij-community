@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.history.core
 
 import com.intellij.history.core.changes.ChangeSet
@@ -7,12 +7,14 @@ import com.intellij.history.utils.LocalHistoryLog
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.newvfs.ManagingFS
 import com.intellij.util.io.ClosedStorageException
 import com.intellij.util.io.delete
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet
 import it.unimi.dsi.fastutil.ints.IntSet
 import org.jetbrains.annotations.NonNls
+import org.jetbrains.annotations.VisibleForTesting
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,13 +23,29 @@ import java.text.DateFormat
 private const val VERSION = 7
 private const val STORAGE_FILE: @NonNls String = "changes"
 
-internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListStorage {
+internal class PersistentChangeListStorage(
+  private val storageDir: Path,
+  private val useWriteCache: Boolean = Registry.`is`("lvcs.store.write.cache.in.memory", true),
+  private val getCurrentFsTimestamp: () -> Long = { ManagingFS.getInstance().creationTimestamp },
+  private val unitTestMode: Boolean = ApplicationManager.getApplication().isUnitTestMode(),
+) : ChangeListStorage {
   //TODO RC: use mmapped storage instead of old-school? Less freezes, and also more reliability
   private val storage: LocalHistoryStorage
-  private var lastId: Long = 0
+
+  /**
+   * Write cache for the storage
+   */
+  private val pendingChangeSets = ArrayDeque<ChangeSet>()
+
+  @get:VisibleForTesting
+  var lastId: Long = 0
+    private set
+
+  @get:VisibleForTesting
+  var lastWrittenId: Long = 0
+    private set
 
   private var isCompletelyBroken = false
-  private val unitTestMode = ApplicationManager.getApplication().isUnitTestMode()
 
   init {
     storage = initStorage()
@@ -36,6 +54,7 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
   @Synchronized
   @Throws(IOException::class)
   private fun dropStorage() {
+    pendingChangeSets.clear()
     storageDir.delete()
   }
 
@@ -47,7 +66,7 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
 
     var storage = LocalHistoryStorage(path)
 
-    val fsTimestamp = ManagingFS.getInstance().getCreationTimestamp()
+    val fsTimestamp = getCurrentFsTimestamp()
 
     val storedVersion = storage.getVersion()
     val versionMismatch = storedVersion != VERSION
@@ -69,6 +88,7 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
     }
 
     lastId = storage.getLastId()
+    lastWrittenId = storage.getLastId()
     return storage
   }
 
@@ -77,7 +97,7 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
       return
     }
 
-    val vfsTimestamp = ManagingFS.getInstance().getCreationTimestamp()
+    val vfsTimestamp = getCurrentFsTimestamp()
     val timestamp = System.currentTimeMillis()
 
     val storageTimestamp = try {
@@ -125,14 +145,18 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
   }
 
   override fun close(drop: Boolean) {
+    if (!drop) {
+      flushPending()
+    }
     Disposer.dispose(storage)
     if (drop) {
       dropStorage()
     }
   }
 
-  override fun force() {
+  override fun flush() {
     try {
+      flushPending()
       storage.force()
     }
     catch (e: IOException) {
@@ -188,7 +212,9 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
     }
   }
 
+  @Synchronized
   override fun iterate(): Iterator<ChangeSet> {
+    flushPending()
     return object : Iterator<ChangeSet> {
       private val recursionGuard = IntOpenHashSet(1000)
       private var next = readPrevious(-1, recursionGuard)
@@ -206,21 +232,54 @@ internal class ChangeListStorageImpl(private val storageDir: Path) : ChangeListS
   @Synchronized
   override fun writeNextSet(changeSet: ChangeSet) {
     if (isCompletelyBroken) return
+    if (useWriteCache) {
+      pendingChangeSets.add(changeSet)
+    }
+    else {
+      doWriteNextSet(changeSet)
+    }
+  }
+
+  private fun flushPending() {
+    while (true) {
+      synchronized(this) {
+        val set = pendingChangeSets.removeFirstOrNull() ?: break
+        doWriteNextSet(set)
+      }
+    }
+  }
+
+  @Synchronized
+  private fun doWriteNextSet(changeSet: ChangeSet) {
+    if (isCompletelyBroken) return
 
     try {
       storage.writeStream(storage.createNextRecord(changeSet.timestamp), true).use { out ->
         changeSet.write(out)
       }
-      storage.setLastId(lastId)
+      storage.setLastId(++lastWrittenId)
+      if (lastWrittenId > lastId) {
+        handleError(null,
+                    "ID desync detected - something is creating changesets with external IDs. LastID: $lastId, LastWrittenID: $lastWrittenId")
+        return
+      }
     }
     catch (e: IOException) {
       handleError(e, null)
     }
   }
 
+  /**
+   * Purges the obsolete changesets from the *persistent* storage,
+   * as non-persistent storage will almost never contain the obsolete data in the real world
+   */
   @Synchronized
   override fun purge(period: Long, intervalBetweenActivities: Long) {
     if (isCompletelyBroken) return
+    // unit tests often try to purge the changesets that were added in the same test
+    if (unitTestMode) {
+      flushPending()
+    }
 
     val recursionGuard = IntOpenHashSet(1000)
     try {

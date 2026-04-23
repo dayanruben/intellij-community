@@ -105,6 +105,10 @@
                  defaultValue="0"
                  restartRequired="false"
                  description="Maximum file size in megabytes to store binary file content on deletion (0 or negative to disable)"/>
+    <registryKey key="lvcs.store.write.cache.in.memory"
+                 defaultValue="true"
+                 restartRequired="true"
+                 description="Whether to use an in-memory write cache in front of the actual local history storage to avoid writing on EDT under a write-lock"/>
 
     <undoProvider implementation="com.intellij.openapi.command.impl.FileUndoProvider"/>
     <projectUndoProvider implementation="com.intellij.openapi.command.impl.FileUndoProvider"/>

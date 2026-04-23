@@ -20,7 +20,7 @@ public final class InMemoryChangeListStorage implements ChangeListStorage {
   }
 
   @Override
-  public void force() {
+  public void flush() {
   }
 
   @Override

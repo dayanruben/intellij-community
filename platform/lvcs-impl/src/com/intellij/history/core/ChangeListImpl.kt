@@ -123,7 +123,7 @@ internal class ChangeListImpl(private val storage: ChangeListStorage) : ChangeLi
       }
       checkCanceled()
 
-      storage.force()
+      storage.flush()
     }
   }
 

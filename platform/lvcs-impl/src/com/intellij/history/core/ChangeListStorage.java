@@ -11,10 +11,14 @@ import java.util.Iterator;
 public interface ChangeListStorage {
   void close(boolean drop);
 
-  void force();
+  void flush();
 
   long nextId();
 
+  /**
+   * Purges the changesets older than the specified [period].
+   * Changesets are considered "related" and are not purged if their timestamps are closer than [intervalBetweenActivities].
+   */
   void purge(long period, long intervalBetweenActivities);
 
   void writeNextSet(@NotNull ChangeSet changeSet);

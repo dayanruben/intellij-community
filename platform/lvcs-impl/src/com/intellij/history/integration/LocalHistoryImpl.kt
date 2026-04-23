@@ -10,10 +10,10 @@ import com.intellij.history.LocalHistoryException
 import com.intellij.history.core.ByteContentRetriever
 import com.intellij.history.core.ChangeAndPathProcessor
 import com.intellij.history.core.ChangeListImpl
-import com.intellij.history.core.ChangeListStorageImpl
 import com.intellij.history.core.InMemoryChangeListStorage
 import com.intellij.history.core.LabelImpl
 import com.intellij.history.core.LocalHistoryFacade
+import com.intellij.history.core.PersistentChangeListStorage
 import com.intellij.history.core.changes.Change
 import com.intellij.history.core.changes.ChangeSet
 import com.intellij.history.core.changes.PutLabelChange
@@ -102,7 +102,7 @@ class LocalHistoryImpl(private val coroutineScope: CoroutineScope) : LocalHistor
 
     val storage = try {
       val storageDir = PathManager.getSystemDir().resolve("LocalHistory")
-      ChangeListStorageImpl(storageDir)
+      PersistentChangeListStorage(storageDir)
     }
     catch (e: Throwable) {
       LocalHistoryLog.LOG.warn("cannot create storage, in-memory implementation will be used", e)
