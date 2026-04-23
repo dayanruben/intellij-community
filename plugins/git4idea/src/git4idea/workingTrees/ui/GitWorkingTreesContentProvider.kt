@@ -28,14 +28,12 @@ import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.StatusText
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.vcs.git.repo.GitRepositoriesHolder
 import git4idea.GitWorkingTree
 import git4idea.actions.workingTree.GitCreateWorkingTreeService
 import git4idea.actions.workingTree.GitWorkingTreeTabActionsDataKeys
 import git4idea.i18n.GitBundle
-import git4idea.repo.GitRepository
 import git4idea.workingTrees.GitWorkingTreesNewBadgeUtil
 import git4idea.workingTrees.GitWorkingTreesService
 import git4idea.workingTrees.GitWorktreeSupportStatus
@@ -82,6 +80,7 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
         if (event == GitRepositoriesHolder.UpdateType.WORKING_TREES_LOADED) {
           ApplicationManager.getApplication().invokeLater {
             model.reload(project)
+            list.updateEmptyText()
           }
         }
       }
@@ -99,7 +98,7 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
     init {
       list.cellRenderer = WorkingTreesListRenderer()
       list.accessibleContext.accessibleName = GitBundle.message("toolwindow.working.trees.tab.name")
-      initEmptyText(list.emptyText)
+      updateEmptyText()
       addToCenter(list)
 
       list.addMouseListener(object : PopupHandler() {
@@ -116,18 +115,33 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
       })
     }
 
-    private fun initEmptyText(emptyText: StatusText) {
-      emptyText.text = GitBundle.message("toolwindow.working.trees.tab.empty.text")
-      emptyText.withUnscaledGapAfter(20)
-      emptyText.appendLine(GitBundle.message("toolwindow.working.trees.tab.empty.text.create.working.tree"),
-                           SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) { _ ->
-        val repository = model.repository
-        if (repository != null) {
-          GitCreateWorkingTreeService.getInstance().collectDataAndCreateWorkingTree(repository,
-                                                                                    null,
-                                                                                    GIT_WORKING_TREE_TOOLWINDOW_TAB_EMPTY_LIST)
+    fun updateEmptyText() {
+      val emptyText = list.emptyText
+      emptyText.clear()
+
+      val worktreeSupportStatus = model.worktreeSupportStatus
+
+      when (worktreeSupportStatus) {
+        is GitWorktreeSupportStatus.SingleRepository -> {
+          emptyText
+            .appendLine(GitBundle.message("toolwindow.working.trees.tab.empty.text"))
+            .withUnscaledGapAfter(20)
+            .appendLine(GitBundle.message("toolwindow.working.trees.tab.empty.text.create.working.tree"),
+                        SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) { _ ->
+              val repository = worktreeSupportStatus.repository
+              GitCreateWorkingTreeService.getInstance().collectDataAndCreateWorkingTree(repository,
+                                                                                        null,
+                                                                                        GIT_WORKING_TREE_TOOLWINDOW_TAB_EMPTY_LIST)
+            }
         }
+
+        is GitWorktreeSupportStatus.MultipleRepository -> {
+          emptyText.appendLine(GitBundle.message("toolwindow.working.trees.tab.empty.text.multirepo"))
+        }
+
+        GitWorktreeSupportStatus.Unsupported -> {}
       }
+
       emptyText.appendLine(AllIcons.General.ContextHelp,
                            GitBundle.message("toolwindow.working.trees.tab.empty.what.git.worktree"),
                            SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) { _ ->
@@ -137,13 +151,14 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
 
     override fun uiDataSnapshot(sink: DataSink) {
       sink[GitWorkingTreeTabActionsDataKeys.SELECTED_WORKING_TREES] = list.selectedValuesList
-      sink[GitWorkingTreeTabActionsDataKeys.CURRENT_REPOSITORY] = model.repository
+      sink[GitWorkingTreeTabActionsDataKeys.CURRENT_REPOSITORY] =
+        (model.worktreeSupportStatus as? GitWorktreeSupportStatus.SingleRepository)?.repository
       sink[PlatformCoreDataKeys.HELP_ID] = TOOLWINDOW_CONTENT_HELP_ID
     }
   }
 
   private class WorkingTreesListModel(project: Project) : DefaultListModel<GitWorkingTree>() {
-    var repository: GitRepository? = null
+    var worktreeSupportStatus: GitWorktreeSupportStatus = GitWorktreeSupportStatus.Unsupported
       private set
 
     init {
@@ -152,20 +167,19 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
 
     fun reload(project: Project) {
       clear()
-      val currentRepository = when (val status = GitWorkingTreesService.getWorktreeSupportStatus(project)) {
-        is GitWorktreeSupportStatus.SingleRepository -> status.repository
-        else -> null
-      }
-      repository = currentRepository
-      val workingTrees = currentRepository?.workingTreeHolder?.getWorkingTrees()
-      if (workingTrees != null && workingTrees.size > 1) {
+
+      val status = GitWorkingTreesService.getWorktreeSupportStatus(project)
+      worktreeSupportStatus = status
+
+      if (status is GitWorktreeSupportStatus.SingleRepository) {
+        val workingTrees = status.repository.workingTreeHolder.getWorkingTrees()
         workingTrees.forEach {
-          if (it.isMain) {
-            add(0, it)
-          }
-          else {
-            addElement(it)
-          }
+              if (it.isMain) {
+                add(0, it)
+              }
+              else {
+                addElement(it)
+              }
         }
       }
     }
@@ -247,8 +261,5 @@ internal class GitWorkingTreesContentPreloader(val project: Project) : ChangesVi
 }
 
 internal class GitWorkingTreesContentVisibilityPredicate : Predicate<Project> {
-  override fun test(project: Project): Boolean {
-    val shouldWorkingTreesTabBeShown = GitWorkingTreesService.getInstance(project).shouldWorkingTreesTabBeShown()
-    return shouldWorkingTreesTabBeShown
-  }
+  override fun test(project: Project): Boolean = GitWorkingTreesService.getInstance(project).shouldWorkingTreesTabBeShown()
 }
