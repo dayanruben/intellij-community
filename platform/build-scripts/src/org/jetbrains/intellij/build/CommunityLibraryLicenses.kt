@@ -1150,6 +1150,10 @@ object CommunityLibraryLicenses {
     LibraryLicense("pockets", version = "0.9.1", attachedTo = "intellij.python", url = "https://pockets.readthedocs.io/")
       .newBsd("https://github.com/RobRuana/pockets/blob/master/LICENSE"),
 
+    LibraryLicense("protobuf-kotlin", libraryName = "google.protobuf.kotlin", url = "https://developers.google.com/protocol-buffers")
+      .newBsd("https://github.com/protocolbuffers/protobuf/blob/main/LICENSE")
+      .suppliedByOrganizations(Suppliers.GOOGLE),
+
     LibraryLicense("Protocol Buffers", libraryName = "protobuf", url = "https://developers.google.com/protocol-buffers")
       .newBsd("https://github.com/google/protobuf/blob/master/LICENSE"),
 
