@@ -19,7 +19,7 @@ import com.intellij.platform.ijent.community.buildConstants.IJENT_BOOT_CLASSPATH
 import com.intellij.platform.ijent.community.buildConstants.MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS
 import com.intellij.platform.util.coroutines.filterConcurrent
 import com.intellij.testFramework.SkipInHeadlessEnvironment
-import com.intellij.util.bazelEnvironment.BazelRunfiles
+import com.intellij.platform.bazel.runfiles.BazelRunfiles
 import com.intellij.util.io.awaitExit
 import com.intellij.util.lang.UrlClassLoader
 import io.opentelemetry.api.trace.Span
@@ -204,8 +204,6 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
           )
         }
       }
-      val runtimeModuleRepository = context.getOriginalModuleRepository()
-      systemProperties.put("intellij.platform.runtime.repository.path", runtimeModuleRepository.repositoryPath.pathString)
     }
     catch (e: Exception) {
       if (options.isCancelBuildOnTestPreparationFailure) {

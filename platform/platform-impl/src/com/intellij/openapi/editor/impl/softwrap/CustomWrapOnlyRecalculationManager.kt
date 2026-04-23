@@ -11,6 +11,7 @@ import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapHelper.coerceToValidOffset
 import com.intellij.openapi.editor.impl.softwrap.mapping.IncrementalCacheUpdateEvent
 import com.intellij.openapi.util.Segment
+import com.intellij.openapi.util.TextRange
 import org.jetbrains.annotations.NonNls
 import java.beans.PropertyChangeEvent
 import java.util.function.BooleanSupplier
@@ -28,16 +29,25 @@ internal class CustomWrapOnlyRecalculationManager(
   private var isFoldingUpdateInProgress: Boolean = false
   private val deferredFoldRegions: MutableList<Segment> = ArrayList()
 
+  private var isCustomWrapUpdateInProgress: Boolean = false
+  // todo: use IntList
+  private val deferredCustomWraps: MutableList<Segment> = ArrayList()
+
   override var isDirty: Boolean = false
     private set
 
   override fun prepareToMapping() {
-    if (!isDirty || isDocumentUpdateInProgress || isFoldingUpdateInProgress || isBulkDocumentUpdateInProgress.getAsBoolean()) {
+    if (!isDirty ||
+        isDocumentUpdateInProgress ||
+        isFoldingUpdateInProgress ||
+        isCustomWrapUpdateInProgress ||
+        isBulkDocumentUpdateInProgress.getAsBoolean()) {
       return
     }
     isDirty = false
     storage.removeAll()
     deferredFoldRegions.clear()
+    deferredCustomWraps.clear()
     recalculateCustomWraps(IncrementalCacheUpdateEvent.forWholeDocument(editor.elfDocument))
   }
 
@@ -51,6 +61,7 @@ internal class CustomWrapOnlyRecalculationManager(
   override fun reset() {
     isDirty = true
     deferredFoldRegions.clear()
+    deferredCustomWraps.clear()
   }
 
   override fun isResetNeeded(tabWidthChanged: Boolean, fontChanged: Boolean): Boolean {
@@ -59,12 +70,14 @@ internal class CustomWrapOnlyRecalculationManager(
 
   override fun release() {
     deferredFoldRegions.clear()
+    deferredCustomWraps.clear()
   }
 
   override fun recalculate() {
     storage.removeAll()
     softWrapNotifier.notifySoftWrapsChanged()
     deferredFoldRegions.clear()
+    deferredCustomWraps.clear()
     recalculateCustomWraps(IncrementalCacheUpdateEvent.forWholeDocument(editor.elfDocument))
     softWrapNotifier.notifyAllDirtyRegionsReparsed()
   }
@@ -121,8 +134,7 @@ internal class CustomWrapOnlyRecalculationManager(
     if (!modelHasWraps()) {
       return
     }
-    // todo improve
-    deferredFoldRegions.forEach { recalculateCustomWraps(createEventForVisualChange(it.startOffset, it.endOffset)) }
+    recalculateCustomWraps(deferredFoldRegions)
     deferredFoldRegions.clear()
     softWrapNotifier.notifyAllDirtyRegionsReparsed()
   }
@@ -132,6 +144,10 @@ internal class CustomWrapOnlyRecalculationManager(
       return
     }
     LOG.assertTrue(!isDocumentUpdateInProgress, "CustomWrap added during document update")
+    if (isCustomWrapUpdateInProgress) {
+      deferredCustomWraps.add(TextRange(wrap.offset, wrap.offset))
+      return
+    }
     recalculateCustomWraps(createEventForVisualChange(wrap.offset, wrap.offset))
     softWrapNotifier.notifyAllDirtyRegionsReparsed()
   }
@@ -147,11 +163,43 @@ internal class CustomWrapOnlyRecalculationManager(
       documentUpdateEndOffset = maxOf(documentUpdateEndOffset, wrap.offset)
       return
     }
+    if (isCustomWrapUpdateInProgress) {
+      deferredCustomWraps.add(TextRange(wrap.offset, wrap.offset))
+      return
+    }
     recalculateCustomWraps(createEventForVisualChange(wrap.offset, wrap.offset))
     softWrapNotifier.notifyAllDirtyRegionsReparsed()
   }
 
+  override fun customWrapBatchMutationFinished() {
+    isCustomWrapUpdateInProgress = false
+    if (isBulkDocumentUpdateInProgress.getAsBoolean()) {
+      return
+    }
+    try {
+      if (!isDirty) {
+        recalculateCustomWraps(deferredCustomWraps)
+        if (deferredCustomWraps.isNotEmpty()) {
+          softWrapNotifier.notifyAllDirtyRegionsReparsed()
+        }
+      }
+    }
+    finally {
+      deferredCustomWraps.clear()
+    }
+  }
+
+  override fun customWrapBatchMutationStarted() {
+    isCustomWrapUpdateInProgress = true
+  }
+
   private fun modelHasWraps(): Boolean = editor.customWrapModel.hasWraps()
+
+  private fun recalculateCustomWraps(ranges: List<Segment>) {
+    SoftWrapHelper.recalculateSegments(ranges, softWrapNotifier) { startOffset, endOffset ->
+      recalculateCustomWraps(createEventForVisualChange(startOffset, endOffset))
+    }
+  }
 
   private fun recalculateCustomWraps(event: IncrementalCacheUpdateEvent) {
     val startOffset = event.startOffset
@@ -191,4 +239,3 @@ private fun SoftWrapsStorage.addLastIfNotFoldedOrDuplicated(customWrap: CustomWr
 
 private fun createEventForVisualChange(startOffset: Int, endOffset: Int): IncrementalCacheUpdateEvent =
   IncrementalCacheUpdateEvent(startOffset, endOffset, 0)
-

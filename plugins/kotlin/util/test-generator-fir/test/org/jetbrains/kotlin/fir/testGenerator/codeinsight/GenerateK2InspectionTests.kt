@@ -111,7 +111,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             // unusedSymbol is covered with K2UnusedSymbolHighlightingTestGenerated
             //model("${idea}/inspectionsLocal/unusedSymbol", pattern = pattern)
             model("${idea}/inspectionsLocal/branched/introduceWhenSubject")
-            model("${idea}/inspectionsLocal/usePropertyAccessSyntax")
+            model("${idea}/inspectionsLocal/usePropertyAccessSyntax", pattern = Patterns.KT_WITHOUT_DOTS)
             model("${idea}/inspectionsLocal/unlabeledReturnInsideLambda")
             model("${idea}/inspectionsLocal/redundantUnitReturnType")
             model("${idea}/inspectionsLocal/suspiciousCollectionReassignment")
@@ -179,6 +179,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspectionsLocal/javaMapForEach")
             model("${idea}/inspectionsLocal/mapToForEach")
             model("${idea}/inspectionsLocal/functionWithLambdaExpressionBody")
+            model("${idea}/inspectionsLocal/convertSealedSubClassToObject", pattern = Patterns.KT_WITHOUT_DOTS)
             model("${idea}/inspectionsLocal/replaceUntilWithRangeUntil")
             model("${idea}/inspectionsLocal/scriptExecutable", pattern = Patterns.KTS)
             model("${idea}/inspectionsLocal/replaceAddAllWithMapTo")
@@ -187,6 +188,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             // and the inspection can have the "No highlighting (fix available)" severity.
             // Therefore, we generate a test for the inspection based on the tests for K1-RemoveExplicitTypeArgumentsIntention.
             model("${idea}/intentions/removeExplicitTypeArguments", testClassName = "RemoveExplicitTypeArgumentsFormerIntentionTest", pattern = pattern)
+            model("${idea}/intentions/convertReferenceToLambda", pattern = pattern)
         }
 
         testClass<AbstractAllOpenLocalInspectionTest> {
@@ -233,7 +235,9 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             val pattern = Patterns.forRegex("^([\\w\\-_]+)\\.test$")
             model("${idea}/multiFileLocalInspections/unusedSymbol", pattern = pattern)
             model("${idea}/multiFileLocalInspections/reconcilePackageWithDirectory", pattern = pattern)
+            model("${idea}/multiFileLocalInspections/convertSealedSubClassToObject", pattern = pattern)
             model("${idea}/multiFileLocalInspections/redundantQualifierName", pattern = pattern)
+            model("${idea}/multiFileLocalInspections/usePropertyAccessSyntax", pattern = pattern, flatten = true)
             model("code-insight/inspections-k2/tests/testData/multiFileInspectionsLocal", pattern = pattern)
         }
 

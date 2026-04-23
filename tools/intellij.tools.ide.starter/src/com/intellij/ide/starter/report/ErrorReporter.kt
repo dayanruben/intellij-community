@@ -9,7 +9,8 @@ interface ErrorReporter {
   fun reportErrorsAsFailedTests(runContext: IDERunContext)
   companion object {
     const val MESSAGE_FILENAME = "message.txt"
-    const val TESTNAME_FILENAME = "testName.txt"
+    const val ACTIVE_TESTNAME_FILENAME = "activeTestName.txt"
+    const val SYNTHETIC_TESTNAME_FILENAME = "syntheticTestName.txt"
     const val STACKTRACE_FILENAME = "stacktrace.txt"
     const val PRODUCT_INFO_FILENAME = "product_info.txt"
     const val ERRORS_DIR_NAME = "errors"

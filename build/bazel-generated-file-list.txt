@@ -534,6 +534,7 @@ platform/backend
 platform/backend/observation
 platform/backend/workspace
 platform/backend/workspace.impl
+platform/bazel-runfiles
 platform/bookmarks
 platform/bookmarks/backend
 platform/bookmarks/frontend
@@ -1106,6 +1107,7 @@ plugins/javaFX/common
 plugins/javaFX/community
 plugins/javaFX/jps
 plugins/javaFX/sceneBuilder
+plugins/jcef/plugin
 plugins/jshell
 plugins/jshell/console
 plugins/jshell/execution

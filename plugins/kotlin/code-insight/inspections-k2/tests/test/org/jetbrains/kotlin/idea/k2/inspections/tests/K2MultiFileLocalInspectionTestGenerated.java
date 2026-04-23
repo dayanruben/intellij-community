@@ -294,6 +294,48 @@ public abstract class K2MultiFileLocalInspectionTestGenerated extends AbstractK2
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/multiFileLocalInspections/convertSealedSubClassToObject")
+    public abstract static class ConvertSealedSubClassToObject extends AbstractK2MultiFileLocalInspectionTest {
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../../../idea/tests/testData/multiFileLocalInspections/convertSealedSubClassToObject/convertCallableReferenceUsages")
+        public static class ConvertCallableReferenceUsages extends AbstractK2MultiFileLocalInspectionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K2;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("convertCallableReferenceUsages.test")
+            public void testConvertCallableReferenceUsages() throws Exception {
+                runTest("../../../idea/tests/testData/multiFileLocalInspections/convertSealedSubClassToObject/convertCallableReferenceUsages/convertCallableReferenceUsages.test");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../../../idea/tests/testData/multiFileLocalInspections/convertSealedSubClassToObject/convertInOtherFiles")
+        public static class ConvertInOtherFiles extends AbstractK2MultiFileLocalInspectionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K2;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("convertInOtherFiles.test")
+            public void testConvertInOtherFiles() throws Exception {
+                runTest("../../../idea/tests/testData/multiFileLocalInspections/convertSealedSubClassToObject/convertInOtherFiles/convertInOtherFiles.test");
+            }
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/multiFileLocalInspections/redundantQualifierName")
     public abstract static class RedundantQualifierName extends AbstractK2MultiFileLocalInspectionTest {
         @RunWith(JUnit3RunnerWithInners.class)
@@ -389,6 +431,30 @@ public abstract class K2MultiFileLocalInspectionTestGenerated extends AbstractK2
             public void testFromKotlinTest() throws Exception {
                 runTest("../../../idea/tests/testData/multiFileLocalInspections/redundantQualifierName/unnecessaryNonDirectParentClassQualifierDisabled/fromKotlinTest.test");
             }
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/multiFileLocalInspections/usePropertyAccessSyntax")
+    public static class UsePropertyAccessSyntax extends AbstractK2MultiFileLocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("excludedCustomAccessor/excludedCustomAccessor.test")
+        public void testExcludedCustomAccessor_ExcludedCustomAccessor() throws Exception {
+            runTest("../../../idea/tests/testData/multiFileLocalInspections/usePropertyAccessSyntax/excludedCustomAccessor/excludedCustomAccessor.test");
+        }
+
+        @TestMetadata("notExcludedCustomAccessor/notExcludedCustomAccessor.test")
+        public void testNotExcludedCustomAccessor_NotExcludedCustomAccessor() throws Exception {
+            runTest("../../../idea/tests/testData/multiFileLocalInspections/usePropertyAccessSyntax/notExcludedCustomAccessor/notExcludedCustomAccessor.test");
         }
     }
 

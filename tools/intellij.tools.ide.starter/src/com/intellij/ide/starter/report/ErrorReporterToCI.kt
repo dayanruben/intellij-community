@@ -3,7 +3,8 @@ package com.intellij.ide.starter.report
 import com.intellij.ide.starter.ci.CIServer
 import com.intellij.ide.starter.report.ErrorReporter.Companion.MESSAGE_FILENAME
 import com.intellij.ide.starter.report.ErrorReporter.Companion.STACKTRACE_FILENAME
-import com.intellij.ide.starter.report.ErrorReporter.Companion.TESTNAME_FILENAME
+import com.intellij.ide.starter.report.ErrorReporter.Companion.SYNTHETIC_TESTNAME_FILENAME
+import com.intellij.ide.starter.report.ErrorReporter.Companion.ACTIVE_TESTNAME_FILENAME
 import com.intellij.ide.starter.runner.IDERunContext
 import com.intellij.platform.testFramework.teamCity.generifyErrorMessage
 import com.intellij.util.SystemProperties
@@ -16,11 +17,11 @@ import kotlin.io.path.name
 import kotlin.io.path.readText
 import kotlin.jvm.optionals.getOrNull
 
-object ErrorReporterToCI: ErrorReporter {
+object ErrorReporterToCI : ErrorReporter {
   /**
    * Read files from errors directories, written by performance testing plugin and report them as errors.
    * Read threadDumps folders and report them as freezes.
-   * Take a look at [com.jetbrains.performancePlugin.ProjectLoaded.reportErrorsFromMessagePool]
+   * Take a look at [com.jetbrains.performancePlugin.ScriptErrorReporter]
    */
   override fun reportErrorsAsFailedTests(runContext: IDERunContext) {
     reportErrors(runContext, collectErrors(runContext.logsDir) + collectScriptErrors(runContext.logsDir))
@@ -37,7 +38,9 @@ object ErrorReporterToCI: ErrorReporter {
    * To support legacy formant of errors reporting in "script-errors" dir
    */
   fun collectScriptErrors(logsDir: Path): List<Error> {
-    val rootErrorsDir = Files.find(logsDir, 3, { path, _ -> path.name == "script-" + ErrorReporter.ERRORS_DIR_NAME }).findFirst().getOrNull()
+    val rootErrorsDir = Files.find(logsDir, 3, { path, _ -> path.name == "script-" + ErrorReporter.ERRORS_DIR_NAME })
+      .findFirst().getOrNull()
+
     if (SystemProperties.getBooleanProperty("DO_NOT_REPORT_ERRORS", false)) return listOf()
     return collectExceptions(rootErrorsDir)
   }
@@ -56,16 +59,19 @@ object ErrorReporterToCI: ErrorReporter {
       if (!messageFile.exists()) continue
 
       val messageText = generifyErrorMessage(messageFile.readText().trimIndent().trim())
-      val testNameFile = errorDir.resolve(TESTNAME_FILENAME)
-      val testName = if (testNameFile.exists()) testNameFile.readText().trim() else null
+      val syntheticTestNameFile = errorDir.resolve(SYNTHETIC_TESTNAME_FILENAME)
+      val syntheticTestName = if (syntheticTestNameFile.exists()) syntheticTestNameFile.readText().trim() else null
 
       val errorType = ErrorType.fromMessage(messageText)
       if (errorType == ErrorType.ERROR) {
         val stacktraceFile = errorDir.resolve(STACKTRACE_FILENAME)
         if (!stacktraceFile.exists()) continue
         val stackTrace = stacktraceFile.readText().trimIndent().trim()
-        errors.add(Error(messageText, stackTrace, "", errorType, testName))
-      } else if (errorType == ErrorType.FREEZE) {
+        val activeTestNameFile = errorDir.resolve(ACTIVE_TESTNAME_FILENAME)
+        val activeTestName = if (activeTestNameFile.exists()) activeTestNameFile.readText().trim().takeIf { it.isNotEmpty() } else null
+        errors.add(Error(messageText, stackTrace, "", errorType, syntheticTestName, activeTestName))
+      }
+      else if (errorType == ErrorType.FREEZE) {
         errorDir.listDirectoryEntries("dump*").firstOrNull()?.let { threadDump ->
           val dumpContent = Files.readString(threadDump)
           val fallbackName = "Not analyzed freeze: " + (inferClassMethodNamesFromFolderName(threadDump)
@@ -114,9 +120,9 @@ object ErrorReporterToCI: ErrorReporter {
     for (error in errors) {
       val messageText = error.messageText
       val stackTraceContent = error.stackTraceContent
-      val testName = when (error.type) {
+      val syntheticTestName = when (error.type) {
         ErrorType.ERROR -> {
-          error.testName ?: generateTestNameFromException(stackTraceContent, messageText)
+          error.syntheticTestName ?: generateTestNameFromException(stackTraceContent, messageText)
         }
         ErrorType.FREEZE, ErrorType.TIMEOUT -> {
           messageText
@@ -124,21 +130,23 @@ object ErrorReporterToCI: ErrorReporter {
       }
 
       val failureDetailsProvider = FailureDetailsOnCI.instance
-      val failureDetailsMessage = failureDetailsProvider.getFailureDetails(runContext)
+      val failureDetailsMessage = failureDetailsProvider.getFailureDetails(runContext, error)
       val urlToLogs = failureDetailsProvider.getLinkToCIArtifacts(runContext).toString()
-      val linkToMuteArticle = "\nThis test fail is an exception! \nYou can find instructions about muting this error in this link https://youtrack.jetbrains.com/articles/IJPL-A-1185/How-to-create-a-new-mapping"
+      val linkToMuteArticle = "\nThis test fail is an exception! \n" +
+                              "You can find instructions about muting this error in this link https://youtrack.jetbrains.com/articles/IJPL-A-1185/How-to-create-a-new-mapping"
       if (CIServer.instance.isTestFailureShouldBeIgnored(messageText) || CIServer.instance.isTestFailureShouldBeIgnored(stackTraceContent)) {
-        CIServer.instance.ignoreTestFailure(testName = "(${generifyErrorMessage(testName)})",
+        CIServer.instance.ignoreTestFailure(testName = "(${generifyErrorMessage(syntheticTestName)})",
                                             message = failureDetailsMessage)
       }
       else {
-        CIServer.instance.reportTestFailure(testName = "(${generifyErrorMessage(testName)})",
+        CIServer.instance.reportTestFailure(testName = "(${generifyErrorMessage(syntheticTestName)})",
                                             message = failureDetailsMessage + linkToMuteArticle,
                                             details = stackTraceContent,
                                             linkToLogs = urlToLogs)
         AllureReport.reportFailure(runContext.contextName, messageText + linkToMuteArticle,
                                    stackTraceContent,
-                                   links = AllureLink.single("Link to Logs and artifacts", failureDetailsProvider.getLinkToCIArtifacts(runContext) ?: "fail to get link"))
+                                   links = AllureLink.single("Link to Logs and artifacts",
+                                                             failureDetailsProvider.getLinkToCIArtifacts(runContext) ?: "fail to get link"))
       }
     }
   }
