@@ -10,6 +10,7 @@ import com.intellij.coverage.CoverageSuitesBundle
 import com.intellij.coverage.ExternalCoverageWatchManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.project.Project
@@ -56,7 +57,9 @@ internal class ExternalReportImportManager(private val project: Project) {
   fun openSuiteFromFile(file: VirtualFile, source: Source): Boolean {
     val runner = getCoverageRunner(file) ?: return false
     // Ensure VFS timestamp is updated before reading data from the report file.
-    VfsUtil.markDirtyAndRefresh(false, false, false, file)
+    WriteIntentReadAction.run {
+      VfsUtil.markDirtyAndRefresh(false, false, false, file)
+    }
     val suite = CoverageDataManager.getInstance(project).addExternalCoverageSuite(VfsUtilCore.virtualToIoFile(file), runner) ?: return false
     openSuites(listOf(suite), false, source)
     return true
@@ -72,7 +75,9 @@ internal class ExternalReportImportManager(private val project: Project) {
              }.takeIf { it.isNotEmpty() }
              ?.also { list ->
                //ensure timestamp in vfs is updated
-               VfsUtil.markDirtyAndRefresh(false, false, false, *list.map { it.first }.toTypedArray())
+               WriteIntentReadAction.run {
+                 VfsUtil.markDirtyAndRefresh(false, false, false, *list.map { it.first }.toTypedArray())
+               }
              }
              ?.mapNotNull { (virtualFile, runner) ->
                val file = VfsUtilCore.virtualToIoFile(virtualFile)
