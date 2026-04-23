@@ -6,7 +6,7 @@ import com.intellij.ide.starter.models.TestCase
 import com.intellij.ide.starter.project.NoProject
 import com.intellij.ide.starter.project.TestCaseTemplate
 import com.intellij.ide.starter.runner.IDERunContext
-import com.intellij.tools.ide.starter.build.server.idea.ultimate.IdeaUltimate
+import com.intellij.tools.ide.starter.product.idea.ultimate.IdeaUltimate
 
 data class IdeStartConfig(
   val testCase: TestCase<*> = (object : TestCaseTemplate(IdeInfo.IdeaUltimate) {}).withProject(NoProject),

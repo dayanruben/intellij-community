@@ -3,7 +3,7 @@ package examples.data
 import com.intellij.ide.starter.models.IdeInfo
 import com.intellij.ide.starter.project.GitHubProject
 import com.intellij.ide.starter.project.TestCaseTemplate
-import com.intellij.tools.ide.starter.build.server.idea.ultimate.IdeaUltimate
+import com.intellij.tools.ide.starter.product.idea.ultimate.IdeaUltimate
 
 object IdeaUltimateCases : TestCaseTemplate(IdeInfo.IdeaUltimate) {
   val IntelliJCommunityProject = withProject(
