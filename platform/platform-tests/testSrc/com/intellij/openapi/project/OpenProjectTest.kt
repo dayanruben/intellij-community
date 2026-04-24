@@ -44,6 +44,7 @@ import kotlin.io.path.writeText
 // terms:
 // valid: .idea (.ipr) exists
 // clean: .idea (.ipr) doesn't exist
+// project directory: directory that contains .idea, .ipr, root maven or root gradle file
 // existing: project directory exists
 // nested: .idea (.ipr) exists and ../.idea (../.ipr) exists too
 // multibuild: .idea (.ipr) does not exist, and there are 2 marker build files (pom.xml and build.gradle)
@@ -102,7 +103,7 @@ internal enum class IdeaProjectMaker {
     override fun makeProject(projectDir: Path): Path {
       val projectPath = projectDir.resolve(".idea")
       projectPath.createDirectories()
-      return projectDir
+      return projectPath
     }
 
     override fun getExpectedProjectState(projectDir: Path): ExpectedProjectState {
@@ -219,12 +220,19 @@ internal class OpenProjectTest {
 
   @CartesianTest
   @CartesianTest.MethodFactory("opener_X_ideaProjectMaker_X_attachProcessors")
-  fun `open valid existing project dir or ipr file`(
+  fun `open valid existing idea_dir or ipr_file`(
     opener: Opener,
     maker: IdeaProjectMaker,
     attachProcessors: AttachProcessors,
   ) = runBlocking(Dispatchers.Default) {
-    // Regardless of product (Idea vs PhpStorm), if .idea directory exists, but no modules, we must run configurators to add some module.
+    Assumptions.assumeFalse(
+      maker == IdeaProjectMaker.IdeaDirectory,
+      "Currently we don't have special handling for situation when .idea itself is opened as a project. " +
+      "At the moment the behavior is to create a new .idea project inside .idea directory, and this is not the behavior that " +
+      "we want to enforce through tests",
+    )
+
+    // Regardless of product (Idea vs PhpStorm), if .idea directory (ipr file) exists, but no modules, we must run configurators to add some module.
     // Maybe not fully clear why it is performed as part of project opening and silently, but it is existing behaviour.
     attachProcessors.configureAttachProcessors(disposable)
 
@@ -235,6 +243,26 @@ internal class OpenProjectTest {
     val expectedProjectState = calcExpectedProjectState(opener, maker, projectFileToOpen)
     openWithOpenerAndAssertProjectState(opener, projectFileToOpen,
                                         expectedProjectState(projectDir), opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
+  }
+
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_ideaProjectMaker_X_attachProcessors")
+  fun `open valid existing parent dir of idea_dir or ipr_file`(
+    opener: Opener,
+    maker: IdeaProjectMaker,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
+    // Regardless of product (Idea vs PhpStorm), if .idea directory exists, but no modules, we must run configurators to add some module.
+    // Maybe not fully clear why it is performed as part of project opening and silently, but it is existing behaviour.
+    attachProcessors.configureAttachProcessors(disposable)
+
+    val projectDir = tempDir.newPath("project")
+    maker.makeProject(projectDir)
+    checkOpenerIsApplicableToTargetPath(opener, projectDir)
+
+    val expectedProjectState = calcExpectedProjectState(opener, maker, projectDir)
+
+    openWithOpenerAndAssertProjectState(opener, projectDir, expectedProjectState(projectDir), opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
   }
 
   @ParameterizedTest

@@ -75,9 +75,7 @@ object CommandLineProcessor {
   suspend fun doOpenFileOrProject(file: Path, createOrOpenExistingProject: Boolean, shouldWait: Boolean): CommandLineProcessorResult {
     if (!LightEditUtil.isForceOpenInLightEditMode()) {
       val options = OpenProjectTask {
-        // do not check for .ipr files in the specified directory
-        // (@develar: it is existing behavior, I am not fully sure that it is correct)
-        preventIprLookup = true
+        preventIprLookup = !createOrOpenExistingProject
         if (createOrOpenExistingProject) {
           configureToOpenDotIdeaOrCreateNewIfNotExists(projectDir = file, projectToClose = null)
         }
