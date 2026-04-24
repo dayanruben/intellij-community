@@ -46,7 +46,6 @@ class ParentOfIjentScopes(val s: CoroutineScope) {
  * The class intentionally doesn't implement [CoroutineScope] itself for avoiding unintentional upcasting.
  */
 class IjentScope @EelDelicateApi constructor(
-  // Not used in code but enforces scope hierarchy as described by docs. May be converted to a public property if needed.
-  @Suppress("unused") parent: ParentOfIjentScopes,
+  val parent: ParentOfIjentScopes,
   val s: CoroutineScope,
 )
