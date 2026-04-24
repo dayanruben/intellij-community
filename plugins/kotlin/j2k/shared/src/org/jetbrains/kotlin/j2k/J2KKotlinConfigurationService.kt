@@ -2,6 +2,7 @@
 package org.jetbrains.kotlin.j2k
 
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.progress.withCurrentThreadCoroutineScope
 import com.intellij.openapi.project.Project
@@ -26,13 +27,13 @@ import org.jetbrains.kotlin.platform.jvm.isJvm
 import java.util.concurrent.atomic.AtomicReference
 
 @ApiStatus.Internal
-object J2KKotlinConfigurationHelper {
+@Service(Service.Level.PROJECT)
+class J2KKotlinConfigurationService(val project: Project) {
     fun checkKotlinIsConfigured(module: Module): Boolean {
         return module.hasKotlinPluginEnabled() || isModuleConfigured(module.toModuleGroup())
     }
 
     fun setUpAndConvert(
-        project: Project,
         module: Module,
         javaFiles: List<PsiJavaFile>,
         convertFunction: (List<PsiJavaFile>, Project, Module) -> Unit
@@ -59,7 +60,6 @@ object J2KKotlinConfigurationHelper {
                     val configurator = configurators.single()
                     configureKotlinAndConvertJavaCodeToKotlin(
                         configurator,
-                        project,
                         module,
                         convertFunction,
                         javaFiles
@@ -79,7 +79,6 @@ object J2KKotlinConfigurationHelper {
                     val configurator = configurators.getOrNull(resultIndex) ?: return
                     configureKotlinAndConvertJavaCodeToKotlin(
                         configurator,
-                        project,
                         module,
                         convertFunction,
                         javaFiles
@@ -89,25 +88,78 @@ object J2KKotlinConfigurationHelper {
         }
     }
 
+    suspend fun ensureKotlinConfigured(module: Module): Boolean {
+        if (isUnitTestMode() || checkKotlinIsConfigured(module)) return true
+
+        val title = KotlinNJ2KBundle.message("converter.kotlin.not.configured.title")
+        val confirmed = withContext(Dispatchers.EDT) {
+            isUnitTestMode() || Messages.showOkCancelDialog(
+                project,
+                KotlinNJ2KBundle.message("converter.kotlin.not.configured.message"),
+                title,
+                KotlinNJ2KBundle.message("converter.kotlin.not.configured.configure"),
+                KotlinNJ2KBundle.message("converter.kotlin.not.configured.cancel.conversion"),
+                Messages.getWarningIcon()
+            ) == Messages.OK
+        }
+        if (!confirmed) return false
+
+        val configurators = getAbleToRunConfigurators(module).filter { it.targetPlatform.isJvm() }
+        val configurator = withContext(Dispatchers.EDT) {
+            when {
+                configurators.isEmpty() -> {
+                    Messages.showErrorDialog(
+                        KotlinNJ2KBundle.message("converter.kotlin.not.configured.no.configurators.available"),
+                        title
+                    )
+                    null
+                }
+
+                configurators.size == 1 -> configurators.single()
+
+                else -> {
+                    @Suppress("DEPRECATION")
+                    val resultIndex = Messages.showChooseDialog(
+                        project,
+                        KotlinNJ2KBundle.message("converter.kotlin.not.configured.choose.configurator"),
+                        title,
+                        null,
+                        configurators.map { it.presentableText }.toTypedArray(),
+                        configurators.first().presentableText
+                    )
+                    configurators.getOrNull(resultIndex)
+                }
+            }
+        } ?: return false
+
+        configureKotlin(configurator, module)
+        return true
+    }
+
+    private suspend fun configureKotlin(configurator: KotlinProjectConfigurator, module: Module) {
+        val configurationService = KotlinProjectConfigurationService.getInstance(module.project)
+        val autoConfigured = configurationService.autoConfigure(module)
+
+        withContext(Dispatchers.EDT) {
+            if (!autoConfigured) {
+                val excludeModules = project.modules.filter { it != module }
+                configurator.configureAndGetConfiguredModules(project, excludeModules)
+                configurator.queueSyncAndWaitForProjectToBeConfigured(project)
+            }
+        }
+    }
+
     private fun configureKotlinAndConvertJavaCodeToKotlin(
         configurator: KotlinProjectConfigurator,
-        project: Project,
         module: Module,
         convertFunction: (List<PsiJavaFile>, Project, Module) -> Unit,
         javaFiles: List<PsiJavaFile>
     ) {
         val configurationService = KotlinProjectConfigurationService.getInstance(module.project)
-        val coroutineScope = configurationService.coroutineScope
-        val job = coroutineScope.launchTracked(Dispatchers.Default) {
-            val autoConfigured = configurationService.autoConfigure(module)
+        val job = configurationService.coroutineScope.launchTracked(Dispatchers.Default) {
+            configureKotlin(configurator, module)
 
             withContext(Dispatchers.EDT) {
-                if (!autoConfigured) {
-                    val excludeModules = project.modules.asList().filter { it != module }
-                    configurator.configureAndGetConfiguredModules(project, excludeModules)
-                    configurator.queueSyncAndWaitForProjectToBeConfigured(project)
-                }
-
                 withCurrentThreadCoroutineScope {
                     convertFunction(javaFiles, project, module)
                 }
