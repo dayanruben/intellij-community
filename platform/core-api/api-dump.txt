@@ -235,6 +235,7 @@ com.intellij.lang.PsiParser
 - a:parse(com.intellij.psi.tree.IElementType,com.intellij.lang.PsiBuilder):com.intellij.lang.ASTNode
 com.intellij.lang.SyntaxTreeBuilder
 - a:advanceLexer():V
+- advanceToEOF():V
 - a:enforceCommentTokens(com.intellij.psi.tree.TokenSet):V
 - a:eof():Z
 - a:error(java.lang.String):V
@@ -834,6 +835,11 @@ com.intellij.openapi.progress.TaskInfo
 - getStatusBarIndicatorWeight():I
 - a:getTitle():java.lang.String
 - a:isCancellable():Z
+f:com.intellij.openapi.progress.util.ProgressIndicatorUtilsCore
+- sf:awaitWithCheckCanceled(com.intellij.openapi.util.ThrowableComputable):V
+- sf:awaitWithCheckCanceled(java.util.concurrent.Future):java.lang.Object
+- sf:awaitWithCheckCanceled(java.util.concurrent.Future,com.intellij.openapi.progress.ProgressIndicator):java.lang.Object
+- sf:awaitWithCheckCanceled(java.util.concurrent.locks.Lock):V
 com.intellij.openapi.project.DumbAware
 com.intellij.openapi.project.DumbAwareRunnable
 - com.intellij.openapi.project.DumbAware
@@ -913,6 +919,12 @@ com.intellij.openapi.vfs.AsyncFileListener
 com.intellij.openapi.vfs.AsyncFileListener$ChangeApplier
 - afterVfsChange():V
 - beforeVfsChange():V
+f:com.intellij.openapi.vfs.DiskQueryRelay
+- <init>(java.util.function.Function):V
+- <init>(java.util.function.Function,java.util.concurrent.ExecutorService):V
+- f:accessDiskWithCheckCanceled(java.lang.Object):java.lang.Object
+- sf:compute(com.intellij.openapi.util.ThrowableComputable):java.lang.Object
+- sf:compute(com.intellij.openapi.util.ThrowableComputable,java.util.concurrent.ExecutorService):java.lang.Object
 com.intellij.openapi.vfs.NonPhysicalFileSystem
 com.intellij.openapi.vfs.SavingRequestor
 com.intellij.openapi.vfs.VersionManagingFileSystem
@@ -1346,6 +1358,8 @@ com.intellij.psi.PsiDirectoryContainer
 com.intellij.psi.PsiDocCommentBase
 - com.intellij.psi.PsiComment
 - a:getOwner():com.intellij.psi.PsiElement
+a:com.intellij.psi.PsiDocumentManager
+- f:isUncommited(com.intellij.openapi.editor.Document):Z
 com.intellij.psi.PsiElement
 - com.intellij.openapi.util.Iconable
 - com.intellij.openapi.util.UserDataHolder

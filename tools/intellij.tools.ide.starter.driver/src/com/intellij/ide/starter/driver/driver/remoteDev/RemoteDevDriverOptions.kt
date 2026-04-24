@@ -11,8 +11,11 @@ class RemoteDevDriverOptions {
 
   val frontendOptions: DriverOptions by lazy {
     DriverOptions(port = getAvailablePort(proposedPort = 8889),
+                  rmiPort = getAvailablePort(proposedPort = 11500),
                   webServerPort = getAvailablePort(proposedPort = 7778),
-                  additionalProperties = mapOf("rdct.tests.backendJmxPort" to backendOptions.port.toString()) + remoteDevVmOptions)
+                  additionalProperties = mapOf("rdct.tests.backendJmxPort" to backendOptions.port.toString(),
+                                               "rdct.tests.backendJmxHost" to backendOptions.host.hostAddress)
+                                         + remoteDevVmOptions)
   }
 
   val debugPort: Int by lazy { getAvailablePort(proposedPort = 5010) }
@@ -26,12 +29,4 @@ class RemoteDevDriverOptions {
       "apple.laf.useScreenMenuBar" to "false",
       "jbScreenMenuBar.enabled" to "false",
     )
-
-  /**
-   * Returns all ports used by backend and frontend driver configurations.
-   * This is useful for waiting for port release after the IDE processes are killed.
-   */
-  fun getUsedPorts(): List<Int> {
-    return backendOptions.getUsedPorts() + frontendOptions.getUsedPorts() + listOf(backendDebugPort, debugPort)
-  }
 }
