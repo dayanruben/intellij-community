@@ -1,36 +1,26 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.module.impl.scopes;
 
-import com.intellij.concurrency.ConcurrentCollectionFactory;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.diagnostic.ThrottledLogger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.impl.ModuleScopeProvider;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.util.containers.IntObjectMap;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 @ApiStatus.Internal
 public class ModuleScopeProviderImpl implements ModuleScopeProvider {
-  private static final ThrottledLogger throttledLogger = new ThrottledLogger(Logger.getInstance(ModuleScopeProviderImpl.class), 1000);
   private final Module module;
-  private final IntObjectMap<GlobalSearchScope> scopeCache = ConcurrentCollectionFactory.createConcurrentIntObjectMap();
   private ModuleWithDependentsTestScope moduleTestsWithDependentsScope;
   private volatile ModuleWithDependenciesContentScope moduleWithDependenciesContentScope;
+  private final ModuleWithDependenciesScopeCache cache;
 
   public ModuleScopeProviderImpl(@NotNull Module module) {
     this.module = module;
+    cache = module.getProject().getService(ModuleWithDependenciesScopeCache.class);
   }
 
   private @NotNull GlobalSearchScope getCachedScope(@ScopeConstant int options) {
-    GlobalSearchScope scope = scopeCache.get(options);
-    if (scope == null) {
-      throttledLogger.debug("Creating scope for module " + module.getName() + " with options " + options, new Throwable());
-      scope = new ModuleWithDependenciesScope(module, options);
-      scopeCache.put(options, scope);
-    }
-    return scope;
+    return cache.getCachedScope(module, options);
   }
 
   @Override
@@ -108,7 +98,7 @@ public class ModuleScopeProviderImpl implements ModuleScopeProvider {
 
   @Override
   public final void clearCache() {
-    scopeCache.clear();
+    cache.clear();
     moduleTestsWithDependentsScope = null;
     moduleWithDependenciesContentScope = null;
   }
