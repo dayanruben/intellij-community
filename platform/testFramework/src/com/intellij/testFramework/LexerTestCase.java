@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.testFramework;
 
 import com.intellij.lang.TokenWrapper;
@@ -6,7 +6,6 @@ import com.intellij.lexer.Lexer;
 import com.intellij.lexer.LexerPosition;
 import com.intellij.lexer.RestartableLexer;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
-import com.intellij.openapi.util.Trinity;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.tree.IElementType;
@@ -40,6 +39,8 @@ public abstract class LexerTestCase extends UsefulTestCase {
     else {
       assertSameLinesWithFile(getPathToTestDataFile(getExpectedFileExtension()), result);
     }
+
+    checkCorrectRestart(text);
   }
 
   protected String printTokens(@NotNull Lexer lexer, @NotNull CharSequence text, int start) {
@@ -74,9 +75,17 @@ public abstract class LexerTestCase extends UsefulTestCase {
     return printTokens(text, start, createLexer());
   }
 
+  /**
+   * Verifies that the lexer produces the same token sequence when restarted from any position
+   * where {@link Lexer#getState()} returns zero or {@link RestartableLexer#isRestartableState(int)} returns {@code true}.
+   *
+   * <p>For every such position the lexer is restarted via {@link Lexer#start(CharSequence, int, int, int)}
+   * with the recorded offset and state, and the resulting tokens are compared against the tail of the
+   * initial full-text tokenization.
+   */
   protected void checkCorrectRestart(@NotNull String text) {
     Lexer mainLexer = createLexer();
-    List<Trinity<IElementType, Integer, Integer>> allTokens = tokenize(text, 0, 0, mainLexer);
+    List<TokenState> allTokens = tokenize(text, 0, 0, mainLexer);
     Lexer auxLexer = createLexer();
     auxLexer.start(text);
     int index = 0;
@@ -88,8 +97,8 @@ public abstract class LexerTestCase extends UsefulTestCase {
       int state = auxLexer.getState();
       if (state == 0 || (auxLexer instanceof RestartableLexer && ((RestartableLexer)auxLexer).isRestartableState(state))) {
         int tokenStart = auxLexer.getTokenStart();
-        List<Trinity<IElementType, Integer, Integer>> expectedTokens = allTokens.subList(index, allTokens.size());
-        List<Trinity<IElementType, Integer, Integer>> restartedTokens = tokenize(text, tokenStart, state, mainLexer);
+        List<TokenState> expectedTokens = allTokens.subList(index, allTokens.size());
+        List<TokenState> restartedTokens = tokenize(text, tokenStart, state, mainLexer);
         assertEquals(
           "Restarting impossible from offset " + tokenStart + " - " + auxLexer.getTokenText() + "\n" +
           "All tokens <type, offset, lexer state>: " + allTokens + "\n",
@@ -104,12 +113,12 @@ public abstract class LexerTestCase extends UsefulTestCase {
 
   protected void checkCorrectRestartUsingPosition(@NotNull String text) {
     Lexer mainLexer = createLexer();
-    List<Trinity<IElementType, Integer, Integer>> allTokens = tokenize(text, 0, 0, mainLexer);
+    List<TokenState> allTokens = tokenize(text, 0, 0, mainLexer);
     List<LexerPosition> allPositions = buildPositions(text, 0, mainLexer);
     for (int i = 0; i < allPositions.size(); i++) {
       LexerPosition position = allPositions.get(i);
-      List<Trinity<IElementType, Integer, Integer>> expectedTokens = allTokens.subList(i, allTokens.size());
-      List<Trinity<IElementType, Integer, Integer>> restartedTokens = tokenize(position, mainLexer);
+      List<TokenState> expectedTokens = allTokens.subList(i, allTokens.size());
+      List<TokenState> restartedTokens = tokenize(position, mainLexer);
       mainLexer.restore(position);
       assertEquals(
         "Restarting using position impossible from offset " + position.getOffset() + " - " + mainLexer.getTokenText() + "\n" +
@@ -120,11 +129,11 @@ public abstract class LexerTestCase extends UsefulTestCase {
     }
   }
 
-  private static @NotNull List<Trinity<IElementType, Integer, Integer>> tokenize(@NotNull String text,
-                                                                                 int start,
-                                                                                 int state,
-                                                                                 @NotNull Lexer lexer) {
-    List<Trinity<IElementType, Integer, Integer>> allTokens = new ArrayList<>();
+  private static @NotNull List<TokenState> tokenize(@NotNull String text,
+                                                    int start,
+                                                    int state,
+                                                    @NotNull Lexer lexer) {
+    List<TokenState> allTokens = new ArrayList<>();
     try {
       lexer.start(text, start, text.length(), state);
     }
@@ -133,7 +142,7 @@ public abstract class LexerTestCase extends UsefulTestCase {
       throw new RuntimeException(t);
     }
     while (lexer.getTokenType() != null) {
-      allTokens.add(Trinity.create(lexer.getTokenType(), lexer.getTokenStart(), lexer.getState()));
+      allTokens.add(new TokenState(lexer.getTokenType(), lexer.getTokenStart(), lexer.getState()));
       lexer.advance();
     }
     return allTokens;
@@ -158,9 +167,9 @@ public abstract class LexerTestCase extends UsefulTestCase {
     return result;
   }
 
-  private static @NotNull List<Trinity<IElementType, Integer, Integer>> tokenize(@NotNull LexerPosition position,
-                                                                                 @NotNull Lexer lexer) {
-    List<Trinity<IElementType, Integer, Integer>> allTokens = new ArrayList<>();
+  private static @NotNull List<TokenState> tokenize(@NotNull LexerPosition position,
+                                                    @NotNull Lexer lexer) {
+    List<TokenState> allTokens = new ArrayList<>();
     try {
       lexer.restore(position);
     }
@@ -169,7 +178,7 @@ public abstract class LexerTestCase extends UsefulTestCase {
       throw new RuntimeException(t);
     }
     while (lexer.getTokenType() != null) {
-      allTokens.add(Trinity.create(lexer.getTokenType(), lexer.getTokenStart(), lexer.getState()));
+      allTokens.add(new TokenState(lexer.getTokenType(), lexer.getTokenStart(), lexer.getState()));
       lexer.advance();
     }
     return allTokens;
@@ -232,4 +241,7 @@ public abstract class LexerTestCase extends UsefulTestCase {
   protected abstract @NotNull Lexer createLexer();
 
   protected abstract @NotNull String getDirPath();
+
+  private record TokenState(@NotNull IElementType type, int offset, int state) {
+  }
 }

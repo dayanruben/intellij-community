@@ -164,7 +164,7 @@ internal fun MutableTWorkspace.generateK2FixTests() {
             model("$idea/quickfix/removeRedundantInitializer", pattern = pattern)
             model("$idea/quickfix/removeRedundantLabel", pattern = pattern)
             model("$idea/quickfix/removeRedundantSpreadOperator", pattern = pattern)
-            model("$idea/quickfix/removeSingleLambdaParameter", pattern = pattern, isIgnored = true)
+            model("$idea/quickfix/removeSingleLambdaParameter", pattern = pattern)
             model("$idea/quickfix/removeSuspend", pattern = pattern)
             model("$idea/quickfix/removeToStringInStringTemplate", pattern = pattern)
             model("$idea/quickfix/removeTypeVariance", pattern = pattern)
@@ -172,7 +172,7 @@ internal fun MutableTWorkspace.generateK2FixTests() {
             model("$idea/quickfix/removeUnusedParameter", pattern = pattern, isIgnored = true)
             model("$idea/quickfix/removeUnusedReceiver", pattern = pattern)
             model("$idea/quickfix/removeUseSiteTarget", pattern = pattern)
-            model("$idea/quickfix/renameToUnderscore", pattern = pattern, isIgnored = true)
+            model("$idea/quickfix/renameToUnderscore", pattern = pattern)
             model("$idea/quickfix/renameUnresolvedReference", pattern = pattern)
             model("$idea/quickfix/reorderParameters", pattern = pattern)
             model("$idea/quickfix/replaceAndWithWhenGuard", pattern = pattern)
@@ -181,6 +181,7 @@ internal fun MutableTWorkspace.generateK2FixTests() {
             model("$idea/quickfix/replaceWithArrayCallInAnnotation", pattern = pattern)
             model("$idea/quickfix/replaceWithDotCall", pattern = pattern)
             model("$idea/quickfix/replaceWithSafeCall", pattern = pattern)
+            model("$idea/quickfix/replaceWithSafeCallForScopeFunction", pattern = pattern)
             model("$idea/quickfix/returnInExpressionBody", pattern = pattern)
             model("$idea/quickfix/restrictedRetentionForExpressionAnnotation", pattern = pattern)
             model("$idea/quickfix/runBlockingInSuspendFunction", pattern = pattern)
@@ -244,6 +245,11 @@ internal fun MutableTWorkspace.generateK2FixTests() {
             )
             model(
                 "$idea/quickfix/surroundWithNullCheck",
+                pattern = pattern,
+                testMethodName = testMethodName,
+            )
+            model(
+                "$idea/quickfix/replaceWithSafeCallForScopeFunction",
                 pattern = pattern,
                 testMethodName = testMethodName,
             )

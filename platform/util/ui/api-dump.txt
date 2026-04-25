@@ -923,6 +923,7 @@ f:com.intellij.icons.AllIcons$Nodes
 - sf:Library:javax.swing.Icon
 - sf:Locked:javax.swing.Icon
 - sf:LogFolder:javax.swing.Icon
+- sf:McpServer:javax.swing.Icon
 - sf:Method:javax.swing.Icon
 - sf:MethodReference:javax.swing.Icon
 - sf:Mnemonic:javax.swing.Icon
@@ -5657,6 +5658,7 @@ f:com.intellij.util.ui.accessibility.AccessibleContextUtil
 - sf:combineAccessibleStrings(java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String):java.lang.String
 - sf:getCombinedDescription(java.awt.Component,java.lang.String,java.awt.Component):java.lang.String
 - sf:getCombinedDescription(java.awt.Component,java.lang.String,java.awt.Component,java.lang.String,java.awt.Component):java.lang.String
+- sf:getCombinedDescription(java.lang.String,java.awt.Component[]):java.lang.String
 - sf:getCombinedName(java.awt.Component,java.lang.String,java.awt.Component):java.lang.String
 - sf:getCombinedName(java.awt.Component,java.lang.String,java.awt.Component,java.lang.String,java.awt.Component):java.lang.String
 - sf:getCombinedName(java.lang.String,java.awt.Component[]):java.lang.String

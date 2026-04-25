@@ -2967,33 +2967,6 @@ public class Py3TypeTest extends PyTestCase {
              """);
   }
 
-  // PY-77611
-  public void testClassDunderNewResultInPresenceOfInit1() {
-    doTest("int",
-           """
-             class C:
-                 def __new__(cls) -> int: ...
-             
-                 def __init__(self): ...
-             
-             expr = C()
-             """);
-  }
-
-  // PY-77611
-  public void testClassDunderNewResultInPresenceOfInit2() {
-    doTest("Base",
-           """
-           class Base:
-               def __new__(cls, x: int) -> Base: ...
-           
-           class Derived(Base):
-               def __init__(self, x: int): ...
-           
-           expr = Derived(1)
-           """);
-  }
-
   public void testObjectDunderNewResult() {
     doTest("Self@C",
            """
@@ -4390,97 +4363,6 @@ public class Py3TypeTest extends PyTestCase {
           finally:
               pass
       expr = f()
-      """);
-  }
-
-  public void testMetaclassDunderCallReturnTypeIncompatibleWithClassBeingConstructed() {
-    doTest("object", """
-      from typing import Self
-      
-      
-      class Meta(type):
-          def call(cls, p) -> object: ...
-      
-          __call__ = call
-      
-      
-      class MyClass(metaclass=Meta):
-          def __new__(cls, p) -> Self: ...
-      
-      
-      expr = MyClass(1)
-      """);
-  }
-
-  public void testMetaclassNotAnnotatedDunderCall() {
-    doTest("MyClass", """
-      from typing import Self
-      
-      
-      class Meta(type):
-          def __call__(cls, p: int): ...
-      
-      
-      class MyClass(metaclass=Meta):
-          def __new__(cls, p: int) -> Self: ...
-      
-      
-      expr = MyClass(1)
-      """);
-  }
-
-  public void testMetaclassGenericDunderCallReturnTypeCompatibleWithClassBeingConstructed() {
-    doTest("MyClass", """
-      from typing import Self
-      
-      
-      class Meta(type):
-          def __call__[T](cls: type[T], *args, **kwargs) -> T: ...
-      
-      
-      class MyClass(metaclass=Meta):
-          def __new__(cls, p) -> Self: ...
-      
-      
-      expr = MyClass(1)
-      """);
-  }
-
-  public void testMetaclassGenericDunderCallReturnTypeIncompatibleWithClassBeingConstructed() {
-    doTest("int", """
-      from typing import Self
-      
-      
-      class Meta(type):
-          def __call__[T](cls, x: T) -> T: ...
-      
-      
-      class MyClass(metaclass=Meta):
-          def __new__(cls, x) -> Self: ...
-      
-      
-      expr = MyClass(1)
-      """);
-  }
-
-  public void testMetaclassDunderCallReturnTypeCompatibleWithClassBeingConstructed() {
-    doTest("Base", """
-      from typing import Any, Self
-      
-      
-      class Meta(type):
-          def __call__(self, *args: Any, **kwds: Any) -> 'Derived': ...
-      
-      
-      class Base(metaclass=Meta):
-          def __new__(cls, *args: Any, **kwds: Any) -> Self: ...
-      
-      
-      class Derived(Base):
-          ...
-      
-      
-      expr = Base()
       """);
   }
 

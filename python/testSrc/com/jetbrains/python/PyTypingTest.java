@@ -1832,14 +1832,24 @@ public class PyTypingTest extends PyTestCase {
                        "Callable[..., int]");
   }
 
-  // PY-42334
-  public void testExplicitTypeAliasItselfHasAnyType() {
-    doTest("Any",
+  // PY-42334 PY-89068
+  public void testExplicitTypeAliasType() {
+    doTest("type[int]",
            """
              from typing import TypeAlias
              
              expr: TypeAlias = int
              """);
+  }
+
+  // PY-89068
+  public void testImportedGenericExplicitTypeAliasType() {
+    doMultiFileStubAwareTest("type[list[int]]",
+                             """
+                               from m import MyList
+
+                               expr = MyList[int]
+                               """);
   }
 
   // PY-29257
@@ -6451,7 +6461,7 @@ public class PyTypingTest extends PyTestCase {
 
   // PY-77601
   public void testParamSpecNotMappedToSingleTypeWithoutSquareBrackets() {
-    doTest("Any", """
+    doTest("(**P) -> int", """
       from typing import ParamSpec, Callable, Generic, TypeVar
       
       P = ParamSpec("P")

@@ -74,6 +74,7 @@ import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.EDT;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -182,6 +183,30 @@ public final class FindUsagesManager {
     return getFindUsagesHandler(element, factory -> factory.createFindUsagesHandler(element, operationMode));
   }
 
+  /**
+   * Creates a handler that can be used to show the Find Usages dialog.
+   * <p>
+   *   If it's known that the handler will be used for {@link FindUsagesHandler#getFindUsagesDialog(boolean, boolean, boolean)},
+   *   it's better to use this function instead of {@link #getFindUsagesHandler(PsiElement, OperationMode)} and its overloads.
+   *   The difference is that it'll precompute the necessary information to show create the dialog without a UI freeze.
+   * </p>
+   * <p>
+   *   If this function is not used, then it's recommended to explicitly call {@link CommonFindUsagesDialog#precomputeFindUsagesDialogData(FindUsagesHandlerBase)}
+   *   later, before creating the dialog.
+   * </p>
+   * @param element       the PSI element to search for
+   * @param operationMode the search mode
+   * @return the new handler or {@code null} if the handler can't be created or if the user cancelled the operation
+   */
+  @ApiStatus.Experimental
+  public @Nullable FindUsagesHandler getFindUsagesHandlerForDialog(@NotNull PsiElement element, @NotNull OperationMode operationMode) {
+    return getFindUsagesHandler(element, factory -> {
+      FindUsagesHandler handler = factory.createFindUsagesHandler(element, operationMode);
+      CommonFindUsagesDialog.precomputeFindUsagesDialogData(handler);
+      return handler;
+    });
+  }
+
   public @Nullable FindUsagesHandler getNewFindUsagesHandler(@NotNull PsiElement element, boolean forHighlightUsages) {
     return getFindUsagesHandler(element, factory -> {
       Class<? extends FindUsagesHandlerFactory> aClass = factory.getClass();
@@ -194,27 +219,48 @@ public final class FindUsagesManager {
     @NotNull PsiElement element,
     @NotNull Function<FindUsagesHandlerFactory, FindUsagesHandler> createHandler
   ) {
-    return ReadAction.computeBlocking(() -> {
-      for (FindUsagesHandlerFactory factory : FindUsagesHandlerFactory.EP_NAME.getExtensionList(myProject)) {
-        try (AccessToken ignore = SlowOperations.knownIssue("IJPL-162401 IDEA-353115")) {
-          if (!factory.canFindUsages(element)) continue;
-        }
-        FindUsagesHandler handler;
-        try (AccessToken ignore = SlowOperations.knownIssue("IJPL-162401")) {
-          handler = createHandler.apply(factory);
-        }
-        if (handler == FindUsagesHandler.NULL_HANDLER) return null;
-        if (handler != null) {
-          return handler;
-        }
+    if (EDT.isCurrentThreadEdt()) {
+      return ProgressManager.getInstance().runProcessWithProgressSynchronously(
+        () -> {
+          return ReadAction.computeBlocking(() -> {
+            return getFindUsagesHandlerImpl(element, createHandler);
+          });
+        },
+        FindBundle.message("progress.title.prepare.find.usages"),
+        true,
+        element.getProject()
+      );
+    }
+    else {
+      // Mostly for unit tests, as they call this thing on a BGT a lot.
+      return ReadAction.computeBlocking(() -> {
+        return getFindUsagesHandlerImpl(element, createHandler);
+      });
+    }
+  }
+
+  private @Nullable FindUsagesHandler getFindUsagesHandlerImpl(@NotNull PsiElement element,
+                                                 @NotNull Function<FindUsagesHandlerFactory, FindUsagesHandler> createHandler) {
+    for (FindUsagesHandlerFactory factory : FindUsagesHandlerFactory.EP_NAME.getExtensionList(myProject)) {
+      try (AccessToken ignore = SlowOperations.knownIssue("IJPL-162401 IDEA-353115")) {
+        if (!factory.canFindUsages(element)) continue;
       }
-      return null;
-    });
+      FindUsagesHandler handler;
+      try (AccessToken ignore = SlowOperations.knownIssue("IJPL-162401")) {
+        handler = createHandler.apply(factory);
+      }
+      if (handler == FindUsagesHandler.NULL_HANDLER) return null;
+      if (handler != null) {
+        return handler;
+      }
+    }
+    return null;
   }
 
   public void findUsages(@NotNull PsiElement psiElement, @Nullable PsiFile scopeFile, FileEditor editor, boolean showDialog, @Nullable("null means default (stored in options)") SearchScope searchScope) {
     ThreadingAssertions.assertEventDispatchThread();
-    FindUsagesHandler handler = getFindUsagesHandler(psiElement, showDialog ? OperationMode.DEFAULT : OperationMode.USAGES_WITH_DEFAULT_OPTIONS);
+    // Using the "forDialog" variant regardless of showDialog because we use a dialog below even if we don't show it.
+    FindUsagesHandler handler = getFindUsagesHandlerForDialog(psiElement, showDialog ? OperationMode.DEFAULT : OperationMode.USAGES_WITH_DEFAULT_OPTIONS);
     if (handler == null) return;
 
     boolean singleFile = scopeFile != null;

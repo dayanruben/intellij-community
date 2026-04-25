@@ -52,7 +52,7 @@ import kotlin.time.Duration.Companion.milliseconds
 private val LOG by lazy { fileLogger() }
 
 @Service(Service.Level.PROJECT)
-internal class BackendRecentFileEventsModel(private val project: Project, private val coroutineScope: CoroutineScope) {
+internal class BackendRecentFileEventsModel(private val project: Project, coroutineScope: CoroutineScope) {
   private val bufferSize = Registry.intValue("editor.navigation.history.stack.size").coerceIn(100, 1000)
   private val updateDebounceMs = Registry.intValue("switcher.presentation.update.debounce.interval.ms").coerceIn(0, 10000)
 
@@ -109,16 +109,23 @@ internal class BackendRecentFileEventsModel(private val project: Project, privat
 
   suspend fun emitRecentFilesMetadata(metadataRequest: RecentFilesBackendRequest.FetchMetadata) {
     LOG.debug("Switcher emit recent files metadata: $metadataRequest")
+    val targetFlow = chooseTargetFlow(metadataRequest.filesKind)
 
-    val files = metadataRequest.frontendRecentFiles
-      .mapNotNull { frontendFileId -> frontendFileId.virtualFile() }
+    val metadata =
+      metadataRequest.frontendRecentFiles
+        .mapNotNull { frontendFileId -> frontendFileId.virtualFile() }
+        .map { frontendFile ->
+          readAction {
+            createRecentFileViewModel(frontendFile, project)
+          }
+        }
 
-    val changeKind = when {
-      metadataRequest.forceAddToModel -> FileChangeKind.ADDED
-      else -> FileChangeKind.UPDATED
-    }
+    val event = if (metadataRequest.forceAddToModel)
+      BackendRecentFilesEvent.ItemsAdded(metadata)
+    else
+      BackendRecentFilesEvent.ItemsUpdated(metadata, false)
 
-    scheduleApplyBackendChanges(changeKind, files)
+    targetFlow.emit(event)
   }
 
   suspend fun emitRecentFiles(searchRequest: RecentFilesBackendRequest.FetchFiles) {
@@ -128,7 +135,7 @@ internal class BackendRecentFileEventsModel(private val project: Project, privat
     targetFlow.emit(BackendRecentFilesEvent.AllItemsRemoved())
     val freshRecentFiles = collectRecentFiles(searchRequest)
     if (freshRecentFiles != null) {
-      scheduleApplyBackendChanges(FileChangeKind.ADDED, freshRecentFiles)
+      targetFlow.emit(freshRecentFiles)
     }
   }
 
@@ -251,19 +258,23 @@ internal class BackendRecentFileEventsModel(private val project: Project, privat
     return recentFiles.subtract(openFiles.toSet()).toList()
   }
 
-  private suspend fun collectRecentFiles(filter: RecentFilesBackendRequest.FetchFiles): List<VirtualFile>? {
+  private suspend fun collectRecentFiles(filter: RecentFilesBackendRequest.FetchFiles): BackendRecentFilesEvent? {
     LOG.debug("Switcher started fetching recent files")
     val project = filter.projectId.findProjectOrNull() ?: return null
 
-    val collectedFiles = readAction {
+    val collectedFiles =
       getFilesToShow(project = project,
                      recentFileKind = filter.filesKind,
                      filesFromFrontendEditorSelectionHistory = filter.frontendEditorSelectionHistory.mapNotNull(VirtualFileId::virtualFile))
-    }
+        .map {
+          readAction {
+            createRecentFileViewModel(it, project)
+          }
+        }
     LOG.debug("Switcher collected ${collectedFiles.size} recent files")
-    LOG.trace { "Switcher collected recent files list: ${collectedFiles.joinToString(prefix = "\n", separator = "\n") { it.path }}" }
+    LOG.trace { "Switcher collected recent files list: ${collectedFiles.joinToString(prefix = "\n", separator = "\n") { it.mainText }}" }
 
-    return collectedFiles
+    return BackendRecentFilesEvent.ItemsAdded(collectedFiles)
   }
 
   private fun chooseTargetFlow(fileKind: RecentFileKind): MutableSharedFlow<BackendRecentFilesEvent> {

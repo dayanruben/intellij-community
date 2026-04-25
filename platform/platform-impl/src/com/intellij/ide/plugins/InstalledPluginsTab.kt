@@ -59,8 +59,6 @@ class InstalledPluginsTab @RequiresEdt constructor(
   private val searchInMarketplaceTabHandler: Consumer<String>?,
   searchTextFieldQueryDebouncePeriodMs: Long = 100,
 ) : PluginsTab(searchTextFieldQueryDebouncePeriodMs) {
-  private var installedPanel: PluginsGroupComponentWithProgress? = null
-  private var installedSearchPanel: InstalledPluginsTabSearchResultPanel? = null
   private val installedSearchGroup = DefaultActionGroup().apply {
     for (option in InstalledSearchOption.entries) {
       add(InstalledSearchOptionAction(option))
@@ -77,6 +75,12 @@ class InstalledPluginsTab @RequiresEdt constructor(
   private val updateCounter: JLabel = CountComponent()
   private val bundledUpdateCounter: JLabel = CountComponent()
 
+  override val detailsPage: PluginDetailsPageComponent = createDetailsPanel(searchListener)
+  override val searchPanel: InstalledPluginsTabSearchResultPanel = createSearchPanel(selectionListener)
+
+  private val eventHandler = MultiSelectionEventHandler()
+  private val installedPanel = createInstalledPanel(eventHandler)
+
   init {
     updateAllLink.isVisible = false
     bundledUpdateAllLink.isVisible = false
@@ -86,43 +90,15 @@ class InstalledPluginsTab @RequiresEdt constructor(
     customizeSearchTextField()
   }
 
-  fun getInstalledPanel(): PluginsGroupComponentWithProgress? {
-    return installedPanel
-  }
+  fun getInstalledPanel(): PluginsGroupComponentWithProgress = installedPanel
 
-  fun getInstalledSearchPanel(): SearchResultPanel? {
-    return installedSearchPanel
-  }
+  fun getInstalledSearchPanel(): SearchResultPanel = searchPanel
 
-  fun getInstalledGroups(): List<UIPluginGroup>? {
-    return if (getInstalledPanel() != null) getInstalledPanel()!!.groups else null
-  }
+  fun getInstalledGroups(): List<UIPluginGroup> = getInstalledPanel().groups
 
-  override fun createDetailsPanel(searchListener: LinkListener<Any>): PluginDetailsPageComponent {
-    val detailPanel = PluginDetailsPageComponent(pluginModelFacade, searchListener, false)
-    pluginModelFacade.getModel().addDetailPanel(detailPanel)
-    return detailPanel
-  }
-
+  @RequiresEdt
   override fun createPluginsPanel(): JComponent {
-    val eventHandler = MultiSelectionEventHandler()
-    val installedPanel = object : PluginsGroupComponentWithProgress(eventHandler) {
-      override fun createListComponent(
-        model: PluginUiModel,
-        group: PluginsGroup,
-        listPluginModel: ListPluginModel,
-      ): ListPluginComponent {
-        return ListPluginComponent(pluginModelFacade, model, group, listPluginModel, searchListener, coroutineScope, false)
-      }
-    }
-    this@InstalledPluginsTab.installedPanel = installedPanel
-
-    installedPanel.setSelectionListener(selectionListener)
-    installedPanel.accessibleContext.accessibleName = IdeBundle.message("plugin.manager.installed.panel.accessible.name")
-    registerCopyProvider(installedPanel)
-
-    //noinspection ConstantConditions
-    (installedSearchPanel!!.controller as SearchUpDownPopupController).setEventHandler(eventHandler)
+    (searchPanel.controller as SearchUpDownPopupController).setEventHandler(eventHandler)
     installedPanel.showLoadingIcon()
 
     val userInstalled = PluginsGroup(IdeBundle.message("plugins.configurable.userInstalled"), PluginsGroupType.INSTALLED)
@@ -132,7 +108,7 @@ class InstalledPluginsTab @RequiresEdt constructor(
       updateAllLink.isEnabled = false
       bundledUpdateAllLink.isEnabled = false
 
-      for (group in getInstalledGroups()!!) {
+      for (group in getInstalledGroups()) {
         if (group.isBundledUpdatesGroup) {
           continue
         }
@@ -153,21 +129,21 @@ class InstalledPluginsTab @RequiresEdt constructor(
     PluginManagerPanelFactory.createInstalledPanel(coroutineScope, pluginModelFacade.getModel()) { model ->
       try {
         pluginModelFacade.getModel().setDownloadedGroup(installedPanel, userInstalled, installing)
-        installing.preloadedModel.setErrors(model.errors)
-        installing.preloadedModel.setPluginInstallationStates(model.installationStates)
+        installing.getPreloadedModel().setErrors(model.errors)
+        installing.getPreloadedModel().setPluginInstallationStates(model.installationStates)
         installing.addModels(MyPluginModel.installingPlugins)
-        if (!installing.models.isEmpty()) {
+        if (!installing.getModels().isEmpty()) {
           installing.sortByName()
           installing.titleWithCount()
           installedPanel.addGroup(installing)
         }
 
-        userInstalled.preloadedModel.setErrors(model.errors)
-        userInstalled.preloadedModel.setPluginInstallationStates(model.installationStates)
+        userInstalled.getPreloadedModel().setErrors(model.errors)
+        userInstalled.getPreloadedModel().setPluginInstallationStates(model.installationStates)
         userInstalled.addModels(model.installedPlugins)
 
-        bundledUpdateGroup.preloadedModel.setErrors(model.errors)
-        bundledUpdateGroup.preloadedModel.setPluginInstallationStates(model.installationStates)
+        bundledUpdateGroup.getPreloadedModel().setErrors(model.errors)
+        bundledUpdateGroup.getPreloadedModel().setPluginInstallationStates(model.installationStates)
 
         // bundled includes bundled plugin updates
         val visibleNonBundledPlugins = ArrayList<PluginUiModel>()
@@ -254,15 +230,15 @@ class InstalledPluginsTab @RequiresEdt constructor(
           // Add priority groups with promotion panel before userInstalled
           for (group in sortedBundledGroups) {
             if (group.promotionPanel != null) {
-              group.preloadedModel.setErrors(model.errors)
-              group.preloadedModel.setPluginInstallationStates(model.installationStates)
+              group.getPreloadedModel().setErrors(model.errors)
+              group.getPreloadedModel().setPluginInstallationStates(model.installationStates)
               installedPanel.addGroup(group)
               pluginModelFacade.getModel().addEnabledGroup(group)
             }
           }
         }
 
-        if (!userInstalled.models.isEmpty()) {
+        if (!userInstalled.getModels().isEmpty()) {
           userInstalled.sortByName()
 
           var enabledNonBundledCount = 0L
@@ -280,8 +256,8 @@ class InstalledPluginsTab @RequiresEdt constructor(
 
         for (group in sortedBundledGroups) {
           if (!Registry.`is`("ide.plugins.category.promotion.enabled") || group.promotionPanel == null) {
-            group.preloadedModel.setErrors(model.errors)
-            group.preloadedModel.setPluginInstallationStates(model.installationStates)
+            group.getPreloadedModel().setErrors(model.errors)
+            group.getPreloadedModel().setPluginInstallationStates(model.installationStates)
             installedPanel.addGroup(group)
             pluginModelFacade.getModel().addEnabledGroup(group)
           }
@@ -292,15 +268,15 @@ class InstalledPluginsTab @RequiresEdt constructor(
                              ?: emptyList()
           if (ContainerUtil.isEmpty(updateModels)) {
             clearUpdates(installedPanel)
-            clearUpdates(installedSearchPanel!!.panel)
+            clearUpdates(searchPanel.panel)
           }
           else {
             applyUpdates(installedPanel, updateModels)
-            applyUpdates(installedSearchPanel!!.panel, updateModels)
+            applyUpdates(searchPanel.panel, updateModels)
           }
           applyBundledUpdates(updateModels)
           selectionListener.accept(installedPanel)
-          selectionListener.accept(installedSearchPanel!!.panel)
+          selectionListener.accept(searchPanel.panel)
         }
       }
       finally {
@@ -309,6 +285,22 @@ class InstalledPluginsTab @RequiresEdt constructor(
     }
 
     return createScrollPane(installedPanel, true)
+  }
+
+  private fun createInstalledPanel(eventHandler: MultiSelectionEventHandler): PluginsGroupComponentWithProgress {
+    val installedPanel = object : PluginsGroupComponentWithProgress(eventHandler) {
+      override fun createListComponent(
+        model: PluginUiModel,
+        group: PluginsGroup,
+        listPluginModel: ListPluginModel,
+      ): ListPluginComponent {
+        return ListPluginComponent(pluginModelFacade, model, group, listPluginModel, searchListener, coroutineScope, false)
+      }
+    }
+    installedPanel.setSelectionListener(selectionListener)
+    installedPanel.accessibleContext.accessibleName = IdeBundle.message("plugin.manager.installed.panel.accessible.name")
+    registerCopyProvider(installedPanel)
+    return installedPanel
   }
 
   private fun customizeSearchTextField() {
@@ -331,7 +323,13 @@ class InstalledPluginsTab @RequiresEdt constructor(
     searchTextField.setHistoryPropertyName("InstalledPluginsSearchHistory")
   }
 
-  override fun createSearchPanel(selectionListener: Consumer<in PluginsGroupComponent?>): SearchResultPanel {
+  private fun createDetailsPanel(searchListener: LinkListener<Any>): PluginDetailsPageComponent {
+    val detailPanel = PluginDetailsPageComponent(pluginModelFacade, searchListener, false)
+    pluginModelFacade.getModel().addDetailPanel(detailPanel)
+    return detailPanel
+  }
+
+  private fun createSearchPanel(selectionListener: Consumer<in PluginsGroupComponent?>): InstalledPluginsTabSearchResultPanel {
     val installedController = object : SearchUpDownPopupController(searchTextField) {
       override fun getAttributes(): List<String> {
         return listOf(
@@ -381,7 +379,7 @@ class InstalledPluginsTab @RequiresEdt constructor(
     panel.setSelectionListener(selectionListener)
     registerCopyProvider(panel)
 
-    val installedSearchPanel = InstalledPluginsTabSearchResultPanel(
+    val searchPanel = InstalledPluginsTabSearchResultPanel(
       coroutineScope,
       installedController,
       panel,
@@ -391,8 +389,7 @@ class InstalledPluginsTab @RequiresEdt constructor(
       if (searchInMarketplaceTabHandler == null) null else Consumer<String?> { query -> searchInMarketplaceTabHandler.accept(query!!) },
       pluginModelFacade,
     )
-    this@InstalledPluginsTab.installedSearchPanel = installedSearchPanel
-    return installedSearchPanel
+    return searchPanel
   }
 
   override fun updateMainSelection(selectionListener: Consumer<in PluginsGroupComponent?>) {
@@ -442,8 +439,8 @@ class InstalledPluginsTab @RequiresEdt constructor(
   private fun applyBundledUpdates(updates: Collection<PluginUiModel>?) {
     if (updates.isNullOrEmpty()) {
       if (bundledUpdateGroup.ui != null) {
-        getInstalledPanel()!!.removeGroup(bundledUpdateGroup)
-        getInstalledPanel()!!.doLayout()
+        getInstalledPanel().removeGroup(bundledUpdateGroup)
+        getInstalledPanel().doLayout()
       }
     }
     else if (bundledUpdateGroup.ui == null) {
@@ -454,18 +451,18 @@ class InstalledPluginsTab @RequiresEdt constructor(
         bundledUpdateGroup.addSecondaryAction(bundledUpdateCounter)
       }
       for (descriptor in updates) {
-        for (group in getInstalledPanel()!!.groups) {
+        for (group in getInstalledPanel().groups) {
           val component = group.findComponent(descriptor.pluginId)
-          if (component != null && component.pluginModel.isBundled) {
-            bundledUpdateGroup.addModel(component.pluginModel)
+          if (component != null && component.getPluginModel().isBundled) {
+            bundledUpdateGroup.addModel(component.getPluginModel())
             break
           }
         }
       }
-      if (!bundledUpdateGroup.models.isEmpty()) {
+      if (!bundledUpdateGroup.getModels().isEmpty()) {
         var insertPosition = 0
         if (Registry.`is`("ide.plugins.category.promotion.enabled")) {
-          val groups = getInstalledPanel()!!.groups
+          val groups = getInstalledPanel().groups
           for (i in groups.indices) {
             if (groups[i].promotionPanel != null) {
               insertPosition = i + 1
@@ -473,7 +470,7 @@ class InstalledPluginsTab @RequiresEdt constructor(
             }
           }
         }
-        getInstalledPanel()!!.addGroup(bundledUpdateGroup, insertPosition)
+        getInstalledPanel().addGroup(bundledUpdateGroup, insertPosition)
         bundledUpdateGroup.ui!!.isBundledUpdatesGroup = true
 
         for (descriptor in updates) {
@@ -481,7 +478,7 @@ class InstalledPluginsTab @RequiresEdt constructor(
           component?.setUpdateDescriptor(descriptor)
         }
 
-        getInstalledPanel()!!.doLayout()
+        getInstalledPanel().doLayout()
       }
     }
     else {
@@ -490,7 +487,7 @@ class InstalledPluginsTab @RequiresEdt constructor(
       for (plugin in bundledUpdateGroup.ui!!.plugins) {
         var exist = false
         for (update in updates) {
-          if (plugin.pluginModel.pluginId == update.pluginId) {
+          if (plugin.getPluginModel().pluginId == update.pluginId) {
             exist = true
             break
           }
@@ -501,7 +498,7 @@ class InstalledPluginsTab @RequiresEdt constructor(
       }
 
       for (component in toDelete) {
-        getInstalledPanel()!!.removeFromGroup(bundledUpdateGroup, component.pluginModel)
+        getInstalledPanel().removeFromGroup(bundledUpdateGroup, component.getPluginModel())
       }
 
       for (update in updates) {
@@ -509,20 +506,20 @@ class InstalledPluginsTab @RequiresEdt constructor(
         if (exist != null) {
           continue
         }
-        for (group in getInstalledPanel()!!.groups) {
+        for (group in getInstalledPanel().groups) {
           if (group == bundledUpdateGroup.ui) {
             continue
           }
           val component = group.findComponent(update.pluginId)
-          if (component != null && component.pluginModel.isBundled) {
-            getInstalledPanel()!!.addToGroup(bundledUpdateGroup, component.pluginModel)
+          if (component != null && component.getPluginModel().isBundled) {
+            getInstalledPanel().addToGroup(bundledUpdateGroup, component.getPluginModel())
             break
           }
         }
       }
 
-      if (bundledUpdateGroup.models.isEmpty()) {
-        getInstalledPanel()!!.removeGroup(bundledUpdateGroup)
+      if (bundledUpdateGroup.getModels().isEmpty()) {
+        getInstalledPanel().removeGroup(bundledUpdateGroup)
       }
       else {
         for (descriptor in updates) {
@@ -531,7 +528,7 @@ class InstalledPluginsTab @RequiresEdt constructor(
         }
       }
 
-      getInstalledPanel()!!.doLayout()
+      getInstalledPanel().doLayout()
     }
 
     updateAllLink.isVisible = updateAllLink.isVisible && bundledUpdateGroup.ui == null

@@ -6,7 +6,6 @@ package com.intellij.ide.plugins
 import com.intellij.ide.CopyProvider
 import com.intellij.ide.DataManager
 import com.intellij.ide.IdeBundle
-import com.intellij.ide.plugins.PluginManagerConfigurable.PLUGIN_INSTALL_CALLBACK_DATA_KEY
 import com.intellij.ide.plugins.certificates.PluginCertificateManager
 import com.intellij.ide.plugins.marketplace.statistics.PluginManagerUsageCollector
 import com.intellij.ide.plugins.newui.ListPluginComponent
@@ -162,6 +161,7 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
     }
   }
 
+  @RequiresEdt
   private fun createCardPanel(selectionTab: Int): MultiPanel {
     val cardPanel = object : MultiPanel() {
       override fun create(key: Int?): JComponent {
@@ -194,7 +194,7 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
       }
     }) {
       override fun uiDataSnapshot(sink: DataSink) {
-        sink.set(PLUGIN_INSTALL_CALLBACK_DATA_KEY, Consumer { callbackData -> onPluginInstalledFromDisk(callbackData) })
+        sink.set(PluginManagerConfigurable.PLUGIN_INSTALL_CALLBACK_DATA_KEY, Consumer { callbackData -> onPluginInstalledFromDisk(callbackData) })
       }
     }
     tabHeaderComponent.createGearGotIt()
@@ -311,7 +311,7 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
     )
 
     pluginModelFacade.getModel().setCancelInstallCallback { descriptor ->
-      val installedSearchPanel = installedTab.getInstalledSearchPanel() ?: return@setCancelInstallCallback
+      val installedSearchPanel = installedTab.getInstalledSearchPanel()
 
       val group: PluginsGroup = installedSearchPanel.group
 
@@ -320,7 +320,7 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
         group.titleWithCount()
         installedSearchPanel.fullRepaint()
 
-        if (group.models.isEmpty()) {
+        if (group.getModels().isEmpty()) {
           installedSearchPanel.removeGroup()
         }
       }
@@ -351,9 +351,7 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
     installedTab.dispose()
     marketplaceTab.dispose() // FIXME why the second time???
 
-    if (installedTab.getInstalledSearchPanel() != null) {
-      installedTab.getInstalledSearchPanel()!!.dispose()
-    }
+    installedTab.getInstalledSearchPanel().dispose()
 
     pluginUpdatesService.dispose()
     PluginPriceService.cancel()
@@ -469,7 +467,7 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
     }
 
     if (!components.isEmpty()) {
-      installedTab.getInstalledPanel()!!.setSelection(components)
+      installedTab.getInstalledPanel().setSelection(components)
     }
   }
 
@@ -479,7 +477,7 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
 
   fun enableSearch(option: String?, ignoreTagMarketplaceTab: Boolean): Runnable? {
     if (StringUtil.isEmpty(option) &&
-        (tabHeaderComponent.getSelectionTab() == MARKETPLACE_TAB || installedTab.getInstalledSearchPanel()!!.isQueryEmpty)) {
+        (tabHeaderComponent.getSelectionTab() == MARKETPLACE_TAB || installedTab.getInstalledSearchPanel().isQueryEmpty)) {
       return null
     }
 
@@ -529,14 +527,14 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
   private fun updateAfterPluginInstalledFromDisk(callbackData: PluginInstallCallbackData, errors: List<HtmlChunk>) {
     pluginModelFacade.getModel().pluginInstalledFromDisk(callbackData, errors)
 
-    val select = installedTab.getInstalledPanel() == null
+    val select = false
     updateSelectionTab(INSTALLED_TAB)
 
     installedTab.clearSearchPanel("")
 
     val component = if (select) findInstalledPluginById(callbackData.pluginDescriptor.pluginId) else null
     if (component != null) {
-      installedTab.getInstalledPanel()!!.setSelection(component)
+      installedTab.getInstalledPanel().setSelection(component)
     }
   }
 
@@ -547,7 +545,7 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
   }
 
   private fun findInstalledPluginById(pluginId: PluginId): ListPluginComponent? {
-    for (group in installedTab.getInstalledGroups()!!) {
+    for (group in installedTab.getInstalledGroups()) {
       val component = group.findComponent(pluginId)
       if (component != null) {
         return component
@@ -765,7 +763,7 @@ class PluginManagerConfigurablePanel @RequiresEdt constructor(searchQuery: Strin
           val text = StringUtil.join(
             component.selection,
             { pluginComponent: ListPluginComponent ->
-              val model = pluginComponent.pluginModel
+              val model = pluginComponent.getPluginModel()
               String.format("%s (%s)", model.name, model.version)
             },
             "\n",

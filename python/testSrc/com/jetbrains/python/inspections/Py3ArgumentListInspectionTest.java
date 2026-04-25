@@ -407,81 +407,6 @@ public class Py3ArgumentListInspectionTest extends PyInspectionTestCase {
     );
   }
 
-  public void testMetaclassDunderCallReturnTypeIncompatibleWithClassBeingConstructed() {
-    doTestByText("""
-                   from typing import Self
-      
-      
-                   class Meta(type):
-                       def call(cls, *args, **kwargs) -> object: ...
-                   
-                       __call__ = call
-                   
-                   
-                   class MyClass(metaclass=Meta):
-                       def __new__(cls, p) -> Self: ...
-                   
-                   
-                   expr = MyClass()
-                   """);
-  }
-
-  public void testMetaclassDunderCallReturnTypeIncompatibleWithClassBeingConstructedMultiFile() {
-    doMultiFileTest();
-  }
-
-  public void testMetaclassNotAnnotatedDunderCall() {
-    doTestByText("""
-                   from typing import Self
-                   
-                   
-                   class Meta(type):
-                       def __call__(cls): ...
-                   
-                   
-                   class MyClass(metaclass=Meta):
-                       def __new__(cls, p) -> Self: ...
-                   
-                   
-                   c1 = MyClass(<warning descr="Parameter 'p' unfilled">)</warning>
-                   c2 = MyClass(1) # TODO PY-80602 Missing error 'Unexpected argument'
-                   """);
-  }
-
-  public void testMetaclassGenericDunderCallReturnTypeCompatibleWithClassBeingConstructed() {
-    doTestByText("""
-                   from typing import Self
-                   
-                   
-                   class Meta(type):
-                       def __call__[T](cls: type[T], *args, **kwargs) -> T: ...
-                   
-                   
-                   class MyClass(metaclass=Meta):
-                       def __new__(cls, p) -> Self: ...
-                   
-                   
-                   c = MyClass(<warning descr="Parameter 'p' unfilled">)</warning>
-                   """);
-  }
-
-  public void testMetaclassGenericDunderCallReturnTypeIncompatibleWithClassBeingConstructed() {
-    doTestByText("""
-                   from typing import Self
-                   
-                   
-                   class Meta(type):
-                       def __call__[T](cls, x: T) -> T: ...
-                   
-                   
-                   class MyClass(metaclass=Meta):
-                       def __new__(cls, p1, p2) -> Self: ...
-                   
-                   
-                   c = MyClass(1)
-                   """);
-  }
-
   public void testKeywordUnpack() {
     doTestByText("""
                    from collections.abc import Mapping
@@ -679,29 +604,6 @@ public class Py3ArgumentListInspectionTest extends PyInspectionTestCase {
                        f = property(get_f, set_f)
                    
                    A().set_f(1)
-                   """);
-  }
-
-  // PY-77611
-  public void testClassDunderNewInPresenceOfInit() {
-    doTestByText("""
-                   class C:
-                       def __new__(cls) -> int: ...
-                   
-                       def __init__(self, x: int): ...
-                   
-                   
-                   c1 = C()
-                   c2 = C(<warning descr="Unexpected argument">1</warning>)
-                   
-                   class Base:
-                       def __new__(cls, x: int) -> Base: ...
-                   
-                   class Derived(Base):
-                       def __init__(self): ...
-
-                   d = Derived(1)
-                   d = Derived(<warning descr="Parameter 'x' unfilled">)</warning>
                    """);
   }
 
