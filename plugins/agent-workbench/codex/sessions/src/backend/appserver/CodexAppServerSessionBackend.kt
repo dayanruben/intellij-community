@@ -229,17 +229,19 @@ private suspend fun buildThreadsByCwd(
             val children = childrenByParent[parent.id]
                 .orEmpty()
                 .sortedByDescending { it.updatedAt }
-      val subAgents = children.map { child ->
-        CodexSubAgent(id = child.id, name = child.toSubAgentName())
-      }
-      val activity = foldSessionActivity(
-        parent.toCodexSessionActivity(),
-        children.asSequence().map(CodexThread::toCodexSessionActivity),
-      )
-      threadsForCwd.add(
-        CodexBackendThread(
+            val subAgents = children.map { child ->
+                CodexSubAgent(id = child.id, name = child.toSubAgentName())
+            }
+            val activity = foldSessionActivity(
+                parent.toCodexSessionActivity(),
+                children.asSequence().map(CodexThread::toCodexSessionActivity),
+            )
+            val requiresResponse = parent.activeFlags.isResponseRequired() || children.any { child -> child.activeFlags.isResponseRequired() }
+            threadsForCwd.add(
+                CodexBackendThread(
                     thread = parent.copy(subAgents = subAgents),
                     activity = activity,
+                    requiresResponse = requiresResponse,
                 )
             )
         }

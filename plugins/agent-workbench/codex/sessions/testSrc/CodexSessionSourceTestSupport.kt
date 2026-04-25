@@ -24,6 +24,7 @@ internal fun testCreateSource(
   codexHome: Path,
   threadIds: List<String>,
   appServerHints: Map<String, CodexRefreshHints> = emptyMap(),
+  backendThreadCustomizer: (CodexBackendThread) -> CodexBackendThread = { it },
 ): CodexSessionSource {
   val projectPath = projectDir.toString()
   return CodexSessionSource(
@@ -31,12 +32,14 @@ internal fun testCreateSource(
       override suspend fun listThreads(path: String, openProject: Project?): List<CodexBackendThread> {
         return if (path == projectPath) {
           threadIds.mapIndexed { index, threadId ->
-            CodexBackendThread(
-              thread = CodexThread(
-                id = threadId,
-                title = "Thread ${index + 1}",
-                updatedAt = 100L + index,
-                archived = false,
+            backendThreadCustomizer(
+              CodexBackendThread(
+                thread = CodexThread(
+                  id = threadId,
+                  title = "Thread ${index + 1}",
+                  updatedAt = 100L + index,
+                  archived = false,
+                )
               )
             )
           }

@@ -17,6 +17,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -129,6 +130,60 @@ class CodexRolloutSessionBackendFileWatchIntegrationTest {
           threadId = "session-watch-inplace",
         )
         assertThat(refreshedTitle).isEqualTo("Updated in place")
+      }
+      finally {
+        updatesJob.cancelAndJoin()
+      }
+    }
+  }
+
+  @Test
+  fun backendWatcherRefreshesProcessingActivityAfterRolloutAppend() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-watch-append")
+      Files.createDirectories(projectDir)
+      val rollout = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("18")
+        .resolve("rollout-watch-append.jsonl")
+      writeRollout(
+        file = rollout,
+        lines = listOf(
+          sessionMetaLine(timestamp = "2026-02-18T12:10:00.000Z", id = "session-watch-append", cwd = projectDir),
+          """{"timestamp":"2026-02-18T12:10:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Initial title"}}""",
+        ),
+      )
+
+      val backend = CodexRolloutSessionBackend(codexHomeProvider = { tempDir })
+      val updates = Channel<Unit>(capacity = Channel.CONFLATED)
+      val updatesJob = launch {
+        backend.updates.collect {
+          updates.trySend(Unit)
+        }
+      }
+
+      try {
+        val initialThreads = backend.listThreads(path = projectDir.toString(), openProject = null)
+        assertThat(initialThreads).hasSize(1)
+        assertThat(initialThreads.single().activity).isEqualTo(CodexSessionActivity.READY)
+
+        primeWatcherWithRefreshPing(
+          updates = updates,
+          watchedFile = rollout,
+        )
+        Files.write(
+          rollout,
+          listOf("""{"timestamp":"2026-02-18T12:10:02.000Z","type":"event_msg","payload":{"type":"task_started"}}"""),
+          StandardOpenOption.APPEND,
+        )
+
+        awaitWatcherUpdate(updates)
+
+        val refreshedActivity = awaitThreadActivity(
+          backend = backend,
+          projectPath = projectDir.toString(),
+          threadId = "session-watch-append",
+          expectedActivity = CodexSessionActivity.PROCESSING,
+        )
+        assertThat(refreshedActivity).isEqualTo(CodexSessionActivity.PROCESSING)
       }
       finally {
         updatesJob.cancelAndJoin()

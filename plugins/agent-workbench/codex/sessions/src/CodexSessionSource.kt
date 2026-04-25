@@ -31,11 +31,15 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUp
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import com.intellij.agent.workbench.sessions.core.providers.BaseAgentSessionSource
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.debug
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+
+private val LOG = logger<CodexSessionSource>()
 
 internal class CodexSessionSource internal constructor(
   private val backend: CodexSessionBackend,
@@ -68,7 +72,7 @@ internal class CodexSessionSource internal constructor(
   override suspend fun listThreads(path: String, openProject: Project?): List<AgentSessionThread> {
     val threads = backend.listThreads(path = path, openProject = openProject)
     trackActiveThreadRead(threads)
-    return threads.map(::toAgentSessionThread)
+    return mapBackendThreadsWithRolloutFallback(mapOf(path to threads))[path].orEmpty()
   }
 
   override suspend fun prefetchThreads(paths: List<String>): Map<String, List<AgentSessionThread>> {
@@ -76,9 +80,7 @@ internal class CodexSessionSource internal constructor(
     if (prefetched.isEmpty()) return emptyMap()
 
     prefetched.values.forEach(::trackActiveThreadRead)
-    return prefetched.mapValues { (_, threads) ->
-      threads.map(::toAgentSessionThread)
-    }
+    return mapBackendThreadsWithRolloutFallback(prefetched)
   }
 
   override suspend fun refreshThreads(request: AgentSessionSourceRefreshRequest): AgentSessionSourceRefreshResult {
@@ -100,7 +102,7 @@ internal class CodexSessionSource internal constructor(
         }
 
         trackActiveThreadRead(backendResult.threads)
-        val threads = backendResult.threads.map(::toAgentSessionThread)
+        val threads = mapBackendThreadsWithRolloutFallback(mapOf(path to backendResult.threads))[path].orEmpty()
         if (backendResult.isComplete) {
           completeThreadsByPath[path] = threads
         }
@@ -145,6 +147,93 @@ internal class CodexSessionSource internal constructor(
     return filterCodexRefreshHints(mergedHints).mapValues { (_, hints) ->
       hints.toAgentSessionRefreshHints()
     }
+  }
+
+  private suspend fun mapBackendThreadsWithRolloutFallback(
+    backendThreadsByPath: Map<String, List<CodexBackendThread>>,
+  ): Map<String, List<AgentSessionThread>> {
+    if (backendThreadsByPath.isEmpty()) {
+      return emptyMap()
+    }
+
+    val agentThreadsByPath = LinkedHashMap<String, List<AgentSessionThread>>(backendThreadsByPath.size)
+    val refreshThreadSeedsByPath = LinkedHashMap<String, Set<AgentSessionRefreshThreadSeed>>()
+    for ((path, backendThreads) in backendThreadsByPath) {
+      val agentThreads = backendThreads.map(::toAgentSessionThread)
+      agentThreadsByPath[path] = agentThreads
+      if (agentThreads.isNotEmpty()) {
+        refreshThreadSeedsByPath[path] = agentThreads.asSequence()
+          .map { thread -> AgentSessionRefreshThreadSeed(threadId = thread.id, updatedAt = thread.updatedAt) }
+          .toCollection(LinkedHashSet())
+      }
+    }
+    if (refreshThreadSeedsByPath.isEmpty()) {
+      return agentThreadsByPath
+    }
+
+    val rolloutHintsByPath = try {
+      rolloutRefreshHintsProvider.prefetchRefreshHints(
+        paths = refreshThreadSeedsByPath.keys.toList(),
+        refreshThreadSeedsByPath = refreshThreadSeedsByPath,
+      )
+    }
+    catch (e: Throwable) {
+      if (e is CancellationException) throw e
+      LOG.warn("Failed to fetch Codex rollout activity fallback hints", e)
+      return agentThreadsByPath
+    }
+    if (rolloutHintsByPath.isEmpty()) {
+      return agentThreadsByPath
+    }
+
+    absorbActiveThreadReads(rolloutHintsByPath)
+
+    val result = LinkedHashMap<String, List<AgentSessionThread>>(agentThreadsByPath.size)
+    for ((path, agentThreads) in agentThreadsByPath) {
+      val rolloutHints = rolloutHintsByPath[path]
+      val activityHintsByThreadId = rolloutHints?.activityHintsByThreadId.orEmpty()
+      if (activityHintsByThreadId.isEmpty()) {
+        result[path] = agentThreads
+        continue
+      }
+
+      val backendThreadsById = backendThreadsByPath[path]
+        .orEmpty()
+        .associateBy { backendThread -> backendThread.thread.id }
+      var appliedFallbacks = 0
+      val threads = agentThreads.map { thread ->
+        val rolloutHint = activityHintsByThreadId[thread.id] ?: return@map thread
+        if (!shouldKeepRefreshHint(threadId = thread.id, hint = rolloutHint)) {
+          return@map thread
+        }
+
+        val backendThread = backendThreadsById[thread.id]
+        val currentHint = CodexRefreshActivityHint(
+          activity = thread.activity,
+          updatedAt = backendThread?.thread?.updatedAt ?: thread.updatedAt,
+          responseRequired = backendThread?.requiresResponse == true,
+        )
+        if (!shouldApplyRolloutActivityFallback(currentHint = currentHint, rolloutHint = rolloutHint)) {
+          return@map thread
+        }
+
+        appliedFallbacks += 1
+        LOG.debug {
+          "Applied Codex rollout activity fallback " +
+          "path=$path threadId=${thread.id} appServerActivity=${thread.activity} rolloutActivity=${rolloutHint.activity} " +
+          "appServerUpdatedAt=${currentHint.updatedAt} rolloutUpdatedAt=${rolloutHint.updatedAt} " +
+          "appServerResponseRequired=${currentHint.responseRequired} rolloutResponseRequired=${rolloutHint.responseRequired}"
+        }
+        thread.copy(activity = rolloutHint.activity)
+      }
+      if (appliedFallbacks > 0) {
+        LOG.debug {
+          "Applied Codex rollout activity fallbacks path=$path count=$appliedFallbacks hints=${activityHintsByThreadId.size}"
+        }
+      }
+      result[path] = threads
+    }
+    return result
   }
 
   private fun trackActiveThreadRead(threads: Iterable<CodexBackendThread>) {
