@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public abstract class LexerTestCase extends UsefulTestCase {
@@ -28,6 +29,7 @@ public abstract class LexerTestCase extends UsefulTestCase {
 
   protected void doTest(@NotNull String text, @Nullable String expected) {
     doTest(text, expected, createLexer());
+    checkCorrectRestart(text);
   }
 
   protected void doTest(@NotNull String text, @Nullable String expected, @NotNull Lexer lexer) {
@@ -39,8 +41,6 @@ public abstract class LexerTestCase extends UsefulTestCase {
     else {
       assertSameLinesWithFile(getPathToTestDataFile(getExpectedFileExtension()), result);
     }
-
-    checkCorrectRestart(text);
   }
 
   protected String printTokens(@NotNull Lexer lexer, @NotNull CharSequence text, int start) {
@@ -55,7 +55,7 @@ public abstract class LexerTestCase extends UsefulTestCase {
     return ".txt";
   }
 
-  protected void checkZeroState(@NotNull String text, TokenSet tokenTypes) {
+  protected void checkZeroState(@NotNull String text, @NotNull TokenSet tokenTypes) {
     Lexer lexer = createLexer();
     lexer.start(text);
 
@@ -111,6 +111,20 @@ public abstract class LexerTestCase extends UsefulTestCase {
     }
   }
 
+  /**
+   * Verifies that the lexer produces the same token sequence when restored to any position
+   * captured by {@link Lexer#getCurrentPosition()}.
+   *
+   * <p>Unlike {@link #checkCorrectRestart(String)}, which restarts the lexer via
+   * {@link Lexer#start(CharSequence, int, int, int)} using only the integer offset and state
+   * (and therefore can only test positions where the integer state is sufficient for a faithful restart),
+   * this method uses {@link Lexer#restore(LexerPosition)} and tests <em>every</em> token position.
+   *
+   * <p>This is possible because {@link LexerPosition} implementations may carry additional internal
+   * state beyond the integer returned by {@link Lexer#getState()} (e.g. delegate positions,
+   * lookahead caches, or embedment info), allowing {@code restore()} to reconstruct the full
+   * lexer state at any point.
+   */
   protected void checkCorrectRestartUsingPosition(@NotNull String text) {
     Lexer mainLexer = createLexer();
     List<TokenState> allTokens = tokenize(text, 0, 0, mainLexer);
@@ -238,10 +252,39 @@ public abstract class LexerTestCase extends UsefulTestCase {
            : StringUtil.replace(sequence.subSequence(start, end).toString(), "\n", "\\n");
   }
 
+  /**
+   * If you need to customize the lexer creation, see {@link WithLexerFactory}.
+   */
   protected abstract @NotNull Lexer createLexer();
 
   protected abstract @NotNull String getDirPath();
 
   private record TokenState(@NotNull IElementType type, int offset, int state) {
+  }
+
+  /**
+   * Utility class for lexer testing with a custom lexer factory.
+   */
+  public abstract static class WithLexerFactory extends LexerTestCase {
+    private @Nullable Supplier<? extends @NotNull Lexer> myLexerFactory = null;
+
+    @Override
+    protected void tearDown() throws Exception {
+      myLexerFactory = null;
+      super.tearDown();
+    }
+
+    public final void setLexerFactory(@NotNull Supplier<? extends @NotNull Lexer> lexerFactory) {
+      myLexerFactory = lexerFactory;
+    }
+
+    @Override
+    protected final @NotNull Lexer createLexer() {
+      if (myLexerFactory == null) {
+        throw new AssertionError("Lexer factory is not set, you must call `setLexerFactory(...)` before calling doTest(...)");
+      }
+
+      return myLexerFactory.get();
+    }
   }
 }
