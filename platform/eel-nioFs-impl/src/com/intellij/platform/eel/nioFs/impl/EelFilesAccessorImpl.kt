@@ -1,7 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("RAW_RUN_BLOCKING")
 
-package com.intellij.platform.eel.impl.fs
+package com.intellij.platform.eel.nioFs.impl
 
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.eel.EelSharedSecrets
