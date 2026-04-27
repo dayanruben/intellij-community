@@ -378,8 +378,7 @@ private fun shouldSkipPluginCollectorInclude(loadPath: String, requestor: String
     return true
   }
   return requestor != null && (requestor.startsWith("intellij.android.") ||
-                               requestor == "intellij.rustrover.plugin" ||
-                               requestor == "intellij.javascript.plugin")
+                               requestor == "intellij.rustrover.plugin")
 }
 
 private fun isIncludeElementFor(element: Element): Boolean {
