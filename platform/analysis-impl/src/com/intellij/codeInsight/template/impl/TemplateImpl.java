@@ -93,10 +93,6 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
   private static final @NonNls String SELECTION_END = "SELECTION_END";
   public static final @NonNls String ARG = "ARG";
 
-  /** Designed to be alphanumeric-only so identity-like transforms (e.g. {@code escapeString})
-   *  return it verbatim, letting the mirror check distinguish real pass-through expressions
-   *  from transformations that merely happened to coincide on the current input. */
-  private static final String MIRROR_SENTINEL = "__IJTemplateMirrorSentinel_X9A3Z7Q__";
 
   public static final Set<String> INTERNAL_VARS_SET = Set.of(
     END, SELECTION, SELECTION_START, SELECTION_END);
@@ -116,6 +112,12 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
   }
 
   private boolean myIsInline;
+
+  /**
+   * Default placeholder for empty template segments. Inflated into zero-length segments during
+   * macro evaluation and reformat, removed before any user-visible state.
+   */
+  private @NotNull String mySegmentPlaceholder = "_IjT_";
 
   public TemplateImpl(@NotNull @NlsSafe String key, @NotNull @NonNls String group) {
     this(key, null, group);
@@ -413,13 +415,32 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
   }
 
   /**
+   * Returns the placeholder string substituted variables segments during
+   * {@link #update(ModPsiUpdater, TemplateStateProcessor)} for macro evaluation and reformat.
+   */
+  @ApiStatus.Experimental
+  public @NotNull String getSegmentPlaceholder() {
+    return mySegmentPlaceholder;
+  }
+
+  /**
+   * Overrides the placeholder used for segments in
+   * {@link #update(ModPsiUpdater, TemplateStateProcessor)}. Use to substitute variables segments during
+   * {@link #update(ModPsiUpdater, TemplateStateProcessor)} for macro evaluation and reformat.
+   */
+  @ApiStatus.Experimental
+  public void setSegmentPlaceholder(@NotNull String placeholder) {
+    mySegmentPlaceholder = placeholder;
+  }
+
+  /**
    * Performs a template execution within ModCommand context. The template is not actually executed, but
    * contributes to {@link ModPsiUpdater} to form the final {@link ModCommand}.
    * <p>
-   *   Note that not all the template behavior is implemented yet, and not everything is supported in ModCommands at all,
-   *   so expect that complex templates that use rare features may not work correctly.
+   * Note that not all the template behavior is implemented yet, and not everything is supported in ModCommands at all,
+   * so expect that complex templates that use rare features may not work correctly.
    * </p>
-   * 
+   *
    * @param updater {@link ModPsiUpdater} to use.
    */
   @ApiStatus.Internal
@@ -448,7 +469,7 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
         marker.setGreedyToRight(true);
       }
       markers.add(new MarkerInfo(segment, marker));
-      indicesByName.computeIfAbsent(segment.name, k -> new ArrayList<>()).add(i);
+      indicesByName.computeIfAbsent(segment.name, _ -> new ArrayList<>()).add(i);
     }
 
     Map<String, String> calculatedValues = computeInitialVariableValues(markers, indicesByName, manager, updater);
@@ -557,7 +578,7 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
    *
    * <ol>
    *   <li><b>Identity mirror</b>: if some editable has the same computed value AND a
-   *       {@link #MIRROR_SENTINEL} probe confirms the expression is pass-through on that
+   *       {@link #getSegmentPlaceholder()} probe confirms the expression is pass-through on that
    *       editable's value (e.g. {@code escapeString(EXPR)} on an identifier), returns the
    *       editable's <b>simple name</b> so LSP snippet mirroring works with it.</li>
    *   <li><b>Non-identity dependency via AST</b>: if the expression's AST contains a
@@ -575,12 +596,12 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
    * ({@code getExpressionString()} is empty — typical for programmatic {@link Expression}
    * subclasses).
    */
-  private static @Nullable DependencySpec detectDependantSpec(@NotNull Variable variable,
-                                                               @NotNull Collection<Variable> allVariables,
-                                                               @NotNull Map<String, String> calculatedValues,
-                                                               @NotNull TextRange markerRange,
-                                                               @NotNull PsiElement element,
-                                                               @NotNull PsiFile file) {
+  private @Nullable DependencySpec detectDependantSpec(@NotNull Variable variable,
+                                                       @NotNull Collection<Variable> allVariables,
+                                                       @NotNull Map<String, String> calculatedValues,
+                                                       @NotNull TextRange markerRange,
+                                                       @NotNull PsiElement element,
+                                                       @NotNull PsiFile file) {
     String name = variable.getName();
     String value = calculatedValues.get(name);
     if (value == null) return null;
@@ -590,6 +611,7 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
     // to an editable VariableNode, (3) parameterless macro with a non-empty XML default.
     // Parameterless macros without a default stay unregistered so the initial reformat pass
     // isn't lost to `TemplateBuilderImpl.initInlineTemplate`'s wipe + no-reformat re-insert.
+    String placeholder = getSegmentPlaceholder();
     for (Variable other : allVariables) {
       if (!other.isAlwaysStopAt()) continue;
       String otherName = other.getName();
@@ -598,9 +620,9 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
       if (otherValue == null) continue;
       if (value.equals(otherValue)) {
         Map<String, String> probe = new LinkedHashMap<>(calculatedValues);
-        probe.put(otherName, MIRROR_SENTINEL);
+        probe.put(otherName, placeholder);
         Result probeResult = expression.calculateResult(new DummyContext(markerRange, element, file, probe));
-        if (probeResult != null && MIRROR_SENTINEL.equals(probeResult.toString())) {
+        if (probeResult != null && placeholder.equals(probeResult.toString())) {
           return new DependencySpec(otherName, null);
         }
       }
@@ -693,7 +715,7 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
       PsiElement firstElement = updater.getPsiFile().findElementAt(firstInfo.marker.getStartOffset());
       if (firstElement == null) continue;
       DependencySpec spec = detectDependantSpec(variable, variables, calculatedValues,
-                                                 firstInfo.marker.getTextRange(), firstElement, updater.getPsiFile());
+                                                firstInfo.marker.getTextRange(), firstElement, updater.getPsiFile());
       if (spec == null) continue;
       for (int idx : occurrences) {
         MarkerInfo info = markers.get(idx);
@@ -701,7 +723,7 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
         PsiElement element = updater.getPsiFile().findElementAt(info.marker.getStartOffset());
         if (element == null) continue;
         builder.field(element, info.marker.getTextRange().shiftLeft(element.getTextRange().getStartOffset()),
-                      name, spec.dependantName(), spec.defaultValue(), false);
+                      name, spec.dependantName(), spec.defaultValue());
         any = true;
       }
     }
@@ -710,9 +732,9 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
 
   private record InflatedSegment(MarkerInfo info, boolean preSpaceBefore, boolean preSpaceAfter) {}
 
-  private static void reformatTemplate(@NotNull Document document, @NotNull PsiDocumentManager manager,
-                                        @NotNull Project project, @NotNull ModPsiUpdater updater,
-                                        @NotNull RangeMarker wholeTemplate, @NotNull List<MarkerInfo> markers) {
+  private void reformatTemplate(@NotNull Document document, @NotNull PsiDocumentManager manager,
+                                       @NotNull Project project, @NotNull ModPsiUpdater updater,
+                                       @NotNull RangeMarker wholeTemplate, @NotNull List<MarkerInfo> markers) {
     List<InflatedSegment> emptyValues = new ArrayList<>();
     for (MarkerInfo info : markers) {
       if (END.equals(info.segment.name)) continue;
@@ -721,7 +743,7 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
         CharSequence chars = document.getCharsSequence();
         boolean preSpaceBefore = pos > 0 && chars.charAt(pos - 1) == ' ';
         boolean preSpaceAfter = pos < chars.length() && chars.charAt(pos) == ' ';
-        document.insertString(pos, PLACEHOLDER);
+        document.insertString(pos, getSegmentPlaceholder());
         emptyValues.add(new InflatedSegment(info, preSpaceBefore, preSpaceAfter));
       }
     }
@@ -738,7 +760,7 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
       int start = seg.info.marker.getStartOffset();
       int end = seg.info.marker.getEndOffset();
       // If the reformat added a space that wasn't there before inflation (e.g. formatter put
-      // a space on both sides of the placeholder in `=$_IJT_$ iterator`), consume one space
+      // a space on both sides of the placeholder in `=_IJT_ iterator`), consume one space
       // so empty values collapse cleanly. If both sides already had spaces before inflation
       // (e.g. `instanceof  ?`), leave both in place so the template's literal spacing is kept.
       CharSequence chars = document.getCharsSequence();
@@ -825,15 +847,15 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
 
   /**
    * Fills every zero-length segment whose name matches a variable with a placeholder (the
-   * variable's macro {@link com.intellij.codeInsight.template.Macro#getDefaultValue() default}
-   * {@link #PLACEHOLDER}). Returns the marker indices that were inflated, to be passed back to
+   * supplied {@code placeholder}, defaulting to {@link #getSegmentPlaceholder()}).
+   * Returns the marker indices that were inflated, to be passed back to
    * {@link #restoreEmptySegments}.
    */
-  private static @NotNull List<Integer> inflateEmptySegments(@NotNull List<MarkerInfo> markers,
-                                                              @NotNull List<Variable> variables,
-                                                              @NotNull Map<String, List<Integer>> indicesByName,
-                                                              @NotNull Document document,
-                                                              @NotNull Set<String> skipAlreadyProcessed) {
+  private @NotNull List<Integer> inflateEmptySegments(@NotNull List<MarkerInfo> markers,
+                                                             @NotNull List<Variable> variables,
+                                                             @NotNull Map<String, List<Integer>> indicesByName,
+                                                             @NotNull Document document,
+                                                             @NotNull Set<String> skipAlreadyProcessed) {
     List<Integer> inflated = new ArrayList<>();
     for (Variable variable : variables) {
       String name = variable.getName();
@@ -841,7 +863,7 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
       for (int idx : indicesByName.getOrDefault(name, List.of())) {
         MarkerInfo info = markers.get(idx);
         if (info.marker.getStartOffset() != info.marker.getEndOffset()) continue;
-        substituteAtMarker(markers, idx, PLACEHOLDER, document);
+        substituteAtMarker(markers, idx, getSegmentPlaceholder(), document);
         inflated.add(idx);
       }
     }
@@ -856,14 +878,6 @@ public class TemplateImpl extends TemplateBase implements SchemeElement {
       document.deleteString(info.marker.getStartOffset(), info.marker.getEndOffset());
     }
   }
-
-  /**
-   * Short, Java-legal identifier used as a placeholder for empty template segments during
-   * macro evaluation and reformat. Chosen to not collide with identifiers a user would
-   * reasonably declare, and to stay short enough not to push surrounding code past the
-   * right margin during reformat.
-   */
-  private static final String PLACEHOLDER = "$_IJT_$";
 
   /**
    * Substitutes {@code value} at {@code markers.get(idx)}, repositioning any zero-length

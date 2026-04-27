@@ -85,7 +85,7 @@ public interface ModTemplateBuilder {
                                     boolean alwaysStopAt);
 
   /**
-   * Same as {@link #field(PsiElement, TextRange, String, String, boolean)} but with an explicit
+   * Same as {@link #field(PsiElement, TextRange, String, String, boolean)} with alwaysStopAt=false, but with an explicit
    * default-value expression string used when the main expression evaluates to {@code null} or
    * empty. Useful for macro-call dependencies like {@code rightSideType()} whose XML template
    * carries a separate literal fallback (e.g. {@code "java.util.Iterator"}).
@@ -97,7 +97,7 @@ public interface ModTemplateBuilder {
   @ApiStatus.Experimental
   @NotNull ModTemplateBuilder field(@NotNull PsiElement element, @NotNull TextRange rangeInElement,
                                     @NotNull String varName, @NotNull String dependantVariableName,
-                                    @Nullable String defaultValue, boolean alwaysStopAt);
+                                    @Nullable String defaultValue);
 
   /**
    * Add a finish position to the template. The caret will be moved to a given position after the template is finished

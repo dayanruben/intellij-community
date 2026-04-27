@@ -241,7 +241,7 @@ com.intellij.modcommand.ModPsiUpdater
 - *a:editorAction(java.lang.String,Z):V
 - *a:trackDeclaration(com.intellij.psi.PsiElement):V
 com.intellij.modcommand.ModTemplateBuilder
-- *a:field(com.intellij.psi.PsiElement,com.intellij.openapi.util.TextRange,java.lang.String,java.lang.String,java.lang.String,Z):com.intellij.modcommand.ModTemplateBuilder
+- *a:field(com.intellij.psi.PsiElement,com.intellij.openapi.util.TextRange,java.lang.String,java.lang.String,java.lang.String):com.intellij.modcommand.ModTemplateBuilder
 - *a:field(com.intellij.psi.PsiElement,com.intellij.openapi.util.TextRange,java.lang.String,java.lang.String,Z):com.intellij.modcommand.ModTemplateBuilder
 *f:com.intellij.modcommand.ModUpdateReferences
 - java.lang.Record

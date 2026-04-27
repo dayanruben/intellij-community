@@ -219,7 +219,7 @@ public class JavaLiveTemplateModCommandTest extends LiveTemplateTestCase {
                             class X {
                                 void m() {
                                     List<Integer> a = new ArrayList<>();
-                                    for (Iterator<Integer> iterator = a.iterator(); iterator.hasNext(); ) {
+                                    for (Iterator<Integer> <selection>iterator<caret></selection> = a.iterator(); iterator.hasNext(); ) {
                                         Integer next = iterator.next();
                                        \s
                                     }

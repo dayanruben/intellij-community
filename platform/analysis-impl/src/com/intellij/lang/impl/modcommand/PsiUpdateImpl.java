@@ -588,15 +588,14 @@ final class PsiUpdateImpl {
                                                  @NotNull TextRange rangeInElement,
                                                  @NotNull String varName,
                                                  @NotNull String dependantVariableName,
-                                                 @Nullable String defaultValue,
-                                                 boolean alwaysStopAt) {
+                                                 @Nullable String defaultValue) {
           TextRange elementRange = getRange(element);
           if (elementRange == null) {
             throw new IllegalStateException("Unable to restore element for template");
           }
           TextRange rangeForTemplate = templateRange(elementRange, rangeInElement);
           TextRange range = mapRange(rangeForTemplate);
-          myTemplateFields.add(new ModStartTemplate.DependantVariableField(range, varName, dependantVariableName, alwaysStopAt, defaultValue));
+          myTemplateFields.add(new ModStartTemplate.DependantVariableField(range, varName, dependantVariableName, false, defaultValue));
           return this;
         }
 
