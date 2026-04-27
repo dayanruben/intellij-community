@@ -16,8 +16,6 @@ import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
 
-private val logger = logger<LaunchJsonUsagesCollector>()
-
 private val OBJECT_MAPPER = JsonMapper.builder()
   .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
   .enable(JsonReadFeature.ALLOW_JAVA_COMMENTS)
@@ -25,17 +23,19 @@ private val OBJECT_MAPPER = JsonMapper.builder()
   .enable(JsonReadFeature.ALLOW_MISSING_VALUES)
   .build()
 
-internal class LaunchJsonUsagesCollector : ProjectUsagesCollector() {
-  override fun getGroup(): EventLogGroup = GROUP
+internal class DotVSCodeProjectCollector : ProjectUsagesCollector() {
+  companion object {
+    private val LOG = logger<DotVSCodeProjectCollector>()
+  }
 
-  //override fun requiresReadAccess(): Boolean = true
+  override fun getGroup(): EventLogGroup = GROUP
 
   override fun getMetrics(project: Project): Set<MetricEvent> {
     val projectDir = project.guessProjectDir() ?: return emptySet()
     return buildSet {
       val vsCodeDir = projectDir.findFileOrDirectory(".vscode") ?: return@buildSet
       if (!vsCodeDir.isDirectory) {
-        logger.warn(".vscode is not a directory")
+        LOG.warn(".vscode is not a directory")
       }
       if (!vsCodeDir.isValid) return@buildSet
       add(vsCodeFolderDetectedEvent.metric())
@@ -46,7 +46,7 @@ internal class LaunchJsonUsagesCollector : ProjectUsagesCollector() {
         OBJECT_MAPPER.readTree(launchJsonFile.inputStream)
       }
       catch (e: Throwable) {
-        logger.warn("Cannot parse \"launch.json\" file", e)
+        LOG.warn("Cannot parse \"launch.json\" file", e)
         return@buildSet
       }
 
@@ -62,44 +62,38 @@ internal class LaunchJsonUsagesCollector : ProjectUsagesCollector() {
       configurationsNode.count { it.isObject } // filter some garbage like null
     }
     else {
-      logger.info("\"configurations\" field is expected to be an array of objects, but the actual type is ${configurationsNode.nodeType}")
+      LOG.info("\"configurations\" field is expected to be an array of objects, but the actual type is ${configurationsNode.nodeType}")
       -1 // incorrect launch.json
     }
 
     return launchJsonDetectedEvent.metric(numberOfConfigurations, hasCompounds)
   }
-
-  companion object {
-    val GROUP = EventLogGroup("other.ide.vscode", version = 1)
-
-    val vsCodeFolderDetectedEvent = GROUP.registerEvent("folder.detected")
-
-    val numberOfConfigurationsField = EventFields.Int("numberOfConfigurations")
-
-    // WebStorm: we want to know should we hide by default 'Before launch' section
-    val hasCompoundConfigurations = EventFields.Boolean("hasCompoundConfigurations")
-    val launchJsonDetectedEvent = GROUP.registerEvent(
-      "launch.json.detected",
-      numberOfConfigurationsField,
-      hasCompoundConfigurations
-    )
-
-    // The event is declared here because if it is moved to another file,
-    // it will be registered lazily and will not be included in the schema.
-    val jsConfigurationEvent: VarargEventId = GROUP.registerVarargEvent(
-      "js.configuration",
-      JavaScriptConfigurationFields.configurationType,
-      JavaScriptConfigurationFields.request,
-      JavaScriptConfigurationFields.hasPreLaunchTask,
-      JavaScriptConfigurationFields.hasNonEmptyRuntimeArgs,
-      JavaScriptConfigurationFields.hasCustomEnvVars,
-      JavaScriptConfigurationFields.hasCustomUrl,
-      JavaScriptConfigurationFields.urlIsLocalHost,
-      JavaScriptConfigurationFields.hasCustomPort,
-      JavaScriptConfigurationFields.hasCustomSkipFiles,
-      JavaScriptConfigurationFields.hasPathMapping,
-      JavaScriptConfigurationFields.hasCustomWebRoot,
-      JavaScriptConfigurationFields.pauseForSourceMapEnabled,
-    )
-  }
 }
+
+private val GROUP = EventLogGroup("other.ide.vscode", version = 1)
+private val vsCodeFolderDetectedEvent = GROUP.registerEvent("folder.detected")
+private val numberOfConfigurationsField = EventFields.Int("numberOfConfigurations")
+
+// WebStorm: we want to know should we hide by default 'Before launch' section
+private val hasCompoundConfigurations = EventFields.Boolean("hasCompoundConfigurations")
+private val launchJsonDetectedEvent = GROUP.registerEvent(
+  "launch.json.detected",
+  numberOfConfigurationsField,
+  hasCompoundConfigurations
+)
+
+internal val jsConfigurationEvent: VarargEventId = GROUP.registerVarargEvent(
+  "js.configuration",
+  JavaScriptConfigurationFields.configurationType,
+  JavaScriptConfigurationFields.request,
+  JavaScriptConfigurationFields.hasPreLaunchTask,
+  JavaScriptConfigurationFields.hasNonEmptyRuntimeArgs,
+  JavaScriptConfigurationFields.hasCustomEnvVars,
+  JavaScriptConfigurationFields.hasCustomUrl,
+  JavaScriptConfigurationFields.urlIsLocalHost,
+  JavaScriptConfigurationFields.hasCustomPort,
+  JavaScriptConfigurationFields.hasCustomSkipFiles,
+  JavaScriptConfigurationFields.hasPathMapping,
+  JavaScriptConfigurationFields.hasCustomWebRoot,
+  JavaScriptConfigurationFields.pauseForSourceMapEnabled,
+)
