@@ -53,6 +53,7 @@ jvm_library(
     "//platform/backend/workspace",
     "//platform/workspace/storage",
     "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
+    "//libraries/caffeine",
   ],
   exports = ["//platform/projectModel-impl"]
 )
@@ -105,6 +106,7 @@ jvm_library(
     "//platform/backend/workspace:workspace_test_lib",
     "//platform/workspace/storage:storage_test_lib",
     "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
+    "//libraries/caffeine:caffeine_test_lib",
   ]
 )
 ### auto-generated section `build intellij.platform.analysis.impl` end

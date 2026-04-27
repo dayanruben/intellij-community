@@ -98,7 +98,7 @@ public class ModuleScopeProviderImpl implements ModuleScopeProvider {
 
   @Override
   public final void clearCache() {
-    cache.clear();
+    // ModuleWithDependenciesScopeCache cache is cleared via com.intellij.openapi.roots.impl.ProjectRootManagerComponent.clearScopesCachesForModules
     moduleTestsWithDependentsScope = null;
     moduleWithDependenciesContentScope = null;
   }
