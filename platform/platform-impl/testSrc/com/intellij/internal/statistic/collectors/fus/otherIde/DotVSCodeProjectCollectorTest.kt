@@ -162,4 +162,24 @@ internal class DotVSCodeProjectCollectorTest {
     assertThat(cppEvent).containsEntry("has_cpp_settings", false)
     Unit
   }
+
+  @Test
+  fun `test launch json is detected`() = timeoutRunBlocking {
+    val vscDirectory = projectDir.resolve(dotVsCode)
+    Files.createDirectory(vscDirectory)
+    val launchJson = vscDirectory.resolve("launch.json")
+    Files.createFile(launchJson)
+    Files.writeString(launchJson, "{}")
+
+
+    val collector = DotVSCodeProjectCollector()
+    val events = collector.getMetrics(project)
+    assertThat(events).hasSize(2)
+    assertThat(events.first().data.build()).containsEntry("exists", true)
+
+    val launchJsonEvent = events.last().data.build()
+    assertThat(launchJsonEvent).containsEntry("hasCompoundConfigurations", false)
+    assertThat(launchJsonEvent).containsEntry("numberOfConfigurations", 0)
+    Unit
+  }
 }
