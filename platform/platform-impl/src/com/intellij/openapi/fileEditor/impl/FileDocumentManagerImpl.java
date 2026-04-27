@@ -126,6 +126,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
   private static final Key<String> LINE_SEPARATOR_KEY = Key.create("LINE_SEPARATOR_KEY");
   private static final Key<Boolean> MUST_RECOMPUTE_FILE_TYPE = Key.create("Must recompute file type");
 
+  private final List<ConflictsSolverOverride> myConflictsSolverOverrides = ContainerUtil.createLockFreeCopyOnWriteList();
   private final Set<Document> myUnsavedDocuments = ConcurrentCollectionFactory.createConcurrentSet();
 
   private final FileDocumentManagerListenerBackgroundableBridge bridge = new FileDocumentManagerListenerBackgroundableBridge();
@@ -701,7 +702,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
           for (VFileContentChangeEvent event : contentChanges) {
             // new range markers could've appeared after "prepareChange" in some read action
             prepareForRangeMarkerUpdate(strongRefsToDocuments, event.getFile());
-            if (ourConflictsSolverEnabled) {
+            if (myFileDocumentManager.isConflictsSolverEnabled()) {
               myFileDocumentManager.myConflictResolver.beforeContentChange(event);
             }
           }
@@ -893,6 +894,17 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
     Disposer.register(disposable, () -> myConflictResolver = old);
   }
 
+  @Override
+  public void overrideConflictsSolverEnabled(boolean enabled, @NotNull Disposable parentDisposable) {
+    ContainerUtil.add(new ConflictsSolverOverride(enabled), myConflictsSolverOverrides, parentDisposable);
+  }
+
+  @ApiStatus.Internal
+  public boolean isConflictsSolverEnabled() {
+    ConflictsSolverOverride override = ContainerUtil.getLastItem(myConflictsSolverOverrides);
+    return override == null ? ourConflictsSolverEnabled : override.myEnabled;
+  }
+
   // NB: virtualFile might be invalid by now
   private void fileDeleted(@NotNull VirtualFile virtualFile) {
     Document doc = getCachedDocument(virtualFile);
@@ -1009,10 +1021,18 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
     });
   }
 
-  /** @deprecated another dirty Rider hack; don't use */
+  /** @deprecated another dirty Rider hack; use {@link FileDocumentManager#overrideConflictsSolverEnabled(boolean, Disposable)} instead. */
   @Deprecated(forRemoval = true)
   @SuppressWarnings("StaticNonFinalField")
   public static boolean ourConflictsSolverEnabled = true;
+
+  private static final class ConflictsSolverOverride {
+    private final boolean myEnabled;
+
+    private ConflictsSolverOverride(boolean enabled) {
+      myEnabled = enabled;
+    }
+  }
 
   @Override
   protected void fileContentLoaded(@NotNull VirtualFile file, @NotNull Document document) {
