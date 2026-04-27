@@ -2812,4 +2812,43 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
             runTest("../../../idea/tests/testData/quickfix/addTypeAnnotationToValueParameter/platformType.before.Main.kt");
         }
     }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/quickfix/wrapWithSafeLetCall")
+    public static class WrapWithSafeLetCall extends AbstractHighLevelQuickFixMultiFileTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTestWithExtraFile, this, testDataFilePath);
+        }
+
+        @TestMetadata("javaNullabilityMismatchArgument.test")
+        public void testJavaNullabilityMismatchArgument() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/wrapWithSafeLetCall/javaNullabilityMismatchArgument.test");
+        }
+
+        @TestMetadata("javaNullabilityMismatchArgument2.test")
+        public void testJavaNullabilityMismatchArgument2() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/wrapWithSafeLetCall/javaNullabilityMismatchArgument2.test");
+        }
+
+        @TestMetadata("javaNullabilityMismatchDoNotWrapNull.test")
+        public void testJavaNullabilityMismatchDoNotWrapNull() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/wrapWithSafeLetCall/javaNullabilityMismatchDoNotWrapNull.test");
+        }
+
+        @TestMetadata("javaReceiverNullabilityInvoke.test")
+        public void testJavaReceiverNullabilityInvoke() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/wrapWithSafeLetCall/javaReceiverNullabilityInvoke.test");
+        }
+
+        @TestMetadata("javaReceiverNullabilityInvoke2.test")
+        public void testJavaReceiverNullabilityInvoke2() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/wrapWithSafeLetCall/javaReceiverNullabilityInvoke2.test");
+        }
+    }
 }
