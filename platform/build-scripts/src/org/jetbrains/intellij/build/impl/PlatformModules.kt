@@ -9,7 +9,6 @@ import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.intellij.build.BuildContext
-import org.jetbrains.intellij.build.FrontendModuleFilter
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.PLATFORM_LOADER_JAR
 import org.jetbrains.intellij.build.UTIL_8_JAR
@@ -37,18 +36,11 @@ import java.util.SortedSet
  */
 @Suppress("RemoveRedundantQualifierName")
 internal val PLATFORM_CORE_MODULES = java.util.List.of(
-  "intellij.platform.ml",
-  "intellij.platform.remoteServers.agent.rt",
-
   "intellij.platform.remoteServers.impl",
-  "intellij.remoteDev.util",
   "intellij.platform.feedback",
   "intellij.platform.buildScripts.downloader",
 
   "intellij.platform.runtime.product",
-
-  "intellij.platform.markdown.utils",
-  "intellij.platform.util.commonsLangV2Shim",
 
   // do we need it?
   "intellij.platform.sqlite",
@@ -78,7 +70,6 @@ suspend fun createPlatformLayout(context: BuildContext): PlatformLayout {
 }
 
 internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedSet<ProjectLibraryData>, context: BuildContext): PlatformLayout {
-  val frontendModuleFilter = context.getFrontendModuleFilter()
   val productLayout = context.productProperties.productLayout
   val descriptorCacheContainer = DescriptorCacheContainer()
   val layout = PlatformLayout(descriptorCacheContainer)
@@ -197,6 +188,9 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
     "intellij.platform.externalSystem.rt",
     "intellij.platform.objectSerializer.annotations"
   ), productLayout = productLayout, layout = layout)
+
+  val frontendModuleFilter = context.getFrontendModuleFilter()
+
   val explicit = ArrayList<ModuleItem>()
   for (moduleName in productLayout.productImplementationModules) {
     if (productLayout.excludedModuleNames.contains(moduleName)) {
@@ -211,8 +205,7 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
       )
     )
   }
-  explicit.addAll(toModuleItemSequence(list = PLATFORM_CORE_MODULES, productLayout = productLayout, reason = "PLATFORM_CORE_MODULES", frontendModuleFilter = frontendModuleFilter))
-  explicit.addAll(toModuleItemSequence(list = productLayout.productApiModules, productLayout = productLayout, reason = "productApiModules", frontendModuleFilter = frontendModuleFilter))
+  explicit.addAll(toModuleItemSequence(list = PLATFORM_CORE_MODULES, productLayout = productLayout))
 
   val explicitModuleNames = explicit.map { it.moduleName }
   val outputProvider = context.outputProvider
@@ -294,7 +287,7 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
      implicit.asSequence().map {
        ModuleItem(
          moduleName = it.first,
-         relativeOutputFile = PlatformJarNames.getPlatformModuleJarName(it.first, frontendModuleFilter),
+         relativeOutputFile = "${it.first}.jar",
          reason = "<- " + it.second.asReversed().joinToString(separator = " <- ")
        )
      })
@@ -454,15 +447,10 @@ fun getEnabledPluginModules(pluginsToPublish: Set<PluginLayout>, context: BuildC
   return result
 }
 
-private fun toModuleItemSequence(
-  list: Collection<String>,
-  productLayout: ProductModulesLayout,
-  reason: String,
-  frontendModuleFilter: FrontendModuleFilter,
-): Sequence<ModuleItem> {
+private fun toModuleItemSequence(list: Collection<String>, productLayout: ProductModulesLayout): Sequence<ModuleItem> {
   return list.asSequence()
     .filter { !productLayout.excludedModuleNames.contains(it) }
-    .map { ModuleItem(moduleName = it, relativeOutputFile = PlatformJarNames.getPlatformModuleJarName(it, frontendModuleFilter), reason = reason) }
+    .map { ModuleItem(moduleName = it, relativeOutputFile = "$it.jar", reason = "PLATFORM_CORE_MODULES") }
 }
 
 /**

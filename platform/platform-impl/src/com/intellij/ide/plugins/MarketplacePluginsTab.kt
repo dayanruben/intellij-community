@@ -5,14 +5,14 @@ import com.intellij.execution.process.ProcessIOExecutorService
 import com.intellij.featureStatistics.FeatureUsageTracker
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.impl.ProjectUtil
-import com.intellij.ide.plugins.PluginManagerConfigurablePanel.Companion.applyUpdates
-import com.intellij.ide.plugins.PluginManagerConfigurablePanel.Companion.clearUpdates
 import com.intellij.ide.plugins.PluginManagerConfigurablePanel.Companion.createScrollPane
 import com.intellij.ide.plugins.PluginManagerConfigurablePanel.Companion.registerCopyProvider
+import com.intellij.ide.plugins.PluginManagerConfigurablePanel.Companion.setUpdateDescriptors
 import com.intellij.ide.plugins.marketplace.PluginSearchResult
 import com.intellij.ide.plugins.marketplace.statistics.PluginManagerUsageCollector
 import com.intellij.ide.plugins.newui.ListPluginComponent
 import com.intellij.ide.plugins.newui.MultiSelectionEventHandler
+import com.intellij.ide.plugins.newui.MyPluginModel
 import com.intellij.ide.plugins.newui.NoOpPluginsViewCustomizer
 import com.intellij.ide.plugins.newui.PluginDetailsPageComponent
 import com.intellij.ide.plugins.newui.PluginInstallationState
@@ -41,12 +41,16 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.KeepPopupOnPerform
 import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.ModalityState.any
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.FUSEventSource
+import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.findSuggestedPlugins
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.SimpleTextAttributes
@@ -56,6 +60,9 @@ import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StatusText
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
@@ -78,9 +85,11 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
   private val pluginManagerCustomizer: PluginManagerCustomizer? = customizer
   private val pluginUpdatesService: PluginUpdatesService = service
 
-  private var marketplaceRunnable: Runnable? = null
-
-  private val marketplaceSortByGroup: DefaultActionGroup = DefaultActionGroup()
+  private val marketplaceSortByGroup: DefaultActionGroup = DefaultActionGroup().apply {
+    for (option in MarketplaceTabSearchSortByOptions.entries) {
+      addAction(MarketplaceSortByAction(option))
+    }
+  }
 
   private var tagsSorted: List<String>? = null
   private var vendorsSorted: List<String>? = null
@@ -92,46 +101,23 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
   private val marketplacePanel = createMarketplacePanel(eventHandler)
 
   init {
-    for (option in MarketplaceTabSearchSortByOptions.entries) {
-      marketplaceSortByGroup.addAction(MarketplaceSortByAction(option))
-    }
-
-    tagsSorted = null
-    vendorsSorted = null
-
     customizeSearchTextField()
+  }
+
+  @RequiresEdt
+  override fun createPluginsPanel(): JComponent {
+    val project = ProjectUtil.getActiveProject()
+    computeAndApplyMarketplacePanelModel(selectionListener, project)
+    return createScrollPane(marketplacePanel, false)
+  }
+
+  override fun updateMainSelection(selectionListener: Consumer<in PluginsGroupComponent?>) {
+    selectionListener.accept(marketplacePanel)
   }
 
   fun resetCache() {
     tagsSorted = null
     vendorsSorted = null
-  }
-
-  private fun customizeSearchTextField() {
-    searchTextField.setHistoryPropertyName("MarketplacePluginsSearchHistory")
-  }
-
-  @RequiresEdt
-  override fun createPluginsPanel(): JComponent {
-    (searchPanel.controller as SearchUpDownPopupController).setEventHandler(eventHandler)
-
-    val project = ProjectUtil.getActiveProject()
-
-    marketplaceRunnable = Runnable {
-      marketplacePanel.clear()
-      marketplacePanel.showLoadingIcon()
-      doCreateMarketplaceTab(selectionListener, project)
-    }
-
-    marketplacePanel.getEmptyText().setText(IdeBundle.message("plugins.configurable.marketplace.plugins.not.loaded"))
-      .appendSecondaryText(IdeBundle.message("message.check.the.internet.connection.and") + " ", StatusText.DEFAULT_ATTRIBUTES, null)
-      .appendSecondaryText(
-        IdeBundle.message("message.link.refresh"),
-        SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES,
-      ) { marketplaceRunnable!!.run() }
-
-    doCreateMarketplaceTab(selectionListener, project)
-    return createScrollPane(marketplacePanel, false)
   }
 
   private fun createMarketplacePanel(eventHandler: MultiSelectionEventHandler): PluginsGroupComponentWithProgress {
@@ -155,155 +141,203 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
     marketplacePanel.setSelectionListener(selectionListener)
     marketplacePanel.getAccessibleContext().setAccessibleName(IdeBundle.message("plugin.manager.marketplace.panel.accessible.name"))
     registerCopyProvider(marketplacePanel)
+
+    marketplacePanel.getEmptyText().setText(IdeBundle.message("plugins.configurable.marketplace.plugins.not.loaded"))
+      .appendSecondaryText(IdeBundle.message("message.check.the.internet.connection.and") + " ", StatusText.DEFAULT_ATTRIBUTES, null)
+      .appendSecondaryText(
+        IdeBundle.message("message.link.refresh"),
+        SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES,
+      ) { reloadMarketplaceTab() }
+
     return marketplacePanel
   }
 
-  private fun doCreateMarketplaceTab(selectionListener: Consumer<in PluginsGroupComponent?>, project: Project?) {
-    PluginManagerPanelFactory.createMarketplacePanel(coroutineScope, pluginModelFacade.getModel(), project) { model ->
-      val groups = ArrayList<PluginsGroup>()
+  private fun computeAndApplyMarketplacePanelModel(selectionListener: Consumer<in PluginsGroupComponent?>, project: Project?) {
+    val myPluginModel = pluginModelFacade.getModel()
+    coroutineScope.launch(Dispatchers.IO) {
+      myPluginModel.waitForSessionInitialization()
+      val customRepositoriesMap = UiPluginManager.getInstance().getCustomRepositoryPluginMap()
+      val suggestedPlugins = if (project != null) findSuggestedPlugins(project, customRepositoriesMap) else emptyList()
+      val pluginManager = UiPluginManager.getInstance()
+      val marketplaceData = mutableMapOf<String, PluginSearchResult>()
+      val internalPluginsGroupDescriptor = getPluginsViewCustomizer().getInternalPluginsGroupDescriptor()
+      val installationStates = pluginManager.getInstallationStates()
+
+      val queries = listOf(
+        "is_featured_search=true",
+        "orderBy=update+date",
+        "orderBy=downloads",
+        "orderBy=rating"
+      )
+
+      val errorCheckResults = pluginManager.loadErrors(myPluginModel.mySessionId.toString())
+      val errors = MyPluginModel.getErrors(errorCheckResults)
       try {
-        try {
-          if (project != null) {
-            addSuggestedGroup(
-              groups,
-              model.errors,
-              model.suggestedPlugins,
-              model.installedPlugins,
-              model.installationStates,
-            )
-          }
-          val internalPluginsGroupDescriptor: PluginsViewCustomizer.PluginsGroupDescriptor? = model.internalPluginsGroupDescriptor
-          if (internalPluginsGroupDescriptor != null) {
-            val customPlugins: List<PluginUiModel> = internalPluginsGroupDescriptor.plugins.map { PluginUiModelAdapter(it) }
-            addGroup(
-              groups,
-              internalPluginsGroupDescriptor.name,
-              PluginsGroupType.INTERNAL,
-              SearchWords.INTERNAL.value,
-              customPlugins,
-              Predicate { customPlugins.size >= ITEMS_PER_GROUP },
-              model.errors,
-              model.installedPlugins,
-              model.installationStates,
-            )
-          }
-
-          val marketplaceData = model.marketplaceData
-          addGroupViaLightDescriptor(
-            groups,
-            IdeBundle.message("plugins.configurable.staff.picks"),
-            PluginsGroupType.STAFF_PICKS,
-            "is_featured_search=true",
-            SearchWords.STAFF_PICKS.value,
-            marketplaceData,
-            model.errors,
-            model.installedPlugins,
-            model.installationStates,
-          )
-          addGroupViaLightDescriptor(
-            groups,
-            IdeBundle.message("plugins.configurable.new.and.updated"),
-            PluginsGroupType.NEW_AND_UPDATED,
-            "orderBy=update+date",
-            "/sortBy:updated",
-            marketplaceData,
-            model.errors,
-            model.installedPlugins,
-            model.installationStates,
-          )
-          addGroupViaLightDescriptor(
-            groups,
-            IdeBundle.message("plugins.configurable.top.downloads"),
-            PluginsGroupType.TOP_DOWNLOADS,
-            "orderBy=downloads",
-            "/sortBy:downloads",
-            marketplaceData,
-            model.errors,
-            model.installedPlugins,
-            model.installationStates,
-          )
-          addGroupViaLightDescriptor(
-            groups,
-            IdeBundle.message("plugins.configurable.top.rated"),
-            PluginsGroupType.TOP_RATED,
-            "orderBy=rating",
-            "/sortBy:rating",
-            marketplaceData,
-            model.errors,
-            model.installedPlugins,
-            model.installationStates,
-          )
-        }
-        catch (e: IOException) {
-          LOG.info("Main plugin repository is not available ('" + e.message + "'). Please check your network settings.")
-        }
-
-        for (host in RepositoryHelper.getCustomPluginRepositoryHosts()) {
-          val allDescriptors = model.customRepositories[host]
-          if (allDescriptors != null) {
-            val groupName = IdeBundle.message("plugins.configurable.repository.0", host)
-            LOG.info("Marketplace tab: '" + groupName + "' group load started")
-            addGroup(
-              groups,
-              groupName,
-              PluginsGroupType.CUSTOM_REPOSITORY,
-              "/repository:\"" + host + "\"",
-              allDescriptors,
-              Predicate { group ->
-                PluginsGroup.sortByName(group.getModels())
-                allDescriptors.size > ITEMS_PER_GROUP
-              },
-              model.errors,
-              model.installedPlugins,
-              model.installationStates,
-            )
-          }
-        }
-        if (pluginManagerCustomizer != null) {
-          pluginManagerCustomizer.ensurePluginStatesLoaded()
+        for (query in queries) {
+          val result = pluginManager.executeMarketplaceQuery(query, 18, false)
+          marketplaceData[query] = result
         }
       }
-      finally {
-        ApplicationManager.getApplication().invokeLater({
-          marketplacePanel.hideLoadingIcon()
-          try {
-            PluginLogo.startBatchMode()
-
-            for (group in groups) {
-              marketplacePanel.addGroup(group)
-            }
-          }
-          finally {
-            PluginLogo.endBatchMode()
-          }
-          marketplacePanel.doLayout()
-          marketplacePanel.initialSelection()
-
-          pluginUpdatesService.calculateUpdates { updates ->
-            val updateModels: List<PluginUiModel> = if (updates == null) {
-              emptyList()
-            }
-            else {
-              updates.filter { plugin -> pluginModelFacade.isEnabled(plugin) }
-            }
-            if (ContainerUtil.isEmpty(updateModels)) {
-              clearUpdates(marketplacePanel)
-              clearUpdates(searchPanel.panel)
-            }
-            else {
-              applyUpdates(marketplacePanel, updateModels)
-              applyUpdates(searchPanel.panel, updateModels)
-            }
-            selectionListener.accept(marketplacePanel)
-            selectionListener.accept(searchPanel.panel)
-          }
-        }, ModalityState.any())
+      catch (e: Exception) {
+        LOG.info("Main plugin repository is not available (${e.message}). Please check your network settings.")
+      }
+      val pluginIds = marketplaceData.flatMap { it.value.getPlugins().map { plugin -> plugin.pluginId } }.toSet() +
+                      customRepositoriesMap.flatMap { it.value.map { plugin -> plugin.pluginId } }.toSet()
+      val installedPlugins = pluginManager.findInstalledPlugins(pluginIds)
+      withContext(Dispatchers.EDT + any().asContextElement()) {
+        val model = CreateMarketplacePanelModel(
+          marketplaceData,
+          errors,
+          suggestedPlugins,
+          customRepositoriesMap,
+          installedPlugins,
+          installationStates,
+          internalPluginsGroupDescriptor
+        )
+        applyMarketplacePanelModel(project, model, selectionListener)
       }
     }
   }
 
-  override fun updateMainSelection(selectionListener: Consumer<in PluginsGroupComponent?>) {
-    selectionListener.accept(marketplacePanel)
+  @RequiresEdt
+  private fun applyMarketplacePanelModel(
+    project: Project?,
+    model: CreateMarketplacePanelModel,
+    selectionListener: Consumer<in PluginsGroupComponent?>,
+  ) {
+    val groups = ArrayList<PluginsGroup>()
+    try {
+      try {
+        if (project != null) {
+          addSuggestedGroup(
+            groups,
+            model.errors,
+            model.suggestedPlugins,
+            model.installedPlugins,
+            model.installationStates,
+          )
+        }
+        val internalPluginsGroupDescriptor: PluginsViewCustomizer.PluginsGroupDescriptor? = model.internalPluginsGroupDescriptor
+        if (internalPluginsGroupDescriptor != null) {
+          val customPlugins: List<PluginUiModel> = internalPluginsGroupDescriptor.plugins.map { PluginUiModelAdapter(it) }
+          addGroup(
+            groups,
+            internalPluginsGroupDescriptor.name,
+            PluginsGroupType.INTERNAL,
+            SearchWords.INTERNAL.value,
+            customPlugins,
+            Predicate { customPlugins.size >= ITEMS_PER_GROUP },
+            model.errors,
+            model.installedPlugins,
+            model.installationStates,
+          )
+        }
+
+        val marketplaceData = model.marketplaceData
+        addGroupViaLightDescriptor(
+          groups,
+          IdeBundle.message("plugins.configurable.staff.picks"),
+          PluginsGroupType.STAFF_PICKS,
+          "is_featured_search=true",
+          SearchWords.STAFF_PICKS.value,
+          marketplaceData,
+          model.errors,
+          model.installedPlugins,
+          model.installationStates,
+        )
+        addGroupViaLightDescriptor(
+          groups,
+          IdeBundle.message("plugins.configurable.new.and.updated"),
+          PluginsGroupType.NEW_AND_UPDATED,
+          "orderBy=update+date",
+          "/sortBy:updated",
+          marketplaceData,
+          model.errors,
+          model.installedPlugins,
+          model.installationStates,
+        )
+        addGroupViaLightDescriptor(
+          groups,
+          IdeBundle.message("plugins.configurable.top.downloads"),
+          PluginsGroupType.TOP_DOWNLOADS,
+          "orderBy=downloads",
+          "/sortBy:downloads",
+          marketplaceData,
+          model.errors,
+          model.installedPlugins,
+          model.installationStates,
+        )
+        addGroupViaLightDescriptor(
+          groups,
+          IdeBundle.message("plugins.configurable.top.rated"),
+          PluginsGroupType.TOP_RATED,
+          "orderBy=rating",
+          "/sortBy:rating",
+          marketplaceData,
+          model.errors,
+          model.installedPlugins,
+          model.installationStates,
+        )
+      }
+      catch (e: IOException) {
+        LOG.info("Main plugin repository is not available ('" + e.message + "'). Please check your network settings.")
+      }
+
+      for (host in RepositoryHelper.getCustomPluginRepositoryHosts()) {
+        val allDescriptors = model.customRepositories[host]
+        if (allDescriptors != null) {
+          val groupName = IdeBundle.message("plugins.configurable.repository.0", host)
+          LOG.info("Marketplace tab: '" + groupName + "' group load started")
+          addGroup(
+            groups,
+            groupName,
+            PluginsGroupType.CUSTOM_REPOSITORY,
+            "/repository:\"" + host + "\"",
+            allDescriptors,
+            Predicate { group ->
+              PluginsGroup.sortByName(group.getModels())
+              allDescriptors.size > ITEMS_PER_GROUP
+            },
+            model.errors,
+            model.installedPlugins,
+            model.installationStates,
+          )
+        }
+      }
+      if (pluginManagerCustomizer != null) {
+        pluginManagerCustomizer.ensurePluginStatesLoaded()
+      }
+    }
+    finally {
+      ApplicationManager.getApplication().invokeLater({
+                                                        marketplacePanel.hideLoadingIcon()
+                                                        try {
+                                                          PluginLogo.startBatchMode()
+
+                                                          for (group in groups) {
+                                                            marketplacePanel.addGroup(group)
+                                                          }
+                                                        }
+                                                        finally {
+                                                          PluginLogo.endBatchMode()
+                                                        }
+                                                        marketplacePanel.doLayout()
+                                                        marketplacePanel.initialSelection()
+
+                                                        pluginUpdatesService.calculateUpdates { updates ->
+                                                          val updateModels: List<PluginUiModel> = if (updates == null) {
+                                                            emptyList()
+                                                          }
+                                                          else {
+                                                            updates.filter { plugin -> pluginModelFacade.isEnabled(plugin) }
+                                                          }
+                                                          setUpdateDescriptors(marketplacePanel, updateModels)
+                                                          setUpdateDescriptors(searchPanel.panel, updateModels)
+                                                          selectionListener.accept(marketplacePanel)
+                                                          selectionListener.accept(searchPanel.panel)
+                                                        }
+                                                      }, ModalityState.any())
+    }
   }
 
   private fun createDetailsPanel(searchListener: LinkListener<Any>): PluginDetailsPageComponent {
@@ -369,6 +403,7 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
 
     val eventHandler = MultiSelectionEventHandler()
     marketplaceController.setSearchResultEventHandler(eventHandler)
+    marketplaceController.setEventHandler(eventHandler)
 
     val panel = object : PluginsGroupComponentWithProgress(eventHandler) {
       override fun createListComponent(
@@ -403,6 +438,17 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
       Supplier { marketplacePanel },
     )
     return searchPanel
+  }
+
+  private fun reloadMarketplaceTab() {
+    val project = ProjectUtil.getActiveProject()
+    marketplacePanel.clear()
+    marketplacePanel.showLoadingIcon()
+    computeAndApplyMarketplacePanelModel(selectionListener, project)
+  }
+
+  private fun customizeSearchTextField() {
+    searchTextField.setHistoryPropertyName("MarketplacePluginsSearchHistory")
   }
 
   private fun getOrCalculateVendors(): List<String> {
@@ -634,10 +680,10 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
 
   fun onPanelReset(isMarketplaceTabSelected: Boolean) {
     if (isMarketplaceTabSelected) {
-      marketplaceRunnable!!.run()
+      reloadMarketplaceTab()
     }
     else {
-      marketplacePanel.setOnBecomingVisibleCallback(marketplaceRunnable!!)
+      marketplacePanel.setOnBecomingVisibleCallback(::reloadMarketplaceTab)
     }
   }
 
@@ -694,3 +740,13 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
     private const val ITEMS_PER_GROUP = 9
   }
 }
+
+private data class CreateMarketplacePanelModel(
+  val marketplaceData: Map<String, PluginSearchResult>,
+  val errors: Map<PluginId, List<HtmlChunk>>,
+  val suggestedPlugins: List<PluginUiModel>,
+  val customRepositories: Map<String, List<PluginUiModel>>,
+  val installedPlugins: Map<PluginId, PluginUiModel>,
+  val installationStates: Map<PluginId, PluginInstallationState>,
+  val internalPluginsGroupDescriptor: PluginsViewCustomizer.PluginsGroupDescriptor?,
+)

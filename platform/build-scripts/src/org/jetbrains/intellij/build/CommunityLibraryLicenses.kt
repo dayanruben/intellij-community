@@ -338,10 +338,6 @@ object CommunityLibraryLicenses {
     LibraryLicense("dotenv-kotlin", libraryName = "io.github.cdimascio.dotenv.kotlin", url = "https://github.com/cdimascio/dotenv-kotlin")
       .apache("https://github.com/cdimascio/dotenv-kotlin/blob/master/LICENSE"),
 
-    LibraryLicense("duckdb-jdbc", libraryName = "duckdb.duckdb_jdbc", url = "https://github.com/duckdb/duckdb-java")
-      .mit("https://github.com/duckdb/duckdb-java/blob/main/LICENSE")
-      .suppliedByOrganizations("Stichting DuckDB Foundation"),
-
     LibraryLicense("Eclipse JDT Core", version = "4.2.1", attachedTo = "intellij.platform.jps.build", url = "https://www.eclipse.org/jdt/core/index.php")
       .eplV2("https://github.com/eclipse-jdt/eclipse.jdt.core/blob/master/LICENSE"),
 
@@ -611,11 +607,11 @@ object CommunityLibraryLicenses {
       .apache("https://svn.apache.org/repos/asf/jakarta/oro/trunk/LICENSE")
       .suppliedByPersons("Daniel Savarese", "Jon S. Stevens", "Takashi Okamoto", "Mark Murphy", "Michael Davey", "Harald Kuhn"),
 
+    LibraryLicense(libraryName = "java-compatibility", url = "https://github.com/JetBrains/intellij-deps-java-compatibility")
+      .gpl2ce("https://github.com/JetBrains/intellij-deps-java-compatibility/raw/master/LICENSE"),
+
     LibraryLicense("Java-WebSocket", libraryName = "Java-WebSocket", url = "https://github.com/TooTallNate/Java-WebSocket")
       .mit("https://github.com/TooTallNate/Java-WebSocket/blob/master/LICENSE"),
-
-    LibraryLicense(libraryName = "Java Compatibility", url = "https://github.com/JetBrains/intellij-deps-java-compatibility")
-      .gpl2ce("https://github.com/JetBrains/intellij-deps-java-compatibility/raw/master/LICENSE"),
 
     LibraryLicense("Java Poet", libraryName = "javapoet", url = "https://github.com/square/javapoet")
       .apache("https://github.com/square/javapoet/blob/master/LICENSE.txt"),
