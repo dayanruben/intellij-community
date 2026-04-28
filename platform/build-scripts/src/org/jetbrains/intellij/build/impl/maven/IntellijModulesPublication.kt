@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl.maven
 
+import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.jps.model.module.JpsModule
 import org.jetbrains.jps.model.module.JpsModuleDependency
@@ -94,25 +95,29 @@ class IntellijModulesPublication(
       context.messages.warning("Nothing to publish")
     }
     val builder = MavenArtifactsBuilder(context)
+    val deployedLibraries = LinkedHashSet<MavenCoordinates>()
     for (module in modules) {
       val coordinates = builder.generateMavenCoordinates(module.name, options.version)
-      deployModuleArtifact(coordinates)
+      if (deployedLibraries.add(coordinates)) {
+        deployModuleArtifact(coordinates)
+      }
 
       val squashedCoordinates = builder.generateMavenCoordinatesSquashed(module.name, options.version)
-      if (Files.exists(options.outputDir.resolve(squashedCoordinates.directoryPath))) {
+      if (Files.exists(options.outputDir.resolve(squashedCoordinates.directoryPath)) && deployedLibraries.add(squashedCoordinates)) {
         deployModuleArtifact(squashedCoordinates)
       }
     }
-    deployAggregatorPoms()
+    deployAggregatorPoms(deployedLibraries)
   }
 
-  private fun deployAggregatorPoms() {
+  private fun deployAggregatorPoms(deployedLibraries: MutableSet<MavenCoordinates>) {
     for (entry in options.aggregatorPomsToPublish) {
       val parts = entry.split(':')
       require(parts.size == 2) {
         "Invalid aggregator pom coordinates '$entry' — expected 'groupId:artifactId'"
       }
       val coordinates = MavenCoordinates(groupId = parts[0], artifactId = parts[1], version = options.version)
+      if (!deployedLibraries.add(coordinates)) continue
       val pom = options.outputDir
         .resolve(coordinates.directoryPath)
         .resolve(coordinates.getFileName(packaging = "pom"))
@@ -120,7 +125,36 @@ class IntellijModulesPublication(
         context.messages.warning("Aggregator pom $coordinates not found at $pom")
         continue
       }
+
+      val transitiveDependencies = LinkedHashSet<MavenCoordinates>()
+      transitivePomDependencies(pom, transitiveDependencies)
+
+      for (depCoordinates in transitiveDependencies) {
+        if (deployedLibraries.add(depCoordinates)) {
+          deployModuleArtifact(depCoordinates)
+        }
+      }
+
       deployFile(pom, coordinates, "", "-DpomFile=${pom.absolutePathString()}")
+    }
+  }
+
+  /**
+   * Recursively collects coordinates of every dependency declared in [pomFile]'s `<dependencies>`
+   * whose pom file is present under [Options.outputDir]. Dependencies whose pom is absent locally
+   * (external Maven Central libraries) are skipped — the consumer resolves them from their original
+   * repository. Mirrors [transitiveModuleDependencies] but operates on Maven poms rather than JPS.
+   */
+  private fun transitivePomDependencies(pomFile: Path, result: MutableCollection<MavenCoordinates>) {
+    val model = Files.newInputStream(pomFile).use { MavenXpp3Reader().read(it) }
+    for (dep in model.dependencies) {
+      val depCoordinates = MavenCoordinates(dep.groupId, dep.artifactId, dep.version)
+      val depPom = options.outputDir
+        .resolve(depCoordinates.directoryPath)
+        .resolve(depCoordinates.getFileName(packaging = "pom"))
+      if (!depPom.exists()) continue
+      if (!result.add(depCoordinates)) continue
+      transitivePomDependencies(depPom, result)
     }
   }
 
