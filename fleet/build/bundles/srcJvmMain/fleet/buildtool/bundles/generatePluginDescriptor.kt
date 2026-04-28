@@ -195,8 +195,13 @@ internal fun Set<Path>.unwrapJarFiles() = flatMap {
 }
 
 internal val emptyJarContents = listOf(
+  // Index is being built regardles of jar contents.
   "__index__",
-  "META-INF/MANIFEST.mf"
+  // MANIFEST.MF is usually just a jar's metadata, not it's actual contents.
+  "META-INF/MANIFEST.mf",
+  // Metadata file for intellij libraries. See /libraries/tls-channel/resources/intellij.libraries.tls.channel.xml for example.
+  // In Fleet this meta-information usually does not matter, and we filter such library wrappers, keeping only the transitive jars from them.
+  "intellij.libraries.",
 )
 
 
