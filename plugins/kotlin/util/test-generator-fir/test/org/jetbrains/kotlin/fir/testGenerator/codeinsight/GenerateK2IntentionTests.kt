@@ -80,7 +80,7 @@ internal fun MutableTWorkspace.generateK2IntentionTests() {
 
             //
             model("${idea}intentions/evaluateCompileTimeExpression", pattern = pattern)
-            model("${idea}intentions/replaceUnderscoreWithParameterName", pattern = pattern, isIgnored = true)
+            model("${idea}intentions/replaceUnderscoreWithParameterName", pattern = pattern)
             model("${idea}intentions/convertFunctionToProperty", pattern = pattern)
             model(
                 "${idea}intentions/conventionNameCalls",
@@ -91,7 +91,6 @@ internal fun MutableTWorkspace.generateK2IntentionTests() {
             model("${idea}intentions/convertTrimIndentToTrimMargin", pattern = pattern)
             model("${idea}intentions/convertTrimMarginToTrimIndent", pattern = pattern)
             model("${idea}intentions/iterateExpression", pattern = pattern)
-            model("${idea}intentions/convertRangeCheckToTwoComparisons", pattern = pattern, isIgnored = true)
             model("${idea}intentions/implementAsConstructorParameter", pattern = pattern)
             model("${idea}intentions/insertCurlyBracesToTemplate", pattern = pattern)
             model("${idea}intentions/replaceUntilWithRangeTo", pattern = pattern, isIgnored = true)

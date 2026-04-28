@@ -39,16 +39,15 @@ class SplitModeApiRestrictionsService(private val coroutineScope: CoroutineScope
     COMPLETED
   }
 
-  enum class ModuleKind(val id: String, val presentableName: String) {
-    FRONTEND("frontend", "frontend"),
-    LIKELY_FRONTEND("frontend", "[possibly] frontend"),
-    BACKEND("backend", "backend"),
-    LIKELY_BACKEND("backend", "[possibly] backend"),
-    MIXED("mixed", "mixed"),
-    SHARED("shared", "shared")
+  enum class ModuleKind(val presentableName: String) {
+    FRONTEND("frontend"),
+    BACKEND("backend"),
+    MONOLITH("monolith"),
+    MIXED("mixed"),
+    SHARED("shared")
   }
 
-  private val loadingState = AtomicReference<LoadingState>(LoadingState.NOT_STARTED)
+  private val loadingState = AtomicReference(LoadingState.NOT_STARTED)
   private val codeRestrictionsRef = AtomicReference<Map<String, ModuleKind>>(emptyMap())
   private val extensionPointRestrictionsRef = AtomicReference<Map<String, ModuleKind>>(emptyMap())
   private val dependencyRestrictionsRef = AtomicReference<Map<String, ModuleKind>>(emptyMap())
@@ -159,6 +158,7 @@ class SplitModeApiRestrictionsService(private val coroutineScope: CoroutineScope
     return sequenceOf(
       frontend.asSequence().map { ModuleKind.FRONTEND to it },
       backend.asSequence().map { ModuleKind.BACKEND to it },
+      monolith.asSequence().map { ModuleKind.MONOLITH to it },
       shared.asSequence().map { ModuleKind.SHARED to it },
     ).flatten()
   }
@@ -175,6 +175,9 @@ class SplitModeApiRestrictionsService(private val coroutineScope: CoroutineScope
 
     @SerialName("backend")
     val backend: List<T> = emptyList(),
+
+    @SerialName("monolith")
+    val monolith: List<T> = emptyList(),
 
     @SerialName("shared")
     val shared: List<T> = emptyList(),

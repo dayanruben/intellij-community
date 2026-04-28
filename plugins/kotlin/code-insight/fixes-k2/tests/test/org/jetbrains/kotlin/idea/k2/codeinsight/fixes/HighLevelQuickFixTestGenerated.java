@@ -8586,6 +8586,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/destructingNameMismatch/matchProp.kt");
         }
 
+        @TestMetadata("matchPropInBatch.kt")
+        public void testMatchPropInBatch() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingNameMismatch/matchPropInBatch.kt");
+        }
+
         @TestMetadata("matchPropLambdaCollision.kt")
         public void testMatchPropLambdaCollision() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/destructingNameMismatch/matchPropLambdaCollision.kt");
@@ -10867,7 +10872,24 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         }
     }
 
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/quickfix/moveMemberToCompanionObject")
+    public static class MoveMemberToCompanionObject extends AbstractHighLevelQuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
 
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("simple.kt")
+        public void testSimple() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/moveMemberToCompanionObject/simple.kt");
+        }
+    }
 
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/quickfix/moveReceiverAnnotation")
@@ -18886,8 +18908,6 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/wrongLongSuffix/simple.kt");
         }
     }
-
-
 
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/quickfix/overridingIgnorableWithMustUse")

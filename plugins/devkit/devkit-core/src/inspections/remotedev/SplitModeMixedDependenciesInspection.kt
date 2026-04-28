@@ -1,12 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.inspections.remotedev
 
+import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.util.xml.DomElement
 import com.intellij.util.xml.highlighting.DomElementAnnotationHolder
 import com.intellij.util.xml.highlighting.DomHighlightingHelper
-import org.jetbrains.idea.devkit.DevKitBundle
 import org.jetbrains.idea.devkit.dom.IdeaPlugin
 import org.jetbrains.idea.devkit.inspections.DevKitPluginXmlInspectionBase
+import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeInspectionUtil.buildMixedModuleDependenciesMessage
 
 internal class SplitModeMixedDependenciesInspection : DevKitPluginXmlInspectionBase() {
   private val restrictionsService = SplitModeApiRestrictionsService.getInstance()
@@ -27,41 +28,18 @@ internal class SplitModeMixedDependenciesInspection : DevKitPluginXmlInspectionB
     if (element !is IdeaPlugin) return
     if (!isAllowed(holder)) return
 
-    val dependencies = element.dependencies
-    if (!dependencies.exists()) return
+    val module = element.module ?: return
+    val moduleAnalysis = SplitModeModuleKindResolver.getOrComputeModuleAnalysis(module)
+    if (moduleAnalysis.resolvedModuleKind.kind != SplitModeApiRestrictionsService.ModuleKind.MIXED) return
 
-    val declaredDependencies = buildList {
-      dependencies.moduleEntry.forEach { moduleDescriptor ->
-        moduleDescriptor.name.stringValue?.let { dependencyName ->
-          add(DeclaredDependency(dependencyName, moduleDescriptor))
-        }
-      }
-      dependencies.plugin.forEach { pluginDescriptor ->
-        pluginDescriptor.id.stringValue?.let { dependencyName ->
-          add(DeclaredDependency(dependencyName, pluginDescriptor))
-        }
-      }
-    }
-
-    val matchedDependencies = SplitModeModuleKindResolver.collectMatchedDependencies(dependencyNames = declaredDependencies.map { it.name })
-    if (!matchedDependencies.isMixed) return
-
-    val message = DevKitBundle.message(
-      "inspection.remote.dev.mixed.dependencies.message",
-      matchedDependencies.frontendDependencies.joinToString(),
-      matchedDependencies.backendDependencies.joinToString(),
+    val dependencyAnalysis = moduleAnalysis.dependencyAnalysis
+    val mixedDependenciesMessage = buildMixedModuleDependenciesMessage(dependencyAnalysis)
+    holder.createProblem(
+      element,
+      ProblemHighlightType.GENERIC_ERROR,
+      mixedDependenciesMessage,
+      null,
+      *SplitModeDependencyQuickFixes.createMixedModuleFixes(module.name, dependencyAnalysis)
     )
-    declaredDependencies
-      .filter { dependency ->
-        dependency.name in matchedDependencies.frontendDependencies || dependency.name in matchedDependencies.backendDependencies
-      }
-      .forEach { dependency ->
-        holder.createProblem(dependency.element, message).highlightWholeElement()
-    }
   }
-
-  private data class DeclaredDependency(
-    val name: String,
-    val element: DomElement,
-  )
 }

@@ -128,7 +128,7 @@ internal fun MutableTWorkspace.generateK2FixTests() {
             model("$idea/quickfix/migration/typeParameterList", pattern = pattern)
             model("$idea/quickfix/missingConstructorBrackets", pattern = pattern)
             model("$idea/quickfix/modifiers", pattern = pattern)
-            model("$idea/quickfix/moveMemberToCompanionObject", pattern = pattern, isIgnored = true)
+            model("$idea/quickfix/moveMemberToCompanionObject", pattern = pattern)
             model("$idea/quickfix/moveReceiverAnnotation", pattern = pattern)
             model("$idea/quickfix/moveToConstructorParameters", pattern = pattern)
             model("$idea/quickfix/moveTypeAliasToTopLevel", pattern = pattern)
@@ -220,7 +220,6 @@ internal fun MutableTWorkspace.generateK2FixTests() {
             model("$idea/quickfix/wrapWhenExpressionInParentheses", pattern = pattern)
             model("$idea/quickfix/wrapWithSafeLetCall", pattern = pattern)
             model("$idea/quickfix/wrongLongSuffix", pattern = pattern)
-            model("$idea/quickfix/yieldUnsupported", pattern = pattern, isIgnored = true)
             model("$idea/quickfix/overridingIgnorableWithMustUse", pattern = pattern)
             model("$idea/quickfix/replaceArrayEqualityOpWithArraysEquals", pattern = pattern)
         }

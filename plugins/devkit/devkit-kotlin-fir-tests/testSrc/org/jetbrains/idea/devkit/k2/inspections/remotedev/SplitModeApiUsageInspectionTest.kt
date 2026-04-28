@@ -2,6 +2,10 @@
 package org.jetbrains.idea.devkit.k2.inspections.remotedev
 
 import com.intellij.openapi.project.IntelliJProjectUtil
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.roots.ModuleOrderEntry
+import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntil
@@ -196,14 +200,14 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
       import com.intellij.openapi.vfs.VirtualFileManager
       import com.intellij.openapi.fileEditor.FileEditorManager;
       
-      class CustomToolWindowFactory: <weak_warning descr="'com.intellij.openapi.wm.ToolWindowFactory' can only be used in 'frontend' module type. Actual module type is 'backend'">ToolWindowFactory</weak_warning> {}
+      class CustomToolWindowFactory: <weak_warning descr="'com.intellij.openapi.wm.ToolWindowFactory' can only be used in 'frontend' module type. Actual module type is 'backend'. Reason: backend dependencies: dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">ToolWindowFactory</weak_warning> {}
       
       class BackendService {
         fun doStuff() {
           // no warning here expected
           VirtualFileManager.getInstance()
           
-          <weak_warning descr="'com.intellij.openapi.fileEditor.FileEditorManager.getFocusedEditor' can only be used in 'frontend' module type. Actual module type is 'backend'">FileEditorManager.getInstance().getFocusedEditor()</weak_warning>
+          <weak_warning descr="'com.intellij.openapi.fileEditor.FileEditorManager.getFocusedEditor' can only be used in 'frontend' module type. Actual module type is 'backend'. Reason: backend dependencies: dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">FileEditorManager.getInstance().getFocusedEditor()</weak_warning>
         }
       }
     """.trimIndent()
@@ -236,7 +240,7 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
 
       class FrontendService {
         fun doStuff() {
-          <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'frontend'">VirtualFileManager</weak_warning>.getInstance()
+          <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'frontend'. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">VirtualFileManager</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -270,7 +274,7 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
 
       class FrontendService {
         fun doStuff() {
-          <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'frontend'">VirtualFileManager</weak_warning>.getInstance()
+          <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'frontend'. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from descriptor 'light_idea_test_case.xml' in module 'light_idea_test_case'">VirtualFileManager</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -298,7 +302,7 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
       
       class FrontendService {
         fun doStuff() {
-          <weak_warning descr="'com.example.annotated.AnnotatedBackendApi' can only be used in 'backend' module type. Actual module type is 'frontend'">AnnotatedBackendApi</weak_warning>.getInstance()
+          <weak_warning descr="'com.example.annotated.AnnotatedBackendApi' can only be used in 'backend' module type. Actual module type is 'frontend'. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">AnnotatedBackendApi</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -326,7 +330,7 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
       
       class BackendService {
         fun doStuff() {
-          <weak_warning descr="'com.example.annotated.AnnotatedFrontendApi' can only be used in 'frontend' module type. Actual module type is 'backend'">AnnotatedFrontendApi</weak_warning>.getInstance()
+          <weak_warning descr="'com.example.annotated.AnnotatedFrontendApi' can only be used in 'frontend' module type. Actual module type is 'backend'. Reason: backend dependencies: dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">AnnotatedFrontendApi</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -357,16 +361,253 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
       // both warnings are expected in a shared module
       class SharedService {
         fun testFrontendApi() {
-          class MyToolWindow: <weak_warning descr="'com.intellij.openapi.wm.ToolWindowFactory' can only be used in 'frontend' module type. Actual module type is 'shared'">ToolWindowFactory</weak_warning> {}
+          class MyToolWindow: <weak_warning descr="'com.intellij.openapi.wm.ToolWindowFactory' can only be used in 'frontend' module type. Actual module type is 'shared'. Reason: no frontend or backend dependencies were found among: 'intellij.platform.core'">ToolWindowFactory</weak_warning> {}
         }
         
         fun testBackendApi() {
-          <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'shared'">VirtualFileManager</weak_warning>.getInstance()
+          <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'shared'. Reason: no frontend or backend dependencies were found among: 'intellij.platform.core'">VirtualFileManager</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
     )
 
     myFixture.checkHighlighting()
+  }
+
+  fun testNoWarningsInMixedModule() {
+    configurePluginXml(
+      """
+      <idea-plugin>
+        <dependencies>
+          <module name="intellij.platform.frontend"/>
+          <module name="intellij.platform.backend"/>
+        </dependencies>
+      </idea-plugin>
+    """.trimIndent()
+    )
+
+    myFixture.configureByText(
+      "MixedService.kt", """
+      package com.example.mixed
+
+      import com.intellij.openapi.wm.ToolWindowFactory
+      import com.intellij.openapi.vfs.VirtualFileManager
+
+      class MixedService {
+        fun testFrontendApi() {
+          class MyToolWindow: ToolWindowFactory {}
+        }
+
+        fun testBackendApi() {
+          VirtualFileManager.getInstance()
+        }
+      }
+    """.trimIndent()
+    )
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testNoWarningsInMonolithModule() {
+    configurePluginXml(
+      """
+      <idea-plugin>
+        <dependencies>
+          <module name="intellij.platform.monolith"/>
+        </dependencies>
+      </idea-plugin>
+    """.trimIndent()
+    )
+
+    myFixture.configureByText(
+      "MonolithService.kt", """
+      package com.example.monolith
+
+      import com.intellij.openapi.wm.ToolWindowFactory
+      import com.intellij.openapi.vfs.VirtualFileManager
+
+      class MonolithService {
+        fun testFrontendApi() {
+          class MyToolWindow: ToolWindowFactory {}
+        }
+
+        fun testBackendApi() {
+          VirtualFileManager.getInstance()
+        }
+      }
+    """.trimIndent()
+    )
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testAddFrontendDependencyFix() {
+    configurePluginXml(
+      """
+      <idea-plugin>
+        <dependencies>
+          <module name="intellij.platform.core"/>
+        </dependencies>
+      </idea-plugin>
+    """.trimIndent()
+    )
+
+    myFixture.configureByText(
+      "SharedFrontendService.kt", """
+      package com.example.shared
+
+      import com.intellij.openapi.wm.ToolWindowFactory
+
+      class SharedFrontendService {
+        fun testFrontendApi() {
+          class MyToolWindow: <caret>ToolWindowFactory {}
+        }
+      }
+    """.trimIndent()
+    )
+
+    val intention = myFixture.findSingleIntention("Make module 'light_idea_test_case' work in 'frontend' only")
+    myFixture.launchAction(intention)
+
+    val pluginXml = myFixture.findFileInTempDir("resources/META-INF/plugin.xml")
+    val result = FileDocumentManager.getInstance().getDocument(pluginXml)!!.text
+    assertTrue(result.contains("<module name=\"intellij.platform.core\"/>"))
+    assertTrue(result.contains("<module name=\"intellij.platform.frontend\"/>"))
+    assertTrue(getModuleDependencyNames().contains("intellij.platform.frontend"))
+  }
+
+  fun testMakeModuleMonolithOnlyFixForFrontendApiInBackendModule() {
+    configurePluginXml(
+      """
+      <idea-plugin>
+        <dependencies>
+          <module name="intellij.platform.core"/>
+          <module name="intellij.platform.backend"/>
+          <plugin id="com.jetbrains.remoteDevelopment"/>
+        </dependencies>
+      </idea-plugin>
+    """.trimIndent()
+    )
+
+    myFixture.configureByText(
+      "BackendService.kt", """
+      package com.example.backend
+
+      import com.intellij.openapi.wm.ToolWindowFactory
+
+      class BackendService {
+        fun testFrontendApi() {
+          class MyToolWindow: <caret>ToolWindowFactory {}
+        }
+      }
+    """.trimIndent()
+    )
+    addCurrentModuleDependencies("intellij.platform.backend", "com.jetbrains.remoteDevelopment")
+
+    val intention = myFixture.findSingleIntention("Make module 'light_idea_test_case' work in 'monolith' only")
+    myFixture.launchAction(intention)
+
+    val pluginXml = myFixture.findFileInTempDir("resources/META-INF/plugin.xml")
+    val result = FileDocumentManager.getInstance().getDocument(pluginXml)!!.text
+    assertTrue(result.contains("<module name=\"intellij.platform.core\"/>"))
+    assertTrue(result.contains("<module name=\"intellij.platform.monolith\"/>"))
+    assertFalse(result.contains("intellij.platform.backend"))
+    assertTrue(result.contains("<plugin id=\"com.jetbrains.remoteDevelopment\"/>"))
+    assertTrue(getModuleDependencyNames().contains("intellij.platform.monolith"))
+    assertFalse(getModuleDependencyNames().contains("intellij.platform.backend"))
+    myFixture.checkHighlighting()
+  }
+
+  fun testMakeModuleMonolithOnlyFixForBackendApiInFrontendModule() {
+    configurePluginXml(
+      """
+      <idea-plugin>
+        <dependencies>
+          <module name="intellij.platform.core"/>
+          <module name="intellij.platform.frontend"/>
+          <plugin id="com.intellij.jetbrains.client"/>
+        </dependencies>
+      </idea-plugin>
+    """.trimIndent()
+    )
+
+    myFixture.configureByText(
+      "FrontendService.kt", """
+      package com.example.frontend
+
+      import com.intellij.openapi.vfs.VirtualFileManager
+
+      class FrontendService {
+        fun testBackendApi() {
+          <caret>VirtualFileManager.getInstance()
+        }
+      }
+    """.trimIndent()
+    )
+    addCurrentModuleDependencies("intellij.platform.frontend", "com.intellij.jetbrains.client")
+
+    val intention = myFixture.findSingleIntention("Make module 'light_idea_test_case' work in 'monolith' only")
+    myFixture.launchAction(intention)
+
+    val pluginXml = myFixture.findFileInTempDir("resources/META-INF/plugin.xml")
+    val result = FileDocumentManager.getInstance().getDocument(pluginXml)!!.text
+    assertTrue(result.contains("<module name=\"intellij.platform.core\"/>"))
+    assertTrue(result.contains("<module name=\"intellij.platform.monolith\"/>"))
+    assertFalse(result.contains("intellij.platform.frontend"))
+    assertTrue(result.contains("<plugin id=\"com.intellij.jetbrains.client\"/>"))
+    assertTrue(getModuleDependencyNames().contains("intellij.platform.monolith"))
+    assertFalse(getModuleDependencyNames().contains("intellij.platform.frontend"))
+    myFixture.checkHighlighting()
+  }
+
+  fun testMakeModuleHaveOnlyBackendDependenciesFix() {
+    configurePluginXml(
+      """
+      <idea-plugin>
+        <dependencies>
+          <module name="intellij.platform.core"/>
+          <module name="intellij.platform.frontend"/>
+        </dependencies>
+      </idea-plugin>
+    """.trimIndent()
+    )
+
+    myFixture.configureByText(
+      "FrontendService.kt", """
+      package com.example.frontend
+
+      import com.intellij.openapi.vfs.VirtualFileManager
+
+      class FrontendService {
+        fun doStuff() {
+          <caret>VirtualFileManager.getInstance()
+        }
+      }
+    """.trimIndent()
+    )
+    addCurrentModuleDependencies("intellij.platform.frontend")
+
+    val intention = myFixture.findSingleIntention("Make module 'light_idea_test_case' work in 'backend' only")
+    myFixture.launchAction(intention)
+
+    val pluginXml = myFixture.findFileInTempDir("resources/META-INF/plugin.xml")
+    val result = FileDocumentManager.getInstance().getDocument(pluginXml)!!.text
+    assertTrue(result.contains("<module name=\"intellij.platform.core\"/>"))
+    assertFalse(result.contains("intellij.platform.frontend"))
+    assertFalse(getModuleDependencyNames().contains("intellij.platform.frontend"))
+  }
+
+  private fun getModuleDependencyNames(): Set<String> {
+    return ModuleRootManager.getInstance(module).orderEntries.filterIsInstance<ModuleOrderEntry>().map { it.moduleName }.toSet()
+  }
+
+  private fun addCurrentModuleDependencies(vararg dependencyNames: String) {
+    ModuleRootModificationUtil.updateModel(module) { model ->
+      for (dependencyName in dependencyNames) {
+        if (model.orderEntries.filterIsInstance<ModuleOrderEntry>().none { it.moduleName == dependencyName }) {
+          model.addInvalidModuleEntry(dependencyName)
+        }
+      }
+    }
   }
 }
