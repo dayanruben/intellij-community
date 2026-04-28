@@ -147,9 +147,9 @@ interface AgentSessionProviderDescriptor {
 
   fun isCliAvailable(): Boolean
 
-  fun buildResumeLaunchSpec(sessionId: String): AgentSessionTerminalLaunchSpec
+  suspend fun buildResumeLaunchSpec(sessionId: String): AgentSessionTerminalLaunchSpec
 
-  fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec
+  suspend fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec
 
   fun buildLaunchSpecWithInitialMessage(
     baseLaunchSpec: AgentSessionTerminalLaunchSpec,

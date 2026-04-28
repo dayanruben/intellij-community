@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.codex.sessions
 
+import com.intellij.agent.workbench.codex.common.CodexCliUtils
 import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
@@ -30,10 +31,12 @@ import java.nio.file.Path
 
 @TestApplication
 class CodexAgentSessionProviderDescriptorTest {
-    private val bridge = CodexAgentSessionProviderDescriptor()
+    private val bridge = CodexAgentSessionProviderDescriptor(
+        executableResolver = { CodexCliUtils.CODEX_COMMAND },
+    )
 
     @Test
-    fun buildResumeLaunchSpec() {
+    fun buildResumeLaunchSpec(): Unit = runBlocking(Dispatchers.Default) {
         assertThat(bridge.buildResumeLaunchSpec("thread-1").command)
             .containsExactly("codex", "-c", "check_for_update_on_startup=false", "resume", "thread-1")
     }
@@ -44,7 +47,7 @@ class CodexAgentSessionProviderDescriptorTest {
     }
 
     @Test
-    fun buildNewSessionLaunchSpec() {
+    fun buildNewSessionLaunchSpec(): Unit = runBlocking(Dispatchers.Default) {
         assertThat(bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD).command)
             .containsExactly("codex", "-c", "check_for_update_on_startup=false")
         assertThat(bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.YOLO).command)
@@ -52,7 +55,7 @@ class CodexAgentSessionProviderDescriptorTest {
     }
 
     @Test
-    fun buildLaunchSpecWithInitialMessageForYoloCommand() {
+    fun buildLaunchSpecWithInitialMessageForYoloCommand(): Unit = runBlocking(Dispatchers.Default) {
         assertThat(
             bridge.buildLaunchSpecWithInitialMessage(
                 baseLaunchSpec = bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.YOLO),
@@ -63,7 +66,7 @@ class CodexAgentSessionProviderDescriptorTest {
     }
 
     @Test
-    fun buildLaunchSpecWithInitialMessageForResumeCommand() {
+    fun buildLaunchSpecWithInitialMessageForResumeCommand(): Unit = runBlocking(Dispatchers.Default) {
         val resumeLaunchSpec = bridge.buildResumeLaunchSpec("thread-1")
 
         assertThat(
