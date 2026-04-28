@@ -18,7 +18,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class A {
         @org.junit.jupiter.api.extension.RegisterExtension
-        private Rule5 <error descr="Field 'myRule5' annotated with '@RegisterExtension' should be public">myRule5</error> = new Rule5();
+        private Rule5 <warning descr="Field 'myRule5' annotated with '@RegisterExtension' should be public">myRule5</warning> = new Rule5();
         class Rule5 implements org.junit.jupiter.api.extension.Extension { }
       }
     """.trimIndent())
@@ -28,7 +28,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
         class MyTest {
           @org.junit.jupiter.params.ParameterizedTest
-          <error descr="'@EmptySource' cannot provide an argument to method because method has an unsupported parameter of 'HashSet<String>' type">@org.junit.jupiter.params.provider.EmptySource</error>
+          <warning descr="'@EmptySource' cannot provide an argument to method because method has an unsupported parameter of 'HashSet<String>' type">@org.junit.jupiter.params.provider.EmptySource</warning>
           void testZeroArgSet(java.util.HashSet<String> input) { }     
         }
       """.trimIndent())
@@ -141,7 +141,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class A {
         @org.junit.jupiter.api.extension.RegisterExtension
-        Rule5 <error descr="Field 'myRule5' annotated with '@RegisterExtension' should be of type 'org.junit.jupiter.api.extension.Extension'">myRule5</error> = new Rule5();
+        Rule5 <warning descr="Field 'myRule5' annotated with '@RegisterExtension' should be of type 'org.junit.jupiter.api.extension.Extension'">myRule5</warning> = new Rule5();
         class Rule5 { }
       }
     """.trimIndent())
@@ -151,7 +151,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class A {
         @org.junit.jupiter.api.extension.RegisterExtension
-        MyExt <error descr="MyExt should be registered at the class level">ext</error> = new MyExt();
+        MyExt <warning descr="MyExt should be registered at the class level">ext</warning> = new MyExt();
         
         static class MyExt implements org.junit.jupiter.api.extension.BeforeAllCallback {
           public void beforeAll(org.junit.jupiter.api.extension.ExtensionContext ctx) {}
@@ -252,13 +252,13 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class A {
         @org.junit.jupiter.api.Nested
-        static class <error descr="Tests in nested class will not be executed">B</error> { }
+        static class <warning descr="Tests in nested class will not be executed">B</warning> { }
         
         @org.junit.jupiter.api.Nested
-        private class <error descr="Tests in nested class will not be executed">C</error> { }
+        private class <warning descr="Tests in nested class will not be executed">C</warning> { }
         
         @org.junit.jupiter.api.Nested
-        private static class <error descr="Tests in nested class will not be executed">D</error> { }
+        private static class <warning descr="Tests in nested class will not be executed">D</warning> { }
         
         public static class E {
           @org.junit.jupiter.api.Test
@@ -311,7 +311,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test highlighting non executable JUnit 4 nested class`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class A { 
-        public class <error descr="Tests in nested class will not be executed">B</error> { 
+        public class <warning descr="Tests in nested class will not be executed">B</warning> { 
           @org.junit.Test
           public void testFoo() { }
         }
@@ -355,7 +355,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test highlighting no nested annotation in JUnit 5`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class A {
-        class <error descr="Tests in nested class will not be executed">B</error> { 
+        class <warning descr="Tests in nested class will not be executed">B</warning> { 
           @org.junit.jupiter.api.Test
           public void testFoo() { }
         }
@@ -611,7 +611,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
           void test() { }
         }
         
-        class <error descr="No sources are provided, the suite would be empty">FailChildTest</error> extends ParentTest {
+        class <warning descr="No sources are provided, the suite would be empty">FailChildTest</warning> extends ParentTest {
           @org.junit.jupiter.api.Test
           void test() { }
         }
@@ -640,7 +640,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
         class OuterClass {
           @org.junit.jupiter.params.ParameterizedClass
           @org.junit.jupiter.params.provider.ValueSource(booleans = {false})
-          class <error descr="Tests in nested class will not be executed">TestInnerClass</error> {
+          class <warning descr="Tests in nested class will not be executed">TestInnerClass</warning> {
             @org.junit.jupiter.params.Parameter
             boolean argument;
           
@@ -654,7 +654,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed parameterized class must specify a method name when using MethodSource`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
         @org.junit.jupiter.params.ParameterizedClass
-        @org.junit.jupiter.params.provider.<error descr="You must specify a method name when using @MethodSource with @ParameterizedClass">MethodSource</error>
+        @org.junit.jupiter.params.provider.<warning descr="You must specify a method name when using @MethodSource with @ParameterizedClass">MethodSource</warning>
         class TestInnerClass {        
           @org.junit.jupiter.api.Test
           void test() { }
@@ -668,7 +668,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
           @org.junit.jupiter.api.Nested
           @org.junit.jupiter.params.ParameterizedClass
           @org.junit.jupiter.params.provider.ValueSource(booleans = {false})
-          static class <error descr="Tests in nested class will not be executed">TestInnerClass</error> {
+          static class <warning descr="Tests in nested class will not be executed">TestInnerClass</warning> {
             @org.junit.jupiter.params.Parameter
             boolean argument;
           
@@ -684,7 +684,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
         @org.junit.jupiter.params.ParameterizedClass
         @org.junit.jupiter.params.provider.ValueSource(booleans = {
-          <error descr="No implicit conversion found to convert 'boolean' to 'int'">false</error>
+          <warning descr="No implicit conversion found to convert 'boolean' to 'int'">false</warning>
         })
         class TestWithBooleanSource {
           @org.junit.jupiter.params.Parameter
@@ -701,7 +701,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
         enum TestEnum { FIRST, SECOND, THIRD }      
         
         @org.junit.jupiter.params.ParameterizedClass
-        @org.junit.jupiter.params.provider.EnumSource(<error descr="No implicit conversion found to convert 'TestEnum' to 'int'">TestEnum.class</error>)
+        @org.junit.jupiter.params.provider.EnumSource(<warning descr="No implicit conversion found to convert 'TestEnum' to 'int'">TestEnum.class</warning>)
         class TestWithEnumSource {
           @org.junit.jupiter.params.Parameter
           int i;
@@ -715,7 +715,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed parameterized class multiple types highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
         @org.junit.jupiter.params.ParameterizedClass
-        @org.junit.jupiter.params.provider.<error descr="Exactly one type of input must be provided">ValueSource</error>(
+        @org.junit.jupiter.params.provider.<warning descr="Exactly one type of input must be provided">ValueSource</warning>(
           ints = {1}, strings = "str"
         )
         class TestWithMultipleValues {
@@ -731,7 +731,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed parameterized class no value defined highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
         @org.junit.jupiter.params.ParameterizedClass
-        @org.junit.jupiter.params.provider.<error descr="No value source is defined">ValueSource</error>()
+        @org.junit.jupiter.params.provider.<warning descr="No value source is defined">ValueSource</warning>()
         class TestWithNoValues {
           @org.junit.jupiter.params.Parameter
           int i;
@@ -745,7 +745,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed parameterized class no argument defined highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
         @org.junit.jupiter.params.ParameterizedClass
-        <error descr="'@NullSource' cannot provide an argument to constructor ['TestWithNullSrcNoParam']: no formal parameters declared">@org.junit.jupiter.params.provider.NullSource</error>
+        <warning descr="'@NullSource' cannot provide an argument to constructor ['TestWithNullSrcNoParam']: no formal parameters declared">@org.junit.jupiter.params.provider.NullSource</warning>
         class TestWithNullSrcNoParam {
           @org.junit.jupiter.api.Test
           void test() {}
@@ -758,8 +758,8 @@ class JavaJUnitMalformedDeclarationInspectionTest {
         @org.junit.jupiter.params.ParameterizedClass
         @org.junit.jupiter.params.provider.MethodSource("a")
         class TestMethodSource {
-          public <error descr="Class TestMethodSource must declare a single constructor">TestMethodSource</error>(String argument) { }
-          public <error descr="Class TestMethodSource must declare a single constructor">TestMethodSource</error>(String argument1, String argument2) { }
+          public <warning descr="Class TestMethodSource must declare a single constructor">TestMethodSource</warning>(String argument) { }
+          public <warning descr="Class TestMethodSource must declare a single constructor">TestMethodSource</warning>(String argument1, String argument2) { }
 
           @org.junit.jupiter.api.Test
           void test() { }
@@ -772,7 +772,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed parameterized class method source should be static highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
         @org.junit.jupiter.params.ParameterizedClass
-        @org.junit.jupiter.params.provider.MethodSource({ <error descr="Method source 'a' must be static">"a"</error> })
+        @org.junit.jupiter.params.provider.MethodSource({ <warning descr="Method source 'a' must be static">"a"</warning> })
         class TestMethodSource {
           @org.junit.jupiter.params.Parameter
           String param;
@@ -805,7 +805,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed parameterized class method source should have no parameters highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
         @org.junit.jupiter.params.ParameterizedClass
-        @org.junit.jupiter.params.provider.MethodSource({ <error descr="Method source 'a' should have no parameters">"a"</error> })
+        @org.junit.jupiter.params.provider.MethodSource({ <warning descr="Method source 'a' should have no parameters">"a"</warning> })
         class TestMethodSource {
           @org.junit.jupiter.params.Parameter
           String param;
@@ -1209,7 +1209,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class MyTest {
         @org.junit.jupiter.params.ParameterizedTest
-        <error descr="'@EmptySource' cannot provide an argument to method because method has an unsupported parameter of 'MyArgMap' type">@org.junit.jupiter.params.provider.EmptySource</error>
+        <warning descr="'@EmptySource' cannot provide an argument to method because method has an unsupported parameter of 'MyArgMap' type">@org.junit.jupiter.params.provider.EmptySource</warning>
         void testArgMap(MyArgMap input) { }
       }
     """.trimIndent())
@@ -1226,7 +1226,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class MyTest {
         @org.junit.jupiter.params.ParameterizedTest
-        <error descr="'@EmptySource' cannot provide an argument to method because method has an unsupported parameter of 'MyArgSet' type">@org.junit.jupiter.params.provider.EmptySource</error>
+        <warning descr="'@EmptySource' cannot provide an argument to method because method has an unsupported parameter of 'MyArgSet' type">@org.junit.jupiter.params.provider.EmptySource</warning>
         void testArgSet(MyArgSet input) { }
       }
     """.trimIndent())
@@ -1243,7 +1243,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class MyTest {
         @org.junit.jupiter.params.ParameterizedTest
-        <error descr="'@EmptySource' cannot provide an argument to method because method has an unsupported parameter of 'MyArgSet' type">@org.junit.jupiter.params.provider.EmptySource</error>
+        <warning descr="'@EmptySource' cannot provide an argument to method because method has an unsupported parameter of 'MyArgSet' type">@org.junit.jupiter.params.provider.EmptySource</warning>
         void testArgSet(MyArgSet input) { }
       }
     """.trimIndent())
@@ -1254,7 +1254,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       class ValueSourcesTest {
         @org.junit.jupiter.params.ParameterizedTest
         @org.junit.jupiter.params.provider.ValueSource(booleans = {
-          <error descr="No implicit conversion found to convert 'boolean' to 'int'">false</error>
+          <warning descr="No implicit conversion found to convert 'boolean' to 'int'">false</warning>
         })
         void testWithBooleanSource(int argument) { }
       }
@@ -1266,7 +1266,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       enum TestEnum { FIRST, SECOND, THIRD }
       class ValueSourcesTest {
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.EnumSource(<error descr="No implicit conversion found to convert 'TestEnum' to 'int'">TestEnum.class</error>)
+        @org.junit.jupiter.params.provider.EnumSource(<warning descr="No implicit conversion found to convert 'TestEnum' to 'int'">TestEnum.class</warning>)
         void testWithEnumSource(int i) { }
       }
     """.trimIndent())
@@ -1279,7 +1279,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
         @org.junit.jupiter.params.provider.ValueSource(strings = {"1","2"})
         public void test(String data) {}
       
-        class <error descr="Tests in nested class will not be executed">InnerTest</error> {
+        class <warning descr="Tests in nested class will not be executed">InnerTest</warning> {
           @org.junit.jupiter.params.ParameterizedTest
           @org.junit.jupiter.params.provider.ValueSource(strings = {"1","2"})
           public void test(String data) {}
@@ -1292,7 +1292,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest {
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.<error descr="Exactly one type of input must be provided">ValueSource</error>(
+        @org.junit.jupiter.params.provider.<warning descr="Exactly one type of input must be provided">ValueSource</warning>(
           ints = {1}, strings = "str"
         )
         void testWithMultipleValues(int i) { }
@@ -1304,7 +1304,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest { 
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.<error descr="No value source is defined">ValueSource</error>()
+        @org.junit.jupiter.params.provider.<warning descr="No value source is defined">ValueSource</warning>()
         void testWithNoValues(int i) { }
       }
     """.trimIndent())
@@ -1314,7 +1314,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest { 
         @org.junit.jupiter.params.ParameterizedTest
-        <error descr="'@NullSource' cannot provide an argument to method because method doesn't have parameters">@org.junit.jupiter.params.provider.NullSource</error>
+        <warning descr="'@NullSource' cannot provide an argument to method because method doesn't have parameters">@org.junit.jupiter.params.provider.NullSource</warning>
         void testWithNullSrcNoParam() {}
       }
     """.trimIndent())
@@ -1325,7 +1325,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       class ValueSourcesTest { 
         @org.junit.jupiter.params.ParameterizedTest
         @org.junit.jupiter.params.provider.ValueSource(strings = "foo")
-        void <error descr="Only a single parameter can be provided by '@ValueSource'">testWithMultipleParams</error>(String argument, int i) { }
+        void <warning descr="Only a single parameter can be provided by '@ValueSource'">testWithMultipleParams</warning>(String argument, int i) { }
       }
     """.trimIndent())
     }
@@ -1336,7 +1336,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
         @org.junit.jupiter.params.ParameterizedTest
         @org.junit.jupiter.params.provider.ValueSource(ints = {1})
         @org.junit.jupiter.api.Test
-        void <error descr="Suspicious combination of '@Test' and '@ParameterizedTest'">testWithTestAnnotation</error>(int i) { }
+        void <warning descr="Suspicious combination of '@Test' and '@ParameterizedTest'">testWithTestAnnotation</warning>(int i) { }
       }
     """.trimIndent())
     }
@@ -1346,7 +1346,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       class ValueSourcesTest { 
         @org.junit.jupiter.params.provider.ValueSource(ints = {1})
         @org.junit.jupiter.api.Test
-        void <error descr="Suspicious combination of '@ValueSource' and '@Test'">testWithTestAnnotationNoParameterized</error>(int i) { }
+        void <warning descr="Suspicious combination of '@ValueSource' and '@Test'">testWithTestAnnotationNoParameterized</warning>(int i) { }
       }
     """.trimIndent())
     }
@@ -1356,7 +1356,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       class ValueSourcesTest {       
         @org.junit.jupiter.params.ParameterizedTest
         @org.junit.jupiter.params.provider.ArgumentsSources({})
-        void <error descr="No sources are provided, the suite would be empty">emptyArgs</error>(String param) { }
+        void <warning descr="No sources are provided, the suite would be empty">emptyArgs</warning>(String param) { }
       }        
     """.trimIndent())
     }
@@ -1365,7 +1365,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest {       
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.MethodSource({ <error descr="Method source 'a' must be static">"a"</error> })
+        @org.junit.jupiter.params.provider.MethodSource({ <warning descr="Method source 'a' must be static">"a"</warning> })
         void foo(String param) { }
         
         String[] a() { return new String[] {"a", "b"}; }
@@ -1377,7 +1377,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest {       
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.MethodSource({ <error descr="Method source 'a' should have no parameters">"a"</error> })
+        @org.junit.jupiter.params.provider.MethodSource({ <warning descr="Method source 'a' should have no parameters">"a"</warning> })
         void foo(String param) { }
         
         static String[] a(int i) { return new String[] {"a", "b"}; }
@@ -1389,7 +1389,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest {       
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.MethodSource({ <error descr="Method source 'a' must have one of the following return types: 'Stream<?>', 'Iterator<?>', 'Iterable<?>' or 'Object[]'">"a"</error> })
+        @org.junit.jupiter.params.provider.MethodSource({ <warning descr="Method source 'a' must have one of the following return types: 'Stream<?>', 'Iterator<?>', 'Iterable<?>' or 'Object[]'">"a"</warning> })
         void foo(String param) { }
         
         static Object a() { return new String[] {"a", "b"}; }
@@ -1401,7 +1401,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest {       
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.MethodSource({ <error descr="Cannot resolve target method source: 'a'">"a"</error> })
+        @org.junit.jupiter.params.provider.MethodSource({ <warning descr="Cannot resolve target method source: 'a'">"a"</warning> })
         void foo(String param) { }
       }        
     """.trimIndent())
@@ -1411,7 +1411,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest {       
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.FieldSource({ <error descr="Field source 'a' must be static">"a"</error> })
+        @org.junit.jupiter.params.provider.FieldSource({ <warning descr="Field source 'a' must be static">"a"</warning> })
         void foo(String param) { }
         
         java.util.List<String> a = null;
@@ -1423,7 +1423,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest {       
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.FieldSource({ <error descr="Field source 'a' type must be convertible to a Stream">"a"</error> })
+        @org.junit.jupiter.params.provider.FieldSource({ <warning descr="Field source 'a' type must be convertible to a Stream">"a"</warning> })
         void foo(String param) { }
         
         static final Integer a = 1;
@@ -1435,7 +1435,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class ValueSourcesTest {       
         @org.junit.jupiter.params.ParameterizedTest
-        @org.junit.jupiter.params.provider.FieldSource({ <error descr="Cannot resolve target field source: 'a'">"a"</error> })
+        @org.junit.jupiter.params.provider.FieldSource({ <warning descr="Cannot resolve target field source: 'a'">"a"</warning> })
         void foo(String param) { }
       }        
     """.trimIndent())
@@ -1449,7 +1449,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
         @org.junit.jupiter.params.ParameterizedTest
         @org.junit.jupiter.params.provider.EnumSource(
           value = Foo.class, 
-          names = <error descr="Can't resolve 'enum' constant reference.">"invalid-value"</error>, 
+          names = <warning descr="Can't resolve 'enum' constant reference.">"invalid-value"</warning>, 
           mode = org.junit.jupiter.params.provider.EnumSource.Mode.INCLUDE
         )
         void invalid() { }
@@ -1457,7 +1457,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
         @org.junit.jupiter.params.ParameterizedTest
         @org.junit.jupiter.params.provider.EnumSource(
           value = Foo.class, 
-          names = <error descr="Can't resolve 'enum' constant reference.">"invalid-value"</error>
+          names = <warning descr="Can't resolve 'enum' constant reference.">"invalid-value"</warning>
        )
         void invalidDefault() { }
       }
@@ -1649,7 +1649,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       class WithRepeatedAndTests {
         @org.junit.jupiter.api.Test
         @org.junit.jupiter.api.RepeatedTest(1)
-        void <error descr="Suspicious combination of '@Test' and '@RepeatedTest'">repeatedTestAndTest</error>() { }
+        void <warning descr="Suspicious combination of '@Test' and '@RepeatedTest'">repeatedTestAndTest</warning>() { }
       }    
     """.trimIndent())
     }
@@ -1661,10 +1661,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
         void beforeEach(org.junit.jupiter.api.RepetitionInfo repetitionInfo) { }
 
         @org.junit.jupiter.api.Test
-        void <error descr="Method 'nonRepeated' annotated with '@Test' should not declare parameter 'repetitionInfo'">nonRepeated</error>(org.junit.jupiter.api.RepetitionInfo repetitionInfo) { }
+        void <warning descr="Method 'nonRepeated' annotated with '@Test' should not declare parameter 'repetitionInfo'">nonRepeated</warning>(org.junit.jupiter.api.RepetitionInfo repetitionInfo) { }
         
         @org.junit.jupiter.api.Test
-        void <error descr="Method 'nonRepeated' annotated with '@Test' should not declare parameters 'repetitionInfo' and 'a'">nonRepeated</error>(org.junit.jupiter.api.RepetitionInfo repetitionInfo, int a) { }
+        void <warning descr="Method 'nonRepeated' annotated with '@Test' should not declare parameters 'repetitionInfo' and 'a'">nonRepeated</warning>(org.junit.jupiter.api.RepetitionInfo repetitionInfo, int a) { }
       }      
     """.trimIndent())
     }
@@ -1673,10 +1673,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class WithBeforeEach {
         @org.junit.jupiter.api.BeforeAll
-        void <error descr="Method 'beforeAllWithRepetitionInfo' annotated with '@BeforeAll' should be static and not declare parameter 'repetitionInfo'">beforeAllWithRepetitionInfo</error>(org.junit.jupiter.api.RepetitionInfo repetitionInfo) { }
+        void <warning descr="Method 'beforeAllWithRepetitionInfo' annotated with '@BeforeAll' should be static and not declare parameter 'repetitionInfo'">beforeAllWithRepetitionInfo</warning>(org.junit.jupiter.api.RepetitionInfo repetitionInfo) { }
         
         @org.junit.jupiter.api.AfterAll
-        void <error descr="Method 'afterAllWithRepetitionInfo' annotated with '@AfterAll' should be static and not declare parameters 'repetitionInfo' and 'a'">afterAllWithRepetitionInfo</error>(org.junit.jupiter.api.RepetitionInfo repetitionInfo, String a) { }
+        void <warning descr="Method 'afterAllWithRepetitionInfo' annotated with '@AfterAll' should be static and not declare parameters 'repetitionInfo' and 'a'">afterAllWithRepetitionInfo</warning>(org.junit.jupiter.api.RepetitionInfo repetitionInfo, String a) { }
       }
     """.trimIndent())
     }
@@ -1684,10 +1684,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed repeated test with non-positive repetitions highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class WithRepeated {
-        @org.junit.jupiter.api.RepeatedTest(<error descr="The number of repetitions must be greater than zero">-1</error>)
+        @org.junit.jupiter.api.RepeatedTest(<warning descr="The number of repetitions must be greater than zero">-1</warning>)
         void repeatedTestNegative() { }
 
-        @org.junit.jupiter.api.RepeatedTest(<error descr="The number of repetitions must be greater than zero">0</error>)
+        @org.junit.jupiter.api.RepeatedTest(<warning descr="The number of repetitions must be greater than zero">0</warning>)
         void repeatedTestBoundaryZero() { }
       }
     """.trimIndent())
@@ -1698,10 +1698,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class MainTest {
         @org.junit.Before
-        String <error descr="Method 'before' annotated with '@Before' should be public, of type 'void' and not declare parameter 'i'">before</error>(int i) { return ""; }
+        String <warning descr="Method 'before' annotated with '@Before' should be public, of type 'void' and not declare parameter 'i'">before</warning>(int i) { return ""; }
         
         @org.junit.After
-        String <error descr="Method 'after' annotated with '@After' should be public, of type 'void' and not declare parameters 'a', 'b', 'c' and 'd'">after</error>(int a, boolean b, String c, char d) { return ""; }
+        String <warning descr="Method 'after' annotated with '@After' should be public, of type 'void' and not declare parameters 'a', 'b', 'c' and 'd'">after</warning>(int a, boolean b, String c, char d) { return ""; }
       }
     """.trimIndent())
     }
@@ -1710,10 +1710,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class MainTest {
         @org.junit.jupiter.api.BeforeEach
-        String <error descr="Method 'beforeEach' annotated with '@BeforeEach' should be of type 'void' and not declare parameter 'i'">beforeEach</error>(int i) { return ""; }
+        String <warning descr="Method 'beforeEach' annotated with '@BeforeEach' should be of type 'void' and not declare parameter 'i'">beforeEach</warning>(int i) { return ""; }
         
         @org.junit.jupiter.api.AfterEach
-        String <error descr="Method 'afterEach' annotated with '@AfterEach' should be of type 'void' and not declare parameters 'i' and 'j'">afterEach</error>(int i, int j) { return ""; }
+        String <warning descr="Method 'afterEach' annotated with '@AfterEach' should be of type 'void' and not declare parameters 'i' and 'j'">afterEach</warning>(int i, int j) { return ""; }
       }
     """.trimIndent())
     }
@@ -1816,10 +1816,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class MainTest {
         @org.junit.jupiter.api.BeforeAll
-        String <error descr="Method 'beforeAll' annotated with '@BeforeAll' should be static, of type 'void' and not declare parameter 'i'">beforeAll</error>(int i) { return ""; }
+        String <warning descr="Method 'beforeAll' annotated with '@BeforeAll' should be static, of type 'void' and not declare parameter 'i'">beforeAll</warning>(int i) { return ""; }
         
         @org.junit.jupiter.api.AfterAll
-        String <error descr="Method 'afterAll' annotated with '@AfterAll' should be static, of type 'void' and not declare parameters 'i', 'j' and 'k'">afterAll</error>(int i, int j, int k) { return ""; }
+        String <warning descr="Method 'afterAll' annotated with '@AfterAll' should be static, of type 'void' and not declare parameters 'i', 'j' and 'k'">afterAll</warning>(int i, int j, int k) { return ""; }
       }
     """.trimIndent())
     }
@@ -1910,7 +1910,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed dataPoint non-static highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class Test {
-        @org.junit.experimental.theories.DataPoint public Object <error descr="Field 'f1' annotated with '@DataPoint' should be static">f1</error>;
+        @org.junit.experimental.theories.DataPoint public Object <warning descr="Field 'f1' annotated with '@DataPoint' should be static">f1</warning>;
       }
     """.trimIndent())
     }
@@ -1918,7 +1918,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed dataPoint non-public highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class Test {
-        @org.junit.experimental.theories.DataPoint static Object <error descr="Field 'f1' annotated with '@DataPoint' should be public">f1</error>;
+        @org.junit.experimental.theories.DataPoint static Object <warning descr="Field 'f1' annotated with '@DataPoint' should be public">f1</warning>;
       }
     """.trimIndent())
     }
@@ -1926,7 +1926,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed dataPoint field highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class Test {
-        @org.junit.experimental.theories.DataPoint Object <error descr="Field 'f1' annotated with '@DataPoint' should be static and public">f1</error>;
+        @org.junit.experimental.theories.DataPoint Object <warning descr="Field 'f1' annotated with '@DataPoint' should be static and public">f1</warning>;
       }
     """.trimIndent())
     }
@@ -1934,7 +1934,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed datapoint method highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class Test {
-        @org.junit.experimental.theories.DataPoint Object <error descr="Method 'f1' annotated with '@DataPoint' should be static and public">f1</error>() { return null; }
+        @org.junit.experimental.theories.DataPoint Object <warning descr="Method 'f1' annotated with '@DataPoint' should be static and public">f1</warning>() { return null; }
       }
     """.trimIndent())
     }
@@ -1942,7 +1942,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed datapoints method highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class Test {
-        @org.junit.experimental.theories.DataPoints Object <error descr="Method 'f1' annotated with '@DataPoints' should be static and public">f1</error>() { return null; }
+        @org.junit.experimental.theories.DataPoints Object <warning descr="Method 'f1' annotated with '@DataPoints' should be static and public">f1</warning>() { return null; }
       }
     """.trimIndent())
     }
@@ -1973,7 +1973,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed setup highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       public class C extends junit.framework.TestCase {
-        private void <error descr="Method 'setUp' should be non-private, non-static, have no parameters and of type void">setUp</error>(int i) { }
+        private void <warning descr="Method 'setUp' should be non-private, non-static, have no parameters and of type void">setUp</warning>(int i) { }
       }  
     """.trimIndent(), "C")
     }
@@ -2004,10 +2004,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
 
       class RuleTest {
         @org.junit.Rule
-        private SomeTestRule <error descr="Field 'x' annotated with '@Rule' should be public">x</error>;
+        private SomeTestRule <warning descr="Field 'x' annotated with '@Rule' should be public">x</warning>;
 
         @org.junit.Rule
-        public static SomeTestRule <error descr="Field 'y' annotated with '@Rule' should be non-static">y</error>;
+        public static SomeTestRule <warning descr="Field 'y' annotated with '@Rule' should be non-static">y</warning>;
       }
     """.trimIndent())
     }
@@ -2016,7 +2016,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       class RuleTest {
         @org.junit.Rule
-        public int <error descr="Field 'x' annotated with '@Rule' should be of type 'org.junit.rules.TestRule'">x</error>;
+        public int <warning descr="Field 'x' annotated with '@Rule' should be of type 'org.junit.rules.TestRule'">x</warning>;
       }
     """.trimIndent())
     }
@@ -2034,7 +2034,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
 
       class RuleTest {        
         @org.junit.Rule
-        public static SomeTestRule <error descr="Method 'y' annotated with '@Rule' should be non-static">y</error>() { 
+        public static SomeTestRule <warning descr="Method 'y' annotated with '@Rule' should be non-static">y</warning>() { 
           return new SomeTestRule();  
         };        
       }
@@ -2054,16 +2054,16 @@ class JavaJUnitMalformedDeclarationInspectionTest {
 
       class ClassRuleTest {
         @org.junit.ClassRule
-        static SomeTestRule <error descr="Field 'x' annotated with '@ClassRule' should be public">x</error> = new SomeTestRule();
+        static SomeTestRule <warning descr="Field 'x' annotated with '@ClassRule' should be public">x</warning> = new SomeTestRule();
 
         @org.junit.ClassRule
-        public SomeTestRule <error descr="Field 'y' annotated with '@ClassRule' should be static">y</error> = new SomeTestRule();
+        public SomeTestRule <warning descr="Field 'y' annotated with '@ClassRule' should be static">y</warning> = new SomeTestRule();
 
         @org.junit.ClassRule
-        private SomeTestRule <error descr="Field 'z' annotated with '@ClassRule' should be static and public">z</error> = new SomeTestRule();
+        private SomeTestRule <warning descr="Field 'z' annotated with '@ClassRule' should be static and public">z</warning> = new SomeTestRule();
 
         @org.junit.ClassRule
-        public static int <error descr="Field 't' annotated with '@ClassRule' should be of type 'org.junit.rules.TestRule'">t</error> = 0;
+        public static int <warning descr="Field 't' annotated with '@ClassRule' should be of type 'org.junit.rules.TestRule'">t</warning> = 0;
       }
     """.trimIndent())
     }
@@ -2196,10 +2196,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     fun `test malformed test for JUnit 3 highlighting`() {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       public class JUnit3TestMethodIsPublicVoidNoArg extends junit.framework.TestCase {
-        void <error descr="Method 'testOne' should be public, non-static, have no parameters and of type void">testOne</error>() { }
-        public int <error descr="Method 'testTwo' should be public, non-static, have no parameters and of type void">testTwo</error>() { return 2; }
-        public static void <error descr="Method 'testThree' should be public, non-static, have no parameters and of type void">testThree</error>() { }
-        public void <error descr="Method 'testFour' should be public, non-static, have no parameters and of type void">testFour</error>(int i) { }
+        void <warning descr="Method 'testOne' should be public, non-static, have no parameters and of type void">testOne</warning>() { }
+        public int <warning descr="Method 'testTwo' should be public, non-static, have no parameters and of type void">testTwo</warning>() { return 2; }
+        public static void <warning descr="Method 'testThree' should be public, non-static, have no parameters and of type void">testThree</warning>() { }
+        public void <warning descr="Method 'testFour' should be public, non-static, have no parameters and of type void">testFour</warning>(int i) { }
         public void testFive() { }
         void testSix(int i) { } //ignore when method doesn't look like test anymore
       }
@@ -2213,12 +2213,12 @@ class JavaJUnitMalformedDeclarationInspectionTest {
     """.trimIndent())
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       public class JUnit4TestMethodIsPublicVoidNoArg {
-        @org.junit.Test void <error descr="Method 'testOne' annotated with '@Test' should be public">testOne</error>() {}
-        @org.junit.Test public int <error descr="Method 'testTwo' annotated with '@Test' should be of type 'void'">testTwo</error>() { return 2; }
-        @org.junit.Test public static void <error descr="Method 'testThree' annotated with '@Test' should be non-static">testThree</error>() {}
-        @org.junit.Test public void <error descr="Method 'testFour' annotated with '@Test' should not declare parameter 'i'">testFour</error>(int i) {}
+        @org.junit.Test void <warning descr="Method 'testOne' annotated with '@Test' should be public">testOne</warning>() {}
+        @org.junit.Test public int <warning descr="Method 'testTwo' annotated with '@Test' should be of type 'void'">testTwo</warning>() { return 2; }
+        @org.junit.Test public static void <warning descr="Method 'testThree' annotated with '@Test' should be non-static">testThree</warning>() {}
+        @org.junit.Test public void <warning descr="Method 'testFour' annotated with '@Test' should not declare parameter 'i'">testFour</warning>(int i) {}
         @org.junit.Test public void testFive() {}
-        @org.junit.Test public void <error descr="Method 'testSix' annotated with '@Test' should not declare parameters 'i', 'j' and 'k'">testSix</error>(int i, int j, int k) {}
+        @org.junit.Test public void <warning descr="Method 'testSix' annotated with '@Test' should not declare parameters 'i', 'j' and 'k'">testSix</warning>(int i, int j, int k) {}
         @org.junit.Test public void testMock(@mockit.Mocked String s) {}
       }
     """.trimIndent(), "JUnit4TestMethodIsPublicVoidNoArg")
@@ -2247,10 +2247,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       @org.junit.runner.RunWith(org.junit.runners.JUnit4.class)
       class Foo {
           @org.junit.Test 
-          public int <error descr="Method 'testMe' annotated with '@Test' should be of type 'void' and not declare parameter 'i'">testMe</error>(int i) { return -1; }
+          public int <warning descr="Method 'testMe' annotated with '@Test' should be of type 'void' and not declare parameter 'i'">testMe</warning>(int i) { return -1; }
           
           @org.junit.Test 
-          public int <error descr="Method 'testMe' annotated with '@Test' should be of type 'void' and not declare parameters 'a', 'b' and 'c'">testMe</error>(int a, String b, boolean c) { return -1; }
+          public int <warning descr="Method 'testMe' annotated with '@Test' should be of type 'void' and not declare parameters 'a', 'b' and 'c'">testMe</warning>(int a, String b, boolean c) { return -1; }
       }
     """.trimIndent())
     }
@@ -2359,10 +2359,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       @org.junit.platform.suite.api.SelectClasses({MyTest.class})
       class MySuite {
         @org.junit.platform.suite.api.BeforeSuite
-        public void <error descr="Method 'before' annotated with '@BeforeSuite' should be static">before</error>() { }
+        public void <warning descr="Method 'before' annotated with '@BeforeSuite' should be static">before</warning>() { }
         
         @org.junit.platform.suite.api.AfterSuite
-        public void <error descr="Method 'after' annotated with '@AfterSuite' should be static">after</error>() { }
+        public void <warning descr="Method 'after' annotated with '@AfterSuite' should be static">after</warning>() { }
       }
       
       class MyTest {}
@@ -2375,10 +2375,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       @org.junit.platform.suite.api.SelectClasses({MyTest.class})
       class MySuite {
         @org.junit.platform.suite.api.BeforeSuite
-        public static int <error descr="Method 'before' annotated with '@BeforeSuite' should be of type 'void'">before</error>() { return 0; }
+        public static int <warning descr="Method 'before' annotated with '@BeforeSuite' should be of type 'void'">before</warning>() { return 0; }
         
         @org.junit.platform.suite.api.AfterSuite
-        public static int <error descr="Method 'after' annotated with '@AfterSuite' should be of type 'void'">after</error>() { return 0; }
+        public static int <warning descr="Method 'after' annotated with '@AfterSuite' should be of type 'void'">after</warning>() { return 0; }
       }
       
       class MyTest {}
@@ -2391,7 +2391,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       @org.junit.platform.suite.api.SelectClasses({MyTest.class})
       class MySuite {
         @org.junit.platform.suite.api.BeforeSuite
-        private static void <error descr="Method 'before' annotated with '@BeforeSuite' should be public">before</error>() { }
+        private static void <warning descr="Method 'before' annotated with '@BeforeSuite' should be public">before</warning>() { }
         
         @org.junit.platform.suite.api.AfterSuite
         public static void after1() { }
@@ -2410,10 +2410,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       @org.junit.platform.suite.api.SelectClasses({MyTest.class})
       class MySuite {
         @org.junit.platform.suite.api.BeforeSuite
-        public static void <error descr="Method 'before' annotated with '@BeforeSuite' should not declare parameter 'a'">before</error>(int a) { }
+        public static void <warning descr="Method 'before' annotated with '@BeforeSuite' should not declare parameter 'a'">before</warning>(int a) { }
         
         @org.junit.platform.suite.api.AfterSuite
-        public static void <error descr="Method 'after' annotated with '@AfterSuite' should not declare parameters 'test', 'suite' and 'a'">after</error>(MyTest test, MySuite suite, int a) { }
+        public static void <warning descr="Method 'after' annotated with '@AfterSuite' should not declare parameters 'test', 'suite' and 'a'">after</warning>(MyTest test, MySuite suite, int a) { }
       }
       
       class MyTest {}
@@ -2431,7 +2431,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       import junit.framework.TestCase;
 
-      public class <error descr="Test class 'UnconstructableJUnit3TestCase1' is not constructable because it does not have a 'public' no-arg or single 'String' parameter constructor">UnconstructableJUnit3TestCase1</error> extends TestCase {
+      public class <warning descr="Test class 'UnconstructableJUnit3TestCase1' is not constructable because it does not have a 'public' no-arg or single 'String' parameter constructor">UnconstructableJUnit3TestCase1</warning> extends TestCase {
           private UnconstructableJUnit3TestCase1() {
               System.out.println("");
           }
@@ -2444,7 +2444,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       import junit.framework.TestCase;
 
-      public class <error descr="Test class 'UnconstructableJUnit3TestCase2' is not constructable because it does not have a 'public' no-arg or single 'String' parameter constructor">UnconstructableJUnit3TestCase2</error> extends TestCase {
+      public class <warning descr="Test class 'UnconstructableJUnit3TestCase2' is not constructable because it does not have a 'public' no-arg or single 'String' parameter constructor">UnconstructableJUnit3TestCase2</warning> extends TestCase {
           public UnconstructableJUnit3TestCase2(Object foo) {
               System.out.println("");
           }
@@ -2494,7 +2494,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       import org.junit.Test;
       
-      public class <error descr="Test class 'UnconstructableJUnit4TestCase1' is not constructable because it should have exactly one 'public' no-arg constructor">UnconstructableJUnit4TestCase1</error> {
+      public class <warning descr="Test class 'UnconstructableJUnit4TestCase1' is not constructable because it should have exactly one 'public' no-arg constructor">UnconstructableJUnit4TestCase1</warning> {
         public UnconstructableJUnit4TestCase1(String s) {}
         
         public UnconstructableJUnit4TestCase1() {}
@@ -2529,7 +2529,7 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       myFixture.testHighlighting(JvmLanguage.JAVA, """
       import org.junit.Test;
 
-      class <error descr="Test class 'UnconstructableJUnit4TestCase3' is not constructable because it is not 'public'"><error descr="Test class 'UnconstructableJUnit4TestCase3' is not constructable because it should have exactly one 'public' no-arg constructor">UnconstructableJUnit4TestCase3</error></error> {
+      class <warning descr="Test class 'UnconstructableJUnit4TestCase3' is not constructable because it is not 'public'"><warning descr="Test class 'UnconstructableJUnit4TestCase3' is not constructable because it should have exactly one 'public' no-arg constructor">UnconstructableJUnit4TestCase3</warning></warning> {
         UnconstructableJUnit4TestCase3() {}
 
         @Test
@@ -2568,10 +2568,10 @@ class JavaJUnitMalformedDeclarationInspectionTest {
 
       class MySuite {
         @BeforeSuite
-        static void <error descr="Method 'before' annotated with '@BeforeSuite' requires the containing class to be annotated with '@Suite'">before</error>() {}
+        static void <warning descr="Method 'before' annotated with '@BeforeSuite' requires the containing class to be annotated with '@Suite'">before</warning>() {}
       
         @AfterSuite
-        static void <error descr="Method 'after' annotated with '@AfterSuite' requires the containing class to be annotated with '@Suite'">after</error>() {}
+        static void <warning descr="Method 'after' annotated with '@AfterSuite' requires the containing class to be annotated with '@Suite'">after</warning>() {}
       }
     """.trimIndent())
     }
@@ -2600,11 +2600,11 @@ class JavaJUnitMalformedDeclarationInspectionTest {
       import org.junit.platform.suite.api.Suite;
 
       @Suite
-      class <error descr="Suite does not select any tests (no selector annotations)">MySuite1</error> {
+      class <warning descr="Suite does not select any tests (no selector annotations)">MySuite1</warning> {
       }
       
       @Suite(failIfNoTests = true)
-      class <error descr="Suite does not select any tests (no selector annotations)">MySuite2</error> {
+      class <warning descr="Suite does not select any tests (no selector annotations)">MySuite2</warning> {
       }
       
       @Suite(failIfNoTests = false)

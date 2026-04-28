@@ -125,7 +125,7 @@
                      groupBundle="messages.JUnitBundle" bundle="messages.JUnitBundle"
                      groupKey="junit.inspections.group.name" key="jvm.inspections.junit.assertequals.may.be.assertsame.display.name"
                      implementationClass="com.intellij.execution.junit.codeInspection.JUnitAssertEqualsMayBeAssertSameInspection"/>
-    <localInspection language="UAST" enabledByDefault="true" level="ERROR" shortName="JUnitMalformedDeclaration"
+    <localInspection language="UAST" enabledByDefault="true" level="WARNING" shortName="JUnitMalformedDeclaration"
                      groupBundle="messages.JUnitBundle" bundle="messages.JUnitBundle"
                      groupKey="junit.inspections.group.name" key="jvm.inspections.junit.malformed.declaration.name"
                      implementationClass="com.intellij.execution.junit.codeInspection.JUnitMalformedDeclarationInspection"/>
