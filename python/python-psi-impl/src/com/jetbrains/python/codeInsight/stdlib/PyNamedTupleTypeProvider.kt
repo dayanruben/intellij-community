@@ -55,7 +55,20 @@ private typealias ImmutableNTFields = Map<String, PyNamedTupleType.FieldTypeAndD
 class PyNamedTupleTypeProvider : PyTypeProviderBase() {
 
   override fun getReferenceType(referenceTarget: PsiElement, context: TypeEvalContext, anchor: PsiElement?): Ref<PyType>? {
-    return getNamedTupleTypeForResolvedCallee(referenceTarget, context, anchor).notNullToRef()
+    val type = when (referenceTarget) {
+      is PyFunction if anchor is PyCallExpression -> getNamedTupleFunctionType(referenceTarget, context, anchor)
+      is PyTargetExpression -> getNamedTupleTypeForTarget(referenceTarget, context)
+      is PyClass if anchor is PyCallExpression -> getNamedTupleTypeForClass(referenceTarget, context, anchor)
+      is PyParameter if anchor is PyCallExpression && referenceTarget.isSelf -> {
+        PsiTreeUtil.getParentOfType(referenceTarget, PyFunction::class.java)
+          ?.takeIf { it.modifier == PyAstFunction.Modifier.CLASSMETHOD }
+          ?.let { method ->
+            method.containingClass?.let { getNamedTupleTypeForClass(it, context, anchor) }
+          }
+      }
+      else -> null
+    }
+    return type.notNullToRef()
   }
 
   override fun getReferenceExpressionType(referenceExpression: PyReferenceExpression, context: TypeEvalContext): PyType? {
@@ -113,23 +126,6 @@ class PyNamedTupleTypeProvider : PyTypeProviderBase() {
 
       return cls.getSuperClassTypes(context).any(isTypingNT)
     }
-  }
-
-}
-
-private fun getNamedTupleTypeForResolvedCallee(referenceTarget: PsiElement, context: TypeEvalContext, anchor: PsiElement?): PyType? {
-  return when {
-    referenceTarget is PyFunction && anchor is PyCallExpression -> getNamedTupleFunctionType(referenceTarget, context, anchor)
-    referenceTarget is PyTargetExpression -> getNamedTupleTypeForTarget(referenceTarget, context)
-    referenceTarget is PyClass && anchor is PyCallExpression -> getNamedTupleTypeForClass(referenceTarget, context, anchor)
-    referenceTarget is PyParameter && anchor is PyCallExpression && referenceTarget.isSelf -> {
-      PsiTreeUtil.getParentOfType(referenceTarget, PyFunction::class.java)
-        ?.takeIf { it.modifier == PyAstFunction.Modifier.CLASSMETHOD }
-        ?.let { method ->
-          method.containingClass?.let { getNamedTupleTypeForClass(it, context, anchor) }
-        }
-    }
-    else -> null
   }
 }
 
