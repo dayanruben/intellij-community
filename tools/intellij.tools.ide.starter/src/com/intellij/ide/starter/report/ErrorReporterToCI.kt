@@ -7,7 +7,6 @@ import com.intellij.ide.starter.report.ErrorReporter.Companion.SYNTHETIC_TESTNAM
 import com.intellij.ide.starter.report.ErrorReporter.Companion.ACTIVE_TESTNAME_FILENAME
 import com.intellij.ide.starter.runner.IDERunContext
 import com.intellij.platform.testFramework.teamCity.TeamCityReporter
-import com.intellij.platform.testFramework.teamCity.generifyErrorMessage
 import com.intellij.util.SystemProperties
 import java.nio.file.Files
 import java.nio.file.Path
@@ -59,7 +58,7 @@ object ErrorReporterToCI : ErrorReporter {
       val messageFile = errorDir.resolve(MESSAGE_FILENAME)
       if (!messageFile.exists()) continue
 
-      val messageText = generifyErrorMessage(messageFile.readText().trimIndent().trim())
+      val messageText = messageFile.readText().trimIndent().trim()
       val syntheticTestNameFile = errorDir.resolve(SYNTHETIC_TESTNAME_FILENAME)
       val syntheticTestName = if (syntheticTestNameFile.exists()) syntheticTestNameFile.readText().trim() else null
 
