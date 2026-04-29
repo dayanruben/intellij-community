@@ -118,38 +118,51 @@ object ErrorReporterToCI : ErrorReporter {
   }
 
   fun reportErrors(runContext: IDERunContext, errors: List<Error>) {
+    val failureDetailsProvider = FailureDetailsOnCI.instance
     for (error in errors) {
-      val messageText = error.messageText
-      val stackTraceContent = error.stackTraceContent
-      val syntheticTestName = when (error.type) {
-        ErrorType.ERROR -> {
-          error.syntheticTestName ?: generateTestNameFromException(stackTraceContent, messageText)
-        }
-        ErrorType.FREEZE, ErrorType.TIMEOUT -> {
-          messageText
-        }
-      }
+      reportError(
+        error = error,
+        failureDetailsMessage = failureDetailsProvider.getFailureDetails(runContext, error),
+        urlToLogs = failureDetailsProvider.getLinkToCIArtifacts(runContext),
+        allureContextName = runContext.contextName,
+      )
+    }
+  }
 
-      val failureDetailsProvider = FailureDetailsOnCI.instance
-      val failureDetailsMessage = failureDetailsProvider.getFailureDetails(runContext, error)
-      val urlToLogs = failureDetailsProvider.getLinkToCIArtifacts(runContext).toString()
-      val linkToMuteArticle = "\nThis test fail is an exception! \n" +
-                              "You can find instructions about muting this error in this link https://youtrack.jetbrains.com/articles/IJPL-A-1185/How-to-create-a-new-mapping"
-      if (CIServer.instance.isTestFailureShouldBeIgnored(messageText) || CIServer.instance.isTestFailureShouldBeIgnored(stackTraceContent)) {
-        CIServer.instance.ignoreTestFailure(testName = syntheticTestName,
-                                            message = failureDetailsMessage,
-                                            kind = TeamCityReporter.SyntheticTestKind.IDE_EXCEPTION)
+  fun reportError(
+    error: Error,
+    failureDetailsMessage: String,
+    urlToLogs: String? = null,
+    allureContextName: String? = null,
+  ) {
+    val messageText = error.messageText
+    val stackTraceContent = error.stackTraceContent
+    val syntheticTestName = when (error.type) {
+      ErrorType.ERROR -> {
+        error.syntheticTestName ?: generateTestNameFromException(stackTraceContent, messageText)
       }
-      else {
-        CIServer.instance.reportTestFailure(testName = syntheticTestName,
-                                            message = failureDetailsMessage + linkToMuteArticle,
-                                            details = stackTraceContent,
-                                            linkToLogs = urlToLogs,
-                                            kind = TeamCityReporter.SyntheticTestKind.IDE_EXCEPTION)
-        AllureReport.reportFailure(runContext.contextName, messageText + linkToMuteArticle,
+      ErrorType.FREEZE, ErrorType.TIMEOUT -> {
+        messageText
+      }
+    }
+
+    val linkToMuteArticle = "\nThis test fail is an exception! \n" +
+                            "You can find instructions about muting this error in this link https://youtrack.jetbrains.com/articles/IJPL-A-1185/How-to-create-a-new-mapping"
+    if (CIServer.instance.isTestFailureShouldBeIgnored(messageText) || CIServer.instance.isTestFailureShouldBeIgnored(stackTraceContent)) {
+      CIServer.instance.ignoreTestFailure(testName = syntheticTestName,
+                                          message = failureDetailsMessage,
+                                          kind = TeamCityReporter.SyntheticTestKind.IDE_EXCEPTION)
+    }
+    else {
+      CIServer.instance.reportTestFailure(testName = syntheticTestName,
+                                          message = failureDetailsMessage + linkToMuteArticle,
+                                          details = stackTraceContent,
+                                          linkToLogs = urlToLogs,
+                                          kind = TeamCityReporter.SyntheticTestKind.IDE_EXCEPTION)
+      if (allureContextName != null) {
+        AllureReport.reportFailure(allureContextName, messageText + linkToMuteArticle,
                                    stackTraceContent,
-                                   links = AllureLink.single("Link to Logs and artifacts",
-                                                             failureDetailsProvider.getLinkToCIArtifacts(runContext) ?: "fail to get link"))
+                                   links = AllureLink.single("Link to Logs and artifacts", urlToLogs ?: "fail to get link"))
       }
     }
   }
