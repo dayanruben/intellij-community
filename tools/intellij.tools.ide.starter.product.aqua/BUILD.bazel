@@ -30,6 +30,7 @@ jvm_library(
 
 jvm_library(
   name = "ide-starter-product-aqua_test_lib",
+  testonly = True,
   module_name = "intellij.tools.ide.starter.product.aqua",
   visibility = ["//visibility:public"],
   srcs = glob([], allow_empty = True),

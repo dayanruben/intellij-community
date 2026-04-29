@@ -30,6 +30,7 @@ jvm_library(
 
 jvm_library(
   name = "ide-starter-product-idea-community_test_lib",
+  testonly = True,
   module_name = "intellij.tools.ide.starter.product.idea.community",
   visibility = ["//visibility:public"],
   srcs = glob([], allow_empty = True),
