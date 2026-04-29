@@ -196,7 +196,7 @@ abstract class ProductProperties {
    * Modules are mentioned here should be put to separate JARs (i.e., they aren't registered as 'embedded' and don't have the 'package' attribute).
    * If some modules are listed here, it's required [scrambleMainJar] to be set to `true`.
    */
-  var contentModulesToScramble: List<String> = emptyList()
+  var contentModulesToScramble: Set<String> = emptySet()
 
   /**
    * The list of classes to check for scrambling.
