@@ -2851,4 +2851,100 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
             runTest("../../../idea/tests/testData/quickfix/wrapWithSafeLetCall/javaReceiverNullabilityInvoke2.test");
         }
     }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/quickfix/override")
+    public abstract static class Override extends AbstractHighLevelQuickFixMultiFileTest {
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../../../idea/tests/testData/quickfix/override/nothingToOverride")
+        public static class NothingToOverride extends AbstractHighLevelQuickFixMultiFileTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K2;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTestWithExtraFile, this, testDataFilePath);
+            }
+
+            @TestMetadata("import.before.Main.kt")
+            public void testImport() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/nothingToOverride/import.before.Main.kt");
+            }
+
+            @TestMetadata("overrideJavaMethodWithAnnotation.test")
+            public void testOverrideJavaMethodWithAnnotation() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/nothingToOverride/overrideJavaMethodWithAnnotation.test");
+            }
+
+            @TestMetadata("twoPackages.before.Main.kt")
+            public void testTwoPackages() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/nothingToOverride/twoPackages.before.Main.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../../../idea/tests/testData/quickfix/override/overriddenJavaAccessor")
+        public static class OverriddenJavaAccessor extends AbstractHighLevelQuickFixMultiFileTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K2;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTestWithExtraFile, this, testDataFilePath);
+            }
+
+            @TestMetadata("getterWithDifferentType.test")
+            public void testGetterWithDifferentType() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/overriddenJavaAccessor/getterWithDifferentType.test");
+            }
+
+            @TestMetadata("notAGetterSignature.test")
+            public void testNotAGetterSignature() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/overriddenJavaAccessor/notAGetterSignature.test");
+            }
+
+            @TestMetadata("nothingToOverride.test")
+            public void testNothingToOverride() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/overriddenJavaAccessor/nothingToOverride.test");
+            }
+
+            @TestMetadata("simpleGetter.test")
+            public void testSimpleGetter() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/overriddenJavaAccessor/simpleGetter.test");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../../../idea/tests/testData/quickfix/override/wrongNullabilityForJavaOverride")
+        public static class WrongNullabilityForJavaOverride extends AbstractHighLevelQuickFixMultiFileTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K2;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTestWithExtraFile, this, testDataFilePath);
+            }
+
+            @TestMetadata("makeArgumentNonNullable.test")
+            public void testMakeArgumentNonNullable() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/wrongNullabilityForJavaOverride/makeArgumentNonNullable.test");
+            }
+
+            @TestMetadata("makeArgumentNullable.test")
+            public void testMakeArgumentNullable() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/wrongNullabilityForJavaOverride/makeArgumentNullable.test");
+            }
+
+            @TestMetadata("makeReturnValueNonNullable.test")
+            public void testMakeReturnValueNonNullable() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/override/wrongNullabilityForJavaOverride/makeReturnValueNonNullable.test");
+            }
+        }
+    }
 }
