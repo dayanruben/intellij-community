@@ -14,7 +14,6 @@ interface ErrorReporter {
     const val STACKTRACE_FILENAME = "stacktrace.txt"
     const val PRODUCT_INFO_FILENAME = "product_info.txt"
     const val ERRORS_DIR_NAME = "errors"
-    const val MAX_TEST_NAME_LENGTH = 250
     const val APP_NAME_KEY = "app.name"
     const val APP_PRODUCT_CODE_KEY = "app.product.code"
     const val APP_BUILD_NUMBER_KEY = "app.build.number"

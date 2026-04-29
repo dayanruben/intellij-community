@@ -17,6 +17,8 @@ import java.util.UUID
 @ApiStatus.Internal
 object TeamCityReporter {
 
+  private const val MAX_TEST_NAME_LENGTH: Int = 250
+
   /**
    * Kind of a synthetic test reported via [reportTestLifecycle]. Determines the prefix
    * wrapped around the test name so the three groups can be told apart on TeamCity
@@ -287,6 +289,7 @@ object TeamCityReporter {
     val effectiveName =
       testName
         .let { if (generifyTestName) generifyErrorMessage(it) else it }
+        .take(MAX_TEST_NAME_LENGTH)
         .let { if (syntheticTestKind != null) it.syntheticTestName(syntheticTestKind) else it }
 
     reportTestStarted(effectiveName, flowId, nodeId = effectiveName, parentNodeId = "0", captureStandardOutput = block != null)

@@ -167,13 +167,12 @@ object ErrorReporterToCI : ErrorReporter {
   }
 
   private fun generateTestNameFromException(stackTraceContent: String, messageText: String): String {
-    return if (stackTraceContent.startsWith(messageText)) {
-      val maxLength = (ErrorReporter.MAX_TEST_NAME_LENGTH).coerceAtMost(stackTraceContent.length)
-      val extractedTestName = stackTraceContent.substring(0, maxLength).trim()
-      extractedTestName
+    val testName = if (stackTraceContent.startsWith(messageText)) {
+      stackTraceContent
     }
     else {
-      messageText.substring(0, ErrorReporter.MAX_TEST_NAME_LENGTH.coerceAtMost(messageText.length)).trim()
+      messageText
     }
+    return testName.trim()
   }
 }
