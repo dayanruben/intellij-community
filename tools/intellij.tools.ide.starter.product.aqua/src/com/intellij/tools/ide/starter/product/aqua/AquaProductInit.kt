@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * Aqua [IdeInfo] resolved from DI.
  *
- * Tests that need Aqua should depend on this module
- * (`intellij.tools.ide.starter.build.server.aqua`).
+ * Tests that need Aqua should depend on this module `intellij.tools.ide.starter.product.aqua`
  */
 val IdeInfo.Companion.Aqua: IdeInfo
   get() {

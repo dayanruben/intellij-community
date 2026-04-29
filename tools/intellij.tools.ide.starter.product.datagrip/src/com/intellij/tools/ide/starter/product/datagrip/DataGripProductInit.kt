@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * DataGrip [IdeInfo] resolved from DI.
  *
- * Tests that need DataGrip should depend on this module
- * (`intellij.tools.ide.starter.build.server.datagrip`).
+ * Tests that need DataGrip should depend on this module `intellij.tools.ide.starter.product.datagrip`
  */
 val IdeInfo.Companion.DataGrip: IdeInfo
   get() {

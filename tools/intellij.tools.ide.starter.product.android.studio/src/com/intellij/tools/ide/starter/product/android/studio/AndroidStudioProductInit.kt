@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * Android Studio [IdeInfo] resolved from DI.
  *
- * Tests that need Android Studio should depend on this module
- * (`intellij.tools.ide.starter.build.server.android.studio`).
+ * Tests that need Android Studio should depend on this module `intellij.tools.ide.starter.product.android.studio`
  */
 val IdeInfo.Companion.AndroidStudio: IdeInfo
   get() {

@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * Rider [IdeInfo] resolved from DI.
  *
- * Tests that need Rider should depend on this module
- * (`intellij.tools.ide.starter.build.server.rider`).
+ * Tests that need Rider should depend on this module `intellij.tools.ide.starter.product.rider`
  */
 val IdeInfo.Companion.Rider: IdeInfo
   get() {

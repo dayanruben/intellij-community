@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * RustRover [IdeInfo] resolved from DI.
  *
- * Tests that need RustRover should depend on this module
- * (`intellij.tools.ide.starter.build.server.rustrover`).
+ * Tests that need RustRover should depend on this module `intellij.tools.ide.starter.product.rustrover`
  */
 val IdeInfo.Companion.RustRover: IdeInfo
   get() {

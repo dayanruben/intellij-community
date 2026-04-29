@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * Gateway [IdeInfo] resolved from DI.
  *
- * Tests that need Gateway should depend on this module
- * (`intellij.tools.ide.starter.build.server.gateway`).
+ * Tests that need Gateway should depend on this module `intellij.tools.ide.starter.product.gateway`
  */
 val IdeInfo.Companion.Gateway: IdeInfo
   get() {

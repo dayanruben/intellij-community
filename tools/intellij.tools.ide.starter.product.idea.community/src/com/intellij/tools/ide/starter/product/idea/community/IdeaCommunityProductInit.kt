@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * IntelliJ IDEA Community [IdeInfo] resolved from DI.
  *
- * Tests that need IntelliJ IDEA Community should depend on this module
- * (`intellij.tools.ide.starter.build.server.idea.community`).
+ * Tests that need IntelliJ IDEA Community should depend on this module `intellij.tools.ide.starter.product.idea.community`
  */
 val IdeInfo.Companion.IdeaCommunity: IdeInfo
   get() {

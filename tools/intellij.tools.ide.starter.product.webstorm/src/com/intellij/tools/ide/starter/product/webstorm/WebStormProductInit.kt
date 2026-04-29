@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * WebStorm [IdeInfo] resolved from DI.
  *
- * Tests that need WebStorm should depend on this module
- * (`intellij.tools.ide.starter.build.server.webstorm`).
+ * Tests that need WebStorm should depend on this module `intellij.tools.ide.starter.product.webstorm`
  */
 val IdeInfo.Companion.WebStorm: IdeInfo
   get() {

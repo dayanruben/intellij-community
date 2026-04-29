@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * PhpStorm [IdeInfo] resolved from DI.
  *
- * Tests that need PhpStorm should depend on this module
- * (`intellij.tools.ide.starter.build.server.phpstorm`).
+ * Tests that need PhpStorm should depend on this module `intellij.tools.ide.starter.product.phpstorm`
  */
 val IdeInfo.Companion.PhpStorm: IdeInfo
   get() {

@@ -11,15 +11,7 @@ import org.kodein.di.instance
 /**
  * GoLand [IdeInfo] resolved from DI.
  *
- * Tests that need GoLand should depend on this module
- * (`intellij.tools.ide.starter.build.server.goland`).
- *
- * Example:
- * ```kotlin
- * import com.intellij.tools.ide.starter.product.goland.GoLand
- *
- * class MyGoLandTest : TestCaseTemplate(IdeInfo.GoLand) { ... }
- * ```
+ * Tests that need GoLand should depend on this module `intellij.tools.ide.starter.product.goland`
  */
 val IdeInfo.Companion.GoLand: IdeInfo
   get() {

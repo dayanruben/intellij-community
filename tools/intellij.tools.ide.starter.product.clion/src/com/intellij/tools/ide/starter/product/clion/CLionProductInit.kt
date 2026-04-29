@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * CLion [IdeInfo] resolved from DI.
  *
- * Tests that need CLion should depend on this module
- * (`intellij.tools.ide.starter.build.server.clion`).
+ * Tests that need CLion should depend on this module `intellij.tools.ide.starter.product.clion`
  */
 val IdeInfo.Companion.CLion: IdeInfo
   get() {

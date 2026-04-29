@@ -5,7 +5,7 @@ package com.intellij.ide.starter.models
  * Enum representing all supported IDE product types.
  * Used as DI tag for [IdeInfo] bindings.
  *
- * Each IDE-specific module (e.g., `intellij.tools.ide.starter.build.server.goland`)
+ * Each IDE-specific module (e.g., `intellij.tools.ide.starter.product.goland`)
  * registers its [IdeInfo] in DI using the corresponding [IdeInfoType] as a tag.
  */
 enum class IdeInfoType(

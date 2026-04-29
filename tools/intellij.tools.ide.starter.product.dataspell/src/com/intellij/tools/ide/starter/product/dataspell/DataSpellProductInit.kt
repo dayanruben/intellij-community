@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * DataSpell [IdeInfo] resolved from DI.
  *
- * Tests that need DataSpell should depend on this module
- * (`intellij.tools.ide.starter.build.server.dataspell`).
+ * Tests that need DataSpell should depend on this module `intellij.tools.ide.starter.product.dataspell`
  */
 val IdeInfo.Companion.DataSpell: IdeInfo
   get() {

@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * IntelliJ IDEA Ultimate [IdeInfo] resolved from DI.
  *
- * Tests that need IntelliJ IDEA Ultimate should depend on this module
- * (`intellij.tools.ide.starter.build.server.idea.ultimate`).
+ * Tests that need IntelliJ IDEA Ultimate should depend on this module `intellij.tools.ide.starter.product.idea.ultimate`
  */
 val IdeInfo.Companion.IdeaUltimate: IdeInfo
   get() {

@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * RubyMine [IdeInfo] resolved from DI.
  *
- * Tests that need RubyMine should depend on this module
- * (`intellij.tools.ide.starter.build.server.rubymine`).
+ * Tests that need RubyMine should depend on this module `intellij.tools.ide.starter.product.rubymine`
  */
 val IdeInfo.Companion.RubyMine: IdeInfo
   get() {

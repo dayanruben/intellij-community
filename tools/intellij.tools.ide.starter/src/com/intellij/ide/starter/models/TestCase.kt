@@ -24,7 +24,7 @@ data class TestCase<T : ProjectInfoSpec>(
 
   /**
    * You may consider using this method with IDE-specific IdeInfo extensions on [IdeInfo.Companion],
-   * e.g., `IdeInfo.GoLand` from `com.intellij.tools.ide.starter.build.server.goland`.
+   * e.g., `IdeInfo.GoLand` from `com.intellij.tools.ide.starter.product.goland`.
    */
   fun onIDE(ideInfo: IdeInfo): TestCase<T> = copy(ideInfo = ideInfo)
 

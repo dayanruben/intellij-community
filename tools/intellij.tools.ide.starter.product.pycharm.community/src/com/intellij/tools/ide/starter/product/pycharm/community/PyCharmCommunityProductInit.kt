@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * PyCharm Community [IdeInfo] resolved from DI.
  *
- * Tests that need PyCharm Community should depend on this module
- * (`intellij.tools.ide.starter.build.server.pycharm.community`).
+ * Tests that need PyCharm Community should depend on this module `intellij.tools.ide.starter.product.pycharm.community`
  */
 val IdeInfo.Companion.PyCharmCommunity: IdeInfo
   get() {

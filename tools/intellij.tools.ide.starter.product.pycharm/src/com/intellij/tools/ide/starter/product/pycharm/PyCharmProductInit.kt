@@ -11,8 +11,7 @@ import org.kodein.di.instance
 /**
  * PyCharm Professional [IdeInfo] resolved from DI.
  *
- * Tests that need PyCharm Professional should depend on this module
- * (`intellij.tools.ide.starter.build.server.pycharm`).
+ * Tests that need PyCharm Professional should depend on this module `intellij.tools.ide.starter.product.pycharm`
  */
 val IdeInfo.Companion.PyCharm: IdeInfo
   get() {
