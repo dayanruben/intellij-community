@@ -377,7 +377,7 @@ final class FindInProjectTask {
     if (pair == null) return true;
 
     Set<UsageInfo> processedUsages =
-      usagesBeingProcessed.computeIfAbsent(virtualFile, __ -> ConcurrentCollectionFactory.createConcurrentSet());
+      usagesBeingProcessed.computeIfAbsent(virtualFile, _ -> ConcurrentCollectionFactory.createConcurrentSet());
     PsiFile psiFile = pair.first;
     VirtualFile sourceVirtualFile = pair.second;
 

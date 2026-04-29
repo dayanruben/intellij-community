@@ -216,7 +216,7 @@ final class PsiChangeHandler extends PsiTreeChangeAdapter implements Runnable {
 
   private void storeChangedElement(@NotNull PsiElement child, @NotNull Document document, boolean whitespaceOptimizationAllowed) {
     synchronized (changedElements) {
-      List<Change> toUpdate = changedElements.computeIfAbsent(document, __->new ArrayList<>());
+      List<Change> toUpdate = changedElements.computeIfAbsent(document, _->new ArrayList<>());
       toUpdate.add(new Change(child, whitespaceOptimizationAllowed));
     }
   }

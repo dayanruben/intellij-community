@@ -276,7 +276,7 @@ public final class WolfTheProblemSolverImpl extends WolfTheProblemSolver impleme
   public void weHaveGotNonIgnorableProblems(@NotNull VirtualFile virtualFile, @NotNull List<? extends Problem> problems) {
     ApplicationManager.getApplication().assertIsNonDispatchThread();
     if (problems.isEmpty()) return;
-    ProblemFileInfo storedProblems = myProblems.computeIfAbsent(virtualFile, __ -> new ProblemFileInfo());
+    ProblemFileInfo storedProblems = myProblems.computeIfAbsent(virtualFile, _ -> new ProblemFileInfo());
     boolean fireListener = storedProblems.problems.isEmpty();
     storedProblems.problems.addAll(problems);
     doQueue(virtualFile);
@@ -358,7 +358,7 @@ public final class WolfTheProblemSolverImpl extends WolfTheProblemSolver impleme
     ApplicationManager.getApplication().assertIsNonDispatchThread();
     if (!isToBeHighlighted(file)) return;
 
-    Set<Object> problems = myProblemsFromExternalSources.computeIfAbsent(file, __ -> ConcurrentCollectionFactory.createConcurrentSet());
+    Set<Object> problems = myProblemsFromExternalSources.computeIfAbsent(file, _ -> ConcurrentCollectionFactory.createConcurrentSet());
     boolean isNewFileForExternalSource = problems.isEmpty();
     problems.add(source);
 
@@ -375,7 +375,7 @@ public final class WolfTheProblemSolverImpl extends WolfTheProblemSolver impleme
   public void clearProblemsFromExternalSource(@NotNull VirtualFile file, @NotNull Object source) {
     ApplicationManager.getApplication().assertIsNonDispatchThread();
     AtomicBoolean isLastExternalSource = new AtomicBoolean();
-    myProblemsFromExternalSources.compute(file, (__, problems) -> {
+    myProblemsFromExternalSources.compute(file, (_, problems) -> {
       if (problems == null) return null;
       problems.remove(source);
       boolean wasLastProblem = problems.isEmpty();

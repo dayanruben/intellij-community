@@ -644,7 +644,7 @@ public class JavaDebugProcess extends XDebugProcess {
 
   @Override
   public @Nullable Flow<@Nls String> getCurrentStateMessageFlow() {
-    return CoroutineUtilsKt.mapFlow(myJavaSession.getSessionStateFlow(), __ -> getCurrentStateMessage());
+    return CoroutineUtilsKt.mapFlow(myJavaSession.getSessionStateFlow(), _ -> getCurrentStateMessage());
   }
 
   @Override

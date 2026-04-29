@@ -311,10 +311,10 @@ public abstract class AbstractModuleDataService<E extends ModuleData> extends Ab
     ContainerUtil.removeDuplicates(modules);
 
     ProjectSystemId projectSystemId = projectData.getOwner();
-    ExternalSystemTelemetryUtil.runWithSpan(projectSystemId, "Remove external system options from workspace model", __ -> {
+    ExternalSystemTelemetryUtil.runWithSpan(projectSystemId, "Remove external system options from workspace model", _ -> {
       for (Module module : modules) {
         if (module.isDisposed()) continue;
-        ExternalSystemTelemetryUtil.runWithSpan(projectSystemId, "Remove options for " + module.getName(), ___ -> {
+        ExternalSystemTelemetryUtil.runWithSpan(projectSystemId, "Remove options for " + module.getName(), _ -> {
           unlinkModuleFromExternalSystem(module);
         });
       }

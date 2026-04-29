@@ -254,7 +254,7 @@ public class IntroduceParameterHandler extends IntroduceHandlerBase {
     list.setSelectedIndex(0);
     list.setBorder(JBUI.Borders.empty(0, 5));
     final List<RangeHighlighter> highlighters = new ArrayList<>();
-    list.addListSelectionListener(__ -> {
+    list.addListSelectionListener(_ -> {
       final PsiMethod selectedMethod = list.getSelectedValue();
       if (selectedMethod == null) return;
       dropHighlighters(highlighters);
@@ -265,7 +265,7 @@ public class IntroduceParameterHandler extends IntroduceHandlerBase {
     scrollPane.setBorder(null);
     panel.add(scrollPane, BorderLayout.CENTER);
 
-    final List<Pair<ActionListener, KeyStroke>> keyboardActions = Collections.singletonList(Pair.create(__ -> {
+    final List<Pair<ActionListener, KeyStroke>> keyboardActions = Collections.singletonList(Pair.create(_ -> {
       final PsiMethod methodToSearchIn = list.getSelectedValue();
       if (myEnclosingMethodsPopup != null && myEnclosingMethodsPopup.isVisible()) {
         myEnclosingMethodsPopup.cancel();

@@ -597,7 +597,7 @@ public class JsonSchemaServiceImpl implements JsonSchemaService, ModificationTra
         }
 
         if (schemaFile != null) {
-          map.computeIfAbsent(schemaFile, __ -> new SmartList<>()).add(provider);
+          map.computeIfAbsent(schemaFile, _ -> new SmartList<>()).add(provider);
         }
       }
       return map;

@@ -33,7 +33,7 @@ public final class EditorModificationUtil extends EditorModificationUtilEx {
 
 
   public static void deleteSelectedTextForAllCarets(@NotNull Editor editor) {
-    editor.getCaretModel().runForEachCaret(__ -> deleteSelectedText(editor));
+    editor.getCaretModel().runForEachCaret(_ -> deleteSelectedText(editor));
   }
 
   public static void zeroWidthBlockSelectionAtCaretColumn(@NotNull Editor editor, int startLine, int endLine) {
@@ -86,7 +86,7 @@ public final class EditorModificationUtil extends EditorModificationUtilEx {
    */
   public static void typeInStringAtCaretHonorMultipleCarets(@NotNull Editor editor, @NotNull String str, boolean toProcessOverwriteMode, int caretShift)
     throws ReadOnlyFragmentModificationException {
-    editor.getCaretModel().runForEachCaret(__ -> insertStringAtCaretNoScrolling(editor, str, toProcessOverwriteMode, true, caretShift));
+    editor.getCaretModel().runForEachCaret(_ -> insertStringAtCaretNoScrolling(editor, str, toProcessOverwriteMode, true, caretShift));
     editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
   }
 

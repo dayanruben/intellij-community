@@ -833,7 +833,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
       if (BitUtil.isSet(flags, SAVE)) {
         try {
           TraceKt.use(tracer.spanBuilder("saveSettingsOnExit"),
-                      __ -> SaveAndSyncHandler.getInstance().saveSettingsUnderModalProgress(this));
+                      _ -> SaveAndSyncHandler.getInstance().saveSettingsUnderModalProgress(this));
         }
         catch (Throwable e) {
           logErrorDuringExit("Failed to save settings", e);
@@ -869,7 +869,7 @@ public final class ApplicationImpl extends ClientAwareComponentManager implement
       var manager = ProjectManagerEx.getInstanceExIfCreated();
       if (manager != null) {
         try {
-          boolean projectsClosedSuccessfully = TraceKt.use(tracer.spanBuilder("disposeProjects"), __ -> {
+          boolean projectsClosedSuccessfully = TraceKt.use(tracer.spanBuilder("disposeProjects"), _ -> {
             return manager.closeAndDisposeAllProjects(!force);
           });
           if (!projectsClosedSuccessfully) {

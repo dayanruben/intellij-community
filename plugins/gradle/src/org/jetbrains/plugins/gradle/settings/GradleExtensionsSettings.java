@@ -274,7 +274,7 @@ public class GradleExtensionsSettings {
 
       Map<String, GradleTask> tasksMap = new LinkedHashMap<>();
       for (ExternalTask task : gradleExtensions.getTasks()) {
-        GradleTask gradleTask = taskCache.computeIfAbsent(task.getName() + task.getType(), __ -> convertGradleTask(task));
+        GradleTask gradleTask = taskCache.computeIfAbsent(task.getName() + task.getType(), _ -> convertGradleTask(task));
         tasksMap.put(gradleTask.getName(), gradleTask);
       }
 

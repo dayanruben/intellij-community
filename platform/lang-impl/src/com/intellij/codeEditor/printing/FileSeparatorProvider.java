@@ -28,7 +28,7 @@ final class FileSeparatorProvider {
 
     ProgressManager.getInstance().executeProcessUnderProgress(() -> {
       // todo IJPL-339 figure out what is the correct context here
-      HighlightingSessionImpl.runInsideHighlightingSession(file, null, ProperTextRange.create(file.getTextRange()), false, __ -> {
+      HighlightingSessionImpl.runInsideHighlightingSession(file, null, ProperTextRange.create(file.getTextRange()), false, _ -> {
         for (LineMarkerInfo<?> lineMarkerInfo : LineMarkersPass.queryLineMarkers(file, document)) {
           if (lineMarkerInfo.separatorColor != null) {
             result.add(lineMarkerInfo);

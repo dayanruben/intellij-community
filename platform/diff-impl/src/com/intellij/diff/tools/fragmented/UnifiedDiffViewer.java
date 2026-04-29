@@ -437,7 +437,7 @@ public class UnifiedDiffViewer extends ListenerDiffViewerBase implements EditorD
     final DocumentContent content1 = getContent1();
     final DocumentContent content2 = getContent2();
 
-    UnifiedDiffHighlightersData unifiedDiffHighlightersData = BackgroundTaskUtil.tryComputeFast(___ -> {
+    UnifiedDiffHighlightersData unifiedDiffHighlightersData = BackgroundTaskUtil.tryComputeFast(_ -> {
       return ReadAction.compute(() -> {
         EditorHighlighter highlighter =
           UnifiedEditorHighlighter.buildHighlighter(myProject, myDocument, content1, content2,

@@ -120,13 +120,13 @@ public final class LineMarkersPass extends TextEditorHighlightingPass implements
              Collection<LineMarkerProvider> providers = getMarkerProviders(language, myProject);
              List<LineMarkerProvider> providersList = new ArrayList<>(providers);
              queryProviders(
-               elements.inside(), root, providersList, (__, info) -> {
+               elements.inside(), root, providersList, (_, info) -> {
                  info.updatePass = passId;
                  lineMarkers.add(info);
                  LineMarkersUtil.addLineMarkerToEditorIncrementally(myProject, getDocument(), info, myHighlightingSession);
                });
              queryProviders(elements.outside(), root, providersList,
-               (__, info) -> {
+               (_, info) -> {
                  info.updatePass = passId;
                  lineMarkers.add(info);
                });
@@ -148,7 +148,7 @@ public final class LineMarkersPass extends TextEditorHighlightingPass implements
     for (LineMarkerInfo<?> marker : markers) {
       if (marker instanceof MergeableLineMarkerInfo<?> mergeable) {
         int line = document.getLineNumber(marker.startOffset);
-        List<MergeableLineMarkerInfo<?>> infos = sameLineMarkers.computeIfAbsent(line, __ -> new ArrayList<>());
+        List<MergeableLineMarkerInfo<?>> infos = sameLineMarkers.computeIfAbsent(line, _ -> new ArrayList<>());
         infos.add(mergeable);
       }
       else {

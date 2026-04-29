@@ -27,8 +27,8 @@ final class MultiverseFileStatusMapState implements FileStatusMapState {
   @Override
   public @NotNull FileStatus getOrCreateStatus(@NotNull Document document, @NotNull CodeInsightContext context) {
     CodeInsightContext effectiveContext = resolveAnyContext(document, context);
-    Map<CodeInsightContext, FileStatus> statusMap = myDocumentToStatusMap.computeIfAbsent(document, __ -> new WeakHashMap<>());
-    return statusMap.computeIfAbsent(effectiveContext, __ -> new FileStatus(myProject));
+    Map<CodeInsightContext, FileStatus> statusMap = myDocumentToStatusMap.computeIfAbsent(document, _ -> new WeakHashMap<>());
+    return statusMap.computeIfAbsent(effectiveContext, _ -> new FileStatus(myProject));
   }
 
   @Override

@@ -103,7 +103,7 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
 
     EelPath workingDirectoryEelPath = options.getWorkingDirectoryEelPathNotNull();
     AtomicReference<ShellExecCommand> shellExecCommandRef = new AtomicReference<>(new ShellExecCommandImpl(shellCommand));
-    ShellExecOptionsCustomizer.Companion.getEP_NAME().processWithPluginDescriptor((customizer, __) -> {
+    ShellExecOptionsCustomizer.Companion.getEP_NAME().processWithPluginDescriptor((customizer, _) -> {
       MutableShellExecOptions execOptions = new MutableShellExecOptionsImpl(
         shellExecCommandRef.get(),
         workingDirectoryEelPath,

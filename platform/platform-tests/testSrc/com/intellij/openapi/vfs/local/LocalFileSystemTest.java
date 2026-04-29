@@ -356,7 +356,7 @@ public class LocalFileSystemTest extends BareTestFixtureTestCase {
     assertNotNull(root);
 
     var jarFile = tempDir.newFileNio("test.jar");
-    jarFile(__ -> Unit.INSTANCE).generate(jarFile);
+    jarFile(_ -> Unit.INSTANCE).generate(jarFile);
     assertNotNull(myFS.refreshAndFindFileByNioFile(jarFile));
     root = VirtualFileManager.getInstance().findFileByUrl("jar://" + jarFile + "!/");
     assertNotNull(root);

@@ -830,7 +830,7 @@ public class DocumentationManager extends DockablePopupManager<DocumentationComp
 
     DocumentationComponent component = myTestDocumentationComponent == null ? new DocumentationComponent(this, useStoredPopupSize) :
                                        myTestDocumentationComponent;
-    ActionListener actionListener = __ -> {
+    ActionListener actionListener = _ -> {
       createToolWindow(element, originalElement);
       JBPopup hint = getDocInfoHint();
       if (hint != null && hint.isVisible()) hint.cancel();

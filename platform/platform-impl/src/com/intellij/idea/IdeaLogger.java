@@ -59,7 +59,7 @@ public final class IdeaLogger extends JulLogger {
       .build();
 
     private static @NotNull AtomicInteger getOrCreate(int hash, @NotNull Throwable t) {
-      return cache.get(hash + ":" + t, __ -> new AtomicInteger());
+      return cache.get(hash + ":" + t, _ -> new AtomicInteger());
     }
   }
 

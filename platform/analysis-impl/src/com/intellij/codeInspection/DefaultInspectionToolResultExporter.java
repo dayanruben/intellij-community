@@ -144,7 +144,7 @@ public class DefaultInspectionToolResultExporter implements InspectionToolResult
           catch (IOException e) {
             LOG.error(e);
           }
-        }, __ -> false);
+        }, _ -> false);
 
         writer.write('\n');
       }

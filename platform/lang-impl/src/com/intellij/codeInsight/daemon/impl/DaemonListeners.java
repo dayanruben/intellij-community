@@ -331,7 +331,7 @@ public final class DaemonListeners implements Disposable {
         reInitTrafficLightRendererForAllEditors();
       }
     });
-    connection.subscribe(AdditionalLibraryRootsListener.TOPIC, (_1, _2, _3, _4) -> stopDaemonAndRestartAllFiles("Additional libraries changed"));
+    connection.subscribe(AdditionalLibraryRootsListener.TOPIC, (_, _, _, _) -> stopDaemonAndRestartAllFiles("Additional libraries changed"));
 
     connection.subscribe(DumbService.DUMB_MODE, new DumbService.DumbModeListener() {
       @Override
@@ -353,7 +353,7 @@ public final class DaemonListeners implements Disposable {
       }
       stopDaemonAndRestartAllFiles("Power save mode changed to " + PowerSaveMode.isEnabled());
     });
-    connection.subscribe(EditorColorsManager.TOPIC, __ -> stopDaemonAndRestartAllFiles("Editor color scheme changed"));
+    connection.subscribe(EditorColorsManager.TOPIC, _ -> stopDaemonAndRestartAllFiles("Editor color scheme changed"));
     connection.subscribe(CommandListener.TOPIC, new MyCommandListener());
     connection.subscribe(ProfileChangeAdapter.TOPIC, new MyProfileChangeListener());
 

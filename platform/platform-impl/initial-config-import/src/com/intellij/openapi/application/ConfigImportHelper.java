@@ -934,7 +934,7 @@ public final class ConfigImportHelper {
     else {
       var hasPendingUpdate = Files.isDirectory(oldPluginsDir) ?
         collectPendingPluginUpdates(actionCommands, oldPluginsDir.getFileSystem(), options.log) :
-        (Predicate<IdeaPluginDescriptor>)(__ -> false);
+        (Predicate<IdeaPluginDescriptor>)(_ -> false);
       migratePlugins(oldPluginsDir, oldConfigDir, newPluginsDir, newConfigDir, options, hasPendingUpdate);
     }
 
@@ -1085,15 +1085,15 @@ public final class ConfigImportHelper {
           var brokenVersions = brokenPluginVersions != null ? brokenPluginVersions.get(descriptor.getPluginId()) : null;
           return brokenVersions != null && brokenVersions.contains(descriptor.getVersion());
         });
-        partitionNonBundled(nonLoadablePlugins.values(), pluginsToDownload, pluginsToMigrate, __ -> true);
+        partitionNonBundled(nonLoadablePlugins.values(), pluginsToDownload, pluginsToMigrate, _ -> true);
       }
       else {
         // The first partition in the branch above puts only broken plugins to pluginsToDownload.
         // Here we also put there plugins for which updates are available (or they are broken).
         // So the only difference is that here we try to download more plugins.
         var nonBundledPlugins = new ArrayList<IdeaPluginDescriptor>();
-        partitionNonBundled(loadablePlugins, nonBundledPlugins, pluginsToMigrate, __ -> true);
-        partitionNonBundled(nonLoadablePlugins.values(), nonBundledPlugins, pluginsToMigrate, __ -> true);
+        partitionNonBundled(loadablePlugins, nonBundledPlugins, pluginsToMigrate, _ -> true);
+        partitionNonBundled(nonLoadablePlugins.values(), nonBundledPlugins, pluginsToMigrate, _ -> true);
         var updates = fetchPluginUpdatesFromMarketplace(options, ContainerUtil.map2Set(nonBundledPlugins, d -> d.getPluginId()));
         partitionNonBundled(loadablePlugins, pluginsToDownload, pluginsToMigrate, d -> {
           if (updates != null && updates.containsKey(d.getPluginId()) && !updates.get(d.getPluginId()).getVersion().equals(d.getVersion())) {
@@ -1102,7 +1102,7 @@ public final class ConfigImportHelper {
           var brokenVersions = brokenPluginVersions != null ? brokenPluginVersions.get(d.getPluginId()) : null;
           return brokenVersions != null && brokenVersions.contains(d.getVersion());
         });
-        partitionNonBundled(nonLoadablePlugins.values(), pluginsToDownload, pluginsToMigrate, __ -> true);
+        partitionNonBundled(nonLoadablePlugins.values(), pluginsToDownload, pluginsToMigrate, _ -> true);
       }
     }
     return true;
@@ -1260,7 +1260,7 @@ public final class ConfigImportHelper {
 
       try {
         var downloader = PluginDownloader.createDownloader(descriptor)
-          .withErrorsConsumer(__ -> {})
+          .withErrorsConsumer(_ -> {})
           .withDownloadService(options.downloadService);
 
         if (downloader.prepareToInstall(indicator)) {

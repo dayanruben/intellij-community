@@ -1082,7 +1082,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
     registerSelectItemAction();
 
     AnAction escape = ActionManager.getInstance().getAction("EditorEscape");
-    DumbAwareAction.create(__ -> closePopup())
+    DumbAwareAction.create(_ -> closePopup())
       .registerCustomShortcutSet(escape == null ? CommonShortcuts.ESCAPE : escape.getShortcutSet(), this);
 
     mySearchField.getDocument().addDocumentListener(new DocumentAdapter() {

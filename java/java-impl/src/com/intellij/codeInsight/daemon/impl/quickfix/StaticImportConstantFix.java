@@ -55,7 +55,7 @@ public class StaticImportConstantFix extends StaticImportMemberFix<PsiField, Psi
 
   @Override
   public @NotNull IntentionPreviewInfo generatePreview(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile psiFile) {
-    return generatePreview(psiFile, (__, field) -> AddSingleMemberStaticImportAction.bindAllClassRefs(psiFile, field, field.getName(), field.getContainingClass()));
+    return generatePreview(psiFile, (_, field) -> AddSingleMemberStaticImportAction.bindAllClassRefs(psiFile, field, field.getName(), field.getContainingClass()));
   }
 
   @Override

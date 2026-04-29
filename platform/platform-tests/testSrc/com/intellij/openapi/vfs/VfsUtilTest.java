@@ -338,7 +338,7 @@ public class VfsUtilTest extends BareTestFixtureTestCase {
 
   @Test(timeout = 20_000)
   public void testScanNewChildrenMustNotBeRunOutsideOfProjectRoots() throws Exception {
-    checkNewDirAndRefresh(__-> {}, getAllExcludedCalled -> assertFalse(getAllExcludedCalled.get()));
+    checkNewDirAndRefresh(_-> {}, getAllExcludedCalled -> assertFalse(getAllExcludedCalled.get()));
   }
 
   @Test(timeout = 20_000)

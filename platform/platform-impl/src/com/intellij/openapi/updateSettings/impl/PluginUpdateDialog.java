@@ -158,7 +158,7 @@ public class PluginUpdateDialog extends DialogWrapper {
       }
     };
     PluginManagerConfigurablePanel.registerCopyProvider(myPluginsPanel);
-    myPluginsPanel.setSelectionListener(__ -> myDetailsPage.showPlugins(myPluginsPanel.getSelection()));
+    myPluginsPanel.setSelectionListener(_ -> myDetailsPage.showPlugins(myPluginsPanel.getSelection()));
 
     for (PluginUiModel descriptor : updates) {
       myGroup.addModel(descriptor);

@@ -938,7 +938,7 @@ public final class ShowUsagesAction extends AnAction implements PopupAction, Hin
       VirtualFile file = editor.getVirtualFile();
       int offset = editor.getCaretModel().getOffset();
       if (file == null || offset <= 0) {
-        return __ -> false;
+        return _ -> false;
       }
 
       int line = editor.getDocument().getLineNumber(offset);
@@ -959,7 +959,7 @@ public final class ShowUsagesAction extends AnAction implements PopupAction, Hin
         return false;
       };
     }
-    return __ -> false;
+    return _ -> false;
   }
 
   private static boolean showPopupIfNeedTo(@NotNull JBPopup popup, @NotNull RelativePoint popupPosition, @NotNull Ref<? super Long> popupShownTime) {
@@ -1189,7 +1189,7 @@ public final class ShowUsagesAction extends AnAction implements PopupAction, Hin
       }.installOn(table);
 
       builder.setAutoselectOnMouseMove(false).setCloseOnEnter(false).
-        registerKeyboardAction(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), __ -> WriteIntentReadAction.run(itemChoseCallback));
+        registerKeyboardAction(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), _ -> WriteIntentReadAction.run(itemChoseCallback));
 
       Runnable updatePreviewRunnable = () -> {
         if (popupRef.get().isDisposed()) return;

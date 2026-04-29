@@ -243,7 +243,7 @@ public final class GitLogUtil {
       handler.endOptions();
 
       Tracer tracer = TelemetryManager.getInstance().getTracer(VcsScope);
-      runWithSpanThrows(tracer.spanBuilder(Log.LoadingCommitMetadata.getName()).setAttribute("rootName", root.getName()), __ -> {
+      runWithSpanThrows(tracer.spanBuilder(Log.LoadingCommitMetadata.getName()).setAttribute("rootName", root.getName()), _ -> {
         GitLogOutputSplitter<GitLogRecord> handlerListener = new GitLogOutputSplitter<>(handler, parser, recordConsumer);
         Git.getInstance().runCommandWithoutCollectingOutput(handler).throwOnError();
         handlerListener.reportErrors();

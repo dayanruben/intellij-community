@@ -383,7 +383,7 @@ public class LightBulbTest extends ProductionDaemonAnalyzerTestCase {
     LOG.debug("=============================");
     HighlightInfo error = assertOneElement(myTestDaemonCodeAnalyzer.waitHighlightingSurviveCancellations(getFile(), HighlightSeverity.ERROR));
     assertEquals(new TextRange(0, 1), TextRange.create(error));
-    assertNotNull(error.toString(), error.findRegisteredQuickFix((descriptor, _1) -> descriptor.getAction() instanceof MyDumbFix fix ? fix : null));
+    assertNotNull(error.toString(), error.findRegisteredQuickFix((descriptor, _) -> descriptor.getAction() instanceof MyDumbFix fix ? fix : null));
     assertSameElements(collected, dumbFac);
     assertSameElements(applied, dumbFac);
     collected.clear();

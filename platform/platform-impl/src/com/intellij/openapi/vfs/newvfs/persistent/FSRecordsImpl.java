@@ -162,7 +162,7 @@ public final class FSRecordsImpl implements Closeable {
     ExceptionUtil.rethrow(error);
   };
 
-  public static final ErrorHandler ON_ERROR_RETHROW = (__, error) -> {
+  public static final ErrorHandler ON_ERROR_RETHROW = (_, error) -> {
     ExceptionUtil.rethrow(error);
   };
 

@@ -222,11 +222,11 @@ public final class ProjectDataManagerImpl implements ProjectDataManager {
     finally {
       if (importSucceeded) {
         ExternalSystemTelemetryUtil.runWithSpan(projectSystemId, "runFinalTasks",
-                                                __ -> runFinalTasks(project, projectPath, onSuccessImportTasks));
+                                                _ -> runFinalTasks(project, projectPath, onSuccessImportTasks));
       }
       else {
         ExternalSystemTelemetryUtil.runWithSpan(projectSystemId, "runFinalTasks",
-                                                __ -> runFinalTasks(project, projectPath, onFailureImportTasks));
+                                                _ -> runFinalTasks(project, projectPath, onFailureImportTasks));
       }
       if (!importSucceeded) {
         dispose(modelsProvider, project, true);

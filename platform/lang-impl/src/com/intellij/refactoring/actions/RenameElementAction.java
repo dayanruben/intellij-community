@@ -79,7 +79,7 @@ public class RenameElementAction extends DumbAwareAction {
         return;
       }
 
-      List<Renamer> allRenamers = Utils.computeWithProgressIcon(e.getDataContext(), e.getPlace(), __ -> ReadAction.computeBlocking(
+      List<Renamer> allRenamers = Utils.computeWithProgressIcon(e.getDataContext(), e.getPlace(), _ -> ReadAction.computeBlocking(
         () -> getAvailableRenamers(dataContext).toList()));
 
       List<Renamer> availableRenamers = ContainerUtil.filter(allRenamers, DumbService.getInstance(project)::isUsableInCurrentContext);

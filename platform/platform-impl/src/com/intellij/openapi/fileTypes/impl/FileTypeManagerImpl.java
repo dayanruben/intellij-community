@@ -476,7 +476,7 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
 
   private void removeFromDuplicates(@NotNull FileType type, @NotNull PluginDescriptor pluginDescriptor) {
     fileTypesPerPlugin
-      .computeIfAbsent(pluginDescriptor, __ -> ConcurrentCollectionFactory.createConcurrentSet())
+      .computeIfAbsent(pluginDescriptor, _ -> ConcurrentCollectionFactory.createConcurrentSet())
       .removeIf(descriptor -> descriptor.fileType().equals(type));
   }
 
@@ -1621,7 +1621,7 @@ public class FileTypeManagerImpl extends FileTypeManagerEx implements Persistent
   }
 
   private void checkFileTypeNamesUniqueness(@NotNull FileTypeWithDescriptor newDescriptor) {
-    fileTypesPerPlugin.computeIfAbsent(newDescriptor.pluginDescriptor(), __ -> ConcurrentHashMap.newKeySet()).add(newDescriptor);
+    fileTypesPerPlugin.computeIfAbsent(newDescriptor.pluginDescriptor(), _ -> ConcurrentHashMap.newKeySet()).add(newDescriptor);
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       checkUnique();
     }

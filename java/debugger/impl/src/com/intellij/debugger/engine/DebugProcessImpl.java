@@ -623,7 +623,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       if (commandToken != null) {
         stepRequest.putProperty("commandToken", commandToken);
       }
-      DebuggerUtilsAsync.setEnabled(stepRequest, true).whenComplete((__, e) -> {
+      DebuggerUtilsAsync.setEnabled(stepRequest, true).whenComplete((_, e) -> {
         if (DebuggerUtilsAsync.unwrap(e) instanceof IllegalThreadStateException) {
           DebuggerUtilsAsync.deleteEventRequest(requestManager, stepRequest);
         }

@@ -383,7 +383,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     initializeTools(globalTools, localTools, globalSimpleTools);
 
     runGlobalTools(scope, inspectionManager, globalTools, isOfflineInspections);
-    TraceKt.use(tracer.spanBuilder("externalInspectionsAnalysis"), __ -> {
+    TraceKt.use(tracer.spanBuilder("externalInspectionsAnalysis"), _ -> {
       runExternalTools();
       return null;
     });
@@ -614,7 +614,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     if (document == null) return;
     DaemonProgressIndicator progressIndicator = assertUnderDaemonProgress();
     HighlightingSessionImpl.runInsideHighlightingSession(psiFile, null, new ProperTextRange(psiFile.getTextRange()), false, session -> {
-      InspectionProfileWrapper.runWithCustomInspectionWrapper(psiFile, __ -> new InspectionProfileWrapper(getCurrentProfile()), () -> {
+      InspectionProfileWrapper.runWithCustomInspectionWrapper(psiFile, _ -> new InspectionProfileWrapper(getCurrentProfile()), () -> {
         try {
           Map<LocalInspectionToolWrapper, List<ProblemDescriptor>> map =
             runInspectionEngine(localTools, psiFile, restrictRange, restrictRange, inspectInjectedPsi,
@@ -765,7 +765,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     }
     IJTracer tracer = TelemetryManager.getInstance().getTracer(GlobalInspectionScopeKt.GlobalInspectionScope);
     long refGraphTimestamp = System.currentTimeMillis();
-    TraceKt.use(tracer.spanBuilder("refGraphBuilding"), __ -> {
+    TraceKt.use(tracer.spanBuilder("refGraphBuilding"), _ -> {
       buildRefGraphIfNeeded(globalTools);
       return null;
     });
@@ -775,7 +775,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     SearchScope initialSearchScope = ReadAction.computeBlocking(scope::toSearchScope);
     boolean canBeExternalUsages = !scope.isTotalScope();
 
-    TraceKt.use(tracer.spanBuilder("globalInspectionsAnalysis"), __ -> {
+    TraceKt.use(tracer.spanBuilder("globalInspectionsAnalysis"), _ -> {
       for (Tools tools : globalTools) {
         for (ScopeToolState state : tools.getTools()) {
           if (!state.isEnabled()) continue;
@@ -1220,7 +1220,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
         Map<LocalInspectionToolWrapper, List<ProblemDescriptor>> map =
           runInspectionEngine(localTools, file, restrictRange, restrictRange, true,
                               myProgressIndicator,
-                              (__, ___) -> true);
+                              (_, _) -> true);
         for (Map.Entry<LocalInspectionToolWrapper, List<ProblemDescriptor>> entry : map.entrySet()) {
           LocalInspectionToolWrapper toolWrapper = entry.getKey();
           List<ProblemDescriptor> descriptors = entry.getValue();
@@ -1357,7 +1357,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
 
   @Override
   public @NotNull InspectionToolPresentation getPresentation(@NotNull InspectionToolWrapper<?, ?> toolWrapper) {
-    return myPresentationMap.computeIfAbsent(toolWrapper, __ -> {
+    return myPresentationMap.computeIfAbsent(toolWrapper, _ -> {
       String presentationClass = toolWrapper.myEP == null ? null : toolWrapper.myEP.presentation;
       if (StringUtil.isEmpty(presentationClass)) {
         if (myProblemConsumer != null) {

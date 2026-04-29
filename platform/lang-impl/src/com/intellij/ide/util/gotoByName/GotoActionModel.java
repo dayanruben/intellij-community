@@ -471,7 +471,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
 
     boolean hasRegisteredChild = ContainerUtil.exists(actions, action -> myActionManager.getId(action) != null);
     if (!hasRegisteredChild) {
-      GroupMapping mapping = actionGroups.computeIfAbsent(group, __ -> new GroupMapping(showNonPopupGroups));
+      GroupMapping mapping = actionGroups.computeIfAbsent(group, _ -> new GroupMapping(showNonPopupGroups));
       mapping.addPath(path);
     }
 
@@ -482,7 +482,7 @@ public final class GotoActionModel implements ChooseByNameModel, Comparator<Obje
         collectActions(actionGroups, (ActionGroup)action, newPath, showNonPopupGroups);
       }
       else {
-        GroupMapping mapping = actionGroups.computeIfAbsent(action, __ -> new GroupMapping(showNonPopupGroups));
+        GroupMapping mapping = actionGroups.computeIfAbsent(action, _ -> new GroupMapping(showNonPopupGroups));
         mapping.addPath(newPath);
       }
     }

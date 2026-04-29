@@ -197,7 +197,7 @@ public final class VfsImplUtil {
         ourHandlerCache.put(localPath, record);
 
         forEachDirectoryComponent(localPath, containingDirectoryPath -> {
-          var handlers = ourDominatorsMap.computeIfAbsent(containingDirectoryPath, __ -> new HashSet<>());
+          var handlers = ourDominatorsMap.computeIfAbsent(containingDirectoryPath, _ -> new HashSet<>());
           handlers.add(localPath);
         });
       }

@@ -178,7 +178,7 @@ public final class HighlightingSessionImpl implements HighlightingSession {
     // no assertIsDispatchThread() is necessary
     Map<PsiFile, List<HighlightingSession>> map = ConcurrencyUtil.computeIfAbsent(progressIndicator, HIGHLIGHTING_SESSION, () -> new ConcurrentHashMap<>());
     HighlightingSessionImpl session = new HighlightingSessionImpl(psiFile, progressIndicator, editorColorsScheme, visibleRange, canChangeFileSilently, daemonCancelEventCount);
-    map.compute(psiFile, (__, oldSessions) -> ContainerUtil.append(ContainerUtil.notNullize(oldSessions), session));
+    map.compute(psiFile, (_, oldSessions) -> ContainerUtil.append(ContainerUtil.notNullize(oldSessions), session));
     return session;
   }
 
@@ -303,7 +303,7 @@ public final class HighlightingSessionImpl implements HighlightingSession {
                                                @NotNull HighlightingSessionImpl session) {
     Map<PsiFile, List<HighlightingSession>> map = progressIndicator.getUserData(HIGHLIGHTING_SESSION);
     if (map != null) {
-      map.compute(psiFile, (__, oldSessions) -> ContainerUtil.getLastItem(oldSessions) == session ?
+      map.compute(psiFile, (_, oldSessions) -> ContainerUtil.getLastItem(oldSessions) == session ?
                                                 ContainerUtil.nullize(List.copyOf(oldSessions.subList(0, oldSessions.size() - 1))) :
                                                 oldSessions);
       if (LOG.isTraceEnabled()) {

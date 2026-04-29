@@ -100,7 +100,7 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 @ApiStatus.Internal
 public final class NonBlockingReadActionImpl<T> implements NonBlockingReadAction<T> {
   private static final Logger LOG = Logger.getInstance(NonBlockingReadActionImpl.class);
-  private static final Executor SYNC_DUMMY_EXECUTOR = __ -> {
+  private static final Executor SYNC_DUMMY_EXECUTOR = _ -> {
     throw new UnsupportedOperationException();
   };
 
@@ -922,7 +922,7 @@ public final class NonBlockingReadActionImpl<T> implements NonBlockingReadAction
             completeJob();
           }
         }
-      }, builder.myModalityState, __ -> isCancelled());
+      }, builder.myModalityState, _ -> isCancelled());
     }
 
     @Override

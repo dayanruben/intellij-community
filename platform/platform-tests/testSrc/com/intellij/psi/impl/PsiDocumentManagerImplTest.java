@@ -1103,7 +1103,7 @@ public class PsiDocumentManagerImplTest extends HeavyPlatformTestCase {
           for (int i=0;i<5_000;i++) {
             PsiFile mainFile = findFile(createFile());
             Document doc = getDocument(mainFile);
-            psiDocumentManager.addRunOnCommit(doc, __ ->{
+            psiDocumentManager.addRunOnCommit(doc, _ ->{
               assertFalse(ApplicationManager.getApplication().isWriteAccessAllowed()); // sync commit runs in write action
             });
             WriteCommandAction.runWriteCommandAction(getProject(), () -> doc.insertString(0, " "));
@@ -1122,7 +1122,7 @@ public class PsiDocumentManagerImplTest extends HeavyPlatformTestCase {
     int rightLimit = 122; // letter 'z'
 
     Random random = new Random();
-    return IntStream.range(0, length / 10).flatMap(__->IntStream.concat(random.ints(leftLimit, rightLimit + 1)
+    return IntStream.range(0, length / 10).flatMap(_ ->IntStream.concat(random.ints(leftLimit, rightLimit + 1)
       .filter(i -> (i <= 57 || i >= 65) && (i <= 90 || i >= 97))
       .limit(10), IntStream.of(32)))
       .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
@@ -1207,7 +1207,7 @@ public class PsiDocumentManagerImplTest extends HeavyPlatformTestCase {
       PsiDocumentManagerImpl psiDocumentManager = getPsiDocumentManager();
       psiDocumentManager.executeTestInProductionMode(() -> {
         try {
-          VirtualFile virtualFile = createTempFiles(1).get(0).getVirtualFile();
+          VirtualFile virtualFile = createTempFiles(1).getFirst().getVirtualFile();
           FileDocumentManager.getInstance().saveAllDocuments();
           TimeoutUtil.sleep(10); // make future running
           int N = 100;

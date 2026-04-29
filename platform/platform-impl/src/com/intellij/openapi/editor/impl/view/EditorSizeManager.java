@@ -436,7 +436,7 @@ final class EditorSizeManager implements PrioritizedDocumentListener, Disposable
 
   private void validateMaxLineWithExtension() {
     if (myMaxLineWithExtensionWidth > 0) {
-      boolean hasNoExtensions = myEditor.processLineExtensions(myWidestLineWithExtension, __ -> false);
+      boolean hasNoExtensions = myEditor.processLineExtensions(myWidestLineWithExtension, _ -> false);
       if (hasNoExtensions) {
         myMaxLineWithExtensionWidth = 0;
       }

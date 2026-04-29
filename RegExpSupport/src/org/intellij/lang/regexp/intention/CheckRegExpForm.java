@@ -276,7 +276,7 @@ public final class CheckRegExpForm {
               setMatches(regExpFile, null);
             }
             ApplicationManager.getApplication()
-              .invokeLater(() -> reportResult(result, regExpFile), ModalityState.any(), __ -> updater.isDisposed());
+              .invokeLater(() -> reportResult(result, regExpFile), ModalityState.any(), _ -> updater.isDisposed());
           }, 0);
         }
       }

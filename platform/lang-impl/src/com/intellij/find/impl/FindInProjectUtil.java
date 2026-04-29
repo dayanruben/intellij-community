@@ -678,7 +678,7 @@ public final class FindInProjectUtil {
     fileFilter.setEnabled(false);
 
     useFileFilter.addActionListener(
-      __ -> {
+      _ -> {
         if (useFileFilter.isSelected()) {
           fileFilter.setEnabled(true);
           fileFilter.getEditor().selectAll();

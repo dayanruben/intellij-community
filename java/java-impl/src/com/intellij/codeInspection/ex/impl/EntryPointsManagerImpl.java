@@ -94,7 +94,7 @@ public final class EntryPointsManagerImpl extends EntryPointsManagerBase impleme
 
   public static JButton createConfigureAnnotationsButton(Project project, boolean implicitWritesOnly) {
     JButton configureAnnotations = new JButton(JavaBundle.message("button.annotations"));
-    configureAnnotations.addActionListener(__ -> getInstance(project).configureAnnotations(implicitWritesOnly));
+    configureAnnotations.addActionListener(_ -> getInstance(project).configureAnnotations(implicitWritesOnly));
     return configureAnnotations;
   }
 

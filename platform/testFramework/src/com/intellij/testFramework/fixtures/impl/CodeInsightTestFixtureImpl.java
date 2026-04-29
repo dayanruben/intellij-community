@@ -331,7 +331,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   private static void addGutterIconRenderer(GutterMark renderer, int offset, @NotNull Map<? super Integer, List<GutterMark>> result) {
     if (renderer == null) return;
 
-    List<GutterMark> renderers = result.computeIfAbsent(offset, __ -> new SmartList<>());
+    List<GutterMark> renderers = result.computeIfAbsent(offset, _ -> new SmartList<>());
     renderers.add(renderer);
   }
 

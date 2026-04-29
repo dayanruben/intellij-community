@@ -300,10 +300,10 @@ public class DaemonLineMarkersRespondToChangesTest extends ProductionDaemonAnaly
       """;
     configureByText(JavaFileType.INSTANCE, text);
 
-    GutterIconNavigationHandler<PsiFile> MY_NAVIGATION_HANDLER = (_1, _2) -> { };
+    GutterIconNavigationHandler<PsiFile> MY_NAVIGATION_HANDLER = (_, _) -> { };
     LineMarkerProvider provider = element -> {
       if (element instanceof PsiFile psiFile) {
-        return new LineMarkerInfo<>(psiFile, element.getTextRange(), AllIcons.Ide.Dislike, (_3) -> "my tooltip", MY_NAVIGATION_HANDLER, GutterIconRenderer.Alignment.LEFT, () -> "");
+        return new LineMarkerInfo<>(psiFile, element.getTextRange(), AllIcons.Ide.Dislike, (_) -> "my tooltip", MY_NAVIGATION_HANDLER, GutterIconRenderer.Alignment.LEFT, () -> "");
       }
       return null;
     };

@@ -515,7 +515,7 @@ public final class InspectionEngine {
 
       boolean applyToDialects = tool.applyToDialects();
       Map<String, Boolean> map = applyToDialects ? resultsWithDialects : resultsNoDialects;
-      return map.computeIfAbsent(toolLanguageId, __ ->
+      return map.computeIfAbsent(toolLanguageId, _ ->
         ToolLanguageUtil.isToolLanguageOneOf(tool.runForWholeFile() ? elementDialectIdsForWholeFileTool : elementDialectIdsForRegularTool, toolLanguageId, applyToDialects));
     });
   }

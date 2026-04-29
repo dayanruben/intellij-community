@@ -163,7 +163,7 @@ public final class LeakHunter {
                                        @Nullable Predicate<? super T> isReallyLeak,
                                        @Nullable Predicate<? super DebugReflectionUtil.BackLink<?>> leakBackLinkProcessor,
                                        @NotNull PairProcessor<? super T, Object> processor) {
-    return DebugReflectionUtil.walkObjects(1_000, 1_000_000, rootsSupplier.get(), suspectClass, __ -> true, (leaked, backLink) -> {
+    return DebugReflectionUtil.walkObjects(1_000, 1_000_000, rootsSupplier.get(), suspectClass, _ -> true, (leaked, backLink) -> {
       if (leakBackLinkProcessor != null && leakBackLinkProcessor.test(backLink)) {
         return true;
       }

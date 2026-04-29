@@ -88,7 +88,7 @@ import static com.intellij.ui.border.NamedBorderKt.withName;
 public class EditorNotificationPanel extends JPanel implements IntentionActionProvider, Weighted {
 
   private static final Supplier<EditorColorsScheme> GLOBAL_SCHEME_SUPPLIER = () -> EditorColorsManager.getInstance().getGlobalScheme();
-  private static final Consumer<Class<?>> VOID_CONSUMER = __ -> {
+  private static final Consumer<Class<?>> VOID_CONSUMER = _ -> {
   };
   private static final String BORDER_WITHOUT_STATUS = "borderWithoutStatus";
   private static final String BORDER_WITH_STATUS = "borderWithStatus";

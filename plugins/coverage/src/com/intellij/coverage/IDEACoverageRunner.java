@@ -131,7 +131,7 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
       TargetPaths targetPaths = TargetPaths.ordered(builder -> {
         builder
           .download(sessionDataFilePath,
-                         __ -> {
+                         _ -> {
                            createFileOrClearExisting(sessionDataFilePath);
                            return Unit.INSTANCE;
                          },
@@ -151,8 +151,8 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
                            }
                            return Unit.INSTANCE;
                          })
-        .upload(agentPath, __ -> Unit.INSTANCE, __ -> Unit.INSTANCE)
-        .upload(tempFilePath, __ -> Unit.INSTANCE, __ -> Unit.INSTANCE);
+        .upload(agentPath, _ -> Unit.INSTANCE, _ -> Unit.INSTANCE)
+        .upload(tempFilePath, _ -> Unit.INSTANCE, _ -> Unit.INSTANCE);
         return Unit.INSTANCE;
       });
 

@@ -499,7 +499,7 @@ public final class MethodParameterInfoHandler
         SmartPsiElementPointer<PsiExpressionList> exprListPtr = SmartPointerManager.getInstance(expressionList.getProject())
           .createSmartPsiElementPointer(expressionList);
         inlaysPromise = ParameterHintsPass.asyncUpdate(expressionList.getParent(), editor)
-          .then(__ -> collectInlaysToHighlight(editor, currentHintIndex, presentationManager, expressionCount, exprListPtr));
+          .then(_ -> collectInlaysToHighlight(editor, currentHintIndex, presentationManager, expressionCount, exprListPtr));
       }
     }
     inlaysPromise.onSuccess(inlays -> {

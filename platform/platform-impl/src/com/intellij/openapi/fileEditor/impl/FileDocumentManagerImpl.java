@@ -1098,7 +1098,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
 
 
     FileDocumentManagerListenerBackgroundableBridge() {
-      InvocationHandler handler = (__, method, args) -> {
+      InvocationHandler handler = (_, method, args) -> {
         if (method.getDeclaringClass() != FileDocumentManagerListener.class) {
           // only FileDocumentManagerListener methods should be called on this proxy
           throw new UnsupportedOperationException(method.toString());

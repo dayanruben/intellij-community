@@ -66,7 +66,7 @@ final class LineMarkersUtil {
         if (info != null && info.updatePass == group || group == -1 ||
             // (recycle) zombie line marker immediately because similar-looking line markers don't merge, unlike regular HighlightInfos
             HighlightingNecromancer.isZombieMarkup(highlighter) && highlighter.getGutterIconRenderer() != null) {
-          recycler.computeIfAbsent(((RangeMarkerImpl)highlighter).getScalarRange(), __ -> new ArrayList<>()).add(highlighter);
+          recycler.computeIfAbsent(((RangeMarkerImpl)highlighter).getScalarRange(), _ -> new ArrayList<>()).add(highlighter);
         }
         return true;
       }
@@ -178,7 +178,7 @@ final class LineMarkersUtil {
       allIsClear = markupModel.processRangeHighlightersOverlappingWith(markerInfo.startOffset, markerInfo.endOffset,
         highlighter -> {
           if (HighlightingNecromancer.isZombieMarkup(highlighter)) {
-            recycler.computeIfAbsent(((RangeMarkerImpl)highlighter).getScalarRange(), __ -> new ArrayList<>()).add(highlighter);
+            recycler.computeIfAbsent(((RangeMarkerImpl)highlighter).getScalarRange(), _ -> new ArrayList<>()).add(highlighter);
             return true;
           }
           LineMarkerInfo<?> info = getLineMarkerInfo(highlighter);

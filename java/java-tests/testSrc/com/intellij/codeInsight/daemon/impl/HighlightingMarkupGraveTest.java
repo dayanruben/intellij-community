@@ -182,7 +182,7 @@ public class HighlightingMarkupGraveTest extends DaemonAnalyzerTestCase {
   }
 
   private TextEditor openTextEditorForDaemonTest(Project project, VirtualFile file) {
-    List<FileEditor> editors = TasksKt.runWithModalProgressBlocking(project, "", (_1, _2) ->
+    List<FileEditor> editors = TasksKt.runWithModalProgressBlocking(project, "", (_, _) ->
       FileEditorManagerEx.getInstanceEx(project).openFile(file));
     return ContainerUtil.findInstance(editors, TextEditor.class);
   }

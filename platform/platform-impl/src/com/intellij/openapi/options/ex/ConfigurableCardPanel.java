@@ -84,7 +84,7 @@ public class ConfigurableCardPanel extends CardLayoutPanel<Configurable, Configu
           //dispose resources -> reset nested component
           wrapper.disposeUIResources();
           resetValue(wrapper);
-        }, ModalityState.stateForComponent(this), (__) -> this.isDisposed());
+        }, ModalityState.stateForComponent(this), (_) -> this.isDisposed());
       };
 
       for (BaseExtensionPointName dependency : dependencies) {

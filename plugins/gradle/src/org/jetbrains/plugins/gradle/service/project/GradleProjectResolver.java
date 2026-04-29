@@ -482,7 +482,7 @@ public final class GradleProjectResolver implements ExternalSystemProjectResolve
     }
     resolverContext.putUserData(GRADLE_HOME_DIR, gradleHomeDir);
 
-    ExternalSystemTelemetryUtil.runWithSpan(GradleConstants.SYSTEM_ID, "PopulateModules", __ -> {
+    ExternalSystemTelemetryUtil.runWithSpan(GradleConstants.SYSTEM_ID, "PopulateModules", _ -> {
       for (final Pair<DataNode<ModuleData>, IdeaModule> pair : moduleMap.values()) {
         final DataNode<ModuleData> moduleDataNode = pair.first;
         final IdeaModule ideaModule = pair.second;
@@ -940,8 +940,8 @@ public final class GradleProjectResolver implements ExternalSystemProjectResolve
     @Nullable DefaultProjectResolverContext resolverContext
   ) {
     Predicate<GradleProjectResolverExtension> extensionsFilter =
-      resolverContext == null ? __ -> true :
-      resolverContext.getPolicy() == null ? __ -> true :
+      resolverContext == null ? _ -> true :
+      resolverContext.getPolicy() == null ? _ -> true :
       resolverContext.getPolicy().getExtensionsFilter();
     Stream<GradleProjectResolverExtension> extensions = GradleProjectResolverUtil.createProjectResolvers(resolverContext)
       .filter(extensionsFilter.or(BaseResolverExtension.class::isInstance));

@@ -331,7 +331,7 @@ public final class FileStructurePopup implements Disposable, TreeActionsOwner, S
 
   public Promise<TreePath> showWithResult() {
     JComponent panel = createCenterPanel();
-    myTree.addTreeSelectionListener(__ -> {
+    myTree.addTreeSelectionListener(_ -> {
       if (myPopup.isVisible()) {
         PopupUpdateProcessor updateProcessor = myPopup.getUserData(PopupUpdateProcessor.class);
         if (updateProcessor != null) {

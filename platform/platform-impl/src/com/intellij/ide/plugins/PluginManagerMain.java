@@ -71,7 +71,7 @@ public final class PluginManagerMain {
                                                   @NotNull ModalityState modalityState,
                                                   @Nullable Runnable cleanup) throws IOException {
     return downloadPlugins(plugins, customPlugins, false, onSuccess, pluginEnabler, modalityState,
-                           cleanup != null ? __ -> cleanup.run() : null);
+                           cleanup != null ? _ -> cleanup.run() : null);
   }
 
   public static boolean downloadPlugins(@NotNull List<PluginNode> plugins,

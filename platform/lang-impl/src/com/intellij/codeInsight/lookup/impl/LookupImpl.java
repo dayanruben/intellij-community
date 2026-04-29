@@ -789,7 +789,7 @@ public class LookupImpl extends LightweightHint implements LookupEx, Disposable,
     if (fireBeforeItemSelected(item, completionChar)) {
       if (item instanceof CompletionItemLookupElement wrapper) {
         PsiFile file = Objects.requireNonNull(getPsiFile(), "PsiFile must be known for ModCommand completion");
-        editor.getCaretModel().runForEachCaret(__ -> {
+        editor.getCaretModel().runForEachCaret(_ -> {
           insertItem(completionChar, editor, editor.getCaretModel().getOffset() - getPrefixLength(item), file, wrapper);
         });
       } else {
@@ -839,7 +839,7 @@ public class LookupImpl extends LightweightHint implements LookupEx, Disposable,
 
     item.putUserData(CodeCompletionHandlerBase.ITEM_PATTERN_AND_PREFIX_LENGTH, new FinishCompletionInfo(itemPattern, prefixLength));
 
-    editor.getCaretModel().runForEachCaret(__ -> {
+    editor.getCaretModel().runForEachCaret(_ -> {
       EditorModificationUtilEx.deleteSelectedText(editor);
       int caretOffset = editor.getCaretModel().getOffset();
       LookupElementInsertStopper element = item.as(LookupElementInsertStopper.class);

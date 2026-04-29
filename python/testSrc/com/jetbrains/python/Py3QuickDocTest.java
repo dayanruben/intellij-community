@@ -329,7 +329,7 @@ public class Py3QuickDocTest extends LightMarkedTestCase {
             Return the number of items of a sequence or collection.
             ""\"
             return 0""",
-      (__) -> checkHTMLOnly()
+      (_) -> checkHTMLOnly()
     );
   }
 
@@ -370,7 +370,7 @@ public class Py3QuickDocTest extends LightMarkedTestCase {
             def count(self, value): # real signature unknown; restored from __doc__
                 ""\" L.count(value) -> integer -- return number of occurrences of value ""\"
                 return 0""",
-      (__) -> checkHTMLOnly()
+      (_) -> checkHTMLOnly()
     );
   }
 

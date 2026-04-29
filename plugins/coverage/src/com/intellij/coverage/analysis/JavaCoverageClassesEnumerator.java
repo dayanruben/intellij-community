@@ -62,7 +62,7 @@ public abstract class JavaCoverageClassesEnumerator {
     Map<RootRequestKey, RootRequestData> requests = new LinkedHashMap<>();
     for (RequestRoot request : roots) {
       RootRequestKey key = new RootRequestKey(request.getRoot(), request.getPackagePathInRoot());
-      requests.computeIfAbsent(key, __ -> new RootRequestData()).addRequest(request.getSimpleName());
+      requests.computeIfAbsent(key, _ -> new RootRequestData()).addRequest(request.getSimpleName());
     }
     for (Map.Entry<RootRequestKey, RootRequestData> entry : requests.entrySet()) {
       RootRequestKey key = entry.getKey();
@@ -142,7 +142,7 @@ public abstract class JavaCoverageClassesEnumerator {
     String topLevelClassSrcFQName = AnalysisUtils.getSourceToplevelFQName(classFqVMName);
     if (requestedTopLevelNames != null && !requestedTopLevelNames.contains(topLevelClassSrcFQName)) return;
     TopLevelClassKey key = new TopLevelClassKey(topLevelClassSrcFQName, packageVMName);
-    topLevelClasses.computeIfAbsent(key, __ -> new ArrayList<>()).add(classFile);
+    topLevelClasses.computeIfAbsent(key, _ -> new ArrayList<>()).add(classFile);
   }
 
   private void updateProgress() {

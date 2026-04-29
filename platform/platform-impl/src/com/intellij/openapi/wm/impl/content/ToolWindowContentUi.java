@@ -122,7 +122,7 @@ public final class ToolWindowContentUi implements ContentUI, UiCompatibleDataPro
 
   private ToolWindowContentUiType type;
 
-  public Predicate<Point> isResizableArea = __ -> true;
+  public Predicate<Point> isResizableArea = _ -> true;
 
   private final JPanel tabComponent = new TabPanel();
   private final DefaultActionGroup tabActionGroup = new DefaultActionGroup();

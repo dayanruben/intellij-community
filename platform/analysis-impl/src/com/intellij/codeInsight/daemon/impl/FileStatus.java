@@ -97,7 +97,7 @@ final class FileStatus {
   }
 
   void combineScopesWith(@NotNull TextRange newScope, @NotNull Document document) {
-    dirtyScopes.replaceAll((__, oldScope) -> combineScopes(oldScope, newScope, document));
+    dirtyScopes.replaceAll((_, oldScope) -> combineScopes(oldScope, newScope, document));
   }
 
   @Nullable RangeMarker getDirtyScope(int passId) {

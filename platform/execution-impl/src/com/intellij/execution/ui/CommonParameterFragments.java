@@ -199,8 +199,8 @@ public final class CommonParameterFragments<Settings extends CommonProgramRunCon
       null,
       jLabel,
       SettingsEditorFragmentType.HEADER,
-      (__, ___) -> {},
-      (__, ___) -> {},
+      (_, _) -> {},
+      (_, _) -> {},
       Predicates.alwaysTrue()
     );
     fragment.setCanBeHidden(false);

@@ -318,15 +318,15 @@ final class InspectionRunner {
 
   private void registerSuppressedElements(@NotNull PsiElement element, @NotNull LocalInspectionToolWrapper tool) {
     String id = tool.getID();
-    mySuppressedElements.computeIfAbsent(id, __ -> new HashSet<>()).add(element);
+    mySuppressedElements.computeIfAbsent(id, _ -> new HashSet<>()).add(element);
     String alternativeID = tool.getAlternativeID();
     if (alternativeID != null && !alternativeID.equals(id)) {
-      mySuppressedElements.computeIfAbsent(alternativeID, __ -> new HashSet<>()).add(element);
+      mySuppressedElements.computeIfAbsent(alternativeID, _ -> new HashSet<>()).add(element);
     }
     InspectionElementsMerger elementsMerger = InspectionElementsMerger.getMerger(tool.getShortName());
     if (elementsMerger != null) {
       for (String suppressId : elementsMerger.getSuppressIds()) {
-        mySuppressedElements.computeIfAbsent(suppressId, __ -> new HashSet<>()).add(element);
+        mySuppressedElements.computeIfAbsent(suppressId, _ -> new HashSet<>()).add(element);
       }
     }
   }
