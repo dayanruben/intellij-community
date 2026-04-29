@@ -49,7 +49,7 @@ open class TeamCityCIServer(
 
   override fun reportTestFailure(
     testName: String, message: String, details: String, linkToLogs: String?,
-    kind: SyntheticTestKind,
+    kind: SyntheticTestKind, generifyTestName: Boolean
   ) {
     val metadata = buildList {
       linkToLogs?.let { add(TestMetadata(name = "Link to Logs and artifacts", value = it, type = TeamCityReporter.MetadataType.LINK)) }
@@ -60,7 +60,7 @@ open class TeamCityCIServer(
     }
     TeamCityReporter.reportTestLifecycle(testName, TestOutcome.FAILED, message, details,
                                          owner = codeOwnerResolver.getOwnerGroupName(),
-                                         metadata = metadata, syntheticTestKind = kind)
+                                         metadata = metadata, syntheticTestKind = kind, generifyTestName = generifyTestName)
   }
 
   override fun ignoreTestFailure(

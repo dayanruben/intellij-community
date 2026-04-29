@@ -20,7 +20,7 @@ object NoCIServer : CIServer {
 
   override fun reportTestFailure(
     testName: String, message: String, details: String, linkToLogs: String?,
-    kind: SyntheticTestKind,
+    kind: SyntheticTestKind, generifyTestName: Boolean,
   ) {
     logError("""
       No logic for reporting test failure has been implemented.

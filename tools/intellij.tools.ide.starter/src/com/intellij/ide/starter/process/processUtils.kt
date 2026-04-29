@@ -79,7 +79,7 @@ suspend fun findAndKillLeftoverProcessesFromTestRuns(reportErrors: Boolean = fal
                                                       substringToSearch.joinToString(", ")
                                                     }'.\n" +
                                                     processInfosToKill.joinToString("\n") { it.description }, details = "",
-                                          kind = SyntheticTestKind.TEST_INFRA_EXCEPTION)
+                                          kind = SyntheticTestKind.TEST_INFRA_EXCEPTION, generifyTestName = false)
     }
   }
 }

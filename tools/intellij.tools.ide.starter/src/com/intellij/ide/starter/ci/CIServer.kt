@@ -17,7 +17,7 @@ interface CIServer {
                       artifactPath: String,
                       artifactName: String = source.fileName.toString())
 
-  fun reportTestFailure(testName: String, message: String, details: String, linkToLogs: String? = null, kind: SyntheticTestKind)
+  fun reportTestFailure(testName: String, message: String, details: String, linkToLogs: String? = null, kind: SyntheticTestKind, generifyTestName: Boolean = true)
 
   fun ignoreTestFailure(testName: String, message: String, details: String? = null, kind: SyntheticTestKind)
 
