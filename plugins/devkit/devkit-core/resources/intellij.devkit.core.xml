@@ -136,6 +136,12 @@
 
     <registryKey defaultValue="false" description="Enables experimental new remote dev module in intellij repository"
                  key="devkit.new.remdev.module.action"/>
+    <registryKey key="devkit.remote.dev.split.mode.analysis.transitive.dependencies" defaultValue="true"
+                 description="Enables transitive descriptor dependency analysis for DevKit split-mode inspections."/>
+    <registryKey key="devkit.remote.dev.split.mode.analysis.containing.plugins" defaultValue="false"
+                 description="Enables containing plugin descriptor analysis for DevKit split-mode inspections."/>
+    <registryKey key="devkit.remote.dev.split.mode.inspections.skip.predefined" defaultValue="true"
+                 description="Skips DevKit Split Mode inspections in modules and XML descriptors with predefined module kinds."/>
     <registryKey key="devkit.obsolete.new.file.actions.enabled" defaultValue="false"
                  description="Enables old-fashioned File-New actions for plugin modules"/>
 

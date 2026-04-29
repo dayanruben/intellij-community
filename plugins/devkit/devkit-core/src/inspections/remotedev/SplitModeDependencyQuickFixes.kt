@@ -15,45 +15,58 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.roots.ModuleOrderEntry
+import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.xml.XmlFile
 import org.jetbrains.idea.devkit.DevKitBundle.message
 import org.jetbrains.idea.devkit.dom.IdeaPlugin
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.getExplicitPlatformDependencyName
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.resolveDependencyKind
 import org.jetbrains.idea.devkit.module.PluginModuleType
 import org.jetbrains.idea.devkit.util.DescriptorUtil
 
 internal object SplitModeDependencyQuickFixes {
   fun createMismatchFixes(
-    moduleName: String,
-    moduleAnalysis: ModuleAnalysis,
+    module: Module,
+    currentDescriptor: IdeaPlugin?,
     desiredModuleKind: SplitModeApiRestrictionsService.ModuleKind,
   ): Array<LocalQuickFix> {
-    if (desiredModuleKind != SplitModeApiRestrictionsService.ModuleKind.FRONTEND
-        && desiredModuleKind != SplitModeApiRestrictionsService.ModuleKind.BACKEND) {
+    val desiredSplitKinds = desiredModuleKind.toFixableSplitKinds()
+    if (desiredSplitKinds.isEmpty()) {
       return emptyArray()
     }
 
-    val fixes = ArrayList<LocalQuickFix>()
-    if (shouldOfferMakeOnlyDependenciesFix(moduleAnalysis.dependencyAnalysis, desiredModuleKind)) {
-      fixes.add(MakeModuleOnlyKindDependenciesFix(moduleName, desiredModuleKind))
+    val availableDependencies = getRuntimeDependencies(module, currentDescriptor)
+    val fixes = mutableListOf<LocalQuickFix>()
+    for (splitKind in desiredSplitKinds) {
+      if (shouldOfferMakeOnlyDependenciesFix(availableDependencies, splitKind)) {
+        fixes.add(MakeModuleOnlyKindDependenciesFix(module.name, splitKind))
+      }
+      if (shouldOfferAddExplicitDependencyFix(availableDependencies, splitKind)) {
+        fixes.add(AddExplicitPlatformDependencyFix(module.name, splitKind))
+      }
     }
-    if (shouldOfferAddExplicitDependencyFix(moduleAnalysis.dependencyAnalysis, desiredModuleKind)) {
-      fixes.add(AddExplicitPlatformDependencyFix(moduleName, desiredModuleKind))
+    if (shouldOfferMonolithDependencyFix(availableDependencies)) {
+      fixes.add(AddExplicitPlatformDependencyFix(module.name, SplitModeApiRestrictionsService.ModuleKind.MONOLITH))
     }
-    fixes.add(AddExplicitPlatformDependencyFix(moduleName, SplitModeApiRestrictionsService.ModuleKind.MONOLITH))
     return fixes.toTypedArray()
   }
 
-  fun createMixedModuleFixes(moduleName: String, dependencyAnalysis: DependencyAnalysis): Array<LocalQuickFix> {
-    val fixes = ArrayList<LocalQuickFix>()
-    if (dependencyAnalysis.declaresBackendDependencies) {
-      fixes.add(MakeModuleOnlyKindDependenciesFix(moduleName, SplitModeApiRestrictionsService.ModuleKind.FRONTEND))
+  fun createMixedModuleFixes(module: Module, currentDescriptor: IdeaPlugin?): Array<LocalQuickFix> {
+    val availableDependencies = getRuntimeDependencies(module, currentDescriptor)
+    val fixes = mutableListOf<LocalQuickFix>()
+    if (shouldOfferMakeOnlyDependenciesFix(availableDependencies, SplitModeApiRestrictionsService.ModuleKind.FRONTEND)) {
+      fixes.add(MakeModuleOnlyKindDependenciesFix(module.name, SplitModeApiRestrictionsService.ModuleKind.FRONTEND))
     }
-    if (dependencyAnalysis.declaresFrontendDependencies) {
-      fixes.add(MakeModuleOnlyKindDependenciesFix(moduleName, SplitModeApiRestrictionsService.ModuleKind.BACKEND))
+    if (shouldOfferMakeOnlyDependenciesFix(availableDependencies, SplitModeApiRestrictionsService.ModuleKind.BACKEND)) {
+      fixes.add(MakeModuleOnlyKindDependenciesFix(module.name, SplitModeApiRestrictionsService.ModuleKind.BACKEND))
     }
-    fixes.add(AddExplicitPlatformDependencyFix(moduleName, SplitModeApiRestrictionsService.ModuleKind.MONOLITH))
+    if (shouldOfferMonolithDependencyFix(availableDependencies)) {
+      fixes.add(AddExplicitPlatformDependencyFix(module.name, SplitModeApiRestrictionsService.ModuleKind.MONOLITH))
+    }
     return fixes.toTypedArray()
   }
 
@@ -62,61 +75,97 @@ internal object SplitModeDependencyQuickFixes {
   }
 
   private fun shouldOfferMakeOnlyDependenciesFix(
-    dependencyAnalysis: DependencyAnalysis,
+    availableDependencies: DependenciesForFixAvailability,
     desiredModuleKind: SplitModeApiRestrictionsService.ModuleKind,
   ): Boolean {
     return when (desiredModuleKind) {
-      SplitModeApiRestrictionsService.ModuleKind.FRONTEND -> dependencyAnalysis.declaresBackendDependencies
-      SplitModeApiRestrictionsService.ModuleKind.BACKEND -> dependencyAnalysis.declaresFrontendDependencies
+      SplitModeApiRestrictionsService.ModuleKind.FRONTEND,
+      SplitModeApiRestrictionsService.ModuleKind.BACKEND,
+        -> hasRuntimeDependencyToRemove(availableDependencies, desiredModuleKind)
+            || hasCompileDependencyToRemove(availableDependencies, desiredModuleKind)
       SplitModeApiRestrictionsService.ModuleKind.MONOLITH,
       SplitModeApiRestrictionsService.ModuleKind.MIXED,
       SplitModeApiRestrictionsService.ModuleKind.SHARED,
+      is SplitModeApiRestrictionsService.ModuleKind.Composite,
         -> false
     }
   }
 
   private fun shouldOfferAddExplicitDependencyFix(
-    dependencyAnalysis: DependencyAnalysis,
+    availableDependencies: DependenciesForFixAvailability,
     desiredModuleKind: SplitModeApiRestrictionsService.ModuleKind,
   ): Boolean {
     return when (desiredModuleKind) {
       SplitModeApiRestrictionsService.ModuleKind.FRONTEND -> {
-        !dependencyAnalysis.declaresExplicitFrontendDependencies
-        && !dependencyAnalysis.hasBackendDependencies
-        && !dependencyAnalysis.declaresExplicitBackendDependencies
+        !hasRuntimeDependencyToRemove(availableDependencies, desiredModuleKind)
+        && !hasCompileDependencyToRemove(availableDependencies, desiredModuleKind)
+        && isExplicitDependencyActionable(availableDependencies, desiredModuleKind)
       }
       SplitModeApiRestrictionsService.ModuleKind.BACKEND -> {
-        !dependencyAnalysis.declaresExplicitBackendDependencies
-        && !dependencyAnalysis.hasFrontendDependencies
-        && !dependencyAnalysis.declaresExplicitFrontendDependencies
+        !hasRuntimeDependencyToRemove(availableDependencies, desiredModuleKind)
+        && !hasCompileDependencyToRemove(availableDependencies, desiredModuleKind)
+        && isExplicitDependencyActionable(availableDependencies, desiredModuleKind)
       }
       SplitModeApiRestrictionsService.ModuleKind.MONOLITH,
       SplitModeApiRestrictionsService.ModuleKind.MIXED,
       SplitModeApiRestrictionsService.ModuleKind.SHARED,
+      is SplitModeApiRestrictionsService.ModuleKind.Composite,
         -> false
     }
+  }
+
+  private fun shouldOfferMonolithDependencyFix(availableDependencies: DependenciesForFixAvailability): Boolean {
+    return hasRuntimeDependencyToRemove(availableDependencies, SplitModeApiRestrictionsService.ModuleKind.MONOLITH)
+           || hasCompileDependencyToRemove(availableDependencies, SplitModeApiRestrictionsService.ModuleKind.MONOLITH)
+           || isExplicitDependencyActionable(availableDependencies, SplitModeApiRestrictionsService.ModuleKind.MONOLITH)
+  }
+
+  private fun hasRuntimeDependencyToRemove(
+    availableDependencies: DependenciesForFixAvailability,
+    desiredModuleKind: SplitModeApiRestrictionsService.ModuleKind,
+  ): Boolean {
+    return availableDependencies.runtimeDependencies.any { shouldRemoveDependency(it, desiredModuleKind) }
+  }
+
+  private fun hasCompileDependencyToRemove(
+    availableDependencies: DependenciesForFixAvailability,
+    desiredModuleKind: SplitModeApiRestrictionsService.ModuleKind,
+  ): Boolean {
+    return availableDependencies.compileDependencies.any { shouldRemoveDependency(it, desiredModuleKind) }
+  }
+
+  private fun isExplicitDependencyActionable(
+    availableDependencies: DependenciesForFixAvailability,
+    desiredModuleKind: SplitModeApiRestrictionsService.ModuleKind,
+  ): Boolean {
+    val dependencyName = getExplicitPlatformDependencyName(desiredModuleKind)
+    return dependencyName !in availableDependencies.runtimeDependencies || dependencyName !in availableDependencies.compileDependencies
   }
 
   private class MakeModuleOnlyKindDependenciesFix(
     private val moduleName: String,
     private val desiredModuleKind: SplitModeApiRestrictionsService.ModuleKind,
   ) : LocalQuickFix {
+
     override fun getName(): String {
-      return message("inspection.remote.dev.make.module.work.in.kind.only.fix.name", moduleName, desiredModuleKind.presentableName)
+      return message("inspection.remote.dev.make.module.work.in.kind.only.fix.name", moduleName, desiredModuleKind.id)
     }
 
     override fun getFamilyName(): String {
-      return message("inspection.remote.dev.make.only.kind.dependencies.fix.name", desiredModuleKind.presentableName)
+      return message("inspection.remote.dev.make.only.kind.dependencies.fix.name", desiredModuleKind.id)
     }
 
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-      val ideaPlugin = findModuleDescriptor(descriptor) ?: return
+      val ideaPlugin = findQuickFixTargetDescriptor(descriptor) ?: return
       val module = findTargetModule(descriptor)
       val xmlFile = ideaPlugin.xmlElement?.containingFile ?: return
       if (!IntentionPreviewUtils.prepareElementForWrite(xmlFile)) return
 
       removeInappropriateDependencies(ideaPlugin, module, desiredModuleKind)
-      runJpsToBazelConverter(project)
+      if (!IntentionPreviewUtils.isIntentionPreviewActive()) {
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        runJpsToBazelConverter(project)
+      }
     }
   }
 
@@ -124,32 +173,85 @@ internal object SplitModeDependencyQuickFixes {
     private val moduleName: String,
     private val desiredModuleKind: SplitModeApiRestrictionsService.ModuleKind,
   ) : LocalQuickFix {
+    private val explicitDependencyName = getExplicitPlatformDependencyName(desiredModuleKind)
+
     override fun getName(): String {
-      return message("inspection.remote.dev.make.module.work.in.kind.only.fix.name", moduleName, desiredModuleKind.presentableName)
+      return message("inspection.remote.dev.make.module.work.in.kind.only.fix.name", moduleName, desiredModuleKind.id)
     }
 
     override fun getFamilyName(): String {
-      return message("inspection.remote.dev.missing.runtime.dependency.fix.add", getExplicitPlatformDependencyName(desiredModuleKind))
+      return message("inspection.remote.dev.missing.runtime.dependency.fix.add", explicitDependencyName)
     }
 
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-      val ideaPlugin = findModuleDescriptor(descriptor) ?: return
+      val ideaPlugin = findQuickFixTargetDescriptor(descriptor) ?: return
       val module = findTargetModule(descriptor)
       val xmlFile = ideaPlugin.xmlElement?.containingFile ?: return
       if (!IntentionPreviewUtils.prepareElementForWrite(xmlFile)) return
 
       removeInappropriateDependencies(ideaPlugin, module, desiredModuleKind)
 
-      val dependencyName = getExplicitPlatformDependencyName(desiredModuleKind)
-      if (!hasDirectDependency(ideaPlugin, dependencyName)) {
+      if (!hasDirectDependency(ideaPlugin, explicitDependencyName)) {
         val newModuleEntry = ideaPlugin.dependencies.addModuleEntry()
-        newModuleEntry.name.stringValue = dependencyName
+        newModuleEntry.name.stringValue = explicitDependencyName
       }
 
-      addModuleDependency(module, dependencyName)
-      runJpsToBazelConverter(project)
+      addModuleDependency(module, explicitDependencyName)
+      if (!IntentionPreviewUtils.isIntentionPreviewActive()) {
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        runJpsToBazelConverter(project)
+      }
     }
   }
+}
+
+private data class DependenciesForFixAvailability(
+  val runtimeDependencies: Set<String>,
+  val compileDependencies: Set<String>,
+)
+
+private fun getRuntimeDependencies(module: Module, currentDescriptor: IdeaPlugin?): DependenciesForFixAvailability {
+  val targetDescriptor = currentDescriptor ?: findFallbackDescriptorForQuickFix(module)
+  return DependenciesForFixAvailability(
+    runtimeDependencies = getRuntimeDependencies(targetDescriptor),
+    compileDependencies = getCompileDependencies(module),
+  )
+}
+
+private fun getRuntimeDependencies(ideaPlugin: IdeaPlugin?): Set<String> {
+  if (ideaPlugin == null) {
+    return emptySet()
+  }
+
+  return sequence {
+    for (dependency in ideaPlugin.depends) {
+      val dependencyName = dependency.rawText ?: dependency.stringValue ?: continue
+      yield(dependencyName)
+    }
+
+    val dependencies = ideaPlugin.dependencies
+    if (!dependencies.isValid) {
+      return@sequence
+    }
+
+    for (moduleEntry in dependencies.moduleEntry) {
+      val dependencyName = moduleEntry.name.stringValue ?: continue
+      yield(dependencyName)
+    }
+
+    for (pluginEntry in dependencies.plugin) {
+      val dependencyName = pluginEntry.id.stringValue ?: continue
+      yield(dependencyName)
+    }
+  }.toSet()
+}
+
+private fun getCompileDependencies(module: Module): Set<String> {
+  return ModuleRootManager.getInstance(module).orderEntries
+    .asSequence()
+    .filterIsInstance<ModuleOrderEntry>()
+    .map { it.moduleName }
+    .toSet()
 }
 
 private fun removeInappropriateDependencies(
@@ -186,7 +288,7 @@ private fun removeInappropriateDependencies(
   removeInappropriateModuleDependencies(module, desiredModuleKind)
 }
 
-private fun findModuleDescriptor(descriptor: ProblemDescriptor): IdeaPlugin? {
+private fun findQuickFixTargetDescriptor(descriptor: ProblemDescriptor): IdeaPlugin? {
   val containingFile = descriptor.psiElement.containingFile
   if (containingFile is XmlFile) {
     val ideaPlugin = DescriptorUtil.getIdeaPlugin(containingFile)
@@ -196,6 +298,10 @@ private fun findModuleDescriptor(descriptor: ProblemDescriptor): IdeaPlugin? {
   }
 
   val module = ModuleUtilCore.findModuleForPsiElement(descriptor.psiElement) ?: return null
+  return findFallbackDescriptorForQuickFix(module)
+}
+
+private fun findFallbackDescriptorForQuickFix(module: Module): IdeaPlugin? {
   val descriptorFile = PluginModuleType.getContentModuleDescriptorXml(module) ?: PluginModuleType.getPluginXml(module) ?: return null
   return DescriptorUtil.getIdeaPlugin(descriptorFile)
 }
@@ -256,7 +362,7 @@ private fun shouldRemoveDependency(
   dependencyName: String,
   desiredModuleKind: SplitModeApiRestrictionsService.ModuleKind,
 ): Boolean {
-  val dependencyKind = SplitModeApiRestrictionsService.getInstance().getDependencyKind(dependencyName)
+  val dependencyKind = resolveDependencyKind(dependencyName)
   return when (desiredModuleKind) {
     SplitModeApiRestrictionsService.ModuleKind.FRONTEND -> {
       dependencyKind == SplitModeApiRestrictionsService.ModuleKind.BACKEND
@@ -270,9 +376,22 @@ private fun shouldRemoveDependency(
       dependencyName == getExplicitPlatformDependencyName(SplitModeApiRestrictionsService.ModuleKind.FRONTEND)
       || dependencyName == getExplicitPlatformDependencyName(SplitModeApiRestrictionsService.ModuleKind.BACKEND)
     }
-    SplitModeApiRestrictionsService.ModuleKind.MIXED, SplitModeApiRestrictionsService.ModuleKind.SHARED -> {
+    else -> {
       false
     }
+  }
+}
+
+private fun SplitModeApiRestrictionsService.ModuleKind.toFixableSplitKinds(): List<SplitModeApiRestrictionsService.ModuleKind> {
+  return when (this) {
+    SplitModeApiRestrictionsService.ModuleKind.FRONTEND,
+    SplitModeApiRestrictionsService.ModuleKind.BACKEND,
+      -> listOf(this)
+    is SplitModeApiRestrictionsService.ModuleKind.Composite -> moduleKinds.flatMap { it.toFixableSplitKinds() }.distinct()
+    SplitModeApiRestrictionsService.ModuleKind.MONOLITH,
+    SplitModeApiRestrictionsService.ModuleKind.MIXED,
+    SplitModeApiRestrictionsService.ModuleKind.SHARED,
+      -> emptyList()
   }
 }
 
@@ -285,13 +404,4 @@ private fun hasDirectDependency(ideaPlugin: IdeaPlugin, dependencyName: String):
   return dependencies.isValid
          && (dependencies.moduleEntry.any { it.name.stringValue == dependencyName }
            || dependencies.plugin.any { it.id.stringValue == dependencyName })
-}
-
-internal fun getExplicitPlatformDependencyName(moduleKind: SplitModeApiRestrictionsService.ModuleKind): String {
-  return when (moduleKind) {
-    SplitModeApiRestrictionsService.ModuleKind.FRONTEND -> FRONTEND_PLATFORM_MODULE_BASE_NAME
-    SplitModeApiRestrictionsService.ModuleKind.BACKEND -> BACKEND_PLATFORM_MODULE_BASE_NAME
-    SplitModeApiRestrictionsService.ModuleKind.MONOLITH -> MONOLITH_PLATFORM_MODULE_BASE_NAME
-    SplitModeApiRestrictionsService.ModuleKind.MIXED, SplitModeApiRestrictionsService.ModuleKind.SHARED -> error("Explicit split-mode dependency is only supported for frontend/backend/monolith module kinds")
-  }
 }
