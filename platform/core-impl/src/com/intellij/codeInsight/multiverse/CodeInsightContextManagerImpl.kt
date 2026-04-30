@@ -16,6 +16,7 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListenerBackgroundable
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.psi.FileViewProvider
 import com.intellij.psi.impl.PsiManagerEx
 import com.intellij.util.AtomicMapCache
@@ -25,7 +26,6 @@ import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.containers.CollectionFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -43,8 +43,7 @@ class CodeInsightContextManagerImpl(
   private val project: Project,
   private val cs: CoroutineScope,
 ) : CodeInsightContextManager, Disposable.Default {
-  private val invalidationJob = SupervisorJob(cs.coroutineContext[Job])
-  val invalidationCs: CoroutineScope = CoroutineScope(cs.coroutineContext + invalidationJob)
+  private val invalidationCs: CoroutineScope = cs.childScope("active-invalidations")
 
   companion object {
     @JvmStatic
@@ -66,7 +65,7 @@ class CodeInsightContextManagerImpl(
 
   @TestOnly
   fun isContextInvalidationComplete(): Boolean {
-    return invalidationJob.children.toList().isEmpty()
+    return invalidationCs.coroutineContext[Job]!!.children.toList().isEmpty()
   }
 
   private fun invalidateAllContexts() {
