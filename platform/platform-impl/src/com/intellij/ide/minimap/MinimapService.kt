@@ -26,6 +26,7 @@ import javax.swing.JLayeredPane
 import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.ScrollPaneLayout
+import javax.swing.border.Border
 
 @Service(Service.Level.APP)
 class MinimapService(private val scope: CoroutineScope) : Disposable {
@@ -200,10 +201,12 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
     val scrollPane = layeredPane.components.filterIsInstance<JScrollPane>().firstOrNull() ?: return
 
     val originalLayout = scrollPane.layout as? ScrollPaneLayout
+    val originalViewportBorder = scrollPane.viewportBorder
 
     editor.putUserData(MINI_MAP_SCROLLBAR_STATE_KEY, MinimapScrollbarState(
       scrollPane = scrollPane,
       originalLayout = originalLayout,
+      originalViewportBorder = originalViewportBorder,
     ))
 
     // Add minimap as a direct child of the scroll pane; the custom layout positions it
@@ -211,6 +214,7 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
     // keeping PanelWithFloatingToolbar.doLayout() and the inspection toolbar working correctly.
     scrollPane.add(minimapPanel)
     scrollPane.layout = MinimapScrollPaneLayout(minimapPanel)
+    scrollPane.viewportBorder = MinimapScrollPaneLayout.createViewportBorder(scrollPane, minimapPanel, originalViewportBorder)
   }
 
   private fun removeMinimap(editor: EditorImpl) {
@@ -229,6 +233,7 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
         panelsToClose.add(mp)
         state.scrollPane.remove(mp)
       }
+      state.scrollPane.viewportBorder = state.originalViewportBorder
       state.originalLayout?.let { state.scrollPane.layout = it }
       editor.putUserData(MINI_MAP_SCROLLBAR_STATE_KEY, null)
     }
@@ -245,6 +250,7 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
   private data class MinimapScrollbarState(
     val scrollPane: JScrollPane,
     val originalLayout: ScrollPaneLayout?,
+    val originalViewportBorder: Border?,
   )
 
   companion object {
