@@ -679,7 +679,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
       if (Registry.is("hyperlink.ide.decompiler.open.file") &&
           EDT.isCurrentThreadEdt() &&
           !ApplicationManager.getApplication().isWriteAccessAllowed() &&
-          BinaryFileTypeDecompilers.getInstance().isBinaryWithDecompiler(file.getVirtualFile())) {
+          BinaryFileTypeDecompilers.getInstance().hasDecompiler(file.getVirtualFile())) {
         ProgressManager.getInstance()
           .runProcessWithProgressSynchronously(() ->
                                                  ReadAction.computeCancellable(

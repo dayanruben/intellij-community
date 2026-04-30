@@ -33,7 +33,6 @@ import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorImpl;
 import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers;
-import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.fileTypes.UnknownFileType;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -669,7 +668,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
   }
 
   private static boolean isBinaryWithDecompiler(@NotNull VirtualFile file) {
-    return BinaryFileTypeDecompilers.getInstance().isBinaryWithDecompiler(file);
+    return BinaryFileTypeDecompilers.getInstance().hasDecompiler(file);
   }
 
   static final class MyAsyncFileListener implements AsyncFileListener {

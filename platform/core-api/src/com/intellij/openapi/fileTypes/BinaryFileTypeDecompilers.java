@@ -8,6 +8,7 @@ import com.intellij.openapi.components.Service;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.KeyedLazyInstance;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -56,6 +57,18 @@ public final class BinaryFileTypeDecompilers extends FileTypeExtension<BinaryFil
     finally {
       allowDecompilerSlowOperation(false);
     }
+  }
+
+  /**
+   * Determines if a given file is a binary file and has a corresponding decompiler.
+   *
+   * @param file the virtual file to check; must not be null.
+   * @return {@code true} if the file is binary and has an associated decompiler; {@code false} otherwise.
+   */
+  @ApiStatus.Experimental
+  public boolean hasDecompiler(@NotNull VirtualFile file) {
+    FileType type = file.getFileType();
+    return type.isBinary() && forFileType(type) != null;
   }
 
   private final ThreadLocal<Boolean> myAllowDecompileOnEDT = ThreadLocal.withInitial(() -> false);

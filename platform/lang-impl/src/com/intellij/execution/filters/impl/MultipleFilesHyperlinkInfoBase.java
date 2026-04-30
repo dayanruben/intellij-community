@@ -19,7 +19,6 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers;
-import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.registry.Registry;
@@ -86,7 +85,7 @@ public abstract class MultipleFilesHyperlinkInfoBase extends HyperlinkInfoBase i
   private void open(@NotNull VirtualFile file, Editor originalEditor) {
     Document document;
     if (Registry.is("hyperlink.ide.decompiler.open.file") &&
-        BinaryFileTypeDecompilers.getInstance().isBinaryWithDecompiler(file) &&
+        BinaryFileTypeDecompilers.getInstance().hasDecompiler(file) &&
         EDT.isCurrentThreadEdt() &&
         !ApplicationManager.getApplication().isWriteAccessAllowed()) {
       document = ProgressManager.getInstance()
