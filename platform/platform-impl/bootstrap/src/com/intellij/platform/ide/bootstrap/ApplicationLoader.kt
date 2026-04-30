@@ -7,6 +7,7 @@ package com.intellij.platform.ide.bootstrap
 import com.intellij.diagnostic.COROUTINE_DUMP_HEADER
 import com.intellij.diagnostic.LoadingState
 import com.intellij.diagnostic.PluginException
+import com.intellij.diagnostic.ProgressIndicatorDumper
 import com.intellij.diagnostic.WriteLockMeasurer
 import com.intellij.diagnostic.dumpCoroutines
 import com.intellij.diagnostic.logs.LogLevelConfigurationManager
@@ -61,8 +62,6 @@ import com.intellij.openapi.extensions.impl.ExtensionPointImpl
 import com.intellij.openapi.extensions.impl.ExtensionsAreaImpl
 import com.intellij.openapi.extensions.useOrLogError
 import com.intellij.openapi.keymap.KeymapManager
-import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.impl.CoreProgressManager
 import com.intellij.openapi.updateSettings.impl.UpdateSettings
 import com.intellij.openapi.util.SystemPropertyBean
 import com.intellij.openapi.util.io.OSAgnosticPathUtil
@@ -93,7 +92,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
-import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.VisibleForTesting
 import java.io.IOException
 import java.nio.charset.StandardCharsets
@@ -373,7 +371,6 @@ private suspend fun enableCoroutineDumpAndJstack() {
   }
 }
 
-private const val PROGRESS_INDICATOR_DUMP: @NonNls String = "---------- ProgressIndicator dump ----------"
 
 private suspend fun enableLockMonitoring(application: ApplicationImpl) {
   application.serviceAsync<WriteLockMeasurer>()
@@ -386,8 +383,8 @@ private suspend fun enableJstack() {
 $COROUTINE_DUMP_HEADER
 ${dumpCoroutines(stripDump = false)}
 
-$PROGRESS_INDICATOR_DUMP
-${(ProgressManager.getInstance() as? CoreProgressManager)?.progressStateRepresentation}
+${ProgressIndicatorDumper.PROGRESS_INDICATOR_DUMP_HEADER}
+${ProgressIndicatorDumper.dumpProgressIndicatorState() ?: "No progress indicator dump"}
 """
     }
   }
