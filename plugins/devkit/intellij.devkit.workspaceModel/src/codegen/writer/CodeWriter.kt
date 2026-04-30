@@ -3,6 +3,7 @@ package com.intellij.devkit.workspaceModel.codegen.writer
 
 import com.intellij.application.options.CodeStyle
 import com.intellij.application.options.codeStyle.cache.CodeStyleCachingService
+import com.intellij.copyright.withCopyrightUpdateDisabled
 import com.intellij.devkit.workspaceModel.CodegenJarLoader
 import com.intellij.devkit.workspaceModel.DevKitWorkspaceModelBundle
 import com.intellij.devkit.workspaceModel.codegen.writer.CodeWriter.addGeneratedObjModuleFile
@@ -108,84 +109,85 @@ object CodeWriter {
 
     val commandName = DevKitWorkspaceModelBundle.message("command.name.generate.code.for.workspace.entities.in", sourceFolder.name)
 
-    withModalProgress(project, commandName) {
-      reportRawProgress { reporter ->
-        reporter.text(DevKitWorkspaceModelBundle.message("progress.text.collecting.classes.metadata"))
-        val (objModules, metaProblems) = readAction {
-          service<WorkspaceMetaModelProvider>().loadObjModules(ktClasses, module, processAbstractTypes, isTestSourceFolder)
-        }
-        if (metaProblems.isNotEmpty()) {
-          WorkspaceCodegenProblemsProvider.getInstance(project).reportMetaProblem(metaProblems)
-          return@withModalProgress
-        }
+    withCopyrightUpdateDisabled(project) {
+      withModalProgress(project, commandName) {
+        reportRawProgress { reporter ->
+          reporter.text(DevKitWorkspaceModelBundle.message("progress.text.collecting.classes.metadata"))
+          val (objModules, metaProblems) = readAction {
+            service<WorkspaceMetaModelProvider>().loadObjModules(ktClasses, module, processAbstractTypes, isTestSourceFolder)
+          }
+          if (metaProblems.isNotEmpty()) {
+            WorkspaceCodegenProblemsProvider.getInstance(project).reportMetaProblem(metaProblems)
+            return@withModalProgress
+          }
 
-        val results = generate(codeGenerator, objModules, explicitApiEnabled, isTestModule)
-        val generatedCode = results.flatMap { it.generatedCode }
-        val problems = results.flatMap { it.problems }
-        WorkspaceCodegenProblemsProvider.getInstance(project).reportProblems(problems)
+          val results = generate(codeGenerator, objModules, explicitApiEnabled, isTestModule)
+          val generatedCode = results.flatMap { it.generatedCode }
+          val problems = results.flatMap { it.problems }
+          WorkspaceCodegenProblemsProvider.getInstance(project).reportProblems(problems)
 
-        if (generatedCode.isEmpty() || problems.any { it.level == GenerationProblem.Level.ERROR }) {
-          return@withModalProgress
-        }
+          if (generatedCode.isEmpty() || problems.any { it.level == GenerationProblem.Level.ERROR }) {
+            return@withModalProgress
+          }
 
-        val genFolder = existingTargetFolder.invoke() ?: targetFolderGenerator.invoke()
-        if (genFolder == null) {
-          LOG.info("Generated source folder doesn't exist. Skip processing source folder with path: ${sourceFolder}")
-          return@withModalProgress
-        }
+          val genFolder = existingTargetFolder.invoke() ?: targetFolderGenerator.invoke()
+          if (genFolder == null) {
+            LOG.info("Generated source folder doesn't exist. Skip processing source folder with path: ${sourceFolder}")
+            return@withModalProgress
+          }
 
-        reporter.text(DevKitWorkspaceModelBundle.message("progress.text.removing.old.code"))
-        writeCommandActionWithGroupId(project, commandName) {
-          removeGeneratedCode(genFolder)
-        }
-
-        reporter.text(DevKitWorkspaceModelBundle.message("progress.text.writing.code"))
-
-        val importsByFile = FactoryMap.create<KtFile, Imports> { Imports(it.packageFqName.asString()) }
-        generatedCode.forEachIndexed { i, code ->
+          reporter.text(DevKitWorkspaceModelBundle.message("progress.text.removing.old.code"))
           writeCommandActionWithGroupId(project, commandName) {
-            val psiFactory = KtPsiFactory(project)
-            reporter.fraction(0.15 + 0.1 * i / generatedCode.size)
-            when (code) {
-              is ObjModuleFileGeneratedCode ->
-                addGeneratedObjModuleFile(
-                  code, generatedFiles, project,
-                  sourceFolder, genFolder,
-                  sourceFilePerObjModule, importsByFile, psiFactory)
-              is ObjClassGeneratedCode ->
-                addGeneratedObjClassFile(
-                  code, generatedFiles, project,
-                  sourceFolder, genFolder,
-                  ktClasses, importsByFile, psiFactory,
-                )
+            removeGeneratedCode(genFolder)
+          }
+
+          reporter.text(DevKitWorkspaceModelBundle.message("progress.text.writing.code"))
+
+          val importsByFile = FactoryMap.create<KtFile, Imports> { Imports(it.packageFqName.asString()) }
+          generatedCode.forEachIndexed { i, code ->
+            writeCommandActionWithGroupId(project, commandName) {
+              val psiFactory = KtPsiFactory(project)
+              reporter.fraction(0.15 + 0.1 * i / generatedCode.size)
+              when (code) {
+                is ObjModuleFileGeneratedCode ->
+                  addGeneratedObjModuleFile(
+                    code, generatedFiles, project,
+                    sourceFolder, genFolder,
+                    sourceFilePerObjModule, importsByFile, psiFactory)
+                is ObjClassGeneratedCode ->
+                  addGeneratedObjClassFile(
+                    code, generatedFiles, project,
+                    sourceFolder, genFolder,
+                    ktClasses, importsByFile, psiFactory,
+                  )
+              }
             }
           }
-        }
-        writeCommandActionWithGroupId(project, commandName) {
-          importsByFile.forEach { (file, imports) ->
-            addImports(file, imports)
+          writeCommandActionWithGroupId(project, commandName) {
+            importsByFile.forEach { (file, imports) ->
+              addImports(file, imports)
+            }
           }
-        }
-        if (!formatCode) return@withModalProgress
+          if (!formatCode) return@withModalProgress
 
-        reporter.text(DevKitWorkspaceModelBundle.message("progress.title.project.analysis"))
+          reporter.text(DevKitWorkspaceModelBundle.message("progress.title.project.analysis"))
 
-        DumbService.getInstance(project).waitForSmartMode()
-
-        reporter.text(DevKitWorkspaceModelBundle.message("progress.title.reformatting.code"))
-
-        for ((i, file) in generatedFiles.withIndex()) {
-          reporter.fraction(0.25 + 0.7 * i / generatedFiles.size)
           DumbService.getInstance(project).waitForSmartMode()
-          // this has to be invoked outside EDT because the callback scheduleWhenSettingsComputed is invoked on EDT
-          file.awaitCodeStyleCalculation()
 
-          writeCommandActionWithGroupId(project, commandName) {  // same groupId chains them
-            deleteAutomaticCopyright(file)
-            addCopyright(file, ktClasses)
-            LanguageImportStatements.INSTANCE.forFile(file).forEach { it.processFile(file).run() }
-            PsiDocumentManager.getInstance(file.project).doPostponedOperationsAndUnblockDocument(file.viewProvider.document!!)
-            CodeStyleManager.getInstance(project).reformat(file)
+          reporter.text(DevKitWorkspaceModelBundle.message("progress.title.reformatting.code"))
+
+          for ((i, file) in generatedFiles.withIndex()) {
+            reporter.fraction(0.25 + 0.7 * i / generatedFiles.size)
+            DumbService.getInstance(project).waitForSmartMode()
+            // this has to be invoked outside EDT because the callback scheduleWhenSettingsComputed is invoked on EDT
+            file.awaitCodeStyleCalculation()
+
+            writeCommandActionWithGroupId(project, commandName) {  // same groupId chains them
+              addCopyright(file, ktClasses)
+              LanguageImportStatements.INSTANCE.forFile(file).forEach { it.processFile(file).run() }
+              PsiDocumentManager.getInstance(file.project).doPostponedOperationsAndUnblockDocument(file.viewProvider.document!!)
+              CodeStyleManager.getInstance(project).reformat(file)
+            }
           }
         }
       }
@@ -200,17 +202,6 @@ object CodeWriter {
       latch.complete(Unit)
     }
     latch.await()
-  }
-
-  private fun deleteAutomaticCopyright(file: KtFile) { // delete copyright that is added by CopyrightManagerDocumentListener
-    val firstNonComment = file.fileAnnotationList?.node ?: file.packageDirective?.node ?: return
-    val parent = firstNonComment.treeParent
-    var nodeToRemove = firstNonComment.treePrev
-    while (nodeToRemove != null) {
-      val toRemove = nodeToRemove
-      nodeToRemove = nodeToRemove.treePrev
-      parent.removeChild(toRemove)
-    }
   }
 
   private fun addCopyright(file: KtFile, ktClasses: HashMap<String, KtClassOrObject>) {
