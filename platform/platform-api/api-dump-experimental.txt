@@ -271,29 +271,6 @@ a:com.intellij.ui.ColoredTreeCellRenderer
 *:com.intellij.ui.HtmlToSimpleColoredComponentConverter$StyleTagHandler
 - a:calcAttributes(javax.swing.text.html.HTML$Tag,javax.swing.text.MutableAttributeSet):com.intellij.ui.SimpleTextAttributes
 - extendWith(com.intellij.ui.HtmlToSimpleColoredComponentConverter$StyleTagHandler):com.intellij.ui.HtmlToSimpleColoredComponentConverter$StyleTagHandler
-*f:com.intellij.ui.ScrollableContentBorder
-- com.intellij.ui.SideBorder
-- *sf:Companion:com.intellij.ui.ScrollableContentBorder$Companion
-- sf:getTargetComponent(javax.swing.JScrollPane):javax.swing.JComponent
-- f:isVisible():Z
-- paintBorder(java.awt.Component,java.awt.Graphics,I,I,I,I):V
-- f:setVisible(Z):V
-- sf:setup(javax.swing.JComponent,com.intellij.ui.Side):V
-- sf:setup(javax.swing.JComponent,java.util.Set):V
-- sf:setup(javax.swing.JScrollPane,com.intellij.ui.Side):V
-- sf:setup(javax.swing.JScrollPane,com.intellij.ui.Side,javax.swing.JComponent):V
-- sf:setup(javax.swing.JScrollPane,java.util.Set):V
-- sf:setup(javax.swing.JScrollPane,java.util.Set,javax.swing.JComponent):V
-*f:com.intellij.ui.ScrollableContentBorder$Companion
-- f:getTargetComponent(javax.swing.JScrollPane):javax.swing.JComponent
-- f:setup(javax.swing.JComponent,com.intellij.ui.Side):V
-- f:setup(javax.swing.JComponent,java.util.Set):V
-- f:setup(javax.swing.JScrollPane,com.intellij.ui.Side):V
-- f:setup(javax.swing.JScrollPane,com.intellij.ui.Side,javax.swing.JComponent):V
-- f:setup(javax.swing.JScrollPane,java.util.Set):V
-- f:setup(javax.swing.JScrollPane,java.util.Set,javax.swing.JComponent):V
-- bs:setup$default(com.intellij.ui.ScrollableContentBorder$Companion,javax.swing.JScrollPane,com.intellij.ui.Side,javax.swing.JComponent,I,java.lang.Object):V
-- bs:setup$default(com.intellij.ui.ScrollableContentBorder$Companion,javax.swing.JScrollPane,java.util.Set,javax.swing.JComponent,I,java.lang.Object):V
 c:com.intellij.ui.SimpleColoredComponent
 - javax.swing.JComponent
 - com.intellij.ui.ColoredTextContainer
