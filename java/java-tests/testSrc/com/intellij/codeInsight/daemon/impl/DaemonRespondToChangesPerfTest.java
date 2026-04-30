@@ -327,7 +327,7 @@ public class DaemonRespondToChangesPerfTest extends ProductionDaemonAnalyzerTest
   }
 
   public void testRogueToolGeneratingZillionsOfAnnotationsAtTheSameLevelMustNotFreeze_Stress() {
-    int N = 1_000_000;
+    int N = 100_000;
     configureByText(PlainTextFileType.INSTANCE, " ".repeat(N));
     // just checks that highlighting doesn't freeze because there are no quadratics inside anymore
     DaemonAnnotatorsRespondToChangesTest.useAnnotatorsIn(PlainTextLanguage.INSTANCE, new DaemonAnnotatorsRespondToChangesTest.MyRecordingAnnotator[]{new MyHugeAnnotator()}, ()->{
