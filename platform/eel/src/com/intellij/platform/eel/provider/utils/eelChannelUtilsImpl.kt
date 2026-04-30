@@ -1,5 +1,5 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.platform.eel.impl.provider.utils
+package com.intellij.platform.eel.provider.utils
 
 import com.intellij.platform.eel.EelLowLevelObjectsPool
 import com.intellij.platform.eel.ReadResult
@@ -10,12 +10,6 @@ import com.intellij.platform.eel.channels.EelSendApi
 import com.intellij.platform.eel.channels.EelSendChannel
 import com.intellij.platform.eel.channels.EelSendChannelException
 import com.intellij.platform.eel.channels.sendWholeBuffer
-import com.intellij.platform.eel.provider.utils.EelOutputChannel
-import com.intellij.platform.eel.provider.utils.EelPipe
-import com.intellij.platform.eel.provider.utils.asEelChannel
-import com.intellij.platform.eel.provider.utils.consumeAsEelChannel
-import com.intellij.util.io.blockingDispatcher
-import com.intellij.util.io.computeDetached
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -64,7 +58,7 @@ internal class NioReadToEelAdapter(private val readableByteChannel: ReadableByte
   @OptIn(DelicateCoroutinesApi::class)
   override suspend fun receive(dst: ByteBuffer): ReadResult {
     if (!dst.hasRemaining()) return ReadResult.NOT_EOF
-    return withContext(blockingDispatcher) {
+    return withContext(unlimitedDispatcher) {
       var read = 0
       try {
         if (selector != null && readableByteChannel is SelectableChannel) {

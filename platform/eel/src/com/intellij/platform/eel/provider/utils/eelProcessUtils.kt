@@ -77,11 +77,11 @@ suspend fun EelProcess.awaitProcessResult(): EelProcessExecutionResult {
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-private val unlimitedDispatcher = Dispatchers.IO.limitedParallelism(parallelism = Int.MAX_VALUE)
+internal val unlimitedDispatcher = Dispatchers.IO.limitedParallelism(parallelism = Int.MAX_VALUE)
 
 // TODO: Move com.intellij.util.io.ProcessKt.computeDetached to intellij.platform.util.coroutines module, then remove this duplicate
 @DelicateCoroutinesApi
-private suspend fun <T> computeDetached(action: suspend CoroutineScope.() -> T): T {
+internal suspend fun <T> computeDetached(action: suspend CoroutineScope.() -> T): T {
   val deferred = GlobalScope.async(unlimitedDispatcher, block = action)
   try {
     return deferred.await()

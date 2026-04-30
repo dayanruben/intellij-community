@@ -29,7 +29,6 @@ import java.nio.channels.Channels
 import java.nio.channels.ReadableByteChannel
 import java.nio.channels.WritableByteChannel
 import java.nio.charset.Charset
-import java.util.ServiceLoader
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -46,28 +45,28 @@ import kotlin.time.Duration.Companion.milliseconds
 
 @ApiStatus.Experimental
 fun ReadableByteChannel.consumeAsEelChannel(): EelReceiveChannel =
-  EelChannelAdapterFactory.instance.wrapReadableChannel(this) { 0 }
+  NioReadToEelAdapter(this) { 0 }
 
 @ApiStatus.Experimental
 fun WritableByteChannel.asEelChannel(): EelSendChannel =
-  EelChannelAdapterFactory.instance.wrapWritableChannel(this, null)
+  NioWriteToEelAdapter(this, null)
 
 // Flushes data after each writing.
 @ApiStatus.Experimental
 fun OutputStream.asEelChannel(): EelSendChannel =
-  EelChannelAdapterFactory.instance.wrapWritableChannel(Channels.newChannel(this), this)
+  NioWriteToEelAdapter(Channels.newChannel(this), this)
 
 @ApiStatus.Experimental
 fun InputStream.consumeAsEelChannel(): EelReceiveChannel =
-  EelChannelAdapterFactory.instance.wrapReadableChannel(Channels.newChannel(this), this::available)
+  NioReadToEelAdapter(Channels.newChannel(this), this::available)
 
 @ApiStatus.Experimental
 fun EelReceiveChannel.consumeAsInputStream(blockingContext: CoroutineContext = Dispatchers.IO): InputStream =
-  EelChannelAdapterFactory.instance.wrapAsInputStream(this, blockingContext)
+  InputStreamAdapterImpl(this, blockingContext)
 
 @ApiStatus.Experimental
 fun EelSendChannel.asOutputStream(blockingContext: CoroutineContext = Dispatchers.IO): OutputStream =
-  EelChannelAdapterFactory.instance.wrapAsOutputStream(this, blockingContext)
+  OutputStreamAdapterImpl(this, blockingContext)
 
 /**
  * Reads data from [receiveChannel] and returns it from channel (until [receiveChannel] is closed)
@@ -76,7 +75,7 @@ fun EelSendChannel.asOutputStream(blockingContext: CoroutineContext = Dispatcher
  */
 @ApiStatus.Internal
 fun CoroutineScope.consumeReceiveChannelAsKotlin(receiveChannel: EelReceiveChannel): ReceiveChannel<ByteBuffer> =
-  with(EelChannelAdapterFactory.instance) { consumeReceiveChannelAsKotlin(receiveChannel) }
+  consumeReceiveChannelAsKotlinImpl(receiveChannel)
 
 /**
  * Collect data from channel line-by-line using [charset] to convert bytes to chars.
@@ -100,18 +99,18 @@ fun CoroutineScope.consumeReceiveChannelAsKotlin(receiveChannel: EelReceiveChann
  */
 @ApiStatus.Internal
 fun EelReceiveChannel.lines(charset: Charset): Flow<String> =
-  EelChannelAdapterFactory.instance.lines(this, charset)
+  linesImpl(charset)
 
 @ApiStatus.Internal
 fun EelReceiveChannel.lines(): Flow<String> = lines(Charset.defaultCharset())
 
 @ApiStatus.Internal
 fun Socket.consumeAsEelChannel(): EelReceiveChannel =
-  EelChannelAdapterFactory.instance.socketAsReceiveChannel(this)
+  consumeAsEelChannelImpl()
 
 @ApiStatus.Internal
 fun Socket.asEelChannel(): EelSendChannel =
-  EelChannelAdapterFactory.instance.socketAsSendChannel(this)
+  asEelChannelImpl()
 
 /**
  * Bidirectional [kotlinx.coroutines.channels.Channel.RENDEZVOUS] pipe much like [java.nio.channels.Pipe].
@@ -136,17 +135,9 @@ interface EelPipe {
   suspend fun closePipe(error: Throwable?)
 }
 
-/**
- * SPI for creating [EelPipe] instances. Loaded via [ServiceLoader].
- */
-@ApiStatus.Internal
-fun interface EelPipeFactory {
-  fun create(debugLabel: String, prefersDirectBuffers: Boolean): EelPipe
-}
-
 @ApiStatus.Internal
 fun EelPipe(debugLabel: String = "", prefersDirectBuffers: Boolean): EelPipe =
-  ServiceLoader.load(EelPipeFactory::class.java).single().create(debugLabel, prefersDirectBuffers)
+  EelPipeImpl(debugLabel, prefersDirectBuffers)
 
 /**
  * Reads bytes from the channel to the end.
