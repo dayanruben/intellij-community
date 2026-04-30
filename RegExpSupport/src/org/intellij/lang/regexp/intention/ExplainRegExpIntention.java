@@ -25,8 +25,10 @@ import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.ColoredTreeCellRenderer;
+import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.tree.TreeVisitor;
 import com.intellij.ui.treeStructure.Tree;
@@ -215,7 +217,7 @@ public final class ExplainRegExpIntention implements IntentionAction, Iconable, 
         return component == null || component.expand() ? Action.CONTINUE : Action.SKIP_CHILDREN;
       }
     }, _ -> {});
-    return tree;
+    return ScrollPaneFactory.createScrollPane(tree);
   }
 
   @Override
@@ -234,6 +236,8 @@ public final class ExplainRegExpIntention implements IntentionAction, Iconable, 
   }
 
   public static TreeNode buildExplanationTree(PsiElement element) {
+    String psi = DebugUtil.psiToString(element, true);
+    System.out.println("psi = " + psi);
     assert element.getLanguage().isKindOf(RegExpLanguage.INSTANCE);
     ExplanationVisitor visitor = new ExplanationVisitor();
     element.accept(visitor);
