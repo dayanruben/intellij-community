@@ -114,6 +114,7 @@ import com.jetbrains.performancePlugin.commands.WaitForDumbCommand;
 import com.jetbrains.performancePlugin.commands.WaitForEDTQueueUnstuckCommand;
 import com.jetbrains.performancePlugin.commands.WaitForFinishedCodeAnalysis;
 import com.jetbrains.performancePlugin.commands.WaitForInitialRefreshCommand;
+import com.jetbrains.performancePlugin.commands.WaitForDebugSessionsEndCommand;
 import com.jetbrains.performancePlugin.commands.WaitForProjectViewCommand;
 import com.jetbrains.performancePlugin.commands.WaitForReOpenedFileCommand;
 import com.jetbrains.performancePlugin.commands.WaitForSmartCommand;
@@ -244,7 +245,8 @@ public final class BaseCommandProvider implements CommandProvider {
       Map.entry(AssertProblemsViewCountCommand.PREFIX, AssertProblemsViewCountCommand::new),
       Map.entry(DetectProjectLeaksCommand.PREFIX, DetectProjectLeaksCommand::new),
       Map.entry(WaitForReOpenedFileCommand.PREFIX, WaitForReOpenedFileCommand::new),
-      Map.entry(WaitForCodeVisionCommand.PREFIX, WaitForCodeVisionCommand::new)
+      Map.entry(WaitForCodeVisionCommand.PREFIX, WaitForCodeVisionCommand::new),
+      Map.entry(WaitForDebugSessionsEndCommand.PREFIX, WaitForDebugSessionsEndCommand::new)
     );
   }
 }
