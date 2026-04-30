@@ -3,6 +3,7 @@
 package org.jetbrains.kotlin.idea.fir.caches
 
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.LightProjectDescriptor
 import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode
 import org.jetbrains.kotlin.idea.caches.PerModulePackageCacheService
@@ -28,6 +29,7 @@ class ImplicitPackagePrefixTest : KotlinLightCodeInsightFixtureTestCase() {
     }
 
     private fun prefix(): String {
+        IndexingTestUtil.waitUntilIndexesAreReady(myFixture.project)
         return cacheService.getImplicitPackagePrefix(myFixture.module.sourceRoots[0]).asString()
     }
 

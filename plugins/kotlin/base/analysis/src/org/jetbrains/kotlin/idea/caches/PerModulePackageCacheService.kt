@@ -21,7 +21,6 @@ import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.VirtualFileVisitor
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileCopyEvent
@@ -36,7 +35,10 @@ import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.impl.PsiManagerEx
 import com.intellij.psi.impl.PsiTreeChangeEventImpl
 import com.intellij.psi.impl.PsiTreeChangePreprocessor
+import com.intellij.psi.search.FileTypeIndex
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.GlobalSearchScopes
+import com.intellij.util.Processor
 import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.indexing.DumbModeAccessType
@@ -50,7 +52,6 @@ import org.jetbrains.kotlin.idea.base.projectStructure.openapiModule
 import org.jetbrains.kotlin.idea.caches.PerModulePackageCacheService.Companion.DEBUG_LOG_ENABLE_PerModulePackageCache
 import org.jetbrains.kotlin.idea.util.application.isUnitTestMode
 import org.jetbrains.kotlin.idea.util.getSourceRoot
-import org.jetbrains.kotlin.idea.util.isKotlinFileType
 import org.jetbrains.kotlin.idea.util.sourceRoot
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtFile
@@ -141,13 +142,19 @@ class ImplicitPackagePrefixCache(private val project: Project) {
     private val implicitPackageCache = ConcurrentHashMap<VirtualFile, ImplicitPackageData>()
 
     fun getPrefix(sourceRoot: VirtualFile): FqName {
-        val implicitPackageMap = implicitPackageCache.getOrPut(sourceRoot) { analyzeImplicitPackagePrefixes(sourceRoot) }
-        return implicitPackageMap.keys.singleOrNull() ?: FqName.ROOT
+        val implicitPackageMap = implicitPackageCache.getOrPut(sourceRoot) {
+            analyzeImplicitPackagePrefixes(sourceRoot)
+        }
+        return implicitPackageMap.keys.singleOrNull() ?: run {
+            FqName.ROOT
+        }
     }
 
     @TestOnly
     fun setPrefix(sourceRoot: VirtualFile, fqName: FqName) {
-        val implicitPackageMap = implicitPackageCache.getOrPut(sourceRoot) { analyzeImplicitPackagePrefixes(sourceRoot) }
+        val implicitPackageMap = implicitPackageCache.getOrPut(sourceRoot) {
+            analyzeImplicitPackagePrefixes(sourceRoot)
+        }
         val toMutableList = implicitPackageMap.entries.first().value
         implicitPackageCache[sourceRoot] = mutableMapOf(fqName to toMutableList)
     }
@@ -159,38 +166,56 @@ class ImplicitPackagePrefixCache(private val project: Project) {
     private fun analyzeImplicitPackagePrefixes(sourceRoot: VirtualFile): MutableMap<FqName, MutableList<VirtualFile>> {
         val result = mutableMapOf<FqName, MutableList<VirtualFile>>()
 
-        VfsUtilCore.visitChildrenRecursively(sourceRoot, object : VirtualFileVisitor<Any?>(limit(10)) {
-            override fun visitFileEx(file: VirtualFile): Result {
-                ProgressManager.checkCanceled()
+        FileTypeIndex.processFiles(KotlinFileType.INSTANCE, Processor { file ->
+            ProgressManager.checkCanceled()
 
-                if (!file.isDirectory) return CONTINUE
-
-                val ktFiles = file.children.filter(VirtualFile::isKotlinFileType)
-
-                if (ktFiles.isEmpty()) return CONTINUE
-
-                val topDirectories =
-                    generateSequence(file.takeIf { it != sourceRoot }) { f ->
-                        f.parent?.takeIf { it != sourceRoot }
-                    }
-                        .map { it.name }
-                        .toList().reversed()
-
-                for (ktFile in ktFiles) {
-                    result.addFile(ktFile, topDirectories)
+            val topDirectories =
+                generateSequence(file) { f ->
+                    f.parent?.takeIf { it != sourceRoot }
                 }
+                    .mapNotNull { f -> f.takeIf { it.isDirectory }?.name }
+                    .toList()
+                    .reversed()
 
-                return SKIP_CHILDREN
-            }
-        })
+            result.addFile(file, topDirectories)
+
+            (result.entries.firstOrNull()?.value?.size ?: 0) <= 1
+        }, GlobalSearchScopes.directoryScope(project, sourceRoot, true))
+
+        result.cleanupSubPackages()
 
         return result
     }
 
-    private fun ImplicitPackageData.addFile(ktFile: VirtualFile, topDirectories: List<String> = emptyList()) {
+    private fun ImplicitPackageData.addFile(virtualFile: VirtualFile, topDirectories: List<String> = emptyList()) {
         synchronized(this) {
-            val psiFile = PsiManager.getInstance(project).findFile(ktFile) as? KtFile ?: return
-            addPsiFile(psiFile, ktFile, topDirectories)
+            val psiFile = PsiManager.getInstance(project).findFile(virtualFile) as? KtFile ?: return
+            addPsiFile(psiFile, virtualFile, topDirectories)
+        }
+    }
+
+    private fun ImplicitPackageData.cleanupSubPackages() {
+        val entries = entries
+        // filter keys those have the same prefix as the 1st one
+        if (entries.size > 1) {
+            val sortedFqNames = sortedSetOf(Comparator { o1: FqName, o2: FqName -> o1.asString().compareTo(o2.asString()) })
+            sortedFqNames += keys
+
+            val key = sortedFqNames.first()
+            val keyPathSegments = key.pathSegments()
+
+            val iterator = entries.iterator()
+            while (iterator.hasNext()) {
+                val next = iterator.next()
+                if (next == key) continue
+                val pathSegments = next.key.pathSegments()
+                if (
+                    pathSegments.size > keyPathSegments.size &&
+                    keyPathSegments == pathSegments.subList(0, keyPathSegments.size)
+                ) {
+                    iterator.remove()
+                }
+            }
         }
     }
 
@@ -232,6 +257,7 @@ class ImplicitPackagePrefixCache(private val project: Project) {
         synchronized(this) {
             removeFile(file.virtualFile)
             addPsiFile(file, file.virtualFile, topDirectories)
+            cleanupSubPackages()
         }
     }
 
