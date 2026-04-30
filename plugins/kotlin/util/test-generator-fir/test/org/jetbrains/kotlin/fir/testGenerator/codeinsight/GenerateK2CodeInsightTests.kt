@@ -16,6 +16,7 @@ import org.jetbrains.kotlin.idea.k2.generate.AbstractFirGenerateTestSupportMetho
 import org.jetbrains.kotlin.idea.k2.generate.AbstractFirGenerateToStringActionTest
 import org.jetbrains.kotlin.idea.k2.hierarchy.AbstractFirHierarchyTest
 import org.jetbrains.kotlin.idea.k2.hierarchy.AbstractFirHierarchyWithLibTest
+import org.jetbrains.kotlin.idea.k2.hierarchy.AbstractHierarchyMultiplatformTest
 import org.jetbrains.kotlin.idea.k2.hints.AbstractKtCallChainHintsProviderTest
 import org.jetbrains.kotlin.idea.k2.hints.AbstractKtDefaultParameterInlayHintsProviderTest
 import org.jetbrains.kotlin.idea.k2.hints.AbstractKtLambdasHintsProvider
@@ -234,8 +235,14 @@ internal fun MutableTWorkspace.generateK2CodeInsightTests() {
             model("../../../idea/tests/testData/hierarchy/class/sub", pattern = DIRECTORY, isRecursive = false, testMethodName = "doSubClassHierarchyTest")
             model("../../../idea/tests/testData/hierarchy/overrides", pattern = DIRECTORY, isRecursive = false, testMethodName = "doOverrideHierarchyTest")
         }
+
+
         testClass<AbstractFirHierarchyWithLibTest> {
             model("../../../idea/tests/testData/hierarchy/withLib", pattern = DIRECTORY, isRecursive = false)
+        }
+
+        testClass<AbstractHierarchyMultiplatformTest> {
+            model("../../../idea/tests/testData/hierarchy/kmp/type", testMethodName = "doSubClassHierarchyTest")
         }
 
         testClass<AbstractFirGenerateHashCodeAndEqualsActionTest> {

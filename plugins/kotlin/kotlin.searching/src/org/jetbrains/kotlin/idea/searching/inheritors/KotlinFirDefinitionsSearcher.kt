@@ -92,17 +92,18 @@ class KotlinFirDefinitionsSearcher : QueryExecutor<PsiElement, DefinitionsScoped
                 }
     }
 
-    private fun includeCommonPlatformIfNeeded(
-        scope: SearchScope,
-        element: KtDeclaration,
-        expectedDeclaration: KtDeclaration
-    ): SearchScope {
-        return runReadAction {
-            if (element != expectedDeclaration) {
-                scope.union(expectedDeclaration.useScope.intersectWith(element.resolveScope))
-            } else {
-                scope
-            }
+}
+
+fun includeCommonPlatformIfNeeded(
+    scope: SearchScope,
+    element: KtDeclaration,
+    expectedDeclaration: KtDeclaration
+): SearchScope {
+    return runReadAction {
+        if (element != expectedDeclaration) {
+            scope.union(expectedDeclaration.useScope.intersectWith(element.resolveScope))
+        } else {
+            scope
         }
     }
 }

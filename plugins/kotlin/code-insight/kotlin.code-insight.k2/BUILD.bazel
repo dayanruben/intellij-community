@@ -96,6 +96,7 @@ jvm_library(
     "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
     "//platform/lang-api:lang",
     "//platform/statistics",
+    "//plugins/kotlin/base/platforms",
     ":plugins_kotlin_code-insight_descriptions_provided",
   ]
 )
@@ -169,6 +170,7 @@ jvm_library(
     "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
     "//platform/lang-api:lang_test_lib",
     "//platform/statistics:statistics_test_lib",
+    "//plugins/kotlin/base/platforms:platforms_test_lib",
   ]
 )
 ### auto-generated section `build intellij.kotlin.codeInsight` end
