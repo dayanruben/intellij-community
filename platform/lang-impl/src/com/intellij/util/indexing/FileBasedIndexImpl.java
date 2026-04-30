@@ -1556,9 +1556,17 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     if (isDeleteRequest || !isValid || isTooLarge(file)) {
       ProgressManager.checkCanceled();
       myIndexableFilesFilterHolder.removeFile(fileId); // in case this is not isDeleteRequest
-      fileIndexingResult = new FileIndexingResult(this, fileId, file, indexingStamp, Collections.emptyList(), Collections.emptyList(),
-                                                  true, true, applicationMode,
-                                                  cachedFileType == null ? file.getFileType() : cachedFileType, false);
+
+      FileType fileType = cachedFileType != null ? cachedFileType :
+                          //getFileType() must _not_ be called on !valid files (btw, fileType is needed for stats only)
+                          (file.isValid() ? file.getFileType() : UnknownFileType.INSTANCE);
+      fileIndexingResult = new FileIndexingResult(
+        this, fileId, file, indexingStamp,
+        Collections.emptyList(), Collections.emptyList(),
+        /*removeDataFromIndexes: */true, /*markFileAsIndexed: */ true, applicationMode,
+        fileType,
+        /*logEmptyProvidedIndexes: */false
+      );
     }
     else {
       fileIndexingResult = doIndexFileContent(project, content, cachedFileType, applicationMode, indexingStamp);
