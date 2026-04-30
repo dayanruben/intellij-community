@@ -7,7 +7,6 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.toNioPathOrNull
 import org.intellij.plugins.markdown.ui.preview.PreviewStaticServer
@@ -23,10 +22,8 @@ import org.jsoup.nodes.TextNode
 import org.jsoup.parser.Parser
 import org.jsoup.parser.Tag
 import org.jsoup.parser.TagSet
-import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.Charset
-import java.nio.file.Path
 
 @ApiStatus.Internal
 class IncrementalDOMBuilder(
@@ -136,24 +133,27 @@ class IncrementalDOMBuilder(
       if (SystemInfo.isWindows) {
         path = StringUtil.replace(path, "\\", "/")
       }
+
       if (!path.startsWith('/')) {
-        val resolved = baseFile.findFileByRelativePath(path) ?: return
-        path = VfsUtilCore.getRelativePath(resolved, projectRoot) ?: path
-      }
-      if (SystemInfo.isWindows && path.startsWith("/")) {
-        path = path.trimStart('/')
+        path = findRelativePath(baseFile, path) ?: return
+      } else {
+        if (SystemInfo.isWindows) {
+          path = path.trimStart('/')
+        }
+        path = findRelativePath(projectRoot, path) ?: path
       }
       path = FileUtil.toSystemIndependentName(path)
     }
 
-    val filePath = if (hasFileHost) Path.of(URI(path))
-    else baseFile.toNioPath().resolve(path).normalize()
+    if (!hasFileHost && !isProjectTrusted(projectPath) && !path.startsWith(projectPath.toString())) return
 
-    if (!hasFileHost && !isProjectTrusted(projectPath) && !filePath.startsWith(projectPath)) return
-
-    val processed = PreviewStaticServer.getStaticUrl(fileSchemeResourceProcessor, filePath.toString())
+    val processed = PreviewStaticServer.getStaticUrl(fileSchemeResourceProcessor, path)
     node.attr("data-original-src", path)
     node.attr("src", processed)
+  }
+
+  private fun findRelativePath(baseFile: VirtualFile, relPath: String): String? {
+    return baseFile.findFileByRelativePath(relPath)?.toNioPathOrNull()?.normalize()?.toString()
   }
 
   private fun shouldPreprocessImageNode(node: Node): Boolean {
