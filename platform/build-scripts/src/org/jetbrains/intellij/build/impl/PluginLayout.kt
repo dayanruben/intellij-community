@@ -15,6 +15,7 @@ import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.ApiStatus.Obsolete
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.intellij.build.BuildContext
+import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.CustomAssetDescriptor
 import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.LazySource
@@ -356,7 +357,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     fun withDeprecatedPostProcessor(layoutPatcher: LayoutPatcher, pluginXmlPatcher: DeprecatedPostScrambleProcessor) {
       // if scrambling is not performed, we need to execute layout patcher (no idea why as we cannot investigate and fix Gateway error)
       layout.withPatch { moduleOutputPatcher, platformLayout, context ->
-        if (context.proprietaryBuildTools.scrambleTool == null) {
+        if (context.proprietaryBuildTools.scrambleTool == null || context.isStepSkipped(BuildOptions.SCRAMBLING_STEP)) {
           layoutPatcher(moduleOutputPatcher, platformLayout, context)
         }
       }
