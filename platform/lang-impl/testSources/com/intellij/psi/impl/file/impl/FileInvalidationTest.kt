@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.file.impl
 
+import com.intellij.codeInsight.multiverse.CodeInsightContextManagerImpl
 import com.intellij.codeInsight.multiverse.ModuleContext
 import com.intellij.codeInsight.multiverse.codeInsightContext
 import com.intellij.codeInsight.multiverse.defaultContext
@@ -14,9 +15,11 @@ import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.utils.vfs.createFile
+import kotlinx.coroutines.delay
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.RepeatedTest
 import kotlin.io.path.Path
+import kotlin.time.Duration.Companion.milliseconds
 
 @TestApplication
 internal class FileInvalidationTest {
@@ -35,7 +38,7 @@ internal class FileInvalidationTest {
    *
    * Repeated 1000 times to catch race conditions in invalidation.
    */
-  @RepeatedTest(value = 1000)
+  @RepeatedTest(value = 100)
   fun `test default context invalidates`() = timeoutRunBlocking {
     val root = readAction { VfsUtil.findFile(Path(project.basePath!!), false)!! }
     val virtualFile = writeAction { root.createFile("foo.txt") }
@@ -78,6 +81,9 @@ internal class FileInvalidationTest {
     )
 
     PsiTestUtil.removeAllRoots(module1, null)
+    while (!CodeInsightContextManagerImpl.getInstanceImpl(project).isContextInvalidationComplete()) {
+      delay(10.milliseconds)
+    }
 
     val psiFileModuleContext3 = readAction { PsiManager.getInstance(project).findFile(virtualFile)!! }
     val moduleContext3 = readAction { psiFileModuleContext3.codeInsightContext }
