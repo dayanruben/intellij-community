@@ -17,6 +17,8 @@ import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
 import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.diagnostic.LogLevel;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.event.DocumentEvent;
@@ -71,6 +73,7 @@ import com.intellij.testFramework.common.ThreadUtil;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.TestTimeOut;
+import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.TimeoutUtil;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.Semaphore;
@@ -117,6 +120,22 @@ public class PsiDocumentManagerImplTest extends HeavyPlatformTestCase {
     }
     finally {
       super.tearDown();
+    }
+  }
+
+  @Override
+  protected void runBareRunnable(@NotNull ThrowableRunnable<Throwable> runnable) throws Throwable {
+    Logger[] loggers = {Logger.getInstance(PsiDocumentManagerBase.class), Logger.getInstance(DocumentCommitThread.class)};
+    for (Logger logger : loggers) {
+      logger.setLevel(LogLevel.TRACE);
+    }
+    try {
+      super.runBareRunnable(runnable);
+    }
+    finally {
+      for (Logger logger : loggers) {
+        logger.setLevel(LogLevel.TRACE);
+      }
     }
   }
 
@@ -344,6 +363,7 @@ public class PsiDocumentManagerImplTest extends HeavyPlatformTestCase {
     PsiDocumentManagerEx psiDocumentManager = (PsiDocumentManagerEx)PsiDocumentManager.getInstance(myProject);
     List<FileViewProvider> cachedViewProviders = null;
     for (int i = 0; i < 30; i++) {
+      LOG.debug("i="+i);
       assertCommitted(document, true, "");
       cachedViewProviders = psiDocumentManager.getCachedViewProviders(document);
       WriteCommandAction.runWriteCommandAction(null, () -> {
@@ -353,10 +373,8 @@ public class PsiDocumentManagerImplTest extends HeavyPlatformTestCase {
       waitForCommits();
       WriteCommandAction.runWriteCommandAction(null, () -> document.deleteString(0, "/**/".length()));
       waitForCommits();
-      String dumpBefore = ThreadDumper.dumpThreadsToString();
       if (!getPsiDocumentManager().isCommitted(document)) {
-        System.err.println("Thread dump1:\n" + dumpBefore + "\n;Thread dump2:\n" + ThreadDumper.dumpThreadsToString());
-        fail("Still not committed: " + document);
+        fail("Still not committed: " + document+"; all uncommitted:"+getPsiDocumentManager().getUncommitedDocumentsWithTraces()+"; thread dump:"+ThreadDumper.dumpThreadsToString());
       }
     }
     Reference.reachabilityFence(cachedViewProviders); // to avoid calling handleCommitWithoutPsi() inside write action during doc.insertString()
