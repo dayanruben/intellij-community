@@ -1,8 +1,7 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.platform.eel.impl.local
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.intellij.platform.eel.impl.base
 
 import com.intellij.platform.eel.EelExecApi
-import com.intellij.platform.eel.EelExecApi.EnvironmentVariablesDeferred
 import com.intellij.platform.eel.EelExecPosixApi
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,8 +39,8 @@ class EelExecApiEnvironmentVariableCache(
 
   fun getDeferred(
     mode: EelExecPosixApi.PosixEnvironmentVariablesOptions.Mode?,
-    opts: EelExecApi.EnvironmentVariablesOptions
-  ): EnvironmentVariablesDeferred {
+    opts: EelExecApi.EnvironmentVariablesOptions,
+  ): EelExecApi.EnvironmentVariablesDeferred {
     val cacheKey = Optional.ofNullable(mode)
     var newEnvVarCache: EnvVarCache
 
@@ -55,12 +54,12 @@ class EelExecApiEnvironmentVariableCache(
       }
       else {
         if (opts.onlyActual && envVarCache.envVarsInProgress.isActive) {
-          return EnvironmentVariablesDeferred(envVarCache.envVarsInProgress)
+          return EelExecApi.EnvironmentVariablesDeferred(envVarCache.envVarsInProgress)
         }
 
         val latestKnownEnvVars = envVarCache.latestKnownEnvVars
         if (!opts.onlyActual && latestKnownEnvVars != null) {
-          return EnvironmentVariablesDeferred(latestKnownEnvVars)
+          return EelExecApi.EnvironmentVariablesDeferred(latestKnownEnvVars)
         }
 
         newEnvVarCache = EnvVarCache(latestKnownEnvVars to makeEnvironmentVariablesDeferred(mode))
@@ -70,7 +69,7 @@ class EelExecApiEnvironmentVariableCache(
     while (!successfullyUpdated)
 
     newEnvVarCache.envVarsInProgress.start()
-    return EnvironmentVariablesDeferred(newEnvVarCache.envVarsInProgress)
+    return EelExecApi.EnvironmentVariablesDeferred(newEnvVarCache.envVarsInProgress)
   }
 
   fun clear() {

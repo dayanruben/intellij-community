@@ -17,8 +17,8 @@ import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.platform.eel.impl.provider.utils.ProcessFunctions
-import com.intellij.platform.eel.impl.provider.utils.bindProcessToScopeImpl
+import com.intellij.platform.eel.impl.base.ProcessFunctions
+import com.intellij.platform.eel.impl.base.bindProcessToScopeImpl
 import com.intellij.python.community.execService.BinOnTarget
 import com.intellij.python.community.execService.DownloadConfig
 import com.intellij.python.community.execService.ExecuteGetProcessError
@@ -188,7 +188,7 @@ private class TargetProcessCommands(
     try {
       val process = targetEnv.createProcess(cmdLine)
       this.process = process
-      scopeToBind.bindProcessToScopeImpl(logger = logger, processNameForDebug = exePath, processFunctions = processFunctions)
+      scopeToBind.bindProcessToScopeImpl(warn = { logger.warn(it) }, processNameForDebug = exePath, processFunctions = processFunctions)
       return Result.success(process)
     }
     catch (e: ExecutionException) {

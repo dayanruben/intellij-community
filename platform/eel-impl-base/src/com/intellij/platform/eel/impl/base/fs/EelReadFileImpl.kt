@@ -1,9 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.platform.eel.impl.fs
+package com.intellij.platform.eel.impl.base.fs
 
-import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.serviceAsync
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.platform.eel.EelResult
 import com.intellij.platform.eel.ReadResult
 import com.intellij.platform.eel.channels.EelDelicateApi
@@ -13,12 +10,21 @@ import com.intellij.platform.eel.fs.openForReading
 import com.intellij.platform.eel.getOr
 import com.intellij.platform.eel.getOrThrow
 import com.intellij.platform.eel.path.EelPath
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.jetbrains.annotations.ApiStatus
 import java.nio.ByteBuffer
+import java.util.logging.Level
+import java.util.logging.Logger
 import kotlin.math.max
 
 @OptIn(EelDelicateApi::class)
+@ApiStatus.Internal
 suspend fun EelFileSystemApi.readFileImpl(args: EelFileSystemApi.ReadFileArgs): EelResult<EelFileSystemApi.ReadFileResult, EelFileSystemApi.FileReaderError> =
   readFileImpl(
     path = args.path,
@@ -117,7 +123,21 @@ private suspend fun EelFileSystemApi.readFileImpl(
     return prepareResult(initialBuffer = initialBuffer, buffer = buffer, mayReturnSameBuffer = mayReturnSameBuffer, fullyRead = fullyRead)
   }
   finally {
-    serviceAsync<AsyncCloser>().closeSometimeLater(reader)
+    closeSometimeLater(reader)
+  }
+}
+
+private val LOG = Logger.getLogger("com.intellij.platform.eel.fs.impl.EelReadFileImpl")
+
+@OptIn(DelicateCoroutinesApi::class)
+private fun closeSometimeLater(reader: EelOpenedFile.Reader) {
+  GlobalScope.launch {
+    try {
+      reader.close().getOrThrow()
+    }
+    catch (err: Exception) {
+      LOG.log(Level.INFO, "Failed to close $reader", err)
+    }
   }
 }
 
@@ -237,17 +257,3 @@ private fun EelOpenedFile.Reader.ReadError.mapError(): EelFileSystemApi.FileRead
     is EelOpenedFile.Reader.ReadError.UnknownFile, is EelOpenedFile.Reader.ReadError.InvalidValue -> EelFsResultImpl.Other(where, toString())
     is EelOpenedFile.Reader.ReadError.Other -> EelFsResultImpl.Other(where, message)
   }
-
-@Service
-private class AsyncCloser(private val coroutineScope: CoroutineScope) {
-  fun closeSometimeLater(reader: EelOpenedFile.Reader) {
-    coroutineScope.launch {
-      try {
-        reader.close().getOrThrow()
-      }
-      catch (err: Exception) {
-        logger<AsyncCloser>().info("Failed to close $reader", err)
-      }
-    }
-  }
-}

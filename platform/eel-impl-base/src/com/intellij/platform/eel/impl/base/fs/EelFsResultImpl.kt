@@ -1,5 +1,5 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.platform.eel.impl.fs
+package com.intellij.platform.eel.impl.base.fs
 
 import com.intellij.platform.eel.EelResult
 import com.intellij.platform.eel.fs.EelFileSystemApi

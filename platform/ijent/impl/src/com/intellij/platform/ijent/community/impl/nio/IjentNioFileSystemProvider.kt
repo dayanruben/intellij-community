@@ -23,7 +23,7 @@ import com.intellij.platform.eel.fs.changeAttributes
 import com.intellij.platform.eel.fs.copy
 import com.intellij.platform.eel.fs.move
 import com.intellij.platform.eel.fs.stat
-import com.intellij.platform.eel.impl.fs.EelFsResultImpl
+import com.intellij.platform.eel.impl.base.fs.EelFsResultImpl
 import com.intellij.platform.eel.provider.utils.EelPathUtils
 import com.intellij.platform.eel.provider.utils.getOrThrowFileSystemException
 import com.intellij.platform.eel.provider.utils.throwFileSystemException

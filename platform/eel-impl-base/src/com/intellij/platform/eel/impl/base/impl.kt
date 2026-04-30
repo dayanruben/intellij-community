@@ -1,7 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.platform.eel.impl.provider.utils
+package com.intellij.platform.eel.impl.base
 
-import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -19,13 +18,13 @@ class ProcessFunctions(
   val waitForExit: suspend () -> Unit,
   private val killProcess: suspend () -> Unit,
 ) {
-  suspend fun killAndJoin(logger: Logger, processNameForDebug: String) {
+  suspend fun killAndJoin(warn: (String) -> Unit, processNameForDebug: String) {
     withContext(NonCancellable) {
-      logger.warn("Sending kill to $processNameForDebug")
+      warn("Sending kill to $processNameForDebug")
       killProcess()
-      logger.warn("Kill sent to $processNameForDebug, waiting")
+      warn("Kill sent to $processNameForDebug, waiting")
       waitForExit()
-      logger.warn("Process $processNameForDebug died")
+      warn("Process $processNameForDebug died")
     }
   }
 }
@@ -36,18 +35,18 @@ class ProcessFunctions(
  */
 @ApiStatus.Internal
 fun CoroutineScope.bindProcessToScopeImpl(
-  logger: Logger,
+  warn: (String) -> Unit,
   processNameForDebug: String,
   processFunctions: ProcessFunctions,
 ) {
   val context = CoroutineName("Waiting for process $processNameForDebug") + Dispatchers.IO
 
   suspend fun killAndJoin() {
-    processFunctions.killAndJoin(logger, processNameForDebug)
+    processFunctions.killAndJoin(warn, processNameForDebug)
   }
 
   if (!isActive) {
-    logger.warn("Scope $this is dead, killing process $processNameForDebug")
+    warn("Scope $this is dead, killing process $processNameForDebug")
     launch(context, start = CoroutineStart.UNDISPATCHED) {
       killAndJoin()
     }
@@ -63,4 +62,3 @@ fun CoroutineScope.bindProcessToScopeImpl(
     }
   }
 }
-

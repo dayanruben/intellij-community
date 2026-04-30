@@ -1,5 +1,5 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.platform.eel.impl.fs
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.intellij.platform.eel.impl.local
 
 import com.dynatrace.hash4j.hashing.Hashing
 import com.intellij.openapi.util.SystemInfoRt
@@ -26,6 +26,13 @@ import com.intellij.platform.eel.fs.StreamingReadResult
 import com.intellij.platform.eel.fs.StreamingWriteResult
 import com.intellij.platform.eel.fs.WalkDirectoryEntry
 import com.intellij.platform.eel.fs.WalkDirectoryEntryResult
+import com.intellij.platform.eel.impl.base.fs.EelFsResultImpl
+import com.intellij.platform.eel.impl.base.fs.StreamingReadResultImpl
+import com.intellij.platform.eel.impl.base.fs.StreamingWriteResultImpl
+import com.intellij.platform.eel.impl.base.fs.WalkDirectoryEntryPosixImpl
+import com.intellij.platform.eel.impl.base.fs.WalkDirectoryEntryResultImpl
+import com.intellij.platform.eel.impl.base.fs.WalkDirectoryEntryWindowsImpl
+import com.intellij.platform.eel.impl.base.fs.readFileImpl
 import com.intellij.platform.eel.isPosix
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.path.EelPathException
