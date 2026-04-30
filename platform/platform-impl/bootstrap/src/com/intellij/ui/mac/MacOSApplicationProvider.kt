@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui.mac
 
 import com.intellij.diagnostic.LoadingState
@@ -35,6 +35,7 @@ import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
+import com.intellij.ui.AppIcon
 import com.intellij.ui.mac.foundation.Foundation
 import com.intellij.ui.mac.foundation.ID
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -258,6 +259,9 @@ private fun installProtocolHandler(desktop: Desktop, mainScope: CoroutineScope) 
     if (LoadingState.APP_STARTED.isOccurred) {
       mainScope.launch {
         CommandLineProcessor.processProtocolCommand(uriString)
+        CommandLineProcessor.findVisibleFrame()?.let { frame ->
+          AppIcon.getInstance().requestFocus(frame)
+        }
       }
     }
     else {
