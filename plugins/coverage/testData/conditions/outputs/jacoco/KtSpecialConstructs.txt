@@ -1,0 +1,50 @@
+Line 4 coverage: FULL
+Hits: 1
+Line 5 coverage: FULL
+Hits: 1
+Line 8 coverage: FULL
+Hits: 1
+Line 11 coverage: FULL
+Hits: 1
+Line 14 coverage: FULL
+Hits: 1
+Line 15 coverage: PARTIAL
+Hits: 1
+Covered 1/2 branches
+Line 18 coverage: FULL
+Hits: 1
+Line 19 coverage: FULL
+Hits: 1
+Covered 2/2 branches
+Line 22 coverage: FULL
+Hits: 1
+Line 23 coverage: FULL
+Hits: 1
+Covered 2/2 branches
+Line 27 coverage: FULL
+Hits: 1
+Line 28 coverage: PARTIAL
+Hits: 1
+Covered 1/2 branches
+Line 31 coverage: PARTIAL
+Hits: 1
+Covered 1/2 branches
+Line 32 coverage: FULL
+Hits: 1
+Line 37 coverage: FULL
+Hits: 1
+Line 40 coverage: PARTIAL
+Hits: 1
+Covered 1/2 branches
+Line 41 coverage: FULL
+Hits: 1
+Line 43 coverage: FULL
+Hits: 1
+Line 46 coverage: FULL
+Hits: 1
+Line 48 coverage: FULL
+Hits: 1
+Line 49 coverage: FULL
+Hits: 1
+Line 50 coverage: FULL
+Hits: 1
