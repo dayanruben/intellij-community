@@ -470,29 +470,46 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
              "matches a non-whitespace character");
       }
       case HORIZONTAL_SPACE -> {
-        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html"),
-             "matches a horizontal whitespace character [ \\t\\u00A0\\u1680\\u180e\\u2000-\\u200a\\u202f\\u205f\\u3000]"
+        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#more"),
+             "matches a horizontal whitespace character: [ \\t\\u00A0\\u1680\\u180e\\u2000-\\u200a\\u202f\\u205f\\u3000]"
         );
       }
       case NON_HORIZONTAL_SPACE -> {
         leaf(simpleClass, new NameNode("Negated Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#negated"),
-             "matches a non-horizontal-whitespace character");
+             "matches a non-horizontal whitespace character: [^ \\t\\u00A0\\u1680\\u180e\\u2000-\\u200a\\u202f\\u205f\\u3000]");
       }
       case VERTICAL_SPACE -> {
+        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#more"),
+             "matches a vertical whitespace character: [\\n\\x0B\\f\\r\\x85&#92;u2028&#92;u2029]");
       }
       case NON_VERTICAL_SPACE -> {
+        leaf(simpleClass, new NameNode("Negated Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#negated"),
+             "matches a non-vertical whitespace character: [^\\n\\x0B\\f\\r\\x85&#92;u2028&#92;u2029]");
       }
       case XML_NAME_START -> {
+        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#xml"),
+             "matches a character that is allowed to be used as the first character of an XML name");
+        //https://www.regular-expressions.info/shorthand.html#xml
       }
       case NON_XML_NAME_START -> {
+        leaf(simpleClass, new NameNode("Negated Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#xml"),
+             "matches a character that is not allowed to be used as the first character of an XML name");
       }
       case XML_NAME_PART -> {
+        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#xml"),
+             "matches a character that is allowed to be part of an XML name after the first character");
       }
       case NON_XML_NAME_PART -> {
+        leaf(simpleClass, new NameNode("Negated Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#xml"),
+             "matches a character that is not allowed to be part of an XML name after the first character");
       }
       case UNICODE_GRAPHEME -> {
+        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/unicodechars.html#grapheme"),
+             "matches a Unicode grapheme (possibly consisting of several code points)");
       }
       case UNICODE_LINEBREAK -> {
+        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html"),
+             "matches a Unicode line break");
       }
     }
   }
@@ -503,21 +520,21 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
     if (elements.length == 1 && elements[0] instanceof RegExpChar c) {
       // single character case
       if (regExpClass.isNegated()) {
-        node(buildNodeValue(regExpClass, new NameNode("Negated Character Set", "https://www.regular-expressions.info/charclass.html#negated"),
+        node(buildNodeValue(regExpClass, new NameNode("Negated Character Class", "https://www.regular-expressions.info/charclass.html#negated"),
                             "matches 1 character that is not the " + charText(c), false), true);
       }
       else {
-        node(buildNodeValue(regExpClass, new NameNode("Character Set", "https://www.regular-expressions.info/charclass.html"), 
+        node(buildNodeValue(regExpClass, new NameNode("Character Class", "https://www.regular-expressions.info/charclass.html"), 
                             "matches the " + charText(c), false), true);
       }
     }
     else {
       if (regExpClass.isNegated()) {
-        branch(regExpClass, new NameNode("Negated Character Set", "https://www.regular-expressions.info/charclass.html#negated"), 
+        branch(regExpClass, new NameNode("Negated Character Class", "https://www.regular-expressions.info/charclass.html#negated"), 
                "matches 1 character not in the set");
       }
       else {
-        branch(regExpClass, new NameNode("Character Set", "https://www.regular-expressions.info/charclass.html"), 
+        branch(regExpClass, new NameNode("Character Class", "https://www.regular-expressions.info/charclass.html"), 
                "matches 1 character in the set");
       }
     }
