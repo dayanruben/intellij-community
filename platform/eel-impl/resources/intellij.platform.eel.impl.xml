@@ -22,7 +22,7 @@
   <extensionPoints>
     <extensionPoint qualifiedName="com.intellij.platform.eel.impl.portAccessibleLocally"
                     dynamic="false"
-                    interface="com.intellij.platform.eel.impl.portAccessibleLocally.EelPortAccessibleLocally"/>
+                    interface="com.intellij.platform.eel.provider.portAccessibleLocally.EelPortAccessibleLocally"/>
     <extensionPoint qualifiedName="com.intellij.eelMachineResolver"
                     interface="com.intellij.platform.eel.provider.EelMachineResolver" dynamic="true"/>
   </extensionPoints>
