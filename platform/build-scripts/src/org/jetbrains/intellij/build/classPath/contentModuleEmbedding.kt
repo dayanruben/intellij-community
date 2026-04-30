@@ -35,6 +35,7 @@ import org.jetbrains.intellij.build.findUnprocessedDescriptorContent
 import org.jetbrains.intellij.build.impl.BuildContextImpl
 import org.jetbrains.intellij.build.impl.DescriptorCacheContainer
 import org.jetbrains.intellij.build.impl.LayoutPatcher
+import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
 import org.jetbrains.intellij.build.impl.ScopedCachedDescriptorContainer
 import org.jetbrains.intellij.build.impl.contentModuleNameToDescriptorFileName
@@ -119,89 +120,70 @@ fun deprecatedResolveDescriptor(
   relativePath: String,
   additionalSearchModules: Collection<String> = emptyList(),
 ) {
-  val layoutPatcherIfNoScrambling: LayoutPatcher = { moduleOutputPatcher, platformLayout, context ->
-    val file = context.findFileInModuleSources(clientModuleName, relativePath)
-    if (file != null) {
-      val xml = JDOMUtil.load(file)
-
-      val descriptorCacheContainer = DescriptorCacheContainer()
-      val clientDescriptorCache = descriptorCacheContainer.forPlugin(context.paths.tempDir.resolve("temp-client-cache"))
-      val platformDescriptorCache = descriptorCacheContainer.forPlatform(platformLayout)
-
-      val xIncludeResolver = XIncludeElementResolverImpl(
-        searchPath = listOf(
-          DescriptorSearchScope(listOf(clientModuleName), clientDescriptorCache),
-          DescriptorSearchScope(additionalSearchModules, clientDescriptorCache),
-          DescriptorSearchScope(
-            modules = platformLayout.includedModules.mapTo(LinkedHashSet()) { it.moduleName },
-            descriptorCache = platformDescriptorCache
-          ),
-        ),
-        context = context
-      )
-
-      withContext(Dispatchers.IO) {
-        resolveIncludes(element = xml, elementResolver = xIncludeResolver)
-
-        for (contentElement in xml.getChildren("content")) {
-          for (moduleElement in contentElement.getChildren("module")) {
-            val moduleName = moduleElement.getAttributeValue("name") ?: continue
-            embedContentModule(
-              moduleElement = moduleElement,
-              pluginDescriptorContainer = clientDescriptorCache,
-              xIncludeResolver = xIncludeResolver,
-              moduleName = moduleName,
-              dependencyHelper = (context as BuildContextImpl).jarPackagerDependencyHelper,
-              pluginLayout = PluginLayout.pluginAuto(clientModuleName) {},
-              frontendModuleFilter = context.getFrontendModuleFilter(),
-              outputProvider = context.outputProvider,
-            )
-          }
-        }
-      }
-
-      moduleOutputPatcher.patchModuleOutput(moduleName = clientModuleName, path = relativePath, content = JDOMUtil.write(xml))
-    }
-  }
-
-  spec.withDeprecatedPostProcessor(layoutPatcherIfNoScrambling) { zipFileName, data, pluginLayout, platformLayout, pluginCachedDescriptorContainer, context ->
-    if (zipFileName != relativePath) {
-      return@withDeprecatedPostProcessor null
-    }
-
-    val xml = JDOMUtil.load(data)
-
+  suspend fun embedContentModules(
+    xml: Element,
+    platformLayout: PlatformLayout,
+    platformDescriptorContainer: ScopedCachedDescriptorContainer,
+    pluginLayout: PluginLayout,
+    pluginDescriptorContainer: ScopedCachedDescriptorContainer,
+    context: BuildContext,
+  ): ByteArray {
     val xIncludeResolver = XIncludeElementResolverImpl(
       searchPath = listOf(
-        DescriptorSearchScope(listOf(clientModuleName), pluginCachedDescriptorContainer),
-        DescriptorSearchScope(additionalSearchModules, pluginCachedDescriptorContainer),
+        DescriptorSearchScope(listOf(clientModuleName), pluginDescriptorContainer),
+        DescriptorSearchScope(additionalSearchModules, pluginDescriptorContainer),
         DescriptorSearchScope(
           modules = platformLayout.includedModules.mapTo(LinkedHashSet()) { it.moduleName },
-          descriptorCache = platformLayout.descriptorCacheContainer.forPlatform(platformLayout)
+          descriptorCache = platformDescriptorContainer
         ),
       ),
       context = context
     )
 
-    resolveIncludes(element = xml, elementResolver = xIncludeResolver)
+    withContext(Dispatchers.IO) {
+      resolveIncludes(element = xml, elementResolver = xIncludeResolver)
 
-    for (contentElement in xml.getChildren("content")) {
-      for (moduleElement in contentElement.getChildren("module")) {
-        val moduleName = moduleElement.getAttributeValue("name") ?: continue
-        embedContentModule(
-          moduleElement = moduleElement,
-          pluginDescriptorContainer = pluginCachedDescriptorContainer,
-          xIncludeResolver = xIncludeResolver,
-          moduleName = moduleName,
-          dependencyHelper = (context as BuildContextImpl).jarPackagerDependencyHelper,
-          pluginLayout = pluginLayout,
-          frontendModuleFilter = context.getFrontendModuleFilter(),
-          outputProvider = context.outputProvider,
-        )
+      for (contentElement in xml.getChildren("content")) {
+        for (moduleElement in contentElement.getChildren("module")) {
+          val moduleName = moduleElement.getAttributeValue("name") ?: continue
+          embedContentModule(
+            moduleElement = moduleElement,
+            pluginDescriptorContainer = pluginDescriptorContainer,
+            xIncludeResolver = xIncludeResolver,
+            moduleName = moduleName,
+            dependencyHelper = (context as BuildContextImpl).jarPackagerDependencyHelper,
+            pluginLayout = pluginLayout,
+            frontendModuleFilter = context.getFrontendModuleFilter(),
+            outputProvider = context.outputProvider,
+          )
+        }
       }
     }
+    return JDOMUtil.write(xml).encodeToByteArray()
+  }
 
-    return@withDeprecatedPostProcessor JDOMUtil.write(xml).encodeToByteArray()
+  val layoutPatcherIfNoScrambling: LayoutPatcher = { moduleOutputPatcher, platformLayout, context ->
+    val file = context.findFileInModuleSources(clientModuleName, relativePath)
+    if (file != null) {
+      val pluginLayout = PluginLayout.pluginAuto(clientModuleName) {}
+      val descriptorCacheContainer = DescriptorCacheContainer()
+      val pluginDescriptorContainer = descriptorCacheContainer.forPlugin(context.paths.tempDir.resolve("temp-client-cache"))
+      val platformDescriptorContainer = descriptorCacheContainer.forPlatform(platformLayout)
+
+      val xml = JDOMUtil.load(file)
+      val patchedXmlContent = embedContentModules(xml, platformLayout, platformDescriptorContainer, pluginLayout, pluginDescriptorContainer, context)
+      moduleOutputPatcher.patchModuleOutput(moduleName = clientModuleName, path = relativePath, content = patchedXmlContent)
+    }
+  }
+
+  spec.withDeprecatedPostProcessor(layoutPatcherIfNoScrambling) { zipFileName, data, pluginLayout, platformLayout, pluginDescriptorContainer, context ->
+    if (zipFileName != relativePath) {
+      return@withDeprecatedPostProcessor null
+    }
+
+    val xml = JDOMUtil.load(data)
+    val platformDescriptorContainer = platformLayout.descriptorCacheContainer.forPlatform(platformLayout)
+    embedContentModules(xml, platformLayout, platformDescriptorContainer, pluginLayout, pluginDescriptorContainer, context)
   }
 }
 
