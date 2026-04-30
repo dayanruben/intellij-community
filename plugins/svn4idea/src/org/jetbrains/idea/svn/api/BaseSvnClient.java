@@ -2,6 +2,7 @@
 package org.jetbrains.idea.svn.api;
 
 import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.SvnVcs;
@@ -103,6 +104,8 @@ public abstract class BaseSvnClient implements SvnClient {
                                           @Nullable File workingDirectory,
                                           @NotNull Command command,
                                           @Nullable LineCommandListener listener) throws SvnBindException {
+    PersistentFSImpl.flushPendingUpdatesOrNotify();
+    
     command.setTarget(target);
     command.setWorkingDirectory(workingDirectory);
     command.setResultBuilder(listener);
