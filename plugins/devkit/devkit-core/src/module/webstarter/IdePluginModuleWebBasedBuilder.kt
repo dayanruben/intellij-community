@@ -147,7 +147,12 @@ internal open class IdePluginModuleWebBasedBuilder : WebStarterModuleBuilder() {
         addLinkIfPresent(linksObj, "specification", LibraryLinkType.SPECIFICATION)
       }
     } ?: emptyList()
-    val icon = info["icon"]?.asText()?.let { IconLoader.findIcon(it, this.javaClass.classLoader) }
+    val icon = info["icon"]?.asText()?.let {
+      // now KASTLE prepends icon paths with the pack ID, for example:
+      // org.jetbrains.intellij.platform.dependencies/compose/AllIcons.FileTypes
+      val normalizedIconPath = it.substringAfterLast("/")
+      IconLoader.findIcon(normalizedIconPath, this.javaClass.classLoader)
+    }
     val dependency = WebStarterDependency(
       id = id,
       title = name,
