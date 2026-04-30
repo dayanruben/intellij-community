@@ -13,7 +13,7 @@ import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl
+import com.intellij.openapi.vfs.newvfs.ManagingFS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,7 +34,7 @@ internal class WebPreviewEditorProvider : AsyncFileEditorProvider {
       writeIntentReadAction {
         fileDocumentManager.saveAllDocuments()
       }
-      PersistentFSImpl.flushPendingUpdatesOrNotify()
+      ManagingFS.getInstance().flushPendingUpdatesOrNotify()
       WebPreviewFileEditor(file as WebPreviewVirtualFile)
     }
     editor.reloadPage()
@@ -44,7 +44,7 @@ internal class WebPreviewEditorProvider : AsyncFileEditorProvider {
   override fun createEditor(project: Project, file: VirtualFile): FileEditor {
     val editor = WebPreviewFileEditor(file as WebPreviewVirtualFile)
     FileDocumentManager.getInstance().saveAllDocuments()
-    PersistentFSImpl.flushPendingUpdatesOrNotify()
+    ManagingFS.getInstance().flushPendingUpdatesOrNotify()
     editor.reloadPage()
     return editor
   }

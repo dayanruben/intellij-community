@@ -7,7 +7,7 @@ import com.intellij.execution.configurations.RunProfile
 import com.intellij.execution.configurations.RunnerSettings
 import com.intellij.execution.executors.DefaultRunExecutor
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl
+import com.intellij.openapi.vfs.newvfs.ManagingFS
 import org.jetbrains.concurrency.resolvedPromise
 
 internal class DefaultRunProgramRunner : ProgramRunner<RunnerSettings> {
@@ -18,7 +18,7 @@ internal class DefaultRunProgramRunner : ProgramRunner<RunnerSettings> {
     val state = environment.state ?: return
     ExecutionManager.getInstance(environment.project).startRunProfile(environment) {
       FileDocumentManager.getInstance().saveAllDocuments()
-      PersistentFSImpl.flushPendingUpdatesOrNotify()
+      ManagingFS.getInstance().flushPendingUpdatesOrNotify()
       if (state is DebuggableRunProfileState) {
         state.execute(-1)
           .then {

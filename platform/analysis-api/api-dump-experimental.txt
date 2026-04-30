@@ -461,6 +461,11 @@ c:com.intellij.openapi.fileEditor.OpenFileDescriptor
 *f:com.intellij.openapi.vfs.newvfs.AttributeOutputStreamImpl
 - com.intellij.openapi.vfs.newvfs.AttributeOutputStream
 - writeEnumeratedString(java.lang.String):V
+a:com.intellij.openapi.vfs.newvfs.ManagingFS
+- com.intellij.openapi.vfs.newvfs.FileSystemInterface
+- *a:flushPendingUpdates():V
+- *a:flushPendingUpdates(com.intellij.openapi.vfs.VirtualFile):V
+- *a:flushPendingUpdatesOrNotify():V
 a:com.intellij.openapi.vfs.newvfs.NewVirtualFile
 - com.intellij.openapi.vfs.VirtualFile
 - com.intellij.openapi.vfs.VirtualFileWithId

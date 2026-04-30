@@ -94,8 +94,8 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
 import com.intellij.platform.backend.workspace.GlobalWorkspaceModelCache;
 import com.intellij.platform.backend.workspace.WorkspaceModelCache;
 import com.intellij.platform.eel.path.EelPath;
@@ -345,7 +345,7 @@ public final class BuildManager implements Disposable {
             }
           );
           //flush pending IO tasks, if any:
-          PersistentFSImpl.flushPendingUpdatesOrNotify();
+          ManagingFS.getInstance().flushPendingUpdatesOrNotify();
         }
       }
 

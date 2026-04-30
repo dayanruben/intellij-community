@@ -19,11 +19,11 @@ import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.vfs.newvfs.ManagingFS
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
@@ -54,7 +54,7 @@ internal class BaseOpenInBrowserAction(private val browser: WebBrowser) : DumbAw
           chooseUrl(urls)
             .onSuccess { url ->
               FileDocumentManager.getInstance().saveAllDocuments()
-              PersistentFSImpl.flushPendingUpdatesOrNotify()
+              ManagingFS.getInstance().flushPendingUpdatesOrNotify()
               BrowserLauncher.instance.browse(url.toExternalForm(), browser, request.project)
             }
         }

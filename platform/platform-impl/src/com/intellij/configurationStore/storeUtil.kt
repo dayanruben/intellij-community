@@ -25,7 +25,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.getOpenedProjects
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl
+import com.intellij.openapi.vfs.newvfs.ManagingFS
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.platform.ide.progress.withBackgroundProgress
@@ -236,7 +236,7 @@ suspend fun saveProjectsAndApp(forceSavingAllSettings: Boolean, onlyProject: Pro
     }
   }
   //flush pending IO tasks, if any:
-  PersistentFSImpl.flushPendingUpdates()
+  ManagingFS.getInstance().flushPendingUpdates()
 
   val duration = (System.nanoTime() - start).nanoseconds.inWholeMilliseconds
   if (duration > 1000 || LOG.isDebugEnabled) {

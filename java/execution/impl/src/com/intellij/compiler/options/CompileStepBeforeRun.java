@@ -34,8 +34,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
+import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import com.intellij.task.ProjectTask;
 import com.intellij.task.ProjectTaskContext;
 import com.intellij.task.ProjectTaskManager;
@@ -207,7 +206,7 @@ public final class CompileStepBeforeRun extends BeforeRunTaskProvider<CompileSte
             ((FileDocumentManagerImpl)FileDocumentManager.getInstance()).saveAllDocuments(false);
           });
           //flush pending IO tasks, if any:
-          PersistentFSImpl.flushPendingUpdatesOrNotify();
+          ManagingFS.getInstance().flushPendingUpdatesOrNotify();
 
           projectTaskManager.run(pair.first, pair.second).onSuccess(taskResult -> {
             if ((!taskResult.hasErrors() || ignoreErrors) && !taskResult.isAborted()) {

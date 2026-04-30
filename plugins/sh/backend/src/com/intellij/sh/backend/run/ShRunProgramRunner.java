@@ -10,7 +10,7 @@ import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
+import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import com.intellij.sh.run.ShRunConfiguration;
 import org.jetbrains.annotations.NotNull;
 
@@ -32,7 +32,7 @@ final class ShRunProgramRunner implements ProgramRunner<RunnerSettings> {
   public void execute(@NotNull ExecutionEnvironment environment) throws ExecutionException {
     ExecutionManager.getInstance(environment.getProject()).startRunProfile(environment, state -> {
       FileDocumentManager.getInstance().saveAllDocuments();
-      PersistentFSImpl.flushPendingUpdatesOrNotify();
+      ManagingFS.getInstance().flushPendingUpdatesOrNotify();
       return showRunContent(state.execute(environment.getExecutor(), this), environment);
     });
   }

@@ -22,7 +22,7 @@ import com.intellij.openapi.vcs.VcsEnvCustomizer.VcsExecutableContext;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
+import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import com.intellij.platform.diagnostic.telemetry.helpers.TraceUtil;
 import com.intellij.platform.vcs.impl.shared.telemetry.VcsScopeKt;
 import com.intellij.util.EnvironmentUtil;
@@ -478,7 +478,7 @@ public abstract class GitHandler {
     }
 
     //Flush pending VFS writes, if any:
-    PersistentFSImpl.flushPendingUpdates();
+    ManagingFS.getInstance().flushPendingUpdates();
     try {
       myStartTime = System.currentTimeMillis();
       String logDirectoryPath = getDirectoryPathForLogging();

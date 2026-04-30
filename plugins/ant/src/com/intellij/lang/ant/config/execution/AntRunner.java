@@ -11,7 +11,7 @@ import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
+import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -22,7 +22,7 @@ final class AntRunner implements ProgramRunner<RunnerSettings> {
   public void execute(@NotNull ExecutionEnvironment environment) throws ExecutionException {
     ExecutionManager.getInstance(environment.getProject()).startRunProfile(environment, state -> {
       FileDocumentManager.getInstance().saveAllDocuments();
-      PersistentFSImpl.flushPendingUpdatesOrNotify();
+      ManagingFS.getInstance().flushPendingUpdatesOrNotify();
       ExecutionResult executionResult = state.execute(environment.getExecutor(), this);
       if (executionResult == null) {
         return null;
