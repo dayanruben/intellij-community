@@ -24,22 +24,27 @@ import java.util.concurrent.TimeUnit
 import kotlin.io.path.createDirectories
 
 /**
- * Regression test for PY-89275: if a cancellation arrives at `templateAsync.await()` in
- * `ProjectManagerImpl.prepareNewProject` — i.e. after `ProjectImpl` is constructed and registered in
- * `ProjectIdsStorage`, but before `initProject` is entered — the partially-created project must still be disposed.
- * Without a caller-side try/catch in `prepareNewProject`, the `CancellationException` skips `initProject`'s
- * (pre-existing) internal catch and the project leaks through `ProjectIdsStorage.idsToProject` (unregistration
- * only happens in `ProjectImpl.dispose()`), which is what `_LastInSuiteTest.testProjectLeak` flags.
+ * Regression tests for PY-89275: a partially-created project must always be disposed when its
+ * initialization is interrupted, otherwise it leaks through `ProjectIdsStorage.idsToProject`
+ * (unregistration only happens in `ProjectImpl.dispose()`), which is what
+ * `_LastInSuiteTest.testProjectLeak` flags.
  *
- * To hit `templateAsync.await()` deterministically, the test installs a [SettingsSavingComponent] on the default
- * project whose `save()` suspends indefinitely via `awaitCancellation()`. This causes
- * `acquireTemplateProject → saveSettings → stateStore.save` to never complete, so the `async { acquireTemplateProject() }`
- * launched by `prepareNewProject` stays pending. Meanwhile, `prepareNewProject` still completes `instantiateProject`
- * and then suspends at `templateAsync.await()`. When the test cancels the outer scope, the cancellation is observed
- * precisely at that `await()` — outside `initProject`.
+ * Two failure paths are covered:
  *
- * Asserting [Project.isDisposed] is sufficient: if the project is disposed, `ProjectImpl.dispose()` has called
- * `unregisterProjectId`, removing it from `ProjectIdsStorage`.
+ * 1. Cancellation arrives at `templateAsync.await()` in `ProjectManagerImpl.prepareNewProject` —
+ *    after `ProjectImpl` is constructed and registered in `ProjectIdsStorage`, but before
+ *    `initProject` is entered. The project must be disposed via the caller-side `try/catch` in
+ *    `prepareNewProject`.
+ *
+ * 2. A failure occurs *inside* `instantiateProject` after `ProjectImpl(...)` registered the project —
+ *    e.g. `beforeInit(project)` throws, or a sibling coroutine on a shared scope cancels the parent
+ *    while the inner `span("project instantiation")` / `span("options.beforeInit")` `withContext`
+ *    is on its way out. The throw bubbles out of `instantiateProject` before its caller can assign
+ *    the result and enter the caller-side try/catch, so the project must be disposed by
+ *    `instantiateProject`'s own try/catch.
+ *
+ * Asserting [Project.isDisposed] is sufficient: if the project is disposed, `ProjectImpl.dispose()`
+ * has called `unregisterProjectId`, removing it from `ProjectIdsStorage`.
  */
 class ProjectCancellationLeakTest {
   companion object {
@@ -112,6 +117,52 @@ class ProjectCancellationLeakTest {
       .describedAs(
         "Project must be disposed after cancelled open (otherwise it leaks through ProjectIdsStorage.idsToProject, " +
         "since unregisterProjectId is only called by ProjectImpl.dispose())"
+      )
+      .isTrue
+  }
+
+  /**
+   * Validates the inner `try/catch` in `ProjectManagerImpl.instantiateProject`. Throwing from
+   * `beforeInit` exits the surrounding `span("options.beforeInit")` after the project is already
+   * registered in `ProjectIdsStorage`, so `instantiateProject` must dispose the partially-created
+   * project before propagating the exception. Without the inner catch, the throw skips the
+   * caller-side `try/catch` in `prepareNewProject` (the caller never gets the project reference)
+   * and the project leaks via `ProjectIdsStorage.idsToProject`.
+   */
+  @Test
+  fun `project is disposed when beforeInit throws inside instantiateProject`() {
+    val projectFile = TemporaryDirectory.generateTemporaryPath("beforeInit-throw-leak-test")
+    projectFile.createDirectories()
+
+    var captured: Project? = null
+    val options = OpenProjectTask {
+      forceOpenInNewFrame = true
+      runConversionBeforeOpen = false
+      runConfigurators = false
+      showWelcomeScreen = false
+      isNewProject = true
+      useDefaultProjectAsTemplate = false
+      projectName = "beforeInit-throw-leak-test"
+      projectRootDir = projectFile
+      beforeInit = { project ->
+        captured = project
+        throw RuntimeException("test-induced beforeInit failure")
+      }
+    }
+
+    runBlocking {
+      runCatching { ProjectManagerEx.getInstanceEx().openProjectAsync(projectFile, options) }
+    }
+
+    val leaked = captured
+    assertThat(leaked)
+      .describedAs("beforeInit must have captured the ProjectImpl reference before throwing")
+      .isNotNull
+    assertThat(leaked!!.isDisposed)
+      .describedAs(
+        "Project must be disposed when a failure occurs inside instantiateProject (otherwise it " +
+        "leaks via ProjectIdsStorage.idsToProject, since unregisterProjectId is only called by " +
+        "ProjectImpl.dispose())"
       )
       .isTrue
   }
