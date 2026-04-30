@@ -27,6 +27,7 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.rt.coverage.data.LineCoverage;
 import com.intellij.rt.coverage.data.LineData;
 import com.intellij.util.Function;
 import org.jetbrains.annotations.ApiStatus;
@@ -468,5 +469,14 @@ public abstract class CoverageEngine {
     if (stackTrace.length < 2) return false;
     StackTraceElement element = stackTrace[1];
     return element.getClassName().equals(CoverageEngine.class.getName()) && element.getMethodName().equals("createCoverageSuite");
+  }
+
+  @ApiStatus.Internal
+  public static @NotNull String getLineCoverageStatus(LineData lineData) {
+    return switch (lineData.getStatus()) {
+      case LineCoverage.PARTIAL -> CoverageBundle.message("coverage.next.change.partial.covered");
+      case LineCoverage.FULL -> CoverageBundle.message("coverage.next.change.fully.covered");
+      default -> CoverageBundle.message("coverage.next.change.uncovered");
+    };
   }
 }

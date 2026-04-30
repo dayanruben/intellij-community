@@ -14,15 +14,19 @@ import com.intellij.notification.Notifications;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.ControlFlowException;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiFile;
+import com.intellij.rt.coverage.data.BranchData;
 import com.intellij.rt.coverage.data.ClassData;
 import com.intellij.rt.coverage.data.LineCoverage;
 import com.intellij.rt.coverage.data.LineData;
@@ -394,5 +398,17 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
   @Override
   public @NotNull String getDataFileExtension() {
     return "exec";
+  }
+
+  @Override
+  public String generateBriefReport(@NotNull Editor editor,
+                                    @NotNull PsiFile psiFile,
+                                    @NotNull TextRange range,
+                                    @NotNull LineData lineData) {
+    BranchData branchData = lineData.getBranchData();
+    var lineCoverage = CoverageEngine.getLineCoverageStatus(lineData);
+    if (branchData == null) return lineCoverage;
+    var branchCoverage = JavaCoverageEngine.getBranchCoverageStatus(branchData);
+    return lineCoverage + "\n" + branchCoverage;
   }
 }

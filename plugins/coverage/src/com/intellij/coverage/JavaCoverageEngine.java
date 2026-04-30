@@ -88,7 +88,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 import java.util.stream.IntStream;
 
 /**
@@ -535,34 +534,21 @@ public class JavaCoverageEngine extends CoverageEngine {
                                     @NotNull TextRange range,
                                     @Nullable LineData lineData) {
     if (lineData == null) {
-      return CoverageBundle.message("hits.title", 0);
+      return CoverageBundle.message("coverage.next.change.uncovered");
     }
-    // we can only rely on IJ coverage engine in order of branches
-    if (ContainerUtil.exists(bundle.getSuites(), (suite) -> !(suite.getRunner() instanceof IDEACoverageRunner))) {
-      return createDefaultHitsMessage(lineData);
-    }
+    var suites = bundle.getSuites();
+    assert suites.length > 0 : "Suites list should not be empty";
 
-    try {
-      int lineNumber = editor.getDocument().getLineNumber(range.getStartOffset());
-      for (JavaCoverageEngineExtension extension : JavaCoverageEngineExtension.EP_NAME.getExtensionList()) {
-        String report = extension.generateBriefReport(editor, psiFile, lineNumber, range.getStartOffset(), range.getEndOffset(), lineData);
-        if (report != null) {
-          return report;
-        }
+    var firstRunner = suites[0].getRunner();
+    assert firstRunner instanceof JavaCoverageRunner : "Runner should be JavaCoverageRunner";
+    JavaCoverageRunner uniqueRunner = (JavaCoverageRunner)firstRunner;
+    for (var suite : suites) {
+      if (suite.getRunner() != uniqueRunner) {
+        return createDefaultBriefReport(lineData);
       }
+    }
 
-      List<SwitchCoverageExpression> switches = JavaCoveragePsiUtilsKt.getSwitches(psiFile, range);
-      List<ConditionCoverageExpression> conditions = JavaCoveragePsiUtilsKt.getConditions(psiFile, range);
-
-      return createBriefReport(lineData, conditions, switches);
-    }
-    catch (CancellationException e) {
-      throw e;
-    }
-    catch (Exception e) {
-      LOG.error(e);
-      return createDefaultHitsMessage(lineData);
-    }
+    return uniqueRunner.generateBriefReport(editor, psiFile, range, lineData);
   }
 
   public static @NotNull String createBriefReport(@NotNull LineData lineData,
@@ -577,7 +563,7 @@ public class JavaCoverageEngine extends CoverageEngine {
       for (JumpData jumpData : lineData.getJumps()) {
         if (idx >= conditions.size()) {
           LOG.info("Cannot map coverage report data with PSI: there are more branches in report then in PSI");
-          return createDefaultHitsMessage(lineData);
+          return createDefaultBriefReport(lineData);
         }
         ConditionCoverageExpression expression = conditions.get(idx++);
         addJumpDataInfo(buf, jumpData, expression);
@@ -589,7 +575,7 @@ public class JavaCoverageEngine extends CoverageEngine {
       for (SwitchData switchData : lineData.getSwitches()) {
         if (idx >= switches.size()) {
           LOG.info("Cannot map coverage report data with PSI: there are more switches in report then in PSI");
-          return createDefaultHitsMessage(lineData);
+          return createDefaultBriefReport(lineData);
         }
         SwitchCoverageExpression expression = switches.get(idx++);
         addSwitchDataInfo(buf, switchData, expression, lineData.getStatus());
@@ -640,10 +626,16 @@ public class JavaCoverageEngine extends CoverageEngine {
     }
   }
 
-  private static @NotNull String createDefaultHitsMessage(@NotNull LineData lineData) {
+  static @NotNull String createDefaultBriefReport(@NotNull LineData lineData) {
     BranchData branchData = lineData.getBranchData();
-    if (branchData == null) return CoverageBundle.message("hits.title", lineData.getHits());
-    return CoverageBundle.message("branch.coverage.message", lineData.getHits(), branchData.getCoveredBranches(), branchData.getTotalBranches());
+    var lineCoverage = CoverageBundle.message("hits.title", lineData.getHits());
+    if (branchData == null) return lineCoverage;
+    var branchCoverage = getBranchCoverageStatus(branchData);
+    return lineCoverage + "\n" + branchCoverage;
+  }
+
+  static @Nls @NotNull String getBranchCoverageStatus(BranchData branchData) {
+    return CoverageBundle.message("branch.coverage.message", branchData.getCoveredBranches(), branchData.getTotalBranches());
   }
 
   @Override
