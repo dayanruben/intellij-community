@@ -12,6 +12,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.debugger.impl.frontend.util.RequestsSerializer
 import com.intellij.platform.debugger.impl.rpc.XBreakpointApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointDto
 import com.intellij.platform.debugger.impl.rpc.XBreakpointEvent
@@ -30,8 +31,8 @@ import com.intellij.platform.debugger.impl.shared.proxy.XLineBreakpointProxy
 import com.intellij.platform.debugger.impl.shared.proxy.XLineBreakpointTypeProxy
 import com.intellij.platform.project.projectId
 import com.intellij.platform.util.coroutines.childScope
-import com.intellij.xdebugger.breakpoints.XLineBreakpointVerticalPlacement
 import com.intellij.xdebugger.SplitDebuggerMode
+import com.intellij.xdebugger.breakpoints.XLineBreakpointVerticalPlacement
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointItem
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointsDialogState
 import com.intellij.xdebugger.impl.breakpoints.XLineBreakpointManager
@@ -66,6 +67,7 @@ private val log = logger<FrontendXBreakpointManager>()
 @ApiStatus.Internal
 @VisibleForTesting
 class FrontendXBreakpointManager(private val project: Project, private val cs: CoroutineScope) : XBreakpointManagerProxy {
+  private val requestsSerializer = RequestsSerializer.create(cs)
   private val breakpointsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
   private val breakpointsChangedWithReplay = breakpointsChanged.shareIn(cs, SharingStarted.Eagerly, replay = 1)
 
@@ -307,7 +309,7 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
     if (group == defaultGroup) return
 
     defaultGroup = group
-    cs.launch {
+    requestsSerializer.performRequest {
       XBreakpointApi.getInstance().setDefaultGroup(project.projectId(), group)
     }
   }
@@ -373,26 +375,26 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
 
   override fun rememberRemovedBreakpoint(breakpoint: XBreakpointProxy) {
     lastRemovedBreakpoint = breakpoint
-    cs.launch {
+    requestsSerializer.performRequest {
       XBreakpointTypeApi.getInstance().rememberRemovedBreakpoint(breakpoint.id)
     }
   }
 
   override fun restoreRemovedBreakpoint(breakpoint: XBreakpointProxy) {
     lastRemovedBreakpoint = null
-    cs.launch {
+    requestsSerializer.performRequest {
       XBreakpointTypeApi.getInstance().restoreRemovedBreakpoint(breakpoint.project.projectId())
     }
   }
 
   override fun copyLineBreakpoint(breakpoint: XLineBreakpointProxy, file: VirtualFile, line: Int) {
-    cs.launch {
+    requestsSerializer.performRequest {
       XBreakpointTypeApi.getInstance().copyLineBreakpoint(breakpoint.id, file.rpcId(), line)
     }
   }
 
   override fun onBreakpointRemoval(breakpoint: XLineBreakpointProxy, session: XDebugSessionProxy) {
-    cs.launch {
+    requestsSerializer.performRequest {
       XBreakpointTypeApi.getInstance().onBreakpointRemoval(breakpoint.id, session.id)
     }
   }
