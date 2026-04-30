@@ -116,7 +116,11 @@ class NioFileSystemTree(
 
   fun showHiddens(showHidden: Boolean) {
     descriptor.withShowHiddenFiles(showHidden)
+    val selectedFiles = getSelectedFiles().filterNotNull().toTypedArray()
     updateTree()
+    if (selectedFiles.isNotEmpty()) {
+      select(selectedFiles, null)
+    }
   }
 
   fun updateTree() {
