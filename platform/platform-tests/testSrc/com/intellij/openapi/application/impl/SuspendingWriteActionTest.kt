@@ -19,6 +19,7 @@ import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.use
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.util.ThrowableRunnable
 import com.intellij.util.ui.EDT
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -186,6 +187,15 @@ class SuspendingWriteActionTest {
         runBlocking {
           runUndoTransparentWriteAction(writeLambda)
         }
+      }
+
+      val tr: ThrowableRunnable<RuntimeException> = {}
+      listener.assertCorrectClassPassed(tr) {
+        com.intellij.openapi.application.WriteAction.run(tr)
+      }
+
+      listener.assertCorrectClassPassed(tr) {
+        com.intellij.openapi.application.WriteAction.runAndWait(tr)
       }
     }
   }

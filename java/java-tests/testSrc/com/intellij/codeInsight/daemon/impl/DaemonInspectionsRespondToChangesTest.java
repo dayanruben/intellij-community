@@ -998,7 +998,6 @@ public class DaemonInspectionsRespondToChangesTest extends ProductionDaemonAnaly
     type("// another comment\nvoid anotherMethod(){}");
     DaemonRespondToChangesTest.makeWholeEditorWindowVisible((EditorImpl)myEditor); // get "visible area first" optimization out of the way
 
-    TestTimeOut t= TestTimeOut.setTimeout(10_000, TimeUnit.MILLISECONDS);
     // now when the LIP restarted, we should observe the range highlighter for the inspection to disappear as soon as visitIdentifier() method is finished
     MarkupModelEx model = (MarkupModelEx)DocumentMarkupModel.forDocument(getEditor().getDocument(), getProject(), true);
     myTestDaemonCodeAnalyzer.waitForDaemonToFinish(getFile(), () -> {

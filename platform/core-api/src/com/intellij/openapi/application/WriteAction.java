@@ -64,10 +64,7 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
    * Executes {@code action} inside write action.
    */
   public static <E extends Throwable> void run(@NotNull ThrowableRunnable<E> action) throws E {
-    ApplicationManager.getApplication().runWriteAction((ThrowableComputable<Void, E>)() -> {
-      action.run();
-      return null;
-    });
+    ApplicationManager.getApplication().runWriteAction(CoroutinesKt.throwableRunnableToThrowableComputable(action));
   }
 
   /**
@@ -92,10 +89,7 @@ public abstract class WriteAction<T> extends BaseActionRunnable<T> {
    * <br/>Instead, please use {@link #run(ThrowableRunnable)}.
    */
   public static <E extends Throwable> void runAndWait(@NotNull ThrowableRunnable<E> action) throws E {
-    computeAndWait(() -> {
-      action.run();
-      return null;
-    });
+    computeAndWait(CoroutinesKt.throwableRunnableToThrowableComputable(action));
   }
 
   /**
