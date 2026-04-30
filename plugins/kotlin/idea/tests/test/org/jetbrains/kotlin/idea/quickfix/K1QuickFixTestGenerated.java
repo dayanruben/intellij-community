@@ -20802,6 +20802,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                 runTest("testData/quickfix/typeMismatch/changeReturnTypeForTypeMismatch.kt");
             }
 
+            @TestMetadata("changeReturnTypeForTypeMismatchActionsOrder.kt")
+            public void testChangeReturnTypeForTypeMismatchActionsOrder() throws Exception {
+                runTest("testData/quickfix/typeMismatch/changeReturnTypeForTypeMismatchActionsOrder.kt");
+            }
+
             @TestMetadata("changeReturnTypeNoFqNameForAnonymousObject.kt")
             public void testChangeReturnTypeNoFqNameForAnonymousObject() throws Exception {
                 runTest("testData/quickfix/typeMismatch/changeReturnTypeNoFqNameForAnonymousObject.kt");

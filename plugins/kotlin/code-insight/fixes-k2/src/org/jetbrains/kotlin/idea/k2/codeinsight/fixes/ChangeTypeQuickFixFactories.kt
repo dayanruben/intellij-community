@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.codeinsight.fixes
 
+import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.codeInspection.util.IntentionName
 import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModCommandAction
@@ -94,8 +95,18 @@ internal object ChangeTypeQuickFixFactories {
         private val typeInfo: CallableReturnTypeUpdaterUtils.TypeInfo,
     ) : PsiUpdateModCommandAction<E>(target) {
         override fun getFamilyName(): String = KotlinBundle.message("fix.change.return.type.family")
-        override fun getPresentation(context: ActionContext, element: E): Presentation =
-            Presentation.of(getActionName(element, targetType, typeInfo))
+
+        override fun getPresentation(context: ActionContext, element: E): Presentation {
+            val name = getActionName(element, targetType, typeInfo)
+            val priority =
+                when(targetType) {
+                    TargetType.BASE_DECLARATION,
+                    TargetType.ENCLOSING_DECLARATION,
+                    TargetType.CURRENT_DECLARATION -> PriorityAction.Priority.HIGH
+                    else -> PriorityAction.Priority.NORMAL
+                }
+            return Presentation.of(name).withPriority(priority)
+        }
 
         override fun invoke(context: ActionContext, element: E, updater: ModPsiUpdater) =
             updateType(element, typeInfo, context.project)
