@@ -68,5 +68,7 @@
     <orderEntry type="library" name="kotlinc.analysis-api" level="project" />
     <orderEntry type="module" module-name="kotlin.refactorings.common" />
     <orderEntry type="module" module-name="intellij.kotlin.base.statistics" />
+    <orderEntry type="module" module-name="intellij.platform.util.progress" />
+    <orderEntry type="module" module-name="intellij.platform.util" />
   </component>
 </module>
