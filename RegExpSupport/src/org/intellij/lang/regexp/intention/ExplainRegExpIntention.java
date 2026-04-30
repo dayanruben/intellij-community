@@ -371,7 +371,9 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
 
   @Override
   public void visitRegExpBranch(RegExpBranch branch) {
-    if (!(branch.getParent() instanceof RegExpPattern pattern) || pattern.getBranches().length > 1) {
+    if (!(branch.getParent() instanceof RegExpPattern pattern) 
+        || pattern.getBranches().length > 1
+        || pattern.getParent() instanceof RegExpFile) {
       PsiElement[] children = branch.getChildren();
       if (children.length > 1) {
         boolean allSimpleChars = true;

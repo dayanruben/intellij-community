@@ -44,25 +44,26 @@ public final class ExplainRegExpIntentionTest extends BasePlatformTestCase {
   public void testJustCharacters() {
     doTest("\\(vitreous humour\\)",
            """
-             \\( – matches the LEFT PARENTHESIS character
-             vitreous – matches characters in order
-               v – matches the LATIN SMALL LETTER V character
-               i – matches the LATIN SMALL LETTER I character
-               t – matches the LATIN SMALL LETTER T character
-               r – matches the LATIN SMALL LETTER R character
-               e – matches the LATIN SMALL LETTER E character
-               o – matches the LATIN SMALL LETTER O character
-               u – matches the LATIN SMALL LETTER U character
-               s – matches the LATIN SMALL LETTER S character
-               – matches the SPACE character
-             humour – matches characters in order
-               h – matches the LATIN SMALL LETTER H character
-               u – matches the LATIN SMALL LETTER U character
-               m – matches the LATIN SMALL LETTER M character
-               o – matches the LATIN SMALL LETTER O character
-               u – matches the LATIN SMALL LETTER U character
-               r – matches the LATIN SMALL LETTER R character
-             \\) – matches the RIGHT PARENTHESIS character
+             \\(vitreous humour\\) – matches elements in order
+               \\( – matches the LEFT PARENTHESIS character
+               vitreous – matches characters in order
+                 v – matches the LATIN SMALL LETTER V character
+                 i – matches the LATIN SMALL LETTER I character
+                 t – matches the LATIN SMALL LETTER T character
+                 r – matches the LATIN SMALL LETTER R character
+                 e – matches the LATIN SMALL LETTER E character
+                 o – matches the LATIN SMALL LETTER O character
+                 u – matches the LATIN SMALL LETTER U character
+                 s – matches the LATIN SMALL LETTER S character
+                 – matches the SPACE character
+               humour – matches characters in order
+                 h – matches the LATIN SMALL LETTER H character
+                 u – matches the LATIN SMALL LETTER U character
+                 m – matches the LATIN SMALL LETTER M character
+                 o – matches the LATIN SMALL LETTER O character
+                 u – matches the LATIN SMALL LETTER U character
+                 r – matches the LATIN SMALL LETTER R character
+               \\) – matches the RIGHT PARENTHESIS character
              """);
   }
 
@@ -85,20 +86,21 @@ public final class ExplainRegExpIntentionTest extends BasePlatformTestCase {
   public void testComment() {
     doTest("(?x)  implausible# inconceivable",
            """
-             (?x) Inline Mode Modifier (https://www.regular-expressions.info/modifiers.html) – turns regex modes on or off
-               x – turns on comments mode
-             implausible – matches characters in order
-               i – matches the LATIN SMALL LETTER I character
-               m – matches the LATIN SMALL LETTER M character
-               p – matches the LATIN SMALL LETTER P character
-               l – matches the LATIN SMALL LETTER L character
-               a – matches the LATIN SMALL LETTER A character
-               u – matches the LATIN SMALL LETTER U character
-               s – matches the LATIN SMALL LETTER S character
-               i – matches the LATIN SMALL LETTER I character
-               b – matches the LATIN SMALL LETTER B character
-               l – matches the LATIN SMALL LETTER L character
-               e – matches the LATIN SMALL LETTER E character
+             (?x)  implausible – matches elements in order
+               (?x) Inline Mode Modifier (https://www.regular-expressions.info/modifiers.html) – turns regex modes on or off
+                 x – turns on comments mode
+               implausible – matches characters in order
+                 i – matches the LATIN SMALL LETTER I character
+                 m – matches the LATIN SMALL LETTER M character
+                 p – matches the LATIN SMALL LETTER P character
+                 l – matches the LATIN SMALL LETTER L character
+                 a – matches the LATIN SMALL LETTER A character
+                 u – matches the LATIN SMALL LETTER U character
+                 s – matches the LATIN SMALL LETTER S character
+                 i – matches the LATIN SMALL LETTER I character
+                 b – matches the LATIN SMALL LETTER B character
+                 l – matches the LATIN SMALL LETTER L character
+                 e – matches the LATIN SMALL LETTER E character
              # inconceivable Comment (https://www.regular-expressions.info/freespacing.html)
              """);
   }
