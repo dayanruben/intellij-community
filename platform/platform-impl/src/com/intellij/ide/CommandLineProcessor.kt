@@ -488,12 +488,3 @@ object CommandLineProcessor {
       doOpenFileOrProject(file, createOrOpenExistingProject = true, shouldWait)
   }
 }
-
-@Deprecated("Replace with a hard-coded name", level = DeprecationLevel.ERROR)
-@Suppress("unused")
-@get:ApiStatus.Internal
-val ApplicationStarter.commandNameFromExtension: String?
-  get() = ExtensionPointName<ApplicationStarter>("com.intellij.appStarter")
-    .filterableLazySequence()
-    .find { it.implementationClassName == javaClass.name }
-    ?.id

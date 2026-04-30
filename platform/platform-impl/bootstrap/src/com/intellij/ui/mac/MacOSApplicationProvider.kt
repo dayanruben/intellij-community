@@ -49,7 +49,6 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.Desktop
 import java.awt.event.MouseEvent
-import java.io.File
 import java.net.URLDecoder
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JOptionPane
@@ -123,7 +122,7 @@ fun initMacApplication(mainScope: CoroutineScope) {
       return@setOpenFileHandler
     }
 
-    val list = files.map(File::toPath)
+    @Suppress("IO_FILE_USAGE") val list = files.map(java.io.File::toPath)
     if (LoadingState.COMPONENTS_LOADED.isOccurred) {
       val project = getNonDefaultProject()
       mainScope.launch {
