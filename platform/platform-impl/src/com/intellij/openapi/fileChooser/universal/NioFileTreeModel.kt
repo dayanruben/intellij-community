@@ -7,18 +7,22 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileTypes.FileTypeRegistry
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.ui.icons.PredefinedIconOverlayService
 import com.intellij.ui.tree.MapBasedTree
 import com.intellij.ui.tree.MapBasedTree.Entry
 import com.intellij.util.PlatformIcons
 import com.intellij.util.concurrency.Invoker
 import com.intellij.util.concurrency.InvokerSupplier
+import com.intellij.util.io.PlatformNioHelper
 import com.intellij.util.ui.tree.AbstractTreeModel
 import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.function.Predicate
+import javax.swing.Icon
 import javax.swing.tree.TreePath
 import kotlin.io.path.invariantSeparatorsPathString
 
@@ -140,7 +144,11 @@ class NioFileTreeModel @JvmOverloads constructor(
     state.getRoots().firstOrNull { root -> root.path.invariantSeparatorsPathString == path.invariantSeparatorsPathString }?.path
 
 
-  // -- Inner classes ------------------------------------------------------------------------------------------------
+  private data class ChildEntry(
+    val path: Path,
+    val attrs: BasicFileAttributes,
+    val isDirectory: Boolean = if (attrs.isSymbolicLink) Files.isDirectory(path) else attrs.isDirectory,
+  )
 
   private class State(
     val descriptor: FileChooserDescriptor,
@@ -150,30 +158,48 @@ class NioFileTreeModel @JvmOverloads constructor(
     val descriptorRoots: List<Path>? = getRoots(descriptor)
     val path: TreePath? = if (descriptorRoots != null && descriptorRoots.size == 1) null else TreePath(this)
 
-    fun compare(one: Path, two: Path): Int {
+    fun compare(one: ChildEntry, two: ChildEntry): Int {
       if (sortDirectories) {
-        val isDirectory = Files.isDirectory(one)
-        if (isDirectory != Files.isDirectory(two)) return if (isDirectory) -1 else 1
+        if (one.isDirectory != two.isDirectory) return if (one.isDirectory) -1 else 1
       }
-      return StringUtil.naturalCompare(fileName(one), fileName(two))
+      return StringUtil.naturalCompare(fileName(one.path), fileName(two.path))
     }
 
-    fun isVisible(path: Path): Boolean {
-      if (!isValid(path)) return false
+    fun isVisible(entry: ChildEntry): Boolean {
       if (!descriptor.isShowHiddenFiles) {
-        if (NioFileChooserUtil.isHidden(path)) return false
+        if (isHiddenFromAttrs(entry)) return false
       }
       return true
     }
 
-    fun getChildren(path: Path): List<Path>? {
+    private fun isHiddenFromAttrs(entry: ChildEntry): Boolean = NioFileChooserUtil.isHidden(entry.path, entry.attrs)
+
+    fun getChildrenWithAttributes(path: Path): List<ChildEntry>? {
       if (!isValid(path)) return null
       if (!Files.isDirectory(path)) return null
       return try {
-        Files.newDirectoryStream(path).use { stream -> stream.toList() }
+        val result = mutableListOf<ChildEntry>()
+        PlatformNioHelper.visitDirectory(path, null) { childPath, attrResult ->
+          try {
+            val attrs = attrResult.get()
+            result.add(ChildEntry(childPath, attrs))
+          }
+          catch (_: IOException) {
+            // skip unreadable entries
+          }
+          catch (_: RuntimeException) {
+            // skip unreadable entries
+          }
+          true
+        }
+        result
       }
       catch (e: IOException) {
-        LOG.debug("Cannot list directory: $path", e)
+        LOG.debug("cannot list directory: $path", e)
+        null
+      }
+      catch (e: SecurityException) {
+        LOG.debug("cannot list directory: $path", e)
         null
       }
     }
@@ -191,27 +217,6 @@ class NioFileTreeModel @JvmOverloads constructor(
       val rootsFilter = descriptor.getUserData(SYSTEM_ROOTS_FILTER)
       val systemRoots = FileSystems.getDefault().rootDirectories.toList()
       return if (rootsFilter != null) systemRoots.filter { rootsFilter.test(it) } else systemRoots
-    }
-
-    private fun removeRoots(roots: List<Root>, indicesToRemove: IntArray) {
-      if (indicesToRemove.isNotEmpty()) {
-        val rootsToRemove = indicesToRemove.map { roots[it] }
-        if (LOG.isDebugEnabled) {
-          LOG.debug("Removing ${toRootPaths(rootsToRemove)}")
-        }
-        model.roots = roots.filter { root -> !rootsToRemove.contains(root) }
-        model.treeNodesRemoved(path, indicesToRemove, rootsToRemove.toTypedArray())
-      }
-    }
-
-    private fun addRoots(roots: List<Root>, rootsToAdd: List<Root>) {
-      if (rootsToAdd.isNotEmpty()) {
-        if (LOG.isDebugEnabled) {
-          LOG.debug("Adding ${toRootPaths(rootsToAdd)}")
-        }
-        model.roots = (roots + rootsToAdd).toList()
-        model.treeNodesInserted(path, IntArray(rootsToAdd.size) { roots.size + it }, rootsToAdd.toTypedArray())
-      }
     }
 
     override fun toString(): String = descriptor.title
@@ -234,52 +239,69 @@ class NioFileTreeModel @JvmOverloads constructor(
           .filter { isValid(it) }
         return if (list.isEmpty() && descriptor.isShowFileSystemRoots) null else list
       }
-
-      fun toRootPaths(roots: List<Root>): List<Path> = roots.map { it.path }
-
-      fun <E> findNewElementIndices(a: List<E>, b: List<E>): IntArray =
-        a.indices.filter { a[it] !in b }.toIntArray()
     }
   }
 
-  private open class Node(state: State, path: Path) : NioFileNode(path) {
+  private open class Node(path: Path, attrs: BasicFileAttributes? = null, isDirectory: Boolean? = null) : NioFileNode(path) {
     init {
-      updateContent()
+      updateContent(attrs, isDirectory)
     }
 
-    private fun updateContent() {
+    private fun updateContent(attrs: BasicFileAttributes?, isDirectory: Boolean?) {
       val p = path
       updateName(fileName(p))
-      updateIcon(NioFileChooserUtil.getIcon(p))
-      updateValid(Files.exists(p))
-      updateHidden(NioFileChooserUtil.isHidden(p))
-      updateSymlink(Files.isSymbolicLink(p))
-      updateWritable(Files.isWritable(p))
+      if (attrs != null) {
+        val directory = isDirectory ?: attrs.isDirectory
+        var icon: Icon? =
+          if (directory) PlatformIcons.FOLDER_ICON
+          else FileTypeRegistry.getInstance().getFileTypeByFileName(p.toString()).icon
+        val isSymlink = attrs.isSymbolicLink
+        if (isSymlink && icon != null) {
+          icon = PredefinedIconOverlayService.getInstance().createSymlinkIcon(icon)
+        }
+        updateIcon(icon)
+        updateValid(true)
+        updateHidden(NioFileChooserUtil.isHidden(path, attrs))
+        updateSymlink(isSymlink)
+        updateWritable(Files.isWritable(p))
+      }
+      else {
+        var icon: Icon? = NioFileChooserUtil.getIcon(p)
+        val isSymlink = Files.isSymbolicLink(p)
+        if (isSymlink && icon != null) {
+          icon = PredefinedIconOverlayService.getInstance().createSymlinkIcon(icon)
+        }
+        updateIcon(icon)
+        updateValid(Files.exists(p))
+        updateHidden(NioFileChooserUtil.isHidden(p))
+        updateSymlink(isSymlink)
+        updateWritable(Files.isWritable(p))
+      }
     }
 
     override fun toString(): String = name ?: ""
   }
 
-  private class Root(state: State, path: Path) : Node(state, path) {
+  private class Root(state: State, path: Path, attrs: BasicFileAttributes? = null, isDirectory: Boolean? = null) : Node(path, attrs, isDirectory) {
     val tree: MapBasedTree<Path, Node> = MapBasedTree(false, { it.path }, state.path)
 
     init {
-      tree.updateRoot(Pair.create(this, State.isLeaf(path)))
+      tree.updateRoot(Pair.create(this, attrs?.let { !(isDirectory ?: it.isDirectory) } ?: State.isLeaf(path)))
     }
 
     fun updateChildren(state: State, parent: Entry<Node>): MapBasedTree.UpdateResult<Node> {
-      val children = state.getChildren(parent.node.path)
-      if (children == null) return tree.update(parent, null)
+      val children = state.getChildrenWithAttributes(parent.node.path)
+        ?: return tree.update(parent, null)
       if (children.isEmpty()) return tree.update(parent, emptyList())
       return tree.update(parent, children
         .filter { state.isVisible(it) }
         .sortedWith { a, b -> state.compare(a, b) }
-        .map { childPath ->
-          val entry = tree.findEntry(childPath)
-          if (entry != null && parent === entry.parentPath)
-            Pair.create(entry.node, State.isLeaf(childPath))
+        .map { entry ->
+          val existing = tree.findEntry(entry.path)
+          if (existing != null && parent === existing.parentPath)
+            Pair.create(existing.node, !entry.isDirectory)
           else
-            Pair.create(Node(state, childPath), State.isLeaf(childPath))
+            Pair.create(Node(entry.path, entry.attrs, entry.isDirectory), !entry.isDirectory)
         })
     }
   }
