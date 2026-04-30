@@ -200,13 +200,13 @@ private fun getNamedTupleTypeForTarget(target: PyTargetExpression, context: Type
 }
 
 private fun getNamedTupleTypeForClass(cls: PyClass, context: TypeEvalContext, call: PyCallExpression): PyType? {
-  return getNamedTupleTypeForNTInheritorAsCallee(cls, context)
+  return getNamedTupleTypeForClass(cls, context)
          ?: PyUnionType.union(
            cls.multiFindInitOrNew(false, context).mapSmartNotNull { getNamedTupleFunctionType(it, context, call) }
          )
 }
 
-private fun getNamedTupleTypeForNTInheritorAsCallee(cls: PyClass, context: TypeEvalContext): PyNamedTupleType? {
+internal fun getNamedTupleTypeForClass(cls: PyClass, context: TypeEvalContext): PyNamedTupleType? {
   if (cls.findInitOrNew(false, context) != null) return null
 
   val name = cls.name ?: return null

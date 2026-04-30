@@ -85,6 +85,7 @@ import com.jetbrains.python.psi.PyWithItem
 import com.jetbrains.python.psi.impl.PyBuiltinCache.Companion.getInstance
 import com.jetbrains.python.psi.impl.PyEvaluator
 import com.jetbrains.python.psi.impl.PyPsiFacadeImpl
+import com.jetbrains.python.codeInsight.stdlib.getNamedTupleTypeForClass
 import com.jetbrains.python.psi.impl.PyPsiUtils
 import com.jetbrains.python.psi.impl.stubs.PyTypingAliasStubType
 import com.jetbrains.python.psi.resolve.PyResolveContext
@@ -109,6 +110,7 @@ import com.jetbrains.python.psi.types.PyIntersectionType.Companion.intersection
 import com.jetbrains.python.psi.types.PyLiteralStringType.Companion.create
 import com.jetbrains.python.psi.types.PyLiteralType
 import com.jetbrains.python.psi.types.PyModuleType
+import com.jetbrains.python.psi.types.PyNamedTupleType
 import com.jetbrains.python.psi.types.PyNarrowedType
 import com.jetbrains.python.psi.types.PyNarrowedType.Companion.create
 import com.jetbrains.python.psi.types.PyNeverType
@@ -1393,6 +1395,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         if (newType != null) {
           return Ref(newType.toInstance())
         }
+        val namedTupleType = getNamedTupleType(resolved, context)
+        if (namedTupleType != null) {
+          return Ref(namedTupleType)
+        }
         val classType: Ref<PyType?>? = getClassType(typeHint, resolved, parameterizeTopLevel, context)
         if (classType != null) {
           return classType
@@ -1411,6 +1417,13 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           context.removeTypeAlias(alias)
         }
       }
+    }
+
+    private fun getNamedTupleType(element: PsiElement, context: Context): PyNamedTupleType? {
+      if (element is PyClass) {
+        return getNamedTupleTypeForClass(element, context.typeContext)?.toInstance()
+      }
+      return null
     }
 
     private fun getTypeEngineType(typeHint: PyExpression, context: Context): Ref<PyType?>? {

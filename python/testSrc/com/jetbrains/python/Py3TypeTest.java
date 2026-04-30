@@ -5889,6 +5889,20 @@ public class Py3TypeTest extends PyTestCase {
     );
   }
 
+  @TestFor(issues = "PY-88344")
+  public void testNamedTupleClassSyntax() {
+    doTest("int", """
+      from typing import NamedTuple
+
+      class Point(NamedTuple):
+          x: int
+          y: int
+
+      def foo(point: Point):
+          expr = point[1]
+      """);
+  }
+
   private void doTest(final String expectedType, final String text) {
     myFixture.configureByText(PythonFileType.INSTANCE, text);
     final PyExpression expr = myFixture.findElementByText("expr", PyExpression.class);
