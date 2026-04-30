@@ -100,14 +100,14 @@ public final class ExplainRegExpIntention implements IntentionAction, Iconable, 
       PsiElement end = file.findElementAt(selectionModel.getSelectionEnd() - 1);
       if (start != null && end != null) {
         PsiElement parent = (start == end && start.getFirstChild() == null) ? start.getParent() : PsiTreeUtil.findCommonParent(start, end);
-        QuickEditHandler.showBalloon(editor, file, createBalloonComponent(parent));
+        QuickEditHandler.showBalloon(editor, file, createBalloonComponent(parent, editor));
         return;
       }
     }
-    QuickEditHandler.showBalloon(editor, file, createBalloonComponent(regExpFile));
+    QuickEditHandler.showBalloon(editor, file, createBalloonComponent(regExpFile, editor));
   }
 
-  private static JComponent createBalloonComponent(PsiElement element) {
+  private static JComponent createBalloonComponent(PsiElement element, Editor editor) {
     final TreeNode root = buildExplanationTree(element);
     Tree tree = new Tree(root) {
       @Override
@@ -149,8 +149,7 @@ public final class ExplainRegExpIntention implements IntentionAction, Iconable, 
         if (balloon != null && !balloon.isDisposed()) balloon.revalidate();
       }
     });
-    final EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
-    tree.setFont(scheme.getFont(EditorFontType.PLAIN));
+    tree.setFont(editor.getColorsScheme().getFont(EditorFontType.PLAIN));
     tree.setRootVisible(false);
     ColoredTreeCellRenderer renderer = new ColoredTreeCellRenderer() {
 
