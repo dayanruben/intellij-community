@@ -281,7 +281,7 @@ public class JavaCoverageAnnotator extends BaseCoverageAnnotator implements Disp
     return myClassCoverageInfos;
   }
 
-  private void collectSummaryInfo(@NotNull CoverageSuitesBundle suite, Project project) {
+  protected void collectSummaryInfo(@NotNull CoverageSuitesBundle suite, Project project) {
     var collector = new JavaCoverageInfoCollector(this);
     if (shouldSkipUnloadedClassesAnalysis(suite)) {
       JavaCoverageReportEnumerator.collectSummaryInReport(suite, project, collector);
