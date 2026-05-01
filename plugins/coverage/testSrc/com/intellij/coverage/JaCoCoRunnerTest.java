@@ -40,7 +40,7 @@ public class JaCoCoRunnerTest extends HeavyPlatformTestCase {
   public void canBeLoadedAcceptsJaCoCoExecReport() {
     File report = new File(PluginPathManager.getPluginHomePath("coverage"), "testData/simple/simple$foo_in_simple.exec");
 
-    Assert.assertTrue(new JaCoCoCoverageRunner().canBeLoaded(report));
+    Assert.assertTrue(new JaCoCoCoverageRunner().canBeLoaded(report.toPath()));
   }
 
   @Test
@@ -48,6 +48,6 @@ public class JaCoCoRunnerTest extends HeavyPlatformTestCase {
     File report = FileUtil.createTempFile("invalid-jacoco", ".exec", true);
     FileUtil.writeToFile(report, "not a jacoco report".getBytes(StandardCharsets.UTF_8));
 
-    Assert.assertFalse(new JaCoCoCoverageRunner().canBeLoaded(report));
+    Assert.assertFalse(new JaCoCoCoverageRunner().canBeLoaded(report.toPath()));
   }
 }

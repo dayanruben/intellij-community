@@ -59,7 +59,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -85,7 +84,7 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
 
   @Override
   public @NotNull CoverageLoadingResult loadCoverageData(
-    @NotNull File sessionDataFile,
+    @NotNull Path sessionDataFile,
     @Nullable CoverageSuite baseCoverageSuite,
     @NotNull CoverageLoadErrorReporter reporter
   ) {
@@ -114,8 +113,8 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
     return new SuccessCoverageLoadingResult(data);
   }
 
-  private static void processError(@NotNull File sessionDataFile, IOException e,  @NotNull CoverageLoadErrorReporter reporter) {
-    final String path = sessionDataFile.getAbsolutePath();
+  private static void processError(@NotNull Path sessionDataFile, IOException e, @NotNull CoverageLoadErrorReporter reporter) {
+    final String path = sessionDataFile.toAbsolutePath().toString();
     if ("Invalid execution data file.".equals(e.getMessage())) {
       Notifications.Bus.notify(new Notification("Coverage",
                                                 CoverageBundle.message("coverage.error.loading.report"),
@@ -144,7 +143,7 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
     }
   }
 
-  private static void loadExecutionData(final @NotNull File sessionDataFile,
+  private static void loadExecutionData(final @NotNull Path sessionDataFile,
                                         ProjectData data,
                                         @Nullable Module mainModule,
                                         @NotNull Project project,
@@ -199,13 +198,15 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
   }
 
   private static void loadReportToCoverageBuilder(@NotNull CoverageBuilder coverageBuilder,
-                                                  @NotNull File sessionDataFile,
+                                                  @NotNull Path sessionDataFile,
                                                   @Nullable Module mainModule,
                                                   @NotNull Project project,
                                                   ExecFileLoader loader,
                                                   JavaCoverageSuite suite,
                                                   @NotNull CoverageLoadErrorReporter reporter) throws IOException {
-    loader.load(sessionDataFile);
+    try (InputStream inputStream = Files.newInputStream(sessionDataFile)) {
+      loader.load(inputStream);
+    }
 
     final Analyzer analyzer = new Analyzer(loader.getExecutionDataStore(), coverageBuilder);
 
@@ -404,7 +405,7 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
   @Override
   public void generateReport(CoverageSuitesBundle suite, Project project) throws IOException {
     final ExportToHTMLSettings settings = ExportToHTMLSettings.getInstance(project);
-    File targetDirectory = new File(settings.OUTPUT_DIRECTORY);
+    Path targetDirectory = Path.of(settings.OUTPUT_DIRECTORY);
     var runConfiguration = suite.getRunConfiguration();
     Module module = runConfiguration instanceof ModuleBasedConfiguration
                     ? ((ModuleBasedConfiguration<?, ?>)runConfiguration).getConfigurationModule().getModule()
@@ -413,7 +414,7 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
     ExecFileLoader loader = new ExecFileLoader();
     CoverageBuilder coverageBuilder = new CoverageBuilder();
     for (CoverageSuite aSuite : suite.getSuites()) {
-      File coverageFile = new File(aSuite.getCoverageDataFileName());
+      Path coverageFile = Path.of(aSuite.getCoverageDataFileName());
       try {
         loadReportToCoverageBuilder(coverageBuilder, coverageFile, module, project, loader, (JavaCoverageSuite)suite.getSuites()[0],
                                     new DummyCoverageLoadErrorReporter());
@@ -425,7 +426,8 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
 
     final IBundleCoverage bundleCoverage = coverageBuilder.getBundle(suite.getPresentableName());
 
-    final IReportVisitor visitor = new HTMLFormatter().createVisitor(new FileMultiReportOutput(targetDirectory));
+    File file = targetDirectory.toFile();
+    final IReportVisitor visitor = new HTMLFormatter().createVisitor(new FileMultiReportOutput(file));
 
     visitor.visitInfo(loader.getSessionInfoStore().getInfos(),
                       loader.getExecutionDataStore().getContents());
@@ -454,9 +456,9 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
   }
 
   @Override
-  public boolean canBeLoaded(@NotNull File candidate) {
+  public boolean canBeLoaded(@NotNull Path candidate) {
     try {
-      try (InputStream stream = new BufferedInputStream(new FileInputStream(candidate))) {
+      try (InputStream stream = new BufferedInputStream(Files.newInputStream(candidate))) {
         final ExecutionDataReader reader = new ExecutionDataReader(stream);
         var sessionInfoStore = new SessionInfoStore();
         reader.setSessionInfoVisitor(sessionInfoStore);

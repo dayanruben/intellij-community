@@ -19,7 +19,7 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.File;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -153,7 +153,7 @@ public class JavaCoverageClassesAnnotator extends JavaCoverageClassesEnumerator 
 
   @Override
   protected void visitClassFiles(final String toplevelClassSrcFQName,
-                                 final List<File> files,
+                                 final List<Path> files,
                                  final String packageVMName) {
 
     if (isClassExcluded(toplevelClassSrcFQName)) return;
@@ -224,7 +224,7 @@ public class JavaCoverageClassesAnnotator extends JavaCoverageClassesEnumerator 
   }
 
 
-  private boolean ignoreClass(File child) {
+  private boolean ignoreClass(Path child) {
     for (JavaCoverageEngineExtension extension : JavaCoverageEngineExtension.EP_NAME.getExtensions()) {
       if (extension.ignoreCoverageForClass(mySuite, child)) {
         return true;

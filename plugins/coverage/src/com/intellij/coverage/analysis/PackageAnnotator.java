@@ -30,12 +30,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.coverage.org.objectweb.asm.ClassReader;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipFile;
 
 @ApiStatus.Internal
@@ -81,9 +83,8 @@ public final class PackageAnnotator {
     myArchiveZipCache.clear();
   }
 
-  public static @NotNull File findRelativeFile(@NotNull String rootPackageVMName, File outputRoot) {
-    outputRoot = !rootPackageVMName.isEmpty() ? new File(outputRoot, FileUtil.toSystemDependentName(rootPackageVMName)) : outputRoot;
-    return outputRoot;
+  public static @NotNull Path findRelativePath(@NotNull String rootPackageVMName, @NotNull Path outputRoot) {
+    return !rootPackageVMName.isEmpty() ? outputRoot.resolve(rootPackageVMName) : outputRoot;
   }
 
   /**
@@ -95,7 +96,7 @@ public final class PackageAnnotator {
    * @param packageVMName          common package name in internal VM format
    */
   public @Nullable Result visitFiles(final String toplevelClassSrcFQName,
-                                     final Map<String, File> children,
+                                     final Map<String, Path> children,
                                      final String packageVMName) {
     final Ref<VirtualFile> containingFileRef = new Ref<>();
     final Ref<PsiClass> psiClassRef = new Ref<>();
@@ -114,8 +115,8 @@ public final class PackageAnnotator {
     VirtualFile virtualFile = containingFileRef.get();
     var topLevelClassCoverageInfo = new PackageAnnotator.ClassCoverageInfo();
     VirtualFile parent = virtualFile == null ? null : virtualFile.getParent();
-    for (Map.Entry<String, File> e : children.entrySet()) {
-      File file = e.getValue();
+    for (Map.Entry<String, Path> e : children.entrySet()) {
+      Path file = e.getValue();
       if (virtualFile == null && !ContainerUtil.exists(JavaCoverageEngineExtension.EP_NAME.getExtensionList(),
                                                        extension -> extension.keepCoverageInfoForClassWithoutSource(mySuite, file))) {
         continue;
@@ -129,7 +130,7 @@ public final class PackageAnnotator {
     return new Result(topLevelClassCoverageInfo, parent);
   }
 
-  private @Nullable PackageAnnotator.ClassCoverageInfo collectClassCoverageInformation(@Nullable File classFile,
+  private @Nullable PackageAnnotator.ClassCoverageInfo collectClassCoverageInformation(@Nullable Path classFile,
                                                                                        @NotNull PsiClass psiClass,
                                                                                        String className) {
     ClassData classData = myProjectData.getClassData(className);
@@ -222,20 +223,21 @@ public final class PackageAnnotator {
     });
   }
 
-  private @Nullable ClassData collectNonCoveredClassInfo(final File classFile, String className, ProjectData projectData) {
-    byte[] content = loadClassBytes(classFile);
-    if (content == null) return null;
-    UnloadedUtil.appendUnloadedClass(projectData, className, new ClassReader(content), mySuite.isBranchCoverage());
+  private @Nullable ClassData collectNonCoveredClassInfo(final Path classFile, String className, ProjectData projectData) {
+    ClassReader classReader = loadClassReader(classFile);
+    if (classReader == null) return null;
+    UnloadedUtil.appendUnloadedClass(projectData, className, classReader, mySuite.isBranchCoverage());
     return projectData.getClassData(className);
   }
 
-  private byte @Nullable [] loadClassBytes(@NotNull File classFile) {
-    String path = classFile.getPath();
+  private @Nullable ClassReader loadClassReader(@NotNull Path classFile) {
+    String path = classFile.toString();
     if (isArchiveEntryPath(path)) {
-      return loadClassBytesFromArchivePath(path);
+      byte[] content = loadClassBytesFromArchivePath(path);
+      return content != null ? new ClassReader(content) : null;
     }
-    try {
-      return FileUtil.loadFileBytes(classFile);
+    try (InputStream stream = Files.newInputStream(classFile)) {
+      return new ClassReader(stream);
     }
     catch (IOException ignored) {
       return null;
