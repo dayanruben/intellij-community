@@ -97,18 +97,18 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
     final String[] excludeAnnotations = getExcludeAnnotations(project);
     List<Function<? super TargetEnvironmentRequest, ? extends JavaTargetParameter>> targetParameters =
       javaParameters.getTargetDependentParameters().asTargetParameters();
-    targetParameters.add(request -> createArgumentTargetParameter(agentPath, sessionDataFilePath,
-                                                                  patterns, excludePatterns, excludeAnnotations,
-                                                                  testTracking,
-                                                                  branchCoverage, sourceMapPath));
+    targetParameters.add(_ -> createArgumentTargetParameter(agentPath, sessionDataFilePath,
+                                                            patterns, excludePatterns, excludeAnnotations,
+                                                            testTracking,
+                                                            branchCoverage, sourceMapPath));
     if (!Registry.is("idea.coverage.new.tracing.enabled")) {
-      targetParameters.add(request -> JavaTargetParameter.fixed("-Didea.new.tracing.coverage=false"));
+      targetParameters.add(_ -> JavaTargetParameter.fixed("-Didea.new.tracing.coverage=false"));
     }
     if (testTracking && !Registry.is("idea.coverage.new.test.tracking.enabled")) {
-      targetParameters.add(request -> JavaTargetParameter.fixed("-Didea.new.test.tracking.coverage=false"));
+      targetParameters.add(_ -> JavaTargetParameter.fixed("-Didea.new.test.tracking.coverage=false"));
     }
     if (Registry.is("idea.coverage.calculate.exact.hits")) {
-      targetParameters.add(request -> JavaTargetParameter.fixed("-Didea.coverage.calculate.hits=true"));
+      targetParameters.add(_ -> JavaTargetParameter.fixed("-Didea.coverage.calculate.hits=true"));
     }
   }
 

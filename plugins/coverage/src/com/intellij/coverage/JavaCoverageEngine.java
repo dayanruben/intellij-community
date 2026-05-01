@@ -188,7 +188,7 @@ public class JavaCoverageEngine extends CoverageEngine {
     for (int i = 0; i < traceSize; i++) {
       final String className = in.readUTF();
       final int linesSize = in.readInt();
-      for(int l = 0; l < linesSize; l++) {
+      for (int l = 0; l < linesSize; l++) {
         final int line = in.readInt();
         if (Comparing.strEqual(className, classFQName)) {
           if (lineNumber == line) {
@@ -235,8 +235,8 @@ public class JavaCoverageEngine extends CoverageEngine {
           for (int i = 0; i < traceSize; i++) {
             final String className = in.readUTF();
             final int linesSize = in.readInt();
-            final Set<Integer> lines = executionTrace.computeIfAbsent(className, k -> new HashSet<>());
-            for(int l = 0; l < linesSize; l++) {
+            final Set<Integer> lines = executionTrace.computeIfAbsent(className, _ -> new HashSet<>());
+            for (int l = 0; l < linesSize; l++) {
               lines.add(in.readInt());
             }
           }
@@ -325,7 +325,7 @@ public class JavaCoverageEngine extends CoverageEngine {
       return false;
     }
     // let's show coverage only for module files
-    final Module module = ReadAction.compute(() -> ModuleUtilCore.findModuleForPsiElement(psiFile));
+    final Module module = ReadAction.computeBlocking(() -> ModuleUtilCore.findModuleForPsiElement(psiFile));
     return module != null;
   }
 
@@ -334,19 +334,21 @@ public class JavaCoverageEngine extends CoverageEngine {
     final VirtualFile virtualFile = psiFile.getVirtualFile();
     if (virtualFile == null) return false;
     final Project project = psiFile.getProject();
-    if (!suite.isTrackTestFolders() && ReadAction.compute(() -> TestSourcesFilter.isTestSources(virtualFile, project))) {
+    if (!suite.isTrackTestFolders() && ReadAction.computeBlocking(() -> TestSourcesFilter.isTestSources(virtualFile, project))) {
       return false;
     }
 
     for (CoverageSuite coverageSuite : suite.getSuites()) {
       final JavaCoverageSuite javaSuite = (JavaCoverageSuite)coverageSuite;
 
-      if (psiFile instanceof PsiClassOwner && javaSuite.isPackageFiltered(ReadAction.compute(() -> ((PsiClassOwner)psiFile).getPackageName()))) {
+      if (psiFile instanceof PsiClassOwner psiClassOwner &&
+          javaSuite.isPackageFiltered(ReadAction.computeBlocking(() -> psiClassOwner.getPackageName()))) {
         return true;
-      } else {
+      }
+      else {
         final List<PsiClass> classes = javaSuite.getCurrentSuiteClasses(project);
         for (PsiClass aClass : classes) {
-          final PsiFile containingFile = ReadAction.compute(aClass::getContainingFile);
+          final PsiFile containingFile = ReadAction.computeBlocking(aClass::getContainingFile);
           final VirtualFile classVirtualFile = containingFile.getVirtualFile();
           if (virtualFile.equals(classVirtualFile)) {
             return true;
@@ -388,9 +390,9 @@ public class JavaCoverageEngine extends CoverageEngine {
         ProjectTaskManagerImpl.putBuildOriginator(project, this.getClass());
         ProjectTaskManager taskManager = ProjectTaskManager.getInstance(project);
         Promise<ProjectTaskManager.Result> promise = taskManager.buildAllModules();
-        promise.onSuccess(result -> ApplicationManager.getApplication().invokeLater(() -> {
+        promise.onSuccess(_ -> ApplicationManager.getApplication().invokeLater(() -> {
                             CoverageDataManager.getInstance(project).chooseSuitesBundle(suite);
-                          }, o -> project.isDisposed())
+                          }, _ -> project.isDisposed())
         );
       }));
       CoverageNotifications.getInstance(project).addNotification(notification);
@@ -451,15 +453,15 @@ public class JavaCoverageEngine extends CoverageEngine {
 
   @Override
   public @NotNull Set<String> getQualifiedNames(final @NotNull PsiFile sourceFile) {
-    final PsiClass[] classes = ReadAction.compute(() -> ((PsiClassOwner)sourceFile).getClasses());
+    final PsiClass[] classes = ReadAction.computeBlocking(() -> ((PsiClassOwner)sourceFile).getClasses());
     final Set<String> qNames = new HashSet<>();
     for (final JavaCoverageEngineExtension nameExtension : JavaCoverageEngineExtension.EP_NAME.getExtensionList()) {
-      if (ReadAction.compute(() -> nameExtension.suggestQualifiedName(sourceFile, classes, qNames))) {
+      if (ReadAction.computeBlocking(() -> nameExtension.suggestQualifiedName(sourceFile, classes, qNames))) {
         return qNames;
       }
     }
     for (final PsiClass aClass : classes) {
-      final String qName = ReadAction.compute(() -> aClass.getQualifiedName());
+      final String qName = ReadAction.computeBlocking(() -> aClass.getQualifiedName());
       if (qName == null) continue;
       qNames.add(qName);
     }
@@ -505,9 +507,9 @@ public class JavaCoverageEngine extends CoverageEngine {
       Collections.addAll(children, files);
     }
 
-    final PsiClass[] classes = ReadAction.compute(() -> ((PsiClassOwner)srcFile).getClasses());
+    final PsiClass[] classes = ReadAction.computeBlocking(() -> ((PsiClassOwner)srcFile).getClasses());
     for (final PsiClass psiClass : classes) {
-      final String className = ReadAction.compute(() -> psiClass.getName());
+      final String className = ReadAction.computeBlocking(() -> psiClass.getName());
       if (className == null) continue;
       for (File child : children) {
         if (FileUtilRt.extensionEquals(child.getName(), JavaClassFileType.INSTANCE.getDefaultExtension())) {
@@ -602,10 +604,12 @@ public class JavaCoverageEngine extends CoverageEngine {
     buf.append("\n").append(indent).append(preprocessExpression(expression.getExpression()));
     boolean reverse = expression.isReversed();
     int trueHits = reverse ? jumpData.getFalseHits() : jumpData.getTrueHits();
-    buf.append("\n").append(indent).append(indent).append(JavaKeywords.TRUE).append(" ").append(CoverageBundle.message("hits.message", trueHits));
+    buf.append("\n").append(indent).append(indent).append(JavaKeywords.TRUE).append(" ")
+      .append(CoverageBundle.message("hits.message", trueHits));
 
     int falseHits = reverse ? jumpData.getTrueHits() : jumpData.getFalseHits();
-    buf.append("\n").append(indent).append(indent).append(JavaKeywords.FALSE).append(" ").append(CoverageBundle.message("hits.message", falseHits));
+    buf.append("\n").append(indent).append(indent).append(JavaKeywords.FALSE).append(" ")
+      .append(CoverageBundle.message("hits.message", falseHits));
   }
 
   private static void addSwitchDataInfo(StringBuilder buf, SwitchData switchData, SwitchCoverageExpression expression, int coverageStatus) {
@@ -670,7 +674,7 @@ public class JavaCoverageEngine extends CoverageEngine {
                                          String testName,
                                          String className,
                                          PsiManager psiManager) {
-    ReadAction.run(() -> {
+    ReadAction.runBlocking(() -> {
       PsiClass psiClass = ClassUtil.findPsiClass(psiManager, className);
       if (psiClass == null) return;
       TestFramework testFramework = TestFrameworks.detectFramework(psiClass);
@@ -695,7 +699,7 @@ public class JavaCoverageEngine extends CoverageEngine {
   }
 
   protected static @NotNull String getPackageName(final PsiFile sourceFile) {
-    return ReadAction.compute(() -> ((PsiClassOwner)sourceFile).getPackageName());
+    return ReadAction.computeBlocking(() -> ((PsiClassOwner)sourceFile).getPackageName());
   }
 
   @Override
@@ -749,7 +753,9 @@ public class JavaCoverageEngine extends CoverageEngine {
 
   @Override
   protected boolean isGeneratedCode(Project project, String qualifiedName, Object lineData) {
-    if (JavaCoverageOptionsProvider.getInstance(project).isGeneratedConstructor(qualifiedName, ((LineData)lineData).getMethodSignature())) return true;
+    if (JavaCoverageOptionsProvider.getInstance(project).isGeneratedConstructor(qualifiedName, ((LineData)lineData).getMethodSignature())) {
+      return true;
+    }
     return super.isGeneratedCode(project, qualifiedName, lineData);
   }
 

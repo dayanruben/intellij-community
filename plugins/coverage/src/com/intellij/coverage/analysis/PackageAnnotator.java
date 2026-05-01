@@ -7,7 +7,6 @@ import com.intellij.coverage.JavaCoverageEngineExtension;
 import com.intellij.coverage.JavaCoverageOptionsProvider;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
@@ -25,6 +24,7 @@ import com.intellij.rt.coverage.data.LineData;
 import com.intellij.rt.coverage.data.ProjectData;
 import com.intellij.rt.coverage.instrumentation.UnloadedUtil;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,8 +38,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipFile;
 
+@ApiStatus.Internal
 public final class PackageAnnotator {
-  private static final Logger LOG = Logger.getInstance(PackageAnnotator.class);
   private static final @NonNls String DEFAULT_CONSTRUCTOR_NAME_SIGNATURE = "<init>()V";
   private static final @NonNls String JAR_ENTRY_SEPARATOR = "!/";
 
@@ -88,14 +88,15 @@ public final class PackageAnnotator {
 
   /**
    * Collect coverage for classes with the same top level name.
+   *
    * @param toplevelClassSrcFQName Top level element name
-   * @param children name - file pairs, where file is optional (could be null),
-   *                 when file is null, unloaded class analysis is skipped
-   * @param packageVMName common package name in internal VM format
+   * @param children               name - file pairs, where file is optional (could be null),
+   *                               when file is null, unloaded class analysis is skipped
+   * @param packageVMName          common package name in internal VM format
    */
   public @Nullable Result visitFiles(final String toplevelClassSrcFQName,
-                         final Map<String, File> children,
-                         final String packageVMName) {
+                                     final Map<String, File> children,
+                                     final String packageVMName) {
     final Ref<VirtualFile> containingFileRef = new Ref<>();
     final Ref<PsiClass> psiClassRef = new Ref<>();
     if (myProject.isDisposed()) return null;
@@ -148,7 +149,9 @@ public final class PackageAnnotator {
     return getSummaryInfo(psiClass, classData, myIgnoreImplicitConstructor);
   }
 
-  private static @Nullable ClassCoverageInfo getSummaryInfo(@NotNull PsiClass psiClass, @Nullable ClassData classData, boolean ignoreImplicitConstructor) {
+  private static @Nullable ClassCoverageInfo getSummaryInfo(@NotNull PsiClass psiClass,
+                                                            @Nullable ClassData classData,
+                                                            boolean ignoreImplicitConstructor) {
     if (classData == null || classData.getLines() == null) return null;
     ClassCoverageInfo info = new ClassCoverageInfo();
     boolean isDefaultConstructorGenerated = false;
@@ -212,7 +215,7 @@ public final class PackageAnnotator {
   }
 
   private static boolean hasGeneratedConstructor(final @NotNull PsiClass aClass) {
-    return aClass.getLanguage().isKindOf(JavaLanguage.INSTANCE) && ReadAction.compute(() -> {
+    return aClass.getLanguage().isKindOf(JavaLanguage.INSTANCE) && ReadAction.computeBlocking(() -> {
       if (!aClass.isValid()) return false;
       PsiMethod[] constructors = aClass.getConstructors();
       return constructors.length == 0;

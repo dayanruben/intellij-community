@@ -47,8 +47,11 @@ public abstract class JavaCoverageRunner extends CoverageRunner {
     return engine instanceof JavaCoverageEngine;
   }
 
-  public abstract void appendCoverageArgument(final String sessionDataFilePath, final String @Nullable [] patterns, final SimpleJavaParameters parameters,
-                                              final boolean testTracking, final boolean branchCoverage);
+  public abstract void appendCoverageArgument(final String sessionDataFilePath,
+                                              final String @Nullable [] patterns,
+                                              final SimpleJavaParameters parameters,
+                                              final boolean testTracking,
+                                              final boolean branchCoverage);
 
   public void appendCoverageArgument(final String sessionDataFilePath,
                                      final String @Nullable [] patterns,
@@ -98,7 +101,8 @@ public abstract class JavaCoverageRunner extends CoverageRunner {
               if (project.isDisposed()) return null;
               return psiFacade.findClass(aClass.getFQName(), productionScope);
             });
-            if (psiClass == null || !suite.getCoverageEngine().acceptedByFilters(ReadAction.compute(() -> psiClass.getContainingFile()), suite)) {
+            if (psiClass == null ||
+                !suite.getCoverageEngine().acceptedByFilters(ReadAction.computeBlocking(() -> psiClass.getContainingFile()), suite)) {
               iterator.remove();
             }
           }

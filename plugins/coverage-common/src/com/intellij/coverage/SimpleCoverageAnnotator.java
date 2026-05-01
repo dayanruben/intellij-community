@@ -91,7 +91,7 @@ public abstract class SimpleCoverageAnnotator extends BaseCoverageAnnotator {
   /**
    * @deprecated SimpleCoverageAnnotator doesn't require normalized file paths any more
    * so now coverage report should work w/o usage of this method
-  */
+   */
   @Deprecated(forRemoval = true)
   public static String getFilePath(final String filePath) {
     return normalizeFilePath(filePath);
@@ -293,7 +293,8 @@ public abstract class SimpleCoverageAnnotator extends BaseCoverageAnnotator {
   }
 
   @Override
-  protected @Nullable Runnable createRenewRequest(final @NotNull CoverageSuitesBundle suite, final @NotNull CoverageDataManager dataManager) {
+  protected @Nullable Runnable createRenewRequest(final @NotNull CoverageSuitesBundle suite,
+                                                  final @NotNull CoverageDataManager dataManager) {
     final ProjectData data = suite.getCoverageData();
     if (data == null) {
       return null;

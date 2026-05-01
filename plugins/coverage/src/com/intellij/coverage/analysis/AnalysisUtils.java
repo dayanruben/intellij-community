@@ -2,10 +2,12 @@
 package com.intellij.coverage.analysis;
 
 import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 
+@ApiStatus.Internal
 public final class AnalysisUtils {
   static boolean isClassFile(@NotNull File classFile) {
     return classFile.getPath().endsWith(".class");

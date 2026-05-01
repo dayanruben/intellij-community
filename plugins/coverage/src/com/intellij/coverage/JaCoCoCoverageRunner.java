@@ -122,7 +122,9 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
                                                 JavaCoverageBundle.message("coverage.error.jacoco.report.format", path),
                                                 NotificationType.ERROR));
       LOG.info(e);
-      String message = CoverageBundle.message("coverage.error.loading.report") + ": " + JavaCoverageBundle.message("coverage.error.jacoco.report.format", path);
+      String message = CoverageBundle.message("coverage.error.loading.report") +
+                       ": " +
+                       JavaCoverageBundle.message("coverage.error.jacoco.report.format", path);
       reporter.reportWarning(message, e);
     }
     else if (e.getMessage() != null && e.getMessage().startsWith("Unknown block type")) {
@@ -131,7 +133,9 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
                                                 JavaCoverageBundle.message("coverage.error.jacoco.report.corrupted", path),
                                                 NotificationType.ERROR));
       LOG.info(e);
-      String message = CoverageBundle.message("coverage.error.loading.report") + ": " + JavaCoverageBundle.message("coverage.error.jacoco.report.corrupted", path);
+      String message = CoverageBundle.message("coverage.error.loading.report") +
+                       ": " +
+                       JavaCoverageBundle.message("coverage.error.jacoco.report.corrupted", path);
       reporter.reportWarning(message, e);
     }
     else {
@@ -164,7 +168,7 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
           final ILine methodLine = method.getLine(i);
           final int methodLineStatus = methodLine.getStatus();
           if (methodLineStatus == ICounter.EMPTY) continue;
-          final LineData lineData = new LineData(i , desc);
+          final LineData lineData = new LineData(i, desc);
           switch (methodLineStatus) {
             case ICounter.FULLY_COVERED -> lineData.setStatus(LineCoverage.FULL);
             case ICounter.PARTLY_COVERED -> lineData.setStatus(LineCoverage.PARTIAL);
@@ -309,7 +313,7 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
     final Module[] modules;
     if (mainModule != null) {
       HashSet<Module> mainModuleWithDependencies = new HashSet<>();
-      ReadAction.run(() -> ModuleUtilCore.getDependencies(mainModule, mainModuleWithDependencies));
+      ReadAction.runBlocking(() -> ModuleUtilCore.getDependencies(mainModule, mainModuleWithDependencies));
       modules = mainModuleWithDependencies.toArray(Module.EMPTY_ARRAY);
     }
     else {
@@ -346,7 +350,7 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
     }
     final String agentPath = handleSpacesInAgentPath(path);
     if (agentPath == null) return;
-    javaParameters.getTargetDependentParameters().asTargetParameters().add(request -> {
+    javaParameters.getTargetDependentParameters().asTargetParameters().add(_ -> {
       return createArgumentTargetValue(agentPath, sessionDataFilePath, patterns, excludePatterns);
     });
   }
@@ -411,8 +415,10 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
     for (CoverageSuite aSuite : suite.getSuites()) {
       File coverageFile = new File(aSuite.getCoverageDataFileName());
       try {
-        loadReportToCoverageBuilder(coverageBuilder, coverageFile, module, project, loader, (JavaCoverageSuite)suite.getSuites()[0], new DummyCoverageLoadErrorReporter());
-      } catch (IOException e) {
+        loadReportToCoverageBuilder(coverageBuilder, coverageFile, module, project, loader, (JavaCoverageSuite)suite.getSuites()[0],
+                                    new DummyCoverageLoadErrorReporter());
+      }
+      catch (IOException e) {
         processError(coverageFile, e, new DummyCoverageLoadErrorReporter());
       }
     }
@@ -429,7 +435,8 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
     for (Module srcModule : getModules(module, project)) {
       VirtualFile[] roots = ModuleRootManager.getInstance(srcModule).getSourceRoots(true);
       for (VirtualFile root : roots) {
-        multiSourceFileLocator.add(new DirectorySourceFileLocator(VfsUtilCore.virtualToIoFile(root), StandardCharsets.UTF_8.name(), tabWidth));
+        multiSourceFileLocator.add(
+          new DirectorySourceFileLocator(VfsUtilCore.virtualToIoFile(root), StandardCharsets.UTF_8.name(), tabWidth));
       }
     }
     visitor.visitBundle(bundleCoverage, multiSourceFileLocator);
