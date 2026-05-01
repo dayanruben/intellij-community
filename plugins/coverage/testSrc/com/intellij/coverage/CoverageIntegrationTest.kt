@@ -52,9 +52,16 @@ class CoverageIntegrationTest : CoverageIntegrationBaseTest() {
   @Test
   fun testSingleClassFilter() {
     Assert.assertTrue(JavaCoverageOptionsProvider.getInstance(myProject).ignoreImplicitConstructors)
-    val filters = arrayOf("foo.bar.BarClass")
-    val bundle = loadIJSuite(filters)
+    assertSingleClassFilter(loadIJSuite(arrayOf("foo.bar.BarClass")))
+  }
 
+  @Test
+  fun testJaCoCoSingleClassFilter() {
+    Assert.assertTrue(JavaCoverageOptionsProvider.getInstance(myProject).ignoreImplicitConstructors)
+    assertSingleClassFilter(loadJaCoCoSuite(arrayOf("foo.bar.BarClass")))
+  }
+
+  private fun assertSingleClassFilter(bundle: CoverageSuitesBundle) {
     val projectData = bundle.coverageData!!
     projectData.getClassData("foo.bar.BarClass")!!
 
@@ -110,16 +117,28 @@ class CoverageIntegrationTest : CoverageIntegrationBaseTest() {
 
   @Test
   fun testHTMLReport() {
-    val bundle = loadIJSuite()
+    assertHTMLReportGenerated(loadIJSuite(), IDEACoverageRunner())
+  }
+
+  @Test
+  fun testJaCoCoHTMLReport() {
+    assertHTMLReportGenerated(loadJaCoCoSuite(), JaCoCoCoverageRunner())
+  }
+
+  private fun assertHTMLReportGenerated(bundle: CoverageSuitesBundle, runner: JavaCoverageRunner) {
+    val settings = ExportToHTMLSettings.getInstance(myProject)
+    val originalOutputDirectory = settings.OUTPUT_DIRECTORY
     val htmlDir = Files.createTempDirectory("html").toFile()
     try {
-      ExportToHTMLSettings.getInstance(myProject).OUTPUT_DIRECTORY = htmlDir.absolutePath
-      IDEACoverageRunner().generateReport(bundle, myProject)
+      settings.OUTPUT_DIRECTORY = htmlDir.absolutePath
+      runner.generateReport(bundle, myProject)
       assertTrue(htmlDir.exists())
       assertTrue(File(htmlDir, "index.html").exists())
+      assertTrue(htmlDir.walkTopDown().filter { it.isFile }.any { it.readText().contains("FooClass") })
     }
     finally {
-      htmlDir.delete()
+      settings.OUTPUT_DIRECTORY = originalOutputDirectory
+      htmlDir.deleteRecursively()
     }
   }
 
@@ -361,4 +380,3 @@ private val FULL_REPORT = """
   foo.bar: TC=2 CC=1 TM=9 CM=2 TL=9 CL=2 TB=0 CB=0 
 
 """.trimIndent()
-
