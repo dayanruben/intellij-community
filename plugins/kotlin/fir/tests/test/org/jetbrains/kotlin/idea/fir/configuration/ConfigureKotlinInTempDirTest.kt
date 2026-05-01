@@ -4,10 +4,14 @@ package org.jetbrains.kotlin.idea.fir.configuration
 
 import com.intellij.configurationStore.saveProjectsAndApp
 import com.intellij.facet.FacetManager
+import com.intellij.notification.Notification
+import com.intellij.notification.Notifications
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.application.runWriteActionAndWait
 import com.intellij.openapi.project.RootsChangeRescanningInfo
 import com.intellij.openapi.roots.OrderRootType
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.testFramework.IndexingTestUtil
@@ -27,7 +31,7 @@ import org.jetbrains.kotlin.idea.configuration.getCanBeConfiguredModules
 import org.jetbrains.kotlin.idea.facet.KotlinFacet
 import org.jetbrains.kotlin.idea.macros.KotlinBundledUsageDetector
 import org.jetbrains.kotlin.idea.macros.KotlinBundledUsageDetectorListener
-import org.jetbrains.kotlin.idea.notification.catchNotificationText
+import org.jetbrains.kotlin.idea.notification.asText
 import org.junit.Assert
 import org.junit.internal.runners.JUnit38ClassRunner
 import org.junit.runner.RunWith
@@ -105,7 +109,16 @@ class ConfigureKotlinInTempDirTest : AbstractConfigureKotlinInTempDirTest() {
     }
 
     fun testMigrationNotificationWithStdlib() {
-        val notificationText = catchNotificationText(project) {
+        val notifications = mutableListOf<Notification>()
+        project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
+            override fun notify(notification: Notification) {
+                if (notification.groupId == "Kotlin Migration") {
+                    notifications += notification
+                }
+            }
+        })
+
+        try {
             val languageVersionSettingsBefore = module.languageVersionSettings
             Assert.assertEquals(LanguageVersion.KOTLIN_2_2, languageVersionSettingsBefore.languageVersion)
             Assert.assertEquals(ApiVersion.KOTLIN_2_2, languageVersionSettingsBefore.apiVersion)
@@ -135,11 +148,23 @@ class ConfigureKotlinInTempDirTest : AbstractConfigureKotlinInTempDirTest() {
             val projectLanguageVersionSettingsAfter = myProject.languageVersionSettings
             Assert.assertEquals(LanguageVersion.KOTLIN_2_3, projectLanguageVersionSettingsAfter.languageVersion)
             Assert.assertEquals(ApiVersion.KOTLIN_2_2, projectLanguageVersionSettingsAfter.apiVersion)
+
+            // Migration notification is shown in NonBlockingReadAction, which then finishes on the UI thread.
+            // Wait for it.
+            for (i in 1..5) {
+                if (notifications.any { "Detected migration" in it.content }) break
+                NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
+                Thread.sleep(5)
+            }
+        } finally {
+            Disposer.dispose(testRootDisposable)
         }
 
-        assertEquals(
-            "Update your code to replace the use of deprecated language and library features with supported constructs<br/><br/>Detected migration:<br/>&nbsp;&nbsp;Language version: 2.2 to 2.3<br/>",
-            notificationText,
+        assertTrue(
+            notifications.asText(filterNotificationAboutNewKotlinVersion = false),
+            notifications.any {
+                it.content == "Update your code to replace the use of deprecated language and library features with supported constructs<br/><br/>Detected migration:<br/>&nbsp;&nbsp;Language version: 2.2 to 2.3<br/>"
+            }
         )
     }
 
