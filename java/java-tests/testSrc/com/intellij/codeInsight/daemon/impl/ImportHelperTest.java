@@ -67,6 +67,7 @@ import com.intellij.psi.codeStyle.PackageEntryTable;
 import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.impl.source.codeStyle.ImportHelper;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.testFramework.EditorTestUtil;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
@@ -90,7 +91,6 @@ import org.jetbrains.annotations.NotNull;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -604,9 +604,7 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
     JavaCodeStyleSettings javaCodeStyleSettings = CodeStyle.getSettings(getFile()).getCustomSettings(JavaCodeStyleSettings.class);
     javaCodeStyleSettings.INSERT_INNER_CLASS_IMPORTS = true;
 
-    HighlightInfo error = assertOneElement(
-      (Collection<? extends HighlightInfo>)myTestDaemonCodeAnalyzer.waitHighlightingSurviveCancellations(getFile(),
-                                                                                                         HighlightSeverity.ERROR));
+    HighlightInfo error = assertOneElement(myTestDaemonCodeAnalyzer.waitHighlightingSurviveCancellations(getFile(), HighlightSeverity.ERROR));
     assertEquals("Cannot resolve symbol 'SomeOtherMethodClass12'", error.getDescription());
 
     assertNoImportsAdded();
@@ -624,11 +622,11 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
 
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
     assertNotNull(PsiDocumentManager.getInstance(getProject()).getPsiFile(otherEditor.getDocument()));
+    assertTrue(PsiShortNamesCache.getInstance(getProject()).getClassesByName("SomeOtherMethodClass12", GlobalSearchScope.allScope(getProject())).length != 0);
+    assertNotNull(JavaPsiFacade.getInstance(getProject()).findClass("x.OtherClass.SomeOtherMethodClass12", GlobalSearchScope.allScope(getProject())));
 
     assertEmpty(myTestDaemonCodeAnalyzer.waitHighlightingSurviveCancellations(getFile(), HighlightSeverity.ERROR));
-    waitForAutoOptimizeImports();
     assertOneImportAdded("x.OtherClass.SomeOtherMethodClass12");
-    assertSize(1, ((PsiJavaFile)getFile()).getImportList().getAllImportStatements());
   }
 
   public void testEnsureOptimizeImportsWhenInspectionReportsErrors() throws Exception {
