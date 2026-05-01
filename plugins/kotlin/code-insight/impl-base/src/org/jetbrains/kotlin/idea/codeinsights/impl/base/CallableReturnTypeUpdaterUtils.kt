@@ -401,7 +401,7 @@ object CallableReturnTypeUpdaterUtils {
             @OptIn(KaExperimentalApi::class)
             context(_: KaSession)
             internal fun createTypeByKtType(ktType: KaType): Type = Type(
-                isUnit = ktType.isUnitType,
+                isUnit = ktType.isUnitType && !ktType.isMarkedNullable,
                 isError = ktType is KaErrorType,
                 longTypeRepresentation = ktType.render(KaTypeRendererForSource.WITH_QUALIFIED_NAMES_WITHOUT_PARAMETER_NAMES, position = Variance.OUT_VARIANCE),
                 shortTypeRepresentation = ktType.render(KaTypeRendererForSource.WITH_SHORT_NAMES_WITHOUT_PARAMETER_NAMES, position = Variance.OUT_VARIANCE),

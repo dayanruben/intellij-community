@@ -3612,6 +3612,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             runTest("testData/quickfix/changeSignature/changeFunctionReturnTypeToNothing.kt");
         }
 
+        @TestMetadata("changeFunctionReturnTypeToNullableUnit.kt")
+        public void testChangeFunctionReturnTypeToNullableUnit() throws Exception {
+            runTest("testData/quickfix/changeSignature/changeFunctionReturnTypeToNullableUnit.kt");
+        }
+
         @TestMetadata("changeParameterType.kt")
         public void testChangeParameterType() throws Exception {
             runTest("testData/quickfix/changeSignature/changeParameterType.kt");
@@ -3715,6 +3720,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
         @TestMetadata("removeParameterNotAvailableForBuiltins.kt")
         public void testRemoveParameterNotAvailableForBuiltins() throws Exception {
             runTest("testData/quickfix/changeSignature/removeParameterNotAvailableForBuiltins.kt");
+        }
+
+        @TestMetadata("specifyNullableUnitReturnType.kt")
+        public void testSpecifyNullableUnitReturnType() throws Exception {
+            runTest("testData/quickfix/changeSignature/specifyNullableUnitReturnType.kt");
         }
     }
 
