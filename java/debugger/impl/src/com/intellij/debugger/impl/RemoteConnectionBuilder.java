@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.impl;
 
 import com.intellij.debugger.JavaDebuggerBundle;
@@ -105,7 +105,7 @@ public class RemoteConnectionBuilder {
     debuggeeRunProperties.append(myServer ? ",server=n" : ",server=y");
 
     if (StringUtil.containsWhitespaces(debuggeeRunProperties)) {
-      debuggeeRunProperties.append("\"").append(debuggeeRunProperties).append("\"");
+      debuggeeRunProperties.insert(0, "\"").append("\"");
     }
 
     if (myQuiet) {
