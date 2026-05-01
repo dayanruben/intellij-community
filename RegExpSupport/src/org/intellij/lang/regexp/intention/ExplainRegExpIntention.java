@@ -9,8 +9,6 @@ import com.intellij.ide.BrowserUtil;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon;
@@ -25,7 +23,6 @@ import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.ScrollPaneFactory;
@@ -236,8 +233,6 @@ public final class ExplainRegExpIntention implements IntentionAction, Iconable, 
   }
 
   public static TreeNode buildExplanationTree(PsiElement element) {
-    String psi = DebugUtil.psiToString(element, true);
-    System.out.println("psi = " + psi);
     assert element.getLanguage().isKindOf(RegExpLanguage.INSTANCE);
     ExplanationVisitor visitor = new ExplanationVisitor();
     element.accept(visitor);
@@ -524,11 +519,11 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
       // single character case
       if (regExpClass.isNegated()) {
         node(buildNodeValue(regExpClass, new NameNode("Negated Character Class", "https://www.regular-expressions.info/charclass.html#negated"),
-                            "matches 1 character that is not the " + charText(c), false), true);
+                            "matches 1 character that is not the " + charText(c) + " character", false), true);
       }
       else {
         node(buildNodeValue(regExpClass, new NameNode("Character Class", "https://www.regular-expressions.info/charclass.html"), 
-                            "matches the " + charText(c), false), true);
+                            "matches the " + charText(c) + " character", false), true);
       }
     }
     else {
@@ -571,7 +566,7 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
         node(new ValueNode(pattern, EMPTY_NAME_NODE, "matches characters in order", false), true);
       }
     }
-    leaf(c, EMPTY_NAME_NODE, "matches the " + charText(c));
+    leaf(c, EMPTY_NAME_NODE, "matches the " + charText(c) + " character");
     if (charGroup && !isSimpleChar(c.getNextSibling())) {
       charGroup = false;
       parent();
@@ -598,8 +593,8 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
   private static @NotNull @Nls String charText(RegExpChar c) {
     int value = c.getValue();
     return c.getType() == RegExpChar.Type.CHAR || !isVisibleCodePoint(value)
-           ? Character.getName(value) + " character"
-           : Character.getName(value) + " " + Character.toString(value) + " character";
+           ? Character.getName(value)
+           : Character.getName(value) + " " + Character.toString(value);
   }
 
   private static boolean isVisibleCodePoint(int c) {
