@@ -2295,7 +2295,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         finally {
           updatingSize = false;
         }
-      }, ModalityState.any(), __ -> isDisposed());
+      }, ModalityState.any(), _ -> isDisposed());
     }
   }
 
@@ -2434,7 +2434,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   public void stopDumbLater() {
     if (ApplicationManager.getApplication().isUnitTestMode()) return;
-    ApplicationManager.getApplication().invokeLater(this::stopDumb, ModalityState.current(), __ -> isDisposed());
+    ApplicationManager.getApplication().invokeLater(this::stopDumb, ModalityState.current(), _ -> isDisposed());
   }
 
   private void stopDumb() {

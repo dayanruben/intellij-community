@@ -484,7 +484,7 @@ public class UsageViewImpl implements UsageViewEx {
       addButtonToLowerPane(() -> close(), UsageViewBundle.message("usage.view.cancel.button"), true);
     }
 
-    myTree.getSelectionModel().addTreeSelectionListener(__ -> {
+    myTree.getSelectionModel().addTreeSelectionListener(_ -> {
       //noinspection SSBasedInspection
       ApplicationManager.getApplication().invokeLater(() -> {
         if (!isDisposed()) {
@@ -1627,7 +1627,7 @@ public class UsageViewImpl implements UsageViewEx {
         return null;
       })
       .expireWith(this)
-      .finishOnUiThread(ModalityState.defaultModalityState(), __ -> onCompletedInEdt.run())
+      .finishOnUiThread(ModalityState.defaultModalityState(), _ -> onCompletedInEdt.run())
       .submit(updateRequests);
   }
 

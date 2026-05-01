@@ -4,7 +4,6 @@ package com.intellij.codeInsight.daemon.impl;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings;
 import com.intellij.codeInsight.multiverse.CodeInsightContext;
-import com.intellij.codeInsight.multiverse.CodeInsightContextManager;
 import com.intellij.codeInsight.multiverse.CodeInsightContextManagerImpl;
 import com.intellij.codeInsight.multiverse.CodeInsightContextUtil;
 import com.intellij.codeInsight.multiverse.EditorContextManager;
@@ -181,7 +180,7 @@ public final class TestDaemonCodeAnalyzerImpl {
     catch (TimeoutException e) {
       throw new RuntimeException(e);
     }
-    while (!((CodeInsightContextManagerImpl)CodeInsightContextManager.getInstance(myProject)).isContextInvalidationComplete()) {
+    while (!(CodeInsightContextManagerImpl.getInstanceImpl(myProject)).isContextInvalidationComplete()) {
       dispatchAllInvocationEventsInIdeEventQueueReleasingWIL();
       if (System.currentTimeMillis() > deadline) {
         throw new IllegalStateException("Timeout waiting for context invalidation");

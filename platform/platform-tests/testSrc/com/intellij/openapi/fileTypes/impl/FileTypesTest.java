@@ -1574,7 +1574,7 @@ public class FileTypesTest extends HeavyPlatformTestCase {
   public void testDetectorMustWorkForEmptyFileNow() throws IOException {
     Set<VirtualFile> detectorCalled = ConcurrentCollectionFactory.createConcurrentSet();
     String magicName = "blah-blah.to.detect";
-    FileTypeDetector detector = (file, __, ___) -> {
+    FileTypeDetector detector = (file, _, _) -> {
       detectorCalled.add(file);
       return file.getName().equals(magicName) ? new MyTestFileType() : null;
     };

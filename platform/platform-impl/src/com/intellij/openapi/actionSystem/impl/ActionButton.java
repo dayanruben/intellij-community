@@ -348,7 +348,7 @@ public class ActionButton extends JComponent implements ActionButtonComponent, A
   public void addNotify() {
     super.addNotify();
     if (ActionToolbar.findToolbarBy(this) == null) {
-      ActionManagerEx.withLazyActionManager(null, __ -> { update(); return Unit.INSTANCE; });
+      ActionManagerEx.withLazyActionManager(null, _ -> { update(); return Unit.INSTANCE; });
     }
     else {
       updateToolTipText();

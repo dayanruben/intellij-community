@@ -47,19 +47,6 @@ internal class NonIncrementalContributors(private val project: Project) {
   private var upToDate = false
   private val lock = Any()
 
-  init {
-    val meter = workspaceModelMetrics.meter
-    val nonIncrementalContributorsUpdateCounter = meter.counterBuilder("workspaceModel.non.incremental.contributors.total.update.time.ms").buildObserver()
-    val excludeRootsComputationCounter = meter.counterBuilder("workspaceModel.non.incremental.contributors.exclude.roots.computation.time.ms").buildObserver()
-    val fileSetsComputationCounter = meter.counterBuilder("workspaceModel.non.incremental.contributors.file.sets.computation.time.ms").buildObserver()
-
-    meter.batchCallback({
-                          nonIncrementalContributorsUpdateCounter.record(totalUpdateTimeMs.asMilliseconds())
-                          excludeRootsComputationCounter.record(excludeRootsComputationTimeMs.asMilliseconds())
-                          fileSetsComputationCounter.record(fileSetsComputationTimeMs.asMilliseconds())
-                        }, nonIncrementalContributorsUpdateCounter, excludeRootsComputationCounter, fileSetsComputationCounter)
-  }
-
   fun updateIfNeeded(fileSets: MutableMap<VirtualFile, StoredFileSetCollection>,
                      fileSetsByPackagePrefix: PackagePrefixStorage,
                      nonExistingFilesRegistry: NonExistingWorkspaceRootsRegistry) {
@@ -240,6 +227,19 @@ internal class NonIncrementalContributors(private val project: Project) {
     }
     
     private val LOG = logger<NonIncrementalContributors>()
+
+    init {
+      val meter = workspaceModelMetrics.meter
+      val nonIncrementalContributorsUpdateCounter = meter.counterBuilder("workspaceModel.non.incremental.contributors.total.update.time.ms").buildObserver()
+      val excludeRootsComputationCounter = meter.counterBuilder("workspaceModel.non.incremental.contributors.exclude.roots.computation.time.ms").buildObserver()
+      val fileSetsComputationCounter = meter.counterBuilder("workspaceModel.non.incremental.contributors.file.sets.computation.time.ms").buildObserver()
+
+      meter.batchCallback({
+                            nonIncrementalContributorsUpdateCounter.record(totalUpdateTimeMs.asMilliseconds())
+                            excludeRootsComputationCounter.record(excludeRootsComputationTimeMs.asMilliseconds())
+                            fileSetsComputationCounter.record(fileSetsComputationTimeMs.asMilliseconds())
+                          }, nonIncrementalContributorsUpdateCounter, excludeRootsComputationCounter, fileSetsComputationCounter)
+    }
   }
 }
 

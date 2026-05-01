@@ -369,7 +369,7 @@ public class BenchmarkTestInfoImpl implements BenchmarkTestInfo {
 
     try {
       TraceKt.use(tracer.spanBuilder(uniqueTestName).setAttribute("warmup", String.valueOf(iterationType.equals(IterationMode.WARMUP))),
-                  __ -> {
+                  _ -> {
                     try {
                       PlatformTestUtil.waitForAllBackgroundActivityToCalmDown();
 

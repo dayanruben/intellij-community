@@ -21,6 +21,7 @@ import kotlin.io.path.listDirectoryEntries
 import kotlin.reflect.KFunction
 import kotlin.reflect.jvm.javaMethod
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 private const val CMD_PREFIX = '%'
 
@@ -1051,6 +1052,10 @@ fun <T : CommandChain> T.debugStep(debugStepTypes: DebugStepTypes): T = apply {
 
 fun <T : CommandChain> T.stopDebugProcess(): T = apply {
   addCommand("${CMD_PREFIX}stopDebugProcess")
+}
+
+fun <T : CommandChain> T.waitForDebugSessionsEnd(timeout: Duration = 1.minutes): T = apply {
+  addCommand("${CMD_PREFIX}waitForNoDebugSessions ${timeout.inWholeMilliseconds}")
 }
 
 fun <T : CommandChain> T.waitForCodeAnalysisFinished(): T = apply {

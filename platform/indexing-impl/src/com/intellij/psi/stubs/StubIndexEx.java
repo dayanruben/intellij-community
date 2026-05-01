@@ -228,7 +228,7 @@ public abstract class StubIndexEx extends StubIndex {
           }
 
           int id = ((VirtualFileWithId)file).getId();
-          StubIdList list = myCachedStubIds.get(indexKey).getValue().computeIfAbsent(new KeyAndFileId<>(key, id), __ ->
+          StubIdList list = myCachedStubIds.get(indexKey).getValue().computeIfAbsent(new KeyAndFileId<>(key, id), _ ->
             myStubProcessingHelper.retrieveStubIdList(indexKey, key, file, project, shouldHaveKeys)
           );
           if (list == null) {

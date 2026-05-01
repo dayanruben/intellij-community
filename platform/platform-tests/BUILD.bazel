@@ -334,6 +334,8 @@ jvm_library(
     "//platform/service-container:serviceContainer-tests_test_lib",
     "//platform/workspace/storage/testEntities",
     "//platform/workspace/storage/testEntities:testEntities_test_lib",
+    "//platform/eel-impl-base",
+    "//platform/eel-impl-base:eel-impl-base_test_lib",
   ],
   runtime_deps = [
     ":tests",

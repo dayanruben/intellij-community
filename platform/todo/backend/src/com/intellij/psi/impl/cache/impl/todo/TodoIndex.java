@@ -46,7 +46,7 @@ public final class TodoIndex extends SingleEntryFileBasedIndexExtension<Map<Todo
 
   public TodoIndex() {
     ApplicationManager.getApplication().getMessageBus().simpleConnect()
-      .subscribe(IndexPatternProvider.INDEX_PATTERNS_CHANGED, __ -> FileBasedIndex.getInstance().requestRebuild(NAME));
+      .subscribe(IndexPatternProvider.INDEX_PATTERNS_CHANGED, _ -> FileBasedIndex.getInstance().requestRebuild(NAME));
   }
 
   private final DataExternalizer<Map<TodoIndexEntry, Integer>> myValueExternalizer = new DataExternalizer<>() {

@@ -603,7 +603,12 @@
                      groupBundle="messages.KotlinBundle" groupKey="group.names.probable.bugs"
                      enabledByDefault="true"
                      level="WARNING" key="inspection.k.doc.unresolved.link.display.name" bundle="messages.KotlinBundle"/>
-    
+
+    <registryKey key="kotlin.kdoc.should.report.samples"
+                 description="Whether `KDoc unresolved link` inspection should report unresolved samples"
+                 defaultValue="true"
+                 restartRequired="false"/>
+
     <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.KDocResolutionResultHasChangedInspection"
                      groupPath="Kotlin"
                      groupBundle="messages.KotlinBundle" groupKey="group.names.probable.bugs"
@@ -736,6 +741,16 @@
                      enabledByDefault="true"
                      level="WEAK WARNING"
                      key="inspection.simplifiable.call.chain.display.name" bundle="messages.KotlinBundle"
+                     />
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.ReplaceMapKeysCallChainWithKeysInspection"
+                     language="kotlin"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
+                     enabledByDefault="true"
+                     cleanupTool="true"
+                     level="WEAK WARNING"
+                     key="inspection.replace.map.keys.call.chain.with.keys.display.name" bundle="messages.KotlinBundle"
                      />
 
     <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.MapToForEachInspection"

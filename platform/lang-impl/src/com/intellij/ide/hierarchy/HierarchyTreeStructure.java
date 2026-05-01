@@ -57,12 +57,12 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
   }
 
   @Override
-  public final @NotNull NodeDescriptor createDescriptor(@NotNull Object element, NodeDescriptor parentDescriptor) {
-    if (element instanceof HierarchyNodeDescriptor) {
-      return (HierarchyNodeDescriptor)element;
+  public final @NotNull NodeDescriptor<?> createDescriptor(@NotNull Object element, NodeDescriptor parentDescriptor) {
+    if (element instanceof HierarchyNodeDescriptor descriptor) {
+      return descriptor;
     }
-    if (element instanceof String) {
-      return new TextInfoNodeDescriptor(parentDescriptor, (String)element, myProject);
+    if (element instanceof String s) {
+      return new TextInfoNodeDescriptor(parentDescriptor, s, myProject);
     }
     throw new IllegalArgumentException("Unknown element type: " + element);
   }
@@ -101,8 +101,8 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
 
   @Override
   public final Object getParentElement(@NotNull Object element) {
-    if (element instanceof HierarchyNodeDescriptor) {
-      return ((HierarchyNodeDescriptor)element).getParentDescriptor();
+    if (element instanceof HierarchyNodeDescriptor descriptor) {
+      return descriptor.getParentDescriptor();
     }
 
     return null;
@@ -198,7 +198,7 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
     return namedScopePattern.contains(psiFile, holder);
   }
 
-  private static final class TextInfoNodeDescriptor extends NodeDescriptor {
+  private static final class TextInfoNodeDescriptor extends NodeDescriptor<String> {
     TextInfoNodeDescriptor(NodeDescriptor parentDescriptor, String text, Project project) {
       super(project, parentDescriptor);
       myName = text;
@@ -206,7 +206,7 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
     }
 
     @Override
-    public Object getElement() {
+    public String getElement() {
       return myName;
     }
 

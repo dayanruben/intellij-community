@@ -46,7 +46,9 @@ internal fun Map<LayerSelector, Set<Path>>.filterJarsByLayer(
   logger.info("Copying jars used in descriptor to '$outputDirectory'")
   return moduleJarsByLayer.mapValues { (layerSelector, moduleJars) ->
     moduleJars.map { jar ->
-      copyJarToOutputDirectory(jar, layerSelector, outputDirectory, logger)
+      val targetFileName = "${jar.moduleName}.jar"
+      logger.info("[${layerSelector.selector}] copying '$jar' to '$targetFileName'")
+      copyJarToOutputDirectory(jar, outputDirectory, targetFileName)
     }
   }
 }
@@ -91,11 +93,11 @@ private fun filterConflictingJars(
   return filteredJars.toSet()
 }
 
-private fun isEmptyJar(jar: Path): Boolean {
+internal fun isEmptyJar(jar: Path): Boolean {
   ZipInputStream(jar.inputStream().buffered()).use { zipInputStream ->
     while (true) {
       val entry = zipInputStream.nextEntry ?: break
-      if (!entry.isDirectory && emptyJarContents.none { entry.name.endsWith(it, ignoreCase = true) }) {
+      if (!entry.isDirectory && emptyJarContents.none { entry.name.startsWith(it, ignoreCase = true) }) {
         return false // Found real content - return fast
       }
     }
@@ -103,14 +105,16 @@ private fun isEmptyJar(jar: Path): Boolean {
   }
 }
 
-private fun copyJarToOutputDirectory(jar: Path, layerSelector: LayerSelector, outputDirectory: Path, logger: Logger): Path {
-  val moduleName = ModuleFinder.of(jar).findAll().single().descriptor().name()
-  val target = outputDirectory.resolve("$moduleName.jar")
-  logger.info("[${layerSelector.selector}] copying '$jar' to '$target'")
+internal fun copyJarToOutputDirectory(
+  jar: Path,
+  outputDirectory: Path,
+  targetFileName: String,
+): Path {
+  val target = outputDirectory.resolve(targetFileName)
   try {
     jar.copyTo(target = target, overwrite = false)
   }
-  catch (e: FileAlreadyExistsException) {
+  catch (_: FileAlreadyExistsException) {
     when {
       sha256(target.readBytes()) == sha256(jar.readBytes()) -> {} // TODO: could we ensure this never has to be called? Technically such jar should be added once in the common layer instead of in frontend and workspace layers for example
       else -> error("two or more layers of this plugin refer to a different jar called '${jar.name}'")
@@ -118,3 +122,6 @@ private fun copyJarToOutputDirectory(jar: Path, layerSelector: LayerSelector, ou
   }
   return target
 }
+
+internal val Path.moduleName: String
+  get() = ModuleFinder.of(this).findAll().single().descriptor().name()

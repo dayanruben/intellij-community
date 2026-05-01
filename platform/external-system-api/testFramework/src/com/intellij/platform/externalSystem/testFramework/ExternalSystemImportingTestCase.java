@@ -163,7 +163,7 @@ public abstract class ExternalSystemImportingTestCase extends NioExternalSystemT
     private final @NotNull ConcurrentHashMap<ExternalSystemTaskId, StringBuilder> buffer = new ConcurrentHashMap<>();
 
     private void append(@NotNull ExternalSystemTaskId id, @NotNull String output) {
-      buffer.computeIfAbsent(id, __ -> new StringBuilder())
+      buffer.computeIfAbsent(id, _ -> new StringBuilder())
         .append(output);
     }
 
@@ -235,7 +235,7 @@ public abstract class ExternalSystemImportingTestCase extends NioExternalSystemT
     @NotNull JpsModuleSourceRootType<?> rootType,
     @NotNull List<String> expected
   ) {
-    assertSourceFolders(moduleName, rootType, __ -> true, expected);
+    assertSourceFolders(moduleName, rootType, _ -> true, expected);
   }
 
   private void assertGeneratedSourceFolders(

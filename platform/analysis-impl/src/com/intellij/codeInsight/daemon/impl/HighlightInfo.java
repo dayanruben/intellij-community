@@ -1273,7 +1273,7 @@ public class HighlightInfo implements Segment {
   private static @NotNull RangeMarker getOrCreate(@NotNull Document document,
                                                   @NotNull Long2ObjectMap<RangeMarker> range2markerCache,
                                                   long textRange) {
-    return range2markerCache.computeIfAbsent(textRange, __ -> document.createRangeMarker(TextRangeScalarUtil.startOffset(textRange),
+    return range2markerCache.computeIfAbsent(textRange, _ -> document.createRangeMarker(TextRangeScalarUtil.startOffset(textRange),
                                                                                          TextRangeScalarUtil.endOffset(textRange)));
   }
 
@@ -1452,7 +1452,7 @@ public class HighlightInfo implements Segment {
         Consumer<? super QuickFixActionRegistrar> computer = desc.fixesComputer();
         // recompute only if necessary
         List<IntentionActionDescriptor> result =
-          computerToResult.computeIfAbsent(computer, __ -> doComputeLazyQuickFixes(document, project, desc.psiModificationStamp(), computer));
+          computerToResult.computeIfAbsent(computer, _ -> doComputeLazyQuickFixes(document, project, desc.psiModificationStamp(), computer));
         assert result != null;
         future = CompletableFuture.completedFuture(result);
         return new LazyFixDescription(desc.fixesComputer(), desc.psiModificationStamp(), future);

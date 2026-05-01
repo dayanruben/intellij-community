@@ -22,7 +22,7 @@ final class ClassicFileStatusMapState implements FileStatusMapState {
 
   @Override
   public @NotNull FileStatus getOrCreateStatus(@NotNull Document document, @NotNull CodeInsightContext context) {
-    return myDocumentToStatusMap.computeIfAbsent(document, __ -> new FileStatus(myProject));
+    return myDocumentToStatusMap.computeIfAbsent(document, _ -> new FileStatus(myProject));
   }
 
   @Override

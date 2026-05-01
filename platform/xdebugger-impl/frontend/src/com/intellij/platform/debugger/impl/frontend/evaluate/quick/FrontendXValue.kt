@@ -119,7 +119,7 @@ class FrontendXValue private constructor(
     cs.launch {
       val canBeModified = xValueDto.canBeModified.await()
       if (canBeModified) {
-        modifier = FrontendXValueModifier(project, xValueDto)
+        modifier = FrontendXValueModifier(cs, xValueDto)
       }
     }
 

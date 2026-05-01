@@ -235,7 +235,7 @@ public final class ToolsImpl implements Tools {
       if (dependencies != null) {
         for (int i = 0; i < scopeNames.size(); i++) {
           String scopeName = scopeNames.get(i);
-          List<String> order = dependencies.computeIfAbsent(scopeName, __ -> new ArrayList<>());
+          List<String> order = dependencies.computeIfAbsent(scopeName, _ -> new ArrayList<>());
           for (int j = i + 1; j < scopeNames.size(); j++) {
             order.add(scopeNames.get(j));
           }

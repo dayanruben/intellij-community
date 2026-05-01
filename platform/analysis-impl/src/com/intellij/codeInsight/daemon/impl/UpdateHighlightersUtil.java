@@ -225,7 +225,7 @@ public final class UpdateHighlightersUtil {
       Long2ObjectMap<RangeMarker> range2markerCache = new Long2ObjectOpenHashMap<>(10);
       DaemonCodeAnalyzerEx codeAnalyzer = DaemonCodeAnalyzerEx.getInstanceEx(project);
       SweepProcessor.Generator<HighlightInfo> generator = processor -> ContainerUtil.process(filteredInfos, processor);
-      SweepProcessor.sweep(generator, (__, info, atStart, overlappingIntervals) -> {
+      SweepProcessor.sweep(generator, (_, info, atStart, overlappingIntervals) -> {
         if (!atStart) {
           return true;
         }

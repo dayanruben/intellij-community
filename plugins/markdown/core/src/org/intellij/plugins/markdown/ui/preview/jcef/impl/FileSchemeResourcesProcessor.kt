@@ -25,7 +25,7 @@ internal class FileSchemeResourcesProcessor(
 
     return runCatching {
       if (!Files.isRegularFile(resourcePath)) return null
-      Files.newInputStream(resourcePath).use { ResourceProvider.Resource(it.readBytes()) }
+      ResourceProvider.loadExternalResource(resourcePath)
     }.getOrNull()
   }
 

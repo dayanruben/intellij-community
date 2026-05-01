@@ -139,7 +139,7 @@ public final class MavenDistributionsCache {
     }
 
     return myMultimoduleDirToWrapperedMavenDistributionsMap
-      .computeIfAbsent(multiModuleDir, __ -> resolveEmbeddedMavenHome())
+      .computeIfAbsent(multiModuleDir, _ -> resolveEmbeddedMavenHome())
       .getVersion();
   }
 

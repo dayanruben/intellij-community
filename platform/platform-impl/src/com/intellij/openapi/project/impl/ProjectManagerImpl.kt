@@ -158,6 +158,7 @@ import java.nio.file.Path
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.system.measureTimeMillis
 
 @Internal
@@ -953,20 +954,32 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     projectName: String?,
     beforeInit: ((Project) -> Unit)?,
   ): ProjectImpl {
-    @Suppress("TestOnlyProblems")
-    val project = span("project instantiation") {
-      ProjectImpl(
-        isLightTestProject = ApplicationManager.getApplication().isUnitTestMode && identityFle.toString().contains(LIGHT_PROJECT_NAME),
-        projectName = projectName,
-        parent = ApplicationManager.getApplication().getComponentManagerImpl(),
-      )
-    }
-    beforeInit?.let { beforeInit ->
-      span("options.beforeInit") {
-        beforeInit(project)
+    // Capture the ProjectImpl inside the `span` block so the reference is available even if the
+    // surrounding `withContext` rethrows a parent cancellation on its way out (e.g. a sibling
+    // coroutine on the shared scope failed). Without this, the project is already in
+    // `ProjectIdsStorage.idsToProject` (registered by `ProjectImpl.<init>`), but the caller never
+    // receives the reference, so `disposeFailedProject` is never called and the project leaks.
+    val partiallyCreated: AtomicReference<ProjectImpl?> = AtomicReference()
+    try {
+      @Suppress("TestOnlyProblems")
+      val project = span("project instantiation") {
+        ProjectImpl(
+          isLightTestProject = ApplicationManager.getApplication().isUnitTestMode && identityFle.toString().contains(LIGHT_PROJECT_NAME),
+          projectName = projectName,
+          parent = ApplicationManager.getApplication().getComponentManagerImpl(),
+        ).also { partiallyCreated.set(it) }
       }
+      beforeInit?.let { beforeInit ->
+        span("options.beforeInit") {
+          beforeInit(project)
+        }
+      }
+      return project
     }
-    return project
+    catch (e: Throwable) {
+      partiallyCreated.get()?.let { disposeFailedProject(it, e) }
+      throw e
+    }
   }
 
   private suspend fun prepareNewProject(

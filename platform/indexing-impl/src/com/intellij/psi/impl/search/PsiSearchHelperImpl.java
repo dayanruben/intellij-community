@@ -282,7 +282,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
       throw new IllegalArgumentException("Cannot search for elements with empty text");
     }
     if (searchScope instanceof GlobalSearchScope) {
-      return ConcurrencyUtils.runWithIndicatorOrContextCancellation((__) -> {
+      return ConcurrencyUtils.runWithIndicatorOrContextCancellation((_) -> {
         ProgressIndicator progress = getOrCreateIndicator();
         StringSearcher searcher = new StringSearcher(text, options.contains(Options.CASE_SENSITIVE_SEARCH), true,
                                                      searchContext == UsageSearchContext.IN_STRINGS,
@@ -885,7 +885,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
     Map<SearchRequestCollector, Processor<? super PsiReference>> collectors = new HashMap<>();
     collectors.put(collector, processor);
 
-    return ConcurrencyUtils.runWithIndicatorOrContextCancellation((__) -> {
+    return ConcurrencyUtils.runWithIndicatorOrContextCancellation((_) -> {
       ProgressIndicator progress = getOrCreateIndicator();
       if (appendCollectorsFromQueryRequests(progress, collectors) == QueryRequestsRunResult.STOPPED) {
         return false;
@@ -1214,7 +1214,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
           ProgressManager.checkCanceled();
           maskRef.set(0);
           myDumbService.runReadActionInSmartMode(
-            () -> FileBasedIndex.getInstance().processValues(IdIndex.NAME, indexEntry, file, (__, value) -> {
+            () -> FileBasedIndex.getInstance().processValues(IdIndex.NAME, indexEntry, file, (_, value) -> {
               maskRef.set(value);
               return true;
             }, commonScope));
@@ -1238,7 +1238,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
           for (T single : processors) {
             ProgressManager.checkCanceled();
             if ((mask & single.getSearchContext()) != 0 && single.getSearchScope().contains(file)) {
-              result.computeIfAbsent(file, ___ -> new SmartList<>()).add(single);
+              result.computeIfAbsent(file, _ -> new SmartList<>()).add(single);
             }
           }
         });
@@ -1300,7 +1300,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
         }
         else {
           TextIndexQuery key = TextIndexQuery.fromWord(primitive.word, primitive.caseSensitive, TextIndexQuery.NO_SEARCH_CONTEXT);
-          registerRequest(globals.computeIfAbsent(key, __ -> new SmartList<>()), primitive, processor);
+          registerRequest(globals.computeIfAbsent(key, _ -> new SmartList<>()), primitive, processor);
         }
       }
       for (Processor<? super Processor<? super PsiReference>> customAction : collector.takeCustomSearchActions()) {

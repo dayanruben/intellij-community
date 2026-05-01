@@ -160,7 +160,7 @@ public sealed class GeneralHighlightingPass extends ProgressableTextEditorHighli
         }
         if (myHighlightInfoUpdater instanceof HighlightInfoUpdaterImpl impl) {
           List<? extends Class<? extends HighlightVisitor>> liveVisitorClasses = ContainerUtil.map(filteredVisitors, v -> v.getClass());
-          BiPredicate<? super Object, ? super PsiFile> keepToolIdPredicate = (toolId, __) -> !HighlightInfoUpdaterImpl.isHighlightVisitorToolId(toolId) || toolId instanceof Class && liveVisitorClasses.contains(toolId);
+          BiPredicate<? super Object, ? super PsiFile> keepToolIdPredicate = (toolId, _) -> !HighlightInfoUpdaterImpl.isHighlightVisitorToolId(toolId) || toolId instanceof Class && liveVisitorClasses.contains(toolId);
           impl.removeHighlightsForObsoleteTools(getHighlightingSession(), List.of(), keepToolIdPredicate);
         }
         boolean success;

@@ -13,6 +13,7 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.impl.stores.ComponentStoreOwner
 import com.intellij.openapi.components.service
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.impl.scopes.ModuleWithDependenciesScopeCache
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectEx
 import com.intellij.openapi.roots.ExternalProjectSystemRegistry
@@ -92,6 +93,7 @@ open class ModuleImpl(
 
   @Synchronized
   override fun dispose() {
+    project.service<ModuleWithDependenciesScopeCache>().clear()
     isModuleAdded = false
   }
 

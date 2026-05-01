@@ -241,12 +241,12 @@ public class InspectionApplicationBase implements CommandLineInspectionProgressR
 
       @Override
       public @NotNull Predicate<Path> getFilesFilter() {
-        return __ -> true;
+        return _ -> true;
       }
 
       @Override
       public @NotNull Predicate<VirtualFile> getVirtualFilesFilter() {
-        return __ -> true;
+        return _ -> true;
       }
     };
   }
@@ -398,7 +398,7 @@ public class InspectionApplicationBase implements CommandLineInspectionProgressR
       }
     });
     connection.subscribe(AdditionalLibraryRootsListener.TOPIC,
-                         (__, __1, __2, __3) -> updateProjectStructure(counter, reportConverter, project, rootLogDir));
+                         (_, _, _, _) -> updateProjectStructure(counter, reportConverter, project, rootLogDir));
   }
 
   private static void updateProjectStructure(AtomicInteger counter,

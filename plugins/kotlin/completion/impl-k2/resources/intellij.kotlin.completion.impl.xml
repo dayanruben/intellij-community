@@ -28,6 +28,10 @@
             serviceInterface="org.jetbrains.kotlin.idea.completion.handlers.SmartCompletionTailOffsetProvider"
             serviceImplementation="org.jetbrains.kotlin.idea.completion.impl.k2.handlers.K2SmartCompletionTailOffsetProviderImpl"/>
 
+    <applicationService
+            serviceInterface="org.jetbrains.kotlin.idea.completion.impl.k2.handlers.TrailingLambdaInsertionHandlerFactory"
+            serviceImplementation="org.jetbrains.kotlin.idea.completion.impl.k2.handlers.TrailingLambdaInsertionHandlerFactory$Default"/>
+
     <registryKey key="kotlin.k2.chain.completion.enabled"
                  description="Allow chained completion items in Kotlin"
                  defaultValue="true"

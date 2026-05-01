@@ -205,7 +205,7 @@ public final class ProgressIndicatorUtils {
         }
       };
       application.addApplicationListener(listener, listenerDisposable);
-      future.whenComplete((__, ___) -> Disposer.dispose(listenerDisposable));
+      future.whenComplete((_, _) -> Disposer.dispose(listenerDisposable));
       try {
         executor.execute(ClientId.decorateRunnable(new Runnable() {
           @Override

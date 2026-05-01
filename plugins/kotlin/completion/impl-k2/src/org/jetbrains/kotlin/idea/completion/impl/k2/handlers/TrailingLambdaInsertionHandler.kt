@@ -82,6 +82,8 @@ internal class TrailingLambdaInsertionHandler private constructor(
     companion object {
         /**
          * Returns the [TrailingLambdaInsertionHandler] if the project supports using templates, null otherwise.
+         *
+         * Do not use directly; instead, use [TrailingLambdaInsertionHandlerFactory] to get an instance.
          */
         @OptIn(KaExperimentalApi::class)
         context(_: KaSession)

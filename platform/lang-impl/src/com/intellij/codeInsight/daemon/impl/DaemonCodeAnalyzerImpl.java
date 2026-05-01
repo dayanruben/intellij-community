@@ -1281,7 +1281,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
           if (!isRunningOrPending()) {
             stopProcess(true, reason);
           }
-        }, __->myDisposed);
+        }, _->myDisposed);
       }
     }
     return StringUtil.join(result, "; ");
@@ -1697,7 +1697,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       ApplicationManager.getApplication().invokeLater(() -> {
         DaemonProgressIndicator sessionIndicator = new DaemonProgressIndicator();
         ProgressManager.getInstance().executeProcessUnderProgress(() -> showAutoImportPass.doApplyInformationToEditor(), sessionIndicator);
-      }, __ -> editor.isDisposed() || psiFile.getProject().isDisposed());
+      }, _ -> editor.isDisposed() || psiFile.getProject().isDisposed());
     }
   }
 }

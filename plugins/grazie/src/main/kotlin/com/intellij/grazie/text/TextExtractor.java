@@ -235,7 +235,7 @@ public abstract class TextExtractor {
 
     // deduplicate equal contents created by different threads to avoid O(token_count) 'equals' checks later on
     var interner = obtainInterner(file);
-    contents = ContainerUtil.map(contents, content -> interner.computeIfAbsent(content, __ -> content));
+    contents = ContainerUtil.map(contents, content -> interner.computeIfAbsent(content, _ -> content));
 
     for (TextContent content : contents) {
       if (content.getUserData(IGNORED) != null) continue;

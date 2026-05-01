@@ -709,7 +709,7 @@ public final class InspectionResultsView extends JPanel implements Disposable, U
         problems.put(refElement, descriptors);
         final Map<String, Set<RefEntity>> contents = new HashMap<>();
         final String groupName = refElement.getRefManager().getGroupName((RefElement)refElement);
-        Set<RefEntity> content = contents.computeIfAbsent(groupName, __ -> new HashSet<>());
+        Set<RefEntity> content = contents.computeIfAbsent(groupName, _ -> new HashSet<>());
         content.add(refElement);
 
         getProvider().appendToolNodeContent(myGlobalInspectionContext,

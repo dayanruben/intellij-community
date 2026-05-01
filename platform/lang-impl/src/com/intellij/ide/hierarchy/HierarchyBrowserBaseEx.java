@@ -390,7 +390,7 @@ public abstract class HierarchyBrowserBaseEx extends HierarchyBrowserBase implem
     }
 
     if (myContent != null) {
-      Supplier<@Nls String> supplier = myI18nMap.computeIfAbsent(typeName, __ -> () -> typeName);
+      Supplier<@Nls String> supplier = myI18nMap.computeIfAbsent(typeName, _ -> () -> typeName);
       String displayName = getContentDisplayName(supplier.get(), element);
       if (displayName != null) {
         myContent.setDisplayName(displayName);
@@ -643,7 +643,7 @@ public abstract class HierarchyBrowserBaseEx extends HierarchyBrowserBase implem
     ApplicationManager.getApplication().invokeLater(() -> {
       changeView(currentViewType);
       restoreTreeState(pathsToExpand, selectionPaths);
-    }, __-> isDisposed());
+    }, _-> isDisposed());
   }
 
   protected String getCurrentScopeType() {
@@ -707,7 +707,7 @@ public abstract class HierarchyBrowserBaseEx extends HierarchyBrowserBase implem
       if (provider != null) {
         HierarchyBrowserBaseEx newBrowser = (HierarchyBrowserBaseEx)BrowseHierarchyActionBase.createAndAddToPanel(
           selectedElement.getProject(), provider, selectedElement);
-        ApplicationManager.getApplication().invokeLater(() -> newBrowser.changeView(correctViewType(browser, currentViewType)), __ -> newBrowser.isDisposed());
+        ApplicationManager.getApplication().invokeLater(() -> newBrowser.changeView(correctViewType(browser, currentViewType)), _ -> newBrowser.isDisposed());
       }
     }
 
@@ -823,7 +823,7 @@ public abstract class HierarchyBrowserBaseEx extends HierarchyBrowserBase implem
 
       // invokeLater is called to update state of button before long tree building operation
       // scope is kept per type so other builders don't need to be refreshed
-      ApplicationManager.getApplication().invokeLater(() -> doRefresh(true), __ -> isDisposed());
+      ApplicationManager.getApplication().invokeLater(() -> doRefresh(true), _ -> isDisposed());
     }
 
     @Override

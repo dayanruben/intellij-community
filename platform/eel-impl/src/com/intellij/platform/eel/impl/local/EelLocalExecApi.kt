@@ -24,8 +24,9 @@ import com.intellij.platform.eel.EelWindowsProcess
 import com.intellij.platform.eel.ExecuteProcessException
 import com.intellij.platform.eel.LocalEelExecApi
 import com.intellij.platform.eel.channels.EelDelicateApi
-import com.intellij.platform.eel.impl.bindProcessToScopeIfSet
-import com.intellij.platform.eel.impl.commandLineForDebug
+import com.intellij.platform.eel.impl.base.EelExecApiEnvironmentVariableCache
+import com.intellij.platform.eel.impl.base.bindProcessToScopeIfSet
+import com.intellij.platform.eel.impl.base.commandLineForDebug
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.utils.awaitProcessResult

@@ -4,14 +4,13 @@ package com.intellij.platform.debugger.impl.frontend
 import com.intellij.frontend.FrontendApplicationInfo
 import com.intellij.frontend.FrontendType
 import com.intellij.ide.ui.icons.icon
-import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.debugger.impl.frontend.util.RequestsSerializer
 import com.intellij.platform.debugger.impl.rpc.XBreakpointApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointTypeApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointTypeDto
@@ -31,27 +30,28 @@ import com.intellij.xdebugger.breakpoints.XBreakpointType.StandardPanels
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointCustomPropertiesPanel
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import javax.swing.Icon
 
 internal fun createFrontendXBreakpointType(
   project: Project,
+  cs: CoroutineScope,
   dto: XBreakpointTypeDto,
 ): XBreakpointTypeProxy {
   val lineTypeInfo = dto.lineTypeInfo
   return if (lineTypeInfo != null) {
-    FrontendXLineBreakpointType(project, dto, lineTypeInfo)
+    FrontendXLineBreakpointType(project, cs, dto, lineTypeInfo)
   }
   else {
-    FrontendXBreakpointType(project, dto)
+    FrontendXBreakpointType(project, cs, dto)
   }
 }
 
 private class FrontendXLineBreakpointType(
   project: Project,
+  cs: CoroutineScope,
   dto: XBreakpointTypeDto,
   lineTypeInfo: XLineBreakpointTypeInfo,
-) : FrontendXBreakpointType(project, dto), XLineBreakpointTypeProxy {
+) : FrontendXBreakpointType(project, cs, dto), XLineBreakpointTypeProxy {
   override val temporaryIcon: Icon? = dto.icons.temporaryIcon?.icon()
 
   override val priority: Int = lineTypeInfo.priority
@@ -119,8 +119,10 @@ private class FrontendXLineBreakpointType(
 
 private open class FrontendXBreakpointType(
   private val project: Project,
+  cs: CoroutineScope,
   private val dto: XBreakpointTypeDto,
 ) : XBreakpointTypeProxy {
+  private val requestsSerializer = RequestsSerializer.create(cs)
   override val id: String = dto.id.id
   override val index: Int = dto.index
   override val title: String = dto.title
@@ -145,7 +147,7 @@ private open class FrontendXBreakpointType(
   override fun setDefaultSuspendPolicy(policy: SuspendPolicy) {
     _defaultSuspendPolicy = policy
 
-    project.service<FrontendXBreakpointTypeProjectCoroutineScope>().cs.launch {
+    requestsSerializer.performRequest {
       XBreakpointApi.getInstance().setDefaultSuspendPolicy(project.projectId(), dto.id, policy)
     }
   }
@@ -208,6 +210,3 @@ private open class FrontendXBreakpointType(
     return "FrontendXBreakpointType(type=$id)"
   }
 }
-
-@Service(Service.Level.PROJECT)
-private class FrontendXBreakpointTypeProjectCoroutineScope(val cs: CoroutineScope)

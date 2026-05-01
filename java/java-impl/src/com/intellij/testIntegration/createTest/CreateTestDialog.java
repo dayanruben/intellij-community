@@ -437,7 +437,7 @@ public class CreateTestDialog extends DialogWrapper {
       public void actionPerformed(ActionEvent e) {
         if (mySelectedFramework instanceof JavaTestFramework) {
           ((JavaTestFramework)mySelectedFramework).setupLibrary(myTargetModule)
-            .onSuccess(__ -> myFixLibraryPanel.setVisible(false));
+            .onSuccess(_ -> myFixLibraryPanel.setVisible(false));
         }
         else {
           OrderEntryFix.addJarToRoots(mySelectedFramework.getLibraryPath(), myTargetModule, null);

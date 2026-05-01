@@ -426,7 +426,7 @@ public final class PlatformTestUtil {
 
   public static void waitForCallback(@NotNull ActionCallback callback) {
     var future = new CompletableFuture<>();
-    callback.doWhenDone(() -> future.complete(null)).doWhenRejected(__ -> future.complete(null));
+    callback.doWhenDone(() -> future.complete(null)).doWhenRejected(_ -> future.complete(null));
     waitForFuture(future);
   }
 

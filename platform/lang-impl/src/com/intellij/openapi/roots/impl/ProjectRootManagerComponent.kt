@@ -6,6 +6,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationListener
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
@@ -14,6 +15,7 @@ import com.intellij.openapi.fileTypes.FileTypeEvent
 import com.intellij.openapi.fileTypes.FileTypeListener
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.module.ModuleManager
+import com.intellij.openapi.module.impl.scopes.ModuleWithDependenciesScopeCache
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ProjectManagerListener
@@ -419,6 +421,8 @@ open class ProjectRootManagerComponent(
 
   override fun clearScopesCachesForModules() {
     super.clearScopesCachesForModules()
+
+    project.service<ModuleWithDependenciesScopeCache>().clear()
 
     for (module in ModuleManager.getInstance(project).modules) {
       module.clearScopesCache()

@@ -33,7 +33,6 @@ import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorImpl;
 import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers;
-import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.fileTypes.UnknownFileType;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -669,8 +668,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
   }
 
   private static boolean isBinaryWithDecompiler(@NotNull VirtualFile file) {
-    FileType type = file.getFileType();
-    return type.isBinary() && BinaryFileTypeDecompilers.getInstance().forFileType(type) != null;
+    return BinaryFileTypeDecompilers.getInstance().hasDecompiler(file);
   }
 
   static final class MyAsyncFileListener implements AsyncFileListener {
@@ -1099,7 +1097,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
 
 
     FileDocumentManagerListenerBackgroundableBridge() {
-      InvocationHandler handler = (__, method, args) -> {
+      InvocationHandler handler = (_, method, args) -> {
         if (method.getDeclaringClass() != FileDocumentManagerListener.class) {
           // only FileDocumentManagerListener methods should be called on this proxy
           throw new UnsupportedOperationException(method.toString());

@@ -116,7 +116,7 @@ public abstract class TestConsoleProperties extends StoringPropertyContainer imp
 
   public <T> void addListener(@NotNull AbstractProperty<T> property, @NotNull TestFrameworkPropertyListener<T> listener) {
     List<TestFrameworkPropertyListener> listeners =
-      myListeners.computeIfAbsent(property, __ -> ContainerUtil.createLockFreeCopyOnWriteList());
+      myListeners.computeIfAbsent(property, _ -> ContainerUtil.createLockFreeCopyOnWriteList());
     listeners.add(listener);
   }
 

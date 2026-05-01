@@ -245,7 +245,7 @@ public abstract class KeymapsTestCaseBase {
       Map<String, List<String>> duplicates = knownDuplicates.get(keymap);
       for (String shortcut : duplicates.keySet()) {
         Shortcut keyboardShortcut = parseShortcut(shortcut);
-        List<String> actions = duplicates.computeIfAbsent(shortcut, __ -> new ArrayList<>());
+        List<String> actions = duplicates.computeIfAbsent(shortcut, _ -> new ArrayList<>());
         keyDuplicates.put(keyboardShortcut, actions);
       }
     }
@@ -274,11 +274,11 @@ public abstract class KeymapsTestCaseBase {
         }
 
         for (Shortcut shortcut : keymap.getShortcuts(actionId)) {
-          map.computeIfAbsent(shortcut, __ -> new ArrayList<>()).add(actionId);
+          map.computeIfAbsent(shortcut, _ -> new ArrayList<>()).add(actionId);
 
           if (shortcut instanceof KeyboardShortcut && ((KeyboardShortcut)shortcut).getSecondKeyStroke() != null) {
             KeyboardShortcut firstStroke = new KeyboardShortcut(((KeyboardShortcut)shortcut).getFirstKeyStroke(), null);
-            List<String> firstStrokeActionList = map.computeIfAbsent(firstStroke, __ -> new ArrayList<>());
+            List<String> firstStrokeActionList = map.computeIfAbsent(firstStroke, _ -> new ArrayList<>());
             if (!firstStrokeActionList.contains(SECOND_STROKE)) {
               firstStrokeActionList.add(SECOND_STROKE);
             }
@@ -290,7 +290,7 @@ public abstract class KeymapsTestCaseBase {
     if (SystemInfo.isUnix && !SystemInfo.isMac) {
       // hack: add hardcoded shortcut from DefaultKeymapImpl to make keymaps identical under all OS
       result.get(KeymapManager.DEFAULT_IDEA_KEYMAP)
-        .computeIfAbsent(new MouseShortcut(MouseEvent.BUTTON2, 0, 1), __ -> new ArrayList<>())
+        .computeIfAbsent(new MouseShortcut(MouseEvent.BUTTON2, 0, 1), _ -> new ArrayList<>())
         .add(IdeActions.ACTION_GOTO_DECLARATION);
     }
 

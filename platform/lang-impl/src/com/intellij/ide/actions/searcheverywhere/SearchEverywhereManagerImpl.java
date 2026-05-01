@@ -415,10 +415,10 @@ public final class SearchEverywhereManagerImpl implements SearchEverywhereManage
       });
     });
 
-    DumbAwareAction.create(__ -> showHistoryItem(true))
+    DumbAwareAction.create(_ -> showHistoryItem(true))
       .registerCustomShortcutSet(SearchTextField.SHOW_HISTORY_SHORTCUT, view);
 
-    DumbAwareAction.create(__ -> showHistoryItem(false))
+    DumbAwareAction.create(_ -> showHistoryItem(false))
       .registerCustomShortcutSet(SearchTextField.ALT_SHOW_HISTORY_SHORTCUT, view);
 
     return view;

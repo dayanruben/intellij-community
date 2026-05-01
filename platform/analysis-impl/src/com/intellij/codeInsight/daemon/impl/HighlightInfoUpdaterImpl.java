@@ -157,7 +157,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
   }
 
   private static @NotNull CollectionFactory.EvictionListener<PsiElement, List<? extends HighlightInfo>, List<? extends HighlightInfo>> psiElementEvictionListener(@NotNull Project project) {
-    return (__, hash, evicted) -> {
+    return (_, hash, evicted) -> {
       if (LOG.isTraceEnabled()) {
         LOG.trace("psiElementEvictionListener: {" + hash+"} -> ("+(evicted == null ? 0 : evicted.size())+"): "+evicted);
       }
@@ -168,7 +168,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
   }
 
   private static @NotNull CollectionFactory.EvictionListener<@NotNull FileViewProvider, Map<Object, ToolHighlights>, Map<Object, ToolHighlights>> psiFileEvictionListener(@NotNull Document document) {
-    return (__, hash, oldMap) -> {
+    return (_, hash, oldMap) -> {
       if (LOG.isTraceEnabled()) {
         List<HighlightInfo> infos = ContainerUtil.flatten(ContainerUtil.map(ContainerUtil.notNullize(oldMap).values(), t -> ContainerUtil.flatten(t.elementHighlights.values())));
         List<HighlightInfo> fromModel =
@@ -249,7 +249,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
         RangeHighlighterEx highlighter = info.getHighlighter();
         if (highlighter != null) {
           Document hostDocument = highlighter.getDocument();
-          evictedMap.computeIfAbsent(hostDocument, __->HashSet.newHashSet(infos.size())).addAll(infos);
+          evictedMap.computeIfAbsent(hostDocument, _->HashSet.newHashSet(infos.size())).addAll(infos);
         }
       }
       for (Map.Entry<Document, Collection<HighlightInfo>> entry : evictedMap.entrySet()) {
@@ -298,7 +298,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
     Map<FileViewProvider, Map<Object, ToolHighlights>> map = getOrCreateHostMap(hostDocument);
     Map<Object, ToolHighlights> result = map.get(viewProvider);
     if (result == null) {
-      result = map.computeIfAbsent(viewProvider, __->new ConcurrentHashMap<>());
+      result = map.computeIfAbsent(viewProvider, _->new ConcurrentHashMap<>());
     }
     return result;
   }
@@ -430,8 +430,8 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
     for (InvalidPsi invalidPsi : psis) {
       Object toolId = invalidPsi.info().toolId;
       List<HighlightInfo> infos =
-      byPsiElement.computeIfAbsent(toolId, __->new HashMap<>())
-                  .computeIfAbsent(invalidPsi.psiElement(), __ -> new ArrayList<>());
+      byPsiElement.computeIfAbsent(toolId, _->new HashMap<>())
+                  .computeIfAbsent(invalidPsi.psiElement(), _ -> new ArrayList<>());
       infos.add(invalidPsi.info());
     }
     boolean removed = true;
@@ -720,7 +720,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
             }
           }
           List<? extends HighlightInfo> newInfosToStore = assignRangeHighlighters(visitedPsiElement, oldInfos, newInfos, toolId, session, psiFile, hostDocument, invalidElementRecycler, recycler, data);
-          ToolHighlights notNullToolHighlights = toolHighlights == null ? data.computeIfAbsent(toolId, __ -> new ToolHighlights(project)) : toolHighlights;
+          ToolHighlights notNullToolHighlights = toolHighlights == null ? data.computeIfAbsent(toolId, _ -> new ToolHighlights(project)) : toolHighlights;
 
           if (newInfosToStore.isEmpty()) {
             notNullToolHighlights.elementHighlights.remove(visitedPsiElement);
@@ -957,7 +957,7 @@ public final class HighlightInfoUpdaterImpl extends HighlightInfoUpdater impleme
           .toList();
         SweepProcessor.Generator<HighlightInfo> generator = processor -> ContainerUtil.process(sorted, processor);
         SeverityRegistrar severityRegistrar = SeverityRegistrar.getSeverityRegistrar(session.getProject());
-        SweepProcessor.sweep(generator, (__, info, atStart, overlappingIntervals) -> {
+        SweepProcessor.sweep(generator, (_, info, atStart, overlappingIntervals) -> {
           if (!atStart) {
             return true;
           }

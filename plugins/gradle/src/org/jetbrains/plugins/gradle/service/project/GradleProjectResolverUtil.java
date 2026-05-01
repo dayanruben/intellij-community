@@ -1131,7 +1131,7 @@ public final class GradleProjectResolverUtil {
   private static @NotNull Map<ExternalDependencyId, Collection<ExternalDependency>> groupTransitiveDependenciesById(@NotNull Collection<ExternalDependency> dependencies) {
     Map<ExternalDependencyId, Collection<ExternalDependency>> dependencyMap = new LinkedHashMap<>();
     for (ExternalDependency dependency : dependencies) {
-      Collection<ExternalDependency> transitiveDependencies = dependencyMap.computeIfAbsent(dependency.getId(), __ -> new LinkedHashSet<>());
+      Collection<ExternalDependency> transitiveDependencies = dependencyMap.computeIfAbsent(dependency.getId(), _ -> new LinkedHashSet<>());
       transitiveDependencies.addAll(dependency.getDependencies());
     }
     return dependencyMap;

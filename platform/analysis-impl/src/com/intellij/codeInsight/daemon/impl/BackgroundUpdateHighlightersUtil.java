@@ -183,7 +183,7 @@ public final class BackgroundUpdateHighlightersUtil {
       SweepProcessor.Generator<HighlightInfo> generator = processor -> ContainerUtil.process(filteredInfos, processor);
       List<HighlightInfo> fileLevelHighlights = new ArrayList<>();
       List<HighlightInfo> infosToCreateHighlightersFor = new ArrayList<>(filteredInfos.size());
-      SweepProcessor.sweep(generator, (__, info, atStart, overlappingIntervals) -> {
+      SweepProcessor.sweep(generator, (_, info, atStart, overlappingIntervals) -> {
         if (!atStart) {
           return true;
         }

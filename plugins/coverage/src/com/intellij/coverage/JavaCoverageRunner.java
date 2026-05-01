@@ -5,15 +5,19 @@ import com.intellij.codeEditor.printing.ExportToHTMLSettings;
 import com.intellij.execution.JavaExecutionUtil;
 import com.intellij.execution.configurations.SimpleJavaParameters;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.GlobalSearchScopesCore;
 import com.intellij.psi.util.ClassUtil;
+import com.intellij.rt.coverage.data.LineData;
 import com.intellij.rt.coverage.data.ProjectData;
 import com.intellij.rt.coverage.instrumentation.UnloadedUtil;
 import jetbrains.coverage.report.ClassInfo;
@@ -106,6 +110,13 @@ public abstract class JavaCoverageRunner extends CoverageRunner {
     final long timeMs = TimeUnit.NANOSECONDS.toMillis(endNs - startNs);
     final long generationTimeMs = TimeUnit.NANOSECONDS.toMillis(endNs - generationStartNs);
     CoverageLogger.logHTMLReport(project, timeMs, generationTimeMs);
+  }
+
+  public String generateBriefReport(@NotNull Editor editor,
+                                    @NotNull PsiFile psiFile,
+                                    @NotNull TextRange range,
+                                    @NotNull LineData lineData) {
+    return JavaCoverageEngine.createDefaultBriefReport(lineData);
   }
 
   public static @Nullable String handleSpacesInAgentPath(@NotNull String agentPath) {

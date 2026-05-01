@@ -388,9 +388,9 @@ final class LocalInspectionsPass extends ProgressableTextEditorHighlightingPass 
                                                  @NotNull String id,
                                                  @Nullable String alternativeID,
                                                  @NotNull Map<? super String, Set<PsiElement>> outSuppressedElements) {
-    outSuppressedElements.computeIfAbsent(id, __ -> new HashSet<>()).add(element);
+    outSuppressedElements.computeIfAbsent(id, _ -> new HashSet<>()).add(element);
     if (alternativeID != null) {
-      outSuppressedElements.computeIfAbsent(alternativeID, __ -> new HashSet<>()).add(element);
+      outSuppressedElements.computeIfAbsent(alternativeID, _ -> new HashSet<>()).add(element);
     }
   }
 

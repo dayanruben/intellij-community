@@ -20,3 +20,9 @@ fun partiallyResolved(){}
  * [<!HIGHLIGHTING("severity='WARNING'; descr='Cannot resolve link 'unresolvedLink''; textAttributesKey='WARNING_ATTRIBUTES'")!>unresolvedLink<!>]
  */
 fun unresolved() {}
+
+/**
+ * @sample samples
+ * @sample <!HIGHLIGHTING("severity='WARNING'; descr='Cannot resolve link 'someRandomName''; textAttributesKey='WARNING_ATTRIBUTES'")!>someRandomName<!>
+ */
+fun samples() {}

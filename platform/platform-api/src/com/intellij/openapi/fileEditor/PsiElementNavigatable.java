@@ -51,7 +51,7 @@ public class PsiElementNavigatable implements Navigatable {
             indicator.checkCanceled();
             if (offset >= 0) {
               Navigatable descriptor = PsiNavigationSupport.getInstance().createNavigatable(myProject, file, offset);
-              Condition isValid = __ -> !file.isValid();
+              Condition isValid = _ -> !file.isValid();
               Condition isDisposed = myProject.getDisposed();
               Condition<?> expired = or(isDisposed, isValid);
               ApplicationManager.getApplication().invokeLater(() -> descriptor.navigate(requestFocus), expired);

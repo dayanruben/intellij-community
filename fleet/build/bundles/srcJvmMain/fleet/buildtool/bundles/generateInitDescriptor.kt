@@ -51,15 +51,14 @@ suspend fun generateInitDescriptor(
       val uniqueJarsDir = temporaryDir.resolve("unique-jars")
       uniqueJarsDir.deleteIfExists()
       uniqueJarsDir.createDirectories()
-      val alreadyIncludedJarNames = alreadyIncludedJars.map {
-        ModuleFinder.of(it).findAll().single().descriptor().name() + ".jar"
-      }
+      val alreadyIncludedJarNames = alreadyIncludedJars.map { it.moduleName }
 
-      val uniqueJarsClassPath = runtimeClasspath.mapNotNull {
-        val uniqueJarName = ModuleFinder.of(it).findAll().single().descriptor().name() + ".jar"
+      val uniqueJarsClassPath = runtimeClasspath.mapNotNull { jar ->
+        val jarModuleName = jar.moduleName
         when {
-          uniqueJarName in alreadyIncludedJarNames -> null
-          else -> it.copyTo(uniqueJarsDir.resolve(uniqueJarName), overwrite = true)
+          jarModuleName in alreadyIncludedJarNames -> null
+          isEmptyJar(jar) -> null
+          else -> copyJarToOutputDirectory(jar, uniqueJarsDir, "$jarModuleName.jar")
         }
       }
       val packedModulesDir = temporaryDir.resolve("packed-modules")
@@ -85,7 +84,7 @@ suspend fun generateInitDescriptor(
     }
   }
 
-  val classpath = descriptorClassPath.toSet().map { file ->
+  val classpath = descriptorClassPath.map { file ->
     PluginPart.Bundled(HashedJar.fromFile(
       hash = CodeCacheHasher().hash(file),
       file = file,

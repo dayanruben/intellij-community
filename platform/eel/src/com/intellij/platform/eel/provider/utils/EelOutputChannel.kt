@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import org.jetbrains.annotations.ApiStatus
 import java.nio.ByteBuffer
-import java.util.ServiceLoader
 
 @ApiStatus.Internal
 class EelChannelClosedException(cause: Throwable) : RuntimeException(cause)
@@ -107,14 +106,6 @@ suspend fun EelOutputChannel.sendUntilEnd(flow: Flow<ByteArray>, end: Deferred<*
   sendEof()
 }
 
-/**
- * SPI for creating [EelOutputChannel] instances. Loaded via [ServiceLoader].
- */
-@ApiStatus.Internal
-fun interface EelOutputChannelFactory {
-  fun create(prefersDirectBuffers: Boolean): EelOutputChannel
-}
-
 @ApiStatus.Internal
 fun EelOutputChannel(prefersDirectBuffers: Boolean): EelOutputChannel =
-  ServiceLoader.load(EelOutputChannelFactory::class.java).single().create(prefersDirectBuffers)
+  EelOutputChannelImpl(prefersDirectBuffers)

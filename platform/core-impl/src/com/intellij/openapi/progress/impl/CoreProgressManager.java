@@ -3,6 +3,7 @@ package com.intellij.openapi.progress.impl;
 
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.concurrency.ContextAwareRunnable;
+import com.intellij.diagnostic.ProgressIndicatorDumper;
 import com.intellij.diagnostic.ThreadDumper;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
@@ -129,6 +130,10 @@ public class CoreProgressManager extends ProgressManager implements Disposable {
    */
   private static final Map<ProgressIndicator, AtomicInteger> nonStandardIndicators = new ConcurrentHashMap<>();
 
+  public CoreProgressManager() {
+    ProgressIndicatorDumper.INSTANCE.setProgressIndicatorDumper(this::getProgressStateRepresentation);
+  }
+
   // must be under threadsUnderIndicator lock
   private void startBackgroundNonStandardIndicatorsPing() {
     if (myCheckCancelledFuture != null) {
@@ -160,6 +165,7 @@ public class CoreProgressManager extends ProgressManager implements Disposable {
     synchronized (threadsUnderIndicator) {
       stopBackgroundNonStandardIndicatorsPing();
     }
+    ProgressIndicatorDumper.INSTANCE.removeProgressIndicatorDumper();
   }
 
   @ApiStatus.Internal

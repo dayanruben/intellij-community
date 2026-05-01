@@ -953,7 +953,7 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     Random random = new Random();
     IntStream.range(0, N_TRIES)
       .parallel()
-      .forEach(__-> {
+      .forEach(_-> {
         long seed = random.nextLong();
         addDelete(seed, LEN);
       });
@@ -1486,7 +1486,7 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     Benchmark.newBenchmark(getTestName(false), ()->{
       for (int it = 0; it < 2_000; it++) {
         for (int i = 1; i < doc.getTextLength() - 1; i++) {
-          boolean result = doc.processRangeMarkersOverlappingWith(i, i + 1, __ -> false);
+          boolean result = doc.processRangeMarkersOverlappingWith(i, i + 1, _ -> false);
           assertFalse(result);
         }
       }
@@ -1684,7 +1684,7 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     RangeMarkerImpl m = (RangeMarkerImpl)LazyRangeMarkerFactory.getInstance(getProject()).createRangeMarker(vf, 1);
     assertNull(m.getCachedDocument());
 
-    getProject().getMessageBus().connect(getTestRootDisposable()).subscribe(PsiDocumentListener.TOPIC, (doc, __, ___) -> {
+    getProject().getMessageBus().connect(getTestRootDisposable()).subscribe(PsiDocumentListener.TOPIC, (doc, _, _) -> {
       if (vf.equals(FileDocumentManager.getInstance().getFile(doc))) {
         fail("document created");
       }

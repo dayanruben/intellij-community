@@ -622,14 +622,14 @@ public class PsiViewerDialog extends DialogWrapper implements UiDataProvider {
       }
     };
     search1.setupListeners();
-    myFileTypeComboBox.addActionListener(__ -> {
+    myFileTypeComboBox.addActionListener(_ -> {
       WriteIntentReadAction.run(() -> {
         updateDialectsCombo(null);
         updateExtensionsCombo();
         rebuildPsiAndUpdateEditor();
       });
     });
-    myDialectComboBox.addActionListener(__ -> WriteIntentReadAction.run(() -> rebuildPsiAndUpdateEditor()));
+    myDialectComboBox.addActionListener(_ -> WriteIntentReadAction.run(() -> rebuildPsiAndUpdateEditor()));
     ComboboxSpeedSearch search = new ComboboxSpeedSearch(myDialectComboBox, null) {
       @Override
       protected String getElementText(Object element) {
@@ -646,20 +646,20 @@ public class PsiViewerDialog extends DialogWrapper implements UiDataProvider {
     myDialectComboBox.addFocusListener(new AutoExpandFocusListener(myDialectComboBox));
     myExtensionComboBox.setRenderer(BuilderKt.textListCellRenderer("", value -> "." + value)); //NON-NLS
     myExtensionComboBox.addFocusListener(new AutoExpandFocusListener(myExtensionComboBox));
-    myExtensionComboBox.addActionListener(__ -> WriteIntentReadAction.run(() -> rebuildPsiAndUpdateEditor()));
+    myExtensionComboBox.addActionListener(_ -> WriteIntentReadAction.run(() -> rebuildPsiAndUpdateEditor()));
 
-    myShowWhiteSpacesBox.addActionListener(__ -> {
+    myShowWhiteSpacesBox.addActionListener(_ -> {
       myTreeStructure.setShowWhiteSpaces(myShowWhiteSpacesBox.isSelected());
       myStructureTreeModel.invalidateAsync();
     });
-    myShowTreeNodesCheckBox.addActionListener(__ -> {
+    myShowTreeNodesCheckBox.addActionListener(_ -> {
       myTreeStructure.setShowTreeNodes(myShowTreeNodesCheckBox.isSelected());
       myStructureTreeModel.invalidateAsync();
     });
-    myShowEmptyPropertiesCheckBox.addActionListener(__ -> {
+    myShowEmptyPropertiesCheckBox.addActionListener(_ -> {
       myPsiViewerPropertiesTabViewModel.setShowEmptyProperties(myShowEmptyPropertiesCheckBox.isSelected());
     });
-    myUpdatePsiTreeCheckbox.addActionListener(__ -> {
+    myUpdatePsiTreeCheckbox.addActionListener(_ -> {
       var isSelected = myUpdatePsiTreeCheckbox.isSelected();
       settings.updatePsiTreeOnChanges = isSelected;
       if (isSelected) {
@@ -730,15 +730,15 @@ public class PsiViewerDialog extends DialogWrapper implements UiDataProvider {
   private void registerCustomKeyboardActions() {
     int mask = ClientSystemInfo.isMac() ? InputEvent.META_DOWN_MASK : InputEvent.ALT_DOWN_MASK;
 
-    registerKeyboardAction(__ -> focusEditor(), KeyStroke.getKeyStroke(KeyEvent.VK_T, mask));
+    registerKeyboardAction(_ -> focusEditor(), KeyStroke.getKeyStroke(KeyEvent.VK_T, mask));
 
-    registerKeyboardAction(__ -> focusTree(), KeyStroke.getKeyStroke(KeyEvent.VK_S, mask));
+    registerKeyboardAction(_ -> focusTree(), KeyStroke.getKeyStroke(KeyEvent.VK_S, mask));
 
-    registerKeyboardAction(__ -> myBlockTree.focusTree(), KeyStroke.getKeyStroke(KeyEvent.VK_K, mask));
+    registerKeyboardAction(_ -> myBlockTree.focusTree(), KeyStroke.getKeyStroke(KeyEvent.VK_K, mask));
 
-    registerKeyboardAction(__ -> focusRefs(), KeyStroke.getKeyStroke(KeyEvent.VK_R, mask));
+    registerKeyboardAction(_ -> focusRefs(), KeyStroke.getKeyStroke(KeyEvent.VK_R, mask));
 
-    registerKeyboardAction(__ -> {
+    registerKeyboardAction(_ -> {
       if (myRefs.isFocusOwner()) {
         myBlockTree.focusTree();
       }

@@ -147,7 +147,7 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
             if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
               reviewImports(project, file, imported);
             }
-          }), ModalityState.nonModal(), __ -> editor.isDisposed());
+          }), ModalityState.nonModal(), _ -> editor.isDisposed());
       }
     };
 

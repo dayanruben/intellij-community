@@ -301,7 +301,7 @@ public final class ExternalSystemJdkUtil {
       return customizer.apply(
         builder.withProject(project)
           .withSdkType(getJavaSdkType())
-          .onDownloadableSdkSuggested(__ -> SdkLookupDecision.STOP)
+          .onDownloadableSdkSuggested(_ -> SdkLookupDecision.STOP)
       );
     }));
   }

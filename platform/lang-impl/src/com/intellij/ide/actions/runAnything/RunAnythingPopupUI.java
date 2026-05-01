@@ -751,7 +751,7 @@ public final class RunAnythingPopupUI extends BigPopupUI implements UiDataProvid
       .registerCustomShortcutSet(CustomShortcutSet.fromString("shift TAB"), mySearchField, this);
 
     AnAction escape = ActionManager.getInstance().getAction("EditorEscape");
-    DumbAwareAction.create(__ -> {
+    DumbAwareAction.create(_ -> {
       triggerUsed();
       searchFinishedHandler.run();
     }).registerCustomShortcutSet(escape == null ? CommonShortcuts.ESCAPE : escape.getShortcutSet(), this);

@@ -1128,7 +1128,7 @@ public final class BuildManager implements Disposable {
 
   private @NotNull ProjectData getProjectData(@NotNull String projectPath) {
     synchronized (myProjectDataMap) {
-      return myProjectDataMap.computeIfAbsent(projectPath, __ -> {
+      return myProjectDataMap.computeIfAbsent(projectPath, _ -> {
         return new ProjectData(SequentialTaskExecutor.createSequentialApplicationPoolExecutor("BuildManager Pool"));
       });
     }

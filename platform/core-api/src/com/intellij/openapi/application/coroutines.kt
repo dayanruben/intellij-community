@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.ThrowableComputable
+import com.intellij.util.ThrowableRunnable
 import com.intellij.util.ui.EDT
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -291,7 +292,25 @@ private class ComputableWrapper<T,E : Throwable>(val lambda: ()->T) : Computable
     return lambda.toString()
   }
 }
-private class RunnableWrapper(val lambda: ()->Unit) : Runnable {
+private class ThrowableRunnableToThrowableComputable<E : Throwable>(val runnable: ThrowableRunnable<E>) : Computable<Unit>, ThrowableComputable<Unit,E> {
+  override fun compute() {
+    runnable.run()
+  }
+
+  override fun toString(): String {
+    return runnable.toString()
+  }
+}
+private class ThrowableRunnableToLambda<E : Throwable>(runnable: ThrowableRunnable<E>) : LambdaWrapper<ThrowableRunnable<E>,Unit>(runnable) {
+  override fun invoke() {
+    computable.run()
+  }
+
+  override fun toString(): String {
+    return computable.toString()
+  }
+}
+private class LambdaToRunnable(val lambda: ()->Unit) : Runnable {
   override fun run() {
     lambda.invoke()
   }
@@ -302,21 +321,34 @@ private class RunnableWrapper(val lambda: ()->Unit) : Runnable {
 }
 @Internal
 fun <T> computableToLambda(runnable: Computable<T>) : () -> T {
-  return if (runnable is ComputableWrapper<T, *>) runnable.lambda else ComputableFunction(runnable)
+  return if (runnable is ComputableWrapper<T, *>) runnable.lambda else ComputableToLambda(runnable)
 }
 @Internal
 fun <T,E:Throwable> throwableComputableToLambda(runnable: ThrowableComputable<T,E>) : () -> T {
-  return if (runnable is ComputableWrapper<T, *>) runnable.lambda else ThrowableComputableFunction(runnable)
+  @Suppress("UNCHECKED_CAST")
+  return when (runnable) {
+    is ComputableWrapper<T, *> -> runnable.lambda
+    is ThrowableRunnableToThrowableComputable<*> -> throwableRunnableToLambda(runnable.runnable) as () -> T
+    else -> ThrowableComputableToLambda(runnable)
+  }
+}
+@Internal
+fun <E:Throwable> throwableRunnableToThrowableComputable(runnable: ThrowableRunnable<E>) : ThrowableComputable<Unit,E> {
+  return ThrowableRunnableToThrowableComputable(runnable)
+}
+@Internal
+fun <E:Throwable> throwableRunnableToLambda(runnable: ThrowableRunnable<E>) : ()->Unit {
+  return ThrowableRunnableToLambda(runnable)
 }
 @Internal
 fun runnableToLambda(runnable: Runnable) : () -> Unit {
-  return if (runnable is RunnableWrapper) runnable.lambda else RunnableUnitFunction(runnable)
+  return if (runnable is LambdaToRunnable) runnable.lambda else RunnableToLambda(runnable)
 }
-private abstract class LambdaWrapper<COMPUTABLE:Any,T>(val computable: COMPUTABLE) : () -> T
+private abstract class LambdaWrapper<COMPUTABLE:Any/*ThrowableComputable|ThrowableRunnable|Computable|Runnable*/,T>(val computable: COMPUTABLE) : () -> T
 internal fun <T> lambdaToComputable(l: ()->T) : Computable<T> {
-  return if (l is ComputableFunction) l.computable else ComputableWrapper<T, RuntimeException>(l)
+  return if (l is ComputableToLambda) l.computable else ComputableWrapper<T, RuntimeException>(l)
 }
-private class RunnableUnitFunction(runnable: Runnable) : LambdaWrapper<Runnable, Unit>(runnable) {
+private class RunnableToLambda(runnable: Runnable) : LambdaWrapper<Runnable, Unit>(runnable) {
   override fun invoke() {
     computable.run()
   }
@@ -324,7 +356,7 @@ private class RunnableUnitFunction(runnable: Runnable) : LambdaWrapper<Runnable,
     return computable.toString()
   }
 }
-private class ThrowableComputableFunction<T>(runnable: ThrowableComputable<T, *>) : LambdaWrapper<ThrowableComputable<T, *>, T>(runnable) {
+private class ThrowableComputableToLambda<T>(runnable: ThrowableComputable<T, *>) : LambdaWrapper<ThrowableComputable<T, *>, T>(runnable) {
   override fun invoke() : T {
     return computable.compute()
   }
@@ -332,7 +364,7 @@ private class ThrowableComputableFunction<T>(runnable: ThrowableComputable<T, *>
     return computable.toString()
   }
 }
-private class ComputableFunction<T>(runnable: Computable<T>) : LambdaWrapper<Computable<T>, T>(runnable) {
+private class ComputableToLambda<T>(runnable: Computable<T>) : LambdaWrapper<Computable<T>, T>(runnable) {
   override fun invoke() : T {
     return computable.compute()
   }

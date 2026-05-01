@@ -6967,6 +6967,29 @@ f:com.intellij.ui.ScrollPaneFactory
 - s:createScrollPane(java.awt.Component,I,I):javax.swing.JScrollPane
 - s:createScrollPane(java.awt.Component,I,I,Z):javax.swing.JScrollPane
 - s:createScrollPane(java.awt.Component,Z):javax.swing.JScrollPane
+f:com.intellij.ui.ScrollableContentBorder
+- com.intellij.ui.SideBorder
+- sf:Companion:com.intellij.ui.ScrollableContentBorder$Companion
+- sf:getTargetComponent(javax.swing.JScrollPane):javax.swing.JComponent
+- f:isVisible():Z
+- paintBorder(java.awt.Component,java.awt.Graphics,I,I,I,I):V
+- f:setVisible(Z):V
+- sf:setup(javax.swing.JComponent,com.intellij.ui.Side):V
+- sf:setup(javax.swing.JComponent,java.util.Set):V
+- sf:setup(javax.swing.JScrollPane,com.intellij.ui.Side):V
+- sf:setup(javax.swing.JScrollPane,com.intellij.ui.Side,javax.swing.JComponent):V
+- sf:setup(javax.swing.JScrollPane,java.util.Set):V
+- sf:setup(javax.swing.JScrollPane,java.util.Set,javax.swing.JComponent):V
+f:com.intellij.ui.ScrollableContentBorder$Companion
+- f:getTargetComponent(javax.swing.JScrollPane):javax.swing.JComponent
+- f:setup(javax.swing.JComponent,com.intellij.ui.Side):V
+- f:setup(javax.swing.JComponent,java.util.Set):V
+- f:setup(javax.swing.JScrollPane,com.intellij.ui.Side):V
+- f:setup(javax.swing.JScrollPane,com.intellij.ui.Side,javax.swing.JComponent):V
+- f:setup(javax.swing.JScrollPane,java.util.Set):V
+- f:setup(javax.swing.JScrollPane,java.util.Set,javax.swing.JComponent):V
+- bs:setup$default(com.intellij.ui.ScrollableContentBorder$Companion,javax.swing.JScrollPane,com.intellij.ui.Side,javax.swing.JComponent,I,java.lang.Object):V
+- bs:setup$default(com.intellij.ui.ScrollableContentBorder$Companion,javax.swing.JScrollPane,java.util.Set,javax.swing.JComponent,I,java.lang.Object):V
 f:com.intellij.ui.ScrollingUtil
 - sf:ROW_PADDING:I
 - <init>():V
@@ -8404,6 +8427,49 @@ e:com.intellij.ui.components.panels.HorizontalLayout$Group
 - s:getEntries():kotlin.enums.EnumEntries
 - s:valueOf(java.lang.String):com.intellij.ui.components.panels.HorizontalLayout$Group
 - s:values():com.intellij.ui.components.panels.HorizontalLayout$Group[]
+f:com.intellij.ui.components.panels.ListLayout
+- java.awt.LayoutManager2
+- sf:Companion:com.intellij.ui.components.panels.ListLayout$Companion
+- b:<init>(com.intellij.ui.components.panels.ListLayout$Axis,com.intellij.ui.components.panels.ListLayout$Alignment,com.intellij.ui.components.panels.ListLayout$GrowPolicy,I,kotlin.jvm.internal.DefaultConstructorMarker):V
+- addLayoutComponent(java.awt.Component,java.lang.Object):V
+- addLayoutComponent(java.lang.String,java.awt.Component):V
+- getLayoutAlignmentX(java.awt.Container):F
+- getLayoutAlignmentY(java.awt.Container):F
+- sf:horizontal(I,com.intellij.ui.components.panels.ListLayout$Alignment,com.intellij.ui.components.panels.ListLayout$GrowPolicy):com.intellij.ui.components.panels.ListLayout
+- invalidateLayout(java.awt.Container):V
+- layoutContainer(java.awt.Container):V
+- maximumLayoutSize(java.awt.Container):java.awt.Dimension
+- minimumLayoutSize(java.awt.Container):java.awt.Dimension
+- preferredLayoutSize(java.awt.Container):java.awt.Dimension
+- removeLayoutComponent(java.awt.Component):V
+- sf:vertical(I,com.intellij.ui.components.panels.ListLayout$Alignment,com.intellij.ui.components.panels.ListLayout$GrowPolicy):com.intellij.ui.components.panels.ListLayout
+e:com.intellij.ui.components.panels.ListLayout$Alignment
+- java.lang.Enum
+- sf:CENTER:com.intellij.ui.components.panels.ListLayout$Alignment
+- sf:END:com.intellij.ui.components.panels.ListLayout$Alignment
+- sf:START:com.intellij.ui.components.panels.ListLayout$Alignment
+- s:getEntries():kotlin.enums.EnumEntries
+- s:valueOf(java.lang.String):com.intellij.ui.components.panels.ListLayout$Alignment
+- s:values():com.intellij.ui.components.panels.ListLayout$Alignment[]
+e:com.intellij.ui.components.panels.ListLayout$Axis
+- java.lang.Enum
+- sf:X:com.intellij.ui.components.panels.ListLayout$Axis
+- sf:Y:com.intellij.ui.components.panels.ListLayout$Axis
+- s:getEntries():kotlin.enums.EnumEntries
+- s:valueOf(java.lang.String):com.intellij.ui.components.panels.ListLayout$Axis
+- s:values():com.intellij.ui.components.panels.ListLayout$Axis[]
+f:com.intellij.ui.components.panels.ListLayout$Companion
+- f:horizontal(I,com.intellij.ui.components.panels.ListLayout$Alignment,com.intellij.ui.components.panels.ListLayout$GrowPolicy):com.intellij.ui.components.panels.ListLayout
+- bs:horizontal$default(com.intellij.ui.components.panels.ListLayout$Companion,I,com.intellij.ui.components.panels.ListLayout$Alignment,com.intellij.ui.components.panels.ListLayout$GrowPolicy,I,java.lang.Object):com.intellij.ui.components.panels.ListLayout
+- f:vertical(I,com.intellij.ui.components.panels.ListLayout$Alignment,com.intellij.ui.components.panels.ListLayout$GrowPolicy):com.intellij.ui.components.panels.ListLayout
+- bs:vertical$default(com.intellij.ui.components.panels.ListLayout$Companion,I,com.intellij.ui.components.panels.ListLayout$Alignment,com.intellij.ui.components.panels.ListLayout$GrowPolicy,I,java.lang.Object):com.intellij.ui.components.panels.ListLayout
+e:com.intellij.ui.components.panels.ListLayout$GrowPolicy
+- java.lang.Enum
+- sf:GROW:com.intellij.ui.components.panels.ListLayout$GrowPolicy
+- sf:NO_GROW:com.intellij.ui.components.panels.ListLayout$GrowPolicy
+- s:getEntries():kotlin.enums.EnumEntries
+- s:valueOf(java.lang.String):com.intellij.ui.components.panels.ListLayout$GrowPolicy
+- s:values():com.intellij.ui.components.panels.ListLayout$GrowPolicy[]
 c:com.intellij.ui.components.panels.NonOpaquePanel
 - com.intellij.ui.components.panels.Wrapper
 - <init>():V

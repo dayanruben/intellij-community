@@ -643,7 +643,7 @@ public abstract class RemoteProcessSupport<Target, EntryPoint, Parameters> {
         // Using Application as a default container is a bad guess, as it does not allow
         // proper disposal of the closing of the actual container
         // which may lead to project leaks, in this particular case.
-        contextJob.invokeOnCompletion((__) -> {
+        contextJob.invokeOnCompletion((_) -> {
           stopBeat();
           return null;
         });

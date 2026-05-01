@@ -128,7 +128,7 @@ public class DebugProcessEvents extends DebugProcessImpl {
       vmAttached(proxy);
       if (vm.canBeModified()) {
         DebuggerManagerThreadImpl managerThread = DebuggerManagerThreadImpl.getCurrentThread();
-        DebuggerEventThread eventThread = myEventThreads.computeIfAbsent(vm, __ -> new DebuggerEventThread(managerThread));
+        DebuggerEventThread eventThread = myEventThreads.computeIfAbsent(vm, _ -> new DebuggerEventThread(managerThread));
         ApplicationManager.getApplication().executeOnPooledThread(
           ConcurrencyUtil.underThreadNameRunnable("DebugProcessEvents", eventThread));
       }

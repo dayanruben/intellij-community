@@ -7,10 +7,14 @@ import com.intellij.execution.target.TargetEnvironmentRequest;
 import com.intellij.execution.target.java.JavaTargetParameter;
 import com.intellij.execution.target.java.TargetPaths;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.psi.PsiFile;
+import com.intellij.rt.coverage.data.LineData;
 import com.intellij.rt.coverage.data.ProjectData;
 import com.intellij.rt.coverage.util.CoverageReport;
 import com.intellij.rt.coverage.util.ProjectDataLoader;
@@ -27,6 +31,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -131,7 +136,7 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
       TargetPaths targetPaths = TargetPaths.ordered(builder -> {
         builder
           .download(sessionDataFilePath,
-                         __ -> {
+                         _ -> {
                            createFileOrClearExisting(sessionDataFilePath);
                            return Unit.INSTANCE;
                          },
@@ -151,8 +156,8 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
                            }
                            return Unit.INSTANCE;
                          })
-        .upload(agentPath, __ -> Unit.INSTANCE, __ -> Unit.INSTANCE)
-        .upload(tempFilePath, __ -> Unit.INSTANCE, __ -> Unit.INSTANCE);
+        .upload(agentPath, _ -> Unit.INSTANCE, _ -> Unit.INSTANCE)
+        .upload(tempFilePath, _ -> Unit.INSTANCE, _ -> Unit.INSTANCE);
         return Unit.INSTANCE;
       });
 
@@ -274,6 +279,34 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
   @Override
   public boolean isCoverageByTestApplicable() {
     return true;
+  }
+
+  @Override
+  public String generateBriefReport(@NotNull Editor editor,
+                                    @NotNull PsiFile psiFile,
+                                    @NotNull TextRange range,
+                                    @NotNull LineData lineData) {
+    try {
+      int lineNumber = editor.getDocument().getLineNumber(range.getStartOffset());
+      for (JavaCoverageEngineExtension extension : JavaCoverageEngineExtension.EP_NAME.getExtensionList()) {
+        String report = extension.generateBriefReport(editor, psiFile, lineNumber, range.getStartOffset(), range.getEndOffset(), lineData);
+        if (report != null) {
+          return report;
+        }
+      }
+
+      List<SwitchCoverageExpression> switches = JavaCoveragePsiUtilsKt.getSwitches(psiFile, range);
+      List<ConditionCoverageExpression> conditions = JavaCoveragePsiUtilsKt.getConditions(psiFile, range);
+
+      return JavaCoverageEngine.createBriefReport(lineData, conditions, switches);
+    }
+    catch (CancellationException e) {
+      throw e;
+    }
+    catch (Exception e) {
+      LOG.error(e);
+      return JavaCoverageEngine.createDefaultBriefReport(lineData);
+    }
   }
 
   public static void setExcludeAnnotations(Project project, ProjectData projectData) {

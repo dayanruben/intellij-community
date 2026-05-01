@@ -156,7 +156,7 @@ public final class HighlightVisitorBasedInspection extends GlobalSimpleInspectio
     IJTracer tracer = TelemetryManager.Companion.getTracer(HighlightVisitorScope);
 
     for (TextEditorHighlightingPass pass : List.of(ghp, ighp)) {
-      TraceKt.use(tracer.spanBuilder(pass.getClass().getSimpleName()).setAttribute("file", fileName), __ -> {
+      TraceKt.use(tracer.spanBuilder(pass.getClass().getSimpleName()).setAttribute("file", fileName), _ -> {
         pass.doCollectInformation(daemonProgressIndicator);
         List<HighlightInfo> infos = pass.getInfos();
         for (HighlightInfo info : infos) {

@@ -70,6 +70,8 @@ jvm_library(
     "//java/java-impl:impl",
     "//plugins/kotlin/base/psi",
     "//platform/code-style-impl:codeStyle-impl",
+    "//platform/progress/shared:ide-progress",
+    "//plugins/copyright",
   ]
 )
 
@@ -123,6 +125,8 @@ jvm_library(
     "//java/java-impl:impl_test_lib",
     "//plugins/kotlin/base/psi:psi_test_lib",
     "//platform/code-style-impl:codeStyle-impl_test_lib",
+    "//platform/progress/shared:ide-progress_test_lib",
+    "//plugins/copyright:copyright_test_lib",
   ]
 )
 ### auto-generated section `build intellij.devkit.workspaceModel` end

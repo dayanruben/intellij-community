@@ -20,3 +20,9 @@ fun partiallyResolved(){}
  * [unresolvedLink]
  */
 fun unresolved() {}
+
+/**
+ * @sample samples
+ * @sample someRandomName
+ */
+fun samples() {}

@@ -138,11 +138,11 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
     myContextSet = contextSet;
     myCanBePinned = doComputeCanBePinned();
     myXDescriptorFuture = myValueDescriptor.getInitFuture()
-      .thenCompose(__ -> {
+      .thenCompose(_ -> {
         return JavaValueUtilsKt.getJavaValueXDescriptor(this);
       });
     myPinToTopDataFuture = myValueDescriptor.getInitFuture()
-      .thenApply(__ -> new XPinToTopData(canBePinned(), getTag(), null, null, null));
+      .thenApply(_ -> new XPinToTopData(canBePinned(), getTag(), null, null, null));
   }
 
   @Override

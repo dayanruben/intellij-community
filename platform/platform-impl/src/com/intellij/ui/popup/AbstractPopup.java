@@ -1637,7 +1637,7 @@ public class AbstractPopup implements JBPopup, ScreenAreaConsumer, AlignedPopup,
       }
 
       removeActivity();
-      TraceKt.use(TelemetryManager.getInstance().getTracer(UI).spanBuilder("afterShow#" + getClass().getSimpleName()), __ -> {
+      TraceKt.use(TelemetryManager.getInstance().getTracer(UI).spanBuilder("afterShow#" + getClass().getSimpleName()), _ -> {
         afterShow();
         return null;
       });
