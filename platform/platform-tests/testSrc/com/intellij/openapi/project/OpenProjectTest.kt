@@ -241,8 +241,7 @@ internal class OpenProjectTest {
     checkOpenerIsApplicableToTargetPath(opener, projectFileToOpen)
 
     val expectedProjectState = calcExpectedProjectState(opener, maker, projectFileToOpen)
-    openWithOpenerAndAssertProjectState(opener, projectFileToOpen,
-                                        expectedProjectState(projectDir), opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
+    openWithOpenerAndAssertProjectState(opener, projectFileToOpen, expectedProjectState(projectDir), false)
   }
 
   @CartesianTest
@@ -262,7 +261,7 @@ internal class OpenProjectTest {
 
     val expectedProjectState = calcExpectedProjectState(opener, maker, projectDir)
 
-    openWithOpenerAndAssertProjectState(opener, projectDir, expectedProjectState(projectDir), opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
+    openWithOpenerAndAssertProjectState(opener, projectDir, expectedProjectState(projectDir), false)
   }
 
   @ParameterizedTest
