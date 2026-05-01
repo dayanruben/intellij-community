@@ -158,8 +158,7 @@ internal class ModuleBasedProductLoadingStrategy(internal val moduleRepository: 
   ) : PluginMainDescriptor? {
     val pluginDescriptorClasspathSet = LinkedHashSet<Path>()
     val logger = thisLogger()
-    //todo: use isTraceEnabled instead when IJPL-242851 is fixed
-    val traceLogging = SystemProperties.getBooleanProperty("intellij.platform.module.based.loader.tracing", false)
+    val traceLogging = logger.isTraceEnabled
     for (includedModule in pluginHeader.includedModules) {
       if (includedModule.loadingRule == RuntimeModuleLoadingRule.EMBEDDED) {
         val header = moduleRepository.findHeader(includedModule.moduleId)
