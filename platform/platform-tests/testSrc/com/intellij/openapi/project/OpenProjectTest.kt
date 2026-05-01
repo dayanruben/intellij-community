@@ -32,8 +32,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.extension.RegisterExtension
-import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.MethodSource
 import org.junitpioneer.jupiter.cartesian.ArgumentSets
 import org.junitpioneer.jupiter.cartesian.CartesianTest
 import java.nio.file.Path
@@ -219,7 +217,13 @@ internal class OpenProjectTest {
     }
 
     @JvmStatic
-    @Suppress("unused") // used by `open valid existing project dir with ability to attach`
+    @Suppress("unused")
+    fun opener_X_attachProcessors(): ArgumentSets =
+      ArgumentSets.argumentsForFirstParameter(openers().toList())
+        .argumentsForNextParameter(AttachProcessors.entries)
+
+    @JvmStatic
+    @Suppress("unused")
     fun opener_X_ideaProjectMaker_X_attachProcessors(): ArgumentSets =
       ArgumentSets.argumentsForFirstParameter(openers().toList())
         .argumentsForNextParameter(IdeaProjectMaker.entries)
@@ -316,19 +320,25 @@ internal class OpenProjectTest {
     openWithOpenerAndAssertProjectState(opener, projectDir, expectedProjectState(projectDir), false)
   }
 
-  @ParameterizedTest
-  @MethodSource("openers")
-  fun `open clean existing project dir with ability to attach`(opener: Opener) = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(ModuleAttachProcessor()), disposable)
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open clean existing project dir`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
+    attachProcessors.configureAttachProcessors(disposable)
     val projectDir = tempDir.newPath("project")
     projectDir.createDirectories()
     openWithOpenerAndAssertProjectState(opener, projectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: true)
   }
 
-  @ParameterizedTest
-  @MethodSource("openers")
-  fun `open nested existing project dir with ability to attach`(opener: Opener) = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(ModuleAttachProcessor()), disposable)
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open nested existing project dir`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
+    attachProcessors.configureAttachProcessors(disposable)
     val projectDir = tempDir.newPath("project")
     val subProjectDir = projectDir.resolve("subproject")
     subProjectDir.resolve(".idea").createDirectories()
@@ -336,29 +346,12 @@ internal class OpenProjectTest {
     openWithOpenerAndAssertProjectState(opener, subProjectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
   }
 
-  @ParameterizedTest
-  @MethodSource("openers")
-  fun `open clean existing project dir with inability to attach`(opener: Opener) = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposable)
-    val projectDir = tempDir.newPath("project")
-    projectDir.createDirectories()
-    openWithOpenerAndAssertProjectState(opener, projectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: true)
-  }
-
-  @ParameterizedTest
-  @MethodSource("openers")
-  fun `open nested existing project dir with inability to attach`(opener: Opener) = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposable)
-    val projectDir = tempDir.newPath("project")
-    val subProjectDir = projectDir.resolve("subproject")
-    subProjectDir.resolve(".idea").createDirectories()
-    projectDir.resolve(".idea").createDirectories()
-    openWithOpenerAndAssertProjectState(opener, subProjectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
-  }
-
-  @ParameterizedTest
-  @MethodSource("openers")
-  fun `open multibuild existing project dir with inability to attach`(opener: Opener) = runBlocking(Dispatchers.Default) {
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open multibuild existing project dir`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
     Assumptions.assumeTrue(
       opener.mode != ModeFolderAsProject,
       "This test does not handle ModeFolderAsProject mode yet, because `null` from SelectProjectOpenProcessorDialog" +
@@ -367,7 +360,7 @@ internal class OpenProjectTest {
 
     val processorNames = ProjectOpenProcessor.EXTENSION_POINT_NAME.extensionList.map(ProjectOpenProcessor::name)
     assertThat(processorNames).`as` { "Use intellij.idea.community.main.tests as a classpath" }.containsAll(listOf("Maven", "Gradle"))
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposable)
+    attachProcessors.configureAttachProcessors(disposable)
     val projectDir = setupMultibuildProject()
     var suggestedProcessors: List<String>? = null
     SelectProjectOpenProcessorDialog.setTestDialog(disposable) { processor, _ ->
@@ -379,9 +372,12 @@ internal class OpenProjectTest {
     }
   }
 
-  @ParameterizedTest
-  @MethodSource("openers")
-  fun `open project then open regular file with inability to attach`(opener: Opener) = runBlocking(Dispatchers.Default) {
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open project then open regular file`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
     Assumptions.assumeTrue(
       opener.mode != ModeFolderAsProject && opener.mode != ModeFolderAsFolder,
       "Ignore ModeFolderAsProject/ModeFolderAsFolder, because we are checking open of regular files here, not folders",
@@ -398,7 +394,7 @@ internal class OpenProjectTest {
     val javaFileAboveProjectDirectory = projectDir.parent.resolve("MyClassAboveProjectDirectory.java")
     javaFileAboveProjectDirectory.writeText("public class MyClassAboveProjectDirectory {}")
 
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposable)
+    attachProcessors.configureAttachProcessors(disposable)
     opener.opener(projectDir)!!.useProject { openedProject ->
       var project = opener.opener(javaFileNextToDotIdea)
       // the file should be opened in the already opened project
@@ -413,13 +409,16 @@ internal class OpenProjectTest {
     Unit
   }
 
-  @ParameterizedTest
-  @MethodSource("openers")
-  fun `open project then open the the same valid existing project dir with inability to attach`(opener: Opener) = runBlocking(Dispatchers.Default) {
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open project then open the the same valid existing project dir`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
     val projectDir = tempDir.newPath("project")
     projectDir.resolve(".idea").createDirectories()
 
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposable)
+    attachProcessors.configureAttachProcessors(disposable)
     opener.opener(projectDir)!!.useProject { openedProject ->
       val project = opener.opener(projectDir)
       // this should bring already opened project to foreground
