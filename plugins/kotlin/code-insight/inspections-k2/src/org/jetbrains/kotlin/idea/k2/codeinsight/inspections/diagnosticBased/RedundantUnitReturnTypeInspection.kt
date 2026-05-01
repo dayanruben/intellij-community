@@ -46,7 +46,7 @@ internal class RedundantUnitReturnTypeInspection :
         val returnType = typeReference.type.fullyExpandedType
 
         if (returnType.isUnitType) {
-            return CallableReturnTypeUpdaterUtils.TypeInfo(CallableReturnTypeUpdaterUtils.TypeInfo.Companion.UNIT)
+            return CallableReturnTypeUpdaterUtils.TypeInfo(CallableReturnTypeUpdaterUtils.TypeInfo.UNIT)
         }
 
         return null
