@@ -117,15 +117,19 @@ public final class FileStatusMap implements Disposable {
     }
   }
 
+  // return true if myFileStatusMap has changed and we need restart
   @ApiStatus.Internal
-  public void markAllFilesDirty(@NotNull @NonNls Object reason) {
+  public boolean markAllFilesDirty(@NotNull @NonNls Object reason) {
     assertAllowModifications();
+    boolean changed;
     synchronized (myFileStatusMapState) {
       if (!myFileStatusMapState.isEmpty()) {
         log(null, "Mark all dirty: ", reason, null);
       }
+      changed = !myFileStatusMapState.isEmpty();
       myFileStatusMapState.clear();
     }
+    return changed;
   }
 
   @ApiStatus.Internal
@@ -262,31 +266,36 @@ public final class FileStatusMap implements Disposable {
     }
   }
 
+  // return true if myFileStatusMap has changed and we need restart
   @ApiStatus.Internal
-  public void markWholeFileScopeDirty(@NotNull Document document, @NotNull @NonNls Object reason) {
-    combineDirtyScopes(document, FileStatus.WHOLE_FILE_TEXT_RANGE, reason);
+  public boolean markWholeFileScopeDirty(@NotNull Document document, @NotNull @NonNls Object reason) {
+    return combineDirtyScopes(document, FileStatus.WHOLE_FILE_TEXT_RANGE, reason);
   }
 
+  // return true if myFileStatusMap has changed and we need restart
   @ApiStatus.Internal
   @RequiresBackgroundThread
   @RequiresReadLock
-  public void markScopeDirty(@NotNull Document document,
+  public boolean markScopeDirty(@NotNull Document document,
                              @NotNull TextRange scope,
                              @NotNull @NonNls Object reason) {
     ApplicationManager.getApplication().assertIsNonDispatchThread(); // assert dirty scope updates happen in BGT only, see IJPL-163033
     ApplicationManager.getApplication().assertReadAccessAllowed();
-    combineDirtyScopes(document, scope, reason);
+    return combineDirtyScopes(document, scope, reason);
   }
 
-  private void combineDirtyScopes(@NotNull Document document, @NotNull TextRange scope, @NonNls @NotNull Object reason) {
+  // return true if myFileStatusMap has changed and we need restart
+  private boolean combineDirtyScopes(@NotNull Document document, @NotNull TextRange scope, @NonNls @NotNull Object reason) {
     assertAllowModifications();
     log(document, "Mark scope dirty: ", reason, scope);
+    boolean changed = false;
     synchronized(myFileStatusMapState) {
       for (FileStatus status : myFileStatusMapState.getFileStatuses(document)) {
         status.clearDefensivelyMarkedForAllPasses();
-        status.combineScopesWith(scope, document);
+        changed |= status.combineScopesWith(scope, document);
       }
     }
+    return changed;
   }
 
   /**

@@ -21,6 +21,8 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Objects;
+
 final class FileStatus {
   static final TextRange WHOLE_FILE_TEXT_RANGE = new UnfairTextRange(-1, -1);
   static final Logger LOG = Logger.getInstance(FileStatus.class);
@@ -96,8 +98,15 @@ final class FileStatus {
     return true;
   }
 
-  void combineScopesWith(@NotNull TextRange newScope, @NotNull Document document) {
-    dirtyScopes.replaceAll((_, oldScope) -> combineScopes(oldScope, newScope, document));
+  // return true if myFileStatusMap has changed and we need restart
+  boolean combineScopesWith(@NotNull TextRange newScope, @NotNull Document document) {
+    boolean[] changed = {false};
+    dirtyScopes.replaceAll((_, oldScope) -> {
+      RangeMarker newMarker = combineScopes(oldScope, newScope, document);
+      changed[0] |= !Objects.equals(oldScope, newMarker);
+      return newMarker;
+    });
+    return changed[0];
   }
 
   @Nullable RangeMarker getDirtyScope(int passId) {
