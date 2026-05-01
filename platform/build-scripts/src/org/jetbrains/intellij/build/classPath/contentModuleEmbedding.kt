@@ -30,10 +30,10 @@ import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.FrontendModuleFilter
 import org.jetbrains.intellij.build.JarPackagerDependencyHelper
 import org.jetbrains.intellij.build.ModuleOutputProvider
+import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
 import org.jetbrains.intellij.build.findFileInModuleLibraryDependencies
 import org.jetbrains.intellij.build.findUnprocessedDescriptorContent
 import org.jetbrains.intellij.build.impl.BuildContextImpl
-import org.jetbrains.intellij.build.impl.DescriptorCacheContainer
 import org.jetbrains.intellij.build.impl.LayoutPatcher
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
@@ -41,6 +41,7 @@ import org.jetbrains.intellij.build.impl.ScopedCachedDescriptorContainer
 import org.jetbrains.intellij.build.impl.contentModuleNameToDescriptorFileName
 import org.jetbrains.intellij.build.impl.toLoadPath
 import org.jetbrains.jps.model.module.JpsModuleDependency
+import java.nio.file.Path
 
 /**
  * Defines a search scope for resolving XInclude references in plugin descriptors.
@@ -163,19 +164,20 @@ fun deprecatedResolveDescriptorForEmbeddedProduct(
         }
       }
     }
-    return JDOMUtil.write(xml).encodeToByteArray()
+    val patchedContent = JDOMUtil.write(xml).encodeToByteArray()
+    val frontendPluginContainer = platformLayout.descriptorCacheContainer.forPlugin(getEmbeddedProductTempPluginDir(context, clientModuleName))
+    frontendPluginContainer.put(PLUGIN_XML_RELATIVE_PATH, patchedContent)
+    return patchedContent
   }
 
   val layoutPatcherIfNoScrambling: LayoutPatcher = { moduleOutputPatcher, platformLayout, context ->
     val file = context.findFileInModuleSources(clientModuleName, relativePath)
     if (file != null) {
       val pluginLayout = PluginLayout.pluginAuto(clientModuleName) {}
-      val descriptorCacheContainer = DescriptorCacheContainer()
-      val pluginDescriptorContainer = descriptorCacheContainer.forPlugin(context.paths.tempDir.resolve("temp-client-cache"))
-      val platformDescriptorContainer = descriptorCacheContainer.forPlatform(platformLayout)
+      val descriptorContainer = platformLayout.descriptorCacheContainer.forPlugin(getEmbeddedProductTempPluginDir(context, clientModuleName))
 
       val xml = JDOMUtil.load(file)
-      val patchedXmlContent = embedContentModules(xml, platformLayout, platformDescriptorContainer, pluginLayout, pluginDescriptorContainer, context)
+      val patchedXmlContent = embedContentModules(xml, platformLayout, descriptorContainer, pluginLayout, descriptorContainer, context)
       moduleOutputPatcher.patchModuleOutput(moduleName = clientModuleName, path = relativePath, content = patchedXmlContent)
     }
   }
@@ -189,6 +191,14 @@ fun deprecatedResolveDescriptorForEmbeddedProduct(
     val platformDescriptorContainer = platformLayout.descriptorCacheContainer.forPlatform(platformLayout)
     embedContentModules(xml, platformLayout, platformDescriptorContainer, pluginLayout, pluginDescriptorContainer, context)
   }
+}
+
+/**
+ * Returns a temporary directory which is used to store descriptors for a product embedded in the IDE.
+ * They are used to include modules from such a product to the runtime module repository.
+ */
+internal fun getEmbeddedProductTempPluginDir(buildContext: BuildContext, coreDescriptorModule: String): Path {
+  return buildContext.paths.tempDir.resolve("embedded-product-$coreDescriptorModule-plugin-dir")
 }
 
 internal suspend fun embedContentModule(

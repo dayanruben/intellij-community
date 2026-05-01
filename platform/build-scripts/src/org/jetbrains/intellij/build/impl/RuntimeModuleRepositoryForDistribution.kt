@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.classPath.PluginBuildDescriptor
+import org.jetbrains.intellij.build.classPath.getEmbeddedProductTempPluginDir
 import org.jetbrains.intellij.build.impl.plugins.buildPlugins
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ContentReport
 import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
@@ -252,11 +253,13 @@ private suspend fun generateRepositoryForDistribution(
 
   val additionalFrontendPlugins = computeDescriptorsForAdditionalFrontendPlugins(context, bundledPlugins, platformLayout)
   val corePluginDescriptorModuleName = context.productProperties.applicationInfoModule
+  val embeddedFrontendDescriptorModuleName = context.getEmbeddedFrontendProductContext()?.productProperties?.applicationInfoModule
   val contentModuleDetector = ContentModuleDetectorImpl(
     platformLayout,
     corePluginDescriptorModuleName,
     platformEntries.map { it.origin },
     bundledPlugins + additionalFrontendPlugins,
+    embeddedFrontendDescriptorModuleName,
     context.project
   )
   val distDescriptors = RuntimeModuleRepositoryGenerator.generateRuntimeModuleDescriptors(
@@ -291,36 +294,60 @@ private suspend fun generateRepositoryForDistribution(
 }
 
 /**
- * There are quite a few custom 'Xxx for JetBrains Client' plugins, which are not bundled with the IDE but are used in the frontend process.
- * Until we get rid of them (see IJPL-220139), we need to generate headers for these plugins to load them in the frontend process started from the big IDE.
- * This function computes layouts of such additional plugins and converts them to [PluginBuildDescriptor].
+ * Returns the list of descriptors for additional plugins which should be added to the runtime module repository.
+ * These plugins are not bundled with the IDE, but they are used from the frontend process started from the IDE.
+ * To be able to run the frontend process from a regular IDE, we need to include information about its modules to the runtime module repository.
  */
 private suspend fun computeDescriptorsForAdditionalFrontendPlugins(
   context: BuildContext,
   bundledPlugins: List<PluginBuildDescriptor>,
   platformLayout: PlatformLayout,
 ): List<PluginBuildDescriptor> {
-  val additionalFrontendPlugins = TraceManager.spanBuilder("compute layout of additional plugins for embedded frontend").use {
-    val frontendContextForLaunchers = context.getEmbeddedFrontendProductContext()
-    val pluginDescriptorModulesForFrontend = frontendContextForLaunchers?.getBundledPluginModules() ?: return@use emptyList()
-    val additionalPluginModules = pluginDescriptorModulesForFrontend - bundledPlugins.mapTo(HashSet()) { it.layout.mainModule }
-    if (additionalPluginModules.isEmpty()) return@use emptyList()
+  return TraceManager.spanBuilder("compute layout of additional plugins for embedded frontend").use {
+    val embeddedFrontendContext = context.getEmbeddedFrontendProductContext() ?: return@use emptyList()
 
-    val additionalPluginModuleLayouts = getPluginLayoutsByJpsModuleNames(additionalPluginModules, frontendContextForLaunchers.productProperties.productLayout)
-    buildPlugins(
-      plugins = additionalPluginModuleLayouts,
-      os = null,
-      arch = null,
-      targetDir = context.paths.tempDir.resolve("frontend-plugins-layout"),
-      platformEntriesProvider = null,
+    //creates a descriptor for the core plugin of the embedded frontend
+    val embeddedFrontendTargetDir = getEmbeddedProductTempPluginDir(context, embeddedFrontendContext.productProperties.applicationInfoModule)
+    val embeddedFrontendPlatformEntries = layoutPlatformDistribution(
+      moduleOutputPatcher = ModuleOutputPatcher(),
+      targetDir = embeddedFrontendTargetDir,
+      platform = createPlatformLayout(embeddedFrontendContext),
       searchableOptionSet = null,
-      descriptorCacheContainer = platformLayout.descriptorCacheContainer,
-      state = context.distributionState(),
-      context = context,
       copyFiles = false,
+      context = embeddedFrontendContext,
     )
+
+    val additionalFrontendPlugins = mutableListOf(
+      PluginBuildDescriptor(
+        dir = embeddedFrontendTargetDir,
+        os = null,
+        arch = null,
+        layout = PluginLayout.plugin(embeddedFrontendContext.productProperties.applicationInfoModule),
+        distribution = embeddedFrontendPlatformEntries,
+      )
+    )
+
+    val pluginDescriptorModulesForFrontend = embeddedFrontendContext.getBundledPluginModules()
+    val additionalPluginModules = pluginDescriptorModulesForFrontend - bundledPlugins.mapTo(HashSet()) { it.layout.mainModule }
+    if (additionalPluginModules.isNotEmpty()) {
+      /* generate descriptors for custom 'Xxx for JetBrains Client' plugins, which are not bundled with the IDE but are used in the frontend process; eventually we'll get rid of
+         them (see IJPL-220139) */
+      val additionalPluginModuleLayouts = getPluginLayoutsByJpsModuleNames(additionalPluginModules, embeddedFrontendContext.productProperties.productLayout)
+      additionalFrontendPlugins.addAll(buildPlugins(
+        plugins = additionalPluginModuleLayouts,
+        os = null,
+        arch = null,
+        targetDir = context.paths.tempDir.resolve("frontend-plugins-layout"),
+        platformEntriesProvider = null,
+        searchableOptionSet = null,
+        descriptorCacheContainer = platformLayout.descriptorCacheContainer,
+        state = context.distributionState(),
+        context = context,
+        copyFiles = false,
+      ))
+    }
+    additionalFrontendPlugins
   }
-  return additionalFrontendPlugins
 }
 
 internal fun hasTestSourcesAndNoProductionSources(module: JpsModule): Boolean {
