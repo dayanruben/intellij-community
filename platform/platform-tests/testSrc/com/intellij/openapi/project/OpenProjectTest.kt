@@ -37,6 +37,7 @@ import org.junit.jupiter.params.provider.MethodSource
 import org.junitpioneer.jupiter.cartesian.ArgumentSets
 import org.junitpioneer.jupiter.cartesian.CartesianTest
 import java.nio.file.Path
+import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.writeText
@@ -82,6 +83,10 @@ private val emptyProject = { resolveRoot: Path ->
   ExpectedProjectState(resolveRoot, emptyList(), listOf($$"$ROOT$"))
 }
 
+private val autodetectedSingleModuleProject = { resolveRoot: Path ->
+  ExpectedProjectState(resolveRoot, listOf($$"$ROOT$"), listOf($$"$ROOT$"))
+}
+
 internal enum class AttachProcessors {
   EmptyAttachProcessors {
     override fun configureAttachProcessors(disposable: Disposable) {
@@ -99,7 +104,7 @@ internal enum class AttachProcessors {
 }
 
 internal enum class IdeaProjectMaker {
-  IdeaDirectory {
+  EmptyIdeaDirectory {
     override fun makeProject(projectDir: Path): Path {
       val projectPath = projectDir.resolve(".idea")
       projectPath.createDirectories()
@@ -107,7 +112,40 @@ internal enum class IdeaProjectMaker {
     }
 
     override fun getExpectedProjectState(projectDir: Path): ExpectedProjectState {
-      return ExpectedProjectState(projectDir, listOf($$"$ROOT$"), listOf($$"$ROOT$"))
+      return autodetectedSingleModuleProject(projectDir)
+    }
+  },
+  IdeaDirectory {
+    override fun makeProject(projectDir: Path): Path {
+      val dotIdeaPath = projectDir.resolve(".idea")
+      dotIdeaPath.createDirectories()
+
+      dotIdeaPath.resolve("modules.xml").writeText($$"""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <project version="4">
+          <component name="ProjectModuleManager">
+            <modules>
+              <module fileurl="file://$PROJECT_DIR$/dotIdeaModule01.iml" filepath="$PROJECT_DIR$/dotIdeaModule01.iml" />
+            </modules>
+          </component>
+        </project>
+      """.trimIndent())
+
+      projectDir.resolve("dotIdeaModule01.iml").writeText($$"""
+        <module relativePaths="true" type="JAVA_MODULE" version="4">
+          <component name="NewModuleRootManager" >
+            <content url="file://$MODULE_DIR$/dotIdea_mod1">
+              <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+            </content>
+          </component>
+        </module>
+      """.trimIndent())
+
+      return dotIdeaPath
+    }
+
+    override fun getExpectedProjectState(projectDir: Path): ExpectedProjectState {
+      return ExpectedProjectState(projectDir, listOf($$"$ROOT$/dotIdea_mod1"), listOf($$"$ROOT$"))
     }
   },
   IprFile {
@@ -120,16 +158,16 @@ internal enum class IdeaProjectMaker {
           <component name="ProjectRootManager" version="2" />
           <component name="ProjectModuleManager">
             <modules>
-              <module fileurl="file://$PROJECT_DIR$/module01.iml" filepath="$PROJECT_DIR$/module01.iml" />
+              <module fileurl="file://$PROJECT_DIR$/iprModule01.iml" filepath="$PROJECT_DIR$/iprModule01.iml" />
             </modules>
           </component>
         </project>
       """.trimIndent())
 
-      projectDir.resolve("module01.iml").writeText($$"""
+      projectDir.resolve("iprModule01.iml").writeText($$"""
         <module relativePaths="true" type="JAVA_MODULE" version="4">
           <component name="NewModuleRootManager" >
-            <content url="file://$MODULE_DIR$/mod1">
+            <content url="file://$MODULE_DIR$/ipr_mod1">
               <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
             </content>
           </component>
@@ -140,7 +178,7 @@ internal enum class IdeaProjectMaker {
     }
 
     override fun getExpectedProjectState(projectDir: Path): ExpectedProjectState {
-      return ExpectedProjectState(projectDir, listOf($$"$ROOT$/mod1"), listOf($$"$ROOT$"))
+      return ExpectedProjectState(projectDir, listOf($$"$ROOT$/ipr_mod1"), listOf($$"$ROOT$"))
     }
   },
   ;
@@ -203,7 +241,21 @@ internal class OpenProjectTest {
   }
 
   private fun calcExpectedProjectState(opener: Opener, maker: IdeaProjectMaker, pathToOpen: Path): (Path) -> ExpectedProjectState {
+    return calcExpectedProjectState(opener, { maker.getExpectedProjectState(it) }, pathToOpen)
+  }
+
+  private fun calcExpectedProjectState(
+    opener: Opener,
+    makerSuggestedState: (Path) -> ExpectedProjectState,
+    pathToOpen: Path,
+  ): (Path) -> ExpectedProjectState {
     checkOpenerIsApplicableToTargetPath(opener, pathToOpen)
+
+    if (pathToOpen.resolve(".idea/modules.xml").exists()) {
+      // At the moment valid ".idea" always wins. You cannot ignore it.
+      // Even FolderProjectOpenProcessor cannot ignore it (but we wish that it could).
+      return makerSuggestedState
+    }
 
     return when (opener.mode) {
       ModeFolderAsFolder -> {
@@ -213,7 +265,7 @@ internal class OpenProjectTest {
         emptyProject
       }
       else -> {
-        { maker.getExpectedProjectState(it) }
+        makerSuggestedState
       }
     }
   }
@@ -226,7 +278,7 @@ internal class OpenProjectTest {
     attachProcessors: AttachProcessors,
   ) = runBlocking(Dispatchers.Default) {
     Assumptions.assumeFalse(
-      maker == IdeaProjectMaker.IdeaDirectory,
+      maker == IdeaProjectMaker.IdeaDirectory || maker == IdeaProjectMaker.EmptyIdeaDirectory,
       "Currently we don't have special handling for situation when .idea itself is opened as a project. " +
       "At the moment the behavior is to create a new .idea project inside .idea directory, and this is not the behavior that " +
       "we want to enforce through tests",
@@ -407,7 +459,7 @@ internal class OpenProjectTest {
     defaultProjectTemplateShouldBeApplied: Boolean,
     beforeOtherChecks: ((Project) -> Unit)? = null,
   ) {
-    val expectedProjectState = calcExpectedProjectState(opener, IdeaProjectMaker.IdeaDirectory, projectDir)
+    val expectedProjectState = calcExpectedProjectState(opener, autodetectedSingleModuleProject, projectDir)
     return openWithOpenerAndAssertProjectState(opener, projectDir,
                                                expectedProjectState(projectDir),
                                                defaultProjectTemplateShouldBeApplied,
