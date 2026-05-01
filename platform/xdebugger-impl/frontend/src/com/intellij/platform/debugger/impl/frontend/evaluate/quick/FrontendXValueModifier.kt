@@ -1,7 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.debugger.impl.frontend.evaluate.quick
 
-import com.intellij.platform.debugger.impl.frontend.util.RequestsSerializer
+import com.intellij.platform.debugger.impl.frontend.util.SequentialRpcRequestsExecutor
 import com.intellij.platform.debugger.impl.rpc.SetValueResult
 import com.intellij.platform.debugger.impl.rpc.XDebuggerValueModifierApi
 import com.intellij.platform.debugger.impl.rpc.XValueDto
@@ -16,7 +16,7 @@ internal class FrontendXValueModifier(
   cs: CoroutineScope,
   private val xValueDto: XValueDto,
 ) : XValueModifier() {
-  private val requestsSerializer = RequestsSerializer.create(cs)
+  private val sequentialExecutor = SequentialRpcRequestsExecutor.create(cs)
 
   @Suppress("removal", "DEPRECATED_JAVA_ANNOTATION")
   @Deprecated(forRemoval = true)
@@ -25,7 +25,7 @@ internal class FrontendXValueModifier(
   }
 
   override fun setValue(expression: XExpression, callback: XModificationCallback) {
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       val result = XDebuggerValueModifierApi.getInstance().setValue(xValueDto.id, expression.toRpc()).await()
 
       when (result) {
@@ -43,7 +43,7 @@ internal class FrontendXValueModifier(
     if (callback == null) {
       return
     }
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       val initialValue = XDebuggerValueModifierApi.getInstance().initialValueEditorText(xValueDto.id)
       callback.setValue(initialValue)
     }

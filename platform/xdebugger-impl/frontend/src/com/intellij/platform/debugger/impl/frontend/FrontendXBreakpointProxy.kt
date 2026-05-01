@@ -6,7 +6,7 @@ import com.intellij.openapi.editor.markup.GutterDraggableObject
 import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.platform.debugger.impl.frontend.util.RequestsSerializer
+import com.intellij.platform.debugger.impl.frontend.util.SequentialRpcRequestsExecutor
 import com.intellij.platform.debugger.impl.rpc.XBreakpointApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointCustomPresentationDto
 import com.intellij.platform.debugger.impl.rpc.XBreakpointDto
@@ -63,7 +63,7 @@ internal open class FrontendXBreakpointProxy(
   override val id: XBreakpointId = dto.id
 
   protected val cs = parentCs.childScope("FrontendXBreakpointProxy#$id")
-  private val requestsSerializer = RequestsSerializer.create(cs)
+  private val sequentialExecutor = SequentialRpcRequestsExecutor.create(cs)
 
   /**
    * Updates should be performed only via [updateStateIfNeeded].
@@ -138,7 +138,7 @@ internal open class FrontendXBreakpointProxy(
     }
     afterStateChanged()
     onBreakpointChange()
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       sendRequest(requestId)
     }
   }

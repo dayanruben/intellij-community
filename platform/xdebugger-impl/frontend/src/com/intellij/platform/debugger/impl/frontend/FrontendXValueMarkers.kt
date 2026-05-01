@@ -7,7 +7,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.platform.debugger.impl.frontend.evaluate.quick.FrontendXValue
-import com.intellij.platform.debugger.impl.frontend.util.RequestsSerializer
+import com.intellij.platform.debugger.impl.frontend.util.SequentialRpcRequestsExecutor
 import com.intellij.platform.debugger.impl.rpc.XDebuggerValueMarkupApi
 import com.intellij.platform.debugger.impl.rpc.XValueMarkerDto
 import com.intellij.platform.debugger.impl.shared.proxy.XDebugManagerProxy
@@ -51,12 +51,12 @@ internal class FrontendXValueMarkers<V : XValue, M>(private val project: Project
 
 @Service(Service.Level.PROJECT)
 private class FrontendXValueMarkersService(cs: CoroutineScope) {
-  private val requestsSerializer = RequestsSerializer.create(cs)
+  private val sequentialExecutor = SequentialRpcRequestsExecutor.create(cs)
 
   fun markValue(value: XValue, markup: ValueMarkup): Promise<Any> {
-    val valueMarked = requestsSerializer.scheduleRequest {
+    val valueMarked = sequentialExecutor.submit {
       val marker = XValueMarkerDto(markup.text, markup.color.rpcId(), markup.toolTipText)
-      val xValueId = XDebugManagerProxy.getInstance().getXValueId(value) ?: return@scheduleRequest Any()
+      val xValueId = XDebugManagerProxy.getInstance().getXValueId(value) ?: return@submit Any()
       XDebuggerValueMarkupApi.getInstance().markValue(xValueId, marker)
       marker as Any
     }
@@ -64,8 +64,8 @@ private class FrontendXValueMarkersService(cs: CoroutineScope) {
   }
 
   fun unmarkValue(value: XValue): Promise<in Any> {
-    val valueUnmarked = requestsSerializer.scheduleRequest {
-      val xValueId = XDebugManagerProxy.getInstance().getXValueId(value) ?: return@scheduleRequest Any()
+    val valueUnmarked = sequentialExecutor.submit {
+      val xValueId = XDebugManagerProxy.getInstance().getXValueId(value) ?: return@submit Any()
       XDebuggerValueMarkupApi.getInstance().unmarkValue(xValueId)
       Any()
     }
@@ -73,7 +73,7 @@ private class FrontendXValueMarkersService(cs: CoroutineScope) {
   }
 
   fun clear(debugSessionProxy: XDebugSessionProxy) {
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       XDebuggerValueMarkupApi.getInstance().clear(debugSessionProxy.id)
     }
   }

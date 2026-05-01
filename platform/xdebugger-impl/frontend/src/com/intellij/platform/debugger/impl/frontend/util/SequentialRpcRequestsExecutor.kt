@@ -15,22 +15,25 @@ import kotlinx.coroutines.launch
  * A utility class designed to serialize and manage the execution of asynchronous RPC requests.
  * Each request is scheduled and executed sequentially to ensure thread-safe operation.
  */
-internal class RequestsSerializer private constructor() {
-  private val requests = Channel<Request>(Channel.UNLIMITED)
+internal class SequentialRpcRequestsExecutor private constructor() {
+  private val requests = Channel<Request>(Channel.UNLIMITED, onUndeliveredElement = { request ->
+    request.markUndelivered()
+  })
 
-  fun <T> scheduleRequest(block: suspend () -> T): Deferred<T> {
+  fun <T> submit(block: suspend () -> T): Deferred<T> {
     val completableRequest = CompletableRequest(block)
     requests.trySend(completableRequest)
     return completableRequest.result
   }
 
-  fun performRequest(block: suspend () -> Unit) {
+  fun execute(block: suspend () -> Unit) {
     val simpleRequest = SimpleRequest(block)
     requests.trySend(simpleRequest)
   }
 
   private sealed interface Request {
     suspend fun performRequest()
+    fun markUndelivered() {}
   }
 
   private class SimpleRequest(val request: suspend () -> Unit) : Request {
@@ -38,11 +41,10 @@ internal class RequestsSerializer private constructor() {
       try {
         request()
       }
-      catch (e: CancellationException) {
-        throw e
-      }
       catch (e: Throwable) {
-        thisLogger().error("Error during request execution", e)
+        if (e !is CancellationException) {
+          thisLogger().error("Error during request execution", e)
+        }
       }
     }
   }
@@ -52,23 +54,23 @@ internal class RequestsSerializer private constructor() {
 
     override suspend fun performRequest() {
       val result = runCatching { request() }
-      val exception = result.exceptionOrNull()
-      if (exception is CancellationException) {
-        throw exception
-      }
       this.result.completeWith(result)
+    }
+
+    override fun markUndelivered() {
+      this.result.cancel()
     }
   }
 
   companion object {
-    fun create(cs: CoroutineScope): RequestsSerializer {
-      val serializer = RequestsSerializer()
+    fun create(cs: CoroutineScope): SequentialRpcRequestsExecutor {
+      val executor = SequentialRpcRequestsExecutor()
       cs.launch {
-        serializer.requests.consumeEach { request ->
+        executor.requests.consumeEach { request ->
           request.performRequest()
         }
       }
-      return serializer
+      return executor
     }
   }
 }

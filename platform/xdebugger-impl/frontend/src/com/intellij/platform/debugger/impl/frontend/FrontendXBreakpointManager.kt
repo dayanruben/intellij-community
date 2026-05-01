@@ -12,7 +12,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.platform.debugger.impl.frontend.util.RequestsSerializer
+import com.intellij.platform.debugger.impl.frontend.util.SequentialRpcRequestsExecutor
 import com.intellij.platform.debugger.impl.rpc.XBreakpointApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointDto
 import com.intellij.platform.debugger.impl.rpc.XBreakpointEvent
@@ -67,7 +67,7 @@ private val log = logger<FrontendXBreakpointManager>()
 @ApiStatus.Internal
 @VisibleForTesting
 class FrontendXBreakpointManager(private val project: Project, private val cs: CoroutineScope) : XBreakpointManagerProxy {
-  private val requestsSerializer = RequestsSerializer.create(cs)
+  private val sequentialExecutor = SequentialRpcRequestsExecutor.create(cs)
   private val breakpointsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
   private val breakpointsChangedWithReplay = breakpointsChanged.shareIn(cs, SharingStarted.Eagerly, replay = 1)
 
@@ -309,7 +309,7 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
     if (group == defaultGroup) return
 
     defaultGroup = group
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       XBreakpointApi.getInstance().setDefaultGroup(project.projectId(), group)
     }
   }
@@ -375,26 +375,26 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
 
   override fun rememberRemovedBreakpoint(breakpoint: XBreakpointProxy) {
     lastRemovedBreakpoint = breakpoint
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       XBreakpointTypeApi.getInstance().rememberRemovedBreakpoint(breakpoint.id)
     }
   }
 
   override fun restoreRemovedBreakpoint(breakpoint: XBreakpointProxy) {
     lastRemovedBreakpoint = null
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       XBreakpointTypeApi.getInstance().restoreRemovedBreakpoint(breakpoint.project.projectId())
     }
   }
 
   override fun copyLineBreakpoint(breakpoint: XLineBreakpointProxy, file: VirtualFile, line: Int) {
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       XBreakpointTypeApi.getInstance().copyLineBreakpoint(breakpoint.id, file.rpcId(), line)
     }
   }
 
   override fun onBreakpointRemoval(breakpoint: XLineBreakpointProxy, session: XDebugSessionProxy) {
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       XBreakpointTypeApi.getInstance().onBreakpointRemoval(breakpoint.id, session.id)
     }
   }

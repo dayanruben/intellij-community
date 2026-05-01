@@ -10,7 +10,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.platform.debugger.impl.frontend.util.RequestsSerializer
+import com.intellij.platform.debugger.impl.frontend.util.SequentialRpcRequestsExecutor
 import com.intellij.platform.debugger.impl.rpc.XBreakpointApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointTypeApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointTypeDto
@@ -122,7 +122,7 @@ private open class FrontendXBreakpointType(
   cs: CoroutineScope,
   private val dto: XBreakpointTypeDto,
 ) : XBreakpointTypeProxy {
-  private val requestsSerializer = RequestsSerializer.create(cs)
+  private val sequentialExecutor = SequentialRpcRequestsExecutor.create(cs)
   override val id: String = dto.id.id
   override val index: Int = dto.index
   override val title: String = dto.title
@@ -147,7 +147,7 @@ private open class FrontendXBreakpointType(
   override fun setDefaultSuspendPolicy(policy: SuspendPolicy) {
     _defaultSuspendPolicy = policy
 
-    requestsSerializer.performRequest {
+    sequentialExecutor.execute {
       XBreakpointApi.getInstance().setDefaultSuspendPolicy(project.projectId(), dto.id, policy)
     }
   }
