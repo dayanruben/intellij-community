@@ -757,6 +757,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/addDataModifier/abstract.kt");
         }
 
+        @TestMetadata("alreadyDataClass.kt")
+        public void testAlreadyDataClass() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/addDataModifier/alreadyDataClass.kt");
+        }
+
         @TestMetadata("inner.kt")
         public void testInner() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/addDataModifier/inner.kt");

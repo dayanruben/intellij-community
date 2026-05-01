@@ -44,7 +44,7 @@ internal object AddDataModifierFixFactory {
             ?: return@ModCommandBased emptyList()
 
         val modality = classSymbol.modality
-        if (modality != KaSymbolModality.FINAL || classSymbol.isInner) return@ModCommandBased emptyList()
+        if (modality != KaSymbolModality.FINAL || classSymbol.isInner || classSymbol.isData) return@ModCommandBased emptyList()
         val constructors = classSymbol.declaredMemberScope.constructors
         val ctorParams = constructors.firstOrNull { it.isPrimary }?.valueParameters ?: return@ModCommandBased emptyList()
         if (ctorParams.isEmpty()) return@ModCommandBased emptyList()
