@@ -114,7 +114,11 @@ internal suspend fun embedContentModules(
   }
 }
 
-fun deprecatedResolveDescriptor(
+/**
+ * Instructs the build scripts to resolve xi:include tags and inline content modules for the core plugin descriptor of a separate product embedded in an IDE.
+ * This is used only for embedded variants of JetBrains Client and Gateway.
+ */
+fun deprecatedResolveDescriptorForEmbeddedProduct(
   spec: PluginLayout.PluginLayoutSpec,
   clientModuleName: String,
   relativePath: String,
