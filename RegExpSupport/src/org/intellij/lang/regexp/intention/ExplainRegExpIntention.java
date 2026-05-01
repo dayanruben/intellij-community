@@ -25,11 +25,13 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.ColoredTreeCellRenderer;
-import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.SimpleTextAttributes;
+import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.tree.TreeVisitor;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.SmartList;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.intellij.lang.regexp.RegExpFile;
 import org.intellij.lang.regexp.RegExpLanguage;
@@ -71,6 +73,7 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 import java.awt.Cursor;
+import java.awt.Dimension;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
@@ -150,6 +153,7 @@ public final class ExplainRegExpIntention implements IntentionAction, Iconable, 
     });
     tree.setFont(editor.getColorsScheme().getFont(EditorFontType.PLAIN));
     tree.setRootVisible(false);
+    tree.setAdditionalRowsCount(0);
     ColoredTreeCellRenderer renderer = new ColoredTreeCellRenderer() {
 
       @Override
@@ -214,7 +218,26 @@ public final class ExplainRegExpIntention implements IntentionAction, Iconable, 
         return component == null || component.expand() ? Action.CONTINUE : Action.SKIP_CHILDREN;
       }
     }, _ -> {});
-    return ScrollPaneFactory.createScrollPane(tree);
+    JBScrollPane pane = new JBScrollPane(tree);
+    pane.setBorder(JBUI.Borders.empty());
+    pane.setPreferredSize(clamp(tree.getPreferredSize()));
+    tree.addTreeExpansionListener(new TreeExpansionListener() {
+      @Override
+      public void treeExpanded(TreeExpansionEvent event) {
+        pane.setPreferredSize(clamp(tree.getPreferredSize()));
+        tree.scrollRowToVisible(0);
+      }
+
+      @Override
+      public void treeCollapsed(TreeExpansionEvent event) {
+        pane.setPreferredSize(clamp(tree.getPreferredSize()));
+      }
+    });
+    return pane;
+  }
+  
+  private static Dimension clamp(Dimension dimension) {
+    return new Dimension(Math.min(dimension.width + UIUtil.getScrollBarWidth(), 1024), Math.min(dimension.height, 512));
   }
 
   @Override
