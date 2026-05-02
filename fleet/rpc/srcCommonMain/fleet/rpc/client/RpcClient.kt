@@ -16,7 +16,6 @@ import fleet.rpc.core.InstanceId
 import fleet.rpc.core.InternalStreamDescriptor
 import fleet.rpc.core.InternalStreamMessage
 import fleet.rpc.core.PrefetchStrategy
-import fleet.rpc.core.RemoteObject
 import fleet.rpc.core.RemoteResource
 import fleet.rpc.core.RemoteResourceConsumedException
 import fleet.rpc.core.RequestCompletionHandler
@@ -139,12 +138,6 @@ private class RpcClient(
   private val resourceParents = MultiplatformConcurrentHashMap<InstanceId, InstanceId>()
 
   private val remoteObjectFactory = this.asHandlerFactory().tracing()
-
-  private fun <T : RemoteObject> remoteObject(remoteApiDescriptor: RemoteApiDescriptor<T>, path: String, route: UID): T =
-    suspendProxy(remoteApiDescriptor, remoteObjectFactory.handler(ProxyClosure(
-      route = route,
-      instanceId = InstanceId(path)
-    )))
 
   private fun <T : RemoteResource> remoteResource(remoteApiDescriptor: RemoteApiDescriptor<T>, instanceId: InstanceId, route: UID, parentService: InstanceId): T {
     val resource = suspendProxy(
@@ -358,12 +351,7 @@ private class RpcClient(
         outgoingRpc.remove(message.requestId)?.let { (rpc) ->
           try {
             val (returnResult, streams) = run {
-              if (rpc.returnType is RemoteKind.RemoteObject) {
-                val path = Json.decodeFromJsonElement(String.serializer(), message.result)
-                val remoteApiDescriptor = rpc.returnType.descriptor as RemoteApiDescriptor<RemoteObject>
-                return@run remoteObject(remoteApiDescriptor, path, rpc.route) to emptyList()
-              }
-              else if (rpc.returnType is RemoteKind.Resource) {
+              if (rpc.returnType is RemoteKind.Resource) {
                 val path = Json.decodeFromJsonElement(InstanceId.serializer(), message.result)
                 val remoteApiDescriptor = rpc.returnType.descriptor as RemoteApiDescriptor<RemoteResource>
                 val resource = resource {

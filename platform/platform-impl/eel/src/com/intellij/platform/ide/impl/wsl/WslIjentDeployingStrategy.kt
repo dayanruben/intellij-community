@@ -24,7 +24,7 @@ class WslIjentDeployingStrategy(
   private val distribution: WSLDistribution,
   private val project: Project?,
   private val wslCommandLineOptionsModifier: (WSLCommandLineOptions) -> Unit = {},
-) : IjentDeployingOverShellProcessStrategy(scope, currentDispatcher) {
+) : IjentDeployingOverShellProcessStrategy.JavaProcessBasedStrategy(scope, currentDispatcher) {
   override suspend fun mapPath(path: Path): String? =
     distribution.getWslPath(path)
 

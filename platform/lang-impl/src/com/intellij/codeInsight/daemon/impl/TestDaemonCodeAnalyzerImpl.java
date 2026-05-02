@@ -606,15 +606,22 @@ public final class TestDaemonCodeAnalyzerImpl {
     mustWaitForSmartModeByDefault = value;
   }
 
+  @RequiresEdt
   public @NotNull List<HighlightInfo> waitHighlightingSurviveCancellations(@NotNull PsiFile psiFile, @NotNull HighlightSeverity minSeverity) {
     while (true) {
       try {
-        return waitHighlighting(psiFile, minSeverity);
-      }
-      catch (ProcessCanceledException e) {
-        // document modifications are expected here, e.g. when auto-import adds an import and cancels the current highlighting
+        List<HighlightInfo> infos = waitHighlighting(psiFile, minSeverity);
+        // ShowAutoImportPass.doApplyInformationToEditor calls invokeLater()
         dispatchAllInvocationEventsInIdeEventQueueReleasingWIL();
+
+        if (!daemonIsWorkingOrPending(psiFile.getFileDocument())) {
+          return infos;
+        }
       }
+      catch (ProcessCanceledException _) {
+      }
+      // document modifications are expected here, e.g. when auto-import adds an import and cancels the current highlighting
+      dispatchAllInvocationEventsInIdeEventQueueReleasingWIL();
     }
   }
 

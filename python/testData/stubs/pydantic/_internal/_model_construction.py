@@ -3,7 +3,7 @@
 from abc import ABCMeta
 from typing import TYPE_CHECKING
 
-from typing_extensions import dataclass_transform
+from typing import dataclass_transform
 
 if TYPE_CHECKING:
     from ..fields import Field as PydanticModelField

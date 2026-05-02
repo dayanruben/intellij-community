@@ -757,6 +757,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/addDataModifier/abstract.kt");
         }
 
+        @TestMetadata("alreadyDataClass.kt")
+        public void testAlreadyDataClass() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/addDataModifier/alreadyDataClass.kt");
+        }
+
         @TestMetadata("inner.kt")
         public void testInner() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/addDataModifier/inner.kt");
@@ -17308,6 +17313,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("changeReturnTypeForTypeMismatch.kt")
             public void testChangeReturnTypeForTypeMismatch() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/typeMismatch/changeReturnTypeForTypeMismatch.kt");
+            }
+
+            @TestMetadata("changeReturnTypeForTypeMismatchActionsOrder.kt")
+            public void testChangeReturnTypeForTypeMismatchActionsOrder() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/typeMismatch/changeReturnTypeForTypeMismatchActionsOrder.kt");
             }
 
             @TestMetadata("changeReturnTypeNoFqNameForAnonymousObject.kt")

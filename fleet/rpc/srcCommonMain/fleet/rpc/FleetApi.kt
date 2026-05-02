@@ -34,7 +34,6 @@ sealed interface RemoteKind {
   data class ReceiveChannel(val elementKind: RemoteKind, val nullable: Boolean) : RemoteKind
   data class SendChannel(val elementKind: RemoteKind, val nullable: Boolean) : RemoteKind
   data class Deferred(val elementKind: RemoteKind, val nullable: Boolean) : RemoteKind
-  data class RemoteObject(val descriptor: RemoteApiDescriptor<*>) : RemoteKind
   data class Resource(val descriptor: RemoteApiDescriptor<*>) : RemoteKind
 }
 
@@ -46,7 +45,6 @@ fun RemoteKind.serializer(debugInfo: String): KSerializer<Any?> {
     is RemoteKind.ReceiveChannel -> ReceiveChannelSerializer(elementKind.serializer(debugInfo)).letIf(nullable) { it.nullable }
     is RemoteKind.SendChannel -> SendChannelSerializer(elementKind.serializer(debugInfo)).letIf(nullable) { it.nullable }
     is RemoteKind.Deferred -> DeferredSerializer(elementKind.serializer(debugInfo)).letIf(nullable) { it.nullable }
-    is RemoteKind.RemoteObject -> error("Remote object has no serializer")
     is RemoteKind.Resource -> error("Resource has no serializer")
   }.cast()
 }

@@ -249,18 +249,13 @@ object IjentSessionMediatorUtils {
     }
   }
 
-  suspend fun ijentProcessExitAwaiter(
+  suspend fun ijentProcessExitCodeHandler(
     ijentLabel: String,
     lastStderrMessages: MutableSharedFlow<String?>,
     logger: Logger,
-    isExitExpected: suspend (exitCode: Int) -> Boolean = { it == 0 },
-    waitFunction: suspend () -> Int,
+    exitCode: Int,
+    isExitExpected: Boolean,
   ): Nothing {
-    val exitCode = waitFunction()
-    logger.debug { "IJent process $ijentLabel exited with code $exitCode" }
-
-    val isExitExpected = isExitExpected(exitCode)
-
     val error = if (isExitExpected) {
       IjentUnavailableException.CommunicationFailure("IJent process exited successfully").apply { exitedExpectedly = true }
     }

@@ -30,6 +30,7 @@ class PyDataclassFieldStubImpl private constructor(
   private val initValue: Boolean,
   private val kwOnly: Boolean?,
   private val alias: String?,
+  private val frozen: Boolean? = null,
 ) : PyDataclassFieldStub {
   companion object {
     fun create(expression: PyTargetExpression): PyDataclassFieldStub? {
@@ -46,6 +47,7 @@ class PyDataclassFieldStubImpl private constructor(
       val initValue = stream.readBoolean()
       val kwOnly = DataInputOutputUtil.readNullable(stream, stream::readBoolean)
       val alias = stream.readNameString()
+      val frozen = DataInputOutputUtil.readNullable(stream, stream::readBoolean)
 
       return PyDataclassFieldStubImpl(
         calleeName = QualifiedName.fromDottedString(calleeName),
@@ -54,6 +56,7 @@ class PyDataclassFieldStubImpl private constructor(
         initValue = initValue,
         kwOnly = kwOnly,
         alias = alias,
+        frozen = frozen,
       )
     }
 
@@ -88,59 +91,55 @@ class PyDataclassFieldStubImpl private constructor(
       val factory = call.getKeywordArgument("factory")
       val alias = (call.getKeywordArgument("alias") as? PyStringLiteralExpression)?.stringValue
 
-      if (type == PyDataclassParameters.PredefinedType.STD) {
-        return PyDataclassFieldStubImpl(
-          calleeName = qualifiedName,
-          hasDefault = default != null && !resolvesToOmittedDefault(default, type),
-          hasDefaultFactory = defaultFactory != null && !resolvesToOmittedDefault(defaultFactory, type),
-          initValue = initValue,
-          kwOnly = kwOnly,
-          alias = null
-        )
-      }
-      else if (type == PyDataclassParameters.PredefinedType.ATTRS) {
-        val hasFactory = factory.let { it != null && it.text != PyNames.NONE }
-
-        if (default != null && !resolvesToOmittedDefault(default, type)) {
-          val callee = (default as? PyCallExpression)?.callee as? PyReferenceExpression
-          val hasFactoryInDefault =
-            callee != null &&
-            PyResolveUtil.resolveImportedElementQNameLocally(callee).any { it.toString() in Attrs.ATTRS_FACTORY }
-
-          return PyDataclassFieldStubImpl(
+      return when (type) {
+        PyDataclassParameters.PredefinedType.STD -> PyDataclassFieldStubImpl(
             calleeName = qualifiedName,
-            hasDefault = !hasFactoryInDefault,
-            hasDefaultFactory = hasFactory || hasFactoryInDefault,
+            hasDefault = default != null && !resolvesToOmittedDefault(default, type),
+            hasDefaultFactory = defaultFactory != null && !resolvesToOmittedDefault(defaultFactory, type),
             initValue = initValue,
             kwOnly = kwOnly,
-            alias = alias
+            alias = null,
+          )
+        PyDataclassParameters.PredefinedType.ATTRS -> {
+          val hasFactory = factory.let { it != null && it.text != PyNames.NONE }
+
+          if (default != null && !resolvesToOmittedDefault(default, type)) {
+            val callee = (default as? PyCallExpression)?.callee as? PyReferenceExpression
+            val hasFactoryInDefault =
+              callee != null &&
+              PyResolveUtil.resolveImportedElementQNameLocally(callee).any { it.toString() in Attrs.ATTRS_FACTORY }
+
+            PyDataclassFieldStubImpl(
+              calleeName = qualifiedName,
+              hasDefault = !hasFactoryInDefault,
+              hasDefaultFactory = hasFactory || hasFactoryInDefault,
+              initValue = initValue,
+              kwOnly = kwOnly,
+              alias = alias,
+            )
+          }
+          else PyDataclassFieldStubImpl(
+            calleeName = qualifiedName,
+            hasDefault = false,
+            hasDefaultFactory = hasFactory,
+            initValue = initValue,
+            kwOnly = kwOnly,
+            alias = alias,
           )
         }
-
-        return PyDataclassFieldStubImpl(
+        PyDataclassParameters.PredefinedType.DATACLASS_TRANSFORM -> PyDataclassFieldStubImpl(
           calleeName = qualifiedName,
-          hasDefault = false,
-          hasDefaultFactory = hasFactory,
-          initValue = initValue,
-          kwOnly = kwOnly,
-          alias = alias
-        )
-      }
-      else if (type == PyDataclassParameters.PredefinedType.DATACLASS_TRANSFORM) {
-        return PyDataclassFieldStubImpl(
-          calleeName = qualifiedName,
-          // dataclasses.MISSING is not mentioned in the spec, but because dataclasses.KW_ONLY is supported, 
+          // dataclasses.MISSING is not mentioned in the spec, but because dataclasses.KW_ONLY is supported,
           // this one is special-cases as well
           hasDefault = default != null && !resolvesToOmittedDefault(default, type),
           hasDefaultFactory = defaultFactory != null && !resolvesToOmittedDefault(defaultFactory, type) ||
                               factory != null && !resolvesToOmittedDefault(factory, type),
           initValue = initValue,  // TODO How should we handle custom field specifiers where init=False by default
           kwOnly = kwOnly,
-          alias = alias
+          alias = alias,
+          frozen = PyEvaluator.evaluateAsBooleanNoResolve(call.getKeywordArgument("frozen")),
         )
       }
-
-      return null
     }
   }
 
@@ -155,6 +154,7 @@ class PyDataclassFieldStubImpl private constructor(
     stream.writeBoolean(initValue)
     DataInputOutputUtil.writeNullable(stream, kwOnly, stream::writeBoolean)
     stream.writeName(alias)
+    DataInputOutputUtil.writeNullable(stream, frozen, stream::writeBoolean)
   }
 
   override fun getCalleeName(): QualifiedName = calleeName
@@ -163,6 +163,7 @@ class PyDataclassFieldStubImpl private constructor(
   override fun initValue(): Boolean = initValue
   override fun kwOnly(): Boolean? = kwOnly
   override fun getAlias(): String? = alias
+  override fun frozen(): Boolean? = frozen
 
   override fun toString(): String {
     return "PyDataclassFieldStubImpl(" +
@@ -171,7 +172,8 @@ class PyDataclassFieldStubImpl private constructor(
            "hasDefaultFactory=$hasDefaultFactory, " +
            "initValue=$initValue, " +
            "kwOnly=$kwOnly, " +
-           "alias=$alias" +
+           "alias=$alias, " +
+           "frozen=$frozen, " +
            ")"
   }
 }

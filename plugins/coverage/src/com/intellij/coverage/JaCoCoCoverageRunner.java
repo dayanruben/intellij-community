@@ -23,6 +23,7 @@ import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
@@ -65,12 +66,13 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
   private static final Logger LOG = Logger.getInstance(JaCoCoCoverageRunner.class);
@@ -219,24 +221,7 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
       }
       for (VirtualFile root : roots) {
         try {
-          Path rootPath = Paths.get(new File(FileUtil.toSystemDependentName(VfsUtilCore.urlToPath(root.getUrl()))).toURI());
-          Files.walkFileTree(rootPath, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) {
-              String internalName = StringUtil.trimEnd(rootPath.relativize(path).toString(), ".class");
-              String fqn = AnalysisUtils.internalNameToFqn(internalName);
-              if (!suite.isClassFiltered(fqn)) return FileVisitResult.CONTINUE;
-              File file = path.toFile();
-              try {
-                analyzer.analyzeAll(file);
-              }
-              catch (Exception e) {
-                LOG.info(e);
-                reporter.reportWarning(e);
-              }
-              return FileVisitResult.CONTINUE;
-            }
-          });
+          analyzeRoot(analyzer, suite, getLocalRootPath(root), reporter);
         }
         catch (NoSuchFileException e) {
           LOG.warn(e);
@@ -244,6 +229,78 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
         }
       }
     }
+  }
+
+  private static @NotNull Path getLocalRootPath(@NotNull VirtualFile root) {
+    VirtualFile archiveFile = JarFileSystem.getInstance().getVirtualFileForJar(root);
+    VirtualFile rootFile = archiveFile != null ? archiveFile : root;
+    return rootFile.toNioPath();
+  }
+
+  private static void analyzeRoot(@NotNull Analyzer analyzer,
+                                  @NotNull JavaCoverageSuite suite,
+                                  @NotNull Path root,
+                                  @NotNull CoverageLoadErrorReporter reporter) throws IOException {
+    if (Files.isDirectory(root)) {
+      analyzeDirectory(analyzer, suite, root, reporter);
+    }
+    else if (Files.isRegularFile(root) && StringUtil.endsWithIgnoreCase(root.getFileName().toString(), ".jar")) {
+      analyzeArchive(analyzer, suite, root, reporter);
+    }
+  }
+
+  private static void analyzeDirectory(@NotNull Analyzer analyzer,
+                                       @NotNull JavaCoverageSuite suite,
+                                       @NotNull Path rootPath,
+                                       @NotNull CoverageLoadErrorReporter reporter) throws IOException {
+    Files.walkFileTree(rootPath, new SimpleFileVisitor<>() {
+      @Override
+      public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) {
+        String relativePath = rootPath.relativize(path).toString();
+        if (!relativePath.endsWith(".class")) return FileVisitResult.CONTINUE;
+
+        String internalName = FileUtil.toSystemIndependentName(StringUtil.trimEnd(relativePath, ".class"));
+        if (!isClassFiltered(suite, internalName)) return FileVisitResult.CONTINUE;
+        try (InputStream inputStream = Files.newInputStream(path)) {
+          analyzer.analyzeClass(inputStream, relativePath);
+        }
+        catch (Exception e) {
+          LOG.info(e);
+          reporter.reportWarning(e);
+        }
+        return FileVisitResult.CONTINUE;
+      }
+    });
+  }
+
+  private static void analyzeArchive(@NotNull Analyzer analyzer,
+                                     @NotNull JavaCoverageSuite suite,
+                                     @NotNull Path archive,
+                                     @NotNull CoverageLoadErrorReporter reporter) throws IOException {
+    try (ZipInputStream zipInputStream = new ZipInputStream(Files.newInputStream(archive))) {
+      ZipEntry entry;
+      while ((entry = zipInputStream.getNextEntry()) != null) {
+        if (entry.isDirectory()) continue;
+
+        String entryName = entry.getName();
+        if (!entryName.endsWith(".class")) continue;
+
+        String internalName = StringUtil.trimEnd(entryName, ".class");
+        if (!isClassFiltered(suite, internalName)) continue;
+        try {
+          analyzer.analyzeClass(zipInputStream, entryName);
+        }
+        catch (Exception e) {
+          LOG.info(e);
+          reporter.reportWarning(e);
+        }
+      }
+    }
+  }
+
+  private static boolean isClassFiltered(@NotNull JavaCoverageSuite suite, @NotNull String internalName) {
+    String fqn = AnalysisUtils.internalNameToFqn(internalName);
+    return suite.isClassFiltered(fqn);
   }
 
   private static Module[] getModules(@Nullable Module mainModule,

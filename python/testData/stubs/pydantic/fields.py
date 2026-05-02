@@ -9,6 +9,7 @@ def Field(
     serialization_alias: Optional[str] = None,
     title: Optional[str] = None,
     description: Optional[str] = None,
+    frozen: bool | None = ...,
     **extra: Any
 ) -> Any:
     ...

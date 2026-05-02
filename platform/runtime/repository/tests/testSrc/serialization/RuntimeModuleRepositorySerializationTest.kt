@@ -18,7 +18,6 @@ import com.intellij.util.io.jarFile
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import org.junitpioneer.jupiter.SetSystemProperty
 import java.nio.file.Path
 
 class RuntimeModuleRepositorySerializationTest {
@@ -121,7 +120,6 @@ class RuntimeModuleRepositorySerializationTest {
     }
   }
 
-  @SetSystemProperty(key = "runtime.module.repository.story.plugin.headers.in.jar", value = "true")
   @Test
   fun `plugin header`() {
     val descriptors = listOf(

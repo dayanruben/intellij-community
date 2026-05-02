@@ -1513,7 +1513,9 @@ public class HighlightInfo implements Segment {
     ApplicationManager.getApplication().assertReadAccessAllowed();
     AtomicReference<ProgressIndicator> progressIndicator = new AtomicReference<>(new DaemonProgressIndicator());
     updateOffsetStore(oldStore -> {
-      progressIndicator.get().cancel(); // cancel the previous computations started before but not stored in the "future" field because the CAS failed
+      if (!progressIndicator.get().isCanceled()) {
+        progressIndicator.get().cancel(); // cancel the previous computations started before but not stored in the "future" field because the CAS failed
+      }
       progressIndicator.set(new DaemonProgressIndicator());
       if (oldStore == TOMB) {
         return oldStore;

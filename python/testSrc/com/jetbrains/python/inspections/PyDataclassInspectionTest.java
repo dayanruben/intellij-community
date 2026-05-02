@@ -3,6 +3,7 @@
  */
 package com.jetbrains.python.inspections;
 
+import com.intellij.idea.TestFor;
 import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import org.jetbrains.annotations.NotNull;
 
@@ -445,20 +446,38 @@ public class PyDataclassInspectionTest extends PyInspectionTestCase {
                    Child(number=1)""");
   }
 
-  @Override
-  protected void doTest() {
-    myFixture.copyDirectoryToProject("packages/attr", "attr");
-    myFixture.copyDirectoryToProject("packages/attrs", "attrs");
-    super.doTest();
-    assertProjectFilesNotParsed(myFixture.getFile());
-  }
-
   public void testFieldOrderInheritanceMultifile() {
     doMultiFileTest();
   }
 
   public void testDataclassMissingHandlingMultifile() {
     doMultiFileTest();
+  }
+
+  @TestFor(issues="PY-89180")
+  public void testMutatingFrozenFieldPydantic() {
+    myFixture.copyDirectoryToProject("stubs/pydantic", "pydantic");
+    doTestByText(
+      """
+        from pydantic import BaseModel, Field
+
+        class A(BaseModel):
+            a: int = Field(frozen=True)
+            b: int
+        
+        a = A()
+        <error descr="'A' object attribute 'a' is read-only">a.a</error> = 2
+        del <error descr="'A' object attribute 'a' is read-only">a.a</error>
+        a.b = 2
+        """);
+  }
+
+  @Override
+  protected void doTest() {
+    myFixture.copyDirectoryToProject("packages/attr", "attr");
+    myFixture.copyDirectoryToProject("packages/attrs", "attrs");
+    super.doTest();
+    assertProjectFilesNotParsed(myFixture.getFile());
   }
 
   @NotNull

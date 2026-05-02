@@ -67,6 +67,7 @@ import com.intellij.psi.codeStyle.PackageEntryTable;
 import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.impl.source.codeStyle.ImportHelper;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.testFramework.EditorTestUtil;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
@@ -90,7 +91,6 @@ import org.jetbrains.annotations.NotNull;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -543,7 +543,7 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
   }
 
 
-  public void testAutoImportAfterUncomment() throws ExecutionException, InterruptedException {
+  public void testAutoImportAfterUncomment() {
     assertNotNull(JavaPsiFacade.getInstance(getProject()).findClass("java.util.ArrayList", GlobalSearchScope.allScope(getProject())));
     @Language("JAVA")
     @NonNls String text = "class S { /*ArrayList l; HashMap h; <caret>*/ }";
@@ -604,9 +604,7 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
     JavaCodeStyleSettings javaCodeStyleSettings = CodeStyle.getSettings(getFile()).getCustomSettings(JavaCodeStyleSettings.class);
     javaCodeStyleSettings.INSERT_INNER_CLASS_IMPORTS = true;
 
-    HighlightInfo error = assertOneElement(
-      (Collection<? extends HighlightInfo>)myTestDaemonCodeAnalyzer.waitHighlightingSurviveCancellations(getFile(),
-                                                                                                         HighlightSeverity.ERROR));
+    HighlightInfo error = assertOneElement(myTestDaemonCodeAnalyzer.waitHighlightingSurviveCancellations(getFile(), HighlightSeverity.ERROR));
     assertEquals("Cannot resolve symbol 'SomeOtherMethodClass12'", error.getDescription());
 
     assertNoImportsAdded();
@@ -624,11 +622,11 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
 
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
     assertNotNull(PsiDocumentManager.getInstance(getProject()).getPsiFile(otherEditor.getDocument()));
+    assertTrue(PsiShortNamesCache.getInstance(getProject()).getClassesByName("SomeOtherMethodClass12", GlobalSearchScope.allScope(getProject())).length != 0);
+    assertNotNull(JavaPsiFacade.getInstance(getProject()).findClass("x.OtherClass.SomeOtherMethodClass12", GlobalSearchScope.allScope(getProject())));
 
     assertEmpty(myTestDaemonCodeAnalyzer.waitHighlightingSurviveCancellations(getFile(), HighlightSeverity.ERROR));
-    waitForAutoOptimizeImports();
     assertOneImportAdded("x.OtherClass.SomeOtherMethodClass12");
-    assertSize(1, ((PsiJavaFile)getFile()).getImportList().getAllImportStatements());
   }
 
   public void testEnsureOptimizeImportsWhenInspectionReportsErrors() throws Exception {
@@ -702,12 +700,12 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
     assertTrue(resolved instanceof PsiClass);
     assertEquals(s, ((PsiClass)resolved).getQualifiedName());
   }
-  private void assertNoImportsAdded() throws ExecutionException, InterruptedException {
+  private void assertNoImportsAdded() {
     waitForAutoOptimizeImports();
     assertEmpty(((PsiJavaFile)getFile()).getImportList().getAllImportStatements());
   }
 
-  public void testAutoOptimizeUnresolvedImports() throws ExecutionException, InterruptedException {
+  public void testAutoOptimizeUnresolvedImports() {
     @Language("JAVA")
     @NonNls String text = "import xxx.yyy; class S { } <caret> ";
     configureByText(text);
@@ -729,7 +727,7 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
     assertNoImportsAdded();
   }
 
-  private void waitForAutoOptimizeImports() throws InterruptedException, ExecutionException {
+  private void waitForAutoOptimizeImports() {
     PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
     TestDaemonCodeAnalyzerImpl.waitWhilePumping(ApplicationManager.getApplication().executeOnPooledThread(() -> {
       try {
@@ -796,7 +794,7 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
     assertOneImportAdded("java.util.ArrayList");
   }
 
-  public void testAutoInsertImportForInnerClass() throws ExecutionException, InterruptedException {
+  public void testAutoInsertImportForInnerClass() {
     @Language("JAVA")
     @NonNls String text = "package x; class S { void f(ReadLock r){} } <caret> ";
     configureByText(text);
@@ -995,7 +993,7 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
     HighlightInfo error = errors.getFirst();
     assertEquals(message, "Cannot resolve symbol 'ArrayList'", error.getDescription());
     assertTrue(message, error.hasHint());
-    HighlightInfo.IntentionActionDescriptor errDesc = error.findRegisteredQuickFix((descriptor, range) -> descriptor.getAction().getText().startsWith("Import class") ? descriptor : null);
+    HighlightInfo.IntentionActionDescriptor errDesc = error.findRegisteredQuickFix((descriptor, _) -> descriptor.getAction().getText().startsWith("Import class") ? descriptor : null);
     assertNotNull(errDesc);
     assertTrue(message, errDesc.getAction().isAvailable(getProject(), getEditor(), getFile()));
     for (int i = error.getActualStartOffset(); i < error.getActualEndOffset(); i++) {

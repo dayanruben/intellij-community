@@ -58,15 +58,6 @@ fleet.rpc.RemoteApiDescriptor
 - f:getElementKind():fleet.rpc.RemoteKind
 - f:getNullable():Z
 - hashCode():I
-*f:fleet.rpc.RemoteKind$RemoteObject
-- fleet.rpc.RemoteKind
-- <init>(fleet.rpc.RemoteApiDescriptor):V
-- f:component1():fleet.rpc.RemoteApiDescriptor
-- f:copy(fleet.rpc.RemoteApiDescriptor):fleet.rpc.RemoteKind$RemoteObject
-- bs:copy$default(fleet.rpc.RemoteKind$RemoteObject,fleet.rpc.RemoteApiDescriptor,I,java.lang.Object):fleet.rpc.RemoteKind$RemoteObject
-- equals(java.lang.Object):Z
-- f:getDescriptor():fleet.rpc.RemoteApiDescriptor
-- hashCode():I
 *f:fleet.rpc.RemoteKind$Resource
 - fleet.rpc.RemoteKind
 - <init>(fleet.rpc.RemoteApiDescriptor):V

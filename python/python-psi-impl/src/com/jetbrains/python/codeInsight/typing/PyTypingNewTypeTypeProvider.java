@@ -46,12 +46,16 @@ public final class PyTypingNewTypeTypeProvider extends PyTypeProviderBase {
   private static @Nullable PyTypingNewTypeFactoryType createNewType(@NotNull PyCallExpression callExpression,
                                                                     @NotNull TypeEvalContext context) {
     if (context.maySwitchToAST(callExpression)) {
-      final PyTypingNewTypeStub stub = PyTypingNewTypeStubImpl.Companion.create(callExpression);
-      if (stub != null) {
-        final PyClassType type = getClassType(stub, context, callExpression);
-        if (type != null) {
-          PyTypingNewType newType = new PyTypingNewType(type, stub.getName(), getDeclaration(callExpression));
-          return new PyTypingNewTypeFactoryType(newType);
+      if (callExpression.getParent() instanceof PyAssignmentStatement assignmentStatement) {
+        if (assignmentStatement.getLeftHandSideExpression() instanceof PyTargetExpression targetExpression) {
+          final PyTypingNewTypeStub stub = PyTypingNewTypeStubImpl.Companion.create(callExpression);
+          if (stub != null) {
+            final PyClassType type = getClassType(stub, context, callExpression);
+            if (type != null) {
+              PyTypingNewType newType = new PyTypingNewType(type, stub.getName(), targetExpression);
+              return new PyTypingNewTypeFactoryType(newType);
+            }
+          }
         }
       }
     }
@@ -90,9 +94,8 @@ public final class PyTypingNewTypeTypeProvider extends PyTypeProviderBase {
                                                     @NotNull TypeEvalContext context,
                                                     @NotNull PsiElement anchor) {
     final PyType type = Ref.deref(PyTypingTypeProvider.getStringBasedType(stub.getClassType(), anchor, context));
-    final PyClassType result = PyUtil.as(type, PyClassType.class);
-    if (result != null) {
-      return PyUtil.as(result.toClass(), PyClassType.class);
+    if (type instanceof PyClassType classType) {
+      return classType.toClass();
     }
     return null;
   }
@@ -107,14 +110,6 @@ public final class PyTypingNewTypeTypeProvider extends PyTypeProviderBase {
         List<PyCallableParameter> parameters = classType.toClass().getParameters(context);
         return Ref.create(new PyCallableTypeImpl(parameters, newType));
       }
-    }
-    return null;
-  }
-
-  private static @Nullable PyTargetExpression getDeclaration(@NotNull PyCallExpression call) {
-    final PsiElement parent = call.getParent();
-    if (parent instanceof PyAssignmentStatement) {
-      return PyUtil.as(((PyAssignmentStatement)parent).getLeftHandSideExpression(), PyTargetExpression.class);
     }
     return null;
   }

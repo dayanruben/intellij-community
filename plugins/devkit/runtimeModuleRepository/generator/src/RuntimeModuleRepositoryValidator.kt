@@ -24,9 +24,11 @@ object RuntimeModuleRepositoryValidator {
       }
       for (includedRuntimeModule in header.includedModules) {
         if (includedRuntimeModule.moduleId !in moduleIDs) {
-          errorReporter.reportError(
-            "Plugin header for '${header.pluginId}' (plugin descriptor module '${includedRuntimeModule.moduleId.presentableName}')" +
-            " includes module '${header.pluginDescriptorModuleId.presentableName}', which is not registered in the repository"
+          errorReporter.reportError("""
+            |Plugin header for '${header.pluginId}' (plugin descriptor module '${header.pluginDescriptorModuleId.name}') includes module '${includedRuntimeModule.moduleId.presentableName}', 
+            |which is not registered in the runtime module repository.
+            |Most probably it means that '${includedRuntimeModule.moduleId.presentableName}' isn't included in the product layout.
+          """.trimMargin()
           )
         }
       }

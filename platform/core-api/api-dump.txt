@@ -1869,6 +1869,10 @@ com.intellij.util.CharTable
 - sf:CHAR_TABLE_KEY:com.intellij.openapi.util.Key
 - a:intern(java.lang.CharSequence):java.lang.CharSequence
 - a:intern(java.lang.CharSequence,I,I):java.lang.CharSequence
+f:com.intellij.util.QueriesKt$sam$i$java_util_function_Predicate$0
+- java.util.function.Predicate
+- <init>(kotlin.jvm.functions.Function1):V
+- bf:test(java.lang.Object):Z
 com.intellij.util.Query
 - java.lang.Iterable
 - kotlin.jvm.internal.markers.KMappedMarker

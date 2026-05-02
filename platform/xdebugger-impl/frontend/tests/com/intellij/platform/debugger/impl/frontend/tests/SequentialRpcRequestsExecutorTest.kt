@@ -1,12 +1,11 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.debugger.impl.frontend.tests
 
-import com.intellij.platform.debugger.impl.frontend.util.RequestsSerializer
+import com.intellij.platform.debugger.impl.frontend.util.SequentialRpcRequestsExecutor
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.testFramework.LoggedErrorProcessor
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -17,22 +16,22 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration.Companion.seconds
 
-internal class RequestsSerializerTest {
+internal class SequentialRpcRequestsExecutorTest {
   @Test
-  fun `scheduled requests are executed sequentially`() = runSerializerTest { serializer ->
+  fun `submit requests are executed sequentially`() = runTest { executor ->
     val events = CopyOnWriteArrayList<String>()
     val firstStarted = CompletableDeferred<Unit>()
     val releaseFirstRequest = CompletableDeferred<Unit>()
     val secondStarted = CompletableDeferred<Unit>()
 
-    val firstRequest = serializer.scheduleRequest {
+    val firstRequest = executor.submit {
       events += "first-started"
       firstStarted.complete(Unit)
       releaseFirstRequest.await()
       events += "first-finished"
       1
     }
-    val secondRequest = serializer.scheduleRequest {
+    val secondRequest = executor.submit {
       events += "second-started"
       secondStarted.complete(Unit)
       2
@@ -50,19 +49,19 @@ internal class RequestsSerializerTest {
   }
 
   @Test
-  fun `failed scheduled request completes exceptionally and does not block the queue`() = runSerializerTest { serializer ->
+  fun `failed submit request completes exceptionally and does not block the queue`() = runTest { executor ->
     val events = CopyOnWriteArrayList<String>()
     val requestAfterFailureCompleted = CompletableDeferred<Unit>()
 
-    val failingRequest = serializer.scheduleRequest<Int> {
+    val failingRequest = executor.submit<Int> {
       events += "failing"
       throw IllegalStateException("boom")
     }
-    serializer.performRequest {
+    executor.execute {
       events += "after-failure"
       requestAfterFailureCompleted.complete(Unit)
     }
-    val successfulRequest = serializer.scheduleRequest {
+    val successfulRequest = executor.submit {
       events += "successful"
       42
     }
@@ -81,7 +80,7 @@ internal class RequestsSerializerTest {
   }
 
   @Test
-  fun `failed perform request is logged and does not block the queue`() = runSerializerTest { serializer ->
+  fun `failed execute request is logged and does not block the queue`() = runTest { executor ->
     val events = CopyOnWriteArrayList<String>()
     val loggedErrors = CopyOnWriteArrayList<Throwable>()
     val requestAfterFailureCompleted = CompletableDeferred<Unit>()
@@ -95,15 +94,15 @@ internal class RequestsSerializerTest {
       }
     })
     errorProcessor.use {
-      serializer.performRequest {
+      executor.execute {
         events += "failing"
         throw IllegalStateException("boom")
       }
-      serializer.performRequest {
+      executor.execute {
         events += "after-failure"
         requestAfterFailureCompleted.complete(Unit)
       }
-      val successfulRequest = serializer.scheduleRequest {
+      val successfulRequest = executor.submit {
         events += "successful"
         42
       }
@@ -116,17 +115,17 @@ internal class RequestsSerializerTest {
     assertTrue(loggedErrors.map { it.message }.contains("boom"))
   }
 
-  private fun runSerializerTest(test: suspend (RequestsSerializer) -> Unit) = runBlocking {
-    val serializerScope = childScope("RequestsSerializerTest")
-    val serializer = RequestsSerializer.create(serializerScope)
+  private fun runTest(test: suspend (SequentialRpcRequestsExecutor) -> Unit) = runBlocking {
+    val scope = childScope("SequentialRpcRequestsExecutor")
+    val executor = SequentialRpcRequestsExecutor.create(scope)
 
     try {
       withTimeout(5.seconds) {
-        test(serializer)
+        test(executor)
       }
     }
     finally {
-      serializerScope.coroutineContext.job.cancelAndJoin()
+      scope.cancel()
     }
   }
 }
