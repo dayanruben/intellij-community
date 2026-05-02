@@ -11,6 +11,9 @@ import com.intellij.mcpserver.mcpFail
 import com.intellij.mcpserver.reportToolActivity
 import com.intellij.util.execution.ParametersListUtil
 import kotlinx.coroutines.currentCoroutineContext
+import com.intellij.mcpserver.impl.util.McpServerJson
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -62,7 +65,7 @@ class UniversalToolset : McpToolset {
   }
 
   private fun parseArgsToJson(args: List<String>, propertiesSchema: JsonObject): JsonObject {
-    val result = mutableMapOf<String, JsonPrimitive>()
+    val result = mutableMapOf<String, JsonElement>()
     var i = 0
     
     while (i < args.size) {
@@ -94,7 +97,7 @@ class UniversalToolset : McpToolset {
     }
   }
 
-  private fun convertToJsonValue(paramName: String, value: String, propertiesSchema: JsonObject): JsonPrimitive {
+  private fun convertToJsonValue(paramName: String, value: String, propertiesSchema: JsonObject): JsonElement {
     val paramSchema = propertiesSchema[paramName] as? JsonObject
     val type = (paramSchema?.get("type") as? JsonPrimitive)?.content ?: "string"
     
@@ -107,6 +110,9 @@ class UniversalToolset : McpToolset {
         } else {
           JsonPrimitive(value.toDouble())
         }
+      }
+      "array", "object" -> {
+        runCatching { McpServerJson.parseToJsonElement(value) }.getOrElse { JsonNull }
       }
       else -> JsonPrimitive(value)
     }
