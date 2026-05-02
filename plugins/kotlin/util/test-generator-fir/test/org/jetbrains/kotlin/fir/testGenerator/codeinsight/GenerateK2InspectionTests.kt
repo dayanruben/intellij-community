@@ -224,7 +224,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
 
         testClass<AbstractK2MultiFileInspectionTest> {
             model("${idea}/multiFileInspections", pattern = Patterns.TEST, excludedDirectories = listOf("kotlinInternalInJava",
-                "kotlinInternalInJavaTest", "kotlinJvmAnnotationInJava"))
+                "kotlinInternalInJavaTest"))
         }
 
         testClass<AbstractK2MultiFileLocalInspectionTest> {

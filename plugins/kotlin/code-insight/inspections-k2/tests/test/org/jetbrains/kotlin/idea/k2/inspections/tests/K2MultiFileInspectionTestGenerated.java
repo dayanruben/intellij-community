@@ -59,6 +59,25 @@ public abstract class K2MultiFileInspectionTestGenerated extends AbstractK2Multi
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/multiFileInspections/kotlinJvmAnnotationInJava")
+    public static class KotlinJvmAnnotationInJava extends AbstractK2MultiFileInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("kotlinJvmAnnotationInJava.test")
+        public void testKotlinJvmAnnotationInJava() throws Exception {
+            runTest("../../../idea/tests/testData/multiFileInspections/kotlinJvmAnnotationInJava/kotlinJvmAnnotationInJava.test");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/multiFileInspections/kotlinSealedInJavaTest")
     public static class KotlinSealedInJavaTest extends AbstractK2MultiFileInspectionTest {
         @java.lang.Override
