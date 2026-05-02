@@ -15557,6 +15557,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("testData/inspectionsLocal/replaceMapKeysCallChainWithKeys/implicitIt.kt");
             }
 
+            @TestMetadata("implicitReceiver.kt")
+            public void testImplicitReceiver() throws Exception {
+                runTest("testData/inspectionsLocal/replaceMapKeysCallChainWithKeys/implicitReceiver.kt");
+            }
+
             @TestMetadata("lambdaWithComment.kt")
             public void testLambdaWithComment() throws Exception {
                 runTest("testData/inspectionsLocal/replaceMapKeysCallChainWithKeys/lambdaWithComment.kt");
