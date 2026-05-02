@@ -17860,6 +17860,140 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope")
+    public static class SimplifyNestedEachInScope extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("also.kt")
+        public void testAlso() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/also.kt");
+        }
+
+        @TestMetadata("also2.kt")
+        public void testAlso2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/also2.kt");
+        }
+
+        @TestMetadata("also3.kt")
+        public void testAlso3() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/also3.kt");
+        }
+
+        @TestMetadata("also4.kt")
+        public void testAlso4() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/also4.kt");
+        }
+
+        @TestMetadata("also5.kt")
+        public void testAlso5() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/also5.kt");
+        }
+
+        @TestMetadata("alsoFunctionReference.kt")
+        public void testAlsoFunctionReference() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/alsoFunctionReference.kt");
+        }
+
+        @TestMetadata("alsoLabel.kt")
+        public void testAlsoLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/alsoLabel.kt");
+        }
+
+        @TestMetadata("alsoLabel2.kt")
+        public void testAlsoLabel2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/alsoLabel2.kt");
+        }
+
+        @TestMetadata("alsoLabel3.kt")
+        public void testAlsoLabel3() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/alsoLabel3.kt");
+        }
+
+        @TestMetadata("alsoLabeledOuterLambda.kt")
+        public void testAlsoLabeledOuterLambda() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/alsoLabeledOuterLambda.kt");
+        }
+
+        @TestMetadata("alsoNestedForEachLabel.kt")
+        public void testAlsoNestedForEachLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/alsoNestedForEachLabel.kt");
+        }
+
+        @TestMetadata("alsoNestedReturnLabel.kt")
+        public void testAlsoNestedReturnLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/alsoNestedReturnLabel.kt");
+        }
+
+        @TestMetadata("apply.kt")
+        public void testApply() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/apply.kt");
+        }
+
+        @TestMetadata("apply2.kt")
+        public void testApply2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/apply2.kt");
+        }
+
+        @TestMetadata("apply3.kt")
+        public void testApply3() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/apply3.kt");
+        }
+
+        @TestMetadata("applyExplicitThis.kt")
+        public void testApplyExplicitThis() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/applyExplicitThis.kt");
+        }
+
+        @TestMetadata("applyExplicitThis2.kt")
+        public void testApplyExplicitThis2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/applyExplicitThis2.kt");
+        }
+
+        @TestMetadata("applyFunctionReference.kt")
+        public void testApplyFunctionReference() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/applyFunctionReference.kt");
+        }
+
+        @TestMetadata("applyFunctionReferenceWithParentheses.kt")
+        public void testApplyFunctionReferenceWithParentheses() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/applyFunctionReferenceWithParentheses.kt");
+        }
+
+        @TestMetadata("applyImplicitThis.kt")
+        public void testApplyImplicitThis() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/applyImplicitThis.kt");
+        }
+
+        @TestMetadata("applyImplicitThis2.kt")
+        public void testApplyImplicitThis2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/applyImplicitThis2.kt");
+        }
+
+        @TestMetadata("applyLabel.kt")
+        public void testApplyLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/applyLabel.kt");
+        }
+
+        @TestMetadata("applyNestedApply.kt")
+        public void testApplyNestedApply() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/applyNestedApply.kt");
+        }
+
+        @TestMetadata("applyThisValueArgument.kt")
+        public void testApplyThisValueArgument() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/simplifyNestedEachInScope/applyThisValueArgument.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/inspectionsLocal/canBeVal")
     public static class CanBeVal extends AbstractK2LocalInspectionTest {
         @java.lang.Override
