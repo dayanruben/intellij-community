@@ -120,6 +120,7 @@ data class BuildRequest(
   @JvmField val os: OsFamily = OsFamily.currentOs,
 
   @JvmField val isBootClassPathCorrect: Boolean = false,
+  @JvmField val devRunDirPrefix: String = System.getProperty("idea.dev.build.dir.prefix") ?: ""
 ) {
   override fun toString(): String {
     return buildString {
@@ -187,8 +188,9 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
     request.scrambleTool != null -> "-scrambled"
     else -> ""
   }
-  val productDirName = (productDirNameWithoutClassifier + productDirSuffix + classifier).takeLast(maxWindowsPathLengthForIDERootToBeAbleToRunRiderBackend)
-  
+  val productDirName = request.devRunDirPrefix + (productDirNameWithoutClassifier + productDirSuffix + classifier)
+    .takeLast(maxWindowsPathLengthForIDERootToBeAbleToRunRiderBackend - request.devRunDirPrefix.length)
+
   val buildDir = withContext(Dispatchers.IO.limitedParallelism(4)) {
     val buildDir = rootDir.resolve(productDirName)
     // on start, delete everything to avoid stale data

@@ -3636,6 +3636,16 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
                    """);
   }
 
+  public void testExplicitTupleInLiteral() {
+    doTestByText(
+      """
+        from typing import Literal
+        
+        _: Literal[<warning descr="'Literal' may be parameterized with literal ints, byte and unicode strings, bools, Enum values, None, other literal types, or type aliases to other literal types">(1, "a")</warning>]
+        """
+    );
+  }
+
   @NotNull
   @Override
   protected Class<? extends PyInspection> getInspectionClass() {

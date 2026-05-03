@@ -115,6 +115,14 @@
                      language="JAVA"
                      key="inspection.kotlin.sealed.in.java.display.name" bundle="messages.KotlinBundle"/>
 
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.KotlinJvmAnnotationInJavaInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.java.interop.issues"
+                     enabledByDefault="true"
+                     level="WARNING"
+                     language="JAVA"
+                     key="inspection.kotlin.jvm.annotation.in.java.display.name" bundle="messages.KotlinBundle"/>
+
     <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.diagnosticBased.RedundantModalityModifierInspection"
                      groupPath="Kotlin"
                      groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
@@ -748,8 +756,7 @@
                      groupPath="Kotlin"
                      groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
                      enabledByDefault="true"
-                     cleanupTool="true"
-                     level="WEAK WARNING"
+                     level="INFORMATION"
                      key="inspection.replace.map.keys.call.chain.with.keys.display.name" bundle="messages.KotlinBundle"
                      />
 
@@ -1306,6 +1313,14 @@
                      level="INFORMATION"
                      language="kotlin"
                      key="inspection.simplify.assert.not.null.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.SimplifyNestedEachInScopeFunctionInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
+                     enabledByDefault="true"
+                     level="WEAK WARNING"
+                     language="kotlin"
+                     key="inspection.simplifiable.scope.function.display.name" bundle="messages.KotlinBundle"/>
 
     <localInspection
             implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.AddVarianceModifierInspection"

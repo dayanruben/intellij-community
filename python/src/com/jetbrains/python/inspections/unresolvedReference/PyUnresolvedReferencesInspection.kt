@@ -203,9 +203,7 @@ class PyUnresolvedReferencesInspection : PyUnresolvedReferencesInspectionBase() 
             project.getService(PySourceRootDetectionService::class.java).onSourceRootDetected(containingDirectory)
           }
         }
-        return PyMarkDirectoryAsSourceRootQuickFix(project, containingDirectory).also {
-
-        }
+        return PyMarkDirectoryAsSourceRootQuickFix(project, containingDirectory)
       }
       return null
     }

@@ -133,6 +133,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspectionsLocal/filterIsInstanceAlwaysEmpty")
             model("${idea}/inspectionsLocal/selfReferenceConstructorParameter")
             model("${idea}/inspectionsLocal/simplifyAssertNotNull")
+            model("${idea}/inspectionsLocal/simplifyNestedEachInScope")
             model("${idea}/inspectionsLocal/canBeVal")
             model("${idea}/inspectionsLocal/mapGetWithNotNullAssertionOperator")
             model("${idea}/inspectionsLocal/replaceSubstring")
@@ -224,7 +225,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
 
         testClass<AbstractK2MultiFileInspectionTest> {
             model("${idea}/multiFileInspections", pattern = Patterns.TEST, excludedDirectories = listOf("kotlinInternalInJava",
-                "kotlinInternalInJavaTest", "kotlinJvmAnnotationInJava"))
+                "kotlinInternalInJavaTest"))
         }
 
         testClass<AbstractK2MultiFileLocalInspectionTest> {

@@ -15,6 +15,7 @@
  */
 package com.jetbrains.python.inspections;
 
+import com.intellij.idea.TestFor;
 import com.intellij.lang.FileASTNode;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
@@ -614,5 +615,16 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
     myFixture.enableInspections(inspection);
     myFixture.configureByFile(getTestCaseDirectory() + getTestName(true) + ".py");
     myFixture.checkHighlighting(isWarning(), isInfo(), isWeakWarning());
+  }
+
+  @TestFor(issues="PY-82245")
+  public void testStringInAnnotated() {
+    doTestByText(
+      """
+        from typing import Annotated
+        
+        type A = Annotated[str, print(end="foo")]
+        """
+    );
   }
 }

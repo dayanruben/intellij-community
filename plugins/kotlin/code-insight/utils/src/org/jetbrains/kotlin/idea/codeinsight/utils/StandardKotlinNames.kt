@@ -129,6 +129,7 @@ object StandardKotlinNames {
     @JvmField val Triple: ClassId = ClassId.topLevel(FqName("kotlin.Triple"))
 
     @JvmField val also: FqName = BUILT_INS_PACKAGE_FQ_NAME + "also"
+    @JvmField val apply: FqName = BUILT_INS_PACKAGE_FQ_NAME + "apply"
     @JvmField val lazy: FqName = BUILT_INS_PACKAGE_FQ_NAME + "lazy"
     @JvmField val let: FqName = BUILT_INS_PACKAGE_FQ_NAME + "let"
     @JvmField val run: FqName = BUILT_INS_PACKAGE_FQ_NAME + "run"

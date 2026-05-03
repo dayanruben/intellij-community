@@ -1138,7 +1138,7 @@ class PyTypeHintsInspection : PyInspection() {
         when (it) {
           genericQName -> checkTypingGenericParameters(node, false)
           protocolQName, protocolExtQName -> checkTypingGenericParameters(node, true)
-          literalQName, literalExtQName -> checkLiteralParameter(index)
+          literalQName, literalExtQName -> checkLiteralParameter(node.indexExpression ?: return@forEach)
           annotatedQName, annotatedExtQName -> {
             isAnnotated = true
             checkAnnotatedParameter(index)

@@ -99,17 +99,23 @@ internal class ReplaceMapKeysCallChainWithKeysInspection : KotlinApplicableInspe
 
         override fun applyFix(project: Project, element: KtQualifiedExpression, updater: ModPsiUpdater) {
             val callChainExpressions = CallChainExpressions.from(element) ?: return
-            val firstExpression = callChainExpressions.firstExpression as? KtQualifiedExpression ?: return
-            val receiverExpression = firstExpression.receiverExpression
-            val operationSign = if (firstExpression is KtSafeQualifiedExpression) "?." else "."
-
-            element.replace(
-                KtPsiFactory(project).createExpressionByPattern(
-                    "$0$operationSign$KEYS_PROPERTY_NAME",
-                    receiverExpression,
+            val psiFactory = KtPsiFactory(project)
+            val firstExpression = callChainExpressions.firstExpression
+            val replacement = when (firstExpression) {
+                is KtSafeQualifiedExpression -> psiFactory.createExpressionByPattern(
+                    "$0?.$KEYS_PROPERTY_NAME",
+                    firstExpression.receiverExpression,
                     reformat = false,
                 )
-            )
+                is KtQualifiedExpression -> psiFactory.createExpressionByPattern(
+                    "$0.$KEYS_PROPERTY_NAME",
+                    firstExpression.receiverExpression,
+                    reformat = false,
+                )
+                else -> psiFactory.createExpression(KEYS_PROPERTY_NAME)
+            }
+
+            element.replace(replacement)
         }
     }
 }

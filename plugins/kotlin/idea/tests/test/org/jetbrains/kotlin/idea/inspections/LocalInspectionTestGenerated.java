@@ -16143,6 +16143,21 @@ public abstract class LocalInspectionTestGenerated extends AbstractK1LocalInspec
             runTest("testData/inspectionsLocal/simplifyNestedEachInScope/alsoLabel3.kt");
         }
 
+        @TestMetadata("alsoLabeledOuterLambda.kt")
+        public void testAlsoLabeledOuterLambda() throws Exception {
+            runTest("testData/inspectionsLocal/simplifyNestedEachInScope/alsoLabeledOuterLambda.kt");
+        }
+
+        @TestMetadata("alsoNestedForEachLabel.kt")
+        public void testAlsoNestedForEachLabel() throws Exception {
+            runTest("testData/inspectionsLocal/simplifyNestedEachInScope/alsoNestedForEachLabel.kt");
+        }
+
+        @TestMetadata("alsoNestedReturnLabel.kt")
+        public void testAlsoNestedReturnLabel() throws Exception {
+            runTest("testData/inspectionsLocal/simplifyNestedEachInScope/alsoNestedReturnLabel.kt");
+        }
+
         @TestMetadata("apply.kt")
         public void testApply() throws Exception {
             runTest("testData/inspectionsLocal/simplifyNestedEachInScope/apply.kt");
@@ -16196,6 +16211,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractK1LocalInspec
         @TestMetadata("applyNestedApply.kt")
         public void testApplyNestedApply() throws Exception {
             runTest("testData/inspectionsLocal/simplifyNestedEachInScope/applyNestedApply.kt");
+        }
+
+        @TestMetadata("applyThisValueArgument.kt")
+        public void testApplyThisValueArgument() throws Exception {
+            runTest("testData/inspectionsLocal/simplifyNestedEachInScope/applyThisValueArgument.kt");
         }
     }
 
