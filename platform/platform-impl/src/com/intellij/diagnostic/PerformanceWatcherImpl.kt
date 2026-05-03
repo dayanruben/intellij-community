@@ -1,5 +1,5 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE")
+@file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE", "UseOptimizedEelFunctions")
 package com.intellij.diagnostic
 
 import com.intellij.diagnostic.PerformanceWatcherImpl.PerformanceWatcherSamplingTask
@@ -33,6 +33,7 @@ import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.util.text.StringUtilRt
 import com.intellij.platform.diagnostic.telemetry.Scope
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.SystemProperties
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.AppScheduledExecutorService
@@ -51,6 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -77,7 +79,6 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.coroutineContext
 import kotlin.io.path.fileSize
 import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.isRegularFile
@@ -98,8 +99,11 @@ private val ideStartTime = ZonedDateTime.now()
 
 private val EP_NAME = ExtensionPointName<PerformanceListener>("com.intellij.idePerformanceListener")
 
-internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope) : PerformanceWatcher() {
+internal class PerformanceWatcherImpl(providedScope: CoroutineScope) : PerformanceWatcher() {
   private val logDir = PathManager.getLogDir()
+
+  @OptIn(DelicateCoroutinesApi::class)
+  private val coroutineScope = providedScope.childScope("PerformanceWatcher", blockingDispatcher)
 
   @Volatile
   private var swingApdex = ApdexData.EMPTY
@@ -121,7 +125,6 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
     RegistryManager.getInstance().get("performance.watcher.maxDumpDuration.ms")
   }
 
-
   private val isActive: Boolean = !ApplicationManager.getApplication().isHeadlessEnvironment
   private var smokeAndMirrorsModalities: MutableList<ModalityStateEx> = mutableListOf()
 
@@ -130,7 +133,7 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
   init {
     if (isActive) {
       LOG.debug("Freeze detection started")
-      coroutineScope.launch(CoroutineName("EDT freeze detector")) {
+      coroutineScope.launch(CoroutineName("EDT Freeze Detector")) {
         asyncInit()
 
         taskFlow.collectLatest { task ->
@@ -143,6 +146,7 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
         }
       }
     }
+
     (Toolkit.getDefaultToolkit() as? SunToolkit)?.addModalityListener(object : ModalityListener {
       override fun modalityPushed(ev: ModalityEvent) { }
 
@@ -267,8 +271,8 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
     }
     swingApdex = swingApdex.withEvent(TOLERABLE_LATENCY, latencyMs)
 
-    for (listener in EP_NAME.extensionList) {
-      listener.uiResponded(latencyMs)
+    EP_NAME.forEachExtensionSafe {
+      it.uiResponded(latencyMs)
     }
   }
 
@@ -448,9 +452,10 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
       val reportDir = logDir.resolve(freezeFolder)
       Files.createDirectories(reportDir)
 
-      for (listener in EP_NAME.extensionList) {
-        listener.uiFreezeStarted(reportDir, coroutineScope)
+      EP_NAME.forEachExtensionSafe {
+        it.uiFreezeStarted(reportDir, coroutineScope)
       }
+
       val dumpTask = PerformanceWatcherSamplingTask(freezeFolder = freezeFolder, taskStart = taskStart)
       publisher?.uiFreezeStarted(reportDir)
 
@@ -466,15 +471,16 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
 
         val freezeFolder = task.freezeFolder
         val freezeDir = logDir.resolve(freezeFolder)
-        for (listener in EP_NAME.extensionList) {
-          listener.uiFreezeFinished(durationMs, freezeDir)
+
+        EP_NAME.forEachExtensionSafe {
+          it.uiFreezeFinished(durationMs, freezeDir)
         }
         publisher?.uiFreezeFinished(durationMs, freezeDir)
 
         val reportDir = postProcessReportFolder(durationMs = durationMs, task = task, dir = logDir.resolve(freezeFolder), logDir = logDir)
 
-        for (listener in EP_NAME.extensionList) {
-          listener.uiFreezeRecorded(durationMs, reportDir)
+        EP_NAME.forEachExtensionSafe {
+          it.uiFreezeRecorded(durationMs, reportDir)
         }
       }
     }
@@ -504,6 +510,7 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
       processingTask.join()
     }
 
+    @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun dumpedThreads(threadDump: ThreadDump) {
       threadInfos = threadInfos.add(threadDump.threadInfos)
 
@@ -514,11 +521,12 @@ internal class PerformanceWatcherImpl(private val coroutineScope: CoroutineScope
         Files.createDirectories(parent)
         Files.writeString(parent.resolve(DURATION_FILE_NAME), durationInSeconds.toString())
 
-        for (listener in EP_NAME.extensionList) {
-          coroutineContext.ensureActive()
-          listener.dumpedThreads(file, threadDump)
+        currentCoroutineContext().ensureActive()
+        EP_NAME.forEachExtensionSafe {
+          it.dumpedThreads(file, threadDump)
         }
-        coroutineContext.ensureActive()
+
+        currentCoroutineContext().ensureActive()
         publisher?.dumpedThreads(file, threadDump)
       }
       catch (e: IOException) {
@@ -648,6 +656,7 @@ private class CoroutineDispatcherWatcher(
   }
 }
 
+@Suppress("BlockingMethodInNonBlockingContext")
 private suspend fun postProcessReportFolder(durationMs: Long, task: PerformanceWatcherSamplingTask, dir: Path, logDir: Path): Path? {
   if (Files.notExists(dir)) {
     return null
@@ -703,11 +712,12 @@ private fun getFreezePlaceSuffix(task: PerformanceWatcherSamplingTask): String {
   return "-${sanitizeFileName(StringUtilRt.getShortName(element.className))}.${sanitizeFileName(element.methodName)}"
 }
 
+@Suppress("BlockingMethodInNonBlockingContext")
 private suspend fun reportCrashesIfAny() {
   val systemDir = Path.of(PathManager.getSystemPath())
   val appInfoFile = systemDir.resolve(APP_INFO_FILE_NAME)
   val pidFile = systemDir.resolve(PID_FILE_NAME)
-  // TODO: check jre in app info, not the current
+  // TODO: check JRE in application info, not the current
   // Only report if on JetBrains jre
   if (SystemInfo.isJetBrainsJvm && Files.isRegularFile(appInfoFile) && Files.isRegularFile(pidFile)) {
     val crashInfo = withContext(Dispatchers.IO) {
@@ -723,16 +733,14 @@ private suspend fun reportCrashesIfAny() {
         attachments += Attachment("crash.txt", crashInfo.jvmCrashContent).also { it.isIncluded = true }
       }
 
-      // include plugins list
+      // include plugin list
       attachments += Attachment(
         "plugins.txt",
-        PluginManagerCore.loadedPlugins
-          .asSequence()
-          .filter { it.isEnabled && !it.isBundled }
+        PluginManagerCore.loadedPlugins.asSequence()
+          .filter { !it.isBundled && !PluginManagerCore.isUpdatedBundledPlugin(it) }
           .map(::getPluginInfoByDescriptor)
           .filter(PluginInfo::isSafeToReport)
-          .map { "${it.id} (${it.version})" }
-          .joinToString(separator = "\n", "Extra plugins:\n")
+          .joinToString(separator = "\n", "Extra plugins:\n") { "${it.id} (${it.version})" }
       ).also { it.isIncluded = true }
 
       if (crashInfo.extraJvmLog != null) {
@@ -753,6 +761,7 @@ private suspend fun reportCrashesIfAny() {
                     ?: "<no crash info retrieved>" // actually should never happen, but it's better than throwing, at least attachments are reported
       val event = LogMessage(JBRCrash(), message, attachments)
       event.appInfo = Files.readString(appInfoFile)
+
       IdeaFreezeReporter.report(event)
       LifecycleUsageTriggerCollector.onCrashDetected()
     }
