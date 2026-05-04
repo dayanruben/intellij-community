@@ -336,9 +336,19 @@ private fun transitiveDependencyTrace(
   viaDependencyName: String,
   nestedTrace: DependencyTrace,
 ): DependencyTrace {
+  val nestedDescription = nestedTrace.description
   return DependencyTrace(
     cacheKey = "transitive|${descriptorLocation.moduleName}|${descriptorLocation.descriptorName}|$viaDependencyName|${nestedTrace.cacheKey}",
-    description = "${descriptorLocation.presentableName()} via dependency '$viaDependencyName' -> ${nestedTrace.description}",
+    description = buildString {
+      append(descriptorLocation.presentableName())
+      append("\nvia dependency '")
+      append(viaDependencyName)
+      append("' -> ")
+      append(nestedDescription)
+      if (!nestedDescription.endsWith(".")) {
+        append('.')
+      }
+    },
   )
 }
 

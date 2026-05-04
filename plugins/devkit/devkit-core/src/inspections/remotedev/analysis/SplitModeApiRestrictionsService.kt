@@ -140,7 +140,7 @@ class SplitModeApiRestrictionsService(private val coroutineScope: CoroutineScope
         return PredefinedModuleKindMatch(
           moduleKind = moduleKind,
           cacheKey = "descriptor|${module.name}|$descriptorRelativePath",
-          reasoning = "predefined module kind for descriptor '$descriptorRelativePath' in module '${module.name}'",
+          reasoning = "Predefined module kind for descriptor '$descriptorRelativePath' in module '${module.name}'",
         )
       }
     }
@@ -153,7 +153,7 @@ class SplitModeApiRestrictionsService(private val coroutineScope: CoroutineScope
           return PredefinedModuleKindMatch(
             moduleKind = moduleKind,
             cacheKey = "plugin|$pluginSelectorId",
-            reasoning = "predefined module kind for plugin/module id '$pluginSelectorId'",
+            reasoning = "Predefined module kind for plugin/module id '$pluginSelectorId'",
           )
         }
       }
@@ -163,7 +163,7 @@ class SplitModeApiRestrictionsService(private val coroutineScope: CoroutineScope
     return PredefinedModuleKindMatch(
       moduleKind = moduleKind,
       cacheKey = "module|${module.name}",
-      reasoning = "predefined module kind for module '${module.name}'",
+      reasoning = "Predefined module kind for module '${module.name}'",
     )
   }
 

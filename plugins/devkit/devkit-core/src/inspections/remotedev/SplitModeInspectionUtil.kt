@@ -16,6 +16,7 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.xml.XmlFile
+import com.intellij.xml.util.XmlStringUtil
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.Nls
@@ -33,14 +34,23 @@ import kotlin.time.Duration.Companion.seconds
 internal object SplitModeInspectionUtil {
   @Nls
   fun buildMixedModuleDependenciesMessage(reasoning: @NlsSafe String): String {
-    val baseMessage = DevKitBundle.message("inspection.remote.dev.mixed.dependencies.message")
-    val message = if (reasoning.isBlank()) {
-      baseMessage
-    }
-    else {
-      "$baseMessage\n\n$reasoning"
-    }
-    return replaceNewLinesWithHtmlBreaks(message)
+    val shortMessage = DevKitBundle.message("inspection.remote.dev.mixed.dependencies.message")
+    return buildDetailedPlainTextMessage(shortMessage, null, reasoning)
+  }
+
+  @Nls
+  fun buildModuleKindMismatchShortMessage(
+    apiName: @NlsSafe String,
+    expectedModuleKind: SplitModeApiRestrictionsService.ModuleKind,
+    actualModuleKind: ResolvedModuleKind,
+  ): String {
+    val baseMessage = DevKitBundle.message(
+      "inspection.api.usage.restricted.to.module.type.default.message",
+      apiName,
+      expectedModuleKind.id,
+      actualModuleKind.kind.id,
+    )
+    return "$baseMessage."
   }
 
   @Nls
@@ -50,42 +60,69 @@ internal object SplitModeInspectionUtil {
     actualModuleKind: ResolvedModuleKind,
     hint: @Nls String? = null,
   ): String {
-    val baseMessage = DevKitBundle.message(
-      "inspection.api.usage.restricted.to.module.type.default.message",
-      apiName,
-      expectedModuleKind.id,
-      actualModuleKind.kind.id,
-    )
-    val nonBlankHint = if (hint.isNullOrBlank()) null else hint
-    val reasoningText = actualModuleKind.reasoning
-    val reasoningMessage = if (reasoningText.isNotBlank()) {
-      DevKitBundle.message("inspection.api.usage.restricted.to.module.type.reasoning.message.suffix", reasoningText)
-    }
-    else {
-      null
-    }
-    if (nonBlankHint == null && reasoningMessage == null) {
-      return replaceNewLinesWithHtmlBreaks(baseMessage)
-    }
-
-    val message = buildString {
-      append(baseMessage)
-      append(".\n\n")
-      if (nonBlankHint != null) {
-        append(nonBlankHint)
-        if (reasoningMessage != null) {
-          append("\n\n")
-        }
-      }
-      if (reasoningMessage != null) {
-        append(reasoningMessage)
-      }
-    }
-    return replaceNewLinesWithHtmlBreaks(message)
+    val shortMessage = buildModuleKindMismatchShortMessage(apiName, expectedModuleKind, actualModuleKind)
+    return buildDetailedPlainTextMessage(shortMessage, hint, actualModuleKind.reasoning)
   }
 
-  private fun replaceNewLinesWithHtmlBreaks(message: String): String {
-    return message.replace("\n", "<br>")
+  fun buildModuleKindMismatchTooltipMessage(
+    apiName: @NlsSafe String,
+    expectedModuleKind: SplitModeApiRestrictionsService.ModuleKind,
+    actualModuleKind: ResolvedModuleKind,
+    hint: @Nls String? = null,
+  ): String {
+    val shortMessage = buildModuleKindMismatchShortMessage(apiName, expectedModuleKind, actualModuleKind)
+    return buildDetailedHtmlMessage(shortMessage, hint, actualModuleKind.reasoning)
+  }
+
+  private fun buildDetailedPlainTextMessage(
+    shortMessage: @Nls String,
+    hint: @Nls String?,
+    reasoning: @NlsSafe String,
+  ): String {
+    val nonBlankHint = if (hint.isNullOrBlank()) null else hint
+    val hasReasoning = reasoning.isNotBlank()
+    if (nonBlankHint == null && !hasReasoning) {
+      return shortMessage
+    }
+
+    return buildString {
+      append(shortMessage)
+      if (nonBlankHint != null) {
+        append("\n\n")
+        append(nonBlankHint)
+      }
+      if (hasReasoning) {
+        append("\n\n")
+        append(DevKitBundle.message("inspection.remote.dev.computed.module.kind.reasoning.heading"))
+        append("\n\n")
+        append(reasoning)
+      }
+    }
+  }
+
+  private fun buildDetailedHtmlMessage(
+    shortMessage: @Nls String,
+    hint: @Nls String?,
+    reasoning: @NlsSafe String,
+  ): String {
+    val escapedShortMessage = XmlStringUtil.escapeString(shortMessage)
+    val nonBlankHint = if (hint.isNullOrBlank()) null else hint
+    val escapedHint = if (nonBlankHint == null) null else XmlStringUtil.escapeString(nonBlankHint)
+    val hasReasoning = reasoning.isNotBlank()
+
+    return XmlStringUtil.wrapInHtml(buildString {
+      append(escapedShortMessage)
+      if (escapedHint != null) {
+        append("<br><br>")
+        append(escapedHint)
+      }
+      if (hasReasoning) {
+        append("<br><br><b>")
+        append(XmlStringUtil.escapeString(DevKitBundle.message("inspection.remote.dev.computed.module.kind.reasoning.heading")))
+        append("</b><br><br>")
+        append(XmlStringUtil.escapeString(reasoning).replace("\n", "<br>"))
+      }
+    })
   }
 
   fun ensureRestrictionsServiceIsLoaded(restrictionsService: SplitModeApiRestrictionsService): Boolean {

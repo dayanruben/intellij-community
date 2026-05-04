@@ -196,19 +196,6 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
     myFixture.addFileToProject("resources/light_idea_test_case.xml", pluginXmlContent)
   }
 
-  private fun configureByText(fileName: String, fileText: String) {
-    val expectedText = withHtmlBreaksInExpectedDescriptions(fileText)
-    myFixture.configureByText(fileName, expectedText)
-  }
-
-  private fun withHtmlBreaksInExpectedDescriptions(text: String): String {
-    val descriptionPattern = Regex("descr=\"([^\"]*)\"", setOf(RegexOption.DOT_MATCHES_ALL))
-    return descriptionPattern.replace(text) { matchResult ->
-      val description = matchResult.groupValues[1].replace("\n", "<br>")
-      "descr=\"$description\""
-    }
-  }
-
   fun testFrontendApiInBackendModule() {
     configurePluginXml(
       """
@@ -220,7 +207,7 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "BackendService.kt", """
       package com.example.backend
       
@@ -232,9 +219,9 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
       
       class CustomToolWindowFactory: <weak_warning descr="'com.intellij.openapi.wm.ToolWindowFactory' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-backend dependencies:
-dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">ToolWindowFactory</weak_warning> {}
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">ToolWindowFactory</weak_warning> {}
       
       class BackendService {
         fun doStuff() {
@@ -243,9 +230,9 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'l
           
           <weak_warning descr="'com.intellij.openapi.fileEditor.FileEditorManager.getFocusedEditor' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-backend dependencies:
-dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">FileEditorManager.getInstance().getFocusedEditor()</weak_warning>
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">FileEditorManager.getInstance().getFocusedEditor()</weak_warning>
         }
       }
     """.trimIndent()
@@ -262,7 +249,7 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'l
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "SharedLangModule.kt", """
       package com.example.shared
 
@@ -291,7 +278,7 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'l
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "SharedLangModule.kt", """
       package com.example.shared
 
@@ -301,8 +288,9 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'l
         fun test() {
           <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'shared'.
 
-Reason:
-predefined module kind for plugin/module id 'com.intellij.modules.lang'">VirtualFileManager</weak_warning>.getInstance()
+Computed module kind reasoning:
+
+Predefined module kind for plugin/module id 'com.intellij.modules.lang'">VirtualFileManager</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -322,7 +310,7 @@ predefined module kind for plugin/module id 'com.intellij.modules.lang'">Virtual
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "FrontendService.kt", """
       package com.example.frontend
       
@@ -338,9 +326,9 @@ predefined module kind for plugin/module id 'com.intellij.modules.lang'">Virtual
         fun doStuff() {
           <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-frontend dependencies:
-dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">VirtualFileManager</weak_warning>.getInstance()
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">VirtualFileManager</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -360,7 +348,7 @@ dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module '
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "BackendConfigurable.kt", """
       package com.example.backend
 
@@ -384,7 +372,7 @@ dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module '
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "BackendFileEditorListener.kt", """
       package com.example.backend
 
@@ -392,9 +380,9 @@ dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module '
 
       class BackendFileEditorListener : <weak_warning descr="'com.intellij.openapi.fileEditor.FileEditorManagerListener' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
 
-Reason:
-backend dependencies:
-dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">FileEditorManagerListener</weak_warning>
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">FileEditorManagerListener</weak_warning>
     """.trimIndent()
     )
 
@@ -412,7 +400,7 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'l
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "FrontendService.kt", """
       package com.example.frontend
       
@@ -428,9 +416,9 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'l
         fun doStuff() {
           <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-frontend dependencies:
-dependency 'intellij.platform.frontend' from descriptor 'light_idea_test_case.xml' in module 'light_idea_test_case'">VirtualFileManager</weak_warning>.getInstance()
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'light_idea_test_case.xml' in module 'light_idea_test_case'">VirtualFileManager</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -450,7 +438,7 @@ dependency 'intellij.platform.frontend' from descriptor 'light_idea_test_case.xm
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "FrontendService.kt", """
       package com.example.frontend
       
@@ -460,9 +448,9 @@ dependency 'intellij.platform.frontend' from descriptor 'light_idea_test_case.xm
         fun doStuff() {
           <weak_warning descr="'com.example.annotated.AnnotatedBackendApi' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-frontend dependencies:
-dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">AnnotatedBackendApi</weak_warning>.getInstance()
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">AnnotatedBackendApi</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -482,7 +470,7 @@ dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module '
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "BackendService.kt", """
       package com.example.backend
       
@@ -492,9 +480,9 @@ dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module '
         fun doStuff() {
           <weak_warning descr="'com.example.annotated.AnnotatedFrontendApi' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-backend dependencies:
-dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">AnnotatedFrontendApi</weak_warning>.getInstance()
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">AnnotatedFrontendApi</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -515,7 +503,7 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'l
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "SharedService.kt", """
       package com.example.shared
       
@@ -527,15 +515,17 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'l
         fun testFrontendApi() {
           class MyToolWindow: <weak_warning descr="'com.intellij.openapi.wm.ToolWindowFactory' can only be used in 'frontend' module type. Actual module type is 'shared'.
 
-Reason:
-no frontend or backend dependencies were found for module 'light_idea_test_case'">ToolWindowFactory</weak_warning> {}
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'light_idea_test_case'">ToolWindowFactory</weak_warning> {}
         }
         
         fun testBackendApi() {
           <weak_warning descr="'com.intellij.openapi.vfs.VirtualFileManager' can only be used in 'backend' module type. Actual module type is 'shared'.
 
-Reason:
-no frontend or backend dependencies were found for module 'light_idea_test_case'">VirtualFileManager</weak_warning>.getInstance()
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'light_idea_test_case'">VirtualFileManager</weak_warning>.getInstance()
         }
       }
     """.trimIndent()
@@ -556,7 +546,7 @@ no frontend or backend dependencies were found for module 'light_idea_test_case'
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "MixedService.kt", """
       package com.example.mixed
 
@@ -589,7 +579,7 @@ no frontend or backend dependencies were found for module 'light_idea_test_case'
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "MonolithService.kt", """
       package com.example.monolith
 
@@ -622,7 +612,7 @@ no frontend or backend dependencies were found for module 'light_idea_test_case'
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "SharedFrontendService.kt", """
       package com.example.shared
 
@@ -659,7 +649,7 @@ no frontend or backend dependencies were found for module 'light_idea_test_case'
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "BackendService.kt", """
       package com.example.backend
 
@@ -701,7 +691,7 @@ no frontend or backend dependencies were found for module 'light_idea_test_case'
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "FrontendService.kt", """
       package com.example.frontend
 
@@ -742,7 +732,7 @@ no frontend or backend dependencies were found for module 'light_idea_test_case'
     """.trimIndent()
     )
 
-    configureByText(
+    myFixture.configureByText(
       "FrontendService.kt", """
       package com.example.frontend
 

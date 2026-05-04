@@ -15,8 +15,9 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NotNull
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.idea.devkit.inspections.DevKitUastInspectionBase
-import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeModuleKindResolver.doesApiKindMatchExpectedModuleKind
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeInspectionUtil.buildModuleKindMismatchMessage
+import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeInspectionUtil.buildModuleKindMismatchTooltipMessage
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeModuleKindResolver.doesApiKindMatchExpectedModuleKind
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.ModuleAnalysis
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeModuleKindResolver
@@ -116,16 +117,19 @@ class SplitModeApiUsageInspection : DevKitUastInspectionBase(UClass::class.java,
       val sourcePsi = expression.sourcePsi ?: return
       val hint = SplitModeApiRestrictionsService.getInstance().getCodeApiHint(resolvedApi.qualifiedName)
       val message = buildModuleKindMismatchMessage(resolvedApi.qualifiedName, expectedModuleKind, currentModuleType, hint)
+      val tooltipMessage = buildModuleKindMismatchTooltipMessage(resolvedApi.qualifiedName, expectedModuleKind, currentModuleType, hint)
       val module = ModuleUtilCore.findModuleForPsiElement(sourcePsi) ?: return
       val fixes = SplitModeDependencyQuickFixes.createMismatchFixes(module, null, expectedModuleKind)
 
       descriptors.add(
         manager.createProblemDescriptor(
           sourcePsi,
+          null,
           message,
+          ProblemHighlightType.WEAK_WARNING,
+          tooltipMessage,
           isOnTheFly,
-          fixes,
-          ProblemHighlightType.WEAK_WARNING
+          *fixes,
         )
       )
     }
@@ -161,11 +165,10 @@ class SplitModeApiUsageInspection : DevKitUastInspectionBase(UClass::class.java,
           PsiTypesUtil.getPsiClass(expression.returnType)?.qualifiedName
         }
         else {
-          expression.resolve()?.let { resolved ->
-            when {
-              resolved is PsiClass -> resolved.qualifiedName
-              else -> PsiTypesUtil.getPsiClass((resolved as? UMethod)?.returnType)?.qualifiedName
-            }
+          val resolved = expression.resolve() ?: return null
+          when {
+            resolved is PsiClass -> resolved.qualifiedName
+            else -> PsiTypesUtil.getPsiClass((resolved as? UMethod)?.returnType)?.qualifiedName
           }
         }
       }

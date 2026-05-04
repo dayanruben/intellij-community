@@ -46,9 +46,9 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-backend dependencies:
-dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.1'">typedHandler</warning>/>
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.1'">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -70,9 +70,9 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'u
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-frontend dependencies:
-dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.2'">localInspection</warning>/>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.2'">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -139,8 +139,9 @@ dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module '
             <typedHandler/>
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-predefined module kind for module 'intellij.platform.frontend'">localInspection</warning>/>
+Computed module kind reasoning:
+
+Predefined module kind for module 'intellij.platform.frontend'">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -163,12 +164,14 @@ predefined module kind for module 'intellij.platform.frontend'">localInspection<
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'shared'.
 
-Reason:
-no frontend or backend dependencies were found for module 'unique.module.name.3'">typedHandler</warning>/>
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'unique.module.name.3'">typedHandler</warning>/>
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
 
-Reason:
-no frontend or backend dependencies were found for module 'unique.module.name.3'">localInspection</warning>/>
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'unique.module.name.3'">localInspection</warning>/>
             <lang.parserDefinition/>
           </extensions>
         </idea-plugin>
@@ -191,9 +194,9 @@ no frontend or backend dependencies were found for module 'unique.module.name.3'
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-frontend dependencies:
-dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.4.xml' in module 'unique.module.name.4'">localInspection<caret></warning>/>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.4.xml' in module 'unique.module.name.4'">localInspection<caret></warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -231,9 +234,10 @@ dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.4.xm
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-module declares no own FE/BE dependencies, but the containing plugin.xml files do:
-module 'unique.module.name.5'  -> backend">typedHandler</warning>/>
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.5'  -> backend">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -282,16 +286,18 @@ module 'unique.module.name.5'  -> backend">typedHandler</warning>/>
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'shared'.
 
-Reason:
-module declares no own FE/BE dependencies, but the containing plugin.xml files do:
-module 'unique.module.name.7'  -> frontend
-module 'unique.module.name.8'  -> backend">typedHandler</warning>/>
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.7'  -> frontend
+Module 'unique.module.name.8'  -> backend">typedHandler</warning>/>
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
 
-Reason:
-module declares no own FE/BE dependencies, but the containing plugin.xml files do:
-module 'unique.module.name.7'  -> frontend
-module 'unique.module.name.8'  -> backend">localInspection</warning>/>
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.7'  -> frontend
+Module 'unique.module.name.8'  -> backend">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -308,8 +314,11 @@ module 'unique.module.name.8'  -> backend">localInspection</warning>/>
       """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.10'
-backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.10'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.10'
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.10'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.frontend"/>
             <module name="intellij.platform.backend"/>
@@ -380,9 +389,10 @@ backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in m
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-frontend dependencies:
-dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.24' via dependency 'unique.module.name.23' -> descriptor 'unique.module.name.23.xml' in module 'unique.module.name.23'">localInspection</warning>/>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.24'
+via dependency 'unique.module.name.23' -> descriptor 'unique.module.name.23.xml' in module 'unique.module.name.23'.">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -422,9 +432,10 @@ dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module '
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-frontend dependencies:
-dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.41' via dependency 'unique.module.name.40' -> required content module predefined module kind for module 'intellij.platform.frontend'">localInspection</warning>/>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.41'
+via dependency 'unique.module.name.40' -> required content module Predefined module kind for module 'intellij.platform.frontend'.">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -494,10 +505,11 @@ dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module '
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-module declares no own FE/BE dependencies, but the containing plugin.xml files do:
-module 'unique.module.name.14'  -> frontend
-module 'unique.module.name.15'  -> frontend">localInspection</warning>/>
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.14'  -> frontend
+Module 'unique.module.name.15'  -> frontend">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -543,9 +555,10 @@ module 'unique.module.name.15'  -> frontend">localInspection</warning>/>
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-module declares no own FE/BE dependencies, but the containing plugin.xml files do:
-module 'unique.module.name.17'  -> backend">typedHandler</warning>/>
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.17'  -> backend">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -579,9 +592,10 @@ module 'unique.module.name.17'  -> backend">typedHandler</warning>/>
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
 
-Reason:
-module declares no own FE/BE dependencies, but the containing plugin.xml files do:
-module 'unique.module.name.42'  -> shared">localInspection</warning>/>
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.42'  -> shared">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -603,9 +617,10 @@ module 'unique.module.name.42'  -> shared">localInspection</warning>/>
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-module declares no own FE/BE dependencies, but the containing plugin.xml files do:
-module 'unique.module.name.20'  -> backend">typedHandler</warning>/>
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.20'  -> backend">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -636,8 +651,11 @@ module 'unique.module.name.20'  -> backend">typedHandler</warning>/>
       """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.21.xml' in module 'unique.module.name.21'
-backend dependency 'intellij.platform.backend' from containing plugin descriptor 'unique.module.name.22.xml' in module 'unique.module.name.22'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.21.xml' in module 'unique.module.name.21'
+
+Backend dependency 'intellij.platform.backend' from containing plugin descriptor 'unique.module.name.22.xml' in module 'unique.module.name.22'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.frontend"/>
           </dependencies>
@@ -682,9 +700,10 @@ backend dependency 'intellij.platform.backend' from containing plugin descriptor
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
 
-Reason:
-frontend dependencies:
-dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.25' via dependency 'unique.module.name.26' -> descriptor 'unique.module.name.26.xml' in module 'unique.module.name.26'">localInspection</warning>/>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.25'
+via dependency 'unique.module.name.26' -> descriptor 'unique.module.name.26.xml' in module 'unique.module.name.26'.">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -730,9 +749,10 @@ dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module '
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-module declares no own FE/BE dependencies, but the containing plugin.xml files do:
-module 'unique.module.name.27'  -> backend">typedHandler</warning>/>
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.27'  -> backend">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -763,9 +783,10 @@ module 'unique.module.name.27'  -> backend">typedHandler</warning>/>
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-module declares no own FE/BE dependencies, but the containing plugin.xml files do:
-module 'unique.module.name.37'  -> backend">typedHandler</warning>/>
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.37'  -> backend">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -809,9 +830,9 @@ module 'unique.module.name.37'  -> backend">typedHandler</warning>/>
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-backend dependencies:
-dependency 'intellij.platform.backend' from required content module descriptor 'unique.module.name.28.xml' in module 'unique.module.name.28'">typedHandler</warning>/>
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from required content module descriptor 'unique.module.name.28.xml' in module 'unique.module.name.28'">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -850,8 +871,11 @@ dependency 'intellij.platform.backend' from required content module descriptor '
       """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'intellij.platform.frontend' from required content module descriptor 'unique.module.name.31.xml' in module 'unique.module.name.31'
-backend dependency 'intellij.platform.backend' from embedded content module descriptor 'unique.module.name.32.xml' in module 'unique.module.name.32'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from required content module descriptor 'unique.module.name.31.xml' in module 'unique.module.name.31'
+
+Backend dependency 'intellij.platform.backend' from embedded content module descriptor 'unique.module.name.32.xml' in module 'unique.module.name.32'">idea-plugin</error>>
           <content>
             <module name="unique.module.name.31" loading="required"/>
             <module name="unique.module.name.32" loading="embedded"/>
@@ -887,8 +911,11 @@ backend dependency 'intellij.platform.backend' from embedded content module desc
       """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.35.xml' in module 'unique.module.name.35'
-backend dependency 'intellij.platform.backend' from containing plugin required content module descriptor 'unique.module.name.36.xml' in module 'unique.module.name.36'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.35.xml' in module 'unique.module.name.35'
+
+Backend dependency 'intellij.platform.backend' from containing plugin required content module descriptor 'unique.module.name.36.xml' in module 'unique.module.name.36'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.frontend"/>
           </dependencies>
@@ -928,9 +955,10 @@ backend dependency 'intellij.platform.backend' from containing plugin required c
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
-Reason:
-backend dependencies:
-dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.39' via dependency 'unique.module.name.40' -> descriptor 'unique.module.name.40.xml' in module 'unique.module.name.40'">typedHandler</warning>/>
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.39'
+via dependency 'unique.module.name.40' -> descriptor 'unique.module.name.40.xml' in module 'unique.module.name.40'.">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -988,8 +1016,9 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'u
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend' module type. Actual module type is 'shared'.
 
-Reason:
-no frontend or backend dependencies were found for module 'unique.module.name.45'">typedHandler</warning>/>
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'unique.module.name.45'">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -1028,8 +1057,9 @@ no frontend or backend dependencies were found for module 'unique.module.name.45
           <extensions defaultExtensionNs="com.intellij">
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
 
-Reason:
-no frontend or backend dependencies were found for module 'unique.module.name.47'">localInspection</warning>/>
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'unique.module.name.47'">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -1055,9 +1085,9 @@ no frontend or backend dependencies were found for module 'unique.module.name.47
 
 Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
 
-Reason:
-backend dependencies:
-dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.48'">lang.parserDefinition</warning>/>
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.48'">lang.parserDefinition</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -1085,9 +1115,8 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'u
                                 JavaResourceRootType.RESOURCE)
       addedModule
     }
-    val expectedContent = withHtmlBreaksInExpectedDescriptions(pluginXmlContent)
     val createdDescriptorFile =
-      myFixture.addFileToProject("$moduleName/$resourceRootDirectoryName/$descriptorRelativePathToResourcesDirectory", expectedContent)
+      myFixture.addFileToProject("$moduleName/$resourceRootDirectoryName/$descriptorRelativePathToResourcesDirectory", pluginXmlContent)
     Assert.assertNotNull("XML descriptor for module $moduleName was not created", createdDescriptorFile)
     if (descriptorRelativePathToResourcesDirectory == "META-INF/plugin.xml") {
       val buildConfiguration = PluginBuildConfiguration.getInstance(targetModule)
@@ -1095,13 +1124,5 @@ dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'u
       buildConfiguration!!.setPluginXmlFromVirtualFile(createdDescriptorFile!!.virtualFile)
     }
     return createdDescriptorFile!!
-  }
-
-  private fun withHtmlBreaksInExpectedDescriptions(text: String): String {
-    val descriptionPattern = Regex("descr=\"([^\"]*)\"", setOf(RegexOption.DOT_MATCHES_ALL))
-    return descriptionPattern.replace(text) { matchResult ->
-      val description = matchResult.groupValues[1].replace("\n", "<br>")
-      "descr=\"$description\""
-    }
   }
 }

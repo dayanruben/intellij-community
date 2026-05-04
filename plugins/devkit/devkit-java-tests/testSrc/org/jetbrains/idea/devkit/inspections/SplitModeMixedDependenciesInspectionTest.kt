@@ -41,8 +41,11 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
       pluginXmlContent = """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.17'
-backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.17'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.17'
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.17'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.frontend"/>
             <module name="intellij.platform.rpc.split"/>
@@ -63,8 +66,11 @@ backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in m
       pluginXmlContent = """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'com.intellij.jetbrains.client' from descriptor 'plugin.xml' in module 'unique.module.name.18'
-backend dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml' in module 'unique.module.name.18'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'com.intellij.jetbrains.client' from descriptor 'plugin.xml' in module 'unique.module.name.18'
+
+Backend dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml' in module 'unique.module.name.18'">idea-plugin</error>>
           <dependencies>
             <plugin id="com.intellij.jetbrains.client"/>
             <plugin id="com.jetbrains.remoteDevelopment"/>
@@ -84,8 +90,11 @@ backend dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml
       pluginXmlContent = """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'com.intellij.jetbrains.client' from descriptor 'plugin.xml' in module 'unique.module.name.28'
-backend dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml' in module 'unique.module.name.28'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'com.intellij.jetbrains.client' from descriptor 'plugin.xml' in module 'unique.module.name.28'
+
+Backend dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml' in module 'unique.module.name.28'">idea-plugin</error>>
           <depends>com.intellij.jetbrains.client</depends>
           <depends>com.jetbrains.remoteDevelopment</depends>
         </idea-plugin>
@@ -103,8 +112,11 @@ backend dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml
       pluginXmlContent = """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'intellij.platform.frontend.split' from descriptor 'unique.module.name.19.xml' in module 'unique.module.name.19'
-backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.module.name.19.xml' in module 'unique.module.name.19'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend.split' from descriptor 'unique.module.name.19.xml' in module 'unique.module.name.19'
+
+Backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.module.name.19.xml' in module 'unique.module.name.19'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.frontend.split"/>
             <module name="intellij.platform.kernel.backend"/>
@@ -158,8 +170,11 @@ backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.mo
       pluginXmlContent = """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'intellij.platform.plugins.frontend.split' from descriptor 'unique.module.name.22.xml' in module 'unique.module.name.22'
-backend dependency 'intellij.platform.backend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.21'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.plugins.frontend.split' from descriptor 'unique.module.name.22.xml' in module 'unique.module.name.22'
+
+Backend dependency 'intellij.platform.backend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.21'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.plugins.frontend.split"/>
           </dependencies>
@@ -193,8 +208,11 @@ backend dependency 'intellij.platform.backend' from containing plugin descriptor
       pluginXmlContent = """
         <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
-frontend dependency 'intellij.platform.frontend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.23'
-backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.module.name.24.xml' in module 'unique.module.name.24'">idea-plugin</error>>
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.23'
+
+Backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.module.name.24.xml' in module 'unique.module.name.24'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.kernel.backend"/>
           </dependencies>
@@ -392,8 +410,7 @@ backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.mo
       myFixture.tempDirFixture.findOrCreateDir("$moduleName/resources"),
       JavaResourceRootType.RESOURCE,
     )
-    val expectedContent = withHtmlBreaksInExpectedDescriptions(pluginXmlContent)
-    val createdDescriptorFile = myFixture.addFileToProject("$moduleName/resources/$descriptorRelativePathToResourcesDirectory", expectedContent)
+    val createdDescriptorFile = myFixture.addFileToProject("$moduleName/resources/$descriptorRelativePathToResourcesDirectory", pluginXmlContent)
     Assert.assertNotNull("XML descriptor for module $moduleName was not created", createdDescriptorFile)
     if (descriptorRelativePathToResourcesDirectory == "META-INF/plugin.xml") {
       val buildConfiguration = PluginBuildConfiguration.getInstance(addedModule)
@@ -401,13 +418,5 @@ backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.mo
       buildConfiguration!!.setPluginXmlFromVirtualFile(createdDescriptorFile!!.virtualFile)
     }
     return createdDescriptorFile!!
-  }
-
-  private fun withHtmlBreaksInExpectedDescriptions(text: String): String {
-    val descriptionPattern = Regex("descr=\"([^\"]*)\"", setOf(RegexOption.DOT_MATCHES_ALL))
-    return descriptionPattern.replace(text) { matchResult ->
-      val description = matchResult.groupValues[1].replace("\n", "<br>")
-      "descr=\"$description\""
-    }
   }
 }

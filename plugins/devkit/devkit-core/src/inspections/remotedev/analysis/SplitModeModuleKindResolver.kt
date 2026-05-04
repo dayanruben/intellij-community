@@ -211,24 +211,30 @@ private class DependencyAnalysis(
                                       && (isBackendModuleByConvention || hasBackendDependencies)
 
   fun buildOwnReasoning(kind: SplitModeApiRestrictionsService.ModuleKind, explicitOnly: Boolean): String {
-    val evidence = collectOwnReasoningEvidence(kind, explicitOnly)
-    return "${getReasoningLabel(kind)}:\n${evidence.joinToString("\n")}"
+    return collectOwnReasoningLines(kind, explicitOnly).joinToString("\n")
   }
 
   fun buildMixedReasoning(): String {
-    return collectDependencyLines(SplitModeApiRestrictionsService.ModuleKind.FRONTEND)
-      .plus(collectDependencyLines(SplitModeApiRestrictionsService.ModuleKind.BACKEND))
-      .joinToString("\n")
+    val frontendLines = collectDependencyLines(SplitModeApiRestrictionsService.ModuleKind.FRONTEND)
+    val backendLines = collectDependencyLines(SplitModeApiRestrictionsService.ModuleKind.BACKEND)
+    val sections = mutableListOf<String>()
+    if (frontendLines.isNotEmpty()) {
+      sections.add(frontendLines.joinToString("\n"))
+    }
+    if (backendLines.isNotEmpty()) {
+      sections.add(backendLines.joinToString("\n"))
+    }
+    return sections.joinToString("\n\n")
   }
 
   fun buildContainingPluginsReasoning(): String {
     if (containingPlugins.isEmpty()) {
-      return "no containing plugin descriptors were found"
+      return "No containing plugin descriptors were found"
     }
 
-    return "module declares no own FE/BE dependencies, but the containing plugin.xml files do:\n${
+    return "Module declares no own FE/BE dependencies, but the containing plugin.xml files do:\n${
       containingPlugins.sortedBy { it.moduleName }.joinToString("\n") { containingPlugin ->
-        "module '${containingPlugin.moduleName}'  -> ${containingPlugin.moduleKind.kind.id}"
+        "Module '${containingPlugin.moduleName}'  -> ${containingPlugin.moduleKind.kind.id}"
       }
     }"
   }
@@ -243,35 +249,37 @@ private class DependencyAnalysis(
       containingFacts.monolithEvidence?.name,
     ).distinct()
     if (dependencyNames.isEmpty()) {
-      return "no frontend or backend dependencies were found for module '$moduleName'"
+      return "No frontend or backend dependencies were found for module '$moduleName'"
     }
 
-    return "no frontend or backend dependencies were found among:\n${dependencyNames.joinToString("\n") { dependencyName -> "'$dependencyName'" }}"
+    return "No frontend or backend dependencies were found among:\n${dependencyNames.joinToString("\n") { dependencyName -> "'$dependencyName'" }}"
   }
 
-  private fun collectOwnReasoningEvidence(
+  private fun collectOwnReasoningLines(
     kind: SplitModeApiRestrictionsService.ModuleKind,
     explicitOnly: Boolean,
   ): List<String> {
-    val evidence = mutableListOf<String>()
+    val lines = mutableListOf<String>()
+    val kindName = getReasoningKindName(kind)
     if (followsModuleKindNamingConvention(kind)) {
-      evidence.add("module name '$moduleName'")
+      lines.add("$kindName indicator: module name '$moduleName'")
     }
     val dependencyInfo = ownFacts.evidence(kind)
     if (dependencyInfo != null && (!explicitOnly || isExplicitDependency(kind, dependencyInfo.name))) {
-      evidence.add("dependency '${dependencyInfo.name}' from ${dependencyInfo.originDescription}")
+      lines.add("$kindName dependency '${dependencyInfo.name}' from ${dependencyInfo.originDescription}")
     }
-    return evidence
+    return lines
   }
 
   private fun collectDependencyLines(kind: SplitModeApiRestrictionsService.ModuleKind): List<String> {
     val lines = mutableListOf<String>()
+    val kindName = getReasoningKindName(kind)
     if (followsModuleKindNamingConvention(kind)) {
-      lines.add("${kind.id} indicator: module name '$moduleName'")
+      lines.add("$kindName indicator: module name '$moduleName'")
     }
     val dependencyInfo = ownFacts.evidence(kind) ?: containingFacts.evidence(kind)
     if (dependencyInfo != null) {
-      lines.add("${kind.id} dependency '${dependencyInfo.name}' from ${dependencyInfo.originDescription}")
+      lines.add("$kindName dependency '${dependencyInfo.name}' from ${dependencyInfo.originDescription}")
     }
     return lines
   }
@@ -293,11 +301,11 @@ private class DependencyAnalysis(
     }
   }
 
-  private fun getReasoningLabel(kind: SplitModeApiRestrictionsService.ModuleKind): String {
+  private fun getReasoningKindName(kind: SplitModeApiRestrictionsService.ModuleKind): String {
     return when (kind) {
-      SplitModeApiRestrictionsService.ModuleKind.FRONTEND -> "frontend dependencies"
-      SplitModeApiRestrictionsService.ModuleKind.BACKEND -> "backend dependencies"
-      SplitModeApiRestrictionsService.ModuleKind.MONOLITH -> "monolith dependencies"
+      SplitModeApiRestrictionsService.ModuleKind.FRONTEND -> "Frontend"
+      SplitModeApiRestrictionsService.ModuleKind.BACKEND -> "Backend"
+      SplitModeApiRestrictionsService.ModuleKind.MONOLITH -> "Monolith"
       else -> error("Unsupported module kind for reasoning: $kind")
     }
   }
