@@ -62,6 +62,12 @@
       language="Requirements"
       implementationClass="com.jetbrains.python.requirements.RequirementsCommenter"/>
     <multiHostInjector implementation="com.jetbrains.python.requirements.injection.TomlRequirementsLanguageInjector"/>
+    <platform.backend.documentation.psiTargetProvider
+        implementation="com.jetbrains.python.requirements.RequirementsDocumentationProvider"/>
+    <platform.backend.documentation.linkHandler
+        implementation="com.jetbrains.python.requirements.RequirementDocumentationLinkHandler"/>
+    <psi.referenceContributor language="Requirements"
+                              implementation="com.jetbrains.python.requirements.RequirementsReferenceContributor"/>
 
     <codeInsight.declarativeInlayProvider group="TYPES_GROUP"
                                           bundle="messages.PyPsiBundle"

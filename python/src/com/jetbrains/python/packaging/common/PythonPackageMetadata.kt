@@ -79,3 +79,27 @@ suspend fun Sdk.loadInstalledPackagesMetadata(): PyResult<Map<PyPackageName, Pyt
     .getOr { return it }
   return PythonPackageMetadataParser.parse(output)
 }
+
+/**
+ * Picks the most informative `Project-URL:` entry: Homepage > Documentation > Source > Repository,
+ * matched case-insensitively against METADATA's keys. The returned [ProjectUrl.label] is the
+ * canonical capitalisation from the priority list, even when METADATA spelled the key differently.
+ */
+@ApiStatus.Internal
+fun PythonPackageMetadata.preferredProjectUrl(): ProjectUrl? {
+  if (projectUrls.isEmpty()) return null
+  for (priority in PROJECT_URL_PRIORITY) {
+    val match = projectUrls.entries.firstOrNull { it.key.equals(priority, ignoreCase = true) && it.value.isNotBlank() }
+    if (match != null) return ProjectUrl(priority, match.value)
+  }
+  return null
+}
+
+@ApiStatus.Internal
+data class ProjectUrl(
+  val label: @NlsSafe String,
+  val url: @NlsSafe String,
+)
+
+private val PROJECT_URL_PRIORITY: List<String> = listOf("Homepage", "Documentation", "Source", "Repository")
+internal const val DEFAULT_PROJECT_URL_LABEL: String = "Repository"

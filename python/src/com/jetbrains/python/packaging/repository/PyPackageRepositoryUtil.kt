@@ -11,6 +11,7 @@ import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.getOrNull
 import com.jetbrains.python.packaging.PyPIPackageUtil
 import com.jetbrains.python.packaging.PyPackageVersionComparator
+import com.jetbrains.python.packaging.common.ProjectUrl
 import com.jetbrains.python.packaging.common.PythonPackageDetails
 import com.jetbrains.python.packaging.common.PythonSimplePackageDetails
 import com.jetbrains.python.packaging.pip.PypiPackageCache
@@ -45,6 +46,8 @@ object PyPIPackageRepository : PyPackageRepository("PyPI", PyPIPackageUtil.PYPI_
   override fun getPackages(): Set<String> {
     return service<PypiPackageCache>().packages
   }
+
+  override fun getProjectUrl(packageName: String): ProjectUrl = ProjectUrl(name, PyPIPackageUtil.buildProjectUrl(packageName))
 
   override fun buildPackageDetails(packageName: String): PyResult<PythonPackageDetails> {
     super.buildPackageDetails(packageName).getOrNull()?.let {
