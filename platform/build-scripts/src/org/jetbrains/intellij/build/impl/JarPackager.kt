@@ -307,6 +307,7 @@ class JarPackager private constructor(
     val useTestModuleOutput = helper.isTestPluginModule(moduleName, module)
     val moduleOutputRoots = context.outputProvider.getModuleOutputRoots(module, forTests = useTestModuleOutput)
     val extraExcludes = layout?.moduleExcludes?.get(moduleName) ?: emptyList()
+    val filterCacheKey = if (extraExcludes.isEmpty()) emptyList() else extraExcludes.toSortedSet().toList()
 
     val packToDir = context.options.isUnpackedDist &&
                     !item.relativeOutputFile.contains('/') &&
@@ -361,7 +362,7 @@ class JarPackager private constructor(
     }
 
     for (moduleOutDir in moduleOutputRoots) {
-      val source = createModuleSource(module, moduleOutDir, excludes)
+      val source = createModuleSource(module = module, outputDir = moduleOutDir, excludes = excludes, filterCacheKey = filterCacheKey)
       if (source != null) {
         moduleSources.add(source)
       }
@@ -845,7 +846,7 @@ private fun getLibraryFiles(library: JpsLibrary, copiedFiles: MutableMap<CopiedF
   return files
 }
 
-private fun nameToJarFileName(name: String): String = sanitizeFileName(name.lowercase(), replacement = "-") { it == ' '} + ".jar"
+private fun nameToJarFileName(name: String): String = sanitizeFileName(name.lowercase(), replacement = "-") { it == ' ' } + ".jar"
 
 @Suppress("SpellCheckingInspection", "RedundantSuppression")
 private val excludedFromMergeLibs = setOf(
@@ -1183,7 +1184,7 @@ suspend fun buildJar(targetFile: Path, moduleNames: List<String>, context: Compi
   }
 }
 
-private fun createModuleSource(module: JpsModule, outputDir: Path, excludes: List<PathMatcher>): Source? {
+private fun createModuleSource(module: JpsModule, outputDir: Path, excludes: List<PathMatcher>, filterCacheKey: List<String> = emptyList()): Source? {
   val attributes = try {
     Files.readAttributes(outputDir, BasicFileAttributes::class.java)
   }
@@ -1192,8 +1193,14 @@ private fun createModuleSource(module: JpsModule, outputDir: Path, excludes: Lis
   }
 
   return when {
-    attributes != null && attributes.isDirectory -> DirSource(dir = outputDir, excludes = excludes, moduleName = module.name)
-    attributes != null -> ZipSource(file = outputDir, distributionFileEntryProducer = null, filter = createModuleSourcesNamesFilter(excludes), moduleName = module.name)
+    attributes != null && attributes.isDirectory -> DirSource(dir = outputDir, excludes = excludes, moduleName = module.name, filterCacheKey = filterCacheKey)
+    attributes != null -> ZipSource(
+      file = outputDir,
+      distributionFileEntryProducer = null,
+      filter = createModuleSourcesNamesFilter(excludes),
+      moduleName = module.name,
+      filterCacheKey = filterCacheKey,
+    )
     module.sourceRoots.any { !it.rootType.isForTests } -> error("Module ${module.name} output does not exist: $outputDir")
     else -> null
   }
