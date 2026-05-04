@@ -37,13 +37,13 @@ internal class InvisibleHyperlinkHintManager(private val editor: Editor, parentD
 
   private var hintInfo: HintInfo? = null
 
-  // As the editor is focused on mousePressed and popup is shown on mouseReleased,
-  // we need to capture the editor focus state.
   private var wasEditorFocusedBeforePopupShown: Boolean = false
 
   init {
     editor.addEditorMouseListener(object: EditorMouseListener {
       override fun mousePressed(event: EditorMouseEvent) {
+        // Capture editor focus state before editor's mousePressed grabs focus.
+        // The popup is shown later on mouseReleased.
         wasEditorFocusedBeforePopupShown = editor.contentComponent.isFocusOwner
       }
     }, parentDisposable)
