@@ -10,7 +10,6 @@ import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.JavaParameters;
 import com.intellij.execution.configurations.RemoteConnection;
 import com.intellij.ide.plugins.PluginManagerCore;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
@@ -118,26 +117,24 @@ public class RemoteConnectionBuilder {
 
     final String _debuggeeRunProperties = debuggeeRunProperties.toString();
 
-    ApplicationManager.getApplication().runReadAction(() -> {
-      addRtJar(parameters.getClassPath());
+    addRtJar(parameters.getClassPath());
 
-      if (myAsyncAgent) {
-        AsyncStacksUtils.addDebuggerAgent(parameters, myProject, true, null, myMatchWithExecutionTarget);
+    if (myAsyncAgent) {
+      AsyncStacksUtils.addDebuggerAgent(parameters, myProject, true, null, myMatchWithExecutionTarget);
+    }
+
+    if (DebuggerSettings.getInstance().ENABLE_MEMORY_AGENT) {
+      var version = JavaSdkVersionUtil.getJavaSdkVersion(parameters.getJdk());
+      // It's dangerous to set VM options for unknown JDK, so we check for null explicitly,
+      // it's better to have a warning rather than inability to start JVM.
+      if (version != null && version.isAtLeast(JavaSdkVersion.JDK_24)) {
+        var p = "--enable-native-access=ALL-UNNAMED";
+        parameters.getVMParametersList().replaceOrPrepend(p, p);
       }
+    }
 
-      if (DebuggerSettings.getInstance().ENABLE_MEMORY_AGENT) {
-        var version = JavaSdkVersionUtil.getJavaSdkVersion(parameters.getJdk());
-        // It's dangerous to set VM options for unknown JDK, so we check for null explicitly,
-        // it's better to have a warning rather than inability to start JVM.
-        if (version != null && version.isAtLeast(JavaSdkVersion.JDK_24)) {
-          var p = "--enable-native-access=ALL-UNNAMED";
-          parameters.getVMParametersList().replaceOrPrepend(p, p);
-        }
-      }
-
-      parameters.getVMParametersList().replaceOrPrepend("-Xrunjdwp:", "");
-      parameters.getVMParametersList().replaceOrPrepend("-agentlib:jdwp=", "-agentlib:jdwp=" + _debuggeeRunProperties);
-    });
+    parameters.getVMParametersList().replaceOrPrepend("-Xrunjdwp:", "");
+    parameters.getVMParametersList().replaceOrPrepend("-agentlib:jdwp=", "-agentlib:jdwp=" + _debuggeeRunProperties);
 
     return new RemoteConnection(useSockets, DebuggerManagerImpl.LOCALHOST_ADDRESS_FALLBACK, address, myServer);
   }
