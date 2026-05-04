@@ -36,12 +36,12 @@ abstract class NullabilityAnnotationPanelModel implements AnnotationPanelModel {
     }
 
     @Override
-    public @NotNull List<String> getAnnotations() {
+    public @NotNull List<@NotNull String> getAnnotations() {
       return myManager.getNullables();
     }
 
     @Override
-    public @NotNull List<String> getAdvancedAnnotations() {
+    public @NotNull List<@NotNull String> getAdvancedAnnotations() {
       return myManager.getNullablesWithNickNames();
     }
 
@@ -72,12 +72,12 @@ abstract class NullabilityAnnotationPanelModel implements AnnotationPanelModel {
     }
 
     @Override
-    public @NotNull List<String> getAnnotations() {
+    public @NotNull List<@NotNull String> getAnnotations() {
       return myManager.getNotNulls();
     }
 
     @Override
-    public @NotNull List<String> getAdvancedAnnotations() {
+    public @NotNull List<@NotNull String> getAdvancedAnnotations() {
       return myManager.getNotNullsWithNickNames();
     }
 

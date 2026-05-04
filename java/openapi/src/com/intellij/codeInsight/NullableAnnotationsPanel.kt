@@ -1,333 +1,312 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.codeInsight;
+package com.intellij.codeInsight
 
-import com.intellij.core.JavaPsiBundle;
-import com.intellij.ide.util.TreeClassChooser;
-import com.intellij.ide.util.TreeClassChooserFactory;
-import com.intellij.java.JavaBundle;
-import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.project.DumbService;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.ComboBox;
-import com.intellij.openapi.util.NlsSafe;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.ui.AnActionButton;
-import com.intellij.ui.AnActionButtonRunnable;
-import com.intellij.ui.BooleanTableCellEditor;
-import com.intellij.ui.BooleanTableCellRenderer;
-import com.intellij.ui.ColoredTableCellRenderer;
-import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.ui.ToolbarDecorator;
-import com.intellij.ui.components.JBLabel;
-import com.intellij.ui.dsl.builder.DslComponentProperty;
-import com.intellij.ui.dsl.builder.VerticalComponentGap;
-import com.intellij.ui.table.JBTable;
-import com.intellij.util.concurrency.AppExecutorUtil;
-import com.intellij.util.ui.GridBag;
-import com.intellij.util.ui.JBDimension;
-import com.intellij.util.ui.JBFont;
-import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UI;
-import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.core.JavaPsiBundle
+import com.intellij.ide.setToolTipText
+import com.intellij.ide.util.ClassFilter
+import com.intellij.ide.util.TreeClassChooserFactory
+import com.intellij.java.JavaBundle
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.project.DumbService.Companion.getInstance
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.util.NlsSafe
+import com.intellij.openapi.util.text.HtmlChunk
+import com.intellij.psi.PsiClass
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.ui.AnActionButton
+import com.intellij.ui.AnActionButtonRunnable
+import com.intellij.ui.AnActionButtonUpdater
+import com.intellij.ui.BooleanTableCellEditor
+import com.intellij.ui.BooleanTableCellRenderer
+import com.intellij.ui.ColoredTableCellRenderer
+import com.intellij.ui.SimpleTextAttributes
+import com.intellij.ui.ToolbarDecorator
+import com.intellij.ui.components.JBLabel
+import com.intellij.ui.dsl.builder.DslComponentProperty
+import com.intellij.ui.dsl.builder.VerticalComponentGap
+import com.intellij.ui.table.JBTable
+import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.util.ui.GridBag
+import com.intellij.util.ui.JBDimension
+import com.intellij.util.ui.JBFont
+import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UI
+import com.intellij.util.ui.UIUtil
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.event.ActionEvent
+import java.awt.event.ActionListener
+import java.util.concurrent.Callable
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.JTable
+import javax.swing.ListSelectionModel
+import javax.swing.table.DefaultTableColumnModel
+import javax.swing.table.DefaultTableModel
+import javax.swing.table.TableCellRenderer
+import javax.swing.table.TableColumn
 
-import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JTable;
-import javax.swing.ListSelectionModel;
-import javax.swing.table.DefaultTableColumnModel;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableCellRenderer;
-import javax.swing.table.TableColumn;
-import java.awt.Component;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
+class NullableAnnotationsPanel(
+  private val myProject: Project,
+  model: AnnotationPanelModel,
+  showInstrumentationOptions: Boolean,
+) {
+  private val myDefaultAnnotations = HashSet<String>(model.getDefaultAnnotations())
+  private val myTable: JBTable?
+  private val myComponent: JPanel
+  private val myCombo: ComboBox<String>
+  private val myTableModel: DefaultTableModel
 
-public class NullableAnnotationsPanel {
-  private final Project myProject;
-  private final Set<String> myDefaultAnnotations;
-  private final JBTable myTable;
-  private final JPanel myComponent;
-  private final ComboBox<String> myCombo;
-  protected final DefaultTableModel myTableModel;
-
-  public NullableAnnotationsPanel(Project project,
-                                  @NotNull AnnotationPanelModel model,
-                                  boolean showInstrumentationOptions) {
-    myProject = project;
-    myDefaultAnnotations = new HashSet<>(model.getDefaultAnnotations());
-
-    List<String> annotations = model.getAnnotations();
-    myCombo = new ComboBox<>(annotations.stream().sorted().toArray(String[]::new));
-    String defaultAnnotation = model.getDefaultAnnotation();
+  init {
+    val annotations = model.getAnnotations()
+    myCombo = ComboBox<String>(annotations.sorted().toTypedArray())
+    val defaultAnnotation = model.getDefaultAnnotation()
     if (!annotations.contains(defaultAnnotation)) {
-      addAnnotationToCombo(defaultAnnotation);
+      addAnnotationToCombo(defaultAnnotation)
     }
     if (model.hasAdvancedAnnotations()) {
-      loadAdvancedAnnotations(model);
+      loadAdvancedAnnotations(model)
     }
-    myCombo.setSelectedItem(defaultAnnotation);
+    myCombo.selectedItem = defaultAnnotation
 
-    myTableModel = new DefaultTableModel() {
-      @Override
-      public boolean isCellEditable(int row, int column) {
-        return column == 1;
-      }
-    };
-    myTableModel.setColumnCount(showInstrumentationOptions ? 2 : 1);
-    for (String annotation : annotations) {
-      addRow(annotation, model.getCheckedAnnotations().contains(annotation));
+    myTableModel = object : DefaultTableModel() {
+      override fun isCellEditable(row: Int, column: Int) = column == 1
+    }
+    myTableModel.columnCount = if (showInstrumentationOptions) 2 else 1
+    for (annotation in annotations) {
+      addRow(annotation, model.getCheckedAnnotations().contains(annotation))
     }
 
-    DefaultTableColumnModel columnModel = new DefaultTableColumnModel();
-    columnModel.addColumn(new TableColumn(0, 100, new ColoredTableCellRenderer() {
-      @Override
-      public void acquireState(JTable table, boolean isSelected, boolean hasFocus, int row, int column) {
-        super.acquireState(table, isSelected, false, row, column);
+    val columnModel = DefaultTableColumnModel()
+    columnModel.addColumn(TableColumn(0, 100, object : ColoredTableCellRenderer() {
+      override fun acquireState(table: JTable?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int) {
+        super.acquireState(table, isSelected, false, row, column)
       }
 
-      @Override
-      protected void customizeCellRenderer(@NotNull JTable table,
-                                           Object value,
-                                           boolean selected,
-                                           boolean hasFocus,
-                                           int row,
-                                           int column) {
-        append((String)value, SimpleTextAttributes.REGULAR_ATTRIBUTES);
+      override fun customizeCellRenderer(
+        table: JTable,
+        value: Any?,
+        selected: Boolean,
+        hasFocus: Boolean,
+        row: Int,
+        column: Int,
+      ) {
+        append(value as String, SimpleTextAttributes.REGULAR_ATTRIBUTES)
       }
-    }, null));
+    }, null))
 
-    myTable = new JBTable(myTableModel, columnModel);
-    if (!showInstrumentationOptions) myTable.setTableHeader(null);
+    myTable = JBTable(myTableModel, columnModel)
+    if (!showInstrumentationOptions) myTable.setTableHeader(null)
 
     if (showInstrumentationOptions) {
-      columnModel.getColumn(0).setHeaderValue(JavaPsiBundle.message("node.annotation.tooltip"));
+      columnModel.getColumn(0).setHeaderValue(JavaPsiBundle.message("node.annotation.tooltip"))
 
-      TableColumn checkColumn = new TableColumn(1, 100, new BooleanTableCellRenderer(), new BooleanTableCellEditor());
-      columnModel.addColumn(checkColumn);
-      checkColumn.setHeaderValue(" " + JavaBundle.message("nullable.notnull.annotations.panel.column.instrument") + " ");
+      val checkColumn = TableColumn(1, 100, BooleanTableCellRenderer(), BooleanTableCellEditor())
+      columnModel.addColumn(checkColumn)
+      checkColumn.setHeaderValue(" " + JavaBundle.message("nullable.notnull.annotations.panel.column.instrument") + " ")
 
-      TableCellRenderer headerRenderer = createHeaderRenderer();
-      myTable.getTableHeader().setDefaultRenderer(headerRenderer);
-      checkColumn.setHeaderRenderer(headerRenderer);
-      checkColumn.sizeWidthToFit();
+      val headerRenderer = createHeaderRenderer()
+      myTable.getTableHeader().defaultRenderer = headerRenderer
+      checkColumn.setHeaderRenderer(headerRenderer)
+      checkColumn.sizeWidthToFit()
     }
 
-    final ToolbarDecorator toolbarDecorator = ToolbarDecorator.createDecorator(myTable)
-      .setMoveUpAction(new AnActionButtonRunnable() {
-        @Override
-        public void run(AnActionButton button) {
-          int selectedRow = myTable.getSelectedRow();
-          if (selectedRow < 1) return;
-          @SuppressWarnings("unchecked")
-          List<Object> vector = myTableModel.getDataVector().get(selectedRow);
-          myTableModel.removeRow(selectedRow);
-          myTableModel.insertRow(selectedRow - 1, vector.toArray());
-          myTable.setRowSelectionInterval(selectedRow - 1, selectedRow - 1);
+    val toolbarDecorator = ToolbarDecorator.createDecorator(myTable)
+      .setMoveUpAction(object : AnActionButtonRunnable {
+        override fun run(button: AnActionButton?) {
+          val selectedRow = myTable.selectedRow
+          if (selectedRow < 1) return
+          val vector: MutableList<Any?> = myTableModel.getDataVector()[selectedRow]
+          myTableModel.removeRow(selectedRow)
+          myTableModel.insertRow(selectedRow - 1, vector.toTypedArray())
+          myTable.setRowSelectionInterval(selectedRow - 1, selectedRow - 1)
         }
       })
-      .setMoveDownAction(new AnActionButtonRunnable() {
-        @Override
-        public void run(AnActionButton button) {
-          int selectedRow = myTable.getSelectedRow();
-          if (selectedRow < 0 || selectedRow >= myTableModel.getRowCount() - 1) return;
-          @SuppressWarnings("unchecked") 
-          List<Object> vector = myTableModel.getDataVector().get(selectedRow);
-          myTableModel.removeRow(selectedRow);
-          myTableModel.insertRow(selectedRow + 1, vector.toArray());
-          myTable.setRowSelectionInterval(selectedRow + 1, selectedRow + 1);
+      .setMoveDownAction(object : AnActionButtonRunnable {
+        override fun run(button: AnActionButton?) {
+          val selectedRow = myTable.selectedRow
+          if (selectedRow < 0 || selectedRow >= myTableModel.rowCount - 1) return
+          val vector: MutableList<Any?> = myTableModel.getDataVector()[selectedRow]
+          myTableModel.removeRow(selectedRow)
+          myTableModel.insertRow(selectedRow + 1, vector.toTypedArray())
+          myTable.setRowSelectionInterval(selectedRow + 1, selectedRow + 1)
         }
       })
-      .setAddAction(b -> chooseAnnotation(model.getName()))
-      .setRemoveAction(new AnActionButtonRunnable() {
-        @Override
-        public void run(AnActionButton anActionButton) {
-          String selectedValue = getSelectedAnnotation();
-          if (selectedValue == null) return;
-          myCombo.removeItem(selectedValue);
+      .setAddAction(AnActionButtonRunnable { chooseAnnotation(model.getName()) })
+      .setRemoveAction(object : AnActionButtonRunnable {
+        override fun run(anActionButton: AnActionButton?) {
+          val selectedValue: String? = selectedAnnotation
+          if (selectedValue == null) return
+          myCombo.removeItem(selectedValue)
 
-          int rowIndex = -1;
-          for (int i = 0; i < myTableModel.getDataVector().size(); i++) {
-            if (myTableModel.getDataVector().get(i).contains(selectedValue)) {
-              rowIndex = i;
-              break;
+          var rowIndex = -1
+          for (i in myTableModel.getDataVector().indices) {
+            if (myTableModel.getDataVector()[i].contains(selectedValue)) {
+              rowIndex = i
+              break
             }
           }
-          if (rowIndex != -1) myTableModel.removeRow(rowIndex);
+          if (rowIndex != -1) myTableModel.removeRow(rowIndex)
         }
       })
-      .setRemoveActionUpdater(e -> !myDefaultAnnotations.contains(getSelectedAnnotation()));
+      .setRemoveActionUpdater(AnActionButtonUpdater { !myDefaultAnnotations.contains(this.selectedAnnotation) })
 
-    myTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-    myTable.setRowSelectionAllowed(true);
-    myTable.setShowGrid(false);
+    myTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+    myTable.setRowSelectionAllowed(true)
+    myTable.setShowGrid(false)
 
-    final var tablePanel = UI.PanelFactory
+    val tablePanel = UI.PanelFactory
       .panel(toolbarDecorator.createPanel())
       .withLabel(JavaBundle.message("nullable.notnull.annotations.panel.title", model.getName()))
       .withComment(JavaBundle.message("nullable.notnull.annotations.panel.description"))
       .moveLabelOnTop()
       .resizeY(true)
-      .createPanel();
-    tablePanel.setPreferredSize(new JBDimension(tablePanel.getPreferredSize().width, 200));
+      .createPanel()
+    tablePanel.preferredSize = JBDimension(tablePanel.preferredSize.width, 200)
 
-    myComponent = new JPanel(new GridBagLayout());
-    myComponent.putClientProperty(DslComponentProperty.VERTICAL_COMPONENT_GAP, VerticalComponentGap.BOTH);
-    GridBag constraints = new GridBag().setDefaultAnchor(GridBagConstraints.WEST);
-    myComponent.add(tablePanel, constraints.nextLine().coverLine().fillCell().weighty(1));
-    myComponent.add(new JLabel(JavaBundle.message("nullable.notnull.annotation.used.label")), constraints.nextLine().next());
-    myComponent.add(myCombo, constraints.next().fillCellHorizontally().weightx(1).insetBottom(UIUtil.DEFAULT_VGAP));
-    JBLabel label = new JBLabel(JavaBundle.message("nullable.notnull.annotation.used.label.description"))
+    myComponent = JPanel(GridBagLayout())
+    myComponent.putClientProperty(DslComponentProperty.VERTICAL_COMPONENT_GAP, VerticalComponentGap.BOTH)
+    val constraints = GridBag().setDefaultAnchor(GridBagConstraints.WEST)
+    myComponent.add(tablePanel, constraints.nextLine().coverLine().fillCell().weighty(1.0))
+    myComponent.add(JLabel(JavaBundle.message("nullable.notnull.annotation.used.label")), constraints.nextLine().next())
+    myComponent.add(myCombo, constraints.next().fillCellHorizontally().weightx(1.0).insetBottom(UIUtil.DEFAULT_VGAP))
+    val label = JBLabel(JavaBundle.message("nullable.notnull.annotation.used.label.description"))
       .withFont(JBFont.medium())
       .setAllowAutoWrapping(true)
-      .setCopyable(true);
-    label.setForeground(JBUI.CurrentTheme.ContextHelp.FOREGROUND);
-    myComponent.add(label, constraints.nextLine().coverLine().fillCell());
+      .setCopyable(true)
+    label.setForeground(JBUI.CurrentTheme.ContextHelp.FOREGROUND)
+    myComponent.add(label, constraints.nextLine().coverLine().fillCell())
   }
 
-  private @NotNull TableCellRenderer createHeaderRenderer() {
-    TableCellRenderer defaultRenderer = myTable.getTableHeader().getDefaultRenderer();
+  private fun createHeaderRenderer(): TableCellRenderer {
+    val defaultRenderer = myTable!!.getTableHeader().defaultRenderer
 
-    TableCellRenderer headerRenderer = new TableCellRenderer() {
-      @Override
-      public Component getTableCellRendererComponent(JTable table,
-                                                     Object value,
-                                                     boolean isSelected,
-                                                     boolean hasFocus,
-                                                     int row,
-                                                     int column) {
-        Component component = defaultRenderer.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-        if (component instanceof JComponent) {
-          ((JComponent)component)
-            .setToolTipText(column == 1 ? JavaBundle.message("nullable.notnull.annotations.runtime.instrumentation.tooltip") : null);
-        }
-        return component;
+    val headerRenderer = TableCellRenderer { table, value, isSelected, hasFocus, row, column ->
+      val component = defaultRenderer.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
+      if (component is JComponent) {
+        component.setToolTipText(
+          if (column == 1) HtmlChunk.text(JavaBundle.message("nullable.notnull.annotations.runtime.instrumentation.tooltip")) 
+          else HtmlChunk.empty())
       }
-    };
-    return headerRenderer;
+      component
+    }
+    return headerRenderer
   }
 
-  private void loadAdvancedAnnotations(@NotNull AnnotationPanelModel model) {
+  private fun loadAdvancedAnnotations(model: AnnotationPanelModel) {
     // No project-specific annotations are possible for default project
-    if (myProject.isDefault()) return;
-    String loading = JavaBundle.message("loading.additional.annotations");
-    myCombo.addItem(loading);
-    DumbService.getInstance(myProject).runWhenSmart(() -> {
-      ReadAction.nonBlocking(model::getAdvancedAnnotations)
-        .finishOnUiThread(ModalityState.any(), advancedAnnotations -> {
-          myCombo.removeItem(loading);
-          int count = myCombo.getItemCount();
-          Object selectedItem = myCombo.getSelectedItem();
-          List<String> newItems = Stream.concat(
-            IntStream.range(0, count).mapToObj(myCombo::getItemAt),
-            advancedAnnotations.stream()).distinct().toList();
-          myCombo.removeAllItems();
-          newItems.forEach(myCombo::addItem);
-          myCombo.setSelectedItem(selectedItem);
-        }).submit(AppExecutorUtil.getAppExecutorService());
-    });
-    myCombo.addActionListener(new ActionListener() {
-      Object previous = myCombo.getSelectedItem();
+    if (myProject.isDefault) return
+    val loading = JavaBundle.message("loading.additional.annotations")
+    myCombo.addItem(loading)
+    getInstance(myProject).runWhenSmart(Runnable {
+      ReadAction.nonBlocking(Callable<List<String>> { model.getAdvancedAnnotations() })
+        .finishOnUiThread(ModalityState.any()) { advancedAnnotations ->
+          myCombo.removeItem(loading)
+          val count = myCombo.itemCount
+          val selectedItem = myCombo.selectedItem
+          val newItems: List<@NlsSafe String> =
+            ((0 until count).map { myCombo.getItemAt(it) } + advancedAnnotations).distinct()
+          myCombo.removeAllItems()
+          newItems.forEach { myCombo.addItem(it) }
+          myCombo.selectedItem = selectedItem
+        }.submit(AppExecutorUtil.getAppExecutorService())
+    })
+    myCombo.addActionListener(object : ActionListener {
+      var previous: Any? = myCombo.selectedItem
 
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        Object item = myCombo.getSelectedItem();
-        if (item == loading) {
-          myCombo.setSelectedItem(previous);
-        } else {
-          previous = item;
+      override fun actionPerformed(e: ActionEvent?) {
+        val item = myCombo.selectedItem
+        if (item === loading) {
+          myCombo.setSelectedItem(previous)
+        }
+        else {
+          previous = item
         }
       }
-    });
+    })
   }
 
-  private void addRow(String annotation, boolean checked) {
-    int row = myTable == null ? -1 : myTable.getSelectedRow();
+  private fun addRow(annotation: String?, checked: Boolean) {
+    val row = myTable?.selectedRow ?: -1
     if (row == -1) {
-      myTableModel.addRow(new Object[]{annotation, checked});
-    } else {
-      myTableModel.insertRow(row + 1, new Object[]{annotation, checked});
+      myTableModel.addRow(arrayOf<Any?>(annotation, checked))
+    }
+    else {
+      myTableModel.insertRow(row + 1, arrayOf<Any?>(annotation, checked))
     }
   }
 
-  private Integer selectAnnotation(String annotation) {
-    for (int i = 0; i < myTableModel.getRowCount(); i++) {
-      if (annotation.equals(myTableModel.getValueAt(i, 0))) {
-        myTable.setRowSelectionInterval(i, i);
-        myTable.scrollRectToVisible(myTable.getCellRect(i, 0, true));
-        return i;
+  private fun selectAnnotation(annotation: String): Int? {
+    for (i in 0..<myTableModel.rowCount) {
+      if (annotation == myTableModel.getValueAt(i, 0)) {
+        myTable!!.setRowSelectionInterval(i, i)
+        myTable.scrollRectToVisible(myTable.getCellRect(i, 0, true))
+        return i
       }
     }
-    return null;
+    return null
   }
 
-  private @NlsSafe String getSelectedAnnotation() {
-    int selectedRow = myTable.getSelectedRow();
-    return selectedRow < 0 ? null : (String)myTableModel.getValueAt(selectedRow, 0);
-  }
+  @get:NlsSafe
+  private val selectedAnnotation: @NlsSafe String?
+    get() {
+      val selectedRow = myTable!!.selectedRow
+      return if (selectedRow < 0) null else myTableModel.getValueAt(selectedRow, 0) as String?
+    }
 
-  private void chooseAnnotation(@NlsSafe String title) {
-    final TreeClassChooser chooser = TreeClassChooserFactory.getInstance(myProject)
-      .createNoInnerClassesScopeChooser(JavaBundle.message("dialog.title.choose.annotation", title), GlobalSearchScope.allScope(myProject),
-                                        PsiClass::isAnnotationType, null);
-    chooser.showDialog();
-    final PsiClass selected = chooser.getSelected();
+  private fun chooseAnnotation(@NlsSafe title: @NlsSafe String) {
+    val chooser = TreeClassChooserFactory.getInstance(myProject)
+      .createNoInnerClassesScopeChooser(
+        JavaBundle.message("dialog.title.choose.annotation", title),
+        GlobalSearchScope.allScope(myProject),
+        ClassFilter { obj: PsiClass? -> obj!!.isAnnotationType() },
+        null
+      )
+    chooser.showDialog()
+    val selected = chooser.getSelected()
     if (selected == null) {
-      return;
+      return
     }
-    final String qualifiedName = selected.getQualifiedName();
-    if (selectAnnotation(qualifiedName) == null) {
-      addRow(qualifiedName, false);
-      addAnnotationToCombo(qualifiedName);
-      Object added = selectAnnotation(qualifiedName);
-      assert added != null;
-      myTable.requestFocus();
+    val qualifiedName = selected.getQualifiedName()
+    if (selectAnnotation(qualifiedName!!) == null) {
+      addRow(qualifiedName, false)
+      addAnnotationToCombo(qualifiedName)
+      checkNotNull(selectAnnotation(qualifiedName))
+      myTable!!.requestFocus()
     }
   }
 
-  private void addAnnotationToCombo(@NlsSafe String annotation) {
-    int insertAt = 0;
-    for (; insertAt < myCombo.getItemCount(); insertAt += 1) {
-      if (myCombo.getItemAt(insertAt).compareTo(annotation) >= 0) break;
+  private fun addAnnotationToCombo(@NlsSafe annotation: @NlsSafe String) {
+    var insertAt = 0
+    while (insertAt < myCombo.itemCount) {
+      if (myCombo.getItemAt(insertAt) >= annotation) break
+      insertAt += 1
     }
-    myCombo.insertItemAt(annotation, insertAt);
+    myCombo.insertItemAt(annotation, insertAt)
   }
 
-  public JComponent getComponent() {
-    return myComponent;
-  }
+  val component: JComponent
+    get() = myComponent
 
-  String getDefaultAnnotation() {
-    return myCombo.getItem();
-  }
+  val defaultAnnotation: String?
+    get() = myCombo.getItem()
 
-  public String[] getAnnotations() {
-    int size = myTableModel.getRowCount();
-    String[] result = new String[size];
-    for (int i = 0; i < size; i++) {
-      result[i] = (String)myTableModel.getValueAt(i, 0);
-    }
-    return result;
-  }
-
-  List<String> getCheckedAnnotations() {
-    List<String> result = new ArrayList<>();
-    for (int i = 0; i < myTableModel.getRowCount(); i++) {
-      if (Boolean.TRUE.equals(myTableModel.getValueAt(i, 1))) {
-        result.add((String)myTableModel.getValueAt(i, 0));
+  val annotations: Array<String?>
+    get() {
+      val size = myTableModel.rowCount
+      val result = arrayOfNulls<String>(size)
+      for (i in 0..<size) {
+        result[i] = myTableModel.getValueAt(i, 0) as String?
       }
+      return result
     }
-    return result;
-  }
+
+  val checkedAnnotations: MutableList<String?>
+    get() = (0..<myTableModel.rowCount)
+      .filter { myTableModel.getValueAt(it, 1) == true }
+      .map { myTableModel.getValueAt(it, 0) as String? }
+      .toMutableList()
 }
