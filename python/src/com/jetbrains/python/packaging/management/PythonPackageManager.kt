@@ -30,6 +30,8 @@ import com.jetbrains.python.onFailure
 import com.jetbrains.python.packaging.PyPackageManager
 import com.jetbrains.python.packaging.PyPackageName
 import com.jetbrains.python.packaging.PyRequirement
+import com.jetbrains.python.packaging.common.PythonPackageMetadata
+import com.jetbrains.python.packaging.common.loadInstalledPackagesMetadata
 import com.jetbrains.python.packaging.common.PythonOutdatedPackage
 import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.common.PythonPackageManagementListener
@@ -92,6 +94,10 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
   @ApiStatus.Internal
   @Volatile
   protected var outdatedPackages: Map<String, PythonOutdatedPackage> = emptyMap()
+
+  @ApiStatus.Internal
+  @Volatile
+  private var installedPackagesMetadata: Map<PyPackageName, PythonPackageMetadata> = emptyMap()
 
   @ApiStatus.Internal
   internal open val treeProvider: DependencyTreeProvider? = null
@@ -175,6 +181,9 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
       PyPackageCoroutine.launch(project, NON_INTERACTIVE_ROOT_TRACE_CONTEXT) {
         reloadOutdatedPackages()
       }.cancelOnDispose(this@PythonPackageManager)
+      PyPackageCoroutine.launch(project, NON_INTERACTIVE_ROOT_TRACE_CONTEXT) {
+        reloadInstalledPackagesMetadata()
+      }.cancelOnDispose(this@PythonPackageManager)
 
       if (!isInit) {
         refreshPaths(project, sdk)
@@ -208,6 +217,21 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
     return outdatedPackages
   }
 
+  /**
+   * Returns Core Metadata (PEP 643) read from `<dist-info>/METADATA` for every package
+   * installed in the active interpreter, keyed by PEP 503-normalized name. Lifecycle mirrors
+   * `outdatedPackages`: the snapshot is rebuilt by [reloadInstalledPackagesMetadata] each time
+   * `loadPackagesImpl` observes a package-list change, in a single helper invocation.
+   */
+  @ApiStatus.Internal
+  suspend fun listInstalledPackagesMetadata(): Map<PyPackageName, PythonPackageMetadata> {
+    waitForInit()
+    return listInstalledPackagesMetadataSnapshot()
+  }
+
+  @ApiStatus.Internal
+  fun listInstalledPackagesMetadataSnapshot(): Map<PyPackageName, PythonPackageMetadata> = installedPackagesMetadata
+
   private suspend fun reloadOutdatedPackages() {
     if (installedPackages.isEmpty()) {
       outdatedPackages = emptyMap()
@@ -225,6 +249,22 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
     ApplicationManager.getApplication().messageBus.apply {
       syncPublisher(PACKAGE_MANAGEMENT_TOPIC).outdatedPackagesChanged(sdk)
     }
+  }
+
+  /**
+   * Mirror of [reloadOutdatedPackages]: rebuilds [installedPackagesMetadata] from the helper's
+   * single-shot dump of every installed distribution's METADATA file. Skipped silently when
+   * there are no installed packages so a fresh / mock SDK doesn't pay the helper-startup cost.
+   */
+  private suspend fun reloadInstalledPackagesMetadata() {
+    if (installedPackages.isEmpty()) {
+      installedPackagesMetadata = emptyMap()
+      return
+    }
+
+    installedPackagesMetadata = sdk.loadInstalledPackagesMetadata().onFailure {
+      thisLogger().warn("Failed to load installed package metadata $it")
+    }.getOrNull() ?: emptyMap()
   }
 
   @ApiStatus.Internal
