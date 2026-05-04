@@ -108,6 +108,7 @@ import org.jetbrains.annotations.VisibleForTesting;
 
 import javax.swing.SwingUtilities;
 import java.awt.Window;
+import java.lang.ref.Reference;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -867,7 +868,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
                                       @Nullable Throwable cause,
                                       @NonNls @NotNull String reason) {
     if (!indicator.isCanceled()) {
-      PassExecutorService.log(indicator, null, "Cancel (reason: '", reason, "')", toRestart);
+      PassExecutorService.log(indicator, null, "Cancel (reason: '", reason, "'), restart:", toRestart);
       if (cause == null) {
         indicator.cancel(reason);
       }
@@ -1304,7 +1305,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
                                           int @NotNull [] passesToIgnore,
                                           @NotNull Map<? super Pair<Document, Class<? extends ProgressableTextEditorHighlightingPass>>, ProgressableTextEditorHighlightingPass> mainDocumentPasses) {
     ThreadingAssertions.assertEventDispatchThread();
-    BackgroundEditorHighlighter highlighter;
+    BackgroundEditorHighlighter backgroundHighlighter;
 
     // since we are running on EDT under write-intent lock, write action can be either absent or pending (if it was invoked on a background thread)
     // in this case, the progress indicator needs to be canceled.
@@ -1314,11 +1315,11 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     }
 
     try (AccessToken ignored = ClientId.withExplicitClientId(ClientFileEditorManager.getClientId(fileEditor))) {
-      highlighter = fileEditor.getBackgroundHighlighter();
+      backgroundHighlighter = fileEditor.getBackgroundHighlighter();
     }
     TextEditor textEditor = fileEditor instanceof TextEditor t ? t : null;
     Editor editor = textEditor == null ? null : textEditor.getEditor();
-    if (highlighter == null) {
+    if (backgroundHighlighter == null) {
       if (PassExecutorService.LOG.isDebugEnabled()) {
         PassExecutorService.log(null, null, "couldn't highlight " + virtualFile + " because getBackgroundHighlighter() returned null. fileEditor="+
           fileEditor+"("+ fileEditor.getClass()+")"+ (textEditor == null ? "editor is null" : "editor loaded:" + textEditor.isEditorLoaded())
@@ -1374,7 +1375,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       // pre-create HighlightingSession in EDT to make visible range available in a background thread
       session = HighlightingSessionImpl.createHighlightingSession(psiFileToSubmit, editor, scheme, progress, daemonCancelEventCount);
       JobLauncher.getInstance().submitToJobThread(ThreadContext.captureThreadContext(Context.current().wrap(() ->
-            submitInBackground(fileEditor, document, virtualFile, psiFileToSubmit, highlighter, passesToIgnore, progress, session, mainDocumentPasses))),
+            submitInBackground(fileEditor, document, virtualFile, psiFileToSubmit, backgroundHighlighter, passesToIgnore, progress, session, mainDocumentPasses))),
             // manifest exceptions in EDT to avoid storing them in the Future and abandoning
             task -> ApplicationManager.getApplication().invokeLater(() -> ConcurrencyUtil.manifestExceptionsIn(task)));
     }
@@ -1479,6 +1480,9 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       stopAndRestartMyProcess(progress, e, reason);
       throw e;
     }
+    // do not let gc to collect PsiFile causing TextEditorBackgroundHighlighter.renewFile to return new instance,
+    // and thus HighlightingSessionImpl.getFromCurrentIndicator(psiFile) returning null
+    Reference.reachabilityFence(psiFile);
   }
 
   @RequiresBackgroundThread
