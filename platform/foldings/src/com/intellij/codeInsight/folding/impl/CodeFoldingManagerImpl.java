@@ -266,9 +266,7 @@ public final class CodeFoldingManagerImpl extends CodeFoldingManager implements 
       .filter(otherEditor -> otherEditor != editor && isFoldingsInitializedInEditor(otherEditor))
       .findFirst()
       .ifPresent(otherEditor -> documentFoldingInfo.loadFromEditor(otherEditor));
-    if (firstTime && !isFoldingsInitializedInEditor(editor)) {
-      documentFoldingInfo.computeExpandRanges();
-    }
+    documentFoldingInfo.computeExpandRanges(firstTime && !isFoldingsInitializedInEditor(editor));
     return () -> {
       ThreadingAssertions.assertEventDispatchThread();
       if (result != null) {
