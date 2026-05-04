@@ -18,19 +18,16 @@ import com.intellij.platform.workspace.storage.EntityPointer
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.WorkspaceEntity
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
-import com.intellij.util.indexing.ReincludedRootsUtil
 import com.intellij.util.indexing.roots.IndexableEntityProvider.IndexableIteratorBuilder
 import com.intellij.util.indexing.roots.IndexableEntityProviderMethods.createCustomKindEntityIterators
 import com.intellij.util.indexing.roots.IndexableEntityProviderMethods.createGenericContentEntityIterators
 import com.intellij.util.indexing.roots.builders.IndexableIteratorBuilders.forCustomKindEntity
 import com.intellij.util.indexing.roots.builders.IndexableIteratorBuilders.forExternalEntity
 import com.intellij.util.indexing.roots.builders.IndexableIteratorBuilders.forGenericContentEntity
-import com.intellij.util.indexing.roots.builders.IndexableIteratorBuilders.forModuleRootsFileBased
 import com.intellij.util.indexing.roots.kind.LibraryOrigin
 import com.intellij.util.indexing.roots.origin.IndexingUrlRootHolder
 import com.intellij.util.indexing.roots.origin.IndexingUrlSourceRootHolder
 import com.intellij.util.indexing.roots.origin.LibraryOriginImpl
-import com.intellij.util.indexing.roots.origin.MutableIndexingSourceRootHolder
 import com.intellij.util.indexing.roots.origin.MutableIndexingUrlRootHolder
 import com.intellij.util.indexing.roots.origin.MutableIndexingUrlSourceRootHolder
 import com.intellij.workspaceModel.core.fileIndex.EntityStorageKind
@@ -44,7 +41,6 @@ import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetWithCustomData
 import com.intellij.workspaceModel.core.fileIndex.impl.ModuleRelatedRootData
 import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexEx
 import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexImpl
-import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge
 import java.util.NavigableMap
 import java.util.TreeMap
 import java.util.function.Consumer
@@ -144,56 +140,6 @@ internal class WorkspaceIndexingRootsBuilder(private val ignoreModuleRoots: Bool
     return registrar.rootData
   }
 
-  fun <E : WorkspaceEntity> registerRemovedEntity(entity: E, contributor: WorkspaceFileIndexContributor<E>, storage: EntityStorage) {
-    val rootData = rootData(contributor, entity, storage)
-    rootData.cleanIncludedRoots()
-    loadRegistrarData(rootData)
-  }
-
-  fun <E : WorkspaceEntity> registerChangedEntity(oldEntity: E,
-                                                  newEntity: E,
-                                                  contributor: WorkspaceFileIndexContributor<E>,
-                                                  storage: EntityStorage) {
-    val oldRootData = rootData(contributor, oldEntity, storage)
-    val newRootData = rootData(contributor, newEntity, storage)
-
-    val data = RootData(contributor, ignoreModuleRoots)
-    addDiff(data.moduleContents, oldRootData.moduleContents, newRootData.moduleContents)
-    addDiff(data.customizedModuleContentRoots, oldRootData.customizedModuleContentRoots, newRootData.customizedModuleContentRoots)
-    addDiff(data.contentRoots, oldRootData.contentRoots, newRootData.contentRoots)
-    addUrlSourceDiff(data.externalRoots, oldRootData.externalRoots, newRootData.externalRoots)
-    data.excludedRoots.addAll(oldRootData.excludedRoots)
-    data.excludedRoots.removeAll(newRootData.excludedRoots)
-    loadRegistrarData(data)
-  }
-
-  private fun <K> addDiff(base: MutableMap<K, MutableIndexingUrlRootHolder>,
-                          oldData: MutableMap<K, MutableIndexingUrlRootHolder>,
-                          newData: MutableMap<K, MutableIndexingUrlRootHolder>) {
-    newData.entries.forEach { entry ->
-      entry.value.remove(oldData[entry.key])
-      base.getOrPut(entry.key) { MutableIndexingUrlRootHolder() }.addRoots(entry.value)
-    }
-  }
-
-  private fun <K> addSourceDiff(base: MutableMap<K, MutableIndexingSourceRootHolder>,
-                                oldData: MutableMap<K, MutableIndexingSourceRootHolder>,
-                                newData: MutableMap<K, MutableIndexingSourceRootHolder>) {
-    newData.entries.forEach { entry ->
-      entry.value.remove(oldData[entry.key])
-      base.getOrPut(entry.key) { MutableIndexingSourceRootHolder() }.addRoots(entry.value)
-    }
-  }
-
-  private fun <K> addUrlSourceDiff(base: MutableMap<K, MutableIndexingUrlSourceRootHolder>,
-                                   oldData: MutableMap<K, MutableIndexingUrlSourceRootHolder>,
-                                   newData: MutableMap<K, MutableIndexingUrlSourceRootHolder>) {
-    newData.entries.forEach { entry ->
-      entry.value.remove(oldData[entry.key])
-      base.getOrPut(entry.key) { MutableIndexingUrlSourceRootHolder() }.addRoots(entry.value)
-    }
-  }
-
   private fun <E : WorkspaceEntity> loadRegistrarData(rootData: RootData<E>) {
     rootData.moduleContents.entries.forEach { entry ->
       moduleRoots.getOrPut(entry.key) { MutableIndexingUrlRootHolder() }.addRoots(entry.value)
@@ -212,20 +158,6 @@ internal class WorkspaceIndexingRootsBuilder(private val ignoreModuleRoots: Bool
     }
     reincludedRoots.addAll(rootData.excludedRoots)
     nonIndexableRoots.addAll(rootData.nonIndexableRoots)
-  }
-
-  fun createBuilders(project: Project): Collection<IndexableIteratorBuilder> {
-    val builders = mutableListOf<IndexableIteratorBuilder>()
-    for (entry in moduleRoots.entries) {
-      builders.addAll(forModuleRootsFileBased((entry.key as ModuleBridge).moduleEntityId, entry.value))
-    }
-
-    for (description in descriptions) {
-      builders.addAll(description.createBuilders())
-    }
-
-    builders.addAll(ReincludedRootsUtil.createBuildersForReincludedFiles(project, reincludedRoots))
-    return builders
   }
 
   fun <E : WorkspaceEntity> registerEntitiesFromContributor(contributor: WorkspaceFileIndexContributor<E>,
@@ -356,9 +288,8 @@ private class RootData<E : WorkspaceEntity>(val contributor: WorkspaceFileIndexC
   }
 
   fun registerFileSet(root: VirtualFile,
-                      kind: WorkspaceFileKind,
-                      entity: WorkspaceEntity,
-                      recursive: Boolean) {
+                      kind: WorkspaceFileKind
+  ) {
     if (!kind.isIndexable) {
       nonIndexableRoots.add(root)
       return
@@ -367,14 +298,6 @@ private class RootData<E : WorkspaceEntity>(val contributor: WorkspaceFileIndexC
 
   fun registerExcludedRoot(root: VirtualFileUrl) {
     root.virtualFile?.let { excludedRoots.add(it) }
-  }
-
-  fun cleanIncludedRoots() {
-    moduleContents.clear()
-    customizedModuleContentRoots.clear()
-    contentRoots.clear()
-    externalRoots.clear()
-    customKindRoots.clear()
   }
 
   fun cleanExcludedRoots() {
@@ -446,7 +369,7 @@ private class MyWorkspaceFileSetRegistrar<E : WorkspaceEntity>(contributor: Work
   }
 
   override fun registerFileSet(root: VirtualFile, kind: WorkspaceFileKind, entity: WorkspaceEntity, customData: WorkspaceFileSetData?) {
-    rootData.registerFileSet(root, kind, entity, true)
+    rootData.registerFileSet(root, kind)
   }
 
   override fun registerExcludedRoot(excludedRoot: VirtualFileUrl, entity: WorkspaceEntity) {
