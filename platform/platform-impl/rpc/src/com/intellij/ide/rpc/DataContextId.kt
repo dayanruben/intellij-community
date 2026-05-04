@@ -31,7 +31,7 @@ import org.jetbrains.annotations.ApiStatus
 @ApiStatus.Experimental
 fun DataContext.rpcId(): DataContextId {
   val context = this
-  val serializedContext = serializeToRpc(context)
+  val serializedContext = serializeToRpc(context, true)
 
   return DataContextId(serializedContext, context)
 }
