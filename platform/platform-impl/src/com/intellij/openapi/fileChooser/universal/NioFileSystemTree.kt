@@ -4,6 +4,7 @@ package com.intellij.openapi.fileChooser.universal
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.DataKey
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileChooser.FileSystemTree
 import com.intellij.openapi.fileChooser.universal.NioFileChooserUtil.toNioPathSafe
@@ -22,6 +23,9 @@ import com.intellij.ui.tree.AsyncTreeModel
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.tree.TreeUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Color
 import java.awt.event.KeyEvent
@@ -29,9 +33,12 @@ import java.awt.event.MouseEvent
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
 import javax.swing.JTree
 import javax.swing.KeyStroke
+import javax.swing.event.TreeExpansionEvent
+import javax.swing.event.TreeExpansionListener
 import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
 
@@ -48,12 +55,16 @@ class NioFileSystemTree(
   @Suppress("unused") private val project: Project?,
   private val descriptor: FileChooserDescriptor,
   private val myTree: Tree,
+  contributor: UniversalFileChooserContributor,
+  private val scope: CoroutineScope,
 ) : Disposable {
 
   private val okActions: MutableList<Runnable> = ArrayList(2)
   private val fileTreeModel: NioFileTreeModel = NioFileTreeModel(descriptor)
   private val asyncTreeModel: AsyncTreeModel = AsyncTreeModel(fileTreeModel, this)
   private val listeners: MutableList<Listener> = ContainerUtil.createLockFreeCopyOnWriteList()
+  private val subscriptionJobs: ConcurrentHashMap<Path, Job> = ConcurrentHashMap()
+  private val fileWatcherAdapter = contributor.getFileWatcherAdapter()
 
   init {
     myTree.model = asyncTreeModel
@@ -65,6 +76,16 @@ class NioFileSystemTree(
       else TreeSelectionModel.SINGLE_TREE_SELECTION
     registerTreeActions()
     myTree.cellRenderer = FileRenderer()
+
+    myTree.addTreeExpansionListener(object : TreeExpansionListener {
+      override fun treeExpanded(event: TreeExpansionEvent) {
+        val nioPath = getNioPath(event.path) ?: return
+        subscribeToChanges(nioPath)
+      }
+
+      override fun treeCollapsed(event: TreeExpansionEvent) {
+      }
+    })
   }
 
   private fun registerTreeActions() {
@@ -127,7 +148,41 @@ class NioFileSystemTree(
     fileTreeModel.invalidate()
   }
 
+  private fun subscribeToChanges(path: Path) {
+    if (fileWatcherAdapter == null) return
+    if (subscriptionJobs.containsKey(path)) return
+    val job = scope.launch {
+      try {
+        val flow = fileWatcherAdapter.subscribe(path) ?: return@launch
+        flow.collect {
+          fileTreeModel.invalidate()
+        }
+      }
+      catch (e: Exception) {
+        LOG.debug("Error subscribing to changes for $path", e)
+      }
+    }
+    subscriptionJobs[path] = job
+  }
+
+  private fun unsubscribeAll() {
+    if (fileWatcherAdapter == null) return
+    for ((path, job) in subscriptionJobs) {
+      job.cancel()
+      scope.launch {
+        try {
+          fileWatcherAdapter.unsubscribe(path)
+        }
+        catch (e: Exception) {
+          LOG.debug("Error unsubscribing from changes for $path", e)
+        }
+      }
+    }
+    subscriptionJobs.clear()
+  }
+
   override fun dispose() {
+    unsubscribeAll()
   }
 
   fun select(file: Path?, onDone: Runnable?) {
@@ -258,6 +313,8 @@ class NioFileSystemTree(
   }
 
   companion object {
+    private val LOG = Logger.getInstance(NioFileSystemTree::class.java)
+
     @JvmStatic
     fun getVirtualFile(path: TreePath): VirtualFile? {
       val component = path.lastPathComponent

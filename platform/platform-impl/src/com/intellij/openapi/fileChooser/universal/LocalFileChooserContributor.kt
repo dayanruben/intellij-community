@@ -5,11 +5,12 @@ import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.asEelPath
 import java.nio.file.Path
 
-internal class LocalFileChooserContributor() : UniversalFileChooserContributor {
+internal class LocalFileChooserContributor : UniversalFileChooserContributor {
   override val tabTitle: String = "Local"
 
   override fun getRoots(): List<Path> = getFilteredSystemRoots { path -> ownsPath(path) }
 
   override fun ownsPath(path: Path): Boolean = path.asEelPath().descriptor is LocalEelDescriptor
 
+  override fun getFileWatcherAdapter(): FileWatcherAdapter = LocalFileWatcherAdapter()
 }

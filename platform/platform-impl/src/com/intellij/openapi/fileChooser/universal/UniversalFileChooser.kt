@@ -623,7 +623,7 @@ object UniversalFileChooser {
 
           override fun treeWillCollapse(event: TreeExpansionEvent) {}
         })
-        fileTree = NioFileSystemTree(project, descriptorCopy, tree)
+        fileTree = NioFileSystemTree(project, descriptorCopy, tree, contributor, scope)
         fileTree.addOkAction(okAction)
         fileTree.addListener(object : NioFileSystemTree.Listener {
           override fun selectionChanged(selection: List<Path?>) {
