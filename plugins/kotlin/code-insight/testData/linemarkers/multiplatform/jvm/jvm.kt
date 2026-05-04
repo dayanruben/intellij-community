@@ -2,14 +2,14 @@
 package sample
 
 actual class <!LINE_MARKER("descr='Has expects in common module'")!>Sample<!> {
-    actual fun <!LINE_MARKER("descr='Has expects in common module'")!>checkMe<!>() = 42
+    actual fun <!LINE_MARKER("descr='Has expects in common module'"), LINE_MARKER("descr='Implements function in Sample (sample) Press ... to navigate'")!>checkMe<!>() = 42
 }
 
 actual object <!LINE_MARKER("descr='Has expects in common module'")!>Platform<!> {
-    actual val <!LINE_MARKER("descr='Has expects in common module'")!>name<!>: String = "JVM"
+    actual val <!LINE_MARKER("descr='Has expects in common module'"), LINE_MARKER("descr='Implements property in Platform (sample) Press ... to navigate'")!>name<!>: String = "JVM"
 }
 
-actual fun <!LINE_MARKER("descr='Has expects in common module'")!>foo<!>() {}
+actual fun <!LINE_MARKER("descr='Has expects in common module'"), LINE_MARKER("descr='Implements function in common.kt (sample) Press ... to navigate'")!>foo<!>() {}
 
 annotation class PreviewImpl
 
@@ -24,5 +24,5 @@ actual interface <!LINE_MARKER("descr='Has expects in common module'")!>WithComp
 }
 
 actual open class <!LINE_MARKER("descr='Has expects in common module'")!>BaseClass<!> {
-    actual open fun <!LINE_MARKER("descr='Has expects in common module'")!>baseMethod<!>() {}
+    actual open fun <!LINE_MARKER("descr='Has expects in common module'"), LINE_MARKER("descr='Implements function in BaseClass (sample) Press ... to navigate'")!>baseMethod<!>() {}
 }
