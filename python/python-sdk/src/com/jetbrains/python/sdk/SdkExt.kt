@@ -3,8 +3,6 @@ package com.jetbrains.python.sdk
 
 import com.intellij.execution.target.TargetBasedSdkAdditionalData
 import com.intellij.execution.target.TargetEnvironmentConfiguration
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.projectRoots.Sdk
@@ -33,38 +31,6 @@ fun Sdk.requirePythonSdk() {
  * Associates this SDK with the given [module] by storing the module's base directory path
  * in [PythonSdkAdditionalData.associatedModulePath] and committing the change.
  *
- * Non-suspend version that schedules the write action on EDT via [runInEdt].
- * Use when calling from quick-fixes or other contexts where `suspend` is not available.
- *
- * @see setAssociationToModule for the suspend version
- */
-@Internal
-fun Sdk.setAssociationToModuleAsync(module: Module) {
-  requirePythonSdk()
-
-  val path = module.baseDir?.path
-  assert(path != null) { "Module $module has not paths, and can't be associated" }
-
-  val data = getOrCreateAdditionalData()
-    .also {
-      it.associatedModulePath = path
-    }
-
-  val modificator = sdkModificator
-  modificator.sdkAdditionalData = data
-
-  runInEdt {
-    ApplicationManager.getApplication().runWriteAction {
-      modificator.commitChanges()
-    }
-  }
-}
-
-/**
- * Associates this SDK with the given [module] by storing the module's base directory path
- * in [PythonSdkAdditionalData.associatedModulePath] and committing the change.
- *
- * @see setAssociationToModuleAsync for the non-suspend version
  */
 @Internal
 suspend fun Sdk.setAssociationToModule(module: Module) {
