@@ -1,0 +1,6 @@
+<node text="BaseClass ()" base="true">
+  <node text="BaseClass ()">
+    <node text="JvmOnlyChild ()"/>
+  </node>
+  <node text="JvmOnlyChild ()"/>
+</node>

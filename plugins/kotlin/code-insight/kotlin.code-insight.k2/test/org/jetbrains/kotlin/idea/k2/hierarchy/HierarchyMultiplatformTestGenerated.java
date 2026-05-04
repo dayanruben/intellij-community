@@ -18,25 +18,52 @@ import org.junit.runner.RunWith;
 @TestRoot("code-insight/kotlin.code-insight.k2")
 @TestDataPath("$CONTENT_ROOT")
 @RunWith(JUnit3RunnerWithInners.class)
-@TestMetadata("../../idea/tests/testData/hierarchy/kmp/type")
-public class HierarchyMultiplatformTestGenerated extends AbstractHierarchyMultiplatformTest {
-    @java.lang.Override
-    @org.jetbrains.annotations.NotNull
-    public final KotlinPluginMode getPluginMode() {
-        return KotlinPluginMode.K2;
+public abstract class HierarchyMultiplatformTestGenerated extends AbstractHierarchyMultiplatformTest {
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../idea/tests/testData/hierarchy/kmp/type")
+    public static class Type extends AbstractHierarchyMultiplatformTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doSubClassHierarchyTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("fromActual.kt")
+        public void testFromActual() throws Exception {
+            runTest("../../idea/tests/testData/hierarchy/kmp/type/fromActual.kt");
+        }
+
+        @TestMetadata("fromExpect.kt")
+        public void testFromExpect() throws Exception {
+            runTest("../../idea/tests/testData/hierarchy/kmp/type/fromExpect.kt");
+        }
     }
 
-    private void runTest(String testDataFilePath) throws Exception {
-        KotlinTestUtils.runTest(this::doSubClassHierarchyTest, this, testDataFilePath);
-    }
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../idea/tests/testData/hierarchy/kmp/method")
+    public static class Method extends AbstractHierarchyMultiplatformTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
 
-    @TestMetadata("fromActual.kt")
-    public void testFromActual() throws Exception {
-        runTest("../../idea/tests/testData/hierarchy/kmp/type/fromActual.kt");
-    }
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doMethodHierarchyTest, this, testDataFilePath);
+        }
 
-    @TestMetadata("fromExpect.kt")
-    public void testFromExpect() throws Exception {
-        runTest("../../idea/tests/testData/hierarchy/kmp/type/fromExpect.kt");
+        @TestMetadata("fromActual.kt")
+        public void testFromActual() throws Exception {
+            runTest("../../idea/tests/testData/hierarchy/kmp/method/fromActual.kt");
+        }
+
+        @TestMetadata("fromExpect.kt")
+        public void testFromExpect() throws Exception {
+            runTest("../../idea/tests/testData/hierarchy/kmp/method/fromExpect.kt");
+        }
     }
 }

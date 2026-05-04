@@ -8,9 +8,11 @@ import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
 import com.intellij.testFramework.codeInsight.hierarchy.HierarchyViewTestFixture
+import org.jetbrains.kotlin.idea.k2.codeinsight.hierarchy.overrides.KotlinOverrideTreeStructure
 import org.jetbrains.kotlin.idea.k2.codeinsight.hierarchy.types.KotlinSubtypesHierarchyTreeStructure
 import org.jetbrains.kotlin.idea.test.KotlinLightMultiplatformCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.idea.test.configureMultiPlatformModuleStructure
+import org.jetbrains.kotlin.psi.KtCallableDeclaration
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
 import java.io.File
@@ -32,5 +34,15 @@ abstract class AbstractHierarchyMultiplatformTest : KotlinLightMultiplatformCode
             (PsiManager.getInstance(project).findFile(mainFile) as KtFile).declarations.filterIsInstance<KtClassOrObject>().first(),
             HierarchyBrowserBaseEx.SCOPE_PROJECT
         )
+    }
+
+    protected fun doMethodHierarchyTest(folderName: String) = doTest(folderName) { mainFile ->
+        val ktFile = PsiManager.getInstance(project).findFile(mainFile) as KtFile
+        val callableDeclaration = ktFile.declarations.filterIsInstance<KtClassOrObject>()
+            .firstOrNull()?.declarations
+            ?.filterIsInstance<KtCallableDeclaration>()
+            ?.firstOrNull() ?: ktFile.declarations.filterIsInstance<KtCallableDeclaration>().firstOrNull()
+        ?: error("No callable declaration found in file: ${ktFile.name}")
+        KotlinOverrideTreeStructure(project, callableDeclaration)
     }
 }
