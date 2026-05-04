@@ -118,14 +118,10 @@
                             implementationClass="com.jetbrains.python.poetry.PoetryDependencyPackageNameCompletionContributor"/>
     <completion.contributor language="TOML"
                             implementationClass="com.jetbrains.python.poetry.PoetryDependencyVersionCompletionContributor"/>
-    <localInspection language="Requirements" shortName="UnsatisfiedRequirementInspection" suppressId="UnsatisfiedRequirement"
+    <localInspection language="Requirements" shortName="RequirementInspection" suppressId="Requirement"
                      bundle="messages.PyBundle"
-                     key="INSP.requirement.uninstalled.name" groupKey="INSP.GROUP.requirements" enabledByDefault="true" level="WARNING"
-                     implementationClass="com.jetbrains.python.requirements.inspections.tools.NotInstalledRequirementInspection"/>
-    <localInspection language="Requirements" shortName="OutdatedRequirementInspection" suppressId="OutdatedRequirement"
-                     bundle="messages.PyBundle"
-                     key="INSP.requirement.outdated.name" groupKey="INSP.GROUP.requirements" enabledByDefault="true" level="WEAK WARNING"
-                     implementationClass="com.jetbrains.python.requirements.inspections.tools.OutdatedRequirementInspection"/>
+                     key="INSP.requirement.name" groupKey="INSP.GROUP.requirements" enabledByDefault="true" level="WEAK WARNING"
+                     implementationClass="com.jetbrains.python.requirements.inspections.tools.RequirementInspection"/>
     <codeInsight.declarativeInlayProvider group="VALUES_GROUP"
                                           bundle="messages.PyBundle"
                                           implementationClass="com.jetbrains.python.requirements.inspections.tools.RequirementInlayHintsProvider"

@@ -12,7 +12,7 @@ import org.jetbrains.annotations.ApiStatus
 @ApiStatus.Internal
 class NonModulePackageName private constructor(val name: String) {
   companion object {
-    private fun moduleNames(project: Project): Set<String> =
+    fun moduleNames(project: Project): Set<String> =
       project.modules.mapTo(mutableSetOf()) { PyPackageName.normalizePackageName(it.name) }
 
     fun create(packageName: String, project: Project): NonModulePackageName? {
