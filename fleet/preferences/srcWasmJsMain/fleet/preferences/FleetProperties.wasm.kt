@@ -25,6 +25,7 @@ private val allowedPropertiesPassedInQuery = setOf(
   "fleet.startup.performance.checkpoints",
   "fleet.transient.agent-session-id",
   "fleet.log.level",
+  "fleet.font.loading.experiment"
 )
 
 private val urlParameters by lazy {
