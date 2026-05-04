@@ -129,6 +129,37 @@ internal class TreeStateTest : BasePlatformTestCase() {
     )
   }
 
+  fun `test restore cached presentation - missing cached sibling`() {
+    cachedPresentationTest(
+      inputToSave = """
+       +root
+        +a1
+         *a1.1
+        -a2
+         *a2.1
+         *a2.2
+        *a3
+        *a4
+      """.trimIndent(),
+      inputToRestore = """
+       +root
+        +a1
+         *a1.1
+        -a2
+         *a2.1
+         *a2.2
+        *a4
+      """.trimIndent(),
+      expectedLoadedNodes = listOf(
+        "/root",
+        "/root/a1",
+        "/root/a1/a1.1",
+        "/root/a2",
+        "/root/a4",
+      )
+    )
+  }
+
   fun `test restore selection - the selected child is removed`() {
     syncSelectionTest(
       inputToSave = """
