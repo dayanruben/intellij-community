@@ -47,6 +47,10 @@ To configure, open <b>Settings/Preferences | Build, Execution, Deployment | Cove
               implementationClass="com.intellij.coverage.JaCoCoCoverageFileType"
               fieldName="INSTANCE"/>
     <projectSettings service="com.intellij.coverage.JavaCoverageOptionsProvider"/>
+
+    <registryKey defaultValue="true"
+                 description="Collect JaCoCo coverage for classes with no location (pass additional inclnolocationclasses=true option)"
+                 key="idea.jacoco.collect.coverage.for.classes.with.no.location"/>
   </extensions>
 
   <extensionPoints>

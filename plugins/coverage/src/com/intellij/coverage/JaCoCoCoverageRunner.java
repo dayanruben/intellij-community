@@ -22,6 +22,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -371,6 +372,17 @@ public final class JaCoCoCoverageRunner extends JavaCoverageRunner {
       .fixed("=destfile=")
       .resolved(sessionDataFilePath)
       .fixed(",append=false");
+    if (Registry.is("idea.jacoco.collect.coverage.for.classes.with.no.location")) {
+      // JaCoCo engine ignores classes with no location.
+      // Location is accessed with these methods:
+      // * java.security.CodeSource.getLocation
+      // * java.security.ProtectionDomain.getCodeSource
+      // where protection domain is passed to JaCoCo transformer.
+      //
+      // IntelliJ provides no source (default is used) here:
+      // com.intellij.util.lang.UrlClassLoader.consumeClassData(java.lang.String, java.nio.ByteBuffer)
+      builder.fixed(",inclnolocationclasses=true");
+    }
     if (!ArrayUtil.isEmpty(patterns)) {
       builder.fixed(",includes=").fixed(StringUtil.join(patterns, ":"));
     }
