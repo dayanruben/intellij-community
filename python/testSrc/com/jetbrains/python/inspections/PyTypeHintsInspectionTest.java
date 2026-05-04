@@ -7,7 +7,7 @@ import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
 
 public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
-  
+
   // PY-28243
   public void testTypeVarAndTargetName() {
     doTestByText("""
@@ -3446,6 +3446,63 @@ public class PyTypeHintsInspectionTest extends PyInspectionTestCase {
                        assert_type(x, list[T])
                        assert_type(x, list["T"])
                    """);
+  }
+
+  @TestFor(issues = "PY-76895")
+  public void testInvalidExpressionInsideBound() {
+    doTestByText(
+      """
+        var = 1
+        class ClassA[T: (<warning descr="Invalid type annotation">3</warning>, bytes)]: ...
+        class ClassB[T: (int, <warning descr="Invalid type annotation">[1, 2, 3]</warning>)]: ...
+        class ClassC[T: (int, <warning descr="Invalid type annotation">var</warning>)]: ...
+        class ClassC[T: (int, <warning descr="Invalid type annotation">lambda x: x</warning>)]: ...
+        class ClassD[T: (int, <warning descr="Invalid type annotation">ClassA[bytes]()</warning>)]: ...
+        
+        class ClassA[T: (<warning descr="Invalid type annotation">3</warning>, bytes)]: ...
+        class ClassB[T: (int, <warning descr="Invalid type annotation">[1, 2, 3]</warning>)]: ...
+        class ClassC[T: (int, <warning descr="Invalid type annotation">var</warning>)]: ...
+        class ClassC[T: (int, <warning descr="Invalid type annotation">lambda x: x</warning>)]: ...
+        class ClassD[T: (int, <warning descr="Invalid type annotation">ClassA[bytes]()</warning>)]: ...
+        class ClassD[T: <warning descr="Invalid type annotation">[int]</warning>]: ...
+        """);
+  }
+
+  @TestFor(issues = "PY-89092")
+  public void testParamSpecInBound() {
+    doTestByText(
+      """
+        from collections.abc import Callable
+        
+        class A[**P]: ...
+        class B[T: Callable[[], None] = Callable[[], None]]: ...
+        class C[T: A[[]] = A[[]]]: ...
+        """);
+  }
+
+  @TestFor(issues = "PY-76895")
+  public void testInvalidExpressionInDefault() {
+    doTestByText(
+      """
+        var = 1
+        class ClassA[T: (<warning descr="Invalid type annotation">3</warning>, bytes)]: ...
+        class ClassB[T: (int, <warning descr="Invalid type annotation">[1, 2, 3]</warning>)]: ...
+        class ClassC[T: (int, <warning descr="Invalid type annotation">var</warning>)]: ...
+        class ClassC[T: (int, <warning descr="Invalid type annotation">lambda x: x</warning>)]: ...
+        class ClassD[T: (int, <warning descr="Invalid type annotation">ClassA[bytes]()</warning>)]: ...
+        class ClassE[T: <warning descr="Invalid type annotation">3</warning>]: ...
+        """);
+  }
+
+  @TestFor(issues = "PY-87564")
+  public void testTypeVarBoundWithModuleQualifier() {
+    myFixture.configureByText("mod.py", "class MyClass: pass");
+    doTestByText(
+      """
+        import mod
+        
+        class A[T: mod.MyClass]: ...
+        """);
   }
 
   private void generateVariableTypeAssertions(@NotNull Object @NotNull [][] cases) {
