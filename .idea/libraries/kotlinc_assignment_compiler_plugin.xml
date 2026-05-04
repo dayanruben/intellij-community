@@ -1,18 +1,18 @@
 <component name="libraryTable">
   <library name="kotlinc.assignment-compiler-plugin" type="repository">
-    <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:assignment-compiler-plugin-for-ide:2.4.20-dev-2209">
+    <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:assignment-compiler-plugin-for-ide:2.4.20-dev-2699">
       <verification>
-        <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/assignment-compiler-plugin-for-ide/2.4.20-dev-2209/assignment-compiler-plugin-for-ide-2.4.20-dev-2209.jar">
-          <sha256sum>be9a0d2f36b7ce009b45bd767c5ced91f1134a6d45f56a34ac1b6efe557c75dc</sha256sum>
+        <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/assignment-compiler-plugin-for-ide/2.4.20-dev-2699/assignment-compiler-plugin-for-ide-2.4.20-dev-2699.jar">
+          <sha256sum>ff9c1859f85caac2ecffc264111cfdce7f782605092a62f2f3dbdbbbc9fa9934</sha256sum>
         </artifact>
       </verification>
     </properties>
     <CLASSES>
-      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/assignment-compiler-plugin-for-ide/2.4.20-dev-2209/assignment-compiler-plugin-for-ide-2.4.20-dev-2209.jar!/" />
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/assignment-compiler-plugin-for-ide/2.4.20-dev-2699/assignment-compiler-plugin-for-ide-2.4.20-dev-2699.jar!/" />
     </CLASSES>
     <JAVADOC />
     <SOURCES>
-      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/assignment-compiler-plugin-for-ide/2.4.20-dev-2209/assignment-compiler-plugin-for-ide-2.4.20-dev-2209-sources.jar!/" />
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/assignment-compiler-plugin-for-ide/2.4.20-dev-2699/assignment-compiler-plugin-for-ide-2.4.20-dev-2699-sources.jar!/" />
     </SOURCES>
   </library>
 </component>
