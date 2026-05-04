@@ -2,7 +2,6 @@
 package org.jetbrains.ide
 
 import com.intellij.ide.ApplicationActivity
-import com.intellij.ide.SpecialConfigFiles
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.PathManager
@@ -35,9 +34,7 @@ import java.nio.file.attribute.PosixFilePermissions.asFileAttribute
 import java.nio.file.attribute.PosixFilePermissions.fromString
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import kotlin.io.path.exists
 import kotlin.io.path.fileStore
-import kotlin.io.path.readText
 
 @Service(Service.Level.APP)
 internal class BuiltInServerDiscoveryService(private val coroutineScope: CoroutineScope) {
@@ -125,7 +122,6 @@ internal class BuiltInServerDiscoveryService(private val coroutineScope: Corouti
   }
 
   private fun writeInstanceInfo(jsonFile: Path, address: InetAddress, port: Int) {
-    val authToken = readAuthToken()
     val appInfo = ApplicationInfo.getInstance()
     val namesInfo = ApplicationNamesInfo.getInstance()
 
@@ -133,7 +129,6 @@ internal class BuiltInServerDiscoveryService(private val coroutineScope: Corouti
       JsonFactory().createGenerator(out, DefaultPrettyPrinter()).use { writer ->
         writer.obj {
           writer.writeStringField("url", "http://${address.hostAddress}:$port")
-          writer.writeStringField("authToken", authToken)
           writer.writeStringField("dateTime", ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
           writer.writeNumberField("pid", ProcessHandle.current().pid())
 
@@ -232,19 +227,6 @@ internal class BuiltInServerDiscoveryService(private val coroutineScope: Corouti
       LOG.warn("Failed to check support of posix permissions on $path", e)
       false
     }
-  }
-
-  private fun readAuthToken(): String {
-    val tokenFile = Path.of(PathManager.getConfigPath(), SpecialConfigFiles.USER_WEB_TOKEN)
-    if (tokenFile.exists()) {
-      try {
-        return tokenFile.readText().trim()
-      }
-      catch (e: Exception) {
-        LOG.warn("Failed to read auth token", e)
-      }
-    }
-    return ""
   }
 }
 

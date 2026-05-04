@@ -131,7 +131,6 @@ a:org.jetbrains.ide.RestService
 - pa:getServiceName():java.lang.String
 - sf:getStringParameter(java.lang.String,io.netty.handler.codec.http.QueryStringDecoder):java.lang.String
 - f:isHostInPredefinedHosts(io.netty.handler.codec.http.HttpRequest,java.util.Set,java.lang.String):Z
-- p:isHostTrusted(io.netty.handler.codec.http.FullHttpRequest):Z
 - p:isHostTrusted(io.netty.handler.codec.http.FullHttpRequest,io.netty.handler.codec.http.QueryStringDecoder):Z
 - p:isMethodSupported(io.netty.handler.codec.http.HttpMethod):Z
 - p:isPrefixlessAllowed():Z
