@@ -6,6 +6,7 @@ import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.platform.bazel.runfiles.BazelLabel
 import com.intellij.platform.bazel.runfiles.BazelRunfiles
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.absolute
@@ -92,6 +93,7 @@ object BazelTestUtil {
    * Any I/O failure is propagated to the caller.
    */
   @JvmStatic
+  @TestOnly
   fun allowVfsAccessToCanonicalRunfilesRoot(runfilesDir: Path) {
     if (!Files.isDirectory(runfilesDir)) return
     Files.walk(runfilesDir).use { walk ->
@@ -103,7 +105,6 @@ object BazelTestUtil {
       (0 until relative.nameCount).forEach { _ ->
           canonicalRoot = canonicalRoot?.parent ?: return
       }
-      @Suppress("TestOnlyProblems")
       VfsRootAccess.allowRootAccess(ApplicationManager.getApplication(), canonicalRoot.toString())
     }
   }
