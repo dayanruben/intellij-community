@@ -10,6 +10,7 @@ import com.intellij.psi.PsiManager
 import com.intellij.testFramework.codeInsight.hierarchy.HierarchyViewTestFixture
 import org.jetbrains.kotlin.idea.k2.codeinsight.hierarchy.overrides.KotlinOverrideTreeStructure
 import org.jetbrains.kotlin.idea.k2.codeinsight.hierarchy.types.KotlinSubtypesHierarchyTreeStructure
+import org.jetbrains.kotlin.idea.k2.codeinsight.hierarchy.types.KotlinSupertypesHierarchyTreeStructure
 import org.jetbrains.kotlin.idea.test.KotlinLightMultiplatformCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.idea.test.configureMultiPlatformModuleStructure
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
@@ -33,6 +34,13 @@ abstract class AbstractHierarchyMultiplatformTest : KotlinLightMultiplatformCode
             project,
             (PsiManager.getInstance(project).findFile(mainFile) as KtFile).declarations.filterIsInstance<KtClassOrObject>().first(),
             HierarchyBrowserBaseEx.SCOPE_PROJECT
+        )
+    }
+
+    protected fun doSuperClassHierarchyTest(folderName: String) = doTest(folderName) { mainFile ->
+        KotlinSupertypesHierarchyTreeStructure(
+            project,
+            (PsiManager.getInstance(project).findFile(mainFile) as KtFile).declarations.filterIsInstance<KtClassOrObject>().first()
         )
     }
 

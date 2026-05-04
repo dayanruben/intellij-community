@@ -243,6 +243,7 @@ internal fun MutableTWorkspace.generateK2CodeInsightTests() {
 
         testClass<AbstractHierarchyMultiplatformTest> {
             model("../../../idea/tests/testData/hierarchy/kmp/type", testMethodName = "doSubClassHierarchyTest")
+            model("../../../idea/tests/testData/hierarchy/kmp/superType", testMethodName = "doSuperClassHierarchyTest")
             model("../../../idea/tests/testData/hierarchy/kmp/method", testMethodName = "doMethodHierarchyTest")
         }
 

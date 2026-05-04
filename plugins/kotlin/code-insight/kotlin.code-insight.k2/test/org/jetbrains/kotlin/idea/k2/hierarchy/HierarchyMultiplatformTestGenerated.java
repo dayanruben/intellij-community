@@ -44,6 +44,25 @@ public abstract class HierarchyMultiplatformTestGenerated extends AbstractHierar
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../idea/tests/testData/hierarchy/kmp/superType")
+    public static class SuperType extends AbstractHierarchyMultiplatformTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doSuperClassHierarchyTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("fromActual.kt")
+        public void testFromActual() throws Exception {
+            runTest("../../idea/tests/testData/hierarchy/kmp/superType/fromActual.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../idea/tests/testData/hierarchy/kmp/method")
     public static class Method extends AbstractHierarchyMultiplatformTest {
         @java.lang.Override
