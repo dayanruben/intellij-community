@@ -17,3 +17,7 @@ actual object <!LINE_MARKER("descr='Has expects in common module'")!>SomeObject<
 actual interface <!LINE_MARKER("descr='Has expects in common module'")!>WithCompanion<!> {
     actual companion <!LINE_MARKER("descr='Has expects in common module'")!>object<!> {}
 }
+
+actual open class <!LINE_MARKER("descr='Has expects in common module'")!>BaseClass<!> {
+    actual open fun <!LINE_MARKER("descr='Has expects in common module'")!>baseMethod<!>() {}
+}

@@ -34,6 +34,7 @@ import org.jetbrains.kotlin.idea.highlighter.markers.KotlinLineMarkerOptions
 import org.jetbrains.kotlin.idea.k2.codeinsight.KotlinGoToSuperDeclarationsHandler
 import org.jetbrains.kotlin.idea.search.KotlinSearchUsagesSupport.SearchUtils.isInheritable
 import org.jetbrains.kotlin.idea.search.KotlinSearchUsagesSupport.SearchUtils.isOverridable
+import org.jetbrains.kotlin.idea.searching.inheritors.hasAnyActuals
 import org.jetbrains.kotlin.idea.searching.inheritors.hasAnyInheritors
 import org.jetbrains.kotlin.idea.searching.inheritors.hasAnyOverridings
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -49,6 +50,7 @@ import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.hasBody
+import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration
 import java.awt.event.MouseEvent
 import java.util.concurrent.atomic.AtomicReference
 
@@ -73,7 +75,8 @@ class KotlinLineMarkerProvider : AbstractKotlinLineMarkerProvider() {
     }
 
     private fun collectCallableOverridings(element: KtCallableDeclaration, result: MutableCollection<in LineMarkerInfo<*>>) {
-        if (!element.isOverridable()) {
+        val isExpectDeclaration = element.isExpectDeclaration()
+        if (!element.isOverridable() && !isExpectDeclaration) {
             return
         }
 
@@ -83,7 +86,7 @@ class KotlinLineMarkerProvider : AbstractKotlinLineMarkerProvider() {
         val isAbstract = CallableOverridingsTooltip.isAbstract(element, klass)
         val gutter = if (isAbstract) KotlinLineMarkerOptions.implementedOption else KotlinLineMarkerOptions.overriddenOption
         if (!gutter.isEnabled) return
-        if (!element.hasAnyOverridings() && (element.hasBody() || !isUsedSamInterface(klass))) return
+        if (!element.hasAnyActuals() && !element.hasAnyOverridings() && (element.hasBody() || !isUsedSamInterface(klass))) return
 
         val anchor = element.nameIdentifier ?: element
 
@@ -145,7 +148,8 @@ class KotlinLineMarkerProvider : AbstractKotlinLineMarkerProvider() {
     }
 
     private fun collectInheritedClassMarker(element: KtClass, result: MutableCollection<in LineMarkerInfo<*>>) {
-        if (!element.isInheritable()) {
+        val isExpectDeclaration = element.isExpectDeclaration()
+        if (!element.isInheritable() && !isExpectDeclaration) {
             return
         }
 
@@ -154,7 +158,7 @@ class KotlinLineMarkerProvider : AbstractKotlinLineMarkerProvider() {
         val gutter = if (isInterface) KotlinLineMarkerOptions.implementedOption else KotlinLineMarkerOptions.overriddenOption
         if (!gutter.isEnabled) return
 
-        if (!element.hasAnyInheritors() && !isUsedSamInterface(element)) return
+        if (!element.hasAnyActuals() && !element.hasAnyInheritors() && !isUsedSamInterface(element)) return
 
         val icon = gutter.icon ?: return
 
@@ -205,10 +209,10 @@ object ClassInheritorsTooltip : Function<PsiElement, String> {
         val ktClass = element.parent as? KtClass ?: return null
         var inheritors = KotlinFindUsagesSupport.searchInheritors(ktClass, ktClass.useScope).take(5).toList()
         if (inheritors.isEmpty()) {
+            inheritors = if (ktClass.isExpectDeclaration()) ktClass.actualsForExpect().take(5).toList() else emptyList()
+        }
+        if (inheritors.isEmpty()) {
             inheritors = findFunctionalExpressions(ktClass)
-            if (inheritors.isEmpty()) {
-                return null
-            }
         }
         val isInterface = ktClass.isInterface()
         if (inheritors.size == 5) {
@@ -238,12 +242,12 @@ object CallableOverridingsTooltip : Function<PsiElement, String> {
         val klass = declaration.containingClassOrObject as? KtClass ?: return null
         var overridings = KotlinFindUsagesSupport.searchOverriders(declaration, declaration.useScope).take(5).toList()
         if (overridings.isEmpty()) {
-            overridings = findFunctionalExpressions(klass)
-            if (overridings.isEmpty()) {
-                return null
-            }
+            overridings = declaration.actualsForExpect().take(5).toList()
         }
-        val isAbstract = isAbstract(declaration, klass)
+        if (overridings.isEmpty()) {
+            overridings = findFunctionalExpressions(klass)
+        }
+        val isAbstract = isAbstract(declaration, klass) || declaration.isExpectDeclaration()
         if (overridings.size == 5) {
             return if (isAbstract) DaemonBundle.message("method.is.implemented.too.many") else DaemonBundle.message("method.is.overridden.too.many")
         }
