@@ -66,6 +66,7 @@ internal class EditorHyperlinkInteraction(
       if (effectSupplier.isInvisibleLink(link)) {
         EditorHyperlinkUsageCollector.logInvisibleHyperlinkFollowed(HyperlinkFollowedPlace.EDITOR_LINK_CTRL_CLICKED)
       }
+      event.consume()
     }
   }
 

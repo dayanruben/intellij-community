@@ -456,7 +456,6 @@ private class EditorTextDecorationApplierImpl(private val editor: EditorEx, pare
               LOG.error("The hyperlink handler threw an exception, hyperlink = $hyperlink", e)
             }
           }
-          event.consume()
         }
       }
     }

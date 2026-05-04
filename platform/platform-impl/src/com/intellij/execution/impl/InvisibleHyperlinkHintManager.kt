@@ -58,6 +58,7 @@ internal class InvisibleHyperlinkHintManager(private val editor: Editor, parentD
   private var hintInfoDeferred: Deferred<HintInfo>? = null
 
   private var wasEditorFocusedBeforePopupShown: Boolean = false
+  private var hadTextSelection: Boolean = false
 
   @Volatile
   private var lastMousePressTime: Long = 0
@@ -70,6 +71,8 @@ internal class InvisibleHyperlinkHintManager(private val editor: Editor, parentD
           // Capture editor focus state before editor's mousePressed grabs focus.
           // The popup is shown later on mouseReleased.
           wasEditorFocusedBeforePopupShown = editor.contentComponent.isFocusOwner
+          // Capture editor selection state before editor's mousePressed removes it.
+          hadTextSelection = editor.selectionModel.hasSelection()
           lastMousePressTime = event.mouseEvent.`when`
         }
       }
@@ -108,7 +111,7 @@ internal class InvisibleHyperlinkHintManager(private val editor: Editor, parentD
       return
     }
     cancelPopup()
-    if (e.mouseEvent.clickCount == 1) {
+    if (e.mouseEvent.clickCount == 1 && !hadTextSelection) {
       // delay showing the hint to detect if this is part of a multi click
       hintInfoDeferred = coroutineScope.async {
         val delayMs = lastMousePressTime + UIUtil.getMultiClickInterval() - System.currentTimeMillis()
@@ -121,6 +124,7 @@ internal class InvisibleHyperlinkHintManager(private val editor: Editor, parentD
           showHintImmediately(link, e, action)
         }
       }
+      e.consume()
     }
   }
 
