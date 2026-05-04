@@ -1477,9 +1477,12 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
       myListModel.clearMoreItems();
     }
 
+    SETab selectedTab = myHeader.getSelectedTab();
+    boolean isAllTab = selectedTab.getID().equals(ALL_CONTRIBUTORS_GROUP_ID);
+    int additionalItemsCount = selectedTab.isSingleContributor() ? SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT
+                                                                 : MULTIPLE_CONTRIBUTORS_ELEMENTS_LIMIT;
+
     Map<SearchEverywhereContributor<?>, Collection<SearchEverywhereFoundElementInfo>> found = myListModel.getFoundElementsMap();
-    int additionalItemsCount = myHeader.getSelectedTab().isSingleContributor() ? SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT
-                                                                               : MULTIPLE_CONTRIBUTORS_ELEMENTS_LIMIT;
 
     Stream<Map.Entry<SearchEverywhereContributor<?>, Collection<SearchEverywhereFoundElementInfo>>> stream = found.entrySet().stream();
     if (contributor != null) {
@@ -1490,7 +1493,15 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
     }
 
     Map<? extends SearchEverywhereContributor<?>, Integer> contributorsAndLimits =
-      stream.collect(Collectors.toMap(entry -> entry.getKey(), entry -> entry.getValue().size() + additionalItemsCount));
+      stream.collect(Collectors.toMap(entry -> entry.getKey(), entry -> {
+        int fixedAdditionalItemsCount = additionalItemsCount;
+        if (!isAllTab && (FilesTabSEContributor.asMainFilesContributorOrNull(entry.getKey()) != null)) {
+          // Request more elements from the main Files contributor in Files tab
+          fixedAdditionalItemsCount = SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT;
+        }
+
+        return entry.getValue().size() + fixedAdditionalItemsCount;
+      }));
 
     myHintHelper.setSearchInProgress(StringUtil.isNotEmpty(getSearchPattern()));
     mySearchProgressIndicator = mySearcher.findMoreItems(found, contributorsAndLimits, getSearchPattern());
