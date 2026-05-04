@@ -621,11 +621,18 @@ public class ImportHelperTest extends ProductionDaemonAnalyzerTestCase {
     WriteCommandAction.runWriteCommandAction(getProject(), ()->otherEditor.getDocument().insertString(offset, toType)); // typing sometimes does excessive overtyping and messes the text
 
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
+    PlatformTestUtil.dispatchAllEventsInIdeEventQueue();
     assertNotNull(PsiDocumentManager.getInstance(getProject()).getPsiFile(otherEditor.getDocument()));
     assertTrue(PsiShortNamesCache.getInstance(getProject()).getClassesByName("SomeOtherMethodClass12", GlobalSearchScope.allScope(getProject())).length != 0);
     assertNotNull(JavaPsiFacade.getInstance(getProject()).findClass("x.OtherClass.SomeOtherMethodClass12", GlobalSearchScope.allScope(getProject())));
-
+    myTestDaemonCodeAnalyzer.waitHighlightingSurviveCancellations(getFile(), HighlightSeverity.ERROR);
+    waitForAutoOptimizeImports();
+    UIUtil.dispatchAllInvocationEvents(); // make the auto-import modifications
     assertEmpty(myTestDaemonCodeAnalyzer.waitHighlightingSurviveCancellations(getFile(), HighlightSeverity.ERROR));
+
+    PsiReference ref = getFile().findReferenceAt(getFile().getText().indexOf("SomeOtherMethodClass12"));
+    assertNotNull(ReadAction.nonBlocking(()->ref.resolve()).submit(AppExecutorUtil.getAppExecutorService()).get());
+
     assertOneImportAdded("x.OtherClass.SomeOtherMethodClass12");
   }
 
