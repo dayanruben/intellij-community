@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl;
 
 import com.intellij.openapi.project.Project;
@@ -53,6 +53,13 @@ public final class JavaCodeFragmentFactoryImpl extends JavaCodeFragmentFactory {
                                                                                final boolean isPhysical,
                                                                                final boolean isClassesAccepted) {
     return new PsiJavaCodeReferenceCodeFragmentImpl(myProject, isPhysical, "fragment.java", text, isClassesAccepted, context);
+  }
+
+  @Override
+  public @NotNull PsiJavaCodeReferenceCodeFragment createReferenceCodeFragmentInPackage(@NotNull String text,
+                                                                                        @NotNull String packageName,
+                                                                                        boolean isClassesAccepted) {
+    return new PsiJavaCodeReferenceCodeFragmentImpl(myProject, true, "fragment.java", text, isClassesAccepted, packageName);
   }
 
   @Override
