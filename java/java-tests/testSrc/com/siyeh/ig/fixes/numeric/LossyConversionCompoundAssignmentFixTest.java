@@ -13,8 +13,13 @@ public class LossyConversionCompoundAssignmentFixTest extends IGQuickFixesTestCa
       "inspection.lossy.conversion.compound.assignment.expand.fix.name", "long"));
   }
 
-  public void testBytePlusShort() {
-    doTest(QuickFixBundle.message("add.typecast.cast.text", "byte",
+  public void testLongMultiplyDouble() {
+    doTest(QuickFixBundle.message("add.typecast.cast.text", "long",
+                                  QuickFixBundle.message("fix.expression.role.expression")));
+  }
+
+  public void testBytePlusShortNotExpected() {
+    assertQuickfixNotAvailable(QuickFixBundle.message("add.typecast.cast.text", "byte",
                                   QuickFixBundle.message("fix.expression.role.expression")));
   }
 

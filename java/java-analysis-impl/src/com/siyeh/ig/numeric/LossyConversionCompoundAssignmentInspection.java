@@ -19,6 +19,7 @@ import com.intellij.psi.PsiReferenceExpression;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.PsiUnaryExpression;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.JavaPsiPatternUtil;
 import com.intellij.psi.util.PsiPrecedenceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
@@ -52,7 +53,7 @@ public final class LossyConversionCompoundAssignmentInspection extends BaseInspe
     PsiType lType = (PsiType)infos[1];
     PsiExpression lExpression = (PsiExpression)infos[2];
     PsiExpression rExpression = (PsiExpression)infos[3];
-    if (isSimpleRhs(rExpression)) {
+    if (isSimpleRhs(rExpression, lExpression)) {
       return LocalQuickFix.from(new AddTypeCastFix(lType, rExpression));
     }
     if (SideEffectChecker.mayHaveSideEffects(lExpression)) {
@@ -61,12 +62,13 @@ public final class LossyConversionCompoundAssignmentInspection extends BaseInspe
     return new ExpandAndCastFix(lType.getCanonicalText());
   }
 
-  private static boolean isSimpleRhs(@Nullable PsiExpression rhs) {
-    PsiExpression expr = PsiUtil.skipParenthesizedExprDown(rhs);
-    if (expr instanceof PsiLiteralExpression) return true;
-    if (expr instanceof PsiReferenceExpression) return true;
-    if (expr instanceof PsiUnaryExpression unary) return isSimpleRhs(unary.getOperand());
-    return false;
+  private static boolean isSimpleRhs(@Nullable PsiExpression rhs, @Nullable PsiExpression lhs) {
+    if (lhs == null) return false;
+    return switch (PsiUtil.skipParenthesizedExprDown(rhs)) {
+      case PsiLiteralExpression _, PsiReferenceExpression _ -> JavaPsiPatternUtil.isUnconditionalConversion(rhs, lhs.getType());
+      case PsiUnaryExpression unary -> isSimpleRhs(unary.getOperand(), lhs);
+      case null, default -> false;
+    };
   }
 
   @Override
