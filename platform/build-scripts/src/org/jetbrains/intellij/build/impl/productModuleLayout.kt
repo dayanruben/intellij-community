@@ -223,14 +223,11 @@ private val excludedFromScrambling = hashSetOf(
   "intellij.platform.webide.impl",
   "intellij.rml.dfa",
   "intellij.platform.commercial.dependencies",
+  "intellij.rd.platform",
 )
 
 internal fun isModuleCloseSource(moduleName: String, context: CompilationContext): Boolean {
   if (moduleName.endsWith(".resources") || moduleName.endsWith(".icons") || moduleName.startsWith(LIB_MODULE_PREFIX)) {
-    return false
-  }
-
-  if (moduleName == "intellij.rd.platform") {
     return false
   }
 
