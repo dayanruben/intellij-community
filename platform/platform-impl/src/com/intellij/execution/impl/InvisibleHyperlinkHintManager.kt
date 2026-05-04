@@ -17,11 +17,12 @@ import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
+import com.intellij.platform.eel.isMac
+import com.intellij.platform.eel.provider.localEel
 import com.intellij.ui.HintHint
 import com.intellij.ui.HyperlinkAdapter
 import com.intellij.ui.LightweightHint
 import com.intellij.ui.awt.RelativePoint
-import com.intellij.util.system.OS
 import com.intellij.util.ui.JBUI
 import org.jetbrains.annotations.Nls
 import java.awt.Point
@@ -118,7 +119,7 @@ internal class InvisibleHyperlinkHintManager(private val editor: Editor, parentD
   }
 
   private fun getMouseShortcutText(): @Nls String {
-    val modifiersEx = if (OS.CURRENT == OS.macOS) InputEvent.META_DOWN_MASK else InputEvent.CTRL_DOWN_MASK
+    val modifiersEx = if (localEel.platform.isMac) InputEvent.META_DOWN_MASK else InputEvent.CTRL_DOWN_MASK
     val shortcut = MouseShortcut(MouseEvent.BUTTON1, modifiersEx, 1)
     return KeymapUtil.getShortcutText(shortcut)
   }
