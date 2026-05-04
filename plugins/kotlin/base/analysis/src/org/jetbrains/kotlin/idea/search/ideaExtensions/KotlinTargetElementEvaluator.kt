@@ -11,7 +11,9 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiReference
+import com.intellij.psi.impl.source.resolve.reference.impl.PsiMultiReference
 import com.intellij.util.BitUtil
+import org.jetbrains.kotlin.idea.base.psi.isNameBased
 import org.jetbrains.kotlin.idea.references.KtDestructuringDeclarationReference
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
 import org.jetbrains.kotlin.idea.references.getCalleeByLambdaArgument
@@ -21,6 +23,8 @@ import org.jetbrains.kotlin.psi.KtCallElement
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtConstructor
+import org.jetbrains.kotlin.psi.KtDestructuringDeclaration
+import org.jetbrains.kotlin.psi.KtDestructuringDeclarationEntry
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtLabelReferenceExpression
@@ -95,6 +99,18 @@ abstract class KotlinTargetElementEvaluator : TargetElementEvaluatorEx2(), Targe
         // prefer destructing declaration entry to its target if element name is accepted
         if (ref is KtDestructuringDeclarationReference && BitUtil.isSet(flags, TargetElementUtil.ELEMENT_NAME_ACCEPTED)) {
             return ref.element
+        }
+
+        if (ref is KtDestructuringDeclarationReference && ref.element.isNameBased()) {
+            ref.multiResolve(false).firstNotNullOfOrNull { it.element as? KtParameter }?.let { return it }
+        }
+
+        if (ref is PsiMultiReference) {
+            val targets = ref
+                .references
+                .filterIsInstance<KtDestructuringDeclarationReference>()
+                .firstOrNull { it.element.isNameBased() }?.multiResolve(false)
+            targets?.firstNotNullOfOrNull { it.element as? KtParameter }?.let { return it }
         }
 
         val refExpression = ref.element as? KtSimpleNameExpression
