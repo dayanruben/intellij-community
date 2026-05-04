@@ -164,14 +164,14 @@ private suspend fun startApp(args: List<String>, mainScope: CoroutineScope, busy
       mainClassLoaderDeferred = null
     }
     else {
-      mainClassLoaderDeferred = async(CoroutineName("main class loader initializing")) {
-        val classLoader = AppMode::class.java.classLoader
+      val classLoader = AppMode::class.java.classLoader
+      span("main class loader initializing") {
         changeClassPath.accept(classLoader)
-        classLoader
       }
+      mainClassLoaderDeferred = CompletableDeferred(classLoader)
 
       appStarterDeferred = async(CoroutineName("main class loading")) {
-        val aClass = mainClassLoaderDeferred.await().loadClass("com.intellij.idea.MainImpl")
+        val aClass = classLoader.loadClass("com.intellij.idea.MainImpl")
         MethodHandles.lookup().findConstructor(aClass, MethodType.methodType(Void.TYPE)).invoke() as AppStarter
       }
     }
