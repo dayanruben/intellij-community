@@ -132,14 +132,13 @@ class GrazieCheckers(coroutineScope: CoroutineScope) : GrazieStateLifecycle {
     val checkers = this.checkers
     if (!checkers.isNullOrEmpty()) return checkers
 
-    val langs = GrazieConfig.get().availableLanguages.filterNot { it.isEnglish() }
     val set = LinkedHashSet<SpellerTool>()
-    for (lang in langs) {
-      val tool = runWithCheckCanceled {
-        LangTool.getTool(lang, TextStyleDomain.Other)
+    runWithCheckCanceled {
+      for (lang in GrazieConfig.get().availableLanguages.filterNot { it.isEnglish() }) {
+        val tool = LangTool.getTool(lang, TextStyleDomain.Other)
+        tool.allSpellingCheckRules.firstOrNull()
+          ?.let { set.add(SpellerTool(tool, lang, it)) }
       }
-      tool.allSpellingCheckRules.firstOrNull()
-        ?.let { set.add(SpellerTool(tool, lang, it)) }
     }
     this.checkers = set
     return set
