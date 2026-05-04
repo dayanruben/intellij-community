@@ -44,7 +44,7 @@ class PoetryPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(pr
   }
 
   suspend fun updateProject(): PyResult<Unit> {
-    runPoetryWithSdk(sdk, "update").getOr {
+    runPoetryWithSdk(sdk, "update", "--sync").getOr {
       return it
     }
     return reloadPackages().mapSuccess { }

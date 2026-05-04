@@ -25,6 +25,7 @@ import com.jetbrains.python.packaging.common.PythonOutdatedPackage
 import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.sdk.ToolCommandExecutor
 import com.jetbrains.python.sdk.associatedModulePath
+import com.jetbrains.python.sdk.pyRichSdkAsync
 import com.jetbrains.python.sdk.runTool
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import io.github.z4kn4fein.semver.Version
@@ -57,8 +58,15 @@ private val POETRY_TOOL: ToolCommandExecutor = ToolCommandExecutor(
 private val POETRY_EXCLUDE_NON_DIGITS_REGEX = Regex("""\D+$""")
 
 @Internal
-suspend fun runPoetry(projectPath: Path?, vararg args: String, inProjectEnv: Boolean? = null): PyResult<String> {
-  val env = if (inProjectEnv != null) mapOf("POETRY_VIRTUALENVS_IN_PROJECT" to inProjectEnv.toString()) else emptyMap()
+suspend fun runPoetry(
+  projectPath: Path?,
+  vararg args: String,
+  inProjectEnv: Boolean? = null,
+  baseEnv: Map<String, String> = emptyMap(),
+): PyResult<String> {
+  val env = baseEnv.toMutableMap().apply {
+    if (inProjectEnv != null) put("POETRY_VIRTUALENVS_IN_PROJECT", inProjectEnv.toString())
+  }
   return POETRY_TOOL.runTool(projectPath, *args, env = env)
 }
 
@@ -79,8 +87,14 @@ suspend fun getPoetryExecutable(eel: EelApi = localEel): Path? = POETRY_TOOL.get
 suspend fun runPoetryWithSdk(sdk: Sdk, vararg args: String): PyResult<String> {
   val projectPath = sdk.associatedModulePath?.let { Path.of(it) }
                     ?: return PyResult.localizedError(poetryNotFoundException) // Choose a correct sdk
-  runPoetry(projectPath, "env", "use", sdk.homePath!!)
-  return runPoetry(projectPath, *args)
+  val pythonHomePath = sdk.pyRichSdkAsync().pythonHomePath
+                       ?: return PyResult.localizedError(PyBundle.message("python.sdk.broken.configuration", sdk.name))
+  val env = buildMap {
+    put("POETRY_VIRTUALENVS_IN_PROJECT", "false")
+    put("POETRY_VIRTUALENVS_PREFER_ACTIVE_PYTHON", "true")
+    put("VIRTUAL_ENV", pythonHomePath.toAbsolutePath().toString())
+  }
+  return runPoetry(projectPath, *args, baseEnv = env)
 }
 
 
