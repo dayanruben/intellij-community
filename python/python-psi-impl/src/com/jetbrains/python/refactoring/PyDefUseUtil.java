@@ -23,6 +23,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.QualifiedName;
 import com.jetbrains.python.codeInsight.controlflow.CallInstruction;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
@@ -63,6 +64,8 @@ public final class PyDefUseUtil {
   private PyDefUseUtil() {
   }
 
+  // For very large control flows we keep using a lighter, project-cached context for the narrowing-detection lookup
+  // below to avoid blowing the stack when re-entering type inference from inside a deep CFG walk (PY-73958).
   private static final int MAX_CONTROL_FLOW_SIZE = 200;
 
   public record LatestDefsResult(@NotNull List<Instruction> defs, boolean foundPrefixCall) {
@@ -113,20 +116,16 @@ public final class PyDefUseUtil {
                     }
                     if (isNotBackEdge(instruction.num(), startNum) &&
                         context.getOrigin() == callInstruction.getElement().getContainingFile()) {
-                      var newContext = (MAX_CONTROL_FLOW_SIZE > instructions.length)
-                                       ? TypeEvalContext.codeAnalysis(context.getOrigin().getProject(), context.getOrigin())
-                                       : TypeEvalContext.codeInsightFallback(context.getOrigin().getProject());
-                      if (callInstruction.isNoReturnCall(newContext)) return ControlFlowUtil.Operation.CONTINUE;
+                      TypeEvalContext narrowingContext = chooseNarrowingContext(context, instructions.length);
+                      if (callInstruction.isNoReturnCall(narrowingContext)) return ControlFlowUtil.Operation.CONTINUE;
                     }
                   }
                   if (isNotBackEdge(instruction.num(), startNum)
                       && acceptTypeAssertions && instruction instanceof ConditionalInstruction conditionalInstruction) {
                     if (conditionalInstruction.getCondition() instanceof PyTypedElement typedElement &&
                         context.getOrigin() == typedElement.getContainingFile()) {
-                      var newContext = (MAX_CONTROL_FLOW_SIZE > instructions.length)
-                                       ? TypeEvalContext.codeAnalysis(context.getOrigin().getProject(), context.getOrigin())
-                                       : TypeEvalContext.codeInsightFallback(context.getOrigin().getProject());
-                      if (newContext.getType(typedElement) instanceof PyNarrowedType narrowedType && narrowedType.isBound()) {
+                      TypeEvalContext narrowingContext = chooseNarrowingContext(context, instructions.length);
+                      if (narrowingContext.getType(typedElement) instanceof PyNarrowedType narrowedType && narrowedType.isBound()) {
                         String narrowedQname = narrowedType.getQname();
                         if (narrowedQname != null) {
                           if (isQualifiedBy(varQname, narrowedQname)) {
@@ -186,6 +185,21 @@ public final class PyDefUseUtil {
    */
   private static boolean isNotBackEdge(int instNum, int startNum) {
     return instNum < startNum;
+  }
+
+  /**
+   * Reuse the caller's context for narrowing detection so the AssumptionContext set up by the
+   * fixpoint isn't dropped (PY-89245). Fall back to a lighter context for oversized CFGs to keep
+   * the stack-overflow guard from PY-73958.
+   */
+  private static @NotNull TypeEvalContext chooseNarrowingContext(@NotNull TypeEvalContext context, int controlFlowSize) {
+    if (controlFlowSize >= MAX_CONTROL_FLOW_SIZE) {
+      PsiFile origin = context.getOrigin();
+      if (origin != null) {
+        return TypeEvalContext.codeInsightFallback(origin.getProject());
+      }
+    }
+    return context;
   }
 
   private static boolean isCallOnPrefix(@NotNull CallInstruction callInstr, @NotNull QualifiedName varQname) {

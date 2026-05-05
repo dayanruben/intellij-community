@@ -603,6 +603,22 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
                    """);
   }
 
+  // PY-89245
+  public void testFlakyLoop() {
+    doTestByText("""
+                   class ListNode:
+                       def __init__(self, val=0, next=None):
+                           self.val = val
+                           self.next = next
+                   
+                   
+                   def find_by_value(node: ListNode | None, val: int) -> ListNode | None:
+                       while node is not None and node.val != val:
+                           node = node.next
+                       return node
+                   """);
+  }
+
   // PY-40883
   public void testStrictClassAttributes() {
     doTest();
