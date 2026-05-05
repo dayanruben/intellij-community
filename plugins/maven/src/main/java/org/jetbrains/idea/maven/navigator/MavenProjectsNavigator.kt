@@ -439,8 +439,8 @@ class MavenProjectsNavigator(project: Project) : MavenSimpleProjectComponent(
       scheduleUpdateProjects(updated.map { it.first }, ArrayList(deleted))
     }
 
-    override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
-      scheduleUpdateProjects(listOf(projectWithChanges.first), emptyList())
+    override fun projectsResolved(projects: List<MavenProject>) {
+      scheduleUpdateProjects(projects, emptyList())
     }
 
     override fun pluginsResolved(projects: List<MavenProject>) {

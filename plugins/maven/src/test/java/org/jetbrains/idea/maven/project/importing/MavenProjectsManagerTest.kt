@@ -127,7 +127,7 @@ class MavenProjectsManagerTest : MavenMultiVersionImportingTestCase() {
   fun testDoNotScheduleResolveOfInvalidProjectsDeleted() = runBlocking {
     val called = BooleanArray(1)
     project.messageBus.connect(testRootDisposable).subscribe(MavenProjectsTree.Listener.TOPIC, object : MavenProjectsTree.Listener {
-      override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
+      override fun projectsResolved(projects: List<MavenProject>) {
         called[0] = true
       }
     })

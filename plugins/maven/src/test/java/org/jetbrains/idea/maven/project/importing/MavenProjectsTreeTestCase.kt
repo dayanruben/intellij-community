@@ -102,8 +102,10 @@ abstract class MavenProjectsTreeTestCase : MavenMultiVersionImportingTestCase() 
       add(text, updated.map { it.mavenId.artifactId }.toSet())
     }
 
-    override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
-      add("resolved", setOf(projectWithChanges.first.mavenId.artifactId))
+    override fun projectsResolved(projects: List<MavenProject>) {
+      for (project in projects) {
+        add("resolved", setOf(project.mavenId.artifactId))
+      }
     }
 
     override fun pluginsResolved(projects: List<MavenProject>) {

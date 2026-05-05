@@ -33,7 +33,6 @@ import org.jetbrains.idea.maven.buildtool.MavenSyncSession
 import org.jetbrains.idea.maven.dom.references.MavenFilteredPropertyPsiReferenceProvider
 import org.jetbrains.idea.maven.model.*
 import org.jetbrains.idea.maven.project.MavenProjectsTreeUpdater.UpdateSpec
-import org.jetbrains.idea.maven.server.NativeMavenProjectHolder
 import org.jetbrains.idea.maven.telemetry.tracer
 import org.jetbrains.idea.maven.utils.*
 import java.io.*
@@ -913,8 +912,8 @@ class MavenProjectsTree(val project: Project) {
     project.messageBus.syncPublisher(Listener.TOPIC).projectsUpdated(updated, deleted)
   }
 
-  fun fireProjectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
-    project.messageBus.syncPublisher(Listener.TOPIC).projectResolved(projectWithChanges)
+  fun fireProjectsResolved(projects: List<MavenProject>) {
+    project.messageBus.syncPublisher(Listener.TOPIC).projectsResolved(projects)
   }
 
   fun firePluginsResolved(projects: List<MavenProject>) {
@@ -951,17 +950,7 @@ class MavenProjectsTree(val project: Project) {
     fun projectsUpdated(updated: List<Pair<MavenProject, MavenProjectChanges>>, deleted: List<MavenProject>) {
     }
 
-    @Suppress("DEPRECATION")
-    @Deprecated("use projectResolved(Pair<MavenProject, MavenProjectChanges>)")
-    fun projectResolved(
-      projectWithChanges: Pair<MavenProject, MavenProjectChanges>,
-      nativeMavenProject: NativeMavenProjectHolder?,
-    ) {
-    }
-
-    @Suppress("DEPRECATION")
-    fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
-      projectResolved(projectWithChanges, null)
+    fun projectsResolved(projects: List<MavenProject>) {
     }
 
     @Suppress("DEPRECATION")

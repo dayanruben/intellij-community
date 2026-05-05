@@ -31,7 +31,6 @@ import org.jetbrains.idea.maven.utils.MavenUtil;
 
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -172,8 +171,8 @@ public final class MavenShortcutsManager implements Disposable {
     }
 
     @Override
-    public void projectResolved(@NotNull Pair<MavenProject, MavenProjectChanges> projectWithChanges) {
-      scheduleKeymapUpdate(Collections.singletonList(projectWithChanges.first), true);
+    public void projectsResolved(@NotNull List<MavenProject> projects) {
+      scheduleKeymapUpdate(projects, true);
     }
 
     @Override
