@@ -24,7 +24,10 @@ interface XBreakpointAttachment {
   val breakpoint: XBreakpointProxy
 
   /**
-   * Called when the breakpoint's state changes (including creation).
+   * Called when the breakpoint's state changes:
+   * - Breakpoint creation
+   * - Breakpoint changes via the "Edit Breakpoint" popup
+   * - State-changing interactions via gutter (drag-and-drop, enable, disable)
    */
   fun breakpointChanged()
 }
