@@ -1200,6 +1200,36 @@ public abstract class K2SmartCompletionTestGenerated extends AbstractK2SmartComp
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("GenericKotlinFunInterface.kt")
+        public void testGenericKotlinFunInterface() throws Exception {
+            runTest("../../completion/testData/smart/SAM/GenericKotlinFunInterface.kt");
+        }
+
+        @TestMetadata("JavaConsumer.kt")
+        public void testJavaConsumer() throws Exception {
+            runTest("../../completion/testData/smart/SAM/JavaConsumer.kt");
+        }
+
+        @TestMetadata("KotlinFunInterface.kt")
+        public void testKotlinFunInterface() throws Exception {
+            runTest("../../completion/testData/smart/SAM/KotlinFunInterface.kt");
+        }
+
+        @TestMetadata("KotlinFunInterfaceMultiParam.kt")
+        public void testKotlinFunInterfaceMultiParam() throws Exception {
+            runTest("../../completion/testData/smart/SAM/KotlinFunInterfaceMultiParam.kt");
+        }
+
+        @TestMetadata("KotlinFunInterfaceWithDefaultMethod.kt")
+        public void testKotlinFunInterfaceWithDefaultMethod() throws Exception {
+            runTest("../../completion/testData/smart/SAM/KotlinFunInterfaceWithDefaultMethod.kt");
+        }
+
+        @TestMetadata("KotlinFunInterfaceWithParam.kt")
+        public void testKotlinFunInterfaceWithParam() throws Exception {
+            runTest("../../completion/testData/smart/SAM/KotlinFunInterfaceWithParam.kt");
+        }
+
         @TestMetadata("SAMConstructorForTypeAlias.kt")
         public void testSAMConstructorForTypeAlias() throws Exception {
             runTest("../../completion/testData/smart/SAM/SAMConstructorForTypeAlias.kt");
@@ -1213,6 +1243,21 @@ public abstract class K2SmartCompletionTestGenerated extends AbstractK2SmartComp
         @TestMetadata("SAMExpected2.kt")
         public void testSAMExpected2() throws Exception {
             runTest("../../completion/testData/smart/SAM/SAMExpected2.kt");
+        }
+
+        @TestMetadata("SamAsArgument.kt")
+        public void testSamAsArgument() throws Exception {
+            runTest("../../completion/testData/smart/SAM/SamAsArgument.kt");
+        }
+
+        @TestMetadata("SamInReturnStatement.kt")
+        public void testSamInReturnStatement() throws Exception {
+            runTest("../../completion/testData/smart/SAM/SamInReturnStatement.kt");
+        }
+
+        @TestMetadata("SamInheritor.kt")
+        public void testSamInheritor() throws Exception {
+            runTest("../../completion/testData/smart/SAM/SamInheritor.kt");
         }
     }
 

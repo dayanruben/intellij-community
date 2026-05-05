@@ -111,6 +111,16 @@ public abstract class HighLevelSmartCompletionHandlerTestGenerated extends Abstr
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("KotlinFunInterface.kt")
+        public void testKotlinFunInterface() throws Exception {
+            runTest("../../completion/testData/handlers/smart/SAM/KotlinFunInterface.kt");
+        }
+
+        @TestMetadata("KotlinFunInterfaceMultiParam.kt")
+        public void testKotlinFunInterfaceMultiParam() throws Exception {
+            runTest("../../completion/testData/handlers/smart/SAM/KotlinFunInterfaceMultiParam.kt");
+        }
+
         @TestMetadata("SAMExpected1.kt")
         public void testSAMExpected1() throws Exception {
             runTest("../../completion/testData/handlers/smart/SAM/SAMExpected1.kt");

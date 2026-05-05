@@ -1200,6 +1200,36 @@ public abstract class K1JvmSmartCompletionTestGenerated extends AbstractK1JvmSma
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("GenericKotlinFunInterface.kt")
+        public void testGenericKotlinFunInterface() throws Exception {
+            runTest("../testData/smart/SAM/GenericKotlinFunInterface.kt");
+        }
+
+        @TestMetadata("JavaConsumer.kt")
+        public void testJavaConsumer() throws Exception {
+            runTest("../testData/smart/SAM/JavaConsumer.kt");
+        }
+
+        @TestMetadata("KotlinFunInterface.kt")
+        public void testKotlinFunInterface() throws Exception {
+            runTest("../testData/smart/SAM/KotlinFunInterface.kt");
+        }
+
+        @TestMetadata("KotlinFunInterfaceMultiParam.kt")
+        public void testKotlinFunInterfaceMultiParam() throws Exception {
+            runTest("../testData/smart/SAM/KotlinFunInterfaceMultiParam.kt");
+        }
+
+        @TestMetadata("KotlinFunInterfaceWithDefaultMethod.kt")
+        public void testKotlinFunInterfaceWithDefaultMethod() throws Exception {
+            runTest("../testData/smart/SAM/KotlinFunInterfaceWithDefaultMethod.kt");
+        }
+
+        @TestMetadata("KotlinFunInterfaceWithParam.kt")
+        public void testKotlinFunInterfaceWithParam() throws Exception {
+            runTest("../testData/smart/SAM/KotlinFunInterfaceWithParam.kt");
+        }
+
         @TestMetadata("SAMConstructorForTypeAlias.kt")
         public void testSAMConstructorForTypeAlias() throws Exception {
             runTest("../testData/smart/SAM/SAMConstructorForTypeAlias.kt");
@@ -1213,6 +1243,21 @@ public abstract class K1JvmSmartCompletionTestGenerated extends AbstractK1JvmSma
         @TestMetadata("SAMExpected2.kt")
         public void testSAMExpected2() throws Exception {
             runTest("../testData/smart/SAM/SAMExpected2.kt");
+        }
+
+        @TestMetadata("SamAsArgument.kt")
+        public void testSamAsArgument() throws Exception {
+            runTest("../testData/smart/SAM/SamAsArgument.kt");
+        }
+
+        @TestMetadata("SamInReturnStatement.kt")
+        public void testSamInReturnStatement() throws Exception {
+            runTest("../testData/smart/SAM/SamInReturnStatement.kt");
+        }
+
+        @TestMetadata("SamInheritor.kt")
+        public void testSamInheritor() throws Exception {
+            runTest("../testData/smart/SAM/SamInheritor.kt");
         }
     }
 
