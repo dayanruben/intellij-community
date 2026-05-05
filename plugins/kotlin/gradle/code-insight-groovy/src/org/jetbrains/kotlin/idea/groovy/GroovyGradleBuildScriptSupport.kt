@@ -786,6 +786,7 @@ class GroovyBuildScriptManipulator(
     private fun getApplyPluginDirective(pluginName: String) = "apply plugin: '$pluginName'"
 
     private fun containsDirective(fileText: String, directive: String): Boolean {
+        if (directive.isBlank()) return false
         return fileText.contains(directive)
                 || fileText.contains(directive.replace("\"", "'"))
                 || fileText.contains(directive.replace("'", "\""))

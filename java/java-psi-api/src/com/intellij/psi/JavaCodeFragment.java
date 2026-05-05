@@ -1,8 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi;
 
-import com.intellij.psi.util.PsiUtil;
-
 /**
  * Represents a fragment of Java code which exists outside of a project structure (for example,
  * in a foreign language code or in a user interface element other than the main source code editor).
@@ -37,19 +35,11 @@ public interface JavaCodeFragment extends PsiImportHolder, PsiCodeFragment {
   void setSuperType(PsiType superType);
 
   /**
-   * @return {@code true} if the {@code inDefaultPackage} property has been set to {@code true}, otherwise {@code false}
+   * @return the package name this fragment is located in, if it was specified when this fragment was created.
    */
-  default boolean isInDefaultPackage() {
-    return false;
+  default String getPackageName() {
+    return null;
   }
-
-  /**
-   * When {@code inDefaultPackage} is set to {@code true}, {@link PsiUtil#isFromDefaultPackage(PsiElement)} 
-   * will definitely return {@code true} when invoked on this {@code JavaCodeFragment}
-   *
-   * @param inDefaultPackage  the value to set the {@code inDefaultPackage} to
-   */
-  default void setInDefaultPackage(boolean inDefaultPackage) {}
 
   /**
    * Returns the list of classes considered to be imported by the code fragment.

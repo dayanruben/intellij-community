@@ -1,8 +1,7 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package org.jetbrains.kotlin.idea.base.test
+package org.jetbrains.kotlin.idea.artifacts
 
 import com.intellij.pom.java.LanguageLevel
-import org.jetbrains.kotlin.idea.artifacts.TestKotlinArtifacts
 import java.io.File
 import java.nio.file.Path
 import kotlin.io.path.exists

@@ -319,6 +319,16 @@ internal fun MutableTWorkspace.generateK2FixTests() {
                 pattern = pattern,
                 testMethodName = testMethodName
             )
+            model(
+                "$idea/quickfix/wrapWithSafeLetCall",
+                pattern = pattern,
+                testMethodName = testMethodName
+            )
+            model(
+                "$idea/quickfix/override",
+                pattern = pattern,
+                testMethodName = testMethodName
+            )
         }
 
         testClass<AbstractHighLevelQuickFixMultiModuleTest> {

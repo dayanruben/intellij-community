@@ -219,7 +219,11 @@ object ProjectUtil {
             val childPath = child.toString()
             if (childPath.endsWith(ProjectFileType.DOT_DEFAULT_EXTENSION)) {
               LOG.info("Opening project with IPR lookup at child path $childPath")
-              return openProject(Path.of(childPath), options)
+              val newOptions = options.copy(
+                projectRootDir = file,
+                isNewProject = false,
+              )
+              return openProject(Path.of(childPath), newOptions)
             }
           }
         }
@@ -678,6 +682,7 @@ object ProjectUtil {
         createModule = false,
         useDefaultProjectAsTemplate = false,
         runConfigurators = false,
+        preventIprLookup = true,
         // suppress chooser dialog if there are other build files like Gradle or Maven
         processorChooser = { FolderProjectOpenProcessor() },
       )

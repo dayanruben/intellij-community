@@ -10,7 +10,6 @@ import com.intellij.grazie.jlanguage.LangTool
 import com.intellij.grazie.text.ExternalTextChecker
 import com.intellij.grazie.text.Rule
 import com.intellij.grazie.text.RuleGroup
-import com.intellij.grazie.text.TextChecker
 import com.intellij.grazie.text.TextContent
 import com.intellij.grazie.text.TextProblem
 import com.intellij.grazie.utils.TextStyleDomain
@@ -18,13 +17,14 @@ import com.intellij.grazie.utils.getTextDomain
 import com.intellij.grazie.utils.hasLanguage
 import com.intellij.grazie.utils.trimToNull
 import com.intellij.openapi.application.runReadAction
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.util.runWithCheckCanceled
 import com.intellij.openapi.util.ClassLoaderUtil.computeWithClassLoader
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.Predicates
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vcs.ui.CommitMessage
+import com.intellij.util.ExceptionUtil
 import com.intellij.util.containers.Interner
 import com.intellij.util.io.computeDetached
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -41,6 +41,7 @@ import org.languagetool.rules.en.EnglishUnpairedQuotesRule
 import org.slf4j.LoggerFactory
 import java.util.Locale
 import java.util.function.Predicate
+import kotlin.coroutines.cancellation.CancellationException
 
 
 open class LanguageToolChecker : ExternalTextChecker() {
@@ -58,8 +59,17 @@ open class LanguageToolChecker : ExternalTextChecker() {
     if (!context.hasLanguage()) return emptyList()
     val domain = context.text.getTextDomain()
     return computeDetached(Dispatchers.Default) {
-      computeWithClassLoader<List<Problem>, Throwable>(GraziePlugin.classLoader) {
-        collectLanguageToolProblems(context.text, context.language.toAvailableLang(), domain)
+      try {
+        computeWithClassLoader<List<Problem>, Throwable>(GraziePlugin.classLoader) {
+          collectLanguageToolProblems(context.text, context.language.toAvailableLang(), domain)
+        }
+      }
+      catch (exception: Throwable) {
+        if (ExceptionUtil.causedBy(exception, CancellationException::class.java)) {
+          throw ProcessCanceledException()
+        }
+        logger.warn("Got exception from LanguageTool", exception)
+        emptyList()
       }
     }
   }

@@ -6,6 +6,7 @@ import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.impl.ProjectUtil.FolderOpeningMode.AS_FOLDER
 import com.intellij.ide.impl.ProjectUtil.FolderOpeningMode.AS_PROJECT
 import com.intellij.ide.impl.SelectProjectOpenProcessorDialog
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.TestOpenMode.ModeFileOrFolderDefault
 import com.intellij.openapi.project.TestOpenMode.ModeFolderAsFolder
 import com.intellij.openapi.project.TestOpenMode.ModeFolderAsProject
@@ -16,11 +17,11 @@ import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.projectImport.ProjectAttachProcessor
 import com.intellij.projectImport.ProjectOpenProcessor
-import com.intellij.testFramework.ApplicationRule
-import com.intellij.testFramework.DisposableRule
 import com.intellij.testFramework.ExtensionTestUtil
-import com.intellij.testFramework.TemporaryDirectory
+import com.intellij.testFramework.TemporaryDirectoryExtension
 import com.intellij.testFramework.assertions.Assertions.assertThat
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.rules.checkDefaultProjectAsTemplate
 import com.intellij.testFramework.useProject
 import com.intellij.util.io.createDirectories
@@ -29,21 +30,23 @@ import com.intellij.workspaceModel.ide.ProjectRootEntity
 import com.intellij.workspaceModel.ide.toPath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import org.junit.Assume
-import org.junit.ClassRule
-import org.junit.Rule
-import org.junit.Test
-import org.junit.runner.RunWith
-import org.junit.runners.Parameterized
+import org.junit.jupiter.api.Assumptions
+import org.junit.jupiter.api.extension.RegisterExtension
+import org.junitpioneer.jupiter.cartesian.ArgumentSets
+import org.junitpioneer.jupiter.cartesian.CartesianTest
 import java.nio.file.Path
+import kotlin.io.path.exists
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
 import kotlin.io.path.writeText
 
 // terms:
-// valid: .idea exists
-// clean: .idea doesn't exists
+// valid: .idea (.ipr) exists
+// clean: .idea (.ipr) doesn't exist
+// project directory: directory that contains .idea, .ipr, root maven or root gradle file
 // existing: project directory exists
-// nested: .idea exists and ../.idea exists too
-// multibuild: .idea does not exist, and there are 2 marker build files (pom.xml and build.gradle)
+// nested: .idea (.ipr) exists and ../.idea (../.ipr) exists too
+// multibuild: .idea (.ipr) does not exist, and there are 2 marker build files (pom.xml and build.gradle)
 // regular file: regular file that is not a folder
 
 // with ability to attach - there is some defined ProjectAttachProcessor extension (e.g. WS, PS).
@@ -78,11 +81,71 @@ private val emptyProject = { resolveRoot: Path ->
   ExpectedProjectState(resolveRoot, emptyList(), listOf($$"$ROOT$"))
 }
 
-private val singleModuleProject = { resolveRoot: Path ->
+private val autodetectedSingleModuleProject = { resolveRoot: Path ->
   ExpectedProjectState(resolveRoot, listOf($$"$ROOT$"), listOf($$"$ROOT$"))
 }
 
+internal enum class AttachProcessors {
+  EmptyAttachProcessors {
+    override fun configureAttachProcessors(disposable: Disposable) {
+      ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposable)
+    }
+  },
+  NonEmptyAttachProcessors {
+    override fun configureAttachProcessors(disposable: Disposable) {
+      ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(ModuleAttachProcessor()), disposable)
+    }
+  },
+  ;
+
+  abstract fun configureAttachProcessors(disposable: Disposable)
+}
+
 internal enum class IdeaProjectMaker {
+  EmptyIdeaDirectory {
+    override fun makeProject(projectDir: Path): Path {
+      val projectPath = projectDir.resolve(".idea")
+      projectPath.createDirectories()
+      return projectPath
+    }
+
+    override fun getExpectedProjectState(projectDir: Path): ExpectedProjectState {
+      return autodetectedSingleModuleProject(projectDir)
+    }
+  },
+  IdeaDirectory {
+    override fun makeProject(projectDir: Path): Path {
+      val dotIdeaPath = projectDir.resolve(".idea")
+      dotIdeaPath.createDirectories()
+
+      dotIdeaPath.resolve("modules.xml").writeText($$"""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <project version="4">
+          <component name="ProjectModuleManager">
+            <modules>
+              <module fileurl="file://$PROJECT_DIR$/dotIdeaModule01.iml" filepath="$PROJECT_DIR$/dotIdeaModule01.iml" />
+            </modules>
+          </component>
+        </project>
+      """.trimIndent())
+
+      projectDir.resolve("dotIdeaModule01.iml").writeText($$"""
+        <module relativePaths="true" type="JAVA_MODULE" version="4">
+          <component name="NewModuleRootManager" >
+            <content url="file://$MODULE_DIR$/dotIdea_mod1">
+              <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+            </content>
+          </component>
+        </module>
+      """.trimIndent())
+
+      return dotIdeaPath
+    }
+
+    override fun getExpectedProjectState(projectDir: Path): ExpectedProjectState {
+      return ExpectedProjectState(projectDir, listOf($$"$ROOT$/dotIdea_mod1"), listOf($$"$ROOT$"))
+    }
+  },
   IprFile {
     override fun makeProject(projectDir: Path): Path {
       projectDir.createDirectories()
@@ -93,16 +156,16 @@ internal enum class IdeaProjectMaker {
           <component name="ProjectRootManager" version="2" />
           <component name="ProjectModuleManager">
             <modules>
-              <module fileurl="file://$PROJECT_DIR$/module01.iml" filepath="$PROJECT_DIR$/module01.iml" />
+              <module fileurl="file://$PROJECT_DIR$/iprModule01.iml" filepath="$PROJECT_DIR$/iprModule01.iml" />
             </modules>
           </component>
         </project>
       """.trimIndent())
 
-      projectDir.resolve("module01.iml").writeText($$"""
+      projectDir.resolve("iprModule01.iml").writeText($$"""
         <module relativePaths="true" type="JAVA_MODULE" version="4">
           <component name="NewModuleRootManager" >
-            <content url="file://$MODULE_DIR$/mod1">
+            <content url="file://$MODULE_DIR$/ipr_mod1">
               <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
             </content>
           </component>
@@ -111,168 +174,213 @@ internal enum class IdeaProjectMaker {
 
       return projectPath
     }
+
+    override fun getExpectedProjectState(projectDir: Path): ExpectedProjectState {
+      return ExpectedProjectState(projectDir, listOf($$"$ROOT$/ipr_mod1"), listOf($$"$ROOT$"))
+    }
   },
   ;
 
   abstract fun makeProject(projectDir: Path): Path
 
-  fun getExpectedProjectState(projectDir: Path): ExpectedProjectState {
-    return ExpectedProjectState(projectDir, listOf($$"$ROOT$/mod1"), listOf($$"$ROOT$"))
-  }
+  abstract fun getExpectedProjectState(projectDir: Path): ExpectedProjectState
 }
 
-@RunWith(Parameterized::class)
-internal class OpenProjectTest(private val opener: Opener) {
+@TestApplication
+internal class OpenProjectTest {
   companion object {
-    @JvmField
-    @ClassRule
-    val appRule = ApplicationRule()
     @JvmStatic
-    @Parameterized.Parameters(name = "{0}")
-    fun params(): Iterable<Opener> {
+    fun openers(): Iterable<Opener> {
       return listOf(
-        Opener(SourceOpenFileAction, ModeFolderAsProject, expectedResult = singleModuleProject) {
+        Opener(SourceOpenFileAction, ModeFolderAsProject) {
           runBlocking { ProjectUtil.openExistingDir(it, AS_PROJECT, null) }
         },
 
         // I don't have strong opinion about defaultProjectTemplateShouldBeAppliedOverride.
         // Weak opinion: a folder is not a project => we don't need default project settings.
         // Feel free to change the test if you have strong opinion about desired behavior.
-        Opener(SourceOpenFileAction, ModeFolderAsFolder, expectedResult = emptyProject, defaultProjectTemplateShouldBeAppliedOverride = false) {
+        Opener(SourceOpenFileAction, ModeFolderAsFolder, defaultProjectTemplateShouldBeAppliedOverride = false) {
           runBlocking { ProjectUtil.openExistingDir(it, AS_FOLDER, null) }
         },
 
-        Opener(SourceCLI, ModeFolderAsProject, expectedResult = singleModuleProject) {
+        Opener(SourceCLI, ModeFolderAsProject) {
           runBlocking { CommandLineProcessor.doOpenFileOrProject(it, createOrOpenExistingProject = true, false) }.project!!
         },
 
         // I don't have strong opinion about defaultProjectTemplateShouldBeAppliedOverride.
         // Weak opinion: a folder is not a project => we don't need default project settings.
         // Feel free to change the test if you have strong opinion about desired behavior.
-        Opener(SourceCLI, ModeFileOrFolderDefault, expectedResult = emptyProject, defaultProjectTemplateShouldBeAppliedOverride = false) {
+        Opener(SourceCLI, ModeFileOrFolderDefault, defaultProjectTemplateShouldBeAppliedOverride = false) {
           runBlocking { CommandLineProcessor.doOpenFileOrProject(it, createOrOpenExistingProject = false, false) }.project!!
         },
       )
     }
+
+    @JvmStatic
+    @Suppress("unused")
+    fun opener_X_attachProcessors(): ArgumentSets =
+      ArgumentSets.argumentsForFirstParameter(openers().toList())
+        .argumentsForNextParameter(AttachProcessors.entries)
+
+    @JvmStatic
+    @Suppress("unused")
+    fun opener_X_ideaProjectMaker_X_attachProcessors(): ArgumentSets =
+      ArgumentSets.argumentsForFirstParameter(openers().toList())
+        .argumentsForNextParameter(IdeaProjectMaker.entries)
+        .argumentsForNextParameter(AttachProcessors.entries)
   }
 
   @JvmField
-  @Rule
-  val tempDir = TemporaryDirectory()
+  @RegisterExtension
+  val tempDir = TemporaryDirectoryExtension()
 
-  @JvmField
-  @Rule
-  val disposableRule = DisposableRule()
+  @TestDisposable
+  lateinit var disposable: Disposable
 
-  @Test
-  fun `open valid existing project dir with ability to attach`() = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(ModuleAttachProcessor()), disposableRule.disposable)
-    val projectDir = tempDir.newPath("project")
-    projectDir.resolve(".idea").createDirectories()
-    openWithOpenerAndAssertProjectState(projectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
+  private fun checkOpenerIsApplicableToTargetPath(opener: Opener, pathToOpen: Path) {
+    Assumptions.assumeFalse(
+      (opener.mode == ModeFolderAsFolder || opener.mode == ModeFolderAsProject) && pathToOpen.isRegularFile(),
+      "$opener can only open folders. It cannot be applied to $pathToOpen which is not a directory"
+    )
   }
 
-  @Test
-  fun `open ipr file with ability to attach`() = runBlocking(Dispatchers.Default) {
-    Assume.assumeTrue(
-      "Ignore ModeFolderAsProject/ModeFolderAsFolder, because we are checking opening of regular files here, not folders",
-      opener.mode != ModeFolderAsProject && opener.mode != ModeFolderAsFolder,
+  private fun calcExpectedProjectState(opener: Opener, maker: IdeaProjectMaker, pathToOpen: Path): (Path) -> ExpectedProjectState {
+    return calcExpectedProjectState(opener, { maker.getExpectedProjectState(it) }, pathToOpen)
+  }
+
+  private fun calcExpectedProjectState(
+    opener: Opener,
+    makerSuggestedState: (Path) -> ExpectedProjectState,
+    pathToOpen: Path,
+  ): (Path) -> ExpectedProjectState {
+    checkOpenerIsApplicableToTargetPath(opener, pathToOpen)
+
+    if (pathToOpen.resolve(".idea/modules.xml").exists()) {
+      // At the moment valid ".idea" always wins. You cannot ignore it.
+      // Even FolderProjectOpenProcessor cannot ignore it (but we wish that it could).
+      return makerSuggestedState
+    }
+
+    return when (opener.mode) {
+      ModeFolderAsFolder -> {
+        emptyProject
+      }
+      ModeFileOrFolderDefault if pathToOpen.isDirectory() -> {
+        emptyProject
+      }
+      else -> {
+        makerSuggestedState
+      }
+    }
+  }
+
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_ideaProjectMaker_X_attachProcessors")
+  fun `open valid existing idea_dir or ipr_file`(
+    opener: Opener,
+    maker: IdeaProjectMaker,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
+    Assumptions.assumeFalse(
+      maker == IdeaProjectMaker.IdeaDirectory || maker == IdeaProjectMaker.EmptyIdeaDirectory,
+      "Currently we don't have special handling for situation when .idea itself is opened as a project. " +
+      "At the moment the behavior is to create a new .idea project inside .idea directory, and this is not the behavior that " +
+      "we want to enforce through tests",
     )
 
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(ModuleAttachProcessor()), disposableRule.disposable)
+    // Regardless of product (Idea vs PhpStorm), if .idea directory (ipr file) exists, but no modules, we must run configurators to add some module.
+    // Maybe not fully clear why it is performed as part of project opening and silently, but it is existing behaviour.
+    attachProcessors.configureAttachProcessors(disposable)
+
     val projectDir = tempDir.newPath("project")
-    val projectFileToOpen = IdeaProjectMaker.IprFile.makeProject(projectDir)
-    openWithOpenerAndAssertProjectState(projectFileToOpen,
-      // when opening an ipr file the result is always a project described in that ipr file
-                                        IdeaProjectMaker.IprFile.getExpectedProjectState(projectDir),
-                                        opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
+    val projectFileToOpen = maker.makeProject(projectDir)
+    checkOpenerIsApplicableToTargetPath(opener, projectFileToOpen)
+
+    val expectedProjectState = calcExpectedProjectState(opener, maker, projectFileToOpen)
+    openWithOpenerAndAssertProjectState(opener, projectFileToOpen, expectedProjectState(projectDir), false)
   }
 
-  @Test
-  fun `open clean existing project dir with ability to attach`() = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(ModuleAttachProcessor()), disposableRule.disposable)
-    val projectDir = tempDir.newPath("project")
-    projectDir.createDirectories()
-    openWithOpenerAndAssertProjectState(projectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: true)
-  }
-
-  @Test
-  fun `open nested existing project dir with ability to attach`() = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(ModuleAttachProcessor()), disposableRule.disposable)
-    val projectDir = tempDir.newPath("project")
-    val subProjectDir = projectDir.resolve("subproject")
-    subProjectDir.resolve(".idea").createDirectories()
-    projectDir.resolve(".idea").createDirectories()
-    openWithOpenerAndAssertProjectState(subProjectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
-  }
-
-  @Test
-  fun `open valid existing project dir with inability to attach`() = runBlocking(Dispatchers.Default) {
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_ideaProjectMaker_X_attachProcessors")
+  fun `open valid existing parent dir of idea_dir or ipr_file`(
+    opener: Opener,
+    maker: IdeaProjectMaker,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
     // Regardless of product (Idea vs PhpStorm), if .idea directory exists, but no modules, we must run configurators to add some module.
     // Maybe not fully clear why it is performed as part of project opening and silently, but it is existing behaviour.
-    // So, existing behaviour should be preserved and any changes should be done not as part of task "use unified API to open project", but separately later.
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposableRule.disposable)
+    attachProcessors.configureAttachProcessors(disposable)
+
     val projectDir = tempDir.newPath("project")
-    projectDir.resolve(".idea").createDirectories()
-    openWithOpenerAndAssertProjectState(projectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
+    maker.makeProject(projectDir)
+    checkOpenerIsApplicableToTargetPath(opener, projectDir)
+
+    val expectedProjectState = calcExpectedProjectState(opener, maker, projectDir)
+
+    openWithOpenerAndAssertProjectState(opener, projectDir, expectedProjectState(projectDir), false)
   }
 
-  @Test
-  fun `open ipr file with inability to attach`() = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposableRule.disposable)
-    val projectDir = tempDir.newPath("project")
-    val projectFileToOpen = IdeaProjectMaker.IprFile.makeProject(projectDir)
-    openWithOpenerAndAssertProjectState(projectFileToOpen,
-      // when opening an ipr file the result is always a project described in that ipr file
-                                        IdeaProjectMaker.IprFile.getExpectedProjectState(projectDir),
-                                        opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
-  }
-
-  @Test
-  fun `open clean existing project dir with inability to attach`() = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposableRule.disposable)
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open clean existing project dir`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
+    attachProcessors.configureAttachProcessors(disposable)
     val projectDir = tempDir.newPath("project")
     projectDir.createDirectories()
-    openWithOpenerAndAssertProjectState(projectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: true)
+    openWithOpenerAndAssertProjectState(opener, projectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: true)
   }
 
-  @Test
-  fun `open nested existing project dir with inability to attach`() = runBlocking(Dispatchers.Default) {
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposableRule.disposable)
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open nested existing project dir`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
+    attachProcessors.configureAttachProcessors(disposable)
     val projectDir = tempDir.newPath("project")
     val subProjectDir = projectDir.resolve("subproject")
     subProjectDir.resolve(".idea").createDirectories()
     projectDir.resolve(".idea").createDirectories()
-    openWithOpenerAndAssertProjectState(subProjectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
+    openWithOpenerAndAssertProjectState(opener, subProjectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: false)
   }
 
-  @Test
-  fun `open multibuild existing project dir with inability to attach`() = runBlocking(Dispatchers.Default) {
-    Assume.assumeTrue(
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open multibuild existing project dir`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
+    Assumptions.assumeTrue(
+      opener.mode != ModeFolderAsProject,
       "This test does not handle ModeFolderAsProject mode yet, because `null` from SelectProjectOpenProcessorDialog" +
       " has different behavior when opening folder from CLI and from open action, and we don't want to cement this behavior in tests.",
-      opener.mode != ModeFolderAsProject,
     )
 
     val processorNames = ProjectOpenProcessor.EXTENSION_POINT_NAME.extensionList.map(ProjectOpenProcessor::name)
     assertThat(processorNames).`as` { "Use intellij.idea.community.main.tests as a classpath" }.containsAll(listOf("Maven", "Gradle"))
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposableRule.disposable)
+    attachProcessors.configureAttachProcessors(disposable)
     val projectDir = setupMultibuildProject()
     var suggestedProcessors: List<String>? = null
-    SelectProjectOpenProcessorDialog.setTestDialog(disposableRule.disposable) { processor, virtualFile ->
+    SelectProjectOpenProcessorDialog.setTestDialog(disposable) { processor, _ ->
       suggestedProcessors = processor.map(ProjectOpenProcessor::name)
       null // do not open project (~cancel)
     }
-    openWithOpenerAndAssertProjectState(projectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: false) {
+    openWithOpenerAndAssertProjectState(opener, projectDir, opener.defaultProjectTemplateShouldBeAppliedOverride ?: false) {
       assertThat(suggestedProcessors).`as`("SelectProjectOpenProcessorDialog should not be shown").isNull()
     }
   }
 
-  @Test
-  fun `open project then open regular file with inability to attach`() = runBlocking(Dispatchers.Default) {
-    Assume.assumeTrue(
-      "Ignore ModeFolderAsProject/ModeFolderAsFolder, because we are checking open of regular files here, not folders",
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open project then open regular file`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
+    Assumptions.assumeTrue(
       opener.mode != ModeFolderAsProject && opener.mode != ModeFolderAsFolder,
+      "Ignore ModeFolderAsProject/ModeFolderAsFolder, because we are checking open of regular files here, not folders",
     )
 
     val projectDir = tempDir.newPath("project/project")
@@ -286,7 +394,7 @@ internal class OpenProjectTest(private val opener: Opener) {
     val javaFileAboveProjectDirectory = projectDir.parent.resolve("MyClassAboveProjectDirectory.java")
     javaFileAboveProjectDirectory.writeText("public class MyClassAboveProjectDirectory {}")
 
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposableRule.disposable)
+    attachProcessors.configureAttachProcessors(disposable)
     opener.opener(projectDir)!!.useProject { openedProject ->
       var project = opener.opener(javaFileNextToDotIdea)
       // the file should be opened in the already opened project
@@ -301,12 +409,16 @@ internal class OpenProjectTest(private val opener: Opener) {
     Unit
   }
 
-  @Test
-  fun `open project then open the the same valid existing project dir with inability to attach`() = runBlocking(Dispatchers.Default) {
+  @CartesianTest
+  @CartesianTest.MethodFactory("opener_X_attachProcessors")
+  fun `open project then open the the same valid existing project dir`(
+    opener: Opener,
+    attachProcessors: AttachProcessors,
+  ) = runBlocking(Dispatchers.Default) {
     val projectDir = tempDir.newPath("project")
     projectDir.resolve(".idea").createDirectories()
 
-    ExtensionTestUtil.maskExtensions(ProjectAttachProcessor.EP_NAME, listOf(), disposableRule.disposable)
+    attachProcessors.configureAttachProcessors(disposable)
     opener.opener(projectDir)!!.useProject { openedProject ->
       val project = opener.opener(projectDir)
       // this should bring already opened project to foreground
@@ -341,17 +453,20 @@ internal class OpenProjectTest(private val opener: Opener) {
   }
 
   private suspend fun openWithOpenerAndAssertProjectState(
+    opener: Opener,
     projectDir: Path,
     defaultProjectTemplateShouldBeApplied: Boolean,
     beforeOtherChecks: ((Project) -> Unit)? = null,
   ) {
-    return openWithOpenerAndAssertProjectState(projectDir,
-                                               opener.getExpectedProjectState(projectDir),
+    val expectedProjectState = calcExpectedProjectState(opener, autodetectedSingleModuleProject, projectDir)
+    return openWithOpenerAndAssertProjectState(opener, projectDir,
+                                               expectedProjectState(projectDir),
                                                defaultProjectTemplateShouldBeApplied,
                                                beforeOtherChecks)
   }
 
   private suspend fun openWithOpenerAndAssertProjectState(
+    opener: Opener,
     projectFileToOpen: Path,
     expectedProjectState: ExpectedProjectState,
     defaultProjectTemplateShouldBeApplied: Boolean,
@@ -372,15 +487,10 @@ internal class OpenProjectTest(private val opener: Opener) {
 internal class Opener(
   val source: TestProjectSource,
   val mode: TestOpenMode,
-  val expectedResult: (Path) -> ExpectedProjectState,
   val defaultProjectTemplateShouldBeAppliedOverride: Boolean? = null,
   val opener: (Path) -> Project?,
 ) {
   override fun toString() = "${source.toString().substringAfter("Source")}-${mode.toString().substringAfter("Mode")}"
-
-  fun getExpectedProjectState(projectDir: Path): ExpectedProjectState {
-    return expectedResult(projectDir)
-  }
 }
 
 private fun assertThatProjectContainsModules(project: Project, expectedModulePaths: List<Path>) {

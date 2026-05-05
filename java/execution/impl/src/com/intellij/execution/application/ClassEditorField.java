@@ -59,8 +59,7 @@ public final class ClassEditorField extends EditorTextField {
       return new ClassEditorField();
     }
     JavaCodeFragmentFactory factory = JavaCodeFragmentFactory.getInstance(project);
-    JavaCodeFragment fragment = factory.createReferenceCodeFragment("", null, true, true);
-    fragment.setInDefaultPackage(true);
+    JavaCodeFragment fragment = factory.createReferenceCodeFragmentInPackage("", "", true);
     fragment.setVisibilityChecker(visibilityChecker);
     Document document = PsiDocumentManager.getInstance(project).getDocument(fragment);
 

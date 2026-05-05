@@ -12,10 +12,11 @@ import com.intellij.openapi.editor.ex.RangeHighlighterEx
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.platform.eel.isMac
+import com.intellij.platform.eel.provider.localEel
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.util.concurrency.annotations.RequiresEdt
-import com.intellij.util.system.OS
 import java.awt.Cursor
 import java.awt.Font
 import java.awt.event.KeyAdapter
@@ -65,6 +66,7 @@ internal class EditorHyperlinkInteraction(
       if (effectSupplier.isInvisibleLink(link)) {
         EditorHyperlinkUsageCollector.logInvisibleHyperlinkFollowed(HyperlinkFollowedPlace.EDITOR_LINK_CTRL_CLICKED)
       }
+      event.consume()
     }
   }
 
@@ -175,10 +177,10 @@ private fun defaultFollowedHyperlinkAttributes(): TextAttributes =
   EditorColorsManager.getInstance().getGlobalScheme().getAttributes(CodeInsightColors.FOLLOWED_HYPERLINK_ATTRIBUTES)
 
 private val EditorMouseEvent.isCtrlPressed: Boolean
-  get() = if (OS.CURRENT == OS.macOS) mouseEvent.isMetaDown else mouseEvent.isControlDown
+  get() = if (localEel.platform.isMac) mouseEvent.isMetaDown else mouseEvent.isControlDown
 
 private val KeyEvent.isCtrlOnly: Boolean
-  get() = when (OS.CURRENT) {
-    OS.macOS -> keyCode == KeyEvent.VK_META
-    else -> keyCode == KeyEvent.VK_CONTROL
+  get() {
+    val ctrlModifier = if (localEel.platform.isMac) KeyEvent.VK_META else KeyEvent.VK_CONTROL
+    return keyCode == ctrlModifier
   }

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi;
 
 import com.intellij.openapi.project.Project;
@@ -101,6 +101,20 @@ public abstract class JavaCodeFragmentFactory {
                                                                                @Nullable PsiElement context,
                                                                                boolean isPhysical,
                                                                                boolean isClassesAccepted);
+
+  /**
+   * Creates a Java reference code fragment from the text of a Java reference to a
+   * package or class. Always creates a physical element.
+   *
+   * @param text              the text of the reference to create.
+   * @param packageName       the package name to which the fragment belongs.
+   * @param isClassesAccepted if true then classes as well as packages are accepted as
+   *                          reference target, otherwise only packages are
+   * @return the created reference fragment.
+   */
+  public abstract @NotNull PsiJavaCodeReferenceCodeFragment createReferenceCodeFragmentInPackage(@NotNull String text,
+                                                                                                 @NotNull String packageName,
+                                                                                                 boolean isClassesAccepted);
 
   /**
    * Creates a Java code fragment from the text of a Java class member (field, method, class initializer, nested class).

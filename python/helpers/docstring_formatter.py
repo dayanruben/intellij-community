@@ -33,6 +33,7 @@ def format_fragments(fragments_list):
 
 
 def format_rest(docstring):
+    from docutils import Component
     from docutils import nodes
     from docutils.core import publish_string
     from docutils.nodes import Text, field_body, field_name, SkipNode
@@ -328,7 +329,7 @@ def format_rest(docstring):
             Writer.__init__(self)
 
         def get_transforms(self):
-            return super(Writer, self).get_transforms() + [
+            return Component.get_transforms(self) + [
                 universal.Messages,
                 _FilterMessagesKeepProblematic,  # Instead of `FilterMessages`
                 universal.StripClassesAndElements,

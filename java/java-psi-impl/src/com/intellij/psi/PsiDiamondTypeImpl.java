@@ -423,7 +423,7 @@ public class PsiDiamondTypeImpl extends PsiDiamondType {
         int myIdx;
         @Override
         public String fun(PsiParameter psiParameter) {
-          return psiParameter.getType().getCanonicalText() + " p" + myIdx++;
+          return psiParameter.getType().getCanonicalText(true) + " p" + myIdx++;
         }
       }, ",")).append(")");
       PsiClassType[] types = constructor.getThrowsList().getReferencedTypes();

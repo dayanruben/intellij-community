@@ -10,8 +10,8 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.common.waitForAllDocumentsCommitted
 import org.jetbrains.kotlin.idea.KotlinLanguage
+import org.jetbrains.kotlin.idea.artifacts.KotlinJvmLightProjectDescriptor
 import org.jetbrains.kotlin.idea.base.test.IgnoreTests
-import org.jetbrains.kotlin.idea.base.test.KotlinJvmLightProjectDescriptor
 import org.jetbrains.kotlin.idea.base.test.KotlinTestHelpers
 import org.jetbrains.kotlin.idea.base.test.NewLightKotlinCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.idea.base.util.isInDumbMode
@@ -29,7 +29,7 @@ abstract class AbstractKotlinPostfixTemplateTestBase : NewLightKotlinCodeInsight
     }
 
     override fun getProjectDescriptor(): LightProjectDescriptor {
-        return KotlinJvmLightProjectDescriptor.Companion.DEFAULT
+        return KotlinJvmLightProjectDescriptor.DEFAULT
     }
 
     protected fun performTest() {

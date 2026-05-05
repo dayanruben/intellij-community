@@ -34,6 +34,5 @@
 
   <extensions defaultExtensionNs="org.jetbrains.kotlin">
     <buildSystemDependencyManager implementation="org.jetbrains.kotlin.idea.gradleCodeInsightCommon.GradleKotlinBuildSystemDependencyManager"/>
-    <projectConfigurator implementation="org.jetbrains.kotlin.idea.gradleCodeInsightCommon.native.KotlinNativeGradleConfigurator"/>
   </extensions>
 </idea-plugin>

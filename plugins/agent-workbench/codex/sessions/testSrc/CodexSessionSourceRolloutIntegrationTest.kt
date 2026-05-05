@@ -1,7 +1,11 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.codex.sessions
 
+import com.intellij.agent.workbench.codex.sessions.backend.CodexSessionActivity
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceRefreshRequest
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -39,6 +43,87 @@ class CodexSessionSourceRolloutIntegrationTest {
 
       assertThat(testRefreshActivities(source, projectDir, listOf(THREAD_ID)))
         .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.PROCESSING))
+    }
+  }
+
+  @Test
+  fun rolloutTaskStartedOverridesReadyAppServerListActivity() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = createProjectDir("project-list-processing")
+      writeRollout(
+        projectDir = projectDir,
+        lines = listOf(
+          eventMsg(timestamp = "2026-03-08T10:10:01.000Z", type = "task_started"),
+        ),
+      )
+
+      val source = testCreateSource(
+        projectDir = projectDir,
+        codexHome = tempDir,
+        threadIds = listOf(THREAD_ID),
+      )
+
+      val listedThreads = source.listThreadsFromClosedProject(projectDir.toString())
+
+      assertThat(listedThreads).hasSize(1)
+      assertThat(listedThreads.single().activity).isEqualTo(AgentThreadActivity.PROCESSING)
+    }
+  }
+
+  @Test
+  fun rolloutHintRefreshUpdatesReadyAppServerThreadWithoutAppServerNotification() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = createProjectDir("project-refresh-processing")
+      writeRollout(
+        projectDir = projectDir,
+        lines = listOf(
+          eventMsg(timestamp = "2026-03-08T10:20:01.000Z", type = "task_started"),
+        ),
+      )
+
+      val source = testCreateSource(
+        projectDir = projectDir,
+        codexHome = tempDir,
+        threadIds = listOf(THREAD_ID),
+      )
+      val projectPath = projectDir.toString()
+
+      val refreshResult = source.refreshThreads(
+        AgentSessionSourceRefreshRequest(
+          paths = listOf(projectPath),
+          updateEvent = AgentSessionSourceUpdateEvent(type = AgentSessionSourceUpdate.HINTS_CHANGED),
+        )
+      )
+
+      assertThat(refreshResult.completeThreadsByPath[projectPath]).hasSize(1)
+      assertThat(refreshResult.completeThreadsByPath.getValue(projectPath).single().activity).isEqualTo(AgentThreadActivity.PROCESSING)
+    }
+  }
+
+  @Test
+  fun appServerResponseRequiredListActivityWinsOverRolloutProcessing() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = createProjectDir("project-list-response-required")
+      writeRollout(
+        projectDir = projectDir,
+        lines = listOf(
+          eventMsg(timestamp = "2026-03-08T10:30:01.000Z", type = "task_started"),
+        ),
+      )
+
+      val source = testCreateSource(
+        projectDir = projectDir,
+        codexHome = tempDir,
+        threadIds = listOf(THREAD_ID),
+        backendThreadCustomizer = { backendThread ->
+          backendThread.copy(activity = CodexSessionActivity.UNREAD, requiresResponse = true)
+        },
+      )
+
+      val listedThreads = source.listThreadsFromClosedProject(projectDir.toString())
+
+      assertThat(listedThreads).hasSize(1)
+      assertThat(listedThreads.single().activity).isEqualTo(AgentThreadActivity.UNREAD)
     }
   }
 

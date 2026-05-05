@@ -1,0 +1,9 @@
+<node text="BaseClass ()" base="true">
+  <node text="BaseClass ()">
+    <node text="CommonChild1 ()"/>
+  </node>
+  <node text="BaseClass ()">
+    <node text="CommonChild1 ()"/>
+  </node>
+  <node text="CommonChild1 ()"/>
+</node>

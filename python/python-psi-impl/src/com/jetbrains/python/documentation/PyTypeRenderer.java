@@ -634,7 +634,7 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
       result.appendRaw(literalType.getExpressionText()); // append raw since the literal can include quotes: Literal["foo"]
     }
     result.append("]");
-    return result.toFragment();
+    return literalType.isDefinition() ? wrapInTypingType(result.toFragment()) : result.toFragment();
   }
 
   @Override

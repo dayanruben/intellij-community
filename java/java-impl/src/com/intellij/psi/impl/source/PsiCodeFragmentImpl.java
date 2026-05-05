@@ -45,7 +45,7 @@ import java.util.StringTokenizer;
 
 public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment, IntentionFilterOwner {
   private final PsiElement myContext;
-  private boolean myIsInDefaultPackage;
+  private final String myPackageName;
   private boolean myPhysical;
   private PsiType myThisType;
   private PsiType mySuperType;
@@ -67,6 +67,24 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
             new LightVirtualFile(name, FileTypeManager.getInstance().getFileTypeByFileName(name), text), isPhysical)
     );
     myContext = context;
+    myPackageName =  null;
+    ((SingleRootFileViewProvider)getViewProvider()).forceCachedPsi(this);
+    myPhysical = isPhysical;
+  }
+
+  public PsiCodeFragmentImpl(Project project,
+                             IElementType contentElementType,
+                             boolean isPhysical,
+                             @NonNls String name,
+                             CharSequence text,
+                             @Nullable String packageName) {
+    super(TokenType.CODE_FRAGMENT,
+          contentElementType,
+          PsiManagerEx.getInstanceEx(project).getFileManager().createFileViewProvider(
+            new LightVirtualFile(name, FileTypeManager.getInstance().getFileTypeByFileName(name), text), isPhysical)
+    );
+    myPackageName = packageName;
+    myContext = null;
     ((SingleRootFileViewProvider)getViewProvider()).forceCachedPsi(this);
     myPhysical = isPhysical;
   }
@@ -131,13 +149,8 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
   }
 
   @Override
-  public boolean isInDefaultPackage() {
-    return myIsInDefaultPackage;
-  }
-
-  @Override
-  public void setInDefaultPackage(boolean inDefaultPackage) {
-    myIsInDefaultPackage = inDefaultPackage;
+  public String getPackageName() {
+    return myPackageName;
   }
 
   @Override

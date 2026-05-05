@@ -345,7 +345,8 @@ fun runnableToLambda(runnable: Runnable) : () -> Unit {
   return if (runnable is LambdaToRunnable) runnable.lambda else RunnableToLambda(runnable)
 }
 private abstract class LambdaWrapper<COMPUTABLE:Any/*ThrowableComputable|ThrowableRunnable|Computable|Runnable*/,T>(val computable: COMPUTABLE) : () -> T
-internal fun <T> lambdaToComputable(l: ()->T) : Computable<T> {
+@Internal
+fun <T> lambdaToComputable(l: ()->T) : Computable<T> {
   return if (l is ComputableToLambda) l.computable else ComputableWrapper<T, RuntimeException>(l)
 }
 private class RunnableToLambda(runnable: Runnable) : LambdaWrapper<Runnable, Unit>(runnable) {

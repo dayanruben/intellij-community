@@ -17,17 +17,24 @@ import com.intellij.psi.search.searches.AnnotatedElementsSearch
 import com.intellij.psi.search.searches.FunctionalExpressionSearch
 import com.intellij.util.ArrayUtilRt
 import org.jetbrains.kotlin.asJava.toLightClass
+import org.jetbrains.kotlin.idea.base.facet.platform.platform
 import org.jetbrains.kotlin.idea.base.projectStructure.scope.KotlinSourceFilterScope
 import org.jetbrains.kotlin.idea.base.util.excludeKotlinSources
 import org.jetbrains.kotlin.idea.findUsages.KotlinFindUsagesSupport
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.search.ExpectActualUtils.actualsForExpect
+import org.jetbrains.kotlin.idea.search.ExpectActualUtils.expectDeclarationIfAny
+import org.jetbrains.kotlin.idea.searching.inheritors.includeCommonPlatformIfNeeded
 import org.jetbrains.kotlin.idea.stubindex.KotlinAnnotationsIndex
 import org.jetbrains.kotlin.name.StandardClassIds
+import org.jetbrains.kotlin.platform.isCommon
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
+import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
+import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration
 
 open class KotlinSubtypesHierarchyTreeStructure : HierarchyTreeStructure {
     private val myCurrentScopeType: String
@@ -57,15 +64,13 @@ open class KotlinSubtypesHierarchyTreeStructure : HierarchyTreeStructure {
 
         val searchScope = element.getUseScope().intersectWith(getSearchScope(myCurrentScopeType, element))
         val directInheritors = searchInheritors(element, searchScope)
-        val descriptors = mutableListOf<HierarchyNodeDescriptor>()
-        for (inheritor in directInheritors) {
-            descriptors.add(KotlinTypeHierarchyNodeDescriptor.createTypeHierarchyDescriptor(inheritor, descriptor))
-        }
-        return descriptors.toTypedArray()
+        return directInheritors
+            .map { KotlinTypeHierarchyNodeDescriptor.createTypeHierarchyDescriptor(it, descriptor) }
+            .toTypedArray()
     }
 
     companion object {
-        private fun searchInheritors(klass: PsiElement, searchScope: SearchScope): Sequence<PsiElement> {
+        private fun searchInheritors(klass: PsiElement, searchScope: SearchScope): List<PsiElement> {
             val psiClass = when (klass) {
                 is KtClass -> klass.toLightClass()
                 is PsiClass -> klass
@@ -76,8 +81,8 @@ open class KotlinSubtypesHierarchyTreeStructure : HierarchyTreeStructure {
                 val javaAnnotations = if (psiClass != null) {
                     AnnotatedElementsSearch.searchPsiClasses(psiClass, searchScope.excludeKotlinSources(klass.project))
                         .asIterable()
-                        .filter { it.isAnnotationType }.asSequence()
-                } else emptySequence()
+                        .filter { it.isAnnotationType }
+                } else emptyList()
 
                 val candidates =  when (searchScope) {
                       is GlobalSearchScope -> {
@@ -92,14 +97,23 @@ open class KotlinSubtypesHierarchyTreeStructure : HierarchyTreeStructure {
                     entry.getStrictParentOfType<KtClass>()?.takeIf {
                             it.isAnnotation() && it.annotationEntries.contains(entry) && entry.calleeExpression?.constructorReferenceExpression?.mainReference?.resolve() == klass
                         }
-                }.asSequence() + javaAnnotations
+                } + javaAnnotations
             }
 
             if (klass is PsiClass && klass.isAnnotationType) {
-                return AnnotatedElementsSearch.searchPsiClasses(klass, searchScope).asIterable().filter { it.isAnnotationType }.asSequence()
+                return AnnotatedElementsSearch.searchPsiClasses(klass, searchScope).asIterable().filter { it.isAnnotationType }
             }
 
-            val inheritors = KotlinFindUsagesSupport.searchInheritors(klass, searchScope, searchDeeply = false)
+            val inheritors = if (klass is KtClassOrObject) {
+                val isCommon = klass.isExpectDeclaration()
+                val expectedClassOrObject = klass.expectDeclarationIfAny() as? KtClassOrObject ?: klass
+                val withCommonScope = includeCommonPlatformIfNeeded(searchScope, klass, expectedClassOrObject)
+                (if (isCommon) expectedClassOrObject.actualsForExpect() else emptyList()) +
+                        KotlinFindUsagesSupport.searchInheritors(expectedClassOrObject, withCommonScope, searchDeeply = false)
+                            .filter { !isCommon || (it as? KtElement)?.platform?.isCommon() == true }.toList()
+            } else {
+                KotlinFindUsagesSupport.searchInheritors(klass, searchScope, searchDeeply = false).toList()
+            }
 
             if (psiClass == null || !LambdaUtil.isFunctionalClass(psiClass)) {
                 return inheritors

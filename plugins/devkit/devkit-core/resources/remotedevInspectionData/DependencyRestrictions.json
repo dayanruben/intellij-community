@@ -20,7 +20,6 @@
     { "dependencyName": "intellij.java.frontend.split" },
     { "dependencyName": "intellij.javascript.debugger.frontend" },
     { "dependencyName": "intellij.javascript.frontend" },
-    { "dependencyName": "intellij.javascript.frontend.split" },
     { "dependencyName": "intellij.json.frontend.split" },
     { "dependencyName": "intellij.markdown.frontend" },
     { "dependencyName": "intellij.markdown.frontend.split" },

@@ -1608,7 +1608,7 @@ public final class PsiUtil extends PsiUtilCore {
 
     if (containingFile instanceof JavaCodeFragment) {
       JavaCodeFragment fragment = (JavaCodeFragment)containingFile;
-      if (fragment.isInDefaultPackage()) {
+      if ("".equals(fragment.getPackageName())) {
         return true;
       }
       PsiElement context = containingFile.getContext();

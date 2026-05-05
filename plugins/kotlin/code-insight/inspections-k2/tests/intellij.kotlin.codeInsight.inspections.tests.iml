@@ -51,5 +51,6 @@
     <orderEntry type="module" module-name="kotlin.fir.testFramework" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.support.bundled" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.kotlin.base.plugin.testFramework" scope="TEST" />
   </component>
 </module>

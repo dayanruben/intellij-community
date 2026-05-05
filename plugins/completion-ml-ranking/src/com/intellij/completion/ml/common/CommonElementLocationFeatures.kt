@@ -7,6 +7,7 @@ import com.intellij.codeInsight.completion.ml.ContextFeatures
 import com.intellij.codeInsight.completion.ml.ElementFeatureProvider
 import com.intellij.codeInsight.completion.ml.MLFeatureValue
 import com.intellij.codeInsight.lookup.LookupElement
+import com.intellij.openapi.diagnostic.ReportingClassSubstitutor
 import com.intellij.openapi.util.Key
 
 class CommonElementLocationFeatures : ElementFeatureProvider {
@@ -31,12 +32,12 @@ class CommonElementLocationFeatures : ElementFeatureProvider {
     }
 
     completionElement?.let {
-      result["item_class"] = MLFeatureValue.className(it::class.java)
+      result["item_class"] = MLFeatureValue.className(ReportingClassSubstitutor.getClassToReport(it))
     }
 
     element.getUserData(LOOKUP_ELEMENT_CONTRIBUTOR)?.let {
       val actualCompletionContributor: Class<*>? = element.getUserData(LOOKUP_ORIGINAL_ELEMENT_CONTRIBUTOR_TYPE)
-      result["contributor"] = MLFeatureValue.className(actualCompletionContributor ?: it::class.java)
+      result["contributor"] = MLFeatureValue.className(actualCompletionContributor ?: ReportingClassSubstitutor.getClassToReport(it))
     }
 
     return result

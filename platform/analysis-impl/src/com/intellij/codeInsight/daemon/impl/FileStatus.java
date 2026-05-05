@@ -12,18 +12,22 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.UnfairTextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Objects;
+
 final class FileStatus {
   static final TextRange WHOLE_FILE_TEXT_RANGE = new UnfairTextRange(-1, -1);
-  static final Logger LOG = Logger.getInstance(FileStatus.class);
+  private static final Logger LOG = Logger.getInstance(FileStatus.class);
 
   /**
    * The file was marked dirty without knowledge of specific dirty region. Subsequent markScopeDirty can refine dirty scope, not extend it
@@ -96,8 +100,17 @@ final class FileStatus {
     return true;
   }
 
-  void combineScopesWith(@NotNull TextRange newScope, @NotNull Document document) {
-    dirtyScopes.replaceAll((_, oldScope) -> combineScopes(oldScope, newScope, document));
+  // return true if myFileStatusMap has changed and we need restart
+  boolean combineScopesWith(@NotNull TextRange newScope, @NotNull Document document) {
+    boolean changed = false;
+    for (ObjectIterator<Int2ObjectMap.Entry<RangeMarker>> it = Int2ObjectMaps.fastIterator(dirtyScopes); it.hasNext(); ) {
+      Int2ObjectMap.Entry<RangeMarker> e = it.next();
+      RangeMarker oldScope = e.getValue();
+      RangeMarker newMarker = combineScopes(oldScope, newScope, document);
+      changed |= !Objects.equals(oldScope, newMarker);
+      e.setValue(newMarker);
+    }
+    return changed;
   }
 
   @Nullable RangeMarker getDirtyScope(int passId) {
