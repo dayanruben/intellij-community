@@ -49,6 +49,17 @@ internal class SearchEverywhereMLSearchSessionTest {
   }
 
   @Test
+  fun `onSessionFinished without search state does not throw`() {
+    val session = SearchEverywhereMLSearchSession.createNext(null)
+    session.onSessionStarted(actionsTabId, isNewSearchEverywhere = true)
+
+    session.onSessionFinished()
+
+    assertNull(session.activeState)
+    assertNull(session.previousSearchState)
+  }
+
+  @Test
   fun `onStateStarted creates active state`() {
     val session = SearchEverywhereMLSearchSession.createNext(null)
     session.onStateStarted(actionsTabId, "query", SearchStateChangeReason.SEARCH_START, null, false)

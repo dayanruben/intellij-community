@@ -4,7 +4,6 @@ import com.intellij.ide.actions.searcheverywhere.SearchEverywhereSpellCheckResul
 import com.intellij.ide.actions.searcheverywhere.SearchRestartReason
 import com.intellij.searchEverywhereMl.SearchEverywhereMlExperiment
 import com.intellij.searchEverywhereMl.SearchEverywhereTab
-import com.intellij.searchEverywhereMl.ranking.core.adapters.SearchStateChangeReason
 import com.intellij.testFramework.junit5.TestApplication
 import java.util.stream.Stream
 import org.junit.jupiter.api.AfterEach
@@ -21,7 +20,6 @@ import org.junit.jupiter.params.provider.MethodSource
 @TestApplication
 internal class SearchEverywhereMlOldPathSmokeUnitTest {
   private val service = SearchEverywhereMlRankingService()
-  private val actionsTabId = SearchEverywhereTab.Actions.tabId
 
   private var originalExperimentalMode: Boolean = false
   private var originalExperimentGroupOverride: Int? = null
@@ -108,11 +106,6 @@ internal class SearchEverywhereMlOldPathSmokeUnitTest {
   }
 
   private fun cleanUpFacade() {
-    val session = SearchEverywhereMlFacade.activeSession ?: return
-    if (session.activeState == null && session.previousSearchState == null) {
-      SearchEverywhereMlFacade.onStateStarted(actionsTabId, "", SearchStateChangeReason.SEARCH_START, null, false)
-      SearchEverywhereMlFacade.onStateFinished(emptyList())
-    }
     SearchEverywhereMlFacade.onSessionFinished()
   }
 

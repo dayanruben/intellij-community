@@ -4,10 +4,11 @@ import com.intellij.platform.searchEverywhere.SeFilterState
 import com.intellij.platform.searchEverywhere.SeParams
 import com.intellij.searchEverywhereMl.SearchEverywhereMlExperiment
 import com.intellij.searchEverywhereMl.SearchEverywhereTab
-import com.intellij.searchEverywhereMl.ranking.core.adapters.SearchStateChangeReason
 import com.intellij.testFramework.junit5.TestApplication
 import java.util.stream.Stream
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -60,6 +61,34 @@ internal class SearchEverywhereMlNewPathSmokeUnitTest {
   }
 
   @Test
+  fun `new path zero-state close does not throw and clears session`() {
+    service.onSessionStarted(project = null, tabId = actionsTabId)
+
+    service.onSessionFinished()
+
+    assertNull(SearchEverywhereMlFacade.activeSession)
+  }
+
+  @Test
+  fun `new path zero-state close does not affect next session`() {
+    service.onSessionStarted(project = null, tabId = actionsTabId)
+    service.onSessionFinished()
+    assertNull(SearchEverywhereMlFacade.activeSession)
+
+    service.onSessionStarted(project = null, tabId = actionsTabId)
+    service.onStateStarted(tabId = actionsTabId, searchParams = SeParams("query-after-corrupted", SeFilterState.Empty))
+
+    val secondSession = checkNotNull(SearchEverywhereMlFacade.activeSession)
+    assertEquals("query-after-corrupted", secondSession.activeState?.query)
+
+    service.onStateFinished(results = emptyList())
+    assertEquals("query-after-corrupted", secondSession.previousSearchState?.query)
+
+    service.onSessionFinished()
+    assertNull(SearchEverywhereMlFacade.activeSession)
+  }
+
+  @Test
   fun `new path onStateStarted throws before session started`() {
     assertThrows<IllegalStateException> {
       service.onStateStarted(tabId = SearchEverywhereTab.Actions.tabId, searchParams = SeParams("guard", SeFilterState.Empty))
@@ -67,11 +96,6 @@ internal class SearchEverywhereMlNewPathSmokeUnitTest {
   }
 
   private fun cleanUpFacade() {
-    val session = SearchEverywhereMlFacade.activeSession ?: return
-    if (session.activeState == null && session.previousSearchState == null) {
-      SearchEverywhereMlFacade.onStateStarted(actionsTabId, "", SearchStateChangeReason.SEARCH_START, null, false)
-      SearchEverywhereMlFacade.onStateFinished(emptyList())
-    }
     SearchEverywhereMlFacade.onSessionFinished()
   }
 

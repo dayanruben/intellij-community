@@ -33,13 +33,6 @@ internal class SearchEverywhereMlFacadeTest {
   }
 
   private fun cleanUpFacade() {
-    val session = SearchEverywhereMlFacade.activeSession ?: return
-    // onSessionFinished requires at least one state in the history.
-    // If no state was started, create a dummy one so the session can be closed cleanly.
-    if (session.activeState == null && session.previousSearchState == null) {
-      SearchEverywhereMlFacade.onStateStarted(actionsTabId, "", SearchStateChangeReason.SEARCH_START, null, false)
-      SearchEverywhereMlFacade.onStateFinished(emptyList())
-    }
     SearchEverywhereMlFacade.onSessionFinished()
   }
 
