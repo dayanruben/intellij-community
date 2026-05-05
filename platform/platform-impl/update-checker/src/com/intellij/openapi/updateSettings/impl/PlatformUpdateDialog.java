@@ -52,6 +52,8 @@ import java.awt.Graphics;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -212,17 +214,30 @@ public final class PlatformUpdateDialog extends AbstractUpdateDialog {
         public void focusLost(FocusEvent event) {
           update();
         }
-
-        private void update() {
-          JRootPane rootPane = getRootPane();
-          if (rootPane != null) {
-            rootPane.repaint();
-          }
-        }
       });
+      if (!SystemInfoRt.isMac) {
+        button.addMouseListener(new MouseAdapter() {
+          @Override
+          public void mouseEntered(MouseEvent e) {
+            update();
+          }
+
+          @Override
+          public void mouseExited(MouseEvent e) {
+            update();
+          }
+        });
+      }
       return button;
     }
     return super.createJButtonForAction(action);
+  }
+
+  private void update() {
+    JRootPane rootPane = getRootPane();
+    if (rootPane != null) {
+      rootPane.repaint();
+    }
   }
 
   @Override
