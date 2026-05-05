@@ -7,6 +7,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
+import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleVisibilityValue
 import com.intellij.platform.pluginSystem.testFramework.EmptyTestPluginInitContext
 import com.intellij.platform.pluginSystem.testFramework.PluginSetTestBuilder
 import com.intellij.platform.testFramework.plugins.buildDir
@@ -331,7 +332,7 @@ class PluginDependencyAnalysisTest {
         }
       }.buildDir(pluginsDirPath.resolve("foo"))
 
-      val targetModuleId = PluginModuleId("target.module", "namespace")
+      val targetModuleId = PluginModuleId("target.module", "jetbrains")
       val initContext = createInitContext(
         environmentConfiguredModules = mapOf(
           targetModuleId to PluginInitializationContext.EnvironmentConfiguredModuleData(null) // available
@@ -357,7 +358,7 @@ class PluginDependencyAnalysisTest {
         }
       }.buildDir(pluginsDirPath.resolve("foo"))
 
-      val targetModuleId = PluginModuleId("target.module", "namespace")
+      val targetModuleId = PluginModuleId("target.module", "jetbrains")
       val initContext = createInitContext(
         environmentConfiguredModules = mapOf(
           targetModuleId to PluginInitializationContext.EnvironmentConfiguredModuleData(
@@ -647,8 +648,10 @@ class PluginDependencyAnalysisTest {
       
       plugin("bar") {
         version = "1.0"
-        content {
-          module("bar.module", loadingRule = ModuleLoadingRuleValue.OPTIONAL) {}
+        content(namespace = "jetbrains") {
+          module("bar.module", loadingRule = ModuleLoadingRuleValue.OPTIONAL) {
+            moduleVisibility = ModuleVisibilityValue.PUBLIC
+          }
         }
       }.buildDir(pluginsDirPath.resolve("bar"))
 

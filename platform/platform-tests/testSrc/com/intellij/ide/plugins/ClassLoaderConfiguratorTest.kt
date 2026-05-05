@@ -95,7 +95,7 @@ internal class ClassLoaderConfiguratorTest {
     }.buildDir(rootDir.resolve("p_dependency"))
     plugin("p_dependent") {
       packagePrefix = "com.example"
-      content {
+      content(namespace = "jetbrains") {
         module("com.example.sub") {
           packagePrefix = "com.example.extraSupportedFeature"
           extensionPoints =

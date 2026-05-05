@@ -631,7 +631,7 @@ internal class PluginDependenciesTest {
   @Test
   fun `plugin is loaded if it has a module dependency on v2 module with slash in its name`() {
     plugin("bar") {
-      content {
+      content(namespace = "jetbrains") {
         module("bar/module", ModuleLoadingRuleValue.REQUIRED) {
           packagePrefix = "bar.module"
           moduleVisibility = ModuleVisibilityValue.PUBLIC
@@ -700,7 +700,7 @@ internal class PluginDependenciesTest {
   @Test
   fun `plugin is loaded when it has a module dependency on content module of core plugin`() {
     plugin(PluginManagerCore.CORE_PLUGIN_ID) {
-      content {
+      content(namespace = "jetbrains") {
         module("embedded.module", ModuleLoadingRuleValue.EMBEDDED) { packagePrefix = "embedded" }
         module("required.module", ModuleLoadingRuleValue.REQUIRED) { packagePrefix = "required" }
         module("optional.module", ModuleLoadingRuleValue.OPTIONAL) {
@@ -767,7 +767,7 @@ internal class PluginDependenciesTest {
       pluginAlias("com.intellij.modules.platform")
       pluginAlias("com.intellij.modules.lang")
       pluginAlias("com.intellij.modules.vcs")
-      content {
+      content(namespace = "jetbrains") {
         module("intellij.platform.tasks.impl") {
           packagePrefix = "com.intellij.tasks.impl"
           moduleVisibility = ModuleVisibilityValue.PUBLIC
@@ -878,7 +878,7 @@ internal class PluginDependenciesTest {
       // provide java alias and backend module
       plugin(PluginManagerCore.JAVA_PLUGIN_ID.idString) {
         pluginAlias(PluginManagerCore.JAVA_PLUGIN_ALIAS_ID.idString)
-        content {
+        content(namespace = "jetbrains") {
           module("intellij.java.backend") { packagePrefix = "com.intellij.java.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
         }
       }.buildDir(pluginDirPath.resolve("java"))
@@ -922,7 +922,7 @@ internal class PluginDependenciesTest {
       plugin("json.provider") {
         vendor = "JetBrains"
         pluginAlias("com.intellij.modules.json")
-        content {
+        content(namespace = "jetbrains") {
           module("intellij.json.backend") { packagePrefix = "com.intellij.json.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
         }
       }.buildDir(pluginDirPath.resolve("json"))
@@ -930,7 +930,7 @@ internal class PluginDependenciesTest {
       // Collaboration tools module
       plugin("collab.provider") {
         vendor = "JetBrains"
-        content {
+        content(namespace = "jetbrains") {
           module("intellij.platform.collaborationTools") { packagePrefix = "com.intellij.platform.collaborationTools"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
         }
       }.buildDir(pluginDirPath.resolve("collab"))
@@ -938,7 +938,7 @@ internal class PluginDependenciesTest {
       // VCS module to ensure only non-strict plugins get it implicitly
       plugin("vcs.provider") {
         vendor = "JetBrains"
-        content {
+        content(namespace = "jetbrains") {
           module("intellij.platform.vcs.impl") { packagePrefix = "com.intellij.vcs.impl"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
         }
       }.buildDir(pluginDirPath.resolve("vcs"))
@@ -990,7 +990,7 @@ internal class PluginDependenciesTest {
       plugin("vcs.provider") {
         vendor = "JetBrains"
         pluginAlias("com.intellij.modules.vcs")
-        content {
+        content(namespace = "jetbrains") {
           module("intellij.platform.vcs.impl") {
             packagePrefix = "com.intellij.vcs.impl"
             moduleVisibility = ModuleVisibilityValue.PUBLIC
@@ -1029,17 +1029,21 @@ internal class PluginDependenciesTest {
     fun `compatibility layer adds backend modules for alias dependencies`() {
       plugin("java.provider") {
         pluginAlias(PluginManagerCore.JAVA_PLUGIN_ALIAS_ID.idString)
-        content { module("intellij.java.backend") { packagePrefix = "com.intellij.java.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.java.backend") { packagePrefix = "com.intellij.java.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("java"))
 
       plugin("rider.provider") {
         pluginAlias("com.intellij.modules.rider")
-        content { module("intellij.rider") { packagePrefix = "com.intellij.rider"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.rider") { packagePrefix = "com.intellij.rider"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("rider"))
 
       plugin("full.line.provider") {
         pluginAlias("org.jetbrains.completion.full.line")
-        content {
+        content(namespace = "jetbrains") {
           module("intellij.fullLine.core") { packagePrefix = "com.intellij.fullLine.core"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
           module("intellij.fullLine.local") { packagePrefix = "com.intellij.fullLine.local"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
           module("intellij.fullLine.core.impl") { packagePrefix = "com.intellij.fullLine.core.impl"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
@@ -1048,17 +1052,23 @@ internal class PluginDependenciesTest {
 
       plugin("cwm.provider") {
         pluginAlias("com.jetbrains.codeWithMe")
-        content { module("intellij.cwm") { packagePrefix = "com.intellij.cwm"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.cwm") { packagePrefix = "com.intellij.cwm"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("cwm"))
 
       plugin("cwm.rider.provider") {
         pluginAlias("intellij.rider.plugins.cwm")
-        content { module("intellij.rider.plugins.cwm") { packagePrefix = "com.intellij.rider.plugins.cwm"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.rider.plugins.cwm") { packagePrefix = "com.intellij.rider.plugins.cwm"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("cwm-rider"))
 
       plugin("json.provider") {
         pluginAlias("com.intellij.modules.json")
-        content { module("intellij.json.backend") { packagePrefix = "com.intellij.json.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.json.backend") { packagePrefix = "com.intellij.json.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("json"))
 
       plugin("consumer.plugin") {
@@ -1097,13 +1107,17 @@ internal class PluginDependenciesTest {
       plugin("java.provider") {
         vendor = "JetBrains"
         pluginAlias(PluginManagerCore.JAVA_PLUGIN_ALIAS_ID.idString)
-        content { module("intellij.java.backend") { packagePrefix = "com.intellij.java.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.java.backend") { packagePrefix = "com.intellij.java.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("java"))
 
       plugin("json.provider") {
         vendor = "JetBrains"
         pluginAlias("com.intellij.modules.json")
-        content { module("intellij.json.backend") { packagePrefix = "com.intellij.json.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.json.backend") { packagePrefix = "com.intellij.json.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("json"))
 
       plugin("consumer") {
@@ -1134,17 +1148,23 @@ internal class PluginDependenciesTest {
       plugin("json.provider") {
         vendor = "JetBrains"
         pluginAlias("com.intellij.modules.json")
-        content { module("intellij.json.backend") { packagePrefix = "com.intellij.json.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.json.backend") { packagePrefix = "com.intellij.json.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("json"))
 
       plugin("collab.provider") {
         vendor = "JetBrains"
-        content { module("intellij.platform.collaborationTools") { packagePrefix = "com.intellij.platform.collaborationTools"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.platform.collaborationTools") { packagePrefix = "com.intellij.platform.collaborationTools"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("collab"))
 
       plugin("vcs.provider") {
         vendor = "JetBrains"
-        content { module("intellij.platform.vcs.impl") { packagePrefix = "com.intellij.vcs.impl"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.platform.vcs.impl") { packagePrefix = "com.intellij.vcs.impl"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("vcs"))
 
       plugin("consumer") {
@@ -1170,7 +1190,9 @@ internal class PluginDependenciesTest {
       }.buildDir(pluginDirPath.resolve("java-alias"))
 
       plugin("java.backend.provider") {
-        content { module("intellij.java.backend") { packagePrefix = "com.intellij.java.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.java.backend") { packagePrefix = "com.intellij.java.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("java-backend"))
 
       plugin("consumer") {
@@ -1193,7 +1215,7 @@ internal class PluginDependenciesTest {
       }.buildDir(pluginDirPath.resolve("full-line-alias"))
 
       plugin("full.line.modules") {
-        content {
+        content(namespace = "jetbrains") {
           module("intellij.fullLine.core") { packagePrefix = "com.intellij.fullLine.core"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
           module("intellij.fullLine.local") { packagePrefix = "com.intellij.fullLine.local"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
           module("intellij.fullLine.core.impl") { packagePrefix = "com.intellij.fullLine.core.impl"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
@@ -1222,7 +1244,9 @@ internal class PluginDependenciesTest {
       }.buildDir(pluginDirPath.resolve("cwm-alias"))
 
       plugin("cwm.module.provider") {
-        content { module("intellij.cwm") { packagePrefix = "com.intellij.cwm"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.cwm") { packagePrefix = "com.intellij.cwm"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("cwm-module"))
 
       plugin("consumer") {
@@ -1244,7 +1268,9 @@ internal class PluginDependenciesTest {
       }.buildDir(pluginDirPath.resolve("json-alias"))
 
       plugin("json.backend.provider") {
-        content { module("intellij.json.backend") { packagePrefix = "com.intellij.json.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.json.backend") { packagePrefix = "com.intellij.json.backend"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("json-backend"))
 
       plugin("consumer") {
@@ -1266,7 +1292,7 @@ internal class PluginDependenciesTest {
       }.buildDir(pluginDirPath.resolve("rider-alias"))
 
       plugin("rider.module.provider") {
-        content {
+        content(namespace = "jetbrains") {
           module("intellij.rider") {
             packagePrefix = "com.intellij.rider"
             moduleVisibility = ModuleVisibilityValue.PUBLIC
@@ -1294,7 +1320,9 @@ internal class PluginDependenciesTest {
       }.buildDir(pluginDirPath.resolve("cwm-rider-alias"))
 
       plugin("cwm.rider.module.provider") {
-        content { module("intellij.rider.plugins.cwm") { packagePrefix = "com.intellij.rider.plugins.cwm"; moduleVisibility = ModuleVisibilityValue.PUBLIC } }
+        content(namespace = "jetbrains") {
+          module("intellij.rider.plugins.cwm") { packagePrefix = "com.intellij.rider.plugins.cwm"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
+        }
       }.buildDir(pluginDirPath.resolve("cwm-rider-module"))
 
       plugin("consumer") {
@@ -1317,7 +1345,7 @@ internal class PluginDependenciesTest {
 
       plugin("vcs.module.provider") {
         vendor = "JetBrains"
-        content {
+        content(namespace = "jetbrains") {
           module("intellij.platform.vcs.impl") {
             packagePrefix = "com.intellij.vcs.impl"
             moduleVisibility = ModuleVisibilityValue.PUBLIC
@@ -1357,7 +1385,7 @@ internal class PluginDependenciesTest {
         vendor = "JetBrains"
         pluginAlias("com.intellij.modules.platform")
         pluginAlias("com.intellij.modules.lang")
-        content {
+        content(namespace = "jetbrains") {
           for (moduleId in extractedModules) {
             module(moduleId) { packagePrefix = "p.${moduleId.replace('/', '.')}"; moduleVisibility = ModuleVisibilityValue.PUBLIC }
           }
@@ -1401,7 +1429,7 @@ internal class PluginDependenciesTest {
     dependencies { module("bar") }
   }.buildDir(pluginDirPath.resolve("foo"))
   private fun `bar-plugin with module bar`() = plugin("bar-plugin") {
-    content {
+    content(namespace = "jetbrains") {
       module("bar") { moduleVisibility = ModuleVisibilityValue.PUBLIC }
     }
   }.buildDir(pluginDirPath.resolve("bar-plugin"))
@@ -1409,7 +1437,7 @@ internal class PluginDependenciesTest {
 
   private fun bar() = plugin("bar") {}.buildDir(pluginDirPath.resolve("bar"))
   private fun `bar with optional module`() = plugin("bar") {
-    content {
+    content(namespace = "jetbrains") {
       module("bar.module") {
         packagePrefix = "bar.module"
         moduleVisibility = ModuleVisibilityValue.PUBLIC
