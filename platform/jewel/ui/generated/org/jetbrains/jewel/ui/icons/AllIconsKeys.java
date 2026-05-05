@@ -703,6 +703,16 @@ public final class AllIconsKeys {
   }
 
   @GeneratedFromIntelliJSources
+  public static final class Build {
+    /** 16x16 */ 
+    @GeneratedFromIntelliJSources
+    public static final @NotNull IntelliJIconKey CompletionCloud = new IntelliJIconKey("expui/build/completionCloud.svg", "expui/build/completionCloud.svg", AllIconsKeys.class);
+    /** 16x16 */ 
+    @GeneratedFromIntelliJSources
+    public static final @NotNull IntelliJIconKey CompletionLocalCache = new IntelliJIconKey("expui/build/completionLocalCache.svg", "expui/build/completionLocalCache.svg", AllIconsKeys.class);
+  }
+
+  @GeneratedFromIntelliJSources
   public static final class Chooser {
     /** 16x16 */ 
     @GeneratedFromIntelliJSources

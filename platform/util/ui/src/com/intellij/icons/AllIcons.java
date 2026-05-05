@@ -257,6 +257,11 @@ public class AllIcons {
     /** 14x14 */ public static final @NotNull Icon MultipleBreakpointsMuted = load("expui/breakpoints/multipleBreakpointsMuted.svg", -1709398389, 2);
   }
 
+  public static final class Build {
+    /** 16x16 */ public static final @NotNull Icon CompletionCloud = load("expui/build/completionCloud.svg", -722637788, 2);
+    /** 16x16 */ public static final @NotNull Icon CompletionLocalCache = load("expui/build/completionLocalCache.svg", 1442858469, 2);
+  }
+
   public static final class Chooser {
     /** 16x16 */ public static final @NotNull Icon Bottom = load("expui/general/down.svg", "chooser/bottom.svg", -411920834, 2);
     /** 16x16 */ public static final @NotNull Icon Left = load("expui/general/left.svg", "chooser/left.svg", 277946192, 2);

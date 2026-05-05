@@ -229,6 +229,10 @@ f:com.intellij.icons.AllIcons$Breakpoints
 - sf:MultipleBreakpointsDisabled:javax.swing.Icon
 - sf:MultipleBreakpointsMuted:javax.swing.Icon
 - <init>():V
+f:com.intellij.icons.AllIcons$Build
+- sf:CompletionCloud:javax.swing.Icon
+- sf:CompletionLocalCache:javax.swing.Icon
+- <init>():V
 f:com.intellij.icons.AllIcons$Chooser
 - sf:Bottom:javax.swing.Icon
 - sf:Left:javax.swing.Icon

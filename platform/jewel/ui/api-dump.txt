@@ -2616,6 +2616,10 @@ f:org.jetbrains.jewel.ui.icons.AllIconsKeys$Breakpoints
 - sf:MultipleBreakpointsDisabled:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:MultipleBreakpointsMuted:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - <init>():V
+f:org.jetbrains.jewel.ui.icons.AllIconsKeys$Build
+- sf:CompletionCloud:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:CompletionLocalCache:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- <init>():V
 f:org.jetbrains.jewel.ui.icons.AllIconsKeys$Chooser
 - sf:Bottom:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Left:org.jetbrains.jewel.ui.icon.IntelliJIconKey
