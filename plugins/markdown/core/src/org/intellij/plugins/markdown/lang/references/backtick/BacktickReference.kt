@@ -11,6 +11,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementResolveResult
+import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.PsiPolyVariantReferenceBase
 import com.intellij.psi.ResolveResult
 import com.intellij.psi.impl.source.resolve.ResolveCache
@@ -24,6 +25,13 @@ class BacktickReference(element: MarkdownCodeSpan) :
     override fun resolve(ref: BacktickReference, incompleteCode: Boolean): Array<ResolveResult> {
       return ref.tryResolve()
     }
+  }
+
+  override fun isReferenceTo(element: PsiElement): Boolean {
+    // Avoid invoking expensive `multiResolve` for all classes / symbols
+    if (element is NavigationItem) return element.name == canonicalText
+    if (element is PsiNamedElement) return element.name == canonicalText
+    return false
   }
 
   override fun multiResolve(incompleteCode: Boolean): Array<ResolveResult> {

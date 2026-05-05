@@ -9,6 +9,7 @@ import com.intellij.psi.search.UsageSearchContext
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.util.Processor
 import org.intellij.plugins.markdown.lang.MarkdownFileType
+import org.intellij.plugins.markdown.lang.references.ReferenceUtil.hasMarkdownFiles
 
 internal class BacktickReferenceSearcher : QueryExecutorBase<PsiReference, ReferencesSearch.SearchParameters>(true) {
   override fun processQuery(
@@ -17,12 +18,13 @@ internal class BacktickReferenceSearcher : QueryExecutorBase<PsiReference, Refer
   ) {
     val target = queryParameters.elementToSearch
     if (target !is PsiNamedElement) return
+    if (!hasMarkdownFiles(queryParameters.project)) return
     val text = target.name?.takeIf { it.isNotBlank() } ?: return
 
     queryParameters.optimizer.searchWord(
       text,
       PsiSearchScopeUtil.restrictScopeTo(queryParameters.effectiveSearchScope, MarkdownFileType.INSTANCE),
-      UsageSearchContext.ANY,
+      UsageSearchContext.IN_PLAIN_TEXT,
       true,
       target
     )
