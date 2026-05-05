@@ -46,6 +46,13 @@ open class TestingOptions {
   var testTags: String? = System.getProperty("intellij.build.test.tags").nullize(nullizeSpaces = true)
 
   /**
+   * Semicolon-separated JUnit 5 tag expressions to exclude; tests tagged with any of these are skipped.
+   * Supports JUnit Platform tag expressions (e.g. `"slow"`, `"slow;flaky"`).
+   * If not specified, no tag exclusion is applied.
+   */
+  var testExcludedTags: String? = System.getProperty("intellij.build.test.excluded.tags").nullize(nullizeSpaces = true)
+
+  /**
    * Semicolon-separated exact test simple patterns, wildcards are not allowed.
    * Each entry is `FullyQualifiedClassName` or `FullyQualifiedClassName#methodName`.
    * If specified, [testGroups] and [testPatterns] will be ignored.
