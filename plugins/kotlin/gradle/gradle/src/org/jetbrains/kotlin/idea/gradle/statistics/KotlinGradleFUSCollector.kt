@@ -10,7 +10,7 @@ import org.jetbrains.kotlin.statistics.metrics.BooleanMetrics
 import org.jetbrains.kotlin.statistics.metrics.NumericalMetrics
 import org.jetbrains.kotlin.statistics.metrics.StringMetrics
 
-private const val BASE_FUS_VERSION = 15
+private const val BASE_FUS_VERSION = 16
 
 object KotlinGradleFUSCollector : CounterUsagesCollector() {
 
