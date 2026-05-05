@@ -31,6 +31,7 @@ abstract class HProfReadBuffer : AutoCloseable {
 
   abstract fun position(newPosition: Long)
   abstract fun isEof(): Boolean
+  abstract fun limit(): Long
   abstract fun position(): Long
   abstract fun get(bytes: ByteArray)
   abstract fun getByteBuffer(size: Long): HProfReadBufferSlidingWindow

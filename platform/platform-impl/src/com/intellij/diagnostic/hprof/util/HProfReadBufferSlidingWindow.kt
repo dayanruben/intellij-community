@@ -22,48 +22,35 @@ import java.nio.BufferUnderflowException
 import java.nio.ByteBuffer
 import java.nio.InvalidMarkException
 import java.nio.channels.FileChannel
-import kotlin.math.max
 import kotlin.math.min
 
 @ApiStatus.Internal
-class HProfReadBufferSlidingWindow private constructor(
-  private val channel: FileChannel,
+class HProfReadBufferSlidingWindow internal constructor(
   private val parser: HProfEventBasedParser,
-  private val viewOffset: Long,
-  val size: Long,
-  private val windowSize: Long = DEFAULT_WINDOW_SIZE,
+  private val totalSize: Long,
+  private val mapper: (start: Long) -> ByteBuffer,
+  private val windowSize: Int = DEFAULT_WINDOW_SIZE,
+  private val initialBuffer: ByteBuffer = mapper(0L)
 ) : AbstractHProfNavigatorReadBuffer(parser) {
-  constructor(channel: FileChannel, parser: HProfEventBasedParser) : this(channel, parser, 0, channel.size())
+  constructor(channel: FileChannel, parser: HProfEventBasedParser) : this(
+    parser,
+    channel.size(),
+    { start ->
+      channel.map(
+        FileChannel.MapMode.READ_ONLY,
+        start,
+        min(DEFAULT_WINDOW_SIZE.toLong(), channel.size() - start)
+      )
+    }
+  )
 
-  private var bufferOffset = 0L
-  private var buffer = createInitialBuffer()
-  private var closed = false
+  private var currentWindow: ByteBuffer = initialBuffer
+  private var offsetOfCurrentWindow = 0L
   private var mark = -1L
 
   override fun close() {
-    if (closed) {
-      return
-    }
-
-    closed = true
-    if (buffer.isDirect) {
-      ByteBufferCleaner.unmapBuffer(buffer)
-    }
-  }
-
-  override fun position(newPosition: Long) {
-    require(newPosition in 0..size) { "Position $newPosition is out of bounds for size $size" }
-
-    if (newPosition == size) {
-      positionAtEnd()
-      return
-    }
-
-    if (newPosition >= bufferOffset && newPosition <= bufferOffset + buffer.limit()) {
-      buffer.position((newPosition - bufferOffset).toInt())
-    }
-    else {
-      remapBuffer(newPosition)
+    if (currentWindow.isDirect) {
+      ByteBufferCleaner.unmapBuffer(currentWindow)
     }
   }
 
@@ -71,8 +58,24 @@ class HProfReadBufferSlidingWindow private constructor(
     return !hasRemaining()
   }
 
+  override fun limit(): Long {
+    return totalSize
+  }
+
   override fun position(): Long {
-    return bufferOffset + buffer.position()
+    return offsetOfCurrentWindow + currentWindow.position()
+  }
+
+  override fun position(newPosition: Long) {
+    if (newPosition >= offsetOfCurrentWindow && newPosition < offsetOfCurrentWindow + currentWindow.limit()) {
+      currentWindow.position((newPosition - offsetOfCurrentWindow).toInt())
+    }
+    else if (newPosition > totalSize) {
+      throw BufferUnderflowException()
+    }
+    else {
+      remapBuffer(newPosition)
+    }
   }
 
   override fun get(bytes: ByteArray) {
@@ -80,8 +83,8 @@ class HProfReadBufferSlidingWindow private constructor(
       return
     }
 
-    if (bytes.size <= buffer.remaining()) {
-      buffer.get(bytes)
+    if (bytes.size <= currentWindow.remaining()) {
+      currentWindow.get(bytes)
       return
     }
 
@@ -91,44 +94,81 @@ class HProfReadBufferSlidingWindow private constructor(
         throw BufferUnderflowException()
       }
 
-      if (buffer.remaining() == 0) {
+      if (currentWindow.remaining() == 0) {
         remapBuffer(position())
       }
 
-      val bytesToFetch = min(bytes.size - destinationOffset, buffer.remaining())
-      buffer.get(bytes, destinationOffset, bytesToFetch)
+      val bytesToFetch = min(bytes.size - destinationOffset, currentWindow.remaining())
+      currentWindow.get(bytes, destinationOffset, bytesToFetch)
       destinationOffset += bytesToFetch
     }
   }
 
   override fun getByteBuffer(size: Long): HProfReadBufferSlidingWindow {
     require(size >= 0) { "Buffer size must be non-negative: $size" }
-    val startOffset = position()
-    skip(size)
-    return HProfReadBufferSlidingWindow(channel, parser, viewOffset + startOffset, size, windowSize)
+    var useSlice = false
+    if (size < currentWindow.remaining()) {
+      useSlice = true
+    }
+    else if (size < windowSize) {
+      remapBuffer(position())
+      useSlice = true
+    }
+
+    val subBufferPosition = position()
+    val newMapper: (Long) -> ByteBuffer = { subBufferStart ->
+      mapper(subBufferStart + subBufferPosition)
+    }
+
+    if (useSlice) {
+      // size.toInt causes no overflow, as its upper bound is either buffer's capacity or windowSize, and either fits in Int
+      val sizeInt = size.toInt()
+      val slicedBuffer = currentWindow.slice()
+      slicedBuffer.limit(sizeInt)
+      skip(size)
+      return HProfReadBufferSlidingWindow(
+        parser,
+        size,
+        newMapper,
+        windowSize,
+        initialBuffer = slicedBuffer.asReadOnlyBuffer(),
+      )
+    }
+    else if (size < Int.MAX_VALUE) {
+      val sizeInt = size.toInt()
+      val bytes = ByteArray(sizeInt)
+      get(bytes)
+      return HProfReadBufferSlidingWindow(parser, size, newMapper, windowSize, initialBuffer = ByteBuffer.wrap(bytes))
+    }
+    else {
+      val currentGlobalPosition = position()
+      val initialBuffer = mapper(currentGlobalPosition)
+      position(currentGlobalPosition + size)
+      return HProfReadBufferSlidingWindow(parser, size, newMapper, windowSize, initialBuffer = initialBuffer)
+    }
   }
 
   override fun get(): Byte {
     ensureRemaining(Byte.SIZE_BYTES)
-    return buffer.get()
+    return currentWindow.get()
   }
 
   override fun getShort(): Short {
     ensureRemaining(Short.SIZE_BYTES)
-    return buffer.short
+    return currentWindow.short
   }
 
   override fun getInt(): Int {
     ensureRemaining(Int.SIZE_BYTES)
-    return buffer.int
+    return currentWindow.int
   }
 
   override fun getLong(): Long {
     ensureRemaining(Long.SIZE_BYTES)
-    return buffer.long
+    return currentWindow.long
   }
 
-  fun remaining(): Long = size - position()
+  fun remaining(): Long = totalSize - position()
 
   fun hasRemaining(): Boolean = remaining() > 0
 
@@ -145,17 +185,17 @@ class HProfReadBufferSlidingWindow private constructor(
 
   fun getChar(): Char {
     ensureRemaining(Char.SIZE_BYTES)
-    return buffer.char
+    return currentWindow.char
   }
 
   fun getFloat(): Float {
     ensureRemaining(Float.SIZE_BYTES)
-    return buffer.float
+    return currentWindow.float
   }
 
   fun getDouble(): Double {
     ensureRemaining(Double.SIZE_BYTES)
-    return buffer.double
+    return currentWindow.double
   }
 
   fun get(index: Int): Byte = readAt(index.toLong()) { get() }
@@ -176,10 +216,10 @@ class HProfReadBufferSlidingWindow private constructor(
     if (!hasRemaining()) {
       return EMPTY_BUFFER
     }
-    if (!buffer.hasRemaining()) {
+    if (!currentWindow.hasRemaining()) {
       remapBuffer(position())
     }
-    return buffer.slice().asReadOnlyBuffer()
+    return currentWindow.slice().asReadOnlyBuffer()
   }
 
   private fun ensureRemaining(byteCount: Int) {
@@ -187,7 +227,7 @@ class HProfReadBufferSlidingWindow private constructor(
       throw BufferUnderflowException()
     }
 
-    if (buffer.remaining() < byteCount) {
+    if (currentWindow.remaining() < byteCount) {
       remapBuffer(position())
     }
   }
@@ -203,40 +243,19 @@ class HProfReadBufferSlidingWindow private constructor(
     }
   }
 
-  private fun createInitialBuffer(): ByteBuffer {
-    if (size == 0L) {
-      return EMPTY_BUFFER
-    }
-
-    return channel.map(FileChannel.MapMode.READ_ONLY, viewOffset, min(windowSize, size))
-  }
-
-  private fun positionAtEnd() {
-    if (size == 0L) {
-      buffer.position(0)
-      return
-    }
-
-    val lastWindowOffset = max(0L, size - min(windowSize, size))
-    if (bufferOffset != lastWindowOffset) {
-      remapBuffer(lastWindowOffset)
-    }
-    buffer.position((size - bufferOffset).toInt())
-  }
-
   private fun remapBuffer(newPosition: Long) {
-    val oldBuffer = buffer
-    val bytesToMap = min(windowSize, size - newPosition)
-    buffer = if (bytesToMap == 0L) EMPTY_BUFFER else channel.map(FileChannel.MapMode.READ_ONLY, viewOffset + newPosition, bytesToMap)
-    bufferOffset = newPosition
+    val oldWindow = currentWindow
+    val bytesToMap = min(windowSize.toLong(), totalSize - newPosition)
+    offsetOfCurrentWindow = newPosition
+    currentWindow = if (bytesToMap == 0L) EMPTY_BUFFER else mapper(offsetOfCurrentWindow)
 
-    if (oldBuffer.isDirect) {
-      ByteBufferCleaner.unmapBuffer(oldBuffer)
+    if (oldWindow.isDirect) {
+      ByteBufferCleaner.unmapBuffer(oldWindow)
     }
   }
 
   companion object {
-    private const val DEFAULT_WINDOW_SIZE = 10_000_000L
     private val EMPTY_BUFFER: ByteBuffer = ByteBuffer.allocate(0).asReadOnlyBuffer()
+    private const val DEFAULT_WINDOW_SIZE = 10_000_000
   }
 }
