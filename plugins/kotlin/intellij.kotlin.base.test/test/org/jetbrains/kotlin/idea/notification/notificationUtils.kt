@@ -35,9 +35,10 @@ fun catchNotificationText(
 suspend fun catchNotificationTextAsync(
     project: Project,
     groupId: String,
+    parentDisposable: Disposable,
     action: suspend () -> Unit
 ): String? {
-    val notifications = catchNotificationsAsync(project, groupId, action).ifEmpty { return null }
+    val notifications = catchNotificationsAsync(project, groupId, parentDisposable, action).ifEmpty { return null }
     return notifications.single().content
 }
 
@@ -50,8 +51,8 @@ fun catchNotifications(
 ) =
     catchNotifications(project, parentDisposable, waitForNotificationLonger, action).filter { it.groupId == groupId }
 
-suspend fun catchNotificationsAsync(project: Project, groupId: String, action: suspend () -> Unit) =
-    catchNotificationsAsync(project, action).filter { it.groupId == groupId }
+suspend fun catchNotificationsAsync(project: Project, groupId: String, parentDisposable: Disposable, action: suspend () -> Unit) =
+    catchNotificationsAsync(project, parentDisposable, action).filter { it.groupId == groupId }
 
 fun catchNotifications(
     project: Project,
@@ -86,8 +87,8 @@ fun catchNotifications(
     }
 }
 
-suspend fun catchNotificationsAsync(project: Project, action: suspend () -> Unit): List<Notification> {
-    val myDisposable = Disposer.newDisposable()
+suspend fun catchNotificationsAsync(project: Project, parentDisposable: Disposable, action: suspend () -> Unit): List<Notification> {
+    val myDisposable = Disposer.newDisposable(parentDisposable)
     try {
         val notifications = mutableListOf<Notification>()
         val connection = project.messageBus.connect(myDisposable)
