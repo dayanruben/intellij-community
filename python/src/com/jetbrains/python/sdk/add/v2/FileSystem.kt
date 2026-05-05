@@ -7,6 +7,7 @@ import com.intellij.execution.target.getTargetType
 import com.intellij.execution.target.joinTargetPaths
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.fileLogger
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.UserDataHolder
 import com.intellij.openapi.util.UserDataHolderBase
@@ -26,6 +27,7 @@ import com.intellij.python.community.services.shared.VanillaPythonWithPythonInfo
 import com.intellij.python.community.services.systemPython.SysPythonRegisterError
 import com.intellij.python.community.services.systemPython.SystemPython
 import com.intellij.python.community.services.systemPython.SystemPythonService
+import com.intellij.python.venv.sdk.flavors.VirtualEnvSdkFlavor
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.PythonInfo
 import com.jetbrains.python.Result
@@ -46,15 +48,19 @@ import com.jetbrains.python.sdk.PythonSdkType
 import com.jetbrains.python.sdk.PythonSdkUtil
 import com.jetbrains.python.sdk.asBinToExecute
 import com.jetbrains.python.sdk.associatedModulePath
+import com.jetbrains.python.sdk.createSdk
 import com.jetbrains.python.sdk.detectTool
+import com.jetbrains.python.sdk.flavors.PyFlavorAndData
+import com.jetbrains.python.sdk.flavors.PyFlavorData
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
-import com.intellij.python.venv.sdk.flavors.VirtualEnvSdkFlavor
 import com.jetbrains.python.sdk.getSdksToInstall
 import com.jetbrains.python.sdk.impl.PySdkBundle
 import com.jetbrains.python.sdk.impl.resolvePythonBinary
 import com.jetbrains.python.sdk.impl.resolvePythonHome
 import com.jetbrains.python.sdk.isSystemWide
+import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import com.jetbrains.python.target.PythonLanguageRuntimeConfiguration
+import com.jetbrains.python.target.ui.TargetPanelExtension
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -87,6 +93,12 @@ sealed interface FileSystem<P : PathHolder> {
    * [pathToPython] has to be system (not venv) if set [requireSystemPython]
    */
   suspend fun getSystemPythonFromSelection(pathToPython: P, requireSystemPython: Boolean): PyResult<DetectedSelectableInterpreter<P>>
+  suspend fun setupSdk(
+    project: Project?,
+    pythonBinaryPath: P,
+    languageLevel: LanguageLevel,
+    targetPanelExtension: TargetPanelExtension?,
+  ): PyResult<Sdk>
 
   suspend fun validateVenv(homePath: P): PyResult<Unit>
   suspend fun suggestVenv(projectPath: Path): PyResult<P>
@@ -109,6 +121,16 @@ sealed interface FileSystem<P : PathHolder> {
     override val isLocal: Boolean = eelApi == localEel
     override fun getBinaryToExec(path: PathHolder.Eel): BinaryToExec {
       return BinOnEel(path.path)
+    }
+
+    override suspend fun setupSdk(
+      project: Project?,
+      pythonBinaryPath: PathHolder.Eel,
+      languageLevel: LanguageLevel,
+      targetPanelExtension: TargetPanelExtension?,
+    ): PyResult<Sdk> {
+
+      return createSdk(pythonBinaryPath, null, null)
     }
 
     override fun parsePath(raw: String): PyResult<PathHolder.Eel> = try {
@@ -271,6 +293,33 @@ sealed interface FileSystem<P : PathHolder> {
 
     override fun parsePath(raw: String): PyResult<PathHolder.Target> {
       return PyResult.success(PathHolder.Target(raw))
+    }
+
+    override suspend fun setupSdk(
+      project: Project?,
+      pythonBinaryPath: PathHolder.Target,
+      languageLevel: LanguageLevel,
+      targetPanelExtension: TargetPanelExtension?,
+    ): PyResult<Sdk> {
+
+      val (additionalData, customSdkSuggestedName) = run {
+        val data = PyTargetAwareAdditionalData(PyFlavorAndData(PyFlavorData.Empty, VirtualEnvSdkFlavor.getInstance())).also {
+          it.interpreterPath = pythonBinaryPath.toString()
+          it.targetEnvironmentConfiguration = targetEnvironmentConfiguration
+        }
+        targetPanelExtension?.let {
+          it.applyToTargetConfiguration()
+          it.applyToAdditionalData(data)
+        }
+        val name = PythonInterpreterTargetEnvironmentFactory.findDefaultSdkName(project, data, languageLevel.toPythonVersion())
+        data to name
+      }
+
+      return createSdk(
+        pythonBinaryPath,
+        customSdkSuggestedName,
+        additionalData
+      )
     }
 
     /**
