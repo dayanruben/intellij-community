@@ -605,7 +605,7 @@ internal fun CoroutineScope.loadPluginDescriptorsForPathBasedLoader(
   bundledPluginDir: Path?,
 ): Deferred<List<DiscoveredPluginsList>> {
   val platformPrefix = PlatformUtils.getPlatformPrefix()
-  val jarFileForModule: (PluginModuleId, Path) -> Path? = { moduleId, moduleDir -> moduleDir.resolve("$moduleId.jar") }
+  val jarFileForModule: (PluginModuleId, Path) -> Path? = { moduleId, moduleDir -> moduleDir.resolve("${moduleId.name}.jar") }
 
   if (isUnitTestMode && !isInDevServerMode) {
     return loadPluginDescriptorsInDeprecatedUnitTestMode(
