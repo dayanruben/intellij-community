@@ -17,7 +17,7 @@ open class KillOutdatedProcesses : BeforeAllCallback, AfterAllCallback {
 
   override fun afterAll(context: ExtensionContext): Unit = runBlocking {
     if (CommonScope.shouldKillOutdatedProcessesBetweenContainers()) {
-      findAndKillLeftoverProcessesFromTestRuns(reportErrors = true)
+      findAndKillLeftoverProcessesFromTestRuns(reportErrors = true, testClassWithLeftoverProcesses = context.requiredTestClass.name)
     }
   }
 }

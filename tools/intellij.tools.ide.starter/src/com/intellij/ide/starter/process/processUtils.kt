@@ -65,21 +65,29 @@ private suspend fun getFilteredProcessList(filter: Predicate<OSProcess>? = null)
  * This lead to OOM and other errors during tests, for example,
  * IDEA-256265: shared-indexes tests on Linux suspiciously fail with 137 (killed by OOM)
  */
-suspend fun findAndKillLeftoverProcessesFromTestRuns(reportErrors: Boolean = false) {
-  val substringToSearch: List<String> = listOf("/$IDE_TESTS_SUBSTRING/", "\\$IDE_TESTS_SUBSTRING\\")
-  findAndKillProcessesBySubstring(*substringToSearch.toTypedArray()) { processInfosToKill ->
+suspend fun findAndKillLeftoverProcessesFromTestRuns(reportErrors: Boolean = false, testClassWithLeftoverProcesses: String? = null) {
+  findAndKillProcessesBySubstring(IDE_TESTS_SUBSTRING) { processes ->
     if (reportErrors) {
-      val message = "Unexpected running processes were detected after IDE was stopped ${processInfosToKill.joinToString(", ") { it.name }}"
+      processes.reportEachOutdatedProcessSeparately(testClassWithLeftoverProcesses)
+    }
+  }
+}
+
+private fun List<ProcessInfo>.reportEachOutdatedProcessSeparately(testClassWithLeftoverProcesses: String? = null) {
+  groupBy { it.name }.apply {
+    forEach {
+      val message = "Unexpected running '${it.key}' process was detected after IDE was stopped"
       CIServer.instance.reportTestFailure(testName = message,
-                                          message = message + "\n" +
-                                                    processInfosToKill.joinToString(", ") { "Process:[Name:${it.name}, Id:${it.pid}]" } + "\n\n" +
-                                                    "Please investigate if the process should have been stopped together with the IDE, it means it is a bug, you can raise a YT ticket and mute the exception.\n" +
-                                                    "If it is an expected behaviour, it is recommended to add a call `${::findAndKillProcesses}` with appropriate arguments in @After/@AfterEach.\n\n" +
-                                                    "Processes were collected based on command line, containing '${
-                                                      substringToSearch.joinToString(", ")
-                                                    }'.\n" +
-                                                    processInfosToKill.joinToString("\n") { it.description }, details = "",
-                                          kind = SyntheticTestKind.TEST_INFRA_EXCEPTION, generifyTestName = false)
+                                          generifyTestName = false,
+                                          kind = SyntheticTestKind.TEST_INFRA_EXCEPTION,
+                                          details = "",
+                                          message = (testClassWithLeftoverProcesses?.let { "Test class where leftover processes were detected: [$it]\n" }
+                                            .orEmpty()) +
+                                                    "$message. Amount of processes: ${it.value.size}.\n" +
+                                                    "Outdated process details:\n${it.value.joinToString("\n") { p -> p.description }}\n\n" +
+                                                    "Please investigate if the processes should have been stopped together with the IDE, it means it is a bug, you can raise a YT ticket and mute the exception.\n" +
+                                                    "If it is an expected behaviour, it is recommended to add a call `\${::findAndKillProcesses}` with appropriate arguments in @After/@AfterEach."
+      )
     }
   }
 }
@@ -99,7 +107,11 @@ suspend fun findAndKillProcessesBySubstring(vararg substringToSearch: String, on
                               onFoundProcesses = onFoundProcesses)
 }
 
-suspend fun findAndKillProcesses(message: String? = null, filter: Predicate<ProcessInfo>, onFoundProcesses: (List<ProcessInfo>) -> Unit = {}) {
+suspend fun findAndKillProcesses(
+  message: String? = null,
+  filter: Predicate<ProcessInfo>,
+  onFoundProcesses: (List<ProcessInfo>) -> Unit = {},
+) {
   val prefix = message ?: "Killing process matching '$filter' in command line"
   logOutput("$prefix ...")
   val processInfosToKill = getProcessList(filter)
