@@ -9,19 +9,19 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module-library" exported="">
       <library name="jcef" type="repository">
-        <properties maven-id="org.jetbrains.intellij.deps.jcef:jcef:144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b34">
+        <properties maven-id="org.jetbrains.intellij.deps.jcef:jcef:144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b37">
           <verification>
-            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/jcef/jcef/144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b34/jcef-144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b34.jar">
-              <sha256sum>abfa1a12c6d04efd7833d1d936cdc8e201e0b6017c47d69e88f3fa269bda5e56</sha256sum>
+            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/jcef/jcef/144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b37/jcef-144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b37.jar">
+              <sha256sum>1899c0290d492ecb45ff2e12b9fbf63e52b262e989d55da8eb40812bf8a06030</sha256sum>
             </artifact>
           </verification>
         </properties>
         <CLASSES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/jcef/jcef/144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b34/jcef-144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b34.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/jcef/jcef/144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b37/jcef-144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b37.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/jcef/jcef/144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b34/jcef-144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b34-sources.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/intellij/deps/jcef/jcef/144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b37/jcef-144.0.15-g72717cf-chromium-144.0.7559.172-api-1.21-262-b37-sources.jar!/" />
         </SOURCES>
       </library>
     </orderEntry>
