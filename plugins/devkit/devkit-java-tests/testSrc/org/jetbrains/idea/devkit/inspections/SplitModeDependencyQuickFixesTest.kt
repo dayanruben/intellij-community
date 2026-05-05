@@ -44,7 +44,7 @@ internal class SplitModeDependencyQuickFixesTest : JavaCodeInsightFixtureTestCas
             <module name="intellij.platform.core"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <typedHandler<caret>/>
+            <toolWindow<caret>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -142,7 +142,7 @@ internal class SplitModeDependencyQuickFixesTest : JavaCodeInsightFixtureTestCas
             <module name="intellij.platform.core"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <typedHandler<caret>/>
+            <toolWindow<caret>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()

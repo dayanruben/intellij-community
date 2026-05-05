@@ -132,6 +132,30 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase(), E
     """.trimIndent()
     )
 
+    myFixture.addClass(
+      """
+      package com.intellij.ide.plugins;
+
+      public interface DynamicPluginListener {}
+    """.trimIndent()
+    )
+
+    myFixture.addClass(
+      """
+      package com.intellij.lang;
+
+      public interface ParserDefinition {}
+    """.trimIndent()
+    )
+
+    myFixture.addClass(
+      """
+      package com.intellij.openapi.project;
+
+      public interface ProjectManagerListener {}
+    """.trimIndent()
+    )
+
     // Backend API: com.intellij.openapi.vfs.VirtualFileManager
     myFixture.addClass(
       """
@@ -361,7 +385,7 @@ Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in
     myFixture.checkHighlighting()
   }
 
-  fun testFrontendOrSharedApiInBackendModule() {
+  fun testFrontendApiInBackendModuleForFileEditorManagerListener() {
     configurePluginXml(
       """
       <idea-plugin>
@@ -378,11 +402,67 @@ Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in
 
       import com.intellij.openapi.fileEditor.FileEditorManagerListener
 
-      class BackendFileEditorListener : <weak_warning descr="'com.intellij.openapi.fileEditor.FileEditorManagerListener' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+      class BackendFileEditorListener : <weak_warning descr="'com.intellij.openapi.fileEditor.FileEditorManagerListener' can only be used in 'frontend' module type. Actual module type is 'backend'.
 
 Computed module kind reasoning:
 
 Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">FileEditorManagerListener</weak_warning>
+    """.trimIndent()
+    )
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testSharedApiInFrontendModuleForParserDefinition() {
+    configurePluginXml(
+      """
+      <idea-plugin>
+        <dependencies>
+          <module name="intellij.platform.frontend"/>
+        </dependencies>
+      </idea-plugin>
+    """.trimIndent()
+    )
+
+    myFixture.configureByText(
+      "FrontendParserDefinition.kt", """
+      package com.example.frontend
+
+      import com.intellij.lang.ParserDefinition
+
+      class FrontendParserDefinition : <weak_warning descr="'com.intellij.lang.ParserDefinition' can only be used in 'shared' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">ParserDefinition</weak_warning>
+    """.trimIndent()
+    )
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testBackendLifecycleListenerInFrontendModule() {
+    configurePluginXml(
+      """
+      <idea-plugin>
+        <dependencies>
+          <module name="intellij.platform.frontend"/>
+        </dependencies>
+      </idea-plugin>
+    """.trimIndent()
+    )
+
+    myFixture.configureByText(
+      "FrontendProjectManagerListener.kt", """
+      package com.example.frontend
+
+      import com.intellij.openapi.project.ProjectManagerListener
+
+      class FrontendProjectManagerListener : <weak_warning descr="'com.intellij.openapi.project.ProjectManagerListener' can only be used in 'backend' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'light_idea_test_case'">ProjectManagerListener</weak_warning>
     """.trimIndent()
     )
 
@@ -528,6 +608,34 @@ Computed module kind reasoning:
 No frontend or backend dependencies were found for module 'light_idea_test_case'">VirtualFileManager</weak_warning>.getInstance()
         }
       }
+    """.trimIndent()
+    )
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testFrontendOrBackendApiInSharedModule() {
+    configurePluginXml(
+      """
+      <idea-plugin>
+        <dependencies>
+          <module name="intellij.platform.core"/>
+        </dependencies>
+      </idea-plugin>
+    """.trimIndent()
+    )
+
+    myFixture.configureByText(
+      "SharedDynamicPluginListener.kt", """
+      package com.example.shared
+
+      import com.intellij.ide.plugins.DynamicPluginListener
+
+      class SharedDynamicPluginListener : <weak_warning descr="'com.intellij.ide.plugins.DynamicPluginListener' can only be used in 'frontend or backend' module type. Actual module type is 'shared'.
+
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'light_idea_test_case'">DynamicPluginListener</weak_warning>
     """.trimIndent()
     )
 
