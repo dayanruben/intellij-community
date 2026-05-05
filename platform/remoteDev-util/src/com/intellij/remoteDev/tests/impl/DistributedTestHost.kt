@@ -440,10 +440,10 @@ open class DistributedTestHost(coroutineScope: CoroutineScope) {
                       "\n" + "component isFocused=" + projectIdeFrame.isFocused + " isFocusAncestor=" + projectIdeFrame.isFocusAncestor() +
                       "\n" + getFocusStateDescription()
         if (reportFailures) {
-          LOG.error(message)
+          LOG.error(message, it)
         }
         else {
-          LOG.info(message)
+          LOG.info(message, it)
         }
       }) {
         projectIdeFrame.isFocusAncestor() || projectIdeFrame.isFocused // it really does happen that only one is true
