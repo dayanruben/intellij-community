@@ -15,6 +15,7 @@ import org.jetbrains.kotlin.analysis.api.components.render
 import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KaRendererAnnotationsFilter
 import org.jetbrains.kotlin.analysis.api.renderer.types.KaTypeRenderer
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.useSiteModule
@@ -31,7 +32,8 @@ import org.jetbrains.kotlin.types.Variance
  */
 @Serializable
 internal class TrailingLambdaInsertionHandler private constructor(
-    private val parameterData: List<TrailingLambdaParameterData>
+    private val parameterData: List<TrailingLambdaParameterData>,
+    private val skipBraces: Boolean = false,
 ) : SerializableInsertHandler {
     override fun handleInsert(
         context: InsertionContext,
@@ -41,7 +43,9 @@ internal class TrailingLambdaInsertionHandler private constructor(
             isToShortenLongNames = true
             isToReformat = false //TODO
 
-            addTextSegment(" { ")
+            if (!skipBraces) {
+                addTextSegment(" { ")
+            }
 
             parameterData.forEachIndexed { index, parameter ->
                 val showDefault = parameterData.size != 1
@@ -73,7 +77,10 @@ internal class TrailingLambdaInsertionHandler private constructor(
             }
 
             addEndVariable()
-            addTextSegment(" }")
+
+            if (!skipBraces) {
+                addTextSegment(" }")
+            }
         }
         TemplateManager.getInstance(context.project).startTemplate(context.editor, template)
     }
@@ -91,9 +98,23 @@ internal class TrailingLambdaInsertionHandler private constructor(
             if (TemplateManager.getInstance(useSiteModule.project) == null) return null
             val parameterNames = functionType.parameters.map { it.name }
 
-            val data = buildTrailingLambdaParameterData(functionType, parameterNames)
+            val data = buildTrailingLambdaParameterData(functionType.parameterTypes, parameterNames)
             return TrailingLambdaInsertionHandler(data)
         }
+
+        /**
+         * Returns the [TrailingLambdaInsertionHandler] if the project supports using templates, null otherwise.
+         */
+        @OptIn(KaExperimentalApi::class)
+        context(_: KaSession)
+        fun create(functionSymbol: KaFunctionSymbol, skipBraces: Boolean): TrailingLambdaInsertionHandler? {
+            if (TemplateManager.getInstance(useSiteModule.project) == null) return null
+            val parameterNames = functionSymbol.valueParameters.map { it.name }
+
+            val data = buildTrailingLambdaParameterData(functionSymbol.valueParameters.map { it.returnType }, parameterNames)
+            return TrailingLambdaInsertionHandler(data, skipBraces = skipBraces)
+        }
+
     }
 }
 
@@ -106,16 +127,14 @@ private data class TrailingLambdaParameterData(
 @OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun buildTrailingLambdaParameterData(
-    trailingFunctionType: KaFunctionType,
+    parameterTypes: List<KaType>,
     suggestedParameterNames: List<Name?> = emptyList(),
 ): List<TrailingLambdaParameterData> {
     val typeNames = mutableMapOf<KaType, MutableSet<String>>()
     val kotlinNameSuggester = KotlinNameSuggester()
 
-    val namedParameterTypes = trailingFunctionType.parameters
-        .zip(suggestedParameterNames)
-    return namedParameterTypes.map {(parameter, suggestedName) ->
-        val parameterType = parameter.type
+    val namedParameterTypes = parameterTypes.zip(suggestedParameterNames)
+    return namedParameterTypes.map { (parameterType, suggestedName) ->
         //TODO: check for names in scope
         val validator = typeNames.getOrPut(parameterType) {
             mutableSetOf()
