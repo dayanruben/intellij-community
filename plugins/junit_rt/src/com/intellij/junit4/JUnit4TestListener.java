@@ -30,7 +30,7 @@ public class JUnit4TestListener extends RunListener {
   private final List<Description> myStartedSuites = new ArrayList<>();
   private final Map<Description, List<List<Description>>> myParents = new HashMap<>();
   private final Map<Description, String> myMethodNames = new HashMap<>();
-  private final Map<Description, Long> mySuiteStartNanos = new HashMap<>();
+  private final SuiteDurationTracker myDurationTracker = new SuiteDurationTracker();
   private final PrintStream myPrintStream;
   private final boolean myUseSuiteDuration;
   private String myRootName;
@@ -86,6 +86,21 @@ public class JUnit4TestListener extends RunListener {
         }
       }
       myStartedSuites.clear();
+      myDurationTracker.clear();
+    }
+  }
+
+  @Override
+  public void testSuiteStarted(Description description) {
+    if (myUseSuiteDuration) {
+      myDurationTracker.suiteStarted(description);
+    }
+  }
+
+  @Override
+  public void testSuiteFinished(Description description) {
+    if (myUseSuiteDuration) {
+      myDurationTracker.suiteFinished(description);
     }
   }
 
@@ -149,7 +164,7 @@ public class JUnit4TestListener extends RunListener {
                               "'" + getSuiteLocation(descriptionFromHistory, description, fqName) + "]");
       }
       if (myUseSuiteDuration) {
-        mySuiteStartNanos.put(descriptionFromHistory, System.nanoTime());
+        myDurationTracker.suiteStarted(descriptionFromHistory);
       }
       myStartedSuites.add(descriptionFromHistory);
     }
@@ -172,10 +187,49 @@ public class JUnit4TestListener extends RunListener {
 
   private String suiteDurationAttr(Description suite) {
     if (!myUseSuiteDuration) return "";
-    Long start = mySuiteStartNanos.remove(suite);
-    if (start == null) return "";
-    long durationMs = (System.nanoTime() - start) / 1_000_000L;
-    return durationMs > 0 ? " duration='" + durationMs + "'" : "";
+    Long duration = myDurationTracker.takeDuration(suite);
+    if (duration == null) return "";
+    return duration > 0 ? " duration='" + duration + "'" : "";
+  }
+
+  private static final class SuiteDurationTracker {
+    private final Map<Description, SuiteDuration> myDurations = new HashMap<>();
+
+    void suiteStarted(Description suite) {
+      myDurations.computeIfAbsent(suite, s -> new SuiteDuration(System.nanoTime()));
+    }
+
+    void suiteFinished(Description suite) {
+      myDurations.computeIfPresent(suite, (s, measurement) -> measurement.finish());
+    }
+
+    Long takeDuration(Description suite) {
+      SuiteDuration measurement = myDurations.remove(suite);
+      return measurement == null ? null : measurement.getDuration();
+    }
+
+    void clear() {
+      myDurations.clear();
+    }
+
+    private static final class SuiteDuration {
+      private final long myStart;
+      private long myFinish = -1;
+
+      private SuiteDuration(long startNanos) {
+        myStart = startNanos;
+      }
+
+      SuiteDuration finish() {
+        myFinish = System.nanoTime();
+        return this;
+      }
+
+      long getDuration() {
+        long finishNanos = myFinish >= 0 ? myFinish : System.nanoTime();
+        return (finishNanos - myStart) / 1_000_000L;
+      }
+    }
   }
 
   protected long currentTime() {
@@ -567,7 +621,7 @@ public class JUnit4TestListener extends RunListener {
 
   public void sendTree(Description description) {
     myRootName = JUnit4ReflectionUtil.getClassName(description);
-    sendTree(description, null, new ArrayList<Description>());
+    sendTree(description, null, new ArrayList<>());
     myPrintStream.println("##teamcity[treeEnded]");
   }
 

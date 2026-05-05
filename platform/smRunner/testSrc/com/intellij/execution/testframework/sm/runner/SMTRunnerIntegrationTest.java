@@ -26,10 +26,14 @@ public class SMTRunnerIntegrationTest extends LightPlatformTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
+    createConsole(true);
+  }
+
+  private void createConsole(boolean idBasedTestTree) {
     SMTRunnerConsoleProperties properties = new SMTRunnerConsoleProperties(new MockRuntimeConfiguration(getProject()),
                                                                            TEST_FRAMEWORK_NAME,
                                                                            DefaultRunExecutor.getRunExecutorInstance());
-    properties.setIdBasedTestTree(true);
+    properties.setIdBasedTestTree(idBasedTestTree);
     myConsole = (SMTRunnerConsoleView)SMTestRunnerConnectionUtil.createConsole(TEST_FRAMEWORK_NAME, properties);
     myResultsViewer = myConsole.getResultsViewer();
     myRootNode = myResultsViewer.getTestsRootNode();
@@ -174,6 +178,30 @@ public class SMTRunnerIntegrationTest extends LightPlatformTestCase {
     Long suiteDuration = suite.getDuration();
     assertNotNull(suiteDuration);
     assertEquals(500L, suiteDuration.longValue());
+  }
+
+  public void testNameBasedSuiteFinishedWithWallTimeDuration() {
+    // use name-based test tree
+    myProcessHandler.destroyProcess();
+    Disposer.dispose(myConsole);
+    createConsole(false);
+
+
+    notifyStdoutLineAvailable("##teamcity[enteredTheMatrix durationStrategy='MANUAL']");
+    notifyStdoutLineAvailable("##teamcity[testingStarted]");
+    notifyStdoutLineAvailable("##teamcity[testSuiteStarted name='suite']");
+
+    notifyStdoutLineAvailable("##teamcity[testStarted name='test']");
+    notifyStdoutLineAvailable("##teamcity[testFinished name='test' duration='100']");
+
+    notifyStdoutLineAvailable("##teamcity[testSuiteFinished name='suite' duration='501']");
+    notifyStdoutLineAvailable("##teamcity[testingFinished]");
+    assertState(1, 0, 1, "passed");
+    SMTestProxy suite = myRootNode.getChildren().getFirst();
+    assertNotNull(suite);
+    Long suiteDuration = suite.getDuration();
+    assertNotNull(suiteDuration);
+    assertEquals(501L, suiteDuration.longValue());
   }
 
   public void testSuiteFinishedWithWallTimeDurationWithoutDurationStrategy() {
