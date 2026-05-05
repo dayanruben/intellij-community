@@ -205,12 +205,12 @@ import com.intellij.util.ui.GraphicsUtil;
 import com.intellij.util.ui.ImageUtil;
 import com.intellij.util.ui.JBSwingUtilities;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.JdkConstants;
 import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.TimerUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.UiNotifyConnector;
 import kotlin.Unit;
-import com.intellij.util.ui.JdkConstants;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
@@ -4266,6 +4266,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         myMarkupModelListener.attributesChanged((RangeHighlighterEx)highlighter, true,
                                                 EditorUtil.attributesImpactFontStyle(attributes),
                                                 EditorUtil.attributesImpactForegroundColor(attributes));
+        errorStripeMarkerChanged((RangeHighlighterEx)highlighter);
         HighlightInfo fileLevelInfo = HighlightInfo.fromRangeHighlighter(highlighter);
         if (fileLevelInfo != null && fileLevelInfo.isFileLevelAnnotation()) {
           if (textEditor == null) {
