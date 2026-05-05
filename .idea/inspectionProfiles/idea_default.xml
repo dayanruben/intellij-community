@@ -37,6 +37,9 @@
     <inspection_tool class="7707f5d4-ccb9-3cbc-83e5-4e893e49804f" enabled="true" level="WARNING" enabled_by_default="false">
       <scope name="AA_fleet" level="WARNING" enabled="true" />
     </inspection_tool>
+    <inspection_tool class="7acc0153-ab4a-388e-be38-5b023e16ac18" enabled="true" level="SERVER PROBLEM" enabled_by_default="false">
+      <scope name="Python" level="SERVER PROBLEM" enabled="true" editorAttributes="GENERIC_SERVER_ERROR_OR_WARNING" />
+    </inspection_tool>
     <inspection_tool class="7f0c9c8a-12d3-4b5a-9e7f-1a2b3c4d5e6f" enabled="true" level="WARNING" enabled_by_default="false">
       <scope name="IDE Testing Framework" level="WARNING" enabled="true" />
       <scope name="Tests" level="WARNING" enabled="true" />
@@ -3728,6 +3731,18 @@
       <replaceConfiguration name="Use PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue in tests" uuid="1d2c3b4a-5e6f-7081-92a3-b4c5d6e7f809" description="In tests, prefer PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue() over UIUtil.dispatchAllInvocationEvents()" suppressId="UIUtilDispatchAllInvocationEventsInTests" problemDescriptor="Use PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue() in tests" text="com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()" recursive="false" caseInsensitive="false" type="Kotlin" pattern_context="default" search_injected="false" reformatAccordingToStyle="false" shortenFQN="true" replacement="com.intellij.testFramework.PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()">
         <constraint name="__context__" within="" contains="" />
       </replaceConfiguration>
+      <searchConfiguration name="Use polymorphism for Filesystem facace" description="Do not use `when`, move all methods to the FileSystem facade" text="when ($Argument$) {&#10;  $Condition$ -&gt; $Expression$&#10;}" recursive="true" caseInsensitive="true" type="Kotlin" pattern_context="default">
+        <constraint name="__context__" within="" contains="" />
+        <constraint name="Argument" minCount="0" within="" contains="" />
+        <constraint name="Condition" regexp="is FileSystem.Target" within="" contains="" />
+        <constraint name="Expression" within="" contains="" />
+      </searchConfiguration>
+      <searchConfiguration name="Use polymorphism for Filesystem facace" text="when ($Argument$) {&#10;  $Condition$ -&gt; $Expression$&#10;}" recursive="true" caseInsensitive="true" type="Kotlin" pattern_context="default">
+        <constraint name="__context__" within="" contains="" />
+        <constraint name="Argument" minCount="0" within="" contains="" />
+        <constraint name="Condition" regexp="is Filesystem.Eel" within="" contains="" />
+        <constraint name="Expression" within="" contains="" />
+      </searchConfiguration>
       <searchConfiguration name="Use RecursionManager?" text="class $Class$ { &#10;  ThreadLocal&lt;$FieldType$&gt; $FieldName$ = $Init$;&#10;}" recursive="false" caseInsensitive="false" type="JAVA" pattern_context="default">
         <constraint name="Class" within="" contains="" />
         <constraint name="FieldType" regexp="Collection" withinHierarchy="true" target="true" within="" contains="" />
