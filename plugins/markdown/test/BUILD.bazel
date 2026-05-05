@@ -161,6 +161,8 @@ jvm_library(
     "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
     "//platform/lang-core",
     "//platform/lang-core:lang-core_test_lib",
+    "//platform/execution",
+    "//platform/execution:execution_test_lib",
   ],
   runtime_deps = [
     ":tests",
