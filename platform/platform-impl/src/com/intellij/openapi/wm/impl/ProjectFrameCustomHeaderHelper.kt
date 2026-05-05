@@ -17,6 +17,7 @@ import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomHeader
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil.hideNativeLinuxTitle
@@ -390,7 +391,10 @@ private fun installCustomHeader(
   val uiSettings = UISettings.getInstance()
   val isDecoratedMenu = isDecoratedMenu(uiSettings)
   val isFloatingMenuBarSupported = isFloatingMenuBarSupported
-  return if (!isDecoratedMenu && !isFloatingMenuBarSupported) {
+  val hideNativeLinuxTitle = hideNativeLinuxTitle(uiSettings)
+  val ijpl43505fixEnabled = OS.isGenericUnix() && Registry.`is`("ide.linux.ijpl43505", false)
+
+  return if (!isDecoratedMenu && !isFloatingMenuBarSupported && (!ijpl43505fixEnabled || !hideNativeLinuxTitle)) {
     createMacAwareMenuBar(parentCs.childScope(), frame, rootPane, mainMenuActionGroup)
     val headerHelper = FrameHeaderHelper.Undecorated(isFloatingMenuBarSupported = false)
     if (OS.isGenericUnix() && !isMenuButtonInToolbar(uiSettings)) {
@@ -432,14 +436,14 @@ private fun installCustomHeader(
       rootPane.installCustomFrameTitle(customFrameTitlePane.getComponent())
       headerHelper
     }
-    else if (hideNativeLinuxTitle(uiSettings)) {
+    else if (hideNativeLinuxTitle) {
       val ideMenu = RootPaneUtil.createMenuBar(parentCs.childScope(), frame, mainMenuActionGroup)
       val customFrameTitlePane = ToolbarFrameHeader(parentCs.childScope(), frame, ideMenu, isAlwaysCompact, isFullScreen, rootPane::getProjectFrameTypeId)
       val headerHelper = FrameHeaderHelper.Decorated(
         customFrameTitlePane,
         selectedEditorFilePath = null,
         ideMenu,
-        isFloatingMenuBarSupported = true,
+        isFloatingMenuBarSupported = isFloatingMenuBarSupported,
         isAlwaysCompact,
         isFullScreen = isFullScreen
       )

@@ -116,6 +116,12 @@
       defaultValue=""
       description="Custom ITN error reporting endpoint. Only HTTPS URLs whose host ends with .jetbrains.com are accepted"
     />
+    <registryKey
+      key="ide.linux.ijpl43505"
+      defaultValue="false"
+      description="Enable the fix for IJPL-43505 Window header disappears after opening more than one project"
+      restartRequired="true"
+    />
 
     <statistics.counterUsagesCollector implementationClass="com.intellij.platform.ide.menu.MainMenuCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.ide.minimap.MinimapUsageCollector"/>
