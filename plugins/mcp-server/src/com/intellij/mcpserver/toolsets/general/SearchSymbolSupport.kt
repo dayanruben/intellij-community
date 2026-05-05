@@ -88,10 +88,10 @@ suspend fun searchSymbols(
       val symbolModel = GotoSymbolModel2(project, parentDisposable).also { Disposer.register(parentDisposable, it) }
       val models = listOf(classModel, symbolModel)
       for (model in models) {
-        val viewModel = SimpleChooseByNameViewModel(project, model, requestedCount)
+        val viewModel = McpChooseByNameViewModel(project, model, requestedCount)
         val transformedPattern = viewModel.transformPattern(q)
         if (transformedPattern.isBlank()) continue
-        val localPattern = computeLocalPattern(model, transformedPattern)
+        val localPattern = computeChooseByNameLocalPattern(model, transformedPattern)
         val params = FindSymbolParameters.wrap(transformedPattern, searchScope)
           .withLocalPattern(localPattern)
 
@@ -154,7 +154,7 @@ private class PathFilteredGlobalSearchScope(
   }
 }
 
-private class SimpleChooseByNameViewModel(
+internal class McpChooseByNameViewModel(
   private val project: Project,
   private val model: ChooseByNameModel,
   private val maximumListSizeLimit: Int,
@@ -174,7 +174,7 @@ private class SimpleChooseByNameViewModel(
   override fun getMaximumListSizeLimit(): Int = maximumListSizeLimit
 }
 
-private fun computeLocalPattern(model: ChooseByNameModel, pattern: String): String {
+internal fun computeChooseByNameLocalPattern(model: ChooseByNameModel, pattern: String): String {
   var lastSeparatorOccurrence = 0
   for (separator in model.separators) {
     var idx = pattern.lastIndexOf(separator)

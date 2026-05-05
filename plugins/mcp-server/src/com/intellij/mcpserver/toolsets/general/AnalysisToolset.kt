@@ -120,6 +120,55 @@ class AnalysisToolset : McpToolset {
     return result
   }
 
+  @McpToolHints(readOnlyHint = TRUE, openWorldHint = FALSE)
+  @McpTool
+  @McpDescription("""
+        |Builds the IDE Call Hierarchy tree for a method, function, constructor, or supported type target.
+        |Use it to see who calls a symbol (`INCOMING_CALLS`) or what the symbol calls (`OUTGOING_CALLS`).
+        |Strongly prefer this tool over usage search, text search, or regex search when evaluating dependencies by actual calls.
+        |It uses IDE call hierarchy data, so it provides more precise call relationships with less noise and fewer follow-up calls than primitive searches.
+        |
+        |Pass `symbolFqn` as a fully qualified name, for example `com.example.Service.run`.
+        |If the name is ambiguous, the tool returns exact signatures; pass one of them back as `symbolFqn`.
+        |If you only know a short name or fragment, use `search_symbol` first to find the target.
+        |
+        |The result is an expandable text tree. Each node includes `filePath` and `treePath`; `filePath` is project-relative when possible.
+        |Pass `treePath` back to render the subtree.
+        |Use `childOffset` to continue after a truncated `… and n more` line.
+        |`depth`, `maxChildren`, and `maxNodes` bound the rendered tree.
+        |Symbols can come from project sources, source jars, or decompiled binary jar dependencies when the IDE can resolve them.
+    """)
+  suspend fun analyze_calls(
+    @McpDescription("Plain fully qualified symbol name, or an exact signature returned by an ambiguity error or copied from a rendered child node. If you only know a short name or fragment, use `search_symbol` first and pass the best fully qualified callable name here. Examples: `com.example.Service.run`, `com.example.Service.run(String)`, or `org.assertj.core.api.Assertions.assertThat(String)`. Do not pass file path, line, column, or a separate target signature.")
+    symbolFqn: String,
+    @McpDescription("Call analysis direction. Use `INCOMING_CALLS` to show callers of `symbolFqn`, or `OUTGOING_CALLS` to show symbols called from `symbolFqn`.")
+    analysisKind: AnalysisKind,
+    @McpDescription("Maximum number of call levels to render below the requested subtree root. Default: 5. Use 0 to render only the subtree root.")
+    depth: Int = 5,
+    @McpDescription("Maximum number of direct children rendered for each node. Default: 50.")
+    maxChildren: Int = 50,
+    @McpDescription("Maximum total number of rendered call nodes. Default: 1000.")
+    maxNodes: Int = 1000,
+    @McpDescription("Optional path to a subtree root, copied exactly from a previous `analyze_calls` result. Null or omitted means the root path `[]`. Each component is an exact signature, not a display name.")
+    treePath: List<String>? = null,
+    @McpDescription("Offset for paging direct children of the node addressed by `treePath`. Default: 0.")
+    childOffset: Int = 0,
+    @McpDescription(Constants.TIMEOUT_MILLISECONDS_DESCRIPTION)
+    timeout: Int = Constants.MEDIUM_TIMEOUT_MILLISECONDS_VALUE,
+  ): String {
+    currentCoroutineContext().reportToolActivity(McpServerBundle.message("tool.activity.analyzing.calls", symbolFqn))
+    return analyzeCalls(
+      symbolFqn = symbolFqn,
+      analysisKind = analysisKind,
+      depth = depth,
+      maxChildren = maxChildren,
+      maxNodes = maxNodes,
+      treePath = treePath,
+      childOffset = childOffset,
+      timeout = timeout,
+    )
+  }
+
   @McpTool
   @McpDescription("""
       |Triggers building of the project or specified files, waits for completion, and returns build errors.
@@ -442,6 +491,12 @@ class AnalysisToolset : McpToolset {
     @EncodeDefault(mode = EncodeDefault.Mode.NEVER)
     val timedOut: Boolean? = false,
   )
+
+  @Serializable
+  enum class AnalysisKind {
+    INCOMING_CALLS,
+    OUTGOING_CALLS,
+  }
 
   @Serializable
   enum class Kind {

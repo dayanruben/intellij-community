@@ -126,6 +126,8 @@ internal class SearchToolset : McpToolset {
         |Searches for symbols (classes, methods, fields).
         |Use this tool for semantic lookup by identifier fragments.
         |Results include match coordinates when available (1-based line/column, end exclusive).
+        |For call graph questions, use this only to locate the target symbol, then pass the fully qualified callable name
+        |to `analyze_calls` instead of using text search or Find Usages manually.
         |
         |Paths are glob patterns relative to the project root.
         |By default this searches project symbols only.

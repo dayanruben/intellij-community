@@ -9,10 +9,12 @@ import com.intellij.mcpserver.toolsets.general.RequestedLintFile
 import com.intellij.mcpserver.toolsets.general.prepareLintFiles
 import com.intellij.mcpserver.toolsets.general.prepareRequestedLintFiles
 import com.intellij.mcpserver.toolsets.general.withLintFilesCollectorOverride
+import com.intellij.mcpserver.util.attachJarLibrary
 import com.intellij.mcpserver.util.projectDirectory
 import com.intellij.mcpserver.util.relativizeIfPossible
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.testFramework.junit5.fixture.fileOrDirInProjectFixture
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
@@ -25,6 +27,306 @@ import org.junit.jupiter.api.Test
 import java.nio.file.Files
 
 class AnalysisToolsetTest : GeneralMcpToolsetTestBase() {
+  private val commonsCsvJar by projectFixture.fileOrDirInProjectFixture("libraries/commons-csv/commons-csv-1.14.1.jar")
+
+  @Test
+  fun analyze_calls_renders_outgoing_tree() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph.root"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(2))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("└─")
+      assertThat(text).contains("filePath=\"src/calls/CallGraph.java\"")
+      assertThat(text).contains("treePath=[]")
+      assertThat(text).contains("treePath=[\"calls.CallGraph.")
+      assertThat(text).contains("root")
+      assertThat(text).contains("first")
+      assertThat(text).contains("second")
+      assertThat(text).contains("2 usages")
+      assertThat(text).doesNotContain("Deprecated")
+      assertThat(text).doesNotContain("String")
+      assertThat(text).doesNotContain("NAME")
+    }
+  }
+
+  @Test
+  fun analyze_calls_renders_incoming_tree() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph.leaf"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.INCOMING_CALLS.name))
+        put("depth", JsonPrimitive(1))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("leaf")
+      assertThat(text).contains("first")
+      assertThat(text).contains("treePath=[\"calls.CallGraph.first()\"")
+    }
+  }
+
+  @Test
+  fun analyze_calls_reports_ambiguity_with_exact_signatures() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    var exactSignature: String? = null
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph.overloaded"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isTrue()
+      assertThat(text).contains("Ambiguous symbolFqn")
+      assertThat(text).contains("overloaded")
+      assertThat(text).contains("symbolFqn: calls.CallGraph.overloaded()")
+      assertThat(text).contains("symbolFqn: calls.CallGraph.overloaded(String)")
+      exactSignature = Regex("symbolFqn: (calls\\.CallGraph\\.overloaded\\([^)]*\\))").find(text)?.groupValues?.get(1)
+    }
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive(requireNotNull(exactSignature)))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(0))
+      },
+    ) { result ->
+      assertThat(result.isError).isFalse()
+      assertThat(result.textContent.text).contains("overloaded")
+    }
+  }
+
+  @Test
+  fun analyze_calls_renders_child_limit_with_more_line() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph.root"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(1))
+        put("maxChildren", JsonPrimitive(1))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("… and 1 more")
+      assertThat(text).contains("childOffset=1")
+    }
+  }
+
+  @Test
+  fun analyze_calls_reports_child_offset_past_last_child() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph.root"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(1))
+        put("childOffset", JsonPrimitive(999))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("root")
+      assertThat(text).contains("… no more children")
+      assertThat(text).contains("childOffset=999")
+      assertThat(text).contains("totalChildren=2")
+    }
+  }
+
+  @Test
+  fun analyze_calls_reports_max_nodes_limit_with_more_line() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph.root"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(1))
+        put("maxNodes", JsonPrimitive(1))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("root")
+      assertThat(text).contains("… and 2 more")
+      assertThat(text).contains("childOffset=0")
+    }
+  }
+
+  @Test
+  fun analyze_calls_accepts_java_class_root_as_default_constructor() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(0))
+      },
+    ) { result ->
+      assertThat(result.isError).isFalse()
+      assertThat(result.textContent.text).contains("CallGraph()")
+    }
+  }
+
+  @Test
+  fun analyze_calls_uses_language_provider_target_for_type_root() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(1))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("CallGraph()")
+      assertThat(text).doesNotContain("root()")
+      assertThat(text).doesNotContain("first()")
+    }
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.INCOMING_CALLS.name))
+        put("depth", JsonPrimitive(1))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("CallGraph()")
+      assertThat(text).contains("createInstance()")
+    }
+  }
+
+  @Test
+  fun analyze_calls_resolves_binary_jar_dependency_root() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+    attachJarLibrary(project, moduleFixture.get(), commonsCsvJar, libraryName = "commons-csv")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("org.apache.commons.csv.CSVParser.builder()"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.INCOMING_CALLS.name))
+        put("depth", JsonPrimitive(1))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("builder")
+      assertThat(text).contains("callsBinaryJar")
+    }
+  }
+
+  @Test
+  fun analyze_calls_resolves_each_short_exact_overload_signature() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("CallGraph.overloaded()"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(1))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("overloaded()")
+      assertThat(text).contains("first()")
+      assertThat(text).doesNotContain("second()")
+    }
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("CallGraph.overloaded(String)"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(1))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isFalse()
+      assertThat(text).contains("overloaded(String)")
+      assertThat(text).contains("second()")
+      assertThat(text).doesNotContain("first()")
+    }
+  }
+
+  @Test
+  fun analyze_calls_accepts_short_class_method_and_exact_signature() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("CallGraph.first"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(0))
+      },
+    ) { result ->
+      assertThat(result.isError).isFalse()
+      assertThat(result.textContent.text).contains("first")
+    }
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("calls.CallGraph.overloaded(String)"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+        put("depth", JsonPrimitive(0))
+      },
+    ) { result ->
+      assertThat(result.isError).isFalse()
+      assertThat(result.textContent.text).contains("overloaded(String)")
+    }
+  }
+
+  @Test
+  fun analyze_calls_treats_legacy_persisted_signature_as_plain_symbol_input() = runBlocking(Dispatchers.Default) {
+    assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
+
+    testMcpTool(
+      AnalysisToolset::analyze_calls.name,
+      buildJsonObject {
+        put("symbolFqn", JsonPrimitive("ij-call:v1:invalid"))
+        put("analysisKind", JsonPrimitive(AnalysisToolset.AnalysisKind.OUTGOING_CALLS.name))
+      },
+    ) { result ->
+      val text = result.textContent.text
+      assertThat(result.isError).isTrue()
+      assertThat(text).contains("No callable symbol found")
+      assertThat(text).doesNotContain("Invalid persisted symbol signature")
+    }
+  }
+
   @Test
   fun lint_files() = runBlocking(Dispatchers.Default) {
     assumeTrue(isJavaPluginInstalled(), "Java plugin is required for this test")
@@ -370,4 +672,5 @@ class AnalysisToolsetTest : GeneralMcpToolsetTestBase() {
       ),
     )
   }
+
 }
