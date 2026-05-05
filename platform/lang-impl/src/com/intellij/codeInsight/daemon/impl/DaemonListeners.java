@@ -320,8 +320,6 @@ public final class DaemonListeners implements Disposable {
     });
     Predicate<Document> isDocumentWorthBothering = document -> worthBothering(document, project);
     myPsiChangeHandler = new PsiChangeHandler(myProject, daemonCodeAnalyzer.getFileStatusMap(), this, isDocumentWorthBothering);
-    PsiManager psiManager = PsiManager.getInstance(myProject);
-    psiManager.addPsiTreeChangeListener(myPsiChangeHandler, this);
 
     connection.subscribe(ModuleRootListener.TOPIC, new ModuleRootListener() {
       @Override
@@ -476,6 +474,7 @@ public final class DaemonListeners implements Disposable {
     listenForExtensionChange(LineMarkerProviders.EP_NAME, "line marker providers list changed");
     listenForExtensionChange(ExternalLanguageAnnotators.EP_NAME, "external annotators list changed");
 
+    PsiManager psiManager = PsiManager.getInstance(myProject);
     connection.subscribe(DynamicPluginListener.TOPIC, new DynamicPluginListener() {
       @Override
       public void pluginLoaded(@NotNull IdeaPluginDescriptor pluginDescriptor) {
