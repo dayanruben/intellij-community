@@ -106,6 +106,15 @@
                      level="WARNING"
                      implementationClass="org.intellij.plugins.markdown.editor.tables.inspections.MarkdownNoTableBordersInspection"/>
 
+    <localInspection language="Markdown"
+                     shortName="MarkdownTablePipeInCodeSpan"
+                     bundle="messages.MarkdownBundle"
+                     key="markdown.table.pipe.in.code.span.inspection.name"
+                     groupKey="markdown.inspection.group.ruby.name"
+                     enabledByDefault="true"
+                     level="WARNING"
+                     implementationClass="org.intellij.plugins.markdown.editor.tables.inspections.MarkdownTablePipeInCodeSpanInspection"/>
+
     <intentionAction>
       <language>Markdown</language>
       <className>org.intellij.plugins.markdown.editor.tables.intentions.MarkdownInsertTableColumnIntention$InsertBefore</className>
