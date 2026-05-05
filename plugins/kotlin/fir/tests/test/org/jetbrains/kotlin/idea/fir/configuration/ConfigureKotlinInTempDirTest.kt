@@ -105,10 +105,11 @@ class ConfigureKotlinInTempDirTest : AbstractConfigureKotlinInTempDirTest() {
     }
 
     fun testMigrationNotificationWithStdlib() {
-        val notificationText = catchNotificationText(project) {
-            val languageVersionSettingsBefore = module.languageVersionSettings
-            Assert.assertEquals(LanguageVersion.KOTLIN_2_2, languageVersionSettingsBefore.languageVersion)
-            Assert.assertEquals(ApiVersion.KOTLIN_2_2, languageVersionSettingsBefore.apiVersion)
+        val notificationText =
+            catchNotificationText(project, groupId = "Kotlin Migration", testRootDisposable, waitForNotificationLonger = true) {
+                val languageVersionSettingsBefore = module.languageVersionSettings
+                Assert.assertEquals(LanguageVersion.KOTLIN_2_2, languageVersionSettingsBefore.languageVersion)
+                Assert.assertEquals(ApiVersion.KOTLIN_2_2, languageVersionSettingsBefore.apiVersion)
 
             val projectLanguageVersionSettingsBefore = myProject.languageVersionSettings
             Assert.assertEquals(LanguageVersion.KOTLIN_2_2, projectLanguageVersionSettingsBefore.languageVersion)
