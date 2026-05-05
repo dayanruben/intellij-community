@@ -1612,9 +1612,6 @@ public final class PsiUtil extends PsiUtilCore {
         return true;
       }
       PsiElement context = containingFile.getContext();
-      if (context instanceof PsiPackage) {
-        return StringUtil.isEmpty(((PsiPackage)context).getName());
-      }
       if (context != null && context != containingFile) {
         return isFromDefaultPackage(context);
       }

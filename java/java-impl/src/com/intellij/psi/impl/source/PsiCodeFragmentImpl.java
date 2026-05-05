@@ -20,6 +20,7 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiNameHelper;
+import com.intellij.psi.PsiPackage;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.ResolveState;
 import com.intellij.psi.SingleRootFileViewProvider;
@@ -36,6 +37,7 @@ import com.intellij.psi.scope.util.PsiScopesUtil;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.testFramework.LightVirtualFile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -43,6 +45,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.LinkedHashMap;
 import java.util.StringTokenizer;
 
+@ApiStatus.Internal
 public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment, IntentionFilterOwner {
   private final PsiElement myContext;
   private final String myPackageName;
@@ -67,17 +70,17 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
             new LightVirtualFile(name, FileTypeManager.getInstance().getFileTypeByFileName(name), text), isPhysical)
     );
     myContext = context;
-    myPackageName =  null;
+    myPackageName = context instanceof PsiPackage aPackage ? aPackage.getQualifiedName() : null;
     ((SingleRootFileViewProvider)getViewProvider()).forceCachedPsi(this);
     myPhysical = isPhysical;
   }
 
-  public PsiCodeFragmentImpl(Project project,
-                             IElementType contentElementType,
-                             boolean isPhysical,
-                             @NonNls String name,
-                             CharSequence text,
-                             @Nullable String packageName) {
+  PsiCodeFragmentImpl(Project project,
+                      IElementType contentElementType,
+                      boolean isPhysical,
+                      @NonNls String name,
+                      CharSequence text,
+                      @Nullable String packageName) {
     super(TokenType.CODE_FRAGMENT,
           contentElementType,
           PsiManagerEx.getInstanceEx(project).getFileManager().createFileViewProvider(
@@ -149,7 +152,7 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
   }
 
   @Override
-  public String getPackageName() {
+  public @Nullable String getPackageName() {
     return myPackageName;
   }
 
