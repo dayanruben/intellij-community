@@ -51,8 +51,10 @@ internal class MavenHighlightingUpdater(
         schedule(projectWithChanges.first)
       }
 
-      override fun pluginsResolved(mavenProject: MavenProject) {
-        schedule(mavenProject)
+      override fun pluginsResolved(projects: List<MavenProject>) {
+        for (project in projects) {
+          schedule(project)
+        }
       }
 
       override fun foldersResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {

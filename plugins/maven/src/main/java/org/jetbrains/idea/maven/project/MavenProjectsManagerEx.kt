@@ -619,9 +619,7 @@ open class MavenProjectsManagerEx(project: Project, private val cs: CoroutineSco
                     for (mavenPluginId in pluginResolutionResult.unresolvedPluginIds) {
                       syncConsole.showArtifactBuildIssue(MavenServerConsoleIndicator.ResolveType.PLUGIN, mavenPluginId.key, null)
                     }
-                    for (mavenProject in mavenProjectsToResolvePlugins) {
-                      tree.firePluginsResolved(mavenProject)
-                    }
+                    tree.firePluginsResolved(mavenProjectsToResolvePlugins)
                   }
                 }
                 catch (e: Exception) {

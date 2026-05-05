@@ -106,8 +106,10 @@ abstract class MavenProjectsTreeTestCase : MavenMultiVersionImportingTestCase() 
       add("resolved", setOf(projectWithChanges.first.mavenId.artifactId))
     }
 
-    override fun pluginsResolved(project: MavenProject) {
-      add("plugins", setOf(project.mavenId.artifactId))
+    override fun pluginsResolved(projects: List<MavenProject>) {
+      for (project in projects) {
+        add("plugins", setOf(project.mavenId.artifactId))
+      }
     }
 
     override fun foldersResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {

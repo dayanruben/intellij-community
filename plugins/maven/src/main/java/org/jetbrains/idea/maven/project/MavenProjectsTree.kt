@@ -917,8 +917,8 @@ class MavenProjectsTree(val project: Project) {
     project.messageBus.syncPublisher(Listener.TOPIC).projectResolved(projectWithChanges)
   }
 
-  fun firePluginsResolved(project: MavenProject) {
-    this.project.messageBus.syncPublisher(Listener.TOPIC).pluginsResolved(project)
+  fun firePluginsResolved(projects: List<MavenProject>) {
+    this.project.messageBus.syncPublisher(Listener.TOPIC).pluginsResolved(projects)
   }
 
   fun fireFoldersResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
@@ -964,7 +964,14 @@ class MavenProjectsTree(val project: Project) {
       projectResolved(projectWithChanges, null)
     }
 
+    @Suppress("DEPRECATION")
+    @Deprecated("use pluginsResolved(List<MavenProject>)")
     fun pluginsResolved(project: MavenProject) {
+    }
+
+    @Suppress("DEPRECATION")
+    fun pluginsResolved(projects: List<MavenProject>) {
+      for (project in projects) pluginsResolved(project)
     }
 
     fun foldersResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {

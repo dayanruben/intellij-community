@@ -443,8 +443,8 @@ class MavenProjectsNavigator(project: Project) : MavenSimpleProjectComponent(
       scheduleUpdateProjects(listOf(projectWithChanges.first), emptyList())
     }
 
-    override fun pluginsResolved(project: MavenProject) {
-      scheduleUpdateProjects(listOf(project), emptyList())
+    override fun pluginsResolved(projects: List<MavenProject>) {
+      scheduleUpdateProjects(projects, emptyList())
     }
 
     fun scheduleUpdateProjects(projects: List<MavenProject>, deleted: List<MavenProject>) {

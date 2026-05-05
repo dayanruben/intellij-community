@@ -177,8 +177,8 @@ public final class MavenShortcutsManager implements Disposable {
     }
 
     @Override
-    public void pluginsResolved(@NotNull MavenProject project) {
-      scheduleKeymapUpdate(Collections.singletonList(project), true);
+    public void pluginsResolved(@NotNull List<MavenProject> projects) {
+      scheduleKeymapUpdate(projects, true);
     }
 
     private void scheduleKeymapUpdate(List<MavenProject> mavenProjects, boolean forUpdate) {

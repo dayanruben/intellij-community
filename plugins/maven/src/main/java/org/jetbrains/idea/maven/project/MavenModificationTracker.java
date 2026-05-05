@@ -50,7 +50,7 @@ public class MavenModificationTracker extends SimpleModificationTracker {
         }
 
         @Override
-        public void pluginsResolved(@NotNull MavenProject project) {
+        public void pluginsResolved(@NotNull List<MavenProject> projects) {
           incModificationCount();
         }
 
