@@ -13,34 +13,38 @@ import com.jetbrains.python.packaging.utils.PyPackageCoroutine
 import com.jetbrains.python.requirements.getPythonSdk
 
 /**
- * Quick-fix that runs the package manager's `sync` command — `poetry install --no-root`,
- * `uv sync`, … — instead of installing requirements one by
- * one. Used as the sole "fix" for `[project].dependencies` problems in `pyproject.toml`: when
- * the lock / manifest is the source of truth, the right action is to ask the manager to
- * reconcile the env with the manifest, not to feed individual package names through
- * `pip install`. The per-item `Install <pkg>` shortcut would otherwise call `poetry add` /
- * `uv add` / `pip install`, which on top of being slower can also rewrite the manifest with a
- * stricter version constraint than the user typed.
+ * Quick-fix for `[project].dependencies` problems in `pyproject.toml` reported by managers
+ * that own a lockfile (Poetry, uv). Invokes [PythonPackageManager.updateLockedAction] —
+ * `poetry update --sync` for Poetry, `uv lock` for uv — instead of feeding individual
+ * requirements through `pip install`. Registered only when [PythonPackageManager.updateLockedAction]
+ * returns non-null; managers without a lockfile (pip, conda, …) get the per-package install
+ * fixes instead.
+ *
+ * Refreshing the lock to a state consistent with the manifest is the right action here: the
+ * lockfile (not the manifest line) is the source of truth for these managers. The per-item
+ * `Install <pkg>` shortcut would otherwise call `poetry add` / `uv add`, which on top of being
+ * slower can also rewrite the manifest with a stricter version constraint than the user typed.
  *
  * The label text reuses [PyBundle]'s `QFIX.NAME.install.all.requirements` so users see the
  * same "Install all missing packages" they'd see for a `requirements.txt` file — the
- * underlying mechanism (sync vs. install-list) is an implementation detail of how the
- * specific package manager satisfies that intent.
+ * underlying mechanism (lockfile update vs. install-list) is an implementation detail of how
+ * the specific package manager satisfies that intent.
  */
-internal class SyncDependenciesQuickFix : LocalQuickFix, PriorityAction {
+internal class UpdateLockedDependenciesQuickFix : LocalQuickFix, PriorityAction {
   override fun getFamilyName(): String = PyBundle.message("QFIX.NAME.install.all.requirements")
 
   override fun getPriority(): PriorityAction.Priority = PriorityAction.Priority.HIGH
 
   override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
     val sdk = getPythonSdk(descriptor.psiElement.containingFile) ?: return
+    val updateLockedAction = PythonPackageManager.forSdk(project, sdk).updateLockedAction() ?: return
     PyPackageCoroutine.launch(project) {
       // Route through PythonPackageManagerUI so the run gets the standard serialized background-progress
       // wrapper plus error-sink reporting; otherwise a sync failure (e.g. `poetry lock` is
       // out of sync) would surface only via logger.warn and the user would see no feedback.
       val pmUI = PythonPackageManagerUI.forSdk(project, sdk)
       pmUI.executeCommand(PyBundle.message("python.packaging.installing.packages")) {
-        PythonPackageManager.forSdk(project, sdk).sync().mapSuccess { }
+        updateLockedAction().mapSuccess { }
       }
     }
   }

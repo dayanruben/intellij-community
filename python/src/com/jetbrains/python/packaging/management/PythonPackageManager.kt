@@ -30,12 +30,12 @@ import com.jetbrains.python.onFailure
 import com.jetbrains.python.packaging.PyPackageManager
 import com.jetbrains.python.packaging.PyPackageName
 import com.jetbrains.python.packaging.PyRequirement
-import com.jetbrains.python.packaging.common.PythonPackageMetadata
-import com.jetbrains.python.packaging.common.loadInstalledPackagesMetadata
 import com.jetbrains.python.packaging.common.PythonOutdatedPackage
 import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.common.PythonPackageManagementListener
+import com.jetbrains.python.packaging.common.PythonPackageMetadata
 import com.jetbrains.python.packaging.common.PythonRepositoryPackageSpecification
+import com.jetbrains.python.packaging.common.loadInstalledPackagesMetadata
 import com.jetbrains.python.packaging.packageRequirements.DependencyTreeProvider
 import com.jetbrains.python.packaging.packageRequirements.FlatPackageStructureNode
 import com.jetbrains.python.packaging.packageRequirements.PackageStructureNode
@@ -67,20 +67,27 @@ import kotlin.coroutines.cancellation.CancellationException
 abstract class PythonPackageManager @ApiStatus.Internal constructor(
   val project: Project,
   val sdk: Sdk,
+) : Disposable.Default {
   /**
    * Whether this manager has an explicit list of top-level dependencies (e.g. from pyproject.toml).
    * When true, only packages from [listDeclaredPackagesCached] are treated as "declared" in the UI,
    * and the rest are shown as transitive.
    * When false (default), all installed packages are considered declared.
    */
-  internal val installedPackagesIncludeTransitive: Boolean = false,
-) : Disposable.Default {
+  internal open val installedPackagesIncludeTransitive: Boolean = false
+
+  val isInstalledPackagesLoaded: Boolean
+    @ApiStatus.Internal
+    get() = installedPackages != null
+
   private val isInited = AtomicBoolean(false)
   private val packageReloadMutex = Mutex()
 
   private val dependencyCache = DependencyCache()
 
-  private val initializationJob = PyPackageCoroutine.launch(project, NON_INTERACTIVE_ROOT_TRACE_CONTEXT + ModalityState.any().asContextElement(), start = CoroutineStart.LAZY) {
+  private val initializationJob = PyPackageCoroutine.launch(project,
+                                                            NON_INTERACTIVE_ROOT_TRACE_CONTEXT + ModalityState.any().asContextElement(),
+                                                            start = CoroutineStart.LAZY) {
     initInstalledPackages()
   }.also {
     it.cancelOnDispose(this)
@@ -89,7 +96,7 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
 
   @ApiStatus.Internal
   @Volatile
-  protected var installedPackages: List<PythonPackage> = emptyList()
+  protected var installedPackages: List<PythonPackage>? = null
 
   @ApiStatus.Internal
   @Volatile
@@ -105,11 +112,11 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
   abstract val repositoryManager: PythonRepositoryManager
 
   @ApiStatus.Internal
-  suspend fun sync(): PyResult<List<PythonPackage>> {
+  suspend fun syncLocked(): PyResult<List<PythonPackage>> {
     if (sdk.isReadOnly) {
       return PyResult.localizedError(sdk.readOnlyErrorMessage)
     }
-    syncCommand().getOr { return it }
+    syncLockedCommand().getOr { return it }
     return reloadPackages()
   }
 
@@ -145,7 +152,7 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
       return PyResult.localizedError(sdk.readOnlyErrorMessage)
     }
     if (packages.isEmpty()) {
-      return PyResult.success(installedPackages)
+      return PyResult.success(listInstalledPackagesSnapshot())
     }
 
     waitForInit()
@@ -166,7 +173,7 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
     val packages = loadPackagesCommand().getOr { return it }
 
     val changed = packages != installedPackages
-    if (!changed) return PyResult.success(installedPackages)
+    if (!changed) return PyResult.success(listInstalledPackagesSnapshot())
 
     // Transactional commit: state mutation + listener notification + scheduled refresh
     // must complete atomically even if the caller is cancelled.
@@ -202,7 +209,7 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
 
   @ApiStatus.Experimental
   fun listInstalledPackagesSnapshot(): List<PythonPackage> {
-    return installedPackages
+    return installedPackages ?: emptyList()
   }
 
   @ApiStatus.Experimental
@@ -233,7 +240,7 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
   fun listInstalledPackagesMetadataSnapshot(): Map<PyPackageName, PythonPackageMetadata> = installedPackagesMetadata
 
   private suspend fun reloadOutdatedPackages() {
-    if (installedPackages.isEmpty()) {
+    if (listInstalledPackagesSnapshot().isEmpty()) {
       outdatedPackages = emptyMap()
       return
     }
@@ -257,7 +264,7 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
    * there are no installed packages so a fresh / mock SDK doesn't pay the helper-startup cost.
    */
   private suspend fun reloadInstalledPackagesMetadata() {
-    if (installedPackages.isEmpty()) {
+    if (listInstalledPackagesSnapshot().isEmpty()) {
       installedPackagesMetadata = emptyMap()
       return
     }
@@ -269,7 +276,10 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
 
   @ApiStatus.Internal
   @CheckReturnValue
-  protected abstract suspend fun syncCommand(): PyResult<Unit>
+  protected abstract suspend fun syncLockedCommand(): PyResult<Unit>
+
+  @ApiStatus.Internal
+  open fun updateLockedAction(): (suspend () -> PyResult<Unit>)? = null
 
   @ApiStatus.Internal
   open fun syncErrorMessage(): PackageManagerErrorMessage? = null
@@ -281,7 +291,11 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
    */
   @ApiStatus.Internal
   @CheckReturnValue
-  protected abstract suspend fun installPackageCommand(installRequest: PythonPackageInstallRequest, options: List<String>, module: Module? = null): PyResult<Unit>
+  protected abstract suspend fun installPackageCommand(
+    installRequest: PythonPackageInstallRequest,
+    options: List<String>,
+    module: Module? = null,
+  ): PyResult<Unit>
 
   @ApiStatus.Internal
   @CheckReturnValue
@@ -297,7 +311,10 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
 
   @ApiStatus.Internal
   @CheckReturnValue
-  protected abstract suspend fun uninstallPackageCommand(vararg pythonPackages: String, workspaceMember: PyWorkspaceMember? = null): PyResult<Unit>
+  protected abstract suspend fun uninstallPackageCommand(
+    vararg pythonPackages: String,
+    workspaceMember: PyWorkspaceMember? = null,
+  ): PyResult<Unit>
 
   @ApiStatus.Internal
   protected abstract suspend fun loadPackagesCommand(): PyResult<List<PythonPackage>>

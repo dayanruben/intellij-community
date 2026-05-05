@@ -51,7 +51,7 @@ class UvPackageManagerTest {
     })
 
     try {
-      manager.sync().getOrThrow()
+      manager.syncLocked().getOrThrow()
 
       val installed = manager.listInstalledPackages()
       val httpxPkg = installed.find { it.name == "httpx" }

@@ -126,7 +126,7 @@
                             implementationClass="com.jetbrains.python.poetry.PoetryDependencyVersionCompletionContributor"/>
     <localInspection language="Requirements" shortName="RequirementInspection" suppressId="Requirement"
                      bundle="messages.PyBundle"
-                     key="INSP.requirement.name" groupKey="INSP.GROUP.requirements" enabledByDefault="true" level="WEAK WARNING"
+                     key="INSP.requirement.name" groupKey="INSP.GROUP.requirements" enabledByDefault="true" level="WARNING"
                      implementationClass="com.jetbrains.python.requirements.inspections.tools.RequirementInspection"/>
     <codeInsight.declarativeInlayProvider group="VALUES_GROUP"
                                           bundle="messages.PyBundle"

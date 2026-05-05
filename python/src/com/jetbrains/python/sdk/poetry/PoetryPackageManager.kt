@@ -33,13 +33,14 @@ import org.jetbrains.annotations.TestOnly
 import java.nio.file.Path
 
 @ApiStatus.Internal
-class PoetryPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(project, sdk, installedPackagesIncludeTransitive = true) {
+class PoetryPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(project, sdk) {
+  override val installedPackagesIncludeTransitive: Boolean = true
   override val repositoryManager: PythonRepositoryManager = PipRepositoryManager.getInstance(project)
   override val treeProvider = CachedDependencyTreeProvider {
     runPoetryWithSdk(sdk, "show", "--tree").getOrNull()
   }
 
-  override suspend fun syncCommand(): PyResult<Unit> {
+  override suspend fun syncLockedCommand(): PyResult<Unit> {
     return runPoetryWithSdk(sdk, "install").mapSuccess { }
   }
 
@@ -49,6 +50,8 @@ class PoetryPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(pr
     }
     return reloadPackages().mapSuccess { }
   }
+
+  override fun updateLockedAction(): suspend () -> PyResult<Unit> = ::updateProject
 
   suspend fun lockProject(): PyResult<Unit> {
     runPoetryWithSdk(sdk, "lock").getOr {

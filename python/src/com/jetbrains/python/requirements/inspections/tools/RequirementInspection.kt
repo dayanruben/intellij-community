@@ -24,8 +24,8 @@ import com.jetbrains.python.requirements.getPythonSdk
 import com.jetbrains.python.requirements.inspections.quickfixes.InstallAllRequirementsQuickFix
 import com.jetbrains.python.requirements.inspections.quickfixes.InstallRequirementQuickFix
 import com.jetbrains.python.requirements.inspections.quickfixes.PyGenerateRequirementsFileQuickFix
-import com.jetbrains.python.requirements.inspections.quickfixes.SyncDependenciesQuickFix
 import com.jetbrains.python.requirements.inspections.quickfixes.UpdateAllRequirementQuickFix
+import com.jetbrains.python.requirements.inspections.quickfixes.UpdateLockedDependenciesQuickFix
 import com.jetbrains.python.requirements.inspections.quickfixes.UpdateRequirementQuickFix
 import com.jetbrains.python.requirements.psi.Requirement
 import com.jetbrains.python.sdk.isReadOnly
@@ -86,12 +86,17 @@ class RequirementInspection : LocalInspectionTool() {
         if (it.isInUninspectedTomlSection()) return@visitElement
       } != null
 
+      val packageManager = getPythonSdk(session.file)
+                             ?.takeIf { !it.isReadOnly }
+                             ?.let { PythonPackageManager.forSdk(session.file.project, it) }
+                             ?.takeIf { it.isInstalledPackagesLoaded }
+                           ?: return
+
       if (!isPyProjectInjection) {
         verifyEmptyRequirementsTxt()
       }
 
-      verifyPackageManagerIssues(isPyProjectInjection, requirementsFile)
-
+      packageManager.verifyPackageManagerIssues(isPyProjectInjection, requirementsFile)
     }
 
     fun verifyEmptyRequirementsTxt() {
@@ -109,13 +114,9 @@ class RequirementInspection : LocalInspectionTool() {
       )
     }
 
-    fun verifyPackageManagerIssues(isPyProjectInjection: Boolean, requirementsFile: RequirementsFile) {
-      val project = session.file.project
-      val packageManager = getPythonSdk(session.file)?.takeIf { !it.isReadOnly }?.let { PythonPackageManager.forSdk(project, it) }
-                           ?: return
-
-      val installedPackages = packageManager.listInstalledPackagesSnapshot()
-      val outdatedPackages = packageManager.listOutdatedPackagesSnapshot()
+    fun PythonPackageManager.verifyPackageManagerIssues(isPyProjectInjection: Boolean, requirementsFile: RequirementsFile) {
+      val installedPackages = listInstalledPackagesSnapshot()
+      val outdatedPackages = listOutdatedPackagesSnapshot()
 
       val notInstalled = mutableListOf<Pair<Requirement, PyRequirement>>()
       val outdated = mutableListOf<Pair<Requirement, PythonOutdatedPackage>>()
@@ -137,29 +138,30 @@ class RequirementInspection : LocalInspectionTool() {
         }
       }
 
-      notInstalledProblems(notInstalled, isPyProjectInjection)
+      val useUpdateLockedFix = isPyProjectInjection && updateLockedAction() != null
+      notInstalledProblems(notInstalled, useUpdateLockedFix)
       outdatedProblems(outdated)
     }
 
 
-    private fun notInstalledProblems(notInstalled: List<Pair<Requirement, PyRequirement>>, isPyProjectInjection: Boolean) {
+    private fun notInstalledProblems(notInstalled: List<Pair<Requirement, PyRequirement>>, useUpdateLockedFix: Boolean) {
       if (notInstalled.isEmpty()) return
 
-      val syncDependenciesQuickFix = if (isPyProjectInjection) SyncDependenciesQuickFix() else null
+      val updateLockedDependenciesQuickFix = if (useUpdateLockedFix) UpdateLockedDependenciesQuickFix() else null
 
-      val installAllQuickFix = if (!isPyProjectInjection && notInstalled.size > 1) {
+      val installAllQuickFix = if (!useUpdateLockedFix && notInstalled.size > 1) {
         InstallAllRequirementsQuickFix(notInstalled.map { it.second })
       }
       else null
 
       for ((psiRequirement, pyRequirement) in notInstalled) {
-        val installSingleQuickFix = if (!isPyProjectInjection) InstallRequirementQuickFix(pyRequirement) else null
-        val fixes = listOfNotNull(installSingleQuickFix, installAllQuickFix, syncDependenciesQuickFix).toTypedArray<LocalQuickFix>()
+        val installSingleQuickFix = if (!useUpdateLockedFix) InstallRequirementQuickFix(pyRequirement) else null
+        val fixes = listOfNotNull(installSingleQuickFix, installAllQuickFix, updateLockedDependenciesQuickFix).toTypedArray<LocalQuickFix>()
         if (fixes.isNotEmpty()) {
           holder.registerProblem(
             psiRequirement,
             PyBundle.message("INSP.requirements.package.not.installed", psiRequirement.requirement),
-            ProblemHighlightType.WEAK_WARNING,
+            ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
             *fixes
           )
         }

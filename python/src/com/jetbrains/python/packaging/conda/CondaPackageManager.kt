@@ -37,7 +37,7 @@ class CondaPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(pro
   private val condaPackageEngine = CondaPackageManagerEngine(sdk)
   private val pipPackageEngine = PipPackageManagerEngine(project, sdk)
 
-  override suspend fun syncCommand(): PyResult<Unit> {
+  override suspend fun syncLockedCommand(): PyResult<Unit> {
     val requirementsFile = getDependencyFile() ?: return PyResult.localizedError(PyBundle.message("python.sdk.conda.requirements.file.not.found"))
     return updateEnv(requirementsFile)
   }
@@ -82,7 +82,7 @@ class CondaPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(pro
     }
 
     val onlyPipOutdated = pipPackages.filter { outdatedPackage ->
-      val pythonPackage = installedPackages.firstOrNull { it.name == outdatedPackage.name } ?: return@filter false
+      val pythonPackage = listInstalledPackagesSnapshot().firstOrNull { it.name == outdatedPackage.name } ?: return@filter false
       pythonPackage !is CondaPackage || pythonPackage.installedWithPip
     }
     PyResult.success(condaPackages + onlyPipOutdated)
@@ -105,7 +105,7 @@ class CondaPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(pro
     }
 
   override suspend fun uninstallPackageCommand(vararg pythonPackages: String, workspaceMember: PyWorkspaceMember?): PyResult<Unit> {
-    val installedPackagesForRemove = installedPackages.mapNotNull {
+    val installedPackagesForRemove = listInstalledPackagesSnapshot().mapNotNull {
       it.takeIf { it.name in pythonPackages }
     }
     val condaPackages = installedPackagesForRemove.filter { it is CondaPackage && !it.installedWithPip }
