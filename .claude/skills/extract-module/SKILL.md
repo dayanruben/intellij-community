@@ -124,6 +124,7 @@ Do **not** create a second standalone `<dependencies>` block before the region �
 - Package names must follow the `com.<module-name>` convention:
   - Module `intellij.foo.bar` → package `com.intellij.foo.bar`
 - `IntelliJProjectPackageNamesTest` enforces this. Do not add exceptions to `non-standard-root-packages.txt` for new modules.
+- **Preserve freemium availability:** both the host module and the new content module must have the same availability in IDEA Free mode as the original module had. If the original module was available in free mode, both new modules must remain available there. If the original was not available in free mode, neither should the new modules be. `PluginsAvailableInIdeaFreeModeTest` enforces this.
 
 ### 5. Declare the EP in the host module (Pattern B only)
 
@@ -246,9 +247,13 @@ Expected: `✓ All files unchanged`. If files change, inspect them — the gener
 # Validates package naming: com.<module-name> convention
 ./tests.cmd --module intellij.projectStructureTests \
   --test "com.intellij.ideaProjectStructure.fast.IntelliJProjectPackageNamesTest"
+
+# Validates plugin availability in IDEA Free mode
+./tests.cmd --module intellij.idea.ultimate.build.tests \
+  --test "com.intellij.idea.ultimate.build.smokeTests.PluginsAvailableInIdeaFreeModeTest"
 ```
 
-Both must pass before the work is done.
+All three must pass before the work is done.
 
 ---
 
