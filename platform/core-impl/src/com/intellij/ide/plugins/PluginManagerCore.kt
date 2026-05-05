@@ -300,6 +300,9 @@ object PluginManagerCore {
   @JvmStatic
   fun isVendorJetBrains(vendorItem: String): Boolean = VENDOR_JETBRAINS == vendorItem || VENDOR_JETBRAINS_SRO == vendorItem
 
+  @ApiStatus.Internal
+  @Deprecated("Platform sunsets support for reload of plugins")
+  @ApiStatus.ScheduledForRemoval
   @Synchronized
   @JvmStatic
   fun invalidatePlugins() {
