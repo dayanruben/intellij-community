@@ -99,6 +99,30 @@ public abstract class SmartCompletionHandlerTestGenerated extends AbstractSmartC
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../testData/handlers/smart/SAM")
+    public static class SAM extends AbstractSmartCompletionHandlerTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("SAMExpected1.kt")
+        public void testSAMExpected1() throws Exception {
+            runTest("../testData/handlers/smart/SAM/SAMExpected1.kt");
+        }
+
+        @TestMetadata("SAMExpected2.kt")
+        public void testSAMExpected2() throws Exception {
+            runTest("../testData/handlers/smart/SAM/SAMExpected2.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../testData/handlers/smart/suspendLambdaSignature")
     public static class SuspendLambdaSignature extends AbstractSmartCompletionHandlerTest {
         @java.lang.Override
@@ -822,16 +846,6 @@ public abstract class SmartCompletionHandlerTestGenerated extends AbstractSmartC
         @TestMetadata("ReplaceArgument.kt")
         public void testReplaceArgument() throws Exception {
             runTest("../testData/handlers/smart/ReplaceArgument.kt");
-        }
-
-        @TestMetadata("SAMExpected1.kt")
-        public void testSAMExpected1() throws Exception {
-            runTest("../testData/handlers/smart/SAMExpected1.kt");
-        }
-
-        @TestMetadata("SAMExpected2.kt")
-        public void testSAMExpected2() throws Exception {
-            runTest("../testData/handlers/smart/SAMExpected2.kt");
         }
 
         @TestMetadata("SecondVararg.kt")

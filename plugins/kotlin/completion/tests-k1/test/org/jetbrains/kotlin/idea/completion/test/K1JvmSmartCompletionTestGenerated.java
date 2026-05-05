@@ -1188,6 +1188,35 @@ public abstract class K1JvmSmartCompletionTestGenerated extends AbstractK1JvmSma
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../testData/smart/SAM")
+    public static class SAM extends AbstractK1JvmSmartCompletionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("SAMConstructorForTypeAlias.kt")
+        public void testSAMConstructorForTypeAlias() throws Exception {
+            runTest("../testData/smart/SAM/SAMConstructorForTypeAlias.kt");
+        }
+
+        @TestMetadata("SAMExpected1.kt")
+        public void testSAMExpected1() throws Exception {
+            runTest("../testData/smart/SAM/SAMExpected1.kt");
+        }
+
+        @TestMetadata("SAMExpected2.kt")
+        public void testSAMExpected2() throws Exception {
+            runTest("../testData/smart/SAM/SAMExpected2.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../testData/smart/smartCasts")
     public static class SmartCasts extends AbstractK1JvmSmartCompletionTest {
         @java.lang.Override
@@ -1716,21 +1745,6 @@ public abstract class K1JvmSmartCompletionTestGenerated extends AbstractK1JvmSma
         @TestMetadata("QualifiedOverloadedMethodCallArgument2.kt")
         public void testQualifiedOverloadedMethodCallArgument2() throws Exception {
             runTest("../testData/smart/QualifiedOverloadedMethodCallArgument2.kt");
-        }
-
-        @TestMetadata("SAMConstructorForTypeAlias.kt")
-        public void testSAMConstructorForTypeAlias() throws Exception {
-            runTest("../testData/smart/SAMConstructorForTypeAlias.kt");
-        }
-
-        @TestMetadata("SAMExpected1.kt")
-        public void testSAMExpected1() throws Exception {
-            runTest("../testData/smart/SAMExpected1.kt");
-        }
-
-        @TestMetadata("SAMExpected2.kt")
-        public void testSAMExpected2() throws Exception {
-            runTest("../testData/smart/SAMExpected2.kt");
         }
 
         @TestMetadata("SealedMembers.kt")
