@@ -116,7 +116,6 @@ class EmbeddedClientLauncher private constructor(private val moduleRepository: R
       if (applicationClasspath.any { path -> Path.of(path).any { it.pathString == "bazel-out" }}) {
         error("""
           |Starting embedded client from Gateway when the project is compiled by Bazel isn't supported for now (IJPL-222205).
-          |Set the registry option 'monorepo.devkit.use.bazel.compile' to 'false' as a workaround.
         """.trimMargin())
       }
     }
