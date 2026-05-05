@@ -211,7 +211,7 @@ class PluginMainDescriptor(
       val duplicates = HashSet<PluginModuleId>()
       for (item in modules) {
         require(duplicates.add(item.moduleId)) {
-          "Duplicate content module declaration: '${item.moduleId}' in plugin '${id}' located at $pluginPath"
+          "Duplicate content module declaration: '${item.moduleId.displayName}' in plugin '${id}' located at $pluginPath"
         }
       }
     }

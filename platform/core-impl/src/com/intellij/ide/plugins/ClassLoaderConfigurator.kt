@@ -392,7 +392,7 @@ fun createPluginDependencyAndContentBasedScope(descriptor: PluginMainDescriptor,
       for ((prefix, moduleId) in contentPackagePrefixes) {
         if (name.startsWith(prefix)) {
           return "Class $name must not be requested from main classloader of $pluginId plugin. Matches content module " +
-                 "(packagePrefix=$prefix, moduleId=$moduleId)."
+                 "(packagePrefix=$prefix, moduleId=${moduleId?.displayName})."
         }
       }
 

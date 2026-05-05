@@ -199,7 +199,7 @@ class ProductPluginInitContext(
           if (isAvailable) null
           else UnsuitableProductModeModuleUnavailabilityReason(moduleId, productModeId)
         val replaced = put(moduleId, EnvironmentConfiguredModuleData(unavailabilityReason))
-        check(replaced == null) { "$moduleId is already registered as environment-configured module" }
+        check(replaced == null) { "${moduleId.displayName} is already registered as environment-configured module" }
       }
     }
 
