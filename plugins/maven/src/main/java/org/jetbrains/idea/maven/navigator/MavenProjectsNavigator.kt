@@ -172,7 +172,7 @@ class MavenProjectsNavigator(project: Project) : MavenSimpleProjectComponent(
   }
 
   private fun listenForProjectsChanges() {
-    MavenProjectsManager.getInstance(myProject).addProjectsTreeListener(MyProjectsListener(), this)
+    myProject.messageBus.connect(this).subscribe(MavenProjectsTree.Listener.TOPIC, MyProjectsListener())
 
     MavenShortcutsManager.getInstance(myProject).addListener(MavenShortcutsManager.Listener {
       scheduleStructureRequest(

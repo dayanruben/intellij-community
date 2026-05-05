@@ -76,7 +76,7 @@ public final class MavenTasksManager extends MavenSimpleProjectComponent impleme
 
   public MavenTasksManager(@NotNull Project project) {
     super(project);
-    MavenProjectsManager.getInstance(project).addProjectsTreeListener(new TaskUpdatingTreeListener(), this);
+    project.getMessageBus().connect(this).subscribe(MavenProjectsTree.Listener.TOPIC, new TaskUpdatingTreeListener());
   }
 
   @Override

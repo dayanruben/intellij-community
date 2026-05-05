@@ -39,7 +39,7 @@ internal class MavenHighlightingUpdater(
       }
     }, this)
 
-    projectsManager.addProjectsTreeListener(object : MavenProjectsTree.Listener {
+    project.messageBus.connect(this).subscribe(MavenProjectsTree.Listener.TOPIC, object : MavenProjectsTree.Listener {
       override fun projectsUpdated(updated: List<Pair<MavenProject, MavenProjectChanges>>,
                                    deleted: List<MavenProject>) {
         for (each in updated) {

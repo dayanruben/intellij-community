@@ -29,12 +29,11 @@ import com.intellij.openapi.externalSystem.dependency.analyzer.DependencyAnalyze
 class MavenDependencyAnalyzerContributor(private val project: Project) : DependencyAnalyzerContributor {
 
   override fun whenDataChanged(listener: () -> Unit, parentDisposable: Disposable) {
-    val projectsManager = MavenProjectsManager.getInstance(project)
-    projectsManager.addProjectsTreeListener(object : MavenProjectsTree.Listener {
+    project.messageBus.connect(parentDisposable).subscribe(MavenProjectsTree.Listener.TOPIC, object : MavenProjectsTree.Listener {
       override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
         listener()
       }
-    }, parentDisposable)
+    })
   }
 
   override fun getProjects(): List<DependencyAnalyzerProject> {

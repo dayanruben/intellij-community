@@ -1,7 +1,6 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.project
 
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProgressIndicator
@@ -21,8 +20,8 @@ import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
 import com.intellij.platform.util.progress.RawProgressReporter
 import com.intellij.util.containers.ArrayListSet
 import com.intellij.util.containers.ContainerUtil
-import com.intellij.util.containers.DisposableWrapperList
 import com.intellij.util.containers.FileCollectionFactory
+import com.intellij.util.messages.Topic
 import it.unimi.dsi.fastutil.Hash
 import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet
 import kotlinx.coroutines.*
@@ -31,7 +30,6 @@ import org.jdom.output.XMLOutputter
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.idea.maven.buildtool.MavenSyncSession
-import org.jetbrains.idea.maven.buildtool.MavenSyncSpec
 import org.jetbrains.idea.maven.dom.references.MavenFilteredPropertyPsiReferenceProvider
 import org.jetbrains.idea.maven.model.*
 import org.jetbrains.idea.maven.project.MavenProjectsTreeUpdater.UpdateSpec
@@ -76,8 +74,6 @@ class MavenProjectsTree(val project: Project) {
   private val myVirtualFileToProjectMapping: MutableMap<VirtualFile, MavenProject> = HashMap() //2
   private val myAggregatorToModuleMapping: MutableMap<String, MutableList<MavenProject>> = HashMap() //2
   private val myModuleToAggregatorMapping: MutableMap<String, MavenProject> = HashMap() //2
-
-  private val myListeners = DisposableWrapperList<Listener>()
 
 
   val projectLocator: MavenProjectReaderProjectLocator = MavenProjectReaderProjectLocator { coordinates ->
@@ -904,59 +900,44 @@ class MavenProjectsTree(val project: Project) {
     }
   }
 
-  fun addListener(l: Listener, disposable: Disposable) {
-    if (!myListeners.contains(l)) {
-      myListeners.add(l, disposable)
-    }
-    else {
-      MavenLog.LOG.warn("Trying to add the same listener twice")
-    }
-  }
-
   private fun fireProfilesChanged() {
-    for (each in myListeners) {
-      each.profilesChanged()
-    }
+    project.messageBus.syncPublisher(Listener.TOPIC).profilesChanged()
   }
 
   private fun fireProjectsIgnoredStateChanged(ignored: List<MavenProject>, unignored: List<MavenProject>, fromImport: Boolean) {
-    for (each in myListeners) {
-      each.projectsIgnoredStateChanged(ignored, unignored, fromImport)
-    }
+    project.messageBus.syncPublisher(Listener.TOPIC).projectsIgnoredStateChanged(ignored, unignored, fromImport)
   }
 
   @ApiStatus.Internal
   fun fireProjectsUpdated(updated: List<Pair<MavenProject, MavenProjectChanges>>, deleted: List<MavenProject>) {
-    for (each in myListeners) {
-      each.projectsUpdated(updated, deleted)
-    }
+    project.messageBus.syncPublisher(Listener.TOPIC).projectsUpdated(updated, deleted)
   }
 
   fun fireProjectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
-    for (each in myListeners) {
-      each.projectResolved(projectWithChanges)
-    }
+    project.messageBus.syncPublisher(Listener.TOPIC).projectResolved(projectWithChanges)
   }
 
   fun firePluginsResolved(project: MavenProject) {
-    for (each in myListeners) {
-      each.pluginsResolved(project)
-    }
+    this.project.messageBus.syncPublisher(Listener.TOPIC).pluginsResolved(project)
   }
 
   fun fireFoldersResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
-    for (each in myListeners) {
-      each.foldersResolved(projectWithChanges)
-    }
+    project.messageBus.syncPublisher(Listener.TOPIC).foldersResolved(projectWithChanges)
   }
 
   fun fireArtifactsDownloaded(project: MavenProject) {
-    for (each in myListeners) {
-      each.artifactsDownloaded(project)
-    }
+    this.project.messageBus.syncPublisher(Listener.TOPIC).artifactsDownloaded(project)
   }
 
   interface Listener : EventListener {
+
+    companion object {
+      @Topic.ProjectLevel
+      @JvmField
+      val TOPIC: Topic<Listener> =
+        Topic.create("Maven tree updates", Listener::class.java)
+    }
+
     fun profilesChanged() {
     }
 

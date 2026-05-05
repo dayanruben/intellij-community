@@ -1042,6 +1042,7 @@
 
   <projectListeners>
     <listener class="org.jetbrains.idea.maven.project.MavenDependencyUpdater" topic="org.jetbrains.idea.maven.project.MavenImportListener"/>
+    <listener class="org.jetbrains.idea.maven.editor.TabTitlesUpdater" topic="org.jetbrains.idea.maven.project.MavenProjectsTree$Listener"/>
   </projectListeners>
 
   <applicationListeners>
