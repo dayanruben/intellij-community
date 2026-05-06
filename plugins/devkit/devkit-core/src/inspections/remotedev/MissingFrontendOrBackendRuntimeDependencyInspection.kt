@@ -7,6 +7,10 @@ import com.intellij.util.xml.highlighting.DomHighlightingHelper
 import org.jetbrains.idea.devkit.dom.IdeaPlugin
 import org.jetbrains.idea.devkit.inspections.DevKitPluginXmlInspectionBase
 import org.jetbrains.idea.devkit.DevKitBundle.message
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.BACKEND_PLATFORM_MODULE_BASE_NAME
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.FRONTEND_PLATFORM_MODULE_BASE_NAME
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeDescriptorDependencyAnalyzer
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.resolveDependencyKind
 
 internal class MissingFrontendOrBackendRuntimeDependencyInspection : DevKitPluginXmlInspectionBase() {
 
@@ -30,7 +34,9 @@ internal class MissingFrontendOrBackendRuntimeDependencyInspection : DevKitPlugi
     for ((moduleNameSuffix, requiredRuntimeDependency) in moduleNameSuffixToRequiredRuntimeDependency) {
       if (currentModuleName.endsWith(moduleNameSuffix)) {
         val dependencies = element.dependencies
-        if (!SplitModePluginDependencyUtil.hasTransitiveDependency(element, requiredRuntimeDependency)) {
+        if (!SplitModeDescriptorDependencyAnalyzer.hasTransitiveDependency(element, requiredRuntimeDependency)) {
+          val requiredModuleKind = resolveDependencyKind(requiredRuntimeDependency)
+                                   ?: error("Unsupported split-mode runtime dependency: $requiredRuntimeDependency")
           val reportedElement = if (dependencies.exists()) dependencies else element
           holder.createProblem(
             reportedElement,
@@ -40,7 +46,7 @@ internal class MissingFrontendOrBackendRuntimeDependencyInspection : DevKitPlugi
             ),
             SplitModeDependencyQuickFixes.createAddExplicitDependencyFix(
               currentModuleName,
-              moduleKindByDependencyName(requiredRuntimeDependency),
+              requiredModuleKind,
             )
           )
         }
@@ -49,11 +55,4 @@ internal class MissingFrontendOrBackendRuntimeDependencyInspection : DevKitPlugi
     }
   }
 
-  private fun moduleKindByDependencyName(dependencyName: String): SplitModeApiRestrictionsService.ModuleKind {
-    return when (dependencyName) {
-      FRONTEND_PLATFORM_MODULE_BASE_NAME -> SplitModeApiRestrictionsService.ModuleKind.FRONTEND
-      BACKEND_PLATFORM_MODULE_BASE_NAME -> SplitModeApiRestrictionsService.ModuleKind.BACKEND
-      else -> error("Unsupported split-mode runtime dependency: $dependencyName")
-    }
-  }
 }

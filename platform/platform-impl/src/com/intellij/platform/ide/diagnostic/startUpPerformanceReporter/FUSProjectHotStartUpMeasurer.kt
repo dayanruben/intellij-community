@@ -21,7 +21,6 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.impl.DocumentMarkupModel
 import com.intellij.openapi.editor.impl.zombie.SpawnRecipe
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
@@ -31,8 +30,6 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider
 import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer.EmptyProjectMarker
 import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer.MarkupType
-import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer.getContextElementWithEmptyProjectElementToPass
-import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer.getStartUpContextElementIntoIdeStarter
 import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer.isRemDevTestWorkaround
 import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.util.PlatformUtils
@@ -392,15 +389,10 @@ object FUSProjectHotStartUpMeasurer {
       thisLogger().error("The editor is not loaded yet")
     }
 
-    val cachedDocument = FileDocumentManager.getInstance().getCachedDocument(file)
-    if (cachedDocument == null) {
-      thisLogger().error("No cached document for ${file.path}")
-    }
-    else {
-      val markupModel = DocumentMarkupModel.forDocument(cachedDocument, project, false)
-      if (markupModel == null) {
-        thisLogger().error("No markup model for ${file.path} when the editor is opened")
-      }
+    val document = textEditor.editor.document
+    val markupModel = DocumentMarkupModel.forDocument(document, project, false)
+    if (markupModel == null) {
+      thisLogger().error("No markup model for ${file.path} when the editor is opened")
     }
   }
 

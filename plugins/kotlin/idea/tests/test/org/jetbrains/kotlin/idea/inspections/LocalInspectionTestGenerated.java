@@ -250,9 +250,29 @@ public abstract class LocalInspectionTestGenerated extends AbstractK1LocalInspec
             runTest("testData/inspectionsLocal/arrayToString/printArray.kt");
         }
 
+        @TestMetadata("printCharArray.kt")
+        public void testPrintCharArray() throws Exception {
+            runTest("testData/inspectionsLocal/arrayToString/printCharArray.kt");
+        }
+
+        @TestMetadata("printStreamCharArray.kt")
+        public void testPrintStreamCharArray() throws Exception {
+            runTest("testData/inspectionsLocal/arrayToString/printStreamCharArray.kt");
+        }
+
+        @TestMetadata("printWriterCharArray.kt")
+        public void testPrintWriterCharArray() throws Exception {
+            runTest("testData/inspectionsLocal/arrayToString/printWriterCharArray.kt");
+        }
+
         @TestMetadata("printlnArray.kt")
         public void testPrintlnArray() throws Exception {
             runTest("testData/inspectionsLocal/arrayToString/printlnArray.kt");
+        }
+
+        @TestMetadata("printlnCharArray.kt")
+        public void testPrintlnCharArray() throws Exception {
+            runTest("testData/inspectionsLocal/arrayToString/printlnCharArray.kt");
         }
 
         @TestMetadata("printlnNestedArray.kt")
@@ -270,6 +290,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractK1LocalInspec
             runTest("testData/inspectionsLocal/arrayToString/stringBufferAppend.kt");
         }
 
+        @TestMetadata("stringBufferCharArray.kt")
+        public void testStringBufferCharArray() throws Exception {
+            runTest("testData/inspectionsLocal/arrayToString/stringBufferCharArray.kt");
+        }
+
         @TestMetadata("stringBuilderAppend.kt")
         public void testStringBuilderAppend() throws Exception {
             runTest("testData/inspectionsLocal/arrayToString/stringBuilderAppend.kt");
@@ -278,6 +303,11 @@ public abstract class LocalInspectionTestGenerated extends AbstractK1LocalInspec
         @TestMetadata("stringBuilderAppendNestedArray.kt")
         public void testStringBuilderAppendNestedArray() throws Exception {
             runTest("testData/inspectionsLocal/arrayToString/stringBuilderAppendNestedArray.kt");
+        }
+
+        @TestMetadata("stringBuilderCharArray.kt")
+        public void testStringBuilderCharArray() throws Exception {
+            runTest("testData/inspectionsLocal/arrayToString/stringBuilderCharArray.kt");
         }
 
         @TestMetadata("stringTemplate.kt")

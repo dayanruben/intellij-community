@@ -62,7 +62,7 @@ fun main(rawArgs: Array<String>) {
   val startupTimings = ArrayList<Any>(12)
   startupTimings.add("startup begin")
   startupTimings.add(startTimeNano)
-  mainImpl(rawArgs, startupTimings, startTimeUnixNano, changeClassPath = null)
+  mainImpl(rawArgs = rawArgs, startupTimings = startupTimings, startTimeUnixNano = startTimeUnixNano, changeClassPath = null)
 }
 
 internal fun mainImpl(
@@ -89,7 +89,7 @@ internal fun mainImpl(
         addBootstrapTiming("init scope creating", startupTimings)
         StartUpMeasurer.addTimings(startupTimings, "bootstrap", startTimeUnixNano)
 
-        startApp(args, mainScope = this@runBlocking, busyThread, changeClassPath)
+        startApp(args = args, mainScope = this@runBlocking, busyThread = busyThread, changeClassPath = changeClassPath)
       }
 
       awaitCancellation()
@@ -109,11 +109,9 @@ private suspend fun startApp(args: List<String>, mainScope: CoroutineScope, busy
 
         override fun rootTrace() = rootTask()
 
-        override suspend fun <T> span(
-          name: String,
-          context: CoroutineContext,
-          action: suspend CoroutineScope.() -> T,
-        ): T = com.intellij.platform.diagnostic.telemetry.impl.span(name, context, action)
+        override suspend fun <T> span(name: String, context: CoroutineContext, action: suspend CoroutineScope.() -> T): T {
+          return com.intellij.platform.diagnostic.telemetry.impl.span(name, context, action)
+        }
       }
     }
 
@@ -166,21 +164,27 @@ private suspend fun startApp(args: List<String>, mainScope: CoroutineScope, busy
       mainClassLoaderDeferred = null
     }
     else {
-      mainClassLoaderDeferred = async(CoroutineName("main class loader initializing")) {
-        val classLoader = AppMode::class.java.classLoader
+      val classLoader = AppMode::class.java.classLoader
+      span("main class loader initializing") {
         changeClassPath.accept(classLoader)
-        classLoader
       }
+      mainClassLoaderDeferred = CompletableDeferred(classLoader)
 
       appStarterDeferred = async(CoroutineName("main class loading")) {
-        val aClass = mainClassLoaderDeferred.await().loadClass("com.intellij.idea.MainImpl")
+        val aClass = classLoader.loadClass("com.intellij.idea.MainImpl")
         MethodHandles.lookup().findConstructor(aClass, MethodType.methodType(Void.TYPE)).invoke() as AppStarter
       }
     }
 
     startApplication(
-      scope = this, args, configImportNeededDeferred, customTargetDirectoryToImportConfig,
-      mainClassLoaderDeferred, appStarterDeferred, mainScope, busyThread
+      scope = this,
+      args = args,
+      configImportNeededDeferred = configImportNeededDeferred,
+      customTargetDirectoryToImportConfig = customTargetDirectoryToImportConfig,
+      mainClassLoaderDeferred = mainClassLoaderDeferred,
+      appStarterDeferred = appStarterDeferred,
+      mainScope = mainScope,
+      busyThread = busyThread,
     )
   }
 }

@@ -51,12 +51,6 @@ public final class ReincludedRootsUtil {
   private ReincludedRootsUtil() {
   }
 
-  public static @NotNull Collection<IndexableIteratorBuilder> createBuildersForReincludedFiles(@NotNull Project project,
-                                                                                               @NotNull Collection<VirtualFile> reincludedRoots) {
-    if (reincludedRoots.isEmpty()) return Collections.emptyList();
-    return classifyFiles(project, reincludedRoots).createAllBuilders(project);
-  }
-
   public interface Classifier {
     @NotNull
     Collection<VirtualFile> getFilesFromAdditionalLibraryRootsProviders();
@@ -68,9 +62,6 @@ public final class ReincludedRootsUtil {
     Collection<IndexableIteratorBuilder> createBuildersFromWorkspaceFiles();
 
     Collection<IndexableIteratorBuilder> createBuildersFromFilesFromIndexableSetContributors(@NotNull Project project);
-
-    @NotNull
-    Collection<IndexableIteratorBuilder> createAllBuilders(@NotNull Project project);
   }
 
   public static @NotNull Classifier classifyFiles(@NotNull Project project,
@@ -237,40 +228,6 @@ public final class ReincludedRootsUtil {
           break;
         }
       }
-      return result;
-    }
-
-    private @NotNull Collection<IndexableIteratorBuilder> createBuildersFromFilesFromAdditionalLibraryRootsProviders(@NotNull Project project) {
-      if (filesFromAdditionalLibraryRootsProviders.isEmpty()) return Collections.emptyList();
-      List<IndexableIteratorBuilder> result = new ArrayList<>();
-      List<VirtualFile> rootsFromLibs = new ArrayList<>(filesFromAdditionalLibraryRootsProviders);
-      for (AdditionalLibraryRootsProvider provider : AdditionalLibraryRootsProvider.EP_NAME.getExtensionList()) {
-        for (SyntheticLibrary library : provider.getAdditionalProjectLibraries(project)) {
-          Set<VirtualFile> roots = collectAndRemove(rootsFromLibs, file -> library.contains(file, true, true));
-          if (!roots.isEmpty()) {
-            String name = library instanceof ItemPresentation ? ((ItemPresentation)library).getPresentableText() : null;
-            result.add(new SyntheticLibraryIteratorBuilder(library, name, roots));
-          }
-          if (rootsFromLibs.isEmpty()) {
-            break;
-          }
-        }
-        if (rootsFromLibs.isEmpty()) {
-          break;
-        }
-      }
-
-      if (!rootsFromLibs.isEmpty()) {
-        LOG.error("Failed fo find any SyntheticLibrary roots for " + StringUtil.join(rootsFromLibs, "\n"));
-      }
-      return result;
-    }
-
-    @Override
-    public @NotNull Collection<IndexableIteratorBuilder> createAllBuilders(@NotNull Project project) {
-      List<IndexableIteratorBuilder> result = new ArrayList<>(createBuildersFromWorkspaceFiles());
-      result.addAll(createBuildersFromFilesFromIndexableSetContributors(project));
-      result.addAll(createBuildersFromFilesFromAdditionalLibraryRootsProviders(project));
       return result;
     }
   }

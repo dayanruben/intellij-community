@@ -190,21 +190,17 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
     "intellij.platform.objectSerializer.annotations"
   ), productLayout = productLayout, layout = layout)
 
-  val frontendModuleFilter = context.getFrontendModuleFilter()
-
   val explicit = ArrayList<ModuleItem>()
   for (moduleName in productLayout.productImplementationModules) {
     if (productLayout.excludedModuleNames.contains(moduleName)) {
       continue
     }
 
-    explicit.add(
-      ModuleItem(
-        moduleName = moduleName,
-        relativeOutputFile = getProductModuleJarName(moduleName = moduleName, context = context, frontendModuleFilter = frontendModuleFilter),
-        reason = "productImplementationModules",
-      )
-    )
+    explicit.add(ModuleItem(moduleName = moduleName, relativeOutputFile = "$moduleName.jar", reason = "productImplementationModules"))
+    if (!context.productProperties.contentModulesToScramble.contains(moduleName) && isModuleCloseSource(moduleName, context)) {
+      Span.current().addEvent("implicit content module to scramble: $moduleName")
+      context.productProperties.contentModulesToScramble += moduleName
+    }
   }
   explicit.addAll(toModuleItemSequence(list = PLATFORM_CORE_MODULES, productLayout = productLayout))
 

@@ -36,6 +36,8 @@ interface UniversalFileChooserContributor {
 
   suspend fun mountVirtualRoot(virtualRoot: VirtualRoot): Path? = null
 
+  fun getFileWatcherAdapter(): FileWatcherAdapter? = null
+
   data class VirtualRoot(
     val id: String,
     val presentation: Presentation

@@ -7,7 +7,7 @@ import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl
+import com.intellij.openapi.vfs.newvfs.ManagingFS
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -66,7 +66,7 @@ fun canRun(
 ): Boolean {
   // force save to make sure that commands read the most up-to-date pyproject.toml
   FileDocumentManager.getInstance().saveAllDocuments()
-  PersistentFSImpl.flushPendingUpdatesOrNotify()
+  ManagingFS.getInstance().flushPendingUpdatesOrNotify()
 
   // if the check is disabled, then we can run the configuration immediately
   if (!options.checkSync) {

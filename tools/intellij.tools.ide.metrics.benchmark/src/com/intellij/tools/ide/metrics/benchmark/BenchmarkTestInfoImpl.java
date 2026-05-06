@@ -123,27 +123,37 @@ public class BenchmarkTestInfoImpl implements BenchmarkTestInfo {
       // remove content of the previous tests from the idea.log
       IJPerfBenchmarksMetricsPublisher.Companion.truncateTestLog();
 
-      try (Stream<Path> logDirChildren = Files.list(PathManager.getLogDir())) {
-        logDirChildren.filter(child -> {
-            String name = child.toString();
-            return name.contains("-metrics")
-                   || name.contains("-meters")
-                   || name.endsWith(".jfr");
-          })
-          .forEach(childToRemove -> {
-            try {
-              Files.deleteIfExists(childToRemove);
-            }
-            catch (IOException e) {
-              // ignore deletion errors for individual files
-            }
-          });
+      Path logDir = PathManager.getLogDir();
+      cleanupMetersDir(logDir);
+
+      Path telemetryDir = logDir.resolve("telemetry"); // new location
+      if (Files.exists(telemetryDir)) {
+        cleanupMetersDir(telemetryDir);
       }
     }
     catch (Exception e) {
       System.err.println(
         "Error during removing Telemetry files with meters before start of perf test. This might affect collected metrics value.");
       e.printStackTrace();
+    }
+  }
+
+  private static void cleanupMetersDir(Path logDir) throws IOException {
+    try (Stream<Path> logDirChildren = Files.list(logDir)) {
+      logDirChildren.filter(child -> {
+          String name = child.toString();
+          return name.contains("-metrics")
+                 || name.contains("-meters")
+                 || name.endsWith(".jfr");
+        })
+        .forEach(childToRemove -> {
+          try {
+            Files.deleteIfExists(childToRemove);
+          }
+          catch (IOException e) {
+            // ignore deletion errors for individual files
+          }
+        });
     }
   }
 

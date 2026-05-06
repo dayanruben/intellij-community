@@ -8,20 +8,13 @@ import com.intellij.util.xml.highlighting.DomHighlightingHelper
 import org.jetbrains.idea.devkit.dom.IdeaPlugin
 import org.jetbrains.idea.devkit.inspections.DevKitPluginXmlInspectionBase
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeInspectionUtil.buildMixedModuleDependenciesMessage
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeModuleKindResolver
 
 internal class SplitModeMixedDependenciesInspection : DevKitPluginXmlInspectionBase() {
-  private val restrictionsService = SplitModeApiRestrictionsService.getInstance()
 
   override fun isAllowed(holder: DomElementAnnotationHolder): Boolean {
-    if (!super.isAllowed(holder)) return false
-    if (SplitModeInspectionUtil.shouldSuppressForSingleModuleExternalPlugin(holder.fileElement.file)) return false
-
-    if (restrictionsService.isLoaded()) {
-      return true
-    }
-
-    restrictionsService.scheduleLoadRestrictions()
-    return false
+    return super.isAllowed(holder) && SplitModeInspectionUtil.isAllowedForSplitModeInspection(holder.fileElement.file)
   }
 
   override fun checkDomElement(element: DomElement, holder: DomElementAnnotationHolder, helper: DomHighlightingHelper) {
@@ -29,17 +22,17 @@ internal class SplitModeMixedDependenciesInspection : DevKitPluginXmlInspectionB
     if (!isAllowed(holder)) return
 
     val module = element.module ?: return
-    val moduleAnalysis = SplitModeModuleKindResolver.getOrComputeModuleAnalysis(module)
+    val currentXmlFile = holder.fileElement.file
+    val moduleAnalysis = SplitModeModuleKindResolver.getOrComputeModuleAnalysis(module, currentXmlFile)
     if (moduleAnalysis.resolvedModuleKind.kind != SplitModeApiRestrictionsService.ModuleKind.MIXED) return
 
-    val dependencyAnalysis = moduleAnalysis.dependencyAnalysis
-    val mixedDependenciesMessage = buildMixedModuleDependenciesMessage(dependencyAnalysis)
+    val mixedDependenciesMessage = buildMixedModuleDependenciesMessage(moduleAnalysis.resolvedModuleKind.reasoning)
     holder.createProblem(
       element,
       ProblemHighlightType.GENERIC_ERROR,
       mixedDependenciesMessage,
       null,
-      *SplitModeDependencyQuickFixes.createMixedModuleFixes(module.name, dependencyAnalysis)
+      *SplitModeDependencyQuickFixes.createMixedModuleFixes(module, element)
     )
   }
 }

@@ -235,7 +235,7 @@ public final class ExplainRegExpIntention implements IntentionAction, Iconable, 
     });
     return pane;
   }
-  
+
   private static Dimension clamp(Dimension dimension) {
     return new Dimension(Math.min(dimension.width + UIUtil.getScrollBarWidth(), 1024), Math.min(dimension.height, 512));
   }
@@ -369,7 +369,7 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
   private static String numText(RegExpNumber num, String whenNull) {
     if (num == null) return whenNull;
     Number value = num.getValue();
-    return (value == null) ? "unknown" : String.valueOf(value.longValue());
+    return (value == null) ? "<unknown>" : String.valueOf(value.longValue());
   }
 
   private void parent() {
@@ -465,17 +465,19 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
     RegExpSimpleClass.Kind kind = simpleClass.getKind();
     switch (kind) {
       case ANY -> {
-        leaf(simpleClass, new NameNode("Dot", "https://www.regular-expressions.info/dot.html"), "matches any character\n");
+        leaf(simpleClass, new NameNode("Dot", "https://www.regular-expressions.info/dot.html"),
+             "matches any character (excludes line breaks depending on the matching mode)");
       }
       case DIGIT -> {
-        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html"), "matches a digit");
+        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html"),
+             "matches a digit");
       }
       case NON_DIGIT -> {
         leaf(simpleClass, new NameNode("Negated Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#negated"),
              "matches a non-digit");
       }
       case WORD -> {
-        leaf(simpleClass, new NameNode("Shorthand Character Class", "\"https://www.regular-expressions.info/shorthand.html\""),
+        leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html"),
              "matches a word character (letter, digit or underscore)");
       }
       case NON_WORD -> {
@@ -510,7 +512,6 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
       case XML_NAME_START -> {
         leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#xml"),
              "matches a character that is allowed to be used as the first character of an XML name");
-        //https://www.regular-expressions.info/shorthand.html#xml
       }
       case NON_XML_NAME_START -> {
         leaf(simpleClass, new NameNode("Negated Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html#xml"),
@@ -526,7 +527,7 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
       }
       case UNICODE_GRAPHEME -> {
         leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/unicodechars.html#grapheme"),
-             "matches a Unicode grapheme (possibly consisting of several code points)");
+             "matches any Unicode grapheme (can consist of multiple code points; includes line breaks)");
       }
       case UNICODE_LINEBREAK -> {
         leaf(simpleClass, new NameNode("Shorthand Character Class", "https://www.regular-expressions.info/shorthand.html"),
@@ -847,8 +848,8 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
         leaf(boundary, new NameNode("Word Boundary", "https://www.regular-expressions.info/wordboundaries.html"),
              "matches between a word character and a non-word character");
       case UNICODE_EXTENDED_GRAPHEME -> 
-        leaf(boundary, new NameNode("Unicode Boundary", "https://www.regular-expressions.info/unicodeboundaries.html#grapheme"),
-             "Unicode grapheme boundary, i.e. between two characters but not in the middle of a character even if it consists of several code points");
+        leaf(boundary, new NameNode("Unicode Grapheme Boundary", "https://www.regular-expressions.info/unicodeboundaries.html#grapheme"),
+             "matches between two characters, where one character can consist of multiple code points");
       case NON_WORD ->
         leaf(boundary, new NameNode("Word non-boundary", "https://www.regular-expressions.info/wordboundaries.html"),
              "matches between 2 word characters or 2 non-word characters");
@@ -863,7 +864,7 @@ class ExplanationVisitor extends RegExpRecursiveElementVisitor {
              "matches after the end of the input, before a final line terminator if any");
       case PREVIOUS_MATCH ->
         leaf(boundary, new NameNode("Match Anchor", "https://www.regular-expressions.info/continue.html"),
-             "matches after the end of the previous match, or at the start of the input during the first attempt");
+             "matches after the end of the previous match, or at the start of the input on the first attempt");
       case RESET_MATCH -> {
         leaf(boundary, new NameNode("Reset Match", "https://www.regular-expressions.info/keep.html"),
              "keeps the text matched so far out of the match result");

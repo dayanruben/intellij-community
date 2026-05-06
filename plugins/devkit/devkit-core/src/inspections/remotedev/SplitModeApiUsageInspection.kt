@@ -15,8 +15,12 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NotNull
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.idea.devkit.inspections.DevKitUastInspectionBase
-import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeModuleKindResolver.doesApiKindMatchExpectedModuleKind
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeInspectionUtil.buildModuleKindMismatchMessage
+import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeInspectionUtil.buildModuleKindMismatchTooltipMessage
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeModuleKindResolver.doesApiKindMatchExpectedModuleKind
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.ModuleAnalysis
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeModuleKindResolver
 import org.jetbrains.uast.UCallExpression
 import org.jetbrains.uast.UClass
 import org.jetbrains.uast.UElement
@@ -35,20 +39,8 @@ import org.jetbrains.uast.visitor.AbstractUastVisitor
 @ApiStatus.Internal
 class SplitModeApiUsageInspection : DevKitUastInspectionBase(UClass::class.java, UField::class.java, UMethod::class.java) {
 
-  private val restrictionsService = SplitModeApiRestrictionsService.getInstance()
-
   override fun isAllowed(holder: ProblemsHolder): Boolean {
-    if (!super.isAllowed(holder)) return false
-    if (SplitModeInspectionUtil.shouldSuppressForSingleModuleExternalPlugin(holder.file)) return false
-
-    val isRestrictionServiceReady = restrictionsService.isLoaded()
-    if (isRestrictionServiceReady) {
-      return true
-    }
-    else {
-      restrictionsService.scheduleLoadRestrictions()
-      return false
-    }
+    return super.isAllowed(holder) && SplitModeInspectionUtil.isAllowedForSplitModeInspection(holder.file)
   }
 
   override fun checkClass(
@@ -118,22 +110,26 @@ class SplitModeApiUsageInspection : DevKitUastInspectionBase(UClass::class.java,
     descriptors: MutableList<ProblemDescriptor>,
   ) {
     val resolvedApi = resolveApiUsage(expression) ?: return
-    val expectedModuleKind = restrictionsService.getCodeApiKind(resolvedApi.qualifiedName, resolvedApi.owner) ?: return
+    val expectedModuleKind = SplitModeApiRestrictionsService.getInstance().getCodeApiKind(resolvedApi.qualifiedName, resolvedApi.owner) ?: return
     val currentModuleType = currentModuleAnalysis.resolvedModuleKind
 
     if (!doesApiKindMatchExpectedModuleKind(currentModuleType, expectedModuleKind)) {
       val sourcePsi = expression.sourcePsi ?: return
-      val message = buildModuleKindMismatchMessage(resolvedApi.qualifiedName, expectedModuleKind, currentModuleType)
-      val moduleName = ModuleUtilCore.findModuleForPsiElement(sourcePsi)?.name ?: return
-      val fixes = SplitModeDependencyQuickFixes.createMismatchFixes(moduleName, currentModuleAnalysis, expectedModuleKind)
+      val hint = SplitModeApiRestrictionsService.getInstance().getCodeApiHint(resolvedApi.qualifiedName)
+      val message = buildModuleKindMismatchMessage(resolvedApi.qualifiedName, expectedModuleKind, currentModuleType, hint)
+      val tooltipMessage = buildModuleKindMismatchTooltipMessage(resolvedApi.qualifiedName, expectedModuleKind, currentModuleType, hint)
+      val module = ModuleUtilCore.findModuleForPsiElement(sourcePsi) ?: return
+      val fixes = SplitModeDependencyQuickFixes.createMismatchFixes(module, null, expectedModuleKind)
 
       descriptors.add(
         manager.createProblemDescriptor(
           sourcePsi,
+          null,
           message,
+          ProblemHighlightType.WEAK_WARNING,
+          tooltipMessage,
           isOnTheFly,
-          fixes,
-          ProblemHighlightType.WEAK_WARNING
+          *fixes,
         )
       )
     }
@@ -169,11 +165,10 @@ class SplitModeApiUsageInspection : DevKitUastInspectionBase(UClass::class.java,
           PsiTypesUtil.getPsiClass(expression.returnType)?.qualifiedName
         }
         else {
-          expression.resolve()?.let { resolved ->
-            when {
-              resolved is PsiClass -> resolved.qualifiedName
-              else -> PsiTypesUtil.getPsiClass((resolved as? UMethod)?.returnType)?.qualifiedName
-            }
+          val resolved = expression.resolve() ?: return null
+          when {
+            resolved is PsiClass -> resolved.qualifiedName
+            else -> PsiTypesUtil.getPsiClass((resolved as? UMethod)?.returnType)?.qualifiedName
           }
         }
       }

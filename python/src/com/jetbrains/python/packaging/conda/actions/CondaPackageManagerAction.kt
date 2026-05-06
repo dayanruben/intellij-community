@@ -28,6 +28,6 @@ internal class CondaExportEnvAction() : CondaPackageManagerAction() {
 
 internal class CondaUpdateEnvAction() : CondaPackageManagerAction() {
   override suspend fun execute(e: AnActionEvent, manager: CondaPackageManager): PyResult<Unit> {
-    return manager.sync().mapSuccess { }
+    return manager.syncLocked().mapSuccess { }
   }
 }

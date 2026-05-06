@@ -29,7 +29,7 @@ class PipEnvPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(pr
 
   override val repositoryManager: PythonRepositoryManager = PipRepositoryManager.getInstance(project)
 
-  override suspend fun syncCommand(): PyResult<Unit> {
+  override suspend fun syncLockedCommand(): PyResult<Unit> {
     return runPipEnv(modulePath, "install", "--dev").mapSuccess { }
   }
 

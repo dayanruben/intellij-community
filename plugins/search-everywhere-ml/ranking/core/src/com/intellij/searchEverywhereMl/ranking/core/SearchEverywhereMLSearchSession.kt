@@ -89,12 +89,14 @@ internal class SearchEverywhereMLSearchSession private constructor(
     get() = synchronized(stateTransitionLock) { _activeState.get() ?: stateHistory.lastOrNull() }
 
   private val performanceTracker = PerformanceTracker()
+  private var initialTab: SearchEverywhereTab? = null
 
   fun onSessionStarted(tabId: String, isNewSearchEverywhere: Boolean) {
     val tab = SearchEverywhereTab.getById(tabId)
+    initialTab = tab
     LOG.trace("Session started: sessionId=$sessionId, tab=$tab, isNew=$isNewSearchEverywhere")
     SearchEverywhereMLStatisticsCollector.onSessionStarted(project, sessionId, tab, isNewSearchEverywhere,
-                                                           sessionStartTime, cachedContextInfo.features, providersInfo.isMixedList)
+                                                            sessionStartTime, cachedContextInfo.features, providersInfo.isMixedList)
   }
 
   fun onStateStarted(
@@ -185,13 +187,21 @@ internal class SearchEverywhereMLSearchSession private constructor(
 
     val (interruptedState, lastState) = synchronized(stateTransitionLock) {
       val interruptedState = finishUnfinishedActiveStateLocked()
-      interruptedState to checkNotNull(stateHistory.lastOrNull()) { "No previous search state found " }
+      interruptedState to stateHistory.lastOrNull()
     }
 
     reportInterruptedState(interruptedState)
 
-    LOG.trace("Session finished: sessionId=$sessionId, duration=${sessionDuration}ms, lastStateIndex=${lastState.index}")
-    SearchEverywhereMLStatisticsCollector.onSessionFinished(project, sessionId, lastState.tab, sessionDuration)
+    val sessionTab = lastState?.tab ?: initialTab
+    if (sessionTab == null) {
+      LOG.warn("Session finished before it was started: sessionId=$sessionId, duration=${sessionDuration}ms")
+      MissingKeyProviderCollector.report(sessionId)
+      return
+    }
+
+    val isCorrupted = lastState == null
+    LOG.trace("Session finished: sessionId=$sessionId, duration=${sessionDuration}ms, lastStateIndex=${lastState?.index}, corrupted=$isCorrupted")
+    SearchEverywhereMLStatisticsCollector.onSessionFinished(project, sessionId, sessionTab, sessionDuration, isCorrupted)
     MissingKeyProviderCollector.report(sessionId)
   }
 

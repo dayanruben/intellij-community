@@ -9,9 +9,7 @@ import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.components.service
 import com.intellij.util.xmlb.annotations.Attribute
-import org.jetbrains.annotations.ApiStatus
 
-@ApiStatus.Internal
 @Service
 @State(name = "ExceptionEAPAutoReportManager",
        storages = [Storage(value = StoragePathMacros.NON_ROAMABLE_FILE, roamingType = RoamingType.DISABLED, usePathMacroManager = false)])

@@ -28,7 +28,7 @@ import com.intellij.python.community.helpersLocator.PythonHelpersLocator
 import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.management.PythonPackageManagerProvider
 import com.jetbrains.python.packaging.management.TestPackageManagerProvider
-import com.jetbrains.python.requirements.inspections.tools.NotInstalledRequirementInspection
+import com.jetbrains.python.requirements.inspections.tools.RequirementInspection
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -57,7 +57,7 @@ class UnsatisfiedRequirementInspectionTest {
   fun setUp() {
     InspectionProfileImpl.INIT_INSPECTIONS = true
     IndexingTestUtil.waitUntilIndexesAreReady(project.get())
-    fixture.get().enableInspections(NotInstalledRequirementInspection::class.java)
+    fixture.get().enableInspections(RequirementInspection::class.java)
   }
 
   @AfterEach

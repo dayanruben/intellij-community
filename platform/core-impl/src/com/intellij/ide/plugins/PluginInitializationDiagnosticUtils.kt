@@ -160,7 +160,7 @@ object PluginInitializationDiagnosticUtils {
     return when (this) {
       is PluginMainDescriptor -> "plugin '$name' ($pluginId, $version)"
       is DependsSubDescriptor -> "<depends> config '${descriptorPath}' of plugin ${pluginId}"
-      is ContentModuleDescriptor -> "module ${moduleId}"
+      is ContentModuleDescriptor -> "module ${moduleId.displayName}"
     }
   }
 

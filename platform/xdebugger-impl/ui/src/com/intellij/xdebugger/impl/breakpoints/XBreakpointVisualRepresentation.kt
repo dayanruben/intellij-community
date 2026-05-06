@@ -278,6 +278,7 @@ class XBreakpointVisualRepresentation(
             if (sessionProxy != null) {
               breakpointManager.onBreakpointRemoval(myBreakpoint, sessionProxy)
             }
+            DebuggerUIUtil.notifyBreakpointAttachments(myBreakpoint)
             return true
           }
         }

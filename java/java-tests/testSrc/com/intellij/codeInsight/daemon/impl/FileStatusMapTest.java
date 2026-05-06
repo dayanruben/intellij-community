@@ -24,6 +24,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.RefreshQueue;
@@ -284,6 +285,7 @@ public class FileStatusMapTest extends ProductionDaemonAnalyzerTestCase {
 
 
   public void testModificationInExcludedFileDoesNotCauseRehighlight() throws TimeoutException {
+    long modCountBefore = ProjectRootManager.getInstance(getProject()).getModificationCount();
     @Language("JAVA")
     String text = "class EEE { void f(){} }";
     VirtualFile excludedFile = configureByText(JavaFileType.INSTANCE, text).getVirtualFile();
@@ -300,6 +302,8 @@ public class FileStatusMapTest extends ProductionDaemonAnalyzerTestCase {
     TextRange scope = me.getFileDirtyScope(getEditor().getDocument(), getFile(), Pass.UPDATE_ALL);
     assertNull(scope);
 
+    assertTrue(ProjectFileIndex.getInstance(myProject).isExcluded(excludedFile));
+    assertFalse(modCountBefore == ProjectRootManager.getInstance(getProject()).getModificationCount());
     myTestDaemonCodeAnalyzer.waitUpdateExpensiveFlags(excludedDocument);
     assertTrue(myTestDaemonCodeAnalyzer.isMarkedExcluded(excludedDocument));
     assertFalse(myTestDaemonCodeAnalyzer.isMarkedExcluded(myEditor.getDocument()));

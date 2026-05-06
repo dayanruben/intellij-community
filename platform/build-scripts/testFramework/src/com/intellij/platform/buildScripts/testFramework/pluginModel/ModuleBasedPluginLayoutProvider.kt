@@ -5,7 +5,6 @@ import com.intellij.platform.runtime.product.ProductMode
 import com.intellij.platform.runtime.product.ProductModules
 import com.intellij.platform.runtime.product.serialization.ProductModulesSerialization
 import com.intellij.platform.runtime.product.serialization.ResourceFileResolver
-import com.intellij.platform.runtime.repository.RuntimeModuleDescriptor
 import com.intellij.platform.runtime.repository.RuntimeModuleId
 import com.intellij.platform.runtime.repository.RuntimeModuleLoadingRule
 import com.intellij.platform.runtime.repository.RuntimeModuleRepository
@@ -19,7 +18,8 @@ import kotlin.io.path.pathString
 
 class ModuleBasedPluginLayoutProvider(
   private val project: JpsProject,
-  runtimeModuleRepository: RuntimeModuleRepository,
+  private val runtimeModuleRepository: RuntimeModuleRepository,
+  private val corePluginConfigurationModuleName: String,
   private val productRootModuleName: String,
   productMode: ProductMode,
   private val corePluginDescriptorPath: String,
@@ -62,35 +62,25 @@ class ModuleBasedPluginLayoutProvider(
   private fun JpsModule.findProductionFile(relativePath: String): Path? = JpsJavaExtensionService.getInstance().findSourceFileInProductionRoots(this, relativePath)
 
   override fun loadCorePluginLayout(): PluginLayoutDescription {
-    val rootEmbeddedModules = productModules.mainModuleGroup.includedModules
+    val corePluginHeader = runtimeModuleRepository.bundledPluginHeaders.find { it.pluginDescriptorModuleId.name == corePluginConfigurationModuleName }
+                           ?: error("Cannot find core plugin header for module '$corePluginConfigurationModuleName'")
+    val embeddedModules = corePluginHeader.includedModules
       .asSequence()
       .filter { it.loadingRule == RuntimeModuleLoadingRule.EMBEDDED }
-      .map { it.moduleDescriptor }
-    val embeddedModulesWithDependencies = LinkedHashSet<RuntimeModuleDescriptor>()
-    fun collectDependencies(descriptor: RuntimeModuleDescriptor, result: MutableSet<RuntimeModuleDescriptor>) {
-      if (result.add(descriptor)) {
-        descriptor.dependencies.forEach { collectDependencies(it, result) }
-      }
-    }
-    for (descriptor in rootEmbeddedModules) {
-      collectDependencies(descriptor, embeddedModulesWithDependencies)
-    }
-
-    val mainGroupModules = embeddedModulesWithDependencies
-      .asSequence()
-      .filterNot { it.moduleId.namespace == RuntimeModuleId.LEGACY_JPS_LIBRARY_NAMESPACE }
-      .map { it.moduleId.name }
+      .map { it.moduleId }
+      .filterNot { it.namespace == RuntimeModuleId.LEGACY_JPS_LIBRARY_NAMESPACE }
       .mapNotNull {
-        project.findModuleByName(it)
+        project.findModuleByName(it.name)
       }
-    val mainModule = requireNotNull(mainGroupModules.find { it.findProductionFile(corePluginDescriptorPath) != null }) {
+
+    val mainModule = requireNotNull(embeddedModules.find { it.findProductionFile(corePluginDescriptorPath) != null }) {
       "Cannot find '$corePluginDescriptorPath' in the main module group of '$productRootModuleName'"
     }
 
     return PluginLayoutDescription(
       mainJpsModule = mainModule.name,
       pluginDescriptorPath = corePluginDescriptorPath,
-      jpsModulesInClasspath = mainGroupModules.mapTo(LinkedHashSet()) { it.name },
+      jpsModulesInClasspath = embeddedModules.mapTo(LinkedHashSet()) { it.name },
     )
   }
 

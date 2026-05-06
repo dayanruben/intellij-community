@@ -65,6 +65,9 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
 
   protected open val dirModeByDefault: Boolean = false
 
+  protected open val defaultDirName: String
+    get() = testName
+
   val testName: String get() = getTestName(true)
 
   @Throws(Exception::class)
@@ -111,7 +114,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
   fun doConfiguredTest(
     fileContents: String? = null,
     dir: Boolean = dirModeByDefault,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFile: Boolean = true,
     configureFileName: String = "$testName.$extension",
@@ -138,7 +141,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
       }
 
       val adjustedConfigurators = adjustConfigurators(configurators)
-        adjustedConfigurators.forEach {
+      adjustedConfigurators.forEach {
         it.configure(myFixture)
       }
       // After copying the files, some files might have been indexed with incorrect PolyContext,
@@ -254,7 +257,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
   protected fun doEditorTypingTest(
     fileContents: String? = null,
     dir: Boolean = dirModeByDefault,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFile: Boolean = true,
     configureFileName: String = "$testName.$extension",
@@ -403,12 +406,12 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
   }
 
   private fun getExpectedDataLocation(dir: Boolean): String =
-    if (dir) testName else ""
+    if (dir) defaultDirName else ""
 
   protected fun doLookupTest(
     fileContents: String? = null,
     dir: Boolean = dirModeByDefault,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFileName: String = "$testName.$extension",
     caretPosSignature: String? = null,
@@ -469,7 +472,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
   protected fun doFormattingTest(
     fileContents: String? = null,
     dir: Boolean = dirModeByDefault,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFileName: String = "$testName.$extension",
     goldFileName: String? = null,
@@ -508,7 +511,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
 
   protected fun doHighlightingTest(
     dir: Boolean = dirModeByDefault,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFileName: String = "$testName.$extension",
     configurators: List<PolySymbolsTestConfigurator> = emptyList(),
@@ -565,13 +568,13 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
   protected fun doParameterInfoTest(
     fileContents: String? = null,
     dir: Boolean = dirModeByDefault,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFileName: String = "$testName.$extension",
     caretPosSignature: String? = null,
     configurators: List<PolySymbolsTestConfigurator> = emptyList(),
     additionalFiles: List<String> = emptyList(),
-    goldFileName: String = if (dir) "$testName/param-info.html" else "$testName.param-info.html",
+    goldFileName: String = if (dir) "$defaultDirName/param-info.html" else "$testName.param-info.html",
   ) {
     doConfiguredTest(
       fileContents = fileContents,
@@ -599,7 +602,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
     fromSignature: String? = null,
     expectedFileName: String? = null,
     dir: Boolean = dirModeByDefault,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFileName: String = "$testName.$extension",
     configurators: List<PolySymbolsTestConfigurator> = emptyList(),
@@ -623,7 +626,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
     fromSignature: String? = null,
     expectedFileName: String? = null,
     dir: Boolean = dirModeByDefault,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFileName: String = "$testName.$extension",
     configurators: List<PolySymbolsTestConfigurator> = emptyList(),
@@ -644,10 +647,10 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
 
   protected fun doFindUsagesTest(
     scope: SearchScope? = null,
-    expectedFileName: String = "${testName}/usages.txt",
+    expectedFileName: String = "${defaultDirName}/usages.txt",
     gotoDeclarationOrUsageOutcome: GotoDeclarationOrUsageHandler2.GTDUOutcome? = GotoDeclarationOrUsageHandler2.GTDUOutcome.SU,
     dir: Boolean = true,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFileName: String = "$testName.$extension",
     caretPosSignature: String? = null,
@@ -670,11 +673,11 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
 
   protected fun doFileUsagesTest(
     scope: SearchScope? = null,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     fileName: String = "$testName.$extension",
     configurators: List<PolySymbolsTestConfigurator> = emptyList(),
-    expectedFileName: String = "${testName}/usages.txt",
+    expectedFileName: String = "${defaultDirName}/usages.txt",
   ) {
     doConfiguredTest(dir = true, dirName = dirName, extension = extension, configureFileName = fileName, configurators = configurators) {
       checkListByFile(fileUsages(scope = scope, usagesTestHelper = usagesTestHelper).sorted(), expectedFileName, false)
@@ -684,7 +687,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
   protected fun doUsageHighlightingTest(
     fileContents: String? = null,
     dir: Boolean = dirModeByDefault,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFileName: String = "$testName.$extension",
     caretPosSignature: String? = null,
@@ -742,7 +745,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
     searchCommentsAndText: Boolean = false,
     testDialog: TestDialog? = null,
     dir: Boolean = true,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     extension: String = defaultExtension,
     configureFileName: String = "$testName.$extension",
     configurators: List<PolySymbolsTestConfigurator> = emptyList(),
@@ -772,7 +775,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
     searchCommentsAndText: Boolean = false,
     testDialog: TestDialog? = null,
     dir: Boolean = true,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
     goldFileName: String? = null,
     configurators: List<PolySymbolsTestConfigurator> = emptyList(),
     additionalFiles: List<String> = emptyList(),
@@ -813,7 +816,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
     mainFile: String,
     searchCommentsAndText: Boolean = true,
     testDialog: TestDialog? = null,
-    dirName: String = testName,
+    dirName: String = defaultDirName,
   ) {
     setTestDialog(testDialog)
     doConfiguredTest(dir = true, dirName = dirName, checkResult = true, configureFileName = mainFile) {

@@ -54,6 +54,20 @@ public class JUnit4WallTimeIntegrationTest extends AbstractTestFrameworkCompilin
     assertTrue("Suite duration should be >= 300ms (@Test 100ms + @AfterClass 200ms) but was " + duration, duration >= 300);
   }
 
+  public void testEnclosedSuiteIncludesBeforeClassInWallTime() throws ExecutionException {
+    Registry.get("test.use.suite.duration").setValue(true);
+
+    PsiClass psiClass = findClass(myModule, "org.example.WallTimeEnclosedSuiteTest");
+    assertNotNull(psiClass);
+    ProcessOutput processOutput = doStartTestsProcess(createConfiguration(psiClass));
+
+    ServiceMessage suite = ContainerUtil.find(processOutput.messages, m -> m instanceof TestSuiteFinished && "InnerTest".equals(m.getAttributes().get("name")));
+    assertNotNull(suite);
+    long duration = Long.parseLong(suite.getAttributes().get("duration"));
+    // @BeforeClass (250ms) + two @Test methods (150ms each) = >= 550ms
+    assertTrue("InnerTest suite duration should be >= 550ms (@BeforeClass 250ms + tests 300ms) but was " + duration, duration >= 550);
+  }
+
   public void testWallTimeDisabled() throws ExecutionException {
     Registry.get("test.use.suite.duration").setValue(false);
 

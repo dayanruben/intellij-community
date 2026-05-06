@@ -1,6 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi;
 
+import org.jetbrains.annotations.Nullable;
+
 /**
  * Represents a fragment of Java code which exists outside of a project structure (for example,
  * in a foreign language code or in a user interface element other than the main source code editor).
@@ -35,9 +37,12 @@ public interface JavaCodeFragment extends PsiImportHolder, PsiCodeFragment {
   void setSuperType(PsiType superType);
 
   /**
-   * @return the package name this fragment is located in, if it was specified when this fragment was created.
+   * Return the fully-qualified package name this fragment is located in,
+   * or {@code null} if it was not specified when this fragment was created.
+   * 
+   * @return the fully-qualified package name if it was specified, {@code null} otherwise.
    */
-  default String getPackageName() {
+  default @Nullable String getPackageName() {
     return null;
   }
 

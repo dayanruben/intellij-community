@@ -80,18 +80,27 @@ abstract class AbstractKotlinCompilerPluginInspection(protected val kotlinCompil
     companion object {
         @OptIn(KaPlatformInterface::class)
         @ApiStatus.Internal
-        fun KaModule.hasCompilerPluginExtension(filter: (FirExtensionRegistrarAdapter) -> Boolean): Boolean {
+        fun KaModule.hasCompilerPluginExtension(filter: (FirExtensionRegistrarAdapter) -> Boolean): Boolean =
+            findCompilerPluginExtensionOrNull(filter) != null
+
+        @OptIn(KaPlatformInterface::class)
+        @ApiStatus.Internal
+        fun KaModule.findCompilerPluginExtensionOrNull(filter: (FirExtensionRegistrarAdapter) -> Boolean): FirExtensionRegistrarAdapter? {
             val pluginsProvider =
-                KotlinCompilerPluginsProvider.getInstance(project) ?: return false
+                KotlinCompilerPluginsProvider.getInstance(project) ?: return null
             val registeredExtensions =
                 pluginsProvider.getRegisteredExtensions(this, FirExtensionRegistrarAdapter)
-            return registeredExtensions.any(filter)
+            return registeredExtensions.firstOrNull(filter)
         }
 
         @ApiStatus.Internal
-        fun KtFile.hasCompilerPluginExtension(filter: (FirExtensionRegistrarAdapter) -> Boolean): Boolean {
-            val module = getKaModule(project, useSiteModule = null).takeIf { it is KaSourceModule } ?: return false
-            return module.hasCompilerPluginExtension(filter)
+        fun KtFile.hasCompilerPluginExtension(filter: (FirExtensionRegistrarAdapter) -> Boolean): Boolean =
+            findCompilerPluginExtensionOrNull(filter) != null
+
+        @ApiStatus.Internal
+        fun KtFile.findCompilerPluginExtensionOrNull(filter: (FirExtensionRegistrarAdapter) -> Boolean): FirExtensionRegistrarAdapter? {
+            val module = getKaModule(project, useSiteModule = null).takeIf { it is KaSourceModule } ?: return null
+            return module.findCompilerPluginExtensionOrNull(filter)
         }
 
         @ApiStatus.Internal

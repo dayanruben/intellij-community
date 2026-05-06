@@ -465,6 +465,161 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
             runTest("../../../idea/tests/testData/intentions/addNameToArgument/beforeOtherNamed.kt");
         }
 
+        @TestMetadata("contextParameter.kt")
+        public void testContextParameter() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameter.kt");
+        }
+
+        @TestMetadata("contextParameterAfterNamed.kt")
+        public void testContextParameterAfterNamed() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterAfterNamed.kt");
+        }
+
+        @TestMetadata("contextParameterAmbiguous.kt")
+        public void testContextParameterAmbiguous() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterAmbiguous.kt");
+        }
+
+        @TestMetadata("contextParameterBetweenNamed.kt")
+        public void testContextParameterBetweenNamed() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterBetweenNamed.kt");
+        }
+
+        @TestMetadata("contextParameterErrorInMapping.kt")
+        public void testContextParameterErrorInMapping() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterErrorInMapping.kt");
+        }
+
+        @TestMetadata("contextParameterErrorInMapping2.kt")
+        public void testContextParameterErrorInMapping2() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterErrorInMapping2.kt");
+        }
+
+        @TestMetadata("contextParameterExplicit.kt")
+        public void testContextParameterExplicit() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterExplicit.kt");
+        }
+
+        @TestMetadata("contextParameterFirst.kt")
+        public void testContextParameterFirst() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterFirst.kt");
+        }
+
+        @TestMetadata("contextParameterGeneric.kt")
+        public void testContextParameterGeneric() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterGeneric.kt");
+        }
+
+        @TestMetadata("contextParameterGenericMismatch.kt")
+        public void testContextParameterGenericMismatch() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterGenericMismatch.kt");
+        }
+
+        @TestMetadata("contextParameterMapped.kt")
+        public void testContextParameterMapped() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterMapped.kt");
+        }
+
+        @TestMetadata("contextParameterMultipleAllUnnamed.kt")
+        public void testContextParameterMultipleAllUnnamed() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterMultipleAllUnnamed.kt");
+        }
+
+        @TestMetadata("contextParameterNoOptLeftInMapping.kt")
+        public void testContextParameterNoOptLeftInMapping() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterNoOptLeftInMapping.kt");
+        }
+
+        @TestMetadata("contextParameterNullableArgInvalid.kt")
+        public void testContextParameterNullableArgInvalid() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterNullableArgInvalid.kt");
+        }
+
+        @TestMetadata("contextParameterNullableParam.kt")
+        public void testContextParameterNullableParam() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterNullableParam.kt");
+        }
+
+        @TestMetadata("contextParameterOnly.kt")
+        public void testContextParameterOnly() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterOnly.kt");
+        }
+
+        @TestMetadata("contextParameterPartialTypeMismatch.kt")
+        public void testContextParameterPartialTypeMismatch() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterPartialTypeMismatch.kt");
+        }
+
+        @TestMetadata("contextParameterPosFirst.kt")
+        public void testContextParameterPosFirst() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterPosFirst.kt");
+        }
+
+        @TestMetadata("contextParameterPosFirstTypeCheck.kt")
+        public void testContextParameterPosFirstTypeCheck() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterPosFirstTypeCheck.kt");
+        }
+
+        @TestMetadata("contextParameterSameTypes.kt")
+        public void testContextParameterSameTypes() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterSameTypes.kt");
+        }
+
+        @TestMetadata("contextParameterSubtype.kt")
+        public void testContextParameterSubtype() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterSubtype.kt");
+        }
+
+        @TestMetadata("contextParameterSupertypeInvalid.kt")
+        public void testContextParameterSupertypeInvalid() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterSupertypeInvalid.kt");
+        }
+
+        @TestMetadata("contextParameterTypeMismatch.kt")
+        public void testContextParameterTypeMismatch() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterTypeMismatch.kt");
+        }
+
+        @TestMetadata("contextParameterTypeMismatch2.kt")
+        public void testContextParameterTypeMismatch2() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterTypeMismatch2.kt");
+        }
+
+        @TestMetadata("contextParameterTypePositionalFallback.kt")
+        public void testContextParameterTypePositionalFallback() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterTypePositionalFallback.kt");
+        }
+
+        @TestMetadata("contextParameterUnitType.kt")
+        public void testContextParameterUnitType() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterUnitType.kt");
+        }
+
+        @TestMetadata("contextParameterValueParamPreferred.kt")
+        public void testContextParameterValueParamPreferred() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterValueParamPreferred.kt");
+        }
+
+        @TestMetadata("contextParameterVarargAmbiguous.kt")
+        public void testContextParameterVarargAmbiguous() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterVarargAmbiguous.kt");
+        }
+
+        @TestMetadata("contextParameterVarargSpread.kt")
+        public void testContextParameterVarargSpread() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterVarargSpread.kt");
+        }
+
+        @TestMetadata("contextParameterVarargWrongMapping.kt")
+        public void testContextParameterVarargWrongMapping() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterVarargWrongMapping.kt");
+        }
+
+        @TestMetadata("contextParameterWithDefault.kt")
+        public void testContextParameterWithDefault() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterWithDefault.kt");
+        }
+
         @TestMetadata("delegatedConstructor.kt")
         public void testDelegatedConstructor() throws Exception {
             runTest("../../../idea/tests/testData/intentions/addNameToArgument/delegatedConstructor.kt");
@@ -736,6 +891,11 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
         @TestMetadata("rangeForLambda3.kt")
         public void testRangeForLambda3() throws Exception {
             runTest("../../../idea/tests/testData/intentions/addNamesToFollowingArguments/rangeForLambda3.kt");
+        }
+
+        @TestMetadata("reservedNames.kt")
+        public void testReservedNames() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addNamesToFollowingArguments/reservedNames.kt");
         }
 
         @TestMetadata("simple.kt")

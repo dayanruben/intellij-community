@@ -81,7 +81,7 @@ internal suspend fun waitSuspending(
   subjectOfWaiting: String,
   timeout: Duration,
   delay: Duration = 500.milliseconds,
-  onFailure: (() -> Unit),
+  onFailure: ((t: Throwable) -> Unit),
   checker: suspend () -> Boolean,
 ): Boolean {
   return runCatching {
@@ -97,6 +97,6 @@ internal suspend fun waitSuspending(
       )
     }
   }
-    .onFailure { onFailure.invoke() }
+    .onFailure { onFailure.invoke(it) }
     .isSuccess
 }

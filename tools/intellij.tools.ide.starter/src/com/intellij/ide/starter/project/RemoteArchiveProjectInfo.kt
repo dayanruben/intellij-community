@@ -34,6 +34,7 @@ data class RemoteArchiveProjectInfo(
   val projectHomeRelativePath: (Path) -> Path = { it },
   private val description: String = "",
   private val stripRoot: Boolean = true,
+  private val unpackInplace: Boolean = false
 ) : ProjectInfoSpec {
 
   private fun getTopMostFoldersFromZip(zipFile: Path): List<String> = JBZipFile(zipFile, StandardCharsets.UTF_8, true, ThreeState.UNSURE).entries.map { it.name.substringBefore('/') }.distinct()
@@ -54,7 +55,11 @@ data class RemoteArchiveProjectInfo(
     }
     check(zipFile.isRegularFile()) { "Expected .zip file, got: $zipFile" }
 
-    val targetDir = projectsUnpacked.resolve("${zipFile.fileName}.d")
+    val targetDir = if (unpackInplace) {
+      projectsUnpacked
+    } else {
+      projectsUnpacked.resolve("${zipFile.fileName}.d")
+    }
     val projectHome = if (stripRoot) {
       val roots = getTopMostFoldersFromZip(zipFile)
         .filterNot { it == "__MACOSX" || it == "README.md" }  // ignore

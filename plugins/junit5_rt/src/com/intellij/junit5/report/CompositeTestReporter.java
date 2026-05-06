@@ -38,6 +38,8 @@ public class CompositeTestReporter extends AbstractTestReporter {
   @Override
   public List<String> finish(TestExecutionResult result) {
     if (state.isUseSuiteDuration()) {
+      // Do not move this to start(): child test events can overwrite the shared current-test start time
+      // before TestReporter.finish() computes the composite node duration.
       state.setCurrentTestStartNanos(myStartNanos);
     }
     List<String> out = new ArrayList<>();

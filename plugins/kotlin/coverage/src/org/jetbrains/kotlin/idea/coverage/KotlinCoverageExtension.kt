@@ -35,7 +35,7 @@ import org.jetbrains.kotlin.idea.run.KotlinRunConfiguration
 import org.jetbrains.kotlin.platform.jvm.isJvm
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
-import java.io.File
+import java.nio.file.Path
 
 class KotlinCoverageExtension : JavaCoverageEngineExtension() {
     override fun isApplicableTo(conf: RunConfigurationBase<*>?): Boolean = conf is KotlinRunConfiguration
@@ -73,17 +73,17 @@ class KotlinCoverageExtension : JavaCoverageEngineExtension() {
         return if (qualifiedNames.isNullOrEmpty()) null else totalCoverageForQualifiedNames(coverageAnnotator, qualifiedNames)
     }
 
-    override fun keepCoverageInfoForClassWithoutSource(bundle: CoverageSuitesBundle, classFile: File): Boolean {
+    override fun keepCoverageInfoForClassWithoutSource(bundle: CoverageSuitesBundle, classFile: Path): Boolean {
         // TODO check scope and source roots
         return true  // keep everything, sort it out later
     }
 
-    override fun collectOutputFiles(
+    override fun collectOutputPaths(
         srcFile: PsiFile,
         output: VirtualFile?,
         testoutput: VirtualFile?,
         suite: CoverageSuitesBundle,
-        classFiles: MutableSet<File>
+        classFiles: MutableSet<Path>
     ): Boolean {
         if (srcFile is KtFile) {
             val fileIndex = ProjectRootManager.getInstance(srcFile.getProject()).fileIndex
@@ -91,7 +91,7 @@ class KotlinCoverageExtension : JavaCoverageEngineExtension() {
                 return false
             }
             val existingClassFiles = getClassesGeneratedFromFile(srcFile)
-            existingClassFiles.mapTo(classFiles) { File(it.path) }
+            existingClassFiles.mapTo(classFiles) { it.toNioPath() }
             return existingClassFiles.isNotEmpty()
         }
         return false

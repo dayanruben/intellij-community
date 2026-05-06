@@ -1,16 +1,18 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.inspections
 
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.IntelliJProjectUtil
+import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntil
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
 import org.jetbrains.idea.devkit.build.PluginBuildConfiguration
-import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeMixedDependenciesInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeXmlApiUsageInspection
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.module.PluginModuleType
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.junit.Assert
@@ -20,6 +22,8 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
   override fun setUp() {
     super.setUp()
     IntelliJProjectUtil.markAsIntelliJPlatformProject(project, true)
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.containing.plugins")
+      .setValue(true, testRootDisposable)
 
     val service = SplitModeApiRestrictionsService.getInstance()
     service.scheduleLoadRestrictions()
@@ -40,7 +44,13 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
             <module name="intellij.platform.backend"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.fileEditorProvider' can only be used in 'frontend' module type. Actual module type is 'backend'. Reason: backend dependencies: dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.1'">fileEditorProvider</warning>/>
+            <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+
+Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
+
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.1'">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -60,7 +70,80 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
             <module name="intellij.platform.frontend"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.2'">localInspection</warning>/>
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.2'">localInspection</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testApiRestrictionsJsonHasNoDuplicateApiTargets() {
+    SplitModeApiRestrictionsService.getInstance().assertApiRestrictionsCanBeReadForTest()
+  }
+
+  fun testModuleKindCanBePredefinedInRestrictionsService() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "intellij.platform.frontend",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+            <localInspection/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testModuleKindCanBePredefinedForDescriptorPath() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "intellij.platform.resources",
+      descriptorRelativePathToResourcesDirectory = "META-INF/PlatformLangPlugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+            <localInspection/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent(),
+      resourceRootDirectoryName = "src",
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testSkippingPredefinedModuleInspectionsCanBeDisabled() {
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.inspections.skip.predefined")
+      .setValue(false, testRootDisposable)
+
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "intellij.platform.frontend",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Predefined module kind for module 'intellij.platform.frontend'">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -81,8 +164,17 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
             <module name="intellij.platform.ide"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.fileEditorProvider' can only be used in 'frontend' module type. Actual module type is 'shared'. Reason: no frontend or backend dependencies were found among: 'intellij.platform.core', 'intellij.platform.ide'">fileEditorProvider</warning>/>
-            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'. Reason: no frontend or backend dependencies were found among: 'intellij.platform.core', 'intellij.platform.ide'">localInspection</warning>/>
+            <typedHandler/>
+            <<warning descr="'com.intellij.fileEditorProvider' can only be used in 'frontend' module type. Actual module type is 'shared'.
+
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'unique.module.name.3'">fileEditorProvider</warning>/>
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
+
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'unique.module.name.3'">localInspection</warning>/>
             <lang.parserDefinition/>
           </extensions>
         </idea-plugin>
@@ -103,7 +195,11 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
             <module name="intellij.platform.frontend"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.4.xml' in module 'unique.module.name.4'">localInspection</warning>/>
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.4.xml' in module 'unique.module.name.4'">localInspection<caret></warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -111,6 +207,10 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
     myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
 
     myFixture.checkHighlighting()
+    Assert.assertTrue(
+      myFixture.filterAvailableIntentions("Make module 'unique.module.name.4' work in 'frontend' only").isEmpty()
+    )
+    myFixture.findSingleIntention("Make module 'unique.module.name.4' work in 'monolith' only")
   }
 
   fun testFrontendExtensionInContentModuleOfBackendOnlyPlugin() {
@@ -135,7 +235,14 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
       """
         <idea-plugin>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.fileEditorProvider' can only be used in 'frontend' module type. Actual module type is 'backend'. Reason: module declares no own FE/BE dependencies, but the containing plugin.xml files do: module 'unique.module.name.5'  -> backend">fileEditorProvider</warning>/>
+            <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+
+Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
+
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.5'  -> backend">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -145,7 +252,7 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
     myFixture.checkHighlighting()
   }
 
-  fun testFrontendAndBackendExtensionsInMixedContentModuleWithMultipleContainingPlugins() {
+  fun testFrontendAndBackendExtensionsInSharedContentModuleWithMultipleContainingPlugins() {
     addModuleWithXmlDescriptor(
       moduleName = "unique.module.name.7",
       descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
@@ -180,10 +287,16 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
       moduleName = "unique.module.name.9",
       descriptorRelativePathToResourcesDirectory = "unique.module.name.9.xml",
       """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.7'; backend dependencies: dependency 'intellij.platform.backend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.8'">idea-plugin</error>>
+        <idea-plugin>
           <extensions defaultExtensionNs="com.intellij">
-            <fileEditorProvider/>
-            <localInspection/>
+            <typedHandler/>
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
+
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.7'  -> frontend
+Module 'unique.module.name.8'  -> backend">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -198,13 +311,19 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
       moduleName = "unique.module.name.10",
       descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
       """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.10'; backend dependencies: dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.10'">idea-plugin</error>>
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.10'
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.10'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.frontend"/>
             <module name="intellij.platform.backend"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <fileEditorProvider/>
+            <typedHandler/>
             <localInspection/>
           </extensions>
         </idea-plugin>
@@ -233,10 +352,89 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
       """
         <idea-plugin>
           <dependencies>
-            <module name="intellij.transitive.frontend"/>
+            <module name="unique.module.name.11"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <fileEditorProvider/>
+            <typedHandler/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testBackendExtensionInTransitivelyFrontendModule() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.23",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.23.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.frontend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.24",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="unique.module.name.23"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.24'
+via dependency 'unique.module.name.23' -> descriptor 'unique.module.name.23.xml' in module 'unique.module.name.23'.">localInspection</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testBackendExtensionInModuleWithTransitivelyPredefinedFrontendContentModule() {
+    addModuleWithXmlDescriptor(
+      moduleName = "intellij.platform.frontend",
+      descriptorRelativePathToResourcesDirectory = "intellij.platform.frontend.xml",
+      pluginXmlContent = """
+        <idea-plugin/>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.40",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.40.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <content>
+            <module name="intellij.platform.frontend" loading="required"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.41",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="unique.module.name.40"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.41'
+via dependency 'unique.module.name.40' -> required content module Predefined module kind for module 'intellij.platform.frontend'.">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -257,7 +455,7 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
             <module name="intellij.platform.vcs.impl"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <fileEditorProvider/>
+            <typedHandler/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -304,7 +502,13 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
       """
         <idea-plugin>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'. Reason: module declares no own FE/BE dependencies, but the containing plugin.xml files do: module 'unique.module.name.14'  -> frontend, module 'unique.module.name.15'  -> frontend">localInspection</warning>/>
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.14'  -> frontend
+Module 'unique.module.name.15'  -> frontend">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -331,8 +535,9 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
         </idea-plugin>
       """.trimIndent()
     )
-    myFixture.addFileToProject(
-      "unique.module.name.17/resources/unique.module.name.17.xml",
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.17",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.17.xml",
       """
         <idea-plugin>
           <dependencies>
@@ -347,7 +552,51 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
       """
         <idea-plugin>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.fileEditorProvider' can only be used in 'frontend' module type. Actual module type is 'backend'. Reason: module declares no own FE/BE dependencies, but the containing plugin.xml files do: module 'unique.module.name.17'  -> backend">fileEditorProvider</warning>/>
+            <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+
+Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
+
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.17'  -> backend">typedHandler</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testBackendExtensionInContentModuleOfPredefinedSharedContainingPlugin() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.42",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <module value="com.intellij.modules.lang"/>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+          <content>
+            <module name="unique.module.name.43"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val contentModuleDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.43",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.43.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
+
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.42'  -> shared">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -367,7 +616,14 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
             <module name="unique.module.name.20"/>
           </content>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.fileEditorProvider' can only be used in 'frontend' module type. Actual module type is 'backend'. Reason: module declares no own FE/BE dependencies, but the containing plugin.xml files do: module 'unique.module.name.20'  -> backend">fileEditorProvider</warning>/>
+            <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+
+Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
+
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.20'  -> backend">typedHandler</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -396,7 +652,13 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
       moduleName = "unique.module.name.21",
       descriptorRelativePathToResourcesDirectory = "unique.module.name.21.xml",
       """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.21.xml' in module 'unique.module.name.21'; backend dependencies: dependency 'intellij.platform.backend' from containing plugin descriptor 'unique.module.name.22.xml' in module 'unique.module.name.22'">idea-plugin</error>>
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.21.xml' in module 'unique.module.name.21'
+
+Backend dependency 'intellij.platform.backend' from containing plugin descriptor 'unique.module.name.22.xml' in module 'unique.module.name.22'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.frontend"/>
           </dependencies>
@@ -404,7 +666,7 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
             <module name="unique.module.name.22"/>
           </content>
           <extensions defaultExtensionNs="com.intellij">
-            <fileEditorProvider/>
+            <typedHandler/>
             <localInspection/>
           </extensions>
         </idea-plugin>
@@ -429,20 +691,464 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
     myFixture.checkHighlighting()
   }
 
+  fun testBackendExtensionInModuleWithCyclicTransitiveFrontendDependency() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.25",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="unique.module.name.26"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.25'
+via dependency 'unique.module.name.26' -> descriptor 'unique.module.name.26.xml' in module 'unique.module.name.26'.">localInspection</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.26",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.26.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="unique.module.name.25"/>
+            <module name="intellij.platform.frontend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testBackendExtensionInOwnContentDescriptorOfBackendPluginModule() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.27",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <id>com.example.self.including.backend.plugin</id>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+          <content>
+            <module name="unique.module.name.27"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val contentModuleDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.27",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.27.xml",
+      """
+        <idea-plugin>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+
+Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
+
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.27'  -> backend">typedHandler</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testFrontendExtensionInOwnEmbeddedContentDescriptorOfPluginModuleWithRequiredBackendSibling() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.37",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <content>
+            <module name="unique.module.name.37" loading="embedded"/>
+            <module name="unique.module.name.38" loading="required"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val contentModuleDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.37",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.37.xml",
+      """
+        <idea-plugin>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+
+Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
+
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'unique.module.name.37'  -> backend">typedHandler</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.38",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.38.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testFrontendExtensionInPluginXmlWithRequiredBackendContentModule() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.28",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.28.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.29",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <content>
+            <module name="unique.module.name.28" loading="required"/>
+          </content>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+
+Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
+
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from required content module descriptor 'unique.module.name.28.xml' in module 'unique.module.name.28'">typedHandler</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testMixedPluginXmlWithRequiredAndEmbeddedContentModules() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.31",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.31.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.frontend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.32",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.32.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.33",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from required content module descriptor 'unique.module.name.31.xml' in module 'unique.module.name.31'
+
+Backend dependency 'intellij.platform.backend' from embedded content module descriptor 'unique.module.name.32.xml' in module 'unique.module.name.32'">idea-plugin</error>>
+          <content>
+            <module name="unique.module.name.31" loading="required"/>
+            <module name="unique.module.name.32" loading="embedded"/>
+          </content>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+            <localInspection/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testFrontendContentModuleIsMixedWhenContainingPluginRequiresBackendSiblingModule() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.34",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <content>
+            <module name="unique.module.name.35"/>
+            <module name="unique.module.name.36" loading="required"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val frontendContentModuleDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.35",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.35.xml",
+      """
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.35.xml' in module 'unique.module.name.35'
+
+Backend dependency 'intellij.platform.backend' from containing plugin required content module descriptor 'unique.module.name.36.xml' in module 'unique.module.name.36'">idea-plugin</error>>
+          <dependencies>
+            <module name="intellij.platform.frontend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.36",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.36.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(frontendContentModuleDescriptor.virtualFile)
+
+    myFixture.checkHighlighting()
+    Assert.assertTrue(
+      myFixture.filterAvailableIntentions("Make module 'unique.module.name.35' work in 'frontend' only").isEmpty()
+    )
+    myFixture.findSingleIntention("Make module 'unique.module.name.35' work in 'backend' only")
+  }
+
+  fun testBackendExtensionInModuleWithDuplicateTransitiveBackendDependencies() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.39",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="unique.module.name.40"/>
+            <module name="unique.module.name.41"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+
+Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
+
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.39'
+via dependency 'unique.module.name.40' -> descriptor 'unique.module.name.40.xml' in module 'unique.module.name.40'.">typedHandler</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.40",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.40.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.41",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.41.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testFrontendExtensionInModuleWithTransitiveAnalysisDisabled() {
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.transitive.dependencies")
+      .setValue(false, testRootDisposable)
+
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.44",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.44.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.frontend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.45",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="unique.module.name.44"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.transitive.dependencies")
+      .setValue(true, testRootDisposable)
+  }
+
+  fun testBackendExtensionInContentModuleWithContainingPluginAnalysisDisabled() {
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.containing.plugins")
+      .setValue(false, testRootDisposable)
+
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.46",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <id>com.example.backend.only.plugin.with.flag.disabled</id>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+          <content>
+            <module name="unique.module.name.47"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val contentModuleDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.47",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.47.xml",
+      """
+        <idea-plugin>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
+
+Computed module kind reasoning:
+
+No frontend or backend dependencies were found for module 'unique.module.name.47'">localInspection</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
+
+    myFixture.checkHighlighting()
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.containing.plugins")
+      .setValue(true, testRootDisposable)
+  }
+
+  fun testSharedExtensionInBackendModule() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.48",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.lang.parserDefinition' can only be used in 'shared' module type. Actual module type is 'backend'.
+
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.48'">lang.parserDefinition</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testSharedExtensionInFrontendModule() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.49",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.frontend"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.lang.parserDefinition' can only be used in 'shared' module type. Actual module type is 'frontend'.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.49'">lang.parserDefinition</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
   private fun addModuleWithXmlDescriptor(
     moduleName: String,
     descriptorRelativePathToResourcesDirectory: String,
     pluginXmlContent: String,
+    resourceRootDirectoryName: String = "resources",
   ): PsiFile {
-    val addedModule =
-      PsiTestUtil.addModule(project, PluginModuleType.getInstance(), moduleName, myFixture.tempDirFixture.findOrCreateDir(moduleName))
-    PsiTestUtil.addSourceRoot(addedModule,
-                              myFixture.tempDirFixture.findOrCreateDir("$moduleName/resources"),
-                              JavaResourceRootType.RESOURCE)
-    val createdDescriptorFile = myFixture.addFileToProject("$moduleName/resources/$descriptorRelativePathToResourcesDirectory", pluginXmlContent)
+    val existingModule = ModuleManager.getInstance(project).findModuleByName(moduleName)
+    val targetModule = if (existingModule != null) {
+      existingModule
+    }
+    else {
+      val addedModule =
+        PsiTestUtil.addModule(project, PluginModuleType.getInstance(), moduleName, myFixture.tempDirFixture.findOrCreateDir(moduleName))
+      PsiTestUtil.addSourceRoot(addedModule,
+                                myFixture.tempDirFixture.findOrCreateDir("$moduleName/$resourceRootDirectoryName"),
+                                JavaResourceRootType.RESOURCE)
+      addedModule
+    }
+    val createdDescriptorFile =
+      myFixture.addFileToProject("$moduleName/$resourceRootDirectoryName/$descriptorRelativePathToResourcesDirectory", pluginXmlContent)
     Assert.assertNotNull("XML descriptor for module $moduleName was not created", createdDescriptorFile)
     if (descriptorRelativePathToResourcesDirectory == "META-INF/plugin.xml") {
-      val buildConfiguration = PluginBuildConfiguration.getInstance(addedModule)
+      val buildConfiguration = PluginBuildConfiguration.getInstance(targetModule)
       Assert.assertNotNull("Plugin build configuration for module $moduleName was not created", buildConfiguration)
       buildConfiguration!!.setPluginXmlFromVirtualFile(createdDescriptorFile!!.virtualFile)
     }

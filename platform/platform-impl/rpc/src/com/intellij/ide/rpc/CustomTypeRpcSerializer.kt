@@ -35,7 +35,7 @@ abstract class CustomTypeRpcSerializer<T : Any>(internal val serializationClass:
  * This function uses [CustomTypeRpcSerializer] extension point implementations only.
  */
 @ApiStatus.Internal
-fun <ValueClass : Any> serializeToRpc(value: ValueClass): SerializedValue? {
+fun <ValueClass : Any> serializeToRpc(value: ValueClass, logErrorAsWarning: Boolean = false): SerializedValue? {
   // IdeProductMode is not available here, so we use an old style session type check
   if (shouldSkipSerializationInMonolith()) return null
 
@@ -47,7 +47,12 @@ fun <ValueClass : Any> serializeToRpc(value: ValueClass): SerializedValue? {
       }
     }
     catch (e: Exception) {
-      LOG.debug("Error during custom type serialization", e)
+      if (logErrorAsWarning) {
+        LOG.warn("Error during custom type serialization", e)
+      }
+      else {
+        LOG.debug("Error during custom type serialization", e)
+      }
       null
     }
   }

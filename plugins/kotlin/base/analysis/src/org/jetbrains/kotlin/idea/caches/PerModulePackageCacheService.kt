@@ -145,9 +145,7 @@ class ImplicitPackagePrefixCache(private val project: Project) {
         val implicitPackageMap = implicitPackageCache.getOrPut(sourceRoot) {
             analyzeImplicitPackagePrefixes(sourceRoot)
         }
-        return implicitPackageMap.keys.singleOrNull() ?: run {
-            FqName.ROOT
-        }
+        return implicitPackageMap.keys.singleOrNull() ?: FqName.ROOT
     }
 
     @TestOnly
@@ -178,44 +176,18 @@ class ImplicitPackagePrefixCache(private val project: Project) {
                     .reversed()
 
             result.addFile(file, topDirectories)
-
-            (result.entries.firstOrNull()?.value?.size ?: 0) <= 1
         }, GlobalSearchScopes.directoryScope(project, sourceRoot, true))
-
-        result.cleanupSubPackages()
 
         return result
     }
 
-    private fun ImplicitPackageData.addFile(virtualFile: VirtualFile, topDirectories: List<String> = emptyList()) {
-        synchronized(this) {
-            val psiFile = PsiManager.getInstance(project).findFile(virtualFile) as? KtFile ?: return
+    /**
+     * @return true if we need more files for the implicit package prefix heiurisitc
+     */
+    private fun ImplicitPackageData.addFile(virtualFile: VirtualFile, topDirectories: List<String> = emptyList()): Boolean {
+        return synchronized(this) {
+            val psiFile = PsiManager.getInstance(project).findFile(virtualFile) as? KtFile ?: return true
             addPsiFile(psiFile, virtualFile, topDirectories)
-        }
-    }
-
-    private fun ImplicitPackageData.cleanupSubPackages() {
-        val entries = entries
-        // filter keys those have the same prefix as the 1st one
-        if (entries.size > 1) {
-            val sortedFqNames = sortedSetOf(Comparator { o1: FqName, o2: FqName -> o1.asString().compareTo(o2.asString()) })
-            sortedFqNames += keys
-
-            val key = sortedFqNames.first()
-            val keyPathSegments = key.pathSegments()
-
-            val iterator = entries.iterator()
-            while (iterator.hasNext()) {
-                val next = iterator.next()
-                if (next == key) continue
-                val pathSegments = next.key.pathSegments()
-                if (
-                    pathSegments.size > keyPathSegments.size &&
-                    keyPathSegments == pathSegments.subList(0, keyPathSegments.size)
-                ) {
-                    iterator.remove()
-                }
-            }
         }
     }
 
@@ -231,7 +203,7 @@ class ImplicitPackagePrefixCache(private val project: Project) {
             val pathSegments = packageFqName.pathSegments()
             val lastSegments = pathSegments.takeLast(topDirectories.size).map { it.asString() }
 
-            if (lastSegments != topDirectories) return false
+            if (lastSegments != topDirectories) return true
 
             pathSegments
                 .dropLast(topDirectories.size)
@@ -239,7 +211,22 @@ class ImplicitPackagePrefixCache(private val project: Project) {
                     prefix, segment -> prefix.child(segment)
                 }
         }
-        return getOrPut(key) { mutableListOf() }.add(ktFile)
+
+        if (isNotEmpty()) {
+            var k = key
+            while (k != FqName.ROOT) {
+                k = k.parent()
+                // check keys those have the same prefix as this one
+                val s = get(k)?.size ?: 0
+                if (s > 1) {
+                    return false
+                }
+            }
+        }
+
+        val files = getOrPut(key) { mutableListOf() }
+        files.add(ktFile)
+        return files.size <= 1
     }
 
     private fun ImplicitPackageData.removeFile(file: VirtualFile) {
@@ -257,7 +244,6 @@ class ImplicitPackagePrefixCache(private val project: Project) {
         synchronized(this) {
             removeFile(file.virtualFile)
             addPsiFile(file, file.virtualFile, topDirectories)
-            cleanupSubPackages()
         }
     }
 

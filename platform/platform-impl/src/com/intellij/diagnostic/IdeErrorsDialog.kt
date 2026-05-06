@@ -598,7 +598,7 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
   }
 
   @RequiresEdt
-  private fun reportMessage(cluster: ErrorMessageCluster, dialogClosed: Boolean): Boolean {
+  private fun reportMessage(cluster: ErrorMessageCluster, parentComponent: Component): Boolean {
     val submitter = cluster.submitter ?: return false
     val message = cluster.first
     message.isSubmitting = true
@@ -620,11 +620,6 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
     }
 
     val events = arrayOf(IdeaLoggingEvent(pair.first, pair.second, message.includedAttachments, cluster.pluginInfo, message))
-    var parentComponent: Container = rootPane
-    if (dialogClosed) {
-      val frame = ComponentUtil.getParentOfType(IdeFrame::class.java, parentComponent)
-      parentComponent = frame?.component ?: WindowManager.getInstance().findVisibleFrame() ?: parentComponent
-    }
     val accepted = submitter.submit(events, message.additionalInfo, parentComponent) { reportInfo ->
       message.setSubmitted(reportInfo)
       UIUtil.invokeLaterIfNeeded { updateOnSubmit() }
@@ -820,7 +815,7 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
         NOTIFY_SUCCESS_EACH_REPORT.set(true)
 
         val selectedCluster = selectedCluster()
-        val reportingStarted = selectedCluster != null && reportMessage(selectedCluster, closeDialog)
+        val reportingStarted = selectedCluster != null && reportMessage(selectedCluster, getParentComponentForReport(closeDialog))
         if (!reportingStarted) {
           if (!closeDialog) {
             updateControls()
@@ -837,8 +832,9 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
           return
         }
 
+        val parentComponent = getParentComponentForReport(true)
         service<ITNProxyCoroutineScopeHolder>().coroutineScope.launch {
-          val reportAllStarted = reportAll(myMessageClusters, true)
+          val reportAllStarted = reportAll(myMessageClusters, parentComponent, true)
 
           withContext(Dispatchers.EDT) {
             if (reportAllStarted) {
@@ -903,8 +899,9 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
         IdeErrorDialogUsageCollector.logReportAll()
         PropertiesComponent.getInstance().setValue(LAST_OK_ACTION, ReportAction.REPORT_ALL.name)
 
+        val parentComponent = getParentComponentForReport(true)
         service<ITNProxyCoroutineScopeHolder>().coroutineScope.launch {
-          val reportingStarted = reportAll(myMessageClusters)
+          val reportingStarted = reportAll(myMessageClusters, parentComponent)
           if (reportingStarted) {
             withContext(Dispatchers.EDT) {
               val autoReportEnabled = suggestEnablingAutoReportIfApplicable()
@@ -923,8 +920,9 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
         IdeErrorDialogUsageCollector.logReportAndClearAll()
         PropertiesComponent.getInstance().setValue(LAST_OK_ACTION, ReportAction.REPORT_AND_CLEAR_ALL.name)
 
+        val parentComponent = getParentComponentForReport(true)
         service<ITNProxyCoroutineScopeHolder>().coroutineScope.launch {
-          val reportingStarted = reportAll(myMessageClusters)
+          val reportingStarted = reportAll(myMessageClusters, parentComponent)
           if (reportingStarted) {
             withContext(Dispatchers.EDT) {
               myMessagePool.clearErrors()
@@ -938,7 +936,20 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
     }
   }
 
-  private suspend fun reportAll(messageClusters: List<ErrorMessageCluster>, onlyEligibleForAutoReport: Boolean = false): Boolean {
+  private fun getParentComponentForReport(dialogClosed: Boolean): Component {
+    var parentComponent: Container = rootPane
+    if (dialogClosed) {
+      val frame = ComponentUtil.getParentOfType(IdeFrame::class.java, parentComponent)
+      parentComponent = frame?.component ?: WindowManager.getInstance().findVisibleFrame() ?: parentComponent
+    }
+    return parentComponent
+  }
+
+  private suspend fun reportAll(
+    messageClusters: List<ErrorMessageCluster>,
+    parentComponent: Component,
+    onlyEligibleForAutoReport: Boolean = false,
+  ): Boolean {
     var reportingStarted = true
     for (i in messageClusters.indices) {
       val cluster = messageClusters[i]
@@ -953,7 +964,7 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
       NOTIFY_SUCCESS_EACH_REPORT.set(false)
 
       val reported = withContext(Dispatchers.EDT) {
-        reportMessage(cluster, true)
+        reportMessage(cluster, parentComponent)
       }
       reportingStarted = reported
 

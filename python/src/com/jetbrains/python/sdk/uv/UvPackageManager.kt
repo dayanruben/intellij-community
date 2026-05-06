@@ -48,7 +48,8 @@ import org.jetbrains.annotations.VisibleForTesting
 
 @ApiStatus.Internal
 @VisibleForTesting
-class UvPackageManager internal constructor(project: Project, sdk: Sdk, uvExecutionContextDeferred: Deferred<UvExecutionContext<*>>) : PythonPackageManager(project, sdk, installedPackagesIncludeTransitive = true) {
+class UvPackageManager internal constructor(project: Project, sdk: Sdk, uvExecutionContextDeferred: Deferred<UvExecutionContext<*>>) : PythonPackageManager(project, sdk) {
+  override val installedPackagesIncludeTransitive: Boolean = true
   override val repositoryManager: PythonRepositoryManager = PipRepositoryManager.getInstance(project)
   override val treeProvider = CachedDependencyTreeProvider {
     withUv { uv -> uv.listProjectStructureTree() }.getOrNull()
@@ -247,7 +248,7 @@ class UvPackageManager internal constructor(project: Project, sdk: Sdk, uvExecut
     return withUv { uv -> uv.listOutdatedPackages() }
   }
 
-  override suspend fun syncCommand(): PyResult<Unit> {
+  override suspend fun syncLockedCommand(): PyResult<Unit> {
     return withUv { uv -> uv.sync().mapSuccess { } }
   }
 
@@ -265,6 +266,8 @@ class UvPackageManager internal constructor(project: Project, sdk: Sdk, uvExecut
       reloadPackages().mapSuccess { }
     }
   }
+
+  override fun updateLockedAction(): suspend () -> PyResult<Unit> = suspend { syncLocked().mapSuccess {  } }
 
   private suspend fun resolvePackageName(module: Module): String {
     val pyProjectFile = PyProjectToml.findFile(module) ?: return module.name
@@ -313,4 +316,3 @@ class UvPackageManagerProvider : PythonPackageManagerProvider {
     return UvPackageManager(project, sdk, uvExecutionContext)
   }
 }
-

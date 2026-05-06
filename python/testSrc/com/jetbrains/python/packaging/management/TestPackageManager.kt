@@ -42,7 +42,7 @@ class TestPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageManage
     return PyResult.success(emptyList())
   }
 
-  override suspend fun syncCommand(): PyResult<Unit> {
+  override suspend fun syncLockedCommand(): PyResult<Unit> {
     return PyResult.success(Unit)
   }
 
@@ -54,7 +54,7 @@ class TestPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageManage
     val specification = installRequest.specifications.single()
     return if (repositoryManager.allPackages().contains(specification.name)) {
       val version = specification.versionSpec?.version.orEmpty()
-      installedPackages += PythonPackage(specification.name, version, false)
+      installedPackages = installedPackages?.plus(PythonPackage(specification.name, version, false))
       PyResult.success(Unit)
     }
     else {
@@ -70,14 +70,14 @@ class TestPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageManage
     pythonPackages.forEach { pyPackage ->
       val packageToRemove = findPackageByName(pyPackage)
                             ?: return PyResult.localizedError(PACKAGE_UNINSTALL_FAILURE_MESSAGE)
-      installedPackages -= packageToRemove
+      installedPackages = installedPackages?.minus(packageToRemove)
     }
 
     return PyResult.success(Unit)
   }
 
   override suspend fun loadPackagesCommand(): PyResult<List<PythonPackage>> {
-    return PyResult.success(installedPackages)
+    return PyResult.success(listInstalledPackagesSnapshot())
   }
 
   override fun getDependencyFile(): VirtualFile? {
@@ -132,7 +132,7 @@ class TestPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageManage
   }
 
   private fun findPackageByName(name: String): PythonPackage? {
-    return installedPackages.find { it.name == name }
+    return listInstalledPackagesSnapshot().find { it.name == name }
   }
 
   fun withRepoPackagesVersions(packageVersions: Map<String, List<String>>): TestPythonPackageManager {

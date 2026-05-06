@@ -24,13 +24,6 @@ import org.jetbrains.intellij.build.productLayout.LIB_MODULE_PREFIX
 import org.jetbrains.intellij.build.productLayout.buildProductContentXml
 import org.jetbrains.jps.model.java.JavaSourceRootType
 
-internal fun getProductModuleJarName(moduleName: String, context: BuildContext, frontendModuleFilter: FrontendModuleFilter): String {
-  return when {
-    isModuleCloseSource(moduleName = moduleName, context = context) -> if (frontendModuleFilter.isBackendModule(moduleName)) PRODUCT_BACKEND_JAR else PRODUCT_JAR
-    else -> "$moduleName.jar"
-  }
-}
-
 // result _must be_ consistent, do not use Set.of or HashSet here
 internal suspend fun processAndGetProductPluginContentModules(
   layout: PlatformLayout,
@@ -230,14 +223,11 @@ private val excludedFromScrambling = hashSetOf(
   "intellij.platform.webide.impl",
   "intellij.rml.dfa",
   "intellij.platform.commercial.dependencies",
+  "intellij.rd.platform",
 )
 
-private fun isModuleCloseSource(moduleName: String, context: CompilationContext): Boolean {
+internal fun isModuleCloseSource(moduleName: String, context: CompilationContext): Boolean {
   if (moduleName.endsWith(".resources") || moduleName.endsWith(".icons") || moduleName.startsWith(LIB_MODULE_PREFIX)) {
-    return false
-  }
-
-  if (moduleName == "intellij.rd.platform") {
     return false
   }
 

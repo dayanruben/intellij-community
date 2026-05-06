@@ -32,6 +32,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.CommonShortcuts;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
+import com.intellij.openapi.actionSystem.CustomizedDataContext;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.actionSystem.DataSink;
@@ -588,37 +589,41 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
              ContainerUtil.map2Array(selection, Object.class, SearchEverywhereFoundElementInfo::getElement));
     sink.lazy(PlatformCoreDataKeys.PSI_ELEMENT_ARRAY, () -> {
       List<PsiElement> list =
-        ContainerUtil.mapNotNull(selection, o -> (PsiElement)getDataFromElementInfo(CommonDataKeys.PSI_ELEMENT.getName(), o));
+        ContainerUtil.mapNotNull(selection, o -> getDataFromElementInfo(CommonDataKeys.PSI_ELEMENT, o));
       return list.isEmpty() ? null : list.toArray(PsiElement.EMPTY_ARRAY);
     });
     sink.lazy(CommonDataKeys.VIRTUAL_FILE_ARRAY, () -> {
       List<VirtualFile> list =
-        ContainerUtil.mapNotNull(selection, o -> (VirtualFile)getDataFromElementInfo(CommonDataKeys.VIRTUAL_FILE.getName(), o));
+        ContainerUtil.mapNotNull(selection, o -> getDataFromElementInfo(CommonDataKeys.VIRTUAL_FILE, o));
       return list.isEmpty() ? null : list.toArray(VirtualFile.EMPTY_ARRAY);
     });
     sink.lazy(CommonDataKeys.NAVIGATABLE_ARRAY, () -> {
       List<Navigatable> list = ContainerUtil.mapNotNull(selection, o -> {
-        Navigatable navigatable = (Navigatable)getDataFromElementInfo(CommonDataKeys.NAVIGATABLE.getName(), o);
+        Navigatable navigatable = getDataFromElementInfo(CommonDataKeys.NAVIGATABLE, o);
         if (navigatable != null) return navigatable;
         // make F4 work on multi-selection
-        Object psi = getDataFromElementInfo(CommonDataKeys.PSI_ELEMENT.getName(), o);
-        return psi instanceof Navigatable ? (Navigatable)psi : null;
+        PsiElement psi = getDataFromElementInfo(CommonDataKeys.PSI_ELEMENT, o);
+        return psi instanceof Navigatable n ? n : null;
       });
       return list.isEmpty() ? null : list.toArray(Navigatable.EMPTY_NAVIGATABLE_ARRAY);
     });
     if (onlyItem != null) {
-      sink.set(PlatformCoreDataKeys.BGT_DATA_PROVIDER, dataId -> {
-        return getDataFromElementInfo(dataId, onlyItem);
-      });
+      //noinspection unchecked
+      SearchEverywhereContributor<Object> contributor = (SearchEverywhereContributor<Object>)onlyItem.getContributor();
+      if (contributor != null) {
+        SearchEverywhereDataUtilsKt.addDataForItem(contributor, onlyItem.getElement(), sink);
+      }
     }
   }
 
-  private static @Nullable Object getDataFromElementInfo(@NotNull String dataId, @NotNull SearchEverywhereFoundElementInfo info) {
+  private static <T> @Nullable T getDataFromElementInfo(@NotNull DataKey<T> key, @NotNull SearchEverywhereFoundElementInfo info) {
     //noinspection unchecked
     SearchEverywhereContributor<Object> contributor = (SearchEverywhereContributor<Object>)info.getContributor();
     if (contributor == null) return null;
 
-    return contributor.getDataForItem(info.getElement(), dataId);
+    DataContext ctx = CustomizedDataContext.withSnapshot(DataContext.EMPTY_CONTEXT, sink ->
+      SearchEverywhereDataUtilsKt.addDataForItem(contributor, info.getElement(), sink));
+    return ctx.getData(key);
   }
 
   @NotNull List<SearchEverywhereFoundElementInfo> getSelectedInfos() {
@@ -1477,9 +1482,12 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
       myListModel.clearMoreItems();
     }
 
+    SETab selectedTab = myHeader.getSelectedTab();
+    boolean isAllTab = selectedTab.getID().equals(ALL_CONTRIBUTORS_GROUP_ID);
+    int additionalItemsCount = selectedTab.isSingleContributor() ? SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT
+                                                                 : MULTIPLE_CONTRIBUTORS_ELEMENTS_LIMIT;
+
     Map<SearchEverywhereContributor<?>, Collection<SearchEverywhereFoundElementInfo>> found = myListModel.getFoundElementsMap();
-    int additionalItemsCount = myHeader.getSelectedTab().isSingleContributor() ? SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT
-                                                                               : MULTIPLE_CONTRIBUTORS_ELEMENTS_LIMIT;
 
     Stream<Map.Entry<SearchEverywhereContributor<?>, Collection<SearchEverywhereFoundElementInfo>>> stream = found.entrySet().stream();
     if (contributor != null) {
@@ -1490,7 +1498,15 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
     }
 
     Map<? extends SearchEverywhereContributor<?>, Integer> contributorsAndLimits =
-      stream.collect(Collectors.toMap(entry -> entry.getKey(), entry -> entry.getValue().size() + additionalItemsCount));
+      stream.collect(Collectors.toMap(entry -> entry.getKey(), entry -> {
+        int fixedAdditionalItemsCount = additionalItemsCount;
+        if (!isAllTab && (FilesTabSEContributor.asMainFilesContributorOrNull(entry.getKey()) != null)) {
+          // Request more elements from the main Files contributor in Files tab
+          fixedAdditionalItemsCount = SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT;
+        }
+
+        return entry.getValue().size() + fixedAdditionalItemsCount;
+      }));
 
     myHintHelper.setSearchInProgress(StringUtil.isNotEmpty(getSearchPattern()));
     mySearchProgressIndicator = mySearcher.findMoreItems(found, contributorsAndLimits, getSearchPattern());

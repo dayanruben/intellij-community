@@ -49,7 +49,7 @@ open class PipPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageMa
     module: Module?,
   ): PyResult<Unit> = engine.installPackageCommand(installRequest, options)
 
-  override suspend fun syncCommand(): PyResult<Unit> {
+  override suspend fun syncLockedCommand(): PyResult<Unit> {
     val requirementsFile = getDependencyFile()
     return if (requirementsFile != null) {
       engine.syncRequirementsTxt(requirementsFile)

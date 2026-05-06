@@ -8,7 +8,7 @@ import com.intellij.ide.util.TreeClassChooserFactory
 import com.intellij.java.JavaBundle
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
-import com.intellij.openapi.project.DumbService.Companion.getInstance
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.util.NlsSafe
@@ -201,7 +201,7 @@ class NullableAnnotationsPanel(
     if (myProject.isDefault) return
     val loading = JavaBundle.message("loading.additional.annotations")
     myCombo.addItem(loading)
-    getInstance(myProject).runWhenSmart(Runnable {
+    DumbService.getInstance(myProject).runWhenSmart(Runnable {
       ReadAction.nonBlocking(Callable<List<String>> { model.getAdvancedAnnotations() })
         .finishOnUiThread(ModalityState.any()) { advancedAnnotations ->
           myCombo.removeItem(loading)
@@ -304,9 +304,10 @@ class NullableAnnotationsPanel(
       return result
     }
 
-  val checkedAnnotations: MutableList<String?>
+  val checkedAnnotations: List<String?>
     get() = (0..<myTableModel.rowCount)
+      .asSequence()
       .filter { myTableModel.getValueAt(it, 1) == true }
       .map { myTableModel.getValueAt(it, 0) as String? }
-      .toMutableList()
+      .toList()
 }

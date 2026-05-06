@@ -3,12 +3,10 @@ package org.jetbrains.idea.maven.project;
 
 import com.intellij.configurationStore.SettingsSavingComponentJavaAdapter;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
-import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
@@ -27,7 +25,6 @@ import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.util.EventDispatcher;
 import com.intellij.util.SmartList;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.concurrency.annotations.RequiresReadLock;
@@ -100,8 +97,6 @@ public abstract class MavenProjectsManager extends MavenSimpleProjectComponent
   private final AtomicReference<MavenProjectManagerWatcher> myWatcherRef = new AtomicReference<>(null);
   private volatile Exception myWatcherCreationTrace;
 
-  private final EventDispatcher<MavenProjectsTree.Listener> myProjectsTreeDispatcher =
-    EventDispatcher.create(MavenProjectsTree.Listener.class);
   private final List<Listener> myManagerListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final ModificationTracker myModificationTracker;
 
@@ -212,7 +207,6 @@ public abstract class MavenProjectsManager extends MavenSimpleProjectComponent
       if (isInitialized.get()) return;
       initPreloadMavenServices();
       initWorkers();
-      updateTabTitles();
     }
     finally {
       isInitialized.set(true);
@@ -238,29 +232,6 @@ public abstract class MavenProjectsManager extends MavenSimpleProjectComponent
     MavenTasksManager.getInstance(myProject);
     // init maven shortcuts manager to subscribe to KeymapManagerListener
     MavenShortcutsManager.getInstance(myProject);
-  }
-
-  private void updateTabTitles() {
-    Application app = ApplicationManager.getApplication();
-    if (MavenUtil.isMavenUnitTestModeEnabled() || app.isHeadlessEnvironment()) {
-      return;
-    }
-
-    addProjectsTreeListener(new MavenProjectsTree.Listener() {
-      @Override
-      public void projectsUpdated(@NotNull List<? extends Pair<MavenProject, MavenProjectChanges>> updated,
-                                  @NotNull List<MavenProject> deleted) {
-        updateTabName(MavenUtil.collectFirsts(updated), myProject);
-      }
-    });
-  }
-
-  private static void updateTabName(@NotNull List<MavenProject> projects, @NotNull Project project) {
-    MavenUtil.invokeLater(project, () -> {
-      for (MavenProject each : projects) {
-        FileEditorManagerEx.getInstanceEx(project).updateFilePresentation(each.getFile());
-      }
-    });
   }
 
   public MavenSyncConsole getSyncConsole() {
@@ -296,7 +267,6 @@ public abstract class MavenProjectsManager extends MavenSimpleProjectComponent
     Path path = getProjectsTreeFile();
     tree.read(path);
     applyStateToTree(tree, this);
-    tree.addListener(myProjectsTreeDispatcher.getMulticaster(), this);
     return tree;
   }
 
@@ -652,7 +622,6 @@ public abstract class MavenProjectsManager extends MavenSimpleProjectComponent
     var tree = myProjectsTreeRef.get();
     if (tree == null) {
       tree = new MavenProjectsTree(myProject);
-      tree.addListener(myProjectsTreeDispatcher.getMulticaster(), this);
       applyStateToTree(tree, this);
     }
     return tree;
@@ -675,7 +644,7 @@ public abstract class MavenProjectsManager extends MavenSimpleProjectComponent
     if (isInitialized()) {
       getProjectsTree().setExplicitProfiles(profiles);
     }
-    myProjectsTreeDispatcher.getMulticaster().profilesChanged();
+    myProject.getMessageBus().syncPublisher(MavenProjectsTree.Listener.TOPIC).profilesChanged();
   }
 
   @ApiStatus.Internal
@@ -777,12 +746,20 @@ public abstract class MavenProjectsManager extends MavenSimpleProjectComponent
     Disposer.register(parentDisposable, () -> myManagerListeners.remove(listener));
   }
 
+  /**
+   * @deprecated use MavenProjectsTree.Listener.TOPIC and register listener in plugin.xml instead
+   */
+  @Deprecated
   public void addProjectsTreeListener(MavenProjectsTree.Listener listener) {
-    myProjectsTreeDispatcher.addListener(listener, this);
+    addProjectsTreeListener(listener, this);
   }
 
+  /**
+   * @deprecated use MavenProjectsTree.Listener.TOPIC and register listener in plugin.xml instead
+   */
+  @Deprecated
   public void addProjectsTreeListener(@NotNull MavenProjectsTree.Listener listener, @NotNull Disposable parentDisposable) {
-    myProjectsTreeDispatcher.addListener(listener, parentDisposable);
+    getProject().getMessageBus().connect(parentDisposable).subscribe(MavenProjectsTree.Listener.TOPIC, listener);
   }
 
   @TestOnly

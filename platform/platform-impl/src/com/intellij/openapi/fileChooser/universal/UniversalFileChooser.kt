@@ -15,10 +15,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.fileChooser.FileChooserDialog
-import com.intellij.openapi.fileChooser.FileChooserFactory
-import com.intellij.openapi.fileChooser.FileTextField
 import com.intellij.openapi.fileChooser.PathChooserDialog
-import com.intellij.openapi.fileChooser.universal.NioFileChooserUtil.isHidden
 import com.intellij.openapi.fileChooser.universal.UniversalFileChooserContributor.MountStatus
 import com.intellij.openapi.fileChooser.universal.UniversalFileChooserContributor.VirtualRoot
 import com.intellij.openapi.observable.util.whenDisposed
@@ -58,7 +55,6 @@ import com.intellij.util.Consumer
 import com.intellij.util.SystemProperties
 import com.intellij.util.containers.isEmpty
 import com.intellij.util.containers.toArray
-
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -98,7 +94,6 @@ import javax.swing.tree.TreeSelectionModel
 import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.name
 import kotlin.io.path.pathString
-import kotlin.streams.asSequence
 import kotlin.time.Duration.Companion.seconds
 
 private const val leftPanel: Boolean = false
@@ -628,7 +623,7 @@ object UniversalFileChooser {
 
           override fun treeWillCollapse(event: TreeExpansionEvent) {}
         })
-        fileTree = NioFileSystemTree(project, descriptorCopy, tree)
+        fileTree = NioFileSystemTree(project, descriptorCopy, tree, contributor, scope)
         fileTree.addOkAction(okAction)
         fileTree.addListener(object : NioFileSystemTree.Listener {
           override fun selectionChanged(selection: List<Path?>) {
@@ -841,7 +836,7 @@ object UniversalFileChooser {
         pathTextField.text = selectedFile?.toString() ?: ""
         barCardLayout.show(barPanel, PATH_CARD)
         pathTextField.requestFocusInWindow()
-        pathTextField.selectAll()
+        pathTextField.caretPosition = pathTextField.text.length
       }
 
       private fun switchToBreadcrumbs() {

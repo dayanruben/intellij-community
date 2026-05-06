@@ -76,7 +76,7 @@ public final class MavenTasksManager extends MavenSimpleProjectComponent impleme
 
   public MavenTasksManager(@NotNull Project project) {
     super(project);
-    MavenProjectsManager.getInstance(project).addProjectsTreeListener(new TaskUpdatingTreeListener(), this);
+    project.getMessageBus().connect(this).subscribe(MavenProjectsTree.Listener.TOPIC, new TaskUpdatingTreeListener());
   }
 
   @Override
@@ -145,8 +145,10 @@ public final class MavenTasksManager extends MavenSimpleProjectComponent impleme
     }
 
     @Override
-    public void projectResolved(@NotNull Pair<MavenProject, MavenProjectChanges> projectWithChanges) {
-      updateTasksForProject(projectWithChanges.first);
+    public void projectsResolved(@NotNull List<MavenProject> projects) {
+      for (MavenProject project : projects) {
+        updateTasksForProject(project);
+      }
     }
   }
 

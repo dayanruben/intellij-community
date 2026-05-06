@@ -18,6 +18,7 @@ import org.jetbrains.kotlin.analysis.api.components.expandedSymbol
 import org.jetbrains.kotlin.analysis.api.components.isAnyType
 import org.jetbrains.kotlin.analysis.api.components.memberScope
 import org.jetbrains.kotlin.analysis.api.components.namedClassSymbol
+import org.jetbrains.kotlin.analysis.api.components.samConstructor
 import org.jetbrains.kotlin.analysis.api.components.typeCreator
 import org.jetbrains.kotlin.analysis.api.components.upperBoundIfFlexible
 import org.jetbrains.kotlin.analysis.api.impl.base.types.KaBaseTypeArgumentWithVariance
@@ -38,6 +39,7 @@ import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeProjection
 import org.jetbrains.kotlin.analysis.api.types.symbol
 import org.jetbrains.kotlin.builtins.jvm.JavaToKotlinClassMap
+import org.jetbrains.kotlin.idea.base.analysis.api.utils.findSamSymbolOrNull
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.isPossiblySubTypeOf
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
@@ -56,6 +58,7 @@ import org.jetbrains.kotlin.idea.completion.impl.k2.isAfterRangeOperator
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.ImportStrategy
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.factories.KotlinFirLookupElementFactory
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.factories.KotlinFirLookupElementFactory.createAnonymousObjectLookupElement
+import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.factories.KotlinFirLookupElementFactory.createSamObjectLookupElement
 import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.ExpectedTypeWeigher
 import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.ExpectedTypeWeigher.matchesExpectedType
 import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.Weighers.applyWeighs
@@ -216,10 +219,9 @@ internal class K2TypeInstantiationContributor : K2CompletionContributor<KotlinNa
             )
         }
 
-        if (canBeInherited) {
+        if (canBeInherited && substitutionResult !is SubstitutionNotPossible) {
             val typeArgs = when (substitutionResult) {
                 is SuccessfulSubstitution -> substitutionResult.typeArguments
-                SubstitutionNotPossible -> return // do not show the result
                 UnresolvedParameter -> null // show the result, but let user complete type arguments
             }
 
@@ -229,13 +231,23 @@ internal class K2TypeInstantiationContributor : K2CompletionContributor<KotlinNa
                 importingStrategy = importStrategy,
                 aliasName = aliasName
             )
+
+            // For now, we only show the SAM element if there are no required type arguments that need to be inserted.
+            // Otherwise, we might be in a situation where the user both needs to complete the type arguments and
+            // possibly name the parameters of the lambda.
+            if (typeArgs != null) {
+                addSamObjectLookupElement(
+                    symbol = symbol,
+                    importingStrategy = importStrategy,
+                    aliasName = aliasName,
+                )
+            }
         }
 
-        if (canBeInstantiated) {
+        if (canBeInstantiated && substitutionResult !is SubstitutionNotPossible) {
             val typeArgsRequired = when (substitutionResult) {
                 // If symbol == expectedType.symbol, the type arguments will be inferred correctly and can be omitted
                 is SuccessfulSubstitution -> substitutionResult.typeArguments.isNotEmpty() && kotlinAliasSymbolOrSelf != expectedType.symbol
-                SubstitutionNotPossible -> return // do not show the result
                 UnresolvedParameter -> true
             }
             addConstructorCallLookupElements(
@@ -364,6 +376,30 @@ internal class K2TypeInstantiationContributor : K2CompletionContributor<KotlinNa
         }
 
         val element = createAnonymousObjectLookupElement(symbol, typeArguments, importingStrategy, aliasName)
+        element.matchesExpectedType = ExpectedTypeWeigher.MatchesExpectedType.MATCHES
+        element.applyWeighs(KtSymbolWithOrigin(symbol))
+        addElement(element)
+    }
+
+    context(_: KaSession, context: K2CompletionSectionContext<KotlinNameReferencePositionContext>)
+    private fun addSamObjectLookupElement(
+        symbol: KaNamedClassSymbol,
+        importingStrategy: ImportStrategy,
+        aliasName: Name?
+    ) {
+        if (symbol.classKind != KaClassKind.INTERFACE || !symbol.isFun) return
+        val samFunction = symbol.findSamSymbolOrNull(useDeclaredMemberScope = false) ?: return
+        val samConstructorSymbol = symbol.samConstructor ?: return
+
+        val element = createSamObjectLookupElement(
+            samInterfaceSymbol = symbol,
+            samFunction = samFunction,
+            samConstructorSymbol = samConstructorSymbol,
+            inputTypeArgumentsAreRequired = false,
+            importingStrategy = importingStrategy,
+            aliasName = aliasName,
+        )
+
         element.matchesExpectedType = ExpectedTypeWeigher.MatchesExpectedType.MATCHES
         element.applyWeighs(KtSymbolWithOrigin(symbol))
         addElement(element)

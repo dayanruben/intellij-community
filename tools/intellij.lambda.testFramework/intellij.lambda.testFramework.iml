@@ -66,5 +66,6 @@
     <orderEntry type="module" module-name="intellij.platform.util.ui" />
     <orderEntry type="module" module-name="intellij.platform.util.ex" />
     <orderEntry type="module" module-name="intellij.driver.client" />
+    <orderEntry type="module" module-name="intellij.platform.testFramework.teamCity" />
   </component>
 </module>

@@ -66,6 +66,8 @@ jvm_library(
     "@lib//:kotlinc-analysis-api",
     "//plugins/kotlin/refactorings/kotlin.refactorings.common:kotlin-refactorings-common",
     "//plugins/kotlin/base/statistics",
+    "//platform/util/progress",
+    "//platform/util",
   ]
 )
 
@@ -116,6 +118,8 @@ jvm_library(
     "//plugins/kotlin/code-insight/impl-base:kotlin-codeInsight-shared_test_lib",
     "//plugins/kotlin/refactorings/kotlin.refactorings.common:kotlin-refactorings-common_test_lib",
     "//plugins/kotlin/base/statistics:statistics_test_lib",
+    "//platform/util/progress:progress_test_lib",
+    "//platform/util:util_test_lib",
   ]
 )
 ### auto-generated section `build intellij.kotlin.jvm` end

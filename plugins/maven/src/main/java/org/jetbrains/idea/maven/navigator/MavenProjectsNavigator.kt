@@ -172,7 +172,7 @@ class MavenProjectsNavigator(project: Project) : MavenSimpleProjectComponent(
   }
 
   private fun listenForProjectsChanges() {
-    MavenProjectsManager.getInstance(myProject).addProjectsTreeListener(MyProjectsListener(), this)
+    myProject.messageBus.connect(this).subscribe(MavenProjectsTree.Listener.TOPIC, MyProjectsListener())
 
     MavenShortcutsManager.getInstance(myProject).addListener(MavenShortcutsManager.Listener {
       scheduleStructureRequest(
@@ -439,12 +439,12 @@ class MavenProjectsNavigator(project: Project) : MavenSimpleProjectComponent(
       scheduleUpdateProjects(updated.map { it.first }, ArrayList(deleted))
     }
 
-    override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
-      scheduleUpdateProjects(listOf(projectWithChanges.first), emptyList())
+    override fun projectsResolved(projects: List<MavenProject>) {
+      scheduleUpdateProjects(projects, emptyList())
     }
 
-    override fun pluginsResolved(project: MavenProject) {
-      scheduleUpdateProjects(listOf(project), emptyList())
+    override fun pluginsResolved(projects: List<MavenProject>) {
+      scheduleUpdateProjects(projects, emptyList())
     }
 
     fun scheduleUpdateProjects(projects: List<MavenProject>, deleted: List<MavenProject>) {

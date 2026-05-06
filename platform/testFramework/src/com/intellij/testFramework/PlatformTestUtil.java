@@ -77,7 +77,7 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileFilter;
 import com.intellij.openapi.vfs.ex.temp.TempFileSystem;
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
+import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import com.intellij.platform.testFramework.core.FileComparisonFailedError;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
@@ -969,7 +969,7 @@ public final class PlatformTestUtil {
    * Use before transition from VFS to File/Path, or before launching an external process that uses the file(s) modified via VFS.
    */
   public static void flushAllPendingVFSUpdates() throws IOException {
-    PersistentFSImpl.flushPendingUpdates();
+    ManagingFS.getInstance().flushPendingUpdates();
   }
 
   /**
@@ -978,7 +978,7 @@ public final class PlatformTestUtil {
    * via VFS.
    */
   public static void flushPendingVFSUpdatesFor(@NotNull VirtualFile file) throws IOException {
-    PersistentFSImpl.flushPendingUpdates(file);
+    ManagingFS.getInstance().flushPendingUpdates(file);
   }
 
   private static String fileText(@NotNull VirtualFile file) throws IOException {

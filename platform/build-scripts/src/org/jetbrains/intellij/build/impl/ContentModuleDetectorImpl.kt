@@ -13,6 +13,7 @@ import org.jdom.Element
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
 import org.jetbrains.intellij.build.classPath.PluginBuildDescriptor
 import org.jetbrains.intellij.build.impl.projectStructureMapping.CustomAssetEntry
+import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ModuleLibraryFileEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ModuleOutputEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ModuleTestOutputEntry
@@ -24,7 +25,15 @@ import kotlin.io.path.pathString
 /**
  * Provide information about [JpsModule] registered as content modules using data [DescriptorCacheContainer].
  */
-internal class ContentModuleDetectorImpl(platformLayout: PlatformLayout, bundledPlugins: List<PluginBuildDescriptor>, project: JpsProject) : ContentModuleDetector {
+internal class ContentModuleDetectorImpl(
+  platformLayout: PlatformLayout,
+  corePluginDescriptorModuleName: String,
+  platformEntries: List<DistributionFileEntry>,
+  bundledPlugins: List<PluginBuildDescriptor>,
+  embeddedFrontendDescriptorModuleName: String?,
+  project: JpsProject,
+) : ContentModuleDetector {
+
   private val contentModules = mutableMapOf<String, ContentModuleRegistrationData>()
   private val loadingRulesForContentModules = mutableMapOf<String, RuntimeModuleLoadingRule>()
   private val requiredIfAvailableAttributeForContentModules = mutableMapOf<String, RuntimeModuleId>()
@@ -33,16 +42,29 @@ internal class ContentModuleDetectorImpl(platformLayout: PlatformLayout, bundled
   init {
     val platformContainer = platformLayout.descriptorCacheContainer.forPlatform(platformLayout)
     val corePluginContent = platformContainer.getCachedFileData(PRODUCT_DESCRIPTOR_META_PATH) ?: error("Cannot find core plugin descriptor")
-    processPluginDescriptor(corePluginContent, platformContainer, presentablePluginDescription = "the core plugin")
+    processPluginDescriptor(corePluginContent, platformContainer, emptyList(), presentablePluginDescription = "the core plugin")
     val pluginDescriptorModuleNameToId = HashMap<String, String>()
+
+    val additionalContainersForEmbeddedFrontend =
+      if (embeddedFrontendDescriptorModuleName != null) {
+        //descriptors for embedded frontend may be stored inside containers for the platform, and for the corresponding plugin, see deprecatedResolveDescriptorForEmbeddedProduct
+        val pluginWithEmbeddedFrontend = bundledPlugins.find { plugin ->
+          plugin.layout.includedModules.any { it.moduleName == embeddedFrontendDescriptorModuleName } && plugin.layout.includedModules.size > 1
+        } ?: error("Cannot find plugin with embedded frontend $embeddedFrontendDescriptorModuleName")
+        listOf(platformContainer, platformLayout.descriptorCacheContainer.forPlugin(pluginWithEmbeddedFrontend.dir))
+      }
+      else emptyList()
+
     bundledPlugins.forEach { plugin ->
       val descriptorContainer = platformLayout.descriptorCacheContainer.forPlugin(plugin.dir)
       val fileContent = descriptorContainer.getCachedFileData(PLUGIN_XML_RELATIVE_PATH)
                         ?: error("Cannot find plugin.xml for ${plugin.dir} in the cache")
-      val pluginId = processPluginDescriptor(fileContent, descriptorContainer, presentablePluginDescription = plugin.dir.pathString)
+      val pluginId = processPluginDescriptor(fileContent, descriptorContainer, additionalContainersForEmbeddedFrontend, presentablePluginDescription = plugin.dir.pathString)
       pluginDescriptorModuleNameToId[plugin.layout.mainModule] = pluginId
     }
-    pluginHeaders = bundledPlugins.map { plugin ->
+    val corePluginModuleId = createModuleId(corePluginDescriptorModuleName, project)
+    val corePluginHeader = createCorePluginHeader(platformEntries, corePluginModuleId, project)
+    pluginHeaders = listOf(corePluginHeader) + bundledPlugins.map { plugin ->
       createPluginHeader(plugin, pluginId = pluginDescriptorModuleNameToId.getValue(plugin.layout.mainModule), project = project)
     }
   }
@@ -50,6 +72,7 @@ internal class ContentModuleDetectorImpl(platformLayout: PlatformLayout, bundled
   private fun processPluginDescriptor(
     fileContent: ByteArray,
     descriptorContainer: ScopedCachedDescriptorContainer,
+    additionalContainersForEmbeddedFrontend: List<ScopedCachedDescriptorContainer>,
     presentablePluginDescription: String,
   ): String {
     val rootTag = JDOMUtil.load(fileContent)
@@ -60,8 +83,12 @@ internal class ContentModuleDetectorImpl(platformLayout: PlatformLayout, bundled
         val moduleName = moduleTag.getAttributeValue("name") ?: error("'name' attribute is missing for <module> tag in plugin.xml in $presentablePluginDescription")
         if (moduleName.contains("/")) return@forEach //todo remove this check after all content modules are extracted to separate JPS modules (IJPL-165543)
 
-        val moduleXmlData = descriptorContainer.getCachedFileData("$moduleName.xml")
-                            ?: error("Cannot find $moduleName.xml descriptor for $presentablePluginDescription")
+        val descriptorName = "$moduleName.xml"
+        var moduleXmlData = descriptorContainer.getCachedFileData(descriptorName)
+        if (moduleXmlData == null && pluginId == "com.intellij") {
+          moduleXmlData = additionalContainersForEmbeddedFrontend.firstNotNullOfOrNull { it.getCachedFileData(descriptorName) }
+        }
+        require(moduleXmlData != null) { "Cannot find $descriptorName descriptor for $presentablePluginDescription" }
         val moduleXmlRoot = JDOMUtil.load(moduleXmlData)
         val visibility = parseVisibility(moduleXmlRoot)
         val loadingRule = parseLoadingRule(moduleTag)
@@ -92,7 +119,15 @@ internal class ContentModuleDetectorImpl(platformLayout: PlatformLayout, bundled
 
   private fun createPluginHeader(plugin: PluginBuildDescriptor, pluginId: String, project: JpsProject): RawRuntimePluginHeader {
     val pluginDescriptorModuleId = createModuleId(plugin.layout.mainModule, project)
-    val includedModules = plugin.distribution.mapNotNull { entry ->
+    val includedModules = convertDistributionEntriesToIncludedModules(plugin.distribution, project)
+    return RawRuntimePluginHeader.create(pluginId, pluginDescriptorModuleId, includedModules)
+  }
+
+  private fun convertDistributionEntriesToIncludedModules(
+    entries: Collection<DistributionFileEntry>,
+    project: JpsProject,
+  ): List<RawIncludedRuntimeModule> {
+    val includedModules = entries.mapNotNull { entry ->
       val relativeOutputPath = entry.relativeOutputFile ?: ""
       when (entry) {
         is ModuleOutputEntry -> {
@@ -114,7 +149,12 @@ internal class ContentModuleDetectorImpl(platformLayout: PlatformLayout, bundled
         is CustomAssetEntry -> null
       }?.takeIf { shouldIncludeInPluginHeader(it.moduleId, relativeOutputPath) }
     }
-    return RawRuntimePluginHeader.create(pluginId, pluginDescriptorModuleId, includedModules)
+    return includedModules
+  }
+
+  private fun createCorePluginHeader(platformEntries: List<DistributionFileEntry>, pluginDescriptorModuleId: RuntimeModuleId, project: JpsProject): RawRuntimePluginHeader {
+    val includedModules = convertDistributionEntriesToIncludedModules(platformEntries, project)
+    return RawRuntimePluginHeader.create("com.intellij", pluginDescriptorModuleId, includedModules)
   }
 
   /**

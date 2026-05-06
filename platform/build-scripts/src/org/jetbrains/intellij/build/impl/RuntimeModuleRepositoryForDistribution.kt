@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.classPath.PluginBuildDescriptor
+import org.jetbrains.intellij.build.classPath.getEmbeddedProductTempPluginDir
 import org.jetbrains.intellij.build.impl.plugins.buildPlugins
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ContentReport
 import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
@@ -55,20 +56,27 @@ internal suspend fun generateRuntimeModuleRepositoryForDistribution(
   context: BuildContext,
   platformLayout: PlatformLayout,
 ) {
-  val repositoryEntries = ArrayList<RuntimeModuleRepositoryEntry>()
   val osSpecificDistPaths = listOf(null to context.paths.distAllDir) +
                             SUPPORTED_DISTRIBUTIONS.map { it to getOsAndArchSpecificDistDirectory(osFamily = it.os, arch = it.arch, libc = it.libcImpl, context = context) }
-  for (entry in contentReport.bundled()) {
-    val (distribution, rootPath) = osSpecificDistPaths.find { entry.path.startsWith(it.second) } ?: continue
+
+  fun convertToRuntimeModuleRepositoryEntry(entry: DistributionFileEntry): RuntimeModuleRepositoryEntry? {
+    val (distribution, rootPath) = osSpecificDistPaths.find { entry.path.startsWith(it.second) } ?: return null
 
     val pathInDist = rootPath.relativize(entry.path).invariantSeparatorsPathString
-    repositoryEntries.add(RuntimeModuleRepositoryEntry(distribution = distribution, relativePath = pathInDist, origin = entry))
+    return RuntimeModuleRepositoryEntry(distribution = distribution, relativePath = pathInDist, origin = entry)
   }
 
-  if (repositoryEntries.all { it.distribution == null } && contentReport.bundledPlugins.all { it.os == null && it.arch == null }) {
+  val platformEntries = contentReport.platform.mapNotNull(::convertToRuntimeModuleRepositoryEntry)
+  val bundledPluginEntries = contentReport.bundledPlugins.flatMap {
+    it.distribution.mapNotNull(::convertToRuntimeModuleRepositoryEntry)
+  }
+
+  if (platformEntries.all { it.distribution == null } && bundledPluginEntries.all { it.distribution == null }
+      && contentReport.bundledPlugins.all { it.os == null && it.arch == null }) {
     generateRepositoryForDistribution(
       targetDirectory = context.paths.distAllDir,
-      entries = repositoryEntries,
+      platformEntries = platformEntries,
+      bundledPluginEntries = bundledPluginEntries,
       bundledPlugins = contentReport.bundledPlugins,
       platformLayout = platformLayout,
       context = context,
@@ -78,16 +86,18 @@ internal suspend fun generateRuntimeModuleRepositoryForDistribution(
     SUPPORTED_DISTRIBUTIONS
       .filter { context.shouldBuildDistributionForOS(it.os, it.arch) }
       .forEach { distribution ->
-      val targetDirectory = getOsAndArchSpecificDistDirectory(osFamily = distribution.os, arch = distribution.arch, libc = distribution.libcImpl, context = context)
-      val actualEntries = repositoryEntries.filter { it.distribution == null || it.distribution == distribution }
-      val actualPlugins = contentReport.bundledPlugins.filter { (it.os == null || it.os == distribution.os) && (it.arch == null || it.arch == distribution.arch) }
-      generateRepositoryForDistribution(
-        targetDirectory = targetDirectory,
-        entries = actualEntries,
-        bundledPlugins = actualPlugins,
-        context = context,
-        platformLayout = platformLayout,
-      )
+        val targetDirectory = getOsAndArchSpecificDistDirectory(osFamily = distribution.os, arch = distribution.arch, libc = distribution.libcImpl, context = context)
+        val actualPlatformEntries = platformEntries.filter { it.distribution == null || it.distribution == distribution }
+        val actualBundledPluginEnries = bundledPluginEntries.filter { it.distribution == null || it.distribution == distribution }
+        val actualPlugins = contentReport.bundledPlugins.filter { (it.os == null || it.os == distribution.os) && (it.arch == null || it.arch == distribution.arch) }
+        generateRepositoryForDistribution(
+          targetDirectory = targetDirectory,
+          platformEntries = actualPlatformEntries,
+          bundledPluginEntries = actualBundledPluginEnries,
+          bundledPlugins = actualPlugins,
+          context = context,
+          platformLayout = platformLayout,
+        )
     }
   }
 }
@@ -102,16 +112,27 @@ internal suspend fun generateRuntimeModuleRepositoryForDevBuild(
   context: BuildContext,
   platformLayout: PlatformLayout
 ) {
-  val actualEntries = contentReport.bundled().map { entry ->
+  val platformEntries = contentReport.platform.map { entry ->
     RuntimeModuleRepositoryEntry(
       distribution = null,
       relativePath = targetDirectory.relativize(entry.path).invariantSeparatorsPathString,
       origin = entry,
     )
   }
+  val bundledPluginEntries = contentReport.bundledPlugins.flatMap { plugin ->
+    plugin.distribution.map { entry ->
+      RuntimeModuleRepositoryEntry(
+        distribution = null,
+        relativePath = targetDirectory.relativize(entry.path).invariantSeparatorsPathString,
+        origin = entry,
+      )
+    }
+
+  }
   generateRepositoryForDistribution(
     targetDirectory = targetDirectory,
-    entries = actualEntries.toList(),
+    platformEntries = platformEntries,
+    bundledPluginEntries = bundledPluginEntries,
     bundledPlugins = contentReport.bundledPlugins,
     platformLayout = platformLayout,
     context = context,
@@ -176,11 +197,13 @@ private data class RuntimeModuleRepositoryEntry(
 
 private suspend fun generateRepositoryForDistribution(
   targetDirectory: Path,
-  entries: List<RuntimeModuleRepositoryEntry>,
+  platformEntries: List<RuntimeModuleRepositoryEntry>,
+  bundledPluginEntries: List<RuntimeModuleRepositoryEntry>,
   context: BuildContext,
   bundledPlugins: List<PluginBuildDescriptor>,
   platformLayout: PlatformLayout,
 ) {
+  val entries = platformEntries + bundledPluginEntries
   val mainPathsForResources = computeMainPathsForResourcesCopiedToMultiplePlaces(entries, context)
   fun isMainPath(element: JpsNamedElement, path: String): Boolean {
     val mainPath = mainPathsForResources[element]
@@ -229,7 +252,16 @@ private suspend fun generateRepositoryForDistribution(
   addMappingsForDuplicatingLibraries(libraryPaths, moduleProductionPaths)
 
   val additionalFrontendPlugins = computeDescriptorsForAdditionalFrontendPlugins(context, bundledPlugins, platformLayout)
-  val contentModuleDetector = ContentModuleDetectorImpl(platformLayout, bundledPlugins + additionalFrontendPlugins, context.project)
+  val corePluginDescriptorModuleName = context.productProperties.applicationInfoModule
+  val embeddedFrontendDescriptorModuleName = context.getEmbeddedFrontendProductContext()?.productProperties?.applicationInfoModule
+  val contentModuleDetector = ContentModuleDetectorImpl(
+    platformLayout,
+    corePluginDescriptorModuleName,
+    platformEntries.map { it.origin },
+    bundledPlugins + additionalFrontendPlugins,
+    embeddedFrontendDescriptorModuleName,
+    context.project
+  )
   val distDescriptors = RuntimeModuleRepositoryGenerator.generateRuntimeModuleDescriptors(
     includedProduction = moduleProductionPaths.keySet(),
     includedTests = moduleTestPaths.keySet(),
@@ -262,36 +294,60 @@ private suspend fun generateRepositoryForDistribution(
 }
 
 /**
- * There are quite a few custom 'Xxx for JetBrains Client' plugins, which are not bundled with the IDE but are used in the frontend process.
- * Until we get rid of them (see IJPL-220139), we need to generate headers for these plugins to load them in the frontend process started from the big IDE.
- * This function computes layouts of such additional plugins and converts them to [PluginBuildDescriptor].
+ * Returns the list of descriptors for additional plugins which should be added to the runtime module repository.
+ * These plugins are not bundled with the IDE, but they are used from the frontend process started from the IDE.
+ * To be able to run the frontend process from a regular IDE, we need to include information about its modules to the runtime module repository.
  */
 private suspend fun computeDescriptorsForAdditionalFrontendPlugins(
   context: BuildContext,
   bundledPlugins: List<PluginBuildDescriptor>,
   platformLayout: PlatformLayout,
 ): List<PluginBuildDescriptor> {
-  val additionalFrontendPlugins = TraceManager.spanBuilder("compute layout of additional plugins for embedded frontend").use {
-    val frontendContextForLaunchers = context.getEmbeddedFrontendProductContext()
-    val pluginDescriptorModulesForFrontend = frontendContextForLaunchers?.getBundledPluginModules() ?: return@use emptyList()
-    val additionalPluginModules = pluginDescriptorModulesForFrontend - bundledPlugins.mapTo(HashSet()) { it.layout.mainModule }
-    if (additionalPluginModules.isEmpty()) return@use emptyList()
+  return TraceManager.spanBuilder("compute layout of additional plugins for embedded frontend").use {
+    val embeddedFrontendContext = context.getEmbeddedFrontendProductContext() ?: return@use emptyList()
 
-    val additionalPluginModuleLayouts = getPluginLayoutsByJpsModuleNames(additionalPluginModules, frontendContextForLaunchers.productProperties.productLayout)
-    buildPlugins(
-      plugins = additionalPluginModuleLayouts,
-      os = null,
-      arch = null,
-      targetDir = context.paths.tempDir.resolve("frontend-plugins-layout"),
-      platformEntriesProvider = null,
+    //creates a descriptor for the core plugin of the embedded frontend
+    val embeddedFrontendTargetDir = getEmbeddedProductTempPluginDir(context, embeddedFrontendContext.productProperties.applicationInfoModule)
+    val embeddedFrontendPlatformEntries = layoutPlatformDistribution(
+      moduleOutputPatcher = ModuleOutputPatcher(),
+      targetDir = embeddedFrontendTargetDir,
+      platform = createPlatformLayout(embeddedFrontendContext),
       searchableOptionSet = null,
-      descriptorCacheContainer = platformLayout.descriptorCacheContainer,
-      state = context.distributionState(),
-      context = context,
       copyFiles = false,
+      context = embeddedFrontendContext,
     )
+
+    val additionalFrontendPlugins = mutableListOf(
+      PluginBuildDescriptor(
+        dir = embeddedFrontendTargetDir,
+        os = null,
+        arch = null,
+        layout = PluginLayout.plugin(embeddedFrontendContext.productProperties.applicationInfoModule),
+        distribution = embeddedFrontendPlatformEntries,
+      )
+    )
+
+    val pluginDescriptorModulesForFrontend = embeddedFrontendContext.getBundledPluginModules()
+    val additionalPluginModules = pluginDescriptorModulesForFrontend - bundledPlugins.mapTo(HashSet()) { it.layout.mainModule }
+    if (additionalPluginModules.isNotEmpty()) {
+      /* generate descriptors for custom 'Xxx for JetBrains Client' plugins, which are not bundled with the IDE but are used in the frontend process; eventually we'll get rid of
+         them (see IJPL-220139) */
+      val additionalPluginModuleLayouts = getPluginLayoutsByJpsModuleNames(additionalPluginModules, embeddedFrontendContext.productProperties.productLayout)
+      additionalFrontendPlugins.addAll(buildPlugins(
+        plugins = additionalPluginModuleLayouts,
+        os = null,
+        arch = null,
+        targetDir = context.paths.tempDir.resolve("frontend-plugins-layout"),
+        platformEntriesProvider = null,
+        searchableOptionSet = null,
+        descriptorCacheContainer = platformLayout.descriptorCacheContainer,
+        state = context.distributionState(),
+        context = context,
+        copyFiles = false,
+      ))
+    }
+    additionalFrontendPlugins
   }
-  return additionalFrontendPlugins
 }
 
 internal fun hasTestSourcesAndNoProductionSources(module: JpsModule): Boolean {

@@ -11,7 +11,6 @@ import com.intellij.openapi.help.HelpManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.observable.properties.AtomicProperty
 import com.intellij.openapi.observable.properties.ObservableProperty
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.ui.validation.DialogValidationRequestor
@@ -42,18 +41,12 @@ import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
 import com.jetbrains.python.parser.icons.PythonParserIcons
-import com.jetbrains.python.psi.LanguageLevel
-import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory
 import com.jetbrains.python.sdk.LOGGER
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.configuration.CONDA_TOOL_ID
 import com.jetbrains.python.sdk.configuration.PIPENV_TOOL_ID
 import com.jetbrains.python.sdk.configuration.VENV_TOOL_ID
-import com.jetbrains.python.sdk.createSdk
 import com.jetbrains.python.sdk.excludeInnerVirtualEnv
-import com.jetbrains.python.sdk.flavors.PyFlavorAndData
-import com.jetbrains.python.sdk.flavors.PyFlavorData
-import com.intellij.python.venv.sdk.flavors.VirtualEnvSdkFlavor
 import com.jetbrains.python.sdk.installSdkIfNeeded
 import com.jetbrains.python.sdk.moduleIfExists
 import com.jetbrains.python.sdk.persist
@@ -62,7 +55,6 @@ import com.jetbrains.python.sdk.service.PySdkService.Companion.pySdkService
 import com.jetbrains.python.sdk.setAssociationToModule
 import com.jetbrains.python.statistics.InterpreterTarget
 import com.jetbrains.python.statistics.PythonInterpreterInstallationIdsHolder.Companion.PYTHON_INSTALLATION_INTERRUPTED
-import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import com.jetbrains.python.target.ui.TargetPanelExtension
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -214,36 +206,6 @@ internal fun installBaseSdk(sdk: Sdk, existingSdks: List<Sdk>): Sdk? {
 }
 
 
-internal suspend fun <P : PathHolder> setupSdk(
-  project: Project?,
-  fileSystem: FileSystem<P>,
-  pythonBinaryPath: P,
-  languageLevel: LanguageLevel,
-  targetPanelExtension: TargetPanelExtension?,
-): PyResult<Sdk> {
-
-  val (additionalData, customSdkSuggestedName) = when (fileSystem) {
-    is FileSystem.Eel -> null to null
-    is FileSystem.Target -> {
-      val data = PyTargetAwareAdditionalData(PyFlavorAndData(PyFlavorData.Empty, VirtualEnvSdkFlavor.getInstance())).also {
-        it.interpreterPath = pythonBinaryPath.toString()
-        it.targetEnvironmentConfiguration = fileSystem.targetEnvironmentConfiguration
-      }
-      targetPanelExtension?.let {
-        it.applyToTargetConfiguration()
-        it.applyToAdditionalData(data)
-      }
-      val name = PythonInterpreterTargetEnvironmentFactory.findDefaultSdkName(project, data, languageLevel.toPythonVersion())
-      data to name
-    }
-  }
-
-  return createSdk(
-    pythonBinaryPath,
-    customSdkSuggestedName,
-    additionalData
-  )
-}
 
 internal suspend fun <P : PathHolder> PythonSelectableInterpreter<P>.setupSdk(
   moduleOrProject: ModuleOrProject,
@@ -255,9 +217,8 @@ internal suspend fun <P : PathHolder> PythonSelectableInterpreter<P>.setupSdk(
     return PyResult.success(sdkWrapper.sdk)
   }
 
-  val newSdk = setupSdk(
+  val newSdk = fileSystem.setupSdk(
     project = moduleOrProject.project,
-    fileSystem = fileSystem,
     pythonBinaryPath = homePath!!,
     languageLevel = pythonInfo.languageLevel,
     targetPanelExtension = targetPanelExtension

@@ -10,27 +10,29 @@ package com.intellij.ide.starter.models
  */
 enum class IdeInfoType(
   val productCode: String,
+  val executableFileName: String,
+  val fullName: String,
 ) {
-  GOLAND("GO"),
-  IDEA_ULTIMATE("IU"),
-  IDEA_COMMUNITY("IC"),
-  ANDROID_STUDIO("AI"),
-  WEBSTORM("WS"),
-  PHPSTORM("PS"),
-  DATAGRIP("DB"),
-  RUBYMINE("RM"),
-  PYCHARM("PY"),
-  CLION("CL"),
-  DATASPELL("DS"),
-  PYCHARM_COMMUNITY("PC"),
-  AQUA("QA"),
-  RUSTROVER("RR"),
-  RIDER("RD"),
-  GATEWAY("GW");
+  GOLAND("GO", "goland", "GoLand"),
+  IDEA_ULTIMATE("IU", "idea", "IDEA"),
+  IDEA_COMMUNITY("IC", "idea", "IDEA Community"),
+  ANDROID_STUDIO("AI", "studio", "Android Studio"),
+  WEBSTORM("WS", "webstorm", "WebStorm"),
+  PHPSTORM("PS", "phpstorm", "PhpStorm"),
+  DATAGRIP("DB", "datagrip", "DataGrip"),
+  RUBYMINE("RM", "rubymine", "RubyMine"),
+  PYCHARM("PY", "pycharm", "PyCharm"),
+  CLION("CL", "clion", "CLion"),
+  DATASPELL("DS", "dataspell", "DataSpell"),
+  PYCHARM_COMMUNITY("PC", "pycharm", "PyCharm"),
+  AQUA("QA", "aqua", "Aqua"),
+  RUSTROVER("RR", "rustrover", "RustRover"),
+  RIDER("RD", "rider", "Rider"),
+  GATEWAY("GW", "gateway", "Gateway");
 
   companion object {
-    fun fromProductCode(productCode: String): IdeInfoType? =
-      entries.find { it.productCode == productCode }
+    fun fromProductCode(productCode: String): IdeInfoType =
+      entries.find { it.productCode == productCode } ?: error("Unknown product code: $productCode")
   }
 }
 

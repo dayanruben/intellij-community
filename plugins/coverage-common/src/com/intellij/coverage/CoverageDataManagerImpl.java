@@ -36,6 +36,10 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -170,6 +174,25 @@ public class CoverageDataManagerImpl extends CoverageDataManager implements Disp
                                                 @NotNull CoverageFileProvider fileProvider) {
     return CoverageDataSuitesManager.getInstance(myProject)
       .addExternalCoverageSuite(selectedFileName, coverageRunner, fileProvider, timeStamp);
+  }
+
+  @Override
+  public CoverageSuite addExternalCoverageSuite(@NotNull Path file, @NotNull CoverageRunner coverageRunner) {
+    Path fileName = file.getFileName();
+    String selectedFileName = fileName == null ? file.toString() : fileName.toString();
+    Path absoluteFile = file.toAbsolutePath();
+    long timeStamp = getLastModified(absoluteFile);
+    return CoverageDataSuitesManager.getInstance(myProject)
+      .addExternalCoverageSuite(selectedFileName, coverageRunner, new DefaultCoverageFileProvider(absoluteFile), timeStamp);
+  }
+
+  private static long getLastModified(@NotNull Path file) {
+    try {
+      return Files.getLastModifiedTime(file).toMillis();
+    }
+    catch (IOException e) {
+      return 0;
+    }
   }
 
   @Override

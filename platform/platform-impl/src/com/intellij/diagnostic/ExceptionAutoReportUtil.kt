@@ -45,6 +45,8 @@ object ExceptionAutoReportUtil {
   val isAutoReportEnabled: Boolean
     get() {
       if (!isAutoReportVisible) return false
+      if (isDevelopmentEnvironment) return ENABLED_FOR_DEVELOPMENT
+
       return isAutoReportAllowedByUser()
     }
 
@@ -70,9 +72,7 @@ object ExceptionAutoReportUtil {
             || AppMode.isRunningFromDevBuild()
             || PluginManagerCore.isRunningFromSources()
 
-  private fun isAutoReportAllowedByUser(): Boolean {
-    if (isDevelopmentEnvironment) return ENABLED_FOR_DEVELOPMENT
-
+  fun isAutoReportAllowedByUser(): Boolean {
     if (isAutoReportForced) return true // set by provisioning
     if (ConsentOptions.getInstance().isEAP) {
       return ExceptionEAPAutoReportManager.getInstance().enabledInEAP
@@ -122,13 +122,16 @@ object ExceptionAutoReportUtil {
 
   fun enablingAutoReportOffered(autoReportEnabled: Boolean) {
     if (!isAutoReportVisible) return
+
     ConsentOptions.getInstance().setEAAutoReportAllowed(autoReportEnabled)
-    PropertiesComponent.getInstance().setValue(EA_AUTO_REPORT_OFFERED_PROPERTY, true)
+    ExceptionEAPAutoReportManager.getInstance().enabledInEAP = autoReportEnabled
 
     val consent = getConsentAndNeedsReconfirm().first
     if (consent != null) {
       PropertiesComponent.getInstance().setValue("$EA_AUTO_REPORT_OFFERED_PROPERTY.${consent.version}", true)
     }
+
+    PropertiesComponent.getInstance().setValue(EA_AUTO_REPORT_OFFERED_PROPERTY, true)
   }
 
   /**

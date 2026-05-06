@@ -25,6 +25,6 @@ internal class PipEnvLockAction() : PipEnvPackageManagerAction() {
 
 internal class PipEnvInstallEnvAction() : PipEnvPackageManagerAction() {
   override suspend fun execute(e: AnActionEvent, manager: PipEnvPackageManager): PyResult<Unit> {
-    return manager.sync().mapSuccess { }
+    return manager.syncLocked().mapSuccess { }
   }
 }

@@ -1948,11 +1948,11 @@ private class RecordingPromptLaunchProviderBridge(
 
   override fun isCliAvailable(): Boolean = true
 
-  override fun buildResumeLaunchSpec(sessionId: String): AgentSessionTerminalLaunchSpec {
+  override suspend fun buildResumeLaunchSpec(sessionId: String): AgentSessionTerminalLaunchSpec {
     return AgentSessionTerminalLaunchSpec(command = listOf("test", "resume", sessionId))
   }
 
-  override fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec {
+  override suspend fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec {
     createCalls.incrementAndGet()
     lastCreateMode.set(mode)
     return AgentSessionTerminalLaunchSpec(command = listOf("test", "new", mode.name))

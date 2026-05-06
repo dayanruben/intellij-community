@@ -414,45 +414,25 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     }
   }
 
-  /**
-   * Flush pending/in-progress operations (e.g. async IO), if any.
-   * <p/>
-   * This method is internal because in most use-cases you shouldn't need this method: if you access files via VFS
-   * only, then VFS hides all the asynchronicity involved.
-   * But if you switch between VFS and java.io.File/Path APIs to access files, then the fact that VFS may postpone
-   * some IO operations becomes observable -- and you may need this method. Also, it may be necessary than switching
-   * outside IDE and then running external processes that access the files modified via VFS.
-   */
-  @ApiStatus.Internal
-  public static void flushPendingUpdates() throws IOException {
+  @ApiStatus.Experimental
+  @Override
+  public void flushPendingUpdates() throws IOException {
     for (AsyncableFileSystem asyncableFileSystem : asyncableFileSystems()) {
       asyncableFileSystem.fsync();
     }
   }
 
-  /**
-   * Flush pending/in-progress operations (e.g. async IO), if any, for a given file -- i.e., the scope is smaller than
-   * for {@linkplain #flushPendingUpdates()}.
-   * <p/>
-   * This method is internal because in most use-cases you shouldn't need this method: if you access files via VFS
-   * only, then VFS hides all the asynchronicity involved.
-   * But if you switch between VFS and java.io.File/Path APIs to access files, then the fact that VFS may postpone
-   * some IO operations becomes observable -- and you may need this method. Also, it may be necessary than switching
-   * outside IDE and then running external processes that access the files modified via VFS.
-   */
-  @ApiStatus.Internal
-  public static void flushPendingUpdates(@NotNull VirtualFile file) throws IOException {
+  @ApiStatus.Experimental
+  @Override
+  public void flushPendingUpdates(@NotNull VirtualFile file) throws IOException {
     if (file.getFileSystem() instanceof @NotNull AsyncableFileSystem afs) {
       afs.fsync(file);
     }
   }
 
-  /**
-   * Does {@linkplain #flushPendingUpdates()}, catches exceptions if any, and <b>show notification to user</b>.
-   * @see #flushPendingUpdates()
-   */
-  @ApiStatus.Internal
-  public static void flushPendingUpdatesOrNotify() {
+  @ApiStatus.Experimental
+  @Override
+  public void flushPendingUpdatesOrNotify() {
     try {
       flushPendingUpdates();
     }

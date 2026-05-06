@@ -153,9 +153,9 @@ fun startApplication(
     }
   }
 
-  val initAwtToolkitJob = scheduleInitAwtToolkit(scope, lockSystemDirsJob, busyThread)
+  val initAwtToolkitJob = scheduleInitAwtToolkit(scope = scope, lockSystemDirsJob = lockSystemDirsJob, busyThread = busyThread)
   val initBaseLafJob = scope.launch {
-    initUi(initAwtToolkitJob, isHeadless, asyncScope = scope)
+    initUi(initAwtToolkitJob = initAwtToolkitJob, isHeadless = isHeadless, asyncScope = scope)
   }
 
   var initUiScale: Job? = null
@@ -173,9 +173,9 @@ fun startApplication(
       }
     }
 
-    scheduleUpdateFrameClassAndWindowIconAndPreloadSystemFonts(scope, initAwtToolkitJob, initUiScale, appInfoDeferred)
+    scheduleUpdateFrameClassAndWindowIconAndPreloadSystemFonts(scope = scope, initAwtToolkitJob = initAwtToolkitJob, initUiScale = initUiScale, appInfoDeferred = appInfoDeferred)
 
-    scheduleShowSplashIfNeeded(scope, lockSystemDirsJob, initUiScale, appInfoDeferred, args)
+    scheduleShowSplashIfNeeded(scope = scope, lockSystemDirsJob = lockSystemDirsJob, initUiScale = initUiScale, appInfoDeferred = appInfoDeferred, args = args)
   }
 
   val initLafJob = scope.launch {
@@ -224,18 +224,36 @@ fun startApplication(
     logDeferred.join()
     span("environment loading", Dispatchers.IO) {
       val log = logger<AppStarter>()
-      if (shouldLoadShellEnv(log)) loadEnvironment(coroutineContext.job, log) else null
+      if (shouldLoadShellEnv(log)) {
+        loadEnvironment(coroutineContext.job, log)
+      }
+      else null
     }
   }
 
-  scheduleLoadSystemLibsAndLogInfoAndInitMacApp(scope, logDeferred, appInfoDeferred, initLafJob, args, mainScope)
+  scheduleLoadSystemLibsAndLogInfoAndInitMacApp(
+    scope = scope,
+    logDeferred = logDeferred,
+    appInfoDeferred = appInfoDeferred,
+    initUiDeferred = initLafJob,
+    args = args,
+    mainScope = mainScope,
+  )
 
   val euaDocumentDeferred = scope.async { loadEuaDocument(appInfoDeferred) }
 
   val configImportDeferred = scope.async {
     importConfigIfNeeded(
-      scope, isHeadless, configImportNeededDeferred, lockSystemDirsJob, logDeferred, args,
-      customTargetDirectoryToImportConfig, appStarterDeferred, euaDocumentDeferred, initLafJob
+      scope = scope,
+      isHeadless = isHeadless,
+      configImportNeededDeferred = configImportNeededDeferred,
+      lockSystemDirsJob = lockSystemDirsJob,
+      logDeferred = logDeferred,
+      args = args,
+      customTargetDirectoryToImportConfig = customTargetDirectoryToImportConfig,
+      appStarterDeferred = appStarterDeferred,
+      euaDocumentDeferred = euaDocumentDeferred,
+      initLafJob = initLafJob,
     )
   }
 
@@ -272,7 +290,12 @@ fun startApplication(
       }
     }
 
-    PluginManagerCore.scheduleDescriptorLoading(coroutineScope = this, zipPoolDeferred, mainClassLoaderDeferred, logDeferred)
+    PluginManagerCore.scheduleDescriptorLoading(
+      coroutineScope = this,
+      zipPoolDeferred = zipPoolDeferred,
+      mainClassLoaderDeferred = mainClassLoaderDeferred,
+      logDeferred = logDeferred,
+    )
   }
 
   val isInternal = System.getProperty(ApplicationManagerEx.IS_INTERNAL_PROPERTY).toBoolean()
@@ -318,7 +341,18 @@ fun startApplication(
     }
 
     val args = ApplicationStartArguments.stripKnownArguments(args)
-    loadApp(app, pluginSetDeferred, appInfoDeferred, euaDocumentDeferred, scope, initLafJob, logDeferred, appRegisteredJob, args, initEventQueueJob)
+    loadApp(
+      app = app,
+      pluginSetDeferred = pluginSetDeferred,
+      appInfoDeferred = appInfoDeferred,
+      euaDocumentDeferred = euaDocumentDeferred,
+      asyncScope = scope,
+      initLafJob = initLafJob,
+      logDeferred = logDeferred,
+      appRegisteredJob = appRegisteredJob,
+      args = args,
+      initAwtToolkitAndEventQueueJob = initEventQueueJob,
+    )
   }
 
   scope.launch {

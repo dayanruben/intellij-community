@@ -830,6 +830,9 @@ f:com.intellij.modcommand.ModRegisterTabOut
 - rangeEnd():I
 - rangeStart():I
 - target():I
+f:com.intellij.modcommand.ModStartTemplate$DependantVariableField
+- <init>(com.intellij.openapi.util.TextRange,java.lang.String,java.lang.String,Z,java.lang.String):V
+- defaultValue():java.lang.String
 com.intellij.modcommand.ModTemplateBuilder
 - a:field(com.intellij.psi.PsiElement,com.intellij.codeInsight.template.Expression):com.intellij.modcommand.ModTemplateBuilder
 - a:field(com.intellij.psi.PsiElement,com.intellij.openapi.util.TextRange,java.lang.String,com.intellij.codeInsight.template.Expression):com.intellij.modcommand.ModTemplateBuilder

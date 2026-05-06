@@ -17,7 +17,7 @@ import kotlin.time.Duration.Companion.days
 
 private val keyLocks = StripedMutex(256)
 // Bump this version when build scripts semantics affecting cache contents change.
-private const val CACHE_VERSION = 0
+private const val CACHE_VERSION = 1
 
 class LocalDiskJarCacheManager(
   cacheDir: Path,

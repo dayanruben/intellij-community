@@ -446,6 +446,10 @@ object CommunityModuleSets {
     module("intellij.platform.structuralSearch")
     embeddedModule("intellij.libraries.batik")
 
+    // IJent platform modules
+    module("intellij.platform.ijent.impl")
+    module("intellij.platform.ijent.wsl")
+
     // Note: rd.common is intentionally NOT included in ide.common
     // Reason: Rider uses custom module loading mode due to early backend startup requirements.
     // Products that need rd.common include it explicitly in their product files.

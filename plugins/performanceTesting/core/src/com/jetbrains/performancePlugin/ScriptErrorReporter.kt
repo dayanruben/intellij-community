@@ -57,7 +57,6 @@ private suspend fun reportScriptError(errorMessage: AbstractMessage) {
     val throwable = errorMessage.throwable
     var cause: Throwable? = throwable
     var causeMessage: String? = ""
-    val maxSyntheticTestNameLength = 250
 
     var syntheticTestName: String? = throwable.javaClass.name + ": " + throwable.message
     while (cause!!.cause != null) {
@@ -110,7 +109,7 @@ private suspend fun reportScriptError(errorMessage: AbstractMessage) {
       }
 
       Files.writeString(errorDir.resolve(MESSAGE_FILE), causeMessage)
-      Files.writeString(errorDir.resolve(SYNTHETIC_TEST_NAME_FILE), (syntheticTestName ?: causeMessage).take(maxSyntheticTestNameLength))
+      Files.writeString(errorDir.resolve(SYNTHETIC_TEST_NAME_FILE), syntheticTestName ?: causeMessage)
       if (activeTestNameFile.exists()) {
         Files.copy(activeTestNameFile, errorDir.resolve(ACTIVE_TEST_NAME_FILE))
       }

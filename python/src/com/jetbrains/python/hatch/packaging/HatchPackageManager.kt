@@ -22,7 +22,7 @@ internal class HatchPackageManager(project: Project, sdk: Sdk) : PipPythonPackag
                     "but was ${sdk.sdkAdditionalData?.javaClass?.name}")
   }
 
-  override suspend fun syncCommand(): PyResult<Unit> {
+  override suspend fun syncLockedCommand(): PyResult<Unit> {
     val hatchService = getHatchService().getOr { return it }
     return hatchService.syncDependencies().mapSuccess { }
   }

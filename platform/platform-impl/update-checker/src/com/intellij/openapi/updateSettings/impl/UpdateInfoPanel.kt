@@ -216,6 +216,7 @@ internal class UpdateInfoPanel(
     val bgImage = DialogBackgroundImageProvider.getInstance().getImage(isDark)
     if (bgImage != null) {
       DialogBackgroundImageProvider.getInstance().setBackgroundImageToDialog(dialog, bgImage)
+      mainPanel.putClientProperty(DialogWrapper.IS_VISUAL_PADDING_COMPENSATED_ON_COMPONENT_LEVEL_KEY, false)
     }
     return mainPanel
   }

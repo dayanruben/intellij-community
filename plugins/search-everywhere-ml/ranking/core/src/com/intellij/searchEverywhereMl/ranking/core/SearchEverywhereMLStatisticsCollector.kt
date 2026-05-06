@@ -129,13 +129,14 @@ object SearchEverywhereMLStatisticsCollector : CounterUsagesCollector() {
     }
   }
 
-  internal fun onSessionFinished(project: Project?, sessionId: Int, tab: SearchEverywhereTab, sessionDurationMs: Int) {
+  internal fun onSessionFinished(project: Project?, sessionId: Int, tab: SearchEverywhereTab, sessionDurationMs: Int, isCorrupted: Boolean) {
     if (!isLoggingEnabled) return
 
     SESSION_FINISHED.log(project) {
       add(SESSION_ID.with(sessionId))
       add(SESSION_DURATION.with(sessionDurationMs))
       add(SE_TAB_ID_KEY.with(tab.tabId))
+      add(SESSION_CORRUPTED.with(isCorrupted))
     }
   }
 
@@ -185,8 +186,8 @@ object SearchEverywhereMLStatisticsCollector : CounterUsagesCollector() {
     }
   }
 
-  internal val GROUP = EventLogGroup("mlse.log", 134, MLSE_RECORDER_ID,
-                                     "ML in Search Everywhere Log Group")
+  internal val GROUP = EventLogGroup("mlse.log", 135, MLSE_RECORDER_ID,
+                                      "ML in Search Everywhere Log Group")
 
   // region Fields
   internal val IS_INTERNAL = EventFields.Boolean("is_internal")
@@ -198,6 +199,8 @@ object SearchEverywhereMLStatisticsCollector : CounterUsagesCollector() {
 
   @VisibleForTesting
   internal val SESSION_DURATION = EventFields.Int("session_duration", "Duration of the Search Everywhere session in ms")
+  @VisibleForTesting
+  internal val SESSION_CORRUPTED = EventFields.Boolean("is_corrupted", "Whether the session finished without any search state")
   private val TIME_TO_FIRST_RESULT_DATA_KEY = EventFields.Int("time_to_first_result")
 
   // context allFields
@@ -293,9 +296,9 @@ object SearchEverywhereMLStatisticsCollector : CounterUsagesCollector() {
 
   @VisibleForTesting
   val SESSION_FINISHED: VarargEventId = GROUP.registerVarargEvent("session.finished",
-                                                                  "An event denoting finish of a session and closing of a popup",
-                                                                  SESSION_ID,
-                                                                  SESSION_DURATION, SE_TAB_ID_KEY)
+                                                                   "An event denoting finish of a session and closing of a popup",
+                                                                   SESSION_ID,
+                                                                   SESSION_DURATION, SE_TAB_ID_KEY, SESSION_CORRUPTED)
   internal val KEY_NOT_COMPUTED_EVENT = GROUP.registerEvent("key.not.computed",
                                                             SESSION_ID,
                                                             CLASSES_WITHOUT_KEY_PROVIDERS_FIELD,

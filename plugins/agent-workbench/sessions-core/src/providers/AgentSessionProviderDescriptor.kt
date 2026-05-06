@@ -147,9 +147,21 @@ interface AgentSessionProviderDescriptor {
 
   fun isCliAvailable(): Boolean
 
-  fun buildResumeLaunchSpec(sessionId: String): AgentSessionTerminalLaunchSpec
+  /**
+   * Suspending equivalent of [isCliAvailable] that may consult richer (and slower) sources, such as the shared
+   * `TerminalAgentResolver` used by terminal launches. The default implementation falls back to the synchronous
+   * [isCliAvailable] check; provider bridges that ship with absolute-path resolution (Claude, Codex) override
+   * this so menu enable/disable matches the launch-time resolver answer instead of the fast-PATH-only probe.
+   *
+   * UI surfaces that already paint synchronously (sessions tree popup, editor-tab actions, etc.) keep using
+   * [isCliAvailable]; surfaces that can re-paint after a suspending refresh (notably the agent prompt palette)
+   * call this to align with the launch lookup.
+   */
+  suspend fun ensureCliAvailable(): Boolean = isCliAvailable()
 
-  fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec
+  suspend fun buildResumeLaunchSpec(sessionId: String): AgentSessionTerminalLaunchSpec
+
+  suspend fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec
 
   fun buildLaunchSpecWithInitialMessage(
     baseLaunchSpec: AgentSessionTerminalLaunchSpec,

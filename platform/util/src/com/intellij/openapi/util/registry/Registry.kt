@@ -1,4 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment")
+
 package com.intellij.openapi.util.registry
 
 import com.intellij.diagnostic.LoadingState
@@ -223,7 +225,7 @@ class Registry {
           RegistryValueSource.MANAGER.name -> RegistryValueSource.MANAGER
           else -> RegistryValueSource.SYSTEM
         }
-        map[key] = ValueWithSource(value, source)
+        map.put(key, ValueWithSource(value, source))
       }
       return map
     }
@@ -340,7 +342,7 @@ class Registry {
         for ((key, value) in map) {
           val registryValue = registry.resolveValue(key)
           if (value.value != registry.getBundleValueOrNull(registryValue.key)) {
-            userProperties[key] = value
+            userProperties.put(key, value)
             registryValue.resetCache()
           }
         }
@@ -358,7 +360,7 @@ class Registry {
 
   // https://youtrack.jetbrains.com/issue/IJPL-158097/Investigate-allocation-performance-of-Registry.is
   private val valueProducer: Function<String, RegistryValue> = Function {
-    RegistryValue(registry = this, key = it, keyDescriptor = contributedKeys[it])
+    RegistryValue(registry = this, key = it, keyDescriptor = contributedKeys.get(it))
   }
 
   private fun resolveValue(key: String): RegistryValue = values.computeIfAbsent(key, valueProducer)
@@ -372,15 +374,17 @@ class Registry {
   }
 
   @Internal
-  fun getBundleValueOrNull(key: String): @NlsSafe String? =
-    contributedKeys[key]?.defaultValue ?: loadFromBundledConfig()?.get(key)
+  fun getBundleValueOrNull(key: String): @NlsSafe String? {
+    return contributedKeys.get(key)?.defaultValue ?: loadFromBundledConfig()?.get(key)
+  }
 
   @Throws(MissingResourceException::class)
-  internal fun getBundleValue(key: String, keyDescriptor: RegistryKeyDescriptor?): @NlsSafe String =
-    keyDescriptor?.defaultValue
-    ?: contributedKeys[key]?.defaultValue
-    ?: loadFromBundledConfig()?.get(key)
-    ?: throw MissingResourceException("Registry key $key is not defined", REGISTRY_BUNDLE, key)
+  internal fun getBundleValue(key: String, keyDescriptor: RegistryKeyDescriptor?): @NlsSafe String {
+    return keyDescriptor?.defaultValue
+           ?: contributedKeys[key]?.defaultValue
+           ?: loadFromBundledConfig()?.get(key)
+           ?: throw MissingResourceException("Registry key $key is not defined", REGISTRY_BUNDLE, key)
+  }
 
   @Internal
   fun getState(): Element {
@@ -423,7 +427,7 @@ class Registry {
         values.remove(key)
       }
       else {
-        registry.values[key]?.setValue(v)
+        registry.values.get(key)?.setValue(v)
       }
     }
   }

@@ -1,15 +1,18 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.inspections
 
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.IntelliJProjectUtil
+import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntil
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
 import org.jetbrains.idea.devkit.build.PluginBuildConfiguration
-import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeApiRestrictionsService
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeMixedDependenciesInspection
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeModuleKindResolver
 import org.jetbrains.idea.devkit.module.PluginModuleType
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.junit.Assert
@@ -19,6 +22,8 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
   override fun setUp() {
     super.setUp()
     IntelliJProjectUtil.markAsIntelliJPlatformProject(project, true)
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.containing.plugins")
+      .setValue(true, testRootDisposable)
 
     val service = SplitModeApiRestrictionsService.getInstance()
     service.scheduleLoadRestrictions()
@@ -34,7 +39,13 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
       moduleName = "unique.module.name.17",
       descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
       pluginXmlContent = """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.17'; backend dependencies: dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.17'">idea-plugin</error>>
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.17'
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.17'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.frontend"/>
             <module name="intellij.platform.rpc.split"/>
@@ -53,7 +64,13 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
       moduleName = "unique.module.name.18",
       descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
       pluginXmlContent = """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'com.intellij.jetbrains.client' from descriptor 'plugin.xml' in module 'unique.module.name.18'; backend dependencies: dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml' in module 'unique.module.name.18'">idea-plugin</error>>
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'com.intellij.jetbrains.client' from descriptor 'plugin.xml' in module 'unique.module.name.18'
+
+Backend dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml' in module 'unique.module.name.18'">idea-plugin</error>>
           <dependencies>
             <plugin id="com.intellij.jetbrains.client"/>
             <plugin id="com.jetbrains.remoteDevelopment"/>
@@ -71,7 +88,13 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
       moduleName = "unique.module.name.28",
       descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
       pluginXmlContent = """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'com.intellij.jetbrains.client' from descriptor 'plugin.xml' in module 'unique.module.name.28'; backend dependencies: dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml' in module 'unique.module.name.28'">idea-plugin</error>>
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'com.intellij.jetbrains.client' from descriptor 'plugin.xml' in module 'unique.module.name.28'
+
+Backend dependency 'com.jetbrains.remoteDevelopment' from descriptor 'plugin.xml' in module 'unique.module.name.28'">idea-plugin</error>>
           <depends>com.intellij.jetbrains.client</depends>
           <depends>com.jetbrains.remoteDevelopment</depends>
         </idea-plugin>
@@ -87,7 +110,13 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
       moduleName = "unique.module.name.19",
       descriptorRelativePathToResourcesDirectory = "unique.module.name.19.xml",
       pluginXmlContent = """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'intellij.platform.frontend.split' from descriptor 'unique.module.name.19.xml' in module 'unique.module.name.19'; backend dependencies: dependency 'intellij.platform.kernel.backend' from descriptor 'unique.module.name.19.xml' in module 'unique.module.name.19'">idea-plugin</error>>
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend.split' from descriptor 'unique.module.name.19.xml' in module 'unique.module.name.19'
+
+Backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.module.name.19.xml' in module 'unique.module.name.19'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.frontend.split"/>
             <module name="intellij.platform.kernel.backend"/>
@@ -139,7 +168,13 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
       moduleName = "unique.module.name.22",
       descriptorRelativePathToResourcesDirectory = "unique.module.name.22.xml",
       pluginXmlContent = """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'intellij.platform.plugins.frontend.split' from descriptor 'unique.module.name.22.xml' in module 'unique.module.name.22'; backend dependencies: dependency 'intellij.platform.backend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.21'">idea-plugin</error>>
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.plugins.frontend.split' from descriptor 'unique.module.name.22.xml' in module 'unique.module.name.22'
+
+Backend dependency 'intellij.platform.backend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.21'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.plugins.frontend.split"/>
           </dependencies>
@@ -171,7 +206,13 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
       moduleName = "unique.module.name.24",
       descriptorRelativePathToResourcesDirectory = "unique.module.name.24.xml",
       pluginXmlContent = """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.23'; backend dependencies: dependency 'intellij.platform.kernel.backend' from descriptor 'unique.module.name.24.xml' in module 'unique.module.name.24'">idea-plugin</error>>
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.23'
+
+Backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.module.name.24.xml' in module 'unique.module.name.24'">idea-plugin</error>>
           <dependencies>
             <module name="intellij.platform.kernel.backend"/>
           </dependencies>
@@ -183,7 +224,7 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
     myFixture.checkHighlighting()
   }
 
-  fun testMixedContentModuleWithoutOwnDependenciesBlock() {
+  fun testNoMixedErrorForSharedContentModuleWithoutOwnDependenciesBlock() {
     addModuleWithXmlDescriptor(
       moduleName = "unique.module.name.25",
       descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
@@ -218,8 +259,7 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
       moduleName = "unique.module.name.27",
       descriptorRelativePathToResourcesDirectory = "unique.module.name.27.xml",
       pluginXmlContent = """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in runtime. Reason: frontend dependencies: dependency 'intellij.platform.frontend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.25'; backend dependencies: dependency 'intellij.platform.backend' from containing plugin descriptor 'plugin.xml' in module 'unique.module.name.26'">idea-plugin</error>>
-        </idea-plugin>
+        <idea-plugin/>
       """.trimIndent()
     )
     myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
@@ -244,6 +284,118 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
     myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
 
     myFixture.checkHighlighting()
+  }
+
+  fun testContentModuleWithDifferentContainingPluginKindsByNamingConventionIsShared() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.30.frontend",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <content>
+            <module name="unique.module.name.32"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.31.backend",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <content>
+            <module name="unique.module.name.32"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.32",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.32.xml",
+      pluginXmlContent = """
+        <idea-plugin/>
+      """.trimIndent()
+    )
+
+    assertSharedModuleKindWithContainingPluginsOfDifferentKinds("unique.module.name.32")
+  }
+
+  fun testContentModuleWithDifferentContainingPluginKindsByTransitiveDependenciesIsShared() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.33",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="unique.module.name.35"/>
+          </dependencies>
+          <content>
+            <module name="unique.module.name.37"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.34",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="unique.module.name.36"/>
+          </dependencies>
+          <content>
+            <module name="unique.module.name.37"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.35",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.35.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.frontend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.36",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.36.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.37",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.37.xml",
+      pluginXmlContent = """
+        <idea-plugin/>
+      """.trimIndent()
+    )
+
+    assertSharedModuleKindWithContainingPluginsOfDifferentKinds("unique.module.name.37")
+  }
+
+  private fun assertSharedModuleKindWithContainingPluginsOfDifferentKinds(moduleName: String) {
+    val module = ModuleManager.getInstance(project).findModuleByName(moduleName)
+    Assert.assertNotNull("Module $moduleName was not created", module)
+
+    val moduleAnalysis = SplitModeModuleKindResolver.getOrComputeModuleAnalysis(module!!)
+    Assert.assertEquals(SplitModeApiRestrictionsService.ModuleKind.SHARED, moduleAnalysis.resolvedModuleKind.kind)
+    Assert.assertTrue(
+      "Computed module kind reasoning should not be blank for shared module '$moduleName'",
+      moduleAnalysis.resolvedModuleKind.reasoning.isNotBlank(),
+    )
+    Assert.assertTrue(
+      "Shared module reasoning should mention containing plugin descriptors.\nReasoning: ${moduleAnalysis.resolvedModuleKind.reasoning}",
+      moduleAnalysis.resolvedModuleKind.reasoning.contains("containing plugin.xml files do"),
+    )
   }
 
   private fun addModuleWithXmlDescriptor(

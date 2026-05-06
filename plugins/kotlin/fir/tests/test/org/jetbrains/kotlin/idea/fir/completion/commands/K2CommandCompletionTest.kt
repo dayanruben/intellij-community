@@ -825,7 +825,7 @@ class K2CommandCompletionTest : KotlinLightCodeInsightFixtureTestCase() {
             return
         }
         val modifiedText = preview.modifiedText()
-        assertTrue("Expected 'item' variable in preview, got: $modifiedText", modifiedText.contains("item"))
+        assertTrue("Expected 'string' variable in preview, got: $modifiedText", modifiedText.contains("string"))
         assertTrue("Expected 'in list' in preview, got: $modifiedText", modifiedText.contains("in list"))
     } }
 

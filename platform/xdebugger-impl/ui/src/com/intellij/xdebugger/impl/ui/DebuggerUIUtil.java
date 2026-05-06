@@ -440,7 +440,8 @@ public final class DebuggerUIUtil {
     ApplicationManager.getApplication().invokeLater(() -> IdeFocusManager.findInstance().requestFocus(mainPanel, true));
   }
 
-  private static void notifyBreakpointAttachments(@NotNull XBreakpointProxy breakpoint) {
+  @ApiStatus.Internal
+  public static void notifyBreakpointAttachments(@NotNull XBreakpointProxy breakpoint) {
     if (breakpoint instanceof XLineBreakpointProxy breakpointProxy) {
       for (XBreakpointAttachment attachment : breakpointProxy.getAttachments()) {
         attachment.breakpointChanged();

@@ -1,32 +1,45 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("HardCodedStringLiteral")
+
 package org.jetbrains.idea.devkit.inspections.remotedev
 
 import com.intellij.lang.xml.XMLLanguage
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleUtilCore
+import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.roots.ProjectRootModificationTracker
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
+import com.intellij.psi.xml.XmlFile
+import com.intellij.xml.util.XmlStringUtil
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.Nls
 import org.jetbrains.idea.devkit.DevKitBundle
+import org.jetbrains.idea.devkit.dom.ContentDescriptor.ModuleDescriptor
+import org.jetbrains.idea.devkit.dom.index.PluginIdDependenciesIndex
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.ResolvedModuleKind
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeAnalysisFlags
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.module.PluginModuleType
 import org.jetbrains.idea.devkit.util.DescriptorUtil
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 internal object SplitModeInspectionUtil {
   @Nls
-  fun buildMixedModuleDependenciesMessage(dependencyAnalysis: DependencyAnalysis): String {
-    return DevKitBundle.message("inspection.remote.dev.mixed.dependencies.message") + DevKitBundle.message(
-      "inspection.api.usage.restricted.to.module.type.reasoning.message.suffix",
-      dependencyAnalysis.buildMixedReasoning(),
-    )
+  fun buildMixedModuleDependenciesMessage(reasoning: @NlsSafe String): String {
+    val shortMessage = DevKitBundle.message("inspection.remote.dev.mixed.dependencies.message")
+    return buildDetailedPlainTextMessage(shortMessage, null, reasoning)
   }
 
   @Nls
-  fun buildModuleKindMismatchMessage(
+  fun buildModuleKindMismatchShortMessage(
     apiName: @NlsSafe String,
     expectedModuleKind: SplitModeApiRestrictionsService.ModuleKind,
     actualModuleKind: ResolvedModuleKind,
@@ -34,18 +47,137 @@ internal object SplitModeInspectionUtil {
     val baseMessage = DevKitBundle.message(
       "inspection.api.usage.restricted.to.module.type.default.message",
       apiName,
-      expectedModuleKind.presentableName,
-      actualModuleKind.kind.presentableName,
+      expectedModuleKind.id,
+      actualModuleKind.kind.id,
     )
-    return if (actualModuleKind.reasoning.isBlank()) {
-      baseMessage
+    return "$baseMessage."
+  }
+
+  @Nls
+  fun buildModuleKindMismatchMessage(
+    apiName: @NlsSafe String,
+    expectedModuleKind: SplitModeApiRestrictionsService.ModuleKind,
+    actualModuleKind: ResolvedModuleKind,
+    hint: @Nls String? = null,
+  ): String {
+    val shortMessage = buildModuleKindMismatchShortMessage(apiName, expectedModuleKind, actualModuleKind)
+    return buildDetailedPlainTextMessage(shortMessage, hint, actualModuleKind.reasoning)
+  }
+
+  fun buildModuleKindMismatchTooltipMessage(
+    apiName: @NlsSafe String,
+    expectedModuleKind: SplitModeApiRestrictionsService.ModuleKind,
+    actualModuleKind: ResolvedModuleKind,
+    hint: @Nls String? = null,
+  ): String {
+    val shortMessage = buildModuleKindMismatchShortMessage(apiName, expectedModuleKind, actualModuleKind)
+    return buildDetailedHtmlMessage(shortMessage, hint, actualModuleKind.reasoning)
+  }
+
+  private fun buildDetailedPlainTextMessage(
+    shortMessage: @Nls String,
+    hint: @Nls String?,
+    reasoning: @NlsSafe String,
+  ): String {
+    val nonBlankHint = if (hint.isNullOrBlank()) null else hint
+    val hasReasoning = reasoning.isNotBlank()
+    if (nonBlankHint == null && !hasReasoning) {
+      return shortMessage
+    }
+
+    return buildString {
+      append(shortMessage)
+      if (nonBlankHint != null) {
+        append("\n\n")
+        append(nonBlankHint)
+      }
+      if (hasReasoning) {
+        append("\n\n")
+        append(DevKitBundle.message("inspection.remote.dev.computed.module.kind.reasoning.heading"))
+        append("\n\n")
+        append(reasoning)
+      }
+    }
+  }
+
+  private fun buildDetailedHtmlMessage(
+    shortMessage: @Nls String,
+    hint: @Nls String?,
+    reasoning: @NlsSafe String,
+  ): String {
+    val escapedShortMessage = XmlStringUtil.escapeString(shortMessage)
+    val nonBlankHint = if (hint.isNullOrBlank()) null else hint
+    val escapedHint = if (nonBlankHint == null) null else XmlStringUtil.escapeString(nonBlankHint)
+    val hasReasoning = reasoning.isNotBlank()
+
+    return XmlStringUtil.wrapInHtml(buildString {
+      append(escapedShortMessage)
+      if (escapedHint != null) {
+        append("<br><br>")
+        append(escapedHint)
+      }
+      if (hasReasoning) {
+        append("<br><br><b>")
+        append(XmlStringUtil.escapeString(DevKitBundle.message("inspection.remote.dev.computed.module.kind.reasoning.heading")))
+        append("</b><br><br>")
+        append(XmlStringUtil.escapeString(reasoning).replace("\n", "<br>"))
+      }
+    })
+  }
+
+  fun ensureRestrictionsServiceIsLoaded(restrictionsService: SplitModeApiRestrictionsService): Boolean {
+    if (restrictionsService.isLoaded()) {
+      return true
+    }
+
+    restrictionsService.scheduleLoadRestrictions()
+    if (restrictionsService.isLoaded()) {
+      return true
+    }
+
+    val loadedInTime = runBlockingCancellable {
+      withTimeoutOrNull(1.seconds) {
+        while (!restrictionsService.isLoaded()) {
+          delay(10.milliseconds)
+        }
+        true
+      }
+    }
+    return loadedInTime == true
+  }
+
+  fun isAllowedForSplitModeInspection(file: PsiFile): Boolean {
+    val restrictionsService = SplitModeApiRestrictionsService.getInstance()
+    if (shouldSuppressForSingleModuleExternalPlugin(file)) {
+      return false
+    }
+    if (!ensureRestrictionsServiceIsLoaded(restrictionsService)) {
+      return false
+    }
+    if (shouldSuppressForPredefinedModuleKind(file, restrictionsService)) {
+      return false
+    }
+    return true
+  }
+
+  fun shouldSuppressForPredefinedModuleKind(file: PsiFile, restrictionsService: SplitModeApiRestrictionsService): Boolean {
+    if (!SplitModeAnalysisFlags.isSkippingInspectionsForPredefinedModuleKindsEnabled()) {
+      return false
+    }
+
+    val module = ModuleUtilCore.findModuleForPsiElement(file) ?: return false
+    val currentDescriptorFile = file as? XmlFile
+    val predefinedModuleKind = if (currentDescriptorFile != null) {
+      val currentIdeaPlugin = DescriptorUtil.getIdeaPlugin(currentDescriptorFile)
+      restrictionsService.getPredefinedModuleKind(module, currentDescriptorFile, currentIdeaPlugin)
     }
     else {
-      baseMessage + DevKitBundle.message(
-        "inspection.api.usage.restricted.to.module.type.reasoning.message.suffix",
-        actualModuleKind.reasoning,
-      )
+      val pluginXml = PluginModuleType.getPluginXml(module)
+      val ideaPlugin = if (pluginXml == null) null else DescriptorUtil.getIdeaPlugin(pluginXml)
+      restrictionsService.getPredefinedModuleKind(module, ideaPlugin = ideaPlugin)
     }
+
+    return predefinedModuleKind != null
   }
 
   fun shouldSuppressForSingleModuleExternalPlugin(file: PsiFile): Boolean {
@@ -58,6 +190,20 @@ internal object SplitModeInspectionUtil {
         PsiManager.getInstance(project).modificationTracker.forLanguage(XMLLanguage.INSTANCE),
       )
     }
+  }
+
+  internal fun findDependingContentModuleEntriesInFile(contentModuleDescriptor: XmlFile): Sequence<ModuleDescriptor> {
+    val moduleVirtualFile = contentModuleDescriptor.virtualFile ?: return emptySequence()
+    val moduleName = moduleVirtualFile.nameWithoutExtension
+    val psiManager = contentModuleDescriptor.manager
+    @Suppress("UNCHECKED_CAST")
+    return PluginIdDependenciesIndex.findFilesIncludingContentModule(contentModuleDescriptor.project, moduleVirtualFile).asSequence()
+      .flatMap { dependingFile ->
+        val psiFile = psiManager.findFile(dependingFile) as? XmlFile ?: return@flatMap emptySequence<PsiElement>()
+        val plugin = DescriptorUtil.getIdeaPlugin(psiFile) ?: return@flatMap emptySequence<PsiElement>()
+        val modules = plugin.content.flatMap { it.moduleEntry }
+        modules.filter { it.name.stringValue == moduleName }.asSequence()
+      } as? Sequence<ModuleDescriptor> ?: emptySequence()
   }
 
   private fun shouldSuppressForSingleModuleExternalPlugin(module: Module): Boolean {

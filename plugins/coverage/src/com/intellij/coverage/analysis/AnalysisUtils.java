@@ -2,17 +2,19 @@
 package com.intellij.coverage.analysis;
 
 import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.File;
+import java.nio.file.Path;
 
+@ApiStatus.Internal
 public final class AnalysisUtils {
-  static boolean isClassFile(@NotNull File classFile) {
-    return classFile.getPath().endsWith(".class");
+  static boolean isClassFile(@NotNull Path classFile) {
+    return classFile.toString().endsWith(".class");
   }
 
-  public static String getClassName(File classFile) {
-    return StringUtil.trimEnd(classFile.getName(), ".class");
+  public static String getClassName(Path classFile) {
+    return StringUtil.trimEnd(classFile.getFileName().toString(), ".class");
   }
 
   public static String getSourceToplevelFQName(String classFQVMName) {

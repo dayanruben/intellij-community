@@ -23,7 +23,7 @@ internal class ContentModuleVisibilityCheckTest {
     val exception = assertErrorLogged<PluginException> {
       buildPluginSet {
         plugin("foo") {
-          content {
+          content(namespace = "jetbrains") {
             module("foo.module") {}
           }
         }
@@ -56,7 +56,7 @@ internal class ContentModuleVisibilityCheckTest {
           content {
             module("bar.module") {
               dependencies {
-                module("foo.module")
+                module("foo.module", namespace = "foo.namespace")
               }
             }
           }

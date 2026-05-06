@@ -90,6 +90,7 @@ public final class JUnit5TeamCityRunner {
   private static final String LIST_CLASSES = System.getProperty("intellij.build.test.list.classes");
   private static final String REVERSE_ORDER = System.getProperty("intellij.build.test.reverse.order");
   private static final String INCLUDE_TAGS = System.getProperty("intellij.build.test.tags");
+  private static final String EXCLUDE_TAGS = System.getProperty("intellij.build.test.excluded.tags");
 
   static boolean isUnderTeamCity() {
     var teamCityVersion = System.getenv("TEAMCITY_VERSION");
@@ -134,6 +135,7 @@ public final class JUnit5TeamCityRunner {
         filters.add(new PerformancePostDiscoveryFilter());                                    // PerformanceUnitTest support
         if (!"false".equals(ENGINE_VINTAGE)) filters.add(new HeadlessPostDiscoveryFilter());  // SkipInHeadlessEnvironment support in JUnit 3/4
         if (INCLUDE_TAGS != null) filters.add(TagFilter.includeTags(INCLUDE_TAGS.split(";")));        // JUnit 5 tag filter
+        if (EXCLUDE_TAGS != null) filters.add(TagFilter.excludeTags(EXCLUDE_TAGS.split(";")));        // JUnit 5 tag exclusion filter
 
         // filter engines
         if ("false".equals(ENGINE_VINTAGE)) filters.add(EngineFilter.excludeEngines(VintageTestDescriptor.ENGINE_ID));      // JUnit 5 tests only

@@ -6,13 +6,14 @@ import com.intellij.openapi.roots.ModuleOrderEntry
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.project.IntelliJProjectUtil
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntil
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
 import org.jetbrains.idea.devkit.build.PluginBuildConfiguration
-import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeApiRestrictionsService
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeMixedDependenciesInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeXmlApiUsageInspection
 import org.jetbrains.idea.devkit.module.PluginModuleType
@@ -43,7 +44,7 @@ internal class SplitModeDependencyQuickFixesTest : JavaCodeInsightFixtureTestCas
             <module name="intellij.platform.core"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <fileEditorProvider<caret>/>
+            <toolWindow<caret>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -70,7 +71,7 @@ internal class SplitModeDependencyQuickFixesTest : JavaCodeInsightFixtureTestCas
             <plugin id="com.jetbrains.remoteDevelopment"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <fileEditorProvider<caret>/>
+            <typedHandler<caret>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -141,7 +142,7 @@ internal class SplitModeDependencyQuickFixesTest : JavaCodeInsightFixtureTestCas
             <module name="intellij.platform.core"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <fileEditorProvider<caret>/>
+            <toolWindow<caret>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -201,6 +202,63 @@ internal class SplitModeDependencyQuickFixesTest : JavaCodeInsightFixtureTestCas
     myFixture.checkHighlighting()
   }
 
+  fun testPluginXmlQuickFixDoesNotTouchOwnContentModuleDescriptor() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.quick.fix.6",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <content>
+            <module name="unique.module.name.quick.fix.6" loading="embedded"/>
+          </content>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler<caret>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val contentDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.quick.fix.6",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.quick.fix.6.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val originalContentDescriptorText = contentDescriptor.text
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    val intention = myFixture.findSingleIntention("Make module 'unique.module.name.quick.fix.6' work in 'frontend' only")
+    myFixture.launchAction(intention)
+
+    Assert.assertTrue(myFixture.file.text.contains("<module name=\"intellij.platform.frontend\"/>"))
+    Assert.assertEquals(originalContentDescriptorText, contentDescriptor.text)
+  }
+
+  fun testCompositeTargetOffersFrontendAndBackendFixes() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.quick.fix.7",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.core"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <applicationConfigurable<caret>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.findSingleIntention("Make module 'unique.module.name.quick.fix.7' work in 'frontend' only")
+    myFixture.findSingleIntention("Make module 'unique.module.name.quick.fix.7' work in 'backend' only")
+    myFixture.findSingleIntention("Make module 'unique.module.name.quick.fix.7' work in 'monolith' only")
+  }
+
   private fun addModuleDependencies(file: PsiFile, vararg dependencyNames: String) {
     val module = ModuleUtilCore.findModuleForPsiElement(file) ?: return
     ModuleRootModificationUtil.updateModel(module) { model ->
@@ -219,20 +277,30 @@ internal class SplitModeDependencyQuickFixesTest : JavaCodeInsightFixtureTestCas
 
   private fun addModuleWithXmlDescriptor(
     moduleName: String,
+    descriptorRelativePathToResourcesDirectory: String = "META-INF/plugin.xml",
     pluginXmlContent: String,
   ): PsiFile {
-    val addedModule =
-      PsiTestUtil.addModule(project, PluginModuleType.getInstance(), moduleName, myFixture.tempDirFixture.findOrCreateDir(moduleName))
-    PsiTestUtil.addSourceRoot(
-      addedModule,
-      myFixture.tempDirFixture.findOrCreateDir("$moduleName/resources"),
-      JavaResourceRootType.RESOURCE,
-    )
-    val createdDescriptorFile = myFixture.addFileToProject("$moduleName/resources/META-INF/plugin.xml", pluginXmlContent)
+    val existingModule = ModuleManager.getInstance(project).findModuleByName(moduleName)
+    val targetModule = if (existingModule != null) {
+      existingModule
+    }
+    else {
+      val addedModule =
+        PsiTestUtil.addModule(project, PluginModuleType.getInstance(), moduleName, myFixture.tempDirFixture.findOrCreateDir(moduleName))
+      PsiTestUtil.addSourceRoot(
+        addedModule,
+        myFixture.tempDirFixture.findOrCreateDir("$moduleName/resources"),
+        JavaResourceRootType.RESOURCE,
+      )
+      addedModule
+    }
+    val createdDescriptorFile = myFixture.addFileToProject("$moduleName/resources/$descriptorRelativePathToResourcesDirectory", pluginXmlContent)
     Assert.assertNotNull("XML descriptor for module $moduleName was not created", createdDescriptorFile)
-    val buildConfiguration = PluginBuildConfiguration.getInstance(addedModule)
-    Assert.assertNotNull("Plugin build configuration for module $moduleName was not created", buildConfiguration)
-    buildConfiguration!!.setPluginXmlFromVirtualFile(createdDescriptorFile!!.virtualFile)
+    if (descriptorRelativePathToResourcesDirectory == "META-INF/plugin.xml") {
+      val buildConfiguration = PluginBuildConfiguration.getInstance(targetModule)
+      Assert.assertNotNull("Plugin build configuration for module $moduleName was not created", buildConfiguration)
+      buildConfiguration!!.setPluginXmlFromVirtualFile(createdDescriptorFile!!.virtualFile)
+    }
     return createdDescriptorFile
   }
 }

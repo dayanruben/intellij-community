@@ -117,7 +117,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.jar.Attributes;
@@ -599,7 +598,6 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
     return null;
   }
 
-  private static final Map<String, Object> DOWNLOAD_LOCKS = new ConcurrentHashMap<>();
   private void downloadDependenciesWhenRequired(@NotNull Project project,
                                                 @NotNull List<String> classPath,
                                                 @NotNull RepositoryLibraryProperties properties) throws CantRunException {
@@ -614,14 +612,11 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
         String title = JavaUiBundle.message("jar.repository.manager.dialog.resolving.dependencies.title", 1);
         targetProgressIndicator.addSystemLine(title);
       }
-      Object lock = DOWNLOAD_LOCKS.computeIfAbsent(properties.getMavenId(), key -> ObjectUtils.sentinel("JUnitDownload: " + key));
-      synchronized (lock) {
-        roots = JarRepositoryManager.loadDependenciesSync(
-          project, properties, false, false, null, null,
-          targetProgressIndicator != null
-          ? new ProgressIndicatorWrapper(targetProgressIndicator)
-          : ObjectUtils.notNull(ProgressManager.getInstance().getProgressIndicator(), new DumbProgressIndicator()));
-      }
+      roots = JarRepositoryManager.loadDependenciesSync(
+        project, properties, false, false, null, null,
+        targetProgressIndicator != null
+        ? new ProgressIndicatorWrapper(targetProgressIndicator)
+        : ObjectUtils.notNull(ProgressManager.getInstance().getProgressIndicator(), new DumbProgressIndicator()));
     }
     catch (ProcessCanceledException e) {
       roots = Collections.emptyList();

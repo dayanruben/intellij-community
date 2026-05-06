@@ -5,6 +5,7 @@ import com.intellij.ide.starter.process.ProcessInfo
 import com.intellij.ide.starter.process.ProcessKiller.killProcesses
 import com.intellij.ide.starter.process.exec.ExecOutputRedirect
 import com.intellij.ide.starter.process.exec.ProcessExecutor
+import com.intellij.platform.testFramework.teamCity.TeamCityReporter.SyntheticTestKind
 import com.intellij.tools.ide.util.common.logOutput
 import com.intellij.util.system.OS
 import kotlinx.coroutines.async
@@ -72,7 +73,7 @@ object PortUtil {
           }
 
           appendLine(Throwable().stackTraceToString())
-        }, "")
+        }, "", kind = SyntheticTestKind.TEST_INFRA_EXCEPTION)
 
       repeat(100) {
         if (isPortAvailable(host, proposedPort + it)) {
@@ -156,7 +157,7 @@ object PortUtil {
             appendLine("Error message: $errorMsg")
           }
           appendLine("Exception: ${it.stackTraceToString()}")
-        }, "")
+        }, "", kind = SyntheticTestKind.TEST_INFRA_EXCEPTION)
       return null
     }
   }
@@ -169,10 +170,12 @@ object PortUtil {
     }
     else {
       if (processes == null) {
-        CIServer.instance.reportTestFailure("Failed to retrieve processes using port", "Failed to retrieve processes using port $port", "")
+        CIServer.instance.reportTestFailure("Failed to retrieve processes using port", "Failed to retrieve processes using port $port", "",
+                                            kind = SyntheticTestKind.TEST_INFRA_EXCEPTION)
       }
       else {
-        CIServer.instance.reportTestFailure("No processes using port found", "No processes using port found $port", "")
+        CIServer.instance.reportTestFailure("No processes using port found", "No processes using port found $port", "",
+                                            kind = SyntheticTestKind.TEST_INFRA_EXCEPTION)
       }
       return false
     }

@@ -84,7 +84,7 @@ class EmbeddedClientLauncher private constructor(private val moduleRepository: R
       PlatformUtils.PHP_PREFIX -> RuntimeModuleId.legacyJpsModule("intellij.phpstorm.frontend.split")
       PlatformUtils.WEB_PREFIX -> RuntimeModuleId.legacyJpsModule("intellij.webstorm.frontend.split")
       PlatformUtils.RUBY_PREFIX -> RuntimeModuleId.legacyJpsModule("intellij.rubymine.frontend.split")
-      PlatformUtils.RUSTROVER_PREFIX -> RuntimeModuleId.legacyJpsModule("intellij.rustrover.frontend.split")
+      PlatformUtils.RUSTROVER_PREFIX -> RuntimeModuleId.legacyJpsModule("intellij.rustrover.ide.frontend.split")
       else -> RuntimeModuleId.contentModule("intellij.platform.frontend.split", "jetbrains")
     }
 
@@ -116,7 +116,6 @@ class EmbeddedClientLauncher private constructor(private val moduleRepository: R
       if (applicationClasspath.any { path -> Path.of(path).any { it.pathString == "bazel-out" }}) {
         error("""
           |Starting embedded client from Gateway when the project is compiled by Bazel isn't supported for now (IJPL-222205).
-          |Set the registry option 'monorepo.devkit.use.bazel.compile' to 'false' as a workaround.
         """.trimMargin())
       }
     }

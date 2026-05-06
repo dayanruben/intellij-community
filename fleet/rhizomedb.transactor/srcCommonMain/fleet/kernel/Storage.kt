@@ -27,12 +27,12 @@ import com.jetbrains.rhizomedb.queryIndex
 import com.jetbrains.rhizomedb.retractEntity
 import fleet.fastutil.ints.Int2ObjectOpenHashMap
 import fleet.fastutil.ints.IntOpenHashSet
+import fleet.multiplatform.shims.computeIfAbsentShim
 import fleet.reporting.shared.tracing.span
 import fleet.reporting.shared.tracing.spannedScope
 import fleet.util.UID
 import fleet.util.async.catching
 import fleet.util.async.use
-import fleet.util.computeIfAbsentShim
 import fleet.util.logging.KLogger
 import fleet.util.logging.logger
 import kotlinx.coroutines.CoroutineScope

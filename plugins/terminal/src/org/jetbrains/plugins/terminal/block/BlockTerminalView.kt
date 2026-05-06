@@ -14,7 +14,7 @@ import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl
+import com.intellij.openapi.vfs.newvfs.ManagingFS
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.TerminalTitle
@@ -168,7 +168,7 @@ class BlockTerminalView(
             WriteIntentReadAction.run {
               FileDocumentManager.getInstance().saveAllDocuments()
             }
-            PersistentFSImpl.flushPendingUpdatesOrNotify()
+            ManagingFS.getInstance().flushPendingUpdatesOrNotify()
           }
         }
         else {

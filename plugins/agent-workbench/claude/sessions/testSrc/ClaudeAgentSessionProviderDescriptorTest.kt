@@ -29,10 +29,12 @@ import org.junit.jupiter.api.Test
 
 @TestApplication
 class ClaudeAgentSessionProviderDescriptorTest {
-  private val bridge = ClaudeAgentSessionProviderDescriptor()
+  private val bridge = ClaudeAgentSessionProviderDescriptor(
+    executableResolver = { ClaudeCliSupport.CLAUDE_COMMAND },
+  )
 
   @Test
-  fun buildResumeLaunchSpec() {
+  fun buildResumeLaunchSpec(): Unit = runBlocking(Dispatchers.Default) {
     assertThat(bridge.buildResumeLaunchSpec("session-1").command)
       .containsExactly("claude", "--resume", "session-1")
     assertThat(bridge.buildResumeLaunchSpec("session-1").envVariables)
@@ -40,13 +42,13 @@ class ClaudeAgentSessionProviderDescriptorTest {
   }
 
   @Test
-  fun buildYoloLaunchSpec() {
+  fun buildYoloLaunchSpec(): Unit = runBlocking(Dispatchers.Default) {
     assertThat(bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.YOLO).command)
       .containsExactly("claude", "--dangerously-skip-permissions")
   }
 
   @Test
-  fun buildStandardLaunchSpec() {
+  fun buildStandardLaunchSpec(): Unit = runBlocking(Dispatchers.Default) {
     assertThat(bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD).command)
       .containsExactly("claude", "--permission-mode", "default")
   }
@@ -75,7 +77,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
   }
 
   @Test
-  fun buildLaunchSpecWithInitialMessageAddsPermissionModeDefault() {
+  fun buildLaunchSpecWithInitialMessageAddsPermissionModeDefault(): Unit = runBlocking(Dispatchers.Default) {
     val baseLaunchSpec = bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD)
 
     val launchSpec = bridge.buildLaunchSpecWithInitialMessage(
@@ -88,7 +90,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
   }
 
   @Test
-  fun buildLaunchSpecWithInitialMessageSwitchesToPlanMode() {
+  fun buildLaunchSpecWithInitialMessageSwitchesToPlanMode(): Unit = runBlocking(Dispatchers.Default) {
     val baseLaunchSpec = bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD)
 
     val launchSpec = bridge.buildLaunchSpecWithInitialMessage(
@@ -104,7 +106,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
   }
 
   @Test
-  fun buildLaunchSpecWithInitialMessageDoesNotTreatPlannerAsPlanMode() {
+  fun buildLaunchSpecWithInitialMessageDoesNotTreatPlannerAsPlanMode(): Unit = runBlocking(Dispatchers.Default) {
     val baseLaunchSpec = bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD)
 
     val launchSpec = bridge.buildLaunchSpecWithInitialMessage(
@@ -117,7 +119,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
   }
 
   @Test
-  fun buildLaunchSpecWithInitialMessageForResumeCommand() {
+  fun buildLaunchSpecWithInitialMessageForResumeCommand(): Unit = runBlocking(Dispatchers.Default) {
     val resumeLaunchSpec = bridge.buildResumeLaunchSpec("session-1")
 
     val launchSpec = bridge.buildLaunchSpecWithInitialMessage(

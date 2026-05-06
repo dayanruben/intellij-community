@@ -11,7 +11,6 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiFile;
 import com.intellij.rt.coverage.data.LineData;
@@ -28,8 +27,9 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.function.Function;
@@ -44,14 +44,16 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
 
   @Override
   public @NotNull CoverageLoadingResult loadCoverageData(
-    final @NotNull File sessionDataFile,
+    final @NotNull Path sessionDataFile,
     final @Nullable CoverageSuite coverageSuite,
     final @NotNull CoverageLoadErrorReporter reporter
   ) {
-    ProjectData projectData = ProjectDataLoader.load(sessionDataFile);
-    File sourceMapFile = new File(JavaCoverageEnabledConfiguration.getSourceMapPath(sessionDataFile.getPath()));
-    if (sourceMapFile.exists()) {
+    File sessionFile = sessionDataFile.toFile();
+    ProjectData projectData = ProjectDataLoader.load(sessionFile);
+    Path sourceMapFilePath = Path.of(JavaCoverageEnabledConfiguration.getSourceMapPath(sessionDataFile.toString()));
+    if (Files.exists(sourceMapFilePath)) {
       try {
+        File sourceMapFile = sourceMapFilePath.toFile();
         CoverageReport.loadAndApplySourceMap(projectData, sourceMapFile);
       }
       catch (IOException e) {
@@ -97,18 +99,18 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
     final String[] excludeAnnotations = getExcludeAnnotations(project);
     List<Function<? super TargetEnvironmentRequest, ? extends JavaTargetParameter>> targetParameters =
       javaParameters.getTargetDependentParameters().asTargetParameters();
-    targetParameters.add(request -> createArgumentTargetParameter(agentPath, sessionDataFilePath,
-                                                                  patterns, excludePatterns, excludeAnnotations,
-                                                                  testTracking,
-                                                                  branchCoverage, sourceMapPath));
+    targetParameters.add(_ -> createArgumentTargetParameter(agentPath, sessionDataFilePath,
+                                                            patterns, excludePatterns, excludeAnnotations,
+                                                            testTracking,
+                                                            branchCoverage, sourceMapPath));
     if (!Registry.is("idea.coverage.new.tracing.enabled")) {
-      targetParameters.add(request -> JavaTargetParameter.fixed("-Didea.new.tracing.coverage=false"));
+      targetParameters.add(_ -> JavaTargetParameter.fixed("-Didea.new.tracing.coverage=false"));
     }
     if (testTracking && !Registry.is("idea.coverage.new.test.tracking.enabled")) {
-      targetParameters.add(request -> JavaTargetParameter.fixed("-Didea.new.test.tracking.coverage=false"));
+      targetParameters.add(_ -> JavaTargetParameter.fixed("-Didea.new.test.tracking.coverage=false"));
     }
     if (Registry.is("idea.coverage.calculate.exact.hits")) {
-      targetParameters.add(request -> JavaTargetParameter.fixed("-Didea.coverage.calculate.hits=true"));
+      targetParameters.add(_ -> JavaTargetParameter.fixed("-Didea.coverage.calculate.hits=true"));
     }
   }
 
@@ -128,36 +130,36 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
                                                                              boolean branchCoverage,
                                                                              String sourceMapPath) {
     try {
-      final File tempFile = createTempFile();
-      tempFile.deleteOnExit();
+      final Path tempFile = createTempFilePath();
+      deleteOnExit(tempFile);
       Ref<Boolean> writeOnceRef = new Ref<>(false);
-      String tempFilePath = tempFile.getAbsolutePath();
+      String tempFilePath = tempFile.toAbsolutePath().toString();
 
       TargetPaths targetPaths = TargetPaths.ordered(builder -> {
         builder
           .download(sessionDataFilePath,
-                         _ -> {
-                           createFileOrClearExisting(sessionDataFilePath);
-                           return Unit.INSTANCE;
-                         },
-                         targetSessionDataPath -> {
-                           if (!writeOnceRef.get()) {
-                             try {
-                               writeOptionsToFile(tempFile, targetSessionDataPath,
-                                                  patterns, excludePatterns, excludeAnnotations,
-                                                  testTracking, branchCoverage, sourceMapPath);
-                             }
-                             catch (IOException e) {
-                               throw new RuntimeException(e);
-                             }
-                             finally {
-                               writeOnceRef.set(true);
-                             }
-                           }
-                           return Unit.INSTANCE;
-                         })
-        .upload(agentPath, _ -> Unit.INSTANCE, _ -> Unit.INSTANCE)
-        .upload(tempFilePath, _ -> Unit.INSTANCE, _ -> Unit.INSTANCE);
+                    _ -> {
+                      createFileOrClearExisting(sessionDataFilePath);
+                      return Unit.INSTANCE;
+                    },
+                    targetSessionDataPath -> {
+                      if (!writeOnceRef.get()) {
+                        try {
+                          writeOptionsToFile(tempFile, targetSessionDataPath,
+                                             patterns, excludePatterns, excludeAnnotations,
+                                             testTracking, branchCoverage, sourceMapPath);
+                        }
+                        catch (IOException e) {
+                          throw new RuntimeException(e);
+                        }
+                        finally {
+                          writeOnceRef.set(true);
+                        }
+                      }
+                      return Unit.INSTANCE;
+                    })
+          .upload(agentPath, _ -> Unit.INSTANCE, _ -> Unit.INSTANCE)
+          .upload(tempFilePath, _ -> Unit.INSTANCE, _ -> Unit.INSTANCE);
         return Unit.INSTANCE;
       });
 
@@ -175,17 +177,24 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
   }
 
   private static void createFileOrClearExisting(@NotNull String sessionDataFilePath) {
-    File file = new File(sessionDataFilePath);
-    FileUtil.createIfDoesntExist(file);
+    Path file = Path.of(sessionDataFilePath);
     try {
-      new FileOutputStream(file).close();
+      Path parent = file.getParent();
+      if (parent != null) {
+        Files.createDirectories(parent);
+      }
+      Files.newOutputStream(file).close();
     }
     catch (IOException e) {
       LOG.error(e);
     }
   }
 
-  private static void writeOptionsToFile(File file,
+  private static void deleteOnExit(@NotNull Path tempFile) {
+    tempFile.toFile().deleteOnExit();
+  }
+
+  private static void writeOptionsToFile(Path file,
                                          String sessionDataFilePath,
                                          String @Nullable [] patterns,
                                          String[] excludePatterns,
@@ -243,7 +252,7 @@ public final class IDEACoverageRunner extends JavaCoverageRunner {
     return result;
   }
 
-  private static void writePatterns(File tempFile, String[] patterns) throws IOException {
+  private static void writePatterns(Path tempFile, String[] patterns) throws IOException {
     for (String coveragePattern : convertToPatterns(patterns)) {
       write2file(tempFile, coveragePattern);
     }

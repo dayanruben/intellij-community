@@ -519,6 +519,7 @@ com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor
 - getActions(java.lang.Runnable):java.util.List
 - getAdvertisement():java.lang.String
 - getDataForItem(java.lang.Object,java.lang.String):java.lang.Object
+- getDataProviders():java.util.List
 - getElementPriority(java.lang.Object,java.lang.String):I
 - a:getElementsRenderer():javax.swing.ListCellRenderer
 - getFullGroupName():java.lang.String

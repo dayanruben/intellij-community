@@ -42,7 +42,7 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -267,7 +267,7 @@ public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Dis
       return;
     }
     class HighlightersCollector {
-      private void collect(File outputFile, final String qualifiedName) {
+      private void collect(Path outputFile, final String qualifiedName) {
         final ClassData fileData = data.getClassData(qualifiedName);
         if (fileData != null) {
           final Object[] lines = fileData.getLines();
@@ -302,9 +302,9 @@ public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Dis
     }
 
     final HighlightersCollector collector = new HighlightersCollector();
-    final Set<File> outputFiles = engine.getCorrespondingOutputFiles(psiFile, module, suite);
+    final Set<Path> outputFiles = engine.getCorrespondingOutputPaths(psiFile, module, suite);
     if (!outputFiles.isEmpty()) {
-      for (File outputFile : outputFiles) {
+      for (Path outputFile : outputFiles) {
         final String qualifiedName = engine.getQualifiedName(outputFile, psiFile);
         if (qualifiedName != null) {
           collector.collect(outputFile, qualifiedName);
@@ -420,7 +420,7 @@ public class CoverageEditorAnnotatorImpl implements CoverageEditorAnnotator, Dis
     return editor instanceof TextEditor && ((TextEditor)editor).getEditor() == myEditor;
   }
 
-  private void highlightNonCoveredFile(File outputFile,
+  private void highlightNonCoveredFile(Path outputFile,
                                        MarkupModel markupModel,
                                        TreeMap<Integer, LineData> executableLines, // incomplete for this outputFile
                                        @NotNull CoverageSuitesBundle coverageSuite,

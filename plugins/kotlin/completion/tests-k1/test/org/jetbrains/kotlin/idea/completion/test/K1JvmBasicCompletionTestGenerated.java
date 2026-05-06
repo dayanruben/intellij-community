@@ -3410,9 +3410,14 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
                 runTest("../testData/basic/common/AfterIntSeparatedWithComments.kt");
             }
 
-            @TestMetadata("AlwaysCompleteNonSubPackages.kt")
-            public void testAlwaysCompleteNonSubPackages() throws Exception {
-                runTest("../testData/basic/common/AlwaysCompleteNonSubPackages.kt");
+            @TestMetadata("AlwaysCompleteNonSubPackagesInExpression.kt")
+            public void testAlwaysCompleteNonSubPackagesInExpression() throws Exception {
+                runTest("../testData/basic/common/AlwaysCompleteNonSubPackagesInExpression.kt");
+            }
+
+            @TestMetadata("AlwaysCompleteNonSubPackagesInType.kt")
+            public void testAlwaysCompleteNonSubPackagesInType() throws Exception {
+                runTest("../testData/basic/common/AlwaysCompleteNonSubPackagesInType.kt");
             }
 
             @TestMetadata("AlwaysCompleteTopLevelPackagesInImport.kt")
@@ -4155,9 +4160,14 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
                 runTest("../testData/basic/common/NoTopLevelCompletionInQualifiedUserTypes.kt");
             }
 
-            @TestMetadata("NoTopLevelPackagesIfDisabled.kt")
-            public void testNoTopLevelPackagesIfDisabled() throws Exception {
-                runTest("../testData/basic/common/NoTopLevelPackagesIfDisabled.kt");
+            @TestMetadata("NoTopLevelPackagesInExpressionIfDisabled.kt")
+            public void testNoTopLevelPackagesInExpressionIfDisabled() throws Exception {
+                runTest("../testData/basic/common/NoTopLevelPackagesInExpressionIfDisabled.kt");
+            }
+
+            @TestMetadata("NoTopLevelPackagesInTypeIfDisabled.kt")
+            public void testNoTopLevelPackagesInTypeIfDisabled() throws Exception {
+                runTest("../testData/basic/common/NoTopLevelPackagesInTypeIfDisabled.kt");
             }
 
             @TestMetadata("ObjectInTypePosition.kt")
@@ -4805,6 +4815,70 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
             @TestMetadata("TypeAlias.kt")
             public void testTypeAlias() throws Exception {
                 runTest("../testData/basic/java/importAliases/TypeAlias.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../testData/basic/java/SAM")
+        public static class SAM extends AbstractK1JvmBasicCompletionTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("GenericKotlinFunInterface.kt")
+            public void testGenericKotlinFunInterface() throws Exception {
+                runTest("../testData/basic/java/SAM/GenericKotlinFunInterface.kt");
+            }
+
+            @TestMetadata("JavaConsumer.kt")
+            public void testJavaConsumer() throws Exception {
+                runTest("../testData/basic/java/SAM/JavaConsumer.kt");
+            }
+
+            @TestMetadata("KotlinFunInterface.kt")
+            public void testKotlinFunInterface() throws Exception {
+                runTest("../testData/basic/java/SAM/KotlinFunInterface.kt");
+            }
+
+            @TestMetadata("KotlinFunInterfaceMultiParam.kt")
+            public void testKotlinFunInterfaceMultiParam() throws Exception {
+                runTest("../testData/basic/java/SAM/KotlinFunInterfaceMultiParam.kt");
+            }
+
+            @TestMetadata("KotlinFunInterfaceWithDefaultMethod.kt")
+            public void testKotlinFunInterfaceWithDefaultMethod() throws Exception {
+                runTest("../testData/basic/java/SAM/KotlinFunInterfaceWithDefaultMethod.kt");
+            }
+
+            @TestMetadata("KotlinFunInterfaceWithParam.kt")
+            public void testKotlinFunInterfaceWithParam() throws Exception {
+                runTest("../testData/basic/java/SAM/KotlinFunInterfaceWithParam.kt");
+            }
+
+            @TestMetadata("SAMExpected1.kt")
+            public void testSAMExpected1() throws Exception {
+                runTest("../testData/basic/java/SAM/SAMExpected1.kt");
+            }
+
+            @TestMetadata("SAMExpected2.kt")
+            public void testSAMExpected2() throws Exception {
+                runTest("../testData/basic/java/SAM/SAMExpected2.kt");
+            }
+
+            @TestMetadata("SamAsArgument.kt")
+            public void testSamAsArgument() throws Exception {
+                runTest("../testData/basic/java/SAM/SamAsArgument.kt");
+            }
+
+            @TestMetadata("SamInReturnStatement.kt")
+            public void testSamInReturnStatement() throws Exception {
+                runTest("../testData/basic/java/SAM/SamInReturnStatement.kt");
             }
         }
 

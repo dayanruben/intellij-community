@@ -16,6 +16,8 @@ import com.jetbrains.python.packaging.PyPIPackageUtil
 import com.jetbrains.python.packaging.PyPackageVersionComparator
 import com.jetbrains.python.packaging.PyRequirement
 import com.jetbrains.python.packaging.cache.PythonSimpleRepositoryCache
+import com.jetbrains.python.packaging.common.DEFAULT_PROJECT_URL_LABEL
+import com.jetbrains.python.packaging.common.ProjectUrl
 import com.jetbrains.python.packaging.common.PythonPackageDetails
 import com.jetbrains.python.packaging.common.PythonRepositoryPackageSpecification
 import com.jetbrains.python.packaging.common.PythonSimplePackageDetails
@@ -23,6 +25,8 @@ import org.apache.http.client.utils.URIBuilder
 import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import java.net.URL
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 private val GSON = Gson()
 
@@ -117,6 +121,19 @@ open class PyPackageRepository() {
 
   open fun buildPackageDetails(packageName: String): PyResult<PythonPackageDetails> {
     return buildPackageDetailsBySimpleDetailsProtocol(packageName)
+  }
+
+  /**
+   * Generic project url link for [packageName]. Returns `null` when the repository has no
+   * `repositoryUrl` to point at — callers typically fall back to the PyPI project page in that
+   * case.
+   */
+  open fun getProjectUrl(packageName: String): ProjectUrl? {
+    val base = repositoryUrl?.trimEnd('/') ?: return null
+    if (base.isEmpty()) return null
+    val encoded = URLEncoder.encode(packageName, StandardCharsets.UTF_8)
+    val label = name.ifBlank { DEFAULT_PROJECT_URL_LABEL }
+    return ProjectUrl(label, "$base/project/$encoded/")
   }
 
   companion object {

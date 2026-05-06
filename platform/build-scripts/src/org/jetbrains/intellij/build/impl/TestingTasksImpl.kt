@@ -441,6 +441,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
             testGroups = options.testGroups,
             testPatterns = options.testPatterns,
             testTags = options.testTags,
+            testExcludedTags = options.testExcludedTags,
             jvmArgs = additionalJvmOptions,
             systemProperties = systemProperties + listOf(
               "intellij.build.test.process.name" to testModule.name,
@@ -542,6 +543,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     testGroups: String?,
     testPatterns: String?,
     testTags: String? = null,
+    testExcludedTags: String? = null,
     jvmArgs: List<String>,
     systemProperties: Map<String, String>,
     envVariables: Map<String, String> = emptyMap(),
@@ -598,6 +600,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     testPatterns?.let { systemProperties.putIfAbsent("intellij.build.test.patterns", it) }
     testGroups?.let { systemProperties.putIfAbsent("intellij.build.test.groups", it) }
     testTags?.let { systemProperties.putIfAbsent("intellij.build.test.tags", it) }
+    testExcludedTags?.let { systemProperties.putIfAbsent("intellij.build.test.excluded.tags", it) }
     systemProperties.putIfAbsent(TestingOptions.PERFORMANCE_TESTS_ONLY_FLAG, options.isPerformanceTestsOnly.toString())
     val allJvmArgs = ArrayList(jvmArgs)
     prepareEnvForTestRun(jvmArgs = allJvmArgs, systemProperties = systemProperties, classPath = bootstrapClasspath, remoteDebugging = remoteDebugging, cleanSystemDir = false)

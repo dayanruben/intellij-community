@@ -67,14 +67,33 @@ internal sealed interface SourceAndCacheStrategy {
   fun updateAssetDigest(digest: HashStream64)
 }
 
-private class MavenJarSourceAndCacheStrategy(override val source: ZipSource) : SourceAndCacheStrategy {
+private fun putFilterCacheKey(stream: HashStream64, source: Source) {
+  val filterCacheKey = source.filterCacheKey
+  for (item in filterCacheKey) {
+    stream.putString(item)
+  }
+  stream.putInt(filterCacheKey.size)
+}
+
+private abstract class BaseSourceAndCacheStrategy<T : Source>(
+  final override val source: T,
+) : SourceAndCacheStrategy {
+  final override fun updateAssetDigest(digest: HashStream64) {
+    updateSourceDigest(digest)
+    putFilterCacheKey(digest, source)
+  }
+
+  protected abstract fun updateSourceDigest(digest: HashStream64)
+}
+
+private class MavenJarSourceAndCacheStrategy(source: ZipSource) : BaseSourceAndCacheStrategy<ZipSource>(source) {
   private var hash = 0L
 
   override fun getHash() = hash
 
   override fun getSize() = Files.size(source.file)
 
-  override fun updateAssetDigest(digest: HashStream64) {
+  override fun updateSourceDigest(digest: HashStream64) {
     val relativePath = MAVEN_REPO.relativize(source.file).invariantSeparatorsPathString
     hash = Hashing.xxh3_64().hashCharsToLong(relativePath)
     digest.putLong(hash).putInt(relativePath.length)
@@ -82,25 +101,25 @@ private class MavenJarSourceAndCacheStrategy(override val source: ZipSource) : S
   }
 }
 
-private class LazySourceAndCacheStrategy(override val source: LazySource) : SourceAndCacheStrategy {
+private class LazySourceAndCacheStrategy(source: LazySource) : BaseSourceAndCacheStrategy<LazySource>(source) {
   override fun getHash() = source.precomputedHash
 
   override fun getSize() = 0L
 
-  override fun updateAssetDigest(digest: HashStream64) {
+  override fun updateSourceDigest(digest: HashStream64) {
     digest.putString(source.name)
     digest.putLong(source.precomputedHash)
   }
 }
 
-private class NonMavenJarSourceAndCacheStrategy(override val source: ZipSource) : SourceAndCacheStrategy {
+private class NonMavenJarSourceAndCacheStrategy(source: ZipSource) : BaseSourceAndCacheStrategy<ZipSource>(source) {
   private var hash = 0L
 
   override fun getHash() = hash
 
   override fun getSize() = Files.size(source.file)
 
-  override fun updateAssetDigest(digest: HashStream64) {
+  override fun updateSourceDigest(digest: HashStream64) {
     val hasher = Hashing.xxh3_64().hashStream()
     ZipFile(source.file.toFile()).use { zip ->
       for (entry in zip.entries()) {
@@ -130,40 +149,40 @@ private class NonMavenJarSourceAndCacheStrategy(override val source: ZipSource) 
   }
 }
 
-private class ModuleOutputSourceAndCacheStrategy(override val source: DirSource, private val name: String) : SourceAndCacheStrategy {
+private class ModuleOutputSourceAndCacheStrategy(source: DirSource, private val name: String) : BaseSourceAndCacheStrategy<DirSource>(source) {
   private var hash = 0L
 
   override fun getHash() = hash
 
   override fun getSize() = 0L
 
-  override fun updateAssetDigest(digest: HashStream64) {
+  override fun updateSourceDigest(digest: HashStream64) {
     digest.putString(name)
     hash = computeHashForModuleOutput(source)
     digest.putLong(hash)
   }
 }
 
-private class InMemorySourceAndCacheStrategy(override val source: InMemoryContentSource) : SourceAndCacheStrategy {
+private class InMemorySourceAndCacheStrategy(source: InMemoryContentSource) : BaseSourceAndCacheStrategy<InMemoryContentSource>(source) {
   private var hash = 0L
 
   override fun getHash() = hash
 
   override fun getSize() = source.data.size.toLong()
 
-  override fun updateAssetDigest(digest: HashStream64) {
+  override fun updateSourceDigest(digest: HashStream64) {
     digest.putString(source.relativePath)
     hash = Hashing.xxh3_64().hashBytesToLong(source.data)
     digest.putLong(hash).putInt(source.data.size)
   }
 }
 
-private class FileSourceCacheStrategy(override val source: FileSource) : SourceAndCacheStrategy {
+private class FileSourceCacheStrategy(source: FileSource) : BaseSourceAndCacheStrategy<FileSource>(source) {
   override fun getHash() = source.hash
 
   override fun getSize() = source.size.toLong()
 
-  override fun updateAssetDigest(digest: HashStream64) {
+  override fun updateSourceDigest(digest: HashStream64) {
     digest.putString(source.relativePath)
     digest.putLong(source.hash)
   }
