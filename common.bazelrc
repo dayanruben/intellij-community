@@ -9,9 +9,6 @@
 # Limit the server memory usage as per https://youtrack.jetbrains.com/issue/IJI-3103#focus=Comments-27-12862178.0-0
 startup --host_jvm_args=-Xmx12g
 
-# Remove when migrated to Bazel 9
-startup --host_jvm_args=-DBAZEL_TRACK_SOURCE_DIRECTORIES=1
-
 # Disable implicit imports, remove when migrated to Bazel 9
 # see https://blog.bazel.build/2026/01/20/bazel-9.html
 common --incompatible_autoload_externally=
@@ -77,7 +74,6 @@ common --java_runtime_version=remotejbr_25
 # see https://bazel.build/external/lockfile
 # use `bazel mod deps --lockfile_mode=refresh` to update lock file
 common --lockfile_mode=error
-common:windows --lockfile_mode=off  # todo: https://youtrack.jetbrains.com/issue/DPE-59
 
 common --noenable_workspace
 

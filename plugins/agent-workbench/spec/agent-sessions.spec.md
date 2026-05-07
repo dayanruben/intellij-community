@@ -4,6 +4,7 @@ description: Requirements for the Swing Async Tree implementation of Agent Threa
 targets:
   - ../sessions-core/src/providers/*.kt
   - ../sessions/src/**/*.kt
+  - ../sessions-toolwindow/src/**/*.kt
   - ../sessions/resources/intellij.agent.workbench.sessions.xml
   - ../sessions/resources/messages/AgentSessionsBundle.properties
   - ../sessions/intellij.agent.workbench.sessions.iml
@@ -11,8 +12,10 @@ targets:
   - ../codex/common/src/*.kt
   - ../codex/sessions/src/**/*.kt
   - ../claude/sessions/src/**/*.kt
+  - ../junie/sessions/src/**/*.kt
   - ../filewatch/src/**/*.kt
   - ../sessions/testSrc/*.kt
+  - ../sessions-toolwindow/testSrc/*.kt
   - ../chat/src/*.kt
 ---
 
@@ -90,8 +93,11 @@ Shared contracts remain in `spec/agent-core-contracts.spec.md`.
 - Catalog refresh must clear stale standalone-project branch metadata when the latest catalog entry no longer provides a branch.
   [@test] ../sessions/testSrc/AgentSessionRefreshServiceIntegrationTest.kt
 
-- Default session-source registration must include Codex and Claude provider bridges.
+- Default session-source registration must include Codex, Claude, and Junie provider bridges.
   [@test] ../sessions/testSrc/AgentSessionProvidersTest.kt
+
+- Junie provider loading must read indexed CLI sessions for the matching project path.
+  [@test] ../junie/sessions/testSrc/JunieSessionSourceTest.kt
 
 - Provider results for a path load must be merged and sorted by `updatedAt` descending.
   [@test] ../sessions/testSrc/AgentSessionLoadAggregationTest.kt
@@ -196,6 +202,21 @@ Shared contracts remain in `spec/agent-core-contracts.spec.md`.
 
 - Tree/chat tab selection synchronization must resolve project/worktree/thread/sub-agent identities to stable tree IDs.
   [@test] ../sessions/testSrc/SessionTreeSelectionSyncTest.kt
+
+- Sessions tree must install platform tree speed search (`TreeUIHelper.installTreeSpeedSearch`) so Up/Down navigation, popup state, and fragment highlighting follow IntelliJ tree conventions.
+  [@test] ../sessions-toolwindow/testSrc/AgentSessionsTreeSnapshotTest.kt
+
+- Sessions tree speed-search element text must be derived from the rendered row label (project/worktree name with branch metadata, thread display title, sub-agent label, warning/error/empty/More message) and must not include provider id, thread id, or other hidden metadata.
+  [@test] ../sessions-toolwindow/testSrc/AgentSessionsTreeSnapshotTest.kt
+
+- Sessions tree speed-search comparator must require the search prefix to appear at a word start of the searchable text:
+  - matching is case-insensitive contiguous substring matching (no fuzzy / per-character camel-hump matching across unrelated words),
+  - a match qualifies only when the matched substring starts at index 0, immediately after a non-letter/digit character, or at a camelCase hump,
+  - patterns whose only occurrence is mid-word (e.g. `eve` inside `developers`) must not match.
+  [@test] ../sessions-toolwindow/testSrc/AgentSessionsTreeSnapshotTest.kt
+
+- Sessions tree speed-search must reveal hidden matching rows behind `More` rows by expanding closed-project visibility (`ensureProjectVisible`) and per-path thread visibility (`ensureThreadVisible`) for any non-visible row whose searchable text matches the active prefix under the speed-search comparator, then refresh the active speed-search selection once the revealed rows materialize as visible tree rows.
+  [@test] ../sessions/testSrc/AgentSessionRefreshOnDemandIntegrationTest.kt
 
 - New-session row affordances for project/worktree rows must be hover-or-selection based and must offer:
   - quick create with last used provider when standard mode is supported,

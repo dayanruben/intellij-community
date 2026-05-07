@@ -2,7 +2,6 @@
 package org.jetbrains.idea.maven.project
 
 import com.intellij.execution.configurations.ParametersList
-import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsSafe
@@ -217,8 +216,8 @@ class MavenProject(val file: VirtualFile) {
   val directoryPath: Path
     get() = file.parent.toNioPath()
 
-  val profilesXmlFile: VirtualFile?
-    get() = MavenUtil.findProfilesXmlFile(file)
+  internal val profilesXmlFile: VirtualFile?
+    get() = null
 
   val profilesXmlNioFile: Path?
     get() = MavenUtil.getProfilesXmlNioFile(file)
@@ -528,7 +527,12 @@ class MavenProject(val file: VirtualFile) {
 
   val profilesIds: Collection<String>
     get() {
-      return myState.profilesIds
+      return myState.profiles.map { it.id }
+    }
+
+  val profiles: List<MavenProfile>
+    get() {
+      return myState.profiles
     }
 
   val activatedProfilesIds: MavenExplicitProfiles
@@ -940,7 +944,13 @@ class MavenProject(val file: VirtualFile) {
         filters = build.filters,
         properties = model.properties,
         modulesPathsAndNames = collectModulePathsAndNames(model, directory, fileExtension),
-        profilesIds = collectProfilesIds(model.profiles) + if (keepPreviousProfiles) state.profilesIds else emptySet(),
+        profiles = if (keepPreviousProfiles) {
+          val modelProfileIds = model.profiles.map { it.id }.toSet()
+          model.profiles.toList() + state.profiles.filter { it.id !in modelProfileIds }
+        }
+        else {
+          model.profiles.toList()
+        },
         modelMap = nativeModelMap,
         mavenSources = build.mavenSources,
         unresolvedArtifactIds = newUnresolvedArtifacts,
@@ -999,14 +1009,5 @@ class MavenProject(val file: VirtualFile) {
       return result
     }
 
-    private fun collectProfilesIds(profiles: Collection<MavenProfile>?): Set<String> {
-      if (profiles == null) return emptySet()
-
-      val result = HashSet<String>(profiles.size)
-      for (each in profiles) {
-        result.add(each.id)
-      }
-      return result
-    }
   }
 }

@@ -235,16 +235,11 @@ fleet/codecache/test
 fleet/compiler-plugins
 fleet/fastutil
 fleet/kernel
-fleet/ktor/client/cio
 fleet/ktor/client/core
-fleet/ktor/network/tls
-fleet/ktor/server/cio
 fleet/lsp.protocol
 fleet/lsp.protocol/test
 fleet/modules/api
-fleet/modules/jvm
 fleet/multiplatform.shims
-fleet/preferences
 fleet/reporting/api
 fleet/reporting/shared
 fleet/rhizomedb
@@ -258,9 +253,7 @@ fleet/util/codepoints/test
 fleet/util/core
 fleet/util/logging/api
 fleet/util/logging/slf4j
-fleet/util/modules
 fleet/util/multiplatform
-fleet/util/network
 fleet/util/serialization
 grid/api
 grid/core-impl
@@ -922,6 +915,8 @@ plugins/agent-workbench/codex/sessions
 plugins/agent-workbench/common
 plugins/agent-workbench/filewatch
 plugins/agent-workbench/json
+plugins/agent-workbench/junie/common
+plugins/agent-workbench/junie/sessions
 plugins/agent-workbench/plugin
 plugins/agent-workbench/prompt/core
 plugins/agent-workbench/prompt/testrunner
@@ -998,6 +993,7 @@ plugins/devkit/intellij.devkit.stacktrace
 plugins/devkit/intellij.devkit.themes
 plugins/devkit/intellij.devkit.threading
 plugins/devkit/intellij.devkit.uiDesigner
+plugins/devkit/intellij.devkit.uiDsl
 plugins/devkit/intellij.devkit.workspaceModel
 plugins/devkit/intellij.devkit.workspaceModel/k1
 plugins/devkit/intellij.devkit.workspaceModel/k2
@@ -1644,6 +1640,7 @@ spellchecker
 spellchecker/xml
 tools/apiDump
 tools/apiDump/testData
+tools/intellij.ide.starter.allure.annotations.scanner
 tools/intellij.lambda.sampleTests
 tools/intellij.lambda.sampleTestsWithFixtures
 tools/intellij.lambda.sampleTestsWithFixtures/plugin

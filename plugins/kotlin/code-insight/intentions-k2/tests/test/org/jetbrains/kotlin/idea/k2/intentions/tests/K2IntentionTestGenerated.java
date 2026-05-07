@@ -555,11 +555,6 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
             runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterPosFirst.kt");
         }
 
-        @TestMetadata("contextParameterPosFirstTypeCheck.kt")
-        public void testContextParameterPosFirstTypeCheck() throws Exception {
-            runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterPosFirstTypeCheck.kt");
-        }
-
         @TestMetadata("contextParameterSameTypes.kt")
         public void testContextParameterSameTypes() throws Exception {
             runTest("../../../idea/tests/testData/intentions/addNameToArgument/contextParameterSameTypes.kt");
@@ -683,11 +678,6 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
         @TestMetadata("notResolved.kt")
         public void testNotResolved() throws Exception {
             runTest("../../../idea/tests/testData/intentions/addNameToArgument/notResolved.kt");
-        }
-
-        @TestMetadata("onSwappedOrder.kt")
-        public void testOnSwappedOrder() throws Exception {
-            runTest("../../../idea/tests/testData/intentions/addNameToArgument/onSwappedOrder.kt");
         }
 
         @TestMetadata("rangeForLambda1.kt")
@@ -16233,9 +16223,24 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
                 runTest("../../../idea/tests/testData/intentions/contextParameters/regularParameterToContextParameter/inapplicableAlreadyContext.kt");
             }
 
+            @TestMetadata("inapplicableAnonymousFunctionParameter.kt")
+            public void testInapplicableAnonymousFunctionParameter() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/regularParameterToContextParameter/inapplicableAnonymousFunctionParameter.kt");
+            }
+
+            @TestMetadata("inapplicableAnonymousFunctionParameterAsArgument.kt")
+            public void testInapplicableAnonymousFunctionParameterAsArgument() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/regularParameterToContextParameter/inapplicableAnonymousFunctionParameterAsArgument.kt");
+            }
+
             @TestMetadata("inapplicableFeatureDisabled.kt")
             public void testInapplicableFeatureDisabled() throws Exception {
                 runTest("../../../idea/tests/testData/intentions/contextParameters/regularParameterToContextParameter/inapplicableFeatureDisabled.kt");
+            }
+
+            @TestMetadata("inapplicableLambdaParameter.kt")
+            public void testInapplicableLambdaParameter() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/regularParameterToContextParameter/inapplicableLambdaParameter.kt");
             }
 
             @TestMetadata("inapplicablePrimaryConstructorParameter.kt")

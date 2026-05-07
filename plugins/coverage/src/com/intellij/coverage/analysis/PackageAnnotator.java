@@ -23,6 +23,7 @@ import com.intellij.rt.coverage.data.LineCoverage;
 import com.intellij.rt.coverage.data.LineData;
 import com.intellij.rt.coverage.data.ProjectData;
 import com.intellij.rt.coverage.instrumentation.UnloadedUtil;
+import com.intellij.rt.coverage.util.ClassNameUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
@@ -43,7 +44,6 @@ import java.util.zip.ZipFile;
 @ApiStatus.Internal
 public final class PackageAnnotator {
   private static final @NonNls String DEFAULT_CONSTRUCTOR_NAME_SIGNATURE = "<init>()V";
-  private static final @NonNls String JAR_ENTRY_SEPARATOR = "!/";
 
   private final CoverageSuitesBundle mySuite;
   private final Project myProject;
@@ -223,17 +223,30 @@ public final class PackageAnnotator {
     });
   }
 
+  public @Nullable ClassData collectNonCoveredClassInfo(final @NotNull Path classFile, @NotNull ProjectData projectData) {
+    ClassReader classReader = loadClassReader(classFile);
+    if (classReader == null) return null;
+    String className = ClassNameUtil.convertToFQName(classReader.getClassName());
+    return collectNonCoveredClassInfo(className, classReader, projectData);
+  }
+
   private @Nullable ClassData collectNonCoveredClassInfo(final Path classFile, String className, ProjectData projectData) {
     ClassReader classReader = loadClassReader(classFile);
     if (classReader == null) return null;
+    return collectNonCoveredClassInfo(className, classReader, projectData);
+  }
+
+  private @Nullable ClassData collectNonCoveredClassInfo(@NotNull String className,
+                                                        @NotNull ClassReader classReader,
+                                                        @NotNull ProjectData projectData) {
     UnloadedUtil.appendUnloadedClass(projectData, className, classReader, mySuite.isBranchCoverage());
     return projectData.getClassData(className);
   }
 
   private @Nullable ClassReader loadClassReader(@NotNull Path classFile) {
-    String path = classFile.toString();
-    if (isArchiveEntryPath(path)) {
-      byte[] content = loadClassBytesFromArchivePath(path);
+    AnalysisUtils.ArchiveEntryPath archiveEntryPath = AnalysisUtils.splitArchiveEntryPath(classFile);
+    if (archiveEntryPath != null) {
+      byte[] content = loadClassBytesFromArchivePath(archiveEntryPath);
       return content != null ? new ClassReader(content) : null;
     }
     try (InputStream stream = Files.newInputStream(classFile)) {
@@ -244,17 +257,11 @@ public final class PackageAnnotator {
     }
   }
 
-  private byte @Nullable [] loadClassBytesFromArchivePath(@NotNull String path) {
-    int separator = path.indexOf(JAR_ENTRY_SEPARATOR);
-    if (separator <= 0) return null;
-    String archivePath = path.substring(0, separator);
-    String entryPath = path.substring(separator + JAR_ENTRY_SEPARATOR.length());
-    if (entryPath.isEmpty()) return null;
-
-    ZipFile zip = getOrCreateArchive(archivePath);
+  private byte @Nullable [] loadClassBytesFromArchivePath(@NotNull AnalysisUtils.ArchiveEntryPath archiveEntryPath) {
+    ZipFile zip = getOrCreateArchive(archiveEntryPath.archivePath());
     if (zip == null) return null;
     try {
-      var entry = zip.getEntry(entryPath);
+      var entry = zip.getEntry(archiveEntryPath.entryPath());
       if (entry == null || entry.isDirectory()) return null;
       try (var stream = zip.getInputStream(entry)) {
         return FileUtil.loadBytes(stream);
@@ -263,10 +270,6 @@ public final class PackageAnnotator {
     catch (IOException ignored) {
       return null;
     }
-  }
-
-  private static boolean isArchiveEntryPath(@NotNull String path) {
-    return path.indexOf(JAR_ENTRY_SEPARATOR) > 0;
   }
 
   private @Nullable ZipFile getOrCreateArchive(@NotNull String archivePath) {
