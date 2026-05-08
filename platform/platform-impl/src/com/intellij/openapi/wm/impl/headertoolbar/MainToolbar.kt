@@ -45,6 +45,7 @@ import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.keymap.impl.ui.ActionsTreeUtil
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.util.IconLoader
@@ -69,6 +70,7 @@ import com.intellij.ui.UIBundle
 import com.intellij.ui.WindowMoveListener
 import com.intellij.ui.components.panels.HorizontalLayout
 import com.intellij.ui.mac.touchbar.TouchbarSupport
+import com.intellij.util.asDisposable
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
@@ -145,6 +147,7 @@ class MainToolbar(
   private val flavor: MainToolbarFlavor
   private val widthCalculationListeners = mutableSetOf<ToolbarWidthCalculationListener>()
   private val cachedWidths by lazy { ConcurrentHashMap<String, Int>() }
+  private val focusSupport = MainToolbarFocusSupport(toolbar = this, parentDisposable = coroutineScope.asDisposable())
 
   init {
     this.background = background
@@ -155,6 +158,7 @@ class MainToolbar(
     else {
       DefaultMainToolbarFlavor
     }
+    focusSupport.install()
     showingScope("Main toolbar update") {
       ApplicationManager.getApplication().messageBus.connect(this).subscribe(LafManagerListener.TOPIC, LafManagerListener {
         updateToolbarActions()
@@ -193,6 +197,10 @@ class MainToolbar(
     return components.filterIsInstance<ActionToolbar>().sumOf { it.component.preferredSize.width} + 4 * JBUI.scale(layoutGap)
   }
 
+  internal fun focusFirstItem() = focusSupport.focusFirstItem()
+
+  internal fun getFocusableItems(): List<Component> = focusSupport.getFocusableAndEnabledItems()
+
   private fun updateToolbarActions() {
     for (component in components) {
       if (component is ActionToolbarImpl) {
@@ -224,6 +232,7 @@ class MainToolbar(
       for ((widget, position) in widgets) {
         addWidget(widget = widget.component, parent = this@MainToolbar, position = position)
       }
+      focusSupport.registerComponent(this@MainToolbar)
 
       customizationGroupPopupHandler?.let { installClickListener(popupHandler = it, customTitleBar = customTitleBar) }
       widgets
@@ -377,18 +386,22 @@ class MainToolbar(
     if (accessibleContext == null) {
       accessibleContext = AccessibleMainToolbar()
     }
-    accessibleContext.accessibleName = if (ExperimentalUI.isNewUI() && UISettings.getInstance().mainMenuDisplayMode == MainMenuDisplayMode.SEPARATE_TOOLBAR) {
-      UIBundle.message("main.toolbar.accessible.group.name")
-    }
-    else {
-      ""
-    }
     return accessibleContext
   }
 
   @Suppress("RedundantInnerClassModifier")
   private inner class AccessibleMainToolbar : AccessibleJPanel() {
     override fun getAccessibleRole(): AccessibleRole = AccessibilityUtils.GROUPED_ELEMENTS
+
+    override fun getAccessibleName(): String {
+      if (!ExperimentalUI.isNewUI()) {
+        return ""
+      }
+
+      val shortcut = KeymapUtil.getFirstKeyboardShortcutText("FocusMainToolbar")
+      return if (shortcut.isNotEmpty()) UIBundle.message("main.toolbar.accessible.group.name.with.shortcut", shortcut)
+      else UIBundle.message("main.toolbar.accessible.group.name")
+    }
   }
 }
 

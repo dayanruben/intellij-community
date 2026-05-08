@@ -6743,17 +6743,17 @@ java_library(
 )
 
 copy_file(
-  name = "org.jetbrains.intellij.deps/debugger-agent-1.169.jar_copy",
-  src = "@org_jetbrains_intellij_deps-debugger-agent-1_169_http//file",
-  out = "org.jetbrains.intellij.deps/debugger-agent-1.169.jar",
+  name = "org.jetbrains.intellij.deps/debugger-agent-1.170.jar_copy",
+  src = "@org_jetbrains_intellij_deps-debugger-agent-1_170_http//file",
+  out = "org.jetbrains.intellij.deps/debugger-agent-1.170.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "java-debugger-agent-holder-debugger-agent",
-  jar = "@org_jetbrains_intellij_deps-debugger-agent-1_169_http//file",
-  source_jar = "@org_jetbrains_intellij_deps-debugger-agent-1_169-sources_http//file",
+  jar = "@org_jetbrains_intellij_deps-debugger-agent-1_170_http//file",
+  source_jar = "@org_jetbrains_intellij_deps-debugger-agent-1_170-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -20286,6 +20286,25 @@ jvm_import(
   name = "search_everywhere_ml-ranking-core-tests-find-file-model-experimental",
   jar = "@org_jetbrains_intellij_deps_searchEverywhere_model-find-file-model-252_0_1_http//file",
   source_jar = "@org_jetbrains_intellij_deps_searchEverywhere_model-find-file-model-252_0_1-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "search_everywhere_ml-tests-ai-grazie-emb",
+  exports = [
+    ":ai_grazie_model-model-emb-jvm-0_8_155_http_import",
+    ":ai_grazie_model-model-text-jvm-0_8_155_http_import",
+    ":ai_grazie_model-model-common-jvm-0_8_155_http_import",
+    ":ai_grazie_utils-utils-common-jvm-0_8_155_http_import",
+    ":ai_grazie_utils-utils-multiplatform-jvm-0_8_155_http_import",
+  ],
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "search_everywhere_ml-tests-ai-grazie-model-swagger-annotations-jvm",
+  jar = "@ai_grazie_model-swagger-annotations-jvm-0_8_155_http//file",
+  source_jar = "@ai_grazie_model-swagger-annotations-jvm-0_8_155-sources_http//file",
   visibility = ["//visibility:public"]
 )
 

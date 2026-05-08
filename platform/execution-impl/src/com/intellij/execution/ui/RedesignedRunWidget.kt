@@ -87,6 +87,7 @@ import java.awt.Rectangle
 import java.awt.event.InputEvent
 import java.util.function.Predicate
 import java.util.function.Supplier
+import javax.accessibility.AccessibleContext
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.SwingConstants
@@ -248,7 +249,7 @@ private class RunWidgetButtonLook : HeaderToolbarButtonLook(
     val color = if (isStopButton) JBUI.CurrentTheme.RunWidget.STOP_BACKGROUND else JBUI.CurrentTheme.RunWidget.RUNNING_BACKGROUND
 
     return when (state) {
-      ActionButtonComponent.NORMAL -> color
+      ActionButtonComponent.NORMAL, ActionButtonComponent.SELECTED -> color
       ActionButtonComponent.PUSHED -> ColorUtil.alphaBlending(JBUI.CurrentTheme.RunWidget.PRESSED_BACKGROUND, color)
       else -> ColorUtil.alphaBlending(JBUI.CurrentTheme.RunWidget.HOVER_BACKGROUND, color)
     }
@@ -549,6 +550,18 @@ private class RedesignedRunConfigurationSelectorButton(
   override fun iconTextSpace(): Int = ToolbarComboWidgetUiSizes.gapAfterLeftIcons
   override fun shallPaintDownArrow() = true
   override fun getDownArrowIcon(): Icon = PreparedIcon(super.getDownArrowIcon())
+
+  override fun getAccessibleContext(): AccessibleContext {
+    if (accessibleContext == null) {
+      accessibleContext = object : AccessibleActionButton() {
+        override fun getAccessibleName(): String {
+          val description = ExecutionBundle.message("choose.run.configuration.action.new.ui.button.description")
+          return myPresentation.text?.takeIf { it.isNotBlank() }?.let { "$it, $description" } ?: description
+        }
+      }
+    }
+    return accessibleContext
+  }
 
   override fun updateUI() {
     super.updateUI()

@@ -7,8 +7,11 @@ import com.intellij.ide.plugins.marketplace.utils.MarketplaceCustomizationServic
 import com.intellij.idea.AppMode
 import com.intellij.internal.statistic.beans.MetricEvent
 import com.intellij.internal.statistic.eventLog.EventLogGroup
+import com.intellij.internal.statistic.eventLog.FeatureUsageData
 import com.intellij.internal.statistic.eventLog.events.EventFields
+import com.intellij.internal.statistic.eventLog.events.PrimitiveEventField
 import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector
+import com.intellij.internal.statistic.utils.StatisticsUtil
 import com.intellij.internal.statistic.utils.getPluginInfoById
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.RoamingType
@@ -18,7 +21,8 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.getOrHandleException
+import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.extensions.ExtensionNotApplicableException
 import com.intellij.openapi.extensions.PluginId
@@ -31,8 +35,8 @@ import kotlin.math.max
 private val GROUP = EventLogGroup("duplicating.plugin.ids.in.ide.plugin.repositories", 1)
 
 private val IS_ON_MARKETPLACE_FIELD = EventFields.Boolean("is_on_marketplace")
-private val NUMBER_OF_REPOSITORIES_FIELD = EventFields.Int("number_of_repositories")
-private val NUMBER_OF_DIFFERENT_BASE_URLS_OF_REPOSITORIES_FIELD = EventFields.Int("number_of_different_base_urls_of_repositories")
+private val NUMBER_OF_REPOSITORIES_FIELD = RoundingIntEventField("number_of_repositories")
+private val NUMBER_OF_DIFFERENT_BASE_URLS_OF_REPOSITORIES_FIELD = RoundingIntEventField("number_of_different_base_urls_of_repositories")
 private val FOUND_DUPLICATING_PLUGIN_EVENT = GROUP.registerVarargEvent("found.duplicating.plugin.id",
                                                                        IS_ON_MARKETPLACE_FIELD,
                                                                        EventFields.PluginInfo,
@@ -71,6 +75,21 @@ internal class DuplicatingPluginIdStateCollector : ApplicationUsagesCollector() 
   }
 }
 
+private class RoundingIntEventField(override val name: String) : PrimitiveEventField<Int>() {
+
+  override val validationRule: List<String>
+    get() = listOf("{regexp#integer}")
+
+  override fun addData(fuData: FeatureUsageData, value: Int) {
+    fuData.addData(name, roundNumber(value))
+  }
+
+  private fun roundNumber(value: Int): Int {
+    if (value < 5) return value
+    return StatisticsUtil.roundToPowerOfTwo(value)
+  }
+}
+
 private val CHECK_INTERVAL_MS =
   TimeUnit.MINUTES.toMillis(java.lang.Long.getLong("ide.stat.duplicating.plugin.ids.check.check.interval.minutes",
                                                    TimeUnit.DAYS.toMinutes(3)))
@@ -104,16 +123,7 @@ internal class DuplicationPluginIdCachedValuesService : PersistentStateComponent
   }
 
   private fun collectDuplicatingPluginDataSafely(): List<DuplicatingPluginIdData> {
-    try {
-      return collectDuplicatingPluginData()
-    }
-    catch (e: Exception) {
-      when (e) {
-        is ControlFlowException -> throw e
-        else -> thisLogger().error(e)
-      }
-      return emptyList()
-    }
+    return runCatching { collectDuplicatingPluginData() }.getOrLogException(thisLogger()) ?: emptyList()
   }
 
   private fun collectDuplicatingPluginData(): List<DuplicatingPluginIdData> {
@@ -140,7 +150,10 @@ internal class DuplicationPluginIdCachedValuesService : PersistentStateComponent
     for (initialHost in customHosts) {
       val host = cleanupDownloadUrl(initialHost)
       val strippedHost = stripHost(host)
-      val pluginModels = RepositoryHelper.loadPluginModels(host, null, null)
+      val pluginResult = runCatching { RepositoryHelper.loadPluginModels(host, null, null) }
+      val pluginModels = pluginResult.getOrHandleException {
+        thisLogger().warn("Fail to get plugins from $host", it)
+      } ?: continue
       for (model in pluginModels) {
         val data = dataMap.getOrPut(model.pluginId) { Data() }
         data.hosts.add(host)
