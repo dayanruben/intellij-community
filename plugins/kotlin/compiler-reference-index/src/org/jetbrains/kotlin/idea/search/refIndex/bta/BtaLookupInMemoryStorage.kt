@@ -2,16 +2,19 @@
 package org.jetbrains.kotlin.idea.search.refIndex.bta
 
 import com.intellij.openapi.diagnostic.logger
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.buildtools.api.ExperimentalBuildToolsApi
 import org.jetbrains.kotlin.buildtools.api.KotlinToolchains
 import org.jetbrains.kotlin.buildtools.api.cri.CriToolchain
 import org.jetbrains.kotlin.buildtools.api.cri.CriToolchain.Companion.cri
 import org.jetbrains.kotlin.name.FqName
+import java.io.IOException
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readBytes
 
-internal class BtaLookupInMemoryStorage private constructor(
+@ApiStatus.Internal
+class BtaLookupInMemoryStorage private constructor(
     // TODO KTIJ-37735: use persistent hash map to avoid retaining all CRI data in memory
     private val lookups: Map<Int, Set<Int>>,
     private val fileIdsToPaths: Map<Int, String>,
@@ -34,8 +37,18 @@ internal class BtaLookupInMemoryStorage private constructor(
         fun create(criRoot: Path, projectPath: String): BtaLookupInMemoryStorage? {
             if (!criRoot.hasLookupData()) return null
 
-            val lookupsData = criRoot.resolve(CriToolchain.LOOKUPS_FILENAME).readBytes()
-            val fileIdsToPathsData = criRoot.resolve(CriToolchain.FILE_IDS_TO_PATHS_FILENAME).readBytes()
+            val lookupsData = try {
+                criRoot.resolve(CriToolchain.LOOKUPS_FILENAME).readBytes()
+            } catch (e: IOException) {
+                LOG.warn("Failed to read CRI lookups data in $criRoot", e)
+                return null
+            }
+            val fileIdsToPathsData = try {
+                criRoot.resolve(CriToolchain.FILE_IDS_TO_PATHS_FILENAME).readBytes()
+            } catch (e: IOException) {
+                LOG.warn("Failed to read CRI file IDs to paths data in $criRoot", e)
+                return null
+            }
 
             val toolchains = try {
                 KotlinToolchains.loadImplementation(BtaLookupInMemoryStorage::class.java.classLoader)
@@ -71,5 +84,6 @@ internal class BtaLookupInMemoryStorage private constructor(
 }
 
 @OptIn(ExperimentalBuildToolsApi::class)
-internal fun Path.hasLookupData(): Boolean = resolve(CriToolchain.LOOKUPS_FILENAME).exists() &&
+@ApiStatus.Internal
+fun Path.hasLookupData(): Boolean = resolve(CriToolchain.LOOKUPS_FILENAME).exists() &&
         resolve(CriToolchain.FILE_IDS_TO_PATHS_FILENAME).exists()

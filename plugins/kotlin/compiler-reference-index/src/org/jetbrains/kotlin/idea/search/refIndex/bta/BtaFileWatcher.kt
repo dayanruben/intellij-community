@@ -11,6 +11,7 @@ import org.jetbrains.annotations.ApiStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import org.jetbrains.kotlin.buildtools.api.ExperimentalBuildToolsApi
 import org.jetbrains.kotlin.buildtools.api.cri.CriToolchain
@@ -21,6 +22,7 @@ import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.io.IOException
 import java.nio.file.Path
 import java.nio.file.attribute.FileTime
+import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.exists
 import kotlin.io.path.getLastModifiedTime
@@ -42,7 +44,12 @@ internal class BtaFileWatcher(private val project: Project) {
         coroutineScope.launch(Dispatchers.IO) {
             while (true) {
                 delay(POLLING_INTERVAL)
-                checkForExternalCompilation(onModulesCompiled)
+                try {
+                    checkForExternalCompilation(onModulesCompiled)
+                } catch (e: Exception) {
+                    ensureActive()
+                    LOG.warn("Error during CRI polling", e)
+                }
             }
         }
     }
@@ -64,26 +71,10 @@ internal class BtaFileWatcher(private val project: Project) {
             }
         }
 
-        for (criPath in lastSeenCriTimestamps.keys) {
-            if (criPath !in modulesByCriPath) {
-                lastSeenCriTimestamps.remove(criPath)
-            }
-        }
-
-        val updatedModules = buildSet {
-            for ((criPath, criModules) in modulesByCriPath) {
-                val currentTimestamp = getCriArtifactTimestamp(criPath) ?: continue
-
-                lastSeenCriTimestamps.compute(criPath) { _, previousTimestamp ->
-                    if (previousTimestamp == null || currentTimestamp > previousTimestamp) {
-                        addAll(criModules)
-                        currentTimestamp
-                    } else {
-                        previousTimestamp
-                    }
-                }
-            }
-        }
+        val updatedModules = lastSeenCriTimestamps.computeUpdatedModules(
+            modulesByPath = modulesByCriPath,
+            getTimestamp = ::getCriArtifactTimestamp,
+        )
 
         if (updatedModules.isNotEmpty()) {
             LOG.info("Detected CRI changes for ${updatedModules.size} modules: ${updatedModules.joinToString { it.name }}")
@@ -135,4 +126,31 @@ fun getCriArtifactTimestamp(criPath: Path): FileTime? {
             }
         }
         .maxOrNull()
+}
+
+/**
+ * Returns modules whose path's [getTimestamp] is newer than the receiver's cached value.
+ * Mutates the receiver: prunes paths absent from [modulesByPath] and stores advanced timestamps.
+ */
+@ApiStatus.Internal
+fun <T : Any> ConcurrentMap<Path, FileTime>.computeUpdatedModules(
+    modulesByPath: Map<Path, Set<T>>,
+    getTimestamp: (Path) -> FileTime?,
+): Set<T> {
+    keys.retainAll(modulesByPath.keys)
+
+    return buildSet {
+        for ((path, modules) in modulesByPath) {
+            val currentTimestamp = getTimestamp(path) ?: continue
+
+            compute(path) { _, previousTimestamp ->
+                if (previousTimestamp == null || currentTimestamp > previousTimestamp) {
+                    addAll(modules)
+                    currentTimestamp
+                } else {
+                    previousTimestamp
+                }
+            }
+        }
+    }
 }

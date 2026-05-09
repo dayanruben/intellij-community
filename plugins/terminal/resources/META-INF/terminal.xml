@@ -6,11 +6,6 @@
                 canCloseContents="true"/>
     <applicationService serviceImplementation="org.jetbrains.plugins.terminal.DefaultTerminalRunnerFactory" open="true"/>
 
-    <projectConfigurable groupId="tools"
-                         bundle="messages.IdeBundle"
-                         key="configurable.TerminalOptionsConfigurable.display.name"
-                         id="terminal" instance="org.jetbrains.plugins.terminal.TerminalOptionsConfigurable"/>
-
     <fileEditorProvider id="classic-terminal-session-editor"
                         implementation="org.jetbrains.plugins.terminal.vfs.ClassicTerminalSessionEditorProvider"/>
 
@@ -18,9 +13,6 @@
     <applicationService serviceInterface="org.jetbrains.plugins.terminal.settings.TerminalLocalOptions"
                         serviceImplementation="org.jetbrains.plugins.terminal.settings.impl.TerminalLocalOptionsImpl"/>
     <applicationService serviceImplementation="org.jetbrains.plugins.terminal.TerminalFontSettingsService"/>
-
-    <projectService serviceInterface="org.jetbrains.plugins.terminal.block.reworked.TerminalPortForwardingUiProvider" open="true"
-                    serviceImplementation="org.jetbrains.plugins.terminal.block.reworked.TerminalNoPortForwardingUiProvider"/>
 
     <rdct.remoteSettingProvider implementation="org.jetbrains.plugins.terminal.TerminalRemoteSettingsInfoProvider"/>
     <applicationSettings service="org.jetbrains.plugins.terminal.block.BlockTerminalOptions"/>
@@ -144,6 +136,7 @@
     <applicationSettings service="org.jetbrains.plugins.terminal.settings.impl.TerminalLocalOptionsImpl"/>
     <projectSettings service="org.jetbrains.plugins.terminal.arrangement.TerminalArrangementManager"/>
     <projectSettings service="org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider"/>
+    <projectSettings service="org.jetbrains.plugins.terminal.settings.impl.TerminalTabsStorage"/>
     <applicationSettings service="org.jetbrains.plugins.terminal.block.reworked.TerminalUsageLocalStorage"/>
   </extensions>
 
@@ -158,6 +151,7 @@
     <shellSupport key="powershell" implementationClass="org.jetbrains.plugins.terminal.block.shellSupport.powershell.PowerShellSupport"/>
 
     <shellsDetector implementation="org.jetbrains.plugins.terminal.shellDetection.LocalProjectShellsDetector"/>
+    <shellsDetector implementation="org.jetbrains.plugins.terminal.shellDetection.RemoteProjectShellsDetector"/>
   </extensions>
 
   <extensionPoints>

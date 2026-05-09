@@ -13,6 +13,7 @@ import org.jetbrains.idea.devkit.build.PluginBuildConfiguration
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeMixedDependenciesInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeModuleKindResolver
+import org.jetbrains.idea.devkit.inspections.remotedev.analysis.recognizeSplitModeModuleKind
 import org.jetbrains.idea.devkit.module.PluginModuleType
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.junit.Assert
@@ -23,6 +24,8 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
     super.setUp()
     IntelliJProjectUtil.markAsIntelliJPlatformProject(project, true)
     RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.containing.plugins")
+      .setValue(true, testRootDisposable)
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.inspections.enable.xml.for.non.native.plugin")
       .setValue(true, testRootDisposable)
 
     val service = SplitModeApiRestrictionsService.getInstance()
@@ -262,6 +265,93 @@ Backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.mo
     myFixture.checkHighlighting()
   }
 
+  fun testPluginXmlWithIndirectFrontendOnlyDependenciesGetsSingleRootErrorWhenXmlInspectionsAreDisabled() {
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.inspections.enable.xml.for.non.native.plugin")
+      .setValue(false, testRootDisposable)
+
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.50.frontend.support",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.50.frontend.support.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.frontend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.50",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      pluginXmlContent = """
+        <<error descr="This plugin effectively depends on frontend-only modules and will work only in frontend in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.50'
+via dependency 'unique.module.name.50.frontend.support' -> descriptor 'unique.module.name.50.frontend.support.xml' in module 'unique.module.name.50.frontend.support'.">idea-plugin</error>>
+          <dependencies>
+            <module name="unique.module.name.50.frontend.support"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testMixedPluginXmlGetsSingleRootErrorWhenXmlInspectionsAreDisabled() {
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.inspections.enable.xml.for.non.native.plugin")
+      .setValue(false, testRootDisposable)
+
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.51.frontend.support",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.51.frontend.support.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.frontend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.51.backend.support",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.51.backend.support.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.51",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      pluginXmlContent = """
+        <<error descr="This plugin effectively depends on frontend-only and backend-only modules simultaneously. It may not get loaded in Split Mode.
+
+Computed module kind reasoning:
+
+Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.51'
+via dependency 'unique.module.name.51.frontend.support' -> descriptor 'unique.module.name.51.frontend.support.xml' in module 'unique.module.name.51.frontend.support'.
+
+Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.51'
+via dependency 'unique.module.name.51.backend.support' -> descriptor 'unique.module.name.51.backend.support.xml' in module 'unique.module.name.51.backend.support'.">idea-plugin</error>>
+          <dependencies>
+            <module name="unique.module.name.51.frontend.support"/>
+            <module name="unique.module.name.51.backend.support"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
   fun testContentModuleWithDifferentContainingPluginKindsByNamingConventionIsShared() {
     addModuleWithXmlDescriptor(
       moduleName = "unique.module.name.30.frontend",
@@ -358,6 +448,102 @@ Backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.mo
     assertSharedModuleKindWithContainingPluginsOfDifferentKinds("unique.module.name.37")
   }
 
+  fun testRecognizeModuleKindApiReturnsKindAndReasoning() {
+    val contentModuleDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.38",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.38.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+
+    val recognizedKind = recognizeSplitModeModuleKind(contentModuleDescriptor as com.intellij.psi.xml.XmlFile)
+    Assert.assertNotNull("Module kind should be recognized", recognizedKind)
+    Assert.assertEquals("unique.module.name.38", recognizedKind!!.moduleName)
+    Assert.assertEquals("backend", recognizedKind.kindId)
+    Assert.assertTrue(
+      "Reasoning should mention the backend dependency.\nReasoning: ${recognizedKind.reasoning}",
+      recognizedKind.reasoning.contains("intellij.platform.backend"),
+    )
+  }
+
+  fun testPredefinedSharedDependencyOverridesFrontendSuffix() {
+    addModuleWithXmlDescriptor(
+      moduleName = "intellij.platform.resources",
+      descriptorRelativePathToResourcesDirectory = "META-INF/PlatformLangPlugin.xml",
+      pluginXmlContent = """
+        <idea-plugin/>
+      """.trimIndent(),
+      resourceRootDirectoryName = "src",
+    )
+    val contentModuleDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.39",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.39.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+            <module name="intellij.platform.resources"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
+
+    myFixture.checkHighlighting()
+
+    val recognizedKind = recognizeSplitModeModuleKind(contentModuleDescriptor as com.intellij.psi.xml.XmlFile)
+    Assert.assertNotNull("Module kind should be recognized", recognizedKind)
+    Assert.assertEquals("unique.module.name.39", recognizedKind!!.moduleName)
+    Assert.assertEquals("backend", recognizedKind.kindId)
+  }
+
+  fun testTransitivelyPredefinedSharedDependencyOverridesFrontendSuffix() {
+    addModuleWithXmlDescriptor(
+      moduleName = "intellij.platform.resources",
+      descriptorRelativePathToResourcesDirectory = "META-INF/PlatformLangPlugin.xml",
+      pluginXmlContent = """
+        <idea-plugin/>
+      """.trimIndent(),
+      resourceRootDirectoryName = "src",
+    )
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.40",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.40.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+            <module name="intellij.platform.resources"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val contentModuleDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.41",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.41.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="unique.module.name.40"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
+
+    myFixture.checkHighlighting()
+
+    val recognizedKind = recognizeSplitModeModuleKind(contentModuleDescriptor as com.intellij.psi.xml.XmlFile)
+    Assert.assertNotNull("Module kind should be recognized", recognizedKind)
+    Assert.assertEquals("unique.module.name.41", recognizedKind!!.moduleName)
+    Assert.assertEquals("backend", recognizedKind.kindId)
+  }
+
   private fun assertSharedModuleKindWithContainingPluginsOfDifferentKinds(moduleName: String) {
     val module = ModuleManager.getInstance(project).findModuleByName(moduleName)
     Assert.assertNotNull("Module $moduleName was not created", module)
@@ -378,15 +564,19 @@ Backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.mo
     moduleName: String,
     descriptorRelativePathToResourcesDirectory: String,
     pluginXmlContent: String,
+    resourceRootDirectoryName: String = "resources",
   ): PsiFile {
     val addedModule =
       PsiTestUtil.addModule(project, PluginModuleType.getInstance(), moduleName, myFixture.tempDirFixture.findOrCreateDir(moduleName))
     PsiTestUtil.addSourceRoot(
       addedModule,
-      myFixture.tempDirFixture.findOrCreateDir("$moduleName/resources"),
+      myFixture.tempDirFixture.findOrCreateDir("$moduleName/$resourceRootDirectoryName"),
       JavaResourceRootType.RESOURCE,
     )
-    val createdDescriptorFile = myFixture.addFileToProject("$moduleName/resources/$descriptorRelativePathToResourcesDirectory", pluginXmlContent)
+    val createdDescriptorFile = myFixture.addFileToProject(
+      "$moduleName/$resourceRootDirectoryName/$descriptorRelativePathToResourcesDirectory",
+      pluginXmlContent,
+    )
     Assert.assertNotNull("XML descriptor for module $moduleName was not created", createdDescriptorFile)
     if (descriptorRelativePathToResourcesDirectory == "META-INF/plugin.xml") {
       val buildConfiguration = PluginBuildConfiguration.getInstance(addedModule)

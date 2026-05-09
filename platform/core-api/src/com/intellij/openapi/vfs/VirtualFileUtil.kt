@@ -33,7 +33,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.pathString
 
-fun VirtualFile.validOrNull() = if (isValid) this else null
+fun VirtualFile.validOrNull(): VirtualFile? = if (isValid) this else null
 
 val VirtualFile.isFile: Boolean
   get() = isValid && !isDirectory
@@ -77,6 +77,13 @@ fun VirtualFile.findDocument(): Document? {
 @RequiresReadLock
 fun VirtualFile.findPsiFile(project: Project): PsiFile? {
   return PsiManager.getInstance(project).findFile(this)
+}
+
+/**
+ * @return [LightVirtualFileBase.originalFile] recursively unwrapped
+ */
+fun VirtualFile.rootOriginalFile(): VirtualFile? {
+  return generateSequence(this) { f -> f.originalFile() }.lastOrNull()
 }
 
 /**

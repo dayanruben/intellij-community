@@ -77,7 +77,6 @@ import org.jetbrains.plugins.terminal.block.reworked.TerminalAiInlineCompletion
 import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModel
 import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModelImpl
 import org.jetbrains.plugins.terminal.block.reworked.lang.TerminalOutputPsiFile
-import org.jetbrains.plugins.terminal.block.reworked.session.FrontendTerminalSession
 import org.jetbrains.plugins.terminal.block.reworked.session.rpc.TerminalSessionId
 import org.jetbrains.plugins.terminal.block.ui.TerminalUiUtils
 import org.jetbrains.plugins.terminal.block.ui.addToLayer
@@ -130,7 +129,7 @@ class TerminalViewImpl(
   override val coroutineScope: CoroutineScope,
   sourceNavigationProjectPath: String? = null,
 ) : TerminalView {
-  private val sessionDeferred: CompletableDeferred<TerminalSession> = CompletableDeferred(coroutineScope.coroutineContext.job)
+  override val sessionDeferred: CompletableDeferred<TerminalSession> = CompletableDeferred(coroutineScope.coroutineContext.job)
 
   @VisibleForTesting
   val sessionModel: TerminalSessionModel
@@ -432,7 +431,7 @@ class TerminalViewImpl(
     terminalInput.sendText(options)
   }
 
-  fun setTopComponent(component: JComponent, disposable: Disposable) {
+  override fun setTopComponent(component: JComponent, disposable: Disposable) {
     val resizeListener = object : ComponentAdapter() {
       override fun componentResized(e: ComponentEvent) {
         // Update scroll position on top component size change
@@ -766,7 +765,7 @@ class TerminalViewImpl(
       sink[TerminalInput.DATA_KEY] = terminalInput
       sink[TerminalOutputModel.DATA_KEY] = outputModels.active.value
       sink[TerminalSearchController.KEY] = terminalSearchController
-      sink[TerminalSessionId.KEY] = (sessionDeferred.getNow() as? FrontendTerminalSession?)?.id
+      sink[TerminalSessionId.KEY] = null // TODO: session ID is required for hyperlinks - need to be reworked.
       sink[TerminalDataContextUtils.IS_ALTERNATE_BUFFER_DATA_KEY] = isAlternateScreenBuffer
       val hyperlinkFacade = if (isAlternateScreenBuffer) alternateBufferHyperlinkFacade else outputHyperlinkFacade
       sink[TerminalHyperlinkId.KEY] = hyperlinkFacade.getHoveredHyperlinkId()
@@ -891,7 +890,6 @@ class TerminalViewImpl(
 internal fun TerminalOffset.toRelative(model: TerminalOutputModel): Int = (this - model.startOffset).toInt()
 
 @get:ApiStatus.Internal
-@get:VisibleForTesting
 val TerminalOutputModel.cursorOffsetFlow: Flow<TerminalOffset>
   get() = callbackFlow {
     addListener(asDisposable(), object : TerminalOutputModelListener {

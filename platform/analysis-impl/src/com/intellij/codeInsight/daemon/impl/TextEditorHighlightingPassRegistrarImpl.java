@@ -14,7 +14,6 @@ import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.ClientEditorManager;
 import com.intellij.openapi.editor.Document;
@@ -32,6 +31,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.util.containers.ContainerUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
@@ -200,7 +200,7 @@ public final class TextEditorHighlightingPassRegistrarImpl extends TextEditorHig
   public @NotNull List<@NotNull TextEditorHighlightingPass> instantiatePasses(@NotNull PsiFile psiFile,
                                                                               @NotNull Editor editor,
                                                                               int @NotNull [] passesToIgnore) {
-    ApplicationManager.getApplication().assertIsNonDispatchThread();
+    ThreadingAssertions.assertBackgroundThread();
     DaemonProgressIndicator indicator = GlobalInspectionContextBase.assertUnderDaemonProgress();
     PsiDocumentManager documentManager = PsiDocumentManager.getInstance(myProject);
     Document document = editor.getDocument();
@@ -281,7 +281,7 @@ public final class TextEditorHighlightingPassRegistrarImpl extends TextEditorHig
   public @NotNull List<@NotNull TextEditorHighlightingPass> instantiateMainPasses(@NotNull PsiFile psiFile,
                                                                                   @NotNull Document document,
                                                                                   @NotNull HighlightInfoProcessor highlightInfoProcessor) {
-    ApplicationManager.getApplication().assertIsNonDispatchThread();
+    ThreadingAssertions.assertBackgroundThread();
     Set<TextEditorHighlightingPass> ids = new HashSet<>();
     PassConfig[] frozenPassConfigs = freezeRegisteredPassFactories();
     CodeInsightContext context = CodeInsightContextUtil.getCodeInsightContext(psiFile);

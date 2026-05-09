@@ -2909,17 +2909,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.intellij.deps/gradle-api-9.4.0.jar_copy",
-  src = "@org_jetbrains_intellij_deps-gradle-api-9_4_0_http//file",
-  out = "org.jetbrains.intellij.deps/gradle-api-9.4.0.jar",
+  name = "org.jetbrains.intellij.deps/gradle-api-9.5.0.jar_copy",
+  src = "@org_jetbrains_intellij_deps-gradle-api-9_5_0_http//file",
+  out = "org.jetbrains.intellij.deps/gradle-api-9.5.0.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "gradle",
-  jar = "@org_jetbrains_intellij_deps-gradle-api-9_4_0_http//file",
-  source_jar = "@org_jetbrains_intellij_deps-gradle-api-9_4_0-sources_http//file",
+  jar = "@org_jetbrains_intellij_deps-gradle-api-9_5_0_http//file",
+  source_jar = "@org_jetbrains_intellij_deps-gradle-api-9_5_0-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -13125,17 +13125,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.codehaus.plexus/plexus-utils-3.5.1.jar_copy",
-  src = "@org_codehaus_plexus-plexus-utils-3_5_1_http//file",
-  out = "org.codehaus.plexus/plexus-utils-3.5.1.jar",
+  name = "org.codehaus.plexus/plexus-utils-3.6.1.jar_copy",
+  src = "@org_codehaus_plexus-plexus-utils-3_6_1_http//file",
+  out = "org.codehaus.plexus/plexus-utils-3.6.1.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "libraries-plexus-utils-plexus-utils",
-  jar = "@org_codehaus_plexus-plexus-utils-3_5_1_http//file",
-  source_jar = "@org_codehaus_plexus-plexus-utils-3_5_1-sources_http//file",
+  jar = "@org_codehaus_plexus-plexus-utils-3_6_1_http//file",
+  source_jar = "@org_codehaus_plexus-plexus-utils-3_6_1-sources_http//file",
   visibility = ["//visibility:public"]
 )
 

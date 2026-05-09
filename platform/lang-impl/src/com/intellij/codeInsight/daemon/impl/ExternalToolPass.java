@@ -34,10 +34,15 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiFile;
+import com.intellij.util.JavaCoroutines;
 import com.intellij.util.TimeoutUtil;
+import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import com.intellij.util.concurrency.annotations.RequiresReadLock;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.update.Update;
+import kotlin.Unit;
+import kotlin.coroutines.Continuation;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -209,12 +214,24 @@ final class ExternalToolPass extends ProgressableTextEditorHighlightingPass impl
           externalUpdateTaskCompleted = true;
         }
       }
+
+      @Override
+      public Object execute(@NotNull Continuation<? super Unit> continuation) {
+        // we override `execute` to avoid non-cancellable section coming from `MergingUpdateQueue`
+        return JavaCoroutines.suspendJava((cont -> {
+          try {
+            run();
+          } finally {
+            cont.resume(Unit.INSTANCE);
+          }
+        }), continuation);
+      }
     });
   }
 
   @Override
   public @NotNull List<HighlightInfo> getInfos() {
-    ApplicationManager.getApplication().assertIsNonDispatchThread();
+    ThreadingAssertions.assertBackgroundThread();
     long deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(60);
 
     while (!externalUpdateTaskCompleted) {
@@ -274,7 +291,10 @@ final class ExternalToolPass extends ProgressableTextEditorHighlightingPass impl
   }
 
   @RequiresBackgroundThread
+  @RequiresReadLock
   private void doFinish() {
+    ThreadingAssertions.assertBackgroundThread();
+    ThreadingAssertions.assertReadAccess();
     List<HighlightInfo> highlights = myAnnotationData.stream()
       .flatMap(data ->
         ContainerUtil.notNullize(data.annotationHolder).stream().map(annotation -> HighlightInfo.fromAnnotation(data.annotator, annotation, getDocument())))

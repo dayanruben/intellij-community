@@ -29,8 +29,7 @@ class SmartCompletionMultifileHandlerTest : KotlinFixtureCompletionBaseTestCase(
         doTest()
     }
 
-    //KTIJ-38120
-    fun _testAnonymousObjectGenericJava() {
+    fun testAnonymousObjectGenericJava() {
         doTest()
     }
 
@@ -38,8 +37,7 @@ class SmartCompletionMultifileHandlerTest : KotlinFixtureCompletionBaseTestCase(
         doTest()
     }
 
-    // KTIJ-38121
-    fun _testNestedSamAdapter() {
+    fun testNestedSamAdapter() {
         doTest(lookupString = "Nested")
     }
 

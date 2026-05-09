@@ -45,7 +45,11 @@ class MarkdownFormatterTest: LightPlatformCodeInsightTestCase() {
 
   fun `test reflow short codespan parenthesized text`() = doTest()
 
-  fun `test reflow emphasized parenthesized text`() = doTest()
+  fun `test reflow emphasis parenthesized text margin 80`() = doTest(rightMargin = 80)
+
+  fun `test reflow emphasis parenthesized text margin 60`() = doTest(rightMargin = 60)
+
+  fun `test reflow emphasis parenthesized text margin 40`() = doTest(rightMargin = 40)
 
   fun `test reflow linked parenthesized text`() = doTest()
 
@@ -62,6 +66,8 @@ class MarkdownFormatterTest: LightPlatformCodeInsightTestCase() {
   fun `test reflow no extra new lines keep line breaks margin 40`() = doTest(rightMargin = 40, keepLineBreaks = true)
 
   fun `test emphasis`() = doTest()
+
+  fun `test links without blank lines`() = doTest(rightMargin = 80)
 
   override fun getTestDataPath(): String {
     return MarkdownTestingUtil.TEST_DATA_PATH + "/formatter/"

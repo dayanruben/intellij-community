@@ -10,7 +10,6 @@ import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntil
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
 import org.jetbrains.idea.devkit.build.PluginBuildConfiguration
-import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeMixedDependenciesInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeXmlApiUsageInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.module.PluginModuleType
@@ -24,6 +23,8 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
     IntelliJProjectUtil.markAsIntelliJPlatformProject(project, true)
     RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.containing.plugins")
       .setValue(true, testRootDisposable)
+    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.inspections.enable.xml.for.non.native.plugin")
+      .setValue(true, testRootDisposable)
 
     val service = SplitModeApiRestrictionsService.getInstance()
     service.scheduleLoadRestrictions()
@@ -31,7 +32,7 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
       waitUntil("API restrictions failed to load", 2.seconds) { service.isLoaded() }
     }
 
-    myFixture.enableInspections(SplitModeXmlApiUsageInspection(), SplitModeMixedDependenciesInspection())
+    myFixture.enableInspections(SplitModeXmlApiUsageInspection())
   }
 
   fun testFrontendExtensionInBackendModule() {
@@ -113,6 +114,29 @@ Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in
       pluginXmlContent = """
         <idea-plugin>
           <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+            <localInspection/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent(),
+      resourceRootDirectoryName = "src",
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
+  fun testPredefinedModuleSkipsAllSplitModeInspections() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "intellij.platform.resources",
+      descriptorRelativePathToResourcesDirectory = "META-INF/PlatformLangPlugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.frontend"/>
             <module name="intellij.platform.backend"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
@@ -302,34 +326,6 @@ Module 'unique.module.name.8'  -> backend">localInspection</warning>/>
       """.trimIndent()
     )
     myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
-
-    myFixture.checkHighlighting()
-  }
-
-  fun testFrontendAndBackendExtensionsInMixedModule() {
-    val pluginXml = addModuleWithXmlDescriptor(
-      moduleName = "unique.module.name.10",
-      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
-      """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
-
-Computed module kind reasoning:
-
-Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in module 'unique.module.name.10'
-
-Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.10'">idea-plugin</error>>
-          <dependencies>
-            <module name="intellij.platform.frontend"/>
-            <module name="intellij.platform.backend"/>
-          </dependencies>
-          <extensions defaultExtensionNs="com.intellij">
-            <typedHandler/>
-            <localInspection/>
-          </extensions>
-        </idea-plugin>
-      """.trimIndent()
-    )
-    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
 
     myFixture.checkHighlighting()
   }
@@ -647,50 +643,6 @@ Module 'unique.module.name.20'  -> backend">typedHandler</warning>/>
     myFixture.checkHighlighting()
   }
 
-  fun testMixedDependenciesInMutuallyContainingContentModules() {
-    val originalContentModuleDescriptor = addModuleWithXmlDescriptor(
-      moduleName = "unique.module.name.21",
-      descriptorRelativePathToResourcesDirectory = "unique.module.name.21.xml",
-      """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
-
-Computed module kind reasoning:
-
-Frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.21.xml' in module 'unique.module.name.21'
-
-Backend dependency 'intellij.platform.backend' from containing plugin descriptor 'unique.module.name.22.xml' in module 'unique.module.name.22'">idea-plugin</error>>
-          <dependencies>
-            <module name="intellij.platform.frontend"/>
-          </dependencies>
-          <content>
-            <module name="unique.module.name.22"/>
-          </content>
-          <extensions defaultExtensionNs="com.intellij">
-            <typedHandler/>
-            <localInspection/>
-          </extensions>
-        </idea-plugin>
-      """.trimIndent()
-    )
-    addModuleWithXmlDescriptor(
-      moduleName = "unique.module.name.22",
-      descriptorRelativePathToResourcesDirectory = "unique.module.name.22.xml",
-      """
-        <idea-plugin>
-          <dependencies>
-            <module name="intellij.platform.backend"/>
-          </dependencies>
-          <content>
-            <module name="unique.module.name.21"/>
-          </content>
-        </idea-plugin>
-      """.trimIndent()
-    )
-    myFixture.configureFromExistingVirtualFile(originalContentModuleDescriptor.virtualFile)
-
-    myFixture.checkHighlighting()
-  }
-
   fun testBackendExtensionInModuleWithCyclicTransitiveFrontendDependency() {
     val pluginXml = addModuleWithXmlDescriptor(
       moduleName = "unique.module.name.25",
@@ -814,6 +766,41 @@ Module 'unique.module.name.37'  -> backend">typedHandler</warning>/>
     myFixture.checkHighlighting()
   }
 
+  fun testPredefinedSharedContainingPluginOverridesFrontendNamingConvention() {
+    addModuleWithXmlDescriptor(
+      moduleName = "intellij.platform.resources",
+      descriptorRelativePathToResourcesDirectory = "META-INF/PlatformLangPlugin.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <content>
+            <module name="unique.module.name.39" loading="embedded"/>
+          </content>
+        </idea-plugin>
+      """.trimIndent(),
+      resourceRootDirectoryName = "src",
+    )
+    val contentModuleDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.39",
+      descriptorRelativePathToResourcesDirectory = "unique.module.name.39.xml",
+      pluginXmlContent = """
+        <idea-plugin>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
+
+Computed module kind reasoning:
+
+Module declares no own FE/BE dependencies, but the containing plugin.xml files do:
+Module 'intellij.platform.resources'  -> shared">localInspection</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent(),
+    )
+    myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
   fun testFrontendExtensionInPluginXmlWithRequiredBackendContentModule() {
     addModuleWithXmlDescriptor(
       moduleName = "unique.module.name.28",
@@ -849,106 +836,6 @@ Backend dependency 'intellij.platform.backend' from required content module desc
     myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
 
     myFixture.checkHighlighting()
-  }
-
-  fun testMixedPluginXmlWithRequiredAndEmbeddedContentModules() {
-    addModuleWithXmlDescriptor(
-      moduleName = "unique.module.name.31",
-      descriptorRelativePathToResourcesDirectory = "unique.module.name.31.xml",
-      """
-        <idea-plugin>
-          <dependencies>
-            <module name="intellij.platform.frontend"/>
-          </dependencies>
-        </idea-plugin>
-      """.trimIndent()
-    )
-    addModuleWithXmlDescriptor(
-      moduleName = "unique.module.name.32",
-      descriptorRelativePathToResourcesDirectory = "unique.module.name.32.xml",
-      """
-        <idea-plugin>
-          <dependencies>
-            <module name="intellij.platform.backend"/>
-          </dependencies>
-        </idea-plugin>
-      """.trimIndent()
-    )
-    val pluginXml = addModuleWithXmlDescriptor(
-      moduleName = "unique.module.name.33",
-      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
-      """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
-
-Computed module kind reasoning:
-
-Frontend dependency 'intellij.platform.frontend' from required content module descriptor 'unique.module.name.31.xml' in module 'unique.module.name.31'
-
-Backend dependency 'intellij.platform.backend' from embedded content module descriptor 'unique.module.name.32.xml' in module 'unique.module.name.32'">idea-plugin</error>>
-          <content>
-            <module name="unique.module.name.31" loading="required"/>
-            <module name="unique.module.name.32" loading="embedded"/>
-          </content>
-          <extensions defaultExtensionNs="com.intellij">
-            <typedHandler/>
-            <localInspection/>
-          </extensions>
-        </idea-plugin>
-      """.trimIndent()
-    )
-    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
-
-    myFixture.checkHighlighting()
-  }
-
-  fun testFrontendContentModuleIsMixedWhenContainingPluginRequiresBackendSiblingModule() {
-    addModuleWithXmlDescriptor(
-      moduleName = "unique.module.name.34",
-      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
-      """
-        <idea-plugin>
-          <content>
-            <module name="unique.module.name.35"/>
-            <module name="unique.module.name.36" loading="required"/>
-          </content>
-        </idea-plugin>
-      """.trimIndent()
-    )
-    val frontendContentModuleDescriptor = addModuleWithXmlDescriptor(
-      moduleName = "unique.module.name.35",
-      descriptorRelativePathToResourcesDirectory = "unique.module.name.35.xml",
-      """
-        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
-
-Computed module kind reasoning:
-
-Frontend dependency 'intellij.platform.frontend' from descriptor 'unique.module.name.35.xml' in module 'unique.module.name.35'
-
-Backend dependency 'intellij.platform.backend' from containing plugin required content module descriptor 'unique.module.name.36.xml' in module 'unique.module.name.36'">idea-plugin</error>>
-          <dependencies>
-            <module name="intellij.platform.frontend"/>
-          </dependencies>
-        </idea-plugin>
-      """.trimIndent()
-    )
-    addModuleWithXmlDescriptor(
-      moduleName = "unique.module.name.36",
-      descriptorRelativePathToResourcesDirectory = "unique.module.name.36.xml",
-      """
-        <idea-plugin>
-          <dependencies>
-            <module name="intellij.platform.backend"/>
-          </dependencies>
-        </idea-plugin>
-      """.trimIndent()
-    )
-    myFixture.configureFromExistingVirtualFile(frontendContentModuleDescriptor.virtualFile)
-
-    myFixture.checkHighlighting()
-    Assert.assertTrue(
-      myFixture.filterAvailableIntentions("Make module 'unique.module.name.35' work in 'frontend' only").isEmpty()
-    )
-    myFixture.findSingleIntention("Make module 'unique.module.name.35' work in 'backend' only")
   }
 
   fun testBackendExtensionInModuleWithDuplicateTransitiveBackendDependencies() {

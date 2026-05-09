@@ -15,11 +15,12 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowEx
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.openapi.wm.impl.content.ToolWindowContentUi
-import com.intellij.platform.project.projectId
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.terminal.frontend.action.TerminalAgentsAvailabilityService
 import com.intellij.terminal.frontend.action.TerminalRenameTabAction
 import com.intellij.terminal.frontend.fus.TerminalFocusFusService
+import com.intellij.terminal.frontend.session.TerminalSessionsManager
+import com.intellij.terminal.frontend.session.TerminalTabsManager
 import com.intellij.terminal.frontend.toolwindow.TerminalTabsManagerListener
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTab
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabBuilder
@@ -28,6 +29,7 @@ import com.intellij.terminal.frontend.toolwindow.findTabByContent
 import com.intellij.terminal.frontend.view.TerminalView
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
 import com.intellij.terminal.frontend.view.impl.TerminalViewImpl
+import com.intellij.terminal.frontend.view.portForwarding.installPortForwarding
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.AwaitCancellationAndInvoke
@@ -35,7 +37,6 @@ import com.intellij.util.asDisposable
 import com.intellij.util.awaitCancellationAndInvoke
 import com.intellij.util.ui.initOnShow
 import com.jediterm.core.util.TermSize
-import fleet.rpc.client.durable
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -54,13 +55,8 @@ import org.jetbrains.plugins.terminal.TerminalTabCloseListener
 import org.jetbrains.plugins.terminal.TerminalToolWindowFactory
 import org.jetbrains.plugins.terminal.TerminalToolWindowInitializer
 import org.jetbrains.plugins.terminal.TerminalToolWindowPanel
-import org.jetbrains.plugins.terminal.block.reworked.TerminalPortForwardingUiProvider
-import org.jetbrains.plugins.terminal.block.reworked.session.FrontendTerminalSession
 import org.jetbrains.plugins.terminal.block.reworked.session.TerminalSessionTab
-import org.jetbrains.plugins.terminal.block.reworked.session.rpc.TerminalPortForwardingId
 import org.jetbrains.plugins.terminal.block.reworked.session.rpc.TerminalSessionId
-import org.jetbrains.plugins.terminal.block.reworked.session.rpc.TerminalTabsManagerApi
-import org.jetbrains.plugins.terminal.block.reworked.session.toDto
 import org.jetbrains.plugins.terminal.block.ui.TerminalUiUtils
 import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
 import org.jetbrains.plugins.terminal.fus.TerminalOpeningWay
@@ -266,10 +262,7 @@ internal class TerminalToolWindowTabsManagerImpl(
     terminal: TerminalViewImpl,
     builder: TerminalToolWindowTabBuilderImpl,
   ) = terminal.coroutineScope.launch {
-    val backendTabId = builder.backendTabId ?: durable {
-      // todo: worth making it idempotent to avoid creating multiple tabs because of network issues
-      TerminalTabsManagerApi.getInstance().createNewTerminalTab(project.projectId()).id
-    }
+    val backendTabId = builder.backendTabId ?: TerminalTabsManager.getInstance(project).createNewTerminalTab().id
 
     terminal.coroutineScope.awaitCancellationAndInvoke(Dispatchers.EDT) {
       // Backend terminal session tab lifecycle is not directly bound to the terminal frontend lifecycle.
@@ -281,9 +274,7 @@ internal class TerminalToolWindowTabsManagerImpl(
       if (!isProjectClosing) {
         // Do not block frontend terminal scope cancellation by backend session termination request.
         coroutineScope.launch {
-          durable {
-            TerminalTabsManagerApi.getInstance().closeTerminalTab(project.projectId(), backendTabId)
-          }
+          TerminalTabsManager.getInstance(project).closeTerminalTab(backendTabId)
         }
       }
     }
@@ -325,16 +316,12 @@ internal class TerminalToolWindowTabsManagerImpl(
   ) = terminal.coroutineScope.launch {
     if (builder.sessionId != null) {
       // Session is already started for this tab, reuse it
-      connectSessionToTerminal(terminal, builder.sessionId!!, builder.portForwardingId)
+      connectSessionToTerminal(terminal, builder.sessionId!!)
     }
     else {
       val options = prepareStartupOptions(terminal, builder, calculateSizeFromComponent)
-      val sessionTab = TerminalTabsManagerApi.getInstance().startTerminalSessionForTab(
-        project.projectId(),
-        backendTabId,
-        options.toDto()
-      )
-      connectSessionToTerminal(terminal, sessionTab.sessionId!!, sessionTab.portForwardingId)
+      val sessionTab = TerminalTabsManager.getInstance(project).startTerminalSessionForTab(backendTabId, options)
+      connectSessionToTerminal(terminal, sessionTab.sessionId!!)
     }
   }
 
@@ -364,18 +351,12 @@ internal class TerminalToolWindowTabsManagerImpl(
   private suspend fun connectSessionToTerminal(
     terminal: TerminalViewImpl,
     sessionId: TerminalSessionId,
-    portForwardingId: TerminalPortForwardingId?,
   ) = withContext(Dispatchers.UI + ModalityState.any().asContextElement()) {
-    val session = FrontendTerminalSession(sessionId)
+    val session = TerminalSessionsManager.getInstance().getSession(sessionId)
+                  ?: error("Failed to find TerminalSession with ID: $sessionId")
     terminal.connectToSession(session)
 
-    if (portForwardingId != null) {
-      val disposable = terminal.coroutineScope.asDisposable()
-      val component = TerminalPortForwardingUiProvider.getInstance(project).createComponent(portForwardingId, disposable)
-      if (component != null) {
-        terminal.setTopComponent(component, disposable)
-      }
-    }
+    installPortForwarding(terminal, terminal.coroutineScope.childScope("PortForwarding"))
   }
 
   private fun getToolWindow(): ToolWindow {
@@ -418,9 +399,7 @@ internal class TerminalToolWindowTabsManagerImpl(
 
     private fun scheduleTabsRestoring(manager: TerminalToolWindowTabsManagerImpl) {
       manager.tabsRestoredDeferred = manager.coroutineScope.async {
-        val tabs: List<TerminalSessionTab> = durable {
-          TerminalTabsManagerApi.getInstance().getTerminalTabs(manager.project.projectId())
-        }
+        val tabs: List<TerminalSessionTab> = TerminalTabsManager.getInstance(manager.project).getTerminalTabs()
         withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
           restoreTabs(tabs, manager)
         }
@@ -439,7 +418,6 @@ internal class TerminalToolWindowTabsManagerImpl(
           userDefinedName(tab.isUserDefinedName)
           backendTabId(tab.id)
           sessionId(tab.sessionId)
-          portForwardingId(tab.portForwardingId)
           requestFocus(false)  // Otherwise it may trigger the tool window showing
         }
         builder.createTab()
@@ -486,8 +464,6 @@ internal class TerminalToolWindowTabsManagerImpl(
     var backendTabId: Int? = null
       private set
     var sessionId: TerminalSessionId? = null
-      private set
-    var portForwardingId: TerminalPortForwardingId? = null
       private set
 
     override fun workingDirectory(directory: String?): TerminalToolWindowTabBuilder {
@@ -562,11 +538,6 @@ internal class TerminalToolWindowTabsManagerImpl(
 
     fun sessionId(id: TerminalSessionId?): TerminalToolWindowTabBuilder {
       sessionId = id
-      return this
-    }
-
-    fun portForwardingId(id: TerminalPortForwardingId?): TerminalToolWindowTabBuilder {
-      portForwardingId = id
       return this
     }
 

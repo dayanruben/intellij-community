@@ -30,7 +30,6 @@ import com.intellij.lang.annotation.ExternalAnnotator;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.lang.annotation.ProblemGroup;
 import com.intellij.modcommand.ModCommandAction;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diagnostic.ReportingClassSubstitutor;
@@ -65,6 +64,9 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
 import com.intellij.util.BitUtil;
+import com.intellij.util.concurrency.ThreadingAssertions;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import com.intellij.util.concurrency.annotations.RequiresReadLock;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.util.XmlStringUtil;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -420,7 +422,9 @@ public class HighlightInfo implements Segment {
     String toolTip = this.toolTip;
     String description = this.description;
 
-    if (toolTip == null) return null;
+    if (toolTip == null) {
+      return null;
+    }
 
     String wrapped = XmlStringUtil.wrapInHtml(toolTip);
     if (description == null || !wrapped.contains(DESCRIPTION_PLACEHOLDER)) {
@@ -442,11 +446,14 @@ public class HighlightInfo implements Segment {
    */
   private static @Nullable @Tooltip String encodeTooltip(@Nullable @Tooltip String tooltip,
                                                          @Nullable @DetailedDescription String description) {
-    if (tooltip == null) return null;
+    if (tooltip == null) {
+      return null;
+    }
 
     String stripped = XmlStringUtil.stripHtml(tooltip);
-    if (description == null || description.isEmpty()) return stripped;
-
+    if (description == null || description.isEmpty()) {
+      return stripped;
+    }
     String encoded = StringUtil.replace(stripped, XmlStringUtil.escapeString(description), DESCRIPTION_PLACEHOLDER);
     if (Strings.areSameInstance(encoded, stripped)) {
       return stripped;
@@ -527,7 +534,9 @@ public class HighlightInfo implements Segment {
                                                    @NotNull TextAttributesScheme colorsScheme) {
     SeverityRegistrar severityRegistrar = SeverityRegistrar.getSeverityRegistrar(element != null ? element.getProject() : null);
     TextAttributes textAttributes = severityRegistrar.getTextAttributesBySeverity(type.getSeverity(element));
-    if (textAttributes != null) return textAttributes;
+    if (textAttributes != null) {
+      return textAttributes;
+    }
     TextAttributesKey key = type.getAttributesKey();
     return colorsScheme.getAttributes(key);
   }
@@ -579,16 +588,14 @@ public class HighlightInfo implements Segment {
 
   @Override
   public boolean equals(Object obj) {
-    if (obj == this) return true;
-    if (!(obj instanceof HighlightInfo info)) return false;
-
-    return equalsByActualOffset(info);
+    return obj == this || obj instanceof HighlightInfo info && equalsByActualOffset(info);
   }
 
   @ApiStatus.Internal
   public boolean equalsByActualOffset(@NotNull HighlightInfo info) {
-    if (info == this) return true;
-
+    if (info == this) {
+      return true;
+    }
     return info.getActualStartOffset() == getActualStartOffset() &&
            info.getActualEndOffset() == getActualEndOffset() &&
            attributesEqual(info);
@@ -842,13 +849,15 @@ public class HighlightInfo implements Segment {
     return toHighlightInfoType(type, severity);
   }
 
-  private static @NotNull HighlightInfoType toHighlightInfoType(ProblemHighlightType problemHighlightType, @NotNull HighlightSeverity severity) {
-    if (problemHighlightType == ProblemHighlightType.LIKE_UNUSED_SYMBOL) return HighlightInfoType.UNUSED_SYMBOL;
-    if (problemHighlightType == ProblemHighlightType.LIKE_UNKNOWN_SYMBOL) return HighlightInfoType.WRONG_REF;
-    if (problemHighlightType == ProblemHighlightType.LIKE_DEPRECATED) return HighlightInfoType.DEPRECATED;
-    if (problemHighlightType == ProblemHighlightType.LIKE_MARKED_FOR_REMOVAL) return HighlightInfoType.MARKED_FOR_REMOVAL;
-    if (problemHighlightType == ProblemHighlightType.POSSIBLE_PROBLEM) return HighlightInfoType.POSSIBLE_PROBLEM;
-    return convertSeverity(severity);
+  private static @NotNull HighlightInfoType toHighlightInfoType(@NotNull ProblemHighlightType problemHighlightType, @NotNull HighlightSeverity severity) {
+    return switch (problemHighlightType) {
+      case LIKE_UNUSED_SYMBOL -> HighlightInfoType.UNUSED_SYMBOL;
+      case LIKE_UNKNOWN_SYMBOL -> HighlightInfoType.WRONG_REF;
+      case LIKE_DEPRECATED -> HighlightInfoType.DEPRECATED;
+      case LIKE_MARKED_FOR_REMOVAL -> HighlightInfoType.MARKED_FOR_REMOVAL;
+      case POSSIBLE_PROBLEM -> HighlightInfoType.POSSIBLE_PROBLEM;
+      default -> convertSeverity(severity);
+    };
   }
 
   public static @NotNull HighlightInfoType convertSeverity(@NotNull HighlightSeverity severity) {
@@ -946,7 +955,9 @@ public class HighlightInfo implements Segment {
       }
 
       String displayName = HighlightDisplayKey.getDisplayNameByKey(myKey);
-      if (displayName == null) return null;
+      if (displayName == null) {
+        return null;
+      }
       return new IntentionActionDescriptor(new EmptyIntentionAction(displayName), myOptions, myDisplayName, myIcon,
                                            myKey, myProblemGroup, mySeverity, myFixRange);
     }
@@ -1146,13 +1157,17 @@ public class HighlightInfo implements Segment {
   }
 
   public final @NotNull String getText() {
-    if (isFileLevelAnnotation()) return "";
+    if (isFileLevelAnnotation()) {
+      return "";
+    }
     RangeHighlighterEx highlighter = offsetStore.highlighter();
     if (highlighter == null) {
-      throw new RuntimeException("info not applied yet");
+      return "";
     }
     TextRange range = highlighter.getTextRange();
-    if (!highlighter.isValid()) return "";
+    if (!highlighter.isValid()) {
+      return "";
+    }
     String text = highlighter.getDocument().getText();
     return text.substring(Math.min(range.getStartOffset(), text.length()), Math.min(range.getEndOffset(), text.length()));
   }
@@ -1262,11 +1277,15 @@ public class HighlightInfo implements Segment {
   public final boolean containsOffset(int offset, boolean includeFixRange) {
     OffsetStore store = offsetStore;
     RangeHighlighterEx highlighter = store.highlighter();
-    if (highlighter == null || !highlighter.isValid()) return false;
+    if (highlighter == null || !highlighter.isValid()) {
+      return false;
+    }
     if (highlighter.containsInclusive(offset)) {
       return true;
     }
-    if (!includeFixRange) return false;
+    if (!includeFixRange) {
+      return false;
+    }
     long fixRange = getFixTextRangeScalar(store);
     return TextRangeScalarUtil.containsOffset(fixRange, offset);
   }
@@ -1357,7 +1376,7 @@ public class HighlightInfo implements Segment {
     synchronized (HighlightInfoUpdater.getInstance(project)) {
       // derive composite's offsets from an info with tooltip, if present
       HighlightInfo anchorInfo = ContainerUtil.find(infos, info -> info.getToolTip() != null && info.getHighlighter() != null);
-      if (anchorInfo == null) anchorInfo = infos.get(0);
+      if (anchorInfo == null) anchorInfo = infos.getFirst();
       Builder builder = anchorInfo.copy(false);
       String compositeDescription = createCompositeDescription(infos);
       String compositeTooltip = createCompositeTooltip(infos);
@@ -1437,9 +1456,11 @@ public class HighlightInfo implements Segment {
     }
   }
 
+  @RequiresBackgroundThread
+  @RequiresReadLock
   final void computeQuickFixesSynchronously(@NotNull Project project, @NotNull Document document) throws ExecutionException, InterruptedException {
-    ApplicationManager.getApplication().assertIsNonDispatchThread();
-    ApplicationManager.getApplication().assertReadAccessAllowed();
+    ThreadingAssertions.assertBackgroundThread();
+    ThreadingAssertions.assertReadAccess();
 
     // store results of computation here to avoid re-computing when the CAS fails, because it can be extremely expensive
     Map<Consumer<? super QuickFixActionRegistrar>, @NotNull List<IntentionActionDescriptor>> computerToResult = new IdentityHashMap<>();
@@ -1507,10 +1528,12 @@ public class HighlightInfo implements Segment {
    * Starts computing lazy quick fixes in the background.
    * The result will be stored back in {@link OffsetStore#lazyQuickFixes} inside {@link LazyFixDescription#future}
    */
+  @RequiresBackgroundThread
+  @RequiresReadLock
   final void startComputeQuickFixes(@NotNull Document document, @NotNull Project project) {
     assertIntentionActionDescriptorsAreRangeMarkerBased(getIntentionActionDescriptors(offsetStore));
-    ApplicationManager.getApplication().assertIsNonDispatchThread();
-    ApplicationManager.getApplication().assertReadAccessAllowed();
+    ThreadingAssertions.assertBackgroundThread();
+    ThreadingAssertions.assertReadAccess();
     AtomicReference<ProgressIndicator> progressIndicator = new AtomicReference<>(new DaemonProgressIndicator());
     updateOffsetStore(oldStore -> {
       if (!progressIndicator.get().isCanceled()) {

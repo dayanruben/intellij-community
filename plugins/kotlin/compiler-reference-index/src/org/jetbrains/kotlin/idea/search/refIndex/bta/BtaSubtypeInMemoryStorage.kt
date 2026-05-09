@@ -3,16 +3,19 @@ package org.jetbrains.kotlin.idea.search.refIndex.bta
 
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.containers.generateRecursiveSequence
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.buildtools.api.ExperimentalBuildToolsApi
 import org.jetbrains.kotlin.buildtools.api.KotlinToolchains
 import org.jetbrains.kotlin.buildtools.api.cri.CriToolchain
 import org.jetbrains.kotlin.buildtools.api.cri.CriToolchain.Companion.cri
 import org.jetbrains.kotlin.name.FqName
+import java.io.IOException
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readBytes
 
-internal class BtaSubtypeInMemoryStorage private constructor(
+@ApiStatus.Internal
+class BtaSubtypeInMemoryStorage private constructor(
     // TODO KTIJ-37735: use persistent hash map to avoid retaining all CRI data in memory
     private val subtypes: Map<Int, Collection<String>>,
 ) {
@@ -34,7 +37,12 @@ internal class BtaSubtypeInMemoryStorage private constructor(
         fun create(criRoot: Path): BtaSubtypeInMemoryStorage? {
             if (!criRoot.hasSubtypeData()) return null
 
-            val subtypesData = criRoot.resolve(CriToolchain.SUBTYPES_FILENAME).readBytes()
+            val subtypesData = try {
+                criRoot.resolve(CriToolchain.SUBTYPES_FILENAME).readBytes()
+            } catch (e: IOException) {
+                LOG.warn("Failed to read CRI subtype data in $criRoot", e)
+                return null
+            }
 
             val toolchains = try {
                 KotlinToolchains.loadImplementation(BtaSubtypeInMemoryStorage::class.java.classLoader)
@@ -62,4 +70,5 @@ internal class BtaSubtypeInMemoryStorage private constructor(
 }
 
 @OptIn(ExperimentalBuildToolsApi::class)
-internal fun Path.hasSubtypeData(): Boolean = resolve(CriToolchain.SUBTYPES_FILENAME).exists()
+@ApiStatus.Internal
+fun Path.hasSubtypeData(): Boolean = resolve(CriToolchain.SUBTYPES_FILENAME).exists()

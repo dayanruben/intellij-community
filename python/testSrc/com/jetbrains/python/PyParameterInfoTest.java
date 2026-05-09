@@ -1058,7 +1058,7 @@ public class PyParameterInfoTest extends LightMarkedTestCase {
   public void testDefiningTypedDictTypeAlternativeSyntax() {
     final Map<String, PsiElement> test = loadTest(1);
 
-    feignCtrlP(test.get("<arg1>").getTextOffset()).check("typename: str, fields: dict[str, type], *, /, total: bool = True",
+    feignCtrlP(test.get("<arg1>").getTextOffset()).check("typename: str, fields: dict[str, type], *, /, total: bool = True, closed: bool = False, extra_items: type = None",
                                                          new String[]{"typename: str, "},
                                                          ArrayUtilRt.EMPTY_STRING_ARRAY);
   }
@@ -1469,6 +1469,32 @@ public class PyParameterInfoTest extends LightMarkedTestCase {
 
     feignCtrlP(marks.get("<arg1>").getTextOffset())
       .check("*, A: str | None = ..., B: str | None = ...", ArrayUtilRt.EMPTY_STRING_ARRAY);
+  }
+
+  @TestFor(issues = "PY-88897")
+  public void testPydanticDataclassParametersFromImportedDecoratorConfig() {
+    myFixture.copyDirectoryToProject("stubs/pydantic", "pydantic");
+    final Map<String, PsiElement> marks = loadMultiFileTest(1);
+
+    final List<String> texts = Arrays.asList("a2: str", "a1: str");
+    final List<String[]> highlighted = Arrays.asList(
+      new String[]{"a2: str"},
+      new String[]{"a1: str"}
+    );
+    final List<String[]> disabled = Arrays.asList(
+      ArrayUtilRt.EMPTY_STRING_ARRAY,
+      ArrayUtilRt.EMPTY_STRING_ARRAY
+    );
+
+    feignCtrlP(marks.get("<arg1>").getTextOffset()).check(texts, highlighted, disabled);
+  }
+
+  @TestFor(issues = "PY-88897")
+  public void testPydanticDataclassDecoratorConfigTakesPrecedenceOverPydanticConfig() {
+    myFixture.copyDirectoryToProject("stubs/pydantic", "pydantic");
+    final Map<String, PsiElement> marks = loadTest(1);
+
+    feignCtrlP(marks.get("<arg1>").getTextOffset()).check("a2: str", new String[]{"a2: str"});
   }
 
   @NotNull

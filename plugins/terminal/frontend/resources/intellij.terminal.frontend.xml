@@ -15,6 +15,11 @@
     <projectService serviceInterface="com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabsManager"
                     serviceImplementation="com.intellij.terminal.frontend.toolwindow.impl.TerminalToolWindowTabsManagerImpl"/>
 
+    <projectConfigurable groupId="tools"
+                         bundle="messages.IdeBundle"
+                         key="configurable.TerminalOptionsConfigurable.display.name"
+                         id="terminal" instance="com.intellij.terminal.frontend.settings.TerminalOptionsConfigurable"/>
+
     <actionPromoter implementation="com.intellij.terminal.frontend.action.SendShortcutToTerminalActionPromoter"/>
     <selectInTarget implementation="com.intellij.terminal.frontend.toolwindow.impl.SelectInTerminal"/>
 
@@ -39,6 +44,21 @@
     <applicationService
       serviceInterface="org.jetbrains.plugins.terminal.fus.FrontendLatencyService"
       serviceImplementation="com.intellij.terminal.frontend.fus.FrontendLatencyServiceImpl"/>
+    <applicationService
+      serviceInterface="org.jetbrains.plugins.terminal.hyperlinks.BackendHyperlinkInfoService"
+      serviceImplementation="com.intellij.terminal.frontend.session.hyperlinks.BackendHyperlinkInfoServiceImpl"/>
+    <applicationService
+      serviceInterface="com.intellij.terminal.frontend.session.TerminalActivityTracker"
+      serviceImplementation="com.intellij.terminal.frontend.session.TerminalNoOpActivityTracker"
+      open="true"/>
+    <applicationService
+      serviceInterface="com.intellij.terminal.frontend.view.portForwarding.TerminalPortForwardingManager"
+      serviceImplementation="com.intellij.terminal.frontend.view.portForwarding.TerminalPortForwardingManagerImpl"
+      open="true"/>
+    <projectService
+      serviceInterface="com.intellij.terminal.frontend.view.portForwarding.TerminalPortForwardingPersistenceService"
+      serviceImplementation="com.intellij.terminal.frontend.view.portForwarding.TerminalPortForwardingNoOpPersistenceService"
+      open="true"/>
     <inline.completion.editorInsertHandler
       implementation="com.intellij.terminal.frontend.view.inlineCompletion.TerminalInlineCompletionEditorInsertHandler"
       order="first"/>
@@ -48,9 +68,6 @@
     <lookup.bottomPanelProvider implementation="com.intellij.terminal.frontend.view.completion.TerminalLookupBottomPanelProvider"/>
     <statistics.collectorExtension implementation="com.intellij.terminal.frontend.view.completion.TerminalCompletionUsageCollectorExtension"/>
     <lookup.usageDetails implementation="com.intellij.terminal.frontend.view.completion.TerminalCompletionUsageDescriptor"/>
-
-    <platform.rpc.applicationRemoteTopicListener
-        implementation="com.intellij.terminal.frontend.settings.TerminalActionShortcutChangedListener"/>
 
     <editorAutoClosingHandler implementation="com.intellij.terminal.frontend.editor.TerminalViewEditorAutoClosingHandler"/>
   </extensions>

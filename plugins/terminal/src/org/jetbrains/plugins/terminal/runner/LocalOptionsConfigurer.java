@@ -10,11 +10,11 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.platform.eel.EelDescriptor;
+import com.intellij.platform.eel.EelPlatform;
 import com.intellij.platform.eel.EelPlatformKt;
 import com.intellij.terminal.ui.TerminalWidget;
 import com.intellij.util.EnvironmentRestorer;
 import com.intellij.util.SystemProperties;
-import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.system.OS;
 import kotlin.Unit;
@@ -22,6 +22,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.terminal.ShellStartupOptions;
+import org.jetbrains.plugins.terminal.ShellStartupOptionsKt;
 import org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider;
 import org.jetbrains.plugins.terminal.TerminalStartupKt;
 import org.jetbrains.plugins.terminal.startup.TerminalProcessType;
@@ -30,7 +31,6 @@ import org.jetbrains.plugins.terminal.util.TerminalEnvironment;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -55,6 +55,7 @@ public final class LocalOptionsConfigurer {
       baseOptions.getProcessType(),
       project,
       eelContext.getEelDescriptor(),
+      eelContext.getPlatform(),
       eelContext.getShellCommand().getCommand()
     );
 
@@ -136,10 +137,11 @@ public final class LocalOptionsConfigurer {
                                                                      @NotNull TerminalProcessType processType,
                                                                      @NotNull Project project,
                                                                      @NotNull EelDescriptor eelDescriptor,
+                                                                     @NotNull EelPlatform platform,
                                                                      @NotNull List<String> shellCommand) {
     final var isWindows = EelPlatformKt.isWindows(eelDescriptor.getOsFamily());
 
-    Map<String, String> envs = isWindows ? CollectionFactory.createCaseInsensitiveStringMap() : new HashMap<>();
+    Map<String, String> envs = ShellStartupOptionsKt.createEnvVariablesMap(eelDescriptor.getOsFamily());
     EnvironmentVariablesData envData = TerminalProjectOptionsProvider.getInstance(project).getEnvData();
     if (envData.isPassParentEnvs()) {
       var parentEnvs = processType == TerminalProcessType.SHELL
@@ -167,7 +169,7 @@ public final class LocalOptionsConfigurer {
     envs.put(TERMINAL_EMULATOR, "JetBrains-JediTerm");
     envs.put(TERM_SESSION_ID, UUID.randomUUID().toString());
 
-    TerminalEnvironment.INSTANCE.setCharacterEncoding(envs);
+    TerminalEnvironment.INSTANCE.setCharacterEncoding(platform, envs);
 
     // user-defined envs are passed for trusted projects only (IJPL-111912)
     EnvironmentVariablesData trustedEnvData = TrustedProjects.isProjectTrusted(project) ? envData : null;
