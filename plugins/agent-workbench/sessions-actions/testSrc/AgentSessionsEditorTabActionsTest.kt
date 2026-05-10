@@ -9,13 +9,15 @@ import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptProjectPathCandidate
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsCopyThreadIdFromEditorTabAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabArchiveThreadAction
+import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadContext
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadPopupGroup
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadQuickAction
+import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadTarget
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabRenameThreadAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsGoToSourceProjectFromEditorTabAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsSelectThreadInToolWindowAction
 import com.intellij.agent.workbench.sessions.actions.buildQuickStartProjectPopupGroup
-import com.intellij.agent.workbench.sessions.actions.collectProjectPathCandidates
+import com.intellij.agent.workbench.sessions.actions.resolveAgentSessionsEditorTabNewThreadContext
 import com.intellij.agent.workbench.sessions.actions.resolveQuickStartProjectPopupAnchor
 import com.intellij.agent.workbench.sessions.core.SessionActionTarget
 import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
@@ -39,8 +41,9 @@ import javax.swing.JPanel
 @TestApplication
 class AgentSessionsEditorTabActionsTest {
   @Test
-  fun editorTabQuickNewThreadUsesLastUsedProviderAndLaunchesStandardSession() {
-    val context = editorContext(path = "/tmp/editor-project")
+  fun editorTabNewThreadUsesLastUsedProviderAndLaunchesStandardSessionFromPrimaryClick() {
+    val path = "/tmp/editor-project"
+    val context = newThreadContext(path = path)
     var launchedPath: String? = null
     var launchedProvider: AgentSessionProvider? = null
     var launchedMode: AgentSessionLaunchMode? = null
@@ -78,7 +81,7 @@ class AgentSessionsEditorTabActionsTest {
 
     action.actionPerformed(event)
 
-    assertThat(launchedPath).isEqualTo(context.path)
+    assertThat(launchedPath).isEqualTo(path)
     assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CLAUDE)
     assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
     assertThat(launchedProjectName).isEqualTo(context.project.name)
@@ -86,8 +89,9 @@ class AgentSessionsEditorTabActionsTest {
   }
 
   @Test
-  fun editorTabQuickNewThreadUsesYoloModeWhenLastUsedLaunchModeIsYolo() {
-    val context = editorContext(path = "/tmp/editor-project")
+  fun editorTabNewThreadUsesYoloModeWhenLastUsedLaunchModeIsYolo() {
+    val path = "/tmp/editor-project"
+    val context = newThreadContext(path = path)
     var launchedPath: String? = null
     var launchedProvider: AgentSessionProvider? = null
     var launchedMode: AgentSessionLaunchMode? = null
@@ -126,7 +130,7 @@ class AgentSessionsEditorTabActionsTest {
 
     action.actionPerformed(event)
 
-    assertThat(launchedPath).isEqualTo(context.path)
+    assertThat(launchedPath).isEqualTo(path)
     assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CODEX)
     assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.YOLO)
     assertThat(launchedProjectName).isEqualTo(context.project.name)
@@ -134,12 +138,12 @@ class AgentSessionsEditorTabActionsTest {
   }
 
   @Test
-  fun editorTabQuickNewThreadFallsBackToFirstStandardProviderWhenLastUsedIsNotEligible() {
-    val context = editorContext()
+  fun editorTabNewThreadFallsBackToFirstStandardProviderWhenLastUsedIsNotEligible() {
+    val context = newThreadContext()
     var launchedProvider: AgentSessionProvider? = null
     var launchedMode: AgentSessionLaunchMode? = null
     var entryPoint: AgentWorkbenchEntryPoint? = null
-    val fallbackProvider = AgentSessionProvider.from("fallback")
+    val fallbackProvider = AgentSessionProvider.CLAUDE
     val codexYoloOnlyBridge = TestAgentSessionProviderDescriptor(
       provider = AgentSessionProvider.CODEX,
       supportedModes = setOf(AgentSessionLaunchMode.YOLO),
@@ -176,8 +180,63 @@ class AgentSessionsEditorTabActionsTest {
   }
 
   @Test
-  fun editorTabQuickNewThreadShowsProjectPopupWhenMultipleSourceProjectsExist() {
-    val context = editorContext(path = "/tmp/editor-project")
+  fun editorTabNewThreadQuickActionHiddenWhenNoQuickStartItemExists() {
+    val context = newThreadContext()
+    val disabledBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.CODEX,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = false,
+    )
+    val action = AgentSessionsEditorTabNewThreadQuickAction(
+      resolveContext = { context },
+      allBridges = { listOf(disabledBridge) },
+      lastUsedProvider = { AgentSessionProvider.CODEX },
+      createNewSession = { _, _, _, _, _ -> error("Disabled provider should not launch from quick action") },
+    )
+    val event = TestActionEvent.createTestEvent(action)
+
+    action.update(event)
+
+    assertThat(event.presentation.isEnabledAndVisible).isFalse()
+  }
+
+  @Test
+  fun editorTabNewThreadPopupActionShowsProviderOptionsWhenNoQuickStartItemExists() {
+    val path = "/tmp/editor-project"
+    val context = newThreadContext(path = path)
+    var launched = false
+    val disabledBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.CODEX,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = false,
+    )
+    val action = AgentSessionsEditorTabNewThreadPopupGroup(
+      resolveContext = { context },
+      allBridges = { listOf(disabledBridge) },
+      createNewSession = { _, _, _, _, _ -> launched = true },
+    )
+    val event = TestActionEvent.createTestEvent(action)
+
+    action.update(event)
+
+    assertThat(event.presentation.isEnabledAndVisible).isTrue()
+    assertThat(event.presentation.isPopupGroup).isTrue()
+    assertThat(event.presentation.isPerformGroup).isFalse()
+
+    val children = action.getChildren(event)
+    assertThat(children).hasSize(1)
+    children.single().actionPerformed(TestActionEvent.createTestEvent(children.single()))
+    assertThat(launched).isFalse()
+  }
+
+  @Test
+  fun editorTabNewThreadPrimaryClickShowsProjectPopupWhenMultipleSourceProjectsExist() {
+    val context = newThreadContext(
+      projectPathCandidates = listOf(
+        projectCandidate(path = "/work/repo-a", displayName = "Project A"),
+        projectCandidate(path = "/tmp/repo-a", displayName = "/tmp/repo-a"),
+      ),
+    )
     var launchedPath: String? = null
     var launchedProvider: AgentSessionProvider? = null
     var launchedMode: AgentSessionLaunchMode? = null
@@ -198,12 +257,6 @@ class AgentSessionsEditorTabActionsTest {
         launchedProvider = provider
         launchedMode = mode
         entryPoint = capturedEntryPoint
-      },
-      projectPathCandidates = { _, _ ->
-        listOf(
-          projectCandidate(path = "/work/repo-a", displayName = "Project A"),
-          projectCandidate(path = "/tmp/repo-a", displayName = "/tmp/repo-a"),
-        )
       },
       showProjectPopup = { candidates, _, onResolved ->
         shownCandidates = candidates
@@ -227,9 +280,46 @@ class AgentSessionsEditorTabActionsTest {
   }
 
   @Test
-  fun collectProjectPathCandidatesUsesAllOpenProjectsForDedicatedFrameProject() {
-    val candidates = collectProjectPathCandidates(
-      project = ProjectManager.getInstance().defaultProject,
+  fun editorTabNewThreadQuickActionResolvesProjectCandidatesOnlyOnPrimaryClick() {
+    var targetResolved = false
+    val candidates = listOf(
+      projectCandidate(path = "/work/repo-a", displayName = "Project A"),
+      projectCandidate(path = "/tmp/repo-a", displayName = "/tmp/repo-a"),
+    )
+    val context = AgentSessionsEditorTabNewThreadContext(ProjectManager.getInstance().defaultProject) {
+      targetResolved = true
+      AgentSessionsEditorTabNewThreadTarget.Candidates(candidates)
+    }
+    var shownCandidates: List<AgentPromptProjectPathCandidate>? = null
+    val claudeBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.CLAUDE,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+    )
+    val action = AgentSessionsEditorTabNewThreadQuickAction(
+      resolveContext = { context },
+      allBridges = { listOf(claudeBridge) },
+      lastUsedProvider = { AgentSessionProvider.CLAUDE },
+      showProjectPopup = { popupCandidates, _, _ -> shownCandidates = popupCandidates },
+    )
+    val event = TestActionEvent.createTestEvent(action)
+
+    action.update(event)
+
+    assertThat(targetResolved).isFalse()
+
+    action.actionPerformed(event)
+
+    assertThat(targetResolved).isTrue()
+    assertThat(checkNotNull(shownCandidates)).containsExactlyElementsOf(candidates)
+  }
+
+  @Test
+  fun dedicatedEditorTabContextUsesAllOpenProjectsWhenNoChatTabPathIsAvailable() {
+    val event = eventWithProject(ProjectManager.getInstance().defaultProject)
+
+    val context = resolveAgentSessionsEditorTabNewThreadContext(
+      event = event,
       isDedicatedProject = { true },
       openProjectPaths = {
         listOf(
@@ -239,8 +329,109 @@ class AgentSessionsEditorTabActionsTest {
       },
     )
 
-    assertThat(checkNotNull(candidates).map(AgentPromptProjectPathCandidate::path))
+    val candidates = (checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Candidates).candidates
+    assertThat(candidates.map(AgentPromptProjectPathCandidate::path))
       .containsExactly("/work/repo-a", "/tmp/repo-a")
+  }
+
+  @Test
+  fun dedicatedEditorTabContextRequiresProjectSelectionWhenMultipleOpenProjectsExistEvenWithChatTabPath() {
+    val event = eventWithProject(ProjectManager.getInstance().defaultProject)
+    var openProjectPathsResolved = false
+
+    val context = resolveAgentSessionsEditorTabNewThreadContext(
+      event = event,
+      isDedicatedProject = { true },
+      openProjectPaths = {
+        openProjectPathsResolved = true
+        listOf(
+          "/work/repo-a",
+          "/tmp/repo-a",
+        )
+      },
+      resolveChatContext = { editorContext(path = "/work/repo-a") },
+    )
+
+    assertThat(openProjectPathsResolved).isFalse()
+
+    val candidates = (checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Candidates).candidates
+    assertThat(openProjectPathsResolved).isTrue()
+    assertThat(candidates.map(AgentPromptProjectPathCandidate::path))
+      .containsExactly("/work/repo-a", "/tmp/repo-a")
+  }
+
+  @Test
+  fun dedicatedEditorTabContextFallsBackToChatTabPathWhenNoOpenSourceProjectsExist() {
+    val event = eventWithProject(ProjectManager.getInstance().defaultProject)
+
+    val context = resolveAgentSessionsEditorTabNewThreadContext(
+      event = event,
+      isDedicatedProject = { true },
+      openProjectPaths = { emptyList() },
+      resolveChatContext = { editorContext(path = "/work/chat-repo") },
+    )
+
+    val target = checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Direct
+    assertThat(target.path).isEqualTo("/work/chat-repo")
+  }
+
+  @Test
+  fun dedicatedEditorTabContextUsesSingleOpenProjectDirectly() {
+    val event = eventWithProject(ProjectManager.getInstance().defaultProject)
+
+    val context = resolveAgentSessionsEditorTabNewThreadContext(
+      event = event,
+      isDedicatedProject = { true },
+      openProjectPaths = { listOf("/work/repo-a") },
+    )
+
+    val target = checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Direct
+    assertThat(target.path).isEqualTo("/work/repo-a")
+  }
+
+  @Test
+  fun projectEditorTabContextIsHiddenWhenDedicatedFrameModeIsEnabled() {
+    val project = sourceProjectProxy()
+    val event = eventWithProject(project)
+
+    val context = resolveAgentSessionsEditorTabNewThreadContext(
+      event = event,
+      isDedicatedProject = { false },
+      openInDedicatedFrame = { true },
+    )
+
+    assertThat(context).isNull()
+  }
+
+  @Test
+  fun projectEditorTabContextUsesProjectBasePathWhenDedicatedFrameModeIsDisabled() {
+    val project = sourceProjectProxy()
+    val event = eventWithProject(project)
+
+    val context = resolveAgentSessionsEditorTabNewThreadContext(
+      event = event,
+      isDedicatedProject = { false },
+      openInDedicatedFrame = { false },
+    )
+
+    val target = checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Direct
+    assertThat(target.path).isEqualTo("/work/repo-a")
+  }
+
+  @Test
+  fun projectEditorTabContextPrefersChatTabPathWhenAvailable() {
+    val project = sourceProjectProxy()
+    val event = eventWithProject(project)
+
+    val context = resolveAgentSessionsEditorTabNewThreadContext(
+      event = event,
+      isDedicatedProject = { false },
+      openInDedicatedFrame = { false },
+      resolveChatContext = { editorContext(path = "/work/chat-repo") },
+    )
+
+    val target = checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Direct
+    assertThat(target.path).isEqualTo("/work/chat-repo")
   }
 
   @Test
@@ -302,7 +493,8 @@ class AgentSessionsEditorTabActionsTest {
 
   @Test
   fun editorTabPopupNewThreadBuildsMenuAndLaunchesSelectedMode() {
-    val context = editorContext(path = "/tmp/editor-project")
+    val path = "/tmp/editor-project"
+    val context = newThreadContext(path = path)
     var launchedPath: String? = null
     var launchedProvider: AgentSessionProvider? = null
     var launchedMode: AgentSessionLaunchMode? = null
@@ -346,7 +538,7 @@ class AgentSessionsEditorTabActionsTest {
     }
     yoloAction.actionPerformed(TestActionEvent.createTestEvent(yoloAction))
 
-    assertThat(launchedPath).isEqualTo(context.path)
+    assertThat(launchedPath).isEqualTo(path)
     assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CODEX)
     assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.YOLO)
     assertThat(launchedProjectName).isEqualTo(context.project.name)
@@ -355,7 +547,12 @@ class AgentSessionsEditorTabActionsTest {
 
   @Test
   fun editorTabPopupNewThreadUsesProjectCandidateLabelsForDedicatedFrameProjects() {
-    val context = editorContext(path = "/tmp/editor-project")
+    val context = newThreadContext(
+      projectPathCandidates = listOf(
+        projectCandidate(path = "/work/repo-a", displayName = "Project A"),
+        projectCandidate(path = "/tmp/repo-a", displayName = "/tmp/repo-a"),
+      ),
+    )
     var launchedPath: String? = null
     var launchedProvider: AgentSessionProvider? = null
     var launchedMode: AgentSessionLaunchMode? = null
@@ -380,12 +577,6 @@ class AgentSessionsEditorTabActionsTest {
         launchedMode = mode
         entryPoint = capturedEntryPoint
       },
-      projectPathCandidates = { _, _ ->
-        listOf(
-          projectCandidate(path = "/work/repo-a", displayName = "Project A"),
-          projectCandidate(path = "/tmp/repo-a", displayName = "/tmp/repo-a"),
-        )
-      },
     )
     val event = TestActionEvent.createTestEvent(group)
 
@@ -407,6 +598,38 @@ class AgentSessionsEditorTabActionsTest {
     assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CODEX)
     assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.YOLO)
     assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.EDITOR_TAB_POPUP)
+  }
+
+  @Test
+  fun editorTabPopupNewThreadResolvesProjectCandidatesOnlyWhenChildrenAreRequested() {
+    var targetResolved = false
+    val candidates = listOf(
+      projectCandidate(path = "/work/repo-a", displayName = "Project A"),
+      projectCandidate(path = "/tmp/repo-a", displayName = "/tmp/repo-a"),
+    )
+    val context = AgentSessionsEditorTabNewThreadContext(ProjectManager.getInstance().defaultProject) {
+      targetResolved = true
+      AgentSessionsEditorTabNewThreadTarget.Candidates(candidates)
+    }
+    val claudeBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.CLAUDE,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+    )
+    val group = AgentSessionsEditorTabNewThreadPopupGroup(
+      resolveContext = { context },
+      allBridges = { listOf(claudeBridge) },
+    )
+    val event = TestActionEvent.createTestEvent(group)
+
+    group.update(event)
+
+    assertThat(targetResolved).isFalse()
+
+    val children = group.getChildren(event)
+
+    assertThat(targetResolved).isTrue()
+    assertThat(children.map { it.templatePresentation.text }).containsExactly("Project A", "/tmp/repo-a")
   }
 
   @Test
@@ -810,8 +1033,4 @@ private fun editorContext(
     threadCoordinates = threadCoordinates,
     sessionActionTarget = sessionActionTarget,
   )
-}
-
-private fun projectCandidate(path: String, displayName: String): AgentPromptProjectPathCandidate {
-  return AgentPromptProjectPathCandidate(path = normalizeAgentWorkbenchPath(path), displayName = displayName)
 }

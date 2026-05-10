@@ -18,6 +18,7 @@ import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
 import org.jetbrains.annotations.Nls
 import java.awt.BorderLayout
@@ -48,8 +49,6 @@ internal class AgentChatFileEditor(
     val providerActionIds = providerDescriptor?.editorTabActionIds.orEmpty()
     val actions = buildList {
       listOf(
-        NEW_THREAD_QUICK_FROM_EDITOR_TAB_ACTION_ID,
-        NEW_THREAD_POPUP_FROM_EDITOR_TAB_ACTION_ID,
         PREVIOUS_PROPOSED_PLAN_FROM_EDITOR_TAB_ACTION_ID,
         NEXT_PROPOSED_PLAN_FROM_EDITOR_TAB_ACTION_ID,
       ).forEach { actionId ->
@@ -86,6 +85,7 @@ internal class AgentChatFileEditor(
   private var scopedTerminalRefreshController: AgentChatDisposableController? = null
   private var patchFoldController: AgentChatDisposableController? = null
   private var semanticRegionController: AgentChatSemanticRegionController? = null
+  private var crossProjectDockTargetRegistration = AgentChatCrossProjectDockTargetRegistrar().register(project, file)
 
   private val providerDescriptor
     get() = file.provider?.let(AgentSessionProviders::find)
@@ -118,6 +118,8 @@ internal class AgentChatFileEditor(
 
   override fun dispose() {
     disposed = true
+    crossProjectDockTargetRegistration?.let(Disposer::dispose)
+    crossProjectDockTargetRegistration = null
     initialMessageDispatcher.dispose()
     pendingThreadRefreshController.dispose()
     concreteThreadRebindController.dispose()
@@ -287,8 +289,6 @@ private class DumbAwareAgentChatActionGroup : DefaultActionGroup, DumbAware {
   constructor(actions: List<AnAction>) : super(actions)
 }
 
-private const val NEW_THREAD_QUICK_FROM_EDITOR_TAB_ACTION_ID: String = AgentWorkbenchActionIds.Sessions.EditorTab.NEW_THREAD_QUICK
-private const val NEW_THREAD_POPUP_FROM_EDITOR_TAB_ACTION_ID: String = AgentWorkbenchActionIds.Sessions.EditorTab.NEW_THREAD_POPUP
 private const val PREVIOUS_PROPOSED_PLAN_FROM_EDITOR_TAB_ACTION_ID: String =
   AgentWorkbenchActionIds.Sessions.EditorTab.PREVIOUS_PROPOSED_PLAN
 private const val NEXT_PROPOSED_PLAN_FROM_EDITOR_TAB_ACTION_ID: String = AgentWorkbenchActionIds.Sessions.EditorTab.NEXT_PROPOSED_PLAN

@@ -6,6 +6,7 @@ targets:
   - ../../sessions-toolwindow/src/tree/SessionTree.kt
   - ../../sessions-toolwindow/src/actions/AgentSessionsTreePopupActions.kt
   - ../../sessions-actions/src/actions/AgentSessionsEditorTabNewThreadActions.kt
+  - ../../sessions-actions/src/actions/AgentSessionsMainToolbarNewThreadActions.kt
   - ../../sessions/src/service/AgentSessionLaunchService.kt
   - ../../sessions/src/service/AgentSessionProjectCatalog.kt
   - ../../sessions/src/service/AgentSessionProjectPresentation.kt
@@ -23,6 +24,7 @@ targets:
   - ../../sessions-toolwindow/testSrc/AgentSessionsSwingNewSessionActionsTest.kt
   - ../../sessions-toolwindow/testSrc/AgentSessionsTreePopupActionsTest.kt
   - ../../sessions-actions/testSrc/AgentSessionsEditorTabActionsTest.kt
+  - ../../sessions-actions/testSrc/AgentSessionsMainToolbarNewThreadActionsTest.kt
   - ../../sessions-actions/testSrc/AgentSessionsGearActionsTest.kt
   - ../../claude/sessions/testSrc/ClaudeAgentSessionProviderDescriptorTest.kt
   - ../../junie/sessions/testSrc/JunieAgentSessionProviderDescriptorTest.kt
@@ -38,49 +40,69 @@ Status: Draft
 Date: 2026-03-13
 
 ## Summary
+
 Define project/worktree `New Thread` behavior across tree and editor-tab actions:
+
 - hover/selection row affordances,
 - quick-create with last used provider,
 - explicit source-project selection in dedicated-frame multi-project editor tabs,
 - provider popup with Standard and YOLO entries,
 - creation-flow deduplication and Codex pending-to-concrete identity rebinding (strict auto-match + manual bind fallback).
+- main-toolbar split-button entry for `New Thread` (icon click quick-launches with the last-used provider+mode; chevron opens the provider × launch-mode picker).
 
 Canonical command mapping is owned by `spec/agent-core-contracts.spec.md`.
 
 ## Goals
+
 - Keep new-thread behavior identical for project and worktree rows.
 - Keep provider and YOLO mode choices explicit and testable.
 - Keep tree and editor-tab new-thread controls consistent in labels, provider order, and mode sections.
+- Keep editor-tab new-thread entry available through the platform-global editor-tab action surface when policy allows it.
 - Keep source-project selection explicit and predictable in dedicated-frame multi-project mode.
 - Prevent duplicate creation from repeated clicks.
 - Keep Codex pending-thread creation flow compatible with app-server discovery and rollout refresh-hints fallback.
 
 ## Non-goals
+
 - Aggregation/sorting/paging behavior.
 - Dedicated-frame policy details beyond routing integration.
 - Compose/Jewel row-action components.
 
 ## Requirements
+
 - Project/worktree rows must expose new-session affordances only when rows are hovered or selected.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsSwingNewSessionActionsTest.kt
 
 - Loading project/worktree rows must suppress new-session affordances.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsSwingNewSessionActionsTest.kt
 
-- Quick-provider action (when eligible) must use `lastUsedProvider` and `lastUsedLaunchMode`; defaults to `STANDARD` when no launch mode preference is stored.
-- Quick-provider action launches directly when the source project is unambiguous.
-- In dedicated-frame editor tabs with multiple distinct source-project candidates, quick-provider action must show an anchored IntelliJ action-system popup of source projects under the quick-provider control when a UI anchor component is available; selecting a project launches with the resolved quick provider and launch mode.
-- When no UI anchor component is available for the quick-provider invocation, the source-project popup may fall back to IntelliJ best-position placement.
-- Quick-provider action and provider-popup entries must follow the global dedicated-frame routing policy; they do not force the clicked source frame.
+- Quick-provider action (when eligible) must use `lastUsedProvider` and `lastUsedLaunchMode`; defaults to `STANDARD` when no launch mode
+  preference is stored.
+- Quick-provider action launches directly only when the source project is unambiguous.
+- In dedicated Agent frames, source-project candidates must be resolved lazily on quick-action invocation or Add-popup expansion, not during
+  toolbar update.
+- In dedicated Agent frames with multiple distinct open source-project candidates, quick-provider action must require explicit source-project
+  selection even when the selected editor is an Agent chat tab with its own source path.
+- The dedicated-frame quick-provider source-project popup must be an anchored IntelliJ action-system popup under the quick-provider control
+  when a UI anchor component is available; selecting a project launches with the resolved quick provider and launch mode.
+- In dedicated Agent frames with exactly one open source-project candidate, editor-tab New Thread actions may use that candidate directly.
+- If a dedicated Agent frame has no open source-project candidates but the selected Agent chat tab has a source path, editor-tab New Thread
+  actions may use the selected tab path as a fallback.
+- When no UI anchor component is available for the quick-provider invocation, the source-project popup may fall back to IntelliJ
+  best-position placement.
+- Quick-provider action and provider-popup entries must follow the global dedicated-frame routing policy; they do not force the clicked
+  source frame.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsSwingNewSessionActionsTest.kt
   [@test] ../../sessions-actions/testSrc/AgentSessionsEditorTabActionsTest.kt
 
 - Quick-provider eligibility must require:
   - a non-null `lastUsedProvider`,
-  - bridge support for the resolved launch mode (`STANDARD` or `YOLO`); falls back to `STANDARD` when the last-used provider does not support the stored launch mode.
-  [@test] ../../sessions-toolwindow/testSrc/AgentSessionsSwingNewSessionActionsTest.kt
+  - bridge support for the resolved launch mode (`STANDARD` or `YOLO`); falls back to `STANDARD` when the last-used provider does not
+    support the stored launch mode.
+    [@test] ../../sessions-toolwindow/testSrc/AgentSessionsSwingNewSessionActionsTest.kt
 
-- Provider popup must include Standard entries and YOLO entries (`toolwindow.action.new.session.section.auto`) when launch mode support is available.
+- Provider popup must include Standard entries and YOLO entries (`toolwindow.action.new.session.section.auto`) when launch mode support is
+  available.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsSwingNewSessionActionsTest.kt
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreePopupActionsTest.kt
   [@test] ../../sessions-actions/testSrc/AgentSessionsEditorTabActionsTest.kt
@@ -88,10 +110,28 @@ Canonical command mapping is owned by `spec/agent-core-contracts.spec.md`.
 - Tree popup new-thread action must resolve launch context from tree rows only; editor-tab context must use dedicated editor-tab actions.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreePopupActionsTest.kt
 
-- Editor-tab new-thread controls must expose two separate actions:
-  - quick-provider action that launches with `lastUsedProvider` and `lastUsedLaunchMode` when the source project is unambiguous, and switches to an anchored source-project popup in dedicated-frame multi-project mode,
-  - popup-only Add action with provider entries and optional YOLO section, and in dedicated-frame multi-project mode it must first group entries by source project.
+- Editor-tab new-thread controls must be contributed to platform `EditorTabsToolbarActions` as separate quick-start and popup actions.
+- The quick-start action must launch with `lastUsedProvider` and `lastUsedLaunchMode` when a quick-provider item is eligible.
+- The popup action must keep the Add icon and expose provider options without performing a quick launch on primary click.
+- Popup entries must include provider entries and optional YOLO section, and in dedicated-frame multi-project mode they must first group
+  entries by source project when popup contents are requested.
+- Editor-tab new-thread control must be visible in dedicated Agent Workbench frames.
+- Editor-tab new-thread controls must be hidden in normal project frames when `agent.workbench.chat.open.in.dedicated.frame` is `true`.
+- Normal project-frame editor tabs must resolve the launch path from the selected Agent chat tab source path when available, otherwise from
+  the current project base path.
   [@test] ../../sessions-actions/testSrc/AgentSessionsEditorTabActionsTest.kt
+  [@test] ../../sessions-actions/testSrc/AgentSessionsGearActionsTest.kt
+
+- Main-toolbar new-thread control must be contributed as a single `<action>` `AgentWorkbenchSessions.MainToolbar.NewThread` on `MainToolbarRight`, anchored `after` `NewUiRunWidget`.
+- Main-toolbar new-thread control must be built on `com.intellij.openapi.actionSystem.SplitButtonAction` so the in-button separator paints only on hover/press; at rest the entry is icon + chevron with no vertical line.
+- Main-toolbar icon must be the badge of the last-used provider+mode when a quick-start item exists, otherwise `AllIcons.General.Add`.
+- Main-toolbar icon click must quick-launch with the last-used provider+mode when target is `Direct` and a quick-start item is eligible; otherwise (no last-used, or `Candidates` target) the click must fall through to the same picker the chevron opens.
+- Main-toolbar chevron must open the provider × launch-mode picker — flat menu for `Direct`, per-candidate sub-groups for `Candidates`, identical content shape to the editor-tab Add popup.
+- Main-toolbar tooltip must be parameterized as `Start a new {0} thread in {1}` where `{0}` is the resolved provider+mode label (reusing `quickStartItem.labelKey`) and `{1}` is the trailing path segment of the resolved target path; `Candidates` targets must substitute the `target.choose` placeholder for `{1}`, and the empty-state (no providers ready / no last-used) must use the `empty.description` fallback.
+- Main-toolbar entry must be hidden when context is unresolved or when `buildNewThreadMenuModel(allBridges())` has no entries.
+- Main-toolbar normal project-frame target resolution must prefer chat-context path, then `selectedChatSourceProjectPath(project)`, then `project.basePath`.
+- Main-toolbar dedicated Agent frame target resolution must reuse the lazy candidates pathway (`resolveDedicatedFrameNewThreadTarget`) so source-project candidates are computed only on click/popup, not during toolbar update.
+  [@test] ../../sessions-actions/testSrc/AgentSessionsMainToolbarNewThreadActionsTest.kt
   [@test] ../../sessions-actions/testSrc/AgentSessionsGearActionsTest.kt
 
 - Dedicated-frame multi-project source-project labels in editor-tab new-thread popups must reuse the sessions tree naming policy:
@@ -100,8 +140,8 @@ Canonical command mapping is owned by `spec/agent-core-contracts.spec.md`.
   - then open `project.name`,
   - then path fallback,
   - and when multiple candidates still resolve to the same label, fall back to the full normalized path for those conflicting entries.
-  [@test] ../../sessions/testSrc/AgentSessionProjectCatalogTest.kt
-  [@test] ../../sessions-actions/testSrc/AgentSessionsEditorTabActionsTest.kt
+    [@test] ../../sessions/testSrc/AgentSessionProjectCatalogTest.kt
+    [@test] ../../sessions-actions/testSrc/AgentSessionsEditorTabActionsTest.kt
 
 - Swing row popup implementation must use IntelliJ action-system popup infrastructure; no Compose popup code is allowed.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsToolWindowFactorySwingTest.kt
@@ -111,7 +151,8 @@ Canonical command mapping is owned by `spec/agent-core-contracts.spec.md`.
 
 - `createNewSession` must deduplicate semantically identical in-flight actions using single-flight `DROP` semantics.
 - Default new-thread launches deduplicate by normalized `path + provider + mode`.
-- Specialized callers may append a launch discriminator when distinct concurrent sessions in the same project/provider/mode must not be coalesced.
+- Specialized callers may append a launch discriminator when distinct concurrent sessions in the same project/provider/mode must not be
+  coalesced.
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 
 - `createNewSession` must set `lastUsedProvider` to selected provider before opening chat.
@@ -122,8 +163,10 @@ Canonical command mapping is owned by `spec/agent-core-contracts.spec.md`.
   [@test] ../../codex/sessions/testSrc/CodexAgentSessionProviderDescriptorTest.kt
   [@test] ../../junie/sessions/testSrc/JunieAgentSessionProviderDescriptorTest.kt
 
-- Codex new-thread opens normally start in pending identity state (`codex:new-*`); the launch service allocates that pending identity before any concrete provider thread id exists.
-- Codex plan-mode launches with a non-empty stripped `/plan <prompt>` body must use the normal pending-tab PTY path and enqueue post-start dispatch steps `/plan`, then stripped prompt body.
+- Codex new-thread opens normally start in pending identity state (`codex:new-*`); the launch service allocates that pending identity before
+  any concrete provider thread id exists.
+- Codex plan-mode launches with a non-empty stripped `/plan <prompt>` body must use the normal pending-tab PTY path and enqueue post-start
+  dispatch steps `/plan`, then stripped prompt body.
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
   [@test] ../../codex/sessions/testSrc/CodexAgentSessionProviderDescriptorTest.kt
@@ -131,34 +174,45 @@ Canonical command mapping is owned by `spec/agent-core-contracts.spec.md`.
 
 - Pending Codex tabs must persist pending metadata (`pendingCreatedAtMs`, optional `pendingFirstInputAtMs`, optional `pendingLaunchMode`).
   - Note: rebind matching uses these timestamps for deterministic time windows.
-  [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
+    [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
 
-- Already-concrete top-level Codex tabs must treat exact terminal command `/new` as a request to migrate the open tab to the next concrete thread created for the same path.
-- The open concrete tab must persist `/new` anchor metadata (`newThreadRebindRequestedAtMs`) so refresh can rebind by `tabKey + currentThreadIdentity + request timestamp`.
+- Already-concrete top-level Codex tabs must treat exact terminal command `/new` as a request to migrate the open tab to the next concrete
+  thread created for the same path.
+- The open concrete tab must persist `/new` anchor metadata (`newThreadRebindRequestedAtMs`) so refresh can rebind by
+  `tabKey + currentThreadIdentity + request timestamp`.
   [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
 
-- App-server backend remains the only Codex discovery source for listing; backend override values are ignored and rollout stays refresh-hints-only fallback.
+- App-server backend remains the only Codex discovery source for listing; backend override values are ignored and rollout stays
+  refresh-hints-only fallback.
   [@test] ../../codex/sessions/testSrc/CodexSessionBackendSelectorTest.kt
 
 - Optional app-server mode must surface concrete thread id after first user input.
   [@test] ../../sessions/testSrc/CodexAppServerClientTest.kt
 
-- Provider refresh must rebind pending Codex chat tabs only to newly discovered concrete thread ids for the path and switch shell command to canonical resume mapping.
-- Rebinding must skip when baseline thread ids are not known for that path, except for recent create-flow pending tabs that include `pendingCreatedAtMs` and `pendingLaunchMode` metadata (max age: 120s).
+- Provider refresh must rebind pending Codex chat tabs only to newly discovered concrete thread ids for the path and switch shell command to
+  canonical resume mapping.
+- Rebinding must skip when baseline thread ids are not known for that path, except for recent create-flow pending tabs that include
+  `pendingCreatedAtMs` and `pendingLaunchMode` metadata (max age: 120s).
 - Matching must use strict path-local one-to-one assignment with timestamp windows; ambiguous candidates must not be rebound automatically.
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
   [@test] ../../sessions/testSrc/AgentSessionRefreshCoordinatorTest.kt
 
-- Refresh may also rebind an already-concrete top-level Codex tab after exact terminal `/new`, but only from rollout/app-server refresh hints for the same normalized path, never from arbitrary listed rows.
-- Concrete `/new` rebinding must consider only top-level CLI thread candidates, use a bounded timestamp window around the `/new` request, clear stale anchors after 30 seconds, validate the stored `/new` anchor timestamp before applying, and skip rebinding if the candidate target is already open.
-- When the same candidate could satisfy both a pending Codex tab and an explicit concrete `/new` rebind, the explicit `/new` rebind wins and the pending tab remains pending.
-- Concrete `/new` rebinding must require an unambiguous one-to-one match; if multiple candidates fall in the window, the tab remains anchored and is not rebound automatically.
+- Refresh may also rebind an already-concrete top-level Codex tab after exact terminal `/new`, but only from rollout/app-server refresh
+  hints for the same normalized path, never from arbitrary listed rows.
+- Concrete `/new` rebinding must consider only top-level CLI thread candidates, use a bounded timestamp window around the `/new` request,
+  clear stale anchors after 30 seconds, validate the stored `/new` anchor timestamp before applying, and skip rebinding if the candidate
+  target is already open.
+- When the same candidate could satisfy both a pending Codex tab and an explicit concrete `/new` rebind, the explicit `/new` rebind wins and
+  the pending tab remains pending.
+- Concrete `/new` rebinding must require an unambiguous one-to-one match; if multiple candidates fall in the window, the tab remains
+  anchored and is not rebound automatically.
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
   [@test] ../../sessions/testSrc/AgentSessionRefreshCoordinatorTest.kt
   [@test] ../../codex/sessions/testSrc/backend/rollout/CodexRolloutRefreshHintsProviderTest.kt
 
-- When automatic pending-thread matching is ambiguous or unmatched, users must be able to manually rebind from editor tab actions via `Bind Pending Thread`.
+- When automatic pending-thread matching is ambiguous or unmatched, users must be able to manually rebind from editor tab actions via
+  `Bind Pending Thread`.
 - Manual bind remains pending-tab-only and must not repurpose the editor-tab action for already-concrete `/new` rebinding.
 - Pending-thread rebinding is provider-neutral; concrete `/new` rebinding remains Codex-only.
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
@@ -169,37 +223,52 @@ Canonical command mapping is owned by `spec/agent-core-contracts.spec.md`.
   [@test] ../../codex/sessions/testSrc/CodexAgentSessionProviderDescriptorTest.kt
 
 ## User Experience
+
 - Hovering a project/worktree row reveals new-thread controls without opening the project.
 - Quick-provider icon enables one-click repeat creation when the source project is unambiguous.
 - Provider popup keeps normal and YOLO options explicit.
-- Editor tabs expose the same quick-provider + Add-popup language as tree new-thread actions.
-- In dedicated-frame multi-project mode, the editor-tab quick-provider source-project popup opens under the clicked quick-provider control when possible, with best-position fallback only for non-anchored invocations.
-- In dedicated-frame multi-project mode, the editor-tab Add action remains an anchored popup affordance for explicit source-project selection.
-- Source-project labels in dedicated-frame editor-tab new-thread popups match the sessions tree, and collisions fall back to full path labels.
+- Editor tabs expose two new-thread controls using the same provider/mode language as tree new-thread actions: quick-provider and Add popup.
+- In dedicated-frame multi-project mode, the editor-tab quick-provider source-project popup opens under the clicked quick-provider control
+  when possible, with best-position fallback only for non-anchored invocations.
+- In dedicated-frame multi-project mode, the editor-tab Add action remains an anchored popup affordance for explicit source-project
+  selection.
+- Dedicated-frame source selection appears only after the user invokes quick-provider or opens Add; toolbar updates must not construct the
+  project selector.
+- Source-project labels in dedicated-frame editor-tab new-thread popups match the sessions tree, and collisions fall back to full path
+  labels.
+- Main-toolbar new-thread control reads as a single icon + chevron at rest; the standard separator appears only on hover/press, matching platform split-button affordances.
+- Main-toolbar tooltip names both the provider+mode and the target project so users with multiple repos open can predict where the click will run before clicking.
 
 ## Data & Backend
+
 - Codex creation flow starts with pending identity and is resolved asynchronously from app-server listing plus refresh hints.
 - Concrete identity rebinding updates tab identity and command to resume form.
-- Exact terminal `/new` on an already-concrete top-level Codex tab keeps the same editor tab open while migrating that tab to the newly created concrete thread when a matching refresh-hint candidate appears.
+- Exact terminal `/new` on an already-concrete top-level Codex tab keeps the same editor tab open while migrating that tab to the newly
+  created concrete thread when a matching refresh-hint candidate appears.
 
 ## Error Handling
+
 - Provider CLI/app-server failures must continue through provider-specific error paths in existing service flow.
 - Duplicate clicks for same action tuple must be dropped.
 
 ## Testing / Local Run
+
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionsSwingNewSessionActionsTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionsTreePopupActionsTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionsEditorTabActionsTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionsGearActionsTest'`
+- `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionsMainToolbarNewThreadActionsTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionProjectCatalogTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.claude.sessions.ClaudeAgentSessionProviderDescriptorTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionRefreshCoordinatorTest'`
 - `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.codex.sessions.CodexAgentSessionProviderDescriptorTest'`
 
 ## Open Questions / Risks
+
 - Pending-to-concrete binding timing can vary by backend update latency; user feedback for long delay may need dedicated UX later.
 
 ## References
+
 - `../agent-core-contracts.spec.md`
 - `../agent-sessions.spec.md`
 - `../agent-sessions-codex-rollout-source.spec.md`
