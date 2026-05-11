@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertNotNull
 import javax.swing.DefaultListModel
 
 @TestApplication
@@ -70,7 +71,10 @@ class AgentPromptExistingTaskControllerTest {
 
       fixture.controller.applySnapshot(
         AgentPromptExistingThreadsSnapshot(
-          threads = listOf(thread(id = "thread-1", updatedAt = 100)),
+          threads = listOf(
+            thread(id = "thread-1", updatedAt = 100),
+            thread(id = "thread-2", updatedAt = 200),
+          ),
           isLoading = false,
           hasLoaded = true,
           hasError = false,
@@ -135,6 +139,146 @@ class AgentPromptExistingTaskControllerTest {
 
       assertThat(fixture.controller.selectedExistingTaskId).isNull()
       assertThat(fixture.list.emptyText.text).isEqualTo(AgentPromptBundle.message("popup.existing.error"))
+    }
+  }
+
+  @Test
+  fun applySnapshotPreselectsLoneThreadWhenNoExistingSelection() {
+    runInEdtAndWait {
+      val fixture = controllerFixture()
+
+      fixture.controller.applySnapshot(
+        AgentPromptExistingThreadsSnapshot(
+          threads = listOf(thread(id = "thread-1", updatedAt = 100)),
+          isLoading = false,
+          hasLoaded = true,
+          hasError = false,
+        )
+      )
+
+      assertThat(fixture.controller.selectedExistingTaskId).isEqualTo("thread-1")
+      assertThat(fixture.list.selectedIndex).isEqualTo(0)
+    }
+  }
+
+  @Test
+  fun applySnapshotDoesNotPreselectAnythingForMultiEntryWithoutHint() {
+    runInEdtAndWait {
+      val fixture = controllerFixture()
+
+      fixture.controller.applySnapshot(
+        AgentPromptExistingThreadsSnapshot(
+          threads = listOf(
+            thread(id = "thread-1", updatedAt = 100),
+            thread(id = "thread-2", updatedAt = 200),
+            thread(id = "thread-3", updatedAt = 300),
+          ),
+          isLoading = false,
+          hasLoaded = true,
+          hasError = false,
+        )
+      )
+
+      assertThat(fixture.controller.selectedExistingTaskId).isNull()
+      assertThat(fixture.list.selectedIndex).isEqualTo(-1)
+    }
+  }
+
+  @Test
+  fun setPreselectionAppliesIdWhenInLoadedList() {
+    runInEdtAndWait {
+      val fixture = controllerFixture()
+      fixture.controller.applySnapshot(
+        AgentPromptExistingThreadsSnapshot(
+          threads = listOf(
+            thread(id = "thread-1", updatedAt = 100),
+            thread(id = "thread-2", updatedAt = 200),
+            thread(id = "thread-3", updatedAt = 300),
+          ),
+          isLoading = false,
+          hasLoaded = true,
+          hasError = false,
+        )
+      )
+
+      fixture.controller.setPreselection("thread-2")
+
+      assertThat(fixture.controller.selectedExistingTaskId).isEqualTo("thread-2")
+      assertThat(fixture.list.selectedValue?.id).isEqualTo("thread-2")
+    }
+  }
+
+  @Test
+  fun setPreselectionIgnoresIdNotInLoadedList() {
+    runInEdtAndWait {
+      val fixture = controllerFixture()
+      fixture.controller.applySnapshot(
+        AgentPromptExistingThreadsSnapshot(
+          threads = listOf(
+            thread(id = "thread-1", updatedAt = 100),
+            thread(id = "thread-2", updatedAt = 200),
+          ),
+          isLoading = false,
+          hasLoaded = true,
+          hasError = false,
+        )
+      )
+
+      fixture.controller.setPreselection("thread-missing")
+
+      assertThat(fixture.controller.selectedExistingTaskId).isNull()
+    }
+  }
+
+  @Test
+  fun setPreselectionDoesNotOverrideExistingSelection() {
+    runInEdtAndWait {
+      val fixture = controllerFixture()
+      fixture.controller.applySnapshot(
+        AgentPromptExistingThreadsSnapshot(
+          threads = listOf(
+            thread(id = "thread-1", updatedAt = 100),
+            thread(id = "thread-2", updatedAt = 200),
+          ),
+          isLoading = false,
+          hasLoaded = true,
+          hasError = false,
+        )
+      )
+      val thread1Entry = fixture.controller.entries.firstOrNull { it.id == "thread-1" }
+      assertNotNull(thread1Entry, "Expected thread-1 entry to be loaded before selecting it")
+      fixture.controller.onUserSelected(thread1Entry)
+
+      fixture.controller.setPreselection("thread-2")
+
+      assertThat(fixture.controller.selectedExistingTaskId).isEqualTo("thread-1")
+    }
+  }
+
+  @Test
+  fun setPreselectionAppliedAfterSnapshotArrivesLate() {
+    runInEdtAndWait {
+      val fixture = controllerFixture()
+
+      fixture.controller.setPreselection("thread-2")
+      assertThat(fixture.controller.selectedExistingTaskId).isNull()
+
+      fixture.controller.applySnapshot(
+        AgentPromptExistingThreadsSnapshot(
+          threads = listOf(
+            thread(id = "thread-1", updatedAt = 100),
+            thread(id = "thread-2", updatedAt = 200),
+          ),
+          isLoading = false,
+          hasLoaded = true,
+          hasError = false,
+        )
+      )
+
+      fixture.controller.setPreselection("thread-2")
+
+      assertThat(fixture.controller.selectedExistingTaskId).isEqualTo("thread-2")
+      assertThat(fixture.list.selectedValue?.id).isEqualTo("thread-2")
     }
   }
 

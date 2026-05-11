@@ -70,8 +70,10 @@ internal class AgentSessionsToolWindowPanel(
 
   @Suppress("UNNECESSARY_LATEINIT")
   private lateinit var rowActionsOverlay: AgentSessionsTreeRowActionsOverlay
+
   @Suppress("UNNECESSARY_LATEINIT")
   private lateinit var interactionController: AgentSessionsTreeInteractionController
+
   @Suppress("UNNECESSARY_LATEINIT")
   private lateinit var dataContextProvider: AgentSessionsTreeDataContextProvider
 
@@ -222,7 +224,6 @@ internal class AgentSessionsToolWindowPanel(
     if (contributions.isEmpty()) {
       return null
     }
-
     return JPanel().apply {
       layout = BoxLayout(this, BoxLayout.Y_AXIS)
       isOpaque = false

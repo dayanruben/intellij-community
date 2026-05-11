@@ -28,6 +28,14 @@ internal fun claudeAssistantToolUseLine(timestamp: String, sessionId: String, cw
   return """{"type":"assistant","sessionId":"$sessionId","cwd":"$cwd","isSidechain":false,"timestamp":"$timestamp","message":{"role":"assistant","content":[{"type":"text","text":"$content"},{"type":"tool_use","id":"tu_1","name":"edit","input":{}}],"stop_reason":"tool_use"}}"""
 }
 
+internal fun claudeAssistantUserInteractionToolLine(timestamp: String, sessionId: String, cwd: String, toolName: String): String {
+  return """{"type":"assistant","sessionId":"$sessionId","cwd":"$cwd","isSidechain":false,"timestamp":"$timestamp","message":{"role":"assistant","content":[{"type":"text","text":"Waiting on user"},{"type":"tool_use","id":"tu_1","name":"$toolName","input":{}}],"stop_reason":"tool_use"}}"""
+}
+
+internal fun claudeAssistantStopReasonLine(timestamp: String, sessionId: String, cwd: String, stopReason: String): String {
+  return """{"type":"assistant","sessionId":"$sessionId","cwd":"$cwd","isSidechain":false,"timestamp":"$timestamp","message":{"role":"assistant","content":[{"type":"text","text":"Stopped"}],"stop_reason":"$stopReason"}}"""
+}
+
 internal fun claudeProgressLine(timestamp: String, sessionId: String, cwd: String): String {
   return """{"type":"progress","sessionId":"$sessionId","cwd":"$cwd","isSidechain":false,"timestamp":"$timestamp"}"""
 }
@@ -46,6 +54,14 @@ internal fun claudeQueueOperationLine(timestamp: String, sessionId: String, cwd:
 
 internal fun claudeCustomTitleLine(timestamp: String, sessionId: String, cwd: String, customTitle: String): String {
   return """{"type":"custom-title","sessionId":"$sessionId","cwd":"$cwd","isSidechain":false,"timestamp":"$timestamp","customTitle":"$customTitle"}"""
+}
+
+internal fun claudeAiTitleLine(sessionId: String, aiTitle: String): String {
+  return """{"type":"ai-title","sessionId":"$sessionId","aiTitle":"$aiTitle"}"""
+}
+
+internal fun claudeLastPromptLine(sessionId: String, lastPrompt: String): String {
+  return """{"type":"last-prompt","sessionId":"$sessionId","leafUuid":"leaf-1","lastPrompt":"$lastPrompt"}"""
 }
 
 internal fun writeJsonl(file: Path, lines: List<String>) {

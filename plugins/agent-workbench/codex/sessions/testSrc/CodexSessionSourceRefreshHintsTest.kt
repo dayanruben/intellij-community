@@ -80,7 +80,7 @@ class CodexSessionSourceRefreshHintsTest {
   }
 
   @Test
-  fun mergeAllowsNewerRolloutWorkingActivityToOverrideNonResponseRequiredAppServerHint() {
+  fun mergeAllowsRolloutWorkingActivityToOverrideCachedNonResponseRequiredAppServerHint() {
     val merged = mergeCodexRefreshHints(
       appServerHintsByPath = mapOf(
         "/work/project" to CodexRefreshHints(
@@ -131,13 +131,121 @@ class CodexSessionSourceRefreshHintsTest {
   }
 
   @Test
-  fun mergeKeepsResponseRequiredUnreadWhenRolloutHasNewerWorkingFallback() {
+  fun mergeAllowsNewerRolloutWorkingActivityToOverrideStaleVerifiedAppServerHint() {
+    val merged = mergeCodexRefreshHints(
+      appServerHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-ready" to refreshHint(
+              activity = AgentThreadActivity.READY,
+              updatedAt = 200L,
+              verifiedFresh = true,
+            ),
+            "thread-passive-unread" to refreshHint(
+              activity = AgentThreadActivity.UNREAD,
+              updatedAt = 210L,
+              verifiedFresh = true,
+            ),
+            "thread-working" to refreshHint(
+              activity = AgentThreadActivity.PROCESSING,
+              updatedAt = 220L,
+              verifiedFresh = true,
+            ),
+          )
+        )
+      ),
+      rolloutHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-ready" to refreshHint(
+              activity = AgentThreadActivity.PROCESSING,
+              updatedAt = 230L,
+            ),
+            "thread-passive-unread" to refreshHint(
+              activity = AgentThreadActivity.REVIEWING,
+              updatedAt = 240L,
+            ),
+            "thread-working" to refreshHint(
+              activity = AgentThreadActivity.REVIEWING,
+              updatedAt = 250L,
+            ),
+          )
+        )
+      ),
+    )
+
+    assertThat(merged.getValue("/work/project").activityHintsByThreadId.mapValues { (_, hint) -> hint.activity })
+      .containsExactlyInAnyOrderEntriesOf(
+        mapOf(
+          "thread-ready" to AgentThreadActivity.PROCESSING,
+          "thread-passive-unread" to AgentThreadActivity.REVIEWING,
+          "thread-working" to AgentThreadActivity.REVIEWING,
+        )
+      )
+  }
+
+  @Test
+  fun mergeKeepsNewerVerifiedAppServerNonWorkingHintWhenRolloutHasOlderWorkingFallback() {
+    val merged = mergeCodexRefreshHints(
+      appServerHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-ready" to refreshHint(
+              activity = AgentThreadActivity.READY,
+              updatedAt = 300L,
+              verifiedFresh = true,
+            ),
+            "thread-passive-unread" to refreshHint(
+              activity = AgentThreadActivity.UNREAD,
+              updatedAt = 310L,
+              verifiedFresh = true,
+            ),
+            "thread-working" to refreshHint(
+              activity = AgentThreadActivity.PROCESSING,
+              updatedAt = 320L,
+              verifiedFresh = true,
+            ),
+          )
+        )
+      ),
+      rolloutHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-ready" to refreshHint(
+              activity = AgentThreadActivity.PROCESSING,
+              updatedAt = 230L,
+            ),
+            "thread-passive-unread" to refreshHint(
+              activity = AgentThreadActivity.REVIEWING,
+              updatedAt = 240L,
+            ),
+            "thread-working" to refreshHint(
+              activity = AgentThreadActivity.REVIEWING,
+              updatedAt = 250L,
+            ),
+          )
+        )
+      ),
+    )
+
+    assertThat(merged.getValue("/work/project").activityHintsByThreadId.mapValues { (_, hint) -> hint.activity })
+      .containsExactlyInAnyOrderEntriesOf(
+        mapOf(
+          "thread-ready" to AgentThreadActivity.READY,
+          "thread-passive-unread" to AgentThreadActivity.UNREAD,
+          "thread-working" to AgentThreadActivity.PROCESSING,
+        )
+      )
+  }
+
+  @Test
+  fun mergeAllowsNewerRolloutWorkingFallbackToOverrideStaleResponseRequiredHint() {
     val merged = mergeCodexRefreshHints(
       appServerHintsByPath = mapOf(
         "/work/project" to CodexRefreshHints(
           activityHintsByThreadId = mapOf(
             "thread-live" to refreshHint(
-              activity = AgentThreadActivity.UNREAD,
+              activity = AgentThreadActivity.NEEDS_INPUT,
               updatedAt = 300L,
               responseRequired = true,
             )
@@ -157,7 +265,149 @@ class CodexSessionSourceRefreshHintsTest {
     )
 
     val hint = merged.getValue("/work/project").activityHintsByThreadId.getValue("thread-live")
+    assertThat(hint.activity).isEqualTo(AgentThreadActivity.PROCESSING)
+    assertThat(hint.responseRequired).isFalse()
+    assertThat(hint.updatedAt).isEqualTo(320L)
+  }
+
+  @Test
+  fun mergeAllowsNewerRolloutUnreadToOverrideStaleResponseRequiredHint() {
+    val merged = mergeCodexRefreshHints(
+      appServerHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.NEEDS_INPUT,
+              updatedAt = 300L,
+              responseRequired = true,
+            )
+          )
+        )
+      ),
+      rolloutHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.UNREAD,
+              updatedAt = 320L,
+            )
+          )
+        )
+      ),
+    )
+
+    val hint = merged.getValue("/work/project").activityHintsByThreadId.getValue("thread-live")
     assertThat(hint.activity).isEqualTo(AgentThreadActivity.UNREAD)
+    assertThat(hint.responseRequired).isFalse()
+    assertThat(hint.updatedAt).isEqualTo(320L)
+  }
+
+  @Test
+  fun mergeKeepsNewerVerifiedAppServerHintWhenRolloutResponseRequiredIsStale() {
+    val merged = mergeCodexRefreshHints(
+      appServerHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-ready" to refreshHint(
+              activity = AgentThreadActivity.READY,
+              updatedAt = 300L,
+              verifiedFresh = true,
+            ),
+            "thread-working" to refreshHint(
+              activity = AgentThreadActivity.PROCESSING,
+              updatedAt = 310L,
+              verifiedFresh = true,
+            ),
+          )
+        )
+      ),
+      rolloutHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-ready" to refreshHint(
+              activity = AgentThreadActivity.NEEDS_INPUT,
+              updatedAt = 200L,
+              responseRequired = true,
+            ),
+            "thread-working" to refreshHint(
+              activity = AgentThreadActivity.NEEDS_INPUT,
+              updatedAt = 210L,
+              responseRequired = true,
+            ),
+          )
+        )
+      ),
+    )
+
+    assertThat(merged.getValue("/work/project").activityHintsByThreadId.mapValues { (_, hint) -> hint.activity })
+      .containsExactlyInAnyOrderEntriesOf(
+        mapOf(
+          "thread-ready" to AgentThreadActivity.READY,
+          "thread-working" to AgentThreadActivity.PROCESSING,
+        )
+      )
+  }
+
+  @Test
+  fun mergeKeepsNewerAppServerNotificationHintWhenRolloutResponseRequiredIsStale() {
+    val merged = mergeCodexRefreshHints(
+      appServerHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-ready" to refreshHint(
+              activity = AgentThreadActivity.READY,
+              updatedAt = 300L,
+            )
+          )
+        )
+      ),
+      rolloutHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-ready" to refreshHint(
+              activity = AgentThreadActivity.NEEDS_INPUT,
+              updatedAt = 200L,
+              responseRequired = true,
+            )
+          )
+        )
+      ),
+    )
+
+    val hint = merged.getValue("/work/project").activityHintsByThreadId.getValue("thread-ready")
+    assertThat(hint.activity).isEqualTo(AgentThreadActivity.READY)
+    assertThat(hint.responseRequired).isFalse()
+    assertThat(hint.updatedAt).isEqualTo(300L)
+  }
+
+  @Test
+  fun mergeKeepsCurrentResponseRequiredNeedsInputWhenRolloutWorkingFallbackIsNotNewer() {
+    val merged = mergeCodexRefreshHints(
+      appServerHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.NEEDS_INPUT,
+              updatedAt = 300L,
+              responseRequired = true,
+            )
+          )
+        )
+      ),
+      rolloutHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.PROCESSING,
+              updatedAt = 300L,
+            )
+          )
+        )
+      ),
+    )
+
+    val hint = merged.getValue("/work/project").activityHintsByThreadId.getValue("thread-live")
+    assertThat(hint.activity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
     assertThat(hint.responseRequired).isTrue()
     assertThat(hint.updatedAt).isEqualTo(300L)
   }
@@ -223,7 +473,67 @@ class CodexSessionSourceRefreshHintsTest {
   }
 
   @Test
-  fun mergeAllowsRolloutResponseRequiredUnreadToOverrideReadyHint() {
+  fun mergeAllowsNewerRolloutUnreadToOverrideStaleWorkingHint() {
+    val merged = mergeCodexRefreshHints(
+      appServerHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.PROCESSING,
+              updatedAt = 300L,
+            )
+          )
+        )
+      ),
+      rolloutHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.UNREAD,
+              updatedAt = 320L,
+            )
+          )
+        )
+      ),
+    )
+
+    val hint = merged.getValue("/work/project").activityHintsByThreadId.getValue("thread-live")
+    assertThat(hint.activity).isEqualTo(AgentThreadActivity.UNREAD)
+    assertThat(hint.updatedAt).isEqualTo(320L)
+  }
+
+  @Test
+  fun mergeKeepsAppServerWorkingHintWhenOlderRolloutUnreadExists() {
+    val merged = mergeCodexRefreshHints(
+      appServerHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.PROCESSING,
+              updatedAt = 300L,
+            )
+          )
+        )
+      ),
+      rolloutHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.UNREAD,
+              updatedAt = 290L,
+            )
+          )
+        )
+      ),
+    )
+
+    val hint = merged.getValue("/work/project").activityHintsByThreadId.getValue("thread-live")
+    assertThat(hint.activity).isEqualTo(AgentThreadActivity.PROCESSING)
+    assertThat(hint.updatedAt).isEqualTo(300L)
+  }
+
+  @Test
+  fun mergeAllowsNewerRolloutResponseRequiredNeedsInputToOverrideReadyHint() {
     val merged = mergeCodexRefreshHints(
       appServerHintsByPath = mapOf(
         "/work/project" to CodexRefreshHints(
@@ -239,8 +549,8 @@ class CodexSessionSourceRefreshHintsTest {
         "/work/project" to CodexRefreshHints(
           activityHintsByThreadId = mapOf(
             "thread-live" to refreshHint(
-              activity = AgentThreadActivity.UNREAD,
-              updatedAt = 290L,
+              activity = AgentThreadActivity.NEEDS_INPUT,
+              updatedAt = 320L,
               responseRequired = true,
             )
           )
@@ -249,13 +559,13 @@ class CodexSessionSourceRefreshHintsTest {
     )
 
     val hint = merged.getValue("/work/project").activityHintsByThreadId.getValue("thread-live")
-    assertThat(hint.activity).isEqualTo(AgentThreadActivity.UNREAD)
+    assertThat(hint.activity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
     assertThat(hint.responseRequired).isTrue()
-    assertThat(hint.updatedAt).isEqualTo(290L)
+    assertThat(hint.updatedAt).isEqualTo(320L)
   }
 
   @Test
-  fun mergeDoesNotLetRolloutReadyDowngradeAppServerWorkingState() {
+  fun mergeAllowsNewerRolloutReadyToClearStaleAppServerWorkingState() {
     val merged = mergeCodexRefreshHints(
       appServerHintsByPath = mapOf(
         "/work/project" to CodexRefreshHints(
@@ -273,6 +583,36 @@ class CodexSessionSourceRefreshHintsTest {
             "thread-live" to refreshHint(
               activity = AgentThreadActivity.READY,
               updatedAt = 320L,
+            )
+          )
+        )
+      ),
+    )
+
+    val hint = merged.getValue("/work/project").activityHintsByThreadId.getValue("thread-live")
+    assertThat(hint.activity).isEqualTo(AgentThreadActivity.READY)
+    assertThat(hint.updatedAt).isEqualTo(320L)
+  }
+
+  @Test
+  fun mergeKeepsAppServerWorkingHintWhenOlderRolloutReadyExists() {
+    val merged = mergeCodexRefreshHints(
+      appServerHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.PROCESSING,
+              updatedAt = 300L,
+            )
+          )
+        )
+      ),
+      rolloutHintsByPath = mapOf(
+        "/work/project" to CodexRefreshHints(
+          activityHintsByThreadId = mapOf(
+            "thread-live" to refreshHint(
+              activity = AgentThreadActivity.READY,
+              updatedAt = 290L,
             )
           )
         )
@@ -322,10 +662,12 @@ private fun refreshHint(
   activity: AgentThreadActivity,
   updatedAt: Long,
   responseRequired: Boolean = false,
+  verifiedFresh: Boolean = false,
 ): CodexRefreshActivityHint {
   return CodexRefreshActivityHint(
     activity = activity,
     updatedAt = updatedAt,
     responseRequired = responseRequired,
+    verifiedFresh = verifiedFresh,
   )
 }

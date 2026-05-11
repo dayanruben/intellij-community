@@ -55,6 +55,14 @@ interface AgentPromptLauncherBridge {
     return emptyList()
   }
 
+  suspend fun listAddContextTargetCandidates(projectPath: String): List<AgentPromptAddContextTargetCandidate> {
+    return emptyList()
+  }
+
+  suspend fun addContextToOpenChatTarget(request: AgentPromptAddContextToTargetRequest): AgentPromptAddContextToTargetResult {
+    return AgentPromptAddContextToTargetResult.UNAVAILABLE
+  }
+
   data class ProviderPreferences(
     @JvmField val providerId: String? = null,
     @JvmField val launchMode: AgentSessionLaunchMode? = null,

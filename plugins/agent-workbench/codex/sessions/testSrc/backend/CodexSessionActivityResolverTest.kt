@@ -22,7 +22,7 @@ class CodexSessionActivityResolverTest {
   }
 
   @Test
-  fun responseRequiredFlagsAreRecognizedAndMapToUnread() {
+  fun responseRequiredFlagsAreRecognizedAndMapToNeedsInput() {
     assertThat(emptyList<CodexThreadActiveFlag>().isResponseRequired()).isFalse()
     assertThat(listOf(CodexThreadActiveFlag.WAITING_ON_APPROVAL).isResponseRequired()).isTrue()
     assertThat(listOf(CodexThreadActiveFlag.WAITING_ON_USER_INPUT).isResponseRequired()).isTrue()
@@ -32,13 +32,13 @@ class CodexSessionActivityResolverTest {
         statusKind = CodexThreadStatusKind.ACTIVE,
         activeFlags = listOf(CodexThreadActiveFlag.WAITING_ON_APPROVAL),
       ).toCodexSessionActivity()
-    ).isEqualTo(CodexSessionActivity.UNREAD)
+    ).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
     assertThat(
       thread(
         statusKind = CodexThreadStatusKind.ACTIVE,
         activeFlags = listOf(CodexThreadActiveFlag.WAITING_ON_USER_INPUT),
       ).toCodexSessionActivity()
-    ).isEqualTo(CodexSessionActivity.UNREAD)
+    ).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
   }
 
   @Test
@@ -49,6 +49,12 @@ class CodexSessionActivityResolverTest {
         hasUnreadAssistantMessage = true,
       ).toCodexSessionActivity()
     ).isEqualTo(CodexSessionActivity.UNREAD)
+    assertThat(
+      snapshot(
+        statusKind = CodexThreadStatusKind.IDLE,
+        hasPendingPlan = true,
+      ).toCodexSessionActivity()
+    ).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
     assertThat(
       snapshot(
         statusKind = CodexThreadStatusKind.IDLE,
@@ -78,6 +84,13 @@ class CodexSessionActivityResolverTest {
         hasUnreadAssistantMessage = true,
       ).toCodexSessionActivity()
     ).isEqualTo(CodexSessionActivity.PROCESSING)
+    assertThat(
+      snapshot(
+        statusKind = CodexThreadStatusKind.ACTIVE,
+        hasUnreadAssistantMessage = true,
+        hasTurnActivity = true,
+      ).toCodexSessionActivity()
+    ).isEqualTo(CodexSessionActivity.UNREAD)
   }
 
   @Test
@@ -90,7 +103,15 @@ class CodexSessionActivityResolverTest {
         isReviewing = true,
         hasInProgressTurn = true,
       ).toCodexSessionActivity()
-    ).isEqualTo(CodexSessionActivity.UNREAD)
+    ).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
+    assertThat(
+      snapshot(
+        statusKind = CodexThreadStatusKind.ACTIVE,
+        hasPendingPlan = true,
+        isReviewing = true,
+        hasInProgressTurn = true,
+      ).toCodexSessionActivity()
+    ).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
   }
 
   @Test
@@ -104,7 +125,7 @@ class CodexSessionActivityResolverTest {
         statusKind = CodexThreadStatusKind.ACTIVE,
         activeFlags = listOf(CodexThreadActiveFlag.WAITING_ON_USER_INPUT),
       ).toCodexSessionActivity()
-    ).isEqualTo(CodexSessionActivity.UNREAD)
+    ).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
   }
 }
 
@@ -126,8 +147,10 @@ private fun snapshot(
   statusKind: CodexThreadStatusKind,
   activeFlags: List<CodexThreadActiveFlag> = emptyList(),
   hasUnreadAssistantMessage: Boolean = false,
+  hasPendingPlan: Boolean = false,
   isReviewing: Boolean = false,
   hasInProgressTurn: Boolean = false,
+  hasTurnActivity: Boolean = false,
 ): CodexThreadActivitySnapshot {
   return CodexThreadActivitySnapshot(
     threadId = "thread-1",
@@ -135,8 +158,10 @@ private fun snapshot(
     statusKind = statusKind,
     activeFlags = activeFlags,
     hasUnreadAssistantMessage = hasUnreadAssistantMessage,
+    hasPendingPlan = hasPendingPlan,
     isReviewing = isReviewing,
     hasInProgressTurn = hasInProgressTurn,
+    hasTurnActivity = hasTurnActivity,
   )
 }
 

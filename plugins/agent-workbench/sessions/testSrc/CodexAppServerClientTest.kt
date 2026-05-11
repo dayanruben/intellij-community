@@ -368,6 +368,71 @@ class CodexAppServerClientTest {
       assertThat(snapshot.hasUnreadAssistantMessage).isTrue()
       assertThat(snapshot.isReviewing).isTrue()
       assertThat(snapshot.hasInProgressTurn).isTrue()
+      assertThat(snapshot.hasTurnActivity).isTrue()
+    }
+    finally {
+      client.shutdown()
+    }
+  }
+
+  @Test
+  fun readThreadActivitySnapshotParsesPendingPlanFromStructuredPlanItems(): Unit = runBlocking(Dispatchers.Default) {
+    val project = tempDir.resolve("project-thread-read-plan-activity")
+    Files.createDirectories(project)
+    val normalizedCwd = project.toString().replace('\\', '/').trimEnd('/')
+    val configPath = tempDir.resolve("codex-thread-read-plan-activity.json")
+    writeConfig(
+      path = configPath,
+      threads = listOf(
+        ThreadSpec(
+          id = "thread-plan-pending",
+          title = "Thread pending plan",
+          cwd = normalizedCwd,
+          sourceKind = "appServer",
+          statusType = "idle",
+          updatedAt = 1_700_000_031_000L,
+          archived = false,
+          readTurns = listOf(
+            ThreadTurnSpec(
+              itemTypes = listOf("userMessage", "agentMessage", "Plan"),
+            ),
+          ),
+        ),
+        ThreadSpec(
+          id = "thread-plan-cleared",
+          title = "Thread cleared plan",
+          cwd = normalizedCwd,
+          sourceKind = "appServer",
+          statusType = "idle",
+          updatedAt = 1_700_000_032_000L,
+          archived = false,
+          readTurns = listOf(
+            ThreadTurnSpec(
+              itemTypes = listOf("userMessage", "plan", "userMessage"),
+            ),
+          ),
+        ),
+      )
+    )
+    val backendDir = tempDir.resolve("backend-thread-read-plan-activity")
+    Files.createDirectories(backendDir)
+    val client = createMockClient(
+      scope = this,
+      tempDir = backendDir,
+      configPath = configPath,
+    )
+    try {
+      val pendingPlan = client.readThreadActivitySnapshot("thread-plan-pending")
+      assertThat(pendingPlan).isNotNull
+      assertThat(pendingPlan!!.hasPendingPlan).isTrue()
+      assertThat(pendingPlan.hasUnreadAssistantMessage).isTrue()
+      assertThat(pendingPlan.hasTurnActivity).isTrue()
+
+      val clearedPlan = client.readThreadActivitySnapshot("thread-plan-cleared")
+      assertThat(clearedPlan).isNotNull
+      assertThat(clearedPlan!!.hasPendingPlan).isFalse()
+      assertThat(clearedPlan.hasUnreadAssistantMessage).isFalse()
+      assertThat(clearedPlan.hasTurnActivity).isTrue()
     }
     finally {
       client.shutdown()
@@ -1580,7 +1645,7 @@ class CodexAppServerClientTest {
       assertThat(payloadLog).contains("Fallback seed candidates (3):")
       assertThat(payloadLog).contains("id: tests.fix")
       assertThat(payloadLog).contains("id: tests.explain")
-      assertThat(payloadLog).contains("id: tests.stabilize")
+      assertThat(payloadLog).contains("id: tests.bisect")
       assertThat(payloadLog).doesNotContain("\"method\":\"prompt/suggest\"")
     }
     finally {
@@ -1645,9 +1710,9 @@ class CodexAppServerClientTest {
               promptText = "Explain why ParserTest is failing and point out the relevant code path.",
             ),
             CodexPromptSuggestionCandidate(
-              id = "tests.stabilize",
-              label = "AI: Stabilize the ParserTest coverage",
-              promptText = "Stabilize the ParserTest scenario and call out any missing assertions or cleanup.",
+              id = "tests.bisect",
+              label = "AI: Bisect the ParserTest regression",
+              promptText = "Identify the commit that broke ParserTest by reading recent diffs of the test and its production paths.",
             ),
           )
         )
@@ -2068,9 +2133,9 @@ class CodexAppServerClientTest {
           promptText = "Explain why the selected tests are failing.",
         ),
         CodexPromptSuggestionCandidate(
-          id = "tests.stabilize",
-          label = "Stabilize test coverage",
-          promptText = "Stabilize the selected tests and call out any missing cleanup.",
+          id = "tests.bisect",
+          label = "Bisect failures",
+          promptText = "Find the commit that introduced these failures by reading recent diffs.",
         ),
       ),
     )

@@ -8,6 +8,8 @@ package com.intellij.agent.workbench.chat
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextToTargetResult
+import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchSpecs
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchPlan
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
@@ -17,6 +19,7 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminal
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.UI
+import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.debug
@@ -48,9 +51,20 @@ private data class AgentChatScopedRefreshSignal(
 private object AgentChatScopedRefreshSignalBus {
   private val signalFlow = MutableSharedFlow<AgentChatScopedRefreshSignal>(extraBufferCapacity = 64)
 
-  fun signal(provider: AgentSessionProvider, projectPath: String, threadId: String? = null): Boolean {
+  fun signal(
+    provider: AgentSessionProvider,
+    projectPath: String,
+    threadId: String? = null,
+    activityHint: AgentThreadActivity? = null,
+  ): Boolean {
     val normalizedPath = normalizeAgentWorkbenchPath(projectPath)
     val normalizedThreadId = threadId?.trim()?.takeIf { it.isNotEmpty() }
+    val activityHintsByThreadId = if (normalizedThreadId != null && activityHint != null) {
+      mapOf(normalizedThreadId to activityHint)
+    }
+    else {
+      emptyMap()
+    }
     return normalizedPath.isNotBlank() && signalFlow.tryEmit(
       AgentChatScopedRefreshSignal(
         provider = provider,
@@ -58,6 +72,7 @@ private object AgentChatScopedRefreshSignalBus {
           type = AgentSessionSourceUpdate.THREADS_CHANGED,
           scopedPaths = setOf(normalizedPath),
           threadIds = normalizedThreadId?.let { setOf(it) },
+          activityHintsByThreadId = activityHintsByThreadId,
         ),
       )
     )
@@ -193,7 +208,8 @@ suspend fun openChat(
   val existing = findExistingChatByTabKey(manager.openFiles, tabKey.value)
                  ?: findExistingChat(manager.openFiles, threadIdentity, subAgentId)
   val startupOverrideForNewTab = if (existing == null) initialMessageDispatchPlan.startupLaunchSpecOverride else null
-  val snapshotInitialMessageDispatchSteps = if (startupOverrideForNewTab != null) emptyList() else initialMessageDispatchPlan.postStartDispatchSteps
+  val snapshotInitialMessageDispatchSteps =
+    if (startupOverrideForNewTab != null) emptyList() else initialMessageDispatchPlan.postStartDispatchSteps
   val snapshotInitialMessageToken = if (startupOverrideForNewTab != null) null else initialMessageDispatchPlan.initialMessageToken
   val snapshotInitialMessageSent = false
   val hasExplicitInitialMessageDispatch = snapshotInitialMessageDispatchSteps.isNotEmpty() || snapshotInitialMessageToken != null
@@ -356,8 +372,13 @@ suspend fun collectOpenPendingAgentChatProjectPaths(): Set<String> {
   return collectOpenAgentChatProjectPaths(includePendingOnly = true)
 }
 
-fun notifyAgentChatTerminalOutputForRefresh(provider: AgentSessionProvider, projectPath: String, threadId: String? = null) {
-  AgentChatScopedRefreshSignalBus.signal(provider, projectPath, threadId)
+fun notifyAgentChatTerminalOutputForRefresh(
+  provider: AgentSessionProvider,
+  projectPath: String,
+  threadId: String? = null,
+  activityHint: AgentThreadActivity? = AgentThreadActivity.PROCESSING,
+) {
+  AgentChatScopedRefreshSignalBus.signal(provider, projectPath, threadId, activityHint)
 }
 
 fun agentChatScopedRefreshSignals(provider: AgentSessionProvider): Flow<AgentSessionSourceUpdateEvent> {
@@ -394,6 +415,38 @@ suspend fun collectOpenConcreteCodexTabsAwaitingNewThreadRebindByPath(): Map<Str
 
 suspend fun collectOpenConcreteAgentChatThreadIdentitiesByPath(): Map<String, Set<String>> {
   return collectOpenAgentChatTabsSnapshotOnUi().concreteThreadIdentitiesByPath()
+}
+
+suspend fun addContextToOpenTopLevelAgentChat(
+  projectPath: String,
+  provider: AgentSessionProvider,
+  threadId: String,
+  contextItems: List<AgentPromptContextItem>,
+): AgentPromptAddContextToTargetResult = withContext(Dispatchers.UiWithModelAccess) {
+  val normalizedProjectPath = normalizeAgentWorkbenchPath(projectPath)
+  if (contextItems.isEmpty()) {
+    return@withContext AgentPromptAddContextToTargetResult.UNAVAILABLE
+  }
+  val openEntry = collectOpenAgentChatTabsSnapshot().findOpenTopLevelConcreteEntry(
+    normalizedPath = normalizedProjectPath,
+    provider = provider,
+    threadId = threadId,
+  ) ?: return@withContext AgentPromptAddContextToTargetResult.UNAVAILABLE
+  val manager = openEntry.manager
+  if (manager is FileEditorManagerEx) {
+    manager.openFile(file = openEntry.file, options = FileEditorOpenOptions(requestFocus = true, reuseOpen = true))
+  }
+  else {
+    manager.openFile(openEntry.file, true)
+  }
+  val editor = manager.getAllEditors(openEntry.file).filterIsInstance<AgentChatFileEditor>().firstOrNull()
+               ?: return@withContext AgentPromptAddContextToTargetResult.UNAVAILABLE
+  if (editor.addPendingContextItems(contextItems)) {
+    AgentPromptAddContextToTargetResult.ADDED_TO_CHAT
+  }
+  else {
+    AgentPromptAddContextToTargetResult.ALREADY_ADDED_TO_CHAT
+  }
 }
 
 private suspend fun collectOpenAgentChatProjectPaths(includePendingOnly: Boolean): Set<String> {

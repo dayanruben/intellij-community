@@ -52,10 +52,12 @@ internal class CodexRolloutParser(
     val resolvedSessionId = state.sessionId ?: return null
     val hasUnread = state.latestAgentMessageAt > state.latestUserMessageAt
     val hasPendingUserInput = state.pendingUserInputByCallId.isNotEmpty()
+    val hasPendingPlan = state.latestPlanAt > state.latestUserMessageAt
     val activity = resolveCodexSessionActivity(
       statusKind = CodexThreadStatusKind.IDLE,
       activeFlags = if (hasPendingUserInput) setOf(CodexThreadActiveFlag.WAITING_ON_USER_INPUT) else emptySet(),
       hasUnreadAssistantMessage = hasUnread,
+      hasPendingPlan = hasPendingPlan,
       isReviewing = state.reviewing,
       hasInProgressTurn = state.processing,
     )
@@ -90,7 +92,7 @@ internal class CodexRolloutParser(
           parentThreadId = state.parentThreadId,
         ),
         activity = activity,
-        requiresResponse = hasPendingUserInput,
+        requiresResponse = hasPendingUserInput || hasPendingPlan,
       ),
     )
   }
@@ -112,8 +114,18 @@ private fun reduceEvent(parseState: RolloutParseState, event: RolloutEvent) {
   when (event.topLevelType) {
     "event_msg" -> {
       when (event.payloadType) {
-        "task_started", "turn_started" -> parseState.processing = true
-        "task_complete", "turn_complete", "turn_aborted" -> parseState.processing = false
+        "task_started", "turn_started" -> {
+          parseState.processing = true
+          parseState.processingTurnId = event.payloadTurnId
+        }
+
+        "task_complete", "turn_complete", "turn_aborted" -> {
+          if (shouldClearProcessingTurn(parseState = parseState, completedTurnId = event.payloadTurnId)) {
+            parseState.processing = false
+            parseState.processingTurnId = null
+          }
+        }
+
         "user_message" -> {
           parseState.latestUserMessageAt = maxTimestamp(parseState.latestUserMessageAt, eventTimestamp)
           parseState.title = parseState.title ?: extractTitle(event.payloadMessage)
@@ -133,6 +145,12 @@ private fun reduceEvent(parseState: RolloutParseState, event: RolloutEvent) {
 
         "request_user_input" -> {
           parseState.markPendingUserInput(eventTimestamp = eventTimestamp, callId = event.payloadCallId)
+        }
+
+        "item_completed", "itemCompleted" -> {
+          if (isPlanItemType(event.payloadItemType)) {
+            parseState.latestPlanAt = maxTimestamp(parseState.latestPlanAt, eventTimestamp)
+          }
         }
 
         "entered_review_mode" -> parseState.reviewing = true
@@ -183,7 +201,9 @@ private fun parseEvent(parser: JsonParser): RolloutEvent? {
     var payloadMessage: String? = null
     var payloadName: String? = null
     var payloadCallId: String? = null
+    var payloadItemType: String? = null
     var payloadThreadName: String? = null
+    var payloadTurnId: String? = null
     var sessionId: String? = null
     var sessionCwd: String? = null
     var sessionTimestampMs: Long? = null
@@ -204,7 +224,9 @@ private fun parseEvent(parser: JsonParser): RolloutEvent? {
                 "message" -> payloadMessage = readStringOrNull(parser)
                 "name" -> payloadName = readStringOrNull(parser)
                 "call_id" -> payloadCallId = readStringOrNull(parser)
+                "item" -> payloadItemType = parseRolloutItemType(parser)
                 "thread_name", "threadName" -> payloadThreadName = readStringOrNull(parser)
+                "turn_id", "turnId" -> payloadTurnId = readStringOrNull(parser)
                 "id" -> sessionId = readStringOrNull(parser)
                 "cwd" -> sessionCwd = readStringOrNull(parser)
                 "timestamp" -> sessionTimestampMs = parseIsoTimestamp(readStringOrNull(parser))
@@ -243,7 +265,9 @@ private fun parseEvent(parser: JsonParser): RolloutEvent? {
       payloadMessage = payloadMessage,
       payloadName = payloadName,
       payloadCallId = payloadCallId,
+      payloadItemType = payloadItemType,
       payloadThreadName = payloadThreadName,
+      payloadTurnId = payloadTurnId,
       sessionId = sessionId,
       sessionCwd = sessionCwd,
       sessionTimestampMs = sessionTimestampMs,
@@ -271,7 +295,9 @@ private data class RolloutEvent(
   @JvmField val payloadMessage: String?,
   @JvmField val payloadName: String?,
   @JvmField val payloadCallId: String?,
+  @JvmField val payloadItemType: String?,
   @JvmField val payloadThreadName: String?,
+  @JvmField val payloadTurnId: String?,
   @JvmField val sessionId: String?,
   @JvmField val sessionCwd: String?,
   @JvmField val sessionTimestampMs: Long?,
@@ -289,12 +315,19 @@ private data class RolloutParseState(
   @JvmField var title: String? = null,
   @JvmField var updatedAt: Long = 0L,
   @JvmField var processing: Boolean = false,
+  @JvmField var processingTurnId: String? = null,
   @JvmField var reviewing: Boolean = false,
   @JvmField var latestUserMessageAt: Long = Long.MIN_VALUE,
   @JvmField var latestAgentMessageAt: Long = Long.MIN_VALUE,
+  @JvmField var latestPlanAt: Long = Long.MIN_VALUE,
   @JvmField val pendingUserInputByCallId: LinkedHashMap<String, Long> = LinkedHashMap(),
   @JvmField var nextSyntheticPendingUserInputId: Int = 0,
 )
+
+private fun shouldClearProcessingTurn(parseState: RolloutParseState, completedTurnId: String?): Boolean {
+  val processingTurnId = parseState.processingTurnId
+  return completedTurnId == null || processingTurnId == null || completedTurnId == processingTurnId
+}
 
 private fun RolloutParseState.latestPendingUserInputAt(): Long? {
   return pendingUserInputByCallId.values.maxOrNull()
@@ -371,6 +404,25 @@ private fun parseBranchField(parser: JsonParser): String? {
     true
   }
   return result
+}
+
+private fun parseRolloutItemType(parser: JsonParser): String? {
+  if (parser.currentToken != JsonToken.START_OBJECT) {
+    parser.skipChildren()
+    return null
+  }
+
+  var type: String? = null
+  forEachObjectField(parser) { nestedField ->
+    if (nestedField == "type") {
+      type = readStringOrNull(parser)
+    }
+    else {
+      parser.skipChildren()
+    }
+    true
+  }
+  return type
 }
 
 private fun parseRolloutSource(parser: JsonParser): ParsedRolloutSource {
@@ -508,6 +560,20 @@ private data class ParsedRolloutSource(
   val sourceKind: CodexThreadSourceKind,
   val parentThreadId: String?,
 )
+
+private fun isPlanItemType(value: String?): Boolean {
+  return normalizeToken(value) == "plan"
+}
+
+private fun normalizeToken(value: String?): String {
+  return value
+    ?.trim()
+    ?.lowercase()
+    ?.replace("_", "")
+    ?.replace("-", "")
+    ?.replace(" ", "")
+    .orEmpty()
+}
 
 private fun maxTimestamp(current: Long, candidate: Long?): Long {
   if (candidate == null) return current

@@ -45,7 +45,7 @@ internal class CodexAppServerRefreshHintsProvider(
   private val startedThreadHintsByPath = LinkedHashMap<String, LinkedHashMap<String, CachedStartedThreadHint>>()
   private val activityHintCacheLock = Any()
   private val snapshotActivityHintCacheByThreadId = LinkedHashMap<String, CachedSnapshotActivityHint>(256, 0.75f, true)
-  private val notificationActivityHintCacheByThreadId = LinkedHashMap<String, CodexRefreshActivityHint>(256, 0.75f, true)
+  private val notificationActivityHintCacheByThreadId = LinkedHashMap<String, CachedNotificationActivityHint>(256, 0.75f, true)
 
   private val directStatusUpdateKinds: Set<CodexAppServerNotificationKind> = setOf(
     CodexAppServerNotificationKind.THREAD_STARTED,
@@ -128,9 +128,15 @@ internal class CodexAppServerRefreshHintsProvider(
 
         val snapshotActivityHint = findCachedSnapshotActivityHint(refreshThreadSeed)
                                    ?: snapshotsByThreadId[threadId]
-                                     ?.toRefreshActivityHint()
+                                     ?.toRefreshActivityHint(verifiedFresh = true)
                                      ?.also { hint -> cacheSnapshotActivityHint(threadId = threadId, hint = hint) }
-        val activityHint = snapshotActivityHint ?: findNotificationActivityHint(threadId) ?: continue
+        val notificationActivityHint = if (refreshThreadSeed.forceRefresh) {
+          null
+        }
+        else {
+          findNotificationActivityHint(refreshThreadSeed)
+        }
+        val activityHint = snapshotActivityHint ?: notificationActivityHint ?: continue
         activityHintsByThreadId[threadId] = activityHint
         resolvedActivityThreadCount += 1
       }
@@ -163,7 +169,7 @@ internal class CodexAppServerRefreshHintsProvider(
 
     val startedThread = notification.startedThread ?: return
     val threadId = startedThread.id
-    val normalizedPath = startedThread.cwd
+    val normalizedPath = normalizeRootPath(startedThread.cwd)
     val nowMs = System.currentTimeMillis()
 
     synchronized(startedThreadHintsLock) {
@@ -186,13 +192,18 @@ internal class CodexAppServerRefreshHintsProvider(
       return
     }
 
+    val nowMs = System.currentTimeMillis()
     synchronized(activityHintCacheLock) {
-      val activityHint = notification.toRefreshActivityHintOrNull()
+      val activityHint = notification.toRefreshActivityHintOrNull(receivedAtMs = nowMs)
       if (activityHint == null) {
         notificationActivityHintCacheByThreadId.remove(threadId)
       }
       else {
-        notificationActivityHintCacheByThreadId[threadId] = activityHint
+        evictExpiredNotificationActivityHintsLocked(nowMs)
+        notificationActivityHintCacheByThreadId[threadId] = CachedNotificationActivityHint(
+          refreshHint = activityHint,
+          recordedAtMs = nowMs,
+        )
         trimNotificationActivityHintCacheLocked()
       }
     }
@@ -299,9 +310,16 @@ internal class CodexAppServerRefreshHintsProvider(
     return findCachedSnapshotActivityHint(refreshThreadSeed) != null
   }
 
-  private fun findNotificationActivityHint(threadId: String): CodexRefreshActivityHint? {
+  private fun findNotificationActivityHint(refreshThreadSeed: AgentSessionRefreshThreadSeed): CodexRefreshActivityHint? {
+    val nowMs = System.currentTimeMillis()
     synchronized(activityHintCacheLock) {
-      return notificationActivityHintCacheByThreadId[threadId]
+      evictExpiredNotificationActivityHintsLocked(nowMs)
+      val cached = notificationActivityHintCacheByThreadId[refreshThreadSeed.threadId] ?: return null
+      val knownThreadUpdatedAt = refreshThreadSeed.updatedAt
+      if (knownThreadUpdatedAt != UNKNOWN_AGENT_SESSION_REFRESH_THREAD_UPDATED_AT && cached.refreshHint.updatedAt < knownThreadUpdatedAt) {
+        return null
+      }
+      return cached.refreshHint
     }
   }
 
@@ -309,7 +327,7 @@ internal class CodexAppServerRefreshHintsProvider(
     synchronized(activityHintCacheLock) {
       snapshotActivityHintCacheByThreadId[threadId] = CachedSnapshotActivityHint(
         snapshotUpdatedAt = hint.updatedAt,
-        refreshHint = hint,
+        refreshHint = hint.copy(verifiedFresh = false),
       )
       trimSnapshotActivityHintCacheLocked()
     }
@@ -348,6 +366,16 @@ internal class CodexAppServerRefreshHintsProvider(
     while (notificationActivityHintCacheByThreadId.size > MAX_CACHED_ACTIVITY_HINTS) {
       val eldestThreadId = notificationActivityHintCacheByThreadId.entries.firstOrNull()?.key ?: return
       notificationActivityHintCacheByThreadId.remove(eldestThreadId)
+    }
+  }
+
+  private fun evictExpiredNotificationActivityHintsLocked(nowMs: Long) {
+    val iterator = notificationActivityHintCacheByThreadId.entries.iterator()
+    while (iterator.hasNext()) {
+      val (_, hint) = iterator.next()
+      if (nowMs - hint.recordedAtMs > NOTIFICATION_ACTIVITY_HINT_TTL_MS) {
+        iterator.remove()
+      }
     }
   }
 
@@ -407,8 +435,14 @@ private data class CachedSnapshotActivityHint(
   @JvmField val refreshHint: CodexRefreshActivityHint,
 )
 
+private data class CachedNotificationActivityHint(
+  @JvmField val refreshHint: CodexRefreshActivityHint,
+  @JvmField val recordedAtMs: Long,
+)
+
 private const val APP_SERVER_OUTPUT_NOTIFICATION_DEBOUNCE_MS = 250L
 private const val STARTED_THREAD_HINT_TTL_MS = 120_000L
+private const val NOTIFICATION_ACTIVITY_HINT_TTL_MS = 15_000L
 private const val MAX_UNKNOWN_STARTED_THREADS_PER_PATH = 200
 private const val MAX_CACHED_ACTIVITY_HINTS = 2_048
 
@@ -518,15 +552,16 @@ private fun buildRebindCandidate(
   )
 }
 
-private fun CodexThreadActivitySnapshot.toRefreshActivityHint(): CodexRefreshActivityHint {
+private fun CodexThreadActivitySnapshot.toRefreshActivityHint(verifiedFresh: Boolean = false): CodexRefreshActivityHint {
   return CodexRefreshActivityHint(
     activity = toCodexSessionActivity().toAgentThreadActivity(),
     updatedAt = updatedAt,
-    responseRequired = activeFlags.isResponseRequired(),
+    responseRequired = activeFlags.isResponseRequired() || hasPendingPlan,
+    verifiedFresh = verifiedFresh,
   )
 }
 
-private fun CodexAppServerNotification.toRefreshActivityHintOrNull(): CodexRefreshActivityHint? {
+private fun CodexAppServerNotification.toRefreshActivityHintOrNull(receivedAtMs: Long): CodexRefreshActivityHint? {
   val rawStatusKind = statusKind
   val rawActiveFlags = activeFlags
   if (rawStatusKind == null && rawActiveFlags == null) {
@@ -537,7 +572,7 @@ private fun CodexAppServerNotification.toRefreshActivityHintOrNull(): CodexRefre
   val resolvedStatusKind = rawStatusKind ?: CodexThreadStatusKind.UNKNOWN
   return CodexRefreshActivityHint(
     activity = resolveCodexSessionActivity(statusKind = resolvedStatusKind, activeFlags = resolvedActiveFlags).toAgentThreadActivity(),
-    updatedAt = startedThread?.updatedAt ?: UNKNOWN_AGENT_SESSION_REFRESH_THREAD_UPDATED_AT,
+    updatedAt = startedThread?.updatedAt ?: receivedAtMs,
     responseRequired = resolvedActiveFlags.isResponseRequired(),
   )
 }

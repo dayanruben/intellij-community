@@ -4,6 +4,8 @@ package com.intellij.agent.workbench.claude.sessions
 import com.intellij.agent.workbench.claude.common.ClaudeSessionActivity
 import com.intellij.agent.workbench.claude.sessions.backend.store.ClaudeStoreSessionBackend
 import com.intellij.agent.workbench.json.filebacked.FileBackedSessionChangeSet
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -12,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -19,6 +22,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 class ClaudeStoreSessionBackendTest {
   @TempDir
@@ -53,15 +57,23 @@ class ClaudeStoreSessionBackendTest {
           claudeUserLine("2026-02-10T10:02:00.000Z", "session-ready", projectPath, "Just sent"),
         ),
       )
+      writeJsonl(
+        projectDir.resolve("session-needs-input.jsonl"),
+        listOf(
+          claudeUserLine("2026-02-10T10:03:00.000Z", "session-needs-input", projectPath, "Ask me"),
+          claudeAssistantUserInteractionToolLine("2026-02-10T10:03:01.000Z", "session-needs-input", projectPath, "AskUserQuestion"),
+        ),
+      )
 
       val backend = ClaudeStoreSessionBackend(claudeHomeProvider = { tempDir.resolve(".claude") })
       val threads = backend.listThreads(path = projectPath, openProject = null)
 
-      assertThat(threads).hasSize(3)
+      assertThat(threads).hasSize(4)
       val activityById = threads.associate { it.id to it.activity }
       assertThat(activityById["session-unread"]).isEqualTo(ClaudeSessionActivity.READY)
       assertThat(activityById["session-processing"]).isEqualTo(ClaudeSessionActivity.PROCESSING)
       assertThat(activityById["session-ready"]).isEqualTo(ClaudeSessionActivity.READY)
+      assertThat(activityById["session-needs-input"]).isEqualTo(ClaudeSessionActivity.NEEDS_INPUT)
     }
   }
 
@@ -160,6 +172,48 @@ class ClaudeStoreSessionBackendTest {
   }
 
   @Test
+  fun usesIndexFirstPromptAndGitBranchOnlyAsFallbackMetadata() {
+    runBlocking(Dispatchers.Default) {
+      val projectPath = "/work/project-index-metadata"
+      val encodedPath = "-work-project-index-metadata"
+      val projectDir = tempDir.resolve(".claude").resolve("projects").resolve(encodedPath)
+      Files.createDirectories(projectDir)
+
+      writeJsonl(
+        projectDir.resolve("session-index-fallback.jsonl"),
+        listOf(
+          claudeAssistantLine("2026-02-10T10:00:00.000Z", "session-index-fallback", projectPath, "Done"),
+        ),
+      )
+      writeJsonl(
+        projectDir.resolve("session-jsonl-branch.jsonl"),
+        listOf(
+          claudeUserLine("2026-02-10T10:01:00.000Z", "session-jsonl-branch", projectPath, "JSONL branch title", gitBranch = "jsonl-branch"),
+          claudeAssistantLine("2026-02-10T10:01:01.000Z", "session-jsonl-branch", projectPath, "Done"),
+        ),
+      )
+      Files.writeString(
+        projectDir.resolve("sessions-index.json"),
+        """
+        {"version":1,"entries":[
+          {"sessionId":"session-index-fallback","summary":"No prompt","firstPrompt":"Index first prompt","gitBranch":"index-branch","isSidechain":false},
+          {"sessionId":"session-jsonl-branch","summary":"Index summary","gitBranch":"index-branch","isSidechain":false}
+        ],"originalPath":"$projectPath"}
+        """.trimIndent(),
+      )
+
+      val backend = ClaudeStoreSessionBackend(claudeHomeProvider = { tempDir.resolve(".claude") })
+      val threadsById = backend.listThreads(path = projectPath, openProject = null).associateBy { it.id }
+
+      assertThat(threadsById).containsOnlyKeys("session-index-fallback", "session-jsonl-branch")
+      assertThat(threadsById["session-index-fallback"]!!.title).isEqualTo("Index first prompt")
+      assertThat(threadsById["session-index-fallback"]!!.gitBranch).isEqualTo("index-branch")
+      assertThat(threadsById["session-jsonl-branch"]!!.title).isEqualTo("Index summary")
+      assertThat(threadsById["session-jsonl-branch"]!!.gitBranch).isEqualTo("jsonl-branch")
+    }
+  }
+
+  @Test
   fun usesTranscriptCustomTitleWhenIndexMissing() {
     runBlocking(Dispatchers.Default) {
       val projectPath = "/work/project-transcript-custom-title"
@@ -222,7 +276,10 @@ class ClaudeStoreSessionBackendTest {
         projectDir.resolve("session-transcript-archived-index-active.jsonl"),
         listOf(
           claudeUserLine("2026-02-10T10:00:00.000Z", "session-transcript-archived-index-active", projectPath, "Initial title"),
-          claudeCustomTitleLine("2026-02-10T10:00:01.000Z", "session-transcript-archived-index-active", projectPath, "[archived] Visible title"),
+          claudeCustomTitleLine("2026-02-10T10:00:01.000Z",
+                                "session-transcript-archived-index-active",
+                                projectPath,
+                                "[archived] Visible title"),
         ),
       )
       Files.writeString(
@@ -458,6 +515,84 @@ class ClaudeStoreSessionBackendTest {
   }
 
   @Test
+  fun emitsScopedSessionUpdateWhenJsonlFileChanges() {
+    runBlocking(Dispatchers.Default) {
+      val projectPath = "/work/project-scoped-updates"
+      val encodedPath = "-work-project-scoped-updates"
+      val projectDir = tempDir.resolve(".claude").resolve("projects").resolve(encodedPath)
+      Files.createDirectories(projectDir)
+
+      val jsonl = projectDir.resolve("session-scoped-updates.jsonl")
+      writeJsonl(
+        jsonl,
+        listOf(claudeUserLine("2026-02-10T10:00:00.000Z", "session-scoped-updates", projectPath, "Initial title")),
+      )
+
+      val sourceUpdates = MutableSharedFlow<FileBackedSessionChangeSet>(replay = 1, extraBufferCapacity = 1)
+      val backend = ClaudeStoreSessionBackend(
+        claudeHomeProvider = { tempDir.resolve(".claude") },
+        changeSource = { sourceUpdates },
+      )
+      val updates = Channel<AgentSessionSourceUpdateEvent>(capacity = Channel.CONFLATED)
+      val updatesJob = launch {
+        backend.sessionUpdates.collect { update ->
+          updates.trySend(update)
+        }
+      }
+
+      try {
+        sourceUpdates.emit(FileBackedSessionChangeSet(changedPaths = setOf(jsonl)))
+
+        val update = withTimeout(5.seconds) { updates.receive() }
+        assertThat(update.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
+        assertThat(update.scopedPaths).containsExactly(projectPath)
+        assertThat(update.threadIds).containsExactly("session-scoped-updates")
+      }
+      finally {
+        updatesJob.cancelAndJoin()
+      }
+    }
+  }
+
+  @Test
+  fun emitsUnscopedSessionUpdateWhenJsonlFileCannotBeParsed() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve(".claude").resolve("projects").resolve("-work-project-unscoped-updates")
+      Files.createDirectories(projectDir)
+
+      val jsonl = projectDir.resolve("session-unscoped-updates.jsonl")
+      writeJsonl(
+        jsonl,
+        listOf("""{"type":"file-history-snapshot","timestamp":"2026-02-10T10:00:00.000Z"}"""),
+      )
+
+      val sourceUpdates = MutableSharedFlow<FileBackedSessionChangeSet>(replay = 1, extraBufferCapacity = 1)
+      val backend = ClaudeStoreSessionBackend(
+        claudeHomeProvider = { tempDir.resolve(".claude") },
+        changeSource = { sourceUpdates },
+      )
+      val updates = Channel<AgentSessionSourceUpdateEvent>(capacity = Channel.CONFLATED)
+      val updatesJob = launch {
+        backend.sessionUpdates.collect { update ->
+          updates.trySend(update)
+        }
+      }
+
+      try {
+        sourceUpdates.emit(FileBackedSessionChangeSet(changedPaths = setOf(jsonl)))
+
+        val update = withTimeout(5.seconds) { updates.receive() }
+        assertThat(update.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
+        assertThat(update.scopedPaths).isNull()
+        assertThat(update.threadIds).isNull()
+      }
+      finally {
+        updatesJob.cancelAndJoin()
+      }
+    }
+  }
+
+  @Test
   fun emitsUpdatesWhenTranscriptCustomTitleChanges() {
     runBlocking(Dispatchers.Default) {
       val projectPath = "/work/project-custom-title-updates"
@@ -562,6 +697,46 @@ class ClaudeStoreSessionBackendTest {
         assertThat(threads).hasSize(1)
         assertThat(threads.single().title).isEqualTo("Updated summary")
         assertThat(threads.single().archived).isTrue()
+      }
+      finally {
+        updatesJob.cancelAndJoin()
+      }
+    }
+  }
+
+  @Test
+  fun emitsUnscopedSessionUpdateWhenIndexFileChanges() {
+    runBlocking(Dispatchers.Default) {
+      val projectPath = "/work/project-index-scope-updates"
+      val encodedPath = "-work-project-index-scope-updates"
+      val projectDir = tempDir.resolve(".claude").resolve("projects").resolve(encodedPath)
+      Files.createDirectories(projectDir)
+
+      val indexFile = projectDir.resolve("sessions-index.json")
+      Files.writeString(
+        indexFile,
+        """{"version":1,"entries":[{"sessionId":"session-index-scope-updates","summary":"Initial summary","isSidechain":false}],"originalPath":"$projectPath"}""",
+      )
+
+      val sourceUpdates = MutableSharedFlow<FileBackedSessionChangeSet>(replay = 1, extraBufferCapacity = 1)
+      val backend = ClaudeStoreSessionBackend(
+        claudeHomeProvider = { tempDir.resolve(".claude") },
+        changeSource = { sourceUpdates },
+      )
+      val updates = Channel<AgentSessionSourceUpdateEvent>(capacity = Channel.CONFLATED)
+      val updatesJob = launch {
+        backend.sessionUpdates.collect { update ->
+          updates.trySend(update)
+        }
+      }
+
+      try {
+        sourceUpdates.emit(FileBackedSessionChangeSet(changedPaths = setOf(indexFile)))
+
+        val update = withTimeout(5.seconds) { updates.receive() }
+        assertThat(update.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
+        assertThat(update.scopedPaths).isNull()
+        assertThat(update.threadIds).isNull()
       }
       finally {
         updatesJob.cancelAndJoin()

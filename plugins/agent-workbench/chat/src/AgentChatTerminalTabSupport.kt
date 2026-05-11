@@ -1,14 +1,17 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
+import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.project.Project
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTab
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabBuilder
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabsManager
+import com.intellij.terminal.frontend.view.TerminalInputInterceptor
 import com.intellij.terminal.frontend.view.TerminalKeyEvent
 import com.intellij.terminal.frontend.view.TerminalView
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
@@ -63,6 +66,26 @@ internal interface AgentChatTerminalTab {
   suspend fun readRecentOutputTail(): String
 
   fun sendText(text: String, shouldExecute: Boolean, useBracketedPasteMode: Boolean = true)
+
+  fun sendPendingContextAndExecute(text: String): AgentChatPendingContextSubmissionResult {
+    if (text.isEmpty() || sessionState.value != TerminalViewSessionState.Running) {
+      return AgentChatPendingContextSubmissionResult.UNAVAILABLE
+    }
+
+    val sendTextBuilder = terminalView?.createSendTextBuilder() ?: return AgentChatPendingContextSubmissionResult.UNAVAILABLE
+    val submitted = sendTextBuilder
+      .sendEndKeyBeforeText()
+      .requireBracketedPasteMode()
+      .shouldExecute()
+      .trySend(text)
+    return if (submitted) AgentChatPendingContextSubmissionResult.SUBMITTED else AgentChatPendingContextSubmissionResult.UNAVAILABLE
+  }
+
+  fun addInputInterceptor(parentDisposable: Disposable, interceptor: TerminalInputInterceptor): Boolean {
+    val view = terminalView ?: return false
+    view.addInputInterceptor(parentDisposable, interceptor)
+    return true
+  }
 }
 
 internal data class AgentChatTerminalOutputCheckpoint(
@@ -79,6 +102,11 @@ internal enum class AgentChatTerminalInputReadiness {
   READY,
   TIMEOUT,
   TERMINATED,
+}
+
+internal enum class AgentChatPendingContextSubmissionResult {
+  SUBMITTED,
+  UNAVAILABLE,
 }
 
 internal interface AgentChatTerminalTabs {
@@ -180,7 +208,12 @@ private class ToolWindowAgentChatTerminalTab(
       checkpoint = checkpoint,
       onMeaningfulOutput = {
         if (provider != null && AgentSessionProviders.find(provider)?.emitsScopedRefreshSignals == true) {
-          notifyAgentChatTerminalOutputForRefresh(provider = provider, projectPath = projectPath, threadId = threadId)
+          notifyAgentChatTerminalOutputForRefresh(
+            provider = provider,
+            projectPath = projectPath,
+            threadId = threadId,
+            activityHint = AgentThreadActivity.PROCESSING,
+          )
         }
       },
     )
@@ -211,7 +244,12 @@ private class ToolWindowAgentChatTerminalTab(
       idleMs = idleMs,
       onMeaningfulOutput = {
         if (provider != null && AgentSessionProviders.find(provider)?.emitsScopedRefreshSignals == true) {
-          notifyAgentChatTerminalOutputForRefresh(provider = provider, projectPath = projectPath, threadId = threadId)
+          notifyAgentChatTerminalOutputForRefresh(
+            provider = provider,
+            projectPath = projectPath,
+            threadId = threadId,
+            activityHint = AgentThreadActivity.PROCESSING,
+          )
         }
       },
     )
@@ -229,6 +267,10 @@ private class ToolWindowAgentChatTerminalTab(
     if (normalizedText.isEmpty()) {
       return
     }
+    sendNormalizedText(normalizedText, shouldExecute, useBracketedPasteMode)
+  }
+
+  private fun sendNormalizedText(text: String, shouldExecute: Boolean, useBracketedPasteMode: Boolean) {
     val sendTextBuilder = delegate.view.createSendTextBuilder()
     if (useBracketedPasteMode) {
       sendTextBuilder.useBracketedPasteMode()
@@ -236,7 +278,7 @@ private class ToolWindowAgentChatTerminalTab(
     if (shouldExecute) {
       sendTextBuilder.shouldExecute()
     }
-    sendTextBuilder.send(normalizedText)
+    sendTextBuilder.send(text)
   }
 }
 
@@ -280,7 +322,6 @@ internal class AgentChatTerminalCommandTracker {
   }
 }
 
-@OptIn(FlowPreview::class)
 internal suspend fun awaitTerminalInitialMessageReadiness(
   sessionState: StateFlow<TerminalViewSessionState>,
   regularOutputModel: TerminalOutputModel,

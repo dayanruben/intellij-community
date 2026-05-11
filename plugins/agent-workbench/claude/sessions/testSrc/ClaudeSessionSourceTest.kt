@@ -4,6 +4,7 @@ package com.intellij.agent.workbench.claude.sessions
 import com.intellij.agent.workbench.claude.common.ClaudeSessionActivity
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import com.intellij.agent.workbench.sessions.core.providers.toAgentSessionRefreshThreadSeeds
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.Dispatchers
@@ -116,6 +117,26 @@ class ClaudeSessionSourceTest {
   }
 
   @Test
+  fun needsInputAlwaysWinsOverUnread() {
+    var currentThreads = listOf(
+      ClaudeBackendThread(id = "s1", title = "Session 1", updatedAt = 1000L),
+    )
+    val source = ClaudeSessionSource(backend = dynamicBackend { currentThreads })
+
+    runBlocking(Dispatchers.Default) {
+      source.listThreadsFromClosedProject(path = "/any")
+      source.markThreadAsRead("s1", 1000L)
+
+      // Backend says NEEDS_INPUT with increased updatedAt → NEEDS_INPUT wins.
+      currentThreads = listOf(
+        ClaudeBackendThread(id = "s1", title = "Session 1", updatedAt = 2000L, activity = ClaudeSessionActivity.NEEDS_INPUT),
+      )
+      assertThat(source.listThreadsFromClosedProject(path = "/any").single().activity)
+        .isEqualTo(AgentThreadActivity.NEEDS_INPUT)
+    }
+  }
+
+  @Test
   fun staleMarkAsReadDoesNotDowngradeTracker() {
     var currentThreads = listOf(
       ClaudeBackendThread(id = "s1", title = "Session 1", updatedAt = 1000L),
@@ -182,6 +203,31 @@ class ClaudeSessionSourceTest {
   }
 
   @Test
+  fun updateEventsPreserveBackendScope() {
+    val backendUpdates = MutableSharedFlow<AgentSessionSourceUpdateEvent>(replay = 1)
+    val backend = object : ClaudeSessionBackend {
+      override suspend fun listThreads(path: String, openProject: Project?): List<ClaudeBackendThread> = emptyList()
+      override val sessionUpdates get() = backendUpdates
+    }
+    val source = ClaudeSessionSource(backend = backend)
+
+    backendUpdates.tryEmit(
+      AgentSessionSourceUpdateEvent(
+        type = AgentSessionSourceUpdate.THREADS_CHANGED,
+        scopedPaths = setOf("/work/project"),
+        threadIds = setOf("session-1"),
+      )
+    )
+
+    runBlocking(Dispatchers.Default) {
+      val result = withTimeoutOrNull(2.seconds) { source.updateEvents.first() }
+      assertThat(result?.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
+      assertThat(result?.scopedPaths).containsExactly("/work/project")
+      assertThat(result?.threadIds).containsExactly("session-1")
+    }
+  }
+
+  @Test
   fun archivedThreadsAreHiddenFromActiveList() {
     val source = ClaudeSessionSource(
       backend = staticBackend(
@@ -226,7 +272,14 @@ class ClaudeSessionSourceTest {
     val source = ClaudeSessionSource(
       backend = staticBackend(
         listOf(
-          ClaudeBackendThread(id = "known-processing", title = "Known processing", updatedAt = 3_000L, activity = ClaudeSessionActivity.PROCESSING),
+          ClaudeBackendThread(id = "known-processing",
+                              title = "Known processing",
+                              updatedAt = 3_000L,
+                              activity = ClaudeSessionActivity.PROCESSING),
+          ClaudeBackendThread(id = "known-needs-input",
+                              title = "Known needs input",
+                              updatedAt = 2_500L,
+                              activity = ClaudeSessionActivity.NEEDS_INPUT),
           ClaudeBackendThread(id = "known-ready", title = "Known ready", updatedAt = 2_000L),
           ClaudeBackendThread(id = "new-visible", title = "New visible", updatedAt = 1_000L),
         )
@@ -237,7 +290,7 @@ class ClaudeSessionSourceTest {
       source.prefetchRefreshHints(
         paths = listOf("/any"),
         refreshThreadSeedsByPath = mapOf(
-          "/any" to setOf("known-processing", "known-ready").toAgentSessionRefreshThreadSeeds()
+          "/any" to setOf("known-processing", "known-needs-input", "known-ready").toAgentSessionRefreshThreadSeeds()
         ),
       )
     }
@@ -246,6 +299,7 @@ class ClaudeSessionSourceTest {
     assertThat(pathHints.activityByThreadId).containsExactlyInAnyOrderEntriesOf(
       mapOf(
         "known-processing" to AgentThreadActivity.PROCESSING,
+        "known-needs-input" to AgentThreadActivity.NEEDS_INPUT,
         "known-ready" to AgentThreadActivity.READY,
       )
     )

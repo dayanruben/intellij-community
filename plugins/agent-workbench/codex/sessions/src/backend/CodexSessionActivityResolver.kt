@@ -22,10 +22,12 @@ internal fun CodexAppServerStartedThread.toCodexSessionActivity(): CodexSessionA
 }
 
 internal fun CodexThreadActivitySnapshot.toCodexSessionActivity(): CodexSessionActivity {
+  val effectiveStatusKind = if (hasTurnActivity && !hasInProgressTurn) CodexThreadStatusKind.IDLE else statusKind
   return resolveCodexSessionActivity(
-    statusKind = statusKind,
+    statusKind = effectiveStatusKind,
     activeFlags = activeFlags,
     hasUnreadAssistantMessage = hasUnreadAssistantMessage,
+    hasPendingPlan = hasPendingPlan,
     isReviewing = isReviewing,
     hasInProgressTurn = hasInProgressTurn,
   )
@@ -35,11 +37,12 @@ internal fun resolveCodexSessionActivity(
   statusKind: CodexThreadStatusKind,
   activeFlags: Collection<CodexThreadActiveFlag>,
   hasUnreadAssistantMessage: Boolean = false,
+  hasPendingPlan: Boolean = false,
   isReviewing: Boolean = false,
   hasInProgressTurn: Boolean = false,
 ): CodexSessionActivity {
   return when {
-    activeFlags.isResponseRequired() -> CodexSessionActivity.UNREAD
+    activeFlags.isResponseRequired() || hasPendingPlan -> CodexSessionActivity.NEEDS_INPUT
     isReviewing -> CodexSessionActivity.REVIEWING
     hasInProgressTurn || statusKind == CodexThreadStatusKind.ACTIVE -> CodexSessionActivity.PROCESSING
     hasUnreadAssistantMessage -> CodexSessionActivity.UNREAD

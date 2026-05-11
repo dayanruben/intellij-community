@@ -2,9 +2,12 @@
 package com.intellij.agent.workbench.claude.sessions
 
 import com.intellij.agent.workbench.claude.common.ClaudeSessionActivity
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
 
 data class ClaudeBackendThread(
   @JvmField val id: String,
@@ -19,6 +22,9 @@ interface ClaudeSessionBackend {
   suspend fun listThreads(path: String, openProject: Project?): List<ClaudeBackendThread>
 
   suspend fun refreshThreads(path: String, threadIds: Set<String>, openProject: Project?): ClaudeBackendThreadRefreshResult? = null
+
+  val sessionUpdates: Flow<AgentSessionSourceUpdateEvent>
+    get() = updates.map { AgentSessionSourceUpdateEvent(type = AgentSessionSourceUpdate.THREADS_CHANGED) }
 
   val updates: Flow<Unit>
     get() = emptyFlow()

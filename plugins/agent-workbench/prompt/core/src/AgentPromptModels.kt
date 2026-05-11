@@ -113,6 +113,27 @@ data class AgentPromptProjectPathCandidate(
     @JvmField val displayName: @NlsSafe String,
 )
 
+data class AgentPromptAddContextTargetCandidate(
+    @JvmField val projectPath: @NlsSafe String,
+    val provider: AgentSessionProvider,
+    @JvmField val launchMode: AgentSessionLaunchMode = AgentSessionLaunchMode.STANDARD,
+    @JvmField val threadId: @NlsSafe String,
+    @JvmField val displayText: @NlsSafe String,
+    @JvmField val secondaryText: @NlsSafe String = "",
+    @JvmField val selected: Boolean = false,
+)
+
+data class AgentPromptAddContextToTargetRequest(
+    @JvmField val target: AgentPromptAddContextTargetCandidate,
+    @JvmField val contextItems: List<AgentPromptContextItem>,
+)
+
+enum class AgentPromptAddContextToTargetResult {
+    ADDED_TO_CHAT,
+    ALREADY_ADDED_TO_CHAT,
+    UNAVAILABLE,
+}
+
 enum class AgentPromptLaunchError {
     PROVIDER_UNAVAILABLE,
     UNSUPPORTED_LAUNCH_MODE,

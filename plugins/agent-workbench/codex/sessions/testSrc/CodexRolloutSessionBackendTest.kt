@@ -104,7 +104,7 @@ class CodexRolloutSessionBackendTest {
           eventLines = listOf(
             """{"timestamp":"2026-02-13T11:02:05.000Z","type":"event_msg","payload":{"type":"request_user_input"}}"""
           ),
-          expected = CodexSessionActivity.UNREAD,
+          expected = CodexSessionActivity.NEEDS_INPUT,
           expectedRequiresResponse = true,
         ),
         ActivityCase(
@@ -115,8 +115,26 @@ class CodexRolloutSessionBackendTest {
               callId = "call-request-user-input",
             )
           ),
-          expected = CodexSessionActivity.UNREAD,
+          expected = CodexSessionActivity.NEEDS_INPUT,
           expectedRequiresResponse = true,
+        ),
+        ActivityCase(
+          id = "session-pending-plan",
+          eventLines = listOf(
+            """{"timestamp":"2026-02-13T11:02:30.000Z","type":"event_msg","payload":{"type":"user_message","message":"Plan the change"}}""",
+            itemCompletedPlan(timestamp = "2026-02-13T11:02:31.000Z"),
+          ),
+          expected = CodexSessionActivity.NEEDS_INPUT,
+          expectedRequiresResponse = true,
+        ),
+        ActivityCase(
+          id = "session-cleared-plan",
+          eventLines = listOf(
+            """{"timestamp":"2026-02-13T11:02:40.000Z","type":"event_msg","payload":{"type":"user_message","message":"Plan the change"}}""",
+            itemCompletedPlan(timestamp = "2026-02-13T11:02:41.000Z"),
+            """{"timestamp":"2026-02-13T11:02:42.000Z","type":"event_msg","payload":{"type":"user_message","message":"Proceed"}}""",
+          ),
+          expected = CodexSessionActivity.READY,
         ),
         ActivityCase(
           id = "session-cleared-input-function-call-output",
@@ -170,6 +188,65 @@ class CodexRolloutSessionBackendTest {
         assertThat(thread.activity).isEqualTo(testCase.expected)
         assertThat(thread.requiresResponse).isEqualTo(testCase.expectedRequiresResponse)
       }
+    }
+  }
+
+  @Test
+  fun laterCompletedTaskClearsEarlierIncompleteProcessingEvent() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-superseded-processing")
+      Files.createDirectories(projectDir)
+      writeRollout(
+        file = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("13")
+          .resolve("rollout-superseded-processing.jsonl"),
+        lines = listOf(
+          sessionMetaLine(
+            timestamp = "2026-02-13T12:30:00.000Z",
+            id = "session-superseded-processing",
+            cwd = projectDir,
+          ),
+          """{"timestamp":"2026-02-13T12:30:05.000Z","type":"event_msg","payload":{"type":"user_message","message":"Run a long task"}}""",
+          """{"timestamp":"2026-02-13T12:30:10.000Z","type":"event_msg","payload":{"type":"task_started"}}""",
+          """{"timestamp":"2026-02-13T12:30:20.000Z","type":"event_msg","payload":{"type":"task_complete"}}""",
+          """{"timestamp":"2026-02-13T12:31:10.000Z","type":"event_msg","payload":{"type":"task_started"}}""",
+          """{"timestamp":"2026-02-13T12:32:10.000Z","type":"event_msg","payload":{"type":"task_started"}}""",
+          """{"timestamp":"2026-02-13T12:32:20.000Z","type":"event_msg","payload":{"type":"task_complete"}}""",
+        ),
+      )
+
+      val backend = CodexRolloutSessionBackend(codexHomeProvider = { tempDir })
+      val threads = backend.listThreads(path = projectDir.toString(), openProject = null)
+
+      assertThat(threads).hasSize(1)
+      assertThat(threads.single().activity).isEqualTo(CodexSessionActivity.READY)
+    }
+  }
+
+  @Test
+  fun staleCompletedTaskForEarlierTurnDoesNotClearNewerProcessingTurn() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-stale-completed-turn")
+      Files.createDirectories(projectDir)
+      writeRollout(
+        file = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("13")
+          .resolve("rollout-stale-completed-turn.jsonl"),
+        lines = listOf(
+          sessionMetaLine(
+            timestamp = "2026-02-13T13:30:00.000Z",
+            id = "session-stale-completed-turn",
+            cwd = projectDir,
+          ),
+          """{"timestamp":"2026-02-13T13:30:10.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}""",
+          """{"timestamp":"2026-02-13T13:30:20.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2"}}""",
+          """{"timestamp":"2026-02-13T13:30:30.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}""",
+        ),
+      )
+
+      val backend = CodexRolloutSessionBackend(codexHomeProvider = { tempDir })
+      val threads = backend.listThreads(path = projectDir.toString(), openProject = null)
+
+      assertThat(threads).hasSize(1)
+      assertThat(threads.single().activity).isEqualTo(CodexSessionActivity.PROCESSING)
     }
   }
 
@@ -647,9 +724,10 @@ class CodexRolloutSessionBackendTest {
         assertThat(threadsBeforeTrailingUpdate).hasSize(1)
         assertThat(threadsBeforeTrailingUpdate.single().activity).isEqualTo(CodexSessionActivity.PROCESSING)
 
-        appendRolloutLine(
-          file = rollout,
-          line = """{"timestamp":"2026-02-16T10:00:02.000Z","type":"event_msg","payload":{"type":"task_complete"}}""",
+        Files.write(
+          rollout,
+          listOf("""{"timestamp":"2026-02-16T10:00:02.000Z","type":"event_msg","payload":{"type":"task_complete"}}"""),
+          StandardOpenOption.APPEND,
         )
 
         val trailingUpdate = awaitWatcherUpdate(updates)
@@ -852,6 +930,10 @@ private fun responseItemFunctionCall(timestamp: String, callId: String): String 
   return """{"timestamp":"$timestamp","type":"response_item","payload":{"type":"function_call","name":"request_user_input","arguments":"{}","call_id":"$callId"}}"""
 }
 
+private fun itemCompletedPlan(timestamp: String): String {
+  return """{"timestamp":"$timestamp","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Plan","id":"turn-plan","text":"Plan text"}}}"""
+}
+
 private fun sessionMetaLineWithoutId(cwd: Path): String {
   val timestamp = "2026-02-13T10:00:00.000Z"
   return """{"timestamp":"$timestamp","type":"session_meta","payload":{"timestamp":"$timestamp","cwd":"${cwd.toString().replace("\\", "\\\\")}"}}"""
@@ -864,10 +946,6 @@ private fun subAgentSessionMetaLine(timestamp: String, id: String, cwd: Path, pa
 private fun writeRollout(file: Path, lines: List<String>) {
   Files.createDirectories(file.parent)
   Files.write(file, lines)
-}
-
-private fun appendRolloutLine(file: Path, line: String) {
-  Files.write(file, listOf(line), StandardOpenOption.APPEND)
 }
 
 private data class ActivityCase(

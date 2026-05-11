@@ -57,7 +57,7 @@ class CodexAppServerSessionBackendTest {
       assertThat(parent.thread.subAgents).hasSize(1)
       assertThat(parent.thread.subAgents.single().id).isEqualTo("child-1")
       assertThat(parent.thread.subAgents.single().name).isEqualTo("Scout (reviewer)")
-      assertThat(parent.activity).isEqualTo(CodexSessionActivity.UNREAD)
+      assertThat(parent.activity).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
       assertThat(archiveCalls).containsExactly("orphan-1")
 
       val second = backend.listThreads(path = projectDir.toString(), openProject = null)
@@ -88,6 +88,45 @@ class CodexAppServerSessionBackendTest {
       backend.listThreads(path = projectDir.toString(), openProject = null)
 
       assertThat(archiveCalls).containsExactly("orphan-1")
+    }
+  }
+
+  @Test
+  fun refreshThreadsForSubAgentChildReturnsFoldedParentThread() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-child-refresh")
+      Files.createDirectories(projectDir)
+      val cwd = normalizeRootPath(projectDir.invariantSeparatorsPathString)
+      val threadsById = mapOf(
+        "parent-1" to parentThread(id = "parent-1", cwd = cwd, updatedAt = 200L),
+        "child-1" to subAgentThread(
+          id = "child-1",
+          cwd = cwd,
+          parentThreadId = "parent-1",
+          updatedAt = 220L,
+          activeFlags = listOf(CodexThreadActiveFlag.WAITING_ON_USER_INPUT),
+        ),
+      )
+      val readCalls = ArrayList<String>()
+      val archiveCalls = ArrayList<String>()
+      val backend = CodexAppServerSessionBackend(
+        listThreadsForProject = { emptyList() },
+        readThread = { threadId ->
+          readCalls.add(threadId)
+          threadsById[threadId]
+        },
+        archiveThread = { threadId -> archiveCalls.add(threadId) },
+      )
+
+      val result = backend.refreshThreads(path = projectDir.toString(), threadIds = setOf("child-1"), openProject = null)
+
+      assertThat(readCalls).containsExactly("child-1", "parent-1")
+      assertThat(archiveCalls).isEmpty()
+      assertThat(result?.isComplete).isFalse()
+      val parent = result?.threads.orEmpty().single()
+      assertThat(parent.thread.id).isEqualTo("parent-1")
+      assertThat(parent.thread.subAgents.map { it.id }).containsExactly("child-1")
+      assertThat(parent.activity).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
     }
   }
 
@@ -264,14 +303,14 @@ class CodexAppServerSessionBackendTest {
             parentThread(id = "ready-unknown", cwd = cwd, updatedAt = 120L, statusKind = CodexThreadStatusKind.UNKNOWN),
             parentThread(id = "processing-active", cwd = cwd, updatedAt = 130L, statusKind = CodexThreadStatusKind.ACTIVE),
             parentThread(
-              id = "unread-approval",
+              id = "needs-input-approval",
               cwd = cwd,
               updatedAt = 140L,
               statusKind = CodexThreadStatusKind.ACTIVE,
               activeFlags = listOf(CodexThreadActiveFlag.WAITING_ON_APPROVAL),
             ),
             parentThread(
-              id = "unread-input",
+              id = "needs-input-user-input",
               cwd = cwd,
               updatedAt = 150L,
               statusKind = CodexThreadStatusKind.ACTIVE,
@@ -289,8 +328,8 @@ class CodexAppServerSessionBackendTest {
       assertThat(byId.getValue("ready-system-error").activity).isEqualTo(CodexSessionActivity.READY)
       assertThat(byId.getValue("ready-unknown").activity).isEqualTo(CodexSessionActivity.READY)
       assertThat(byId.getValue("processing-active").activity).isEqualTo(CodexSessionActivity.PROCESSING)
-      assertThat(byId.getValue("unread-approval").activity).isEqualTo(CodexSessionActivity.UNREAD)
-      assertThat(byId.getValue("unread-input").activity).isEqualTo(CodexSessionActivity.UNREAD)
+      assertThat(byId.getValue("needs-input-approval").activity).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
+      assertThat(byId.getValue("needs-input-user-input").activity).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
     }
   }
 
@@ -304,33 +343,33 @@ class CodexAppServerSessionBackendTest {
       val backend = CodexAppServerSessionBackend(
         listThreadsForProject = {
           listOf(
-            parentThread(id = "parent-unread-approval", cwd = cwd, updatedAt = 200L),
+            parentThread(id = "parent-needs-input", cwd = cwd, updatedAt = 200L),
             subAgentThread(
               id = "child-processing",
               cwd = cwd,
-              parentThreadId = "parent-unread-approval",
+              parentThreadId = "parent-needs-input",
               updatedAt = 210L,
               activeFlags = emptyList(),
             ),
             subAgentThread(
               id = "child-approval",
               cwd = cwd,
-              parentThreadId = "parent-unread-approval",
+              parentThreadId = "parent-needs-input",
               updatedAt = 220L,
               activeFlags = listOf(CodexThreadActiveFlag.WAITING_ON_APPROVAL),
             ),
-            parentThread(id = "parent-unread", cwd = cwd, updatedAt = 300L),
+            parentThread(id = "parent-needs-input-2", cwd = cwd, updatedAt = 300L),
             subAgentThread(
               id = "child-review-2",
               cwd = cwd,
-              parentThreadId = "parent-unread",
+              parentThreadId = "parent-needs-input-2",
               updatedAt = 310L,
               activeFlags = listOf(CodexThreadActiveFlag.WAITING_ON_APPROVAL),
             ),
             subAgentThread(
               id = "child-unread-2",
               cwd = cwd,
-              parentThreadId = "parent-unread",
+              parentThreadId = "parent-needs-input-2",
               updatedAt = 320L,
               activeFlags = listOf(CodexThreadActiveFlag.WAITING_ON_USER_INPUT),
             ),
@@ -342,9 +381,9 @@ class CodexAppServerSessionBackendTest {
       val byId = backend.listThreads(path = projectDir.toString(), openProject = null)
         .associateBy { it.thread.id }
 
-      assertThat(byId.keys).containsExactlyInAnyOrder("parent-unread-approval", "parent-unread")
-      assertThat(byId.getValue("parent-unread-approval").activity).isEqualTo(CodexSessionActivity.UNREAD)
-      assertThat(byId.getValue("parent-unread").activity).isEqualTo(CodexSessionActivity.UNREAD)
+      assertThat(byId.keys).containsExactlyInAnyOrder("parent-needs-input", "parent-needs-input-2")
+      assertThat(byId.getValue("parent-needs-input").activity).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
+      assertThat(byId.getValue("parent-needs-input-2").activity).isEqualTo(CodexSessionActivity.NEEDS_INPUT)
     }
   }
 }
