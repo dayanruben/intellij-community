@@ -23,8 +23,10 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.getUserData
+import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.putUserData
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.registry.Registry
@@ -186,7 +188,9 @@ object UniversalFileChooser {
       val screenSize = Toolkit.getDefaultToolkit().screenSize
       preferredSize = Dimension(screenSize.width / 2, screenSize.height / 2)
       tabbedPane = JBTabbedPane()
-      for (contributor in UniversalFileChooserContributor.EP_NAME.extensionList) {
+      val projectContributor = projectContributor(project)
+      val contributors = if (projectContributor != null) listOf(projectContributor) else UniversalFileChooserContributor.EP_NAME.extensionList
+      for (contributor in contributors) {
         val fileView = FileView(contributor, descriptor, disposable, project, okAction, scope, topToolbar, ::updateOkEnabled)
         fileViews.add(fileView)
         tabbedPane.addTab(contributor.tabTitle, fileView.topComponent)
@@ -228,6 +232,22 @@ object UniversalFileChooser {
 
         override fun actionPerformed(e: AnActionEvent) {
           navigateToHome()
+        }
+      }
+
+      val desktopAction = object : AnAction(
+        IdeBundle.message("universal.file.chooser.action.desktop.text"),
+        IdeBundle.message("universal.file.chooser.action.desktop.description"),
+        AllIcons.Nodes.Desktop
+      ) {
+        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+        override fun update(e: AnActionEvent) {
+          e.presentation.isVisible = getActiveFileView()?.contributor?.getDesktopPath() != null
+        }
+
+        override fun actionPerformed(e: AnActionEvent) {
+          navigateToDesktop()
         }
       }
 
@@ -370,12 +390,7 @@ object UniversalFileChooser {
             return
           }
           val status = fileView.mountStatusCache[selected.invariantSeparatorsPathString]
-          if (status == MountStatus.Permanent || status == null) {
-            e.presentation.isVisible = false
-          }
-          else {
-            e.presentation.isVisible = true
-          }
+          e.presentation.isVisible = !(status == MountStatus.Permanent || status == null)
           e.presentation.isEnabled = !fileView.isMountActionInProgress && status != MountStatus.Mounted
         }
 
@@ -430,24 +445,29 @@ object UniversalFileChooser {
 
       val actionGroup = DefaultActionGroup().apply {
         add(homeAction)
+        add(desktopAction)
         if (projectAction != null) add(projectAction)
-        add(mountStatusAction)
-        add(showHiddenAction)
+        addSeparator()
         add(createDirectoryAction)
         add(deleteAction)
+        addSeparator()
         add(refreshAction)
+        add(showHiddenAction)
+        addSeparator()
+        add(mountStatusAction)
       }
 
       return ActionManager.getInstance().createActionToolbar("UniversalFileChooserTopToolbar", actionGroup, true)
     }
 
+    private fun projectContributor(project: Project): UniversalFileChooserContributor? {
+      if (project.isDefault) return null
+      val basePath = project.basePath ?: project.projectFilePath ?: return null
+      return UniversalFileChooserContributor.findOwner(Path.of(basePath))
+    }
+
     private fun preselectProjectTab(project: Project) {
-      val projectContributor = if (project.isDefault) null
-      else {
-        project.projectFilePath?.let { projectPath ->
-          UniversalFileChooserContributor.findOwner(Path.of(projectPath))
-        }
-      }
+      val projectContributor = projectContributor(project)
       projectContributor?.let { contributor ->
         tabbedPane.indexOfTab(contributor.tabTitle)
           .takeIf { it >= 0 }?.let { tabbedPane.selectedIndex = it }
@@ -498,6 +518,11 @@ object UniversalFileChooser {
           icon = AllIcons.Nodes.HomeFolder,
           text = IdeBundle.message("universal.file.chooser.action.home.text"),
           action = { navigateToHome() }
+        ))
+        add(LocationData(
+          icon = AllIcons.Nodes.Desktop,
+          text = IdeBundle.message("universal.file.chooser.action.desktop.text"),
+          action = { navigateToDesktop() }
         ))
         if (!project.isDefault) {
           add(LocationData(
@@ -565,12 +590,27 @@ object UniversalFileChooser {
       }
     }
 
+    private fun navigateToDesktop() {
+      val activeView = getActiveFileView() ?: return
+      activeView.topComponent.cursor = Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR)
+      scope.launch {
+        withContext(Dispatchers.IO) {
+          activeView.contributor.getDesktopPath()?.let { desktopPath ->
+            runOnEdt {
+              activeView.topComponent.cursor = Cursor.getDefaultCursor()
+              navigateToFile(desktopPath)
+            }
+          }
+        }
+      }
+    }
+
 
     class FileView(
       val contributor: UniversalFileChooserContributor,
       descriptor: FileChooserDescriptor,
       disposable: Disposable,
-      project: Project,
+      private val project: Project,
       okAction: Runnable,
       val scope: CoroutineScope,
       private val topToolbar: ActionToolbar,
@@ -622,6 +662,7 @@ object UniversalFileChooser {
           override fun treeWillCollapse(event: TreeExpansionEvent) {}
         })
         fileTree = NioFileSystemTree(project, descriptorCopy, tree, contributor, scope)
+        Disposer.register(disposable, fileTree)
         fileTree.addOkAction(okAction)
         fileTree.addListener(object : NioFileSystemTree.Listener {
           override fun selectionChanged(selection: List<Path?>) {
@@ -697,7 +738,13 @@ object UniversalFileChooser {
         cardLayout.show(contentPanel, LOADING_CARD)
         scope.launch {
           withContext(Dispatchers.IO) {
-            val allRoots = contributor.getRoots()
+            val allRoots = if (!project.isDefault) {
+              val basePath = project.basePath?.let { Path.of(it) }
+              if (basePath != null) contributor.getFilteredRoots(basePath) else contributor.getRoots()
+            }
+            else {
+              contributor.getRoots()
+            }
             val realRoots = allRoots.filter { it.path != null }
             val presentations = mutableMapOf<String, UniversalFileChooserContributor.Presentation>()
             for (root in realRoots) {
@@ -779,8 +826,7 @@ object UniversalFileChooser {
 
       fun isOkEnabled(): Boolean {
         val selected = getSelectedFiles()
-        if (selected.isEmpty()) return false
-        return selected.all { file ->
+        return selected.isNotEmpty() && selected.all { file ->
           file.parent != null
         }
       }
@@ -857,14 +903,18 @@ object UniversalFileChooser {
         breadcrumbs.setCrumbs(crumbs)
       }
 
+      private var currentDirectoryPopup: JBPopup? = null
+
       private fun showDirectoryPopup(directory: Path, event: MouseEvent) {
+        if (currentDirectoryPopup?.isVisible == true) return
         val showHidden = fileTree.areHiddensShown()
         scope.launch {
           withContext(Dispatchers.IO) {
             val children = NioFileChooserUtil.safeGetChildren(directory, showHidden, false)
             if (!children.isEmpty()) {
               runOnEdt {
-                JBPopupFactory.getInstance()
+                if (currentDirectoryPopup?.isVisible == true) return@runOnEdt
+                val popup = JBPopupFactory.getInstance()
                   .createPopupChooserBuilder(children)
                   .setRenderer(listCellRenderer("") {
                     icon(AllIcons.Nodes.Folder)
@@ -872,7 +922,8 @@ object UniversalFileChooser {
                   })
                   .setItemChosenCallback { chosen -> fileTree.select(chosen) { fileTree.expand(chosen, null) } }
                   .createPopup()
-                  .show(RelativePoint(event))
+                currentDirectoryPopup = popup
+                popup.show(RelativePoint(event))
               }
             }
           }

@@ -1,7 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileChooser.universal
 
-import com.intellij.icons.AllIcons
 import com.intellij.openapi.extensions.ExtensionPointName
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
@@ -39,6 +38,8 @@ interface UniversalFileChooserContributor {
 
   suspend fun getRoots(): List<Root>
 
+  suspend fun getFilteredRoots(path: Path): List<Root> = getRoots()
+
   fun ownsPath(path: Path): Boolean
 
   suspend fun getMountStatus(path: Path): MountStatus = MountStatus.Permanent
@@ -63,6 +64,8 @@ interface UniversalFileChooserContributor {
   suspend fun getPresentation(path: Path): Presentation? = null
 
   fun getFileName(path: Path): String? = path.fileName?.toString()
+
+  fun getDesktopPath(): Path? = null
 }
 
 

@@ -36,10 +36,14 @@ import org.jetbrains.kotlin.idea.fir.completion.AbstractFirWithLibBasicCompletio
 import org.jetbrains.kotlin.idea.fir.completion.AbstractFirWithMppStdlibCompletionTest
 import org.jetbrains.kotlin.idea.fir.completion.AbstractHighLevelMultiFileJvmBasicCompletionTest
 import org.jetbrains.kotlin.idea.fir.completion.AbstractHighLevelMultiFileSmartCompletionTest
+import org.jetbrains.kotlin.idea.fir.completion.AbstractK2CompiledKotlinInJavaCompletionTest
 import org.jetbrains.kotlin.idea.fir.completion.AbstractK2JvmBasicCompletionFullJdkTest
 import org.jetbrains.kotlin.idea.fir.completion.AbstractK2JvmBasicCompletionStdlibDuplicationTest
 import org.jetbrains.kotlin.idea.fir.completion.AbstractK2JvmBasicCompletionTest
 import org.jetbrains.kotlin.idea.fir.completion.AbstractK2JvmBasicCompletionTestWithResolveExtension
+import org.jetbrains.kotlin.idea.fir.completion.AbstractK2LiveTemplateCompletionTest
+import org.jetbrains.kotlin.idea.fir.completion.AbstractK2KotlinInJavaCompletionTest
+import org.jetbrains.kotlin.idea.fir.completion.AbstractK2KotlinSourceInJavaWithMockLibCompletionTest
 import org.jetbrains.kotlin.idea.fir.completion.AbstractK2MultiPlatformCompletionTest
 import org.jetbrains.kotlin.idea.fir.completion.AbstractK2SmartCompletionTest
 import org.jetbrains.kotlin.idea.fir.completion.AbstractK2TypeCodeFragmentCompletionTest
@@ -474,6 +478,10 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
             model("kdoc", pattern = KT_WITHOUT_FIR_PREFIX)
         }
 
+        testClass<AbstractK2LiveTemplateCompletionTest> {
+            model("liveTemplates", pattern = KT_WITHOUT_FIR_PREFIX)
+        }
+
         testClass<AbstractK2JsBasicCompletionLegacyStdlibTest> {
             model("basic/common", pattern = KT_WITHOUT_FIR_PREFIX)
             model("../../idea-fir/testData/completion/basic/common", testClassName = "CommonFir")
@@ -491,6 +499,18 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
 
         testClass<AbstractHighLevelJavaCompletionHandlerTest> {
             model("handlers/injava", pattern = JAVA)
+        }
+
+        testClass<AbstractK2CompiledKotlinInJavaCompletionTest> {
+            model("inJavaWithMockLib", pattern = JAVA, isRecursive = false)
+        }
+
+        testClass<AbstractK2KotlinSourceInJavaWithMockLibCompletionTest> {
+            model("inJavaWithMockLib", pattern = JAVA, isRecursive = false)
+        }
+
+        testClass<AbstractK2KotlinInJavaCompletionTest> {
+            model("inJava", pattern = JAVA, isRecursive = true)
         }
 
         testClass<AbstractFirKeywordCompletionHandlerTest> {

@@ -1455,8 +1455,8 @@ object PyTypeChecker {
         }
         else {
           existingSubstitutions.putParamSpec(paramSpecType, PyCallableParameterListTypeImpl(
-            listOf(PyCallableParameterImpl.positionalNonPsi("args", null),
-                              PyCallableParameterImpl.keywordNonPsi("kwargs", null))), KeyImpl
+            listOf(PyCallableParameterImpl.positionalContainerNonPsi("args", null),
+                   PyCallableParameterImpl.keywordContainerNonPsi("kwargs", null))), KeyImpl
           )
         }
       }
@@ -1682,6 +1682,7 @@ object PyTypeChecker {
       override fun visitPyCallableType(callableType: PyCallableType): PyType {
         val substitutedParams = clone<PyCallableParameterVariadicType?>(callableType.getParametersType(context))
         return PyCallableTypeImpl(
+          callableType.getTypeParameters(context),
           substitutedParams,
           clone(callableType.getReturnType(context)),
           callableType.callable,
@@ -1715,8 +1716,27 @@ object PyTypeChecker {
             val paramPsi = param.parameter
             flattenUnpackedTuple(clone(param.getType(context)))
               .map { paramSubType ->
-                if (paramPsi != null) PyCallableParameterImpl.psi(paramPsi, paramSubType)
-                else PyCallableParameterImpl.nonPsi(param.name, paramSubType, param.defaultValue)
+                if (paramPsi != null) {
+                  PyCallableParameterImpl.psi(
+                    paramPsi,
+                    paramSubType
+                  )
+                }
+                else {
+                  PyCallableParameterImpl(
+                    param.name,
+                    Ref.create(paramSubType),
+                    param.defaultValue,
+                    param.defaultValueText,
+                    param.parameter,
+                    param.isPositionalContainer,
+                    param.isKeywordContainer,
+                    param.isSelf,
+                    param.isKeywordOnlySeparator,
+                    param.isPositionOnlySeparator,
+                    param.declarationElement
+                  )
+                }
               }
           }
 

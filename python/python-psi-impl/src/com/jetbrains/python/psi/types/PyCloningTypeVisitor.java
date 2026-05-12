@@ -199,7 +199,9 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
   @Override
   public PyType visitPyCallableType(@NotNull PyCallableType callableType) {
     PyCallableParameterVariadicType clonedParametersType = clone(callableType.getParametersType(myTypeEvalContext));
+    var typeParameters = callableType.getTypeParameters(myTypeEvalContext);
     return new PyCallableTypeImpl(
+      typeParameters != null ? ContainerUtil.map(typeParameters, this::clone) : null,
       clonedParametersType,
       clone(callableType.getReturnType(myTypeEvalContext)),
       callableType.getCallable(),
@@ -244,12 +246,20 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
           parameter.getName(),
           Ref.create(clone(parameter.getType(myTypeEvalContext))),
           parameter.getDefaultValue(),
+          parameter.getDefaultValueText(),
           parameter.getParameter(),
           parameter.isPositionalContainer(),
           parameter.isKeywordContainer(),
           parameter.isSelf(),
+          parameter.isKeywordOnlySeparator(),
+          parameter.isPositionOnlySeparator(),
           parameter.getDeclarationElement()
         ))
     );
+  }
+
+  @Override
+  public PyType visitPyUnpackedTypedDictType(@NotNull PyUnpackedTypedDictType unpackedTypedDictType) {
+    return new PyUnpackedTypedDictTypeImpl(clone(unpackedTypedDictType.getTypedDictType()));
   }
 }

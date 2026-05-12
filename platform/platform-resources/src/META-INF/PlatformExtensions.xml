@@ -660,6 +660,7 @@
                         serviceImplementation="com.intellij.ide.PlatformIdeServiceImpl"/>
 
     <postStartupActivity implementation="com.intellij.ide.ProjectWindowCustomizerListener" order="last"/>
+    <backgroundPostStartupActivity implementation="com.intellij.ide.SystemDockMenuPostStartupActivity"/>
     <backgroundPostStartupActivity implementation="com.intellij.util.singleProduct.MigrationStartupActivity"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.util.singleProduct.MigrateToSingleProductCollector"/>
 
@@ -1854,7 +1855,7 @@
                        key="presentation.assistant.notification"/>
 
     <!-- Minimap -->
-    <registryKey key="editor.minimap.mode" defaultValue="[disabled*|legacy|new]"
+    <registryKey key="editor.minimap.mode" defaultValue="[disabled|legacy|new*]"
                  description="Minimap mode: disabled, legacy, new"/>
     <editorFactoryListener implementation="com.intellij.ide.minimap.MinimapEditorFactoryListener"/>
     <applicationService serviceImplementation="com.intellij.ide.minimap.settings.MinimapSettings"/>
