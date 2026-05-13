@@ -2,7 +2,6 @@
 package com.intellij.platform.buildScripts.testFramework
 
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.platform.runtime.product.ProductMode
 import com.intellij.platform.runtime.product.ProductModules
 import com.intellij.platform.runtime.product.serialization.ProductModulesSerialization
 import com.intellij.platform.runtime.repository.MalformedRepositoryException
@@ -66,8 +65,7 @@ internal class RuntimeModuleRepositoryChecker private constructor(
     fun checkProductModules(productModulesModule: String, context: BuildContext, softly: SoftAssertions) {
       createCheckers(context).forEach {
         it().use { checker ->
-          checker.checkProductModules(productModulesModule, useMainGroup = true, softly)
-          checker.checkProductModules(productModulesModule, useMainGroup = false, softly)
+          checker.checkProductModules(productModulesModule, softly)
         }
       }
     }
@@ -91,8 +89,7 @@ internal class RuntimeModuleRepositoryChecker private constructor(
     fun checkIntegrityOfEmbeddedFrontend(productModulesModule: String, context: BuildContext, softly: SoftAssertions) {
       createCheckers(context).forEach {
         it().use { checker ->
-          checker.checkIntegrityOfEmbeddedFrontend(productModulesModule, useMainGroup = true, softly)
-          checker.checkIntegrityOfEmbeddedFrontend(productModulesModule, useMainGroup = false, softly)
+          checker.checkIntegrityOfEmbeddedFrontend(productModulesModule, softly)
         }
       }
     }
@@ -115,28 +112,17 @@ internal class RuntimeModuleRepositoryChecker private constructor(
 
   private val moduleRepositoryData by lazy { RuntimeModuleRepositorySerialization.loadFromCompactFile(descriptorsFile) }
 
-  private fun checkProductModules(productModulesModule: String, useMainGroup: Boolean, softly: SoftAssertions) {
+  private fun checkProductModules(productModulesModule: String, softly: SoftAssertions) {
     try {
       val productModules = loadProductModules(productModulesModule, context.outputProvider, repository)
-      val corePluginResourceRoots =
-        if (useMainGroup) {
-          productModules.mainModuleGroup.includedModules
-            .asSequence()
-            .map { it.moduleDescriptor }
-            .filter { it.moduleId.namespace != RuntimeModuleId.LEGACY_JPS_LIBRARY_NAMESPACE }
-            .flatMap { moduleDescriptor -> moduleDescriptor.resourceRootPaths.map { it to moduleDescriptor.moduleId } }
-            .groupBy({ it.first }, { it.second })
-        }
-        else {
-          val corePluginForFrontendHeader = findCorePluginHeaderForFrontend(softly) ?: return
-          corePluginForFrontendHeader.includedModules
+      val corePluginForFrontendHeader = findCorePluginHeaderForFrontend(softly) ?: return
+      val corePluginResourceRoots = corePluginForFrontendHeader.includedModules
             .asSequence()
             .filter { it.moduleId.namespace != RuntimeModuleId.LEGACY_JPS_LIBRARY_NAMESPACE }
             .flatMap { included ->
               repository.findHeader(included.moduleId)?.let { module -> module.ownClasspath.map { it to included.moduleId } } ?: emptyList()
             }
             .groupBy({ it.first }, { it.second })
-        }
 
       val pluginHeaders = loadBundledPluginHeaders(productModules, softly)
       pluginHeaders.forEach { pluginHeader ->
@@ -160,7 +146,7 @@ internal class RuntimeModuleRepositoryChecker private constructor(
               softly.collectAssertionErrorIfNotRegisteredYet(
                 AssertionError("""
                 |Module '$moduleId' from plugin '$pluginModuleId' has resource root ${commonDistPath.relativize(resourcePath)},
-                |which is also added as a resource root of $corePluginModuleListString from the core (platform) plugin (determined by ${if (useMainGroup) "product-modules.xml" else "generated plugin header"}).
+                |which is also added as a resource root of $corePluginModuleListString from the core (platform) plugin.
                 |This may lead to classes from the core plugin to be loaded by two classloaders leading to ClassCastException at runtime.
                 |If '$moduleId' belongs to '$pluginModuleId' plugin, make sure that it's included in the plugin layout (if it's registered as a content module, it should be enough to remove
                 |explicit references to it from the build scripts, and it'll be packed in the plugin automatically).
@@ -185,23 +171,15 @@ internal class RuntimeModuleRepositoryChecker private constructor(
     return corePluginForFrontendHeader
   }
 
-  private fun checkIntegrityOfEmbeddedFrontend(productModulesModule: String, useMainGroup: Boolean, softly: SoftAssertions) {
+  private fun checkIntegrityOfEmbeddedFrontend(productModulesModule: String, softly: SoftAssertions) {
     val productModules = loadProductModules(productModulesModule, context.outputProvider, repository)
 
     val allProductModules = LinkedHashMap<RuntimeModuleId, FList<String>>()
     allProductModules[RuntimeModuleId.legacyJpsModule("intellij.platform.bootstrap")] = FList.singleton("bootstrap")
-    if (useMainGroup) {
-      val mainModuleGroupPath = FList.singleton("main module group")
-      productModules.mainModuleGroup.includedModules.forEach { mainModule ->
-        collectDependencies(repository, mainModule.moduleDescriptor, mainModuleGroupPath, allProductModules)
-      }
-    }
-    else {
-      val corePluginHeader = findCorePluginHeaderForFrontend(softly) ?: return
-      val corePluginHeaderPath = FList.singleton("core plugin header ${corePluginHeader.pluginDescriptorModuleId.presentableName}")
-      corePluginHeader.includedModules.forEach {
-        allProductModules[it.moduleId] = corePluginHeaderPath
-      }
+    val corePluginHeader = findCorePluginHeaderForFrontend(softly) ?: return
+    val corePluginHeaderPath = FList.singleton("core plugin header ${corePluginHeader.pluginDescriptorModuleId.presentableName}")
+    corePluginHeader.includedModules.forEach {
+      allProductModules[it.moduleId] = corePluginHeaderPath
     }
     val pluginHeaders = loadBundledPluginHeaders(productModules, softly)
     pluginHeaders.forEach { header ->
@@ -358,7 +336,7 @@ private fun loadProductModules(productModulesModule: String, outputProvider: Mod
     outputProvider.readFileContentFromModuleOutput(outputProvider.findRequiredModule(productModulesModule), relativePath)
   } ?: throw MalformedRepositoryException("File '$relativePath' is not found in module $productModulesModule output")
   try {
-    return ProductModulesSerialization.loadProductModules(content.inputStream(), debugName, ProductMode.FRONTEND, repository)
+    return ProductModulesSerialization.loadProductModules(content.inputStream(), debugName, repository)
   }
   catch (e: IOException) {
     throw MalformedRepositoryException("Failed to load module group from $debugName", e)

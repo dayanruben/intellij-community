@@ -1,9 +1,9 @@
 package com.intellij.ide.starter.process.exec
 
-import com.intellij.execution.process.OSProcessUtil
 import com.intellij.ide.starter.config.ConfigurationStorage
 import com.intellij.ide.starter.config.logEnvVariables
 import com.intellij.ide.starter.coroutine.CommonScope.scopeForProcesses
+import com.intellij.ide.starter.process.ProcessKiller
 import com.intellij.ide.starter.utils.catchAll
 import com.intellij.ide.starter.utils.getThrowableText
 import com.intellij.tools.ide.util.common.logError
@@ -28,6 +28,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Suppress("BlockingMethodInNonBlockingContext", "RAW_RUN_BLOCKING", "OPT_IN_USAGE")
 class ProcessExecutor(
@@ -47,16 +48,6 @@ class ProcessExecutor(
   val analyzeProcessExit: Boolean = true,
   val silent: Boolean = false,
 ) {
-  companion object {
-    @Deprecated("Works poorly on Windows; use `OSProcessUtil.terminateProcessGracefully` and/or `OSProcessUtil.killProcessTree` instead")
-    fun killProcessGracefully(process: ProcessHandle) {
-      process.destroy()
-      runCatching { process.onExit().get(20, TimeUnit.SECONDS) }.onFailure {
-        process.destroyForcibly()
-      }
-    }
-  }
-
   private fun redirectProcessOutput(
     process: Process,
     outOrErrStream: Boolean,
@@ -222,13 +213,7 @@ class ProcessExecutor(
       if (processFinished) return
       catchAll { runBlocking(Dispatchers.IO) { onProcessCreatedJob.cancelAndJoin() } }
       catchAll { runBlocking(Dispatchers.IO) { withTimeout(1.minutes) { onBeforeKilled(process, processId) } } }
-      catchAll {
-        if (gracefully) {
-          OSProcessUtil.terminateProcessGracefully(process)
-          process.waitFor(20, TimeUnit.SECONDS)
-        }
-        OSProcessUtil.killProcessTree(process)
-      }
+      catchAll { runBlocking(Dispatchers.IO) { ProcessKiller.killProcess(process, gracefullyAtFirst = gracefully) } }
       catchAll { ioThreads.forEach { it.interrupt() } }
       processFinished = true
     }
@@ -251,6 +236,7 @@ class ProcessExecutor(
         throw ExecTimeoutException(args.joinToString(" "), timeout)
       }
       else {
+        if (!silent) logOutput("   ... process `$presentableName` (pid=$processId) exited on its own with code ${process.exitValue()} before the ${timeout.inWholeSeconds}s timeout. ")
         processFinished = true
       }
     }
@@ -290,7 +276,9 @@ class ProcessExecutor(
       }
     }
 
-    ioThreads.forEach { catchAll { it.join() } }
+    catchAll { process.inputStream.close() }
+    catchAll { process.errorStream.close() }
+    ioThreads.forEach { catchAll { it.join(30.seconds.inWholeMilliseconds) } }
 
     if (analyzeProcessExit) {
       analyzeProcessExit(process)

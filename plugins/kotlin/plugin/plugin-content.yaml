@@ -131,15 +131,21 @@
   - name: intellij.kotlin.compilerPlugins.parcelize
   - name: intellij.kotlin.compilerPlugins.allopen.maven
   - name: intellij.kotlin.compilerPlugins.support
+  - name: intellij.kotlin.compilerPlugins.support.gradle
   - name: intellij.kotlin.compilerPlugins.support.maven
+  - name: intellij.kotlin.compilerPlugins.powerAssert.gradle
   - name: intellij.kotlin.compilerPlugins.kapt
   - name: intellij.kotlin.compilerPlugins.serialization
+  - name: intellij.kotlin.compilerPlugins.serialization.gradle
   - name: intellij.kotlin.compilerPlugins.serialization.maven
   - name: intellij.kotlin.compilerPlugins.dataframe.maven
+  - name: intellij.kotlin.compilerPlugins.noarg.gradle
   - name: intellij.kotlin.compilerPlugins.noarg.maven
   - name: intellij.kotlin.compilerPlugins.samWithReceiver.maven
   - name: intellij.kotlin.compilerPlugins.assignment.fixes
+  - name: intellij.kotlin.compilerPlugins.assignment.gradle
   - name: intellij.kotlin.compilerPlugins.assignment.maven
+  - name: intellij.kotlin.compilerPlugins.lombok.gradle
   - name: intellij.kotlin.compilerPlugins.lombok.maven
   - name: intellij.kotlin.compilerPlugins.scripting
   - name: intellij.kotlin.completion.api

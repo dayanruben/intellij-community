@@ -14,6 +14,7 @@ import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
 import com.intellij.openapi.application.invokeAndWaitIfNeeded
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ex.RangeHighlighterEx
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.RootsChangeRescanningInfo
@@ -27,6 +28,7 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileFilter
 import com.intellij.openapi.vfs.VirtualFileVisitor
+import com.intellij.platform.testFramework.core.FileComparisonFailedError
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiLanguageInjectionHost
 import com.intellij.psi.SyntaxTraverser
@@ -68,7 +70,7 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
   protected open val defaultDirName: String
     get() = testName
 
-  val testName: String get() = getTestName(true)
+  open val testName: String get() = getTestName(true)
 
   @Throws(Exception::class)
   override fun setUp() {
@@ -171,21 +173,11 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
       val testConfiguration = TestConfiguration(
         adjustedConfigurators
       )
-      if (!useProjectCodeStyle && configureCodeStyleSettings != null) {
-        testWithTempCodeStyleSettings {
+      testWithTempCodeStyleSettings {
+        if (!useProjectCodeStyle && configureCodeStyleSettings != null) {
           it.configureCodeStyleSettings()
-          beforeConfiguredTest(testConfiguration)
-          ensureIndexesReady()
-          try {
-            test()
-          }
-          finally {
-            afterConfiguredTest(testConfiguration)
-          }
         }
-      }
-      else {
-        if (useProjectCodeStyle) {
+        else if (useProjectCodeStyle) {
           CodeStyleSettingsManager.getInstance(project).dropTemporarySettings()
         }
         beforeConfiguredTest(testConfiguration)
@@ -378,6 +370,23 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
                   myFixture.lookup.let { lookup ->
                     lookup.currentItem = lookup.items.firstOrNull { it.lookupString == item }
                                          ?: throw RuntimeException("Item '$item' not found")
+                  }
+                }
+              }
+
+              override val editor: Editor
+                get() = myFixture.editor
+
+              override fun performEditorAction(actionId: String) {
+                myFixture.performEditorAction(actionId)
+              }
+
+              override fun performHighlighting() {
+                invokeAndWaitIfNeeded {
+                  try {
+                    myFixture.checkHighlighting()
+                  } catch (_: FileComparisonFailedError) {
+                    // ignore - it is important to just perform highlighting check
                   }
                 }
               }
@@ -879,6 +888,16 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
     fun assertLookupDoesntContain(vararg items: String)
 
     fun selectLookupItem(item: String)
+
+    fun performEditorAction(actionId: String)
+
+    /**
+     * Perform highlighting of the whole file,
+     * ignoring any FileComparisonFailedError.
+     */
+    fun performHighlighting()
+
+    val editor: Editor
   }
 
   protected data class TestConfiguration(

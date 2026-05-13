@@ -544,6 +544,7 @@ platform/build-scripts/codeOptimizer
 platform/build-scripts/dev-server
 platform/build-scripts/downloader
 platform/build-scripts/icons
+platform/build-scripts/licenses
 platform/build-scripts/product-dsl
 platform/build-scripts/product-dsl/plugin-graph
 platform/build-scripts/testFramework
@@ -1226,7 +1227,6 @@ plugins/kotlin/code-insight/structural-search-k2
 plugins/kotlin/code-insight/structural-search-k2/tests
 plugins/kotlin/code-insight/utils
 plugins/kotlin/compiler-plugins/allopen/common-k1
-plugins/kotlin/compiler-plugins/allopen/gradle
 plugins/kotlin/compiler-plugins/allopen/maven
 plugins/kotlin/compiler-plugins/allopen/tests-k1
 plugins/kotlin/compiler-plugins/android-extensions-stubs
@@ -1256,8 +1256,8 @@ plugins/kotlin/compiler-plugins/parcelize/gradle
 plugins/kotlin/compiler-plugins/parcelize/k1
 plugins/kotlin/compiler-plugins/parcelize/k2
 plugins/kotlin/compiler-plugins/parcelize/tests/k2
+plugins/kotlin/compiler-plugins/power-assert/gradle
 plugins/kotlin/compiler-plugins/sam-with-receiver/common
-plugins/kotlin/compiler-plugins/sam-with-receiver/gradle
 plugins/kotlin/compiler-plugins/sam-with-receiver/maven
 plugins/kotlin/compiler-plugins/scripting
 plugins/kotlin/compiler-reference-index
