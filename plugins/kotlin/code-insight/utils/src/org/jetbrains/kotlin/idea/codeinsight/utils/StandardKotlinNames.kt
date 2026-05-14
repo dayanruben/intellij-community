@@ -44,6 +44,9 @@ object StandardKotlinNames {
         @JvmField val mapOf: FqName = BASE_COLLECTIONS_PACKAGE + "mapOf"
         @JvmField val setOf: FqName = BASE_COLLECTIONS_PACKAGE + "setOf"
 
+        @JvmField val plusAssign: CallableId = CallableId(BASE_COLLECTIONS_PACKAGE, Name.identifier("plusAssign"))
+        @JvmField val minusAssign: CallableId = CallableId(BASE_COLLECTIONS_PACKAGE, Name.identifier("minusAssign"))
+
         @JvmField val transformations: List<FqName> =
             collectionTransformationFunctionNames.map { BASE_COLLECTIONS_PACKAGE + it }
 
@@ -71,6 +74,11 @@ object StandardKotlinNames {
 
     object Jvm {
         @JvmField val JvmInline: FqName = JvmStandardClassIds.BASE_JVM_PACKAGE + "JvmInline"
+    }
+
+    object Duration {
+        private val DURATION_COMPANION_CLASS_ID = ClassId(KOTLIN_TIME_PACKAGE, Name.identifier("Duration.Companion"))
+        @JvmField val milliseconds: CallableId = CallableId(DURATION_COMPANION_CLASS_ID, Name.identifier("milliseconds"))
     }
 
     object Sequences {

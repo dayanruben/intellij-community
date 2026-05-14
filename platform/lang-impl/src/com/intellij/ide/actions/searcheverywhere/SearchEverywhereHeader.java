@@ -2,6 +2,7 @@
 package com.intellij.ide.actions.searcheverywhere;
 
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.actions.bigPopup.ShowFilterAction;
 import com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector;
 import com.intellij.ide.util.gotoByName.SearchEverywhereConfiguration;
 import com.intellij.ide.util.scopeChooser.ScopeDescriptor;
@@ -412,6 +413,7 @@ public final class SearchEverywhereHeader {
     private final @NotNull List<SearchEverywhereContributor<?>> contributors;
     private final List<AnAction> actions;
     private final @Nullable SearchEverywhereToggleAction everywhereAction;
+    private final @Nullable ShowFilterAction myFilterAction;
     private final @Nullable PersistentSearchEverywhereContributorFilter<String> myContributorsFilter;
     private final @Nullable PersistentSearchEverywhereContributorFilter<?> myFilterToReset;
 
@@ -431,10 +433,16 @@ public final class SearchEverywhereHeader {
       this.actions = actions;
 
       everywhereAction = (SearchEverywhereToggleAction)ContainerUtil.find(actions, o -> o instanceof SearchEverywhereToggleAction);
+      myFilterAction = ContainerUtil.findInstance(actions, ShowFilterAction.class);
       myFilterToReset = actions.stream()
         .filter(a -> a instanceof SearchEverywhereFiltersAction)
         .findAny().map(a -> ((SearchEverywhereFiltersAction)a).getFilter())
         .orElse(null);
+    }
+
+    @ApiStatus.Internal
+    public void closeFilterPopup() {
+      if (myFilterAction != null) myFilterAction.closeFilterPopup();
     }
 
     public void setSelected(boolean selected) {

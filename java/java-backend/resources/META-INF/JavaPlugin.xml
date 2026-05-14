@@ -507,8 +507,6 @@
 
     <patterns.patternClass className="com.intellij.patterns.PsiJavaPatterns" alias="java"/>
 
-    <favoriteNodeProvider implementation="com.intellij.ide.favoritesTreeView.UsageFavoriteNodeProvider"/>
-
     <configurationType implementation="com.intellij.execution.application.ApplicationConfigurationType"/>
     <configurationType implementation="com.intellij.execution.jar.JarApplicationConfigurationType"/>
     <configurationType implementation="com.intellij.execution.scratch.JavaScratchConfigurationType"/>
@@ -576,7 +574,8 @@
     <iconLayerProvider implementation="com.intellij.compiler.CompilerIconLayerProvider"/>
     <fileIconPatcher implementation="com.intellij.ide.JavaExcludedFileIconPatcher" order="after javaFileIconPatcher"/>
     <editorTabTitleProvider implementation="com.intellij.ui.JavaEditorTabTitleProvider"/>
-    <directoryIndexExcludePolicy implementation="com.intellij.openapi.roots.impl.ExcludeCompilerOutputPolicy"/>
+    <workspaceModel.fileIndexContributor implementation="com.intellij.openapi.roots.impl.JavaProjectSettingsWorkspaceFileIndexContributor"/>
+    <workspaceModel.fileIndexContributor implementation="com.intellij.openapi.roots.impl.JavaModuleSettingsWorkspaceFileIndexContributor"/>
     <problemFileHighlightFilter implementation="com.intellij.codeInsight.problems.DefaultProblemFileHighlightFilter"/>
     <macro implementation="com.intellij.ide.macro.OutputPathMacro"/>
 
@@ -965,7 +964,7 @@
     <modcompletion.completionItemProvider language="JAVA" implementationClass="com.intellij.java.completion.modcommand.ReferenceItemProvider"/>
     <modcompletion.completionItemProvider language="JAVA" implementationClass="com.intellij.java.completion.modcommand.NonImportedClassProvider"/>
     <modcompletion.completionItemProvider language="JAVA" implementationClass="com.intellij.java.completion.modcommand.InnerScopeVariableItemProvider"/>
-    
+
     <completion.skip implementation="com.intellij.codeInsight.completion.AbstractExpectedTypeSkipper" id="skipAbstract"/>
     <completion.skip implementation="com.intellij.codeInsight.completion.DeprecatedSkipper" id="skipDeprecated"/>
     <statistician key="completion" implementationClass="com.intellij.codeInsight.completion.JavaCompletionStatistician"/>
@@ -1066,8 +1065,8 @@
               nameKey="settings.inlay.java.external.annotations"
               descriptionKey="inlay.annotation.hints.external.annotations" />
     </codeInsight.declarativeInlayProvider>
-    <codeInsight.declarativeInlayProviderCustomSettingsProvider 
-      language="JAVA" providerId="java.annotation.hints" 
+    <codeInsight.declarativeInlayProviderCustomSettingsProvider
+      language="JAVA" providerId="java.annotation.hints"
       implementationClass="com.intellij.codeInsight.hints.AnnotationInlaySettingsProvider"/>
 
     <codeInsight.declarativeInlayProvider language="JAVA"
@@ -1305,6 +1304,8 @@
     <applicationService serviceInterface="com.intellij.util.xml.ConverterManager"
                         serviceImplementation="com.intellij.util.xml.impl.JavaDomConverterManagerImpl"
                         overrides="true"/>
+
+    <packageDirectoryProvider implementation="com.intellij.psi.impl.file.JavaPackageDirectoryProvider" id="default"/>
 
     <java.externalAnnotation.locationProvider
       implementation="com.intellij.codeInsight.externalAnnotation.location.JBBundledAnnotationsProvider"/>

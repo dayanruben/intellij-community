@@ -3,6 +3,8 @@ package com.intellij.openapi.fileChooser.universal
 
 import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
+import com.intellij.ide.ui.ProductIcons
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionToolbar
@@ -20,8 +22,10 @@ import com.intellij.openapi.fileChooser.universal.UniversalFileChooserContributo
 import com.intellij.openapi.observable.util.whenDisposed
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.ui.ComponentValidator
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.ui.getUserData
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -78,12 +82,15 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.BooleanSupplier
+import java.util.function.Supplier
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
 import javax.swing.SwingConstants
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeWillExpandListener
 import javax.swing.tree.ExpandVetoException
@@ -172,6 +179,7 @@ object UniversalFileChooser {
       private val FILE_VIEW_KEY: Key<FileView?> = Key.create<FileView>("universalFileChooser.fileView")
       private const val LOCATIONS_PROPORTION_KEY = "universalFileChooser.locationsProportion"
       private const val LOCATIONS_DEFAULT_PROPORTION = 0.2f
+      private const val SHOW_HIDDEN_FILES_KEY = "universalFileChooser.showHiddenFiles"
     }
 
     private val tabbedPane: JBTabbedPane
@@ -184,6 +192,10 @@ object UniversalFileChooser {
 
     init {
       layout = BorderLayout()
+      val properties = PropertiesComponent.getInstance()
+      if (properties.isValueSet(SHOW_HIDDEN_FILES_KEY)) {
+        descriptor.withShowHiddenFiles(properties.getBoolean(SHOW_HIDDEN_FILES_KEY, descriptor.isShowHiddenFiles))
+      }
       topToolbar = createTopToolbar()
       val screenSize = Toolkit.getDefaultToolkit().screenSize
       preferredSize = Dimension(screenSize.width / 2, screenSize.height / 2)
@@ -254,7 +266,7 @@ object UniversalFileChooser {
       val projectAction = if (!project.isDefault) object : AnAction(
         IdeBundle.message("universal.file.chooser.action.project.text"),
         IdeBundle.message("universal.file.chooser.action.project.description"),
-        AllIcons.Nodes.Project
+        ProductIcons.getInstance().getProjectIcon()
       ) {
         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
@@ -272,6 +284,7 @@ object UniversalFileChooser {
 
         override fun setSelected(e: AnActionEvent, state: Boolean) {
           getActiveFileView()?.fileTree?.showHiddens(state)
+          PropertiesComponent.getInstance().setValue(SHOW_HIDDEN_FILES_KEY, state)
         }
 
         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
@@ -320,41 +333,11 @@ object UniversalFileChooser {
         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
         override fun update(e: AnActionEvent) {
-          val fileView = getActiveFileView()
-          if (fileView == null) { e.presentation.isEnabled = false; return }
-          val selected = fileView.fileTree.getSelectedFile()
-          if (selected == null || fileView.roots.contains(selected.invariantSeparatorsPathString) || !Files.isWritable(selected)) {
-            e.presentation.isEnabled = false; return
-          }
-          if (Files.isDirectory(selected) && !runCatching { Files.list(selected).isEmpty() }.getOrElse { true }) {
-            e.presentation.isEnabled = false; return
-          }
-          e.presentation.isEnabled = true
+          e.presentation.isEnabled = getActiveFileView()?.canDeleteSelectedFile() == true
         }
 
         override fun actionPerformed(e: AnActionEvent) {
-          val fileView = getActiveFileView() ?: return
-          val selected = fileView.fileTree.getSelectedFile() ?: return
-          if (Messages.showYesNoDialog(
-              IdeBundle.message("universal.file.chooser.action.delete.confirm", selected.name),
-              IdeBundle.message("universal.file.chooser.action.delete.text"),
-              Messages.getWarningIcon()
-            ) != Messages.YES) return
-
-          scope.launch {
-            withContext(Dispatchers.IO) {
-              val result = runCatching { Files.delete(selected) }
-              runOnEdt {
-                if (result.isSuccess) {
-                  fileView.fileTree.updateTree()
-                }
-                else {
-                  val message = result.exceptionOrNull()?.message ?: ""
-                  Messages.showErrorDialog(message, IdeBundle.message("universal.file.chooser.action.delete.text"))
-                }
-              }
-            }
-          }
+          getActiveFileView()?.deleteSelectedFile()
         }
       }
 
@@ -552,6 +535,9 @@ object UniversalFileChooser {
       private val barPanel = JPanel(barCardLayout)
       private val pathTextField: NioPathTextField = NioPathTextField(scope)
 
+      @Volatile
+      private var pathTextFieldInvalid: Boolean = false
+
       companion object {
         private const val LOADING_CARD = "loading"
         private const val TREE_CARD = "tree"
@@ -625,6 +611,18 @@ object UniversalFileChooser {
           }
         })
         pathTextField.showHiddenSupplier = BooleanSupplier { fileTree.areHiddensShown() }
+        ComponentValidator(disposable)
+          .withValidator(Supplier<ValidationInfo?> {
+            if (pathTextFieldInvalid)
+              ValidationInfo(IdeBundle.message("universal.file.chooser.invalid.path"), pathTextField)
+            else null
+          })
+          .installOn(pathTextField)
+        pathTextField.document.addDocumentListener(object : DocumentListener {
+          override fun insertUpdate(e: DocumentEvent) { setPathTextFieldError(false) }
+          override fun removeUpdate(e: DocumentEvent) { setPathTextFieldError(false) }
+          override fun changedUpdate(e: DocumentEvent) {}
+        })
         pathTextField.addKeyListener(object : KeyAdapter() {
           override fun keyPressed(e: KeyEvent) {
             if (e.isConsumed) return
@@ -633,7 +631,7 @@ object UniversalFileChooser {
                 navigateToTextFieldPath(); e.consume()
               }
               KeyEvent.VK_ESCAPE -> {
-                switchToBreadcrumbs(); e.consume()
+                setPathTextFieldError(false); switchToBreadcrumbs(); e.consume()
               }
             }
           }
@@ -642,6 +640,18 @@ object UniversalFileChooser {
         tree.addTreeSelectionListener {
           topToolbar.updateActionsAsync()
         }
+
+        tree.addKeyListener(object : KeyAdapter() {
+          override fun keyPressed(e: KeyEvent) {
+            if (e.isConsumed) return
+            if (e.keyCode == KeyEvent.VK_DELETE && e.modifiersEx == 0) {
+              if (canDeleteSelectedFile()) {
+                deleteSelectedFile()
+                e.consume()
+              }
+            }
+          }
+        })
 
         val loadingLabel = JBLabel(
           contributor.getCustomLoadingText() ?: IdeBundle.message("universal.file.chooser.label.loading"),
@@ -770,6 +780,43 @@ object UniversalFileChooser {
         }
       }
 
+      fun canDeleteSelectedFile(): Boolean {
+        val selected = fileTree.getSelectedFile() ?: return false
+        if (roots.contains(selected.invariantSeparatorsPathString)) return false
+        if (!Files.isWritable(selected)) return false
+        if (Files.isDirectory(selected) && !runCatching { Files.list(selected).isEmpty() }.getOrElse { true }) return false
+        return true
+      }
+
+      fun deleteSelectedFile() {
+        val selected = fileTree.getSelectedFile() ?: return
+        if (Messages.showYesNoDialog(
+            IdeBundle.message("universal.file.chooser.action.delete.confirm", selected.name),
+            IdeBundle.message("universal.file.chooser.action.delete.text"),
+            Messages.getWarningIcon()
+          ) != Messages.YES) return
+
+        val nextSelection = fileTree.computeSelectionAfterDeletion()
+
+        scope.launch {
+          withContext(Dispatchers.IO) {
+            val result = runCatching { Files.delete(selected) }
+            runOnEdt {
+              if (result.isSuccess) {
+                fileTree.updateTree()
+                if (nextSelection != null) {
+                  fileTree.select(nextSelection, null)
+                }
+              }
+              else {
+                val message = result.exceptionOrNull()?.message ?: ""
+                Messages.showErrorDialog(message, IdeBundle.message("universal.file.chooser.action.delete.text"))
+              }
+            }
+          }
+        }
+      }
+
       private fun findRootPath(nioPath: Path): String? {
         return roots.firstOrNull { root -> nioPath.startsWith(root) }
       }
@@ -812,16 +859,55 @@ object UniversalFileChooser {
 
       private fun navigateToTextFieldPath() {
         val text = pathTextField.text.trim()
-        switchToBreadcrumbs()
-        if (text.isEmpty()) return
+        if (text.isEmpty()) {
+          setPathTextFieldError(false)
+          switchToBreadcrumbs()
+          return
+        }
         scope.launch {
           withContext(Dispatchers.IO) {
-            val path = runCatching { Path.of(text) }.getOrNull() ?: return@withContext
+            val path = runCatching { Path.of(text) }.getOrNull()
+            val exists = path != null && runCatching { Files.exists(path) }.getOrDefault(false)
+            if (path == null || !exists) {
+              runOnEdt {
+                setPathTextFieldError(true)
+                if (barPanel.isShowing) {
+                  barCardLayout.show(barPanel, PATH_CARD)
+                  pathTextField.requestFocusInWindow()
+                }
+              }
+              return@withContext
+            }
+            val forceShowHidden = !fileTree.areHiddensShown() && hasHiddenSegment(path)
             runOnEdt {
+              setPathTextFieldError(false)
+              switchToBreadcrumbs()
+              if (forceShowHidden) {
+                fileTree.showHiddens(true)
+                PropertiesComponent.getInstance().setValue(SHOW_HIDDEN_FILES_KEY, true)
+                topToolbar.updateActionsAsync()
+              }
               fileTree.select(path) { fileTree.expand(path, null) }
             }
           }
         }
+      }
+
+      private fun setPathTextFieldError(isError: Boolean) {
+        if (pathTextFieldInvalid == isError) return
+        pathTextFieldInvalid = isError
+        ComponentValidator.getInstance(pathTextField).ifPresent { it.revalidate() }
+      }
+
+      private fun hasHiddenSegment(path: Path): Boolean {
+        var current: Path? = path
+        while (current != null && current.parent != null) {
+          if (runCatching { NioFileChooserUtil.isHidden(current) }.getOrDefault(false)) {
+            return true
+          }
+          current = current.parent
+        }
+        return false
       }
 
       private fun updateBreadcrumbs(selection: List<Path?>) {

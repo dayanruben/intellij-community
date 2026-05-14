@@ -5,26 +5,23 @@ import com.intellij.ide.minimap.model.MinimapFileSupportPolicy
 import com.intellij.ide.minimap.model.MinimapSupportLevel
 import com.intellij.ide.minimap.settings.MinimapSettings
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.editor.impl.EditorImpl
-import com.intellij.openapi.editor.ex.util.EditorUtil
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.util.Key
-import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.util.registry.RegistryValue
-import com.intellij.openapi.util.registry.RegistryValueListener
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import kotlinx.coroutines.CoroutineScope
 import java.awt.BorderLayout
-import java.awt.event.HierarchyEvent
-import java.awt.event.HierarchyListener
 import javax.swing.JLayeredPane
 import javax.swing.JPanel
 import javax.swing.JScrollPane
+import javax.swing.JViewport
 import javax.swing.ScrollPaneLayout
 import javax.swing.border.Border
 
@@ -40,16 +37,6 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
 
   init {
     MinimapSettings.getInstance().settingsChangeCallback += onSettingsChange
-    val updateAllEditorsListener = object : RegistryValueListener {
-      override fun afterValueChanged(value: RegistryValue) {
-        updateAllEditors()
-      }
-    }
-    Registry.get(MinimapRegistry.MODE_KEY).addListener(updateAllEditorsListener, this)
-    // Let file-type policies declare additional registry keys they depend on.
-    for (key in MinimapFileSupportPolicy.EP_NAME.extensionList.flatMap { it.getWatchedRegistryKeys() }) {
-      Registry.get(key).addListener(updateAllEditorsListener, this)
-    }
   }
 
   override fun dispose() {
@@ -58,7 +45,6 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
 
   fun editorOpened(editor: Editor) {
     val editorImpl = getMainEditorImpl(editor) ?: return
-    installVisibilityListener(editorImpl)
     updateMinimap(editorImpl)
   }
 
@@ -66,7 +52,6 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
   fun updateAllEditors() {
     EditorFactory.getInstance().allEditors.forEach { editor ->
       getMainEditorImpl(editor)?.let {
-        installVisibilityListener(it)
         updateMinimap(it)
       }
     }
@@ -104,23 +89,22 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
   }
 
   private fun shouldHaveMinimap(editorImpl: EditorImpl): Boolean {
-    if (!editorImpl.contentComponent.isShowing) return false
+    if (!MinimapAvailability.isAvailable()) return false
+    if (!settings.state.enabled) return false
 
-    val project = editorImpl.project ?: return false
-    val document = editorImpl.document
-    val virtualFile = PsiDocumentManager.getInstance(project).getPsiFile(document)?.virtualFile
-                      ?: FileDocumentManager.getInstance().getFile(document)
+    val virtualFile = getEditorVirtualFile(editorImpl)
                       ?: return false
 
     val supportLevel = MinimapFileSupportPolicy.forFileType(virtualFile.fileType)
-    if (!settings.state.enabled) return false
-
-    // INDEPENDENT bypasses the global mode and IDE-availability checks, but still obeys
-    // user-facing visibility settings and the context-menu disable action.
-    if (supportLevel == MinimapSupportLevel.INDEPENDENT) return true
-
-    if (!MinimapRegistry.isEnabled()) return false
     return supportLevel != MinimapSupportLevel.UNSUPPORTED
+  }
+
+  private fun getEditorVirtualFile(editorImpl: EditorImpl): VirtualFile? {
+    val project = editorImpl.project ?: return FileDocumentManager.getInstance().getFile(editorImpl.document)
+    val document = editorImpl.document
+    return WriteIntentReadAction.compute<VirtualFile?> {
+      PsiDocumentManager.getInstance(project).getPsiFile(document)?.virtualFile
+    } ?: FileDocumentManager.getInstance().getFile(document)
   }
 
   private fun updateMinimap(editorImpl: EditorImpl) {
@@ -131,25 +115,6 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
     else {
       removeMinimap(editorImpl)
     }
-  }
-
-  private fun installVisibilityListener(editorImpl: EditorImpl) {
-    if (editorImpl.getUserData(MINI_MAP_VISIBILITY_LISTENER_KEY) != null) return
-
-    val listener = HierarchyListener { event ->
-      if (event.changeFlags and HierarchyEvent.SHOWING_CHANGED.toLong() == 0L) return@HierarchyListener
-      if (editorImpl.isDisposed) return@HierarchyListener
-      // Avoid mutating the component hierarchy while it is being hidden/closed.
-      if (!editorImpl.contentComponent.isShowing) return@HierarchyListener
-      updateMinimap(editorImpl)
-    }
-
-    editorImpl.contentComponent.addHierarchyListener(listener)
-    editorImpl.putUserData(MINI_MAP_VISIBILITY_LISTENER_KEY, listener)
-    EditorUtil.disposeWithEditor(editorImpl, Disposable {
-      editorImpl.contentComponent.removeHierarchyListener(listener)
-      editorImpl.putUserData(MINI_MAP_VISIBILITY_LISTENER_KEY, null)
-    })
   }
 
   private fun getPanel(fileEditor: EditorImpl): JPanel? {
@@ -203,16 +168,23 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
 
     val originalLayout = scrollPane.layout as? ScrollPaneLayout
     val originalViewportBorder = scrollPane.viewportBorder
+    val originalViewportScrollMode = scrollPane.viewport?.scrollMode
+    val originalRowHeaderScrollMode = scrollPane.rowHeader?.scrollMode
+    val originalColumnHeaderScrollMode = scrollPane.columnHeader?.scrollMode
 
     editor.putUserData(MINI_MAP_SCROLLBAR_STATE_KEY, MinimapScrollbarState(
       scrollPane = scrollPane,
       originalLayout = originalLayout,
       originalViewportBorder = originalViewportBorder,
+      originalViewportScrollMode = originalViewportScrollMode,
+      originalRowHeaderScrollMode = originalRowHeaderScrollMode,
+      originalColumnHeaderScrollMode = originalColumnHeaderScrollMode,
     ))
 
     // Add minimap as a direct child of the scroll pane; the custom layout positions it
     // between the viewport and the vertical scrollbar. The scrollbar is never moved,
     // keeping PanelWithFloatingToolbar.doLayout() and the inspection toolbar working correctly.
+    disableBlitScrolling(scrollPane)
     scrollPane.add(minimapPanel)
     scrollPane.layout = MinimapScrollPaneLayout(minimapPanel)
     scrollPane.viewportBorder = MinimapScrollPaneLayout.createViewportBorder(scrollPane, minimapPanel, originalViewportBorder)
@@ -236,10 +208,12 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
       }
       state.scrollPane.viewportBorder = state.originalViewportBorder
       state.originalLayout?.let { state.scrollPane.layout = it }
+      restoreScrollMode(state.scrollPane.viewport, state.originalViewportScrollMode)
+      restoreScrollMode(state.scrollPane.rowHeader, state.originalRowHeaderScrollMode)
+      restoreScrollMode(state.scrollPane.columnHeader, state.originalColumnHeaderScrollMode)
       editor.putUserData(MINI_MAP_SCROLLBAR_STATE_KEY, null)
     }
 
-    editor.putUserData(MINI_MAP_WRAPPER_KEY, null)
     editor.putUserData(MINI_MAP_PANEL_KEY, null)
     panelsToClose.forEach { it.onClose() }
   }
@@ -248,17 +222,31 @@ class MinimapService(private val scope: CoroutineScope) : Disposable {
     return if (where == BorderLayout.LINE_END) BorderLayout.LINE_START else BorderLayout.LINE_END
   }
 
+  private fun disableBlitScrolling(scrollPane: JScrollPane) {
+    // The embedded minimap changes scroll pane child geometry; blit scrolling can copy stale rounded-corner pixels into the editor/gutter.
+    scrollPane.viewport?.scrollMode = JViewport.SIMPLE_SCROLL_MODE
+    scrollPane.rowHeader?.scrollMode = JViewport.SIMPLE_SCROLL_MODE
+    scrollPane.columnHeader?.scrollMode = JViewport.SIMPLE_SCROLL_MODE
+  }
+
+  private fun restoreScrollMode(viewport: JViewport?, scrollMode: Int?) {
+    if (viewport != null && scrollMode != null) {
+      viewport.scrollMode = scrollMode
+    }
+  }
+
   private data class MinimapScrollbarState(
     val scrollPane: JScrollPane,
     val originalLayout: ScrollPaneLayout?,
     val originalViewportBorder: Border?,
+    val originalViewportScrollMode: Int?,
+    val originalRowHeaderScrollMode: Int?,
+    val originalColumnHeaderScrollMode: Int?,
   )
 
   companion object {
     fun getInstance(): MinimapService = service<MinimapService>()
     private val MINI_MAP_PANEL_KEY: Key<MinimapPanel> = Key.create("com.intellij.ide.minimap.panel")
-    private val MINI_MAP_VISIBILITY_LISTENER_KEY: Key<HierarchyListener> = Key.create("com.intellij.ide.minimap.visibility.listener")
     private val MINI_MAP_SCROLLBAR_STATE_KEY: Key<MinimapScrollbarState> = Key.create("com.intellij.ide.minimap.scrollbar.state")
-    private val MINI_MAP_WRAPPER_KEY: Key<JPanel> = Key.create("com.intellij.ide.minimap.wrapper")
   }
 }

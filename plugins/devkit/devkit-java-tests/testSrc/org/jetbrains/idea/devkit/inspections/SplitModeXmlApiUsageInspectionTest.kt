@@ -85,6 +85,24 @@ Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in
     myFixture.checkHighlighting()
   }
 
+  fun testOptionalDependsDoesNotAffectPluginXmlKind() {
+    val pluginXml = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.63",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <depends optional="true" config-file="optional-backend.xml">intellij.platform.backend</depends>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
+
+    myFixture.checkHighlighting()
+  }
+
   fun testApiRestrictionsJsonHasNoDuplicateApiTargets() {
     SplitModeApiRestrictionsService.getInstance().assertApiRestrictionsCanBeReadForTest()
   }
@@ -835,6 +853,85 @@ Backend dependency 'intellij.platform.backend' from required content module desc
     )
     myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
 
+    myFixture.checkHighlighting()
+  }
+
+  fun testSiblingPluginDescriptorsAreAnalyzedIndependently() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.61",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val sharedDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.61",
+      descriptorRelativePathToResourcesDirectory = "META-INF/shared-fragment.xml",
+      """
+        <idea-plugin>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val backendDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.61",
+      descriptorRelativePathToResourcesDirectory = "META-INF/backend-fragment.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+          <extensions defaultExtensionNs="com.intellij">
+            <<warning descr="'com.intellij.typedHandler' can only be used in 'frontend or shared' module type. Actual module type is 'backend'.
+
+Language supporting extensions belong to shared, if the language supports injections. Otherwise frontend.
+
+Computed module kind reasoning:
+
+Backend dependency 'intellij.platform.backend' from descriptor 'backend-fragment.xml' in module 'unique.module.name.61'">typedHandler</warning>/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+
+    myFixture.configureFromExistingVirtualFile(sharedDescriptor.virtualFile)
+    myFixture.checkHighlighting()
+
+    myFixture.configureFromExistingVirtualFile(backendDescriptor.virtualFile)
+    myFixture.checkHighlighting()
+  }
+
+  fun testCustomMetaInfDescriptorDoesNotInheritPluginXmlKind() {
+    addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.62",
+      descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
+      """
+        <idea-plugin>
+          <dependencies>
+            <module name="intellij.platform.backend"/>
+          </dependencies>
+        </idea-plugin>
+      """.trimIndent()
+    )
+    val customDescriptor = addModuleWithXmlDescriptor(
+      moduleName = "unique.module.name.62",
+      descriptorRelativePathToResourcesDirectory = "META-INF/custom-descriptor.xml",
+      """
+        <idea-plugin>
+          <extensions defaultExtensionNs="com.intellij">
+            <typedHandler/>
+          </extensions>
+        </idea-plugin>
+      """.trimIndent()
+    )
+
+    myFixture.configureFromExistingVirtualFile(customDescriptor.virtualFile)
     myFixture.checkHighlighting()
   }
 

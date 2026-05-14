@@ -196,6 +196,18 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
       appendTextPadding(padding)
 
       append(FileUtil.getLocationRelativeToUserHome(value.path.path), SimpleTextAttributes.GRAY_ATTRIBUTES)
+
+      padding += (getLocationColumnWidth(list) + columnGap)
+      appendTextPadding(padding)
+
+      val statusText = when {
+        value.isLocked -> GitBundle.message("toolwindow.working.trees.worktree.status.locked")
+        value.isPrunable -> GitBundle.message("toolwindow.working.trees.worktree.status.prunable")
+        else -> null
+      }
+      if (statusText != null) {
+        append(statusText, SimpleTextAttributes.GRAY_ATTRIBUTES)
+      }
     }
 
     @Nls
@@ -206,6 +218,7 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
 
     private fun getWorktreeColumnWidth(list: JList<out GitWorkingTree?>): Int = getMaxWidth(list) { it.path.name }
     private fun getBranchColumnWidth(list: JList<out GitWorkingTree?>): Int = getMaxWidth(list) { getPresentableBranchName(it) }
+    private fun getLocationColumnWidth(list: JList<out GitWorkingTree?>): Int = getMaxWidth(list) { FileUtil.getLocationRelativeToUserHome(it.path.path) }
 
     private fun getMaxWidth(list: JList<out GitWorkingTree?>, toString: (GitWorkingTree) -> String): Int {
       val model = list.model

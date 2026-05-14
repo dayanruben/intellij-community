@@ -24,6 +24,9 @@
     />
 
     <errorHandler implementation="com.intellij.diagnostic.ITNReporter"/>
+    <applicationService serviceInterface="com.intellij.openapi.diagnostic.UnhandledReportSinkService"
+                        serviceImplementation="com.intellij.diagnostic.UnhandledReportSinkServiceImpl"/>
+
     <appStarter id="diff" implementation="com.intellij.diff.applications.DiffApplication" bundle="messages.IdeBundle" key="diff.help"/>
     <appStarter id="merge" implementation="com.intellij.diff.applications.MergeApplication" bundle="messages.IdeBundle" key="merge.help"/>
     <appStarter id="update" implementation="com.intellij.ide.plugins.UpdatePluginsApp" bundle="messages.IdeBundle" key="update.plugins.help"/>
@@ -185,6 +188,10 @@
     </experimentalFeature>
     <registryKey defaultValue="false" description="Show unhandled exceptions that were thrown during interactive operation"
                  key="ide.exceptions.show.interactive"/>
+    <registryKey defaultValue="true" description="Refresh VFS periodically while there is no user activity in the IDE instead of when window is not focused.
+The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | System Settings -> Periodically when IDE is inactive (experimental)"
+                 restartRequired="true"
+                 key="vfs.background.refresh.on.idle"/>
     <registryKey key="wsl.list.prefer.verbose.output" os="windows" defaultValue="true" restartRequired="false"
                  description="Use 'wsl.exe -l -v' to get distribution list. If it's disabled 'wsl.exe -l -q' will be used."/>
     <registryKey key="wsl.use.utf8.encoding" os="windows" defaultValue="true" restartRequired="false"
@@ -476,7 +483,7 @@
                  defaultValue="true"
                  restartRequired="true"
                  description="Enable plugin category promotion panels with priority sorting in the Installed plugins tab"/>
-    <postStartupActivity implementation="com.intellij.ide.actions.IdeScalePostStartupActivity"/>
+    <backgroundPostStartupActivity implementation="com.intellij.ide.actions.IdeScalePostStartupActivity"/>
 
     <applicationService serviceInterface="com.intellij.codeInsight.hint.HintManager"
                         serviceImplementation="com.intellij.codeInsight.hint.HintManagerImpl"/>
@@ -538,7 +545,7 @@
 
     <applicationService serviceInterface="com.intellij.ide.actions.ActionsCollector"
                         serviceImplementation="com.intellij.internal.statistic.collectors.fus.actions.persistence.ActionsCollectorImpl"/>
-    <postStartupActivity implementation="com.intellij.internal.statistic.collectors.fus.actions.ProjectStateObserverProjectActivity"/>
+    <backgroundPostStartupActivity implementation="com.intellij.internal.statistic.collectors.fus.actions.ProjectStateObserverProjectActivity"/>
     <applicationService serviceInterface="com.intellij.internal.statistic.eventLog.FeatureUsageUiEvents"
                         serviceImplementation="com.intellij.internal.statistic.collectors.fus.ui.FeatureUsageUiEventsImpl"/>
     <dialogInvocationPlace id="Open project action"/>
@@ -817,7 +824,7 @@
               extensions="iws"/>
     <fileType name="IDEA_MODULE" implementationClass="com.intellij.ide.highlighter.ModuleFileType" fieldName="INSTANCE" extensions="iml"/>
     <fileType name="IDEA_PROJECT" implementationClass="com.intellij.ide.highlighter.ProjectFileType" fieldName="INSTANCE" extensions="ipr"/>
-    <postStartupActivity implementation="com.intellij.openapi.fileTypes.impl.ApproveRemovedMappingsActivity"/>
+    <backgroundPostStartupActivity implementation="com.intellij.openapi.fileTypes.impl.ApproveRemovedMappingsActivity"/>
     <applicationService serviceInterface="com.intellij.openapi.options.colors.ColorSettingsPages"
                         serviceImplementation="com.intellij.openapi.options.colors.pages.ColorSettingsPagesImpl"/>
 
@@ -1787,7 +1794,8 @@
     <advancedSetting id="search.everywhere.show.results.notification" default="true" groupKey="group.advanced.settings.se"/>
     <advancedSetting id="search.everywhere.contributors.wait.timeout" default="2000" groupKey="group.advanced.settings.se"/>
     <advancedSetting id="search.everywhere.recent.at.top" default="true" groupKey="group.advanced.settings.se"/>
-    <advancedSetting id="ide.ui.non.modal.settings.window" default="false" groupKey="group.advanced.settings.ui"/>
+    <advancedSetting id="ide.ui.non.modal.settings.window" default="false" groupKey="group.advanced.settings.ui"
+                     service="com.intellij.openapi.options.ShowSettingsUtil" property="nonModalSettingsWindow"/>
 
     <backgroundPostStartupActivity implementation="com.intellij.ide.plugins.DependencyFeatureCollector"/>
     <projectService serviceInterface="com.intellij.presentation.FilePresentationService"
@@ -1857,14 +1865,11 @@
                        key="presentation.assistant.notification"/>
 
     <!-- Minimap -->
-    <registryKey key="editor.minimap.mode" defaultValue="[disabled|legacy|new*]"
-                 description="Minimap mode: disabled, legacy, new"/>
     <editorFactoryListener implementation="com.intellij.ide.minimap.MinimapEditorFactoryListener"/>
     <applicationService serviceImplementation="com.intellij.ide.minimap.settings.MinimapSettings"/>
     <applicationConfigurable id="com.intellij.minimap" parentId="editor"
                              key="settings.name" bundle="messages.MinimapBundle"
                              provider="com.intellij.ide.minimap.settings.MinimapConfigurableProvider"/>
-    <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.LegacyPreviewLayerFactory"/>
     <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.TokenFillerLayerFactory"/>
     <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.SelectionLayerFactory"/>
     <minimapLayerFactory implementation="com.intellij.ide.minimap.layers.factories.DiagnosticsLayerFactory"/>
