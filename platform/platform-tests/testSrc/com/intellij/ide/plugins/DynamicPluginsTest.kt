@@ -1,6 +1,4 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("UsePropertyAccessSyntax")
-
 package com.intellij.ide.plugins
 
 import com.intellij.codeInsight.intention.IntentionAction
@@ -23,6 +21,16 @@ import com.intellij.ide.plugins.testPluginSrc.foo.bar.FooBarService
 import com.intellij.ide.plugins.testPluginSrc.foo.ep.FooExtension
 import com.intellij.ide.plugins.testPluginSrc.foo.ep.FooExtensionService
 import com.intellij.ide.plugins.testPluginSrc.foo.epImpl.FooExtensionImpl
+import com.intellij.ide.plugins.testPluginSrc.projectService.MyProjectService
+import com.intellij.ide.plugins.testPluginSrc.projectService.MyStartupActivity
+import com.intellij.ide.plugins.testPluginSrc.registryAccess.MyRegistryAccessor
+import com.intellij.ide.plugins.testPluginSrc.registryAccess.MyRegistryAccessorService
+import com.intellij.ide.plugins.testPluginSrc.testPSC.MyPersistentComponent
+import com.intellij.ide.plugins.testPluginSrc.testPSC.impl.MyPersistentComponentImpl
+import com.intellij.ide.plugins.testPluginSrc.uiSettingsListener.MyUISettingsListener
+import com.intellij.ide.plugins.testPluginSrc.uiSettingsListener.MyUISettingsListenerService
+import com.intellij.ide.plugins.testPluginSrc.uiSettingsListener.foo.MyFooUISettingsListener
+import com.intellij.ide.plugins.testPluginSrc.uiSettingsListener.foo.MyFooUISettingsListenerService
 import com.intellij.ide.startup.impl.StartupManagerImpl
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsListener
@@ -35,14 +43,9 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
-import com.intellij.openapi.application.invokeAndWaitIfNeeded
-import com.intellij.openapi.components.PersistentStateComponent
-import com.intellij.openapi.components.State
-import com.intellij.openapi.components.Storage
-import com.intellij.openapi.components.service
+import com.intellij.openapi.components.ComponentManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.extensions.InternalIgnoreDependencyViolation
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.extensions.impl.ExtensionPointImpl
 import com.intellij.openapi.module.ModuleConfigurationEditor
@@ -50,21 +53,22 @@ import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ui.configuration.ModuleConfigurationEditorProvider
 import com.intellij.openapi.roots.ui.configuration.ModuleConfigurationState
-import com.intellij.openapi.startup.StartupActivity
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.use
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleVisibilityValue
 import com.intellij.platform.pluginSystem.testFramework.PluginSetTestBuilder
+import com.intellij.platform.pluginSystem.testFramework.buildPluginSet
 import com.intellij.platform.testFramework.loadDescriptorInTest
 import com.intellij.platform.testFramework.loadExtensionWithText
 import com.intellij.platform.testFramework.plugins.PluginSpec
 import com.intellij.platform.testFramework.plugins.PluginTestHandle
 import com.intellij.platform.testFramework.plugins.action
 import com.intellij.platform.testFramework.plugins.appService
-import com.intellij.platform.testFramework.plugins.buildDir
-import com.intellij.platform.testFramework.plugins.buildDistribution
+import com.intellij.platform.testFramework.plugins.applicationListener
+import com.intellij.platform.testFramework.plugins.applicationService
+import com.intellij.platform.testFramework.plugins.buildDistributionArchive
 import com.intellij.platform.testFramework.plugins.buildMainJar
 import com.intellij.platform.testFramework.plugins.content
 import com.intellij.platform.testFramework.plugins.dependencies
@@ -74,6 +78,7 @@ import com.intellij.platform.testFramework.plugins.extension
 import com.intellij.platform.testFramework.plugins.extensionPoint
 import com.intellij.platform.testFramework.plugins.extensions
 import com.intellij.platform.testFramework.plugins.includePackageClassFiles
+import com.intellij.platform.testFramework.plugins.installAt
 import com.intellij.platform.testFramework.plugins.module
 import com.intellij.platform.testFramework.plugins.plugin
 import com.intellij.platform.testFramework.setPluginClassLoaderForMainAndSubPlugins
@@ -92,24 +97,17 @@ import com.intellij.util.application
 import com.intellij.util.io.directoryContent
 import com.intellij.util.io.java.classFile
 import com.intellij.util.ui.UIUtil
-import com.intellij.util.xmlb.annotations.Attribute
-import org.assertj.core.api.Assertions
 import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
+import java.lang.ref.WeakReference
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.random.Random
-import kotlin.test.assertTrue
 
 @Suppress("UnresolvedPluginConfigReference")
 @RunsInEdt
 class DynamicPluginsTest {
-  companion object {
-    val receivedNotifications = mutableListOf<UISettings>()
-    val receivedNotifications2 = mutableListOf<UISettings>()
-  }
-
   // per test
   @Rule
   @JvmField
@@ -146,32 +144,72 @@ class DynamicPluginsTest {
   }
 
   @Test
-  fun testLoadListeners() {
-    receivedNotifications.clear()
-
+  fun `app level listeners are loaded with plugin load`() {
     val app = ApplicationManager.getApplication()
     app.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
-
-    val plugin = plugin("testLoadListeners") {
-      dependsIntellijModulesLang()
-      applicationListeners = """<listener class="${MyUISettingsListener::class.java.name}" topic="com.intellij.ide.ui.UISettingsListener"/>"""
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("listeners") {
+        applicationListener<MyUISettingsListener, UISettingsListener>()
+        includePackageClassFiles<MyUISettingsListener>()
+      }
     }
-    val descriptor = loadDescriptorInTest(plugin, pluginsDir)
-
-    setPluginClassLoaderForMainAndSubPlugins(descriptor, DynamicPlugins::class.java.classLoader)
-    DynamicPlugins.loadPlugin(descriptor)
+    val plugin = pluginSet.getEnabledPlugin("listeners")
+    loadPluginInTest(plugin) {
+      val listenerTriggered = AtomicBoolean()
+      val handle = application.getTestHandleService<MyUISettingsListenerService, _, _>(plugin)!!
+      handle.test { listenerTriggered.set(true) }
+      app.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
+      assertThat(listenerTriggered.get()).isTrue()
+      handle.test { error("supposed to be unloaded") }
+    }
     app.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
-    assertThat(receivedNotifications).hasSize(1)
+  }
 
-    unloadAndUninstallPlugin(descriptor)
-    app.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
-    assertThat(receivedNotifications).hasSize(1)
+  // FIXME: Previously when listeners plugin was loaded it wasn't assigned a classloader, and because of that it was treated as not loaded by some checks.
+  //    Now, it is assigned a classloader and new "is this operation dynamic" checks start to work and they now prevent loading.
+  //    New dynamic plugin loading implementation will fix this properly.
+  @Ignore
+  @Test
+  fun `loading of a plugin also loads dependent content modules of other plugins`() {
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("foo") { }
+      plugin("listeners") {
+        content {
+          module("listeners.foo") {
+            dependencies { plugin("foo") }
+            applicationListener<MyFooUISettingsListener, UISettingsListener>()
+            includePackageClassFiles<MyFooUISettingsListener>()
+          }
+        }
+        applicationListener<MyUISettingsListener, UISettingsListener>()
+        includePackageClassFiles<MyUISettingsListener>()
+      }
+    }
+    val (foo, listeners) = pluginSet.getEnabledPlugins("foo", "listeners")
+    loadPluginInTest(listeners) {
+      val mainListenerHandle = application.getTestHandleService<MyUISettingsListenerService, _, _>(listeners)!!
+      val mainListenerInvokedCount = AtomicInteger(0)
+      val fooListenerInvokedCount = AtomicInteger(0)
+      mainListenerHandle.test { mainListenerInvokedCount.incrementAndGet() }
+      application.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
+      assertThat(mainListenerInvokedCount.get()).isEqualTo(1)
+      loadPluginInTest(foo) {
+        val fooListenerHandle = application.getTestHandleService<MyFooUISettingsListenerService, _, _>(foo)!!
+        fooListenerHandle.test { fooListenerInvokedCount.incrementAndGet() }
+        application.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
+        assertThat(mainListenerInvokedCount.get()).isEqualTo(2)
+        assertThat(fooListenerInvokedCount.get()).isEqualTo(1)
+      }
+      application.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
+      assertThat(mainListenerInvokedCount.get()).isEqualTo(3)
+      assertThat(fooListenerInvokedCount.get()).isEqualTo(1)
+    }
   }
 
   @Test
   fun testClassloaderAfterReload() {
     val bar = plugin("bar") { dependsIntellijModulesLang() }
-    val barPath = bar.buildDistribution(pluginsDir)
+    val barPath = bar.buildDistributionArchive(pluginsDir)
     val descriptor = loadDescriptorInTest(fileOrDir = barPath)
     assertThat(descriptor).isNotNull
 
@@ -200,26 +238,25 @@ class DynamicPluginsTest {
   }
 
   @Test
-  fun testSaveSettingsOnPluginUnload() {
+  fun `PSC data is preserved between unload and load`() {
     val data = System.currentTimeMillis().toString()
 
-    val extensionTag = """<applicationService serviceInterface="${MyPersistentComponent::class.java.name}" 
-      |serviceImplementation="${MyPersistentComponentImpl::class.java.name}"/>""".trimMargin()
-
-    loadExtensionWithText(extensionTag).use {
-      val service = ApplicationManager.getApplication()
-        .getService(MyPersistentComponent::class.java)
-      assertThat(service).isInstanceOf(MyPersistentComponentImpl::class.java)
-
-      (service as MyPersistentComponentImpl).state.stateData = data
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("psc") {
+        applicationService<MyPersistentComponentImpl, MyPersistentComponent>()
+        includePackageClassFiles<MyPersistentComponentImpl>()
+        includePackageClassFiles<MyPersistentComponent>()
+      }
     }
+    val plugin = pluginSet.getEnabledPlugin("psc")
 
-    loadExtensionWithText(extensionTag).use {
-      val service = ApplicationManager.getApplication()
-        .getService(MyPersistentComponent::class.java)
-      assertThat(service).isNotNull
-
-      assertThat(service.data).isEqualTo(data)
+    loadPluginInTest(plugin) {
+      val handle = application.getTestHandleService<MyPersistentComponent, _, _>(plugin)!!
+      handle.test(data)
+    }
+    loadPluginInTest(plugin) {
+      val handle = application.getTestHandleService<MyPersistentComponent, _, _>(plugin)!!
+      assertThat(handle.test(null)).isEqualTo(data)
     }
   }
 
@@ -485,7 +522,6 @@ class DynamicPluginsTest {
     }
   }
 
-  @Ignore("AT-4013")
   @Test
   fun `optional plugin dependency loading`() {
     val fooJar = pluginsDir.resolve("foo.jar")
@@ -508,8 +544,8 @@ class DynamicPluginsTest {
       try {
         // FIXME perhaps it should return false to indicate that restart is needed to load more stuff
         assertThat(DynamicPlugins.loadPlugin(barDescriptor)).isTrue()
-        val barService = application.getService(barDescriptor.loadClassInsideSelf<BarService>()) as PluginTestHandle
-        barService.test()
+        val barService = application.getTestHandleService<BarService, _, _>(barDescriptor)!!
+        barService.test(Unit)
         val fooBarClass = fooDescriptor.loadClassInsideSelf<FooBarService>() // loaded because packed into the same jar with the main descriptor
         assertThat(application.getService(fooBarClass)).isNull()
         assertThat(fooDescriptor.dependencies.first().subDescriptor!!.isMarkedForLoading).isFalse
@@ -524,12 +560,9 @@ class DynamicPluginsTest {
     }
   }
 
-  @Ignore("AT-4013")
   @Test
   fun `separate content module jar unloading`() {
-    val fooDir = pluginsDir.resolve("foo")
-    val barJar = pluginsDir.resolve("bar.jar")
-    plugin("foo") {
+    val fooDir = plugin("foo") {
       content {
         module("foo.bar") {
           isSeparateJar = true
@@ -542,7 +575,8 @@ class DynamicPluginsTest {
       }
       action<FooAction>()
       includePackageClassFiles<FooAction>()
-    }.buildDir(fooDir)
+    }.installAt(pluginsDir)
+    val barJar = pluginsDir.resolve("bar.jar")
     plugin("bar") {
       action<BarAction>()
       includePackageClassFiles<BarAction>()
@@ -562,11 +596,9 @@ class DynamicPluginsTest {
     }
   }
 
-  @Ignore("AT-4013")
   @Test
   fun `extension point from an embedded content module used in main descriptor`() {
-    val fooPath = pluginsDir.resolve("foo")
-    plugin("foo") {
+    val fooPath = plugin("foo") {
       content {
         module("foo.emb", loadingRule = ModuleLoadingRuleValue.EMBEDDED) {
           isSeparateJar = true
@@ -576,14 +608,14 @@ class DynamicPluginsTest {
       }
       extension<FooExtensionImpl>(FooExtension.EP_FQN)
       includePackageClassFiles<FooExtensionImpl>()
-    }.buildDir(fooPath)
+    }.installAt(pluginsDir)
     val foo = loadDescriptorInTest(fooPath)
     val fooEmb = foo.contentModules.first()
     try {
       assertThat(DynamicPlugins.loadPlugins(listOf(foo), null)).isTrue
       assertThat(application.extensionArea.getExtensionPoint<Any>(FooExtension.EP_FQN).extensions.size).isEqualTo(1)
-      val epService = application.getService(fooEmb.loadClassInsideSelf<FooExtensionService>()) as PluginTestHandle
-      epService.test()
+      val epService = application.getTestHandleService<FooExtensionService, _, _>(fooEmb)!!
+      epService.test(Unit)
     }
     finally {
       assertThat(DynamicPlugins.unloadPlugins(listOf(foo), null)).isTrue
@@ -742,64 +774,28 @@ class DynamicPluginsTest {
   }
 
   @Test
-  fun loadOptionalDependencyDescriptor() {
-    val pluginOne = plugin("optionalDependencyDescriptor-one") { dependsIntellijModulesLang() }
-    val app = ApplicationManager.getApplication()
-    loadPluginWithText(pluginOne).use {
-      assertThat(app.getService(MyPersistentComponent::class.java)).isNull()
-      val pluginTwoId = "optionalDependencyDescriptor-two"
-      loadPluginWithText(plugin(pluginTwoId) {
-        dependsIntellijModulesLang()
-        depends(pluginOne.id!!, "one.xml") {
-          dependsIntellijModulesLang()
-          extensions(
-            """<applicationService serviceInterface="${MyPersistentComponent::class.java.name}" 
-              |serviceImplementation="${MyPersistentComponentImpl::class.java.name}"/>""".trimMargin()
-          )
-        }
-      }).use {
-        assertThat(app.getService(MyPersistentComponent::class.java)).isNotNull()
+  fun `service registration from dynamic loading of optional depends`() {
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("foo") {
+        includePackageClassFiles<MyPersistentComponent>()
       }
-      assertThat(PluginManagerCore.getPlugin(PluginId.getId(pluginTwoId))).isNull()
-      assertThat(app.getService(MyPersistentComponent::class.java)).isNull()
-    }
-  }
-
-  @Test
-  fun loadOptionalDependencyListener() {
-    receivedNotifications.clear()
-    receivedNotifications2.clear()
-
-    val pluginTwo = plugin("optionalDependencyListener-two") {
-      packagePrefix = "optionalDependencyListener-two"
-      dependsIntellijModulesLang()
-    }
-    val pluginDescriptor = plugin("optionalDependencyListener-one") {
-      packagePrefix = "org.foo.one"
-      dependsIntellijModulesLang()
-      content {
-        module("intellij.org.foo") {
-          packagePrefix = "org.foo"
-          applicationListeners = """<listener class="${MyUISettingsListener2::class.java.name}" topic="com.intellij.ide.ui.UISettingsListener"/>"""
-          dependencies { plugin(pluginTwo.id!!) }
+      plugin("bar") {
+        depends("foo", "foo.xml") {
+          applicationService<MyPersistentComponentImpl, MyPersistentComponent>()
+          includePackageClassFiles<MyPersistentComponentImpl>()
         }
       }
-      applicationListeners = """<listener class="${MyUISettingsListener::class.java.name}" topic="com.intellij.ide.ui.UISettingsListener"/>"""
     }
-    loadPluginWithText(pluginDescriptor).use {
-      val app = ApplicationManager.getApplication()
-      app.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
-      assertThat(receivedNotifications).hasSize(1)
+    val (foo, bar) = pluginSet.getEnabledPlugins("foo", "bar")
 
-      loadPluginWithText(pluginTwo).use {
-        app.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
-        assertThat(receivedNotifications).hasSize(2)
-        assertThat(receivedNotifications2).hasSize(1)
+    loadPluginInTest(foo) {
+      assertThat(application.getTestHandleService<MyPersistentComponent, _, _>(foo)).isNull()
+      loadPluginInTest(bar) {
+        assertThat(application.getTestHandleService<MyPersistentComponent, _, _>(foo)).isNotNull()
+        assertThat(PluginManagerCore.getPlugin(PluginId.getId("bar"))).isNotNull()
       }
-
-      app.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
-      assertThat(receivedNotifications).hasSize(3)
-      assertThat(receivedNotifications2).hasSize(1)
+      assertThat(PluginManagerCore.getPlugin(PluginId.getId("bar"))).isNull()
+      assertThat(application.getTestHandleService<MyPersistentComponent, _, _>(foo)).isNull()
     }
   }
 
@@ -851,25 +847,35 @@ class DynamicPluginsTest {
   }
 
   @Test
-  fun testProjectService() {
+  fun `project service loads`() {
     val project = projectRule.project
-    loadPluginWithText(plugin {
-      dependsIntellijModulesLang()
-      extensions("""<projectService serviceImplementation="${MyProjectService::class.java.name}"/>""")
-    }).use {
-      assertThat(project.getService(MyProjectService::class.java)).isNotNull()
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("plugin") {
+        extensions("""<projectService serviceImplementation="${MyProjectService::class.java.name}"/>""")
+        includePackageClassFiles<MyProjectService>()
+      }
+    }
+    val plugin = pluginSet.getEnabledPlugin("plugin")
+    loadPluginInTest(plugin) {
+      assertThat(project.getTestHandleService<MyProjectService, _, _>(plugin)).isNotNull()
     }
   }
 
   @Test
-  fun extensionOnServiceDependency() {
+  fun `project service can be acquired from extension listener - StartupActivity`() {
     val project = projectRule.project
     StartupManagerImpl.addActivityEpListener(project)
-    loadExtensionWithText("""
-      <postStartupActivity implementation="${MyStartupActivity::class.java.name}"/>
-      <projectService serviceImplementation="${MyProjectService::class.java.name}"/>
-    """).use {
-      assertThat(project.service<MyProjectService>().executed).isTrue()
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("plugin") {
+        extensions("""<postStartupActivity implementation="${MyStartupActivity::class.java.name}"/>""")
+        extensions("""<projectService serviceImplementation="${MyProjectService::class.java.name}"/>""")
+        includePackageClassFiles<MyProjectService>()
+      }
+    }
+    val plugin = pluginSet.getEnabledPlugin("plugin")
+    loadPluginInTest(plugin) {
+      val handle = project.getTestHandleService<MyProjectService, _, _>(plugin)!!
+      assertThat(handle.test(Unit)).isTrue()
     }
   }
 
@@ -948,30 +954,27 @@ class DynamicPluginsTest {
   }
 
   @Test
-  fun disableWithoutRestart() {
-    val plugin = plugin("disableWithoutRestart") {
-      dependsIntellijModulesLang()
-      extensions("""<applicationService serviceInterface="${MyPersistentComponent::class.java.name}"
-        |serviceImplementation="${MyPersistentComponentImpl::class.java.name}"/>""".trimMargin())
+  fun `service load and unload without restart through PluginEnabler`() {
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("disableWithoutRestart") {
+        applicationService<MyPersistentComponentImpl, MyPersistentComponent>()
+        includePackageClassFiles<MyPersistentComponentImpl>()
+        includePackageClassFiles<MyPersistentComponent>()
+      }
     }
-    val disposable = loadPluginWithText(plugin)
-    val app = ApplicationManager.getApplication()
-    assertThat(app.getService(MyPersistentComponent::class.java)).isNotNull()
-    try {
-      val pluginDescriptor = PluginManagerCore.getPlugin(PluginId.getId(plugin.id!!))!!
-
-      val disabled = PluginEnabler.getInstance().disable(listOf(pluginDescriptor))
+    val plugin = pluginSet.enabledPlugins.first()
+    loadPluginInTest(plugin) {
+      val weakHandleClass = WeakReference(plugin.loadClassInsideSelf<MyPersistentComponent>())
+      val disabled = PluginEnabler.getInstance().disable(listOf(plugin))
       assertThat(disabled).isTrue()
-      assertThat(pluginDescriptor.isEnabled).isFalse()
-      assertThat(app.getService(MyPersistentComponent::class.java)).isNull()
+      assertThat(plugin.isEnabled).isFalse()
+      val handleClass = weakHandleClass.get()
+      if (handleClass != null) assertThat(application.getService(handleClass)).isNull()
 
-      val enabled = PluginEnabler.getInstance().enable(listOf(pluginDescriptor))
+      val enabled = PluginEnabler.getInstance().enable(listOf(plugin))
       assertThat(enabled).isTrue()
-      assertThat(pluginDescriptor.isEnabled).isTrue()
-      assertThat(app.getService(MyPersistentComponent::class.java)).isNotNull()
-    }
-    finally {
-      Disposer.dispose(disposable)
+      assertThat(plugin.isEnabled).isTrue()
+      assertThat(application.getService(plugin.loadClassInsideSelf<MyPersistentComponent>())).isNotNull()
     }
   }
 
@@ -1017,46 +1020,44 @@ class DynamicPluginsTest {
      * This scenario might become obsolete if HashMap implementation changes so that the order of keys changes or if the plugin initialization
      * code changes. This test breaks as of revision 6be3a648dd07e4f675d40ab9553709446b06717c.
      */
-    val rnd = Random(239)
-    val pool: List<Char> = ('a'..'z') + ('A'..'Z')
-
-    val idParent = "test.batya"
+    val parentId = "test.batya"
+    val childId = "test.plugin"
     val antiHashMapKeys = listOf(
       "roGjzgGTyI", // this one goes before com.intellij.registryKey
       "OMEBtHDTCw" // this one goes after com.intellij.registryKey, so the test is green in this case
-    ) + (0..10).map { (0 until 10).map { pool.random(rnd) }.joinToString("") }
+    )
 
-    for (antiHashMap in antiHashMapKeys) {
-      val parentPlugin = plugin(idParent) {
-        dependsIntellijModulesLang()
-        extensionPoints = """<extensionPoint qualifiedName="$idParent.$antiHashMap" interface="java.lang.Runnable" dynamic="true"/>"""
-      }
+    for (antiHashMapKey in antiHashMapKeys) {
+      logger<DynamicPluginsTest>().debug("key: $antiHashMapKey")
 
-      val id = "test.plugin"
-      loadPluginWithText(parentPlugin).use {
-        val ep = ApplicationManager.getApplication().extensionArea.getExtensionPoint<Runnable>("$idParent.$antiHashMap")
-        ep.addChangeListener({ ep.extensionList.forEach(Runnable::run) }, it)
-        val plugin = plugin(id) {
-          dependsIntellijModulesLang()
-          depends(parentPlugin.id!!, "parent.xml") {
-            extensions("""<registryKey key="test.plugin.registry.key" defaultValue="true" description="sample text"/>""")
-            extensions("""<$antiHashMap implementation="${MyServiceAccessor::class.java.name}"/>""", idParent)
-            extensions("""<applicationService serviceImplementation="${MyRegistryAccessor::class.java.name}"/>""")
-          }
+      val epFqn = "$parentId.$antiHashMapKey"
+      val pluginSet = buildPluginSet(pluginsDir.resolve(antiHashMapKey)) {
+        plugin(parentId) {
+          extensionPoints = """<extensionPoint qualifiedName="$epFqn" interface="java.lang.Runnable" dynamic="true"/>"""
         }
-
-        loadPluginWithText(plugin).use {
-          check(service<MyRegistryAccessor>().invocations == 1)
+        plugin(childId) {
+          depends(parentId, "parent.xml") {
+            extensions("""<registryKey key="test.plugin.registry.key" defaultValue="true" description="sample text"/>""")
+            extensions("""<$antiHashMapKey implementation="${MyRegistryAccessor::class.qualifiedName}"/>""", parentId)
+          }
+          includePackageClassFiles<MyRegistryAccessor>()
+        }
+      }
+      val (parent, child) = pluginSet.getEnabledPlugins(parentId, childId)
+      loadPluginInTest(parent) {
+        val ep = ApplicationManager.getApplication().extensionArea.getExtensionPoint<Runnable>(epFqn)
+        ep.addChangeListener(Runnable { ep.extensionList.forEach(Runnable::run) }, testDisposable.disposable)
+        loadPluginInTest(child) {
+          val handle = application.getTestHandleService<MyRegistryAccessorService, _, _>(child)!!
+          assertThat(handle.test(Unit)).isEqualTo(1)
         }
       }
     }
   }
 
-  @Ignore("AT-4013")
   @Test
   fun `IJPL-233642 registry access of key from same plugin with multiple modules`() {
-    val fooPath = pluginsDir.resolve("foo")
-    plugin("foo") {
+    val fooPath = plugin("foo") {
       content {
         module("foo.core", loadingRule = ModuleLoadingRuleValue.EMBEDDED) {
           isSeparateJar = true
@@ -1077,14 +1078,14 @@ class DynamicPluginsTest {
           """.trimIndent())
         }
       }
-    }.buildDir(fooPath)
+    }.installAt(pluginsDir)
     StartupManagerImpl.addActivityEpListener(projectRule.project)
     val foo = loadDescriptorInTest(fooPath)
     val fooCore = foo.contentModules.first { it.moduleId.name == "foo.core" }
     try {
       assertThat(DynamicPlugins.loadPlugins(listOf(foo), null)).isTrue
-      val coreClass = application.getService(fooCore.loadClassInsideSelf<FooCore>()) as PluginTestHandle
-      coreClass.test()
+      val coreClass = application.getTestHandleService<FooCore, _, _>(fooCore)!!
+      coreClass.test(Unit)
     }
     finally {
       assertThat(DynamicPlugins.unloadPlugins(listOf(foo), null)).isTrue
@@ -1122,12 +1123,9 @@ class DynamicPluginsTest {
   @Test
   @TestFor(issues = ["IJPL-183884"])
   fun `initial loading errors are cleared after successful dynamic plugin loading`() {
-    val barPluginPath = pluginsDir.resolve("bar")
-    val fooPluginPath = pluginsDir.resolve("foo")
-
     // initial descriptor loading
-    plugin("bar") {}.buildDir(barPluginPath)
-    plugin("foo") { depends("bar") }.buildDir(fooPluginPath)
+    val barPluginPath = plugin("bar") {}.installAt(pluginsDir)
+    val fooPluginPath = plugin("foo") { depends("bar") }.installAt(pluginsDir)
     PluginSetTestBuilder.fromPath(pluginsDir).withDisabledPlugins("bar").build()
 
     val barPluginId = PluginId.getId("bar")
@@ -1154,13 +1152,10 @@ class DynamicPluginsTest {
 
   @Test
   fun `enabling a plugin will not load actions form a module with an unsatisfied dependency`() {
-    val fooPluginPath = pluginsDir.resolve("foo")
-    val barPluginPath = pluginsDir.resolve("bar")
-
-    plugin("bar") {}.buildDir(barPluginPath)
-    plugin("foo") {
+    val barPluginPath = plugin("bar") {}.installAt(pluginsDir)
+    val fooPluginPath = plugin("foo") {
+      namespace = "test_ns"
       content {
-        namespace = "test_ns"
         module("foo.a") {
           dependencies {
             plugin("bar")
@@ -1176,7 +1171,7 @@ class DynamicPluginsTest {
           """
         }
       }
-    }.buildDir(fooPluginPath)
+    }.installAt(pluginsDir)
 
     PluginSetTestBuilder.fromPath(pluginsDir).withDisabledPlugins("bar").build()
     loadPluginInTest(fooPluginPath) {
@@ -1189,11 +1184,8 @@ class DynamicPluginsTest {
 
   @Test
   fun `we do not try to load an implementation-details plugin when it wants to enable an implementation-details module `() {
-    val fooPluginPath = pluginsDir.resolve("foo")
-    val barPluginPath = pluginsDir.resolve("bar")
-
-    plugin("bar") {}.buildDir(barPluginPath)
-    plugin("foo") {
+    val barPluginPath = plugin("bar") {}.installAt(pluginsDir)
+    val fooPluginPath = plugin("foo") {
       implementationDetail = true
       content(namespace = "test_ns") {
         module("foo.a") {
@@ -1202,7 +1194,7 @@ class DynamicPluginsTest {
           }
         }
       }
-    }.buildDir(fooPluginPath)
+    }.installAt(pluginsDir)
 
     PluginSetTestBuilder.fromPath(pluginsDir).withDisabledPlugins("bar").build()
     loadPluginInTest(fooPluginPath) {
@@ -1231,17 +1223,16 @@ class DynamicPluginsTest {
                             serviceImplementation="${DefaultService::class.qualifiedName}"/>
       """.trimIndent())
       includePackageClassFiles<DefaultService>()
-    }.buildDir(pluginsDir.resolve("foo"))
+    }.installAt(pluginsDir)
     val foo = loadDescriptorInTest(pluginsDir.resolve("foo"))
     assertThat(DynamicPlugins.loadPlugin(foo)).isFalse
   }
 
-  @Ignore("AT-4013")
   @Test
   fun `test ide-plugins-allow-dynamic-services-overrides registry flag`() {
     for (dynamicServiceOverridesAllowed in listOf(true, false)) {
       Registry.get("ide.plugins.allow.dynamic.services.overrides").setValue(dynamicServiceOverridesAllowed, testDisposable.disposable)
-      plugin("foo") {
+      val fooPath = plugin("foo") {
         extensions("""
         <applicationService serviceInterface="${ServiceInterface::class.qualifiedName}" 
                             serviceImplementation="${DefaultService::class.qualifiedName}"
@@ -1252,8 +1243,8 @@ class DynamicPluginsTest {
                             overrides="true"/>
       """.trimIndent())
         includePackageClassFiles<DefaultService>()
-      }.buildDir(pluginsDir.resolve("foo"))
-      val foo = loadDescriptorInTest(pluginsDir.resolve("foo"))
+      }.installAt(pluginsDir)
+      val foo = loadDescriptorInTest(fooPath)
       assertThat(DynamicPlugins.loadPlugin(foo)).isEqualTo(dynamicServiceOverridesAllowed)
     }
   }
@@ -1330,89 +1321,6 @@ class DynamicPluginsTest {
   }
 }
 
-@InternalIgnoreDependencyViolation
-private class MyServiceAccessor : Runnable {
-  override fun run() {
-    service<MyRegistryAccessor>().accessRegistry()
-  }
-}
-
-private class MyRegistryAccessor {
-  var invocations: Int = 0
-
-  fun accessRegistry() {
-    @Suppress("UnresolvedPluginConfigReference")
-    check(Registry.get("test.plugin.registry.key").asBoolean())
-    invocations++
-  }
-}
-
-
-private class MyUISettingsListener : UISettingsListener {
-  override fun uiSettingsChanged(uiSettings: UISettings) {
-    DynamicPluginsTest.receivedNotifications.add(uiSettings)
-  }
-}
-
-private class MyUISettingsListener2 : UISettingsListener {
-  override fun uiSettingsChanged(uiSettings: UISettings) {
-    DynamicPluginsTest.receivedNotifications2.add(uiSettings)
-  }
-}
-
-private data class MyPersistentState(@Attribute var stateData: String? = "")
-
-private interface MyPersistentComponent {
-
-  var data: String?
-}
-
-@State(name = "MyTestState", storages = [Storage("other.xml")], allowLoadInTests = true)
-private class MyPersistentComponentImpl : MyPersistentComponent,
-                                          PersistentStateComponent<MyPersistentState> {
-
-  private var _state = MyPersistentState("")
-
-  override var data: String?
-    get() = _state.stateData
-    set(value) {
-      _state.stateData = value
-    }
-
-  override fun getState() = _state
-
-  fun setState(state: MyPersistentState) {
-    _state = state
-  }
-
-  override fun loadState(state: MyPersistentState) {
-    this.state = state
-  }
-}
-
-@InternalIgnoreDependencyViolation
-private class MyStartupActivity : StartupActivity.DumbAware {
-  override fun runActivity(project: Project) {
-    val service = project.getService(MyProjectService::class.java)
-    if (service != null) {
-      service.executed = true
-    }
-  }
-}
-
-@InternalIgnoreDependencyViolation
-private class MyProjectService {
-  companion object {
-    val LOG = logger<MyProjectService>()
-  }
-
-  init {
-    LOG.info("MyProjectService initialized")
-  }
-
-  var executed = false
-}
-
 private class MyInspectionTool : GlobalInspectionTool()
 private class MyInspectionTool2 : GlobalInspectionTool()
 
@@ -1471,35 +1379,17 @@ private fun assertModuleIsLoaded(moduleName: String) {
 }
 
 private fun loadPluginInTest(pluginPath: Path, actionWithPluginLoaded: () -> Unit) {
-  val descriptor = loadDescriptorInTest(pluginPath)
+  return loadPluginInTest(loadDescriptorInTest(pluginPath), actionWithPluginLoaded)
+}
+
+private fun loadPluginInTest(plugin: PluginMainDescriptor, actionWithPluginLoaded: () -> Unit) {
   try {
-    assertThat(DynamicPlugins.loadPlugin(pluginDescriptor = descriptor)).isTrue()
+    assertThat(DynamicPlugins.loadPlugin(pluginDescriptor = plugin)).isTrue()
     IndexingTestUtil.waitUntilIndexesAreReadyInAllOpenedProjects()
     actionWithPluginLoaded()
   }
   finally {
-    unloadAndUninstallPlugin(descriptor)
-  }
-}
-
-private fun loadPluginInTest(
-  plugin: PluginMainDescriptor,
-): Disposable {
-  Assertions.assertThat(DynamicPlugins.checkCanUnloadWithoutRestart(plugin)).isNull()
-  try {
-    assertTrue(DynamicPlugins.loadPlugin(pluginDescriptor = plugin), "expected $plugin to load dynamically")
-    IndexingTestUtil.waitUntilIndexesAreReadyInAllOpenedProjects()
-  }
-  catch (e: Exception) {
-    unloadAndUninstallPlugin(plugin) // FIXME it does not seem to uninstall the plugin and it we should not do it anyway
-    throw e
-  }
-  return Disposable {
-    val reason = DynamicPlugins.checkCanUnloadWithoutRestart(plugin)
-    invokeAndWaitIfNeeded {
-      unloadAndUninstallPlugin(plugin)
-    }
-    Assertions.assertThat(reason).isNull()
+    assertThat(unloadAndUninstallPlugin(plugin)).isTrue()
   }
 }
 
@@ -1513,4 +1403,10 @@ private fun assertDisabledDependencyLoadingError(pluginId: PluginId, dependencyI
   assertThat(error).isNotNull().isInstanceOfAny(PluginDependencyIsDisabled::class.java, PluginDependencyCannotBeLoaded::class.java)
   val disabledDependency = (error as? PluginDependencyIsDisabled)?.dependencyId ?: (error as? PluginDependencyCannotBeLoaded)!!.dependency.pluginId
   assertThat(disabledDependency).isNotNull().isEqualTo(dependencyId)
+}
+
+/** note: can't cast the output to [T], [T] can only be loaded by the isolated classloader of [descriptor] */
+private inline fun <reified T: PluginTestHandle<I, O>, I, O> ComponentManager.getTestHandleService(descriptor: IdeaPluginDescriptorImpl): PluginTestHandle<I, O>? {
+  @Suppress("UNCHECKED_CAST")
+  return getService(descriptor.loadClassInsideSelf<T>()) as PluginTestHandle<I, O>?
 }

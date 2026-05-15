@@ -41,12 +41,14 @@ class KmpSyntaxNode internal constructor(
   internal val nextMarkerStartLexemeIndex: Int,
   internal val markerIndex: Int,
   val languageProvider: SyntaxElementLanguageProvider,
+  documentLanguage: SyntaxLanguage?, // invariant: this is not-null for root
 ) : SyntaxNode {
   companion object {
     private fun rootWithContext(
       context: WalkerContext,
       tokens: TokenList,
       languageProvider: SyntaxElementLanguageProvider,
+      documentLanguage: SyntaxLanguage?,
     ): KmpSyntaxNode = KmpSyntaxNode(
       parent = null,
       prevSibling = null,
@@ -56,6 +58,7 @@ class KmpSyntaxNode internal constructor(
       nextMarkerStartLexemeIndex = context.startLexemeIndex,
       markerIndex = 0,
       languageProvider,
+      documentLanguage,
     )
 
     fun root(
@@ -65,6 +68,7 @@ class KmpSyntaxNode internal constructor(
       tokenizationPolicy: TokenizationPolicy,
       builderFactory: SyntaxBuilderFactory,
       tokens: TokenList,
+      documentLanguage: SyntaxLanguage,
       languageProvider: SyntaxElementLanguageProvider,
       extensions: () -> ExtensionSupport,
     ): KmpSyntaxNode = rootWithContext(
@@ -78,6 +82,7 @@ class KmpSyntaxNode internal constructor(
       ),
       tokens,
       languageProvider,
+      documentLanguage,
     )
   }
 
@@ -88,6 +93,7 @@ class KmpSyntaxNode internal constructor(
     startLexemeIndex: Int = this.startLexemeIndex,
     nextMarkerStartLexemeIndex: Int = this.nextMarkerStartLexemeIndex,
     markerIndex: Int = this.markerIndex,
+    documentLanguage: SyntaxLanguage?,
   ): KmpSyntaxNode = KmpSyntaxNode(
     parent = parent,
     prevSibling = prevSibling,
@@ -97,6 +103,7 @@ class KmpSyntaxNode internal constructor(
     tokens = tokens,
     markerIndex = markerIndex,
     languageProvider = languageProvider,
+    documentLanguage = documentLanguage,
   )
 
   internal val isMarker = markerIndex != -1 && startLexemeIndex == nextMarkerStartLexemeIndex
@@ -109,9 +116,10 @@ class KmpSyntaxNode internal constructor(
     else -> tokens.getTokenType(startLexemeIndex)!!
   }
 
-  override val language: SyntaxLanguage? by lazy {
-    (languageProvider.getLanguage(elementType) ?: parent?.language)!!
-  }
+  override val language: SyntaxLanguage =
+    languageProvider.getLanguage(elementType)
+    ?: parent?.language
+    ?: documentLanguage!!
 
   override fun equals(other: Any?): Boolean =
     (other === this) || (other is KmpSyntaxNode &&
@@ -162,7 +170,7 @@ class KmpSyntaxNode internal constructor(
       when {
         ast.kind(markerIndex) == MarkerKind.Error -> null
         isChameleon() -> (chameleonSyntaxNode?.firstChild() as KmpSyntaxNode?)
-          ?.copy(parent = this)
+          ?.copy(parent = this, documentLanguage = null)
 
         ast.collapsed(markerIndex) -> null // this is a collapsed non-lazy-parseable node, meaning it's a leaf
 
@@ -173,7 +181,8 @@ class KmpSyntaxNode internal constructor(
               markerIndex = -1,
               nextMarkerStartLexemeIndex = startLexemeIndex,
               prevSibling = null,
-              parent = this
+              parent = this,
+              documentLanguage = null,
             )
 
             childMarkerIndex == -1 -> null
@@ -181,7 +190,8 @@ class KmpSyntaxNode internal constructor(
               markerIndex = childMarkerIndex,
               prevSibling = null,
               nextMarkerStartLexemeIndex = startLexemeIndex + ast.lexemeRelOffset(childMarkerIndex),
-              parent = this
+              parent = this,
+              documentLanguage = null,
             )
 
 
@@ -193,7 +203,7 @@ class KmpSyntaxNode internal constructor(
     }
 
     isChameleon() && !isCopyOfParent() -> {
-      (chameleonSyntaxNode?.firstChild() as KmpSyntaxNode?)?.copy(parent = this)
+      (chameleonSyntaxNode?.firstChild() as KmpSyntaxNode?)?.copy(parent = this, documentLanguage = null)
     }
 
     else -> {
@@ -260,7 +270,8 @@ class KmpSyntaxNode internal constructor(
         startLexemeIndex = siblingLexemeIndex,
         nextMarkerStartLexemeIndex = startLexemeIndex,
         markerIndex = markerIndex,
-        prevSibling = this
+        prevSibling = this,
+        documentLanguage = null,
       )
 
       else -> null
@@ -282,6 +293,7 @@ class KmpSyntaxNode internal constructor(
           ),
           tokens,
           languageProvider,
+          documentLanguage = null,
         )
 
         else -> {
@@ -303,6 +315,7 @@ class KmpSyntaxNode internal constructor(
             ),
             chameleonTokens,
             languageProvider,
+            documentLanguage = null,
           )
         }
       }

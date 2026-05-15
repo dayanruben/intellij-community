@@ -11,7 +11,6 @@
       <module fileurl="file://$PROJECT_DIR$/fleet/build/fs/fleet.build.fs.iml" filepath="$PROJECT_DIR$/fleet/build/fs/fleet.build.fs.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/http/fleet.build.http.iml" filepath="$PROJECT_DIR$/fleet/build/http/fleet.build.http.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/kernel.plugins.processor/fleet.build.kernel.plugins.processor.iml" filepath="$PROJECT_DIR$/fleet/build/kernel.plugins.processor/fleet.build.kernel.plugins.processor.iml" />
-      <module fileurl="file://$PROJECT_DIR$/fleet/build/license/fleet.build.license.iml" filepath="$PROJECT_DIR$/fleet/build/license/fleet.build.license.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/platform/fleet.build.platform.iml" filepath="$PROJECT_DIR$/fleet/build/platform/fleet.build.platform.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/s3/fleet.build.s3.iml" filepath="$PROJECT_DIR$/fleet/build/s3/fleet.build.s3.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/scrambling/fleet.build.scrambling.iml" filepath="$PROJECT_DIR$/fleet/build/scrambling/fleet.build.scrambling.iml" />
@@ -1148,6 +1147,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/lombok/intellij.lombok.iml" filepath="$PROJECT_DIR$/plugins/lombok/intellij.lombok.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lombok/generated/intellij.lombok.generated.iml" filepath="$PROJECT_DIR$/plugins/lombok/generated/intellij.lombok.generated.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lombok/intellij.lombok.tests.iml" filepath="$PROJECT_DIR$/plugins/lombok/intellij.lombok.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/lsp.ui/intellij.lsp.ui.iml" filepath="$PROJECT_DIR$/plugins/lsp.ui/intellij.lsp.ui.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/markdown/core/intellij.markdown.iml" filepath="$PROJECT_DIR$/plugins/markdown/core/intellij.markdown.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/markdown/core/backend/intellij.markdown.backend.iml" filepath="$PROJECT_DIR$/plugins/markdown/core/backend/intellij.markdown.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/markdown/compose/intellij.markdown.compose.preview.iml" filepath="$PROJECT_DIR$/plugins/markdown/compose/intellij.markdown.compose.preview.iml" />
@@ -1478,6 +1478,10 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/IntelliLang/backend/intellij.platform.langInjection.backend.iml" filepath="$PROJECT_DIR$/plugins/IntelliLang/backend/intellij.platform.langInjection.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/IntelliLang/tests/intellij.platform.langInjection.tests.iml" filepath="$PROJECT_DIR$/plugins/IntelliLang/tests/intellij.platform.langInjection.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/locking-impl/intellij.platform.locking.impl.iml" filepath="$PROJECT_DIR$/platform/locking-impl/intellij.platform.locking.impl.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/lsp/intellij.platform.lsp.iml" filepath="$PROJECT_DIR$/platform/lsp/intellij.platform.lsp.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/lsp-impl/intellij.platform.lsp.impl.iml" filepath="$PROJECT_DIR$/platform/lsp-impl/intellij.platform.lsp.impl.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/lsp-impl/tests/intellij.platform.lsp.impl.tests.iml" filepath="$PROJECT_DIR$/platform/lsp-impl/tests/intellij.platform.lsp.impl.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/lsp/testFramework/intellij.platform.lsp.testFramework.iml" filepath="$PROJECT_DIR$/platform/lsp/testFramework/intellij.platform.lsp.testFramework.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/lvcs-api/intellij.platform.lvcs.iml" filepath="$PROJECT_DIR$/platform/lvcs-api/intellij.platform.lvcs.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/lvcs-impl/intellij.platform.lvcs.impl.iml" filepath="$PROJECT_DIR$/platform/lvcs-impl/intellij.platform.lvcs.impl.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/lvcs-impl/intellij.platform.lvcs.impl.tests.iml" filepath="$PROJECT_DIR$/platform/lvcs-impl/intellij.platform.lvcs.impl.tests.iml" />

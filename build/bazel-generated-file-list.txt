@@ -224,7 +224,6 @@ fleet/build/codecache
 fleet/build/fs
 fleet/build/http
 fleet/build/kernel.plugins.processor
-fleet/build/license
 fleet/build/platform
 fleet/build/s3
 fleet/build/scrambling
@@ -696,6 +695,10 @@ platform/lang-impl/backend
 platform/lang-impl/testEntities
 platform/libraries/cglib
 platform/locking-impl
+platform/lsp
+platform/lsp-impl
+platform/lsp-impl/tests
+platform/lsp/testFramework
 platform/lvcs-api
 platform/lvcs-impl
 platform/macro
@@ -1446,6 +1449,7 @@ plugins/laf/macos
 plugins/laf/win10
 plugins/lombok
 plugins/lombok/generated
+plugins/lsp.ui
 plugins/markdown/compose
 plugins/markdown/core
 plugins/markdown/core/backend

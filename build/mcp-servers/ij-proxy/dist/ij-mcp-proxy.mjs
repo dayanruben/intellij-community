@@ -20186,6 +20186,11 @@ async function clearLogFile() {
   } catch {}
 }
 
+// stream-transport.ts
+import { request as httpRequest } from "http";
+import { request as httpsRequest } from "https";
+import { Readable } from "stream";
+
 // node_modules/is-port-reachable/index.js
 import net from "net";
 async function isPortReachable(port, { host, timeout = 1000 } = {}) {
@@ -21502,6 +21507,77 @@ function formatProbedPortList(candidates) {
 function buildEndpointNotFoundMessage(candidates) {
   return `Failed to locate MCP stream endpoint. Probed ports: ${formatProbedPortList(candidates)}. Install the "MCP Server" plugin and ensure it is enabled in Settings | Tools | MCP Server.`;
 }
+function headersToObject(headers) {
+  let result = {};
+  return new Headers(headers).forEach((value, key) => {
+    result[key] = value;
+  }), result;
+}
+function headersFromIncoming(headers) {
+  let result = /* @__PURE__ */ new Headers;
+  for (let [key, value] of Object.entries(headers))
+    if (Array.isArray(value))
+      for (let item of value)
+        result.append(key, item);
+    else if (value !== void 0)
+      result.set(key, String(value));
+  return result;
+}
+function bodyToNodeBody(body) {
+  if (body == null)
+    return;
+  if (typeof body === "string")
+    return body;
+  if (body instanceof URLSearchParams)
+    return body.toString();
+  if (body instanceof ArrayBuffer)
+    return Buffer.from(body);
+  if (ArrayBuffer.isView(body))
+    return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  throw Error(`Unsupported MCP upstream fetch body type: ${Object.prototype.toString.call(body)}`);
+}
+function signalReasonToError(signal) {
+  let reason = signal?.reason;
+  if (reason instanceof Error)
+    return reason;
+  return Error(reason === void 0 ? "Request aborted" : String(reason));
+}
+function createNodeHttpFetch() {
+  return async (url2, init) => {
+    let target = url2 instanceof URL ? url2 : new URL(url2), request = target.protocol === "https:" ? httpsRequest : httpRequest;
+    if (target.protocol !== "http:" && target.protocol !== "https:")
+      throw Error(`Unsupported MCP upstream fetch protocol: ${target.protocol}`);
+    let body = bodyToNodeBody(init?.body), signal = init?.signal;
+    return await new Promise((resolve, reject) => {
+      let response, req = request(target, {
+        method: init?.method ?? "GET",
+        headers: headersToObject(init?.headers)
+      }, (res) => {
+        response = res, res.on("close", cleanup), resolve(new Response(Readable.toWeb(res), {
+          status: res.statusCode ?? 500,
+          statusText: res.statusMessage,
+          headers: headersFromIncoming(res.headers)
+        }));
+      });
+      function cleanup() {
+        signal?.removeEventListener("abort", abort);
+      }
+      function abort() {
+        let error48 = signalReasonToError(signal);
+        cleanup(), req.destroy(error48), response?.destroy(error48), reject(error48);
+      }
+      if (req.on("error", (error48) => {
+        cleanup(), reject(error48);
+      }), signal?.aborted) {
+        abort();
+        return;
+      }
+      if (signal?.addEventListener("abort", abort, { once: !0 }), body !== void 0)
+        req.write(body);
+      req.end();
+    });
+  };
+}
 
 class StreamTransportImpl {
   _options;
@@ -21626,7 +21702,7 @@ class StreamTransportImpl {
       }
       if (note)
         note(`Connecting to MCP stream ${targetUrl}`);
-      let transport = new StreamableHTTPClientTransport(targetUrl);
+      let transport = new StreamableHTTPClientTransport(targetUrl, { fetch: createNodeHttpFetch() });
       if (transport.onmessage = (message, extra) => {
         if (this.onmessage)
           this.onmessage(message, extra);
@@ -21720,6 +21796,9 @@ function createStreamTransport({
     probeHost
   });
 }
+
+// upstream.ts
+import { AsyncLocalStorage } from "async_hooks";
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/client.js
 class ExperimentalClientTasks {
@@ -24450,7 +24529,7 @@ async function handleContainerBash(args, projectPath, callUpstreamTool, session)
     if (posixProjectPath !== projectPath)
       command = command.replaceAll(posixProjectPath, session.workspacePath);
   }
-  let timeoutMs = typeof args.timeout === "number" ? args.timeout * 1000 : 900000, result = extractText(await callUpstreamTool("container_exec", {
+  let timeoutMs = typeof args.timeout === "number" ? args.timeout : 900000, result = extractText(await callUpstreamTool("container_exec", {
     sessionId: session.sessionId,
     command: ["bash", "-c", `cd '${session.workspacePath}' && ${command}`],
     timeoutMs
@@ -24609,8 +24688,20 @@ function buildToolSpec(name, description, inputSchema, annotations, context) {
   return {
     name,
     description: resolveToolDescription(description, context),
-    inputSchema,
+    inputSchema: withTimeoutDeclared(inputSchema),
     ...annotations ? { annotations } : {}
+  };
+}
+var TIMEOUT_INPUT_SCHEMA_PROPERTY = {
+  type: "number",
+  description: "Optional. Per-call timeout in milliseconds. Used as the ij-proxy MCP RPC deadline and forwarded to upstream tools that accept it. 0 disables. Defaults to the proxy's configured per-tool timeout (~60 s for most tools, ~1200 s for build/lint/container)."
+};
+function withTimeoutDeclared(inputSchema) {
+  if (Object.prototype.hasOwnProperty.call(inputSchema.properties, "timeout"))
+    return inputSchema;
+  return {
+    ...inputSchema,
+    properties: { ...inputSchema.properties, timeout: TIMEOUT_INPUT_SCHEMA_PROPERTY }
   };
 }
 var TOOL_VARIANTS = [
@@ -24722,7 +24813,7 @@ var TOOL_VARIANTS = [
       type: "object",
       properties: {
         command: { type: "string", description: "The bash command to execute" },
-        timeout: { type: "number", description: "Timeout in seconds (default: 900). Use 1200+ for build commands." }
+        timeout: { type: "number", description: "Per-call timeout in milliseconds. Used as the ij-proxy MCP RPC deadline and as the inner container_exec command deadline. 0 disables. Default: 900000 (15 min); use 1200000+ for build commands." }
       },
       required: ["command"]
     }),
@@ -24848,7 +24939,7 @@ function createProxyTooling({
 }
 
 // upstream.ts
-var RECOVERABLE_UPSTREAM_ERROR_RE = /\b(not connected|connection closed|session not found|server not initialized|mcp-session-id header is required)\b/i;
+var requestContext = new AsyncLocalStorage, RECOVERABLE_UPSTREAM_ERROR_RE = /\b(not connected|connection closed|session not found|server not initialized|mcp-session-id header is required)\b/i;
 function getErrorMessage(error48) {
   return error48 instanceof Error ? error48.message : String(error48);
 }
@@ -24991,6 +25082,9 @@ class UpstreamConnection {
   }
   static _LONG_TIMEOUT_TOOLS = /* @__PURE__ */ new Set(["build_project", "lint_files", "open_file_in_editor", "container_exec"]);
   _resolveTimeoutMs(toolName) {
+    let ctx = requestContext.getStore();
+    if (ctx?.clientTimeoutMs !== void 0)
+      return ctx.clientTimeoutMs;
     return UpstreamConnection._LONG_TIMEOUT_TOOLS.has(toolName) ? this._buildTimeoutMs : this._toolCallTimeoutMs;
   }
   async forwardRequest(method, params) {
@@ -25462,67 +25556,74 @@ proxyServer.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (detected)
       containerSession = detected, note(`Container session detected on tool call: id=${detected.sessionId}`), updateProxyTooling(), await ensureDiscovered(), await proxyServer.sendToolListChanged();
   }
-  let toolName = typeof request.params?.name === "string" ? request.params.name : "", rawArgs = request.params?.arguments, args = rawArgs && typeof rawArgs === "object" ? { ...rawArgs } : {};
+  let toolName = typeof request.params?.name === "string" ? request.params.name : "", rawArgs = request.params?.arguments, args = rawArgs && typeof rawArgs === "object" ? { ...rawArgs } : {}, clientTimeoutMs;
+  try {
+    clientTimeoutMs = extractClientTimeoutMs(args);
+  } catch (error48) {
+    return makeToolError(error48 instanceof Error ? error48.message : String(error48));
+  }
   if (containerSession)
     note(`Tool call: ${toolName} [container:${containerSession.sessionId}, proxy:${proxyToolNames.has(toolName)}, hasUpstream:${!!ideaUpstream}]`);
-  if (!toolName)
-    return makeToolError("Tool name is required");
-  if (BASE_BLOCKED_TOOL_NAMES.has(toolName))
-    return makeToolError(blockedToolMessage(toolName));
-  if (await ensureDiscovered(), proxyToolNames.has(toolName)) {
-    if (ideaProxyToolCall && riderProxyToolCall) {
-      if (isMergeTool(toolName))
-        return await callMergedProxyTool(toolName, args);
-      if (toolName === "lint_files")
-        return await callSplitMergedProxyTool(toolName, args);
-      let ide = resolveIdeForPath(args, projectPath), proxyCall2 = ide === "rider" ? riderProxyToolCall : ideaProxyToolCall, rewrittenArgs = rewriteArgsForTarget(ide === "rider" ? "target-rider" : "target-idea", args);
-      try {
-        return makeToolOutput(await proxyCall2(toolName, rewrittenArgs));
-      } catch (error48) {
-        let message = error48 instanceof Error ? error48.message : String(error48);
-        return makeToolError(message);
-      }
-    }
-    let proxyCall = ideaProxyToolCall ?? riderProxyToolCall;
-    if (proxyCall)
-      try {
+  return await requestContext.run({ clientTimeoutMs }, async () => {
+    if (!toolName)
+      return makeToolError("Tool name is required");
+    if (BASE_BLOCKED_TOOL_NAMES.has(toolName))
+      return makeToolError(blockedToolMessage(toolName));
+    if (await ensureDiscovered(), proxyToolNames.has(toolName)) {
+      if (ideaProxyToolCall && riderProxyToolCall) {
+        if (isMergeTool(toolName))
+          return await callMergedProxyTool(toolName, args);
         if (toolName === "lint_files")
-          return await callSingleLintFilesTool(args);
-        return makeToolOutput(await proxyCall(toolName, args));
-      } catch (error48) {
-        let message = error48 instanceof Error ? error48.message : String(error48);
-        return makeToolError(message);
-      }
-  }
-  if (ideaUpstream && riderUpstream) {
-    let route = resolveRoute(toolName, args, projectPath);
-    switch (route) {
-      case "merge":
-        return await callMergedPassthroughTool(toolName, args);
-      case "split-merge":
-        return await callSplitMergedPassthroughTool(toolName, args);
-      case "target-idea":
-      case "target-rider": {
-        let target = route === "target-rider" ? riderUpstream : ideaUpstream;
+          return await callSplitMergedProxyTool(toolName, args);
+        let ide = resolveIdeForPath(args, projectPath), proxyCall2 = ide === "rider" ? riderProxyToolCall : ideaProxyToolCall, rewrittenArgs = rewriteArgsForTarget(ide === "rider" ? "target-rider" : "target-idea", args);
         try {
-          return await target.callToolForClient(toolName, rewriteArgsForTarget(route, args));
+          return makeToolOutput(await proxyCall2(toolName, rewrittenArgs));
         } catch (error48) {
           let message = error48 instanceof Error ? error48.message : String(error48);
           return makeToolError(message);
         }
       }
-      case "primary":
-        break;
+      let proxyCall = ideaProxyToolCall ?? riderProxyToolCall;
+      if (proxyCall)
+        try {
+          if (toolName === "lint_files")
+            return await callSingleLintFilesTool(args);
+          return makeToolOutput(await proxyCall(toolName, args));
+        } catch (error48) {
+          let message = error48 instanceof Error ? error48.message : String(error48);
+          return makeToolError(message);
+        }
     }
-  }
-  try {
-    if (toolName === "lint_files")
-      return await callSingleLintFilesTool(args);
-    return await primaryUpstream().callToolForClient(toolName, args);
-  } catch (error48) {
-    let message = error48 instanceof Error ? error48.message : String(error48);
-    return makeToolError(message);
-  }
+    if (ideaUpstream && riderUpstream) {
+      let route = resolveRoute(toolName, args, projectPath);
+      switch (route) {
+        case "merge":
+          return await callMergedPassthroughTool(toolName, args);
+        case "split-merge":
+          return await callSplitMergedPassthroughTool(toolName, args);
+        case "target-idea":
+        case "target-rider": {
+          let target = route === "target-rider" ? riderUpstream : ideaUpstream;
+          try {
+            return await target.callToolForClient(toolName, rewriteArgsForTarget(route, args));
+          } catch (error48) {
+            let message = error48 instanceof Error ? error48.message : String(error48);
+            return makeToolError(message);
+          }
+        }
+        case "primary":
+          break;
+      }
+    }
+    try {
+      if (toolName === "lint_files")
+        return await callSingleLintFilesTool(args);
+      return await primaryUpstream().callToolForClient(toolName, args);
+    } catch (error48) {
+      let message = error48 instanceof Error ? error48.message : String(error48);
+      return makeToolError(message);
+    }
+  });
 });
 proxyServer.fallbackRequestHandler = async (request) => {
   return await ensureDiscovered(), await primaryUpstream().forwardRequest(request.method, request.params);
@@ -25656,9 +25757,17 @@ function normalizeLintFilePathsArg(value) {
 function normalizeLintTimeoutArg(value) {
   if (value === void 0 || value === null)
     return;
-  if (typeof value !== "number" || !Number.isInteger(value) || !Number.isFinite(value) || value < 0)
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0)
     throw Error("timeout must be a non-negative integer");
   return value;
+}
+function extractClientTimeoutMs(args) {
+  let raw = args.timeout;
+  if (raw === void 0 || raw === null)
+    return;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0)
+    throw Error("timeout must be a non-negative integer (milliseconds)");
+  return raw;
 }
 function parseLintFilesToolResult(result) {
   let structured = extractStructuredContent(result);

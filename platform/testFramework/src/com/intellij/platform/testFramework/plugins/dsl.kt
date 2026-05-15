@@ -9,6 +9,10 @@ import java.util.concurrent.atomic.AtomicInteger
 private val idCounter = AtomicInteger()
 private fun autoId(): String = "plugin_${idCounter.incrementAndGet()}"
 
+@DslMarker
+@Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE)
+annotation class PluginBuilderDsl
+
 fun plugin(id: String? = autoId(), body: PluginSpecBuilder.() -> Unit): PluginSpec {
   val builder = PluginSpecBuilder()
   builder.id = id
@@ -26,6 +30,7 @@ fun PluginSpecBuilder.depends(pluginId: String, configFile: String, optional: Bo
   pluginDependencies += DependsSpec(pluginId, optional, configFile, dependsDesc.build())
 }
 
+@PluginBuilderDsl
 class DependenciesScope(internal val plugin: PluginSpecBuilder)
 
 fun PluginSpecBuilder.dependencies(body: DependenciesScope.() -> Unit) {
@@ -41,6 +46,7 @@ fun DependenciesScope.module(name: String, namespace: String? = null) {
   plugin.moduleDependencies += ModuleDependencySpec(name, namespace)
 }
 
+@PluginBuilderDsl
 class ContentScope(internal val plugin: PluginSpecBuilder, internal val namespace: String?)
 
 fun PluginSpecBuilder.content(namespace: String? = null, body: ContentScope.() -> Unit) {
@@ -108,6 +114,22 @@ inline fun <reified T> PluginSpecBuilder.extension(epFqn: String): Unit = extens
 
 fun PluginSpecBuilder.pluginAlias(id: String) {
   pluginAliases += id
+}
+
+fun PluginSpecBuilder.applicationListener(implFqn: String, topic: String) {
+  applicationListeners += """<listener class="$implFqn" topic="$topic"/>\n"""
+}
+
+inline fun <reified Impl, reified Topic> PluginSpecBuilder.applicationListener() {
+  applicationListener(Impl::class.java.name, Topic::class.java.name)
+}
+
+fun PluginSpecBuilder.applicationService(implFqn: String, iface: String) {
+  extensions("""<applicationService serviceInterface="$iface" serviceImplementation="$implFqn"/>""")
+}
+
+inline fun <reified Impl, reified Iface> PluginSpecBuilder.applicationService() {
+  applicationService(Impl::class.java.name, Iface::class.java.name)
 }
 
 inline fun <reified T> PluginSpecBuilder.includeClassFile(): Unit =
