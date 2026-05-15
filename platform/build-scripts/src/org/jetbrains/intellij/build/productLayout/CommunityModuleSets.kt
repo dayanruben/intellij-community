@@ -301,6 +301,14 @@ object CommunityModuleSets {
   }
 
   /**
+   * Structural Search and Replace modules.
+   */
+  @Suppress("unused")
+  fun structuralSearch(): ModuleSet = plugin("structuralSearch") {
+    module("intellij.platform.structuralSearch")
+  }
+
+  /**
    * Stream debugger modules.
    */
   @Suppress("unused")
@@ -443,7 +451,6 @@ object CommunityModuleSets {
     moduleSet(vcs())
     moduleSet(xml())
     moduleSet(duplicates())
-    module("intellij.platform.structuralSearch")
     embeddedModule("intellij.libraries.batik")
 
     // IJent platform modules

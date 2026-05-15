@@ -696,15 +696,6 @@ c:com.intellij.structuralsearch.impl.matcher.predicates.ScriptLog
 - error(java.lang.Object):V
 - info(java.lang.Object):V
 - warn(java.lang.Object):V
-c:com.intellij.structuralsearch.impl.matcher.predicates.ScriptPredicate
-- com.intellij.structuralsearch.impl.matcher.predicates.MatchPredicate
-- <init>(com.intellij.openapi.project.Project,java.lang.String,groovy.lang.Script,java.util.Set):V
-- match(com.intellij.psi.PsiElement,I,I,com.intellij.structuralsearch.impl.matcher.MatchContext):Z
-c:com.intellij.structuralsearch.impl.matcher.predicates.ScriptSupport
-- sf:UUID:java.lang.String
-- <init>(com.intellij.openapi.project.Project,groovy.lang.Script,java.lang.String,java.util.Collection):V
-- s:buildScript(java.lang.String,java.lang.String,com.intellij.structuralsearch.MatchOptions):groovy.lang.Script
-- evaluate(com.intellij.structuralsearch.MatchResult,com.intellij.psi.PsiElement):java.lang.Object
 c:com.intellij.structuralsearch.impl.matcher.predicates.WithinPredicate
 - com.intellij.structuralsearch.impl.matcher.predicates.MatchPredicate
 - <init>(java.lang.String,com.intellij.openapi.fileTypes.LanguageFileType,com.intellij.openapi.project.Project):V

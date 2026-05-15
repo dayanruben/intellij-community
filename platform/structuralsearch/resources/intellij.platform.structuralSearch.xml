@@ -31,6 +31,9 @@
     <extensionPoint qualifiedName="com.intellij.structuralsearch.filterProvider"
                     interface="com.intellij.structuralsearch.plugin.ui.filters.FilterProvider"
                     dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.structuralsearch.scriptEngine"
+                    interface="com.intellij.structuralsearch.StructuralSearchScriptEngine"
+                    dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.structuralsearch.specialXmlTagExtractor"
                     interface="com.intellij.structuralsearch.SpecialElementExtractor"
                     dynamic="true"/>
@@ -63,7 +66,7 @@
     <applicationSettings service="com.intellij.structuralsearch.plugin.ui.UIState"/>
   </extensions>
 
-  <actions>
+  <actions resource-bundle="messages.ActionsBundle">
     <group id="StructuralSearchActions">
       <add-to-group group-id="FindMenuGroup" anchor="after" relative-to-action="ReplaceInPath"/>
 

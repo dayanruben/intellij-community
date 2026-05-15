@@ -23,6 +23,7 @@
   </content>
   <dependencies>
     <plugin id="com.intellij.properties"/>
+    <plugin id="com.intellij.groovy.scripting"/>
     <module name="intellij.java.backend"/>
     <module name="intellij.properties.backend.psi"/>
     <module name="intellij.regexp"/>

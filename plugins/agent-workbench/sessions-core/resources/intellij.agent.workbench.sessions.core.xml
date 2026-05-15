@@ -16,6 +16,10 @@
       interface="com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchSpecAugmenter"
       dynamic="true"/>
     <extensionPoint
+      qualifiedName="com.intellij.agent.workbench.projectRuntimeConfigProvider"
+      interface="com.intellij.agent.workbench.sessions.core.config.AgentWorkbenchProjectRuntimeConfigProvider"
+      dynamic="true"/>
+    <extensionPoint
       qualifiedName="com.intellij.agent.workbench.sessionLaunchContributor"
       interface="com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchContributor"
       dynamic="true"/>
@@ -26,6 +30,10 @@
     <extensionPoint
       qualifiedName="com.intellij.agent.workbench.mcpConfigProviderContributor"
       interface="com.intellij.agent.workbench.sessions.core.launch.AwbMcpConfigProviderContributor"
+      dynamic="true"/>
+    <extensionPoint
+      qualifiedName="com.intellij.agent.workbench.settingsContributor"
+      interface="com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettingsContributor"
       dynamic="true"/>
   </extensionPoints>
 

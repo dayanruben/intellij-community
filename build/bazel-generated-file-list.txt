@@ -389,6 +389,12 @@ libraries/detekt-compose-rules
 libraries/dokka
 libraries/download-pgp-verifier
 libraries/fastutil
+libraries/groovy
+libraries/groovy/ant
+libraries/groovy/json
+libraries/groovy/jsr223
+libraries/groovy/templates
+libraries/groovy/xml
 libraries/grpc
 libraries/grpc-netty-shaded
 libraries/gson
@@ -522,6 +528,7 @@ module-set-plugins/generated/intellij.moduleSet.plugin.debugger.streams
 module-set-plugins/generated/intellij.moduleSet.plugin.grid.core
 module-set-plugins/generated/intellij.moduleSet.plugin.main
 module-set-plugins/generated/intellij.moduleSet.plugin.recentFiles
+module-set-plugins/generated/intellij.moduleSet.plugin.structuralSearch
 module-set-plugins/generated/intellij.moduleSet.plugin.vcs.frontend
 mps/build
 mps/build/intellij.mps.resources
@@ -1093,6 +1100,7 @@ plugins/grazie/xml
 plugins/grazie/yaml
 plugins/groovy
 plugins/groovy-live-templates
+plugins/groovy-scripting
 plugins/groovy/ant
 plugins/groovy/byteCodeViewer
 plugins/groovy/git
@@ -1447,6 +1455,7 @@ plugins/markdown/frontmatter
 plugins/markdown/frontmatter/toml
 plugins/markdown/frontmatter/yaml
 plugins/markdown/images
+plugins/markdown/java
 plugins/markdown/model
 plugins/markdown/plugin
 plugins/markdown/spellchecker

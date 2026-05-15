@@ -174,6 +174,8 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.gradle.toolingProxy", "gradle-tooling-proxy.jar")
       spec.withModule("intellij.gradle.toolingExtension", "gradle-tooling-extension-api.jar")
       spec.withModule("intellij.gradle.toolingExtension.impl", "gradle-tooling-extension-impl.jar")
+      spec.withModule("intellij.libraries.groovy", "groovy.jar")
+      spec.withModule("intellij.libraries.groovy.ant", "groovy-ant.jar")
       spec.withProjectLibrary("Gradle", LibraryPackMode.STANDALONE_SEPARATE)
       spec.withProjectLibrary("Ant", "ant", LibraryPackMode.STANDALONE_SEPARATE)
     },
@@ -730,14 +732,13 @@ object CommunityRepositoryModules {
   }
 
   fun groovyPlugin(additionalModules: List<String> = emptyList(), addition: ((PluginLayout.PluginLayoutSpec) -> Unit)? = null): PluginLayout {
-    return plugin("intellij.groovy") { spec ->
+    return pluginAutoWithCustomDirName("intellij.groovy") { spec ->
       spec.directoryName = "Groovy"
       spec.mainJarName = "Groovy.jar"
       spec.withModules(
         listOf(
           "intellij.groovy.psi",
           "intellij.groovy.structuralSearch",
-          "intellij.groovy.git",
         )
       )
       spec.withModule("intellij.groovy.jps", "groovy-jps.jar")
