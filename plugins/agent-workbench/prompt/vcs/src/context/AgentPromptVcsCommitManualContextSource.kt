@@ -23,23 +23,25 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.PopupChooserBuilder
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.ui.ColoredListCellRenderer
-import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBList
+import com.intellij.util.ui.JBUI
 import com.intellij.vcs.log.CommitId
 import com.intellij.vcs.log.VcsCommitMetadata
 import com.intellij.vcs.log.impl.VcsLogManager
 import com.intellij.vcs.log.impl.VcsProjectLog
-import javax.swing.JList
+import com.intellij.vcs.log.util.VcsUserUtil
 import javax.swing.ListSelectionModel
 
 private const val MAX_INCLUDED_SELECTION_COMMITS = 20
 private const val MAX_CHOOSER_CANDIDATES = 200
+internal const val COMMIT_CHOOSER_CELL_WIDTH = 520
 
 internal data class CommitPickerEntry(
   @JvmField val commitIndex: Int,
   @JvmField val hash: @NlsSafe String,
   @JvmField val subject: @NlsSafe String,
+  @JvmField val author: @NlsSafe String?,
+  @JvmField val commitTimeMs: Long?,
   @JvmField val rootPath: String?,
   @JvmField val rootName: @NlsSafe String?,
   @JvmField val issueUrls: List<String> = emptyList(),
@@ -49,6 +51,7 @@ internal data class CommitPickerEntry(
       append(hash)
       append(' ')
       append(subject)
+      author?.takeIf { it.isNotBlank() }?.let { append(' '); append(it) }
       rootName?.takeIf { it.isNotBlank() }?.let { append(' '); append(it) }
     }
 }
@@ -150,6 +153,8 @@ internal class AgentPromptVcsCommitManualContextSource(
         commitIndex = commitIndex,
         hash = commitId.hash.asString(),
         subject = metadata?.subject?.trim()?.takeIf { it.isNotEmpty() } ?: commitId.hash.asString(),
+        author = metadata?.author?.let(VcsUserUtil::getShortPresentation)?.trim()?.takeIf { it.isNotEmpty() },
+        commitTimeMs = metadata?.commitTime?.takeIf { it > 0L },
         rootPath = commitId.root.path,
         rootName = commitId.root.name,
         issueUrls = metadata?.subject?.let { subject -> resolveIssueUrls(request.sourceProject, subject) }.orEmpty(),
@@ -163,40 +168,15 @@ internal class AgentPromptVcsCommitManualContextSource(
   ) {
     val selectedHashes = extractCurrentHashes(request.currentItem).toSet()
     val showRootNames = entries
-      .asSequence()
-      .mapNotNull(CommitPickerEntry::rootPath)
-      .distinct()
-      .take(2)
-      .count() > 1
-    val chooserList = JBList(entries).apply {
-      selectionMode = ListSelectionModel.MULTIPLE_INTERVAL_SELECTION
-      val selectedIndices = entries.mapIndexedNotNull { index, entry ->
-        index.takeIf { entry.hash in selectedHashes }
-      }
-      if (selectedIndices.isNotEmpty()) {
-        setSelectedIndices(selectedIndices.toIntArray())
-      }
-    }
+                          .asSequence()
+                          .mapNotNull(CommitPickerEntry::rootPath)
+                          .distinct()
+                          .take(2)
+                          .count() > 1
+    val chooserList = createCommitPickerList(entries, selectedHashes)
     PopupChooserBuilder(chooserList)
       .setTitle(AgentPromptVcsBundle.message("manual.context.vcs.chooser.title"))
-      .setRenderer(object : ColoredListCellRenderer<CommitPickerEntry>() {
-        @Suppress("HardCodedStringLiteral")
-        override fun customizeCellRenderer(
-          list: JList<out CommitPickerEntry>,
-          value: CommitPickerEntry?,
-          index: Int,
-          selected: Boolean,
-          hasFocus: Boolean,
-        ) {
-          value ?: return
-          val shortHash: @NlsSafe String = value.hash.take(8)
-          append(shortHash, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-          append("  ${value.subject}", SimpleTextAttributes.REGULAR_ATTRIBUTES)
-          value.rootName?.takeIf { showRootNames && it.isNotBlank() }?.let { rootName ->
-            append("  $rootName", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
-          }
-        }
-      })
+      .setRenderer(AgentPromptVcsCommitListCellRenderer(showRootNames))
       .setNamerForFiltering { entry -> entry.filterText }
       .setVisibleRowCount(12)
       .setItemsChosenCallback { selectedEntries: Set<CommitPickerEntry> ->
@@ -213,13 +193,39 @@ internal class AgentPromptVcsCommitManualContextSource(
 
 }
 
+internal fun createCommitPickerList(
+  entries: List<CommitPickerEntry>,
+  selectedHashes: Set<String>,
+): JBList<CommitPickerEntry> {
+  return JBList(entries).apply {
+    fixedCellWidth = JBUI.scale(COMMIT_CHOOSER_CELL_WIDTH)
+    selectionMode = ListSelectionModel.MULTIPLE_INTERVAL_SELECTION
+    val selectedIndices = entries.mapIndexedNotNull { index, entry ->
+      index.takeIf { entry.hash in selectedHashes }
+    }
+    if (selectedIndices.isNotEmpty()) {
+      setSelectedIndices(selectedIndices.toIntArray())
+    }
+  }
+}
+
 @Suppress("DuplicatedCode")
 internal fun buildManualVcsContextItem(selection: List<CommitPickerEntry>): AgentPromptContextItem {
   val normalizedSelection = normalizeManualVcsSelection(selection)
   val included = normalizedSelection.take(MAX_INCLUDED_SELECTION_COMMITS)
   val fullContent = normalizedSelection.joinToString(separator = "\n") { it.hash }
   val content = included.joinToString(separator = "\n") { it.hash }
-  val payloadEntries = included.map { commit -> buildVcsCommitPayloadEntry(commit.hash, commit.rootPath, commit.issueUrls) }
+  val payloadEntries = included.map { commit ->
+    buildVcsCommitPayloadEntry(
+      hash = commit.hash,
+      rootPath = commit.rootPath,
+      issueUrls = commit.issueUrls,
+      subject = commit.subject.takeUnless { it == commit.hash },
+      author = commit.author,
+      commitTimeMs = commit.commitTimeMs,
+      rootName = commit.rootName,
+    )
+  }
   return AgentPromptContextItem(
     rendererId = AgentPromptContextRendererIds.VCS_COMMITS,
     title = AgentPromptVcsBundle.message("context.vcs.manual.title"),

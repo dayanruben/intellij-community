@@ -16,7 +16,10 @@ class McpToolFilterSettingsTest {
   @AfterEach
   fun tearDown() {
     // Reset filter to default after each test
-    McpToolFilterSettings.getInstance().toolsFilter = McpToolFilterSettings.DEFAULT_FILTER
+    McpToolFilterSettings.getInstance().apply {
+      toolsFilter = McpToolFilterSettings.DEFAULT_FILTER
+      invocationMode = McpSessionInvocationMode.DIRECT
+    }
   }
 
   @Test
@@ -79,7 +82,9 @@ class McpToolFilterSettingsTest {
 
     val tools = McpServerService.getInstance().getMcpTools()
 
-    assertThat(tools).isEmpty()
+    // Router tool (execute_tool) is always available
+    assertThat(tools).hasSize(1)
+    assertThat(tools).allMatch { it.descriptor.name == "execute_tool" }
   }
 
   @Test
@@ -90,10 +95,14 @@ class McpToolFilterSettingsTest {
 
     assertThat(tools).isNotEmpty()
     tools.forEach { tool ->
-      assertThat(tool.descriptor.fullyQualifiedName).startsWith("com.intellij.mcpserver.toolsets.general.TextToolset.")
+      val isRouterTool = tool.descriptor.name == "execute_tool"
+      val isTextToolsetTool = tool.descriptor.fullyQualifiedName.startsWith("com.intellij.mcpserver.toolsets.general.TextToolset.")
+      assertThat(isRouterTool || isTextToolsetTool).isTrue()
     }
-    assertThat(tools).hasSize(1)
-    assertThat(tools).allMatch { it.descriptor.name == "replace_text_in_file" }
+    // Router tool (execute_tool) is always available, plus TextToolset tool
+    assertThat(tools).hasSize(2)
+    assertThat(tools).anyMatch { it.descriptor.name == "execute_tool" }
+    assertThat(tools).anyMatch { it.descriptor.name == "replace_text_in_file" }
   }
 
   @Test
@@ -121,7 +130,22 @@ class McpToolFilterSettingsTest {
 
     assertThat(tools).isNotEmpty()
     tools.forEach { tool ->
-      assertThat(tool.descriptor.fullyQualifiedName).startsWith("com.intellij.mcpserver.toolsets.general.TextToolset.")
+      val isRouterTool = tool.descriptor.name == "execute_tool"
+      val isTextToolsetTool = tool.descriptor.fullyQualifiedName.startsWith("com.intellij.mcpserver.toolsets.general.TextToolset.")
+      assertThat(isRouterTool || isTextToolsetTool).isTrue()
     }
   }
+
+  @Test
+  fun `invocation mode defaults to direct`() {
+    assertThat(McpToolFilterSettings.getInstance().invocationMode).isEqualTo(McpSessionInvocationMode.DIRECT)
+  }
+
+  @Test
+  fun `invocation mode can be switched to router`() {
+    McpToolFilterSettings.getInstance().invocationMode = McpSessionInvocationMode.VIA_ROUTER
+
+    assertThat(McpToolFilterSettings.getInstance().invocationMode).isEqualTo(McpSessionInvocationMode.VIA_ROUTER)
+  }
+
 }
