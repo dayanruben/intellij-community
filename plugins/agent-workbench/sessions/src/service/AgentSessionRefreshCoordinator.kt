@@ -21,7 +21,6 @@ import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.core.config.AgentWorkbenchProjectRuntimeConfigs
-import com.intellij.agent.workbench.sessions.core.providers.AgentProviderCliMissingException
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
@@ -31,12 +30,14 @@ import com.intellij.agent.workbench.sessions.model.AgentSessionProviderWarning
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.agent.workbench.sessions.model.ProjectEntry
+import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import com.intellij.agent.workbench.sessions.util.agentSessionCliMissingMessageKey
 import com.intellij.agent.workbench.sessions.util.buildAgentSessionIdentity
 import com.intellij.ide.SaveAndSyncHandler
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -119,7 +120,7 @@ internal class AgentSessionRefreshCoordinator(
     serviceScope = serviceScope,
     sessionSourcesProvider = sessionSourcesProvider,
     scopedRefreshProvidersProvider = {
-      providerDescriptorsByIdProvider()
+      AgentSessionProviderSettingsService.getInstance().enabledProviders(providerDescriptorsByIdProvider())
         .asSequence()
         .filter { provider -> provider.emitsScopedRefreshSignals }
         .map { provider -> provider.provider }
@@ -162,6 +163,7 @@ internal class AgentSessionRefreshCoordinator(
     if (activityHintsByThreadId.isEmpty()) {
       return
     }
+    val summaryActivityHintsByThreadId = updateEvent.summaryActivityHintsByThreadId
 
     val normalizedScopedPaths = updateEvent.scopedPaths
       ?.asSequence()
@@ -176,6 +178,7 @@ internal class AgentSessionRefreshCoordinator(
         provider = provider,
         normalizedScopedPaths = normalizedScopedPaths,
         activityHintsByThreadId = activityHintsByThreadId,
+        summaryActivityHintsByThreadId = summaryActivityHintsByThreadId,
       )
       activityByPathAndThreadIdentity = update.activityByPathAndThreadIdentity
       update.state
@@ -237,9 +240,11 @@ internal class AgentSessionRefreshCoordinator(
       }
 
       val sessionSources = sessionSourcesProvider()
+      val cliAvailabilityByProvider = resolveCliAvailabilityByProvider(sessionSources)
+      val availableSessionSources = sessionSources.filter { source -> cliAvailabilityByProvider[source.provider] != false }
 
       val prefetchedByProvider = coroutineScope {
-        sessionSources.map { source ->
+        availableSessionSources.map { source ->
           async {
             source.provider to try {
               source.prefetchThreads(bootstrap.loadPaths.toList())
@@ -264,11 +269,12 @@ internal class AgentSessionRefreshCoordinator(
               return@launch
             }
             val finalResult = threadLoadSupport.loadSourcesIncrementally(
-              sessionSources = sessionSources,
+              sessionSources = availableSessionSources,
               normalizedPath = normalizedEntryPath,
               project = entryProject,
               prefetchedByProvider = prefetchedByProvider,
               originalPath = entry.path,
+              cliAvailabilityByProvider = cliAvailabilityByProvider,
             ) { partial, isComplete ->
               stateStore.updateProject(normalizedEntryPath) { project ->
                 project.copy(
@@ -303,11 +309,12 @@ internal class AgentSessionRefreshCoordinator(
                 return@launch
               }
               val finalResult = threadLoadSupport.loadSourcesIncrementally(
-                sessionSources = sessionSources,
+                sessionSources = availableSessionSources,
                 normalizedPath = normalizedWorktreePath,
                 project = worktreeProject,
                 prefetchedByProvider = prefetchedByProvider,
                 originalPath = wt.path,
+                cliAvailabilityByProvider = cliAvailabilityByProvider,
               ) { partial, isComplete ->
                 stateStore.updateWorktree(normalizedEntryPath, normalizedWorktreePath) { worktree ->
                   worktree.copy(
@@ -333,6 +340,28 @@ internal class AgentSessionRefreshCoordinator(
         }
       }
       stateStore.update { it.copy(lastUpdatedAt = System.currentTimeMillis()) }
+    }
+  }
+
+  private suspend fun resolveCliAvailabilityByProvider(
+    sessionSources: List<AgentSessionSource>,
+  ): Map<AgentSessionProvider, Boolean> {
+    return coroutineScope {
+      sessionSources.map { source ->
+        async {
+          val descriptor = providerDescriptorProvider(source.provider) ?: return@async source.provider to true
+          source.provider to try {
+            descriptor.isCliAvailable()
+          }
+          catch (e: CancellationException) {
+            throw e
+          }
+          catch (t: Throwable) {
+            LOG.warn("Failed to resolve CLI availability for ${source.provider.value}", t)
+            false
+          }
+        }
+      }.awaitAll().toMap()
     }
   }
 
@@ -395,6 +424,7 @@ private fun applyThreadActivityHints(
   provider: AgentSessionProvider,
   normalizedScopedPaths: Set<String>?,
   activityHintsByThreadId: Map<String, AgentThreadActivity>,
+  summaryActivityHintsByThreadId: Map<String, AgentThreadActivity?>,
 ): ActivityHintStateUpdate {
   val activityByPathAndThreadIdentity = LinkedHashMap<Pair<String, String>, AgentThreadActivity>()
   var changed = false
@@ -405,6 +435,7 @@ private fun applyThreadActivityHints(
       threads = project.threads,
       normalizedScopedPaths = normalizedScopedPaths,
       activityHintsByThreadId = activityHintsByThreadId,
+      summaryActivityHintsByThreadId = summaryActivityHintsByThreadId,
     )
     activityByPathAndThreadIdentity.putAll(projectUpdate.activityByPathAndThreadIdentity)
 
@@ -416,6 +447,7 @@ private fun applyThreadActivityHints(
         threads = worktree.threads,
         normalizedScopedPaths = normalizedScopedPaths,
         activityHintsByThreadId = activityHintsByThreadId,
+        summaryActivityHintsByThreadId = summaryActivityHintsByThreadId,
       )
       activityByPathAndThreadIdentity.putAll(worktreeUpdate.activityByPathAndThreadIdentity)
       if (worktreeUpdate.threads === worktree.threads) {
@@ -457,6 +489,7 @@ private fun applyThreadActivityHintsForPath(
   threads: List<AgentSessionThread>,
   normalizedScopedPaths: Set<String>?,
   activityHintsByThreadId: Map<String, AgentThreadActivity>,
+  summaryActivityHintsByThreadId: Map<String, AgentThreadActivity?>,
 ): ActivityHintThreadUpdate {
   val normalizedPath = normalizeAgentWorkbenchPath(path)
   if (normalizedScopedPaths != null && normalizedPath !in normalizedScopedPaths) {
@@ -470,12 +503,17 @@ private fun applyThreadActivityHintsForPath(
       return@map thread
     }
     val hintedActivity = activityHintsByThreadId[thread.id] ?: return@map thread
-    if (hintedActivity == thread.activity) {
+    val hintedSummaryActivity = resolveHintedSummaryActivity(
+      thread = thread,
+      hintedActivity = hintedActivity,
+      summaryActivityHintsByThreadId = summaryActivityHintsByThreadId,
+    )
+    if (hintedActivity == thread.activity && thread.summaryActivity == hintedSummaryActivity) {
       return@map thread
     }
     activityByPathAndThreadIdentity[path to buildAgentSessionIdentity(provider, thread.id)] = hintedActivity
     changed = true
-    thread.copy(activity = hintedActivity)
+    thread.copy(activity = hintedActivity, summaryActivity = hintedSummaryActivity)
   }
 
   if (!changed) {
@@ -485,6 +523,18 @@ private fun applyThreadActivityHintsForPath(
     threads = nextThreads,
     activityByPathAndThreadIdentity = activityByPathAndThreadIdentity,
   )
+}
+
+private fun resolveHintedSummaryActivity(
+  thread: AgentSessionThread,
+  hintedActivity: AgentThreadActivity,
+  summaryActivityHintsByThreadId: Map<String, AgentThreadActivity?>,
+): AgentThreadActivity? {
+  return when {
+    summaryActivityHintsByThreadId.containsKey(thread.id) -> summaryActivityHintsByThreadId[thread.id]
+    thread.summaryActivity == null -> null
+    else -> hintedActivity
+  }
 }
 
 private fun collectVfsRefreshCandidatePaths(
@@ -580,7 +630,6 @@ private fun resolveProviderWarningMessage(provider: AgentSessionProvider, t: Thr
 }
 
 private fun isCliMissingError(provider: AgentSessionProvider, t: Throwable): Boolean {
-  if (t is AgentProviderCliMissingException) return true
   return AgentSessionProviders.find(provider)?.isCliMissingError(t) == true
 }
 

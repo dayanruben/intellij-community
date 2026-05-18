@@ -10,6 +10,7 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptContextResolverServic
 import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchers
+import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.ide.FrameStateListener
@@ -24,13 +25,11 @@ import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy
-import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.awt.Component
-import java.awt.FlowLayout
 import java.awt.Window
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
@@ -54,6 +53,7 @@ internal class AgentPromptPalettePopup(
     completionProvider = AgentPromptClaudeSlashCompletionProvider(
       selectedProvider = ::selectedProviderForCompletion,
       resolveWorkingProjectPaths = ::resolveWorkingProjectPathsForCompletion,
+      resolveCodexSkillEntries = ::resolveCodexSkillEntriesForCompletion,
     ),
   )
 
@@ -94,6 +94,7 @@ internal class AgentPromptPalettePopup(
       .setResizable(true)
       .setMovable(true)
       .setDimensionServiceKey(project, "AgentWorkbench.PromptPalette", true)
+      .setMinSize(AGENT_PROMPT_PALETTE_MINIMUM_SIZE)
       .setLocateWithinScreenBounds(false)
       .createPopup()
 
@@ -168,20 +169,18 @@ internal class AgentPromptPalettePopup(
     lateinit var controllerRef: AgentPromptPaletteSessionController
     val suggestions = AgentPromptSuggestionsComponent { candidate -> controllerRef.applySuggestedPrompt(candidate) }
     val contextChips = AgentPromptContextChipsComponent { entry -> controllerRef.removeContextEntry(entry) }
-    val promptProviderOptionsPanel = createProviderOptionsPanel()
     val view = createAgentPromptPaletteView(
       promptArea = promptArea,
       suggestionsPanel = suggestions.component,
       contextChipsPanel = contextChips.component,
-      providerOptionsPanel = promptProviderOptionsPanel,
+      onPromptLibraryClicked = { controllerRef.showPromptLibraryChooser() },
       onProviderIconClicked = { controllerRef.showProviderChooser() },
       onExistingTaskSelected = { selected -> controllerRef.onExistingTaskSelected(selected) },
     )
-    val providerOptionsPanel = checkNotNull(view.providerOptionsPanel)
     providerSelector = AgentPromptProviderSelector(
       invocationData = invocationData,
       providerIconLabel = view.providerIconLabel,
-      providerOptionsPanel = providerOptionsPanel,
+      headerControls = view.headerControls,
       providersProvider = providersProvider,
       sessionsMessageResolver = sessionsMessageResolver,
       asyncRefreshScope = popupScope,
@@ -242,11 +241,8 @@ internal class AgentPromptPalettePopup(
     )
   }
 
-  private fun createProviderOptionsPanel(): JPanel {
-    return JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)).apply {
-      isOpaque = false
-      isVisible = false
-    }
+  private fun resolveCodexSkillEntriesForCompletion(): List<AgentPromptReusableSourceEntry> {
+    return if (::sessionController.isInitialized) sessionController.codexSkillCompletionEntriesForCompletion() else emptyList()
   }
 
   private fun cancelPopupExplicitly() {

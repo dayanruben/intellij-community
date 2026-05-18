@@ -6,6 +6,7 @@ import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.parseAgentThreadIdentity
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeFormatter
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
+import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
 import com.intellij.openapi.project.Project
 import javax.swing.Icon
 import javax.swing.JComponent
@@ -95,6 +96,10 @@ interface AgentSessionProviderDescriptor {
     get() = provider.value.replaceFirstChar { char ->
       if (char.isLowerCase()) char.titlecase() else char.toString()
     }
+  val cliDisplayNameKey: String
+    get() = displayNameKey
+  val cliDisplayNameFallback: String
+    get() = displayNameFallback
   val displayPriority: Int
     get() = Int.MAX_VALUE
   val newSessionLabelKey: String
@@ -139,9 +144,8 @@ interface AgentSessionProviderDescriptor {
 
   /**
    * Terminal-agent identifier used by `TerminalAgentResolver` to locate this provider's CLI binary.
-   * When set, synchronous surfaces can resolve availability by reading the cached snapshot from
-   * `TerminalAgentsAvailabilityService.getAvailableAgents()` keyed by this value. `null` (default)
-   * disables that path; the provider then never reports as available to sync surfaces.
+   * The provider availability cache refreshes through [isCliAvailable], which should use the same
+   * resolver path as launch-time CLI resolution so menus and launch errors agree.
    */
   val terminalAgentKey: String?
     get() = null
@@ -168,13 +172,17 @@ interface AgentSessionProviderDescriptor {
    * menu enable/disable matches the launch-time resolver answer.
    *
    * Synchronous UI surfaces (menu `update()` callbacks, sessions tree popup, editor-tab actions, etc.)
-   * cannot suspend, and so consume the cached snapshot maintained by
-   * `TerminalAgentsAvailabilityService` instead of calling this directly. The cache is populated
-   * by the terminal tool window prewarm and refreshed on popup show / failed launch.
+   * cannot suspend, and so consume the project-level provider availability cache instead of calling
+   * this directly. The cache is populated by startup prewarm and refreshed from background coroutines.
    */
   suspend fun isCliAvailable(): Boolean
 
   suspend fun buildResumeLaunchSpec(sessionId: String): AgentSessionTerminalLaunchSpec
+
+  suspend fun buildResumeLaunchSpec(
+    sessionId: String,
+    launchMode: AgentSessionLaunchMode,
+  ): AgentSessionTerminalLaunchSpec = buildResumeLaunchSpec(sessionId)
 
   suspend fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec
 
@@ -208,6 +216,10 @@ interface AgentSessionProviderDescriptor {
   suspend fun unarchiveThread(path: String, threadId: String): Boolean = false
 
   fun buildInitialMessagePlan(request: AgentPromptInitialMessageRequest): AgentInitialMessagePlan
+
+  suspend fun listReusablePromptSourceEntries(projectPath: String): List<AgentPromptReusableSourceEntry> {
+    return emptyList()
+  }
 
   fun onConversationOpened() {
   }

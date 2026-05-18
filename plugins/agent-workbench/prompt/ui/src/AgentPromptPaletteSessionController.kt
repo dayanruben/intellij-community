@@ -10,519 +10,871 @@ import com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INITIAL_TEXT_DATA_K
 import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextTargetCandidate
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextResolverService
+import com.intellij.agent.workbench.prompt.core.AgentPromptContainerLauncher
 import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
 import com.intellij.agent.workbench.prompt.core.AgentPromptPaletteExtensionContext
+import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
+import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceKind
 import com.intellij.agent.workbench.prompt.core.AgentPromptSuggestionCandidate
 import com.intellij.agent.workbench.prompt.core.AgentPromptSuggestionRequest
 import com.intellij.agent.workbench.prompt.ui.context.dataContextOrNull
 import com.intellij.codeInsight.completion.CodeCompletionHandlerBase
 import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.codeInsight.lookup.LookupManager
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.AnActionHolder
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.KeepPopupOnPerform
+import com.intellij.openapi.actionSystem.ex.ActionUtil
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.popup.JBPopup
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.JBPopupListener
+import com.intellij.openapi.ui.popup.LightweightWindowEvent
+import com.intellij.openapi.util.Condition
 import com.intellij.openapi.wm.IdeFocusManager
-import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.NamedColorUtil
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.Nls
+import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.event.ChangeListener
 
+private const val CODEX_SKILL_PREFIX = '$'
+
 internal class AgentPromptPaletteSessionController(
-    private val project: Project,
-    private val invocationData: AgentPromptInvocationData,
-    private val promptArea: AgentPromptTextField,
-    private val view: AgentPromptPaletteView,
-    private val contextChips: AgentPromptContextChipsComponent,
-    private val providerSelector: AgentPromptProviderSelector,
-    private val existingTaskController: AgentPromptExistingTaskController,
-    private val suggestionController: AgentPromptSuggestionController,
-    private val contextResolverService: AgentPromptContextResolverService,
-    private val uiStateService: AgentPromptUiSessionStateService,
-    private val launcherProvider: () -> AgentPromptLauncherBridge?,
-    private val closePopup: () -> Unit,
-    private val isPopupActive: () -> Boolean,
-    private val movePopupToFitScreen: () -> Unit,
-    private val popupScope: CoroutineScope,
+  private val project: Project,
+  private val invocationData: AgentPromptInvocationData,
+  private val promptArea: AgentPromptTextField,
+  private val view: AgentPromptPaletteView,
+  private val contextChips: AgentPromptContextChipsComponent,
+  private val providerSelector: AgentPromptProviderSelector,
+  private val existingTaskController: AgentPromptExistingTaskController,
+  private val suggestionController: AgentPromptSuggestionController,
+  private val contextResolverService: AgentPromptContextResolverService,
+  private val uiStateService: AgentPromptUiSessionStateService,
+  private val launcherProvider: () -> AgentPromptLauncherBridge?,
+  private val closePopup: () -> Unit,
+  private val isPopupActive: () -> Boolean,
+  private val movePopupToFitScreen: () -> Unit,
+  private val popupScope: CoroutineScope,
 ) {
-    private val contextState = AgentPromptPaletteContextState()
-    private val draftState = AgentPromptPaletteDraftState()
-    private val launchState = AgentPromptPaletteLaunchState()
+  private val contextState = AgentPromptPaletteContextState()
+  private val draftState = AgentPromptPaletteDraftState()
+  private val launchState = AgentPromptPaletteLaunchState()
 
-    private val contextController: AgentPromptPaletteContextController
-    private val draftController: AgentPromptPaletteDraftController
-    private val submitController: AgentPromptPaletteSubmitController
+  private val contextController: AgentPromptPaletteContextController
+  private val draftController: AgentPromptPaletteDraftController
+  private val submitController: AgentPromptPaletteSubmitController
 
-    init {
-        lateinit var submitControllerRef: AgentPromptPaletteSubmitController
+  @Volatile
+  private var codexSkillCompletionEntries: List<AgentPromptReusableSourceEntry> = emptyList()
 
-        contextController = AgentPromptPaletteContextController(
-            project = project,
-            invocationData = invocationData,
-            promptArea = promptArea,
-            view = view,
-            contextResolverService = contextResolverService,
-            contextChips = contextChips,
-            launcherProvider = launcherProvider,
-            state = contextState,
-            resolveWorkingProjectPath = { submitControllerRef.resolveWorkingProjectPath() },
-            resolveContextProjectBasePath = { submitControllerRef.resolveContextProjectBasePath() },
-            showError = ::showError,
-            onContextChanged = ::handleContextChanged,
-            onExtensionTabRemoved = { taskKeyPrefix ->
-                draftState.taskPromptStates.keys.removeAll { key ->
-                    AgentPromptExtensionDraftDecisions.matchesTaskKey(taskKeyPrefix, key)
-                }
+  init {
+    lateinit var submitControllerRef: AgentPromptPaletteSubmitController
+
+    contextController = AgentPromptPaletteContextController(
+      project = project,
+      invocationData = invocationData,
+      promptArea = promptArea,
+      view = view,
+      contextResolverService = contextResolverService,
+      contextChips = contextChips,
+      launcherProvider = launcherProvider,
+      state = contextState,
+      resolveWorkingProjectPath = { submitControllerRef.resolveWorkingProjectPath() },
+      resolveContextProjectBasePath = { submitControllerRef.resolveContextProjectBasePath() },
+      showError = ::showError,
+      onContextChanged = ::handleContextChanged,
+      onExtensionTabRemoved = { taskKeyPrefix ->
+        draftState.taskPromptStates.keys.removeAll { key ->
+          AgentPromptExtensionDraftDecisions.matchesTaskKey(taskKeyPrefix, key)
+        }
+      },
+      setTargetMode = ::setTargetMode,
+    )
+
+    draftController = AgentPromptPaletteDraftController(
+      invocationData = invocationData,
+      promptArea = promptArea,
+      tabbedPane = view.tabbedPane,
+      providerSelector = providerSelector,
+      existingTaskController = existingTaskController,
+      uiStateService = uiStateService,
+      launcherProvider = launcherProvider,
+      contextState = contextState,
+      draftState = draftState,
+      refreshContextEntries = contextController::refreshContextEntries,
+      resolveExtensionTabs = contextController::resolveExtensionTabs,
+      reloadExistingTasks = ::reloadExistingTasks,
+      updateProviderOptionsVisibility = ::updateProviderOptionsVisibility,
+      setTargetMode = ::setTargetMode,
+      resolveTaskKey = ::resolveTaskKey,
+      getContainerModeSelected = { view.containerModeAction.selected },
+      setContainerModeSelected = { view.headerControls.setContainerModeSelected(it) },
+    )
+    submitController = AgentPromptPaletteSubmitController(
+      project = project,
+      invocationData = invocationData,
+      promptArea = promptArea,
+      providerSelector = providerSelector,
+      existingTaskController = existingTaskController,
+      launcherProvider = launcherProvider,
+      launchState = launchState,
+      currentTargetMode = ::currentTargetMode,
+      activeExtensionTab = { contextState.activeExtensionTab },
+      buildVisibleContextEntries = { contextController.buildVisibleContextEntries() },
+      resolveContextSelection = contextController::resolveContextSelection,
+      onWorkingProjectPathSelected = { _ -> handleWorkingProjectPathSelected() },
+      onSubmitBlocked = ::showError,
+      onSubmitSucceeded = ::closeAfterSuccessfulSubmit,
+      onPromptSubmitted = uiStateService::saveSubmittedPromptHistoryEntry,
+      isContainerModeSelected = { view.containerModeAction.selected },
+      isContainerModeSupported = ::isContainerModeSupported,
+      isContainerModeRuntimeAvailable = ::isContainerModeRuntimeAvailable,
+    )
+    submitControllerRef = submitController
+  }
+
+  fun initialize(initialAddContextRequest: AgentPromptAddContextRequest? = null) {
+    contextController.configureAddContextButton()
+    refreshProviders()
+    contextController.loadInitialContext(initialAddContextRequest?.contextItems)
+    contextController.resolveExtensionTabs()
+
+    val draft = draftController.restoreDraft(restoreContextSnapshot = initialAddContextRequest == null)
+    draftController.restoreTaskDrafts(draft)
+    refreshExtensionTaskDraftsFromContext()
+
+    if (invocationData.attributes[com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INVOCATION_PREFER_EXTENSIONS_KEY] == true) {
+      contextController.selectAutoSelectExtensionTab()
+    }
+    contextController.syncActiveExtensionTab(view.tabbedPane.selectedComponent as? JPanel)
+    val initialText = invocationData.dataContextOrNull()?.getData(AGENT_PROMPT_INITIAL_TEXT_DATA_KEY)
+    draftController.overrideInitialTextIfProvided(initialText)
+    if (initialAddContextRequest != null) {
+      applyInitialAddContextTarget(initialAddContextRequest.target)
+      contextController.syncActiveExtensionTab(view.tabbedPane.selectedComponent as? JPanel)
+    }
+    draftController.loadPromptTextForSelectedTab()
+    clearStatus()
+    updateTargetModeUi()
+    updateSendAvailability()
+  }
+
+  fun installHandlers() {
+    contextController.installImagePasteHandler()
+
+    installConfirmActionOnEnter(view.existingTaskList) {
+      submitController.submit()
+      true
+    }
+
+    installPromptEnterHandlers(
+      promptArea = promptArea,
+      canSubmit = submitController::canSubmit,
+      isTabQueueEnabled = {
+        isTabQueueShortcutEnabled(
+          targetMode = currentTargetMode(),
+          selectedProvider = providerSelector.selectedProvider?.bridge,
+          hasNextPromptTab = view.tabbedPane.selectedIndex in 0 until view.tabbedPane.tabCount - 1,
+        )
+      },
+      onSubmit = submitController::submit,
+      onTabFocusTransfer = { selectAdjacentPromptTab(view.tabbedPane, 1) },
+      onTabBackwardFocusTransfer = { selectAdjacentPromptTab(view.tabbedPane, -1) },
+    )
+
+    view.tabbedPane.addChangeListener(ChangeListener {
+      handleTabSwitch()
+      updateTargetModeUi()
+      updateSendAvailability()
+      movePopupToFitScreen()
+    })
+
+    promptArea.addDocumentListener(object : DocumentListener {
+      override fun documentChanged(event: DocumentEvent) {
+        onPromptChanged()
+        autoPopupCommandCompletionIfNeeded(event)
+      }
+    })
+  }
+
+  fun onPopupClosed() {
+    existingTaskController.dispose()
+    suggestionController.dispose()
+    draftController.saveProviderPreferences()
+    if (launchState.clearDraftOnClose) {
+      uiStateService.clearDraft()
+    }
+    else {
+      draftController.saveDraft(currentTargetMode())
+    }
+  }
+
+  fun showProviderChooser() {
+    providerSelector.showChooser(onUnavailable = ::showError) {
+      if (currentTargetMode() == PromptTargetMode.EXISTING_TASK) {
+        existingTaskController.clearSelection()
+        reloadExistingTasks()
+      }
+      updateProviderOptionsVisibility()
+      updateSendAvailability()
+      refreshFooterHintForCurrentState()
+    }
+  }
+
+  fun showPromptLibraryChooser() {
+    popupScope.launch {
+      val sourceEntries = collectReusablePromptSourceEntries(
+        workingProjectPaths = reusableSourceProjectPaths(),
+      )
+      val historyEntries = uiStateService.loadPromptHistory()
+      withContext(Dispatchers.EDT) {
+        showPromptLibraryChooser(
+          promptFiles = sourceEntries,
+          historyEntries = historyEntries,
+        )
+      }
+    }
+  }
+
+  fun onExistingTaskSelected(selected: ThreadEntry) {
+    existingTaskController.onUserSelected(selected)
+    updateSendAvailability()
+    refreshFooterHintForCurrentState()
+  }
+
+  fun onExistingTaskStateChanged() {
+    updateSendAvailability()
+    refreshFooterHintForCurrentState()
+  }
+
+  fun removeContextEntry(entry: ContextEntry) {
+    contextController.removeContextEntry(entry)
+  }
+
+  fun applySuggestedPrompt(candidate: AgentPromptSuggestionCandidate) {
+    draftController.applySuggestedPrompt(candidate.promptText)
+    IdeFocusManager.getInstance(project).requestFocusInProject(promptArea, project)
+  }
+
+  fun codexSkillCompletionEntriesForCompletion(): List<AgentPromptReusableSourceEntry> = codexSkillCompletionEntries
+
+  fun resolveWorkingProjectPath(): String? = submitController.resolveWorkingProjectPath()
+
+  fun applyAddContextRequest(request: AgentPromptAddContextRequest): AgentPromptAddContextApplyResult {
+    val result = contextController.addExternalContextItems(request.contextItems)
+    when (result) {
+      AgentPromptAddContextApplyResult.ADDED -> handleContextChanged(AgentPromptBundle.message("popup.status.context.added"))
+      AgentPromptAddContextApplyResult.ALREADY_ADDED -> showInfo(AgentPromptBundle.message("popup.status.context.already.added"))
+    }
+    return result
+  }
+
+  private fun handleTabSwitch() {
+    draftController.savePromptTextForSelectedTab()
+    contextController.syncActiveExtensionTab(view.tabbedPane.selectedComponent as? JPanel)
+    draftController.loadPromptTextForSelectedTab()
+  }
+
+  private fun showPromptLibraryChooser(
+    promptFiles: List<AgentPromptReusableSourceEntry>,
+    historyEntries: List<AgentPromptHistoryEntry>,
+  ) {
+    val snapshot = draftController.snapshotPrompt()
+    val promptLibraryState = PromptLibraryState(
+      promptFiles = promptFiles,
+      savedPromptEntries = uiStateService.loadSavedPrompts(),
+      historyEntries = historyEntries,
+    )
+    var promptLibraryPopup: JBPopup? = null
+    val popupsWithoutPromptRestore = mutableSetOf<JBPopup>()
+    lateinit var openPromptLibraryPopup: (String?) -> Unit
+
+    fun refreshPromptLibraryPopup(preselectNormalizedPromptText: String?) {
+      val popupToRefresh = promptLibraryPopup ?: return
+      ApplicationManager.getApplication().invokeLater {
+        if (project.isDisposed || promptLibraryPopup !== popupToRefresh || popupToRefresh.isDisposed) {
+          return@invokeLater
+        }
+        popupsWithoutPromptRestore.add(popupToRefresh)
+        popupToRefresh.cancel()
+        promptLibraryPopup = null
+        openPromptLibraryPopup(preselectNormalizedPromptText)
+      }
+    }
+
+    openPromptLibraryPopup = open@{ preselectNormalizedPromptText ->
+      val rows = promptLibraryState.rows()
+      if (rows.isEmpty()) {
+        draftController.restorePromptSnapshot(snapshot)
+        showPromptLibraryMessage(AgentPromptBundle.message("popup.prompt.library.empty"))
+        return@open
+      }
+
+      var chosenEntry: PromptLibraryEntry? = null
+      val actionGroup = DefaultActionGroup().apply {
+        rows.forEach { row ->
+          add(PromptLibraryEntryAction(
+            row = row,
+            loadSavedPromptEntries = { promptLibraryState.savedPromptEntries },
+            onChoose = { chosen ->
+              chosenEntry = chosen
+              draftController.replacePromptTextFromChooser(chosen.insertText)
+              IdeFocusManager.getInstance(project).requestFocusInProject(promptArea, project)
+              promptLibraryPopup?.cancel()
             },
-            setTargetMode = ::setTargetMode,
-        )
-
-        draftController = AgentPromptPaletteDraftController(
-            invocationData = invocationData,
-            promptArea = promptArea,
-            tabbedPane = view.tabbedPane,
-            providerSelector = providerSelector,
-            existingTaskController = existingTaskController,
-            uiStateService = uiStateService,
-            launcherProvider = launcherProvider,
-            contextState = contextState,
-            draftState = draftState,
-            refreshContextEntries = contextController::refreshContextEntries,
-            resolveExtensionTabs = contextController::resolveExtensionTabs,
-            reloadExistingTasks = ::reloadExistingTasks,
-            updateProviderOptionsVisibility = ::updateProviderOptionsVisibility,
-            setTargetMode = ::setTargetMode,
-            resolveTaskKey = ::resolveTaskKey,
-            getContainerModeSelected = { view.containerModeCheckBox.isSelected },
-            setContainerModeSelected = { view.containerModeCheckBox.isSelected = it },
-        )
-        submitController = AgentPromptPaletteSubmitController(
-            project = project,
-            invocationData = invocationData,
-            promptArea = promptArea,
-            providerSelector = providerSelector,
-            existingTaskController = existingTaskController,
-            launcherProvider = launcherProvider,
-            launchState = launchState,
-            currentTargetMode = ::currentTargetMode,
-            activeExtensionTab = { contextState.activeExtensionTab },
-            buildVisibleContextEntries = { contextController.buildVisibleContextEntries() },
-            resolveContextSelection = contextController::resolveContextSelection,
-            onWorkingProjectPathSelected = { _ -> handleWorkingProjectPathSelected() },
-            onSubmitBlocked = ::showError,
-            onSubmitSucceeded = ::closeAfterSuccessfulSubmit,
-            isContainerModeSelected = { view.containerModeCheckBox.isSelected },
-        )
-        submitControllerRef = submitController
-    }
-
-    fun initialize(initialAddContextRequest: AgentPromptAddContextRequest? = null) {
-        contextController.configureAddContextButton()
-        refreshProviders()
-        contextController.loadInitialContext(initialAddContextRequest?.contextItems)
-        contextController.resolveExtensionTabs()
-
-        val draft = draftController.restoreDraft(restoreContextSnapshot = initialAddContextRequest == null)
-        draftController.restoreTaskDrafts(draft)
-        refreshExtensionTaskDraftsFromContext()
-
-        if (invocationData.attributes[com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INVOCATION_PREFER_EXTENSIONS_KEY] == true) {
-            contextController.selectAutoSelectExtensionTab()
-        }
-        contextController.syncActiveExtensionTab(view.tabbedPane.selectedComponent as? JPanel)
-        val initialText = invocationData.dataContextOrNull()?.getData(AGENT_PROMPT_INITIAL_TEXT_DATA_KEY)
-        draftController.overrideInitialTextIfProvided(initialText)
-        if (initialAddContextRequest != null) {
-            applyInitialAddContextTarget(initialAddContextRequest.target)
-            contextController.syncActiveExtensionTab(view.tabbedPane.selectedComponent as? JPanel)
-        }
-        draftController.loadPromptTextForSelectedTab()
-        clearStatus()
-        updateTargetModeUi()
-        updateSendAvailability()
-    }
-
-    fun installHandlers() {
-        contextController.installImagePasteHandler()
-
-        installConfirmActionOnEnter(view.existingTaskList) {
-            submitController.submit()
-            true
-        }
-
-        installPromptEnterHandlers(
-            promptArea = promptArea,
-            canSubmit = submitController::canSubmit,
-            isTabQueueEnabled = {
-                isTabQueueShortcutEnabled(
-                    targetMode = currentTargetMode(),
-                    selectedProvider = providerSelector.selectedProvider?.bridge,
-                    hasNextPromptTab = view.tabbedPane.selectedIndex in 0 until view.tabbedPane.tabCount - 1,
-                )
+            onSave = { recentEntry ->
+              val savedPromptEntry = savePromptAsPersistentPrompt(recentEntry.insertText)
+              if (savedPromptEntry != null) {
+                promptLibraryState.markSaved(savedPromptEntry)
+                showInfo(AgentPromptBundle.message("popup.prompt.library.saved"))
+                refreshPromptLibraryPopup(row.normalizedPromptText)
+              }
             },
-            onSubmit = submitController::submit,
-            onTabFocusTransfer = { selectAdjacentPromptTab(view.tabbedPane, 1) },
-            onTabBackwardFocusTransfer = { selectAdjacentPromptTab(view.tabbedPane, -1) },
+            onRemove = { savedEntry ->
+              removePersistentPrompt(savedEntry.insertText)
+              promptLibraryState.markRemoved(savedEntry.insertText)
+              showInfo(AgentPromptBundle.message("popup.prompt.library.removed"))
+              refreshPromptLibraryPopup(row.normalizedPromptText)
+            },
+          ))
+        }
+      }
+      val preselectCondition = preselectNormalizedPromptText?.let { normalizedPromptText ->
+        Condition<AnAction> { action ->
+          action is PromptLibraryEntryAction && action.normalizedPromptText == normalizedPromptText
+        }
+      }
+      val popup = JBPopupFactory.getInstance()
+        .createActionGroupPopup(
+          AgentPromptBundle.message("popup.prompt.library.title"),
+          actionGroup,
+          promptLibraryDataContext(),
+          JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
+          false,
+          null,
+          rows.size.coerceAtMost(9),
+          preselectCondition,
+          null,
         )
-
-        view.tabbedPane.addChangeListener(ChangeListener {
-            handleTabSwitch()
-            updateTargetModeUi()
-            updateSendAvailability()
-            movePopupToFitScreen()
-        })
-
-        promptArea.addDocumentListener(object : DocumentListener {
-            override fun documentChanged(event: DocumentEvent) {
-                onPromptChanged()
-                autoPopupClaudeSlashCompletionIfNeeded(event)
+      popup.addListSelectionListener { event ->
+        if (event.valueIsAdjusting) {
+          return@addListSelectionListener
+        }
+        val action = ((event.source as? JList<*>)?.selectedValue as? AnActionHolder)?.action as? PromptLibraryEntryAction
+                     ?: return@addListSelectionListener
+        val entry = action.currentEntry() ?: return@addListSelectionListener
+        draftController.previewPromptText(entry.insertText)
+      }
+      popup.addListener(object : JBPopupListener {
+        override fun onClosed(event: LightweightWindowEvent) {
+          val skipPromptRestore = popupsWithoutPromptRestore.remove(popup)
+          if (promptLibraryPopup === popup) {
+            promptLibraryPopup = null
+          }
+          ApplicationManager.getApplication().invokeLater {
+            if (!skipPromptRestore && chosenEntry == null && !project.isDisposed) {
+              draftController.restorePromptSnapshot(snapshot)
+              IdeFocusManager.getInstance(project).requestFocusInProject(promptArea, project)
             }
-        })
-    }
-
-    fun onPopupClosed() {
-        existingTaskController.dispose()
-        suggestionController.dispose()
-        draftController.saveProviderPreferences()
-        if (launchState.clearDraftOnClose) {
-            uiStateService.clearDraft()
-        } else {
-            draftController.saveDraft(currentTargetMode())
+          }
         }
+      })
+      val previewEntry = rows
+                           .firstOrNull { row -> row.normalizedPromptText == preselectNormalizedPromptText }
+                           ?.let(promptLibraryState::resolveEntry)
+                         ?: rows.firstNotNullOfOrNull(promptLibraryState::resolveEntry)
+      previewEntry?.let { entry -> draftController.previewPromptText(entry.insertText) }
+      promptLibraryPopup = popup
+      popup.showUnderneathOf(view.promptLibraryIconLabel)
     }
 
-    fun showProviderChooser() {
-        providerSelector.showChooser(onUnavailable = ::showError) {
-            if (currentTargetMode() == PromptTargetMode.EXISTING_TASK) {
-                existingTaskController.clearSelection()
-                reloadExistingTasks()
-            }
-            updateProviderOptionsVisibility()
-            updateSendAvailability()
-            refreshFooterHintForCurrentState()
-        }
+    openPromptLibraryPopup(null)
+  }
+
+  private fun promptLibraryDataContext(): DataContext {
+    return invocationData.dataContextOrNull() ?: DataContext.EMPTY_CONTEXT
+  }
+
+  private fun savePromptAsPersistentPrompt(promptText: String): AgentPromptSavedPromptEntry? {
+    val savedPromptEntry = uiStateService.savePersistentPrompt(promptText)
+    if (savedPromptEntry == null) {
+      showError(AgentPromptBundle.message("popup.prompt.library.save.error"))
+    }
+    return savedPromptEntry
+  }
+
+  private fun removePersistentPrompt(promptText: String) {
+    uiStateService.removePersistentPrompt(promptText)
+  }
+
+  private fun showPromptLibraryMessage(message: @Nls String) {
+    JBPopupFactory.getInstance()
+      .createMessage(message)
+      .showUnderneathOf(view.promptLibraryIconLabel)
+  }
+
+  private fun reusableSourceProjectPaths(): List<String> {
+    val sourceProjectBasePath = launcherProvider()
+      ?.resolveSourceProject(invocationData)
+      ?.basePath
+    return resolveClaudeSlashCompletionProjectPaths(
+      workingProjectPath = submitController.resolveWorkingProjectPath(),
+      sourceProjectBasePath = sourceProjectBasePath,
+      projectBasePath = project.basePath,
+    )
+  }
+
+  private fun onPromptChanged() {
+    draftController.onPromptChanged()
+    updateSendAvailability()
+    clearStatus()
+  }
+
+  private fun autoPopupCommandCompletionIfNeeded(event: DocumentEvent) {
+    val editor = promptArea.editor ?: return
+    if (!editor.contentComponent.hasFocus()) {
+      return
+    }
+    if (LookupManager.getActiveLookup(editor) != null) {
+      return
     }
 
-    fun onExistingTaskSelected(selected: ThreadEntry) {
-        existingTaskController.onUserSelected(selected)
-        updateSendAvailability()
-        refreshFooterHintForCurrentState()
+    val selectedProvider = providerSelector.selectedProvider?.bridge?.provider
+    val documentText = event.document.immutableCharSequence.toString()
+    val sourceProjectBasePath = launcherProvider()
+      ?.resolveSourceProject(invocationData)
+      ?.basePath
+    if (shouldAutoPopupClaudeSlashCompletion(
+        selectedProvider = selectedProvider,
+        workingProjectPaths = resolveClaudeSlashCompletionProjectPaths(
+          workingProjectPath = submitController.resolveWorkingProjectPath(),
+          sourceProjectBasePath = sourceProjectBasePath,
+          projectBasePath = project.basePath,
+        ),
+        text = documentText,
+        offsetAfterChange = event.offset + event.newLength,
+        insertedFragment = event.newFragment,
+      )
+    ) {
+      invokePromptCompletionWhenReady(editor, expectedPrefix = '/')
+      return
     }
 
-    fun onExistingTaskStateChanged() {
-        updateSendAvailability()
-        refreshFooterHintForCurrentState()
+    if (!shouldAutoPopupCodexSkillCompletion(
+        selectedProvider = selectedProvider,
+        text = documentText,
+        offsetAfterChange = event.offset + event.newLength,
+        insertedFragment = event.newFragment,
+      )
+    ) {
+      return
     }
 
-    fun removeContextEntry(entry: ContextEntry) {
-        contextController.removeContextEntry(entry)
+    popupScope.launch {
+      val skillEntries = loadCodexSkillCompletionEntries()
+      if (skillEntries.isEmpty()) {
+        return@launch
+      }
+      codexSkillCompletionEntries = skillEntries
+      withContext(Dispatchers.EDT) {
+        invokePromptCompletionWhenReady(editor, expectedPrefix = CODEX_SKILL_PREFIX)
+      }
     }
+  }
 
-    fun applySuggestedPrompt(candidate: AgentPromptSuggestionCandidate) {
-        draftController.applySuggestedPrompt(candidate.promptText)
-        IdeFocusManager.getInstance(project).requestFocusInProject(promptArea, project)
-    }
+  private suspend fun loadCodexSkillCompletionEntries(): List<AgentPromptReusableSourceEntry> {
+    val launcher = launcherProvider() ?: return emptyList()
+    val projectPath = submitController.resolveWorkingProjectPath()?.takeIf(String::isNotBlank) ?: return emptyList()
+    return runCatching { launcher.listReusablePromptSourceEntries(projectPath, AgentSessionProvider.CODEX) }
+      .getOrDefault(emptyList())
+      .filter { entry ->
+        entry.kind == AgentPromptReusableSourceKind.SKILL && entry.insertText.trim().startsWith('$')
+      }
+  }
 
-    fun resolveWorkingProjectPath(): String? = submitController.resolveWorkingProjectPath()
-
-    fun applyAddContextRequest(request: AgentPromptAddContextRequest): AgentPromptAddContextApplyResult {
-        val result = contextController.addExternalContextItems(request.contextItems)
-        when (result) {
-            AgentPromptAddContextApplyResult.ADDED -> handleContextChanged(AgentPromptBundle.message("popup.status.context.added"))
-            AgentPromptAddContextApplyResult.ALREADY_ADDED -> showInfo(AgentPromptBundle.message("popup.status.context.already.added"))
-        }
-        return result
-    }
-
-    private fun handleTabSwitch() {
-        draftController.savePromptTextForSelectedTab()
-        contextController.syncActiveExtensionTab(view.tabbedPane.selectedComponent as? JPanel)
-        draftController.loadPromptTextForSelectedTab()
-    }
-
-    private fun onPromptChanged() {
-        draftController.onPromptChanged()
-        updateSendAvailability()
-        clearStatus()
-    }
-
-    private fun autoPopupClaudeSlashCompletionIfNeeded(event: DocumentEvent) {
-        val editor = promptArea.editor ?: return
-        if (!editor.contentComponent.hasFocus()) {
-            return
+  private fun invokePromptCompletionWhenReady(editor: Editor, expectedPrefix: Char) {
+    popupScope.launch {
+      withContext(Dispatchers.EDT) {
+        if (project.isDisposed || editor.isDisposed || !editor.contentComponent.hasFocus()) {
+          return@withContext
         }
         if (LookupManager.getActiveLookup(editor) != null) {
-            return
+          return@withContext
+        }
+        val text = editor.document.immutableCharSequence.toString()
+        val caretOffset = editor.caretModel.offset
+        val currentPrefix = when (expectedPrefix) {
+          '/' -> findClaudeSlashCompletionPrefix(text, caretOffset)
+          CODEX_SKILL_PREFIX -> findCodexSkillCompletionPrefix(text, caretOffset)
+          else -> null
+        }
+        if (currentPrefix != expectedPrefix.toString()) {
+          return@withContext
         }
 
-        val documentText = event.document.immutableCharSequence.toString()
-        val sourceProjectBasePath = launcherProvider()
-            ?.resolveSourceProject(invocationData)
-            ?.basePath
-        if (!shouldAutoPopupClaudeSlashCompletion(
-                selectedProvider = providerSelector.selectedProvider?.bridge?.provider,
-                workingProjectPaths = resolveClaudeSlashCompletionProjectPaths(
-                    workingProjectPath = submitController.resolveWorkingProjectPath(),
-                    sourceProjectBasePath = sourceProjectBasePath,
-                    projectBasePath = project.basePath,
-                ),
-                text = documentText,
-                offsetAfterChange = event.offset + event.newLength,
-                insertedFragment = event.newFragment,
-            )
-        ) {
-            return
-        }
+        CodeCompletionHandlerBase(CompletionType.BASIC, false, true, true).invokeCompletion(project, editor, 1)
+      }
+    }
+  }
 
-        ApplicationManager.getApplication().invokeLater {
-            if (project.isDisposed || editor.isDisposed || !editor.contentComponent.hasFocus()) {
-                return@invokeLater
-            }
-            if (LookupManager.getActiveLookup(editor) != null) {
-                return@invokeLater
-            }
+  private fun refreshProviders() {
+    providerSelector.refresh()
+    updateProviderOptionsVisibility()
+  }
 
-            CodeCompletionHandlerBase(CompletionType.BASIC, false, true, true).invokeCompletion(project, editor, 1)
-        }
+  private fun applyInitialAddContextTarget(target: AgentPromptAddContextTargetCandidate?) {
+    if (target == null) {
+      existingTaskController.clearSelection()
+      setTargetMode(PromptTargetMode.NEW_TASK)
+      return
     }
 
-    private fun refreshProviders() {
-        providerSelector.refresh()
-        updateProviderOptionsVisibility()
+    launchState.selectedWorkingProjectPath = target.projectPath
+    providerSelector.selectProvider(target.provider, target.launchMode)
+    existingTaskController.selectedExistingTaskId = target.threadId
+    setTargetMode(PromptTargetMode.EXISTING_TASK)
+    reloadExistingTasks()
+  }
+
+  private fun updateProviderOptionsVisibility() {
+    providerSelector.setProviderOptionsVisible(contextState.activeExtensionTab == null)
+
+    val selectedProvider = providerSelector.selectedProvider?.bridge?.provider
+    val showContainerMode = shouldShowContainerModeOption(
+      selectedProvider = selectedProvider,
+      isExtensionTab = contextState.activeExtensionTab != null,
+      supportsContainerMode = ::isContainerModeSupported,
+    )
+    val enableContainerMode = shouldEnableContainerModeOption(
+      selectedProvider = selectedProvider,
+      isExtensionTab = contextState.activeExtensionTab != null,
+      supportsContainerMode = ::isContainerModeSupported,
+      isContainerRuntimeAvailable = ::isContainerModeRuntimeAvailable,
+    )
+    view.headerControls.setContainerModeVisible(showContainerMode)
+    view.headerControls.setContainerModeEnabled(enableContainerMode)
+    if (!enableContainerMode) {
+      view.headerControls.setContainerModeSelected(false)
     }
+    view.headerControls.setContainerModeTooltip(
+      if (showContainerMode && !enableContainerMode) {
+        AgentPromptBundle.message("popup.option.container.mode.unavailable.tooltip")
+      }
+      else {
+        null
+      }
+    )
+    view.rightHeaderPanel.revalidate()
+    view.rightHeaderPanel.repaint()
+  }
 
-    private fun applyInitialAddContextTarget(target: AgentPromptAddContextTargetCandidate?) {
-        if (target == null) {
-            existingTaskController.clearSelection()
-            setTargetMode(PromptTargetMode.NEW_TASK)
-            return
-        }
+  private fun isContainerModeSupported(provider: AgentSessionProvider): Boolean {
+    return AgentPromptContainerLauncher.findInstance()?.supportsProvider(provider) == true
+  }
 
-        launchState.selectedWorkingProjectPath = target.projectPath
-        providerSelector.selectProvider(target.provider, target.launchMode)
-        existingTaskController.selectedExistingTaskId = target.threadId
-        setTargetMode(PromptTargetMode.EXISTING_TASK)
+  private fun isContainerModeRuntimeAvailable(provider: AgentSessionProvider): Boolean {
+    return AgentPromptContainerLauncher.findInstance()?.let { launcher ->
+      launcher.supportsProvider(provider) && launcher.isAvailable()
+    } == true
+  }
+
+  private fun reloadExistingTasks() {
+    val launcher = launcherProvider()
+    existingTaskController.reload(
+      selectedProviderEntry = providerSelector.selectedProvider,
+      launcher = launcher,
+      projectPath = submitController.resolveWorkingProjectPath(),
+      isPopupActive = isPopupActive,
+    )
+  }
+
+  private fun updateTargetModeUi() {
+    val isExtensionTab = contextState.activeExtensionTab != null
+    val mode = currentTargetMode()
+    view.existingTaskScrollPane.isVisible = !isExtensionTab && mode == PromptTargetMode.EXISTING_TASK
+    view.rootPanel.revalidate()
+    movePopupToFitScreen()
+    if (!isExtensionTab && mode == PromptTargetMode.EXISTING_TASK) {
+      if (!existingTaskController.hasLoadedEntries()) {
         reloadExistingTasks()
+      }
+      refreshPreselection()
+    }
+    updateProviderOptionsVisibility()
+    refreshSuggestions()
+    refreshFooterHintForCurrentState()
+  }
+
+  private fun refreshPreselection() {
+    popupScope.launch {
+      val preferredId = resolvePreferredThreadId() ?: return@launch
+      existingTaskController.setPreselection(preferredId)
+    }
+  }
+
+  private suspend fun resolvePreferredThreadId(): String? {
+    val launcher = launcherProvider() ?: return null
+    val projectPath = submitController.resolveWorkingProjectPath() ?: return null
+    val provider = providerSelector.selectedProvider?.bridge?.provider ?: return null
+    return runCatching { launcher.listAddContextTargetCandidates(projectPath) }
+      .getOrDefault(emptyList())
+      .firstOrNull { candidate -> candidate.selected && candidate.provider == provider }
+      ?.threadId
+  }
+
+  private fun updateSendAvailability() {
+    submitController.updateSendAvailability()
+  }
+
+  private fun refreshSuggestions() {
+    if (contextState.activeExtensionTab != null) {
+      suggestionController.clearSuggestions()
+      return
     }
 
-    private fun updateProviderOptionsVisibility() {
-        val providerOptionsPanel = checkNotNull(view.providerOptionsPanel)
-        providerOptionsPanel.isVisible = contextState.activeExtensionTab == null && providerOptionsPanel.componentCount > 0
-        providerOptionsPanel.revalidate()
-        providerOptionsPanel.repaint()
+    suggestionController.reloadSuggestions(
+      AgentPromptSuggestionRequest(
+        project = project,
+        projectPath = submitController.resolveWorkingProjectPath(),
+        targetModeId = currentTargetMode().name,
+        contextItems = contextController.buildVisibleContextEntries().map(ContextEntry::item),
+      )
+    )
+  }
 
-        // Container mode only supported for providers with --disallowedTools (currently Claude only).
-        // Not applicable on AI Review (and other extension tabs) — they use a different launch path.
-        val supportsContainer = providerSelector.selectedProvider?.bridge?.provider == AgentSessionProvider.CLAUDE
-        val isExtensionTab = contextState.activeExtensionTab != null
-        view.containerModeCheckBox.isVisible = supportsContainer && !isExtensionTab
+  private fun resolveTaskKey(panel: JPanel?): String? {
+    if (panel == null) return null
+    val mode = panel.getClientProperty("targetMode") as? PromptTargetMode
+    if (mode != null) return mode.name
+    return contextState.activeExtensionTabs.firstOrNull { it.tabPanel === panel }?.let(::resolveExtensionTaskKey)
+  }
+
+  private fun currentContextItems(): List<AgentPromptContextItem> {
+    return contextController.buildVisibleContextEntries().map(ContextEntry::item)
+  }
+
+  private fun resolveExtensionTaskKey(
+    entry: AgentPromptPaletteExtensionTab,
+    contextItems: List<AgentPromptContextItem> = currentContextItems(),
+  ): String {
+    return AgentPromptPaletteExtensionContext.withContextItems(project, contextItems) {
+      AgentPromptExtensionDraftDecisions.taskKey(entry.taskKeyPrefix, entry.extension.getInitialPrompt(project)?.kind)
+    }
+  }
+
+  private fun refreshExtensionTaskDraftsFromContext() {
+    val contextItems = currentContextItems()
+    for (entry in contextState.activeExtensionTabs) {
+      val taskKey = resolveExtensionTaskKey(entry, contextItems)
+      val updatedState = AgentPromptPaletteExtensionContext.withContextItems(project, contextItems) {
+        val initialPrompt = entry.extension.getInitialPrompt(project)
+        val currentState = draftState.taskPromptStates[taskKey]
+        if (currentState == null) {
+          initialPrompt
+            ?.let { restoredTaskPromptDraftState(it.content) }
+        }
+        else {
+          synchronizeExtensionDraftState(currentState, initialPrompt?.kind) { prompt ->
+            entry.extension.synchronizePrompt(project, prompt)
+          }
+        }
+      }
+
+      if (updatedState == null) {
+        draftState.taskPromptStates.remove(taskKey)
+      }
+      else {
+        draftState.taskPromptStates[taskKey] = updatedState
+      }
+
+      if (contextState.activeExtensionTab === entry) {
+        draftState.activeTaskKey = taskKey
+      }
     }
 
-    private fun reloadExistingTasks() {
-        val launcher = launcherProvider()
-        existingTaskController.reload(
-            selectedProviderEntry = providerSelector.selectedProvider,
-            launcher = launcher,
-            projectPath = submitController.resolveWorkingProjectPath(),
-            isPopupActive = isPopupActive,
+    if (contextState.activeExtensionTab != null) {
+      val taskKey = draftState.activeTaskKey ?: return
+      val updatedText = draftState.taskPromptStates[taskKey]?.liveText.orEmpty()
+      if (promptArea.text != updatedText) {
+        draftController.setPromptAreaTextProgrammatically(updatedText)
+      }
+    }
+  }
+
+  private fun currentTargetMode(): PromptTargetMode {
+    val selectedComponent = view.tabbedPane.selectedComponent as? JPanel ?: return PromptTargetMode.NEW_TASK
+    return selectedComponent.getClientProperty("targetMode") as? PromptTargetMode ?: PromptTargetMode.NEW_TASK
+  }
+
+  private fun setTargetMode(mode: PromptTargetMode) {
+    val index = findTabIndexForMode(mode) ?: return
+    view.tabbedPane.selectedIndex = index
+  }
+
+  private fun findTabIndexForMode(mode: PromptTargetMode): Int? {
+    for (i in 0 until view.tabbedPane.tabCount) {
+      val component = view.tabbedPane.getComponentAt(i) as? JPanel ?: continue
+      if (component.getClientProperty("targetMode") == mode) {
+        return i
+      }
+    }
+    return null
+  }
+
+  private fun clearStatus() {
+    val extensionTab = contextState.activeExtensionTab
+    val message = if (extensionTab != null) {
+      extensionTab.extension.getFooterHint() ?: AgentPromptBundle.message("popup.footer.hint.default.tab")
+    }
+    else {
+      AgentPromptBundle.message(
+        resolveDefaultFooterHintMessageKey(
+          targetMode = currentTargetMode(),
+          selectedProvider = providerSelector.selectedProvider?.bridge,
+          hasNextPromptTab = view.tabbedPane.selectedIndex in 0 until view.tabbedPane.tabCount - 1,
         )
+      )
+    }
+    view.statusStrip.showInfo(message)
+  }
+
+  private fun refreshFooterHintForCurrentState() {
+    if (shouldShowExistingTaskSelectionHint(
+        targetMode = currentTargetMode(),
+        selectedExistingTaskId = existingTaskController.selectedExistingTaskId,
+        selectedProvider = providerSelector.selectedProvider?.bridge,
+      )
+    ) {
+      showInfo(AgentPromptBundle.message("popup.status.existing.select.task"))
+      return
     }
 
-    private fun updateTargetModeUi() {
-        val isExtensionTab = contextState.activeExtensionTab != null
-        val mode = currentTargetMode()
-        view.existingTaskScrollPane.isVisible = !isExtensionTab && mode == PromptTargetMode.EXISTING_TASK
-        view.rootPanel.revalidate()
-        movePopupToFitScreen()
-        if (!isExtensionTab && mode == PromptTargetMode.EXISTING_TASK) {
-            if (!existingTaskController.hasLoadedEntries()) {
-                reloadExistingTasks()
-            }
-            refreshPreselection()
-        }
-        updateProviderOptionsVisibility()
-        refreshSuggestions()
-        refreshFooterHintForCurrentState()
+    clearStatus()
+  }
+
+  private fun handleContextChanged(message: @Nls String) {
+    refreshExtensionTaskDraftsFromContext()
+    updateTargetModeUi()
+    updateSendAvailability()
+    showInfo(message)
+  }
+
+  private fun handleWorkingProjectPathSelected() {
+    contextController.refreshContextEntries()
+    contextController.resolveExtensionTabs()
+    refreshExtensionTaskDraftsFromContext()
+    updateTargetModeUi()
+    if (currentTargetMode() == PromptTargetMode.EXISTING_TASK) {
+      existingTaskController.clearSelection()
+      reloadExistingTasks()
     }
+    updateSendAvailability()
+  }
 
-    private fun refreshPreselection() {
-        popupScope.launch {
-            val preferredId = resolvePreferredThreadId() ?: return@launch
-            existingTaskController.setPreselection(preferredId)
-        }
+  private fun closeAfterSuccessfulSubmit() {
+    closePopup()
+  }
+
+  private fun showError(message: @Nls String) {
+    view.statusStrip.showError(message)
+  }
+
+  private fun showInfo(message: @Nls String) {
+    view.statusStrip.showInfo(message)
+  }
+}
+
+internal class PromptLibraryEntryAction(
+  private val row: PromptLibraryRow,
+  private val loadSavedPromptEntries: () -> List<AgentPromptSavedPromptEntry>,
+  private val onChoose: (PromptLibraryEntry) -> Unit,
+  private val onSave: (PromptLibraryEntry.RecentPrompt) -> Unit,
+  private val onRemove: (PromptLibraryEntry.SavedPrompt) -> Unit,
+) : DumbAwareAction() {
+  val normalizedPromptText: String
+    get() = row.normalizedPromptText
+
+  fun currentEntry(): PromptLibraryEntry? = row.resolveEntry(loadSavedPromptEntries())
+
+  override fun update(e: AnActionEvent) {
+    val entry = currentEntry()
+    if (entry == null) {
+      e.presentation.isEnabledAndVisible = false
+      e.presentation.putClientProperty(ActionUtil.SECONDARY_TEXT, null)
+      e.presentation.putClientProperty(ActionUtil.SECONDARY_ICON, null)
+      e.presentation.putClientProperty(ActionUtil.INLINE_ACTIONS, null)
+      return
     }
-
-    private suspend fun resolvePreferredThreadId(): String? {
-        val launcher = launcherProvider() ?: return null
-        val projectPath = submitController.resolveWorkingProjectPath() ?: return null
-        val provider = providerSelector.selectedProvider?.bridge?.provider ?: return null
-        return runCatching { launcher.listAddContextTargetCandidates(projectPath) }
-            .getOrDefault(emptyList())
-            .firstOrNull { candidate -> candidate.selected && candidate.provider == provider }
-            ?.threadId
+    e.presentation.isEnabledAndVisible = true
+    e.presentation.text = entry.displayText()
+    e.presentation.description = entry.searchText
+    e.presentation.icon = null
+    e.presentation.putClientProperty(ActionUtil.SECONDARY_TEXT, entry.secondaryText())
+    e.presentation.putClientProperty(ActionUtil.SECONDARY_ICON, null)
+    e.presentation.putClientProperty(ActionUtil.SEARCH_TAG, entry.searchText)
+    val inlineAction = when (entry) {
+      is PromptLibraryEntry.SavedPrompt -> RemoveSavedPromptAction(entry, onRemove)
+      is PromptLibraryEntry.PromptFile -> null
+      is PromptLibraryEntry.RecentPrompt -> SaveRecentPromptAction(entry, onSave)
     }
+    e.presentation.putClientProperty(ActionUtil.INLINE_ACTIONS, inlineAction?.let { listOf(it) })
+  }
 
-    private fun updateSendAvailability() {
-        submitController.updateSendAvailability()
-    }
+  override fun actionPerformed(e: AnActionEvent) {
+    currentEntry()?.let(onChoose)
+  }
 
-    private fun refreshSuggestions() {
-        if (contextState.activeExtensionTab != null) {
-            suggestionController.clearSuggestions()
-            return
-        }
+  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+}
 
-        suggestionController.reloadSuggestions(
-            AgentPromptSuggestionRequest(
-                project = project,
-                projectPath = submitController.resolveWorkingProjectPath(),
-                targetModeId = currentTargetMode().name,
-                contextItems = contextController.buildVisibleContextEntries().map(ContextEntry::item),
-            )
-        )
-    }
+private class SaveRecentPromptAction(
+  private val entry: PromptLibraryEntry.RecentPrompt,
+  private val onSave: (PromptLibraryEntry.RecentPrompt) -> Unit,
+) : DumbAwareAction() {
+  override fun update(e: AnActionEvent) {
+    e.presentation.text = AgentPromptBundle.message("popup.prompt.library.save")
+    e.presentation.description = AgentPromptBundle.message("popup.prompt.library.save")
+    e.presentation.icon = AllIcons.Actions.MenuSaveall
+    e.presentation.keepPopupOnPerform = KeepPopupOnPerform.Always
+  }
 
-    private fun resolveTaskKey(panel: JPanel?): String? {
-        if (panel == null) return null
-        val mode = panel.getClientProperty("targetMode") as? PromptTargetMode
-        if (mode != null) return mode.name
-        return contextState.activeExtensionTabs.firstOrNull { it.tabPanel === panel }?.let(::resolveExtensionTaskKey)
-    }
+  override fun actionPerformed(e: AnActionEvent) {
+    onSave(entry)
+  }
 
-    private fun currentContextItems(): List<AgentPromptContextItem> {
-        return contextController.buildVisibleContextEntries().map(ContextEntry::item)
-    }
+  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+}
 
-    private fun resolveExtensionTaskKey(
-        entry: AgentPromptPaletteExtensionTab,
-        contextItems: List<AgentPromptContextItem> = currentContextItems(),
-    ): String {
-        return AgentPromptPaletteExtensionContext.withContextItems(project, contextItems) {
-            AgentPromptExtensionDraftDecisions.taskKey(entry.taskKeyPrefix, entry.extension.getInitialPrompt(project)?.kind)
-        }
-    }
+private class RemoveSavedPromptAction(
+  private val entry: PromptLibraryEntry.SavedPrompt,
+  private val onRemove: (PromptLibraryEntry.SavedPrompt) -> Unit,
+) : DumbAwareAction() {
+  override fun update(e: AnActionEvent) {
+    e.presentation.text = AgentPromptBundle.message("popup.prompt.library.remove")
+    e.presentation.description = AgentPromptBundle.message("popup.prompt.library.remove")
+    e.presentation.icon = AllIcons.General.Remove
+    e.presentation.keepPopupOnPerform = KeepPopupOnPerform.Always
+  }
 
-    private fun refreshExtensionTaskDraftsFromContext() {
-        val contextItems = currentContextItems()
-        for (entry in contextState.activeExtensionTabs) {
-            val taskKey = resolveExtensionTaskKey(entry, contextItems)
-            val updatedState = AgentPromptPaletteExtensionContext.withContextItems(project, contextItems) {
-                val initialPrompt = entry.extension.getInitialPrompt(project)
-                val currentState = draftState.taskPromptStates[taskKey]
-                if (currentState == null) {
-                    initialPrompt
-                        ?.let { restoredTaskPromptDraftState(it.content) }
-                } else {
-                    synchronizeExtensionDraftState(currentState, initialPrompt?.kind) { prompt ->
-                        entry.extension.synchronizePrompt(project, prompt)
-                    }
-                }
-            }
+  override fun actionPerformed(e: AnActionEvent) {
+    onRemove(entry)
+  }
 
-            if (updatedState == null) {
-                draftState.taskPromptStates.remove(taskKey)
-            } else {
-                draftState.taskPromptStates[taskKey] = updatedState
-            }
-
-            if (contextState.activeExtensionTab === entry) {
-                draftState.activeTaskKey = taskKey
-            }
-        }
-
-        if (contextState.activeExtensionTab != null) {
-            val taskKey = draftState.activeTaskKey ?: return
-            val updatedText = draftState.taskPromptStates[taskKey]?.liveText.orEmpty()
-            if (promptArea.text != updatedText) {
-                draftController.setPromptAreaTextProgrammatically(updatedText)
-            }
-        }
-    }
-
-    private fun currentTargetMode(): PromptTargetMode {
-        val selectedComponent = view.tabbedPane.selectedComponent as? JPanel ?: return PromptTargetMode.NEW_TASK
-        return selectedComponent.getClientProperty("targetMode") as? PromptTargetMode ?: PromptTargetMode.NEW_TASK
-    }
-
-    private fun setTargetMode(mode: PromptTargetMode) {
-        val index = findTabIndexForMode(mode) ?: return
-        view.tabbedPane.selectedIndex = index
-    }
-
-    private fun findTabIndexForMode(mode: PromptTargetMode): Int? {
-        for (i in 0 until view.tabbedPane.tabCount) {
-            val component = view.tabbedPane.getComponentAt(i) as? JPanel ?: continue
-            if (component.getClientProperty("targetMode") == mode) {
-                return i
-            }
-        }
-        return null
-    }
-
-    private fun clearStatus() {
-        val extensionTab = contextState.activeExtensionTab
-        view.footerLabel.text = if (extensionTab != null) {
-            extensionTab.extension.getFooterHint() ?: AgentPromptBundle.message("popup.footer.hint.default.tab")
-        } else {
-            AgentPromptBundle.message(
-                resolveDefaultFooterHintMessageKey(
-                    targetMode = currentTargetMode(),
-                    selectedProvider = providerSelector.selectedProvider?.bridge,
-                    hasNextPromptTab = view.tabbedPane.selectedIndex in 0 until view.tabbedPane.tabCount - 1,
-                )
-            )
-        }
-        view.footerLabel.foreground = JBUI.CurrentTheme.Advertiser.foreground()
-    }
-
-    private fun refreshFooterHintForCurrentState() {
-        if (shouldShowExistingTaskSelectionHint(
-                targetMode = currentTargetMode(),
-                selectedExistingTaskId = existingTaskController.selectedExistingTaskId,
-                selectedProvider = providerSelector.selectedProvider?.bridge,
-            )
-        ) {
-            showInfo(AgentPromptBundle.message("popup.status.existing.select.task"))
-            return
-        }
-
-        clearStatus()
-    }
-
-    private fun handleContextChanged(message: @Nls String) {
-        refreshExtensionTaskDraftsFromContext()
-        updateTargetModeUi()
-        updateSendAvailability()
-        showInfo(message)
-    }
-
-    private fun handleWorkingProjectPathSelected() {
-        contextController.refreshContextEntries()
-        contextController.resolveExtensionTabs()
-        refreshExtensionTaskDraftsFromContext()
-        updateTargetModeUi()
-        if (currentTargetMode() == PromptTargetMode.EXISTING_TASK) {
-            existingTaskController.clearSelection()
-            reloadExistingTasks()
-        }
-        updateSendAvailability()
-    }
-
-    private fun closeAfterSuccessfulSubmit() {
-        closePopup()
-    }
-
-    private fun showError(message: @Nls String) {
-        view.footerLabel.foreground = NamedColorUtil.getErrorForeground()
-        view.footerLabel.text = message
-    }
-
-    private fun showInfo(message: @Nls String) {
-        view.footerLabel.foreground = JBUI.CurrentTheme.Advertiser.foreground()
-        view.footerLabel.text = message
-    }
+  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 }

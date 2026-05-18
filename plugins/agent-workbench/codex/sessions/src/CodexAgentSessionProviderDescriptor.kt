@@ -9,6 +9,8 @@ import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
 import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
+import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
+import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceKind
 import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PLAN_MODE_COMMAND
 import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
@@ -24,6 +26,7 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentThreadRenameCon
 import com.intellij.agent.workbench.sessions.core.providers.AgentThreadRenameHandler
 import com.intellij.agent.workbench.sessions.core.providers.buildPlanModeInitialMessagePlan
 import com.intellij.openapi.components.serviceAsync
+import java.nio.file.Path
 import javax.swing.Icon
 
 internal class CodexAgentSessionProviderDescriptor(
@@ -119,9 +122,22 @@ internal class CodexAgentSessionProviderDescriptor(
   override suspend fun isCliAvailable(): Boolean = cliAvailableProbe()
 
   override suspend fun buildResumeLaunchSpec(sessionId: String): AgentSessionTerminalLaunchSpec {
+    return buildResumeLaunchSpec(sessionId, AgentSessionLaunchMode.STANDARD)
+  }
+
+  override suspend fun buildResumeLaunchSpec(
+    sessionId: String,
+    launchMode: AgentSessionLaunchMode,
+  ): AgentSessionTerminalLaunchSpec {
     val executable = executableResolver()
+    val command = if (launchMode == AgentSessionLaunchMode.YOLO) {
+      listOf(executable, "-c", CODEX_AUTO_UPDATE_CONFIG, "--yolo", "resume", sessionId)
+    }
+    else {
+      listOf(executable, "-c", CODEX_AUTO_UPDATE_CONFIG, "resume", sessionId)
+    }
     return AgentSessionTerminalLaunchSpec(
-      command = listOf(executable, "-c", CODEX_AUTO_UPDATE_CONFIG, "resume", sessionId),
+      command = command,
     )
   }
 
@@ -149,6 +165,27 @@ internal class CodexAgentSessionProviderDescriptor(
       request = request,
       startupPolicyWhenPlanModeEnabled = AgentInitialMessageStartupPolicy.POST_START_ONLY,
     )
+  }
+
+  override suspend fun listReusablePromptSourceEntries(projectPath: String): List<AgentPromptReusableSourceEntry> {
+    val normalizedPath = projectPath.takeIf(String::isNotBlank) ?: return emptyList()
+    val service = serviceAsync<SharedCodexAppServerService>()
+    return runCatching { service.listSkills(Path.of(normalizedPath)) }
+      .getOrDefault(emptyList())
+      .asSequence()
+      .filter { skill -> skill.enabled }
+      .map { skill ->
+        AgentPromptReusableSourceEntry(
+          id = "codex:skill:${skill.path ?: skill.name}",
+          label = skill.displayName ?: skill.name,
+          insertText = "$" + skill.name + " ",
+          kind = AgentPromptReusableSourceKind.SKILL,
+          provider = AgentSessionProvider.CODEX,
+          description = skill.shortDescription ?: skill.description ?: skill.defaultPrompt,
+          sourcePath = skill.path,
+        )
+      }
+      .toList()
   }
 
   override fun buildPostStartDispatchSteps(initialMessagePlan: AgentInitialMessagePlan): List<AgentInitialMessageDispatchStep> {

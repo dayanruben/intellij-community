@@ -254,6 +254,7 @@ fun threadsChangedEvent(
   scopedPaths: Set<String>? = null,
   threadIds: Set<String>? = null,
   activityHintsByThreadId: Map<String, AgentThreadActivity> = emptyMap(),
+  summaryActivityHintsByThreadId: Map<String, AgentThreadActivity?> = emptyMap(),
   activityHintPolicy: AgentSessionActivityHintPolicy = AgentSessionActivityHintPolicy.OPTIMISTIC,
 ): AgentSessionSourceUpdateEvent {
   return AgentSessionSourceUpdateEvent(
@@ -261,6 +262,7 @@ fun threadsChangedEvent(
     scopedPaths = scopedPaths,
     threadIds = threadIds,
     activityHintsByThreadId = activityHintsByThreadId,
+    summaryActivityHintsByThreadId = summaryActivityHintsByThreadId,
     activityHintPolicy = activityHintPolicy,
   )
 }
@@ -269,6 +271,7 @@ fun hintsChangedEvent(
   scopedPaths: Set<String>? = null,
   threadIds: Set<String>? = null,
   activityHintsByThreadId: Map<String, AgentThreadActivity> = emptyMap(),
+  summaryActivityHintsByThreadId: Map<String, AgentThreadActivity?> = emptyMap(),
   activityHintPolicy: AgentSessionActivityHintPolicy = AgentSessionActivityHintPolicy.OPTIMISTIC,
 ): AgentSessionSourceUpdateEvent {
   return AgentSessionSourceUpdateEvent(
@@ -276,6 +279,7 @@ fun hintsChangedEvent(
     scopedPaths = scopedPaths,
     threadIds = threadIds,
     activityHintsByThreadId = activityHintsByThreadId,
+    summaryActivityHintsByThreadId = summaryActivityHintsByThreadId,
     activityHintPolicy = activityHintPolicy,
   )
 }
@@ -286,6 +290,7 @@ fun thread(
   provider: AgentSessionProvider,
   title: String = id,
   activity: AgentThreadActivity = AgentThreadActivity.READY,
+  summaryActivity: AgentThreadActivity? = activity,
   subAgents: List<AgentSubAgent> = emptyList(),
 ): AgentSessionThread {
   return AgentSessionThread(
@@ -295,6 +300,7 @@ fun thread(
     archived = false,
     provider = provider,
     activity = activity,
+    summaryActivity = summaryActivity,
     subAgents = subAgents,
   )
 }
@@ -324,6 +330,7 @@ internal suspend fun withTestServiceAndLaunch(
   openAgentChatPendingTabsBinder: suspend (
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
+  archivedSessionsRefreshIfLoaded: () -> Unit = {},
   action: suspend (AgentSessionStateSyncTestFacade, AgentSessionLaunchService) -> Unit,
 ) {
   withServiceAndLaunch(
@@ -335,6 +342,7 @@ internal suspend fun withTestServiceAndLaunch(
     openPendingCodexTabsProvider = openPendingCodexTabsProvider,
     openConcreteChatThreadIdentitiesByPathProvider = openConcreteChatThreadIdentitiesByPathProvider,
     openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinder,
+    archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
     action = action,
   )
 }
@@ -352,6 +360,7 @@ internal suspend fun withService(
   openAgentChatPendingTabsBinder: suspend (
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
+  archivedSessionsRefreshIfLoaded: () -> Unit = {},
   action: suspend (AgentSessionStateSyncTestFacade) -> Unit,
 ) {
   withServiceAndLaunch(
@@ -363,6 +372,7 @@ internal suspend fun withService(
     openPendingCodexTabsProvider = openPendingCodexTabsProvider,
     openConcreteChatThreadIdentitiesByPathProvider = openConcreteChatThreadIdentitiesByPathProvider,
     openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinder,
+    archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
   ) { service, _ ->
     action(service)
   }
@@ -381,6 +391,7 @@ internal suspend fun withServiceAndLaunch(
   openAgentChatPendingTabsBinder: suspend (
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
+  archivedSessionsRefreshIfLoaded: () -> Unit = {},
   action: suspend (AgentSessionStateSyncTestFacade, AgentSessionLaunchService) -> Unit,
 ) {
   withServiceAndArchiveAndLaunch(
@@ -393,6 +404,7 @@ internal suspend fun withServiceAndLaunch(
     openPendingCodexTabsProvider = openPendingCodexTabsProvider,
     openConcreteChatThreadIdentitiesByPathProvider = openConcreteChatThreadIdentitiesByPathProvider,
     openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinder,
+    archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
   ) { service, _, launchService ->
     action(service, launchService)
   }
@@ -413,6 +425,7 @@ internal suspend fun withServiceAndArchive(
   openAgentChatPendingTabsBinder: suspend (
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
+  archivedSessionsRefreshIfLoaded: () -> Unit = {},
   action: suspend (AgentSessionStateSyncTestFacade, AgentSessionArchiveService) -> Unit,
 ) {
   withServiceAndArchiveAndLaunch(
@@ -426,6 +439,7 @@ internal suspend fun withServiceAndArchive(
     openPendingCodexTabsProvider = openPendingCodexTabsProvider,
     openConcreteChatThreadIdentitiesByPathProvider = openConcreteChatThreadIdentitiesByPathProvider,
     openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinder,
+    archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
   ) { service, archiveService, _ ->
     action(service, archiveService)
   }
@@ -446,6 +460,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
   openAgentChatPendingTabsBinder: suspend (
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
+  archivedSessionsRefreshIfLoaded: () -> Unit = {},
   action: suspend (AgentSessionStateSyncTestFacade, AgentSessionArchiveService, AgentSessionLaunchService) -> Unit,
 ) {
   val job = SupervisorJob()
@@ -489,6 +504,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
         stateStore = stateStore,
         syncService = syncService,
         uiPreferencesState = uiPreferencesState,
+        archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
       )
     }
     else {
@@ -498,6 +514,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
         syncService = syncService,
         uiPreferencesState = uiPreferencesState,
         chatOpenExecutor = chatOpenExecutor,
+        archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
       )
     }
     val archiveService = AgentSessionArchiveService(

@@ -34,7 +34,7 @@ New-thread actions let users start provider-backed threads from project/worktree
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreePopupActionsTest.kt
   [@test] ../../sessions-actions/testSrc/AgentSessionsEditorTabActionsTest.kt
 
-- Provider availability for synchronous new-thread surfaces is read from the `TerminalAgentsAvailabilityService` cached snapshot via each descriptor's `terminalAgentKey`. A project-startup activity prewarms the cache so menus render the launch-time answer on first paint without waiting for the terminal tool window to initialize.
+- Provider availability for synchronous new-thread surfaces is read from the project-level provider availability cache. A project-startup activity prewarms the cache so menus render the launch-time answer on first paint without blocking the EDT; first paint treats unknown providers optimistically until the async refresh publishes the resolved state.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsSwingNewSessionActionsTest.kt
 
 - Provider/mode menu items render disabled when their CLI is unavailable. The label is suffixed with the resolved `cliMissingMessageKey` text (e.g. "Junie — Junie CLI not found. Install Junie CLI or add it to your PATH.") so the reason is visible inline, not only as a status-bar tooltip.
@@ -48,7 +48,7 @@ New-thread actions let users start provider-backed threads from project/worktree
 - Tree popup new-thread actions resolve context from tree rows only; editor-tab context uses editor-tab actions.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreePopupActionsTest.kt
 
-- Editor-tab new-thread actions are contributed to `EditorTabsToolbarActions` as quick-start and Add-popup entries. They are visible in dedicated Agent frames and hidden in normal project frames when dedicated-frame mode is enabled.
+- Editor-tab new-thread is contributed to `EditorTabsToolbarActions` as one split-button entry: primary click quick-launches when the source project and last provider/mode are eligible, and the chevron opens the provider/mode picker. It is visible in dedicated Agent frames and hidden in normal project frames when dedicated-frame mode is enabled.
   [@test] ../../sessions-actions/testSrc/AgentSessionsEditorTabActionsTest.kt
   [@test] ../../sessions-actions/testSrc/AgentSessionsGearActionsTest.kt
 

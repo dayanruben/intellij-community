@@ -728,6 +728,7 @@
       <module fileurl="file://$PROJECT_DIR$/json/intellij.json.iml" filepath="$PROJECT_DIR$/json/intellij.json.iml" />
       <module fileurl="file://$PROJECT_DIR$/json/backend/intellij.json.backend.iml" filepath="$PROJECT_DIR$/json/backend/intellij.json.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/json/backend/regexp/intellij.json.backend.regexp.iml" filepath="$PROJECT_DIR$/json/backend/regexp/intellij.json.backend.regexp.iml" />
+      <module fileurl="file://$PROJECT_DIR$/json/structureView/intellij.json.structureView.iml" filepath="$PROJECT_DIR$/json/structureView/intellij.json.structureView.iml" />
       <module fileurl="file://$PROJECT_DIR$/json/syntax/intellij.json.syntax.iml" filepath="$PROJECT_DIR$/json/syntax/intellij.json.syntax.iml" />
       <module fileurl="file://$PROJECT_DIR$/json/backend/tests/intellij.json.tests.iml" filepath="$PROJECT_DIR$/json/backend/tests/intellij.json.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/jsonpath/intellij.jsonpath.iml" filepath="$PROJECT_DIR$/plugins/jsonpath/intellij.jsonpath.iml" />
@@ -1202,7 +1203,10 @@
       <module fileurl="file://$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.grid.core/intellij.moduleSet.plugin.grid.core.iml" filepath="$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.grid.core/intellij.moduleSet.plugin.grid.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.main/intellij.moduleSet.plugin.main.iml" filepath="$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.main/intellij.moduleSet.plugin.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.recentFiles/intellij.moduleSet.plugin.recentFiles.iml" filepath="$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.recentFiles/intellij.moduleSet.plugin.recentFiles.iml" />
+      <module fileurl="file://$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.servicesView/intellij.moduleSet.plugin.servicesView.iml" filepath="$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.servicesView/intellij.moduleSet.plugin.servicesView.iml" />
       <module fileurl="file://$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.structuralSearch/intellij.moduleSet.plugin.structuralSearch.iml" filepath="$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.structuralSearch/intellij.moduleSet.plugin.structuralSearch.iml" />
+      <module fileurl="file://$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.structureView/intellij.moduleSet.plugin.structureView.iml" filepath="$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.structureView/intellij.moduleSet.plugin.structureView.iml" />
+      <module fileurl="file://$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.todoView/intellij.moduleSet.plugin.todoView.iml" filepath="$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.todoView/intellij.moduleSet.plugin.todoView.iml" />
       <module fileurl="file://$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.vcs.frontend/intellij.moduleSet.plugin.vcs.frontend.iml" filepath="$PROJECT_DIR$/module-set-plugins/generated/intellij.moduleSet.plugin.vcs.frontend/intellij.moduleSet.plugin.vcs.frontend.iml" />
       <module fileurl="file://$PROJECT_DIR$/mps/build/intellij.mps.build.iml" filepath="$PROJECT_DIR$/mps/build/intellij.mps.build.iml" />
       <module fileurl="file://$PROJECT_DIR$/mps/build/intellij.mps.build.tests.iml" filepath="$PROJECT_DIR$/mps/build/intellij.mps.build.tests.iml" />
@@ -1480,6 +1484,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/locking-impl/intellij.platform.locking.impl.iml" filepath="$PROJECT_DIR$/platform/locking-impl/intellij.platform.locking.impl.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/lsp/intellij.platform.lsp.iml" filepath="$PROJECT_DIR$/platform/lsp/intellij.platform.lsp.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/lsp-impl/intellij.platform.lsp.impl.iml" filepath="$PROJECT_DIR$/platform/lsp-impl/intellij.platform.lsp.impl.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/lsp-impl/structureView/intellij.platform.lsp.impl.structureView.iml" filepath="$PROJECT_DIR$/platform/lsp-impl/structureView/intellij.platform.lsp.impl.structureView.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/lsp-impl/tests/intellij.platform.lsp.impl.tests.iml" filepath="$PROJECT_DIR$/platform/lsp-impl/tests/intellij.platform.lsp.impl.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/lsp/testFramework/intellij.platform.lsp.testFramework.iml" filepath="$PROJECT_DIR$/platform/lsp/testFramework/intellij.platform.lsp.testFramework.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/lvcs-api/intellij.platform.lvcs.iml" filepath="$PROJECT_DIR$/platform/lvcs-api/intellij.platform.lvcs.iml" />
@@ -1681,6 +1686,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/frontend/intellij.platform.vcs.impl.frontend.tests.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/frontend/intellij.platform.vcs.impl.frontend.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/lang/intellij.platform.vcs.impl.lang.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/lang/intellij.platform.vcs.impl.lang.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/lang/actions/intellij.platform.vcs.impl.lang.actions.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/lang/actions/intellij.platform.vcs.impl.lang.actions.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/lang/todo/intellij.platform.vcs.impl.lang.todo.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/lang/todo/intellij.platform.vcs.impl.lang.todo.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/shared/intellij.platform.vcs.impl.shared.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/shared/intellij.platform.vcs.impl.shared.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/shared/intellij.platform.vcs.impl.shared.tests.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/shared/intellij.platform.vcs.impl.shared.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/intellij.platform.vcs.impl.tests.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/intellij.platform.vcs.impl.tests.iml" />

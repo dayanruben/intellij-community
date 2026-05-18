@@ -11,21 +11,39 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentPromptProviderO
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.runInEdtAndWait
+import com.intellij.ui.EditorTextField
 import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.EmptyIcon
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.awt.event.KeyEvent
 import javax.swing.JPanel
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 @TestApplication
 class AgentPromptProviderSelectorTest {
+  @BeforeEach
+  fun clearProviderAvailabilityCache() {
+    AgentSessionProviderAvailabilityService.getInstance(ProjectManager.getInstance().defaultProject).clearAvailabilityForTest()
+  }
+
   @Test
   fun planModeCheckboxUsesMnemonicAndUpdatesStoredSelection() {
     runInEdtAndWait {
@@ -43,6 +61,11 @@ class AgentPromptProviderSelectorTest {
       assertThat(fixture.planModeCheckBox().displayedMnemonicIndex).isEqualTo(0)
       assertThat(fixture.planModeCheckBox().text).doesNotContain("Alt+P")
       assertThat(fixture.planModeCheckBox().isSelected).isTrue()
+      assertThat(fixture.planModeCheckBox().font).isEqualTo(JBCheckBox().font)
+      fixture.view.headerControls.setContainerModeVisible(true)
+      val expectedHeaderCheckBox = fixture.headerCheckBox("Run in container")
+      assertThat(fixture.planModeCheckBox().border.getBorderInsets(fixture.planModeCheckBox()))
+        .isEqualTo(expectedHeaderCheckBox.border.getBorderInsets(expectedHeaderCheckBox))
 
       fixture.planModeCheckBox().doClick()
       assertThat(fixture.selector.selectedOptionIds(provider.provider)).isEmpty()
@@ -65,8 +88,9 @@ class AgentPromptProviderSelectorTest {
 
       fixture.selector.refresh()
 
-      assertThat(fixture.providerOptionsPanel.componentCount).isZero()
-      assertThat(fixture.providerOptionsPanel.isVisible).isFalse()
+      assertThat(fixture.view.headerControls.providerOptionActions).isEmpty()
+      assertThat(collectComponentsOfType(fixture.view.rootPanel, JBCheckBox::class.java).map { it.text })
+        .doesNotContain("Plan mode")
     }
   }
 
@@ -98,7 +122,7 @@ class AgentPromptProviderSelectorTest {
         promptOptions = emptyList(),
         cliAvailable = false,
       )
-      val fixture = createSelectorFixture(listOf(provider))
+      val fixture = createSelectorFixture(listOf(provider), availabilityByProvider = mapOf(provider.provider to false))
 
       fixture.selector.refresh()
 
@@ -114,9 +138,47 @@ class AgentPromptProviderSelectorTest {
     }
   }
 
-  private fun createSelectorFixture(providers: List<AgentSessionProviderDescriptor>): ProviderSelectorFixture {
+  @Test
+  @Suppress("RAW_SCOPE_CREATION")
+  fun asyncRefreshAppliesResolvedProviderAvailabilityFromUiScope() = timeoutRunBlocking {
+    val provider = testProviderBridge(
+      provider = AgentSessionProvider.CODEX,
+      promptOptions = emptyList(),
+      cliAvailable = false,
+    )
+    val asyncRefreshScope = CoroutineScope(SupervisorJob() + Dispatchers.EDT)
+    try {
+      val fixture = withContext(Dispatchers.EDT) {
+        createSelectorFixture(listOf(provider), asyncRefreshScope = asyncRefreshScope).also { fixture ->
+          fixture.selector.refresh()
+        }
+      }
+
+      assertThat(withContext(Dispatchers.EDT) { fixture.selector.selectedProvider?.isCliAvailable }).isTrue()
+      waitForCondition {
+        withContext(Dispatchers.EDT) {
+          fixture.selector.selectedProvider?.isCliAvailable == false
+        }
+      }
+    }
+    finally {
+      asyncRefreshScope.cancel()
+    }
+  }
+
+  private fun createSelectorFixture(
+    providers: List<AgentSessionProviderDescriptor>,
+    availabilityByProvider: Map<AgentSessionProvider, Boolean> = emptyMap(),
+    asyncRefreshScope: CoroutineScope? = null,
+  ): ProviderSelectorFixture {
     val project = ProjectManager.getInstance().defaultProject
-    val providerOptionsPanel = JPanel()
+    AgentSessionProviderAvailabilityService.getInstance(project).setAvailabilityForTest(availabilityByProvider)
+    val view = createAgentPromptPaletteView(
+      promptArea = EditorTextField(),
+      contextChipsPanel = JPanel(),
+      onProviderIconClicked = {},
+      onExistingTaskSelected = {},
+    )
     return ProviderSelectorFixture(
       selector = AgentPromptProviderSelector(
         invocationData = AgentPromptInvocationData(
@@ -126,13 +188,22 @@ class AgentPromptProviderSelectorTest {
           actionPlace = "MainMenu",
           invokedAtMs = 0L,
         ),
-        providerIconLabel = JBLabel(),
-        providerOptionsPanel = providerOptionsPanel,
+        providerIconLabel = view.providerIconLabel,
+        headerControls = view.headerControls,
         providersProvider = { providers },
         sessionsMessageResolver = AgentPromptSessionsMessageResolver(AgentPromptProviderSelector::class.java.classLoader),
+        asyncRefreshScope = asyncRefreshScope,
       ),
-      providerOptionsPanel = providerOptionsPanel,
+      view = view,
     )
+  }
+
+  private suspend fun waitForCondition(condition: suspend () -> Boolean) {
+    withTimeout(5.seconds) {
+      while (!condition()) {
+        delay(10.milliseconds)
+      }
+    }
   }
 
   private fun testProviderBridge(
@@ -177,10 +248,16 @@ class AgentPromptProviderSelectorTest {
 
   private data class ProviderSelectorFixture(
     val selector: AgentPromptProviderSelector,
-    val providerOptionsPanel: JPanel,
+    val view: AgentPromptPaletteView,
   ) {
     fun planModeCheckBox(): JBCheckBox {
-      return providerOptionsPanel.components.single() as JBCheckBox
+      return headerCheckBox("Plan mode")
+    }
+
+    fun headerCheckBox(text: String): JBCheckBox {
+      view.headerControls.updateActions()
+      layoutPopupRoot(view.rootPanel)
+      return collectComponentsOfType(view.rootPanel, JBCheckBox::class.java).single { checkBox -> checkBox.text == text }
     }
   }
 }

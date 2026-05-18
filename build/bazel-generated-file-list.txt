@@ -346,6 +346,7 @@ json
 json/backend
 json/backend/regexp
 json/backend/tests
+json/structureView
 json/syntax
 jupyter
 jvm/jvm-analysis-api
@@ -527,7 +528,10 @@ module-set-plugins/generated/intellij.moduleSet.plugin.debugger.streams
 module-set-plugins/generated/intellij.moduleSet.plugin.grid.core
 module-set-plugins/generated/intellij.moduleSet.plugin.main
 module-set-plugins/generated/intellij.moduleSet.plugin.recentFiles
+module-set-plugins/generated/intellij.moduleSet.plugin.servicesView
 module-set-plugins/generated/intellij.moduleSet.plugin.structuralSearch
+module-set-plugins/generated/intellij.moduleSet.plugin.structureView
+module-set-plugins/generated/intellij.moduleSet.plugin.todoView
 module-set-plugins/generated/intellij.moduleSet.plugin.vcs.frontend
 mps/build
 mps/build/intellij.mps.resources
@@ -697,6 +701,7 @@ platform/libraries/cglib
 platform/locking-impl
 platform/lsp
 platform/lsp-impl
+platform/lsp-impl/structureView
 platform/lsp-impl/tests
 platform/lsp/testFramework
 platform/lvcs-api
@@ -892,6 +897,7 @@ platform/vcs-impl/exec
 platform/vcs-impl/frontend
 platform/vcs-impl/lang
 platform/vcs-impl/lang/actions
+platform/vcs-impl/lang/todo
 platform/vcs-impl/shared
 platform/vcs-log/api
 platform/vcs-log/graph

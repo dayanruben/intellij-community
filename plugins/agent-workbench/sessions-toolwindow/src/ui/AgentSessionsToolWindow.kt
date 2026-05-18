@@ -9,14 +9,17 @@ import com.intellij.agent.workbench.chat.AgentChatTabSelectionService
 import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.actions.providerAvailabilityFromTerminalCache
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
 import com.intellij.agent.workbench.sessions.service.AgentArchivedSessionsService
 import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
+import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityListener
+import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
 import com.intellij.agent.workbench.sessions.service.AgentSessionReadService
 import com.intellij.agent.workbench.sessions.service.AgentSessionRefreshService
+import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsListener
+import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
 import com.intellij.agent.workbench.sessions.state.AgentSessionThreadViewStateService
 import com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
@@ -27,6 +30,7 @@ import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeNode
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.UiDataProvider
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
@@ -78,6 +82,8 @@ internal class AgentSessionsToolWindowPanel(
   private var sessionTreeModel: SessionTreeModel = SessionTreeModel.EMPTY
   private var lastUsedProvider: AgentSessionProvider? = null
   private var initialRefreshRequested = false
+  private val providerAvailabilityService = AgentSessionProviderAvailabilityService.getInstance(project)
+  private val providerSettingsService = AgentSessionProviderSettingsService.getInstance()
 
   private val treeStructure = AgentSessionsTreeStructure { sessionTreeModel }
   private val structureTreeModel = StructureTreeModel(treeStructure, this)
@@ -230,10 +236,11 @@ internal class AgentSessionsToolWindowPanel(
         interactionController.showNewSessionActionPopup(nodeId, node, anchorRect, row)
       },
       isProviderAvailable = { provider ->
-        providerAvailabilityFromTerminalCache(AgentSessionProviders.allProviders(), project)[provider] == true
+        providerSettingsService.isProviderEnabled(provider) && providerAvailabilityService.isProviderAvailable(provider)
       },
     )
 
+    installProviderAvailabilityRefresh()
     configureTree()
     add(northPanel, BorderLayout.NORTH)
     add(ScrollPaneFactory.createScrollPane(tree, true), BorderLayout.CENTER)
@@ -243,6 +250,23 @@ internal class AgentSessionsToolWindowPanel(
     stateController.setModelUpdatesVisible(isModelUpdateVisible())
     stateController.start()
     requestInitialRefreshIfVisible()
+  }
+
+  private fun installProviderAvailabilityRefresh() {
+    providerAvailabilityService.requestRefresh(AgentSessionProviders.allProviders())
+    project.messageBus.connect(this)
+      .subscribe(AgentSessionProviderAvailabilityListener.TOPIC, object : AgentSessionProviderAvailabilityListener {
+        override fun availabilityChanged() {
+          tree.repaint()
+        }
+      })
+    ApplicationManager.getApplication().messageBus.connect(this)
+      .subscribe(AgentSessionProviderSettingsListener.TOPIC, object : AgentSessionProviderSettingsListener {
+        override fun providerSettingsChanged() {
+          providerAvailabilityService.requestRefresh(AgentSessionProviders.allProviders(), force = true)
+          tree.repaint()
+        }
+      })
   }
 
   private fun installToolWindowVisibilityTracker() {
@@ -290,6 +314,7 @@ internal class AgentSessionsToolWindowPanel(
     return JPanel().apply {
       layout = BoxLayout(this, BoxLayout.Y_AXIS)
       isOpaque = false
+      add(AgentProviderCliStatusBanner(project, this@AgentSessionsToolWindowPanel))
       contributions.forEach(::add)
     }
   }

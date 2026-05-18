@@ -3,11 +3,11 @@ package com.intellij.agent.workbench.sessions
 
 import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsActivateWithProjectShortcutAction
+import com.intellij.agent.workbench.sessions.actions.AgentSessionsConfigureProvidersAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsCopyThreadIdFromEditorTabAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsDedicatedFrameToggleAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabArchiveThreadAction
-import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadPopupGroup
-import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadQuickAction
+import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabRenameThreadAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsGoToSourceProjectFromEditorTabAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsGoToSourceProjectFromToolbarAction
@@ -44,11 +44,15 @@ class AgentSessionsGearActionsTest {
       "OpenFile",
       "AgentWorkbenchSessions.ShowArchivedThreads",
       "AgentWorkbenchSessions.Refresh",
+      "AgentWorkbenchSessions.ConfigureProviders",
       ACTION_SEPARATOR_MARKER,
       "AgentWorkbenchSessions.ToggleDedicatedFrame",
       "AgentWorkbenchSessions.TogglePreventSleepWhileWorking",
     )
     assertThat(entries).doesNotContain("AgentWorkbenchSessions.OpenDedicatedFrame")
+    assertThat(actionManager.getAction("AgentWorkbenchSessions.ConfigureProviders"))
+      .isNotNull
+      .isInstanceOf(AgentSessionsConfigureProvidersAction::class.java)
   }
 
   @Test
@@ -275,27 +279,23 @@ class AgentSessionsGearActionsTest {
   @Test
   fun editorTabNewThreadActionIsRegisteredInActionSystem() {
     val actionManager = ActionManager.getInstance()
-    val quickActionId = AgentWorkbenchActionIds.Sessions.EditorTab.NEW_THREAD_QUICK
-    val popupActionId = AgentWorkbenchActionIds.Sessions.EditorTab.NEW_THREAD_POPUP
+    val actionId = AgentWorkbenchActionIds.Sessions.EditorTab.NEW_THREAD
 
-    assertThat(actionManager.getAction(quickActionId))
+    assertThat(actionManager.getAction(actionId))
       .isNotNull
-      .isInstanceOf(AgentSessionsEditorTabNewThreadQuickAction::class.java)
-    assertThat(actionManager.getAction(quickActionId)?.actionUpdateThread)
-      .isEqualTo(ActionUpdateThread.BGT)
-    assertThat(actionManager.getAction(popupActionId))
-      .isNotNull
-      .isInstanceOf(AgentSessionsEditorTabNewThreadPopupGroup::class.java)
-    assertThat(actionManager.getAction(popupActionId)?.templatePresentation?.icon)
+      .isInstanceOf(AgentSessionsEditorTabNewThreadAction::class.java)
+    assertThat(actionManager.getAction(actionId)?.templatePresentation?.icon)
       .isEqualTo(AllIcons.General.Add)
-    assertThat(actionManager.getAction(popupActionId)?.actionUpdateThread)
+    assertThat(actionManager.getAction(actionId)?.actionUpdateThread)
       .isEqualTo(ActionUpdateThread.BGT)
     assertThat(actionManager.getAction("EditorTabsToolbarActions"))
       .isNotNull
     assertThat(actionManager.childActionIds("EditorTabsToolbarActions"))
-      .contains(quickActionId, popupActionId)
+      .contains(actionId)
+    assertThat(actionManager.childActionIds("EditorTabsToolbarActions").count { it == actionId })
+      .isEqualTo(1)
     assertThat(actionManager.childActionIds("EditorTabActionGroup"))
-      .doesNotContain(quickActionId, popupActionId)
+      .doesNotContain(actionId)
   }
 
   @Test

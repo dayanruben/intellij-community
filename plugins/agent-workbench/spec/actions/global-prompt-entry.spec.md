@@ -5,6 +5,7 @@ targets:
   - ../../prompt/ui/src/actions/AgentWorkbenchGlobalPromptAction.kt
   - ../../prompt/ui/src/actions/AgentWorkbenchGlobalPromptShortcutCustomizer.kt
   - ../../prompt/ui/src/AgentPromptPalettePopup.kt
+  - ../../prompt/ui/src/AgentPromptPaletteView.kt
   - ../../prompt/ui/src/AgentPromptPaletteSubmitController.kt
   - ../../prompt/ui/src/AgentPromptEnterHandlers.kt
   - ../../prompt/ui/src/AgentPromptExistingTaskController.kt
@@ -64,6 +65,10 @@ The global prompt opens a project-scoped popup for starting a new task or sendin
 - Plan mode is available only when the selected provider exposes the plan-mode option, persists in project prompt draft state, and is forced off/rejected for busy existing tasks.
   [@test] ../../prompt/ui/testSrc/AgentPromptPlanModeDecisionsTest.kt
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
+
+- Header provider/launch options, including Plan mode and Run in container, are right-aligned after the target tabs through a Search Everywhere-style action toolbar. Checkbox options render through `CheckboxAction` components with platform header checkbox metrics; the prompt footer/status area uses the compact BigPopup advertiser strip, not a custom large footer panel.
+  [@test] ../../prompt/ui/testSrc/AgentPromptPaletteViewStructureTest.kt
+  [@test] ../../prompt/ui/testSrc/AgentPromptProviderSelectorTest.kt
 
 - Extension tab auto-selection is opt-in through `AgentPromptPaletteExtension.shouldAutoSelect(contextItems)` and applies only to the auto-select action. Active extension tabs own their submit action and bypass provider/options routing.
   [@test] ../../prompt/ui/testSrc/AgentPromptExtensionActionDataContextTest.kt
