@@ -415,6 +415,8 @@ f:org.jetbrains.jewel.ui.component.IconButtonState$Companion
 - bs:of-3OtLUoY$default(org.jetbrains.jewel.ui.component.IconButtonState$Companion,Z,Z,Z,Z,Z,I,java.lang.Object):J
 f:org.jetbrains.jewel.ui.component.IconKt
 - sf:Icon(androidx.compose.ui.graphics.painter.Painter,java.lang.String,androidx.compose.ui.graphics.ColorFilter,androidx.compose.ui.Modifier,androidx.compose.runtime.Composer,I,I):V
+- sf:Icon(com.intellij.platform.icons.Icon,java.lang.String,androidx.compose.ui.Modifier,com.intellij.platform.icons.scale.IconScale,androidx.compose.runtime.Composer,I,I):V
+- sf:Icon(java.lang.String,androidx.compose.ui.Modifier,com.intellij.platform.icons.scale.IconScale,kotlin.jvm.functions.Function1,androidx.compose.runtime.Composer,I,I):V
 - sf:Icon(org.jetbrains.jewel.ui.icon.IconKey,java.lang.String,androidx.compose.ui.Modifier,java.lang.Class,androidx.compose.ui.graphics.ColorFilter,org.jetbrains.jewel.ui.painter.PainterHint,androidx.compose.runtime.Composer,I,I):V
 - sf:Icon(org.jetbrains.jewel.ui.icon.IconKey,java.lang.String,androidx.compose.ui.Modifier,java.lang.Class,androidx.compose.ui.graphics.ColorFilter,org.jetbrains.jewel.ui.painter.PainterHint[],androidx.compose.runtime.Composer,I,I):V
 - sf:Icon-FHprtrg(org.jetbrains.jewel.ui.icon.IconKey,java.lang.String,androidx.compose.ui.Modifier,java.lang.Class,J,org.jetbrains.jewel.ui.painter.PainterHint,androidx.compose.runtime.Composer,I,I):V
@@ -2449,6 +2451,10 @@ f:org.jetbrains.jewel.ui.graphics.CssLinearGradientBrushKt
 org.jetbrains.jewel.ui.icon.IconKey
 - a:getIconClass():java.lang.Class
 - a:path(Z):java.lang.String
+f:org.jetbrains.jewel.ui.icon.IconKeyKt
+- sf:iconKey(com.intellij.platform.icons.design.IconDesigner,org.jetbrains.jewel.ui.icon.IconKey,com.intellij.platform.icons.modifiers.IconModifier):V
+- bs:iconKey$default(com.intellij.platform.icons.design.IconDesigner,org.jetbrains.jewel.ui.icon.IconKey,com.intellij.platform.icons.modifiers.IconModifier,I,java.lang.Object):V
+f:org.jetbrains.jewel.ui.icon.IconUtilsKt
 f:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - org.jetbrains.jewel.ui.icon.IconKey
 - sf:$stable:I
@@ -2901,9 +2907,12 @@ f:org.jetbrains.jewel.ui.icons.AllIconsKeys$FileTypes
 - sf:Archive:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Aspectj:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:BinaryData:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:C:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Config:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Contexts:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:ContextsModifier:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Cpp:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Csharp:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Css:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Csv:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Custom:org.jetbrains.jewel.ui.icon.IntelliJIconKey
@@ -2911,6 +2920,10 @@ f:org.jetbrains.jewel.ui.icons.AllIconsKeys$FileTypes
 - sf:Dtd:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Font:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Gitignore:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Gradle:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Graphql:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Groovy:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:H:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Hprof:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Htaccess:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Html:org.jetbrains.jewel.ui.icon.IntelliJIconKey
@@ -2927,15 +2940,26 @@ f:org.jetbrains.jewel.ui.icons.AllIconsKeys$FileTypes
 - sf:JsonSchema:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Jsp:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Jspx:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Jupyter:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Manifest:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Markdown:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:MarkdownPlugin:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:MicrosoftWindows:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Perl:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Properties:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Regexp:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Rst:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Rust:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:SourceMap:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Sql:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:SwiftLang:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Terraform:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Text:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Toml:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:TomlFile:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:UiForm:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Unknown:org.jetbrains.jewel.ui.icon.IntelliJIconKey
+- sf:Vue:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:WsdlFile:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Xhtml:org.jetbrains.jewel.ui.icon.IntelliJIconKey
 - sf:Xml:org.jetbrains.jewel.ui.icon.IntelliJIconKey

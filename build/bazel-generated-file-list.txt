@@ -652,6 +652,11 @@ platform/find/backend
 platform/foldings
 platform/forms_rt
 platform/icons
+platform/icons-api
+platform/icons-api/rendering
+platform/icons-impl
+platform/icons-impl/intellij
+platform/icons-impl/intellij/tests
 platform/ide-core
 platform/ide-core-impl
 platform/ide-core/plugins
@@ -1073,7 +1078,6 @@ plugins/gradle/completion
 plugins/gradle/completion/kotlin
 plugins/gradle/completion/kotlin/tests
 plugins/gradle/completion/toml
-plugins/gradle/completion/toml/tests
 plugins/gradle/gradle-declarative-sync
 plugins/gradle/gradle-dependency-updater
 plugins/gradle/intellij.gradle.analysis

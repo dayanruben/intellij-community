@@ -44,6 +44,7 @@
     <orderEntry type="module" module-name="intellij.toml.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.maven.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.gradle.java.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.gradle.completion.toml.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.groovy.uast.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.remoteServers.targetsIntegrationTests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.python.commonTests" scope="TEST" />
@@ -123,6 +124,7 @@
     <orderEntry type="module" module-name="intellij.platform.eel.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.externalSystem.dependencyUpdater.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jewel.detektPlugin" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.icons.impl.intellij.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.selfContainedProjects" scope="TEST" />
     <orderEntry type="module" module-name="intellij.tools.cmd.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.turboComplete.tests" scope="TEST" />
@@ -280,6 +282,7 @@
     <orderEntry type="module" module-name="intellij.vcs.git.terminal.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.xpath.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.compiler.tests.main" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.repository.search.completion.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.gradle.tests.main" scope="TEST" />
     <orderEntry type="module" module-name="intellij.maven.tests.main" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.vcs.tests.main" scope="TEST" />

@@ -2,13 +2,12 @@
 package org.jetbrains.kotlin.gradle.scripting.k2.projectStructure
 
 import com.intellij.platform.backend.workspace.workspaceModel
-import com.intellij.platform.externalSystem.testFramework.ExternalSystemImportingTestCase
 import com.intellij.platform.testFramework.assertion.collectionAssertion.CollectionAssertions.assertEmpty
 import com.intellij.platform.testFramework.assertion.collectionAssertion.CollectionAssertions.assertEqualsUnordered
 import com.intellij.platform.testFramework.assertion.collectionAssertion.CollectionAssertions.assertSingle
 import com.intellij.platform.workspace.storage.entities
 import com.intellij.platform.workspace.storage.impl.url.toVirtualFileUrl
-import com.intellij.testFramework.junit5.fixture.disposableFixture
+import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.intellij.testFramework.useProjectAsync
 import com.intellij.util.application
@@ -24,36 +23,25 @@ import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncListener
 import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase
 import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.Companion.BASE_SCRIPT_MODEL_PHASE
 import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase.Companion.SCRIPT_MODEL_PHASE
-import org.jetbrains.plugins.gradle.testFramework.fixtures.application.GradleTestApplication
+import org.jetbrains.plugins.gradle.testFramework.annotations.BaseGradleVersionSource
 import org.jetbrains.plugins.gradle.testFramework.fixtures.gradleFixture
-import org.jetbrains.plugins.gradle.testFramework.fixtures.gradleJvmFixture
 import org.jetbrains.plugins.gradle.testFramework.util.createBuildFile
 import org.jetbrains.plugins.gradle.testFramework.util.createSettingsFile
-import org.jetbrains.plugins.gradle.tooling.JavaVersionRestriction
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertNotNull
+import org.junit.jupiter.params.ParameterizedClass
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Predicate
 
 @UseK2PluginMode
-@GradleTestApplication
+@TestApplication
 @AssertKotlinPluginMode
-class KotlinGradleScriptImportingTest {
+@ParameterizedClass
+@BaseGradleVersionSource
+class KotlinGradleScriptImportingTest(private val gradleVersion: GradleVersion) {
 
-    val gradleVersion: GradleVersion = GradleVersion.current()
-    val javaVersion = JavaVersionRestriction.NO
-
-    val testDisposable by disposableFixture()
-    val gradleFixture by gradleFixture()
-    val gradleJvmFixture by gradleJvmFixture(gradleVersion, javaVersion)
-    val testRoot by tempPathFixture()
-
-    @BeforeEach
-    fun setUpTests() {
-        gradleJvmFixture.installProjectSettingsConfigurator(testDisposable)
-        ExternalSystemImportingTestCase.installExecutionOutputPrinter(testDisposable)
-    }
+    private val gradle by gradleFixture(gradleVersion)
+    private val testRoot by tempPathFixture()
 
     @Test
     fun `test script entities from all linked builds should be preserved in workspace model`(): Unit = runBlocking {
@@ -66,8 +54,8 @@ class KotlinGradleScriptImportingTest {
         val project2SettingsFile = project2Root.createSettingsFile(gradleVersion) { setProjectName("project2") }
         val project2BuildFile = project2Root.createBuildFile(gradleVersion)
 
-        gradleFixture.openProject(project1Root).useProjectAsync { project ->
-            gradleFixture.linkProject(project, project2Root)
+        gradle.openProject(project1Root).useProjectAsync { project ->
+            gradle.linkProject(project, project2Root)
 
             val virtualFileUrlManager = project.workspaceModel.getVirtualFileUrlManager()
             val expectedScripts = sequenceOf(project1SettingsFile, project1BuildFile, project2SettingsFile, project2BuildFile)
@@ -100,7 +88,7 @@ class KotlinGradleScriptImportingTest {
                 }
             })
 
-        gradleFixture.openProject(projectRoot).useProjectAsync {
+        gradle.openProject(projectRoot).useProjectAsync {
             val entitiesAtPhase = entitiesAtPhases[BASE_SCRIPT_MODEL_PHASE]
             assertNotNull(entitiesAtPhase) {
                 "$BASE_SCRIPT_MODEL_PHASE should be completed"
@@ -149,7 +137,7 @@ class KotlinGradleScriptImportingTest {
             }
         }
 
-        gradleFixture.openProject(projectRoot).useProjectAsync { project ->
+        gradle.openProject(projectRoot).useProjectAsync { project ->
 
             assertEntitiesAtPhase(null, object : Predicate<GradleSyncPhase> {
                 override fun toString(): String = "during initial sync before $BASE_SCRIPT_MODEL_PHASE"
@@ -165,7 +153,7 @@ class KotlinGradleScriptImportingTest {
             })
 
             entitiesAtPhases.clear()
-            gradleFixture.reloadProject(project, projectRoot)
+            gradle.syncProject(project, projectRoot)
 
             assertEntitiesAtPhase(SCRIPT_MODEL_PHASE, object : Predicate<GradleSyncPhase> {
                 override fun toString(): String = "during re-sync before $BASE_SCRIPT_MODEL_PHASE"

@@ -32,6 +32,10 @@ internal class EditorHyperlinkInteraction(
   private var followedLinkWrapper: ChangedAttrsLinkWrapper? = null
   private var hoveredLinkWrapper: ChangedAttrsLinkWrapper? = null
 
+  val lastFollowedLink: RangeHighlighter?
+    @RequiresEdt(generateAssertion = false)
+    get() = followedLinkWrapper?.linkRangeHighlighter
+
   init {
     editor.contentComponent.addKeyListener(object : KeyAdapter() {
       override fun keyPressed(e: KeyEvent) {
@@ -70,7 +74,7 @@ internal class EditorHyperlinkInteraction(
     }
   }
 
-  private fun onLinkFollowed(link: RangeHighlighterEx) {
+  fun onLinkFollowed(link: RangeHighlighterEx) {
     if (followedLinkWrapper?.isSame(link) == true) return
     followedLinkWrapper?.restoreOriginalAttrs()
     followedLinkWrapper = null
@@ -134,16 +138,20 @@ internal class EditorHyperlinkInteraction(
         editor.colorsScheme.getAttributes(CodeInsightColors.HYPERLINK_ATTRIBUTES)
       }
       else {
-        val effectColor = ColorUtil.withAlpha(
-          editor.colorsScheme.defaultForeground,
-          if (JBColor.isBright()) 0.4 else 0.5
-        )
-        TextAttributes(null, null, effectColor, EffectType.LINE_UNDERSCORE, Font.PLAIN)
+        effectSupplier.getHoveredHyperlinkAttributes(link) ?: getDefaultHoveredLinkAttrs()
       }
     }
     else {
       effectSupplier.getHoveredHyperlinkAttributes(link)
     }
+  }
+
+  private fun getDefaultHoveredLinkAttrs(): TextAttributes {
+    val effectColor = ColorUtil.withAlpha(
+      editor.colorsScheme.defaultForeground,
+      if (JBColor.isBright()) 0.4 else 0.5
+    )
+    return TextAttributes(null, null, effectColor, EffectType.LINE_UNDERSCORE, Font.PLAIN)
   }
 
   private inner class ChangedAttrsLinkWrapper(

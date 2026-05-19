@@ -9,7 +9,7 @@ import org.jetbrains.annotations.ApiStatus
 private val log = logger<GradleDependencyCompletionMatcher>()
 
 @ApiStatus.Internal
-class GradleDependencyCompletionMatcher(prefix: String) : PrefixMatcher(prefix) {
+open class GradleDependencyCompletionMatcher(prefix: String) : PrefixMatcher(prefix) {
   override fun prefixMatches(name: String): Boolean {
     return prefix.split(":").all { name.contains(it) }
   }
@@ -28,16 +28,16 @@ class GradleDependencyCompletionMatcher(prefix: String) : PrefixMatcher(prefix) 
     }
   }
 
-  private fun tryGetMatchingFragments(prefix: String, name: String): List<MatchedFragment> {
+  private fun tryGetMatchingFragments(input: String, searchResult: String): List<MatchedFragment> {
     // handle top level completion case:
     // implementation("org.example:lib-implementation:1.0") - "implementation" in the artifact name should be matched
-    val start = name.indexOf("(").coerceAtLeast(0)
-    val prefixParts = prefix.split(":")
-    val nameParts = name.substring(start).split(":")
+    val start = searchResult.indexOf("(").coerceAtLeast(0)
+    val prefixParts = input.split(":")
+    val nameParts = searchResult.substring(start).split(":")
     val result = mutableListOf<MatchedFragment>()
     var offset = start
     var j = 0
-    for (i in 0 until prefixParts.size) {
+    for (i in prefixParts.indices) {
       var matchingFragment: MatchedFragment? = null
       while (j < nameParts.size && matchingFragment == null) {
         matchingFragment = getMatchingFragment(offset, prefixParts[i], nameParts[j])
@@ -45,12 +45,15 @@ class GradleDependencyCompletionMatcher(prefix: String) : PrefixMatcher(prefix) 
         j++
       }
       if (matchingFragment == null) {
-        // an empty list means no match, null means use default matching strategy
-        return emptyList()
+        return tryFallbackMatching(input, searchResult, start)
       }
       result.add(matchingFragment)
     }
     return result
+  }
+
+  protected open fun tryFallbackMatching(input: String, searchResult: String, start: Int): List<MatchedFragment> {
+    return emptyList()
   }
 
   private fun getMatchingFragment(offset: Int, prefixPart: String, name: String): MatchedFragment? {
@@ -59,5 +62,30 @@ class GradleDependencyCompletionMatcher(prefix: String) : PrefixMatcher(prefix) 
       return null
     }
     return MatchedFragment(from + offset, from + offset + prefixPart.length)
+  }
+}
+
+@ApiStatus.Internal
+class GradleDependencyCompletionFuzzyMatcher(prefix: String) : GradleDependencyCompletionMatcher(prefix) {
+  override fun prefixMatches(name: String): Boolean {
+    return true
+  }
+
+  override fun tryFallbackMatching(input: String, searchResult: String, start: Int): List<MatchedFragment> {
+    val searchable = searchResult.substring(start)
+
+    // Try every substring of input from longest to shortest, find first match anywhere in searchResult
+    for (len in input.length downTo 1) {
+      for (subStart in 0..input.length - len) {
+        val sub = input.substring(subStart, subStart + len)
+        val idx = searchable.indexOf(sub, ignoreCase = true)
+        if (idx != -1) {
+          val absoluteStart = start + idx
+          return listOf(MatchedFragment(absoluteStart, absoluteStart + sub.length))
+        }
+      }
+    }
+
+    return emptyList()
   }
 }

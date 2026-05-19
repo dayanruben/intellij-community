@@ -532,10 +532,11 @@ object PluginManagerCore {
     coreLoader: ClassLoader,
     parentActivity: Activity?,
     reportingPolicy: PluginLoadingErrorReportingPolicy,
+    configureClassLoaders: Boolean,
   ): PluginManagerState {
     var initStagesActivity = parentActivity?.startChild("selectPluginsToLoad") // no safe end() call, because if it fails, it won't matter
     val excludedFromLoading = IdentityHashMap<PluginMainDescriptor, PluginNonLoadReason>()
-    val pluginsToLoad = initContext.selectPluginsToLoad(discoveredPlugins.pluginLists) { plugin, reason ->
+    val pluginsToLoad = initContext.selectPluginsToLoad(discoveredPlugins) { plugin, reason ->
       excludedFromLoading[plugin] = reason
     }
     initStagesActivity = initStagesActivity?.endAndStart("selectPluginsToLoad post-process")
@@ -603,15 +604,15 @@ object PluginManagerCore {
 
     val (pluginSet, cycleErrors) = if (fallbackToOldPluginSetResolution()) {
       initStagesActivity = initStagesActivity?.endAndStart("pluginSetBuilder")
-      oldPluginSetBuilder(initContext, pluginsToLoad, incompletePlugins, idMap, fullIdMap, fullContentModuleIdMap, pluginNonLoadReasons, ::registerLoadingError)
+      oldPluginSetBuilder(initContext, discoveredPlugins, pluginsToLoad, incompletePlugins, idMap, fullIdMap, fullContentModuleIdMap, pluginNonLoadReasons, ::registerLoadingError)
     }
     else {
       initStagesActivity = initStagesActivity?.endAndStart("resolveConstraints")
       val resolvedPluginSet = initContext.resolveConstraints(pluginsToLoad)
       PluginInitializationDiagnosticUtils.logExclusionTree(resolvedPluginSet, incompletePlugins)
       val (adaptedPluginSet, cycleErrors) = adaptResolvedPluginSetAsOldPluginSet(
+        input = PluginSubsystemInput(initContext, discoveredPlugins),
         resolvedPluginSet = resolvedPluginSet,
-        incompletePlugins = incompletePlugins,
         registerLoadingError = ::registerLoadingError,
       )
 
@@ -631,8 +632,10 @@ object PluginManagerCore {
       checkEssentialPluginsAreAvailable(idMap, initContext.essentialPlugins, pluginNonLoadReasons)
     }
 
-    initStagesActivity = initStagesActivity?.endAndStart("ClassLoaderConfigurator")
-    ClassLoaderConfigurator(pluginSet, coreLoader).configure()
+    if (configureClassLoaders) {
+      initStagesActivity = initStagesActivity?.endAndStart("ClassLoaderConfigurator")
+      ClassLoaderConfigurator(pluginSet, coreLoader).configure()
+    }
 
     initStagesActivity?.end()
     return PluginManagerState(
@@ -647,6 +650,7 @@ object PluginManagerCore {
 
   internal fun oldPluginSetBuilder(
     initContext: PluginInitializationContext,
+    discoveredPlugins: PluginsDiscoveryResult,
     pluginsToLoad: UnambiguousPluginSet,
     incompletePlugins: HashMap<PluginId, PluginMainDescriptor>,
     idMap: Map<PluginId, PluginModuleDescriptor>,
@@ -655,7 +659,7 @@ object PluginManagerCore {
     pluginNonLoadReasons: MutableMap<PluginId, PluginNonLoadReason>,
     registerLoadingError: (PluginNonLoadReason) -> Unit,
   ): Pair<PluginSet, List<PluginLoadingError>> {
-    val pluginSetBuilder = PluginSetBuilder(initContext, pluginsToLoad)
+    val pluginSetBuilder = PluginSetBuilder(initContext, pluginsToLoad, discoveredPlugins)
     val cycleErrors = pluginSetBuilder.checkPluginCycles()
     val additionalErrors = pluginSetBuilder.computeEnabledModuleMap(
       incompletePlugins = incompletePlugins.values.toList(),
@@ -686,13 +690,24 @@ object PluginManagerCore {
     return pluginSet to cycleErrors
   }
 
-  private fun adaptResolvedPluginSetAsOldPluginSet(
+  @ApiStatus.Internal
+  @IntellijInternalApi
+  fun adaptResolvedPluginSetAsOldPluginSet(
+    input: PluginSubsystemInput,
     resolvedPluginSet: ResolvedPluginSet,
-    incompletePlugins: Map<PluginId, PluginMainDescriptor>,
     registerLoadingError: (PluginNonLoadReason) -> Unit,
   ): Pair<PluginSet, List<PluginLoadingError>> {
     val cycleErrors = ArrayList<PluginLoadingError>()
-    val broadResolveContext = lazy { AmbiguousPluginSet.build(resolvedPluginSet.originalPluginSet.plugins + incompletePlugins.values) }
+    val mostRecentExcludedPlugins = input.discoveryResult.pluginLists.asSequence()
+      .flatMap { it.plugins }
+      .filter { resolvedPluginSet.originalPluginSet.resolvePluginId(it.pluginId) == null }
+      .groupBy { it.pluginId }
+      .mapValues {
+        if (it.value.size == 1) it.value.first()
+        else it.value.maxWith { o1, o2 -> VersionComparatorUtil.compare(o1.version, o2.version) } // take the latest version among excluded disregarding compatibility
+      }
+    val allPlugins = resolvedPluginSet.originalPluginSet.plugins + mostRecentExcludedPlugins.values
+    val broadResolveContext = lazy { AmbiguousPluginSet.build(allPlugins) }
     for (plugin in resolvedPluginSet.originalPluginSet.plugins) {
       for (descriptor in plugin.sequenceAllDescriptors()) {
         descriptor.isMarkedForLoading = resolvedPluginSet.isResolved(descriptor)
@@ -738,13 +753,14 @@ object PluginManagerCore {
           resolvedPluginSet.getDirectResolvedDependencies(it).filterIsInstance<PluginModuleDescriptor>().sortedWith(topologicalComparator)
         }
       ),
-      allPlugins = (resolvedPluginSet.originalPluginSet.plugins + incompletePlugins.values).toSet(),
+      allPlugins = allPlugins.toSet(),
       enabledPlugins = resolvedPluginSet.originalPluginSet.plugins.filter { resolvedPluginSet.isResolved(it) },
       enabledModuleMap = resolvedModules.keys.asSequence().filterIsInstance<ContentModuleDescriptor>().associateBy { it.moduleId },
       enabledPluginAndV1ModuleMap = enabledPluginAndV1ModuleMap,
       enabledModules = resolvedModules.keys.toList(),
       topologicalComparator = topologicalComparator,
       resolvedPluginSet = resolvedPluginSet,
+      input = input,
     )
     return pluginSet to cycleErrors
   }
@@ -918,6 +934,7 @@ object PluginManagerCore {
         coreLoader = coreLoader,
         parentActivity = tracerShim.getTraceActivity(),
         reportingPolicy = PluginLoadingErrorReportingPolicy.forCurrentProduct(),
+        configureClassLoaders = true,
       )
       val pluginState = pluginsState
       pluginState.pluginsToDisable = initResult.pluginToDisable

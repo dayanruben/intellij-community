@@ -84,6 +84,12 @@ jvm_library(
     "//plugins/groovy:groovy-tests_test_lib",
     "//plugins/repository-search",
     "//plugins/repository-search:repository-search_test_lib",
+    "//platform/projectModel-api:projectModel",
+    "//platform/projectModel-api:projectModel_test_lib",
+    "//platform/util/jdom",
+    "//platform/util/jdom:jdom_test_lib",
+    "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
+    "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
   ],
   runtime_deps = [
     ":tests",

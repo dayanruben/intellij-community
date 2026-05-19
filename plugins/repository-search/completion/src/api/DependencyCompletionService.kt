@@ -5,6 +5,7 @@
 package com.intellij.repository.search.completion.api
 
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.externalSystem.model.ProjectSystemId
 import com.intellij.platform.eel.EelDescriptor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -12,9 +13,9 @@ import org.jetbrains.annotations.ApiStatus
 
 interface DependencyCompletionService {
   fun suggestCompletions(request: DependencyCompletionRequest): Flow<DependencyCompletionResult> = flowOf()
-  fun suggestGroupCompletions(request: DependencyGroupCompletionRequest): Flow<String> = flowOf()
-  fun suggestArtifactCompletions(request: DependencyArtifactCompletionRequest): Flow<String> = flowOf()
-  fun suggestVersionCompletions(request: DependencyVersionCompletionRequest): Flow<String> = flowOf()
+  fun suggestGroupCompletions(request: DependencyGroupCompletionRequest): Flow<DependencyPartCompletionResult> = flowOf()
+  fun suggestArtifactCompletions(request: DependencyArtifactCompletionRequest): Flow<DependencyPartCompletionResult> = flowOf()
+  fun suggestVersionCompletions(request: DependencyVersionCompletionRequest): Flow<DependencyPartCompletionResult> = flowOf()
 
   companion object {
     @JvmField
@@ -23,24 +24,24 @@ interface DependencyCompletionService {
 }
 
 interface DependencyCompletionContributor {
-  fun isApplicable(context: DependencyCompletionContext): Boolean
+  val buildSystemId: ProjectSystemId
+  val source: DependencyCompletionContributionSource
+  fun isEnabled(): Boolean = true
   suspend fun search(request: DependencyCompletionRequest): List<DependencyCompletionResult>
-  suspend fun getGroups(request: DependencyGroupCompletionRequest): List<String>
-  suspend fun getArtifacts(request: DependencyArtifactCompletionRequest) : List<String>
-  suspend fun getVersions(request: DependencyVersionCompletionRequest) : List<String>
+  suspend fun getGroups(request: DependencyGroupCompletionRequest): List<DependencyPartCompletionResult>
+  suspend fun getArtifacts(request: DependencyArtifactCompletionRequest): List<DependencyPartCompletionResult>
+  suspend fun getVersions(request: DependencyVersionCompletionRequest): List<DependencyPartCompletionResult>
 }
 
 interface DependencyCompletionContext {
   val eelDescriptor: EelDescriptor
+  val buildSystemId: ProjectSystemId
 }
 
-class GradleDependencyCompletionContext(override val eelDescriptor: EelDescriptor) : DependencyCompletionContext
-
-class MavenDependencyCompletionContext(override val eelDescriptor: EelDescriptor) : DependencyCompletionContext
-
-class MavenPluginDependencyCompletionContext(override val eelDescriptor: EelDescriptor) : DependencyCompletionContext
-
-class MavenExtensionDependencyCompletionContext(override val eelDescriptor: EelDescriptor) : DependencyCompletionContext
+class DependencyCompletionContextImpl(
+  override val eelDescriptor: EelDescriptor,
+  override val buildSystemId: ProjectSystemId,
+) : DependencyCompletionContext
 
 interface BaseDependencyCompletionRequest {
   val context: DependencyCompletionContext
@@ -55,4 +56,21 @@ data class DependencyArtifactCompletionRequest(val group: String, val artifactPr
 data class DependencyVersionCompletionRequest(val group: String, val artifact: String, val versionPrefix: String, override val context: DependencyCompletionContext) : BaseDependencyCompletionRequest
 
 
-data class DependencyCompletionResult(val groupId: String, val artifactId: String, val version: String, val scope: String? = null)
+enum class DependencyCompletionContributionSource {
+  LOCAL, SERVER
+}
+
+interface BaseDependencyCompletionResult {
+  val source: DependencyCompletionContributionSource
+}
+
+data class DependencyCompletionResult(
+  val groupId: String,
+  val artifactId: String,
+  val version: String,
+  val scope: String? = null,
+  override val source: DependencyCompletionContributionSource,
+) : BaseDependencyCompletionResult
+
+data class DependencyPartCompletionResult(val result: String, override val source: DependencyCompletionContributionSource) :
+  BaseDependencyCompletionResult
