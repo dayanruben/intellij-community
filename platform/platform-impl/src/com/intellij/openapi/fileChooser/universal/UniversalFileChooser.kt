@@ -109,6 +109,7 @@ object UniversalFileChooser {
   @JvmStatic
   fun canUseIn(project: Project?): Boolean {
     return Registry.`is`("universal.file.chooser.is.enabled")
+           && SystemProperties.getBooleanProperty("universal.file.chooser.is.enabled", true) != false
   }
 
   @JvmStatic
@@ -576,6 +577,7 @@ object UniversalFileChooser {
         tree.isRootVisible = false
         tree.showsRootHandles = true
         tree.selectionModel.selectionMode = TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION
+        contributor.getNoEntriesText()?.let { tree.emptyText.text = it }
         tree.addTreeWillExpandListener(object : TreeWillExpandListener {
           override fun treeWillExpand(event: TreeExpansionEvent) {
             val virtualRoot = fileTree.getVirtualRoot(event.path)

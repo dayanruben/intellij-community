@@ -47,6 +47,24 @@
             key="inspection.use.expression.body.display.name" bundle="messages.KotlinBundle"/>
 
     <localInspection
+            implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.ConvertExplicitContextArgumentToImplicitInspection"
+            groupPath="Kotlin"
+            groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
+            enabledByDefault="true"
+            level="WARNING"
+            language="kotlin"
+            key="inspection.convert.explicit.context.argument.to.implicit.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection
+            implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.ConvertImplicitContextArgumentToExplicitInspection"
+            groupPath="Kotlin"
+            groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
+            enabledByDefault="true"
+            level="INFORMATION"
+            language="kotlin"
+            key="inspection.convert.implicit.context.argument.to.explicit.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection
             implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.diagnosticBased.RedundantVisibilityModifierInspection"
             groupPath="Kotlin"
             groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
@@ -341,6 +359,14 @@
                      level="WARNING"
                      language="kotlin"
                      key="inspection.equals.or.hash.code.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.ConflictingExtensionPropertyInspection"
+                      groupPath="Kotlin"
+                      groupBundle="messages.KotlinBundle" groupKey="group.names.probable.bugs"
+                      enabledByDefault="true"
+                      level="WARNING"
+                      language="kotlin"
+                      key="inspection.conflicting.extension.property.display.name" bundle="messages.KotlinBundle"/>
 
     <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.expressions.ReplaceSizeCheckWithIsNotEmptyInspection"
                      groupPath="Kotlin"
@@ -1451,6 +1477,22 @@
                      level="INFORMATION"
                      language="kotlin"
                      key="replace.explicit.backing.field.with.private.property" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.ConvertToCollectionLiteralsInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
+                     enabledByDefault="true"
+                     level="INFORMATION"
+                     language="kotlin"
+                     key="inspection.kotlin.convert.to.collection.literals.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.ConvertCollectionLiteralToFunctionCallInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
+                     enabledByDefault="true"
+                     level="INFORMATION"
+                     language="kotlin"
+                     key="inspection.kotlin.revert.to.collection.literals.display.name" bundle="messages.KotlinBundle"/>
 
     <localInspection
             implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.ConvertSealedClassToSealedInterfaceInspection"

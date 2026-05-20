@@ -50,7 +50,6 @@ import com.intellij.openapi.roots.libraries.ui.OrderRoot;
 import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.ThrowableComputable;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
@@ -106,7 +105,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Method;
-import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -114,6 +114,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.MissingResourceException;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
@@ -141,7 +142,7 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
   private static final int DEFAULT_SHUTDOWN_TIMEOUT = 600;
 
   private final JUnitConfiguration myConfiguration;
-  protected File myListenersFile;
+  protected Path myListenersFile;
 
   private final Map<Module, JavaParameters> myAdditionalJarsForModuleFork = new HashMap<>();
 
@@ -259,7 +260,7 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
   }
 
   protected void fillForkModule(Map<Module, List<String>> perModule, Module module, String name) {
-    perModule.computeIfAbsent(module, elemList -> new ArrayList<>()).add(name);
+    perModule.computeIfAbsent(module, _ -> new ArrayList<>()).add(name);
   }
 
   public Module[] getModulesToCompile() {
@@ -413,9 +414,9 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
     collectListeners(javaParameters, buf, IDEAJUnitListener.EP_NAME, "\n");
     if (!buf.isEmpty()) {
       try {
-        myListenersFile = FileUtil.createTempFile("junit_listeners_", "", true);
-        javaParameters.getProgramParametersList().add("@@" + myListenersFile.getPath());
-        FileUtil.writeToFile(myListenersFile, buf.toString().getBytes(StandardCharsets.UTF_8));
+        myListenersFile = Files.createTempFile("junit_listeners_", "");
+        javaParameters.getProgramParametersList().add("@@" + myListenersFile);
+        Files.writeString(myListenersFile, buf.toString());
       }
       catch (IOException e) {
         LOG.error(e);
@@ -640,12 +641,20 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
 
   private static GlobalSearchScope getScopeForJUnit(@Nullable Module module, Project project) {
     if (module == null) return GlobalSearchScope.allScope(project);
-    return switch (Registry.stringValue("junit.version.detection.scope")) {
+
+    String scope;
+    try {
+      scope = Registry.get("junit.version.detection.scope").getSelectedOption();
+    } catch (MissingResourceException ignored) {
+      scope = "withDependenciesAndLibraries";
+    }
+
+    return switch (scope) {
       case "runtime" -> GlobalSearchScope.moduleRuntimeScope(module, true);
       case "module" -> GlobalSearchScope.moduleScope(module);
       case "testsWithDependents" -> GlobalSearchScope.moduleTestsWithDependentsScope(module);
       case "withLibraries" -> GlobalSearchScope.moduleWithLibrariesScope(module);
-      default -> GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module, true);
+      case null, default -> GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module, true);
     };
   }
 
@@ -798,7 +807,11 @@ public abstract class TestObject extends JavaTestFrameworkRunnableState<JUnitCon
   protected void deleteTempFiles() {
     super.deleteTempFiles();
     if (myListenersFile != null) {
-      FileUtil.delete(myListenersFile);
+      try {
+        Files.deleteIfExists(myListenersFile);
+      }
+      catch (IOException ignored) {
+      }
     }
   }
 
