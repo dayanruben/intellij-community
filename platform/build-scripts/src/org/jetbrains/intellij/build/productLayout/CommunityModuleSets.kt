@@ -149,6 +149,7 @@ object CommunityModuleSets {
     module("intellij.platform.managed.cache.backend")
     embeddedModule("intellij.platform.feedback")
 
+    embeddedModule("intellij.platform.bookmarks")
     module("intellij.platform.bookmarks.backend")
     module("intellij.platform.bookmarks.frontend")
 
@@ -215,6 +216,7 @@ object CommunityModuleSets {
     module("intellij.platform.vcs.impl.lang.actions")
     module("intellij.platform.vcs.log")
     module("intellij.platform.vcs.log.impl")
+    module("intellij.platform.sqlite")
     module("intellij.platform.vcs.log.graph")
     module("intellij.platform.vcs.log.graph.impl")
     module("intellij.platform.vcs.dvcs")

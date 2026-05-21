@@ -173,7 +173,7 @@ idiomatic; the framework trims leading margins (`|`) consistently.
 )
 suspend fun lint_files(
   @McpDescription("List of project-relative file paths to analyze. Duplicate paths are ignored after normalization.")
-  file_paths: List<String>,
+  files: List<String>,
   /* … */
 ): LintFilesResult
 ```
@@ -547,7 +547,7 @@ writeCommandAction(project, commandName = FindBundle.message("find.replace.text.
 ```
 
 From [`TextToolset.kt:100-108`](src/com/intellij/mcpserver/toolsets/general/TextToolset.kt). The command name appears in the undo history.
-For project-model mutations that are not user-visible, use `writeAction`; for writes outside the EDT, use `backgroundWriteAction`; for
+For project-model mutations that are not user-visible, use `edtWriteAction`; for writes outside the EDT, use `backgroundWriteAction`; for
 read-then-edit flows use `readAndEdtWriteAction { …; value(…) }`.
 
 ### 8.4 `withContext(Dispatchers.IO)` / `Dispatchers.EDT`

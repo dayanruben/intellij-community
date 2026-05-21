@@ -24,8 +24,8 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.event.BulkAwareDocumentListener
 import com.intellij.openapi.editor.event.DocumentEvent
-import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.event.EditorMouseEvent
 import com.intellij.openapi.editor.event.EditorMouseEventArea
 import com.intellij.openapi.editor.event.EditorMouseListener
@@ -71,8 +71,8 @@ import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint
 import com.intellij.xdebugger.breakpoints.XLineBreakpointVerticalPlacement
 import com.intellij.xdebugger.impl.actions.ToggleLineBreakpointAction
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
@@ -98,6 +98,7 @@ class XLineBreakpointManager(
   )
 
   private var myDragDetected = false
+  private var immediateUiUpdateOnEdtAllowed = true
 
   init {
     val disposable = cs.asDisposable()
@@ -318,6 +319,11 @@ class XLineBreakpointManager(
   ) {
     val toRemove = candidates.filterNot { it.shouldMoveToNextLine(occupiedLines) }.map { it.breakpoint }
     removeBreakpoints(toRemove)
+
+    val savedBreakpoints = candidates.mapTo(mutableSetOf()) { it.breakpoint } - toRemove.toSet()
+    for (breakpoint in savedBreakpoints) {
+      updateBreakpointNow(breakpoint)
+    }
   }
 
   private suspend fun InterLineSaveCandidateBreakpoint.shouldMoveToNextLine(
@@ -332,12 +338,30 @@ class XLineBreakpointManager(
     }
   }
 
+  private fun isImmediateUiUpdateAllowed(): Boolean {
+    return EDT.isCurrentThreadEdt() && immediateUiUpdateOnEdtAllowed
+  }
+
+  private inline fun withImmediateUiUpdateDisabled(block: () -> Unit) {
+    if (!EDT.isCurrentThreadEdt()) {
+      block()
+      return
+    }
+    immediateUiUpdateOnEdtAllowed = false
+    try {
+      block()
+    }
+    finally {
+      immediateUiUpdateOnEdtAllowed = true
+    }
+  }
+
   override fun breakpointChanged(breakpoint: XLightLineBreakpointProxy) {
-    if (EDT.isCurrentThreadEdt()) {
+    if (isImmediateUiUpdateAllowed()) {
       updateBreakpointNow(breakpoint)
     }
     else {
-      queueBreakpointUpdate(breakpoint, null)
+      queueBreakpointUpdate(breakpoint)
     }
   }
 
@@ -393,17 +417,33 @@ class XLineBreakpointManager(
     breakpointUpdateQueue.sendFlush()
   }
 
-  private inner class MyDocumentListener : DocumentListener {
-    override fun documentChanged(e: DocumentEvent) {
-      val document = e.document
-      val breakpoints = getDocumentBreakpointProxies(document)
-      if (!breakpoints.isEmpty()) {
-        // Update position immediately to avoid races with doUpdateUI
-        breakpoints.forEach { it.fastUpdatePosition() }
-        scheduleDocumentUpdate(document)
-
+  private inner class MyDocumentListener : BulkAwareDocumentListener {
+    override fun documentChangedNonBulk(e: DocumentEvent) {
+      if (processDocumentChange(e.document)) {
         InlineBreakpointInlayManager.getInstance(project).redrawDocument(e)
       }
+    }
+
+    override fun bulkUpdateFinished(document: Document) {
+      if (processDocumentChange(document)) {
+        InlineBreakpointInlayManager.getInstance(project).redrawDocument(document)
+      }
+    }
+
+    private fun processDocumentChange(document: Document): Boolean {
+      val breakpoints = getDocumentBreakpointProxies(document)
+      if (breakpoints.isEmpty()) return false
+
+      // fastUpdatePosition leads to the breakpointChanged call,
+      // but for the document update we do not need immediate UI update
+      withImmediateUiUpdateDisabled {
+        // Update position immediately to avoid races with doUpdateUI
+        // We must mark the range as dirty so that no other asynchronous repaint makes breakpoint presentation incorrect.
+        breakpoints.forEach { it.fastUpdatePosition() }
+      }
+
+      scheduleDocumentUpdate(document)
+      return true
     }
   }
 

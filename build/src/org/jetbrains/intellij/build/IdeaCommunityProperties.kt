@@ -9,6 +9,7 @@ import org.jetbrains.intellij.build.impl.createBuildContext
 import org.jetbrains.intellij.build.impl.qodana.QodanaProductProperties
 import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.io.copyFileToDir
+import org.jetbrains.intellij.build.kotlin.KotlinBinaries
 import org.jetbrains.intellij.build.productLayout.CommunityModuleSets
 import org.jetbrains.intellij.build.productLayout.CommunityProductFragments
 import org.jetbrains.intellij.build.productLayout.ProductModulesContentSpec
@@ -219,4 +220,61 @@ fun intellijCommunityBaseFragment(platformPrefix: String? = null): ProductModule
   moduleSet(CommunityModuleSets.rdCommon())
 
   deprecatedInclude("intellij.idea.community.customization", "META-INF/community-customization.xml")
+}
+
+inline fun communityWindowsCustomizer(
+  projectHome: Path,
+  configure: WindowsCustomizerBuilder.() -> Unit = {}
+): WindowsDistributionCustomizer = windowsCustomizer(projectHome) {
+  icoPath = "build/conf/ideaCE/win/images/idea_CE.ico"
+  icoPathForEAP = "build/conf/ideaCE/win/images/idea_CE_EAP.ico"
+  installerImagesPath = "build/conf/ideaCE/win/images"
+  fileAssociations = listOf("java", "gradle", "groovy", "kt", "kts", "pom")
+
+  fullName { "IntelliJ IDEA Open Source" }
+  installDirNameHandler { "IntelliJ IDEA OSS" }
+
+  uninstallFeedbackUrl { appInfo ->
+    "https://www.jetbrains.com/idea/uninstall/?edition=IC-${appInfo.majorVersion}.${appInfo.minorVersion}"
+  }
+
+  configure()
+}
+
+inline fun communityMacCustomizer(
+  projectHome: Path,
+  configure: MacCustomizerBuilder.() -> Unit = {}
+): MacDistributionCustomizer = macCustomizer(projectHome) {
+  icnsPath = "build/conf/ideaCE/mac/images/idea.icns"
+  icnsPathForEAP = "build/conf/ideaCE/mac/images/communityEAP.icns"
+  urlSchemes = listOf("idea")
+  associateIpr = true
+  fileAssociations = FileAssociation.from("java", "groovy", "kt", "kts")
+  bundleIdentifier = "com.jetbrains.intellij.ce"
+  dmgImagePath = "build/conf/ideaCE/mac/images/dmg_background.tiff"
+
+  rootDirectoryName { _, _ -> "IntelliJ IDEA OSS.app" }
+
+  executableFilePatterns { base, _, _, _ ->
+    val kotlinExecutables = KotlinBinaries.kotlinCompilerExecutables
+    (base + kotlinExecutables).filterNot { it == "plugins/**/*.sh" }
+  }
+
+  configure()
+}
+
+inline fun communityLinuxCustomizer(
+  projectHome: Path,
+  configure: LinuxCustomizerBuilder.() -> Unit = {}
+): LinuxDistributionCustomizer = linuxCustomizer(projectHome) {
+  iconPngPath = "build/conf/ideaCE/linux/images/icon_CE_128.png"
+  iconPngPathForEAP = "build/conf/ideaCE/linux/images/icon_CE_EAP_128.png"
+
+  rootDirectoryName { _, _ -> "idea-oss" }
+
+  executableFilePatterns { base, _, _, _, _ ->
+    base.plus(KotlinBinaries.kotlinCompilerExecutables).filterNot { it == "plugins/**/*.sh" }
+  }
+
+  configure()
 }

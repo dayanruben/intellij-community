@@ -217,6 +217,7 @@
     <localInspection language="Python" shortName="PyDunderSlotsInspection" suppressId="PyDunderSlots" bundle="messages.PyPsiBundle" key="INSP.NAME.dunder.slots" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WARNING" implementationClass="com.jetbrains.python.inspections.PyDunderSlotsInspection"/>
     <localInspection language="Python" shortName="PyExceptClausesOrderInspection" suppressId="PyExceptClausesOrder" bundle="messages.PyPsiBundle" key="INSP.NAME.bad.except.clauses.order" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WARNING" implementationClass="com.jetbrains.python.inspections.PyExceptClausesOrderInspection"/>
     <localInspection language="Python" shortName="PyFinalInspection" suppressId="PyFinal" bundle="messages.PyPsiBundle" key="INSP.NAME.final.classes.methods.and.variables" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WARNING" implementationClass="com.jetbrains.python.inspections.PyFinalInspection"/>
+    <localInspection language="Python" shortName="PyDisjointBaseInspection" suppressId="PyDisjointBase" bundle="messages.PyPsiBundle" key="INSP.NAME.disjoint.base.class.inheritance" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WARNING" implementationClass="com.jetbrains.python.inspections.PyDisjointBaseInspection"/>
     <localInspection language="Python" shortName="PyClassVarInspection" suppressId="PyClassVar" bundle="messages.PyPsiBundle" key="INSP.NAME.class.var.variables" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WARNING" implementationClass="com.jetbrains.python.inspections.PyClassVarInspection"/>
     <localInspection language="Python" shortName="PyFromFutureImportInspection" suppressId="PyFromFutureImport" bundle="messages.PyPsiBundle" key="INSP.NAME.from.future.import" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WARNING" implementationClass="com.jetbrains.python.inspections.PyFromFutureImportInspection"/>
     <localInspection language="Python" shortName="PyGlobalUndefinedInspection" suppressId="PyGlobalUndefined" bundle="messages.PyPsiBundle" key="INSP.NAME.global.undefined" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WEAK WARNING" implementationClass="com.jetbrains.python.inspections.PyGlobalUndefinedInspection"/>
@@ -585,8 +586,14 @@
                  description="It optimises cache usage for storing calculated types."/>
     <registryKey key="python.use.separated.libraries.type.cache" defaultValue="true"
                  description="It enables the use of a library-level cache for PSI elements from packages."/>
-    <registryKey key="python.statement.lists.incremental.reparse" defaultValue="false"
+    <registryKey key="python.statement.lists.incremental.reparse" defaultValue="true"
                  description="Enables incremental reparse for statement lists"/>
+    <registryKey key="python.statement.lists.incremental.reparse.min.file.chars" defaultValue="20000"
+                 description="Minimum file size (chars) below which incremental reparse of Python statement lists is skipped."/>
+    <registryKey key="python.statement.lists.incremental.reparse.max.list.chars" defaultValue="10000"
+                 description="Hard cap on the statement list size (chars) for incremental reparse."/>
+    <registryKey key="python.statement.lists.incremental.reparse.max.ratio.percent" defaultValue="10"
+                 description="Maximum statement list size as a percentage of the containing file for incremental reparse."/>
     <registryKey key="python.strict.type.narrow" defaultValue="false"
                  description="Allows narrowing types exhaustively to Never"/>
     <registryKey key="python.typing.soft.keys.type.eval.context" defaultValue="false"
