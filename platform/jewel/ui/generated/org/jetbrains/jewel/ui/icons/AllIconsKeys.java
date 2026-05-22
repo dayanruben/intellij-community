@@ -1276,6 +1276,9 @@ public final class AllIconsKeys {
     public static final @NotNull IntelliJIconKey Aspectj = new IntelliJIconKey("fileTypes/aspectj.svg", "expui/fileTypes/aspectJ.svg", AllIconsKeys.class);
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
+    public static final @NotNull IntelliJIconKey Bazel = new IntelliJIconKey("expui/fileTypes/bazel.svg", "expui/fileTypes/bazel.svg", AllIconsKeys.class);
+    /** 16x16 */ 
+    @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey BinaryData = new IntelliJIconKey("fileTypes/binaryData.svg", "expui/fileTypes/binaryData.svg", AllIconsKeys.class);
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
@@ -1307,6 +1310,9 @@ public final class AllIconsKeys {
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey Diagram = new IntelliJIconKey("fileTypes/diagram.svg", "expui/fileTypes/diagram.svg", AllIconsKeys.class);
+    /** 16x16 */ 
+    @GeneratedFromIntelliJSources
+    public static final @NotNull IntelliJIconKey Docker = new IntelliJIconKey("expui/fileTypes/docker.svg", "expui/fileTypes/docker.svg", AllIconsKeys.class);
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey Dtd = new IntelliJIconKey("fileTypes/dtd.svg", "expui/fileTypes/xml.svg", AllIconsKeys.class);
@@ -1363,6 +1369,9 @@ public final class AllIconsKeys {
     public static final @NotNull IntelliJIconKey JavaScript = new IntelliJIconKey("fileTypes/javaScript.svg", "expui/fileTypes/javaScript.svg", AllIconsKeys.class);
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
+    public static final @NotNull IntelliJIconKey Jenkins = new IntelliJIconKey("expui/fileTypes/jenkins.svg", "expui/fileTypes/jenkins.svg", AllIconsKeys.class);
+    /** 16x16 */ 
+    @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey Jfr = new IntelliJIconKey("fileTypes/jfr.svg", "expui/fileTypes/jfr.svg", AllIconsKeys.class);
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
@@ -1385,9 +1394,6 @@ public final class AllIconsKeys {
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey Markdown = new IntelliJIconKey("expui/fileTypes/markdown.svg", "expui/fileTypes/markdown.svg", AllIconsKeys.class);
-    /** 16x16 */ 
-    @GeneratedFromIntelliJSources
-    public static final @NotNull IntelliJIconKey MarkdownPlugin = new IntelliJIconKey("fileTypes/MarkdownPlugin.svg", "fileTypes/MarkdownPlugin.svg", AllIconsKeys.class);
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey MicrosoftWindows = new IntelliJIconKey("fileTypes/microsoftWindows.svg", "expui/fileTypes/microsoftWindows.svg", AllIconsKeys.class);
@@ -1421,9 +1427,6 @@ public final class AllIconsKeys {
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey Text = new IntelliJIconKey("fileTypes/text.svg", "expui/fileTypes/text.svg", AllIconsKeys.class);
-    /** 16x16 */ 
-    @GeneratedFromIntelliJSources
-    public static final @NotNull IntelliJIconKey TomlFile = new IntelliJIconKey("fileTypes/toml-file.svg", "fileTypes/toml-file.svg", AllIconsKeys.class);
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey Toml = new IntelliJIconKey("expui/fileTypes/toml.svg", "expui/fileTypes/toml.svg", AllIconsKeys.class);
