@@ -27,7 +27,6 @@
     <module name="intellij.libraries.ktor.server.cio"/>
     <module name="intellij.libraries.ktor.client.cio"/>
     <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
-    <module name="intellij.platform.backend"/>
     <module name="intellij.platform.compose"/>
     <module name="intellij.platform.vcs.impl"/>
     <module name="intellij.terminal.frontend"/>
@@ -51,6 +50,13 @@
     <applicationService serviceImplementation="com.intellij.mcpserver.impl.util.network.McpServerConnectionAddressProvider"/>
     <applicationService serviceImplementation="com.intellij.mcpserver.impl.McpServerService"/>
 
+    <toolWindow id="MCP Server"
+                anchor="bottom"
+                icon="AllIcons.Nodes.McpServerWidget"
+                factoryClass="com.intellij.mcpserver.toolwindow.McpServerToolWindowFactory"
+                canCloseContents="false"
+                doNotActivateOnStart="true"/>
+
     <statistics.counterUsagesCollector implementationClass="com.intellij.mcpserver.statistics.McpServerCounterUsagesCollector"/>
     <statistics.validation.customValidationRule implementation="com.intellij.mcpserver.statistics.McpServerCounterUsagesCollector$McpToolNameValidator"/>
     <statistics.applicationUsagesCollector implementation="com.intellij.mcpserver.statistics.McpServerApplicationUsagesCollector"/>
@@ -73,7 +79,6 @@
     <mcpServer.mcpToolset implementation="com.intellij.mcpserver.toolsets.general.FormattingToolset" />
     <mcpServer.mcpToolset implementation="com.intellij.mcpserver.toolsets.general.UniversalToolset" />
     <mcpServer.mcpToolset implementation="com.intellij.mcpserver.toolsets.general.ReadToolset" />
-    <mcpServer.mcpToolset implementation="com.intellij.mcpserver.toolsets.general.TextToolset" />
     <mcpServer.mcpToolset implementation="com.intellij.mcpserver.toolsets.general.PatchToolset" />
     <mcpServer.mcpToolset implementation="com.intellij.mcpserver.toolsets.general.SearchToolset" />
     <mcpServer.mcpToolset implementation="com.intellij.mcpserver.toolsets.general.CodeInsightToolset" />

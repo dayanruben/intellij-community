@@ -781,6 +781,7 @@ com.intellij.ide.actions.searcheverywhere.SearchEverywhereManager
 - a:toggleEverywhereFilter():V
 f:com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl
 com.intellij.ide.actions.searcheverywhere.SearchEverywherePreviewProvider
+f:com.intellij.ide.extensionResources.ExternalResourcesUnpackExtensionBean
 com.intellij.ide.fileTemplates.CreateFromTemplateActionReplacer
 - sf:CREATE_FROM_TEMPLATE_REPLACER:com.intellij.openapi.extensions.ExtensionPointName
 - a:replaceCreateFromFileTemplateAction(com.intellij.ide.fileTemplates.FileTemplate):com.intellij.openapi.actionSystem.AnAction
@@ -1438,7 +1439,6 @@ f:com.intellij.tools.ToolManager
 f:com.intellij.tools.ToolManager$Companion
 - f:getInstance():com.intellij.tools.ToolManager
 f:com.intellij.unscramble.AnalyzeStacktraceUtil
-- sf:printStacktrace(com.intellij.execution.ui.ConsoleView,java.lang.String,com.intellij.execution.ui.ConsoleViewContentType):V
 com.intellij.unscramble.AnalyzeStacktraceUtil$ConsoleFactory
 - a:createConsoleComponent(com.intellij.execution.ui.ConsoleView,com.intellij.openapi.actionSystem.DefaultActionGroup):javax.swing.JComponent
 c:com.intellij.util.indexing.IndexInfrastructureVersionBase
