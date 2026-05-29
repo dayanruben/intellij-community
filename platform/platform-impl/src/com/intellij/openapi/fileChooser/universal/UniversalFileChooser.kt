@@ -140,7 +140,7 @@ object UniversalFileChooser {
     override fun choose(project: Project?, vararg toSelect: VirtualFile?): Array<out VirtualFile?> {
       if (!toSelect.isEmpty()) {
         toSelect.first()?.let { runCatching { it.toNioPath() }.getOrNull() }?.let { nioPath ->
-          mainPanel.preselectFile(nioPath)
+          mainPanel.navigateToFile(nioPath)
         }
       }
       if (this.showAndGet()) {
@@ -151,7 +151,7 @@ object UniversalFileChooser {
 
     override fun choose(toSelect: VirtualFile?, callback: Consumer<in MutableList<VirtualFile>>) {
       toSelect?.runCatching { toSelect.toNioPath() }?.getOrNull()?.let { nioPath ->
-        mainPanel.preselectFile(nioPath)
+        mainPanel.navigateToFile(nioPath)
       }
       if (showAndGet()) {
         val mutableList = mutableListOf<VirtualFile>()
@@ -397,20 +397,13 @@ object UniversalFileChooser {
       }
     }
 
-    fun preselectFile(toSelect: Path?) {
-      if (toSelect == null) return
-      val index = fileViews.indexOfFirst { it.contributor.ownsPath(toSelect) }
-      if (index < 0) return
-      tabbedPane.selectedIndex = index
-      fileViews[index].fileToSelect = toSelect
-    }
 
     fun getSelectedFiles(): List<Path> {
       val fileView = (tabbedPane.selectedComponent as JComponent).getUserData(FILE_VIEW_KEY)
       return fileView?.getSelectedFiles() ?: emptyList()
     }
 
-    private fun navigateToFile(file: Path) {
+    fun navigateToFile(file: Path) {
       val index = fileViews.indexOfFirst { it.contributor.ownsPath(file) }
       if (index < 0) return
       tabbedPane.selectedIndex = index
@@ -537,7 +530,7 @@ object UniversalFileChooser {
       okAction: Runnable,
       val scope: CoroutineScope,
       private val topToolbar: ActionToolbar,
-      private val toolbarActionGroup: DefaultActionGroup,
+      toolbarActionGroup: DefaultActionGroup,
       private val okEnabledUpdater: () -> Unit = {},
     ) {
       val topComponent: JComponent
@@ -587,9 +580,10 @@ object UniversalFileChooser {
               mountVirtualRootAndReload(virtualRoot)
               throw ExpandVetoException(event)
             }
-            if (isUnderUnmountedRoot(event.path)) {
+            val isUnmounted = isUnderUnmountedRoot(event.path)
+            if (isUnmounted ?: true) {
               val nioPath = NioFileSystemTree.getNioPath(event.path)
-              if (nioPath != null) {
+              if (nioPath != null && isUnmounted != null) {
                 mountUnmountedRootAndReload(nioPath.root)
               }
               throw ExpandVetoException(event)
@@ -714,11 +708,14 @@ object UniversalFileChooser {
             val allRoots = contributor.getRoots()
             val realRoots = allRoots.filter { it.path != null }
             val presentations = mutableMapOf<String, UniversalFileChooserContributor.Presentation>()
+            val mountStatuses = mutableMapOf<String, MountStatus>()
             for (root in realRoots) {
+              val rootKey = root.path!!.invariantSeparatorsPathString
               val presentation = contributor.getPresentation(root.path!!)
               if (presentation != null) {
-                presentations[root.path!!.invariantSeparatorsPathString] = presentation
+                presentations[rootKey] = presentation
               }
+              mountStatuses[rootKey] = contributor.getMountStatus(root.path!!)
             }
             runOnEdt {
               roots.clear()
@@ -726,6 +723,7 @@ object UniversalFileChooser {
               presentationCache.clear()
               presentationCache.putAll(presentations)
               mountStatusCache.clear()
+              mountStatusCache.putAll(mountStatuses)
               fileTree.setRoots(allRoots)
               fileTree.updateTree()
               cardLayout.show(contentPanel, TREE_CARD)
@@ -790,7 +788,7 @@ object UniversalFileChooser {
 
       fun getSelectedFiles(): List<Path> {
         return fileTree.getSelectedFiles().filterNotNull().filter { file ->
-          !isUnmountedRoot(file)
+          isUnmountedRoot(file) == false
         }
       }
 
@@ -842,12 +840,12 @@ object UniversalFileChooser {
         return roots.firstOrNull { root -> nioPath.startsWith(root) }
       }
 
-      private fun isUnmountedRoot(nioPath: Path): Boolean {
+      private fun isUnmountedRoot(nioPath: Path): Boolean? {
         val rootPath = findRootPath(nioPath) ?: return false
-        return mountStatusCache.getOrDefault(rootPath, MountStatus.Unmounted) == MountStatus.Unmounted
+        return mountStatusCache.get(rootPath)?.let{ it == MountStatus.Unmounted }
       }
 
-      private fun isUnderUnmountedRoot(treePath: TreePath): Boolean {
+      private fun isUnderUnmountedRoot(treePath: TreePath): Boolean? {
         val nioPath = NioFileSystemTree.getNioPath(treePath) ?: return false
         return isUnmountedRoot(nioPath)
       }
@@ -974,16 +972,6 @@ object UniversalFileChooser {
             }
           }
         }
-      }
-
-      fun mountRoot() {
-        val selectedVirtualRoot = fileTree.getSelectedVirtualRoot()
-        if (selectedVirtualRoot != null) {
-          mountVirtualRootAndReload(selectedVirtualRoot)
-          return
-        }
-        val selected = fileTree.getSelectedFile() ?: return
-        mountUnmountedRootAndReload(selected.root)
       }
 
       fun mountVirtualRootAndReload(virtualRoot: UniversalFileChooserContributor.Root) {
