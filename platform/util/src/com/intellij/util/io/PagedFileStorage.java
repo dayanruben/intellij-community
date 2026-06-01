@@ -37,6 +37,7 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
   public static final @NotNull ThreadLocal<StorageLockContext> THREAD_LOCAL_STORAGE_LOCK_CONTEXT = new ThreadLocal<>();
 
   private final @NotNull StorageLockContext myStorageLockContext;
+  private final @NotNull ChannelsAccessor myChannelsAccessor;
   private final boolean myNativeBytesOrder;
   /**
    * Storage id(key), as returned by {@link FilePageCache#registerPagedFileStorage(PagedFileStorage)}, or -1 when closed
@@ -69,6 +70,7 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
     myReadOnly = PersistentHashMapValueStorage.CreationTimeOptions.READONLY.get() == Boolean.TRUE;
 
     myStorageLockContext = lookupStorageContext(storageLockContext);
+    myChannelsAccessor = myStorageLockContext.getChannelsAccessor(myReadOnly);
     myPageSize = Math.max(pageSize > 0 ? pageSize : DEFAULT_PAGE_SIZE, AbstractStorage.PAGE_SIZE);
     myValuesAreBufferAligned = valuesAreBufferAligned;
     myStorageIndex = myStorageLockContext.getBufferCache().registerPagedFileStorage(this);
@@ -111,10 +113,7 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
     throws IOException {
     synchronized (myInputStreamLock) {
       try {
-        return executeOp(ch -> {
-          ch.position(0);
-          return consumer.fun(Channels.newInputStream(ch));
-        }, /*readOnly: */ true);
+        return executeOp(ch -> consumer.fun(Channels.newInputStream(ch.position(0))));
       }
       catch (NoSuchFileException ignored) {
         return consumer.fun(new ByteArrayInputStream(ArrayUtil.EMPTY_BYTE_ARRAY));
@@ -126,10 +125,7 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
     throws IOException {
     synchronized (myInputStreamLock) {
       try {
-        return executeOp(ch -> {
-          ch.position(0);
-          return consumer.fun(ch);
-        }, /*readOnly: */ true);
+        return executeOp(ch -> consumer.fun(ch.position(0)));
       }
       catch (NoSuchFileException ignored) {
         return consumer.fun(Channels.newChannel(new ByteArrayInputStream(ArrayUtil.EMPTY_BYTE_ARRAY)));
@@ -137,14 +133,12 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
     }
   }
 
-  <R> R executeOp(@NotNull FileChannelOperation<R> operation,
-                  boolean readOnly) throws IOException {
-    return myStorageLockContext.executeOp(myFile, operation, readOnly);
+  <R> R executeOp(@NotNull FileChannelOperation<R> operation) throws IOException {
+    return myChannelsAccessor.executeOp(myFile, operation);
   }
 
-  <R> R executeIdempotentOp(@NotNull FileChannelIdempotentOperation<R> operation,
-                            boolean readOnly) throws IOException {
-    return myStorageLockContext.executeIdempotentOp(myFile, operation, readOnly);
+  <R> R executeIdempotentOp(@NotNull FileChannelIdempotentOperation<R> operation) throws IOException {
+    return myChannelsAccessor.executeIdempotentOp(myFile, operation);
   }
 
   public void putInt(long addr, int value) throws IOException {
@@ -336,9 +330,15 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
         //Close channel so that
         // 1) all the data reaches the disk
         // 2) the file could be moved/removed/etc
-        myStorageLockContext.getChannelsAccessor().closeChannel(myFile);
-      }
+        myChannelsAccessor.closeChannel(myFile);
+      },
+      this::assertNoOpenChannels
     );
+  }
+
+  /** Checks that closing this storage did not leave any cached channel open for the same file. */
+  void assertNoOpenChannels() {
+    myStorageLockContext.assertNoOpenChannels(myFile);
   }
 
   private void unmapAll() {
@@ -350,7 +350,7 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
     long oldSize;
 
     if (Files.exists(myFile)) {
-      oldSize = myStorageLockContext.executeOp(myFile, FileChannel::size, /*readOnly: */ true);
+      oldSize = executeOp(FileChannel::size);
     }
     else {
       Files.createDirectories(myFile.getParent());
@@ -365,19 +365,19 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
     long delta = newSize - oldSize;
     mySize = -1;
     if (delta > 0) {
-      myStorageLockContext.executeOp(myFile, channel -> {
+      executeOp(channel -> {
         channel.write(ByteBuffer.allocate(1), newSize - 1);
         return null;
-      }, false);
+      });
 
       mySize = newSize;
       fillWithZeros(oldSize, delta);
     }
     else {
-      myStorageLockContext.executeOp(myFile, channel -> {
+      executeOp(channel -> {
         channel.truncate(newSize);
         return null;
-      }, false);
+      });
       mySize = newSize;
     }
   }
@@ -410,7 +410,7 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
     if (size == -1) {
       if (Files.exists(myFile)) {
         try {
-          mySize = size = myStorageLockContext.executeOp(myFile, FileChannel::size, /*readOnly: */ true);
+          mySize = size = executeOp(FileChannel::size);
         }
         catch (IOException e) {
           LOG.error(e);
@@ -524,7 +524,8 @@ public final class PagedFileStorage implements Forceable/*, PagedStorage*/, Clos
     StorageLockContext threadLocalContext = THREAD_LOCAL_STORAGE_LOCK_CONTEXT.get();
     if (threadLocalContext != null) {
       if (storageLockContext != null && storageLockContext != threadLocalContext) {
-        throw new IllegalStateException("Context(" + storageLockContext + ") != THREAD_LOCAL_STORAGE_LOCK_CONTEXT(" + threadLocalContext + ")");
+        throw new IllegalStateException(
+          "Context(" + storageLockContext + ") != THREAD_LOCAL_STORAGE_LOCK_CONTEXT(" + threadLocalContext + ")");
       }
       return threadLocalContext;
     }

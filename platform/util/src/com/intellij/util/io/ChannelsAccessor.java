@@ -2,9 +2,9 @@
 package com.intellij.util.io;
 
 import com.intellij.util.io.FileChannelInterruptsRetryer.FileChannelIdempotentOperation;
-import com.intellij.util.io.stats.CachedChannelsStatistics;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
@@ -13,15 +13,13 @@ import java.nio.file.Path;
 /** Abstracts different ways of caching/not caching opened {@linkplain FileChannel}s */
 @ApiStatus.Internal
 public interface ChannelsAccessor {
-  @NotNull CachedChannelsStatistics getStatistics();
+  boolean isReadOnly();
 
   <T> T executeOp(@NotNull Path path,
-                  @NotNull FileChannelOperation<T> operation,
-                  boolean readOnly) throws IOException;
+                  @NotNull FileChannelOperation<T> operation) throws IOException;
 
   <T> T executeIdempotentOp(@NotNull Path path,
-                            @NotNull FileChannelIdempotentOperation<T> operation,
-                            boolean readOnly) throws IOException;
+                            @NotNull FileChannelIdempotentOperation<T> operation) throws IOException;
 
   void closeChannel(@NotNull Path path) throws IOException;
 
@@ -34,4 +32,10 @@ public interface ChannelsAccessor {
   interface FileChannelOpener {
     FileChannel open(@NotNull Path path, boolean readOnly) throws IOException;
   }
+}
+
+/** Optional diagnostics for cache-backed accessors, used by storage lifecycle checks. */
+interface DiagnosticChannelsAccessor {
+  /** Describes a cached channel for the path, or returns {@code null} if this accessor has no such channel open. */
+  @Nullable String describeCachedChannelOrNull(@NotNull Path path);
 }

@@ -53,17 +53,16 @@ abstract class MavenProjectsTreeTestCase : MavenMultiVersionImportingTestCase() 
     updateAll(emptyList<String>(), *files)
   }
 
-  protected suspend fun updateAll(profiles: List<String?>?, vararg files: VirtualFile) {
-    tree.resetManagedFilesAndProfiles(listOf(*files), MavenExplicitProfiles(profiles))
-    tree.updateAll(false, mavenGeneralSettings, mavenEmbedderWrappers, rawProgressReporter)
+  protected suspend fun updateAll(profiles: List<String>, vararg files: VirtualFile) {
+    tree.updateAll(listOf(*files),false, mavenGeneralSettings, MavenExplicitProfiles(profiles, emptySet()), mavenEmbedderWrappers, rawProgressReporter)
   }
 
   protected suspend fun update(file: VirtualFile) {
-    tree.update(listOf(file), false, mavenGeneralSettings, mavenEmbedderWrappers, rawProgressReporter)
+    tree.update(listOf(file), false, mavenGeneralSettings, MavenExplicitProfiles.NONE, mavenEmbedderWrappers, rawProgressReporter)
   }
 
   protected suspend fun deleteProject(file: VirtualFile) {
-    tree.delete(listOf(file), mavenGeneralSettings, mavenEmbedderWrappers, rawProgressReporter)
+    tree.delete(listOf(file), mavenGeneralSettings, MavenExplicitProfiles.NONE, mavenEmbedderWrappers, rawProgressReporter)
   }
 
   @Throws(IOException::class)
@@ -129,6 +128,7 @@ abstract class MavenProjectsTreeTestCase : MavenMultiVersionImportingTestCase() 
     resolver.resolve(true,
                      listOf(mavenProject),
                      tree,
+                     MavenExplicitProfiles.NONE,
                      tree.workspaceMap,
                      MavenSettingsCache.getInstance(project).getEffectiveUserLocalRepo(),
                      updateSnapshots,

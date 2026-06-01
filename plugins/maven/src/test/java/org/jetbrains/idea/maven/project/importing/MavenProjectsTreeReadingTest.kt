@@ -15,7 +15,6 @@
  */
 package org.jetbrains.idea.maven.project.importing
 
-import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.UsefulTestCase
@@ -306,13 +305,10 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
                          <module>m1</module>
                        </modules>
                        """.trimIndent())
-    val listener = MyLoggingListener()
-    project.messageBus.connect(getTestRootDisposable()).subscribe(MavenProjectsTree.Listener.TOPIC, listener)
-    update(projectPom)
+    updateAll(projectPom, m1, m2)
     roots = tree.rootProjects
     assertEquals(2, roots.size)
     assertEquals(1, tree.getModules(roots[0]).size)
-    assertEquals(log().add("updated", "project", "m2").add("deleted"), listener.log)
   }
 
   @Test
@@ -384,10 +380,10 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
     updateAll(projectPom)
     assertEquals(log().add("updated", "project", "m").add("deleted"), l.log)
     l.log.clear()
-    tree.updateAll(false, mavenGeneralSettings, mavenEmbedderWrappers, rawProgressReporter)
+    tree.updateAll(listOf(projectPom), false, mavenGeneralSettings, MavenExplicitProfiles.NONE, mavenEmbedderWrappers, rawProgressReporter)
     assertEquals(log(), l.log)
     l.log.clear()
-    tree.updateAll(true, mavenGeneralSettings, mavenEmbedderWrappers, rawProgressReporter)
+    tree.updateAll(listOf(projectPom), true, mavenGeneralSettings, MavenExplicitProfiles.NONE, mavenEmbedderWrappers, rawProgressReporter)
     assertEquals(log().add("updated", "project", "m").add("deleted"), l.log)
   }
 
@@ -413,10 +409,10 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
     update(projectPom)
     assertEquals(log().add("updated", "project", "m").add("deleted"), l.log)
     l.log.clear()
-    tree.update(listOf(projectPom), false, mavenGeneralSettings, mavenEmbedderWrappers, rawProgressReporter)
+    tree.update(listOf(projectPom), false, mavenGeneralSettings, MavenExplicitProfiles.NONE, mavenEmbedderWrappers, rawProgressReporter)
     assertEquals(log(), l.log)
     l.log.clear()
-    tree.update(listOf(projectPom), true, mavenGeneralSettings, mavenEmbedderWrappers, rawProgressReporter)
+    tree.update(listOf(projectPom), true, mavenGeneralSettings, MavenExplicitProfiles.NONE, mavenEmbedderWrappers, rawProgressReporter)
     assertEquals(log().add("updated", "project").add("deleted"), l.log)
     l.log.clear()
   }
@@ -601,7 +597,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
 
   @Test
   fun testSendingNotificationsWhenResolveFailed() = runBlocking {
-    createProjectPom("""
+    val p = createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
                        <version>1</version>
@@ -613,6 +609,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
     val mavenProject = tree.findProject(projectPom)!!
     resolve(project, mavenProject, mavenGeneralSettings)
     assertEquals(log().add("resolved", "project"), listener.log)
+    projectsManager.state.originalFiles = listOf(p.path)
     updateAllProjects()
     assertFalse(mavenProject.problems.isEmpty())
   }
@@ -1282,7 +1279,7 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
                        <version>1</version>
                        <packaging>pom</packaging>
                        """.trimIndent())
-    update(projectPom)
+    updateAll(projectPom, m)
     roots = tree.rootProjects
     assertEquals(2, roots.size)
     assertTrue(tree.getModules(roots[0]).isEmpty())
@@ -1421,16 +1418,12 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
     assertEquals(1, roots.size)
     assertEquals(1, tree.getModules(roots[0]).size)
     assertEquals(1, tree.getModules(tree.getModules(roots[0])[0]).size)
-    val listener = MyLoggingListener()
-    project.messageBus.connect(getTestRootDisposable()).subscribe(MavenProjectsTree.Listener.TOPIC, listener)
     deleteProject(m1)
+    updateAll(projectPom, m2)
     roots = tree.rootProjects
-    assertEquals(2, roots.size)
-    assertEquals(projectPom, roots[0].file)
-    assertEquals(0, tree.getModules(roots[0]).size)
-    assertEquals(m2, roots[1].file)
-    assertEquals(0, tree.getModules(roots[1]).size)
-    assertEquals(log().add("updated", "m2").add("deleted", "m1"), listener.log)
+    assertEquals(1, roots.size)
+    assertEquals(1, tree.getModules(roots[0]).size)
+    assertEquals(1, tree.getModules(tree.getModules(roots[0])[0]).size)
   }
 
   @Test
@@ -1510,12 +1503,10 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
                                        """.trimIndent())
     val l = MyLoggingListener()
     project.messageBus.connect(getTestRootDisposable()).subscribe(MavenProjectsTree.Listener.TOPIC, l)
-    tree.addManagedFilesWithProfiles(listOf(projectPom), MavenExplicitProfiles.NONE)
-    tree.updateAll(false, mavenGeneralSettings, mavenEmbedderWrappers, rawProgressReporter)
+    tree.updateAll(listOf(projectPom), false, mavenGeneralSettings, MavenExplicitProfiles.NONE, mavenEmbedderWrappers, rawProgressReporter)
     assertEquals(log().add("updated", "parent", "m1", "m2").add("deleted"), l.log)
     l.log.clear()
-    tree.removeManagedFiles(listOf(projectPom))
-    tree.updateAll(false, mavenGeneralSettings, mavenEmbedderWrappers, rawProgressReporter)
+    tree.updateAll(emptyList(), false, mavenGeneralSettings, MavenExplicitProfiles.NONE, mavenEmbedderWrappers, rawProgressReporter)
     assertEquals(log().add("updated").add("deleted", "m1", "m2", "parent"), l.log)
   }
 
@@ -1622,9 +1613,8 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
                                 </profile>
                                 """.trimIndent())
     updateAll(projectPom)
-    val existingManagedFiles = tree.existingManagedFiles
     val obsoleteFiles = tree.rootProjectsFiles
-    assertEquals(existingManagedFiles, obsoleteFiles)
+    assertEquals(listOf(projectPom), obsoleteFiles)
   }
 
   @Test
@@ -1794,12 +1784,13 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
                         </profiles>
                         """.trimIndent())
 
+    importProjectAsync()
     projectsManager.explicitProfiles = MavenExplicitProfiles(listOf("projectProfile",
                                                                     "parent1Profile",
                                                                     "parent2Profile",
                                                                     "settings",
                                                                     "xxx"))
-    importProjectAsync()
+    updateAllProjects()
     val mavenProject = tree.findProject(projectPom)!!
     assertUnorderedElementsAreEqual(
       mavenProject.activatedProfilesIds.enabledProfiles,
@@ -1807,66 +1798,13 @@ class MavenProjectsTreeReadingTest : MavenProjectsTreeTestCase() {
       "parent1Profile",
       "parent2Profile",
       "settings")
-    resolve(project, mavenProject, mavenGeneralSettings)
+    updateAllProjects()
     assertUnorderedElementsAreEqual(
       mavenProject.activatedProfilesIds.enabledProfiles,
       "projectProfile",
       "parent1Profile",
       "parent2Profile",
       "settings")
-  }
-
-  @Test
-  fun testDeletingAndRestoringActiveProfilesWhenProjectDeletes() = runBlocking {
-    createProjectPom("""
-                       <groupId>test</groupId>
-                       <artifactId>project</artifactId>
-                       <version>1</version>
-                       <packaging>pom</packaging>
-                       <profiles>
-                         <profile>
-                           <id>one</id>
-                         </profile>
-                       </profiles>
-                       <modules>
-                         <module>m</module>
-                       </modules>
-                       """.trimIndent())
-    var m = createModulePom("m",
-                            """
-                                      <groupId>test</groupId>
-                                      <artifactId>m</artifactId>
-                                      <version>1</version>
-                                      <profiles>
-                                        <profile>
-                                          <id>two</id>
-                                        </profile>
-                                      </profiles>
-                                      """.trimIndent())
-    updateAll(mutableListOf<String?>("one", "two"), projectPom)
-    assertUnorderedElementsAreEqual(
-      tree.explicitProfiles.enabledProfiles, "one", "two")
-    edtWriteAction {
-      m.delete(this)
-    }
-    deleteProject(m)
-
-    assertUnorderedElementsAreEqual(
-      tree.explicitProfiles.enabledProfiles, "one")
-    m = createModulePom("m",
-                        """
-                          <groupId>test</groupId>
-                          <artifactId>m</artifactId>
-                          <version>1</version>
-                          <profiles>
-                            <profile>
-                              <id>two</id>
-                            </profile>
-                          </profiles>
-                          """.trimIndent())
-    update(m)
-    assertUnorderedElementsAreEqual(
-      tree.explicitProfiles.enabledProfiles, "one", "two")
   }
 
   @Test

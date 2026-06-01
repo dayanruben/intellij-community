@@ -5,6 +5,7 @@ import com.intellij.codeInsight.completion.CodeCompletionHandlerBase
 import com.intellij.codeInsight.completion.CompletionItemLookupElement
 import com.intellij.codeInsight.completion.CompletionResult
 import com.intellij.codeInsight.completion.command.RemDevCommandCompletionHelpers
+import com.intellij.codeInsight.completion.command.getCustomPreviewHolder
 import com.intellij.codeInsight.completion.group.CompletionGroup
 import com.intellij.codeInsight.completion.impl.TopPriorityLookupElement
 import com.intellij.codeInsight.lookup.AutoCompletionPolicy
@@ -33,6 +34,7 @@ data class RpcCompletionItem(
   val isTopPriorityItem: Boolean = false,
   val isNeverAutoselectTopPriorityItem: Boolean = false,
   val completionGroup: RpcCompletionGroup? = null,
+  val hasCustomPreview: Boolean = false,
 ) {
   override fun toString(): String = buildToString("RpcCompletionItem") {
     field("id", id)
@@ -51,6 +53,8 @@ data class RpcCompletionItem(
     fieldWithDefault("hasModCommand", hasModCommand, false)
     fieldWithDefault("isTopPriorityItem", isTopPriorityItem, false)
     fieldWithDefault("isNeverAutoselectTopPriorityItem", isNeverAutoselectTopPriorityItem, false)
+    fieldWithDefault("completionGroup", completionGroup, null)
+    fieldWithDefault("hasCustomPreview", hasCustomPreview, false)
   }
 }
 
@@ -77,7 +81,8 @@ fun CompletionResult.toRpc(): RpcCompletionItem {
     hasModCommand = element is CompletionItemLookupElement,
     isTopPriorityItem = TopPriorityLookupElement.isTopPriorityItem(element),
     isNeverAutoselectTopPriorityItem = TopPriorityLookupElement.isNeverAutoselectTopPriorityItem(element),
-    completionGroup = CompletionGroup.get(lookupElement)?.toRpc()
+    completionGroup = CompletionGroup.get(lookupElement)?.toRpc(),
+    hasCustomPreview = element.getCustomPreviewHolder()?.hasPreview() == true,
   )
 }
 

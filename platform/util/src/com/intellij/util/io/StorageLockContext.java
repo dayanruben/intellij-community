@@ -2,8 +2,6 @@
 package com.intellij.util.io;
 
 import com.intellij.util.indexing.impl.IndexDebugProperties;
-import com.intellij.util.io.ChannelsAccessor.FileChannelOperation;
-import com.intellij.util.io.FileChannelInterruptsRetryer.FileChannelIdempotentOperation;
 import com.intellij.util.io.pagecache.impl.PageContentLockingStrategy;
 import com.intellij.util.io.pagecache.impl.PageContentLockingStrategy.SharedLockLockingStrategy;
 import com.intellij.util.io.stats.FilePageCacheStatistics;
@@ -12,7 +10,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -53,17 +50,20 @@ public final class StorageLockContext {
   private final boolean useReadWriteLock;
   private final boolean disableAssertions;
 
-  private final ChannelsAccessor channelsAccessor;
+  private final @NotNull ChannelsAccessor readOnlyChannelsAccessor;
+  private final @NotNull ChannelsAccessor writableChannelsAccessor;
 
 
   @ApiStatus.Internal
   public StorageLockContext(boolean useReadWriteLock,
-                            @NotNull ChannelsAccessor channelsAccessor) {
+                            @NotNull ChannelsAccessor readOnlyChannelsAccessor,
+                            @NotNull ChannelsAccessor writableChannelsAccessor) {
     this(
       DEFAULT_FILE_PAGE_CACHE, DEFAULT_FILE_PAGE_CACHE_NEW,
       useReadWriteLock,
       /*disableAssertions:*/false,
-      channelsAccessor
+      readOnlyChannelsAccessor,
+      writableChannelsAccessor
     );
   }
 
@@ -72,14 +72,22 @@ public final class StorageLockContext {
                             @Nullable FilePageCacheLockFree newFilePageCacheLockFree,
                             boolean useReadWriteLock,
                             boolean disableAssertions,
-                            @NotNull ChannelsAccessor channelsAccessor) {
+                            @NotNull ChannelsAccessor readOnlyChannelsAccessor,
+                            @NotNull ChannelsAccessor writableChannelsAccessor) {
     this.useReadWriteLock = useReadWriteLock;
     this.disableAssertions = disableAssertions;
 
     this.legacyFilePageCache = legacyFilePageCache;
     this.newFilePageCache = newFilePageCacheLockFree;
 
-    this.channelsAccessor = channelsAccessor;
+    if (!readOnlyChannelsAccessor.isReadOnly()) {
+      throw new IllegalArgumentException("readOnlyAccessor must be read-only: " + readOnlyChannelsAccessor);
+    }
+    if (writableChannelsAccessor.isReadOnly()) {
+      throw new IllegalArgumentException("writableAccessor must be writable: " + writableChannelsAccessor);
+    }
+    this.readOnlyChannelsAccessor = readOnlyChannelsAccessor;
+    this.writableChannelsAccessor = writableChannelsAccessor;
   }
 
   private StorageLockContext(@NotNull FilePageCache legacyFilePageCache,
@@ -90,7 +98,8 @@ public final class StorageLockContext {
     this(legacyFilePageCache, newFilePageCacheLockFree,
          useReadWriteLock,
          disableAssertions,
-         cacheChannels ? PageCacheUtils.CHANNELS_CACHE : PageCacheUtils.CHANNELS_NO_CACHE
+         PageCacheUtils.getChannelsAccessor(cacheChannels, /*readOnly: */true),
+         PageCacheUtils.getChannelsAccessor(cacheChannels, /*readOnly: */false)
     );
   }
 
@@ -121,18 +130,6 @@ public final class StorageLockContext {
 
   public StorageLockContext() {
     this(false, false, false);
-  }
-
-  public <R> R executeOp(final Path file,
-                         final @NotNull FileChannelOperation<R> operation,
-                         final boolean readOnly) throws IOException {
-    return channelsAccessor.executeOp(file, operation, readOnly);
-  }
-
-  public <R> R executeIdempotentOp(final Path file,
-                                   final @NotNull FileChannelIdempotentOperation<R> operation,
-                                   final boolean readOnly) throws IOException {
-    return channelsAccessor.executeIdempotentOp(file, operation, readOnly);
   }
 
   public Lock readLock() {
@@ -227,8 +224,30 @@ public final class StorageLockContext {
   }
 
   @ApiStatus.Internal
-  public ChannelsAccessor getChannelsAccessor() {
-    return channelsAccessor;
+  public @NotNull ChannelsAccessor getChannelsAccessor(boolean readOnly) {
+    return readOnly ? readOnlyChannelsAccessor : writableChannelsAccessor;
+  }
+
+  /** Checks that no cached channel remains for the file in either read-only or writable accessor. */
+  public void assertNoOpenChannels(@NotNull Path path) {
+    StringBuilder openChannels = new StringBuilder();
+    appendOpenChannelDescription(openChannels, "read-only", readOnlyChannelsAccessor, path);
+    appendOpenChannelDescription(openChannels, "writable", writableChannelsAccessor, path);
+    if (openChannels.length() > 0) {
+      throw new AssertionError("Open channels remain for " + path + ":\n" + openChannels);
+    }
+  }
+
+  private static void appendOpenChannelDescription(@NotNull StringBuilder openChannels,
+                                                   @NotNull String accessorMode,
+                                                   @NotNull ChannelsAccessor channelsAccessor,
+                                                   @NotNull Path path) {
+    if (channelsAccessor instanceof DiagnosticChannelsAccessor) {
+      String description = ((DiagnosticChannelsAccessor)channelsAccessor).describeCachedChannelOrNull(path);
+      if (description != null) {
+        openChannels.append(accessorMode).append(" accessor: ").append(description).append('\n');
+      }
+    }
   }
 
   public static void forceDirectMemoryCache() {
