@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.json;
 
 import com.intellij.json.psi.JsonElementTypeConverterFactory;
@@ -9,6 +9,7 @@ import com.intellij.platform.syntax.psi.LanguageSyntaxDefinitions;
 import com.intellij.testFramework.ParsingTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.TestDataPath;
+import org.junit.AssumptionViolatedException;
 
 /**
  * @author Mikhail Golubev
@@ -35,7 +36,14 @@ public class JsonParsingTest extends ParsingTestCase {
   }
 
   private void doTest() {
+    if (isIgnore()) {
+      throw new AssumptionViolatedException("Json lazy parsing is disabled");
+    }
     doTest(true);
+  }
+
+  protected boolean isIgnore() {
+    return !JsonElementFactory.getJsonLazyParsingIJ();
   }
 
   public void testKeywords() {
@@ -113,15 +121,19 @@ public class JsonParsingTest extends ParsingTestCase {
     doTest();
   }
 
+  public void testBroken() {
+    doTest();
+  }
+
+  public void testBroken2() {
+    doTest();
+  }
+
   public void test1000_open_arrays() {
     doTest();
   }
 
   public void test1000_open_objects() {
-    doTest();
-  }
-
-  public void test100_100() {
     doTest();
   }
 

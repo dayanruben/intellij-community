@@ -36,6 +36,8 @@ jvm_library(
     "//platform/execution-impl",
     "//platform/eel-impl",
     "//platform/eel-impl-base",
+    "//platform/platform-impl:ide-impl",
+    "//platform/projectModel-impl",
   ]
 )
 
@@ -54,10 +56,12 @@ jvm_library(
     "//libraries/kotlinx/coroutines/core:core_test_lib",
     "//platform/testFramework/junit5",
     "//platform/testFramework/junit5:junit5_test_lib",
-    "@lib//:junit5",
+    "//libraries/junit5",
+    "//libraries/junit5:junit5_test_lib",
     "//libraries/hamcrest",
     "//libraries/hamcrest:hamcrest_test_lib",
-    "@lib//:junit5Params",
+    "//libraries/junit5-params",
+    "//libraries/junit5-params:junit5-params_test_lib",
     "//platform/core-api:core_test_lib",
     "//platform/eel:eel_test_lib",
     "//platform/testFramework/junit5/eel",
@@ -77,6 +81,8 @@ jvm_library(
     "//platform/execution-impl:execution-impl_test_lib",
     "//platform/eel-impl:eel-impl_test_lib",
     "//platform/eel-impl-base:eel-impl-base_test_lib",
+    "//platform/platform-impl:ide-impl_test_lib",
+    "//platform/projectModel-impl:projectModel-impl_test_lib",
   ]
 )
 ### auto-generated section `build intellij.python.community.execService` end
@@ -125,10 +131,12 @@ jvm_library(
     "//libraries/kotlinx/coroutines/core:core_test_lib",
     "//platform/testFramework/junit5",
     "//platform/testFramework/junit5:junit5_test_lib",
-    "@lib//:junit5",
+    "//libraries/junit5",
+    "//libraries/junit5:junit5_test_lib",
     "//libraries/hamcrest",
     "//libraries/hamcrest:hamcrest_test_lib",
-    "@lib//:junit5Params",
+    "//libraries/junit5-params",
+    "//libraries/junit5-params:junit5-params_test_lib",
     "//platform/core-api:core",
     "//platform/core-api:core_test_lib",
     "//platform/eel",

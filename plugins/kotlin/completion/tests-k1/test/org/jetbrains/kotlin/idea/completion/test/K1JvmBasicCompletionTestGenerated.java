@@ -2071,6 +2071,36 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
                 runTest("../testData/basic/common/namedArguments/CompanionObjectInvoke.kt");
             }
 
+            @TestMetadata("ContextParameterNameAfterValueParam.kt")
+            public void testContextParameterNameAfterValueParam() throws Exception {
+                runTest("../testData/basic/common/namedArguments/ContextParameterNameAfterValueParam.kt");
+            }
+
+            @TestMetadata("ContextParameterNameAlreadyPassed.kt")
+            public void testContextParameterNameAlreadyPassed() throws Exception {
+                runTest("../testData/basic/common/namedArguments/ContextParameterNameAlreadyPassed.kt");
+            }
+
+            @TestMetadata("ContextParameterNameCompletion.kt")
+            public void testContextParameterNameCompletion() throws Exception {
+                runTest("../testData/basic/common/namedArguments/ContextParameterNameCompletion.kt");
+            }
+
+            @TestMetadata("ContextParameterNameMultiple.kt")
+            public void testContextParameterNameMultiple() throws Exception {
+                runTest("../testData/basic/common/namedArguments/ContextParameterNameMultiple.kt");
+            }
+
+            @TestMetadata("ContextParameterNameOrder.kt")
+            public void testContextParameterNameOrder() throws Exception {
+                runTest("../testData/basic/common/namedArguments/ContextParameterNameOrder.kt");
+            }
+
+            @TestMetadata("ContextParameterNameWithoutFlag.kt")
+            public void testContextParameterNameWithoutFlag() throws Exception {
+                runTest("../testData/basic/common/namedArguments/ContextParameterNameWithoutFlag.kt");
+            }
+
             @TestMetadata("ForEmptyParametersFunction.kt")
             public void testForEmptyParametersFunction() throws Exception {
                 runTest("../testData/basic/common/namedArguments/ForEmptyParametersFunction.kt");
@@ -2154,6 +2184,36 @@ public abstract class K1JvmBasicCompletionTestGenerated extends AbstractK1JvmBas
             @TestMetadata("ParamsFromSingleUnapplicableOverload.kt")
             public void testParamsFromSingleUnapplicableOverload() throws Exception {
                 runTest("../testData/basic/common/namedArguments/ParamsFromSingleUnapplicableOverload.kt");
+            }
+
+            @TestMetadata("PrefillSameNameParameter.kt")
+            public void testPrefillSameNameParameter() throws Exception {
+                runTest("../testData/basic/common/namedArguments/PrefillSameNameParameter.kt");
+            }
+
+            @TestMetadata("PrefillSameNameVariable.kt")
+            public void testPrefillSameNameVariable() throws Exception {
+                runTest("../testData/basic/common/namedArguments/PrefillSameNameVariable.kt");
+            }
+
+            @TestMetadata("PrefillSameNameVariableAlreadyPassed.kt")
+            public void testPrefillSameNameVariableAlreadyPassed() throws Exception {
+                runTest("../testData/basic/common/namedArguments/PrefillSameNameVariableAlreadyPassed.kt");
+            }
+
+            @TestMetadata("PrefillSameNameVariableSmart.kt")
+            public void testPrefillSameNameVariableSmart() throws Exception {
+                runTest("../testData/basic/common/namedArguments/PrefillSameNameVariableSmart.kt");
+            }
+
+            @TestMetadata("PrefillSameNameVariableTypeMismatch.kt")
+            public void testPrefillSameNameVariableTypeMismatch() throws Exception {
+                runTest("../testData/basic/common/namedArguments/PrefillSameNameVariableTypeMismatch.kt");
+            }
+
+            @TestMetadata("PrefillTopLevelValue.kt")
+            public void testPrefillTopLevelValue() throws Exception {
+                runTest("../testData/basic/common/namedArguments/PrefillTopLevelValue.kt");
             }
 
             @TestMetadata("PrivateFunction.kt")

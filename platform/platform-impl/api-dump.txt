@@ -677,6 +677,8 @@ f:com.intellij.openapi.actionSystem.impl.MenuCancelledControlFlowException
 - com.intellij.openapi.diagnostic.ControlFlowException
 - <init>():V
 - <init>(java.lang.Throwable):V
+f:com.intellij.openapi.application.PluginPathManager
+- s:getPluginDistPath(java.lang.Class,java.lang.String):java.nio.file.Path
 f:com.intellij.openapi.command.impl.FinishMarkAction
 - getAffectedDocuments():com.intellij.openapi.command.undo.DocumentReference[]
 f:com.intellij.openapi.command.impl.StartMarkAction
@@ -1204,7 +1206,6 @@ c:com.intellij.openapi.wm.impl.customFrameDecorations.header.toolbar.HeaderToolb
 - paintBorder(java.awt.Graphics,javax.swing.JComponent,I):V
 pf:com.intellij.openapi.wm.impl.status.IdeStatusBarImpl$AccessibleIdeStatusBarImpl
 - getAccessibleDescription():java.lang.String
-- getAccessibleName():java.lang.String
 pc:com.intellij.openapi.wm.impl.status.TextPanel$AccessibleTextPanel
 - javax.swing.JComponent$AccessibleJComponent
 - <init>(com.intellij.openapi.wm.impl.status.TextPanel):V

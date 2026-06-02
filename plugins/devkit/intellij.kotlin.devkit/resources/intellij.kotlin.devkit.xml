@@ -1,12 +1,13 @@
 <idea-plugin package="org.jetbrains.idea.devkit.kotlin">
+  <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <plugin id="org.jetbrains.kotlin"/>
-    <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
     <module name="intellij.devkit.core"/>
+    <module name="intellij.kotlin.codeInsight.fixes"/>
     <module name="intellij.xml.dom"/>
     <module name="intellij.xml.psi"/>
-    <!-- endregion -->
   </dependencies>
+  <!-- endregion -->
 
   <resource-bundle>messages.DevKitKotlinBundle</resource-bundle>
 
@@ -130,7 +131,7 @@
 
     <iconProvider implementation="org.jetbrains.idea.devkit.kotlin.driver.RemoteIconProvider" order="first"/>
 
-    <registryKey key="devkit.inspections.forbidden.method.in.suspend.context" defaultValue="false"
+    <registryKey key="devkit.inspections.forbidden.method.in.suspend.context" defaultValue="true"
                  description="Enables checks for RequiresBlockingContext in suspend contexts"/>
     <registryKey key="devkit.inspections.checked.exception.for.kotlin.throws" defaultValue="false"
                  description="Enables KotlinCheckedExceptionInspection for @Throws annotations"/>
