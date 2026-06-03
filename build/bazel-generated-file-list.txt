@@ -241,6 +241,8 @@ fleet/lsp.protocol
 fleet/lsp.protocol/test
 fleet/modules/api
 fleet/multiplatform.shims
+fleet/openmap
+fleet/openmap/test
 fleet/radixTrie
 fleet/radixTrie/test
 fleet/reporting/api
@@ -339,6 +341,7 @@ java/testFramework/shared
 java/typeMigration
 java/unscramble
 java/vcs
+java/xml.dom.impl
 jps/antLayout
 jps/jps-builders
 jps/jps-launcher
@@ -532,7 +535,6 @@ libraries/xml-rpc
 libraries/xstream
 libraries/xtext-xbase
 libraries/xz
-module-set-plugins/generated/intellij.moduleSet.plugin.debugger.streams
 module-set-plugins/generated/intellij.moduleSet.plugin.grid.core
 module-set-plugins/generated/intellij.moduleSet.plugin.main
 module-set-plugins/generated/intellij.moduleSet.plugin.recentFiles
@@ -875,6 +877,7 @@ platform/testFramework/monorepo
 platform/testFramework/selfContainedProjects
 platform/testFramework/teamCity
 platform/testRunner
+platform/testRunner/plugin
 platform/threadDumpParser
 platform/tips-of-the-day
 platform/todo
@@ -1383,7 +1386,6 @@ plugins/kotlin/jvm-debugger/eval4j
 plugins/kotlin/jvm-debugger/evaluation
 plugins/kotlin/jvm-debugger/evaluation/k1
 plugins/kotlin/jvm-debugger/evaluation/k2
-plugins/kotlin/jvm-debugger/sequence
 plugins/kotlin/jvm-debugger/test
 plugins/kotlin/jvm-debugger/test/compose
 plugins/kotlin/jvm-debugger/test/compose/testFramework
@@ -1490,6 +1492,7 @@ plugins/markdown/model
 plugins/markdown/plugin
 plugins/markdown/spellchecker
 plugins/markdown/test
+plugins/markdown/textMate
 plugins/markdown/xml
 plugins/marketplace-ml
 plugins/maven
@@ -1571,10 +1574,11 @@ plugins/sh/terminal
 plugins/space/jps-plugin
 plugins/stats-collector
 plugins/stream-debugger
-plugins/stream-debugger-core
-plugins/stream-debugger-core/intellij.debugger.streams.backend
-plugins/stream-debugger-core/intellij.debugger.streams.shared
-plugins/stream-debugger-core/testFramework
+plugins/stream-debugger/backend
+plugins/stream-debugger/core
+plugins/stream-debugger/java
+plugins/stream-debugger/shared
+plugins/stream-debugger/testFramework
 plugins/svn4idea
 plugins/tasks/tasks-api
 plugins/tasks/tasks-compatibility

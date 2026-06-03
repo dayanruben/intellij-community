@@ -21,6 +21,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.lsp.api.LspBundle
 import com.intellij.platform.lsp.api.LspServerNotificationsHandler
+import com.intellij.platform.lsp.impl.util.LspWorkspaceEditApplier
 import com.intellij.platform.lsp.util.getOffsetInDocument
 import com.intellij.platform.util.progress.reportRawProgress
 import kotlinx.coroutines.Job
@@ -74,6 +75,7 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
         readAndEdtWriteAction {
           val applier = LspWorkspaceEditApplier.create(lspServer, params.edit)
                         ?: return@readAndEdtWriteAction value(Unit)
+          @Suppress("HardCodedStringLiteral")
           val commandName = params.label
                             ?: LspBundle.message("code.change.from.server", lspServer.descriptor.presentableName)
           writeCommandAction(lspServer.project, commandName) {
@@ -365,6 +367,7 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
       .createNotification(presentableMessage, type)
       .also { notification ->
         actionItems?.forEach { actionItem ->
+          @Suppress("HardCodedStringLiteral")
           val actionLabel: @NlsSafe String = actionItem.title
           notification.addAction(object : AnAction(actionLabel) {
             override fun actionPerformed(e: AnActionEvent) {

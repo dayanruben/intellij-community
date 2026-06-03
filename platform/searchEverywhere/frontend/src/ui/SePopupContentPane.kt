@@ -55,7 +55,6 @@ import com.intellij.platform.searchEverywhere.SeResultEvent
 import com.intellij.platform.searchEverywhere.SeResultReplacedEvent
 import com.intellij.platform.searchEverywhere.SeUiInspectorInfo
 import com.intellij.platform.searchEverywhere.data.SeDataKeys
-import com.intellij.platform.searchEverywhere.frontend.AutoToggleAction
 import com.intellij.platform.searchEverywhere.frontend.SeSearchStatePublisher
 import com.intellij.platform.searchEverywhere.frontend.SeSelectionListener
 import com.intellij.platform.searchEverywhere.frontend.SeSelectionResultClose
@@ -101,6 +100,7 @@ import com.intellij.usages.impl.UsagePreviewPanel
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.containers.ContainerUtil
+import com.intellij.util.ui.EDT
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StartupUiUtil.isWaylandToolkit
 import com.intellij.util.ui.UIUtil
@@ -279,13 +279,14 @@ class SePopupContentPane(
   }
 
   fun setVm(vm: SePopupVm) {
+    SeLog.log(SeLog.CARET) { "SePopupContentPane.setVm: connecting vm, edt=${EDT.isCurrentThreadEdt()}" }
     vmState.value = vm
   }
 
   private suspend fun connectTo(vm: SePopupVm) = coroutineScope {
-    DumbAwareAction.create { vm.getHistoryItem(true).let { textField.text = it; textField.selectAll() } }
+    DumbAwareAction.create { vm.getHistoryItem(true).let { textField.setText(it, selectAll = true, reason = "history-prev") } }
       .registerCustomShortcutSet(SearchTextField.SHOW_HISTORY_SHORTCUT, contentPane)
-    DumbAwareAction.create { vm.getHistoryItem(false).let { textField.text = it; textField.selectAll() } }
+    DumbAwareAction.create { vm.getHistoryItem(false).let { textField.setText(it, selectAll = true, reason = "history-next") } }
       .registerCustomShortcutSet(SearchTextField.ALT_SHOW_HISTORY_SHORTCUT, contentPane)
 
     launch {
@@ -297,9 +298,14 @@ class SePopupContentPane(
     }
 
     withContext(Dispatchers.UI) {
-      textField.configure(vm.searchPattern.value) { newText ->
+      val pattern = vm.searchPattern.value
+      SeLog.log(SeLog.CARET) { "SePopupContentPane.connectTo will configure: pattern='${pattern}' - ${textField.stateLogMessage()}" }
+
+      textField.configure(pattern) { newText ->
         vm.setSearchText(newText)
       }
+
+      SeLog.log(SeLog.CARET) { "SePopupContentPane.connectTo did configure - ${textField.stateLogMessage()}" }
     }
 
     launch {
@@ -354,7 +360,7 @@ class SePopupContentPane(
                   val currentTab = vm.currentTab
                   if (currentTab.tabId == searchContext.tabId) {
 
-                    if ((currentTab.getSearchEverywhereToggleAction() as? AutoToggleAction)?.autoToggle(true) ?: false) {
+                    if (currentTab.getAutoToggleAction()?.autoToggle(true) ?: false) {
                       currentTab.lastNotFoundString = textField.text
                       headerPane.updateActionsAsync()
                       return@withContext
@@ -645,7 +651,9 @@ class SePopupContentPane(
       withContext(NonCancellable) { issueClosePopup() }
     }
     else {
-      (selectedItems?.filterIsInstance<SeSelectionResultText>()?.firstOrNull())?.let { textField.text = it.searchText + " " }
+      (selectedItems?.filterIsInstance<SeSelectionResultText>()?.firstOrNull())?.let {
+        textField.setText(it.searchText + " ", selectAll = false, reason = "selection-result-text")
+      }
 
       resultList.repaint()
       refreshPresentations()
@@ -906,8 +914,7 @@ class SePopupContentPane(
       .setMovable(false)
       .setRequestFocus(true)
       .setItemChosenCallback { text: String ->
-        textField.setText(text)
-        textField.selectAll()
+        textField.setText(text, selectAll = true, reason = "history-popup-pick")
       }
       .setRenderer(GroupedItemsListRenderer(
         object : ListItemDescriptorAdapter<String>() {

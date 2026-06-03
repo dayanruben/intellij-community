@@ -1,10 +1,20 @@
 ### auto-generated section `build intellij.tools.ide.starter.junit5` start
 load("//build:compiler-options.bzl", "create_kotlinc_options")
-load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
 
 create_kotlinc_options(
   name = "custom_ide-starter-junit5",
   opt_in = ["kotlin.time.ExperimentalTime"]
+)
+
+jvm_provided_library(
+  name = "libraries_junit5-params_provided",
+  lib = "//libraries/junit5-params"
+)
+
+jvm_provided_library(
+  name = "libraries_junit5-launcher_provided",
+  lib = "//libraries/junit5-launcher"
 )
 
 jvm_library(
@@ -23,11 +33,11 @@ jvm_library(
     "@lib//:junit5-provided",
     "//tools/intellij.tools.ide.starter:ide-starter",
     "//platform/remote-driver/model",
-    "@lib//:junit5Params-provided",
-    "@lib//:junit5Launcher-provided",
     "//tools/intellij.tools.ide.util.common:ide-util-common",
     "//libraries/opentelemetry",
     "//platform/testFramework/common",
+    ":libraries_junit5-params_provided",
+    ":libraries_junit5-launcher_provided",
   ]
 )
 
@@ -49,8 +59,10 @@ jvm_library(
     "//libraries/mockito",
     "//libraries/mockito:mockito_test_lib",
     "@lib//:mockito-junit-jupiter",
-    "@lib//:junit5Params-provided",
-    "@lib//:junit5Launcher-provided",
+    "//libraries/junit5-params",
+    "//libraries/junit5-params:junit5-params_test_lib",
+    "//libraries/junit5-launcher",
+    "//libraries/junit5-launcher:junit5-launcher_test_lib",
     "//plugins/performanceTesting/commands-model:tools-ide-performanceTesting-commands",
     "//plugins/performanceTesting/commands-model:tools-ide-performanceTesting-commands_test_lib",
     "//tools/intellij.tools.ide.util.common:ide-util-common_test_lib",
@@ -131,8 +143,10 @@ jvm_library(
     "//libraries/mockito",
     "//libraries/mockito:mockito_test_lib",
     "@lib//:mockito-junit-jupiter",
-    "@lib//:junit5Params-provided",
-    "@lib//:junit5Launcher-provided",
+    "//libraries/junit5-params",
+    "//libraries/junit5-params:junit5-params_test_lib",
+    "//libraries/junit5-launcher",
+    "//libraries/junit5-launcher:junit5-launcher_test_lib",
     "//plugins/performanceTesting/commands-model:tools-ide-performanceTesting-commands",
     "//plugins/performanceTesting/commands-model:tools-ide-performanceTesting-commands_test_lib",
     "//tools/intellij.tools.ide.util.common:ide-util-common",

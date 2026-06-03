@@ -24,10 +24,10 @@ import com.intellij.psi.PsiFile
 import com.intellij.platform.lsp.common.FakeLspServerSupportProvider
 import com.intellij.platform.lsp.common.TestNotebookDocumentAdapter
 import com.intellij.platform.lsp.common.configureServerSession
-import com.intellij.platform.lsp.common.lspServerSupportFixture
+import com.intellij.platform.lsp.common.fakeLspServerProviderFixture
 import com.intellij.platform.lsp.impl.LspDocumentAdapter
-import com.intellij.platform.lsp.impl.usages.LspSearchTarget
-import com.intellij.platform.lsp.impl.usages.LspUsageSearcher
+import com.intellij.platform.lsp.impl.features.usages.LspSearchTarget
+import com.intellij.platform.lsp.impl.features.usages.LspUsageSearcher
 import com.intellij.platform.lsp.util.getLsp4jPosition
 import com.intellij.platform.lsp.testFramework.checkHighlightingRetrying
 import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
@@ -105,7 +105,7 @@ internal class LspNotebookDocumentProtocolTest {
   private val codeInsightFixture by codeInsightFixture(projectFixture, tempDirFixture)
 
   @Suppress("unused")
-  private val lspServerSupport by projectFixture.lspServerSupportFixture(
+  private val fakeLspServerProvider by projectFixture.fakeLspServerProviderFixture(
     lspCustomization = object : LspCustomization() {
       override val formattingCustomizer = object : LspFormattingSupport() {
         override fun shouldFormatThisFileExclusivelyByServer(

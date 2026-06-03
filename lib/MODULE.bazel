@@ -28,10 +28,10 @@ http_file(
 )
 
 http_file(
-  name = "ai_grazie-grazie-rule-engine-0_3_212_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.3.212/grazie-rule-engine-0.3.212.jar",
-  sha256 = "6029b1efa0b60aa72accb69dab7c6f23873f7ab584db9d1de932a9e9a7272560",
-  downloaded_file_path = "grazie-rule-engine-0.3.212.jar"
+  name = "ai_grazie-grazie-rule-engine-0_3_216_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.3.216/grazie-rule-engine-0.3.216.jar",
+  sha256 = "bb879a098653cce13ba331e5c30ce262b8cff0721ec4861fd9752ae34a97d588",
+  downloaded_file_path = "grazie-rule-engine-0.3.216.jar"
 )
 
 http_file(
@@ -42,10 +42,10 @@ http_file(
 )
 
 http_file(
-  name = "ai_grazie-grazie-rule-engine-0_3_212-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.3.212/grazie-rule-engine-0.3.212-sources.jar",
-  sha256 = "73f3b1e53e7b8a91c05b2390c927561090479df7a7473db2b0e23099edcdeea4",
-  downloaded_file_path = "grazie-rule-engine-0.3.212-sources.jar"
+  name = "ai_grazie-grazie-rule-engine-0_3_216-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.3.216/grazie-rule-engine-0.3.216-sources.jar",
+  sha256 = "ce66e38aa1acea2ec5c53c2b88d0c779183da60b10456d21ae650c5ee25e1be3",
+  downloaded_file_path = "grazie-rule-engine-0.3.216-sources.jar"
 )
 
 http_file(
@@ -56,17 +56,17 @@ http_file(
 )
 
 http_file(
-  name = "ai_grazie-grazie-rules-llm-0_3_212_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.3.212/grazie-rules-llm-0.3.212.jar",
-  sha256 = "778ac686a02b2bbcde5fa4a994b742c9e16582ab7f030bad743de1038ba9a63c",
-  downloaded_file_path = "grazie-rules-llm-0.3.212.jar"
+  name = "ai_grazie-grazie-rules-llm-0_3_216_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.3.216/grazie-rules-llm-0.3.216.jar",
+  sha256 = "c61bd2918fa23a2546259c36fa04dbaeecad1e7f581159897194a1590f50b02c",
+  downloaded_file_path = "grazie-rules-llm-0.3.216.jar"
 )
 
 http_file(
-  name = "ai_grazie-grazie-rules-llm-0_3_212-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.3.212/grazie-rules-llm-0.3.212-sources.jar",
-  sha256 = "a7959e2645062081558b56b8cc5d8129579f7ceb69f776d4d15412242d8de840",
-  downloaded_file_path = "grazie-rules-llm-0.3.212-sources.jar"
+  name = "ai_grazie-grazie-rules-llm-0_3_216-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.3.216/grazie-rules-llm-0.3.216-sources.jar",
+  sha256 = "c2e60adfae854e4ff357df4165861cf15c9d3d8f08020a8965ba415c25894fcb",
+  downloaded_file_path = "grazie-rules-llm-0.3.216-sources.jar"
 )
 
 http_file(
@@ -5621,17 +5621,17 @@ http_file(
 )
 
 http_file(
-  name = "org_jetbrains_jediterm-jediterm-core-3_68_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jediterm/jediterm-core/3.68/jediterm-core-3.68.jar",
-  sha256 = "775d91cc376b66342e4590bce5139b5741cc612a156fdfd8acbf2d99c3524ba0",
-  downloaded_file_path = "jediterm-core-3.68.jar"
+  name = "org_jetbrains_jediterm-jediterm-core-3_69_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jediterm/jediterm-core/3.69/jediterm-core-3.69.jar",
+  sha256 = "1aa355cf87252c4975763a150cc3567f57da70e112bb7c638cc439ef79cb0284",
+  downloaded_file_path = "jediterm-core-3.69.jar"
 )
 
 http_file(
-  name = "org_jetbrains_jediterm-jediterm-core-3_68-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jediterm/jediterm-core/3.68/jediterm-core-3.68-sources.jar",
-  sha256 = "f5a5223ace30404617803e02d8942d3789ea8b4c5785110ba5d487479f0b860d",
-  downloaded_file_path = "jediterm-core-3.68-sources.jar"
+  name = "org_jetbrains_jediterm-jediterm-core-3_69-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jediterm/jediterm-core/3.69/jediterm-core-3.69-sources.jar",
+  sha256 = "203dd11188c33aa1c80c5fd432b97d1c6487be1e514a62f66e70e8658ec2aa6a",
+  downloaded_file_path = "jediterm-core-3.69-sources.jar"
 )
 
 http_file(
@@ -6276,48 +6276,6 @@ http_file(
   url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2-sources.jar",
   sha256 = "277a7a4315412817beb6655b324dc7276621e95ebff00b8bf65e17a27b685e2d",
   downloaded_file_path = "apiguardian-api-1.1.2-sources.jar"
-)
-
-http_file(
-  name = "org_junit_platform-junit-platform-launcher-1_13_4_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/platform/junit-platform-launcher/1.13.4/junit-platform-launcher-1.13.4.jar",
-  sha256 = "0b0beaeb6880a31149641d2d848b863712885469670c12099586d7f798522564",
-  downloaded_file_path = "junit-platform-launcher-1.13.4.jar"
-)
-
-http_file(
-  name = "org_junit_platform-junit-platform-engine-1_13_4_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/platform/junit-platform-engine/1.13.4/junit-platform-engine-1.13.4.jar",
-  sha256 = "390c5f77b84283a64b644f88251b397e0b0debb80bdcc50f899881aecff43a5a",
-  downloaded_file_path = "junit-platform-engine-1.13.4.jar"
-)
-
-http_file(
-  name = "org_junit_platform-junit-platform-launcher-1_13_4-sources_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/platform/junit-platform-launcher/1.13.4/junit-platform-launcher-1.13.4-sources.jar",
-  sha256 = "58ac8333e2c8f414360f9e980c4d1b88f2bf82851632977f862baa490cecc2b8",
-  downloaded_file_path = "junit-platform-launcher-1.13.4-sources.jar"
-)
-
-http_file(
-  name = "org_junit_platform-junit-platform-engine-1_13_4-sources_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/platform/junit-platform-engine/1.13.4/junit-platform-engine-1.13.4-sources.jar",
-  sha256 = "a460d1398df481d6bc6e8e41646fb2f71dfa6e1d3514a571c97ed3c86846f1ec",
-  downloaded_file_path = "junit-platform-engine-1.13.4-sources.jar"
-)
-
-http_file(
-  name = "org_junit_jupiter-junit-jupiter-params-5_13_4_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/jupiter/junit-jupiter-params/5.13.4/junit-jupiter-params-5.13.4.jar",
-  sha256 = "3a8c6365716dbb698c0d49a05456c1e1ad05c406613c550f9dd50037872efc41",
-  downloaded_file_path = "junit-jupiter-params-5.13.4.jar"
-)
-
-http_file(
-  name = "org_junit_jupiter-junit-jupiter-params-5_13_4-sources_http",
-  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/jupiter/junit-jupiter-params/5.13.4/junit-jupiter-params-5.13.4-sources.jar",
-  sha256 = "173be0fd56d5befb60e4ee812eb3e1faea05181ec948299661592222aef0e352",
-  downloaded_file_path = "junit-jupiter-params-5.13.4-sources.jar"
 )
 
 http_file(
@@ -9730,17 +9688,17 @@ http_file(
 )
 
 http_file(
-  name = "org_jetbrains_jediterm-jediterm-ui-3_68_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jediterm/jediterm-ui/3.68/jediterm-ui-3.68.jar",
-  sha256 = "bc2f408fa9dd0542498b648e7805e93c214fabe56fad47b979f213f27462587a",
-  downloaded_file_path = "jediterm-ui-3.68.jar"
+  name = "org_jetbrains_jediterm-jediterm-ui-3_69_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jediterm/jediterm-ui/3.69/jediterm-ui-3.69.jar",
+  sha256 = "33e4f92684eb63949e6b6d108b40eb7d19256c8d931a8eaf80a1097f2a3843e4",
+  downloaded_file_path = "jediterm-ui-3.69.jar"
 )
 
 http_file(
-  name = "org_jetbrains_jediterm-jediterm-ui-3_68-sources_http",
-  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jediterm/jediterm-ui/3.68/jediterm-ui-3.68-sources.jar",
-  sha256 = "70a163ac70ef94e3e72b58dcddf2da521e90f823b1b92ae0f24c0cfe50caed62",
-  downloaded_file_path = "jediterm-ui-3.68-sources.jar"
+  name = "org_jetbrains_jediterm-jediterm-ui-3_69-sources_http",
+  url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jediterm/jediterm-ui/3.69/jediterm-ui-3.69-sources.jar",
+  sha256 = "bf7948269686f62ceaee6685cff661c02c0b4b382a06bf892e307ab869a6f6e4",
+  downloaded_file_path = "jediterm-ui-3.69-sources.jar"
 )
 
 http_file(
@@ -9930,6 +9888,48 @@ http_file(
   url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/github/weisj/jsvg/2.1.0/jsvg-2.1.0-sources.jar",
   sha256 = "6616050e4b185d5a7313f8ea9f4c5446a1d26ac880e1c35cccf44c9176bbd866",
   downloaded_file_path = "jsvg-2.1.0-sources.jar"
+)
+
+http_file(
+  name = "org_junit_platform-junit-platform-launcher-1_13_4_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/platform/junit-platform-launcher/1.13.4/junit-platform-launcher-1.13.4.jar",
+  sha256 = "0b0beaeb6880a31149641d2d848b863712885469670c12099586d7f798522564",
+  downloaded_file_path = "junit-platform-launcher-1.13.4.jar"
+)
+
+http_file(
+  name = "org_junit_platform-junit-platform-engine-1_13_4_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/platform/junit-platform-engine/1.13.4/junit-platform-engine-1.13.4.jar",
+  sha256 = "390c5f77b84283a64b644f88251b397e0b0debb80bdcc50f899881aecff43a5a",
+  downloaded_file_path = "junit-platform-engine-1.13.4.jar"
+)
+
+http_file(
+  name = "org_junit_platform-junit-platform-launcher-1_13_4-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/platform/junit-platform-launcher/1.13.4/junit-platform-launcher-1.13.4-sources.jar",
+  sha256 = "58ac8333e2c8f414360f9e980c4d1b88f2bf82851632977f862baa490cecc2b8",
+  downloaded_file_path = "junit-platform-launcher-1.13.4-sources.jar"
+)
+
+http_file(
+  name = "org_junit_platform-junit-platform-engine-1_13_4-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/platform/junit-platform-engine/1.13.4/junit-platform-engine-1.13.4-sources.jar",
+  sha256 = "a460d1398df481d6bc6e8e41646fb2f71dfa6e1d3514a571c97ed3c86846f1ec",
+  downloaded_file_path = "junit-platform-engine-1.13.4-sources.jar"
+)
+
+http_file(
+  name = "org_junit_jupiter-junit-jupiter-params-5_13_4_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/jupiter/junit-jupiter-params/5.13.4/junit-jupiter-params-5.13.4.jar",
+  sha256 = "3a8c6365716dbb698c0d49a05456c1e1ad05c406613c550f9dd50037872efc41",
+  downloaded_file_path = "junit-jupiter-params-5.13.4.jar"
+)
+
+http_file(
+  name = "org_junit_jupiter-junit-jupiter-params-5_13_4-sources_http",
+  url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/junit/jupiter/junit-jupiter-params/5.13.4/junit-jupiter-params-5.13.4-sources.jar",
+  sha256 = "173be0fd56d5befb60e4ee812eb3e1faea05181ec948299661592222aef0e352",
+  downloaded_file_path = "junit-jupiter-params-5.13.4-sources.jar"
 )
 
 http_file(

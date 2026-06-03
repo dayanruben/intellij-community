@@ -80,9 +80,9 @@ jvm_import(
 )
 
 copy_file(
-  name = "ai.grazie/grazie-rule-engine-0.3.212.jar_copy",
-  src = "@ai_grazie-grazie-rule-engine-0_3_212_http//file",
-  out = "ai.grazie/grazie-rule-engine-0.3.212.jar",
+  name = "ai.grazie/grazie-rule-engine-0.3.216.jar_copy",
+  src = "@ai_grazie-grazie-rule-engine-0_3_216_http//file",
+  out = "ai.grazie/grazie-rule-engine-0.3.216.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
@@ -98,16 +98,16 @@ copy_file(
 java_library(
   name = "ai-grazie-rule-engine",
   exports = [
-    ":ai_grazie-grazie-rule-engine-0_3_212_http_import",
+    ":ai_grazie-grazie-rule-engine-0_3_216_http_import",
     ":net_fellbaum-jemoji-1_3_1_http_import",
   ],
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
-  name = "ai_grazie-grazie-rule-engine-0_3_212_http_import",
-  jar = "@ai_grazie-grazie-rule-engine-0_3_212_http//file",
-  source_jar = "@ai_grazie-grazie-rule-engine-0_3_212-sources_http//file"
+  name = "ai_grazie-grazie-rule-engine-0_3_216_http_import",
+  jar = "@ai_grazie-grazie-rule-engine-0_3_216_http//file",
+  source_jar = "@ai_grazie-grazie-rule-engine-0_3_216-sources_http//file"
 )
 
 jvm_import(
@@ -117,17 +117,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "ai.grazie/grazie-rules-llm-0.3.212.jar_copy",
-  src = "@ai_grazie-grazie-rules-llm-0_3_212_http//file",
-  out = "ai.grazie/grazie-rules-llm-0.3.212.jar",
+  name = "ai.grazie/grazie-rules-llm-0.3.216.jar_copy",
+  src = "@ai_grazie-grazie-rules-llm-0_3_216_http//file",
+  out = "ai.grazie/grazie-rules-llm-0.3.216.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "ai-grazie-semantic-engine",
-  jar = "@ai_grazie-grazie-rules-llm-0_3_212_http//file",
-  source_jar = "@ai_grazie-grazie-rules-llm-0_3_212-sources_http//file",
+  jar = "@ai_grazie-grazie-rules-llm-0_3_216_http//file",
+  source_jar = "@ai_grazie-grazie-rules-llm-0_3_216-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -7048,17 +7048,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.jediterm/jediterm-core-3.68.jar_copy",
-  src = "@org_jetbrains_jediterm-jediterm-core-3_68_http//file",
-  out = "org.jetbrains.jediterm/jediterm-core-3.68.jar",
+  name = "org.jetbrains.jediterm/jediterm-core-3.69.jar_copy",
+  src = "@org_jetbrains_jediterm-jediterm-core-3_69_http//file",
+  out = "org.jetbrains.jediterm/jediterm-core-3.69.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "jediterm-core",
-  jar = "@org_jetbrains_jediterm-jediterm-core-3_68_http//file",
-  source_jar = "@org_jetbrains_jediterm-jediterm-core-3_68-sources_http//file",
+  jar = "@org_jetbrains_jediterm-jediterm-core-3_69_http//file",
+  source_jar = "@org_jetbrains_jediterm-jediterm-core-3_69-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -7861,72 +7861,6 @@ jvm_import(
 java_library(
   name = "junit5-provided",
   exports = [":junit5"],
-  neverlink = True,
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "org.junit.platform/junit-platform-launcher-1.13.4.jar_copy",
-  src = "@org_junit_platform-junit-platform-launcher-1_13_4_http//file",
-  out = "org.junit.platform/junit-platform-launcher-1.13.4.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "org.junit.platform/junit-platform-engine-1.13.4.jar_copy",
-  src = "@org_junit_platform-junit-platform-engine-1_13_4_http//file",
-  out = "org.junit.platform/junit-platform-engine-1.13.4.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-java_library(
-  name = "junit5Launcher",
-  exports = [
-    ":org_junit_platform-junit-platform-launcher-1_13_4_http_import",
-    ":org_junit_platform-junit-platform-engine-1_13_4_http_import",
-  ],
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "org_junit_platform-junit-platform-launcher-1_13_4_http_import",
-  jar = "@org_junit_platform-junit-platform-launcher-1_13_4_http//file",
-  source_jar = "@org_junit_platform-junit-platform-launcher-1_13_4-sources_http//file"
-)
-
-jvm_import(
-  name = "org_junit_platform-junit-platform-engine-1_13_4_http_import",
-  jar = "@org_junit_platform-junit-platform-engine-1_13_4_http//file",
-  source_jar = "@org_junit_platform-junit-platform-engine-1_13_4-sources_http//file"
-)
-
-java_library(
-  name = "junit5Launcher-provided",
-  exports = [":junit5Launcher"],
-  neverlink = True,
-  visibility = ["//visibility:public"]
-)
-
-copy_file(
-  name = "org.junit.jupiter/junit-jupiter-params-5.13.4.jar_copy",
-  src = "@org_junit_jupiter-junit-jupiter-params-5_13_4_http//file",
-  out = "org.junit.jupiter/junit-jupiter-params-5.13.4.jar",
-  allow_symlink = True,
-  visibility = ["//visibility:public"]
-)
-
-jvm_import(
-  name = "junit5Params",
-  jar = "@org_junit_jupiter-junit-jupiter-params-5_13_4_http//file",
-  source_jar = "@org_junit_jupiter-junit-jupiter-params-5_13_4-sources_http//file",
-  visibility = ["//visibility:public"]
-)
-
-java_library(
-  name = "junit5Params-provided",
-  exports = [":junit5Params"],
   neverlink = True,
   visibility = ["//visibility:public"]
 )
@@ -12346,17 +12280,17 @@ jvm_import(
 )
 
 copy_file(
-  name = "org.jetbrains.jediterm/jediterm-ui-3.68.jar_copy",
-  src = "@org_jetbrains_jediterm-jediterm-ui-3_68_http//file",
-  out = "org.jetbrains.jediterm/jediterm-ui-3.68.jar",
+  name = "org.jetbrains.jediterm/jediterm-ui-3.69.jar_copy",
+  src = "@org_jetbrains_jediterm-jediterm-ui-3_69_http//file",
+  out = "org.jetbrains.jediterm/jediterm-ui-3.69.jar",
   allow_symlink = True,
   visibility = ["//visibility:public"]
 )
 
 jvm_import(
   name = "libraries-jediterm-ui-jediterm-ui",
-  jar = "@org_jetbrains_jediterm-jediterm-ui-3_68_http//file",
-  source_jar = "@org_jetbrains_jediterm-jediterm-ui-3_68-sources_http//file",
+  jar = "@org_jetbrains_jediterm-jediterm-ui-3_69_http//file",
+  source_jar = "@org_jetbrains_jediterm-jediterm-ui-3_69-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
@@ -12587,6 +12521,58 @@ jvm_import(
   name = "libraries-junit5-jupiter-_j_unit5_jupiter",
   jar = "@org_junit_jupiter-junit-jupiter-engine-5_13_4_http//file",
   source_jar = "@org_junit_jupiter-junit-jupiter-engine-5_13_4-sources_http//file",
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "org.junit.platform/junit-platform-launcher-1.13.4.jar_copy",
+  src = "@org_junit_platform-junit-platform-launcher-1_13_4_http//file",
+  out = "org.junit.platform/junit-platform-launcher-1.13.4.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+copy_file(
+  name = "org.junit.platform/junit-platform-engine-1.13.4.jar_copy",
+  src = "@org_junit_platform-junit-platform-engine-1_13_4_http//file",
+  out = "org.junit.platform/junit-platform-engine-1.13.4.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+java_library(
+  name = "libraries-junit5-launcher-_j_unit5_launcher",
+  exports = [
+    ":org_junit_platform-junit-platform-launcher-1_13_4_http_import",
+    ":org_junit_platform-junit-platform-engine-1_13_4_http_import",
+  ],
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "org_junit_platform-junit-platform-launcher-1_13_4_http_import",
+  jar = "@org_junit_platform-junit-platform-launcher-1_13_4_http//file",
+  source_jar = "@org_junit_platform-junit-platform-launcher-1_13_4-sources_http//file"
+)
+
+jvm_import(
+  name = "org_junit_platform-junit-platform-engine-1_13_4_http_import",
+  jar = "@org_junit_platform-junit-platform-engine-1_13_4_http//file",
+  source_jar = "@org_junit_platform-junit-platform-engine-1_13_4-sources_http//file"
+)
+
+copy_file(
+  name = "org.junit.jupiter/junit-jupiter-params-5.13.4.jar_copy",
+  src = "@org_junit_jupiter-junit-jupiter-params-5_13_4_http//file",
+  out = "org.junit.jupiter/junit-jupiter-params-5.13.4.jar",
+  allow_symlink = True,
+  visibility = ["//visibility:public"]
+)
+
+jvm_import(
+  name = "libraries-junit5-params-_j_unit5_params",
+  jar = "@org_junit_jupiter-junit-jupiter-params-5_13_4_http//file",
+  source_jar = "@org_junit_jupiter-junit-jupiter-params-5_13_4-sources_http//file",
   visibility = ["//visibility:public"]
 )
 
