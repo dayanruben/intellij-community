@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Component
+import java.net.URI
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal val NOTIFY_SUCCESS_EACH_REPORT = AtomicBoolean(true) // dirty hack, reporter API does not support any optional args
@@ -37,18 +38,17 @@ internal val SHOW_NEW_BUILD_DIALOG = AtomicBoolean(true) // ensures the "New Bui
  * This is an internal implementation of [ErrorReportSubmitter] which is used to report exceptions in IntelliJ platform
  * and plugins developed by JetBrains to processing at JetBrains.
  *
- * **It's not supposed to be used by third-party plugins.**
- * Third-party plugins need to provide their own implementations of [ErrorReportSubmitter].
+ * **The class is not supposed to be used by third-party plugins.**
+ * They need to provide their own implementations of [ErrorReportSubmitter].
  */
 @InternalIgnoreDependencyViolation
-open class ITNReporter internal constructor(private val postUrl: String?) : ErrorReportSubmitter() {
+open class ITNReporter internal constructor(private val postUrl: URI?) : ErrorReportSubmitter() {
   @ApiStatus.Internal
   constructor() : this(postUrl = null)
 
   override fun getReportActionText(): String = DiagnosticBundle.message("error.report.to.jetbrains.action")
 
-  override fun getPrivacyNoticeText(): String =
-    DiagnosticBundle.message("error.dialog.notice.anonymous")
+  override fun getPrivacyNoticeText(): String = DiagnosticBundle.message("error.dialog.notice.anonymous")
 
   @ApiStatus.OverrideOnly
   override fun submit(
@@ -158,9 +158,8 @@ open class ITNReporter internal constructor(private val postUrl: String?) : Erro
       }
     }
   }
-  
-  @ApiStatus.Internal
-  companion object {
+
+  private companion object {
     private val LOG = Logger.getInstance(ITNReporter::class.java)
   }
 }

@@ -49,6 +49,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.seconds
 
@@ -58,89 +60,96 @@ private val REPORT_ISSUES_COUNT_PROPERTY = "dynamic.plugins.report.issues.count"
 internal class DynamicPluginsSupportImpl(
   val classloaderUnloadAwaitStrategy: AwaitClassloaderUnloadStrategy
 ) : DynamicPluginsSupport {
+  private val rwLock = Mutex() // TODO replace with a proper suspending RW lock?
 
-  override suspend fun validateDynamicTransitionPossible(targetState: PluginSet): DynamicPluginsTransitionResult.Invalid? {
-    return withContext(Dispatchers.Default) {
-      if (LOG.isDebugEnabled) {
-        LOG.debug("validating dynamic reconfiguration to $targetState (disabled plugins may appear as unresolved)")
-        PluginInitializationDiagnosticUtils.logExclusionTree(
-          LOG,
-          targetState.resolvedPluginSet!!,
-          emptyMap() // FIXME IJPL-246161 may cause "id is not resolved" messages instead of "is marked disabled"
-        )
-      }
-      reportSequentialProgress { reporter ->
-        val target = targetState.resolvedPluginSet ?: error("resolved plugin set is not set")
-        val current = getCurrentlyLoadedPluginSet()
-        val sequence = buildTransitionSequence(current, target).also { LOG.debug { it.getExplanationLogMessage() } }
-        validateTransitionSequenceCanBePerformedDynamically(sequence, reporter)
-          .also { issues -> if (LOG.isDebugEnabled) buildExplanationMessage(issues)?.let { LOG.debug(it) } }
-          .firstOrNull()?.let(DynamicPluginsTransitionResult::Invalid)
-      }
-    }
-  }
-
-  override suspend fun performDynamicTransition(targetState: PluginSet): DynamicPluginsTransitionResult {
-    return withContext(Dispatchers.Default) {
-      reportSequentialProgress { reporter ->
-        val current = getCurrentlyLoadedPluginSet()
-        val target = targetState.resolvedPluginSet ?: error("resolved plugin set is not set")
-        LOG.info("performing dynamic reconfiguration to $targetState (disabled plugins may appear as unresolved)")
-        PluginInitializationDiagnosticUtils.logExclusionTree(
-          LOG,
-          target,
-          emptyMap() // FIXME IJPL-246161 may cause "id is not resolved" messages instead of "is marked disabled"
-        )
-        val sequence = buildTransitionSequence(current, target).also {
-          LOG.info(it.getExplanationLogMessage())
+  override suspend fun validateDynamicReconfigurationPossible(targetState: PluginSet): DynamicPluginsReconfigurationResult.Invalid? {
+    return rwLock.withLock {
+      withContext(Dispatchers.Default) {
+        if (LOG.isDebugEnabled) {
+          LOG.debug("validating dynamic reconfiguration to $targetState (disabled plugins may appear as unresolved)")
+          PluginInitializationDiagnosticUtils.logExclusionTree(
+            LOG,
+            targetState.resolvedPluginSet!!,
+            emptyMap() // FIXME IJPL-246161 may cause "id is not resolved" messages instead of "is marked disabled"
+          )
         }
-
-        val dynamicTransitionIsNotPossibleReason = validateTransitionSequenceCanBePerformedDynamically(sequence, reporter)
-          .also { issues -> buildExplanationMessage(issues)?.let { msg -> LOG.warn(msg) } }
-          .firstOrNull()
-        if (dynamicTransitionIsNotPossibleReason != null) {
-          return@withContext dynamicTransitionIsNotPossibleReason.let(DynamicPluginsTransitionResult::Invalid)
+        reportSequentialProgress { reporter ->
+          val target = targetState.resolvedPluginSet ?: error("resolved plugin set is not set")
+          val current = getCurrentlyLoadedPluginSet()
+          val sequence = buildTransitionSequence(current, target).also { LOG.debug { it.getExplanationLogMessage() } }
+          validateTransitionSequenceCanBePerformedDynamically(sequence, reporter)
+            .also { issues -> if (LOG.isDebugEnabled) buildExplanationMessage(issues)?.let { LOG.debug(it) } }
+            .firstOrNull()?.let(DynamicPluginsReconfigurationResult::Invalid)
         }
-
-        saveAllSettings() // TODO should be converted to pre-reconfiguration listener
-
-        val unloadSteps = sequence.transitionSequence.takeWhile { it.action == RuntimeModuleGroupAction.UNLOAD }
-        val loadSteps = sequence.transitionSequence.drop(unloadSteps.size).takeWhile { it.action == RuntimeModuleGroupAction.LOAD }
-        check(unloadSteps.size + loadSteps.size == sequence.transitionSequence.size) { "All loading actions are expected to come after all unloading actions" }
-
-        val pluginsToLoad = loadSteps.asSequence().flatMap { it.runtimeModuleGroup.sortedDescriptors }.filterIsInstance<PluginMainDescriptor>().associateBy { it.pluginId }
-        val (successfullyUnloaded, classloadersToUnload) = unloadGroups(
-          groupsToUnload = unloadSteps.map { it.runtimeModuleGroup },
-          pluginsToBeLoadedLater = pluginsToLoad,
-          reporter = reporter,
-        )
-        if (!successfullyUnloaded) {
-          // broken state, require restart
-          InstalledPluginsState.getInstance().isRestartRequired = true
-          return@withContext DynamicPluginsTransitionResult.Incomplete()
-        }
-
-        loadGroups(
-          targetPluginSet = targetState,
-          groups = loadSteps.map { it.runtimeModuleGroup },
-          reusedGroups = sequence.exactRuntimeModuleGroupAlignment.values.toList(),
-          reporter = reporter,
-        )
-        val trulyCollected = classloaderUnloadAwaitStrategy.awaitClassloadersUnloadedPostTransition(classloadersToUnload)
-        if (!trulyCollected) {
-          InstalledPluginsState.getInstance().isRestartRequired = true
-          return@withContext DynamicPluginsTransitionResult.Incomplete()
-        }
-
-        return@withContext DynamicPluginsTransitionResult.Success()
       }
     }
   }
 
-  private fun buildExplanationMessage(issues: List<DynamicTransitionIsNotPossibleReason>): String? {
+  override suspend fun performDynamicReconfiguration(targetState: PluginSet): DynamicPluginsReconfigurationResult {
+    return rwLock.withLock {
+      withContext(Dispatchers.Default) {
+        reportSequentialProgress { reporter ->
+          val current = getCurrentlyLoadedPluginSet()
+          val target = targetState.resolvedPluginSet ?: error("resolved plugin set is not set")
+          LOG.info("performing dynamic reconfiguration to $targetState (disabled plugins may appear as unresolved)")
+          PluginInitializationDiagnosticUtils.logExclusionTree(
+            LOG,
+            target,
+            emptyMap() // FIXME IJPL-246161 may cause "id is not resolved" messages instead of "is marked disabled"
+          )
+          val sequence = buildTransitionSequence(current, target).also {
+            LOG.info(it.getExplanationLogMessage())
+          }
+
+          val dynamicReconfigurationIsNotPossibleReason = validateTransitionSequenceCanBePerformedDynamically(sequence, reporter)
+            .also { issues -> buildExplanationMessage(issues)?.let { msg -> LOG.warn(msg) } }
+            .firstOrNull()
+          if (dynamicReconfigurationIsNotPossibleReason != null) {
+            return@withContext dynamicReconfigurationIsNotPossibleReason.let(DynamicPluginsReconfigurationResult::Invalid)
+          }
+
+          saveAllSettings() // TODO should be converted to pre-reconfiguration listener
+
+          val unloadSteps = sequence.transitionSequence.takeWhile { it.action == RuntimeModuleGroupAction.UNLOAD }
+          val loadSteps = sequence.transitionSequence.drop(unloadSteps.size).takeWhile { it.action == RuntimeModuleGroupAction.LOAD }
+          check(unloadSteps.size + loadSteps.size == sequence.transitionSequence.size) { "All loading actions are expected to come after all unloading actions" }
+
+          val pluginsToLoad =
+            loadSteps.asSequence().flatMap { it.runtimeModuleGroup.sortedDescriptors }.filterIsInstance<PluginMainDescriptor>()
+              .associateBy { it.pluginId }
+          val (successfullyUnloaded, classloadersToUnload) = unloadGroups(
+            groupsToUnload = unloadSteps.map { it.runtimeModuleGroup },
+            pluginsToBeLoadedLater = pluginsToLoad,
+            reporter = reporter,
+          )
+          if (!successfullyUnloaded) {
+            // broken state, require restart
+            InstalledPluginsState.getInstance().isRestartRequired = true
+            return@withContext DynamicPluginsReconfigurationResult.Incomplete()
+          }
+
+          loadGroups(
+            targetPluginSet = targetState,
+            groups = loadSteps.map { it.runtimeModuleGroup },
+            reusedGroups = sequence.exactRuntimeModuleGroupAlignment.values.toList(),
+            reporter = reporter,
+          )
+          val trulyCollected = classloaderUnloadAwaitStrategy.awaitClassloadersUnloadedPostReconfiguration(classloadersToUnload)
+          if (!trulyCollected) {
+            InstalledPluginsState.getInstance().isRestartRequired = true
+            return@withContext DynamicPluginsReconfigurationResult.Incomplete()
+          }
+
+          return@withContext DynamicPluginsReconfigurationResult.Success()
+        }
+      }
+    }
+  }
+
+  private fun buildExplanationMessage(issues: List<DynamicReconfigurationIsNotPossibleReason>): String? {
     if (issues.isEmpty()) return null
     return buildString {
-      append("Dynamic plugins transition is not possible")
+      append("Dynamic plugins reconfiguration is not possible")
       if (System.getProperty(REPORT_ISSUES_COUNT_PROPERTY) == null) {
         append(" (use -D$REPORT_ISSUES_COUNT_PROPERTY=100 to see more issues right away)")
       }
@@ -161,11 +170,11 @@ internal class DynamicPluginsSupportImpl(
   private suspend fun validateTransitionSequenceCanBePerformedDynamically(
     sequence: TransitionSequence,
     reporter: SequentialProgressReporter,
-  ): List<DynamicTransitionIsNotPossibleReason> {
+  ): List<DynamicReconfigurationIsNotPossibleReason> {
     return reporter.indeterminateStep(IdeBundle.message("progress.text.validating.dynamic.reconfiguration")) {
       val issuesToReport = SystemProperties.getIntProperty(REPORT_ISSUES_COUNT_PROPERTY, 1).coerceAtLeast(1)
-      val issues = LinkedHashMap<String, DynamicTransitionIsNotPossibleReason>()
-      val reporter = IssueReporter { reason: DynamicTransitionIsNotPossibleReason ->
+      val issues = LinkedHashMap<String, DynamicReconfigurationIsNotPossibleReason>()
+      val reporter = IssueReporter { reason: DynamicReconfigurationIsNotPossibleReason ->
         issues.putIfAbsent(reason.logMessage, reason) // deduplicate messages
         if (issues.size >= issuesToReport) {
           throw DynamicPluginsValidators.AbortDynamicPluginIssuesComputation()
@@ -350,6 +359,8 @@ internal class DynamicPluginsSupportImpl(
     for (group in groups) {
       for (descriptor in group.sortedDescriptors) {
         descriptor.isMarkedForLoading = true // FIXME it is here only because descriptor.isEnabled still refers to isMarkedForLoading
+      }
+      for (descriptor in group.sortedDescriptors) {
         if (descriptor is PluginModuleDescriptor) {
           configurator.configureModule(descriptor)
         }
@@ -401,7 +412,7 @@ internal class DynamicPluginsSupportImpl(
 
   private fun TransitionSequence.getExplanationLogMessage(): String {
     return buildString {
-      append("Dynamic plugins transition sequence:\n")
+      append("Dynamic plugins reconfiguration sequence:\n")
       append("- reuse ${exactRuntimeModuleGroupAlignment.size} module groups")
       if (transitionSequence.isNotEmpty()) {
         append("\n")
@@ -528,7 +539,7 @@ private object DynamicPluginsValidators {
     /**
      * may throw [AbortDynamicPluginIssuesComputation] to stop the computation (I know this is a smelly thing, but it's the cheapest option right now)
      */
-    fun reportIssue(reason: DynamicTransitionIsNotPossibleReason)
+    fun reportIssue(reason: DynamicReconfigurationIsNotPossibleReason)
   }
 
   class AbortDynamicPluginIssuesComputation : Exception("", null, false, false)
@@ -573,6 +584,14 @@ private object DynamicPluginsValidators {
 
   fun IssueReporter.validateProductRulesPermitUnloading(group: RuntimeModuleGroup) {
     validateProductRulesPermitDynamicLoadOrUnload(group)
+    if (!RegistryManager.getInstance().`is`("ide.plugins.allow.unload")) {
+      // TODO in previous impl, there was a check for (!allowLoadUnloadSynchronously(module)) which basically checks that the plugin
+      //  affected only UI, this is not the case anymore (bad public contract otherwise)
+      reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
+        "Dynamic unloading of plugins is disabled by a registry option 'ide.plugins.allow.unload'",
+        null
+      ))
+    }
     for (descriptor in group.sortedDescriptors) {
       if (descriptor is PluginMainDescriptor) {
         validatePluginUnloadingIsNotVetoed(descriptor)
@@ -582,6 +601,12 @@ private object DynamicPluginsValidators {
 
   fun IssueReporter.validateProductRulesPermitLoading(group: RuntimeModuleGroup) {
     validateProductRulesPermitDynamicLoadOrUnload(group)
+    if (!RegistryManager.getInstance().`is`("ide.plugins.allow.load")) {
+      reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
+        "Dynamic loading of plugins is disabled by a registry option 'ide.plugins.allow.load'",
+        null
+      ))
+    }
     for (descriptor in group.sortedDescriptors) {
       if (descriptor is PluginMainDescriptor) {
         validatePluginLoadingIsNotVetoed(descriptor)
@@ -589,19 +614,13 @@ private object DynamicPluginsValidators {
     }
   }
 
-  fun IssueReporter.validateProductRulesPermitDynamicLoadOrUnload(group: RuntimeModuleGroup) {
+  private fun IssueReporter.validateProductRulesPermitDynamicLoadOrUnload(group: RuntimeModuleGroup) {
     if (InstalledPluginsState.getInstance().isRestartRequired) { // TODO maybe drop this flag eventually, should not exist (or at least shouldn't be used by platform stuff)
-      reportIssue(DynamicTransitionIsNotPossibleReason.of("There are pending changes that require restart", null))
-    }
-    if (!RegistryManager.getInstance().`is`("ide.plugins.allow.unload")) {
-      // TODO in previous impl, there was a check for (!allowLoadUnloadSynchronously(module)) which basically checks that the plugin
-      //  affected only UI, this is not the case anymore (bad public contract otherwise)
-      reportIssue(DynamicTransitionIsNotPossibleReason.of("Dynamic loading/unloading of plugins is disabled by a registry option 'ide.plugins.allow.unload'",
-                                                          null))
+      reportIssue(DynamicReconfigurationIsNotPossibleReason.of("There are pending changes that require restart", null))
     }
     for (descriptor in group.sortedDescriptors) {
       if (descriptor.productCode != null && !descriptor.isBundled && !PluginManagerCore.isDevelopedByJetBrains(descriptor)) {
-        reportIssue(DynamicTransitionIsNotPossibleReason.of(
+        reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
           "${descriptor.shortLogDescription} is a paid plugin, dynamic loading/unloading is not supported",
           descriptor.getMainDescriptor()
         ))
@@ -610,11 +629,11 @@ private object DynamicPluginsValidators {
   }
 
   fun IssueReporter.validatePluginLoadingIsNotVetoed(descriptor: PluginMainDescriptor) {
-    var reason: DynamicTransitionIsNotPossibleReason? = null
+    var reason: DynamicReconfigurationIsNotPossibleReason? = null
     VETOER_EP_NAME.processWithPluginDescriptor { vetoer, vetoerDescriptor ->
       try {
         if (vetoer.vetoPluginLoad(descriptor)) {
-          reason = DynamicTransitionIsNotPossibleReason.of(
+          reason = DynamicReconfigurationIsNotPossibleReason.of(
             "Dynamic loading of ${descriptor.shortLogDescription} was vetoed by ${vetoer.javaClass.name} from ${(vetoerDescriptor as? IdeaPluginDescriptorImpl)?.shortLogDescription}",
             descriptor.getMainDescriptor(),
           )
@@ -636,13 +655,13 @@ private object DynamicPluginsValidators {
       it.vetoPluginUnload(descriptor)
     }
     if (vetoMessage != null) {
-      reportIssue(DynamicTransitionIsNotPossibleReason.of(vetoMessage, descriptor))
+      reportIssue(DynamicReconfigurationIsNotPossibleReason.of(vetoMessage, descriptor))
     }
   }
 
   fun IssueReporter.validateDescriptorDoesNotRequireRestart(descriptor: IdeaPluginDescriptorImpl) {
     if (descriptor.isRequireRestart) {
-      reportIssue(DynamicTransitionIsNotPossibleReason.of(
+      reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
         "${descriptor.shortLogDescription} explicitly requires restart to be loaded/unloaded",
         descriptor.getMainDescriptor()
       ))
@@ -652,7 +671,7 @@ private object DynamicPluginsValidators {
   fun IssueReporter.validateDescriptorHasNoComponents(descriptor: IdeaPluginDescriptorImpl) {
     validateInAllScopes(descriptor) { container ->
       if (container.components.isNotEmpty()) {
-        reportIssue(DynamicTransitionIsNotPossibleReason.of(
+        reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
           "${descriptor.shortLogDescription} cannot be dynamically loaded/unloaded because it declares components: ${container.components.first()}",
           descriptor.getMainDescriptor(),
         ))
@@ -668,7 +687,7 @@ private object DynamicPluginsValidators {
                       elementName == ActionElementName.reference ||
                       (elementName == ActionElementName.group && canUnloadActionGroup(element))
       if (!canUnload) {
-        reportIssue(DynamicTransitionIsNotPossibleReason.of(
+        reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
           "${descriptor.shortLogDescription} cannot be dynamically unloaded because of the action element $action",
           descriptor.getMainDescriptor(),
         )
@@ -681,7 +700,7 @@ private object DynamicPluginsValidators {
     validateInAllScopes(descriptor) { container ->
       for (service in container.services) {
         if (service.overrides) {
-          reportIssue(DynamicTransitionIsNotPossibleReason.of(
+          reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
             "${descriptor.shortLogDescription} cannot be dynamically loaded/unloaded because it declares service override: ${service}",
             descriptor.getMainDescriptor()
           ))
@@ -693,7 +712,7 @@ private object DynamicPluginsValidators {
   fun IssueReporter.validateDescriptorUsesPluginClassloader(descriptor: IdeaPluginDescriptorImpl) {
     val classloader = descriptor.pluginClassLoader
     if (classloader != null && classloader !is PluginClassLoader && !descriptor.useIdeaClassLoader && !application.isUnitTestMode) {
-      reportIssue(DynamicTransitionIsNotPossibleReason.of(
+      reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
         "${descriptor.shortLogDescription} cannot be unloaded dynamically because it is configured to use $classloader, and not PluginClassLoader. " +
         "This may happen if the IDE is started from sources.",
         descriptor.getMainDescriptor()
@@ -723,7 +742,7 @@ private object DynamicPluginsValidators {
         //}
         val epResult = elementsModel.getExtensionPoint(epFqn) ?: ownElementsModel.getExtensionPoint(epFqn)
         if (epResult == null) {
-          reportIssue(DynamicTransitionIsNotPossibleReason.of(
+          reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
             "${descriptor.shortLogDescription} cannot be loaded/unloaded dynamically because it uses extension point '$epFqn' which was not found.",
             descriptor.getMainDescriptor()
           ))
@@ -731,7 +750,7 @@ private object DynamicPluginsValidators {
         else {
           val (source, ep) = epResult
           if (!ep.isDynamic) {
-            reportIssue(DynamicTransitionIsNotPossibleReason.of(
+            reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
               "${descriptor.shortLogDescription} cannot be loaded/unloaded dynamically because it uses non-dynamic extension point '$epFqn' from ${source.shortLogDescription}.",
               descriptor.getMainDescriptor()
             ))
@@ -784,7 +803,7 @@ private class MutableAppElementsModel {
       for (ep in container.extensionPoints) {
         val existing = scope.extensionPoints.putIfAbsent(ep.getQualifiedName(descriptor), descriptor to ep)
         if (existing != null) {
-          reportIssue(DynamicTransitionIsNotPossibleReason.of(
+          reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
             "Extension point ${ep.getQualifiedName(descriptor)} from ${descriptor.shortLogDescription}" +
             " was previously registered by ${existing.first.shortLogDescription}",
             descriptor.getMainDescriptor()
@@ -799,14 +818,14 @@ private class MutableAppElementsModel {
       for (ep in container.extensionPoints) {
         val existing = scope.extensionPoints.remove(ep.getQualifiedName(descriptor))
         if (existing == null) {
-          reportIssue(DynamicTransitionIsNotPossibleReason.of(
+          reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
             "Extension point ${ep.getQualifiedName(descriptor)} from ${descriptor.shortLogDescription}" +
             " was expected to be registered, but was not found",
             descriptor.getMainDescriptor()
           ))
         }
         else if (existing.first != descriptor) {
-          reportIssue(DynamicTransitionIsNotPossibleReason.of(
+          reportIssue(DynamicReconfigurationIsNotPossibleReason.of(
             "Extension point ${ep.getQualifiedName(descriptor)} from ${descriptor.shortLogDescription}" +
             " was expected to be registered, but was found associated with a different source: ${existing.first.shortLogDescription}",
             descriptor.getMainDescriptor()

@@ -29,6 +29,7 @@ import com.intellij.platform.lsp.impl.connector.Lsp4jServerConnectorSocket
 import com.intellij.platform.lsp.impl.connector.Lsp4jServerConnectorStdio
 import com.intellij.platform.lsp.impl.connector.LspInitializationException
 import com.intellij.platform.lsp.impl.documentSync.LspDocumentSyncManager
+import com.intellij.platform.lsp.impl.fileEvents.LspWatchedFiles
 import com.intellij.platform.lsp.impl.features.highlighting.DiagnosticAndQuickFixes
 import com.intellij.platform.lsp.impl.features.highlighting.LspDocumentLink
 import com.intellij.platform.lsp.impl.features.highlighting.LspHighlightingApplier
@@ -40,10 +41,6 @@ import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.text.nullize
 import org.eclipse.lsp4j.CodeLens
 import org.eclipse.lsp4j.Color
-import org.eclipse.lsp4j.DidChangeWatchedFilesParams
-import org.eclipse.lsp4j.DidChangeWatchedFilesRegistrationOptions
-import org.eclipse.lsp4j.FileChangeType
-import org.eclipse.lsp4j.FileEvent
 import org.eclipse.lsp4j.FoldingRange
 import org.eclipse.lsp4j.InitializeResult
 import org.eclipse.lsp4j.InlayHint
@@ -53,10 +50,8 @@ import org.eclipse.lsp4j.ServerCapabilities
 import org.eclipse.lsp4j.TextDocumentIdentifier
 import org.eclipse.lsp4j.TextDocumentRegistrationOptions
 import org.eclipse.lsp4j.TextDocumentSyncKind
-import org.eclipse.lsp4j.WatchKind
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
-import java.nio.file.Path
 import java.util.Collections
 import java.util.concurrent.CompletableFuture
 import kotlin.time.DurationUnit
@@ -91,10 +86,12 @@ class LspServerImpl internal constructor(
 
   val documentMapping: LspDocumentMapping = LspDocumentMapping(this)
   val requestExecutor: LspRequestExecutor = LspRequestExecutor(this, documentMapping)
+  internal val globMatcher: LspGlobMatcher = LspGlobMatcher()
   internal val dynamicCapabilities: LspDynamicCapabilities = LspDynamicCapabilities()
   internal val serverNotificationsHandler: LspServerNotificationsHandler = LspServerNotificationsHandlerImpl(this)
 
   internal val documentSyncManager = LspDocumentSyncManager(this)
+  internal val watchedFiles = LspWatchedFiles(this)
   private val unsupportedFilePaths: MutableSet<String> = Collections.synchronizedSet(HashSet())
   private val highlightingCacheRegistry = LspHighlightingCacheRegistry(this)
 
@@ -151,62 +148,6 @@ class LspServerImpl internal constructor(
 
     return descriptor.isSupportedFile(file)
       .also { if (!it) unsupportedFilePaths.add(file.path) }
-  }
-
-  internal fun processFileEvents(fileChangeInfos: Collection<FileChangeInfo>) {
-    val options = dynamicCapabilities.getCapabilityRegistrationOptions(LspDynamicCapabilities.didChangeWatchedFiles)
-    val eventsOfInterest = fileChangeInfos.mapNotNull { getLsp4jFileEvent(it, options) }
-    if (eventsOfInterest.isNotEmpty()) {
-      sendNotification { it.workspaceService.didChangeWatchedFiles(DidChangeWatchedFilesParams(eventsOfInterest)) }
-    }
-  }
-
-  private fun getLsp4jFileEvent(
-    fileChangeInfo: FileChangeInfo,
-    options: List<DidChangeWatchedFilesRegistrationOptions>,
-  ): FileEvent? {
-    for (option in options) {
-      for (watcher in option.watchers) {
-        if (!fileChangeInfo.doesFileWatcherKindMatchFileChangeType(watcher.kind)) continue
-
-        if (watcher.globPattern.isLeft) {
-          val globPattern = watcher.globPattern.left!!
-          if (pathMatches(fileChangeInfo, globPattern, null)) {
-            return FileEvent(fileChangeInfo.uri, fileChangeInfo.changeType)
-          }
-        }
-        else {
-          val relativePattern = watcher.globPattern.right!!
-          val baseUri = relativePattern.baseUri.map({ it.uri }, { it })
-          val baseDir = descriptor.findFileByUri(baseUri)
-          if (baseDir != null && baseDir.isDirectory) {
-            val globPattern = relativePattern.pattern
-            if (pathMatches(fileChangeInfo, globPattern, baseDir.path)) {
-              return FileEvent(fileChangeInfo.uri, fileChangeInfo.changeType)
-            }
-          }
-        }
-      }
-    }
-    return null
-  }
-
-  private fun pathMatches(fileInfo: FileInfo, globPattern: String, basePath: String?): Boolean {
-    val pathToMatch = when {
-      basePath == null -> fileInfo.path
-      fileInfo.path == basePath -> ""
-      fileInfo.path.startsWith("$basePath/") -> fileInfo.path.substring(basePath.length + 1)
-      else -> return false // base URI doesn't match this fileInfo
-    }
-
-    if (fileInfo.isDirectory) {
-      // Any directory may contain files that match the glob pattern.
-      // Per-file events are not generated, so we need to inform the server about all directory events.
-      return true
-    }
-
-    val pathMatcher = dynamicCapabilities.getPathMatcherCaching(globPattern)
-    return pathMatcher.matches(Path.of(pathToMatch))
   }
 
   internal fun diagnosticsReceived(params: PublishDiagnosticsParams) {
@@ -542,7 +483,7 @@ class LspServerImpl internal constructor(
         if (language != null && language != descriptor.getLanguageId(file)) continue
 
         if (pattern != null) {
-          if (!pathMatches(FileInfo(file.path, false), pattern, null)) {
+          if (!globMatcher.pathMatches(file.path, false, pattern, null)) {
             continue
           }
         }
@@ -575,29 +516,6 @@ class LspServerImpl internal constructor(
   internal fun logWarn(message: @NonNls String, t: Throwable? = null) = logger.warn(decorateLogMessage(message), t)
   internal fun logError(message: @NonNls String) = logger.error(decorateLogMessage(message))
   private fun decorateLogMessage(message: String): String = "$this: $message"
-
-  internal open class FileInfo(open val path: String, open val isDirectory: Boolean)
-
-  internal class FileChangeInfo(
-    path: String,
-    val uri: String,
-    isDirectory: Boolean,
-    val changeType: FileChangeType,
-  ) : FileInfo(path, isDirectory) {
-    fun doesFileWatcherKindMatchFileChangeType(watchKind: Int?): Boolean {
-      // https://microsoft.github.io/language-server-protocol/specification/#fileSystemWatcher
-      if (watchKind == null) {
-        // null is equivalent to WatchKind.Create | WatchKind.Change | WatchKind.Delete
-        return true
-      }
-
-      return when (changeType) {
-        FileChangeType.Created -> (watchKind and WatchKind.Create) != 0
-        FileChangeType.Changed -> (watchKind and WatchKind.Change) != 0
-        FileChangeType.Deleted -> (watchKind and WatchKind.Delete) != 0
-      }
-    }
-  }
 
   companion object {
     internal const val NOT_CANCELLABLE_REQUEST_TIMEOUT_MS: Int = 300

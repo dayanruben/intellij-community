@@ -18,7 +18,6 @@ import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryManager
-import com.intellij.platform.ide.impl.diagnostic.errorsDialog.ErrorMessageClustering
 import com.intellij.util.text.nullize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -52,13 +51,6 @@ object ExceptionAutoReportUtil {
     get() = getForcedAutoReportLevel() != ForcedReportLevel.NONE
 
   suspend fun isAutoReportEnabled(): Boolean {
-    if (!isAutoReportVisible()) return false
-    if (isDevelopmentEnvironment) return ENABLED_FOR_DEVELOPMENT
-
-    return isAutoReportAllowedByUser()
-  }
-
-  suspend fun isAutoReportEnabledAsync(): Boolean {
     if (!isAutoReportVisible()) return false
     if (isDevelopmentEnvironment) return ENABLED_FOR_DEVELOPMENT
 
@@ -195,8 +187,7 @@ object ExceptionAutoReportUtil {
   }
 
   fun isFreeze(throwable: Throwable): Boolean {
-    return throwable is Freeze
-           || throwable is RemoteSerializedThrowable && throwable.classFqn == Freeze::class.qualifiedName
+    return throwable.isInstance<Freeze>()
   }
 
   fun getThrowableFqn(throwable: Throwable): String? {

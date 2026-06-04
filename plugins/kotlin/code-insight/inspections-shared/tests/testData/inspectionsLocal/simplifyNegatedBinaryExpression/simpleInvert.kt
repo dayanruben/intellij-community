@@ -1,4 +1,4 @@
-// PROBLEM: none
+// FIX: Replace negated 'true' with 'false'
 fun test(n: Int) {
-    !<caret>true
+    <caret>!true
 }

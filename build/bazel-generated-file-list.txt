@@ -3,6 +3,7 @@
 .ownership/runtime-resolver
 RegExpSupport
 aether-dependency-resolver
+aether-dependency-resolver/plugin
 android-customization
 android/adt-testutils
 android/adt-ui
@@ -267,6 +268,7 @@ grid/images
 grid/impl
 grid/impl-ide
 grid/json
+grid/plugin
 grid/types
 idea/customization/backend
 idea/customization/base
@@ -459,6 +461,7 @@ libraries/junit5-jupiter
 libraries/junit5-launcher
 libraries/junit5-params
 libraries/junit5-pioneer
+libraries/junit5-suites
 libraries/junit5-vintage
 libraries/jvm-native-trusted-roots
 libraries/jzlib
@@ -535,14 +538,7 @@ libraries/xml-rpc
 libraries/xstream
 libraries/xtext-xbase
 libraries/xz
-module-set-plugins/generated/intellij.moduleSet.plugin.grid.core
 module-set-plugins/generated/intellij.moduleSet.plugin.main
-module-set-plugins/generated/intellij.moduleSet.plugin.recentFiles
-module-set-plugins/generated/intellij.moduleSet.plugin.servicesView
-module-set-plugins/generated/intellij.moduleSet.plugin.structuralSearch
-module-set-plugins/generated/intellij.moduleSet.plugin.structureView
-module-set-plugins/generated/intellij.moduleSet.plugin.todoView
-module-set-plugins/generated/intellij.moduleSet.plugin.vcs.frontend
 mps/build
 mps/build/intellij.mps.resources
 notebooks/notebook-ui
@@ -608,7 +604,6 @@ platform/credential-store-impl
 platform/credential-store-ui
 platform/diagnostic
 platform/diagnostic/freezeAnalyzer
-platform/diagnostic/freezeInPluginNotifier
 platform/diagnostic/startUpPerformanceReporter
 platform/diagnostic/telemetry
 platform/diagnostic/telemetry-impl
@@ -618,6 +613,7 @@ platform/diagnostic/telemetry/rt
 platform/diff-api
 platform/diff-impl
 platform/diff-impl/tests
+platform/discoverability
 platform/distribution-content
 platform/duplicates-analysis
 platform/dvcs-api
@@ -649,6 +645,7 @@ platform/execution.dashboard/frontend
 platform/execution.serviceView
 platform/execution.serviceView/backend
 platform/execution.serviceView/frontend
+platform/execution.serviceView/plugin
 platform/experiment
 platform/exploratory-tests
 platform/extensions
@@ -800,6 +797,7 @@ platform/projectModel-impl
 platform/rd-platform-community
 platform/recentFiles/backend
 platform/recentFiles/frontend
+platform/recentFiles/plugin
 platform/recentFiles/shared
 platform/refactoring
 platform/remote-core
@@ -847,9 +845,11 @@ platform/statistics/envTests
 platform/statistics/testFramework
 platform/statistics/uploader
 platform/structuralsearch
+platform/structuralsearch/plugin
 platform/structure-view-impl
 platform/structure-view-impl/backend
 platform/structure-view-impl/frontend
+platform/structure-view-impl/plugin
 platform/syntax/syntax-api
 platform/syntax/syntax-extensions
 platform/syntax/syntax-i18n
@@ -882,6 +882,7 @@ platform/threadDumpParser
 platform/tips-of-the-day
 platform/todo
 platform/todo/backend
+platform/todo/plugin
 platform/tracing
 platform/tracing-ide
 platform/ui.jcef
@@ -920,6 +921,7 @@ platform/vcs-impl/frontend
 platform/vcs-impl/lang
 platform/vcs-impl/lang/actions
 platform/vcs-impl/lang/todo
+platform/vcs-impl/plugin
 platform/vcs-impl/shared
 platform/vcs-log/api
 platform/vcs-log/graph
@@ -959,7 +961,6 @@ plugins/agent-workbench/codex/common
 plugins/agent-workbench/codex/ide
 plugins/agent-workbench/codex/sessions
 plugins/agent-workbench/common
-plugins/agent-workbench/discoverability
 plugins/agent-workbench/filewatch
 plugins/agent-workbench/json
 plugins/agent-workbench/junie/common
@@ -1532,6 +1533,7 @@ plugins/performanceTesting/backend
 plugins/performanceTesting/commands-model
 plugins/performanceTesting/core
 plugins/performanceTesting/event-bus
+plugins/performanceTesting/freezes
 plugins/performanceTesting/frontend
 plugins/performanceTesting/remote-driver
 plugins/performanceTesting/remote-driver.compose

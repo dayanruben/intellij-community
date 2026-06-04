@@ -56,17 +56,18 @@ class LocalTerminalTtyConnector internal constructor(
    */
   override fun close() {
     terminalApplicationScope().launch(Dispatchers.IO) {
-      // NonCancellable is important to avoid premature cancellation when IDE is closing.
-      // It is important to not be canceled in the middle of this operation,
-      // especially when terminating remote process.
-      withContext(NonCancellable) {
-        closeSafely()
-      }
+      closeSafely()
     }
   }
 
-  private suspend fun closeSafely() {
-    if (!ptyProcess.isAlive) return
+  /**
+   * Terminates the underlying [ptyProcess] and awaits its completion for some meaningful time.
+   * It is expected that process should exit before this function returns in most cases.
+   *
+   * Uses [NonCancellable] to avoid being canceled in the middle in case of IDE closing.
+   */
+  suspend fun closeSafely(): Unit = withContext(Dispatchers.IO + NonCancellable) {
+    if (!ptyProcess.isAlive) return@withContext
 
     when {
       ptyProcess is UnixPtyProcess -> {

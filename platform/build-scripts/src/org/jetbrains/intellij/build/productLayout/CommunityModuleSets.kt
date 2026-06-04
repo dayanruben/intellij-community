@@ -164,10 +164,6 @@ object CommunityModuleSets {
     embeddedModule("intellij.platform.externalSystem.impl")
     embeddedModule("intellij.platform.externalProcessAuthHelper")
 
-    module("intellij.java.aetherDependencyResolver")
-    // Required by embedded external-system/aether dependency paths until that closure is split.
-    module("intellij.libraries.plexus.utils")
-    module("intellij.libraries.maven.resolver.provider")
     module("intellij.platform.util.commonsLangV2Shim")
   }
 
@@ -350,13 +346,21 @@ object CommunityModuleSets {
   // endregion
 
   /**
-   * Remote development common modules.
+   * RD (Rider and Remote development) common modules.
+   * Included in all IDEs
    */
   fun rdCommon(): ModuleSet = moduleSet("rd.common") {
     module("intellij.rd.ide.model.generated")
     module("intellij.rd.platform")
     module("intellij.rd.ui")
     module("intellij.platform.split.protocol")
+
+    // These modules are included in all IDEs.
+    // However, they are due to intellij.rd.client -> intellij.rd.client.base -> com.intellij.rd.client.capable alias,
+    // Those modules are loaded only: in JetBrains Client, Rider and an IDE if a Radler is installed.
+    // Packaging of those modules to the all IDEs is required to load a JetBrains Client from the big IDE distribution.
+    module("intellij.rd.client")
+    module("intellij.rd.client.base")
   }
 
   /**
@@ -382,7 +386,6 @@ object CommunityModuleSets {
 
     module("intellij.libraries.microba")
     module("intellij.platform.diagnostic.freezeAnalyzer")
-    module("intellij.platform.diagnostic.freezes")
     module("intellij.platform.warmup")
     module("intellij.platform.inspect")
     module("intellij.settingsSync.core")

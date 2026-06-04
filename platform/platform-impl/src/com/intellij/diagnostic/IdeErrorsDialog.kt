@@ -7,7 +7,6 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.DataManager
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.lightEdit.LightEditCompatible
-import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.PluginUtil
 import com.intellij.ide.util.PropertiesComponent
@@ -51,8 +50,6 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.Strings
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
-import com.intellij.platform.ide.impl.diagnostic.errorsDialog.ErrorMessageCluster
-import com.intellij.platform.ide.impl.diagnostic.errorsDialog.ErrorMessageClustering
 import com.intellij.ui.BrowserHyperlinkListener
 import com.intellij.ui.CheckBoxList
 import com.intellij.ui.ComponentUtil
@@ -67,6 +64,7 @@ import com.intellij.util.application
 import com.intellij.util.cancelOnDispose
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.io.URLUtil
+import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.OS
 import com.intellij.util.text.DateFormatUtil
 import com.intellij.util.ui.JBInsets
@@ -110,6 +108,7 @@ import javax.swing.event.HyperlinkEvent
 import javax.swing.text.JTextComponent
 
 @ApiStatus.Internal
+@OptIn(LowLevelLocalMachineAccess::class)
 open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
   private val myMessagePool: MessagePool,
   private val myProject: Project?,
@@ -479,7 +478,7 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
     }
 
     if (pluginId != null) {
-      val name = if (pluginInfo != null) pluginInfo.name else pluginId.toString()
+      val name = pluginInfo?.name ?: pluginId.toString()
       if (pluginInfo != null && (!pluginInfo.isBundled || pluginInfo.allowsBundledUpdate)) {
         info.append(DiagnosticBundle.message("error.list.message.blame.plugin.version", name, pluginInfo.version))
       }
@@ -577,7 +576,7 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
         myAttachmentList.clear()
         myAttachmentList.addItem(STACKTRACE_ATTACHMENT, true)
         for (attachment in message.allAttachments) {
-          myAttachmentList.addItem(attachment.name, attachment.isIncluded)
+          myAttachmentList.addItem(@Suppress("HardCodedStringLiteral") attachment.name, attachment.isIncluded)
         }
         myAttachmentList.selectedIndex = 0
         myLastIndex = myIndex
@@ -1010,11 +1009,6 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
     }
   }
 
-  private inline fun <reified T : Throwable> Throwable.isBackendInstance() =
-    this is RemoteSerializedThrowable && classFqn == T::class.qualifiedName
-
-  private inline fun <reified T : Throwable> Throwable.isInstance() = this is T || isBackendInstance<T>()
-
   // This is a very hacky method, since no actual cast is done for `RemoteSerializedThrowable``
   private val Throwable.kotlinVersionOrEmpty: String
     get() = (this as? KotlinCompilerCrash)?.version.orEmpty()
@@ -1033,17 +1027,8 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
 
     @JvmStatic
     @ApiStatus.ScheduledForRemoval
-    @ApiStatus.Internal
-    @Deprecated("internal implementation detail; a plugin code should use `ErrorReportSubmitter.getPluginDescriptor`", level = DeprecationLevel.ERROR)
-    fun getPlugin(event: IdeaLoggingEvent): IdeaPluginDescriptor? =
-      event.throwable?.let { PluginManagerCore.getPlugin(PluginUtil.getInstance().findPluginId(it)) }
-
-    @JvmStatic
-    @ApiStatus.ScheduledForRemoval
-    @ApiStatus.Internal
-    @Deprecated("use {@link PluginUtil#findPluginId} ", ReplaceWith("PluginUtil.getInstance().findPluginId(t)"), level = DeprecationLevel.ERROR)
-    fun findPluginId(t: Throwable): PluginId? =
-      PluginUtil.getInstance().findPluginId(t)
+    @Deprecated("use {@link PluginUtil#findPluginId} ", ReplaceWith("PluginUtil.getInstance().findPluginId(t)"), level = DeprecationLevel.HIDDEN)
+    fun findPluginId(t: Throwable): PluginId? = PluginUtil.getInstance().findPluginId(t)
 
     fun hashMessage(message: AbstractMessage): Long {
       val digest = CRC32()
