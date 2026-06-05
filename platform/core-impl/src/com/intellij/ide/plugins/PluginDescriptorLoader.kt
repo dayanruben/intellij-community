@@ -477,7 +477,7 @@ internal fun CoroutineScope.scheduleLoading(
   mainClassLoaderDeferred: Deferred<ClassLoader>?,
   logDeferred: Deferred<Logger>?,
 ): Deferred<PluginSet> {
-  val initContext = ProductPluginInitContext()
+  val initContext = PluginInitContextFactory.getInstance().createActualContext()
   val resultDeferred = async(CoroutineName("plugin descriptor loading")) {
     loadDescriptors(zipPoolDeferred, mainClassLoaderDeferred)
   }
@@ -882,7 +882,6 @@ fun isProductWithTheOnlyDescriptor(platformPrefix: String): Boolean {
   return platformPrefix == PlatformUtils.IDEA_PREFIX ||
          platformPrefix == PlatformUtils.WEB_PREFIX ||
          platformPrefix == PlatformUtils.DBE_PREFIX ||
-         platformPrefix == PlatformUtils.DATASPELL_PREFIX ||
          platformPrefix == PlatformUtils.GATEWAY_PREFIX ||
          platformPrefix == "IntelliJServer" ||
          platformPrefix == "CodeServer"

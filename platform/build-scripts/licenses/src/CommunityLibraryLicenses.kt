@@ -822,6 +822,15 @@ object CommunityLibraryLicenses {
     LibraryLicense("JUnit5Vintage", libraryName = "JUnit5Vintage", url = "https://junit.org/junit5/")
       .eplV2("https://github.com/junit-team/junit5/blob/main/LICENSE.md"),
 
+    LibraryLicense("JUnit6", libraryName = "JUnit6", url = "https://junit.org/junit5/")
+      .eplV2("https://github.com/junit-team/junit5/blob/main/LICENSE.md"),
+
+    LibraryLicense("JUnit6Launcher", libraryName = "JUnit6Launcher", url = "https://junit.org/junit5/")
+      .eplV2("https://github.com/junit-team/junit5/blob/main/LICENSE.md"),
+
+    LibraryLicense("JUnit6Params", libraryName = "JUnit6Params", url = "https://junit.org/junit5/")
+      .eplV2("https://github.com/junit-team/junit5/blob/main/LICENSE.md"),
+
     LibraryLicense(libraryName = "jzlib", url = "http://www.jcraft.com/jzlib/")
       .newBsd("https://github.com/ymnk/jzlib/raw/master/LICENSE.txt"),
 
@@ -1440,7 +1449,6 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("com.jetbrains.fus.reporting.ap.validation.all"),
     jetbrainsLibrary("com.jetbrains.fus.reporting.fus-api"),
     jetbrainsLibrary("completion-log-events"),
-    jetbrainsLibrary("completion-performance-kotlin"),
     jetbrainsLibrary("completion-ranking-cpp-exp"),
     jetbrainsLibrary("completion-ranking-css-exp"),
     jetbrainsLibrary("completion-ranking-dart-exp"),

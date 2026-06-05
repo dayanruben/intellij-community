@@ -9,7 +9,7 @@
     <module name="intellij.java.xml.dom.impl"/>
     <module name="intellij.json.backend"/>
     <module name="intellij.libraries.xerces"/>
-    <module name="intellij.platform.structureView.impl"/>
+    <module name="intellij.platform.structureView"/>
     <module name="intellij.platform.testRunner"/>
     <module name="intellij.properties.backend"/>
     <module name="intellij.properties.backend.psi"/>
@@ -1033,6 +1033,8 @@
       <action class="org.jetbrains.idea.devkit.actions.ShuffleNamesAction" id="ShuffleNamesAction"/>
       <action internal="true" class="org.jetbrains.idea.devkit.actions.ShowSerializedXmlAction" id="ShowSerializedXml"/>
       <action internal="true" class="org.jetbrains.idea.devkit.actions.ShowHelpPageByIdAction" id="ShowHelpPageById"/>
+      <action id="DevKit.AnalyzePersistentSyntaxTreeOverhead" internal="true"
+              class="org.jetbrains.idea.devkit.hprof.AnalyzePersistentSyntaxTreeOverheadAction"/>
       <action id="AnalyzeUnloadablePlugins" internal="true" class="org.jetbrains.idea.devkit.internal.AnalyzeUnloadablePluginsAction"/>
       <add-to-group group-id="Internal" anchor="last"/>
     </group>

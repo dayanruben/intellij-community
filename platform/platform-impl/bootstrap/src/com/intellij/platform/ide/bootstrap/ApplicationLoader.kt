@@ -26,6 +26,7 @@ import com.intellij.ide.ProtocolHandler
 import com.intellij.ide.bootstrap.InitAppContext
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.PluginSet
+import com.intellij.ide.plugins.ThirdPartyPluginsPrivacyConsentState
 import com.intellij.ide.plugins.marketplace.statistics.PluginManagerUsageCollector
 import com.intellij.ide.plugins.marketplace.statistics.enums.DialogAcceptanceResultEnum
 import com.intellij.ide.plugins.saveBundledPluginsState
@@ -277,7 +278,6 @@ internal suspend fun loadApp(
 private val asyncAppListenerAllowListForNonCorePlugin = java.util.Set.of(
   "com.jetbrains.rdserver.unattendedHost.logs.BackendMessagePoolExporter\$MyAppListener",
   "com.intellij.settingsSync.core.SettingsSynchronizerApplicationInitializedListener",
-  "com.intellij.dataspell.ide.impl.jupyter.JupyterDSProjectLifecycleListener",
   "com.jetbrains.gateway.GatewayBuildDateExpirationListener",
   "com.intellij.ide.misc.PluginAgreementUpdateScheduler",
   "org.jetbrains.kotlin.idea.macros.ApplicationWideKotlinBundledPathMacroCleaner",
@@ -603,7 +603,7 @@ fun callAppInitialized(scope: CoroutineScope, listeners: List<ApplicationInitial
 }
 
 private suspend fun checkThirdPartyPluginsAllowed() {
-  val noteAccepted = PluginManagerCore.consumeThirdPartyPluginsNoteAcceptedFlag() ?: return
+  val noteAccepted = ThirdPartyPluginsPrivacyConsentState.consumeState() ?: return
   if (noteAccepted) {
     serviceAsync<UpdateSettings>().isThirdPartyPluginsAllowed = true
     PluginManagerUsageCollector.thirdPartyAcceptanceCheck(DialogAcceptanceResultEnum.ACCEPTED)

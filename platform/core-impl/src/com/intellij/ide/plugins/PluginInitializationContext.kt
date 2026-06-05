@@ -13,7 +13,6 @@ interface PluginInitializationContext {
   val productBuildNumber: BuildNumber
   val essentialPlugins: Set<PluginId>
   fun isPluginDisabled(id: PluginId): Boolean
-  fun isPluginExpired(id: PluginId): Boolean // TODO this method should disappear and related logic should be managed by [provideProductRulesImposedModuleExclusions]
   fun isPluginBroken(id: PluginId, version: String?): Boolean
 
   /**
@@ -79,6 +78,11 @@ interface PluginInitializationContext {
    * @return `false` if additional edges to content modules should not be generated when there is a `<depends>` edge to the [resolvedTarget].
    */
   fun shouldIncludeContentModulesForDependsEdgeTarget(resolvedTarget: PluginMainDescriptor): Boolean
+
+  /**
+   * Only is called once during the startup initialization
+   */
+  fun runConfigurationDuringStartup(totalPluginSet: AmbiguousPluginSet)
 
   companion object
 }

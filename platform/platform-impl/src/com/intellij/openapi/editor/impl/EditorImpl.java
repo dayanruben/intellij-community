@@ -178,6 +178,7 @@ import com.intellij.ui.ExperimentalUI;
 import com.intellij.ui.IslandsState;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.NewUI;
+import com.intellij.ui.codeFloatingToolbar.CodeFloatingToolbar;
 import com.intellij.ui.components.JBLayeredPane;
 import com.intellij.ui.components.JBScrollBar;
 import com.intellij.ui.components.JBScrollPane;
@@ -499,7 +500,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private boolean myCurrentDragIsSubstantial;
   private boolean myForcePushHappened;
   private boolean myMouseIsInDrag;
-  private boolean myIsInFocus = true;
+  private boolean myIsCurrentlyInFocus = true;
 
   private @Nullable VisualPosition mySuppressedByBreakpointsLastPressPosition;
 
@@ -871,7 +872,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     SwingUtilities.invokeLater(() -> {
       if (isDisposed()) return;
 
-      if (myFocusKeepSelectionOnMousePress && myMousePressedEvent != null) {
+      if (shouldKeepSelectionInactiveOnMousePress()) {
         return;
       }
 
@@ -880,9 +881,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   private void setFocusGained() {
-    if (myIsInFocus) return;
+    if (myIsCurrentlyInFocus) return;
+    updateFocus();
 
-    myIsInFocus = true;
     mySelectionModel.reinitSettings();
     for (Caret caret : myCaretModel.getAllCarets()) {
       if (caret.hasSelection()) {
@@ -893,7 +894,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @Override
   public void focusLost(@NotNull FocusEvent e) {
-    myIsInFocus = false;
+    updateFocus();
+
     myFocusKeepSelectionOnMousePress = false;
     mySelectionModel.reinitSettings();
 
@@ -905,8 +907,60 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     fireFocusLost(e);
   }
 
+  void updateFocus() {
+    Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+    if (focusOwner == null) {
+      return;
+    }
+    myIsCurrentlyInFocus = isEditorOwningFocus(focusOwner);
+  }
+
+  private boolean isEditorOwningFocus(@NotNull Component focusOwner) {
+    if (SwingUtilities.isDescendingFrom(focusOwner, myPanel)) {
+      return true;
+    }
+    var hintWindow = getFloatingToolbarHintWindow();
+    return hintWindow != null && isWindowAncestorOf(hintWindow, focusOwner);
+  }
+
+  private @Nullable Window getFloatingToolbarHintWindow() {
+    var floating = CodeFloatingToolbar.getToolbar(this);
+    var hintComponent = floating != null ? floating.getHintComponent() : null;
+    return hintComponent != null ? SwingUtilities.getWindowAncestor(hintComponent) : null;
+  }
+
+  private static boolean isWindowAncestorOf(@NotNull Window window, @NotNull Component focusOwner) {
+    for (var w = SwingUtilities.getWindowAncestor(focusOwner); w != null; w = w.getOwner()) {
+      if (w == window) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   boolean isInFocus() {
-    return myIsInFocus;
+    if (!shouldKeepSelectionInactiveOnMousePress()) {
+      updateFocus();
+    }
+    return myIsCurrentlyInFocus;
+  }
+
+  /**
+   * Prevents focus synchronization during a mouse press whose outcome is not yet known.
+   * Starting from an unfocused editor with an existing selection:
+   * <ul>
+   *   <li><b>Press inside the selection, release without drag</b>: the click clears the selection
+   *       on release; pinning here avoids a flash to active just before it disappears.
+   *       {@link MyMouseAdapter#mouseReleased} then calls {@link #setFocusGained()} to sync.</li>
+   *   <li><b>Press inside the selection, then drag</b>: the selection survives (drag-and-drop).
+   *       {@link #processMouseDragged} calls {@link #setFocusGained()} once the drag starts,
+   *       flipping the still-live selection to the active color.</li>
+   *   <li><b>Press outside any selection</b>: {@link #myKeepSelectionOnMousePress} is {@code false},
+   *       so this returns {@code false} and focusGained refreshes immediately.</li>
+   * </ul>
+   */
+  private boolean shouldKeepSelectionInactiveOnMousePress() {
+    return myFocusKeepSelectionOnMousePress && myMousePressedEvent != null;
   }
 
   private void queueErrorStipeRepaintRequest(int start, int end) {

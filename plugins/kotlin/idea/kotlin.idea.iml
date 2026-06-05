@@ -45,7 +45,7 @@
     <orderEntry type="module" module-name="intellij.platform.projectModel" />
     <orderEntry type="module" module-name="intellij.platform.refactoring" />
     <orderEntry type="module" module-name="intellij.java.guiForms.rt" />
-    <orderEntry type="module" module-name="intellij.platform.structureView.impl" />
+    <orderEntry type="module" module-name="intellij.platform.structureView" />
     <orderEntry type="module" module-name="intellij.platform.usageView.impl" />
     <orderEntry type="module" module-name="intellij.platform.util.jdom" />
     <orderEntry type="module" module-name="intellij.libraries.gson" />
@@ -86,7 +86,6 @@
     <orderEntry type="module" module-name="intellij.kotlin.preferences" />
     <orderEntry type="module" module-name="intellij.kotlin.plugin.updater" />
     <orderEntry type="module" module-name="intellij.kotlin.migration" />
-    <orderEntry type="module" module-name="kotlin.inspections-fe10" />
     <orderEntry type="module" module-name="intellij.kotlin.projectConfiguration" />
     <orderEntry type="module" module-name="kotlin.fir.frontend-independent" exported="" />
     <orderEntry type="library" name="kotlinc.kotlin-jps-common" level="project" />

@@ -106,8 +106,7 @@ object PluginManagerCore {
      * When we update a bundled plugin, it becomes non-bundled, so it is more challenging for analytics to use that data.
      */
     var shadowedBundledPlugins: Set<PluginId> = emptySet()
-    @Volatile
-    var thirdPartyPluginsNoteAccepted: Boolean? = null
+
     @Volatile
     var initFuture: Deferred<PluginSet>? = null
 
@@ -564,19 +563,10 @@ object PluginManagerCore {
         .apply { pluginNonLoadReasons[CORE_ID]?.let { addSuppressed(Exception(it.logMessage)) } }
     }
 
-    if (initContext is ProductPluginInitContext) {
-      initStagesActivity = initStagesActivity?.endAndStart("third-party privacy consent")
-      // TODO: this `if` should not exist and third party plugins without consent should be excluded by [PluginInitializationContext.provideModuleExclusionsImposedByProductRules]
-      val checkResult = initContext.checkThirdPartyPluginsPrivacyConsent(parentActivity, pluginsToLoad)
-      if (checkResult != null) {
-        pluginsState.thirdPartyPluginsNoteAccepted = checkResult.privacyNoteAccepted
-        for (pluginToExclude in checkResult.pluginsToExcludeFromLoading) {
-          pluginToExclude.isMarkedForLoading = false
-        }
-      }
-    }
-    initStagesActivity = initStagesActivity?.endAndStart("third-party privacy consent")
+    initStagesActivity = initStagesActivity?.endAndStart("initContext startup configuration")
+    initContext.runConfigurationDuringStartup(totalPluginSet)
 
+    initStagesActivity = initStagesActivity?.endAndStart("resolveConstraints")
     val pluginsToDisable = HashMap<PluginId, PluginStateChangeData>()
     val pluginsToEnable = HashMap<PluginId, PluginStateChangeData>()
 
@@ -594,7 +584,6 @@ object PluginManagerCore {
       }
     }
 
-    initStagesActivity = initStagesActivity?.endAndStart("resolveConstraints")
     val resolvedPluginSet = initContext.resolveConstraints(pluginsToLoad)
     PluginInitializationDiagnosticUtils.logExclusionTree(logger, resolvedPluginSet, incompletePlugins)
     val (pluginSet, cycleErrors) = adaptResolvedPluginSetAsOldPluginSet(
@@ -839,13 +828,6 @@ object PluginManagerCore {
     }
   }
 
-  @ApiStatus.Internal
-  fun consumeThirdPartyPluginsNoteAcceptedFlag(): Boolean? {
-    val result = pluginsState.thirdPartyPluginsNoteAccepted
-    pluginsState.thirdPartyPluginsNoteAccepted = null
-    return result
-  }
-
   @JvmStatic
   fun getPluginNameAndVendor(descriptor: IdeaPluginDescriptor): @Nls String {
     val vendor = descriptor.vendor ?: descriptor.organization
@@ -998,7 +980,7 @@ object PluginManagerCore {
   fun isRequiredForEssentialPlugin(pluginDescriptor: PluginMainDescriptor): Boolean {
     // FIXME id map building should be lifted out (likewise in other methods too)
     //  this method should actually be an extension on ActivePluginSet or something
-    val initContext = ProductPluginInitContext()
+    val initContext = PluginInitContextFactory.getInstance().createActualContext()
     val pluginIdMap = buildPluginIdMap()
     val contentModuleIdMap = getPluginSet().buildContentModuleIdMap()
     for (essentialPluginId in initContext.essentialPlugins) {

@@ -80,6 +80,8 @@ internal class PatchDiffViewer(
     }
     editorSettingsAction = SetEditorSettingsActionGroup(TextDiffViewerUtil.getTextSettings(diffContext), editors)
     editorSettingsAction.applyDefaults()
+    val gutterActionGroup = TextDiffViewerUtil.createEditorGutterActionGroup(editorSettingsAction)
+    TextDiffViewerUtil.installGutterPopup(editors, gutterActionGroup)
 
     listenTypingAttempts(diffContext, editor)
   }

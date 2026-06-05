@@ -448,11 +448,14 @@
       <separator/>
       <add-to-group group-id="Vcs.KeymapGroup"/>
     </group>
-    <group id="Diff.EditorPopupMenu"/>
+    <group id="Diff.EditorPopupMenu">
+      <reference ref="CompareClipboardWithSelection"/>
+    </group>
     <group id="Diff.ViewerPopupMenu"/>
     <group id="Diff.ViewerToolbar"/>
+    <group id="Diff.DiffModes"/>
+    <group id="Diff.ViewerSettings"/>
     <group id="Diff.EditorGutterPopupMenu">
-      <group id="Diff.EditorGutterPopupMenu.DiffModes"/>
       <group id="Diff.EditorGutterPopupMenu.EditorSettings"/>
     </group>
     <group id="Diff.Binary.Settings" popup="true" icon="AllIcons.General.GearPlain" searchable="false"/>

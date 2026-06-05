@@ -55,12 +55,8 @@ public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
 
   @Override
   protected @NotNull List<AnAction> createToolbarActions() {
-    List<AnAction> gutterActions = new ArrayList<>();
-    gutterActions.add(new MyToggleExpandByDefaultAction());
-
     List<AnAction> diffActions = new ArrayList<>();
-    diffActions.addAll(myTextDiffProvider.getDiffSettingsActions());
-    myEditorSettingsAction.setDiffActions(gutterActions, diffActions);
+    myEditorSettingsAction.setSettingsActions(diffActions, myTextDiffProvider.getDiffSettingsActions());
 
     List<AnAction> group = new ArrayList<>();
     group.add(new MyToggleExpandByDefaultAction());
@@ -80,6 +76,13 @@ public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
     group.addAll(super.createPopupActions());
 
     return group;
+  }
+
+  @Override
+  protected @NotNull List<@NotNull AnAction> createAdditionalEditorGutterActions() {
+    List<AnAction> actions = new ArrayList<>();
+    actions.add(new MyToggleExpandByDefaultAction());
+    return actions;
   }
 
   @Override

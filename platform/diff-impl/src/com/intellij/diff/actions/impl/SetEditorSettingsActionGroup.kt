@@ -20,7 +20,6 @@ import com.intellij.openapi.actionSystem.ex.ActionUtil.copyFrom
 import com.intellij.openapi.diff.DiffBundle
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.actions.AbstractToggleUseSoftWrapsAction
-import com.intellij.openapi.editor.ex.EditorGutterComponentEx
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.registry.Registry
@@ -32,6 +31,7 @@ open class SetEditorSettingsActionGroup @ApiStatus.Internal constructor(
   private val textSettings: TextDiffSettingsHolder.TextDiffSettings,
   private val editorsSupplier: () -> List<Editor>,
 ) : ActionGroup(DiffBundle.message("editor.settings"), null, AllIcons.General.GearPlain), DumbAware {
+  @ApiStatus.Internal
   constructor(
     textSettings: TextDiffSettingsHolder.TextDiffSettings,
     editors: List<Editor>,
@@ -40,30 +40,25 @@ open class SetEditorSettingsActionGroup @ApiStatus.Internal constructor(
   private var syncScrollSupport: SyncScrollSupport.Support? = null
   private val editors get() = editorsSupplier()
   private val _appearanceGroup = AppearanceGroup()
-  protected val appearanceGroup: ActionGroup = _appearanceGroup
 
-  private var toolbarActions = emptyList<AnAction>()
-  private var gutterActions = emptyList<AnAction>()
+  @ApiStatus.Internal
+  val appearanceGroup: ActionGroup = _appearanceGroup
 
-  init {
-    installGutterPopup()
+  private var viewerSettingsActions = emptyList<AnAction>()
+  private var diffSettingsActions = emptyList<AnAction>()
+
+  @ApiStatus.Internal
+  fun setSettingsActions(viewerSettingsActions: List<AnAction>, diffSettingsActions: List<AnAction>) {
+    this.viewerSettingsActions = viewerSettingsActions
+    this.diffSettingsActions = diffSettingsActions
   }
 
-  fun setDiffActions(gutterActions: List<AnAction>, toolbarActions: List<AnAction>) {
-    this.gutterActions = gutterActions
-    this.toolbarActions = toolbarActions
-  }
-
+  @ApiStatus.Internal
   fun setSyncScrollSupport(syncScrollSupport: SyncScrollSupport.Support?) {
     this.syncScrollSupport = syncScrollSupport
   }
 
-  fun installGutterPopup() {
-    for (editor in editors) {
-      (editor.getGutter() as EditorGutterComponentEx).setGutterPopupGroup(this)
-    }
-  }
-
+  @ApiStatus.Internal
   fun applyDefaults() {
     if (!Registry.`is`("diff.highlighting.level.visible")) {
       textSettings.highlightingLevel = HighlightingLevel.INSPECTIONS
@@ -80,18 +75,13 @@ open class SetEditorSettingsActionGroup @ApiStatus.Internal constructor(
   }
 
   override fun getChildren(e: AnActionEvent?): Array<AnAction> = buildList {
-    if (e.isFromToolbar()) {
-      add(ActionManager.getInstance().getAction(IdeActions.GROUP_DIFF_EDITOR_SETTINGS))
-      addAll(toolbarActions)
-      add(Separator.getInstance())
-      add(appearanceGroup)
-      add(ActionManager.getInstance().getAction(IdeActions.ACTION_CONTEXT_HELP))
-    }
-    else {
-      add(ActionManager.getInstance().getAction(IdeActions.GROUP_DIFF_EDITOR_GUTTER_POPUP))
-      addAll(gutterActions)
-      add(appearanceGroup)
-    }
+    addAll(viewerSettingsActions)
+    add(ActionManager.getInstance().getAction(IdeActions.GROUP_DIFF_EDITOR_MODES))
+    add(ActionManager.getInstance().getAction(IdeActions.GROUP_DIFF_VIEWER_SETTINGS))
+    addAll(diffSettingsActions)
+    add(Separator.getInstance())
+    add(appearanceGroup)
+    add(ActionManager.getInstance().getAction(IdeActions.ACTION_CONTEXT_HELP))
   }.toArray(EMPTY_ARRAY)
 
   private inner class AppearanceGroup : ActionGroup(), DumbAware, EditorSettingAction {

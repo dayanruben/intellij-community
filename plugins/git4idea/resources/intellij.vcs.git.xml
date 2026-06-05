@@ -72,14 +72,14 @@
       <action id="Git.Log.Branches.Navigate.Log.To.Branch.On.Selection"
               class="git4idea.ui.branch.dashboard.BranchesDashboardActions$NavigateLogToBranchAction"/>
       <separator/>
+      <action id="Git.Log.Branches.GroupBy.Directory"
+              icon="AllIcons.Actions.GroupByPackage"
+              class="git4idea.ui.branch.dashboard.BranchesDashboardActions$GroupBranchByDirectoryAction"/>
       <reference ref="git.branches.show.tags"/>
     </group>
     <group id="Git.Log.Branches.Grouping.Settings" icon="AllIcons.Actions.GroupBy"
            class="git4idea.ui.branch.dashboard.BranchesDashboardActions$GroupingSettingsGroup">
       <separator key="group.Git.Log.Branches.Grouping.Settings.text"/>
-      <action id="Git.Log.Branches.GroupBy.Directory"
-              icon="AllIcons.Actions.GroupByPackage"
-              class="git4idea.ui.branch.dashboard.BranchesDashboardActions$GroupBranchByDirectoryAction"/>
       <action id="Git.Log.Branches.GroupBy.Repository"
               class="git4idea.ui.branch.dashboard.BranchesDashboardActions$GroupBranchByRepositoryAction"/>
     </group>
@@ -224,7 +224,7 @@
     </group>
 
     <group id="Git.Compare.With.Branch.Popup.Settings" class="com.intellij.vcs.git.branch.popup.GitBranchesTreePopupSettings" icon="AllIcons.Actions.More">
-      <reference ref="git.branches.group.by.prefix"/>
+      <reference ref="git.branches.group.by.directory"/>
       <reference ref="git.branches.show.recent"/>
       <reference ref="git.branches.show.tags"/>
       <reference ref="git.branches.popup.resize"/>

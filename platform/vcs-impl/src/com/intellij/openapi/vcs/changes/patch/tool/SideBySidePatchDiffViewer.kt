@@ -135,6 +135,8 @@ internal class SideBySidePatchDiffViewer(
     editorSettingsAction = SetEditorSettingsActionGroup(textSettings, editors)
     editorSettingsAction.setSyncScrollSupport(syncScrollSupport)
     editorSettingsAction.applyDefaults()
+    val gutterActionGroup = TextDiffViewerUtil.createEditorGutterActionGroup(editorSettingsAction)
+    TextDiffViewerUtil.installGutterPopup(editors, gutterActionGroup)
 
     listenTypingAttempts(diffContext, editor1)
     listenTypingAttempts(diffContext, editor2)

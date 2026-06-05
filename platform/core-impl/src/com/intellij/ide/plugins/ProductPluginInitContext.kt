@@ -2,7 +2,6 @@
 package com.intellij.ide.plugins
 
 import com.intellij.core.CoreBundle
-import com.intellij.diagnostic.Activity
 import com.intellij.ide.plugins.PluginDependencyAnalysis.DependencyRef
 import com.intellij.ide.plugins.PluginInitializationContext.EnvironmentConfiguredModuleData
 import com.intellij.ide.plugins.PluginManagerCore.CORE_ID
@@ -15,6 +14,7 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
+import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.ui.IconManager
 import com.intellij.ui.PlatformIcons
 import com.intellij.util.PlatformUtils
@@ -34,6 +34,8 @@ import javax.swing.JOptionPane
  *
  *     Right now an instance of ProductPluginInitContext is not immutable and it is instantiated in quite a few places
  */
+@VisibleForTesting
+@IntellijInternalApi
 @ApiStatus.Internal
 class ProductPluginInitContext(
   private val buildNumberOverride: BuildNumber? = null,
@@ -62,8 +64,6 @@ class ProductPluginInitContext(
     val set = brokenPluginVersions[id] ?: return false
     return set.contains(version)
   }
-
-  override fun isPluginExpired(id: PluginId): Boolean = expiredPlugins.contains(id)
 
   override val requirePlatformAliasDependencyForLegacyPlugins: Boolean
     get() = !PlatformUtils.isIntelliJ()
@@ -112,6 +112,15 @@ class ProductPluginInitContext(
   override fun shouldIncludeContentModulesForDependsEdgeTarget(resolvedTarget: PluginMainDescriptor): Boolean =
     defaultShouldIncludeContentModulesForDependsEdgeTarget(resolvedTarget)
 
+  override fun runConfigurationDuringStartup(totalPluginSet: AmbiguousPluginSet) {
+    thirdPartyPluginsWithoutConsentCheckResult = checkThirdPartyPluginsPrivacyConsent(totalPluginSet)
+    thirdPartyPluginsWithoutConsentCheckResult?.let { result ->
+      if (result.privacyNoteAccepted != null) {
+        ThirdPartyPluginsPrivacyConsentState.setState(result.privacyNoteAccepted)
+      }
+    }
+  }
+
   data class ThirdPartyPluginsWithoutConsentCheckResult(
     /** null if wasn't asked */
     val privacyNoteAccepted: Boolean?,
@@ -126,16 +135,12 @@ class ProductPluginInitContext(
    *
    * Invoked only during startup initialization.
    */
-  fun checkThirdPartyPluginsPrivacyConsent(parentActivity: Activity?, idMap: UnambiguousPluginSet): ThirdPartyPluginsWithoutConsentCheckResult? {
-    val closeableActivity = parentActivity?.startChild("3rd-party plugins consent")
-      .let { activity -> AutoCloseable { activity?.end() } }
-    closeableActivity.use {
-      val aliens = ThirdPartyPluginsWithoutConsentFile.consumeAliensFile().mapNotNull { idMap.resolvePluginId(it)?.getMainDescriptor() }
-      if (aliens.isEmpty()) {
-        return null
-      }
-      return checkThirdPartyPluginsPrivacyConsent(aliens).also { thirdPartyPluginsWithoutConsentCheckResult = it }
+  private fun checkThirdPartyPluginsPrivacyConsent(pluginSet: AmbiguousPluginSet): ThirdPartyPluginsWithoutConsentCheckResult? {
+    val aliens = ThirdPartyPluginsWithoutConsentFile.consumeAliensFile().mapNotNull { pluginSet.resolvePluginId(it).firstOrNull()?.getMainDescriptor() }
+    if (aliens.isEmpty()) {
+      return null
     }
+    return checkThirdPartyPluginsPrivacyConsent(aliens)
   }
 
   /** This method mutates [DisabledPluginsState]! */
@@ -383,7 +388,7 @@ private val XDEBUGGER_MODULE_IDS = listOf(
 )
 private val externalNonBundledPluginCompatibilityDependencies = listOf(
   "intellij.libraries.groovy",
-  "intellij.platform.structureView.impl",
+  "intellij.platform.structureView",
   "intellij.platform.todo",
   "intellij.platform.bookmarks",
   "intellij.platform.smRunner",

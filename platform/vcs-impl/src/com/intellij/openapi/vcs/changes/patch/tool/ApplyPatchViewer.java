@@ -34,6 +34,7 @@ import com.intellij.diff.util.LineRange;
 import com.intellij.diff.util.Side;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -41,6 +42,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.CompositeShortcutSet;
 import com.intellij.openapi.actionSystem.DataSink;
+import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.actionSystem.Separator;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
@@ -177,6 +179,8 @@ class ApplyPatchViewer implements Disposable {
 
     myEditorSettingsAction = new SetEditorSettingsActionGroup(getTextSettings(), editors);
     myEditorSettingsAction.applyDefaults();
+    ActionGroup gutterActionGroup = TextDiffViewerUtil.createEditorGutterActionGroup(myEditorSettingsAction);
+    TextDiffViewerUtil.installGutterPopup(editors, gutterActionGroup);
 
     ProxyUndoRedoAction.register(myProject, myResultEditor, myContentPanel);
   }
@@ -204,7 +208,7 @@ class ApplyPatchViewer implements Disposable {
     }
 
     group.add(Separator.getInstance());
-    group.addAll(TextDiffViewerUtil.createEditorPopupActions());
+    group.add(ActionManager.getInstance().getAction(IdeActions.GROUP_DIFF_EDITOR_POPUP));
 
     return group;
   }
