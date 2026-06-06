@@ -49,9 +49,6 @@
       <arg value="--"/>
       <arg value="${platform.root}"/>
     </exec>
-    <jar destfile="${target.root}/dist.all/lib/jps/jps-build-test.jar" duplicate="preserve">
-      <fileset dir="${target.root}/classes/test/intellij.platform.jps.build.tests" />
-    </jar>
   </target>
 
   <!-- Post-compile customizations required for final platform artifacts used by MPS -->
@@ -71,9 +68,9 @@
   <!-- Remove IdeaApplicationInfo.xml and IdeaPlugin.xml. These will be provided during MPS build later -->
   <target name="repackage-app-jar" description="Remove IDEA specific descriptors">
     <jar destfile="${target.dist}/lib/stripped.jar" zip64Mode="as-needed">
-      <zipfileset src="${target.dist}/lib/app.jar" excludes="idea/IdeaApplicationInfo.xml,META-INF/IdeaPlugin.xml" />
+      <zipfileset src="${target.dist}/lib/intellij.idea.community.customization.jar" excludes="idea/IdeaApplicationInfo.xml,META-INF/IdeaPlugin.xml" />
     </jar>
-    <move file="${target.dist}/lib/stripped.jar" tofile="${target.dist}/lib/app.jar"/>
+    <move file="${target.dist}/lib/stripped.jar" tofile="${target.dist}/lib/intellij.idea.community.customization.jar"/>
   </target>
 
   <!-- Build contains exe files with proper MPS icons -->

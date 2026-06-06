@@ -19,7 +19,6 @@ import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.BuildNumber
-import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.util.PlatformUtils
 import com.intellij.util.lang.ZipEntryResolverPool
@@ -618,7 +617,6 @@ object PluginManagerCore {
   }
 
   @ApiStatus.Internal
-  @IntellijInternalApi
   fun adaptResolvedPluginSetAsOldPluginSet(
     input: PluginSubsystemInput,
     resolvedPluginSet: ResolvedPluginSet,
@@ -1018,6 +1016,7 @@ object PluginManagerCore {
   fun getStartupActionsPluginsToEnableDisable(): Pair<List<PluginStateChangeData>, List<PluginStateChangeData>> = pluginsState.getStartupActionsPluginsToEnableDisable()
 
   //<editor-fold desc="Deprecated stuff.">
+  @ApiStatus.ScheduledForRemoval
   @Deprecated("The platform code should use [JAVA_PLUGIN_ALIAS_ID] instead, plugins aren't supposed to use this", level = DeprecationLevel.ERROR)
   @JvmField val JAVA_MODULE_ID: PluginId = JAVA_PLUGIN_ALIAS_ID
 
@@ -1172,7 +1171,6 @@ fun pluginRequiresUltimatePlugin(
  * Checks if the class is a part of the platform or included in a built-in plugin provided by the JetBrains vendor.
  */
 @ApiStatus.Internal
-@IntellijInternalApi
 fun isPlatformOrJetBrainsDistributionPlugin(aClass: Class<*>): Boolean {
   val classLoader = aClass.classLoader
   return when {

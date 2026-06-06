@@ -2,6 +2,8 @@
 package com.intellij.ide.plugins
 
 import com.intellij.ide.plugins.DisabledPluginsState.Companion.saveDisabledPluginsAndInvalidate
+import com.intellij.idea.AppMode
+import com.intellij.idea.WellKnownCommand
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.NlsSafe
@@ -12,6 +14,7 @@ import com.intellij.platform.pluginSystem.parser.impl.PluginDescriptorBuilder
 import com.intellij.platform.pluginSystem.parser.impl.PluginDescriptorReaderContext
 import com.intellij.platform.pluginSystem.parser.impl.parsePluginXml
 import com.intellij.platform.pluginSystem.testFramework.PseudoProductTestPluginInitContext
+import com.intellij.platform.pluginSystem.testFramework.ValidationPluginDescriptorReaderContext
 import com.intellij.platform.runtime.product.ProductMode
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestDataPath
@@ -20,7 +23,6 @@ import com.intellij.testFramework.rules.TempDirectory
 import com.intellij.util.TriConsumer
 import com.intellij.util.system.CpuArch
 import com.intellij.util.system.OS
-import com.intellij.util.xml.dom.NoOpXmlInterner
 import com.intellij.util.xml.dom.XmlElement
 import com.intellij.util.xml.dom.readXmlAsModel
 import org.assertj.core.api.Assertions.assertThat
@@ -186,6 +188,21 @@ class PluginManagerTest {
     saveDisabledPluginsAndInvalidate(configPath, mutableListOf("a"))
     com.intellij.testFramework.assertions.Assertions.assertThat(configPath.resolve(
       DisabledPluginsState.DISABLED_PLUGINS_FILENAME)).hasContent("a" + System.lineSeparator())
+  }
+
+  @Test
+  fun `remote development plugin is essential only in remote dev host mode`() {
+    val remoteDevelopmentPlugin = PluginId.getId("com.jetbrains.remoteDevelopment")
+    try {
+      AppMode.setFlags(listOf(WellKnownCommand.SERVER_MODE))
+      assertThat(ProductPluginInitContext().essentialPlugins).contains(remoteDevelopmentPlugin)
+
+      AppMode.setFlags(emptyList())
+      assertThat(ProductPluginInitContext().essentialPlugins).doesNotContain(remoteDevelopmentPlugin)
+    }
+    finally {
+      AppMode.setFlags(emptyList())
+    }
   }
 
   // TODO probably should be moved elsewhere
@@ -419,9 +436,5 @@ private fun readModuleDescriptorForTest(input: ByteArray): PluginDescriptorBuild
     override fun load(path: String, pluginDescriptorSourceOnly: Boolean) = throw UnsupportedOperationException()
     override fun toString() = ""
   })
-  val readContext = object : PluginDescriptorReaderContext {
-    override val interner = NoOpXmlInterner
-    override val isMissingIncludeIgnored = false
-  }
-  return parsePluginXml(input, null, readContext = readContext, xIncludeLoader = xIncludeLoader)
+  return parsePluginXml(input, null, readContext = ValidationPluginDescriptorReaderContext, xIncludeLoader = xIncludeLoader)
 }

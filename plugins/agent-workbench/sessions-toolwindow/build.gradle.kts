@@ -48,6 +48,7 @@ dependencies {
   implementation(project(":sessions-core"))
   implementation(project(":chat"))
   implementation(project(":sessions"))
+  implementation(project(":sessions-jbcentral"))
   implementation(project(":sessions-actions"))
 }
 

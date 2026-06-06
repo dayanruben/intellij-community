@@ -224,7 +224,7 @@
     <editorSmartKeysConfigurable instance="org.intellij.plugins.markdown.settings.MarkdownSmartKeysConfigurable"
                                  id="editor.preferences.markdownOptions"/>
 
-    <codeFoldingOptionsProvider instance="org.intellij.plugins.markdown.settings.MarkdownCodeFoldingOptionsProvider" id="Markdown" order="after Android,after C++,after Dart,after General,after Go,after Handlebars,after JAVA,after JavaScript,after JPAQL,after JSON,after Kubernetes,after LinkerScript,after ObjectiveC"/>
+    <codeFoldingOptionsProvider instance="org.intellij.plugins.markdown.settings.MarkdownCodeFoldingOptionsProvider" id="Markdown" order="after Android,after C++,after General,after Go,after Handlebars,after JAVA,after JavaScript,after JPAQL,after JSON,after Kubernetes,after LinkerScript,after ObjectiveC"/>
 
     <applicationService serviceImplementation="org.intellij.plugins.markdown.ui.preview.html.MarkdownCodeFenceHtmlCache"/>
     <applicationService serviceImplementation="org.intellij.plugins.markdown.fileActions.export.MarkdownHtmlExportSettings"/>
@@ -272,6 +272,7 @@
     <psi.referenceContributor language="Markdown" implementation="org.intellij.plugins.markdown.lang.references.backtick.BacktickReferenceContributor"/>
     <referencesSearch implementation="org.intellij.plugins.markdown.lang.references.backtick.BacktickReferenceSearcher"/>
     <useScopeEnlarger implementation="org.intellij.plugins.markdown.lang.references.backtick.MarkdownReferenceUseScopeEnlarger"/>
+    <usageViewElementsListener implementation="org.intellij.plugins.markdown.lang.references.backtick.BacktickUsageViewElementsListener"/>
 
     <todoIndexer filetype="Markdown" implementationClass="org.intellij.plugins.markdown.highlighting.MarkdownTodoIndexer"/>
     <indexPatternBuilder implementation="org.intellij.plugins.markdown.highlighting.MarkdownIndexPatternBuilder"/>
@@ -451,7 +452,6 @@
     <markdownExportProvider implementation="org.intellij.plugins.markdown.fileActions.export.MarkdownPdfExportProvider"/>
     <markdownExportProvider implementation="org.intellij.plugins.markdown.fileActions.export.MarkdownHtmlExportProvider"/>
     <markdownCompatibilityChecker implementation="org.intellij.plugins.markdown.lang.DefaultMarkdownCompatibilityChecker"/>
-    <fallbackLanguageProvider implementation="org.intellij.plugins.markdown.injection.aliases.NoopFallbackLanguageProvider" order="last"/>
   </extensions>
 
   <actions>

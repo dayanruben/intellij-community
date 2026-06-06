@@ -7,7 +7,6 @@ load("//build:compiler-options.bzl", "create_kotlinc_options")
 create_kotlinc_options(
     name = "custom_kotlin-gradle-scripting",
     opt_in = [
-        "com.intellij.openapi.util.IntellijInternalApi",
         "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
@@ -71,6 +70,7 @@ jvm_library(
         "//plugins/kotlin/gradle/gradle-java",
         "//plugins/kotlin/code-insight/api",
         "@lib//:kotlinc-analysis-api",
+        "@lib//:kotlinc-analysis-api-k2",
         "@lib//:kotlinc-kotlin-compiler-common",
         "//plugins/kotlin/code-insight/utils",
         "//plugins/kotlin/base/analysis-api/analysis-api-utils:kotlin-base-analysis-utils",
@@ -167,7 +167,6 @@ exports_files(
 create_kotlinc_options(
     name = "custom_kotlin-gradle-scripting-tests",
     opt_in = [
-        "com.intellij.openapi.util.IntellijInternalApi",
         "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",

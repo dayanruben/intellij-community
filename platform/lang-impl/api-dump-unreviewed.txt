@@ -257,8 +257,8 @@ a:com.intellij.analysis.problemsView.toolWindow.Root
 - bs:structureChanged$default(com.intellij.analysis.problemsView.toolWindow.Root,javax.swing.tree.TreePath,I,java.lang.Object):V
 - p:update(com.intellij.openapi.project.Project,com.intellij.ide.projectView.PresentationData):V
 f:com.intellij.application.options.CodeCompletionConfigurable
-- com.intellij.openapi.options.BoundCompositeConfigurable
 - com.intellij.application.options.editor.EditorOptionsProvider
+- com.intellij.openapi.options.BoundCompositeConfigurable
 - com.intellij.openapi.options.Configurable$WithEpDependencies
 - sf:Companion:com.intellij.application.options.CodeCompletionConfigurable$Companion
 - sf:ID:java.lang.String
@@ -4227,7 +4227,6 @@ c:com.intellij.codeInsight.lookup.impl.LookupImpl
 - getProject():com.intellij.openapi.project.Project
 - getPsiElement():com.intellij.psi.PsiElement
 - getPsiFile():com.intellij.psi.PsiFile
-- getRelevanceObjects(java.lang.Iterable,Z):java.util.Map
 - getSelectedIndex():I
 - getShownTimestampMillis():J
 - getTopLevelEditor():com.intellij.openapi.editor.Editor
@@ -9697,8 +9696,6 @@ a:com.intellij.ide.scratch.LRUPopupBuilder
 - withSelection(java.lang.Object):com.intellij.ide.scratch.LRUPopupBuilder
 f:com.intellij.ide.scratch.ScratchFileActions
 - <init>():V
-- s:doCreateNewScratch(com.intellij.openapi.project.Project,com.intellij.ide.scratch.ScratchFileCreationHelper$Context):com.intellij.psi.PsiFile
-- s:doCreateNewScratch(com.intellij.openapi.project.Project,com.intellij.ide.scratch.ScratchFileCreationHelper$Context,com.intellij.openapi.actionSystem.DataContext):com.intellij.psi.PsiFile
 c:com.intellij.ide.scratch.ScratchFileActions$ChangeLanguageAction
 - com.intellij.openapi.project.DumbAwareAction
 - <init>():V

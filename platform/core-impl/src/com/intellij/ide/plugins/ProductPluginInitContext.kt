@@ -14,7 +14,6 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
-import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.ui.IconManager
 import com.intellij.ui.PlatformIcons
 import com.intellij.util.PlatformUtils
@@ -35,7 +34,6 @@ import javax.swing.JOptionPane
  *     Right now an instance of ProductPluginInitContext is not immutable and it is instantiated in quite a few places
  */
 @VisibleForTesting
-@IntellijInternalApi
 @ApiStatus.Internal
 class ProductPluginInitContext(
   private val buildNumberOverride: BuildNumber? = null,
@@ -47,6 +45,14 @@ class ProductPluginInitContext(
     buildSet {
       add(CORE_ID)
       addAll(ApplicationInfoImpl.getShadowInstance().getEssentialPluginIds())
+      if (AppMode.isRemoteDevHost()) {
+        if (PlatformUtils.isRider()) {
+          add(REMOTE_DEVELOPMENT_RIDER_PLUGIN_ID)
+        }
+        else {
+          add(REMOTE_DEVELOPMENT_PLUGIN_ID)
+        }
+      }
     }
   }
   private val disabledPlugins: Set<PluginId> get() = disabledPluginsOverride ?: DisabledPluginsState.getDisabledIds()
@@ -188,18 +194,24 @@ class ProductPluginInitContext(
     fun MutableMap<PluginModuleId, EnvironmentConfiguredModuleData>.configureProductModeModules(productModeId: String) {
       val frontendSplit = PluginModuleId("intellij.platform.frontend.split", PluginModuleId.JETBRAINS_NAMESPACE)
       val frontendSplitBase = PluginModuleId("intellij.platform.frontend.split.base", PluginModuleId.JETBRAINS_NAMESPACE)
+      val platformSplit = PluginModuleId("intellij.platform.split", PluginModuleId.JETBRAINS_NAMESPACE)
+      val platformSplitConnection = PluginModuleId("intellij.platform.split.connection", PluginModuleId.JETBRAINS_NAMESPACE)
+      val rdClient = PluginModuleId("intellij.rd.client", PluginModuleId.JETBRAINS_NAMESPACE)
       val frontend = PluginModuleId("intellij.platform.frontend", PluginModuleId.JETBRAINS_NAMESPACE)
       val backend = PluginModuleId("intellij.platform.backend", PluginModuleId.JETBRAINS_NAMESPACE)
       val backendJps = PluginModuleId("intellij.platform.jps.build", PluginModuleId.JETBRAINS_NAMESPACE)
       val backendJpsGraph = PluginModuleId("intellij.platform.jps.build.dependencyGraph", PluginModuleId.JETBRAINS_NAMESPACE)
 
-      for (moduleId in listOf(frontend, backend, frontendSplit, backendJps, backendJpsGraph)) {
+      for (moduleId in listOf(frontend, backend, frontendSplit, backendJps, backendJpsGraph, rdClient, platformSplit)) {
         val isAvailable = when (productModeId) {
           /** intellij.platform.backend.split is currently available in 'monolith' mode because it's used as a backend in CodeWithMe */
           "monolith" -> moduleId != frontendSplit && moduleId != frontendSplitBase
           "backend" -> moduleId != frontend && moduleId != frontendSplit && moduleId != frontendSplitBase
           "frontend" -> moduleId != backend && moduleId != backendJps && moduleId != backendJpsGraph
-          "frontend-base" -> moduleId != backend && moduleId != frontendSplit && moduleId != backendJps && moduleId != backendJpsGraph
+          "light" -> moduleId != backend && moduleId != frontendSplit && moduleId != backendJps && moduleId != backendJpsGraph
+                     && moduleId != rdClient && moduleId != platformSplit && moduleId != platformSplitConnection
+          "light_with_rd_connection" -> moduleId != backend && moduleId != frontendSplit && moduleId != backendJps && moduleId != backendJpsGraph
+                                        && moduleId != rdClient && moduleId != platformSplit
           else -> true
         }
         val unavailabilityReason =
@@ -374,6 +386,8 @@ private val RIDER_MODULE_ID = PluginModuleId("intellij.rider", PluginModuleId.JE
 private val JSON_ALIAS_ID = PluginId.getId("com.intellij.modules.json")
 private val CWM_PLUGIN_ID = PluginId.getId("com.jetbrains.codeWithMe")
 private val CWM_RIDER_PLUGIN_ID = PluginId.getId("intellij.rider.plugins.cwm")
+private val REMOTE_DEVELOPMENT_PLUGIN_ID: PluginId = PluginId.getId("com.jetbrains.remoteDevelopment")
+private val REMOTE_DEVELOPMENT_RIDER_PLUGIN_ID: PluginId = PluginId.getId("intellij.rider.plugins.remoteDevelopment")
 private val JSON_BACKEND_MODULE_ID = PluginModuleId("intellij.json.backend", PluginModuleId.JETBRAINS_NAMESPACE)
 private val REMOTE_DEVELOPMENT_MODULE_ID = PluginModuleId("intellij.cwm", PluginModuleId.JETBRAINS_NAMESPACE)
 private val REMOTE_DEVELOPMENT_RIDER_MODULE_ID = PluginModuleId("intellij.rider.plugins.cwm", PluginModuleId.JETBRAINS_NAMESPACE)

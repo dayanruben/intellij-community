@@ -13,6 +13,7 @@ import com.intellij.repository.search.completion.api.DependencyCompletionResult
 import com.intellij.repository.search.completion.api.DependencyCompletionService
 import com.intellij.repository.search.completion.api.DependencyGroupCompletionRequest
 import com.intellij.repository.search.completion.api.DependencyPartCompletionResult
+import com.intellij.testFramework.DumbModeTestUtils
 import com.intellij.testFramework.TestDataPath
 import com.intellij.testFramework.replaceService
 import com.intellij.testFramework.runInEdtAndWait
@@ -82,7 +83,7 @@ internal class KotlinGradleDependenciesCompletionTest : AbstractKotlinGradleComp
   fun `test configuration completion on top level partial input`(gradleVersion: GradleVersion) = verifyCompletion(gradleVersion)
 
   @ParameterizedTest
-  @GradleTestSource(value = "9.4.0")
+  @BaseGradleVersionSource
   fun `test configuration without the accessor class is completed in quotes`(gradleVersion: GradleVersion) =
     test(gradleVersion, KOTLIN_GRADLE_COMPLETION_FIXTURE) {
       val buildScriptFile = writeTextAndCommit(
@@ -108,40 +109,6 @@ internal class KotlinGradleDependenciesCompletionTest : AbstractKotlinGradleComp
         )
       }
     }
-
-  @ParameterizedTest
-  @BaseGradleVersionSource
-  fun `test source set configuration is completed without quotes for Gradle 9,5,0 because it has an accessor class`(
-    gradleVersion: GradleVersion,
-  ) = test(gradleVersion, KOTLIN_GRADLE_COMPLETION_FIXTURE) {
-    val buildScriptFile = writeTextAndCommit(
-      "build.gradle.kts", """
-        val customSourceSet by sourceSets.registering {}
-        dependencies {
-            customSourceSet<caret>
-        }
-      """.trimIndent()
-    )
-    runInEdtAndWait {
-      fixture.configureFromExistingVirtualFile(buildScriptFile)
-      fixture.completeBasic()
-      fixture.assertPreferredCompletionItems(0, "customSourceSetAnnotationProcessor", "customSourceSetApi")
-      fixture.finishLookup(Lookup.REPLACE_SELECT_CHAR)
-      fixture.type("\"org.junit.jupiter:junit-jupiter:6.0.0\"")
-      fixture.checkResult(
-        """
-          val customSourceSet by sourceSets.registering {}
-          dependencies {
-              customSourceSetAnnotationProcessor("org.junit.jupiter:junit-jupiter:6.0.0"<caret>)
-          }
-        """.trimIndent()
-      )
-      // In Gradle 9.5.0, configurations created for source sets have accessor classes, so there should be no unresolved highlighting.
-      fixture.testHighlighting()
-      // PROBLEM: despite the presence of the accessor class, the Gradle build fails because it cannot resolve the configuration.
-      // TODO check if the sync fails to highlight the problem of the test.
-    }
-  }
 
   @ParameterizedTest
   @BaseGradleVersionSource("""
@@ -185,9 +152,12 @@ internal class KotlinGradleDependenciesCompletionTest : AbstractKotlinGradleComp
   }
 
   @ParameterizedTest
-  @BaseGradleVersionSource
-  fun `test scope argument - suggest version catalogs and Dependency-returning methods`(gradleVersion: GradleVersion) {
-    test(gradleVersion, KOTLIN_GRADLE_COMPLETION_FIXTURE) {
+  @BaseGradleVersionSource("false,true")
+  fun `test scope argument - suggest version catalogs and Dependency-returning methods`(
+    gradleVersion: GradleVersion,
+    runInDumbMode: Boolean,
+  ) {
+    test(gradleVersion, KOTLIN_GRADLE_COMPLETION_FIXTURE, runInDumbMode) {
       writeTextAndCommit(
         "gradle/libs.versions.toml", """ 
             [libraries]
@@ -330,9 +300,13 @@ internal class KotlinGradleDependenciesCompletionTest : AbstractKotlinGradleComp
     testImplementation(testFixtures(li<caret>)),
     implementation(variantOf(li<caret>)),
     "customSourceSetImplementation"(variantOf(li<caret>))
-  """)
-  fun `test version catalog completion in allowed DependencyHandler methods`(gradleVersion: GradleVersion, expression: String) {
-    test(gradleVersion, GRADLE_VERSION_CATALOGS_FIXTURE) {
+  """, "false,true")
+  fun `test version catalog completion in allowed DependencyHandler methods`(
+    gradleVersion: GradleVersion,
+    expression: String,
+    runInDumbMode: Boolean,
+  ) {
+    test(gradleVersion, GRADLE_VERSION_CATALOGS_FIXTURE, runInDumbMode) {
       val buildScript = writeTextAndCommit("build.gradle.kts", "dependencies { $expression }")
       writeTextAndCommit(
         "gradle/libs.versions.toml", """
@@ -366,9 +340,13 @@ internal class KotlinGradleDependenciesCompletionTest : AbstractKotlinGradleComp
   @BaseGradleVersionSource(""" 
     implementation(project(li<caret>)),
     implementation(files(li<caret>)) 
-  """)
-  fun `test version catalogs are not suggested in inapplicable methods`(gradleVersion: GradleVersion, expression: String) {
-    test(gradleVersion, GRADLE_VERSION_CATALOGS_FIXTURE) {
+  """, "false,true")
+  fun `test version catalogs are not suggested in inapplicable methods`(
+    gradleVersion: GradleVersion,
+    expression: String,
+    runInDumbMode: Boolean,
+  ) {
+    test(gradleVersion, GRADLE_VERSION_CATALOGS_FIXTURE, runInDumbMode) {
       val buildScript = writeTextAndCommit("build.gradle.kts", "dependencies { $expression }")
       writeTextAndCommit(
         "gradle/libs.versions.toml",
@@ -396,10 +374,14 @@ internal class KotlinGradleDependenciesCompletionTest : AbstractKotlinGradleComp
     verifyVersionCatalogCompletion(gradleVersion)
 
   @ParameterizedTest
-  @BaseGradleVersionSource(DEPENDENCY_CONFIGURATIONS_AND_NOTATIONS)
-  fun `test coordinates completion in dependency configuration`(gradleVersion: GradleVersion, dependencyConfigurationEscaped: String) {
+  @BaseGradleVersionSource(DEPENDENCY_CONFIGURATIONS_AND_NOTATIONS, "false,true")
+  fun `test coordinates completion in dependency configuration`(
+    gradleVersion: GradleVersion,
+    dependencyConfigurationEscaped: String,
+    runInDumbMode: Boolean,
+  ) {
     val dependencyConfiguration = dependencyConfigurationEscaped.unescape()
-    test(gradleVersion, KOTLIN_GRADLE_COMPLETION_FIXTURE) {
+    test(gradleVersion, KOTLIN_GRADLE_COMPLETION_FIXTURE, runInDumbMode) {
       val parts = dependencyConfiguration.split(":")
 
       val dependencyEntryTemplate = if (parts.size > 1)
@@ -456,8 +438,12 @@ internal class KotlinGradleDependenciesCompletionTest : AbstractKotlinGradleComp
   }
 
   @ParameterizedTest
-  @BaseGradleVersionSource(DEPENDENCY_CONFIGURATIONS_AND_NOTATIONS)
-  fun `test coordinates completion configuration names`(gradleVersion: GradleVersion, dependencyConfigurationEscaped: String) {
+  @BaseGradleVersionSource(DEPENDENCY_CONFIGURATIONS_AND_NOTATIONS, "false,true")
+  fun `test coordinates completion configuration names`(
+    gradleVersion: GradleVersion,
+    dependencyConfigurationEscaped: String,
+    runInDumbMode: Boolean,
+  ) {
     val dependencyConfiguration = dependencyConfigurationEscaped.unescape()
     val substitutionResult = if (dependencyConfiguration.contains(",")) {
       val items = dependencyConfiguration.split(",")
@@ -484,7 +470,7 @@ internal class KotlinGradleDependenciesCompletionTest : AbstractKotlinGradleComp
         )
       }
     }, testRootDisposable)
-    test(gradleVersion, KOTLIN_GRADLE_COMPLETION_FIXTURE) {
+    test(gradleVersion, KOTLIN_GRADLE_COMPLETION_FIXTURE, runInDumbMode) {
       val file = writeTextAndCommit("build.gradle.kts", "dependencies { a<caret> }")
       runInEdtAndWait {
         codeInsightFixture.configureFromExistingVirtualFile(file)
@@ -690,6 +676,19 @@ internal class KotlinGradleDependenciesCompletionTest : AbstractKotlinGradleComp
         assertTrue(lookup?.any { it == "Reformat code" } == true) {
           "The command completion was expected outside the dependencies block, but it wasn't suggested. Actual lookup: $lookup"
         }
+      }
+    }
+  }
+
+  private fun test(gradleVersion: GradleVersion, fixtureBuilder: GradleTestFixtureBuilder, runInDumbMode: Boolean, test: () -> Unit) {
+    test(gradleVersion, fixtureBuilder) {
+      if (runInDumbMode) {
+        DumbModeTestUtils.runInDumbModeSynchronously(project) {
+          test()
+        }
+      }
+      else {
+        test()
       }
     }
   }

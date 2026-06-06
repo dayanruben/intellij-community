@@ -46,12 +46,10 @@ import com.intellij.platform.testFramework.eelJava.EelTestJdkProvider
 import com.intellij.platform.testFramework.eelJava.EelTestUtil
 import com.intellij.platform.testFramework.io.ExternalResourcesChecker.reportUnavailability
 import com.intellij.testFramework.ExtensionTestUtil.maskExtensions
-import com.intellij.testFramework.IdeaTestUtil
 import com.intellij.testFramework.RunAll.Companion.runAll
 import com.intellij.testFramework.common.ThreadLeakTracker
 import com.intellij.util.SmartList
 import com.intellij.util.ThrowableRunnable
-import com.intellij.util.currentJavaVersion
 import com.intellij.util.io.copyRecursively
 import com.intellij.util.io.createParentDirectories
 import com.intellij.util.io.delete
@@ -519,11 +517,6 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
           isSupported(gradleVersion, eelJdkVersion) && !javaVersionRestriction.isRestricted(gradleVersion, eelJdkVersion)
         )
         return eelJdkPathString
-      }
-      if (isSupported(gradleVersion, currentJavaVersion()) &&
-          !javaVersionRestriction.isRestricted(gradleVersion, currentJavaVersion())
-      ) {
-        return IdeaTestUtil.requireRealJdkHome()
       }
       // fix exception of FJP at JavaHomeFinder.suggestHomePaths => ... => EnvironmentUtil.getEnvironmentMap => CompletableFuture.<clinit>
       IdeaForkJoinWorkerThreadFactory.setupForkJoinCommonPool(true)

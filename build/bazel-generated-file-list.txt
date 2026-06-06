@@ -978,6 +978,7 @@ plugins/agent-workbench/prompt/vcs-ui
 plugins/agent-workbench/sessions
 plugins/agent-workbench/sessions-actions
 plugins/agent-workbench/sessions-core
+plugins/agent-workbench/sessions-jbcentral
 plugins/agent-workbench/sessions-launch-config/backend
 plugins/agent-workbench/sessions-toolwindow
 plugins/agent-workbench/terminal/sessions
@@ -1282,7 +1283,6 @@ plugins/kotlin/completion/impl-shared
 plugins/kotlin/completion/tests-shared
 plugins/kotlin/copyright
 plugins/kotlin/copyright/fir-tests
-plugins/kotlin/copyright/tests
 plugins/kotlin/coverage
 plugins/kotlin/coverage/tests
 plugins/kotlin/features-trainer
@@ -1612,6 +1612,7 @@ python/python-psi-impl
 python/python-pyproject
 python/python-pytools
 python/python-pytools-ui
+python/python-pytools/tests
 python/python-requirements
 python/python-restructuredtext
 python/python-sdk
