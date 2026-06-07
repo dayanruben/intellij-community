@@ -21,10 +21,13 @@ import com.intellij.gradle.completion.GRADLE_SCRIPT_DEPENDENCY_COMPLETION_POSITI
 import com.intellij.gradle.completion.GradleDependencyCompletionFuzzyMatcher
 import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition
 import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.ARTIFACT
+import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.EMBEDDED_KOTLIN_MODULE
 import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.EXCLUDE_GROUP
 import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.EXCLUDE_MODULE
 import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.GAV
 import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.GROUP
+import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.KOTLIN_MODULE
+import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.KOTLIN_VERSION
 import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.OTHER
 import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.TOP_LEVEL
 import com.intellij.gradle.completion.GradleScriptDependencyCompletionPosition.VERSION
@@ -39,6 +42,8 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.psi.PsiElement
 import com.intellij.repository.search.completion.api.DependencyArtifactCompletionRequest
+import com.intellij.repository.search.completion.api.DependencyCompletionContributionSource
+import com.intellij.repository.search.completion.api.DependencyCompletionEvent
 import com.intellij.repository.search.completion.api.DependencyCompletionRequest
 import com.intellij.repository.search.completion.api.DependencyCompletionResult
 import com.intellij.repository.search.completion.api.DependencyCompletionService
@@ -85,6 +90,22 @@ internal class KotlinGradleDependenciesCompletionProvider : CompletionProvider<C
           "",
           positionElement.getExcludeInvokePosition()
         )
+      }
+
+      // dependencies { implementation(kotlin("std<caret>")) }
+      positionElement.isKotlinShortcutModuleArgument() -> {
+        val callType = positionElement.getKotlinShortcutCall() ?: return
+        when (callType) {
+          KotlinShortcutCall.KOTLIN -> suggestKotlinShortcutModuleCompletions(result, parameters)
+          KotlinShortcutCall.EMBEDDED_KOTLIN -> suggestEmbeddedKotlinShortcutModuleCompletions(result, parameters)
+        }
+      }
+
+      // dependencies { implementation(kotlin("stdlib", "1.9<caret>")) }
+      positionElement.isKotlinShortcutVersionArgument() -> {
+        if (!positionElement.kotlinShortcutModuleHasVersion()) {
+          suggestKotlinShortcutVersionCompletions(result, parameters, positionElement.getKotlinShortcutModuleText())
+        }
       }
 
       // dependencies { implementation("juni<caret>", "juni", "") }
@@ -169,7 +190,7 @@ internal class KotlinGradleDependenciesCompletionProvider : CompletionProvider<C
     invokePosition: GradleScriptDependencyCompletionPosition,
   ) {
     val loadingAdvertiser = DependencyCompletionLoadingAdvertiser()
-    loadingAdvertiser.showSearchingServer() // should be invoked early because filterResultsFromOtherContributors takes a while
+    loadingAdvertiser.showSearchingStatus()
 
     val documentText = parameters.editor.document.text
     val offset = parameters.offset
@@ -184,31 +205,23 @@ internal class KotlinGradleDependenciesCompletionProvider : CompletionProvider<C
     var index = 0
     runBlockingCancellable {
       completionService.suggestCompletions(request)
-        .collect { item ->
-          loadingAdvertiser.onResultReceived(item)
+        .collect { event ->
+          loadingAdvertiser.onEvent(event)
+          if (event !is DependencyCompletionEvent.Item) return@collect
+          val item = event.result
           val lookupString = lookupStringProvider(item)
           val lookupElement = LookupElementBuilder
             .create(item, lookupString)
             .withPresentableText(lookupString)
             .withIcon(item.icon)
             .withInsertHandler(insertHandler)
-          lookupElement.putUserData(BaseCompletionLookupArranger.FORCE_MIDDLE_MATCH, Any())
-          lookupElement.putUserData(GRADLE_DEPENDENCY_COMPLETION, true)
-          lookupElement.putUserData(StrictOrderWeigher.ORDER_KEY, StrictOrderWeigherData(item.source, index++))
-          lookupElement.putUserData(SUPPRESS_QUICK_DEFINITION, true)
-          lookupElement.putUserData(SUPPRESS_QUICK_DOCUMENTATION, true)
 
-          // Store FUS metadata
-          lookupElement.putUserData(BT_COMPLETION_IS_AUTO_POPUP, parameters.isAutoPopup)
-          lookupElement.putUserData(
-            GRADLE_SCRIPT_DEPENDENCY_COMPLETION_POSITION_KEY,
-            invokePosition
-          )
-
-          resultSet.addElement(MLRankingIgnorable.wrap(lookupElement))
+          val decoratedLookupElement = lookupElement.decorateLookupItem(index++, parameters.isAutoPopup, item.source, invokePosition)
+          resultSet.addElement(decoratedLookupElement)
         }
     }
     loadingAdvertiser.onComplete()
+    loadingAdvertiser.addServerErrorPlaceholderIfNeeded(resultSet, parameters.isAutoPopup, hadResults = index > 0)
   }
 
 
@@ -221,7 +234,7 @@ internal class KotlinGradleDependenciesCompletionProvider : CompletionProvider<C
     invokePosition: GradleScriptDependencyCompletionPosition,
   ) {
     val loadingAdvertiser = DependencyCompletionLoadingAdvertiser()
-    loadingAdvertiser.showSearchingServer() // should be invoked early because filterResultsFromOtherContributors takes a while
+    loadingAdvertiser.showSearchingStatus()
 
     val dummyText = parameters.position.parent.text
     val text = removeDummySuffix(dummyText)
@@ -260,32 +273,166 @@ internal class KotlinGradleDependenciesCompletionProvider : CompletionProvider<C
       .withRelevanceSorter(CompletionSorter.emptySorter().weigh(StrictOrderWeigher()))
     var index = 0
     runBlockingCancellable {
-      itemFlow.collect { item ->
-        loadingAdvertiser.onResultReceived(item)
+      itemFlow.collect { event ->
+        loadingAdvertiser.onEvent(event)
+        if (event !is DependencyCompletionEvent.Item) return@collect
+        val item = event.result
         val lookupElement = LookupElementBuilder.create(item, item.result)
           .withPresentableText(item.result)
           .withIcon(item.icon)
           .withInsertHandler(FullStringInsertHandler)
-        lookupElement.putUserData(BaseCompletionLookupArranger.FORCE_MIDDLE_MATCH, Any())
-        lookupElement.putUserData(GRADLE_DEPENDENCY_COMPLETION, true)
-        lookupElement.putUserData(StrictOrderWeigher.ORDER_KEY, StrictOrderWeigherData(item.source, index++))
-        lookupElement.putUserData(SUPPRESS_QUICK_DEFINITION, true)
-        lookupElement.putUserData(SUPPRESS_QUICK_DOCUMENTATION, true)
 
-        // Store FUS metadata
-        lookupElement.putUserData(BT_COMPLETION_IS_AUTO_POPUP, parameters.isAutoPopup)
-        lookupElement.putUserData(GRADLE_SCRIPT_DEPENDENCY_COMPLETION_POSITION_KEY, invokePosition)
-
-        resultSet.addElement(MLRankingIgnorable.wrap(lookupElement))
+        val decoratedLookupElement = lookupElement.decorateLookupItem(index++, parameters.isAutoPopup, item.source, invokePosition)
+        resultSet.addElement(decoratedLookupElement)
       }
     }
     loadingAdvertiser.onComplete()
+    loadingAdvertiser.addServerErrorPlaceholderIfNeeded(resultSet, parameters.isAutoPopup, hadResults = index > 0)
+  }
+
+  private fun suggestKotlinShortcutModuleCompletions(
+    result: CompletionResultSet,
+    parameters: CompletionParameters,
+  ) {
+    val loadingAdvertiser = DependencyCompletionLoadingAdvertiser()
+    loadingAdvertiser.showSearchingStatus()
+
+    val dummyText = parameters.position.parent.text
+    val text = removeDummySuffix(dummyText)
+    val completionService = service<DependencyCompletionService>()
+    val request = DependencyCompletionRequest(
+      "$KOTLIN_SHORTCUT_GROUP:$KOTLIN_SHORTCUT_ARTIFACT_PREFIX$text",
+      parameters.getCompletionContext()
+    )
+
+    val resultSet = result.withPrefixMatcher(GradleDependencyCompletionFuzzyMatcher(text))
+      .withRelevanceSorter(CompletionSorter.emptySorter().weigh(StrictOrderWeigher()))
+    var index = 0
+    runBlockingCancellable {
+      completionService.suggestCompletions(request)
+        .collect { event ->
+          loadingAdvertiser.onEvent(event)
+          if (event !is DependencyCompletionEvent.Item) return@collect
+          val item = event.result
+          if (item.groupId != KOTLIN_SHORTCUT_GROUP || !item.artifactId.startsWith(KOTLIN_SHORTCUT_ARTIFACT_PREFIX)) return@collect
+          val lookupString = "${item.artifactId.removePrefix(KOTLIN_SHORTCUT_ARTIFACT_PREFIX)}:${item.version}"
+          val lookupElement = LookupElementBuilder.create(item, lookupString)
+            .withPresentableText(lookupString)
+            .withIcon(item.icon)
+            .withInsertHandler(FullStringInsertHandler)
+
+          val decoratedLookupElement = lookupElement.decorateLookupItem(index++, parameters.isAutoPopup, item.source, KOTLIN_MODULE)
+          resultSet.addElement(decoratedLookupElement)
+        }
+    }
+    loadingAdvertiser.onComplete()
+    loadingAdvertiser.addServerErrorPlaceholderIfNeeded(resultSet, parameters.isAutoPopup, hadResults = index > 0)
+  }
+
+  private fun suggestKotlinShortcutVersionCompletions(
+    result: CompletionResultSet,
+    parameters: CompletionParameters,
+    moduleName: String,
+  ) {
+    val loadingAdvertiser = DependencyCompletionLoadingAdvertiser()
+    loadingAdvertiser.showSearchingStatus()
+
+    val dummyText = parameters.position.parent.text
+    val text = removeDummySuffix(dummyText)
+    val completionService = service<DependencyCompletionService>()
+    val request = DependencyVersionCompletionRequest(
+      KOTLIN_SHORTCUT_GROUP,
+      "$KOTLIN_SHORTCUT_ARTIFACT_PREFIX$moduleName",
+      text,
+      parameters.getCompletionContext()
+    )
+
+    val resultSet = result.withPrefixMatcher(GradleDependencyCompletionFuzzyMatcher(text))
+      .withRelevanceSorter(CompletionSorter.emptySorter().weigh(StrictOrderWeigher()))
+    var index = 0
+    runBlockingCancellable {
+      completionService.suggestVersionCompletions(request)
+        .collect { event ->
+          loadingAdvertiser.onEvent(event)
+          if (event !is DependencyCompletionEvent.Item) return@collect
+          val item = event.result
+          val lookupElement = LookupElementBuilder.create(item, item.result)
+            .withPresentableText(item.result)
+            .withIcon(item.icon)
+            .withInsertHandler(FullStringInsertHandler)
+
+          val decoratedLookupElement = lookupElement.decorateLookupItem(index++, parameters.isAutoPopup, item.source, KOTLIN_VERSION)
+          resultSet.addElement(decoratedLookupElement)
+        }
+    }
+    loadingAdvertiser.onComplete()
+    loadingAdvertiser.addServerErrorPlaceholderIfNeeded(resultSet, parameters.isAutoPopup, hadResults = index > 0)
+  }
+
+  private fun suggestEmbeddedKotlinShortcutModuleCompletions(
+    result: CompletionResultSet,
+    parameters: CompletionParameters,
+  ) {
+    val loadingAdvertiser = DependencyCompletionLoadingAdvertiser()
+    loadingAdvertiser.showSearchingStatus()
+
+    val dummyText = parameters.position.parent.text
+    val text = removeDummySuffix(dummyText)
+    val completionService = service<DependencyCompletionService>()
+    val request = DependencyArtifactCompletionRequest(
+      KOTLIN_SHORTCUT_GROUP,
+      "$KOTLIN_SHORTCUT_ARTIFACT_PREFIX$text",
+      parameters.getCompletionContext(),
+    )
+
+    val resultSet = result.withPrefixMatcher(GradleDependencyCompletionFuzzyMatcher(text))
+      .withRelevanceSorter(CompletionSorter.emptySorter().weigh(StrictOrderWeigher()))
+    var index = 0
+    runBlockingCancellable {
+      completionService.suggestArtifactCompletions(request)
+        .collect { event ->
+          loadingAdvertiser.onEvent(event)
+          if (event !is DependencyCompletionEvent.Item) return@collect
+          val item = event.result
+          if (!item.result.startsWith(KOTLIN_SHORTCUT_ARTIFACT_PREFIX)) return@collect
+          val lookupString = item.result.removePrefix(KOTLIN_SHORTCUT_ARTIFACT_PREFIX)
+          val lookupElement = LookupElementBuilder.create(item, lookupString)
+            .withPresentableText(lookupString)
+            .withIcon(item.icon)
+            .withInsertHandler(FullStringInsertHandler)
+
+          val decoratedLookupElement =
+            lookupElement.decorateLookupItem(index++, parameters.isAutoPopup, item.source, EMBEDDED_KOTLIN_MODULE)
+          resultSet.addElement(decoratedLookupElement)
+        }
+    }
+    loadingAdvertiser.onComplete()
+    loadingAdvertiser.addServerErrorPlaceholderIfNeeded(resultSet, parameters.isAutoPopup, hadResults = index > 0)
   }
 
   private fun String.isBeingCompleted(): Boolean = this.contains(CompletionUtil.DUMMY_IDENTIFIER_TRIMMED)
 
   private fun isFreeMode(): Boolean {
     return isDisabled(PluginManagerCore.ULTIMATE_PLUGIN_ID)
+  }
+
+  private fun LookupElementBuilder.decorateLookupItem(
+    index: Int,
+    isAutoPopup: Boolean,
+    source: DependencyCompletionContributionSource,
+    invokePosition: GradleScriptDependencyCompletionPosition,
+  ): LookupElement {
+    this.putUserData(BaseCompletionLookupArranger.FORCE_MIDDLE_MATCH, Any())
+    this.putUserData(GRADLE_DEPENDENCY_COMPLETION, true)
+    this.putUserData(StrictOrderWeigher.ORDER_KEY, StrictOrderWeigherData(source, index))
+    this.putUserData(SUPPRESS_QUICK_DEFINITION, true)
+    this.putUserData(SUPPRESS_QUICK_DOCUMENTATION, true)
+
+    // Store FUS metadata
+    this.putUserData(BT_COMPLETION_IS_AUTO_POPUP, isAutoPopup)
+    this.putUserData(GRADLE_SCRIPT_DEPENDENCY_COMPLETION_POSITION_KEY, invokePosition)
+
+    return MLRankingIgnorable.wrap(this)
   }
 }
 

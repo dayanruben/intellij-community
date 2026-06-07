@@ -37,6 +37,7 @@ enum class AgentWorkbenchTelemetryProvider {
   CODEX,
   CLAUDE,
   JUNIE,
+  PI,
   TERMINAL,
   OTHER,
 }
@@ -208,6 +209,7 @@ object AgentWorkbenchTelemetry {
       AgentSessionProvider.CODEX -> AgentWorkbenchTelemetryProvider.CODEX
       AgentSessionProvider.CLAUDE -> AgentWorkbenchTelemetryProvider.CLAUDE
       AgentSessionProvider.JUNIE -> AgentWorkbenchTelemetryProvider.JUNIE
+      AgentSessionProvider.PI -> AgentWorkbenchTelemetryProvider.PI
       AgentSessionProvider.TERMINAL -> AgentWorkbenchTelemetryProvider.TERMINAL
       else -> AgentWorkbenchTelemetryProvider.OTHER
     }
@@ -245,7 +247,7 @@ object AgentWorkbenchTelemetry {
 internal object AgentWorkbenchFusCollector : CounterUsagesCollector() {
   private val LOG = logger<AgentWorkbenchFusCollector>()
 
-  private val group = EventLogGroup("agent.workbench", 4)
+  private val group = EventLogGroup("agent.workbench", 5)
 
   private val entryPointField: EnumEventField<AgentWorkbenchEntryPoint> = EventFields.Enum("entry_point", AgentWorkbenchEntryPoint::class.java)
   private val providerField: EnumEventField<AgentWorkbenchTelemetryProvider> =

@@ -11,6 +11,7 @@ import com.intellij.agent.workbench.common.parseAgentWorkbenchPathOrNull
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.common.session.AgentSubAgent
+import com.intellij.agent.workbench.sessions.core.normalizeConcreteAgentSessionThreadId
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshHints
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshThreadSeed
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
@@ -27,6 +28,9 @@ import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.model.AgentWorktree
 import com.intellij.agent.workbench.sessions.model.mergeAgentSessionThreadsForDisplay
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
+import com.intellij.agent.workbench.sessions.state.AgentSessionThreadTitleOverrides
+import com.intellij.agent.workbench.sessions.state.InMemoryAgentSessionThreadTitleOverrides
+import com.intellij.agent.workbench.sessions.state.applyTitleOverrides
 import com.intellij.agent.workbench.sessions.util.buildAgentSessionIdentity
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -47,6 +51,7 @@ internal class AgentSessionProviderRefreshRunner(
   private val archiveSuppressionSupport: AgentSessionArchiveSuppressionSupport,
   private val refreshSupportProvider: (AgentSessionProvider) -> AgentSessionThreadRebindSupport?,
   private val resolveProviderWarningMessage: (AgentSessionProvider, Throwable) -> String,
+  private val titleOverrides: AgentSessionThreadTitleOverrides = InMemoryAgentSessionThreadTitleOverrides(),
   private val openAgentChatSnapshotProvider: suspend () -> AgentChatOpenTabsRefreshSnapshot = ::collectOpenAgentChatRefreshSnapshot,
   private val openAgentChatTabPresentationUpdater: suspend (
     AgentSessionProvider,
@@ -106,6 +111,7 @@ internal class AgentSessionProviderRefreshRunner(
           refreshResult = refreshResult,
           outcomes = outcomes,
         )
+        applyTitleOverridesToOutcomes(outcomes)
       }
       catch (e: Throwable) {
         if (e is CancellationException) throw e
@@ -149,7 +155,7 @@ internal class AgentSessionProviderRefreshRunner(
         hintThreadIdsByPath = hintThreadIdsByPath,
         refreshHintPaths = refreshHintPaths,
         forcedThreadIds = updateEvent.threadIds,
-      )
+      ).withTitleOverrides(provider)
 
       if (refreshSupport != null && refreshHintsByPath.isNotEmpty()) {
         refreshSupport.applyActivityHints(
@@ -269,7 +275,7 @@ internal class AgentSessionProviderRefreshRunner(
         hintThreadIdsByPath = hintThreadIdsByPath,
         refreshHintPaths = refreshHintPaths,
         forcedThreadIds = updateEvent.threadIds,
-      )
+      ).withTitleOverrides(provider)
 
       if (refreshHintsByPath.isNotEmpty()) {
         applyRefreshHintsToOutcomes(
@@ -294,6 +300,7 @@ internal class AgentSessionProviderRefreshRunner(
           outcomes = outcomes,
         )
       }
+      applyTitleOverridesToOutcomes(outcomes)
 
       refreshSupport?.clearStaleConcreteOpenChatNewThreadRebindAnchors(
         refreshId = refreshId,
@@ -436,6 +443,40 @@ internal class AgentSessionProviderRefreshRunner(
         warningMessage = resolveProviderWarningMessage(provider, failure),
       )
     }
+  }
+
+  private fun applyTitleOverridesToOutcomes(outcomes: MutableMap<String, ProviderRefreshOutcome>) {
+    for ((path, outcome) in ArrayList(outcomes.entries)) {
+      val threads = outcome.threads ?: continue
+      val updatedThreads = titleOverrides.applyTitleOverrides(path = path, threads = threads)
+      if (updatedThreads != threads) {
+        outcomes[path] = outcome.copy(threads = updatedThreads)
+      }
+    }
+  }
+
+  private fun Map<String, AgentSessionRefreshHints>.withTitleOverrides(
+    provider: AgentSessionProvider,
+  ): Map<String, AgentSessionRefreshHints> {
+    if (isEmpty()) {
+      return this
+    }
+    var changed = false
+    val updated = mapValues { (path, hints) ->
+      val updatedCandidates = titleOverrides.applyTitleOverrides(
+        path = path,
+        provider = provider,
+        candidates = hints.rebindCandidates,
+      )
+      if (updatedCandidates == hints.rebindCandidates) {
+        hints
+      }
+      else {
+        changed = true
+        hints.copy(rebindCandidates = updatedCandidates)
+      }
+    }
+    return if (changed) updated else this
   }
 
   private fun applyProviderOutcomesToState(
@@ -745,6 +786,7 @@ private fun collectLoadedProviderThreadIdsByPath(
         .asSequence()
         .filter { it.provider == provider }
         .map { it.id }
+        .mapNotNull(::normalizeConcreteAgentSessionThreadId)
         .toCollection(LinkedHashSet())
     }
     for (worktree in project.worktrees) {
@@ -755,6 +797,7 @@ private fun collectLoadedProviderThreadIdsByPath(
         .asSequence()
         .filter { it.provider == provider }
         .map { it.id }
+        .mapNotNull(::normalizeConcreteAgentSessionThreadId)
         .toCollection(LinkedHashSet())
     }
   }
@@ -860,7 +903,9 @@ private fun buildRefreshThreadSeedsByPath(
     return emptyMap()
   }
 
-  val forcedThreadIds = forcedThreadIds.orEmpty()
+  val forcedThreadIds = forcedThreadIds.orEmpty().asSequence()
+    .mapNotNull(::normalizeConcreteAgentSessionThreadId)
+    .toCollection(LinkedHashSet())
   val result = LinkedHashMap<String, Set<AgentSessionRefreshThreadSeed>>(hintThreadIdsByPath.size)
   for ((path, threadIds) in hintThreadIdsByPath) {
     val updatedAtByThreadId = Object2LongOpenHashMap<String>()
@@ -876,11 +921,12 @@ private fun buildRefreshThreadSeedsByPath(
 
     val seeds = LinkedHashSet<AgentSessionRefreshThreadSeed>(threadIds.size)
     threadIds.forEach { threadId ->
+      val concreteThreadId = normalizeConcreteAgentSessionThreadId(threadId) ?: return@forEach
       seeds.add(
         AgentSessionRefreshThreadSeed(
-          threadId = threadId,
-          updatedAt = updatedAtByThreadId.getLong(threadId),
-          forceRefresh = threadId in forcedThreadIds,
+          threadId = concreteThreadId,
+          updatedAt = updatedAtByThreadId.getLong(concreteThreadId),
+          forceRefresh = concreteThreadId in forcedThreadIds,
         )
       )
     }

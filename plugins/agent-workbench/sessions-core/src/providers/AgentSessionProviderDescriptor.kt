@@ -6,6 +6,7 @@ package com.intellij.agent.workbench.sessions.core.providers
 import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.parseAgentThreadIdentity
+import com.intellij.agent.workbench.sessions.core.isAgentSessionPendingThreadId
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeFormatter
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
@@ -33,9 +34,22 @@ enum class AgentInitialMessageDispatchCompletionPolicy {
   RETRY_ON_CODEX_PLAN_BUSY,
 }
 
+enum class AgentInitialMessageDispatchAction {
+  SEND_TEXT,
+  ENSURE_CODEX_PLAN_MODE,
+}
+
 enum class AgentThreadRenameContext {
   TREE_POPUP,
   EDITOR_TAB,
+}
+
+/**
+ * Controls how synchronous provider pickers behave before CLI availability is known.
+ */
+enum class AgentSessionProviderCliVisibilityPolicy {
+  PROMINENT,
+  DISCOVER_WHEN_AVAILABLE,
 }
 
 sealed interface AgentThreadRenameHandler {
@@ -81,10 +95,15 @@ data class AgentInitialMessageDispatchPlan(
 }
 
 data class AgentInitialMessageDispatchStep(
-  @JvmField val text: String,
+  @JvmField val text: String = "",
   @JvmField val timeoutPolicy: AgentInitialMessageTimeoutPolicy = AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK,
   @JvmField val completionPolicy: AgentInitialMessageDispatchCompletionPolicy = AgentInitialMessageDispatchCompletionPolicy.IMMEDIATE,
-)
+  @JvmField val action: AgentInitialMessageDispatchAction = AgentInitialMessageDispatchAction.SEND_TEXT,
+) {
+  fun isDispatchable(): Boolean {
+    return action != AgentInitialMessageDispatchAction.SEND_TEXT || text.isNotBlank()
+  }
+}
 
 data class AgentPendingSessionMetadata(
   @JvmField val createdAtMs: Long,
@@ -158,6 +177,9 @@ interface AgentSessionProviderDescriptor {
 
   val sessionSource: AgentSessionSource
   val cliMissingMessageKey: String
+
+  val cliVisibilityPolicy: AgentSessionProviderCliVisibilityPolicy
+    get() = AgentSessionProviderCliVisibilityPolicy.PROMINENT
 
   /**
    * Terminal-agent identifier used by `TerminalAgentResolver` to locate this provider's CLI binary.
@@ -267,7 +289,7 @@ interface AgentSessionProviderDescriptor {
     launchSpec: AgentSessionTerminalLaunchSpec,
   ): AgentPendingSessionMetadata? {
     val parsed = parseAgentThreadIdentity(identity) ?: return null
-    if (!parsed.threadId.startsWith("new-")) return null
+    if (!isAgentSessionPendingThreadId(parsed.threadId)) return null
     if (parsed.providerId != provider.value) return null
     val yoloMarker = pendingSessionLaunchYoloMarker
     val launchMode = if (yoloMarker != null && yoloMarker in launchSpec.command) "yolo" else "standard"

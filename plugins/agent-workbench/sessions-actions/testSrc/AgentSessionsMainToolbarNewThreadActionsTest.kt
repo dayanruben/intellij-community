@@ -6,6 +6,7 @@ import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
 import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptProjectPathCandidate
+import com.intellij.agent.workbench.sessions.actions.AgentSessionsDirectPathNewThreadAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadContext
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadTarget
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsMainToolbarNewThreadAction
@@ -14,13 +15,17 @@ import com.intellij.agent.workbench.sessions.actions.QuickStartAction
 import com.intellij.agent.workbench.sessions.actions.resolveAgentSessionsMainToolbarNewThreadContext
 import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
-import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionUiKind
+import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
+import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.Separator
+import com.intellij.openapi.actionSystem.ex.ActionUtil
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.actionSystem.impl.PresentationFactory
 import com.intellij.openapi.actionSystem.impl.Utils
 import com.intellij.openapi.application.EDT
@@ -78,7 +83,7 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
   }
 
   @Test
-  fun updateFallsBackToAddIconAndEmptyDescriptionWhenNoLastUsedProvider() {
+  fun updateUsesDefaultProviderIconWhenNoLastUsedProvider() {
     val context = newThreadContext()
     val codexBridge = TestAgentSessionProviderDescriptor(
       provider = AgentSessionProvider.CODEX,
@@ -97,9 +102,13 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
     action.update(event)
 
     assertThat(event.presentation.isEnabledAndVisible).isTrue()
-    assertThat(event.presentation.icon).isEqualTo(AllIcons.General.Add)
+    assertThat(event.presentation.icon).isEqualTo(codexBridge.icon)
+    assertThat(event.presentation.text).isEqualTo(AgentSessionsBundle.message(
+      "action.AgentWorkbenchSessions.NewThreadQuick.text",
+      AgentSessionsBundle.message(codexBridge.quickStartLabelKey),
+    ))
     assertThat(event.presentation.description)
-      .isEqualTo(AgentSessionsBundle.message("action.AgentWorkbenchSessions.MainToolbar.NewThread.empty.description"))
+      .contains(AgentSessionsBundle.message(codexBridge.quickStartLabelKey))
   }
 
   @Test
@@ -161,7 +170,9 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
     assertThat(event.presentation.text)
       .isEqualTo(AgentSessionsBundle.message("action.AgentWorkbenchSessions.NewTerminalSessionQuick.text"))
     assertThat(event.presentation.description)
-      .isEqualTo(AgentSessionsBundle.message("action.AgentWorkbenchSessions.NewTerminalSessionQuick.target.description", "Terminal Session", "toolbar-project"))
+      .isEqualTo(AgentSessionsBundle.message("action.AgentWorkbenchSessions.NewTerminalSessionQuick.target.description",
+                                             "Terminal Session",
+                                             "toolbar-project"))
   }
 
   @Test
@@ -244,8 +255,10 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
   }
 
   @Test
-  fun getMainActionReturnsNullWhenNoLastUsedProviderSoClickFallsThroughToPicker() {
+  fun getMainActionUsesDefaultProviderWhenNoLastUsedProvider() {
     val context = newThreadContext()
+    var launchedProvider: AgentSessionProvider? = null
+    var launchedMode: AgentSessionLaunchMode? = null
     val codexBridge = TestAgentSessionProviderDescriptor(
       provider = AgentSessionProvider.CODEX,
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
@@ -254,12 +267,183 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
     val action = AgentSessionsMainToolbarNewThreadAction(
       resolveContext = { context },
       allBridges = { listOf(codexBridge) },
-      createNewSession = { _, _, _, _, _ -> },
+      createNewSession = { _, provider, mode, _, _ ->
+        launchedProvider = provider
+        launchedMode = mode
+      },
       lastUsedProvider = { null },
       lastUsedLaunchMode = { null },
     )
+    val mainAction = checkNotNull(action.getMainAction(TestActionEvent.createTestEvent(action)))
 
-    assertThat(action.getMainAction(TestActionEvent.createTestEvent(action))).isNull()
+    mainAction.actionPerformed(TestActionEvent.createTestEvent(mainAction))
+
+    assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CODEX)
+    assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
+  }
+
+  @Test
+  fun directPathPrimaryActionUsesQuickStartEntryPoint() {
+    val project = ProjectManager.getInstance().defaultProject
+    var beforeActionCount = 0
+    var launchedPath: String? = null
+    var launchedProvider: AgentSessionProvider? = null
+    var launchedMode: AgentSessionLaunchMode? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
+    val codexBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.CODEX,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+    )
+    val action = AgentSessionsDirectPathNewThreadAction(
+      project = project,
+      targetPath = { "/work/project-a" },
+      quickStartEntryPoint = AgentWorkbenchEntryPoint.TREE_ROW_OVERLAY,
+      popupEntryPoint = AgentWorkbenchEntryPoint.TREE_POPUP,
+      allBridges = { listOf(codexBridge) },
+      createNewSession = { path, provider, mode, _, capturedEntryPoint ->
+        launchedPath = path
+        launchedProvider = provider
+        launchedMode = mode
+        entryPoint = capturedEntryPoint
+      },
+      lastUsedProvider = { AgentSessionProvider.CODEX },
+      lastUsedLaunchMode = { AgentSessionLaunchMode.STANDARD },
+      beforeAction = { beforeActionCount++ },
+    )
+    val mainAction = checkNotNull(action.getMainAction(TestActionEvent.createTestEvent(action)))
+
+    mainAction.actionPerformed(TestActionEvent.createTestEvent(mainAction))
+
+    assertThat(beforeActionCount).isEqualTo(1)
+    assertThat(launchedPath).isEqualTo("/work/project-a")
+    assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CODEX)
+    assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.TREE_ROW_OVERLAY)
+  }
+
+  @Test
+  fun directPathPopupChildrenUsePopupEntryPoint() {
+    val project = ProjectManager.getInstance().defaultProject
+    var beforeActionCount = 0
+    var launchedPath: String? = null
+    var launchedProvider: AgentSessionProvider? = null
+    var launchedMode: AgentSessionLaunchMode? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
+    val codexBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.CODEX,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+    )
+    val action = AgentSessionsDirectPathNewThreadAction(
+      project = project,
+      targetPath = { "/work/project-a" },
+      quickStartEntryPoint = AgentWorkbenchEntryPoint.TREE_ROW_OVERLAY,
+      popupEntryPoint = AgentWorkbenchEntryPoint.TREE_POPUP,
+      allBridges = { listOf(codexBridge) },
+      createNewSession = { path, provider, mode, _, capturedEntryPoint ->
+        launchedPath = path
+        launchedProvider = provider
+        launchedMode = mode
+        entryPoint = capturedEntryPoint
+      },
+      lastUsedProvider = { AgentSessionProvider.CODEX },
+      lastUsedLaunchMode = { AgentSessionLaunchMode.STANDARD },
+      beforeAction = { beforeActionCount++ },
+    )
+    val event = TestActionEvent.createTestEvent(action)
+    val childAction = action.actionGroup.getChildren(event).first { child -> child !is Separator }
+
+    childAction.actionPerformed(TestActionEvent.createTestEvent(childAction))
+
+    assertThat(beforeActionCount).isEqualTo(1)
+    assertThat(launchedPath).isEqualTo("/work/project-a")
+    assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CODEX)
+    assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.TREE_POPUP)
+  }
+
+  @Test
+  fun directPathPopupChildDispatchesWhenTransientSplitButtonIsHidden() {
+    val project = ProjectManager.getInstance().defaultProject
+    var launchedPath: String? = null
+    var launchedProvider: AgentSessionProvider? = null
+    var launchedMode: AgentSessionLaunchMode? = null
+    var entryPoint: AgentWorkbenchEntryPoint? = null
+    val codexBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.CODEX,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+    )
+    val action = AgentSessionsDirectPathNewThreadAction(
+      project = project,
+      targetPath = { "/work/project-a" },
+      quickStartEntryPoint = AgentWorkbenchEntryPoint.TREE_ROW_OVERLAY,
+      popupEntryPoint = AgentWorkbenchEntryPoint.TREE_POPUP,
+      allBridges = { listOf(codexBridge) },
+      createNewSession = { path, provider, mode, _, capturedEntryPoint ->
+        launchedPath = path
+        launchedProvider = provider
+        launchedMode = mode
+        entryPoint = capturedEntryPoint
+      },
+      lastUsedProvider = { AgentSessionProvider.CODEX },
+      lastUsedLaunchMode = { AgentSessionLaunchMode.STANDARD },
+    )
+
+    val result = timeoutRunBlocking {
+      withContext(Dispatchers.EDT) {
+        val component = action.createCustomComponent(Presentation(), ActionPlaces.TOOLWINDOW_CONTENT)
+        val childAction = action.actionGroup.getChildren(TestActionEvent.createTestEvent(action))
+          .first { child -> child !is Separator }
+        val dataContext = SimpleDataContext.builder()
+          .add(CommonDataKeys.PROJECT, project)
+          .add(PlatformCoreDataKeys.CONTEXT_COMPONENT, component)
+          .build()
+
+        assertThat(component.isShowing).isFalse()
+        ActionUtil.performAction(childAction, TestActionEvent.createTestEvent(childAction, dataContext))
+      }
+    }
+
+    assertThat(result.isPerformed).isTrue()
+    assertThat(launchedPath).isEqualTo("/work/project-a")
+    assertThat(launchedProvider).isEqualTo(AgentSessionProvider.CODEX)
+    assertThat(launchedMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
+    assertThat(entryPoint).isEqualTo(AgentWorkbenchEntryPoint.TREE_POPUP)
+  }
+
+  @Test
+  fun directPathActionHidesWhenTargetOrProvidersAreUnavailable() {
+    val project = ProjectManager.getInstance().defaultProject
+    val missingTargetAction = AgentSessionsDirectPathNewThreadAction(
+      project = project,
+      targetPath = { null },
+      quickStartEntryPoint = AgentWorkbenchEntryPoint.TREE_ROW_OVERLAY,
+      popupEntryPoint = AgentWorkbenchEntryPoint.TREE_POPUP,
+      allBridges = {
+        listOf(TestAgentSessionProviderDescriptor(
+          provider = AgentSessionProvider.CODEX,
+          supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+          cliAvailable = true,
+        ))
+      },
+    )
+    val noProvidersAction = AgentSessionsDirectPathNewThreadAction(
+      project = project,
+      targetPath = { "/work/project-a" },
+      quickStartEntryPoint = AgentWorkbenchEntryPoint.TREE_ROW_OVERLAY,
+      popupEntryPoint = AgentWorkbenchEntryPoint.TREE_POPUP,
+      allBridges = { emptyList() },
+    )
+    val missingTargetEvent = TestActionEvent.createTestEvent(missingTargetAction)
+    val noProvidersEvent = TestActionEvent.createTestEvent(noProvidersAction)
+
+    missingTargetAction.update(missingTargetEvent)
+    noProvidersAction.update(noProvidersEvent)
+
+    assertThat(missingTargetEvent.presentation.isEnabledAndVisible).isFalse()
+    assertThat(noProvidersEvent.presentation.isEnabledAndVisible).isFalse()
   }
 
   @Test

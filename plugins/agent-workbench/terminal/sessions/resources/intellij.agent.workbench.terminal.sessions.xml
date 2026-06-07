@@ -10,7 +10,7 @@
   <extensions defaultExtensionNs="com.intellij">
     <agent.workbench.sessionProvider
       id="agentWorkbenchTerminal"
-      order="after agentWorkbenchJunie"
+      order="after agentWorkbenchPi"
       implementation="com.intellij.agent.workbench.terminal.sessions.TerminalAgentSessionProviderDescriptor"/>
     <agent.workbench.sessionLaunchContributor implementation="com.intellij.agent.workbench.terminal.sessions.TerminalSessionLaunchContributor"/>
     <applicationSettings service="com.intellij.agent.workbench.terminal.sessions.TerminalSessionStateService"/>

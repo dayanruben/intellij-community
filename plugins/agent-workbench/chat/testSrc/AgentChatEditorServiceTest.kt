@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
@@ -308,6 +309,7 @@ class AgentChatEditorServiceTest {
           editorProject.service<AgentChatTabsService>().upsert(snapshot)
         },
       ).also { editor ->
+        editor.showComponentForTests()
         editor.putUserData(CUSTOM_AGENT_CHAT_EDITOR_KEY, true)
       }
     }
@@ -329,7 +331,7 @@ class AgentChatEditorServiceTest {
     runInUi {
       editor.selectNotify()
     }
-    assertThat(terminalTabs.createCalls).isEqualTo(1)
+    waitForCondition { terminalTabs.createCalls == 1 }
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
 
     openChatInModal(
@@ -1890,7 +1892,9 @@ class AgentChatEditorServiceTest {
           return !message.startsWith("Failed to initialize Agent Chat terminal tab for") || t?.message != "boom"
         }
       }) {
-        AgentChatRestoreNotificationService.reportTerminalInitializationFailure(project, file, RuntimeException("boom"))
+        runBlocking {
+          AgentChatRestoreNotificationService.reportTerminalInitializationFailure(project, file, RuntimeException("boom"))
+        }
       }
 
       assertThat(tabsService.load(snapshot.tabKey.value)).isNull()

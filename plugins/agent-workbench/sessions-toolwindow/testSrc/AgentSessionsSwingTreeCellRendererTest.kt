@@ -30,11 +30,15 @@ import com.intellij.agent.workbench.sessions.toolwindow.ui.isSessionTreeRowClipp
 import com.intellij.agent.workbench.sessions.toolwindow.ui.projectBranchText
 import com.intellij.agent.workbench.sessions.toolwindow.ui.resolveSessionTreeThreadTimePaintX
 import com.intellij.agent.workbench.sessions.toolwindow.ui.resolveSessionTreeThreadTooltipWidth
+import com.intellij.agent.workbench.sessions.toolwindow.ui.sessionTreeNewThreadActionButtonSize
+import com.intellij.agent.workbench.sessions.toolwindow.ui.sessionTreeNewThreadActionHeight
+import com.intellij.agent.workbench.sessions.toolwindow.ui.sessionTreeNewThreadActionWidth
 import com.intellij.agent.workbench.sessions.toolwindow.ui.sessionTreeRowActionRightPadding
 import com.intellij.agent.workbench.sessions.toolwindow.ui.sessionTreeRowActionsRightBoundary
 import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.ProductIcons
 import com.intellij.ide.util.treeView.NodeDescriptor
+import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.testFramework.junit5.TestApplication
@@ -174,6 +178,17 @@ class AgentSessionsSwingTreeCellRendererTest {
     renderer.getTreeCellRendererComponent(tree, descriptorValue(projectId), false, false, false, 0, false)
 
     assertThat(renderer.icon).isEqualTo(ProductIcons.getInstance().getProjectNodeIcon())
+  }
+
+  @Test
+  fun newThreadRowActionUsesCompactRowSize() {
+    val compactSize = sessionTreeNewThreadActionButtonSize()
+
+    assertThat(sessionTreeNewThreadActionHeight()).isEqualTo(compactSize.height)
+    assertThat(sessionTreeNewThreadActionHeight()).isLessThan(ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE.height)
+    assertThat(sessionTreeNewThreadActionWidth()).isEqualTo(
+      compactSize.width + AllIcons.General.ButtonDropTriangle.iconWidth + JBUI.scale(7),
+    )
   }
 
   @Test
@@ -393,10 +408,7 @@ class AgentSessionsSwingTreeCellRendererTest {
       rowActionsProvider = { _, _, _ ->
         SessionTreeRowActionPresentation(
           showLoadingAction = true,
-          quickIcon = AllIcons.General.Add,
-          showQuickAction = true,
-          showPopupAction = true,
-          hoveredKind = null,
+          showNewThreadAction = true,
         )
       },
       nodeResolver = { id ->
@@ -409,7 +421,7 @@ class AgentSessionsSwingTreeCellRendererTest {
 
     assertThat(renderer.getCharSequence(true).toString()).doesNotContain(AgentSessionsBundle.message("toolwindow.loading"))
     assertThat(renderer.icon).isEqualTo(AllIcons.Vcs.BranchNode)
-    assertThat(renderer.ipad.right).isEqualTo(sessionTreeRowActionRightPadding(actionSlots = 3))
+    assertThat(renderer.ipad.right).isEqualTo(sessionTreeRowActionRightPadding(showLoadingAction = true, showNewThreadAction = true))
     assertThat(renderer.accessibleContext.accessibleName).contains(AgentSessionsBundle.message("toolwindow.loading"))
   }
 

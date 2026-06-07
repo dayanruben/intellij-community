@@ -6,6 +6,7 @@ import com.intellij.agent.workbench.common.session.AgentSessionCost
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
+import com.intellij.agent.workbench.sessions.core.normalizeConcreteAgentSessionThreadId
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
 import com.intellij.agent.workbench.sessions.model.AgentArchivedSessionsState
@@ -16,6 +17,10 @@ import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettin
 import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
 import com.intellij.agent.workbench.sessions.state.DEFAULT_VISIBLE_CLOSED_PROJECT_COUNT
 import com.intellij.agent.workbench.sessions.state.DEFAULT_VISIBLE_THREAD_COUNT
+import com.intellij.agent.workbench.sessions.state.AgentSessionThreadTitleOverrideStateService
+import com.intellij.agent.workbench.sessions.state.AgentSessionThreadTitleOverrides
+import com.intellij.agent.workbench.sessions.state.InMemoryAgentSessionThreadTitleOverrides
+import com.intellij.agent.workbench.sessions.state.applyTitleOverrides
 import com.intellij.agent.workbench.sessions.util.agentSessionCliMissingMessageKey
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.Service
@@ -37,6 +42,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -48,6 +54,7 @@ class AgentArchivedSessionsService internal constructor(
   private val serviceScope: CoroutineScope,
   private val sessionSourcesProvider: () -> List<AgentSessionSource>,
   private val projectEntriesProvider: suspend () -> List<ProjectEntry>,
+  private val titleOverrides: AgentSessionThreadTitleOverrides = InMemoryAgentSessionThreadTitleOverrides(),
 ) {
   @Suppress("unused")
   constructor(serviceScope: CoroutineScope) : this(
@@ -56,6 +63,7 @@ class AgentArchivedSessionsService internal constructor(
       service<AgentSessionProviderSettingsService>().enabledSessionSources(AgentSessionProviders.sessionSources())
     },
     projectEntriesProvider = AgentSessionProjectCatalog()::collectProjects,
+    titleOverrides = service<AgentSessionThreadTitleOverrideStateService>(),
   )
 
   private val mutableState = MutableStateFlow(AgentArchivedSessionsState())
@@ -221,32 +229,38 @@ class AgentArchivedSessionsService internal constructor(
         }
       }.awaitAll().filterNotNull()
     }
-    return mergeAgentSessionSourceLoadResults(
+    val result = mergeAgentSessionSourceLoadResults(
       sourceResults = sourceResults,
       resolveErrorMessage = ::resolveArchivedErrorMessage,
       resolveWarningMessage = ::resolveArchivedProviderWarningMessage,
     )
+    val threads = titleOverrides.applyTitleOverrides(path = path, threads = result.threads)
+    return if (threads == result.threads) result else result.copy(threads = threads)
   }
 
   private suspend fun resolveArchivedCliAvailabilityByProvider(
     sources: List<AgentSessionSource>,
   ): Map<AgentSessionProvider, Boolean> {
-    return coroutineScope {
-      sources.map { source ->
-        async {
-          val descriptor = AgentSessionProviders.find(source.provider) ?: return@async source.provider to true
-          source.provider to try {
-            descriptor.isCliAvailable()
+    return withContext(Dispatchers.IO) {
+      coroutineScope {
+        sources.map { source ->
+          async {
+            val descriptor = AgentSessionProviders.find(source.provider) ?: return@async source.provider to true
+            source.provider to try {
+              AgentSessionProviderCliAvailabilityCache.resolveAvailability(descriptor, force = false) {
+                descriptor.isCliAvailable()
+              }
+            }
+            catch (e: CancellationException) {
+              throw e
+            }
+            catch (throwable: Throwable) {
+              ARCHIVED_LOG.warn("Failed to resolve CLI availability for ${source.provider.value}", throwable)
+              false
+            }
           }
-          catch (e: CancellationException) {
-            throw e
-          }
-          catch (throwable: Throwable) {
-            ARCHIVED_LOG.warn("Failed to resolve CLI availability for ${source.provider.value}", throwable)
-            false
-          }
-        }
-      }.awaitAll().toMap()
+        }.awaitAll().toMap()
+      }
     }
   }
 
@@ -264,6 +278,10 @@ class AgentArchivedSessionsService internal constructor(
     val loadRequests = LinkedHashMap<Pair<AgentSessionSource, String>, MutableList<ArchivedVisibleThreadSnapshot>>()
 
     for (visibleThread in visibleThreads) {
+      if (normalizeConcreteAgentSessionThreadId(visibleThread.threadId) == null) {
+        continue
+      }
+
       val cacheKey = visibleThread.cacheKey
       val cacheEntry = costCache[cacheKey]
       if (visibleThread.cost != null && (cacheEntry == null || cacheEntry.updatedAt != visibleThread.updatedAt)) {
