@@ -147,6 +147,9 @@ object CommunityLibraryLicenses {
       .copyrightText("Copyright © 2011-2024 The Apache Software Foundation")
       .suppliedByOrganizations(Suppliers.APACHE),
 
+    LibraryLicense("Apache MINA SSHD OSGi", libraryName = "apache.sshd.osgi", url = "https://github.com/apache/mina-sshd")
+      .apache("https://github.com/apache/mina-sshd/blob/master/LICENSE.txt"),
+
     LibraryLicense("Apache Tuweni-Toml", libraryName = "tuweni-toml", url = "https://github.com/apache/incubator-tuweni/tree/main/toml")
       .apache("https://github.com/apache/incubator-tuweni/blob/main/LICENSE")
       .copyrightText("Copyright 2019-2023 The Apache Software Foundation"),
@@ -221,6 +224,12 @@ object CommunityLibraryLicenses {
     LibraryLicense("Brotli", libraryName = "brotli-dec", url = "https://github.com/google/brotli")
       .mit("https://github.com/google/brotli/blob/master/LICENSE")
       .suppliedByOrganizations(Suppliers.GOOGLE),
+
+    LibraryLicense("Byte Buddy", libraryName = "byte-buddy", url = "https://bytebuddy.net")
+      .apache("https://github.com/raphw/byte-buddy/blob/master/LICENSE"),
+
+    LibraryLicense("Byte Buddy Agent", libraryName = "byte-buddy-agent", url = "https://bytebuddy.net")
+      .apache("https://github.com/raphw/byte-buddy/blob/master/LICENSE"),
 
     LibraryLicense("caffeine", libraryName = "caffeine", url = "https://github.com/ben-manes/caffeine")
       .apache("https://github.com/ben-manes/caffeine/blob/master/LICENSE")
@@ -1043,6 +1052,12 @@ object CommunityLibraryLicenses {
     LibraryLicense("MigLayout", libraryName = "miglayout-swing", url = "https://github.com/mikaelgrev/miglayout/")
       .newBsd("https://github.com/mikaelgrev/miglayout/blob/master/src/site/resources/docs/license.txt")
       .suppliedByOrganizations("MiG InfoCom AB"),
+
+    LibraryLicense("MockK", libraryName = "io.mockk", url = "https://mockk.io")
+      .apache("https://github.com/mockk/mockk/blob/master/LICENSE"),
+
+    LibraryLicense("MockK JVM", libraryName = "io.mockk.jvm", url = "https://mockk.io")
+      .apache("https://github.com/mockk/mockk/blob/master/LICENSE"),
 
     LibraryLicense("morfologik-fsa", libraryName = "org.carrot2:morfologik-fsa", url = "https://github.com/morfologik/morfologik-stemming")
       .newBsd("https://github.com/morfologik/morfologik-stemming/blob/master/LICENSE.txt")

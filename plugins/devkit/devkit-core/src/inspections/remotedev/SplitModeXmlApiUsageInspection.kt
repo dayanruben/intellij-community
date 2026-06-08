@@ -36,10 +36,20 @@ internal class SplitModeXmlApiUsageInspection : DevKitPluginXmlInspectionBase() 
 
     val currentlyOpenedDescriptor = DescriptorUtil.getIdeaPlugin(holder.fileElement.file)
     val hint = SplitModeApiRestrictionsService.getInstance().getExtensionPointHint(extensionPointName)
+    val xmlElement = element.xmlElement ?: return
+    if (SplitModeInspectionExclusionsService.getInstance(currentXmlFile.project).isExcluded(xmlElement, SPLIT_MODE_XML_API_USAGE_SHORT_NAME)) {
+      return
+    }
+    val regularFixes = SplitModeDependencyQuickFixes.createMismatchFixes(module, currentlyOpenedDescriptor, expectedModuleKind)
+    val suppressionFix = SplitModeInspectionExclusionsService.getInstance(currentXmlFile.project).createSuppressionFixIfApplicable(
+      xmlElement,
+      SPLIT_MODE_XML_API_USAGE_SHORT_NAME,
+    )
+    val fixes = if (suppressionFix != null) regularFixes + suppressionFix else regularFixes
     holder.createProblem(
       element,
       buildModuleKindMismatchMessage(extensionPointName, expectedModuleKind, actualModuleKind, hint),
-      *SplitModeDependencyQuickFixes.createMismatchFixes(module, currentlyOpenedDescriptor, expectedModuleKind)
+      *fixes
     )
   }
 

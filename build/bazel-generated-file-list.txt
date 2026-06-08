@@ -379,6 +379,8 @@ libraries/batik
 libraries/blockmap
 libraries/bouncy-castle-pgp
 libraries/bouncy-castle-provider
+libraries/byte-buddy
+libraries/byte-buddy/agent
 libraries/caffeine
 libraries/classgraph
 libraries/cli-parser
@@ -498,12 +500,15 @@ libraries/microba
 libraries/miglayout-swing
 libraries/misc/plugin
 libraries/mockito
+libraries/mockk
+libraries/mockk/jvm
 libraries/mvstore
 libraries/netty/buffer
 libraries/netty/codec-compression
 libraries/netty/codec-http
 libraries/netty/handler-proxy
 libraries/netty/tcnative-boringssl
+libraries/objenesis
 libraries/opencsv
 libraries/opentelemetry
 libraries/opentelemetry-exporter-otlp
@@ -522,6 +527,7 @@ libraries/rd/framework
 libraries/rd/swing
 libraries/rd/text
 libraries/rhino
+libraries/semver
 libraries/skiko
 libraries/snakeyaml
 libraries/snakeyaml-engine
@@ -533,6 +539,7 @@ libraries/system-stubs-jupiter
 libraries/teamcity/service-messages
 libraries/testcontainers
 libraries/testng
+libraries/tuweni/toml
 libraries/velocity
 libraries/winp
 libraries/xerces
@@ -1079,9 +1086,11 @@ plugins/findUsagesMl
 plugins/git-features-trainer
 plugins/git-modal-commit
 plugins/git4idea
+plugins/git4idea/backend
 plugins/git4idea/frontend
 plugins/git4idea/intellij.vcs.git.coverage
 plugins/git4idea/localHistory
+plugins/git4idea/performanceTesting
 plugins/git4idea/rt
 plugins/git4idea/shared
 plugins/git4idea/terminal

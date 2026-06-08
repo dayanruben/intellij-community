@@ -16,20 +16,22 @@ import java.util.concurrent.ConcurrentHashMap
 
 // production-only - JpsJavaClasspathKind.PRODUCTION_RUNTIME
 internal class JarPackagerDependencyHelper(private val outputProvider: ModuleOutputProvider) {
-  private val libraryCache = ConcurrentHashMap<JpsModule, List<JpsLibraryDependency>>()
+  private val productionLibraryCache = ConcurrentHashMap<JpsModule, List<JpsLibraryDependency>>()
+  private val testRuntimeLibraryCache = ConcurrentHashMap<JpsModule, List<JpsLibraryDependency>>()
 
   fun getModuleDependencies(moduleName: String): Sequence<String> {
     return outputProvider.findRequiredModule(moduleName).getProductionModuleDependencies(withTests = false).map { it.moduleReference.moduleName }
   }
 
-  fun isPluginModulePackedIntoSeparateJar(module: JpsModule, layout: PluginLayout?, frontendModuleFilter: FrontendModuleFilter): Boolean {
-    if (layout != null && !frontendModuleFilter.isModuleCompatibleWithFrontend(layout.mainModule) && frontendModuleFilter.isModuleCompatibleWithFrontend(module.name)) {
+  fun isPluginModulePackedIntoSeparateJar(module: JpsModule, layout: PluginLayout, frontendModuleFilter: FrontendModuleFilter): Boolean {
+    if (!layout.modulesWithExcludedModuleLibraries.contains(module.name) &&
+        getLibraryDependencies(module = module, withTests = false).any { it.libraryReference.parentReference is JpsModuleReference }) {
       return true
     }
-
-    val modulesWithExcludedModuleLibraries = layout?.modulesWithExcludedModuleLibraries ?: emptySet()
-    return !modulesWithExcludedModuleLibraries.contains(module.name) &&
-           getLibraryDependencies(module = module, withTests = false).any { it.libraryReference.parentReference is JpsModuleReference }
+    if (!frontendModuleFilter.isModuleCompatibleWithFrontend(layout.mainModule) && frontendModuleFilter.isModuleCompatibleWithFrontend(module.name)) {
+      return true
+    }
+    return false
   }
 
   fun isTestPluginModule(moduleName: String, module: JpsModule?): Boolean {
@@ -81,7 +83,9 @@ internal class JarPackagerDependencyHelper(private val outputProvider: ModuleOut
     if (module.name == "intellij.python.pyproject" && withTests) {
       return java.util.List.of()
     }
-    return libraryCache.computeIfAbsent(module) {
+
+    val cache = if (withTests) testRuntimeLibraryCache else productionLibraryCache
+    return cache.computeIfAbsent(module) {
       val javaExtensionService = JpsJavaExtensionService.getInstance()
       val result = mutableListOf<JpsLibraryDependency>()
       for (element in module.dependenciesList.dependencies) {

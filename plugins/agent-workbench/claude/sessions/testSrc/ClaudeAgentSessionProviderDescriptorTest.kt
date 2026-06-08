@@ -16,8 +16,6 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageS
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
-import com.intellij.agent.workbench.sessions.core.providers.AgentThreadRenameContext
-import com.intellij.agent.workbench.sessions.core.providers.AgentThreadRenameHandler
 import com.intellij.openapi.project.Project
 import com.intellij.testFramework.junit5.TestApplication
 import kotlinx.coroutines.Dispatchers
@@ -93,12 +91,8 @@ class ClaudeAgentSessionProviderDescriptorTest {
   }
 
   @Test
-  fun renameThreadHandlerDelegatesToBackendRenameEngine() {
-    val renameHandler = bridge.threadRenameHandler
-
-    assertThat(renameHandler).isInstanceOf(AgentThreadRenameHandler.Backend::class.java)
-    assertThat(renameHandler.supportedContexts)
-      .containsExactlyInAnyOrder(AgentThreadRenameContext.TREE_POPUP, AgentThreadRenameContext.EDITOR_TAB)
+  fun renameThreadActionIsAvailable() {
+    assertThat(bridge.threadRenameAction).isNotNull
   }
 
   @Test
@@ -209,7 +203,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
   }
 
   @Test
-  fun composeInitialMessageStripsManualPlanCommandPrefix() {
+  fun composeInitialMessageTreatsManualPlanCommandAsPlainText() {
     val plan = bridge.buildInitialMessagePlan(
       AgentPromptInitialMessageRequest(
         prompt = " /plan Refactor this ",
@@ -217,8 +211,8 @@ class ClaudeAgentSessionProviderDescriptorTest {
     )
     val message = checkNotNull(plan.message)
 
-    assertThat(message).isEqualTo("Refactor this")
-    assertThat(plan.mode).isEqualTo(AgentInitialMessageMode.PLAN)
+    assertThat(message).isEqualTo("/plan Refactor this")
+    assertThat(plan.mode).isEqualTo(AgentInitialMessageMode.STANDARD)
   }
 
   @Test
@@ -237,13 +231,13 @@ class ClaudeAgentSessionProviderDescriptorTest {
     assertThat(plannerPlan.mode).isEqualTo(AgentInitialMessageMode.STANDARD)
     assertThat(plannerPlan.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK)
 
-    val manualPlanCommand = bridge.buildInitialMessagePlan(
+    val manualPlanText = bridge.buildInitialMessagePlan(
       AgentPromptInitialMessageRequest(prompt = "/plan follow-up")
     )
-    assertThat(manualPlanCommand.mode).isEqualTo(AgentInitialMessageMode.PLAN)
-    assertThat(manualPlanCommand.message).isEqualTo("follow-up")
-    assertThat(manualPlanCommand.startupPolicy).isEqualTo(AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND)
-    assertThat(manualPlanCommand.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS)
+    assertThat(manualPlanText.mode).isEqualTo(AgentInitialMessageMode.STANDARD)
+    assertThat(manualPlanText.message).isEqualTo("/plan follow-up")
+    assertThat(manualPlanText.startupPolicy).isEqualTo(AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND)
+    assertThat(manualPlanText.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK)
   }
 
   @Test
@@ -311,8 +305,8 @@ class ClaudeAgentSessionProviderDescriptorTest {
 
       assertThat(descriptor.archiveThread(path = "/tmp/project", threadId = "session-1")).isTrue()
       assertThat(descriptor.unarchiveThread(path = "/tmp/project", threadId = "session-1")).isTrue()
-      val renameHandler = descriptor.threadRenameHandler as AgentThreadRenameHandler.Backend
-      assertThat(renameHandler.execute(path = "/tmp/project", threadId = "session-1", normalizedName = "Renamed thread")).isTrue()
+      val renameAction = checkNotNull(descriptor.threadRenameAction)
+      assertThat(renameAction("/tmp/project", "session-1", "Renamed thread")).isTrue()
       assertThat(archivedPath).isEqualTo("/tmp/project")
       assertThat(archivedThreadId).isEqualTo("session-1")
       assertThat(unarchivedPath).isEqualTo("/tmp/project")

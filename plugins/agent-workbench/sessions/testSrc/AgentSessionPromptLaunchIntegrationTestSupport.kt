@@ -16,6 +16,7 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
+import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
 import com.intellij.agent.workbench.sessions.service.AgentSessionChatOpenExecutor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
@@ -58,6 +59,35 @@ fun existingThreadPromptLaunchRequest(
   )
 }
 
+fun newThreadPromptLaunchRequest(
+  provider: AgentSessionProvider,
+  projectPath: String,
+  prompt: String = "Refactor selected code",
+  contextTitle: String = "Project",
+  contextBody: String = "project-a",
+  planMode: Boolean = false,
+): AgentPromptLaunchRequest {
+  return AgentPromptLaunchRequest(
+    provider = provider,
+    projectPath = projectPath,
+    launchMode = AgentSessionLaunchMode.STANDARD,
+    initialMessageRequest = AgentPromptInitialMessageRequest(
+      prompt = prompt,
+      contextItems = listOf(
+        AgentPromptContextItem(
+          rendererId = "project",
+          title = contextTitle,
+          body = contextBody,
+          source = "test",
+        )
+      ),
+      providerOptionIds = if (planMode) setOf(AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE) else emptySet(),
+    ),
+    targetThreadId = null,
+    preferredDedicatedFrame = null,
+  )
+}
+
 fun assertExistingThreadLaunchUsesPostStartDispatch(
   descriptor: AgentSessionProviderDescriptor,
   request: AgentPromptLaunchRequest,
@@ -77,7 +107,8 @@ fun assertExistingThreadLaunchUsesPostStartDispatch(
         service.refresh()
         waitForCondition {
           val project = service.state.value.projects.firstOrNull { it.path == projectPath } ?: return@waitForCondition false
-          project.hasLoaded && project.threads.any { thread -> thread.id == threadId }
+          project.providerLoadStates[provider] == AgentSessionProviderLoadState.LOADED &&
+          project.threads.any { thread -> thread.id == threadId }
         }
 
         val result = launchService.launchPromptRequest(request)
@@ -111,6 +142,65 @@ fun assertExistingThreadLaunchUsesPostStartDispatch(
   }
 }
 
+fun assertExistingThreadLaunchUsesStartupOverride(
+  descriptor: AgentSessionProviderDescriptor,
+  request: AgentPromptLaunchRequest,
+  projectPath: String,
+  threadId: String,
+  projectName: String = "Project A",
+): ExistingThreadPromptLaunchObservation {
+  val provider = descriptor.provider
+  val chatOpenExecutor = RecordingChatOpenExecutor()
+  var observation: ExistingThreadPromptLaunchObservation? = null
+  AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
+    runBlocking(Dispatchers.Default) {
+      withTestServiceAndLaunch(
+        sessionSourcesProvider = { listOf(descriptor.sessionSource) },
+        projectEntriesProvider = { listOf(openTestProjectEntry(projectPath, projectName)) },
+        chatOpenExecutor = chatOpenExecutor,
+      ) { service, launchService ->
+        service.refresh()
+        waitForCondition {
+          val project = service.state.value.projects.firstOrNull { it.path == projectPath } ?: return@waitForCondition false
+          project.providerLoadStates[provider] == AgentSessionProviderLoadState.LOADED &&
+          project.threads.any { thread -> thread.id == threadId }
+        }
+
+        val result = launchService.launchPromptRequest(request)
+
+        assertThat(result.launched).isTrue()
+        assertThat(result.error).isNull()
+        waitForCondition {
+          chatOpenExecutor.openChatCalls.get() == 1
+        }
+
+        val openRequest = checkNotNull(chatOpenExecutor.lastOpenChatRequest.get())
+        val initialMessagePlan = descriptor.buildInitialMessagePlan(request.initialMessageRequest)
+        val expectedSteps = descriptor.buildPostStartDispatchSteps(initialMessagePlan)
+
+        assertThat(chatOpenExecutor.openNewChatCalls.get()).isZero()
+        assertThat(openRequest.normalizedPath).isEqualTo(projectPath)
+        assertThat(openRequest.thread.id).isEqualTo(threadId)
+        assertThat(openRequest.thread.provider).isEqualTo(provider)
+        assertThat(openRequest.subAgent).isNull()
+        assertThat(openRequest.startupLaunchSpecOverride).isNotNull()
+        assertThat(openRequest.postStartDispatchSteps).containsExactlyElementsOf(expectedSteps)
+        assertThat(openRequest.initialMessageToken).isNotNull()
+        observation = ExistingThreadPromptLaunchObservation(
+          launchResult = result,
+          normalizedPath = openRequest.normalizedPath,
+          thread = openRequest.thread,
+          startupLaunchSpecOverride = openRequest.startupLaunchSpecOverride,
+          postStartDispatchSteps = openRequest.postStartDispatchSteps,
+          initialMessageToken = openRequest.initialMessageToken,
+        )
+      }
+    }
+  }
+
+  return checkNotNull(observation)
+}
+
 fun assertNewThreadPromptLaunchOpensNewChat(
   descriptor: AgentSessionProviderDescriptor,
   request: AgentPromptLaunchRequest,
@@ -132,7 +222,9 @@ fun assertNewThreadPromptLaunchOpensNewChat(
       ) { service, launchService ->
         service.refresh()
         waitForCondition {
-          service.state.value.projects.firstOrNull { project -> project.path == request.projectPath }?.hasLoaded == true
+          val project = service.state.value.projects.firstOrNull { project -> project.path == request.projectPath }
+                        ?: return@waitForCondition false
+          project.providerLoadStates[descriptor.provider] == AgentSessionProviderLoadState.LOADED
         }
 
         val result = launchService.launchPromptRequest(request)
@@ -260,4 +352,13 @@ data class NewThreadPromptLaunchObservation(
   @JvmField val postStartDispatchSteps: List<AgentInitialMessageDispatchStep>,
   @JvmField val initialMessageToken: String?,
   @JvmField val preferredDedicatedFrame: Boolean?,
+)
+
+data class ExistingThreadPromptLaunchObservation(
+  @JvmField val launchResult: AgentPromptLaunchResult,
+  @JvmField val normalizedPath: String,
+  @JvmField val thread: AgentSessionThread,
+  @JvmField val startupLaunchSpecOverride: AgentSessionTerminalLaunchSpec?,
+  @JvmField val postStartDispatchSteps: List<AgentInitialMessageDispatchStep>,
+  @JvmField val initialMessageToken: String?,
 )

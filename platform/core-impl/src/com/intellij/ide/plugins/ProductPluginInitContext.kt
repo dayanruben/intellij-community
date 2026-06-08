@@ -288,6 +288,11 @@ class ProductPluginInitContext(
                 yieldIfResolves(DependencyRef.of(moduleId))
               }
             }
+            if (doesDependOnPluginAlias(descriptor, GIT4IDEA_PLUGIN_ALIAS_ID)) {
+              for (moduleId in GIT4IDEA_MODULE_IDS) {
+                yieldIfResolves(DependencyRef.of(moduleId))
+              }
+            }
             yieldIfResolves(DependencyRef.of(COLLABORATION_TOOLS_MODULE_ID))
           }
 
@@ -376,7 +381,8 @@ private fun doesDependOnPluginAlias(plugin: IdeaPluginDescriptorImpl, @Suppress(
 }
 
 private fun isExternalNonBundledPlugin(plugin: IdeaPluginDescriptorImpl): Boolean {
-  return !plugin.isBundled && !PluginManagerCore.isVendorJetBrains(plugin.vendor ?: "")
+  return !plugin.isBundled && !PluginManagerCore.isVendorJetBrains(plugin.vendor ?: "") ||
+         plugin.pluginId.idString == "com.intellij.monorepo.devkit"
 }
 
 private val JAVA_BACKEND_MODULE_ID = PluginModuleId("intellij.java.backend", PluginModuleId.JETBRAINS_NAMESPACE)
@@ -399,6 +405,11 @@ private val XDEBUGGER_MODULE_IDS = listOf(
   PluginModuleId("intellij.platform.debugger.impl", PluginModuleId.JETBRAINS_NAMESPACE),
   PluginModuleId("intellij.platform.debugger.impl.shared", PluginModuleId.JETBRAINS_NAMESPACE),
   PluginModuleId("intellij.platform.debugger.impl.ui", PluginModuleId.JETBRAINS_NAMESPACE),
+)
+private val GIT4IDEA_PLUGIN_ALIAS_ID = PluginId.getId("Git4Idea")
+private val GIT4IDEA_MODULE_IDS = listOf(
+  PluginModuleId("intellij.vcs.git.backend", PluginModuleId.JETBRAINS_NAMESPACE),
+  PluginModuleId("intellij.vcs.git.shared", PluginModuleId.JETBRAINS_NAMESPACE),
 )
 private val externalNonBundledPluginCompatibilityDependencies = listOf(
   "intellij.libraries.groovy",
