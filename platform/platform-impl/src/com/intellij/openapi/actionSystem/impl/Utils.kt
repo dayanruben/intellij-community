@@ -1,5 +1,5 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:OptIn(IntellijInternalApi::class, ExperimentalStdlibApi::class)
+@file:OptIn(ExperimentalStdlibApi::class)
 
 package com.intellij.openapi.actionSystem.impl
 
@@ -69,7 +69,6 @@ import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.openapi.progress.util.SuvorovProgress
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.EmptyRunnable
-import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.registry.Registry
@@ -106,7 +105,6 @@ import io.opentelemetry.context.Context
 import io.opentelemetry.context.ContextKey
 import io.opentelemetry.extension.kotlin.asContextElement
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -177,14 +175,10 @@ private val LOG = logger<Utils>()
 // 3. Fast-track toolbars in a limited dispatcher, and limit subsequent fast-tracks
 // 4. Regular toolbars in a limited dispatcher
 internal val fastParallelism = (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(2)
-@OptIn(ExperimentalCoroutinesApi::class)
-private val shortcutUpdateDispatcher = Dispatchers.IO.limitedParallelism(fastParallelism)
-@OptIn(ExperimentalCoroutinesApi::class)
-private val contextMenuDispatcher = Dispatchers.IO.limitedParallelism(fastParallelism)
-@OptIn(ExperimentalCoroutinesApi::class)
-private val toolbarFastDispatcher = Dispatchers.IO.limitedParallelism(2)
-@OptIn(ExperimentalCoroutinesApi::class)
-private val toolbarDispatcher = Dispatchers.Default.limitedParallelism(2)
+private val shortcutUpdateDispatcher = Dispatchers.IO.limitedParallelism(fastParallelism, "shortcutUpdateDispatcher")
+private val contextMenuDispatcher = Dispatchers.IO.limitedParallelism(fastParallelism, "contextMenuDispatcher")
+private val toolbarFastDispatcher = Dispatchers.IO.limitedParallelism(2, "toolbarFastDispatcher")
+private val toolbarDispatcher = Dispatchers.Default.limitedParallelism(2, "toolbarDIspatcher")
 
 // Stacking fast-tracks UI freeze protection
 private var lastFailedFastTrackFinishNanos = 0L

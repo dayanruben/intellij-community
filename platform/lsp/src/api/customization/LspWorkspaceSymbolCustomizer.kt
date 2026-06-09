@@ -2,6 +2,7 @@
 package com.intellij.platform.lsp.api.customization
 
 import com.intellij.navigation.NavigationItem
+import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.api.LspServer
 import org.eclipse.lsp4j.WorkspaceSymbol
 
@@ -24,11 +25,21 @@ open class LspWorkspaceSymbolSupport : LspWorkspaceSymbolCustomizer() {
    *
    * Important: If you override this method and return a custom NavigationItem, make sure the platform can correctly de-duplicate results.
    * Provide a corresponding [com.intellij.ide.actions.searcheverywhere.SEResultsEqualityProvider] for your items, or reuse an
-   * existing one. See [com.intellij.platform.lsp.impl.workspaceSymbol.LspWorkspaceSymbolEqualityProvider] for the default equality
+   * existing one. See [com.intellij.platform.lsp.impl.features.workspaceSymbol.LspWorkspaceSymbolEqualityProvider] for the default equality
    * implementation used with LSP workspace symbols.
    *
    * @return a NavigationItem to show in Search Everywhere / Go To Class / Go To Symbol, or null to skip this symbol
    */
+  open fun createNavigationItem(lspClient: LspClient, workspaceSymbol: WorkspaceSymbol): NavigationItem? {
+    @Suppress("DEPRECATION")
+    return createNavigationItem(lspClient as LspServer, workspaceSymbol)
+  }
+
+  @Deprecated(
+    "Override or call createNavigationItem(lspClient, workspaceSymbol) — the LspClient overload",
+    ReplaceWith("createNavigationItem(lspServer as LspClient, workspaceSymbol)", "com.intellij.platform.lsp.api.LspClient"),
+  )
+  @Suppress("DEPRECATION")
   open fun createNavigationItem(lspServer: LspServer, workspaceSymbol: WorkspaceSymbol): NavigationItem? {
     return LspWorkspaceSymbolNavigationItem(lspServer, workspaceSymbol)
   }

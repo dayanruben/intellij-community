@@ -12,6 +12,7 @@
     <module name="intellij.java.xml.dom.impl"/>
     <module name="intellij.json.backend"/>
     <module name="intellij.libraries.xerces"/>
+    <module name="intellij.platform.jps.build"/>
     <module name="intellij.platform.structureView"/>
     <module name="intellij.platform.testRunner"/>
     <module name="intellij.properties.backend"/>
@@ -157,6 +158,11 @@
                  description="Keeps XML split-mode inspections enabled in plugin.xml files that are indirectly frontend-only, backend-only, or mixed."/>
     <registryKey key="devkit.remote.dev.split.mode.analysis.predefined.module.kinds.additional.file" defaultValue=""
                  description="Optional filesystem path to a predefined split-mode module kinds JSON file loaded instead of the bundled DevKit data when the file exists."
+                 restartRequired="true"/>
+    <registryKey key="devkit.remote.dev.split.mode.qodana.analysis.scope.limiter.enabled" defaultValue="false"
+                 description="Limits DevKit split-mode inspections to modules listed in the Qodana analysis scope file."/>
+    <registryKey key="devkit.remote.dev.split.mode.qodana.analysis.scope.additional.file" defaultValue=""
+                 description="Optional filesystem path to an additional split-mode Qodana analysis scope JSON file."
                  restartRequired="true"/>
     <registryKey key="devkit.obsolete.new.file.actions.enabled" defaultValue="false"
                  description="Enables old-fashioned File-New actions for plugin modules"/>

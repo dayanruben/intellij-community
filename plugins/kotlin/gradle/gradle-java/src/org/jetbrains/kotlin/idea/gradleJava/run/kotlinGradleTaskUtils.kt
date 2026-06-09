@@ -171,7 +171,9 @@ fun KtNamedFunction.getConfigurationName(): String {
         .computeBlocking<String?, Throwable> { containingKtFile.virtualFile?.nameWithoutExtension }
         ?.takeUnless { it.equals("main", ignoreCase = true) }
 
-    val functionName = name?.takeUnless { it.equals("main", ignoreCase = true) }
+    val functionName = ReadAction
+        .computeBlocking<String?, Throwable> { name }
+        ?.takeUnless { it.equals("main", ignoreCase = true) }
 
     return listOfNotNull(gradleSubprojectName, fileName, functionName).joinToString(".")
 }
@@ -202,13 +204,13 @@ fun configureKmpJvmRunConfigurationFromMainFunction(
     configuration.isComposeGradlePluginConfigured = runTask.isComposeGradlePluginConfigured
     val scriptParameterList = when {
         runTask.isComposeGradlePluginConfigured -> {
-            val mainFunctionClassFqn = ReadAction.compute<String, Throwable> { function.containingKtFile.javaFileFacadeFqName.asString() }
+            val mainFunctionClassFqn = ReadAction.computeBlocking<String, Throwable> { function.containingKtFile.javaFileFacadeFqName.asString() }
             configuration.mainFunctionClassFqn = mainFunctionClassFqn
             listOf(quietParameter)
         }
 
         else -> {
-            val mainClassParameter = ReadAction.compute<String, Throwable> { mainClassScriptParameter(function) }
+            val mainClassParameter = ReadAction.computeBlocking<String, Throwable> { mainClassScriptParameter(function) }
             listOf(mainClassParameter, quietParameter)
         }
     }

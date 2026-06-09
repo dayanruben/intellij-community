@@ -5,7 +5,7 @@ import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.platform.lsp.api.LspServer
+import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.util.getLsp4jRange
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.annotations.RequiresReadLock
@@ -22,17 +22,17 @@ object LspDidChangeUtil {
     }
 
   /**
-   * At the moment of this function call the [documentEvent] must be not yet applied to the document,
-   * which effectively means that this function must be called from [com.intellij.openapi.editor.event.DocumentListener.beforeDocumentChange].
-   * This is needed to calculate line numbers in the document as they were *before* the change.
-   */
+  * At the moment of this function call the [documentEvent] must be not yet applied to the document,
+  * which effectively means that this function must be called from [com.intellij.openapi.editor.event.DocumentListener.beforeDocumentChange].
+  * This is needed to calculate line numbers in the document as they were *before* the change.
+  */
   @RequiresEdt
   fun createIncrementalDidChangeParamsBeforeDocumentChange(
-      lspServer: LspServer,
-      documentEvent: DocumentEvent,
-      virtualFile: VirtualFile,
+    lspClient: LspClient,
+    documentEvent: DocumentEvent,
+    virtualFile: VirtualFile,
   ): DidChangeTextDocumentParams {
-    val versionedIdentifier = getVersionedIdentifier(lspServer, documentEvent.document, virtualFile)
+    val versionedIdentifier = getVersionedIdentifier(lspClient, documentEvent.document, virtualFile)
     // This function is called at the moment when the `documentEvent` is not yet applied to the document,
     // but the state of the document that this `DidChangeTextDocumentParams` reports to the LSP server
     // assumes that the documentEvent has been applied.
@@ -49,22 +49,22 @@ object LspDidChangeUtil {
 
   @RequiresReadLock
   internal fun createFullDidChangeParams(
-      lspServer: LspServer,
-      document: Document,
-      virtualFile: VirtualFile,
+    lspClient: LspClient,
+    document: Document,
+    virtualFile: VirtualFile,
   ): DidChangeTextDocumentParams =
-      DidChangeTextDocumentParams(
-          getVersionedIdentifier(lspServer, document, virtualFile),
-          listOf(TextDocumentContentChangeEvent(document.text))
-      )
+    DidChangeTextDocumentParams(
+      getVersionedIdentifier(lspClient, document, virtualFile),
+      listOf(TextDocumentContentChangeEvent(document.text))
+    )
 
   private fun getVersionedIdentifier(
-      lspServer: LspServer,
-      document: Document,
-      virtualFile: VirtualFile,
+    lspClient: LspClient,
+    document: Document,
+    virtualFile: VirtualFile,
   ): VersionedTextDocumentIdentifier =
-      VersionedTextDocumentIdentifier(
-          lspServer.descriptor.getFileUri(virtualFile),
-          lspServer.getDocumentVersion(document)
-      )
+    VersionedTextDocumentIdentifier(
+      lspClient.descriptor.getFileUri(virtualFile),
+      lspClient.getDocumentVersion(document)
+    )
 }

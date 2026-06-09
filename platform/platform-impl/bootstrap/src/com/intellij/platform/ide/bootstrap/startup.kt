@@ -29,6 +29,7 @@ import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.util.awaitWithCheckCanceled
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.ShutDownTracker
 import com.intellij.platform.diagnostic.telemetry.impl.span
@@ -78,6 +79,7 @@ import java.util.Random
 import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.atomic.AtomicReference
 import java.util.function.BiConsumer
+import java.util.function.Supplier
 import java.util.logging.ConsoleHandler
 import java.util.logging.Level
 import kotlin.system.exitProcess
@@ -221,8 +223,7 @@ fun startApplication(
   }
 
   shellEnvDeferred = scope.async {
-    // EnvironmentUtil wants logger
-    logDeferred.join()
+    logDeferred.join()  // environment loading needs a logger
     span("environment loading", Dispatchers.IO) {
       val log = logger<AppStarter>()
       if (shouldLoadShellEnv(log)) {
@@ -396,7 +397,7 @@ private fun scheduleLoadSystemLibsAndLogInfoAndInitMacApp(
     if (OS.CURRENT == OS.Windows) {
       span("system libs setup") {
         if (System.getProperty("winp.folder.preferred") == null) {
-          System.setProperty("winp.folder.preferred", PathManager.getTempPath())
+          System.setProperty("winp.folder.preferred", PathManager.getTempDir().toString())
         }
       }
     }
@@ -684,14 +685,24 @@ private fun shouldLoadShellEnv(log: Logger): Boolean {
 
 private fun loadEnvironment(parentJob: Job, log: Logger): Boolean {
   val envFuture = CompletableDeferred<Map<String, String>>(parentJob)
-  EnvironmentUtil.setEnvironmentLoader(envFuture)
+
+  EnvironmentUtil.setEnvironmentLoader(object : Supplier<Map<String, String>> {
+    private var env: Map<String, String>? = null
+
+    override fun get(): Map<String, String> {
+      if (env == null) {
+        env = awaitWithCheckCanceled(envFuture)
+      }
+      return env!!
+    }
+  })
 
   try {
     val timeoutMillis = System.getProperty(LOAD_SHELL_ENV_TIMEOUT_PROPERTY)?.toLongOrNull() ?: 0
     val env = ShellEnvironmentReader.readEnvironment(ShellEnvironmentReader.shellCommand(null, null, null), timeoutMillis).first
-    if ("LANG" !in env && "LC_ALL" !in env && @Suppress("SpellCheckingInspection") "LC_CTYPE" !in env) {
+    if ("LANG" !in env && "LC_ALL" !in env && "LC_CTYPE" !in env) {
       val value = EnvironmentUtil.setLocaleEnv(env, Charset.defaultCharset())
-      log.info(@Suppress("SpellCheckingInspection") "LC_CTYPE=${value}")
+      log.info("LC_CTYPE=${value}")
     }
     envFuture.complete(env.toImmutableMap())
     return true

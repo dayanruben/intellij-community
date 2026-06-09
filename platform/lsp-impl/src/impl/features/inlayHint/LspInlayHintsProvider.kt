@@ -16,9 +16,9 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
-import com.intellij.platform.lsp.api.LspServerDescriptor
+import com.intellij.platform.lsp.api.LspClientDescriptor
 import com.intellij.platform.lsp.api.customization.LspInlayHintSupport
-import com.intellij.platform.lsp.impl.LspServerManagerImpl
+import com.intellij.platform.lsp.impl.LspClientManagerImpl
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspCachedHighlighting
 import com.intellij.platform.lsp.util.getOffsetInDocument
 import com.intellij.psi.PsiElement
@@ -58,15 +58,15 @@ internal class LspInlayHintsProvider : InlayHintsProvider<NoSettings>, DumbAware
     val virtualFile = file.virtualFile ?: return null
     if (virtualFile is VirtualFileWindow || !virtualFile.isInLocalFileSystem) return null
 
-    val servers = LspServerManagerImpl.getInstanceImpl(file.project).getServersWithThisFileOpen(virtualFile)
-    val inlayHints: List<InlayHintData> = servers.flatMap { server ->
-      val customizer = server.descriptor.lspCustomization.inlayHintCustomizer
+    val clients = LspClientManagerImpl.getInstanceImpl(file.project).getClientsWithThisFileOpen(virtualFile)
+    val inlayHints: List<InlayHintData> = clients.flatMap { client ->
+      val customizer = client.descriptor.lspCustomization.inlayHintCustomizer
       if (customizer is LspInlayHintSupport) {
         val raw = customizer.getMaxInlayHintChars()
         val maxChars = raw.coerceIn(MIN_ALLOWED_INLAY_HINT_LENGTH, MAX_ALLOWED_INLAY_HINT_LENGTH)
-        server.getInlayHints(virtualFile)
+        client.getInlayHints(virtualFile)
           .filter { customizer.shouldDisplayInlayHint(virtualFile, it.highlightingInfo) }
-          .map { InlayHintData(server.descriptor, it, maxChars) }
+          .map { InlayHintData(client.descriptor, it, maxChars) }
       }
       else {
         emptyList()
@@ -99,7 +99,7 @@ internal class LspInlayHintsProvider : InlayHintsProvider<NoSettings>, DumbAware
   private fun buildPresentation(
     factory: PresentationFactory,
     project: Project,
-    descriptor: LspServerDescriptor,
+    descriptor: LspClientDescriptor,
     inlayHint: InlayHint,
     maxChars: Int,
   ): InlayPresentation {
@@ -144,7 +144,7 @@ internal class LspInlayHintsProvider : InlayHintsProvider<NoSettings>, DumbAware
     return factory.smallText(shownText)
   }
 
-  private fun navigateTo(descriptor: LspServerDescriptor, project: Project, targetUri: String, targetRange: Range?) {
+  private fun navigateTo(descriptor: LspClientDescriptor, project: Project, targetUri: String, targetRange: Range?) {
     val targetFile = descriptor.findFileByUri(targetUri) ?: return
 
     val editor = FileEditorManager.getInstance(project).openTextEditor(
@@ -160,7 +160,7 @@ internal class LspInlayHintsProvider : InlayHintsProvider<NoSettings>, DumbAware
 }
 
 private data class InlayHintData(
-  val descriptor: LspServerDescriptor,
+  val descriptor: LspClientDescriptor,
   val cached: LspCachedHighlighting<InlayHint>,
   val maxChars: Int,
 )

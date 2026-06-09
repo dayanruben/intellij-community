@@ -16,9 +16,9 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.presentation.TargetPresentation
 import com.intellij.platform.lsp.api.LspBundle
-import com.intellij.platform.lsp.api.LspServer
+import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.api.customization.LspFindReferencesSupport
-import com.intellij.platform.lsp.impl.LspServerManagerImpl
+import com.intellij.platform.lsp.impl.LspClientManagerImpl
 import com.intellij.platform.lsp.util.getLsp4jPosition
 import com.intellij.util.IconUtil
 import org.eclipse.lsp4j.Position
@@ -61,18 +61,18 @@ internal class LspSearchTargetsRule : UiDataRule {
     val offset = editor.caretModel.offset
     val position = getLsp4jPosition(document, offset)
 
-    val lspServers = LspServerManagerImpl.getInstanceImpl(project)
-                       .getServersWithThisFileOpen(file)
+    val lspClients = LspClientManagerImpl.getInstanceImpl(project)
+                       .getClientsWithThisFileOpen(file)
                        .filter { it.descriptor.lspCustomization.findReferencesCustomizer is LspFindReferencesSupport }
                        .filter { it.supportsFindReferences(file) }
                        .takeIf { it.isNotEmpty() }
                      ?: return null
 
-    return listOf(LspSearchTarget(lspServers, file, position))
+    return listOf(LspSearchTarget(lspClients, file, position))
   }
 }
 
-internal class LspSearchTarget(val lspServers: Collection<LspServer>, val file: VirtualFile, val position: Position) : SearchTarget {
+internal class LspSearchTarget(val lspClients: Collection<LspClient>, val file: VirtualFile, val position: Position) : SearchTarget {
   override fun createPointer(): Pointer<out SearchTarget> = Pointer.hardPointer(this)
 
   // It would be great to have something more meaningful here. For example, guess a word at caret.
@@ -81,17 +81,17 @@ internal class LspSearchTarget(val lspServers: Collection<LspServer>, val file: 
   // But we'll get the response much later than the Platform asks for `targetPresentableText`.
   private val fileNameAndPosition: @NlsSafe String = "${file.name}:${position.line + 1}:${position.character + 1}"
 
-  private val lspServerPresentableName: @NonNls String = lspServers.singleOrNull()?.descriptor?.presentableName ?: "LSP"
+  private val presentableName: @NonNls String = lspClients.singleOrNull()?.descriptor?.presentableName ?: "LSP"
 
   // Used to render the header in the 'Show Usages' popup
   // and also the tab header in the 'Find Usages' tool window
   override val usageHandler: UsageHandler =
-    UsageHandler { LspBundle.message("0.find.references.1", lspServerPresentableName, fileNameAndPosition) }
+    UsageHandler { LspBundle.message("0.find.references.1", presentableName, fileNameAndPosition) }
 
   // Used to render the search target in the result tree in the 'Find Usages' tool window
   override fun presentation(): TargetPresentation =
     TargetPresentation.builder(fileNameAndPosition)
-      .icon(IconUtil.getIcon(file, Iconable.ICON_FLAG_VISIBILITY, lspServers.first().project))
+      .icon(IconUtil.getIcon(file, Iconable.ICON_FLAG_VISIBILITY, lspClients.first().project))
       .presentation()
 
   override fun equals(other: Any?): Boolean {

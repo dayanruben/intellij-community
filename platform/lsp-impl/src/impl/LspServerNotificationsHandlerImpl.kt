@@ -56,7 +56,8 @@ import java.util.concurrent.CompletableFuture.completedFuture
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 
-internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServerImpl) : LspServerNotificationsHandler {
+internal class LspServerNotificationsHandlerImpl(private val lspClient: LspClientImpl) : LspServerNotificationsHandler {
+  val project = lspClient.project
 
   private data class ProgressTask(
     val text: @NlsSafe String,
@@ -71,15 +72,15 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
   override fun applyEdit(params: ApplyWorkspaceEditParams): CompletableFuture<ApplyWorkspaceEditResponse> {
     val future = CompletableFuture<ApplyWorkspaceEditResponse>()
 
-    LspServerManagerImpl.getInstanceImpl(lspServer.project).cs.launch {
+    LspClientManagerImpl.getInstanceImpl(project).cs.launch {
       try {
         readAndEdtWriteAction {
-          val applier = LspWorkspaceEditApplier.create(lspServer, params.edit)
+          val applier = LspWorkspaceEditApplier.create(lspClient, params.edit)
                         ?: return@readAndEdtWriteAction value(Unit)
           @Suppress("HardCodedStringLiteral")
           val commandName = params.label
-                            ?: LspBundle.message("code.change.from.server", lspServer.descriptor.presentableName)
-          writeCommandAction(lspServer.project, commandName) {
+                            ?: LspBundle.message("code.change.from.server", lspClient.descriptor.presentableName)
+          writeCommandAction(project, commandName) {
             applier.applyWorkspaceEdit()
             future.complete(ApplyWorkspaceEditResponse(true))
             Unit
@@ -97,13 +98,13 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
   }
 
   override fun registerCapability(params: RegistrationParams): CompletableFuture<Void> {
-    params.registrations.forEach { lspServer.dynamicCapabilities.registerCapability(it) }
+    params.registrations.forEach { lspClient.dynamicCapabilities.registerCapability(it) }
     restartHighlightingIfNeeded(params.registrations.map { it.method })
     return completedFuture(null)
   }
 
   override fun unregisterCapability(params: UnregistrationParams): CompletableFuture<Void> {
-    params.unregisterations.forEach { lspServer.dynamicCapabilities.unregisterCapability(it) }
+    params.unregisterations.forEach { lspClient.dynamicCapabilities.unregisterCapability(it) }
     return completedFuture(null)
   }
 
@@ -129,32 +130,32 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
 
     if (needsInlayHintRefresh) {
       // Also calls `DaemonCodeAnalyzer.restart` internally
-      LspFeaturesRefreshing.refreshInlayHints(lspServer.project)
+      LspFeaturesRefreshing.refreshInlayHints(project)
     }
 
     if (needsCodeLensesRefresh) {
-      LspFeaturesRefreshing.refreshCodeLenses(lspServer.project)
+      LspFeaturesRefreshing.refreshCodeLenses(project)
     }
 
     if (needsFoldingUpdate) {
-      for (fileEditor in FileEditorManager.getInstance(lspServer.project).getAllEditors()) {
+      for (fileEditor in FileEditorManager.getInstance(project).getAllEditors()) {
         if (fileEditor is TextEditor) {
           // Also calls `DaemonCodeAnalyzer.restart` internally
-          CodeFoldingManager.getInstance(lspServer.project).scheduleAsyncFoldingUpdate(fileEditor.editor)
+          CodeFoldingManager.getInstance(project).scheduleAsyncFoldingUpdate(fileEditor.editor)
         }
       }
     }
 
     // Only restart daemon explicitly if neither inlay hints nor folding update was triggered (both already restart it)
     if (needsDaemonRestart && !needsInlayHintRefresh && !needsFoldingUpdate) {
-      DaemonCodeAnalyzer.getInstance(lspServer.project).restart("LspServerManagerImpl.registerCapabilities")
+      DaemonCodeAnalyzer.getInstance(project).restart("LspClientManagerImpl.registerCapabilities")
     }
   }
 
   override fun telemetryEvent(`object`: Any) {}
 
   override fun publishDiagnostics(params: PublishDiagnosticsParams) {
-    if (!lspServer.project.isDisposed) lspServer.diagnosticsReceived(params)
+    if (!project.isDisposed) lspClient.diagnosticsReceived(params)
   }
 
   override fun showDocument(params: ShowDocumentParams): CompletableFuture<ShowDocumentResult> {
@@ -162,11 +163,11 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
 
     @Suppress("HttpUrlsUsage")
     if (uri.startsWith("http://") || uri.startsWith("https://")) {
-      BrowserUtil.browse(uri, lspServer.project)
+      BrowserUtil.browse(uri, project)
       return completedFuture(ShowDocumentResult(true))
     }
 
-    lspServer.descriptor.findFileByUri(uri)?.let { file ->
+    lspClient.descriptor.findFileByUri(uri)?.let { file ->
       return openFile(file, focusEditor = params.takeFocus != false, params.selection)
     }
 
@@ -179,8 +180,6 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
     runInEdt {
       try {
         if (file.isValid) {
-          val project = lspServer.project
-
           if (selection != null) {
             val document = FileDocumentManager.getInstance().getDocument(file)
             if (document != null) {
@@ -211,23 +210,23 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
   }
 
   override fun workspaceFolders(): CompletableFuture<List<WorkspaceFolder>> {
-    if (lspServer.project.isDisposed) return completedFuture(emptyList())
+    if (project.isDisposed) return completedFuture(emptyList())
 
-    return completedFuture(lspServer.descriptor.roots.map { root ->
-      WorkspaceFolder(lspServer.descriptor.getFileUri(root), root.name)
+    return completedFuture(lspClient.descriptor.roots.map { root ->
+      WorkspaceFolder(lspClient.descriptor.getFileUri(root), root.name)
     })
   }
 
   override fun configuration(params: ConfigurationParams): CompletableFuture<List<Any?>> {
-    if (lspServer.project.isDisposed) return completedFuture(Collections.emptyList())
+    if (project.isDisposed) return completedFuture(Collections.emptyList())
 
-    return completedFuture(params.items.map { lspServer.descriptor.getWorkspaceConfiguration(it) })
+    return completedFuture(params.items.map { lspClient.descriptor.getWorkspaceConfiguration(it) })
   }
 
   override fun createProgress(params: WorkDoneProgressCreateParams): CompletableFuture<Void> = completedFuture(null)
 
   override fun notifyProgress(params: ProgressParams) {
-    if (lspServer.project.isDisposed) return
+    if (project.isDisposed) return
 
     val token = params.token
     val tokenId = token.map({ it }, { it.toString() })
@@ -238,7 +237,7 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
       is WorkDoneProgressBegin -> {
         progressJobs[tokenId]?.cancel()
 
-        val job = LspServerManagerImpl.getInstanceImpl(lspServer.project).cs.launch {
+        val job = LspClientManagerImpl.getInstanceImpl(project).cs.launch {
 
           progressTasks[tokenId] = ProgressTask(
             text = value.title,
@@ -246,13 +245,13 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
             fraction = value.percentage.toFraction(),
           )
 
-          withBackgroundProgress(lspServer.project,
-                                 LspBundle.message("progress.title.progress", lspServer.descriptor.presentableName),
+          withBackgroundProgress(project,
+                                 LspBundle.message("progress.title.progress", lspClient.descriptor.presentableName),
                                  cancellable = value.cancellable ?: false) {
 
             coroutineContext.job.invokeOnCompletion { throwable ->
               if (throwable is CancellationException && value.cancellable == true) {
-                lspServer.sendNotification { it.cancelProgress(WorkDoneProgressCancelParams(token)) }
+                lspClient.sendNotification { it.cancelProgress(WorkDoneProgressCancelParams(token)) }
               }
               progressJobs.remove(tokenId)
             }
@@ -287,19 +286,19 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
   }
 
   override fun refreshSemanticTokens(): CompletableFuture<Void> {
-    if (!lspServer.project.isDisposed) {
-      lspServer.refreshSemanticTokens()
+    if (!project.isDisposed) {
+      lspClient.refreshSemanticTokens()
     }
     return completedFuture(null)
   }
 
   override fun refreshCodeLenses(): CompletableFuture<Void> {
-    LspFeaturesRefreshing.refreshCodeLenses(lspServer.project)
+    LspFeaturesRefreshing.refreshCodeLenses(project)
     return completedFuture(null)
   }
 
   override fun refreshInlayHints(): CompletableFuture<Void> {
-    LspFeaturesRefreshing.refreshInlayHints(lspServer.project)
+    LspFeaturesRefreshing.refreshInlayHints(project)
     return completedFuture(null)
   }
 
@@ -308,23 +307,23 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
 
 
   override fun showMessageRequest(params: ShowMessageRequestParams): CompletableFuture<MessageActionItem> {
-    if (lspServer.project.isDisposed) return completedFuture(null)
+    if (project.isDisposed) return completedFuture(null)
 
-    lspServer.logInfo("window/showMessageRequest: ${params.message}: ${params.actions?.joinToString { it.title }}")
+    lspClient.logInfo("window/showMessageRequest: ${params.message}: ${params.actions?.joinToString { it.title }}")
     return doNotify(params.message, getNotificationType(params), SHOW_MESSAGE_NOTIFICATION_GROUP, params.actions)
   }
 
   override fun showMessage(params: MessageParams) {
-    if (lspServer.project.isDisposed) return
+    if (project.isDisposed) return
 
-    lspServer.logInfo("window/showMessage: ${params.message}")
+    lspClient.logInfo("window/showMessage: ${params.message}")
     doNotify(params.message, getNotificationType(params), SHOW_MESSAGE_NOTIFICATION_GROUP)
   }
 
   override fun logMessage(params: MessageParams) {
-    if (lspServer.project.isDisposed) return
+    if (project.isDisposed) return
 
-    lspServer.logInfo("window/logMessage ${params.type}: ${params.message}")
+    lspClient.logInfo("window/logMessage ${params.type}: ${params.message}")
     if (params.type == MessageType.Error || params.type == MessageType.Warning) {
       doNotify(params.message, getNotificationType(params), LOG_ERRORS_WARNINGS_NOTIFICATION_GROUP)
     }
@@ -335,7 +334,7 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
   }
 
   override fun logTrace(params: LogTraceParams) {
-    if (lspServer.project.isDisposed) return
+    if (project.isDisposed) return
 
     // no need to LOG.info() it additionally; LOG.debug() done in Lsp4jServerConnector.createMessageJsonHandler is enough.
     val message = if (params.verbose != null) "${params.message}\n${params.verbose}" else params.message
@@ -362,7 +361,7 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
       cleanedMessage += text
     }
 
-    val presentableMessage: @NlsSafe String = "${lspServer.descriptor.presentableName}: $cleanedMessage"
+    val presentableMessage: @NlsSafe String = "${lspClient.descriptor.presentableName}: $cleanedMessage"
     NotificationGroupManager.getInstance()
       .getNotificationGroup(notificationGroup)
       .createNotification(presentableMessage, type)
@@ -378,7 +377,7 @@ internal class LspServerNotificationsHandlerImpl(private val lspServer: LspServe
           })
         }
       }
-      .notify(lspServer.project)
+      .notify(project)
 
     return result
   }
