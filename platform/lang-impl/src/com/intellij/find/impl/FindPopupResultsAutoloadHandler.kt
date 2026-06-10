@@ -109,13 +109,12 @@ internal class FindPopupResultsAutoloadHandler(private val host: Host) {
 
   /**
    * Backend-validator hook: apply a freshly produced [ValidationInfo] without restarting the search.
-   * For a non-replace-component validation error, also drop any stale rows from the previous
-   * (valid) search — matches the old `onStop(hash, message) + reset()` behaviour.
    */
   fun applyBackendValidationResult(info: ValidationInfo?) {
     host.applyValidationResult(info)
     if (info != null && !host.isValidationOnReplaceComponent(info)) {
       cancel()
+      onStop(loadingHash, info.message)
       host.resetUi()
     }
   }
@@ -142,7 +141,7 @@ internal class FindPopupResultsAutoloadHandler(private val host: Host) {
     if (data.isEmpty()) {
       // Vector overload bypasses the override and just appends.
       model.addRow(v as Vector<*>)
-      host.onFirstRowAdded()
+      host.selectFirstRow()
       state.firstResultPath = v.first().path
       state.recordRowKey(key)
       return
@@ -218,7 +217,7 @@ internal class FindPopupResultsAutoloadHandler(private val host: Host) {
 
     if (!loadMore) {
       state.resetForFreshSearch(ShowUsagesAction.getUsagesPageSize())
-      host.onLoadingRowVisibilityRequest(visible = false)
+      host.setLoadingRowVisible(false)
     }
 
     // For load-more, preserve the user's current scroll position: the previously visible
@@ -282,7 +281,7 @@ internal class FindPopupResultsAutoloadHandler(private val host: Host) {
     val countedBeforePass = state.cumulativeUsageCount()
 
     if (loadMore) {
-      host.onLoadingRowVisibilityRequest(visible = true)
+      host.setLoadingRowVisible(true)
     }
 
     ProgressManager.getInstance().runProcessWithProgressAsynchronously(
@@ -341,7 +340,7 @@ internal class FindPopupResultsAutoloadHandler(private val host: Host) {
               }
               recentItemRef.set(WeakReference(newItem))
 
-              if (timeToFirstResult.get() == -1L) {
+              if (!loadMore && timeToFirstResult.get() == -1L) {
                 val firstResultTime = System.currentTimeMillis() - startTime.get()
                 timeToFirstResult.set(firstResultTime)
                 FindUsagesCollector.recordFirstResultTime(firstResultTime)
@@ -447,7 +446,7 @@ internal class FindPopupResultsAutoloadHandler(private val host: Host) {
             tryLoadMore()
           }
           else {
-            host.onLoadingRowVisibilityRequest(visible = false)
+            host.setLoadingRowVisible(false)
             if (displayOccurrences > 0) {
               host.updateInfoLabel(displayOccurrences, displayFiles, loadingMore = !state.isExhausted)
             }
@@ -508,7 +507,8 @@ internal class FindPopupResultsAutoloadHandler(private val host: Host) {
                             (prev != null &&
                              prev.stringToFind.length < host.helper.model.stringToFind.length)
     if (usePreviousAsHint) {
-      host.forEachVisibleRowItem { item -> previousUsages.add(item.usage) }
+      val results = host.getItems()
+      results.forEach { item -> previousUsages.add(item.usage) }
     }
     return previousUsages
   }
@@ -563,10 +563,9 @@ internal class FindPopupResultsAutoloadHandler(private val host: Host) {
 
     // -- Result routing --
     fun appendIncomingRow(item: FindPopupItem)
-    fun onFirstRowAdded()
     fun selectFirstRow()
     fun schedulePreviewUpdateIfSelected(adapter: UsageInfoAdapter)
-    fun forEachVisibleRowItem(action: (FindPopupItem) -> Unit)
+    fun getItems(): List<FindPopupItem>
 
     // -- Label / empty text --
     fun updateInfoLabel(occurrences: Int, files: Int, loadingMore: Boolean)
@@ -574,7 +573,7 @@ internal class FindPopupResultsAutoloadHandler(private val host: Host) {
 
     // -- Reset / loading-row visibility --
     fun resetUi()
-    fun onLoadingRowVisibilityRequest(visible: Boolean)
+    fun setLoadingRowVisible(visible: Boolean)
 
     // -- Debouncer / scheduler bridges --
     fun cancelPendingScheduleRequests()

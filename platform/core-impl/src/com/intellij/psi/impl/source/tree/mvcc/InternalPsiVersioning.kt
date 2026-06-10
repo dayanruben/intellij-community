@@ -288,8 +288,8 @@ object InternalPsiVersioning {
 
     override fun beforeWriteLockTemporarilyReleased(): Unit {
       writeActionFinished(Any::class.java) // we publish the incremented version here so that the published version is incremented
-      // clear thread local reentrancy tracker, run writeActionStarted again
-      writeActionStarted(Any::class.java)
+      val token = initReadActionSection()
+      cleanupTokenList.get().add(token)
       return
     }
 
@@ -297,7 +297,7 @@ object InternalPsiVersioning {
     }
 
     override fun afterWriteLockReacquired(data: Unit) {
-      writeActionFinished(Any::class.java)
+      cleanupVersioningSection()
       writeActionStarted(Any::class.java)
     }
 
@@ -383,10 +383,11 @@ object InternalPsiVersioning {
       }
     } else {
       // we hope that eventually the problem with suspending write actions will be resolved; but we suppress the error for a known offender for now
-      if (correctVersion != value && !isInSuspendingWriteAction()) {
+      // let's report these errors only for internal builds -- persistent syntax has no effect anyway
+      if (correctVersion != value && ApplicationManager.getApplication().isInternal && !isInSuspendingWriteAction()) {
         try {
           // known case: this breaks is someone executed "suspending write action"
-          thisLogger().error("Expected version $correctVersion, but found $value")
+          thisLogger().error("Expected version $correctVersion, but found $value; write access: ${ApplicationManager.getApplication().isWriteAccessAllowed}; context: ${currentThreadContext()}")
         } catch (e : AssertionError) {
           // in tests, the error above throws a hard error which corrupts the stack of cleanups.
           // we hope that the error will be reported and the rest of the program proceeds as expected

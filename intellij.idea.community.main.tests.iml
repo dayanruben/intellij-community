@@ -52,6 +52,7 @@
     <orderEntry type="module" module-name="intellij.python.sdk" scope="TEST" />
     <orderEntry type="module" module-name="intellij.restructuredtext" scope="TEST" />
     <orderEntry type="module" module-name="intellij.markdown.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.mermaid" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jps.build.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.devkit.jps.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.groovy.jps.tests" scope="TEST" />
@@ -185,6 +186,10 @@
     <orderEntry type="module" module-name="intellij.kotlin.gradle.tooling.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.gradle.gradle.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.jvm.debugger.eval4j.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.kotlin.jvm.debugger.test" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.kotlin.jvm.debugger.test.testFramework" scope="TEST" />
+    <orderEntry type="module" module-name="kotlin.jvm-debugger.testFramework" scope="TEST" />
+    <orderEntry type="module" module-name="kotlin.util.test-generator-api" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.onboarding.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.maven.groovy.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.maven.proofreading.tests" scope="TEST" />
@@ -293,6 +298,7 @@
     <orderEntry type="module" module-name="intellij.platform.exploratory.tests.main" scope="TEST" />
     <orderEntry type="module" module-name="intellij.searchEverywhereMl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.lsp.impl.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.mermaid.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.discoverability.tests" scope="TEST" />
   </component>
 </module>

@@ -323,7 +323,6 @@ java/java-psi-impl
 java/java-runtime
 java/java-structure-view
 java/java-syntax
-java/java-terminal
 java/java-tests
 java/jsp-base-openapi
 java/jsp-openapi
@@ -337,6 +336,10 @@ java/plugin
 java/remote-servers/api
 java/remote-servers/impl
 java/structuralsearch-java
+java/terminal
+java/terminal/backend
+java/terminal/frontend
+java/terminal/shared
 java/testFramework
 java/testFramework/backend
 java/testFramework/shared
@@ -750,6 +753,7 @@ platform/navbar/plugin
 platform/navbar/shared
 platform/navbar/testFramework
 platform/new-ui-onboarding
+platform/new-ui-onboarding/jcef
 platform/new-users-onboarding
 platform/non-modal-welcome-screen
 platform/non-modal-welcome-screen/backend
@@ -768,6 +772,8 @@ platform/platform-impl/designer
 platform/platform-impl/eel
 platform/platform-impl/initial-config-import
 platform/platform-impl/internal
+platform/platform-impl/internal/jcef
+platform/platform-impl/jcef
 platform/platform-impl/recentProjects
 platform/platform-impl/remote
 platform/platform-impl/rpc
@@ -1473,6 +1479,8 @@ plugins/mcp-server/mcpserver.terminal/tests
 plugins/mcp-server/mcpserver.vcs
 plugins/mcp-server/tests
 plugins/mcp-server/tests/plugin
+plugins/mermaid
+plugins/mermaid/markdown
 plugins/ml-local-models
 plugins/ml-local-models/java
 plugins/performanceTesting/backend
@@ -1483,6 +1491,7 @@ plugins/performanceTesting/freezes
 plugins/performanceTesting/frontend
 plugins/performanceTesting/remote-driver
 plugins/performanceTesting/remote-driver.compose
+plugins/performanceTesting/remote-driver.jcef
 plugins/performanceTesting/scripts-ui
 plugins/performanceTesting/vcs
 plugins/properties
@@ -1630,7 +1639,6 @@ python/python-sdk-configurator/frontend
 python/python-sdk-ui
 python/python-syntax
 python/python-syntax-core
-python/python-terminal
 python/python-test-env/common
 python/python-test-env/conda
 python/python-test-env/core
@@ -1645,6 +1653,10 @@ python/python-venv
 python/services/internal-impl
 python/services/shared
 python/services/system-python
+python/terminal
+python/terminal/backend
+python/terminal/frontend
+python/terminal/shared
 python/testFramework
 python/tools
 spellchecker

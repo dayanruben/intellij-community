@@ -269,6 +269,7 @@ com.intellij.codeInsight.actions.LayoutCodeOptions
 - a:getTextRangeType():com.intellij.codeInsight.actions.TextRangeType
 c:com.intellij.codeInsight.actions.OptimizeImportsProcessor
 - <init>(com.intellij.codeInsight.actions.AbstractLayoutCodeProcessor):V
+- p:needsReadActionToPrepareTask():Z
 com.intellij.codeInsight.actions.ReaderModeListener
 - java.util.EventListener
 - a:modeChanged(com.intellij.openapi.project.Project):V
@@ -323,7 +324,7 @@ Fc:com.intellij.codeInsight.codeVision.CodeVisionHost
 - sf:defaultVisibleLenses:I
 - sf:settingsLensProviderId:java.lang.String
 - <init>(com.intellij.openapi.project.Project,kotlinx.coroutines.CoroutineScope):V
-- f:calculateCodeVisionSync(com.intellij.openapi.editor.Editor,com.intellij.openapi.Disposable):V
+- f:calculateCodeVisionSync(com.intellij.openapi.editor.Editor,com.intellij.openapi.Disposable):java.util.concurrent.CompletableFuture
 - f:collectPlaceholders(com.intellij.openapi.editor.Editor,com.intellij.psi.PsiFile,kotlin.coroutines.Continuation):java.lang.Object
 - f:getAnchorForEntry(com.intellij.codeInsight.codeVision.CodeVisionEntry):com.intellij.codeInsight.codeVision.CodeVisionAnchorKind
 - f:getCodeVisionLifetime():com.jetbrains.rd.util.lifetime.Lifetime

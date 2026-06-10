@@ -146,8 +146,6 @@ import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.StatusText;
 import com.intellij.util.ui.UIUtil;
-import kotlin.Unit;
-import kotlin.jvm.functions.Function1;
 import net.miginfocom.swing.MigLayout;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
@@ -244,7 +242,6 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
   private final Alarm myPreviewUpdater;
   private final Runnable updatePreviewRunnable;
   private final @NotNull FindPopupScopeUI myScopeUI;
-  private JComponent myCodePreviewComponent;
   private SearchTextArea mySearchTextArea;
   private SearchTextArea myReplaceTextArea;
   private ActionListener myOkActionListener;
@@ -946,10 +943,9 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     bottomPanel.add(myReplaceAllButton, btnGapLeft);
     bottomPanel.add(myReplaceSelectedButton, btnGapLeft);
 
-    myCodePreviewComponent = myUsagePreviewPanel.createComponent();
     JPanel previewPanel = new JPanel(new BorderLayout());
     previewPanel.add(myUsagePreviewTitle, BorderLayout.NORTH);
-    previewPanel.add(myCodePreviewComponent, BorderLayout.CENTER);
+    previewPanel.add(myUsagePreviewPanel.createComponent(), BorderLayout.CENTER);
     myPreviewSplitter.setSecondComponent(previewPanel);
     JPanel scopesPanel = new JPanel();
     new RowBuilder(scopesPanel)
@@ -1319,16 +1315,21 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
 
   private void installLoadMoreScrollListener(@NotNull JBScrollPane scrollPane) {
     myResultsScrollPane = scrollPane;
-    JScrollBar bar = scrollPane.getVerticalScrollBar();
-    bar.addAdjustmentListener(e -> {
-      int extent = bar.getModel().getExtent();
-      if (extent <= 0) return;
-      int yetToScroll = bar.getMaximum() - extent - e.getValue();
-      int viewportHeight = Math.max(scrollPane.getHeight(), 1);
-      if (yetToScroll < Math.max(viewportHeight / 2, 50)) {
+    scrollPane.getVerticalScrollBar().addAdjustmentListener(e -> {
+      if (isUserAtBottomWithValue(e.getValue())) {
         myResultsAutoloadHandler.tryLoadMore();
       }
     });
+  }
+
+  private boolean isUserAtBottomWithValue(int scrollBarValue) {
+    if (myResultsScrollPane == null) return false;
+    JScrollBar bar = myResultsScrollPane.getVerticalScrollBar();
+    int extent = bar.getModel().getExtent();
+    if (extent <= 0) return false;
+    int yetToScroll = bar.getMaximum() - extent - scrollBarValue;
+    int viewportHeight = Math.max(myResultsScrollPane.getHeight(), 1);
+    return yetToScroll < Math.max(viewportHeight / 2, 50);
   }
 
   private void updateInfoLabel(int occurrences, int filesWithOccurrences, boolean loadingMore) {
@@ -1784,12 +1785,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     @Override
     public boolean isUserAtBottom() {
       if (myResultsScrollPane == null) return false;
-      JScrollBar bar = myResultsScrollPane.getVerticalScrollBar();
-      int extent = bar.getModel().getExtent();
-      if (extent <= 0) return false;
-      int yetToScroll = bar.getMaximum() - extent - bar.getValue();
-      int viewportHeight = Math.max(myResultsScrollPane.getHeight(), 1);
-      return yetToScroll < Math.max(viewportHeight / 2, 50);
+      return isUserAtBottomWithValue(myResultsScrollPane.getVerticalScrollBar().getValue());
     }
 
     @Override public @Nullable FindModel getPreviousModel() { return myHelper.myPreviousModel; }
@@ -1850,15 +1846,9 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     public void appendIncomingRow(@NotNull FindPopupItem item) {
       myPreviewSplitter.getSecondComponent().setVisible(true);
       ((DefaultTableModel)myResultsPreviewTable.getModel()).addRow(new Object[]{item});
-      myCodePreviewComponent.setVisible(true);
       int rowCount = myResultsPreviewTable.getRowCount();
       myReplaceAllButton.setEnabled(rowCount > 0);
       myReplaceSelectedButton.setEnabled(rowCount > 0);
-    }
-
-    @Override
-    public void onFirstRowAdded() {
-      myResultsPreviewTable.getSelectionModel().setSelectionInterval(0, 0);
     }
 
     @Override
@@ -1876,12 +1866,12 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     }
 
     @Override
-    public void forEachVisibleRowItem(@NotNull Function1<? super FindPopupItem, Unit> action) {
+    public @NotNull List<@NotNull FindPopupItem> getItems() {
       DefaultTableModel model = (DefaultTableModel)myResultsPreviewTable.getModel();
-      for (int i = 0, len = model.getRowCount(); i < len; ++i) {
-        Object value = model.getValueAt(i, 0);
-        if (value instanceof FindPopupItem) action.invoke((FindPopupItem)value);
-      }
+      return ContainerUtil.mapNotNull(model.getDataVector(), row -> {
+        if (row.getFirst() instanceof FindPopupItem item) return item;
+        else return null;
+      });
     }
 
     @Override
@@ -1908,7 +1898,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     }
 
     @Override
-    public void onLoadingRowVisibilityRequest(boolean visible) {
+    public void setLoadingRowVisible(boolean visible) {
       if (myLoadMoreRow != null) myLoadMoreRow.setVisible(visible);
     }
 
@@ -1979,7 +1969,6 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
         ApplicationManager.getApplication().invokeLater(() -> {
           if (!isDirectoryExists) {
             myResultsAutoloadHandler.applyBackendValidationResult(evaluateValidationInfo(isDirectoryExists));
-            myResultsAutoloadHandler.cancel();
           }
           else {
             scheduleResultsUpdate();

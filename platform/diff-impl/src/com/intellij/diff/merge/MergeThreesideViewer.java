@@ -227,23 +227,15 @@ public class MergeThreesideViewer extends ThreesideTextDiffViewerEx {
     diffGroup.add(new ShowDiffWithBaseAction(this, ThreeSide.BASE));
     diffGroup.add(new ShowDiffWithBaseAction(this, ThreeSide.RIGHT));
     group.add(diffGroup);
+    group.add(new MyToggleExpandByDefaultAction());
 
     group.add(new Separator(DiffBundle.messagePointer("action.Anonymous.text.apply.non.conflicting.changes")));
     group.add(new ApplyNonConflictsAction(this, ThreeSide.LEFT, DiffBundle.message("action.merge.apply.non.conflicts.left.text")));
     group.add(new ApplyNonConflictsAction(this, ThreeSide.BASE, DiffBundle.message("action.merge.apply.non.conflicts.all.text")));
     group.add(new ApplyNonConflictsAction(this, ThreeSide.RIGHT, DiffBundle.message("action.merge.apply.non.conflicts.right.text")));
+    group.add(Separator.getInstance());
     group.add(new MagicResolvedConflictsAction(this));
     group.add(new RevertConflictResolutionAction(this));
-
-    group.add(Separator.getInstance());
-
-    List<AnAction> diffActions = new ArrayList<>();
-    diffActions.add(new MyToggleAutoScrollAction());
-    diffActions.add(ActionManager.getInstance().getAction("Vcs.Diff.ResolveConflictsInImports"));
-    myEditorSettingsAction.setSettingsActions(diffActions, myTextDiffProvider.getDiffSettingsActions());
-
-    group.add(new MyToggleExpandByDefaultAction());
-    group.add(myEditorSettingsAction);
 
     AnAction additionalActions = ActionManager.getInstance().getAction("Diff.Conflicts.Additional.Actions");
     if (additionalActions instanceof ActionGroup) {
@@ -251,6 +243,16 @@ public class MergeThreesideViewer extends ThreesideTextDiffViewerEx {
     }
 
     return group;
+  }
+
+  @Override
+  protected @NotNull List<AnAction> createRightToolbarActions() {
+    List<AnAction> diffActions = new ArrayList<>();
+    diffActions.add(new MyToggleAutoScrollAction());
+    diffActions.add(ActionManager.getInstance().getAction("Vcs.Diff.ResolveConflictsInImports"));
+    myEditorSettingsAction.setSettingsActions(diffActions, myTextDiffProvider.getDiffSettingsActions());
+
+    return List.of(myEditorSettingsAction);
   }
 
   @Override

@@ -1,20 +1,37 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.dom
 
+import com.intellij.testFramework.junit5.TestApplication
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.idea.maven.indices.MavenIndicesTestFixture
-import org.junit.Test
+import org.jetbrains.idea.maven.fixtures.MavenDomTestFixture
+import org.jetbrains.idea.maven.fixtures.MavenDomTestFixtureIndices
+import org.jetbrains.idea.maven.fixtures.MavenVersionArguments
+import org.jetbrains.idea.maven.fixtures.assertCompletionVariants
+import org.jetbrains.idea.maven.fixtures.checkHighlighting
+import org.jetbrains.idea.maven.fixtures.configureProjectPom
+import org.jetbrains.idea.maven.fixtures.createProjectPom
+import org.jetbrains.idea.maven.fixtures.createProjectSubFile
+import org.jetbrains.idea.maven.fixtures.importProjectAsync
+import org.jetbrains.idea.maven.fixtures.mavenDomFixture
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedClass
+import org.junit.jupiter.params.provider.ArgumentsSource
 
-class MavenSurefirePluginTest : MavenDomWithIndicesTestCase() {
-  override fun skipPluginResolution() = false
+@TestApplication
+@ParameterizedClass
+@ArgumentsSource(MavenVersionArguments::class)
+class MavenSurefirePluginTest(mavenVersion: String, modelVersion: String) {
 
-  override fun createIndicesFixture(): MavenIndicesTestFixture {
-    return MavenIndicesTestFixture(dir, project, testRootDisposable,"plugins", "local1")
-  }
+  private val maven by mavenDomFixture(
+    mavenVersion = mavenVersion, modelVersion = modelVersion,
+    initialPom = MavenDomTestFixture.DEFAULT_POM,
+    skipPluginResolution = false,
+    indices = MavenDomTestFixtureIndices("plugins", listOf("local1")),
+  )
 
   @Test
   fun testCompletion() = runBlocking {
-    configureProjectPom(
+    maven.configureProjectPom(
       """
           <groupId>simpleMaven</groupId>
           <artifactId>simpleMaven</artifactId>
@@ -34,18 +51,18 @@ class MavenSurefirePluginTest : MavenDomWithIndicesTestCase() {
             </plugins>
           </build>
         """.trimIndent())
-    importProjectAsync()
+    maven.importProjectAsync()
 
-    createProjectSubFile("src/main/A.txt", "")
-    createProjectSubFile("src/test/A.txt", "")
-    createProjectSubFile("src/A.txt", "")
+    maven.createProjectSubFile("src/main/A.txt", "")
+    maven.createProjectSubFile("src/test/A.txt", "")
+    maven.createProjectSubFile("src/A.txt", "")
 
-    assertCompletionVariants(projectPom, "main", "test")
+    maven.assertCompletionVariants(maven.projectPom, "main", "test")
   }
 
   @Test
   fun testCompletionSurefireProperties() = runBlocking {
-    configureProjectPom(
+    maven.configureProjectPom(
       """
           <groupId>simpleMaven</groupId>
           <artifactId>simpleMaven</artifactId>
@@ -65,14 +82,14 @@ class MavenSurefirePluginTest : MavenDomWithIndicesTestCase() {
             </plugins>
           </build>
         """.trimIndent())
-    importProjectAsync()
+    maven.importProjectAsync()
 
-    assertCompletionVariants(projectPom, "surefire.forkNumber", "surefire.threadNumber")
+    maven.assertCompletionVariants(maven.projectPom, "surefire.forkNumber", "surefire.threadNumber")
   }
 
   @Test
   fun testCompletionSurefirePropertiesOutsideConfiguration() = runBlocking {
-    configureProjectPom(
+    maven.configureProjectPom(
       """
           <groupId>simpleMaven</groupId>
           <artifactId>simpleMaven</artifactId>
@@ -93,14 +110,14 @@ class MavenSurefirePluginTest : MavenDomWithIndicesTestCase() {
             </plugins>
           </build>
         """.trimIndent())
-    importProjectAsync()
+    maven.importProjectAsync()
 
-    assertCompletionVariants(projectPom)
+    maven.assertCompletionVariants(maven.projectPom)
   }
 
   @Test
   fun testSurefirePropertiesHighlighting() = runBlocking {
-    importProjectAsync(
+    maven.importProjectAsync(
       """
           <groupId>simpleMaven</groupId>
           <artifactId>simpleMaven</artifactId>
@@ -138,7 +155,7 @@ class MavenSurefirePluginTest : MavenDomWithIndicesTestCase() {
           </build>
         """.trimIndent())
 
-    createProjectPom(
+    maven.createProjectPom(
       """
           <groupId>simpleMaven</groupId>
           <artifactId>simpleMaven</artifactId>
@@ -176,6 +193,6 @@ class MavenSurefirePluginTest : MavenDomWithIndicesTestCase() {
           </build>
         """.trimIndent())
 
-    checkHighlighting()
+    maven.checkHighlighting()
   }
 }

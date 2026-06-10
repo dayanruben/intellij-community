@@ -105,7 +105,6 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
   private final SettingsTreeView treeView;
   public final ConfigurableEditor editor;
   private final OnePixelSplitter mySplitter;
-  private final JPanel myTreeNorthPanel;
   private final SpotlightPainter spotlightPainter;
   private final LoadingDecorator loadingDecorator;
   private final @NotNull ConfigurableEditorBanner myBanner;
@@ -386,16 +385,7 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
 
     mySplitter.setSecondComponent(right);
     right.add(BorderLayout.NORTH, withHistoryToolbar(myBanner));
-    myTreeNorthPanel = new JPanel(new BorderLayout()) {
-      @Override
-      public Dimension getMinimumSize() {
-        Dimension d = super.getMinimumSize();
-        return new Dimension(0, d.height);
-      }
-    };
-    myTreeNorthPanel.setOpaque(false);
-    myTreeNorthPanel.add(BorderLayout.CENTER, searchPanel);
-    left.add(BorderLayout.NORTH, myTreeNorthPanel);
+    left.add(BorderLayout.NORTH, searchPanel);
     editor.setPreferredSize(JBUI.size(800, 600));
     add(BorderLayout.CENTER, mySplitter);
 
@@ -446,14 +436,6 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
     mySplitter.getFirstComponent().setVisible(visible);
   }
 
-  float getSplitterProportion() {
-    return mySplitter.getProportion();
-  }
-
-  void setSplitterProportion(float proportion) {
-    mySplitter.setProportion(proportion);
-  }
-
   @ApiStatus.Internal
   public @NotNull SettingsTreeView getTreeView() {
     return treeView;
@@ -468,8 +450,8 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
   }
 
   void selectWithFilter(@NotNull Configurable configurable, @Nullable String filterText) {
-    treeView.select(configurable).onProcessed(it -> filter.update(filterText));
-    editor.select(configurable);
+    filter.update(filterText);
+    treeView.refilterAndSelect(configurable);
   }
 
   private @NotNull MutableConfigurableGroup.Listener createReloadListener(List<? extends ConfigurableGroup> groups) {
@@ -632,19 +614,6 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
     if (UISettings.isIdeHelpTooltipEnabled()) {
       new HelpTooltip().setDescription(HtmlChunk.text(ActionsBundle.actionDescription("HelpTopics"))).installOn(helpButton);
     }
-  }
-
-
-  @Nullable
-  Configurable getCurrentConfigurable() {
-    return filter.context.getCurrentConfigurable();
-  }
-
-  void setTreeTopComponent(@Nullable JComponent component) {
-    Component existing = ((BorderLayout)myTreeNorthPanel.getLayout()).getLayoutComponent(BorderLayout.NORTH);
-    if (existing != null) myTreeNorthPanel.remove(existing);
-    if (component != null) myTreeNorthPanel.add(BorderLayout.NORTH, component);
-    myTreeNorthPanel.revalidate();
   }
 
   @Nullable
