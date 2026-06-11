@@ -11,7 +11,7 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderMenuModel
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.buildAgentSessionProviderActionModel
-import com.intellij.agent.workbench.sessions.providerIconWithMode
+import com.intellij.agent.workbench.sessions.providerItemMonochromeIconWithMode
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
 import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
 import com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService
@@ -37,13 +37,13 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.HtmlChunk
-import com.intellij.openapi.vcs.merge.MergeDialogContext
 import com.intellij.openapi.vcs.merge.MergeResolveActionContext
 import com.intellij.ui.components.JBOptionButton
 import org.jetbrains.annotations.Nls
 import java.awt.event.ActionEvent
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.AbstractAction
+import javax.swing.Action
 import javax.swing.JComponent
 
 private data class ResolveWithAgentContext(
@@ -63,6 +63,7 @@ private sealed interface QuickLaunchResult {
 }
 
 private const val ONE_SHOT_DIALOG_ACTION_PLACE: String = "Merge.OneShotDialog"
+private const val ITERATIVE_DIALOG_ACTION_PLACE: String = "Merge.Dialog.Iterative"
 private const val PROVIDER_POPUP_PLACE: String = "Merge.ResolveWithAgent.ProviderPopup"
 
 internal class AgentResolveConflictsAction @JvmOverloads constructor(
@@ -101,8 +102,8 @@ internal class AgentResolveConflictsAction @JvmOverloads constructor(
       else -> menuItems(actionModel.menuModel).firstNotNullOfOrNull(::disabledDescription)
               ?: AgentVcsMergeBundle.message("merge.agent.resolve.no.providers")
     }
-    presentation.icon = rememberedQuickStartItem?.let { providerIconWithMode(it.bridge.provider, it.mode) }
-                        ?: enabledItems.firstOrNull()?.let { providerIconWithMode(it.bridge.provider, it.mode) }
+    presentation.icon = rememberedQuickStartItem?.let { providerItemMonochromeIconWithMode(it) }
+                        ?: enabledItems.firstOrNull()?.let { providerItemMonochromeIconWithMode(it) }
                         ?: AllIcons.Actions.InlayGear
   }
 
@@ -114,7 +115,7 @@ internal class AgentResolveConflictsAction @JvmOverloads constructor(
   }
 
   override fun createCustomComponent(presentation: Presentation, place: String): JComponent {
-    if (place != ONE_SHOT_DIALOG_ACTION_PLACE) {
+    if (!isMergeDialogActionPlace(place)) {
       return ActionButtonWithText(this, presentation, place, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE)
     }
     return ResolveWithAgentOptionButton(place).apply {
@@ -206,19 +207,6 @@ internal class AgentResolveConflictsAction @JvmOverloads constructor(
   }
 
   private fun resolveContext(dataContext: DataContext): ResolveWithAgentContext? {
-    val mergeDialogContext = MergeDialogContext.KEY.getData(dataContext)
-    if (mergeDialogContext != null) {
-      return ResolveWithAgentContext(
-        project = mergeDialogContext.project,
-        request = AgentVcsMergeLaunchRequest(
-          selectionHintFiles = mergeDialogContext.selectionHintFiles,
-          agentProvider = AgentSessionProvider.CODEX,
-          launchMode = AgentSessionLaunchMode.STANDARD,
-        ),
-        closeDialog = mergeDialogContext.takeIf(MergeDialogContext::isModalDialog)?.let { it::closeDialog },
-      )
-    }
-
     val directContext = MergeResolveActionContext.KEY.getData(dataContext) ?: return null
     if (!directContext.isContextValid()) return null
     return ResolveWithAgentContext(
@@ -230,6 +218,10 @@ internal class AgentResolveConflictsAction @JvmOverloads constructor(
       ),
       closeDialog = directContext::closeSourceUi,
     )
+  }
+
+  private fun isMergeDialogActionPlace(place: String): Boolean {
+    return place == ONE_SHOT_DIALOG_ACTION_PLACE || place == ITERATIVE_DIALOG_ACTION_PLACE
   }
 
   private fun buildProviderActionModel(project: Project): AgentSessionProviderActionModel {
@@ -283,28 +275,34 @@ internal class AgentResolveConflictsAction @JvmOverloads constructor(
   private inner class ResolveWithAgentOptionButton(
     place: String,
   ) : JBOptionButton(null, null) {
+    private val primaryAction = object : AbstractAction() {
+      override fun actionPerformed(e: ActionEvent?) {
+        performButtonAction()
+      }
+    }
+
     init {
       isFocusable = false
       addSeparator = false
       hideDisabledOptions = false
       optionTooltipText = getDefaultTooltip()
       putClientProperty(PLACE, place)
-      action = object : AbstractAction() {
-        override fun actionPerformed(e: ActionEvent?) {
-          performButtonAction()
-        }
-      }
+      action = primaryAction
     }
 
     fun updateFromPresentation(presentation: Presentation) {
+      val text = presentation.getText(true)
+      val description = presentation.description
+      primaryAction.putValue(Action.NAME, text)
+      primaryAction.putValue(Action.SMALL_ICON, presentation.icon)
+      primaryAction.putValue(Action.SHORT_DESCRIPTION, description)
+      primaryAction.putValue(Action.MNEMONIC_KEY, presentation.mnemonic)
+      primaryAction.putValue(Action.DISPLAYED_MNEMONIC_INDEX_KEY, presentation.displayedMnemonicIndex)
+      primaryAction.isEnabled = presentation.isEnabled
       isVisible = presentation.isVisible
-      text = presentation.getText(true)
-      icon = presentation.icon
-      isEnabled = presentation.isEnabled
-      setToolTipText(presentation.description?.let(HtmlChunk::text))
-      mnemonic = presentation.mnemonic
-      displayedMnemonicIndex = presentation.displayedMnemonicIndex
+      setToolTipText(description?.let(HtmlChunk::text))
       setOptions(buildOptionActions())
+      minimumSize = preferredSize
     }
 
     private fun performButtonAction() {

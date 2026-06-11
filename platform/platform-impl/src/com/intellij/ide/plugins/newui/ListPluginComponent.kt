@@ -24,6 +24,7 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase
 import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceService
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.util.text.StringUtil
@@ -295,7 +296,14 @@ class ListPluginComponent(
         myLayout.addButtonComponent(myInstallButton!!)
 
         myInstallButton!!.addActionListener {
-          PluginModelAsyncOperationsExecutor.performAutoInstall(myCoroutineScope, myModelFacade, myPlugin, myCustomizer, this)
+          val pluginUpdateSourceApplier = PluginUpdateSourceApplier(myPlugin)
+          pluginUpdateSourceApplier.applyPluginUpdateSourceId()
+          PluginModelAsyncOperationsExecutor.performAutoInstall(myCoroutineScope,
+                                                                myModelFacade,
+                                                                myPlugin,
+                                                                myCustomizer,
+                                                                this,
+                                                                pluginUpdateSourceApplier)
         }
         myInstallButton!!.setEnabled(showInstall, IdeBundle.message("plugin.status.installed"))
 
@@ -551,25 +559,25 @@ class ListPluginComponent(
     return myChooseUpdateButton
   }
 
-  fun setUpdateDescriptor(descriptor: PluginUiModel?) {
+  fun setUpdateDescriptor(updateDescriptor: PluginUiModel?) {
     if (myMarketplace && myInstalledDescriptorForMarketplace == null ||
-        descriptor != null && myModelFacade.isUninstalled(descriptor.pluginId)) {
+        updateDescriptor != null && myModelFacade.isUninstalled(updateDescriptor.pluginId)) {
       return
     }
-    if (myUpdateDescriptor == null && descriptor == null) {
+    if (myUpdateDescriptor == null && updateDescriptor == null) {
       return
     }
     if (myIndicator != null || isRestartEnabled()) {
       return
     }
 
-    myUpdateDescriptor = descriptor
+    myUpdateDescriptor = updateDescriptor
 
-    val plugin = getDescriptorForActions()
+    val descriptorForActions = getDescriptorForActions()
 
-    if (myUpdateDescriptor == null) {
+    if (updateDescriptor == null) {
       if (myVersion != null) {
-        setVersionLabelState(myVersion!!, plugin.version, plugin.isBundledUpdate)
+        setVersionLabelState(myVersion!!, descriptorForActions.version, descriptorForActions.isBundledUpdate)
       }
       if (myUpdateLicensePanel != null) {
         myLayout.removeLineComponent(myUpdateLicensePanel!!)
@@ -584,11 +592,11 @@ class ListPluginComponent(
     }
     else {
       if (myVersion != null) {
-        setVersionLabelState(myVersion!!, plugin.version, plugin.isBundledUpdate)
+        setVersionLabelState(myVersion!!, descriptorForActions.version, descriptorForActions.isBundledUpdate)
       }
-      if (plugin.productCode == null && myUpdateDescriptor!!.productCode != null &&
-          !plugin.isBundled && !LicensePanel.isEA2Product(myUpdateDescriptor!!.productCode) &&
-          !LicensePanel.shouldSkipPluginLicenseDescriptionPublishing(myUpdateDescriptor!!)) {
+      if (descriptorForActions.productCode == null && updateDescriptor.productCode != null &&
+          !descriptorForActions.isBundled && !LicensePanel.isEA2Product(updateDescriptor.productCode) &&
+          !LicensePanel.shouldSkipPluginLicenseDescriptionPublishing(updateDescriptor)) {
         if (myUpdateLicensePanel == null) {
           myUpdateLicensePanel = LicensePanel(true)
           myLayout.addLineComponent(myUpdateLicensePanel!!)
@@ -603,7 +611,7 @@ class ListPluginComponent(
           IdeBundle.message("label.next.plugin.version.is"),
           true,
           false,
-          { myUpdateDescriptor },
+          { updateDescriptor },
           true,
           true,
         )
@@ -611,7 +619,7 @@ class ListPluginComponent(
       if (myUpdateButton == null) {
         myUpdateButton = UpdateButton()
         myLayout.addButtonComponent(myUpdateButton!!, 0)
-        myUpdateButton!!.addActionListener { updatePlugin(plugin) }
+        myUpdateButton!!.addActionListener { updatePlugin(descriptorForActions, updateDescriptor) }
       }
       else if (!successfullyFinishedOnce) {
         myUpdateButton!!.isEnabled = true
@@ -753,15 +761,18 @@ class ListPluginComponent(
     }
   }
 
-  private fun updatePlugin(plugin: PluginUiModel) {
+  private fun updatePlugin(descriptorForActions: PluginUiModel, updateDescriptor: PluginUiModel) {
+    val pluginUpdateSourceApplier = PluginUpdateSourceApplier(updateDescriptor)
+    pluginUpdateSourceApplier.applyPluginUpdateSourceId()
     PluginModelAsyncOperationsExecutor.updatePlugin(
       myCoroutineScope,
       myModelFacade,
-      plugin,
-      myUpdateDescriptor,
+      descriptorForActions,
+      updateDescriptor,
       myCustomizer,
       ModalityState.stateForComponent(myUpdateButton!!),
       this,
+      pluginUpdateSourceApplier,
     )
   }
 
@@ -1335,6 +1346,7 @@ class ListPluginComponent(
     function: Function<ListPluginComponent, PluginUiModel?>,
   ): UninstallAction<ListPluginComponent> {
     return UninstallAction(myCoroutineScope, myModelFacade, true, this, selection, function) {
+      selection.forEach { PluginUpdateSourceService.getInstance().erasePluginUpdateSourceId(it.myPlugin.pluginId) }
     }
   }
 

@@ -4,9 +4,9 @@ package com.intellij.agent.workbench.claude.sessions
 import com.intellij.agent.workbench.claude.common.ClaudeSessionActivity
 import com.intellij.agent.workbench.claude.sessions.backend.store.ClaudeStoreSessionBackend
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.common.AgentThreadActivityReport
 import com.intellij.agent.workbench.json.filebacked.FileBackedSessionChangeSet
 import com.intellij.agent.workbench.sessions.core.cost.AgentSessionUsageSnapshot
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionActivityHintPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +15,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -624,8 +626,8 @@ class ClaudeStoreSessionBackendTest {
         assertThat(update.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
         assertThat(update.scopedPaths).containsExactly(projectPath)
         assertThat(update.threadIds).containsExactly("session-scoped-updates")
-        assertThat(update.activityHintsByThreadId).containsEntry("session-scoped-updates", AgentThreadActivity.READY)
-        assertThat(update.activityHintPolicy).isEqualTo(AgentSessionActivityHintPolicy.AUTHORITATIVE)
+        assertThat(update.activityUpdatesByThreadId.getValue("session-scoped-updates").activityReport)
+          .isEqualTo(AgentThreadActivityReport(AgentThreadActivity.READY))
         assertThat(update.mayHaveChangedProjectFiles).isFalse()
       }
       finally {
@@ -737,6 +739,88 @@ class ClaudeStoreSessionBackendTest {
       finally {
         updatesJob.cancelAndJoin()
       }
+    }
+  }
+
+  @Test
+  fun activeThreadUpdateSuppressesRepeatedUnchangedJsonlNotification() {
+    runBlocking(Dispatchers.Default) {
+      val projectPath = "/work/project-active-unchanged"
+      val sessionId = "session-active-unchanged"
+      val encodedPath = "-work-project-active-unchanged"
+      val projectDir = tempDir.resolve(".claude").resolve("projects").resolve(encodedPath)
+      Files.createDirectories(projectDir)
+
+      val jsonl = projectDir.resolve("$sessionId.jsonl")
+      writeJsonl(
+        jsonl,
+        listOf(
+          claudeUserLine("2026-02-10T10:00:00.000Z", sessionId, projectPath, "Change files"),
+          claudeAssistantToolUseLine("2026-02-10T10:00:01.000Z", sessionId, projectPath, "editing"),
+        ),
+      )
+
+      val backend = ClaudeStoreSessionBackend(
+        claudeHomeProvider = { tempDir.resolve(".claude") },
+        immediateFileChangeFlow = { flowOf(jsonl, jsonl) },
+      )
+
+      val updates = backend.activeThreadUpdateEvents(projectPath, sessionId).toList()
+
+      assertThat(updates).hasSize(1)
+      val update = updates.single()
+      assertThat(update.type).isEqualTo(AgentSessionSourceUpdate.HINTS_CHANGED)
+      assertThat(update.scopedPaths).containsExactly(projectPath)
+      assertThat(update.threadIds).isNull()
+      assertThat(update.activityUpdatesByThreadId.getValue(sessionId).activityReport)
+        .isEqualTo(AgentThreadActivityReport(AgentThreadActivity.PROCESSING))
+      assertThat(update.mayHaveChangedProjectFiles).isFalse()
+      assertThat(update.changedProjectFilePaths).isNull()
+    }
+  }
+
+  @Test
+  fun activeThreadUpdateKeepsProjectFileEvidence() {
+    runBlocking(Dispatchers.Default) {
+      val projectPath = "/work/project-active-write-tool-update"
+      val changedFile = "$projectPath/src/Main.kt"
+      val sessionId = "session-active-write-tool-update"
+      val encodedPath = "-work-project-active-write-tool-update"
+      val projectDir = tempDir.resolve(".claude").resolve("projects").resolve(encodedPath)
+      Files.createDirectories(projectDir)
+
+      val jsonl = projectDir.resolve("$sessionId.jsonl")
+      writeJsonl(
+        jsonl,
+        listOf(
+          claudeUserLine("2026-02-10T10:00:00.000Z", sessionId, projectPath, "Change files"),
+          claudeAssistantToolUseLine(
+            "2026-02-10T10:00:01.000Z",
+            sessionId,
+            projectPath,
+            "writing",
+            toolUseId = "tool-write-1",
+            toolName = "Write",
+            inputJson = """{"file_path":"$changedFile","content":"fun main() {}"}""",
+          ),
+          claudeToolResultLine("2026-02-10T10:00:02.000Z", sessionId, projectPath, "tool-write-1"),
+        ),
+      )
+
+      val backend = ClaudeStoreSessionBackend(
+        claudeHomeProvider = { tempDir.resolve(".claude") },
+        immediateFileChangeFlow = { flowOf(jsonl) },
+      )
+
+      val updates = backend.activeThreadUpdateEvents(projectPath, sessionId).toList()
+
+      assertThat(updates).hasSize(1)
+      val update = updates.single()
+      assertThat(update.type).isEqualTo(AgentSessionSourceUpdate.HINTS_CHANGED)
+      assertThat(update.scopedPaths).containsExactly(projectPath)
+      assertThat(update.threadIds).isNull()
+      assertThat(update.mayHaveChangedProjectFiles).isTrue()
+      assertThat(update.changedProjectFilePaths).containsExactly(changedFile)
     }
   }
 
@@ -935,9 +1019,8 @@ class ClaudeStoreSessionBackendTest {
         assertThat(update.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
         assertThat(update.scopedPaths).containsExactly(projectPath)
         assertThat(update.threadIds).containsExactly("session-completed-update-hints")
-        assertThat(update.activityHintsByThreadId)
-          .containsEntry("session-completed-update-hints", AgentThreadActivity.UNREAD)
-        assertThat(update.activityHintPolicy).isEqualTo(AgentSessionActivityHintPolicy.AUTHORITATIVE)
+        assertThat(update.activityUpdatesByThreadId.getValue("session-completed-update-hints").activityReport)
+          .isEqualTo(AgentThreadActivityReport(AgentThreadActivity.UNREAD))
       }
       finally {
         updatesJob.cancelAndJoin()

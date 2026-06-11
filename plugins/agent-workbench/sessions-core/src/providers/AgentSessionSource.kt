@@ -2,6 +2,7 @@
 package com.intellij.agent.workbench.sessions.core.providers
 
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.common.AgentThreadActivityReport
 import com.intellij.agent.workbench.common.session.AgentSessionCost
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
@@ -17,10 +18,15 @@ data class AgentSessionRebindCandidate(
   @JvmField val activity: AgentThreadActivity,
 )
 
+data class AgentSessionThreadActivityUpdate(
+  @JvmField val activityReport: AgentThreadActivityReport,
+  @JvmField val updatesChromeActivity: Boolean = true,
+  @JvmField val updatedAt: Long? = null,
+)
+
 data class AgentSessionRefreshHints(
   @JvmField val rebindCandidates: List<AgentSessionRebindCandidate> = emptyList(),
-  @JvmField val activityByThreadId: Map<String, AgentThreadActivity> = emptyMap(),
-  @JvmField val summaryActivityByThreadId: Map<String, AgentThreadActivity?> = emptyMap(),
+  @JvmField val activityUpdatesByThreadId: Map<String, AgentSessionThreadActivityUpdate> = emptyMap(),
 )
 
 const val UNKNOWN_AGENT_SESSION_REFRESH_THREAD_UPDATED_AT: Long = -1L
@@ -42,18 +48,11 @@ enum class AgentSessionSourceUpdate {
   HINTS_CHANGED,
 }
 
-enum class AgentSessionActivityHintPolicy {
-  OPTIMISTIC,
-  AUTHORITATIVE,
-}
-
 data class AgentSessionSourceUpdateEvent(
   @JvmField val type: AgentSessionSourceUpdate,
   @JvmField val scopedPaths: Set<String>? = null,
   @JvmField val threadIds: Set<String>? = null,
-  @JvmField val activityHintsByThreadId: Map<String, AgentThreadActivity> = emptyMap(),
-  @JvmField val summaryActivityHintsByThreadId: Map<String, AgentThreadActivity?> = emptyMap(),
-  @JvmField val activityHintPolicy: AgentSessionActivityHintPolicy = AgentSessionActivityHintPolicy.AUTHORITATIVE,
+  @JvmField val activityUpdatesByThreadId: Map<String, AgentSessionThreadActivityUpdate> = emptyMap(),
   @JvmField val mayHaveChangedProjectFiles: Boolean = false,
   @JvmField val changedProjectFilePaths: Set<String>? = null,
 )
@@ -108,7 +107,14 @@ interface AgentSessionSource {
   val updateEvents: Flow<AgentSessionSourceUpdateEvent>
     get() = emptyFlow()
 
-  fun activeThreadFileChangeEvents(path: String, threadId: String): Flow<Unit> = emptyFlow()
+  /**
+   * Provider-filtered updates for an actively running thread.
+   *
+   * Implementations should parse raw file notifications and emit only meaningful source updates,
+   * such as activity changes or project-file change evidence. Unchanged persistence writes should
+   * not be surfaced as refresh signals.
+   */
+  fun activeThreadUpdateEvents(path: String, threadId: String): Flow<AgentSessionSourceUpdateEvent> = emptyFlow()
 
   suspend fun listThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread>
 

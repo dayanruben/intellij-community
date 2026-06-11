@@ -1539,18 +1539,40 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
   }
 
   // PY-80837
-  public void testEnumAttributeDefaultValueType() {
+  public void testInitEnumMember() {
     doTestByText("""
-                   from enum import Enum, IntEnum
+                   from enum import Enum, IntEnum, StrEnum
+                   
+                   class MyEnum(Enum):
+                       A = 1
+                       B = "string"
+                       C = None
                    
                    class MyIntEnum(IntEnum):
                        OK = 1
                        BAD = <warning descr="Expected type 'int', got 'str' instead">"string"</warning>
                    
-                   class MyEnum(Enum):
-                       OK = 1
-                       BAD = <warning descr="Expected type 'int', got 'str' instead">"string"</warning>
+                   class MyStrEnum(StrEnum):
+                       OK = "a"
+                       BAD = <warning descr="Expected type 'str', got 'int' instead">1</warning>
                    """);
+  }
+
+  @TestFor(issues = "PY-90192")
+  public void testInitEnumMemberCustomNew() {
+    fixme("PY-90192", AssertionError.class, "Expected type 'int', got 'str' instead", () ->
+    doTestByText("""
+                   from enum import Enum
+                   
+                   class A:
+                       def __new__(cls, x: int, y: int):
+                           return object.__new__(cls)
+                   
+                   class MyEnum(A, Enum):
+                       OK = 1, 2
+                       BAD = 1, <warning descr="Expected type 'int', got 'str' instead">"abb"</warning>
+                   """)
+    );
   }
 
   @TestFor(issues = "PY-87997")
@@ -5702,6 +5724,106 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                    a.attr += 1
                    a.attr += <warning descr="Expected type 'int', got 'str' instead">"s"</warning>
                    <warning descr="Expected type 'int' (from '__set__'), got 'str' instead">a.attr += C()</warning>
+                   """);
+  }
+
+  // PY-59260
+  public void testIntFlagValueType() {
+    doTestByText("""
+                   from enum import IntFlag, auto
+                   
+                   # IntFlag should infer int
+                   class IF(IntFlag):
+                       FIRST = auto()
+                       SECOND = auto()
+                       THIRD = 42
+                   
+                   # IntFlag.value should return int, so these should not produce type errors
+                   variable: int = IF.FIRST.value
+                   another_var: int = IF.SECOND.value
+                   explicit_var: int = IF.THIRD.value
+                   
+                   # This should produce a type error
+                   wrong_var: str = <warning descr="Expected type 'str', got 'int' instead">IF.FIRST.value</warning>
+                   """);
+  }
+
+  // PY-59260
+  public void testEnumValueTypeInference() {
+    doTestByText("""
+                   from enum import Enum, IntFlag, StrEnum
+                   
+                   # IntFlag should infer int
+                   class IF(IntFlag):
+                       A = 1
+                   i: int = IF.A.value
+                   
+                   # StrEnum should infer str
+                   class SE(StrEnum):
+                       B = "b"
+                   s: str = SE.B.value
+                   
+                   # str mixin should infer str
+                   class StrMixin(str, Enum):
+                       C = "c"
+                   s2: str = StrMixin.C.value
+                   s3: int = <warning descr="Expected type 'int', got 'str' instead">StrMixin.C.value</warning>
+                   
+                   # Empty str mixin should also infer str
+                   class EmptyStrMixin(str, Enum):
+                       pass
+                   def test_empty(x: EmptyStrMixin):
+                       s4: str = x.value
+                       i2: int = <warning descr="Expected type 'int', got 'str' instead">x.value</warning>
+                   """);
+  }
+
+  // PY-59260
+  public void testEmptyEnumValueTypes() {
+    doTestByText("""
+                   from enum import StrEnum, Enum
+                   
+                   class EmptyStrEnum(StrEnum):
+                       pass
+                   
+                   class EmptyStrMixin(str, Enum):
+                       pass
+                   
+                   def test_empty_str_enum(x: EmptyStrEnum):
+                       s: str = x.value
+                       i: int = <warning descr="Expected type 'int', got 'str' instead">x.value</warning>
+                   
+                   def test_empty_str_mixin(x: EmptyStrMixin):
+                       s: str = x.value
+                       i: int = <warning descr="Expected type 'int', got 'str' instead">x.value</warning>
+                   """);
+  }
+
+  // PY-59260
+  public void testEnumValueTypeIgnoresNonMembers() {
+    doTestByText("""
+                   from enum import Enum, nonmember
+                   
+                   # Simple enum with just integer members
+                   class SimpleEnum(Enum):
+                       A = 1
+                       B = 2
+                   
+                   # Should infer int
+                   x: int = SimpleEnum.A.value
+                   y: str = <warning descr="Expected type 'str', got 'int' instead">SimpleEnum.B.value</warning>
+                   
+                   # Enum with non-member first, then actual members
+                   class E(Enum):
+                       # This should be classified as a non-member
+                       HELPER_CONSTANT = nonmember("not a member")
+                       # These are the actual members - should infer int from first member
+                       FIRST_MEMBER = 42
+                       SECOND_MEMBER = 43
+                   
+                   # Should infer int from FIRST_MEMBER (ignoring HELPER_CONSTANT)
+                   a: int = E.FIRST_MEMBER.value
+                   b: str = <warning descr="Expected type 'str', got 'int' instead">E.SECOND_MEMBER.value</warning>
                    """);
   }
 }

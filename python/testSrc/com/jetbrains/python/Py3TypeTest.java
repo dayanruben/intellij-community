@@ -1016,6 +1016,20 @@ public class Py3TypeTest extends PyTestCase {
              """);
   }
 
+  @TestFor(issues = "PY-88477")
+  public void testHeterogeneousEnumValues() {
+    doTest("tuple[int | str, int, str]",
+           """
+             from enum import Enum
+             
+             class MyEnum(Enum):
+                 A = 1
+                 B = ""
+             
+             def f(p: MyEnum):
+                 expr = p.value, MyEnum.A.value, MyEnum.B.value""");
+  }
+
   public void testLiteralTypeNarrowingEquals() {
     doTest("Literal[\"abba\"]",
            """
@@ -5726,6 +5740,48 @@ public class Py3TypeTest extends PyTestCase {
       @d
       def f(i):
           expr = i
+      """);
+  }
+
+  @TestFor(issues="PY-79204")
+  public void testInferParameterFromDecoratorNoReturnAnnotation() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("int", """
+      from typing import Callable
+
+      def d(fn: Callable[[int], str]): ...
+
+      @d
+      def f(a):
+          expr = a
+      """);
+  }
+
+  @TestFor(issues="PY-79204")
+  public void testInferParameterFromDecoratorUntypedInnermostFallsBackToOuter() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("int", """
+      from collections.abc import Callable
+
+      def transparent(fn): return fn
+
+      def d(fn: Callable[[int], str]): ...
+
+      @d
+      @transparent
+      def f(a):
+          expr = a
+      """);
+  }
+
+  @TestFor(issues="PY-79204")
+  public void testInferParameterFromDecoratorKnownDecoratorDoesNotOverrideSelf() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("Self@A", """
+      class A:
+          @property
+          def f(self):
+              expr = self
       """);
   }
 

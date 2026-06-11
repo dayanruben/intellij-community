@@ -2127,6 +2127,11 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
 
     <statistics.counterUsagesCollector implementationClass="com.intellij.execution.impl.EditorHyperlinkUsageCollector"/>
 
+    <applicationService serviceInterface="com.intellij.openapi.updateSettings.impl.PluginUpdateSourceService"
+                        serviceImplementation="com.intellij.openapi.updateSettings.impl.PluginUpdateSourceServiceImpl"/>
+    <notificationGroup id="Plugin Update Sources Reset" displayType="BALLOON" bundle="messages.IdeBundle" key="notification.plugin.update.sources.reset.action"/>
+    <registryKey key="platform.enable.plugin.update.source.feature" defaultValue="true" description="Enables plugin update sources feature (IJPL-171317)"/>
+
     <universalFileChooserContributor implementation="com.intellij.openapi.fileChooser.universal.LocalFileChooserContributor"/>
     <projectSettings service="com.intellij.openapi.vcs.readOnlyHandler.ReadonlyStatusHandlerImpl"/>
     <projectSettings service="com.intellij.externalDependencies.impl.ExternalDependenciesManagerImpl"/>
@@ -2196,7 +2201,11 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
               topic="com.intellij.ide.AppLifecycleListener"/>
     <listener class="com.intellij.ui.mac.MergeAllWindowsAction$RecentProjectsFullScreenTabSupport"
               topic="com.intellij.ide.AppLifecycleListener"/>
+    <listener class="com.intellij.openapi.keymap.impl.LockOffendersListenerInitializer"
+              topic="com.intellij.ide.AppLifecycleListener"/>
     <listener class="com.intellij.openapi.vcs.FileStatusCleaner"
+              topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+    <listener class="com.intellij.diagnostic.DynamicPluginUnloadDiagnosticListener"
               topic="com.intellij.ide.plugins.DynamicPluginListener"/>
     <listener class="com.intellij.codeInsight.hints.InlayUnloadingListener" activeInHeadlessMode="false" activeInTestMode="false"
               topic="com.intellij.ide.plugins.DynamicPluginListener"/>

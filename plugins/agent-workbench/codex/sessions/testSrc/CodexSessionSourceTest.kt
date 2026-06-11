@@ -11,13 +11,15 @@ import com.intellij.agent.workbench.codex.sessions.backend.CodexSessionBackend
 import com.intellij.agent.workbench.codex.sessions.backend.CodexSessionActivity
 import com.intellij.agent.workbench.codex.sessions.backend.rollout.CodexRolloutSessionBackend
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.common.AgentThreadActivityReport
 import com.intellij.agent.workbench.common.session.AgentSessionCost
 import com.intellij.agent.workbench.common.session.AgentSessionCostKind
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.core.cost.AgentSessionUsageSnapshot
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshThreadSeed
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadActivityUpdate
 import com.intellij.agent.workbench.sessions.core.providers.toAgentSessionRefreshThreadSeeds
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.Dispatchers
@@ -423,8 +425,18 @@ class CodexSessionSourceTest {
         refreshThreadSeedsByPath = mapOf(PROJECT_PATH to setOf("thread-1").toAgentSessionRefreshThreadSeeds()),
       )
 
-      assertThat(hints.getValue(PROJECT_PATH).activityByThreadId)
+      assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
         .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.NEEDS_INPUT))
+      assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId["thread-1"]).isEqualTo(
+        AgentSessionThreadActivityUpdate(
+          activityReport = AgentThreadActivityReport(
+            rowActivity = AgentThreadActivity.NEEDS_INPUT,
+            chromeActivity = AgentThreadActivity.NEEDS_INPUT,
+          ),
+          updatesChromeActivity = true,
+          updatedAt = 100L,
+        )
+      )
     }
   }
 
@@ -618,7 +630,7 @@ class CodexSessionSourceTest {
         refreshThreadSeedsByPath = mapOf(PROJECT_PATH to setOf("thread-1").toAgentSessionRefreshThreadSeeds()),
       )
 
-      assertThat(hints.getValue(PROJECT_PATH).activityByThreadId)
+      assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
         .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.PROCESSING))
     }
   }
@@ -656,7 +668,7 @@ class CodexSessionSourceTest {
       )
 
       assertThat(observedAppServerSeeds.single().single().forceRefresh).isTrue()
-      assertThat(hints.getValue(PROJECT_PATH).activityByThreadId)
+      assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
         .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.PROCESSING))
     }
   }
@@ -695,7 +707,7 @@ class CodexSessionSourceTest {
       )
 
       assertThat(observedAppServerSeeds.single().single().forceRefresh).isTrue()
-      assertThat(hints.getValue(PROJECT_PATH).activityByThreadId)
+      assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
         .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.READY))
     }
   }
@@ -733,7 +745,7 @@ class CodexSessionSourceTest {
       )
 
       assertThat(observedAppServerSeeds.single().single().forceRefresh).isTrue()
-      assertThat(hints.getValue(PROJECT_PATH).activityByThreadId)
+      assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
         .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.PROCESSING))
     }
   }
@@ -763,7 +775,7 @@ class CodexSessionSourceTest {
       )
 
       assertThat(observedAppServerSeeds.single().single().forceRefresh).isTrue()
-      assertThat(hints.getValue(PROJECT_PATH).activityByThreadId)
+      assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
         .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.PROCESSING))
     }
   }

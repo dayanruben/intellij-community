@@ -17,6 +17,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ex.RangeHighlighterEx
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.project.DumbService.Companion.isDumb
 import com.intellij.openapi.project.RootsChangeRescanningInfo
 import com.intellij.openapi.roots.ex.ProjectRootManagerEx
 import com.intellij.openapi.ui.TestDialog
@@ -52,6 +53,7 @@ import com.intellij.util.ui.UIUtil
 import java.io.FileNotFoundException
 import java.nio.file.Path
 import java.util.TreeMap
+import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.time.Duration.Companion.minutes
 
@@ -132,6 +134,10 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
     test: CodeInsightTestFixture.() -> Unit,
   ) {
     CodeInsightTestFixtureImpl.ensureIndexesUpToDate(project)
+    if (mode == HybridTestMode.CodeInsightFixture) {
+      // For some of LSP-based tests, we need a working directory
+      project.basePath?.let { Path.of(it) }?.createDirectories()
+    }
     myFixture.apply {
       if (dir) {
         if (checkResult) {
@@ -155,7 +161,9 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
         ProjectRootManagerEx.getInstanceEx(project)
           .makeRootsChange(EmptyRunnable.getInstance(), RootsChangeRescanningInfo.TOTAL_RESCAN)
       }
-      ensureIndexesReady()
+      if (!isDumb(myFixture.getProject())) {
+        ensureIndexesReady()
+      }
       if (configureFile) {
         if (fileContents != null) {
           configureByText(configureFileName, fileContents)
@@ -388,7 +396,8 @@ abstract class PolySymbolsTestCase(mode: HybridTestMode = HybridTestMode.BasePla
                 invokeAndWaitIfNeeded {
                   try {
                     myFixture.checkHighlighting()
-                  } catch (_: FileComparisonFailedError) {
+                  }
+                  catch (_: FileComparisonFailedError) {
                     // ignore - it is important to just perform highlighting check
                   }
                 }

@@ -3,10 +3,12 @@
 package com.intellij.agent.workbench.codex.sessions.backend
 
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.common.AgentThreadActivityReport
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRebindCandidate
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshHints
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshThreadSeed
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadActivityUpdate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
@@ -25,23 +27,25 @@ internal data class CodexRefreshHints(
 )
 
 internal fun CodexRefreshHints.toAgentSessionRefreshHints(): AgentSessionRefreshHints {
-  val summaryActivityByThreadId = LinkedHashMap<String, AgentThreadActivity?>()
-  for ((threadId, hint) in activityHintsByThreadId) {
-    if (hint.hasSummaryActivityHint) {
-      summaryActivityByThreadId[threadId] = hint.summaryActivity
-    }
-  }
   return AgentSessionRefreshHints(
     rebindCandidates = rebindCandidates,
-    activityByThreadId = activityHintsByThreadId.mapValues { (_, hint) -> hint.activity },
-    summaryActivityByThreadId = summaryActivityByThreadId,
+    activityUpdatesByThreadId = activityHintsByThreadId.mapValues { (_, hint) ->
+      AgentSessionThreadActivityUpdate(
+        activityReport = AgentThreadActivityReport(
+          rowActivity = hint.activity,
+          chromeActivity = if (hint.hasSummaryActivityHint) hint.summaryActivity else null,
+        ),
+        updatesChromeActivity = hint.hasSummaryActivityHint,
+        updatedAt = hint.updatedAt,
+      )
+    },
   )
 }
 
 internal interface CodexRefreshHintsProvider {
   val updateEvents: Flow<AgentSessionSourceUpdateEvent>
 
-  fun activeThreadFileChangeEvents(path: String, threadId: String): Flow<Unit> = emptyFlow()
+  fun activeThreadUpdateEvents(path: String, threadId: String): Flow<AgentSessionSourceUpdateEvent> = emptyFlow()
 
   suspend fun prefetchRefreshHints(
     paths: List<String>,

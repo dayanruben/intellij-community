@@ -195,7 +195,7 @@ class EditorNotificationsImpl(private val project: Project, coroutineScope: Coro
 
   override fun updateNotifications(file: VirtualFile) {
     coroutineScope.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-      if (runReadActionBlocking { file.isValid }) {
+      if (readAction { file.isValid }) {
         val fileEditorManager = project.serviceAsync<FileEditorManager>()
         doUpdateNotifications(file, fileEditorManager)
       }
@@ -242,7 +242,7 @@ class EditorNotificationsImpl(private val project: Project, coroutineScope: Coro
     // we use ugly `project.isDisposed` because a light project is not disposed in tests
     val job = coroutineScope.launch(start = CoroutineStart.LAZY) {
       // delay for debouncing
-      delay(100)
+      delay(100.milliseconds)
 
       // light project is not disposed in tests
       if (project.isDisposed) {

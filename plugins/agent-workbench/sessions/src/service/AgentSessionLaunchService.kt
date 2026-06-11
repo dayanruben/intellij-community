@@ -25,6 +25,7 @@ import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.common.session.AgentSubAgent
+import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchError
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
@@ -274,6 +275,7 @@ class AgentSessionLaunchService internal constructor(
     currentProject: Project? = null,
     initialMessageDispatchPlan: AgentInitialMessageDispatchPlan = AgentInitialMessageDispatchPlan.EMPTY,
     initialMessageRequest: AgentPromptInitialMessageRequest? = null,
+    generationSettings: AgentPromptGenerationSettings = AgentPromptGenerationSettings.AUTO,
     precomputedInitialMessagePlan: AgentInitialMessagePlan? = null,
     resumeLaunchMode: AgentSessionLaunchMode? = null,
     singleFlightPolicy: SingleFlightPolicy = SingleFlightPolicy.DROP,
@@ -304,8 +306,16 @@ class AgentSessionLaunchService internal constructor(
           descriptor = descriptor,
         )
         val openedThread = archiveResolution.thread
+        if (initialMessageRequest != null && descriptor != null &&
+            !isProviderCliAvailableForLaunch(provider = openedThread.provider, descriptor = descriptor, currentProject = currentProject)) {
+          promptLaunchResolved?.invoke(AgentPromptLaunchResult.failure(AgentPromptLaunchError.PROVIDER_UNAVAILABLE))
+          return@launchDropAction
+        }
         val effectiveInitialMessagePlan = when {
           initialMessageRequest == null -> null
+          precomputedInitialMessagePlan != null && descriptor?.requiresCliAvailabilityForInitialMessagePlan == true -> {
+            descriptor.buildInitialMessagePlan(initialMessageRequest)
+          }
           precomputedInitialMessagePlan != null -> precomputedInitialMessagePlan
           else -> descriptor?.buildInitialMessagePlan(initialMessageRequest)
         }
@@ -352,6 +362,7 @@ class AgentSessionLaunchService internal constructor(
             normalizedPath = normalizedPath,
             thread = effectiveThread,
             initialMessageRequest = initialMessageRequest,
+            generationSettings = generationSettings,
             precomputedInitialMessagePlan = effectiveInitialMessagePlan,
           )
         }
@@ -364,10 +375,9 @@ class AgentSessionLaunchService internal constructor(
           effectiveLaunchMode = effectiveResumeLaunchMode,
         )
         AgentWorkbenchTelemetry.logThreadOpenRequested(entryPoint, effectiveThread.provider, AgentWorkbenchTargetKind.THREAD)
-        // When the caller passes extras (e.g. AWB container env vars), augment the
-        // resume launch spec so the respawned CLI receives them. Without this the
-        // resume path would reuse whatever env was baked in at first spawn — which
-        // breaks `${VAR}` placeholders in `.mcp.json` after IDE restart.
+        // When the caller passes prompt-time overrides (e.g. AWB container env vars), augment the
+        // resume launch spec so the respawned CLI receives them. Without this the resume path would reuse whatever env was
+        // baked in at first spawn, which breaks `${VAR}` placeholders in `.mcp.json` after IDE restart.
         val launchSpecOverride = if (extraEnvVariables.isNotEmpty() || extraCommandArgs.isNotEmpty()) {
           val baseResumeSpec = AgentSessionLaunchSpecs.resolveResume(
             projectPath = normalizedPath,
@@ -592,6 +602,7 @@ class AgentSessionLaunchService internal constructor(
     updateGeneralProviderPreferences: Boolean = true,
     launchModalityState: ModalityState? = null,
     threadTitle: String? = null,
+    generationSettings: AgentPromptGenerationSettings = AgentPromptGenerationSettings.AUTO,
     extraEnvVariables: Map<String, String> = emptyMap(),
     extraCommandArgs: List<String> = emptyList(),
   ) {
@@ -645,10 +656,11 @@ class AgentSessionLaunchService internal constructor(
                                    ?.let(descriptor::buildInitialMessagePlan)
                                  ?: AgentInitialMessagePlan.EMPTY
         val baseLaunchSpec = descriptor.buildNewSessionLaunchSpec(mode)
+        val generationLaunchSpec = descriptor.applyGenerationSettings(baseLaunchSpec, generationSettings)
         val augmentedSpec = AgentSessionLaunchSpecs.augment(
           projectPath = normalizedPath,
           provider = provider,
-          launchSpec = baseLaunchSpec,
+          launchSpec = generationLaunchSpec,
         )
         // Apply launch contributors (e.g. AwbMcpConfigContributor writing the merged
         // `.awb/awb-mcp.json` and adding `--mcp-config`). sessionId is null for new
@@ -877,6 +889,7 @@ class AgentSessionLaunchService internal constructor(
             initialMessageRequest = request.initialMessageRequest,
             preferredDedicatedFrame = request.preferredDedicatedFrame,
             promptLaunchResolved = ::reportPromptLaunchResolved,
+            generationSettings = request.generationSettings,
             extraEnvVariables = request.containerSessionEnvVariables,
             extraCommandArgs = request.containerSessionExtraArgs,
           )
@@ -909,6 +922,7 @@ class AgentSessionLaunchService internal constructor(
             entryPoint = AgentWorkbenchEntryPoint.PROMPT,
             initialMessageRequest = effectiveInitialMessageRequest,
             precomputedInitialMessagePlan = initialMessagePlan,
+            generationSettings = request.generationSettings,
             resumeLaunchMode = request.launchMode,
             singleFlightPolicy = SingleFlightPolicy.RESTART_LATEST,
             launchOrigin = OpenThreadLaunchOrigin.PROMPT_LAUNCH,
@@ -1154,6 +1168,7 @@ private suspend fun resolvePromptInitialMessageDispatchPlan(
   normalizedPath: String,
   thread: AgentSessionThread,
   initialMessageRequest: AgentPromptInitialMessageRequest?,
+  generationSettings: AgentPromptGenerationSettings = AgentPromptGenerationSettings.AUTO,
   precomputedInitialMessagePlan: AgentInitialMessagePlan? = null,
 ): AgentInitialMessageDispatchPlan {
   if (initialMessageRequest == null) {
@@ -1164,17 +1179,25 @@ private suspend fun resolvePromptInitialMessageDispatchPlan(
                    ?: return AgentInitialMessageDispatchPlan.EMPTY
   val initialMessagePlan = precomputedInitialMessagePlan ?: descriptor.buildInitialMessagePlan(initialMessageRequest)
   val identity = buildAgentSessionIdentity(provider = thread.provider, sessionId = thread.id)
-  val resumeLaunchSpec = AgentSessionLaunchSpecs.resolveResume(
+  val baseResumeLaunchSpec = AgentSessionLaunchSpecs.resolveResume(
     projectPath = normalizedPath,
     provider = thread.provider,
     sessionId = thread.id,
   )
+  val allowStartupPromptOverride = initialMessagePlan.mode == AgentInitialMessageMode.PLAN
+  val resumeLaunchSpec =
+    if (allowStartupPromptOverride && initialMessagePlan.startupPolicy == AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND) {
+      descriptor.applyGenerationSettings(baseResumeLaunchSpec, generationSettings)
+    }
+    else {
+      baseResumeLaunchSpec
+    }
   return buildInitialMessageDispatchPlan(
     descriptor = descriptor,
     baseLaunchSpec = resumeLaunchSpec,
     identity = identity,
     initialMessagePlan = initialMessagePlan,
-    allowStartupPromptOverride = initialMessagePlan.mode == AgentInitialMessageMode.PLAN,
+    allowStartupPromptOverride = allowStartupPromptOverride,
   )
 }
 

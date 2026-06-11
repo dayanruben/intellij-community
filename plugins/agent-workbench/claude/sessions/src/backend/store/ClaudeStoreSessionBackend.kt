@@ -9,15 +9,16 @@ import com.intellij.agent.workbench.claude.sessions.ClaudeBackendThread
 import com.intellij.agent.workbench.claude.sessions.ClaudeBackendThreadRefreshResult
 import com.intellij.agent.workbench.claude.sessions.ClaudeSessionBackend
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.common.AgentThreadActivityReport
 import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
 import com.intellij.agent.workbench.common.parseAgentWorkbenchPathOrNull
 import com.intellij.agent.workbench.filewatch.agentWorkbenchImmediateFileChangeFlow
 import com.intellij.agent.workbench.json.filebacked.FileBackedSessionChangeSet
 import com.intellij.agent.workbench.json.filebacked.createFileBackedSessionChangeFlow
 import com.intellij.agent.workbench.json.filebacked.toFileBackedSessionPathKey
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionActivityHintPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadActivityUpdate
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
@@ -36,11 +38,14 @@ private val LOG = logger<ClaudeStoreSessionBackend>()
 internal class ClaudeStoreSessionBackend(
   private val claudeHomeProvider: () -> Path = { Path.of(System.getProperty("user.home"), ".claude") },
   changeSource: (() -> Flow<FileBackedSessionChangeSet>)? = null,
+  private val immediateFileChangeFlow: (Collection<Path>) -> Flow<Path> = { paths -> agentWorkbenchImmediateFileChangeFlow(paths) },
 ) : ClaudeSessionBackend {
   private val store = ClaudeSessionsStore(claudeHomeProvider)
   private val threadIndex = ClaudeThreadIndex(store = store)
   private val projectFilesChangedAtByPathKey = HashMap<String, Long>()
   private val projectFilesChangedAtLock = Any()
+  private val activeThreadActivityByPathKey = HashMap<String, AgentThreadActivity>()
+  private val activeThreadActivityLock = Any()
 
   private val sessionUpdateFlow: Flow<AgentSessionSourceUpdateEvent> = (changeSource?.invoke() ?: createWatcherUpdates())
     .map { changeSet ->
@@ -55,12 +60,16 @@ internal class ClaudeStoreSessionBackend(
 
   override val updates: Flow<Unit> = sessionUpdateFlow.map {}
 
-  override fun activeThreadFileChangeEvents(path: String, threadId: String): Flow<Unit> {
+  override fun activeThreadUpdateEvents(path: String, threadId: String): Flow<AgentSessionSourceUpdateEvent> {
     return flow {
       val files = withContext(Dispatchers.IO) {
         resolveActiveThreadFilePaths(path = path, threadId = threadId)
       }
-      emitAll(agentWorkbenchImmediateFileChangeFlow(files).map {})
+      emitAll(immediateFileChangeFlow(files).mapNotNull { changedPath ->
+        withContext(Dispatchers.IO) {
+          buildActiveThreadUpdate(changedPath)
+        }
+      })
     }
   }
 
@@ -108,7 +117,7 @@ internal class ClaudeStoreSessionBackend(
 
     val scopedPaths = LinkedHashSet<String>()
     val threadIds = LinkedHashSet<String>()
-    val activityHintsByThreadId = LinkedHashMap<String, AgentThreadActivity>()
+    val activityUpdatesByThreadId = LinkedHashMap<String, AgentSessionThreadActivityUpdate>()
     var mayHaveChangedProjectFiles = false
     var changedProjectFilePaths: LinkedHashSet<String>? = LinkedHashSet()
     var failedParses = 0
@@ -132,7 +141,9 @@ internal class ClaudeStoreSessionBackend(
       }
       scopedPaths += projectPath
       threadIds += parsedThread.id
-      activityHintsByThreadId[parsedThread.id] = parsedThread.toAgentThreadActivityHint()
+      activityUpdatesByThreadId[parsedThread.id] = AgentSessionThreadActivityUpdate(
+        activityReport = AgentThreadActivityReport(parsedThread.toAgentThreadActivityHint()),
+      )
     }
 
     if (failedParses > 0 || scopedPaths.isEmpty()) {
@@ -153,11 +164,50 @@ internal class ClaudeStoreSessionBackend(
       type = AgentSessionSourceUpdate.THREADS_CHANGED,
       scopedPaths = scopedPaths,
       threadIds = threadIds.takeIf { it.isNotEmpty() },
-      activityHintsByThreadId = activityHintsByThreadId,
-      activityHintPolicy = AgentSessionActivityHintPolicy.AUTHORITATIVE,
+      activityUpdatesByThreadId = activityUpdatesByThreadId,
       mayHaveChangedProjectFiles = mayHaveChangedProjectFiles,
       changedProjectFilePaths = changedProjectFilePathsForUpdate(mayHaveChangedProjectFiles, changedProjectFilePaths),
     )
+  }
+
+  private fun buildActiveThreadUpdate(path: Path): AgentSessionSourceUpdateEvent? {
+    if (!isClaudeJsonlPath(path)) {
+      return null
+    }
+    val parsedThread = store.parseJsonlFile(path)
+    val projectPath = parsedThread?.projectPath?.takeIf { it.isNotBlank() } ?: return null
+    val consumedProjectFileChangeEvidence = consumeProjectFileChangeEvidence(path = path, parsedThread = parsedThread)
+    val activityHint = parsedThread.toAgentThreadActivityHint()
+    val hasActivityChange = rememberActiveThreadActivityHint(path = path, activityHint = activityHint)
+    if (consumedProjectFileChangeEvidence == null && !hasActivityChange) {
+      return null
+    }
+
+    val mayHaveChangedProjectFiles = consumedProjectFileChangeEvidence != null
+    return AgentSessionSourceUpdateEvent(
+      type = AgentSessionSourceUpdate.HINTS_CHANGED,
+      scopedPaths = setOf(projectPath),
+      activityUpdatesByThreadId = mapOf(
+        parsedThread.id to AgentSessionThreadActivityUpdate(
+          activityReport = AgentThreadActivityReport(activityHint),
+        )
+      ),
+      mayHaveChangedProjectFiles = mayHaveChangedProjectFiles,
+      changedProjectFilePaths = consumedProjectFileChangeEvidence?.changedProjectFilePaths,
+    )
+  }
+
+  private fun rememberActiveThreadActivityHint(path: Path, activityHint: AgentThreadActivity): Boolean {
+    val pathKey = toFileBackedSessionPathKey(path)
+    return synchronized(activeThreadActivityLock) {
+      if (activeThreadActivityByPathKey[pathKey] == activityHint) {
+        false
+      }
+      else {
+        activeThreadActivityByPathKey[pathKey] = activityHint
+        true
+      }
+    }
   }
 
   private fun consumeProjectFileChangeEvidence(path: Path, parsedThread: ClaudeSessionThread): ConsumedProjectFileChangeEvidence? {

@@ -8,7 +8,10 @@ import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.parseAgentThreadIdentity
 import com.intellij.agent.workbench.sessions.core.isAgentSessionPendingThreadId
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeFormatter
+import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
+import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
+import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
 import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
 import com.intellij.openapi.project.Project
 import javax.swing.Icon
@@ -124,8 +127,21 @@ interface AgentSessionProviderDescriptor {
   val yoloSessionLabelKey: String?
     get() = null
   val icon: Icon
+  /** Desaturated variant for persistent surfaces (tree, toolbar button, tabs, status bar); menus keep [icon]. */
+  val monochromeIcon: Icon
+    get() = icon
   val promptOptions: List<AgentPromptProviderOption>
     get() = emptyList()
+
+  /**
+   * Concrete reasoning efforts accepted by this provider. [AgentPromptReasoningEffort.AUTO] is implicit and means
+   * no launch override should be added.
+   */
+  val supportedReasoningEfforts: Set<AgentPromptReasoningEffort>
+    get() = emptySet()
+
+  val supportsGenerationModelSelection: Boolean
+    get() = false
 
   val supportsPromptLaunch: Boolean
     get() = true
@@ -186,7 +202,8 @@ interface AgentSessionProviderDescriptor {
 
   /**
    * Provider-side rename implementation. Implementations should only persist or perform the provider rename and report
-   * success. Agent Workbench owns local title overrides, open editor-tab presentation updates, and follow-up refreshes.
+   * success. Agent Workbench owns session-state updates, shared thread presentation, open editor-tab presentation updates,
+   * and follow-up refreshes.
    */
   val threadRenameAction: AgentThreadRenameAction?
     get() = null
@@ -212,7 +229,26 @@ interface AgentSessionProviderDescriptor {
     launchMode: AgentSessionLaunchMode,
   ): AgentSessionTerminalLaunchSpec = buildResumeLaunchSpec(sessionId)
 
+  suspend fun listAvailableGenerationModels(project: Project? = null): List<AgentPromptGenerationModel> {
+    return emptyList()
+  }
+
   suspend fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec
+
+  fun sanitizeGenerationSettings(generationSettings: AgentPromptGenerationSettings): AgentPromptGenerationSettings {
+    val modelId = generationSettings.modelId
+      ?.trim()
+      ?.takeIf { it.isNotEmpty() }
+    val reasoningEffort = generationSettings.reasoningEffort
+                            .takeIf { effort -> effort == AgentPromptReasoningEffort.AUTO || effort in supportedReasoningEfforts }
+                          ?: AgentPromptReasoningEffort.AUTO
+    return generationSettings.copy(modelId = modelId, reasoningEffort = reasoningEffort)
+  }
+
+  fun applyGenerationSettings(
+    baseLaunchSpec: AgentSessionTerminalLaunchSpec,
+    generationSettings: AgentPromptGenerationSettings,
+  ): AgentSessionTerminalLaunchSpec = baseLaunchSpec
 
   fun buildLaunchSpecWithInitialMessage(
     baseLaunchSpec: AgentSessionTerminalLaunchSpec,
@@ -234,6 +270,12 @@ interface AgentSessionProviderDescriptor {
   suspend fun unarchiveThread(path: String, threadId: String): Boolean = false
 
   fun buildInitialMessagePlan(request: AgentPromptInitialMessageRequest): AgentInitialMessagePlan
+
+  /**
+   * True when [buildInitialMessagePlan] depends on data refreshed by [isCliAvailable].
+   */
+  val requiresCliAvailabilityForInitialMessagePlan: Boolean
+    get() = false
 
   suspend fun listReusablePromptSourceEntries(projectPath: String): List<AgentPromptReusableSourceEntry> {
     return emptyList()
@@ -290,7 +332,7 @@ data class AgentSessionTerminalLaunchSpec(
    */
   @JvmField val useTerminalDefaultShell: Boolean = false,
   /**
-   * When set, this session targets a Docker container managed by [ContainerSessionManager].
+   * When set, this session targets a Docker container managed by `ContainerSessionManager`.
    * The ij-proxy MCP server routes file I/O and bash tool calls through the container
    * instead of the local filesystem. Semantic tools (search_symbol, get_file_problems)
    * fall back to the host IDE index.

@@ -3,6 +3,7 @@ package com.intellij.agent.workbench.claude.sessions
 
 import com.intellij.agent.workbench.claude.common.ClaudeSessionActivity
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.common.AgentThreadActivityReport
 import com.intellij.agent.workbench.common.session.AgentSessionCost
 import com.intellij.agent.workbench.common.session.AgentSessionCostKind
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
@@ -15,6 +16,7 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshT
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceRefreshRequest
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceRefreshResult
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadActivityUpdate
 import com.intellij.agent.workbench.sessions.core.providers.BaseAgentSessionSource
 import com.intellij.agent.workbench.sessions.core.providers.resolveReadTrackedActivity
 import com.intellij.openapi.components.service
@@ -49,8 +51,8 @@ class ClaudeSessionSource internal constructor(
       readStateUpdateEvents,
     )
 
-  override fun activeThreadFileChangeEvents(path: String, threadId: String): Flow<Unit> {
-    return backend.activeThreadFileChangeEvents(path = path, threadId = threadId)
+  override fun activeThreadUpdateEvents(path: String, threadId: String): Flow<AgentSessionSourceUpdateEvent> {
+    return backend.activeThreadUpdateEvents(path = path, threadId = threadId)
   }
 
   override suspend fun listThreads(path: String, openProject: Project?): List<AgentSessionThread> {
@@ -177,7 +179,12 @@ class ClaudeSessionSource internal constructor(
       if (rebindCandidates.isNotEmpty() || activityHintsByThreadId.isNotEmpty()) {
         result[path] = AgentSessionRefreshHints(
           rebindCandidates = rebindCandidates,
-          activityByThreadId = activityHintsByThreadId,
+          activityUpdatesByThreadId = activityHintsByThreadId.mapValues { (_, activity) ->
+            AgentSessionThreadActivityUpdate(
+              activityReport = AgentThreadActivityReport(activity),
+              updatesChromeActivity = false,
+            )
+          },
         )
       }
     }

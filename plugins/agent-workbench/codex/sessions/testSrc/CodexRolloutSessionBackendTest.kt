@@ -4,14 +4,16 @@ package com.intellij.agent.workbench.codex.sessions
 import com.intellij.agent.workbench.codex.sessions.backend.CodexSessionActivity
 import com.intellij.agent.workbench.codex.sessions.backend.rollout.CodexRolloutSessionBackend
 import com.intellij.agent.workbench.common.AgentThreadActivity
+import com.intellij.agent.workbench.common.AgentThreadActivityReport
 import com.intellij.agent.workbench.json.filebacked.FileBackedSessionChangeSet
 import com.intellij.agent.workbench.sessions.core.cost.AgentSessionUsageSnapshot
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionActivityHintPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -1055,9 +1057,8 @@ class CodexRolloutSessionBackendTest {
         assertThat(update).isNotNull
         assertThat(update!!.scopedPaths).containsExactly(projectDir.toString())
         assertThat(update.threadIds).containsExactly("session-update-activity-hint")
-        assertThat(update.activityHintsByThreadId)
-          .containsEntry("session-update-activity-hint", AgentThreadActivity.PROCESSING)
-        assertThat(update.activityHintPolicy).isEqualTo(AgentSessionActivityHintPolicy.AUTHORITATIVE)
+        assertThat(update.activityUpdatesByThreadId.getValue("session-update-activity-hint").activityReport)
+          .isEqualTo(AgentThreadActivityReport(AgentThreadActivity.PROCESSING))
         assertThat(update.mayHaveChangedProjectFiles).isFalse()
       }
       finally {
@@ -1351,10 +1352,8 @@ class CodexRolloutSessionBackendTest {
         assertThat(update).isNotNull
         assertThat(update!!.scopedPaths).containsExactly(projectDir.toString())
         assertThat(update.threadIds).containsExactly("session-sub-agent-summary-hint")
-        assertThat(update.activityHintsByThreadId)
-          .containsEntry("session-sub-agent-summary-hint", AgentThreadActivity.UNREAD)
-        assertThat(update.summaryActivityHintsByThreadId).containsEntry("session-sub-agent-summary-hint", null)
-        assertThat(update.activityHintPolicy).isEqualTo(AgentSessionActivityHintPolicy.AUTHORITATIVE)
+        assertThat(update.activityUpdatesByThreadId.getValue("session-sub-agent-summary-hint").activityReport)
+          .isEqualTo(AgentThreadActivityReport(rowActivity = AgentThreadActivity.UNREAD, chromeActivity = null))
       }
       finally {
         updatesJob.cancelAndJoin()
@@ -1704,6 +1703,87 @@ class CodexRolloutSessionBackendTest {
       finally {
         updatesJob.cancelAndJoin()
       }
+    }
+  }
+
+  @Test
+  fun activeThreadUpdateSuppressesRepeatedUnchangedRolloutNotification() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-active-unchanged")
+      Files.createDirectories(projectDir)
+      val rollout = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("17")
+        .resolve("rollout-active-unchanged.jsonl")
+      writeRollout(
+        file = rollout,
+        lines = listOf(
+          sessionMetaLine(timestamp = "2026-02-17T10:00:00.000Z", id = "session-active-unchanged", cwd = projectDir),
+          """{"timestamp":"2026-02-17T10:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Run checks"}}""",
+          """{"timestamp":"2026-02-17T10:00:02.000Z","type":"event_msg","payload":{"type":"task_started"}}""",
+        ),
+      )
+
+      val backend = CodexRolloutSessionBackend(
+        codexHomeProvider = { tempDir },
+        immediateFileChangeFlow = { flowOf(rollout, rollout) },
+      )
+
+      val updates = backend.activeThreadUpdateEvents(
+        path = projectDir.toString(),
+        threadId = "session-active-unchanged",
+      ).toList()
+
+      assertThat(updates).hasSize(1)
+      val update = updates.single()
+      assertThat(update.threadIds).isNull()
+      assertThat(update.activityUpdatesByThreadId.getValue("session-active-unchanged").activityReport)
+        .isEqualTo(AgentThreadActivityReport(AgentThreadActivity.PROCESSING))
+      assertThat(update.mayHaveChangedProjectFiles).isFalse()
+    }
+  }
+
+  @Test
+  fun activeThreadUpdateKeepsProjectFileEvidence() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-active-apply-patch")
+      val changedFile = projectDir.resolve("src").resolve("Main.kt")
+      Files.createDirectories(projectDir)
+      val patch = """*** Begin Patch
+*** Update File: src/Main.kt
+@@
++fun main() {}
+*** End Patch"""
+      val rollout = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("17")
+        .resolve("rollout-active-apply-patch.jsonl")
+      writeRollout(
+        file = rollout,
+        lines = listOf(
+          sessionMetaLine(timestamp = "2026-02-17T10:30:00.000Z", id = "session-active-apply-patch", cwd = projectDir),
+          responseItemFunctionCall(
+            timestamp = "2026-02-17T10:30:01.000Z",
+            callId = "call-active-apply-patch",
+            name = "apply_patch",
+            arguments = """{"patch":"${jsonString(patch)}"}""",
+          ),
+          responseItemFunctionCallOutput(
+            timestamp = "2026-02-17T10:30:02.000Z",
+            callId = "call-active-apply-patch",
+          ),
+        ),
+      )
+
+      val backend = CodexRolloutSessionBackend(
+        codexHomeProvider = { tempDir },
+        immediateFileChangeFlow = { flowOf(rollout) },
+      )
+
+      val update = backend.activeThreadUpdateEvents(
+        path = projectDir.toString(),
+        threadId = "session-active-apply-patch",
+      ).toList().single()
+
+      assertThat(update.threadIds).isNull()
+      assertThat(update.mayHaveChangedProjectFiles).isTrue()
+      assertThat(update.changedProjectFilePaths).containsExactly(changedFile.toString())
     }
   }
 }

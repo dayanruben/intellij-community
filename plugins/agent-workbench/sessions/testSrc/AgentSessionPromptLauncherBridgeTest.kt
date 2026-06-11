@@ -13,6 +13,7 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextToTargetReq
 import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextToTargetResult
 import com.intellij.agent.workbench.prompt.core.AgentPromptContainerLauncher
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
+import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchError
@@ -21,6 +22,7 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
 import com.intellij.agent.workbench.prompt.core.AgentPromptProjectPathCandidate
 import com.intellij.agent.workbench.prompt.core.AgentPromptProjectPathContext
+import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchAction
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
@@ -725,6 +727,44 @@ class AgentSessionPromptLauncherBridgeTest {
   }
 
   @Test
+  fun promptLaunchAppliesGenerationSettingsToNewSessionLaunchSpec() {
+    val providerBridge = RecordingPromptLaunchProviderBridge(
+      provider = AgentSessionProvider.CODEX,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      supportedReasoningEffortsOverride = setOf(AgentPromptReasoningEffort.HIGH),
+      generationSettingsApplier = { launchSpec, settings ->
+        launchSpec.copy(command = launchSpec.command + listOf("--effort", settings.reasoningEffort.name.lowercase()))
+      },
+    )
+    val chatOpenExecutor = RecordingChatOpenExecutor()
+    AgentSessionProviders.withRegistryForTest(
+      InMemoryAgentSessionProviderRegistry(listOf(providerBridge))
+    ) {
+      runBlocking(Dispatchers.Default) {
+        withServiceAndLaunch(
+          sessionSourcesProvider = { listOf(providerBridge.sessionSource) },
+          projectEntriesProvider = { listOf(openProjectEntry(PROJECT_PATH, "Project A")) },
+          chatOpenExecutor = chatOpenExecutor,
+        ) { service, launchService ->
+          val bridge = promptLauncherBridge(service, launchService)
+
+          val result = bridge.launch(
+            promptLaunchRequest(
+              provider = AgentSessionProvider.CODEX,
+              generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.HIGH),
+            )
+          )
+
+          assertThat(result.launched).isTrue()
+          waitForCondition { chatOpenExecutor.openNewChatCalls.get() == 1 }
+          assertThat(chatOpenExecutor.lastOpenNewChatRequest.get()?.launchSpec?.command)
+            .containsExactly("test", "new", AgentSessionLaunchMode.STANDARD.name, "--effort", "high")
+        }
+      }
+    }
+  }
+
+  @Test
   fun createNewSessionCanSkipUpdatingGeneralProviderPreferences() {
     val providerBridge = RecordingPromptLaunchProviderBridge(
       provider = AgentSessionProvider.CODEX,
@@ -1005,6 +1045,7 @@ class AgentSessionPromptLauncherBridgeTest {
       startupPolicyOverride = AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND,
       timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
       composedMessageBuilder = { request -> request.prompt.trim() },
+      supportedReasoningEffortsOverride = setOf(AgentPromptReasoningEffort.HIGH),
     )
     val chatOpenExecutor = RecordingChatOpenExecutor()
     AgentSessionProviders.withRegistryForTest(
@@ -1142,6 +1183,10 @@ class AgentSessionPromptLauncherBridgeTest {
       startupPolicyOverride = AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND,
       timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
       composedMessageBuilder = { request -> request.prompt.trim() },
+      supportedReasoningEffortsOverride = setOf(AgentPromptReasoningEffort.HIGH),
+      generationSettingsApplier = { launchSpec, settings ->
+        launchSpec.copy(command = launchSpec.command + listOf("--effort", settings.reasoningEffort.name.lowercase()))
+      },
     )
     val chatOpenExecutor = RecordingChatOpenExecutor()
     AgentSessionProviders.withRegistryForTest(
@@ -1175,7 +1220,10 @@ class AgentSessionPromptLauncherBridgeTest {
           }
 
           val bridge = promptLauncherBridge(service, launchService)
-          val baseRequest = promptLaunchRequest(targetThreadId = "thread-existing")
+          val baseRequest = promptLaunchRequest(
+            targetThreadId = "thread-existing",
+            generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.HIGH),
+          )
           val request = baseRequest.copy(
             initialMessageRequest = baseRequest.initialMessageRequest.copy(
               providerOptionIds = setOf(AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE),
@@ -1194,8 +1242,10 @@ class AgentSessionPromptLauncherBridgeTest {
 
           assertThat(providerBridge.lastComposeRequest.get()).isEqualTo(request.initialMessageRequest)
           assertThat(providerBridge.startupCommandCalls.get()).isEqualTo(1)
-          assertThat(providerBridge.lastStartupBaseLaunchSpec.get()?.command).containsExactly("test", "resume", "thread-existing")
+          assertThat(providerBridge.lastStartupBaseLaunchSpec.get()?.command)
+            .containsExactly("test", "resume", "thread-existing", "--effort", "high")
           assertThat(providerBridge.lastStartupPrompt.get()).isEqualTo("Refactor selected code")
+          assertThat(providerBridge.generationSettingsApplyCalls.get()).isEqualTo(1)
           assertThat(chatOpenExecutor.openNewChatCalls.get()).isZero()
 
           val openRequest = checkNotNull(chatOpenExecutor.lastOpenChatRequest.get())
@@ -1203,7 +1253,7 @@ class AgentSessionPromptLauncherBridgeTest {
           assertThat(openRequest.thread.id).isEqualTo("thread-existing")
           assertThat(openRequest.subAgent).isNull()
           assertThat(openRequest.startupLaunchSpecOverride?.command)
-            .containsExactly("test", "resume", "thread-existing", "--", "Refactor selected code")
+            .containsExactly("test", "resume", "thread-existing", "--effort", "high", "--", "Refactor selected code")
           assertThat(openRequest.startupLaunchSpecOverride?.envVariables).isEmpty()
           assertThat(openRequest.initialComposedMessage).isNull()
           assertThat(openRequest.postStartDispatchSteps).containsExactly(
@@ -2227,6 +2277,7 @@ private fun promptLaunchRequest(
   launchMode: AgentSessionLaunchMode = AgentSessionLaunchMode.STANDARD,
   projectPath: String = PROJECT_PATH,
   targetThreadId: String? = null,
+  generationSettings: AgentPromptGenerationSettings = AgentPromptGenerationSettings.AUTO,
 ): AgentPromptLaunchRequest {
   return AgentPromptLaunchRequest(
     provider = provider,
@@ -2245,6 +2296,7 @@ private fun promptLaunchRequest(
     ),
     targetThreadId = targetThreadId,
     preferredDedicatedFrame = null,
+    generationSettings = generationSettings,
   )
 }
 
@@ -2300,6 +2352,11 @@ private class RecordingPromptLaunchProviderBridge(
   private val startupPromptCommandEnvVariables: Map<String, String> = emptyMap(),
   private val composedMessageBuilder: (AgentPromptInitialMessageRequest) -> String = { request -> "composed:${request.prompt.trim()}" },
   override val promptOptions: List<AgentPromptProviderOption> = listOf(AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION),
+  private val supportedReasoningEffortsOverride: Set<AgentPromptReasoningEffort> = emptySet(),
+  private val generationSettingsApplier: (
+    AgentSessionTerminalLaunchSpec,
+    AgentPromptGenerationSettings,
+  ) -> AgentSessionTerminalLaunchSpec = { launchSpec, _ -> launchSpec },
 ) : AgentSessionProviderDescriptor {
   val createCalls: AtomicInteger = AtomicInteger(0)
   val composeCalls: AtomicInteger = AtomicInteger(0)
@@ -2310,6 +2367,7 @@ private class RecordingPromptLaunchProviderBridge(
   val lastStartupBaseLaunchSpec: AtomicReference<AgentSessionTerminalLaunchSpec?> = AtomicReference(null)
   val lastStartupPrompt: AtomicReference<String?> = AtomicReference(null)
   val lastShouldUseStartupPromptCommandRequest: AtomicReference<AgentPromptInitialMessageRequest?> = AtomicReference(null)
+  val generationSettingsApplyCalls: AtomicInteger = AtomicInteger(0)
 
   override val displayNameKey: String
     get() = "toolwindow.provider.codex"
@@ -2318,10 +2376,13 @@ private class RecordingPromptLaunchProviderBridge(
     get() = "toolwindow.action.new.session.codex"
 
   override val icon: Icon
-    get() = if (provider == AgentSessionProvider.CLAUDE) AgentWorkbenchCommonIcons.Claude_14x14 else AgentWorkbenchCommonIcons.Codex_14x14
+    get() = if (provider == AgentSessionProvider.CLAUDE) AgentWorkbenchCommonIcons.Claude else AgentWorkbenchCommonIcons.Codex
 
   override val supportedLaunchModes: Set<AgentSessionLaunchMode>
     get() = supportedModes
+
+  override val supportedReasoningEfforts: Set<AgentPromptReasoningEffort>
+    get() = supportedReasoningEffortsOverride
 
   override val sessionSource: AgentSessionSource = object : AgentSessionSource {
     override val provider: AgentSessionProvider
@@ -2345,6 +2406,14 @@ private class RecordingPromptLaunchProviderBridge(
     createCalls.incrementAndGet()
     lastCreateMode.set(mode)
     return AgentSessionTerminalLaunchSpec(command = listOf("test", "new", mode.name))
+  }
+
+  override fun applyGenerationSettings(
+    baseLaunchSpec: AgentSessionTerminalLaunchSpec,
+    generationSettings: AgentPromptGenerationSettings,
+  ): AgentSessionTerminalLaunchSpec {
+    generationSettingsApplyCalls.incrementAndGet()
+    return generationSettingsApplier(baseLaunchSpec, sanitizeGenerationSettings(generationSettings))
   }
 
   override fun buildLaunchSpecWithInitialMessage(

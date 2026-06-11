@@ -428,7 +428,6 @@
       <group id="Diff.Conflicts.Additional.Actions"/>
       <group id="Diff.Conflicts.Feedback"/>
 
-      <group id="Merge.Dialog.Iterative.ResolveActions"/>
       <group id="compare.contents" icon="AllIcons.Actions.Diff" popup="true" class="com.intellij.openapi.actionSystem.EmptyActionGroup">
         <action id="Diff.ComparePartial.Base.Left" class="com.intellij.openapi.actionSystem.EmptyAction"
                 icon="AllIcons.Diff.Compare4LeftMiddle"/>
@@ -1947,6 +1946,9 @@
            class="com.intellij.ide.browsers.actions.OpenInBrowserBaseGroupAction$OpenInBrowserEditorContextBarGroupAction">
       <add-to-group group-id="OpenInBrowserEditorContextBarGroup" anchor="last"/>
     </group>
+
+    <action class="com.intellij.openapi.updateSettings.impl.PluginUpdateSourcesResetAction" internal="true"
+            id="PluginUpdateSourcesResetAction"/>
   </actions>
 
   <actions resource-bundle="messages.MinimapBundle">

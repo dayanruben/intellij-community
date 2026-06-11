@@ -5,6 +5,7 @@ import com.intellij.driver.sdk.ui.components.ComponentData
 import com.intellij.driver.sdk.ui.components.elements.JListUiComponent
 import com.intellij.driver.sdk.ui.components.elements.JTextFieldUI
 import com.intellij.driver.sdk.ui.components.elements.actionButtonByXpath
+import com.intellij.driver.sdk.ui.components.elements.checkBox
 import com.intellij.driver.sdk.ui.components.elements.dialog
 import com.intellij.driver.sdk.ui.components.elements.jBlist
 import com.intellij.driver.sdk.ui.components.elements.list
@@ -44,7 +45,7 @@ class ToolchainPanel(data: ComponentData) : SettingsDialogUiComponent(data) {
   fun getToolchainList(): JListUiComponent =
     jBlist(xQuery { byClass("JBList") })
 
-  fun addToolchain()  {
+  fun addToolchain() {
     actionButtonByXpath(xQuery { byTooltip("Add") }).click()
   }
 
@@ -104,6 +105,15 @@ class ToolchainPanel(data: ComponentData) : SettingsDialogUiComponent(data) {
       textField(xQuery { and(byAccessibleName("Username:"), byClass("JBTextField")) }).text = username
       textField(xQuery { and(byAccessibleName("Port:"), byClass("JBTextField")) }).text = port
       textField { and(byAccessibleName("Password:"), byClass("JPasswordField")) }.text = password
+      okButton.click()
+    }
+  }
+
+  fun setUpRemoteToolchainPassword(password: String) {
+    actionButtonByXpath(xQuery { byClass("FixedSizeButton") }).click()
+    driver.ui.dialog(xQuery { byTitle("SSH Configurations") }) {
+      textField { and(byAccessibleName("Password:"), byClass("JPasswordField")) }.text = password
+      checkBox(xQuery { byAccessibleName("Save password") }).check()
       okButton.click()
     }
   }
