@@ -84,19 +84,14 @@
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.base" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.projectStructure" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.api" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.code-insight.intentions.shared" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.utils" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.shared" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.intentions" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.descriptions" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.inspections" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.code-insight.inspections.shared" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.code-insight.override-implement.shared" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.overrideImplement" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.code-insight.live-templates.shared" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.liveTemplates" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.postfixTemplates" scope="RUNTIME" />
-    <orderEntry type="module" module-name="kotlin.code-insight.line-markers.shared" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.lineMarkers" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.jvm.debugger.base.util" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.jvm.debugger.core" scope="RUNTIME" />

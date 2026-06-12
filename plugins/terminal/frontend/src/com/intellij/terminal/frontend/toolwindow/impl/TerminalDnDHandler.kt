@@ -9,22 +9,14 @@ import com.intellij.ide.dnd.TransferableWrapper
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.openapi.wm.ex.ToolWindowEx
-import com.intellij.platform.eel.EelDescriptor
-import com.intellij.platform.eel.isPosix
-import com.intellij.platform.eel.isWindows
-import com.intellij.platform.eel.provider.LocalEelDescriptor
-import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.getEelDescriptor
-import com.intellij.platform.eel.provider.getResolvedEelMachine
 import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.psi.PsiFileSystemItem
+import com.intellij.terminal.frontend.toolwindow.impl.TerminalFilePathHandler.getPathAsText
 import com.intellij.terminal.frontend.view.TerminalView
-import com.intellij.terminal.frontend.view.completion.escapeShellArgument
 import com.intellij.util.asDisposable
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.CoroutineScope
@@ -33,11 +25,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.plugins.terminal.fus.TerminalOpeningWay
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
-import org.jetbrains.plugins.terminal.session.ShellName
-import org.jetbrains.plugins.terminal.session.guessShellName
-import org.jetbrains.plugins.terminal.startup.TerminalLocalPathTranslator
-import org.jetbrains.plugins.terminal.util.getNow
 import java.nio.file.Path
+import kotlin.io.path.isDirectory
 
 /**
  * Handles terminal drag-and-drop behavior
@@ -71,16 +60,15 @@ internal object TerminalDnDHandler {
   }
 
   private fun handleDropOnTerminalView(event: DnDEvent, terminalView: TerminalView) {
-    val context = getTerminalDropContext(terminalView) ?: return
     val data = TerminalDropData(event)
+    val context = getTerminalContext(terminalView) ?: return
 
     terminalView.coroutineScope.launch {
-      val droppedFiles = data.virtualFiles ?: resolveVirtualFiles(data.paths)
-      val textToInsert = getTextToInsertForFiles(droppedFiles, context).ifEmpty { return@launch }
+      val text = data.virtualFiles?.let { handleVirtualFiles(it, context) } ?: getPathAsText(data.paths, context)
 
       terminalView.createSendTextBuilder()
         .useBracketedPasteMode()
-        .send(textToInsert)
+        .send(text)
     }
   }
 
@@ -89,15 +77,17 @@ internal object TerminalDnDHandler {
     val data = TerminalDropData(event)
 
     coroutineScope.launch {
-      val project = window.project
-      val droppedFiles = data.virtualFiles ?: resolveVirtualFiles(data.paths)
-      val dir = getDirectory(droppedFiles.firstOrNull(), project) ?: return@launch
+      val droppedFiles = data.virtualFiles?.mapNotNull { it.toNioPathOrNull() } ?: data.paths
+      val filePath = droppedFiles.firstOrNull()
+      if (!TerminalFilePathHandler.isSameEnvironment(filePath, window.project.getEelDescriptor()))
+        return@launch
 
+      val dir = getDirectory(filePath) ?: return@launch
       val fusInfo = TerminalStartupFusInfo(TerminalOpeningWay.DND_FILE_TO_TOOLWINDOW)
       withContext(Dispatchers.EDT) {
         createTerminalTab(
-          project,
-          workingDirectory = dir.path,
+          window.project,
+          workingDirectory = dir.toString(),
           contentManager = contentManager,
           startupFusInfo = fusInfo
         )
@@ -114,78 +104,26 @@ internal object TerminalDnDHandler {
     return DataManager.getInstance().getDataContext(deepestComponent)
   }
 
-  private fun getDirectory(file: VirtualFile?, project: Project): VirtualFile? {
-    if (file == null) return null
-
-    val filePath = file.toNioPathOrNull() ?: return null
-    if (!isSameEnvironment(filePath, project.getEelDescriptor()))
-      return null
-
-    return if (file.isDirectory) file else file.parent
-  }
-
-  private fun getTerminalDropContext(terminalView: TerminalView): TerminalDropContext? {
-    val eelDescriptor = terminalView.sessionDeferred.getNow()?.eelDescriptor ?: return null
-    val shellName = terminalView.startupOptionsDeferred.getNow()?.guessShellName() ?: ShellName.of("unknown")
-    return TerminalDropContext(eelDescriptor, shellName)
-  }
-
-  private fun getTextToInsertForFiles(files: List<VirtualFile>, context: TerminalDropContext): String {
-    return files.mapNotNull { file -> getPathToInsert(file, context.eelDescriptor) }
-      .joinToString(" ") { path -> escapeShellArgument(path, context.shellName) }
-  }
-
-  private fun getPathToInsert(file: VirtualFile, eelDescriptor: EelDescriptor): String? {
-    // RemDev and Monolith modes expose different VFS shapes, so keep the checks separate.
-    return if (IdeProductMode.isFrontend) getPathInFrontend(file) else getPathInMonolith(file, eelDescriptor)
-  }
-
-  private fun getPathInFrontend(file: VirtualFile): String? {
+  private fun handleVirtualFiles(files: List<VirtualFile>, terminalContext: TerminalProcessContext): String {
     // In RemDev frontend, only paths from the remote machine should be inserted.
     // This proxy is intentionally conservative: it is not a perfect remote-file check,
     // but it accepts files dropped from the remote Project View.
-    return file.path.takeIf { !file.isInLocalFileSystem }
-  }
+    val isRemDev = IdeProductMode.isFrontend
 
-  private fun getPathInMonolith(file: VirtualFile, eelDescriptor: EelDescriptor): String? {
-    // In monolith, VFS files should be local first.
-    if (!file.isInLocalFileSystem) return null
-
-    val nioPath = file.toNioPathOrNull() ?: return null
-    // Normal case: paste only paths from the same EEL machine as the shell. This covers local,
-    // WSL, and Docker paths that already belong to the shell environment.
-    if (isSameEnvironment(nioPath, eelDescriptor)) {
-      return runCatching { nioPath.asEelPath().toString() }.getOrNull()
+    val paths = files.mapNotNull {
+      val nioPath = it.toNioPathOrNull()
+      if (nioPath != null)
+        TerminalFilePathHandler.formatPath(nioPath, terminalContext)
+      else
+        if (isRemDev) it.path else null
     }
-
-    // Special case for WSL shells: Windows drives are mounted inside WSL, so a local Windows file
-    // can still be meaningful to the shell after translation, for example C:\work -> /mnt/c/work.
-    return translateLocalPathToWsl(nioPath, eelDescriptor)
+    return paths.joinToString(separator = " ")
   }
 
-  private fun isSameEnvironment(filePath: Path, eelDescriptor: EelDescriptor): Boolean {
-    val fileMachine = filePath.getEelDescriptor().getResolvedEelMachine() ?: return false
-    val eelMachine = eelDescriptor.getResolvedEelMachine() ?: return false
-    return fileMachine == eelMachine
+  private fun getDirectory(filePath: Path?): Path? {
+    if (filePath == null) return null
+    return if (filePath.isDirectory()) filePath else filePath.parent
   }
-
-  private fun translateLocalPathToWsl(nioPath: Path, eelDescriptor: EelDescriptor): String? {
-    val fileDescriptor = nioPath.getEelDescriptor()
-    if (fileDescriptor != LocalEelDescriptor || !LocalEelDescriptor.osFamily.isWindows || !eelDescriptor.osFamily.isPosix) {
-      return null
-    }
-
-    return TerminalLocalPathTranslator(eelDescriptor).translateAbsoluteLocalPathToRemote(nioPath)?.toString()
-  }
-
-  private suspend fun resolveVirtualFiles(paths: List<Path>): List<VirtualFile> = withContext(Dispatchers.IO) {
-    paths.mapNotNull { path -> VfsUtil.findFile(path, true) }
-  }
-
-  private data class TerminalDropContext(
-    val eelDescriptor: EelDescriptor,
-    val shellName: ShellName,
-  )
 }
 
 internal class TerminalDropData(event: DnDEvent) {

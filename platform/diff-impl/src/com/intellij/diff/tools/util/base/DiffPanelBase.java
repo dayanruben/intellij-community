@@ -5,7 +5,12 @@ import com.intellij.diff.DiffContext;
 import com.intellij.diff.util.DiffUtil;
 import com.intellij.openapi.actionSystem.DataSink;
 import com.intellij.openapi.actionSystem.UiCompatibleDataProvider;
+import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.ui.IslandsState;
+import com.intellij.ui.JBColor;
+import com.intellij.ui.components.JBPanel;
+import com.intellij.ui.components.panels.VerticalLayout;
 import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
@@ -45,6 +50,15 @@ public abstract class DiffPanelBase extends JPanel implements UiCompatibleDataPr
 
     myCardLayout = new CardLayout();
     myContentPanel = new JPanel(myCardLayout);
+    myContentPanel.setBackground(JBColor.lazy(() -> {
+      if (IslandsState.Companion.isEnabled()) {
+        EditorColorsManager manager = EditorColorsManager.getInstance();
+        return manager.getGlobalScheme().getDefaultBackground();
+      }
+      else {
+        return UIUtil.getPanelBackground();
+      }
+    }));
 
     myNotificationsPanel = new Wrapper();
     myNorthPanel = new Wrapper();
@@ -113,7 +127,11 @@ public abstract class DiffPanelBase extends JPanel implements UiCompatibleDataPr
   private void updateNotifications() {
     List<JComponent> notifications = new ArrayList<>(ContainerUtil.concat(myPersistentNotifications, myNotifications));
     notifications = DiffUtil.wrapEditorNotificationBorders(notifications);
-    myNotificationsPanel.setContent(DiffUtil.createStackedComponents(notifications, DiffUtil.TITLE_GAP));
+    JPanel notificationsStack = new JBPanel<>(new VerticalLayout(2, VerticalLayout.FILL));
+    for (JComponent component : notifications) {
+      notificationsStack.add(component);
+    }
+    myNotificationsPanel.setContent(notificationsStack);
     validate();
     repaint();
   }

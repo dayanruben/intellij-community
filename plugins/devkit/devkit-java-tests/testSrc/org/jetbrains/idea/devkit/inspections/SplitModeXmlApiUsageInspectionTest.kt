@@ -21,12 +21,12 @@ internal class SplitModeXmlApiUsageInspectionTest : JavaCodeInsightFixtureTestCa
   override fun setUp() {
     super.setUp()
     IntelliJProjectUtil.markAsIntelliJPlatformProject(project, true)
-    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.containing.plugins")
+    RegistryManager.getInstance().get("devkit.split.mode.analysis.containing.plugins")
       .setValue(true, testRootDisposable)
-    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.inspections.enable.xml.for.non.native.plugin")
+    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.xml.for.non.native.plugin")
       .setValue(true, testRootDisposable)
 
-    val service = SplitModeApiRestrictionsService.getInstance()
+    val service = SplitModeApiRestrictionsService.getInstance(project)
     service.scheduleLoadRestrictions()
     timeoutRunBlocking {
       waitUntil("API restrictions failed to load", 2.seconds) { service.isLoaded() }
@@ -102,7 +102,7 @@ Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in
   }
 
   fun testApiRestrictionsJsonHasNoDuplicateApiTargets() {
-    SplitModeApiRestrictionsService.getInstance().assertApiRestrictionsCanBeReadForTest()
+    SplitModeApiRestrictionsService.getInstance(project).assertApiRestrictionsCanBeReadForTest()
   }
 
   fun testModuleKindCanBePredefinedInRestrictionsService() {
@@ -169,7 +169,7 @@ Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in
   }
 
   fun testSkippingPredefinedModuleInspectionsCanBeDisabled() {
-    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.inspections.skip.predefined")
+    RegistryManager.getInstance().get("devkit.split.mode.inspections.skip.predefined")
       .setValue(false, testRootDisposable)
 
     val pluginXml = addModuleWithXmlDescriptor(
@@ -213,12 +213,12 @@ Predefined module kind for module 'intellij.platform.frontend'">localInspection<
 
 Computed module kind reasoning:
 
-No frontend or backend dependencies were found for module 'unique.module.name.3'">fileEditorProvider</warning>/>
+No frontend or backend dependencies were found for descriptor 'plugin.xml' in module 'unique.module.name.3'">fileEditorProvider</warning>/>
             <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'shared'.
 
 Computed module kind reasoning:
 
-No frontend or backend dependencies were found for module 'unique.module.name.3'">localInspection</warning>/>
+No frontend or backend dependencies were found for descriptor 'plugin.xml' in module 'unique.module.name.3'">localInspection</warning>/>
             <lang.parserDefinition/>
           </extensions>
         </idea-plugin>
@@ -977,7 +977,7 @@ via dependency 'unique.module.name.40' -> descriptor 'unique.module.name.40.xml'
   }
 
   fun testFrontendExtensionInModuleWithTransitiveAnalysisDisabled() {
-    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.transitive.dependencies")
+    RegistryManager.getInstance().get("devkit.split.mode.analysis.transitive.dependencies")
       .setValue(false, testRootDisposable)
 
     addModuleWithXmlDescriptor(
@@ -1008,12 +1008,12 @@ via dependency 'unique.module.name.40' -> descriptor 'unique.module.name.40.xml'
     myFixture.configureFromExistingVirtualFile(pluginXml.virtualFile)
 
     myFixture.checkHighlighting()
-    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.transitive.dependencies")
+    RegistryManager.getInstance().get("devkit.split.mode.analysis.transitive.dependencies")
       .setValue(true, testRootDisposable)
   }
 
   fun testBackendExtensionInContentModuleWithContainingPluginAnalysisDisabled() {
-    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.containing.plugins")
+    RegistryManager.getInstance().get("devkit.split.mode.analysis.containing.plugins")
       .setValue(false, testRootDisposable)
 
     addModuleWithXmlDescriptor(
@@ -1041,7 +1041,7 @@ via dependency 'unique.module.name.40' -> descriptor 'unique.module.name.40.xml'
 
 Computed module kind reasoning:
 
-No frontend or backend dependencies were found for module 'unique.module.name.47'">localInspection</warning>/>
+No frontend or backend dependencies were found for descriptor 'unique.module.name.47.xml' in module 'unique.module.name.47'">localInspection</warning>/>
           </extensions>
         </idea-plugin>
       """.trimIndent()
@@ -1049,7 +1049,7 @@ No frontend or backend dependencies were found for module 'unique.module.name.47
     myFixture.configureFromExistingVirtualFile(contentModuleDescriptor.virtualFile)
 
     myFixture.checkHighlighting()
-    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.analysis.containing.plugins")
+    RegistryManager.getInstance().get("devkit.split.mode.analysis.containing.plugins")
       .setValue(true, testRootDisposable)
   }
 

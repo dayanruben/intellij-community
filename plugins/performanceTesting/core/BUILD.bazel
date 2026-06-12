@@ -81,6 +81,7 @@ jvm_library(
         "//platform/xdebugger-impl/shared",
         "//platform/xdebugger-impl/ui",
         "//plugins/performanceTesting/event-bus:tools-ide-starter-bus",
+        "@community//platform/welcome-screen",
         "@lib//:github-oshi-core",
         "@lib//:kotlin-stdlib",
     ],

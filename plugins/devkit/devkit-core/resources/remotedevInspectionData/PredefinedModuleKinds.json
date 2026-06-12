@@ -3,6 +3,7 @@
 
   {"moduleName": "intellij.platform.frontend", "moduleKind": "frontend"},
   {"moduleName": "intellij.platform.frontend.split", "moduleKind": "frontend"},
+  {"moduleName": "intellij.platform.plugins.frontend.split", "moduleKind": "frontend"},
   {"moduleName": "com.intellij.jetbrains.client", "moduleKind": "frontend"},
   {"moduleName": "com.intellij.jetbrains.client.git", "moduleKind": "frontend"},
   {"moduleName": "intellij.cwm.frontend", "moduleKind": "frontend"},
@@ -10,6 +11,7 @@
 
   {"moduleName": "intellij.platform.backend", "moduleKind": "backend"},
   {"moduleName": "intellij.platform.backend.split", "moduleKind": "backend"},
+  {"moduleName": "intellij.platform.kernel.backend", "moduleKind": "backend"},
   {"moduleName": "com.jetbrains.remoteDevelopment", "moduleKind": "backend"},
   {"moduleName": "intellij.cwm", "moduleKind": "backend"},
   {"moduleName": "intellij.cwm.plugin", "moduleKind": "backend"},
@@ -25,12 +27,15 @@
   {"moduleName": "intellij.codeWithMe.datagrip.main", "moduleKind": "backend"},
   {"moduleName": "intellij.codeWithMe.pycharm.community.main", "moduleKind": "backend"},
   {"moduleName": "intellij.codeWithMe.appcode.main", "moduleKind": "backend"},
+
   {"moduleName": "intellij.cwm.connection", "moduleKind": "shared"},
   {"moduleName": "intellij.cwm.plugin.common", "moduleKind": "shared"},
   {"moduleName": "intellij.rd.client.base", "moduleKind": "shared"},
   {"moduleName": "intellij.rd.client", "moduleKind": "shared"},
 
+  {"pluginId": "com.intellij.modules.ultimate", "moduleKind": "shared"},
   {"pluginId": "com.intellij.modules.lang", "moduleKind": "shared"},
+
   {"moduleName": "intellij.platform.resources", "descriptorRelativePath": "src/META-INF/PlatformLangPlugin.xml", "moduleKind": "shared"},
   {"moduleName": "intellij.platform.resources", "descriptorRelativePath": "src/META-INF/PlatformLangComponents.xml", "moduleKind": "shared"},
   {"moduleName": "intellij.platform.resources", "descriptorRelativePath": "src/idea/PriorityEditorLangActions.xml", "moduleKind": "shared"},

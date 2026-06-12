@@ -39,16 +39,12 @@
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.api" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.shared" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.descriptions" exported="" />
-    <orderEntry type="module" module-name="kotlin.code-insight.intentions.shared" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.fixes" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.intentions" exported="" />
-    <orderEntry type="module" module-name="kotlin.code-insight.inspections.shared" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.inspections" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight" exported="" />
-    <orderEntry type="module" module-name="kotlin.code-insight.override-implement.shared" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.overrideImplement" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.structuralSearch" exported="" />
-    <orderEntry type="module" module-name="kotlin.code-insight.line-markers.shared" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.lineMarkers" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.refactorings.rename" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.allopen.maven" exported="" />
@@ -100,7 +96,6 @@
     <orderEntry type="module" module-name="intellij.kotlin.jvm.debugger.evaluation" exported="" />
     <orderEntry type="module" module-name="kotlin.base.injection" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.injection" exported="" />
-    <orderEntry type="module" module-name="kotlin.code-insight.live-templates.shared" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.liveTemplates" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.lombok" exported="" />
     <orderEntry type="module" module-name="intellij.kotlin.maven" exported="" />

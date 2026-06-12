@@ -27,10 +27,10 @@ internal class SplitModeDependencyQuickFixesTest : JavaCodeInsightFixtureTestCas
   override fun setUp() {
     super.setUp()
     IntelliJProjectUtil.markAsIntelliJPlatformProject(project, true)
-    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.inspections.enable.xml.for.non.native.plugin")
+    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.xml.for.non.native.plugin")
       .setValue(true, testRootDisposable)
 
-    val service = SplitModeApiRestrictionsService.getInstance()
+    val service = SplitModeApiRestrictionsService.getInstance(project)
     service.scheduleLoadRestrictions()
     timeoutRunBlocking {
       waitUntil("API restrictions failed to load", 2.seconds) { service.isLoaded() }

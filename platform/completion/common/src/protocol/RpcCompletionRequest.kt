@@ -16,6 +16,7 @@ data class RpcCompletionRequest(
   val editorId: EditorId,
   val projectId: ProjectId,
   val startingEditorVersion: Int,
+  val startingDocumentVersion: Int,
   val completionType: CompletionType = CompletionType.BASIC,
   val invocationCount: Int = 0,
 ) {
@@ -25,6 +26,7 @@ data class RpcCompletionRequest(
     field("editorId", editorId)
     field("projectId", projectId)
     field("startingEditorVersion", startingEditorVersion)
+    field("startingDocumentVersion", startingDocumentVersion)
     fieldWithDefault("completionType", completionType, CompletionType.BASIC)
     fieldWithDefault("invocationCount", invocationCount, 0)
   }

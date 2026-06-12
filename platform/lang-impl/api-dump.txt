@@ -45,6 +45,7 @@ com.intellij.analysis.problemsView.ProblemsListener
 - a:problemAppeared(com.intellij.analysis.problemsView.Problem):V
 - a:problemDisappeared(com.intellij.analysis.problemsView.Problem):V
 - a:problemUpdated(com.intellij.analysis.problemsView.Problem):V
+f:com.intellij.analysis.problemsView.ProblemsListener$Companion
 com.intellij.analysis.problemsView.ProblemsProvider
 - com.intellij.openapi.Disposable
 - dispose():V
@@ -390,6 +391,12 @@ c:com.intellij.build.ExecutionNode
 - setTitle(java.lang.String):V
 f:com.intellij.build.FileNavigatable
 - com.intellij.pom.Navigatable
+com.intellij.build.Filterable
+- a:addFilter(java.util.function.Predicate):V
+- a:contains(java.util.function.Predicate):Z
+- a:getFilter():java.util.function.Predicate
+- a:isFilteringEnabled():Z
+- a:removeFilter(java.util.function.Predicate):V
 c:com.intellij.build.SyncViewManager
 - com.intellij.build.AbstractViewManager
 c:com.intellij.build.events.impl.FailureImpl
@@ -863,6 +870,17 @@ a:com.intellij.codeInsight.documentation.AbstractExternalFilter
 - getExternalDocInfo(java.lang.String):java.lang.String
 pa:com.intellij.codeInsight.documentation.AbstractExternalFilter$RefConvertor
 - <init>(java.util.regex.Pattern):V
+com.intellij.codeInsight.documentation.DocToolWindowManager
+- sf:LANGUAGE_MANAGER:com.intellij.codeInsight.documentation.DocToolWindowManager$DocToolWindowLanguageManager
+- a:createToolWindow(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement,com.intellij.codeInsight.documentation.DocumentationManager):com.intellij.openapi.wm.ToolWindow
+- a:disposeToolWindow(com.intellij.openapi.wm.ToolWindow,com.intellij.codeInsight.documentation.DocumentationManager):V
+- a:getDocumentationComponent(com.intellij.openapi.wm.ToolWindow,com.intellij.codeInsight.documentation.DocumentationManager):com.intellij.codeInsight.documentation.DocumentationComponent
+- a:getDocumentationContent(com.intellij.openapi.wm.ToolWindow,com.intellij.codeInsight.documentation.DocumentationManager):com.intellij.ui.content.Content
+- a:installToolWindowActions(com.intellij.openapi.wm.ToolWindow,com.intellij.codeInsight.documentation.DocumentationManager):V
+- a:isAutoUpdateAvailable():Z
+- a:prepareForShowDocumentation(com.intellij.openapi.wm.ToolWindow,com.intellij.codeInsight.documentation.DocumentationManager):V
+- a:setToolWindowDefaultState(com.intellij.openapi.wm.ToolWindow,com.intellij.codeInsight.documentation.DocumentationManager):V
+- a:updateToolWindowDocumentationTabName(com.intellij.openapi.wm.ToolWindow,com.intellij.psi.PsiElement,com.intellij.codeInsight.documentation.DocumentationManager):V
 a:com.intellij.codeInsight.documentation.DockablePopupManager
 - <init>(com.intellij.openapi.project.Project):V
 - p:createActions():com.intellij.openapi.actionSystem.AnAction[]
@@ -1365,7 +1383,6 @@ f:com.intellij.codeInsight.intention.impl.IntentionActionWithTextCaching
 e:com.intellij.codeInsight.intention.impl.IntentionGroup
 - java.lang.Enum
 f:com.intellij.codeInsight.intention.impl.IntentionHintComponent
-- com.intellij.codeInsight.hint.ScrollAwareHint
 - com.intellij.openapi.Disposable
 c:com.intellij.codeInsight.intention.impl.IntentionListStep
 - com.intellij.openapi.ui.popup.ListPopupStep
@@ -1861,6 +1878,8 @@ f:com.intellij.codeInspection.ex.ApplicationInspectionProfileManager
 - getState():org.jdom.Element
 - loadProfile(java.lang.String):com.intellij.codeInspection.ex.InspectionProfileImpl
 - loadState(org.jdom.Element):V
+f:com.intellij.codeInspection.ex.ApplicationInspectionProfileManager$Companion
+- f:getInstanceImpl():com.intellij.codeInspection.ex.ApplicationInspectionProfileManager
 c:com.intellij.codeInspection.ex.CustomEditInspectionToolsSettingsAction
 - com.intellij.codeInsight.intention.IntentionAction
 - com.intellij.openapi.util.Iconable
@@ -1992,6 +2011,19 @@ c:com.intellij.execution.console.ConsoleHistoryController
 - setMultiline(Z):com.intellij.execution.console.ConsoleHistoryController
 com.intellij.execution.console.ConsoleHistoryModel
 - com.intellij.openapi.util.ModificationTracker
+- a:getCurrentIndex():I
+- a:getHistoryNext():com.intellij.execution.console.ConsoleHistoryModel$Entry
+- a:getHistoryPrev():com.intellij.execution.console.ConsoleHistoryModel$Entry
+- a:hasHistory():Z
+- prevOnLastLine():Z
+- a:setContent(java.lang.String):V
+f:com.intellij.execution.console.ConsoleHistoryModel$Entry
+- java.lang.Record
+- <init>(java.lang.CharSequence,I):V
+- f:equals(java.lang.Object):Z
+- f:hashCode():I
+- offset():I
+- text():java.lang.CharSequence
 com.intellij.execution.console.ConsoleOptionsProvider
 - com.intellij.openapi.options.UnnamedConfigurable
 f:com.intellij.execution.console.ConsoleOptionsProviderEP
@@ -4050,7 +4082,6 @@ f:com.intellij.openapi.fileTypes.PlainTextSyntaxHighlighterFactory
 - com.intellij.openapi.fileTypes.SyntaxHighlighterFactory
 - <init>():V
 f:com.intellij.openapi.fileTypes.impl.FileTypeConfigurable
-- com.intellij.openapi.fileTypes.impl.FileTypeSelectable
 - com.intellij.openapi.options.Configurable$NoScroll
 - com.intellij.openapi.options.SearchableConfigurable
 f:com.intellij.openapi.module.EmptyModuleType
@@ -4560,10 +4591,6 @@ f:com.intellij.platform.backend.documentation.LinkResolveResult$Companion
 com.intellij.platform.backend.documentation.PsiDocumentationTargetProvider
 - documentationTarget(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement):com.intellij.platform.backend.documentation.DocumentationTarget
 - documentationTargets(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement):java.util.List
-f:com.intellij.platform.ide.navigation.impl.IdeNavigationServiceExecutor
-- sf:Companion:com.intellij.platform.ide.navigation.impl.IdeNavigationServiceExecutor$Companion
-- <init>():V
-- f:navigate(com.intellij.platform.backend.navigation.impl.RawNavigationRequest,Z,kotlin.coroutines.Continuation):java.lang.Object
 f:com.intellij.platform.renameProject.RenameProjectAction
 - com.intellij.openapi.project.DumbAwareAction
 - <init>():V
@@ -4895,6 +4922,16 @@ pc:com.intellij.refactoring.changeSignature.ParameterTableModelBase$TypeColumn
 - valueOf(com.intellij.refactoring.changeSignature.ParameterTableModelItemBase):com.intellij.psi.PsiCodeFragment
 a:com.intellij.refactoring.changeSignature.ParameterTableModelItemBase
 - a:isEllipsisType():Z
+com.intellij.refactoring.changeSignature.inplace.LanguageChangeSignatureDetector
+- a:createInitialChangeInfo(com.intellij.psi.PsiElement):com.intellij.refactoring.changeSignature.ChangeInfo
+- a:createNextChangeInfo(java.lang.String,com.intellij.refactoring.changeSignature.ChangeInfo,Z):com.intellij.refactoring.changeSignature.ChangeInfo
+- extractSignature(com.intellij.refactoring.changeSignature.ChangeInfo):java.lang.String
+- a:getFileType():com.intellij.openapi.fileTypes.FileType
+- a:getHighlightingRange(com.intellij.refactoring.changeSignature.ChangeInfo):com.intellij.openapi.util.TextRange
+- getMethodSignaturePreview(com.intellij.refactoring.changeSignature.ChangeInfo,java.util.List,java.util.List):java.lang.String
+- a:ignoreChanges(com.intellij.psi.PsiElement):Z
+- a:isChangeSignatureAvailableOnElement(com.intellij.psi.PsiElement,com.intellij.refactoring.changeSignature.ChangeInfo):Z
+- a:performChange(com.intellij.refactoring.changeSignature.ChangeInfo,com.intellij.openapi.editor.Editor,java.lang.String):V
 a:com.intellij.refactoring.classMembers.AbstractMemberInfoStorage
 - getClassMemberInfos(com.intellij.psi.PsiElement):java.util.List
 a:com.intellij.refactoring.classMembers.AbstractUsesDependencyMemberInfoModel
@@ -5023,6 +5060,38 @@ e:com.intellij.refactoring.introduce.inplace.OccurrencesChooser$ReplaceChoice
 - com.intellij.refactoring.introduce.inplace.OccurrencesChooser$BaseReplaceChoice
 - isAll():Z
 - s:values():com.intellij.refactoring.introduce.inplace.OccurrencesChooser$ReplaceChoice[]
+a:com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectClassDescriptor
+- <init>(java.lang.String,java.lang.String,Z,Z,java.lang.String,Z,com.intellij.refactoring.changeSignature.ParameterInfo[]):V
+- a:createClass(com.intellij.psi.PsiNamedElement,com.intellij.codeInsight.highlighting.ReadWriteAccessDetector$Access[]):com.intellij.psi.PsiElement
+- a:findCompatibleConstructorInExistingClass(com.intellij.psi.PsiNamedElement):com.intellij.psi.PsiNamedElement
+- getClassName():java.lang.String
+- getExistingClass():com.intellij.psi.PsiElement
+- getExistingClassCompatibleConstructor():com.intellij.psi.PsiNamedElement
+- a:getGetterName(com.intellij.refactoring.changeSignature.ParameterInfo,com.intellij.psi.PsiElement,com.intellij.codeInsight.highlighting.ReadWriteAccessDetector$Access):java.lang.String
+- getNewVisibility():java.lang.String
+- getPackageName():java.lang.String
+- getParameterInfo(I):com.intellij.refactoring.changeSignature.ParameterInfo
+- getParamsToMerge():com.intellij.refactoring.changeSignature.ParameterInfo[]
+- a:getSetterName(com.intellij.refactoring.changeSignature.ParameterInfo,com.intellij.psi.PsiElement):java.lang.String
+- isCreateInnerClass():Z
+- isGenerateAccessors():Z
+- isUseExistingClass():Z
+- setExistingClass(com.intellij.psi.PsiElement):V
+- setExistingClassCompatibleConstructor(com.intellij.psi.PsiNamedElement):V
+a:com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectDelegate
+- sf:EP_NAME:com.intellij.lang.LanguageExtension
+- <init>():V
+- a:collectAdditionalFixes(java.util.Collection,com.intellij.psi.PsiNamedElement,com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectClassDescriptor):V
+- a:collectConflicts(com.intellij.util.containers.MultiMap,com.intellij.usageView.UsageInfo[],com.intellij.psi.PsiNamedElement,com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectClassDescriptor):V
+- a:collectInternalUsages(java.util.Collection,com.intellij.psi.PsiNamedElement,com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectClassDescriptor,com.intellij.refactoring.changeSignature.ParameterInfo,java.lang.String):com.intellij.codeInsight.highlighting.ReadWriteAccessDetector$Access
+- a:collectUsagesToGenerateMissedFieldAccessors(java.util.Collection,com.intellij.psi.PsiNamedElement,com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectClassDescriptor,com.intellij.codeInsight.highlighting.ReadWriteAccessDetector$Access[]):V
+- a:createChangeSignatureInfo(com.intellij.psi.PsiNamedElement,java.util.List,Z):com.intellij.refactoring.changeSignature.ChangeInfo
+- a:createMergedParameterInfo(com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectClassDescriptor,com.intellij.psi.PsiNamedElement,java.util.List):com.intellij.refactoring.changeSignature.ParameterInfo
+- a:createNewParameterInitializerAtCallSite(com.intellij.psi.PsiElement,com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectClassDescriptor,java.util.List,java.lang.Object):com.intellij.psi.PsiElement
+- s:findDelegate(com.intellij.psi.PsiElement):com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectDelegate
+- a:getAllMethodParameters(com.intellij.psi.PsiNamedElement):java.util.List
+- a:getHandler(com.intellij.psi.PsiElement):com.intellij.refactoring.RefactoringActionHandler
+- a:isEnabledOn(com.intellij.psi.PsiElement):Z
 a:com.intellij.refactoring.invertBoolean.InvertBooleanDelegate
 - <init>():V
 a:com.intellij.refactoring.memberPullUp.PullUpDialogBase
@@ -5450,11 +5519,10 @@ c:com.intellij.ui.popup.util.DetailViewImpl
 - clearEditor():V
 - navigateInPreviewEditor(com.intellij.ui.popup.util.DetailView$PreviewEditorState):V
 a:com.intellij.ui.tabs.ColorButtonBase
-- com.intellij.notification.impl.ui.StickyButton
+- javax.swing.JToggleButton
 - setColor(java.awt.Color):V
 pc:com.intellij.ui.tabs.ColorButtonBase$ColorButtonUI
-- com.intellij.notification.impl.ui.StickyButtonUI
-- p:<init>():V
+- javax.swing.plaf.basic.BasicToggleButtonUI
 f:com.intellij.unscramble.AnalyzeStacktraceUtil
 com.intellij.unscramble.AnalyzeStacktraceUtil$ConsoleFactory
 - a:createConsoleComponent(com.intellij.execution.ui.ConsoleView,com.intellij.openapi.actionSystem.DefaultActionGroup):javax.swing.JComponent

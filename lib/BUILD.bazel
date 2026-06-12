@@ -995,9 +995,9 @@ jvm_import(
 )
 
 copy_file(
-    name = "io.cucumber/cucumber-core-1.2.6.jar_copy",
-    src = "@io_cucumber-cucumber-core-1_2_6_http//file",
-    out = "io.cucumber/cucumber-core-1.2.6.jar",
+    name = "org.jetbrains.intellij.deps.cucumber/cucumber-core-1.2.6-amn-patched.jar_copy",
+    src = "@org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http//file",
+    out = "org.jetbrains.intellij.deps.cucumber/cucumber-core-1.2.6-amn-patched.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
@@ -1015,15 +1015,14 @@ java_library(
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        ":io_cucumber-cucumber-core-1_2_6_http_import",
+        ":org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http_import",
         ":info_cukes-gherkin-2_12_2_http_import",
     ],
 )
 
 jvm_import(
-    name = "io_cucumber-cucumber-core-1_2_6_http_import",
-    jar = "@io_cucumber-cucumber-core-1_2_6_http//file",
-    source_jar = "@io_cucumber-cucumber-core-1_2_6-sources_http//file",
+    name = "org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http_import",
+    jar = "@org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http//file",
 )
 
 jvm_import(
@@ -2909,17 +2908,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.deps/gradle-api-9.5.0.jar_copy",
-    src = "@org_jetbrains_intellij_deps-gradle-api-9_5_0_http//file",
-    out = "org.jetbrains.intellij.deps/gradle-api-9.5.0.jar",
+    name = "org.jetbrains.intellij.deps/gradle-api-9.6.0-rc-1.jar_copy",
+    src = "@org_jetbrains_intellij_deps-gradle-api-9_6_0-rc-1_http//file",
+    out = "org.jetbrains.intellij.deps/gradle-api-9.6.0-rc-1.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "gradle",
-    jar = "@org_jetbrains_intellij_deps-gradle-api-9_5_0_http//file",
-    source_jar = "@org_jetbrains_intellij_deps-gradle-api-9_5_0-sources_http//file",
+    jar = "@org_jetbrains_intellij_deps-gradle-api-9_6_0-rc-1_http//file",
+    source_jar = "@org_jetbrains_intellij_deps-gradle-api-9_6_0-rc-1-sources_http//file",
     visibility = ["//visibility:public"],
 )
 

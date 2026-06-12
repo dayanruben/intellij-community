@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.seconds
 
@@ -257,7 +258,8 @@ class PiSessionSourceTest {
         sessionDir = sessionDir,
         sessionId = "session-read",
         cwd = projectDir,
-        piUserMessageEntry(id = "user-read", content = "Read state", timestamp = 3_000L),
+        piUserMessageEntry(id = "user-read", content = "Read state", timestamp = 2_000L),
+        piAssistantMessageEntry(id = "assistant-read", parentId = "user-read", timestamp = 3_000L),
       )
       val source = sourceFor(sessionDir)
 
@@ -266,6 +268,144 @@ class PiSessionSourceTest {
 
       source.markThreadAsRead("session-read", 3_000L)
       assertThat(source.listThreadsFromClosedProject(projectDir.toString()).single().activity).isEqualTo(AgentThreadActivity.READY)
+    }
+  }
+
+  @Test
+  fun `user leaf marks session processing`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-user-leaf")
+      val sessionDir = tempDir.resolve("user-leaf-sessions")
+      writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-user-leaf",
+        cwd = projectDir,
+        piUserMessageEntry(id = "user-leaf", content = "Run task", timestamp = 3_000L),
+      )
+      val source = sourceFor(sessionDir)
+
+      val thread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+
+      assertThat(thread.activity).isEqualTo(AgentThreadActivity.PROCESSING)
+    }
+  }
+
+  @Test
+  fun `assistant tool use leaf marks session processing`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-tool-use-leaf")
+      val sessionDir = tempDir.resolve("tool-use-leaf-sessions")
+      writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-tool-use-leaf",
+        cwd = projectDir,
+        piUserMessageEntry(id = "user-tool-use", content = "Run task", timestamp = 2_000L),
+        piAssistantMessageEntry(
+          id = "assistant-tool-use",
+          parentId = "user-tool-use",
+          timestamp = 3_000L,
+          stopReason = "toolUse",
+        ),
+      )
+      val source = sourceFor(sessionDir)
+
+      val thread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+
+      assertThat(thread.activity).isEqualTo(AgentThreadActivity.PROCESSING)
+    }
+  }
+
+  @Test
+  fun `tool result leaf marks session processing`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-tool-result-leaf")
+      val sessionDir = tempDir.resolve("tool-result-leaf-sessions")
+      writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-tool-result-leaf",
+        cwd = projectDir,
+        piUserMessageEntry(id = "user-tool-result", content = "Run task", timestamp = 2_000L),
+        piToolResultMessageEntry(),
+      )
+      val source = sourceFor(sessionDir)
+
+      val thread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+
+      assertThat(thread.activity).isEqualTo(AgentThreadActivity.PROCESSING)
+    }
+  }
+
+  @Test
+  fun `custom message leaf marks session processing`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-custom-message-leaf")
+      val sessionDir = tempDir.resolve("custom-message-leaf-sessions")
+      writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-custom-message-leaf",
+        cwd = projectDir,
+        piUserMessageEntry(id = "user-custom-message", content = "Run task", timestamp = 2_000L),
+        piCustomMessageEntry(),
+      )
+      val source = sourceFor(sessionDir)
+
+      val thread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+
+      assertThat(thread.activity).isEqualTo(AgentThreadActivity.PROCESSING)
+    }
+  }
+
+  @Test
+  fun `completed observed session is marked unread until read`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-completed-observed")
+      val sessionDir = tempDir.resolve("completed-observed-sessions")
+      val sessionFile = writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-completed-observed",
+        cwd = projectDir,
+        piUserMessageEntry(id = "user-completed-observed", content = "Run task", timestamp = 3_000L),
+      )
+      val source = sourceFor(sessionDir)
+
+      val workingThread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+      assertThat(workingThread.activity).isEqualTo(AgentThreadActivity.PROCESSING)
+      appendPiSessionEntry(
+        sessionFile,
+        piAssistantMessageEntry(id = "assistant-completed-observed", parentId = "user-completed-observed", timestamp = 4_000L),
+      )
+
+      val completedThread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+      assertThat(completedThread.activity).isEqualTo(AgentThreadActivity.UNREAD)
+      source.markThreadAsRead("session-completed-observed", 4_000L)
+      val readThread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+      assertThat(readThread.activity).isEqualTo(AgentThreadActivity.READY)
+    }
+  }
+
+  @Test
+  fun `active working session completion is not premarked read`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-active-completed")
+      val sessionDir = tempDir.resolve("active-completed-sessions")
+      val sessionFile = writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-active-completed",
+        cwd = projectDir,
+        piUserMessageEntry(id = "user-active-completed", content = "Run task", timestamp = 3_000L),
+      )
+      val source = sourceFor(sessionDir)
+      source.setActiveThreadId("session-active-completed")
+
+      val workingThread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+      assertThat(workingThread.activity).isEqualTo(AgentThreadActivity.PROCESSING)
+      appendPiSessionEntry(
+        sessionFile,
+        piAssistantMessageEntry(id = "assistant-active-completed", parentId = "user-active-completed", timestamp = 4_000L),
+      )
+
+      val completedThread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+      assertThat(completedThread.activity).isEqualTo(AgentThreadActivity.UNREAD)
     }
   }
 
@@ -309,23 +449,77 @@ class PiSessionSourceTest {
     return sessionFile
   }
 
+  private fun appendPiSessionEntry(sessionFile: Path, entry: String) {
+    Files.writeString(sessionFile, entry + "\n", StandardOpenOption.APPEND)
+  }
+
   private fun lineCount(path: Path): Int {
     return Files.readString(path).lineSequence().count { it.isNotBlank() }
   }
 }
 
 private fun piUserMessageEntry(id: String, content: String, timestamp: Long): String {
-  return """
-    {"type":"message","id":"$id","parentId":null,"timestamp":"2026-01-01T00:00:02Z","message":{"role":"user","content":"${content.jsonEscape()}","timestamp":$timestamp}}
-  """.trimIndent()
+  return piMessageEntry(
+    id = id,
+    parentId = null,
+    entryTimestamp = "2026-01-01T00:00:02Z",
+    messageFields = "\"role\":\"user\",\"content\":${content.jsonString()},\"timestamp\":$timestamp",
+  )
+}
+
+private fun piAssistantMessageEntry(id: String, parentId: String, timestamp: Long, stopReason: String = "stop"): String {
+  return piMessageEntry(
+    id = id,
+    parentId = parentId,
+    entryTimestamp = "2026-01-01T00:00:03Z",
+    messageFields = "\"role\":\"assistant\",\"content\":[],\"stopReason\":${stopReason.jsonString()},\"timestamp\":$timestamp",
+  )
+}
+
+private fun piToolResultMessageEntry(): String {
+  return piMessageEntry(
+    id = "tool-result",
+    parentId = "user-tool-result",
+    entryTimestamp = "2026-01-01T00:00:03Z",
+    messageFields = "\"role\":\"toolResult\",\"content\":[],\"timestamp\":3000",
+  )
+}
+
+private fun piCustomMessageEntry(): String {
+  return listOf(
+    "\"type\":\"custom_message\"",
+    "\"id\":\"custom-message\"",
+    "\"parentId\":\"user-custom-message\"",
+    "\"timestamp\":\"2026-01-01T00:00:03Z\"",
+    "\"customType\":\"status\"",
+    "\"content\":\"working\"",
+  ).joinToString(separator = ",", prefix = "{", postfix = "}")
 }
 
 private fun piNamedSessionInfoEntry(id: String = "name-new", name: String): String {
-  return """
-    {"type":"session_info","id":"$id","parentId":"user-new","timestamp":"2026-01-01T00:00:04Z","name":"${name.jsonEscape()}"}
-  """.trimIndent()
+  return listOf(
+    "\"type\":\"session_info\"",
+    "\"id\":${id.jsonString()}",
+    "\"parentId\":\"user-new\"",
+    "\"timestamp\":\"2026-01-01T00:00:04Z\"",
+    "\"name\":${name.jsonString()}",
+  ).joinToString(separator = ",", prefix = "{", postfix = "}")
+}
+
+private fun piMessageEntry(id: String, parentId: String?, entryTimestamp: String, messageFields: String): String {
+  return listOf(
+    "\"type\":\"message\"",
+    "\"id\":${id.jsonString()}",
+    "\"parentId\":${parentId?.jsonString() ?: "null"}",
+    "\"timestamp\":${entryTimestamp.jsonString()}",
+    "\"message\":{$messageFields}",
+  ).joinToString(separator = ",", prefix = "{", postfix = "}")
 }
 
 private fun String.jsonEscape(): String {
   return replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
+private fun String.jsonString(): String {
+  return "\"${jsonEscape()}\""
 }

@@ -6,19 +6,17 @@ package org.jetbrains.idea.devkit.inspections.remotedev
 import com.intellij.lang.xml.XMLLanguage
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleUtilCore
-import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.roots.ProjectRootModificationTracker
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
+import com.intellij.psi.search.FilenameIndex
+import com.intellij.psi.search.GlobalSearchScopesCore
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.xml.util.XmlStringUtil
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.Nls
 import org.jetbrains.idea.devkit.DevKitBundle
 import org.jetbrains.idea.devkit.dom.ContentDescriptor.ModuleDescriptor
@@ -29,8 +27,6 @@ import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeAnalysi
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.module.PluginModuleType
 import org.jetbrains.idea.devkit.util.DescriptorUtil
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
 internal object SplitModeInspectionUtil {
   @Nls
@@ -141,28 +137,11 @@ internal object SplitModeInspectionUtil {
   }
 
   fun ensureRestrictionsServiceIsLoaded(restrictionsService: SplitModeApiRestrictionsService): Boolean {
-    if (restrictionsService.isLoaded()) {
-      return true
-    }
-
-    restrictionsService.scheduleLoadRestrictions()
-    if (restrictionsService.isLoaded()) {
-      return true
-    }
-
-    val loadedInTime = runBlockingCancellable {
-      withTimeoutOrNull(1.seconds) {
-        while (!restrictionsService.isLoaded()) {
-          delay(10.milliseconds)
-        }
-        true
-      }
-    }
-    return loadedInTime == true
+    return restrictionsService.ensureLoaded()
   }
 
   fun isAllowedForSplitModeInspection(file: PsiFile): Boolean {
-    val restrictionsService = SplitModeApiRestrictionsService.getInstance()
+    val restrictionsService = SplitModeApiRestrictionsService.getInstance(file.project)
     if (shouldSuppressForSingleModuleExternalPlugin(file)) {
       return false
     }
@@ -180,7 +159,7 @@ internal object SplitModeInspectionUtil {
    * (and not because the author explicitly declared platform.frontend/platform.backend/platform.monolith),
    * the UI should show a single root-level plugin state error instead of many XML-specific warnings.
    */
-  fun shouldReportSinglePluginLevelError(file: PsiFile, moduleAnalysis: ModuleAnalysis): Boolean {
+  fun shouldReportSinglePluginLevelErrorInsteadOfManyNestedErrors(file: PsiFile, moduleAnalysis: ModuleAnalysis): Boolean {
     if (SplitModeAnalysisFlags.isXmlInspectionsForNonNativePluginEnabled()) {
       return false
     }
@@ -236,14 +215,31 @@ internal object SplitModeInspectionUtil {
     val moduleVirtualFile = contentModuleDescriptor.virtualFile ?: return emptySequence()
     val moduleName = moduleVirtualFile.nameWithoutExtension
     val psiManager = contentModuleDescriptor.manager
-    @Suppress("UNCHECKED_CAST")
-    return PluginIdDependenciesIndex.findFilesIncludingContentModule(contentModuleDescriptor.project, moduleVirtualFile).asSequence()
+    val indexedMatches = PluginIdDependenciesIndex.findFilesIncludingContentModule(contentModuleDescriptor.project, moduleVirtualFile)
+      .asSequence()
       .flatMap { dependingFile ->
-        val psiFile = psiManager.findFile(dependingFile) as? XmlFile ?: return@flatMap emptySequence<PsiElement>()
-        val plugin = DescriptorUtil.getIdeaPlugin(psiFile) ?: return@flatMap emptySequence<PsiElement>()
-        val modules = plugin.content.flatMap { it.moduleEntry }
-        modules.filter { it.name.stringValue == moduleName }.asSequence()
-      } as? Sequence<ModuleDescriptor> ?: emptySequence()
+        findDependingContentModuleEntries(psiManager.findFile(dependingFile) as? XmlFile, moduleName)
+      }
+      .toList()
+    if (indexedMatches.isNotEmpty()) {
+      return indexedMatches.asSequence()
+    }
+
+    val project = contentModuleDescriptor.project
+    return FilenameIndex.getAllFilesByExt(project, "xml", GlobalSearchScopesCore.projectProductionScope(project))
+      .asSequence()
+      .mapNotNull { xmlFile -> psiManager.findFile(xmlFile) as? XmlFile }
+      .flatMap { pluginXml -> findDependingContentModuleEntries(pluginXml, moduleName) }
+  }
+
+  private fun findDependingContentModuleEntries(
+    pluginXml: XmlFile?,
+    moduleName: String,
+  ): Sequence<ModuleDescriptor> {
+    val plugin = pluginXml?.let(DescriptorUtil::getIdeaPlugin) ?: return emptySequence()
+    return plugin.content.asSequence()
+      .flatMap { contentDescriptor -> contentDescriptor.moduleEntry.asSequence() }
+      .filter { moduleDescriptor -> moduleDescriptor.name.stringValue == moduleName }
   }
 
   private fun shouldSuppressForSingleModuleExternalPlugin(module: Module): Boolean {

@@ -9,6 +9,7 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileAttributes;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.DiskQueryRelay;
 import com.intellij.openapi.vfs.VFileProperty;
@@ -16,6 +17,8 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFilePointerCapableFileSystem;
 import com.intellij.openapi.vfs.impl.SymlinksCapableFileSystem;
+import com.intellij.openapi.vfs.impl.local.windows.WindowsBufferedDirectoryIterator;
+import com.intellij.openapi.vfs.impl.local.windows.WindowsBufferedDirectoryStream;
 import com.intellij.openapi.vfs.newvfs.FileNavigator;
 import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
@@ -43,9 +46,12 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -403,6 +409,16 @@ public class LocalFileSystemImpl
 
   private static String[] listChildren(VirtualFile dir) {
     if (!dir.isDirectory()) {
+      return ArrayUtil.EMPTY_STRING_ARRAY;
+    }
+    if (OS.CURRENT == OS.Windows && Registry.is("vfs.windows.use.buffered.directory.stream", true)) {
+      try (var dirStream = new WindowsBufferedDirectoryStream(Path.of(toIoPath(dir)))) {
+        return StreamSupport.stream(dirStream.spliterator(), false)
+          .map(it -> it.getFirst().getFileName().toString())
+          .toArray(String[]::new);
+      }
+      catch (AccessDeniedException | NoSuchFileException e) { LOG.debug(e); }
+      catch (IOException | RuntimeException e) { LOG.warn(e); }
       return ArrayUtil.EMPTY_STRING_ARRAY;
     }
     try (var dirStream = Files.newDirectoryStream(Path.of(toIoPath(dir)))) {

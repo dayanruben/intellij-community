@@ -24,7 +24,7 @@ class SplitModeApiUsageInspectionTest : LightJavaCodeInsightFixtureTestCase() {
     super.setUp()
     IntelliJProjectUtil.markAsIntelliJPlatformProject(project, true)
 
-    val service = SplitModeApiRestrictionsService.getInstance()
+    val service = SplitModeApiRestrictionsService.getInstance(project)
     service.scheduleLoadRestrictions()
     timeoutRunBlocking {
       waitUntil("API restrictions failed to load", 2.seconds) { service.isLoaded() }
@@ -287,7 +287,7 @@ Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in m
   }
 
   fun testCodeInspectionIsNotSkippedForPluginIdWithPredefinedModuleKindWhenFlagDisabled() {
-    RegistryManager.getInstance().get("devkit.remote.dev.split.mode.inspections.skip.predefined")
+    RegistryManager.getInstance().get("devkit.split.mode.inspections.skip.predefined")
       .setValue(false, testRootDisposable)
 
     configurePluginXml(
@@ -628,6 +628,8 @@ No frontend or backend dependencies were found for module 'light_idea_test_case'
       import com.intellij.ide.plugins.DynamicPluginListener
 
       class SharedDynamicPluginListener : <weak_warning descr="'com.intellij.ide.plugins.DynamicPluginListener' can only be used in 'frontend or backend' module type. Actual module type is 'shared'.
+
+Plugin lists are different on frontend and backend, prefer listening to them explicitly in desired IDE part
 
 Computed module kind reasoning:
 

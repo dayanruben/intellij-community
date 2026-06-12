@@ -18,4 +18,11 @@
       order="after agentWorkbenchJunie"
       implementation="com.intellij.agent.workbench.pi.sessions.PiAgentSessionProviderDescriptor"/>
   </extensions>
+
+  <applicationListeners>
+    <listener class="com.intellij.agent.workbench.pi.sessions.PiThemeChangeListener"
+              topic="com.intellij.openapi.editor.colors.EditorColorsListener"/>
+    <listener class="com.intellij.agent.workbench.pi.sessions.PiThemeChangeListener"
+              topic="com.intellij.ide.ui.LafManagerListener"/>
+  </applicationListeners>
 </idea-plugin>

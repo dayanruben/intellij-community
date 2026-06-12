@@ -12,7 +12,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.util.XmlStringUtil;
 import com.jetbrains.python.PyNames;
@@ -34,11 +33,10 @@ import com.jetbrains.python.psi.PyStarArgument;
 import com.jetbrains.python.psi.PyUtil;
 import com.jetbrains.python.psi.impl.ParamHelper;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
-import com.jetbrains.python.psi.types.PyABCUtil;
 import com.jetbrains.python.psi.types.PyCallableParameter;
 import com.jetbrains.python.psi.types.PyCallableType;
+import com.jetbrains.python.psi.types.PyTupleType;
 import com.jetbrains.python.psi.types.PyType;
-import com.jetbrains.python.psi.types.PyTypeChecker;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
@@ -79,6 +77,13 @@ public final class PyArgumentListInspection extends PyInspection {
     public void visitPyArgumentList(final @NotNull PyArgumentList node) {
       ProblemHighlightType override = downgradeHighlightForTypeEngine ? ProblemHighlightType.INFORMATION : null;
       inspectPyArgumentList(node, getHolder(), getResolveContext(), override);
+    }
+
+    @Override
+    public void visitPyStarArgument(@NotNull PyStarArgument node) {
+      if (node.isKeyword()) return;
+      ProblemHighlightType override = downgradeHighlightForTypeEngine ? ProblemHighlightType.INFORMATION : null;
+      checkKnownSizeTupleSpreadInCall(node, getHolder(), getResolveContext(), override);
     }
 
     @Override
@@ -151,7 +156,65 @@ public final class PyArgumentListInspection extends PyInspection {
         highlightIncorrectArguments(node, holder, mappings, context, highlightOverride);
       }
     }
-    highlightStarArgumentTypeMismatch(node, holder, context, null); // NOT covered by Pyrefly
+  }
+
+  private static void checkKnownSizeTupleSpreadInCall(@NotNull PyStarArgument node,
+                                                      @NotNull ProblemsHolder holder,
+                                                      @NotNull PyResolveContext resolveContext,
+                                                      @Nullable ProblemHighlightType highlightOverride) {
+    PyExpression expr = node.getExpression();
+    if (expr == null) return;
+
+    PyType type = resolveContext.getTypeEvalContext().getType(expr);
+    if (!(type instanceof PyTupleType tupleType) || tupleType.isHomogeneous()) return;
+
+    PsiElement parent = node.getParent();
+    if (!(parent instanceof PyArgumentList argList)) return;
+    if (!(argList.getParent() instanceof PyCallExpression callExpr)) return;
+
+    int nonKeywordStarCount = 0;
+    for (PyExpression arg : argList.getArguments()) {
+      if (arg instanceof PyStarArgument sa && !sa.isKeyword()) nonKeywordStarCount++;
+    }
+    if (nonKeywordStarCount != 1) return;
+
+    List<PyCallExpression.PyArgumentsMapping> mappings = callExpr.multiMapArguments(resolveContext);
+    if (mappings.size() != 1) return;
+
+    List<PyCallableParameter> variadicParams = mappings.get(0).getParametersMappedToVariadicPositionalArguments();
+    if (variadicParams.isEmpty()) return;
+
+    int positionalAfter = 0;
+    boolean seenNode = false;
+    for (PyExpression arg : argList.getArguments()) {
+      if (arg == node) {
+        seenNode = true;
+        continue;
+      }
+      if (seenNode && !(arg instanceof PyKeywordArgument) && !(arg instanceof PyStarArgument)) {
+        positionalAfter++;
+      }
+    }
+
+    int filled = tupleType.getElementCount() + positionalAfter;
+    if (filled >= variadicParams.size()) return;
+
+    ASTNode argListNode = argList.getNode();
+    if (argListNode == null) return;
+    ASTNode rparNode = argListNode.findChildByType(PyTokenTypes.RPAR);
+    if (rparNode == null) return;
+    PsiElement rpar = rparNode.getPsi();
+
+    for (int i = filled; i < variadicParams.size(); i++) {
+      PyCallableParameter param = variadicParams.get(i);
+      if (param.isPositionalContainer() || param.isKeywordContainer()) break;
+      if (!param.hasDefaultValue()) {
+        String name = param.getName();
+        if (name != null) {
+          registerProblem(holder, rpar, PyPsiBundle.message("INSP.parameter.unfilled", name), highlightOverride);
+        }
+      }
+    }
   }
 
   private static void registerProblem(@NotNull ProblemsHolder holder,
@@ -201,34 +264,6 @@ public final class PyArgumentListInspection extends PyInspection {
     }
 
     return false;
-  }
-
-  private static void highlightStarArgumentTypeMismatch(PyArgumentList node, ProblemsHolder holder, TypeEvalContext context,
-                                                        @Nullable ProblemHighlightType highlightOverride) {
-    for (PyExpression arg : node.getArguments()) {
-      if (!(arg instanceof PyStarArgument starArgument)) {
-        continue;
-      }
-      PyExpression content = PyUtil.peelArgument(PsiTreeUtil.findChildOfType(arg, PyExpression.class));
-      if (content == null) {
-        continue;
-      }
-      PyType argType = context.getType(content);
-      if (argType != null && !PyTypeChecker.isUnknown(argType, context)) {
-        if (starArgument.isKeyword()) {
-          if (!PyABCUtil.isSubtype(argType, PyNames.MAPPING, context)) {
-            // TODO: check that the key type is compatible with `str`
-            registerProblem(holder, arg, PyPsiBundle.message("INSP.expected.dict.got.type", argType.getName()), highlightOverride);
-          }
-        }
-        else {
-          // *
-          if (!PyABCUtil.isSubtype(argType, PyNames.ITERABLE, context)) {
-            registerProblem(holder, arg, PyPsiBundle.message("INSP.expected.iterable.got.type", argType.getName()), highlightOverride);
-          }
-        }
-      }
-    }
   }
 
   private static Set<String> getDuplicateKeywordArguments(@NotNull PyArgumentList node) {
