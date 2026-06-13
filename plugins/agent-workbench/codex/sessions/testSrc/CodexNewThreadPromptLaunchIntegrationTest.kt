@@ -26,13 +26,13 @@ class CodexNewThreadPromptLaunchIntegrationTest {
 
     val request = captureNewTaskPromptLaunchRequest(
       descriptor = descriptor,
-      prompt = "Plan this refactor",
+      prompt = PLAN_PROMPT,
       workingProjectPath = PROJECT_PATH,
     )
 
     assertThat(request.provider).isEqualTo(AgentSessionProvider.CODEX)
     assertThat(request.projectPath).isEqualTo(PROJECT_PATH)
-    assertThat(request.initialMessageRequest.prompt).isEqualTo("Plan this refactor")
+    assertThat(request.initialMessageRequest.prompt).isEqualTo(PLAN_PROMPT)
     assertThat(request.initialMessageRequest.providerOptionIds).containsExactly(AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE)
     assertThat(request.targetThreadId).isNull()
 
@@ -45,7 +45,7 @@ class CodexNewThreadPromptLaunchIntegrationTest {
     assertThat(observation.startupLaunchSpecOverride).isNull()
     assertThat(observation.postStartDispatchSteps.map { it.action })
       .containsExactly(AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE, AgentInitialMessageDispatchAction.SEND_TEXT)
-    assertThat(observation.postStartDispatchSteps.map { it.text }).containsExactly("", "Plan this refactor")
+    assertThat(observation.postStartDispatchSteps.map { it.text }).containsExactly("", PLAN_PROMPT)
     assertThat(observation.initialMessageToken).isNotNull()
   }
 
@@ -113,6 +113,8 @@ private fun descriptor(): CodexAgentSessionProviderDescriptor {
 }
 
 private const val PROJECT_PATH: String = "/work/project-a"
+
+private const val PLAN_PROMPT: String = "Plan this refactor"
 
 private val CODEX_BASE_COMMAND: List<String> = listOf(
   "codex",

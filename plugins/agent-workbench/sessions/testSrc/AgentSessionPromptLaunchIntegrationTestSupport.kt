@@ -16,18 +16,24 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
+import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
 import com.intellij.agent.workbench.sessions.service.AgentSessionChatOpenExecutor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.LightVirtualFile
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.time.Duration.Companion.milliseconds
 
 fun existingThreadPromptLaunchRequest(
   provider: AgentSessionProvider,
@@ -105,7 +111,7 @@ fun assertExistingThreadLaunchUsesPostStartDispatch(
         chatOpenExecutor = chatOpenExecutor,
       ) { service, launchService ->
         service.refresh()
-        waitForCondition {
+        waitForCondition(timeoutMs = PROMPT_LAUNCH_WAIT_TIMEOUT_MS) {
           val project = service.state.value.projects.firstOrNull { it.path == projectPath } ?: return@waitForCondition false
           project.providerLoadStates[provider] == AgentSessionProviderLoadState.LOADED &&
           project.threads.any { thread -> thread.id == threadId }
@@ -115,9 +121,7 @@ fun assertExistingThreadLaunchUsesPostStartDispatch(
 
         assertThat(result.launched).isTrue()
         assertThat(result.error).isNull()
-        waitForCondition {
-          chatOpenExecutor.openChatCalls.get() == 1
-        }
+        chatOpenExecutor.awaitOpenChatCalls(1)
 
         val openRequest = checkNotNull(chatOpenExecutor.lastOpenChatRequest.get())
         val initialMessagePlan = descriptor.buildInitialMessagePlan(request.initialMessageRequest)
@@ -160,7 +164,7 @@ fun assertExistingThreadLaunchUsesStartupOverride(
         chatOpenExecutor = chatOpenExecutor,
       ) { service, launchService ->
         service.refresh()
-        waitForCondition {
+        waitForCondition(timeoutMs = PROMPT_LAUNCH_WAIT_TIMEOUT_MS) {
           val project = service.state.value.projects.firstOrNull { it.path == projectPath } ?: return@waitForCondition false
           project.providerLoadStates[provider] == AgentSessionProviderLoadState.LOADED &&
           project.threads.any { thread -> thread.id == threadId }
@@ -170,9 +174,7 @@ fun assertExistingThreadLaunchUsesStartupOverride(
 
         assertThat(result.launched).isTrue()
         assertThat(result.error).isNull()
-        waitForCondition {
-          chatOpenExecutor.openChatCalls.get() == 1
-        }
+        chatOpenExecutor.awaitOpenChatCalls(1)
 
         val openRequest = checkNotNull(chatOpenExecutor.lastOpenChatRequest.get())
         val initialMessagePlan = descriptor.buildInitialMessagePlan(request.initialMessageRequest)
@@ -221,7 +223,7 @@ fun assertNewThreadPromptLaunchOpensNewChat(
         chatOpenExecutor = chatOpenExecutor,
       ) { service, launchService ->
         service.refresh()
-        waitForCondition {
+        waitForCondition(timeoutMs = PROMPT_LAUNCH_WAIT_TIMEOUT_MS) {
           val project = service.state.value.projects.firstOrNull { project -> project.path == request.projectPath }
                         ?: return@waitForCondition false
           project.providerLoadStates[descriptor.provider] == AgentSessionProviderLoadState.LOADED
@@ -231,9 +233,7 @@ fun assertNewThreadPromptLaunchOpensNewChat(
 
         assertThat(result.launched).isTrue()
         assertThat(result.error).isNull()
-        waitForCondition {
-          chatOpenExecutor.openNewChatCalls.get() == 1
-        }
+        chatOpenExecutor.awaitOpenNewChatCalls(1)
 
         assertThat(chatOpenExecutor.openChatCalls.get()).isZero()
         val openRequest = checkNotNull(chatOpenExecutor.lastOpenNewChatRequest.get())
@@ -254,6 +254,54 @@ fun assertNewThreadPromptLaunchOpensNewChat(
   return checkNotNull(observation)
 }
 
+fun launchNewThreadPromptRequestWithDefaultChatOpenExecutor(
+  descriptor: AgentSessionProviderDescriptor,
+  request: AgentPromptLaunchRequest,
+  projectName: String = "Project A",
+  openedChatHandler: (suspend (Project, VirtualFile) -> Unit)? = null,
+  verifyLaunchSideEffects: suspend () -> Unit = {},
+) {
+  require(request.targetThreadId == null) {
+    "New-thread prompt launch requires request.targetThreadId to be null"
+  }
+
+  AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
+    runBlocking(Dispatchers.Default) {
+      withTestServiceAndLaunch(
+        sessionSourcesProvider = { listOf(descriptor.sessionSource) },
+        projectEntriesProvider = { listOf(openTestProjectEntry(request.projectPath, projectName)) },
+      ) { service, launchService ->
+        service.refresh()
+        waitForCondition(timeoutMs = PROMPT_LAUNCH_WAIT_TIMEOUT_MS) {
+          val project = service.state.value.projects.firstOrNull { project -> project.path == request.projectPath }
+                        ?: return@waitForCondition false
+          project.providerLoadStates[descriptor.provider] == AgentSessionProviderLoadState.LOADED
+        }
+
+        val result = CompletableDeferred<AgentPromptLaunchResult>()
+        launchService.createNewSession(
+          path = request.projectPath,
+          provider = request.provider,
+          mode = request.launchMode,
+          entryPoint = AgentWorkbenchEntryPoint.PROMPT,
+          initialMessageRequest = request.initialMessageRequest,
+          preferredDedicatedFrame = request.preferredDedicatedFrame,
+          openedChatHandler = openedChatHandler,
+          promptLaunchResolved = { launchResult -> result.complete(launchResult) },
+          generationSettings = request.generationSettings,
+          extraEnvVariables = request.containerSessionEnvVariables,
+          extraCommandArgs = request.containerSessionExtraArgs,
+        )
+        val launchResult = withTimeout(PROMPT_LAUNCH_WAIT_TIMEOUT_MS.milliseconds) { result.await() }
+        assertThat(launchResult.launched).isTrue()
+        assertThat(launchResult.error).isNull()
+
+        verifyLaunchSideEffects()
+      }
+    }
+  }
+}
+
 internal class RecordingChatOpenExecutor(
   private val onOpenChat: (suspend (OpenChatRequest, Int) -> Unit)? = null,
   private val onOpenNewChat: (suspend (OpenNewChatRequest, Int) -> Unit)? = null,
@@ -263,6 +311,20 @@ internal class RecordingChatOpenExecutor(
   val openChatRequests: CopyOnWriteArrayList<OpenChatRequest> = CopyOnWriteArrayList()
   val lastOpenChatRequest: AtomicReference<OpenChatRequest?> = AtomicReference(null)
   val lastOpenNewChatRequest: AtomicReference<OpenNewChatRequest?> = AtomicReference(null)
+  private val openChatCallsFlow: MutableStateFlow<Int> = MutableStateFlow(0)
+  private val openNewChatCallsFlow: MutableStateFlow<Int> = MutableStateFlow(0)
+
+  suspend fun awaitOpenChatCalls(expected: Int, timeoutMs: Long = PROMPT_LAUNCH_WAIT_TIMEOUT_MS) {
+    withTimeout(timeoutMs.milliseconds) {
+      openChatCallsFlow.first { calls -> calls >= expected }
+    }
+  }
+
+  suspend fun awaitOpenNewChatCalls(expected: Int, timeoutMs: Long = PROMPT_LAUNCH_WAIT_TIMEOUT_MS) {
+    withTimeout(timeoutMs.milliseconds) {
+      openNewChatCallsFlow.first { calls -> calls >= expected }
+    }
+  }
 
   override suspend fun openChat(
     normalizedPath: String,
@@ -285,6 +347,7 @@ internal class RecordingChatOpenExecutor(
     val callIndex = openChatCalls.incrementAndGet()
     openChatRequests.add(request)
     lastOpenChatRequest.set(request)
+    openChatCallsFlow.value = callIndex
     onOpenChat?.invoke(request, callIndex)
   }
 
@@ -310,6 +373,7 @@ internal class RecordingChatOpenExecutor(
     )
     val callIndex = openNewChatCalls.incrementAndGet()
     lastOpenNewChatRequest.set(request)
+    openNewChatCallsFlow.value = callIndex
     onOpenNewChat?.invoke(request, callIndex)
     openedChatHandler?.invoke(ProjectManager.getInstance().defaultProject, LightVirtualFile("opened-chat-$callIndex"))
   }
@@ -362,3 +426,5 @@ data class ExistingThreadPromptLaunchObservation(
   @JvmField val postStartDispatchSteps: List<AgentInitialMessageDispatchStep>,
   @JvmField val initialMessageToken: String?,
 )
+
+private const val PROMPT_LAUNCH_WAIT_TIMEOUT_MS: Long = 20_000

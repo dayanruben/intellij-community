@@ -10,11 +10,15 @@ import com.intellij.grazie.text.TextExtractor
 import com.intellij.grazie.utils.Text
 import com.intellij.grazie.utils.getNotSoDistantSimilarSiblings
 import com.intellij.grazie.utils.replaceBackslashEscapedWhitespace
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.impl.source.tree.PsiCommentImpl
 import com.intellij.psi.util.elementType
 import org.jetbrains.kotlin.kdoc.lexer.KDocTokens
+import org.jetbrains.kotlin.kdoc.lexer.KDocTokens.CODE_BLOCK_TEXT
+import org.jetbrains.kotlin.kdoc.lexer.KDocTokens.CODE_SPAN_TEXT
+import org.jetbrains.kotlin.kdoc.lexer.KDocTokens.LEADING_ASTERISK
 import org.jetbrains.kotlin.kdoc.psi.impl.KDocSection
 import org.jetbrains.kotlin.kdoc.psi.impl.KDocTag
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -27,10 +31,18 @@ internal class KotlinTextExtractor : TextExtractor() {
   private val kdocBuilder = TextContentBuilder.FromPsi
     .withUnknown { e -> e.elementType == KDocTokens.MARKDOWN_LINK && e.text.startsWith("[") }
     .excluding { e -> e.elementType == KDocTokens.MARKDOWN_LINK && !e.text.startsWith("[") }
-    .excluding { e -> e.elementType == KDocTokens.LEADING_ASTERISK }
+    .excluding { e -> val elementType = e.elementType
+        elementType == LEADING_ASTERISK || elementType == CODE_BLOCK_TEXT || elementType == CODE_SPAN_TEXT
+    }
     .removingIndents(" \t").removingLineSuffixes(" \t")
 
   public override fun buildTextContents(root: PsiElement, allowedDomains: Set<TextContent.TextDomain>): List<TextContent> {
+      val viewProvider = root.containingFile.viewProvider
+      val injectedLanguageManager = InjectedLanguageManager.getInstance(root.project)
+      if (injectedLanguageManager.isInjectedViewProvider(viewProvider) && injectedLanguageManager.shouldInspectionsBeLenient(root)) {
+          return emptyList()
+      }
+
     if (DOCUMENTATION in allowedDomains) {
       if (root is KDocSection) {
         return splitAtMarkdownHeadings(

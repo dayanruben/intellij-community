@@ -95,6 +95,8 @@ jvm_library(
         "//plugins/kotlin/tests-compose:tests-compose_test_lib",
         "//plugins/kotlin/jvm-debugger/test/compose/testFramework",
         "//plugins/kotlin/jvm-debugger/test/compose/testFramework:testFramework_test_lib",
+        "//android/logcat/gradle",
+        "//android/logcat/gradle:gradle_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.jvm.debugger.test.compose` end
