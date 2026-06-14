@@ -90,6 +90,20 @@ fun MavenTestFixture.createProjectSubFile(relativePath: String, content: String 
   return LocalFileSystem.getInstance().refreshAndFindFileByNioFile(f)!!
 }
 
+// Ported from MavenTestCase.
+fun MavenTestFixture.createFile(path: Path): VirtualFile {
+  Files.createDirectories(path.parent)
+  if (!Files.exists(path)) Files.createFile(path)
+  return LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)!!
+}
+
+fun MavenTestFixture.createFile(path: Path, content: String): VirtualFile {
+  val file = createFile(path)
+  Files.writeString(path, content)
+  refreshFiles(listOf(file))
+  return file
+}
+
 fun MavenTestFixture.createProfilesXml(@Language(value = "XML", prefix = "<profiles>", suffix = "</profiles>") xml: String): VirtualFile {
   val content = "<?xml version=\"1.0\"?><profilesXml><profiles>$xml</profiles></profilesXml>"
   val filePath = Path.of(projectRoot.path, "profiles.xml")
@@ -102,6 +116,10 @@ fun MavenTestFixture.createProfilesXml(@Language(value = "XML", prefix = "<profi
 
 fun MavenTestFixture.createProfilesXml(relativePath: String, xml: String): VirtualFile {
   return createProfilesFile(createProjectSubDir(relativePath), xml, false)
+}
+
+fun MavenTestFixture.createProfilesXmlOldStyle(@Language(value = "XML", prefix = "<profiles>", suffix = "</profiles>") xml: String): VirtualFile {
+  return createProfilesFile(projectRoot, xml, true)
 }
 
 private fun MavenTestFixture.createProfilesFile(dir: VirtualFile, xml: String, oldStyle: Boolean): VirtualFile {
@@ -272,6 +290,20 @@ fun MavenTestFixture.createPomFile(
   Files.writeString(filePath, MavenTestCase.createPomXml(modelVersion, xml, omitModelVersionTag))
   dir.refresh(false, false)
   val f = dir.findChild("pom.xml") ?: throw AssertionError("can't find pom.xml ${filePath.absolutePathString()} in VFS")
+  refreshFiles(listOf(f))
+  return f
+}
+
+fun MavenTestFixture.createPomFile(
+  dir: VirtualFile,
+  fileName: String,
+  @Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: String,
+  omitModelVersionTag: Boolean = false,
+): VirtualFile {
+  val filePath = Path.of(dir.path, fileName)
+  Files.writeString(filePath, MavenTestCase.createPomXml(modelVersion, xml, omitModelVersionTag))
+  dir.refresh(false, false)
+  val f = dir.findChild(fileName) ?: throw AssertionError("can't find $fileName ${filePath.absolutePathString()} in VFS")
   refreshFiles(listOf(f))
   return f
 }

@@ -6,6 +6,11 @@ import java.lang.annotation.Inherited
 
 object Subsystems {
 
+  /**
+   *  Represents a subsystem that can be used to annotate tests in Allure
+   *
+   * @param value The name of the subsystem.
+   */
   @Retention(AnnotationRetention.RUNTIME)
   @Repeatable
   @Target(AnnotationTarget.FUNCTION, AnnotationTarget.TYPE, AnnotationTarget.CLASS, AnnotationTarget.ANNOTATION_CLASS)
@@ -24,10 +29,31 @@ object Subsystems {
   @Subsystem("Code Completion")
   @Inherited
   annotation class CodeCompletion
+
+  @Subsystem("Code Insight")
+  @Inherited
+  annotation class CodeInsight
+
+  @Subsystem("Inspections")
+  @Inherited
+  annotation class Inspections
+
+  @Subsystem("Interpreters")
+  @Inherited
+  annotation class Interpreters
+
+  @Subsystem("Packaging. Requirements")
+  @Inherited
+  annotation class PackagingRequirements
 }
 
 object Components {
 
+  /**
+   * Represents a component that can be used to annotate tests in Allure
+   *
+   * @param value The name or description of the feature.
+   */
   @Retention(AnnotationRetention.RUNTIME)
   @Target(AnnotationTarget.FUNCTION, AnnotationTarget.TYPE, AnnotationTarget.CLASS, AnnotationTarget.ANNOTATION_CLASS)
   @LabelAnnotation(name = "Component")
@@ -37,10 +63,35 @@ object Components {
   @Component("Postfix")
   @Inherited
   annotation class Postfix
+
+  @Component("Intentions")
+  @Inherited
+  annotation class Intentions
+
+  @Component("Grazie")
+  @Inherited
+  annotation class Grazie
+
+  @Component("uv")
+  @Inherited
+  annotation class Uv
+
+  @Component("Inspection")
+  @Inherited
+  annotation class Inspection
+
+  @Component("Completion")
+  @Inherited
+  annotation class Completion
 }
 
 object Layers {
 
+  /**
+   * Represents a test layer that can be used to annotate tests in Allure
+   *
+   * @param value The name or description of the suite.
+   */
   @Retention(AnnotationRetention.RUNTIME)
   @Target(AnnotationTarget.FUNCTION, AnnotationTarget.TYPE, AnnotationTarget.CLASS)
   @LabelAnnotation(name = "layer")
@@ -50,4 +101,8 @@ object Layers {
   @Layer("Functional Tests")
   @Inherited
   annotation class Functional
+
+  @Layer("UI Tests")
+  @Inherited
+  annotation class UI
 }

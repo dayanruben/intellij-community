@@ -363,6 +363,8 @@ json
 json/backend
 json/backend/regexp
 json/backend/tests
+json/networknt.wrapper
+json/networknt.wrapper/tests
 json/structureView
 json/syntax
 jupyter
@@ -543,6 +545,7 @@ libraries/stream
 libraries/swingx
 libraries/system-stubs-jupiter
 libraries/teamcity/service-messages
+libraries/test-discovery
 libraries/testcontainers
 libraries/testng
 libraries/tuweni/toml
@@ -1212,6 +1215,7 @@ plugins/keymaps/visual-studio2022-keymap
 plugins/keymaps/vscode-keymap
 plugins/keymaps/xcode-keymap
 plugins/kotlin
+plugins/kotlin/all-tests
 plugins/kotlin/all-tests-compose
 plugins/kotlin/all-tests-fir
 plugins/kotlin/base/analysis
@@ -1329,8 +1333,6 @@ plugins/kotlin/grazie
 plugins/kotlin/grazie/intellij.kotlin.grazie.tests
 plugins/kotlin/highlighting/highlighting-k2
 plugins/kotlin/highlighting/highlighting-minimal
-plugins/kotlin/highlighting/highlighting-shared
-plugins/kotlin/highlighting/highlighting-shared/tests
 plugins/kotlin/i18n
 plugins/kotlin/i18n/tests
 plugins/kotlin/idea/tests

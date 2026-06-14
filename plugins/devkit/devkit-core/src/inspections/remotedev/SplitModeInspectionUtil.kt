@@ -36,15 +36,13 @@ internal object SplitModeInspectionUtil {
   }
 
   @Nls
-  fun buildNonNativePluginMessage(actualModuleKind: ResolvedModuleKind): String {
+  fun buildImplicitModuleKindMessage(actualModuleKind: ResolvedModuleKind): String {
     val shortMessage = when (actualModuleKind.kind) {
       SplitModeApiRestrictionsService.ModuleKind.FRONTEND ->
         DevKitBundle.message("inspection.remote.dev.plugin.indirect.frontend.dependencies.message")
       SplitModeApiRestrictionsService.ModuleKind.BACKEND ->
         DevKitBundle.message("inspection.remote.dev.plugin.indirect.backend.dependencies.message")
-      SplitModeApiRestrictionsService.ModuleKind.MIXED ->
-        DevKitBundle.message("inspection.remote.dev.plugin.mixed.dependencies.message")
-      else -> error("Unsupported plugin kind for non-native plugin message: ${actualModuleKind.kind}")
+      else -> error("Unsupported implicit plugin kind message: ${actualModuleKind.kind}")
     }
     return buildDetailedPlainTextMessage(shortMessage, null, actualModuleKind.reasoning)
   }
@@ -155,28 +153,21 @@ internal object SplitModeInspectionUtil {
   }
 
   /**
-   * When a main plugin.xml becomes frontend-only, backend-only, or mixed because of its dependencies
+   * When a main plugin.xml becomes frontend-only or backend-only because of its dependencies implicitly
    * (and not because the author explicitly declared platform.frontend/platform.backend/platform.monolith),
-   * the UI should show a single root-level plugin state error instead of many XML-specific warnings.
+   * the UI should show a single root-level plugin state warning instead of many XML-specific warnings.
    */
   fun shouldReportSinglePluginLevelErrorInsteadOfManyNestedErrors(file: PsiFile, moduleAnalysis: ModuleAnalysis): Boolean {
-    if (SplitModeAnalysisFlags.isXmlInspectionsForNonNativePluginEnabled()) {
-      return false
-    }
+    return !SplitModeAnalysisFlags.isShowAllErrorsInModulesWithImplicitKind()
+           && isImplicitFrontendOrBackendMainPluginXml(file, moduleAnalysis)
+  }
 
+  fun isImplicitFrontendOrBackendMainPluginXml(file: PsiFile, moduleAnalysis: ModuleAnalysis): Boolean {
     val currentXmlFile = file as? XmlFile ?: return false
     val module = ModuleUtilCore.findModuleForPsiElement(file) ?: return false
-    if (!isMainPluginXml(currentXmlFile, module)) {
-      return false
-    }
-
-    if (moduleAnalysis.resolvedModuleKind.kind !in NON_NATIVE_PLUGIN_XML_KINDS) {
-      return false
-    }
-    if (moduleAnalysis.evidence.hasOwnExplicitPlatformDependency) {
-      return false
-    }
-    return true
+    return isMainPluginXml(currentXmlFile, module)
+           && moduleAnalysis.resolvedModuleKind.kind in IMPLICIT_PLUGIN_XML_KINDS
+           && !moduleAnalysis.evidence.hasOwnExplicitPlatformDependency
   }
 
   fun shouldSuppressForPredefinedModuleKind(file: PsiFile, restrictionsService: SplitModeApiRestrictionsService): Boolean {
@@ -266,9 +257,8 @@ internal object SplitModeInspectionUtil {
     return contentModuleDescriptor?.virtualFile != currentXmlFile.virtualFile
   }
 
-  private val NON_NATIVE_PLUGIN_XML_KINDS = setOf(
+  private val IMPLICIT_PLUGIN_XML_KINDS = setOf(
     SplitModeApiRestrictionsService.ModuleKind.FRONTEND,
     SplitModeApiRestrictionsService.ModuleKind.BACKEND,
-    SplitModeApiRestrictionsService.ModuleKind.MIXED,
   )
 }

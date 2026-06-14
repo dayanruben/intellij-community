@@ -120,7 +120,6 @@ import com.jetbrains.python.psi.types.TypeEvalContext
 import com.jetbrains.python.psi.types.isNoneType
 import com.jetbrains.python.psi.types.isObject
 import com.jetbrains.python.pyi.PyiUtil.isOverload
-import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.PropertyKey
 import java.util.Objects
 import kotlin.math.min
@@ -211,11 +210,9 @@ open class PyTypeCheckerInspection : PyInspection() {
 
           val actual = if (returnExpr != null) tryPromotingType(returnExpr, expected) else getInstance(node).noneType
           if (!matchesExpectedType(expected, actual, returnExpr, null)) {
-            holder
-              .problem(returnExpr ?: node, typeMismatchMessage(expected, actual))
-              .highlight(effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
-              .fix(PyMakeFunctionReturnTypeQuickFix(owner, myTypeEvalContext))
-              .register()
+            registerProblem(returnExpr ?: node, typeMismatchMessage(expected, actual),
+                            effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING),
+                            PyMakeFunctionReturnTypeQuickFix(owner, myTypeEvalContext))
           }
         }
       }
@@ -248,7 +245,7 @@ open class PyTypeCheckerInspection : PyInspection() {
       val delegateDesc = fromGeneratorOrProtocol(delegateType, myTypeEvalContext)
       if (delegateDesc != null && delegateDesc.isAsync) {
         val delegateName = PythonDocumentationProvider.getTypeName(delegateType, myTypeEvalContext)
-        registerProblem(yieldExpr, PyPsiBundle.message("INSP.type.checker.yield.from.async.generator", delegateName))
+        registerProblem(yieldExpr, PyPsiBundle.problemMessage("INSP.type.checker.yield.from.async.generator", delegateName))
         return
       }
 
@@ -264,7 +261,7 @@ open class PyTypeCheckerInspection : PyInspection() {
       if (delegateDesc != null && !match(delegateDesc.sendType, expectedSendType, myTypeEvalContext)) {
         val expectedName = PythonDocumentationProvider.getVerboseTypeName(expectedSendType, myTypeEvalContext)
         val actualName = PythonDocumentationProvider.getTypeName(delegateDesc.sendType, myTypeEvalContext)
-        registerProblem(yieldExpr, PyPsiBundle.message("INSP.type.checker.yield.from.send.type.mismatch", expectedName, actualName))
+        registerProblem(yieldExpr, PyPsiBundle.problemMessage("INSP.type.checker.yield.from.send.type.mismatch", expectedName, actualName))
       }
     }
 
@@ -281,10 +278,9 @@ open class PyTypeCheckerInspection : PyInspection() {
       if (annotatedGeneratorDesc == null) {
         val inferredReturnType = function.getInferredReturnType(myTypeEvalContext)
         if (!match(annotatedReturnType, inferredReturnType, myTypeEvalContext)) {
-          holder
-            .problem(yieldExpr, typeMismatchMessage(annotatedReturnType, inferredReturnType))
-            .fix(PyMakeFunctionReturnTypeQuickFix(function, myTypeEvalContext))
-            .register()
+          registerProblem(yieldExpr, typeMismatchMessage(annotatedReturnType, inferredReturnType),
+                          ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
+                          PyMakeFunctionReturnTypeQuickFix(function, myTypeEvalContext))
         }
         return null
       }
@@ -297,14 +293,12 @@ open class PyTypeCheckerInspection : PyInspection() {
         val yieldExpr = node.expression
         val expectedName = PythonDocumentationProvider.getVerboseTypeName(expectedYieldType, myTypeEvalContext)
         val actualName = PythonDocumentationProvider.getTypeName(thisYieldType, myTypeEvalContext)
-        holder
-          .problem(
-            yieldExpr ?: node,
-            PyPsiBundle.message("INSP.type.checker.yield.type.mismatch", expectedName, actualName)
-          )
-          .highlight(effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
-          .fix(PyMakeFunctionReturnTypeQuickFix(function, myTypeEvalContext))
-          .register()
+        registerProblem(
+          yieldExpr ?: node,
+          PyPsiBundle.problemMessage("INSP.type.checker.yield.type.mismatch", expectedName, actualName),
+          effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING),
+          PyMakeFunctionReturnTypeQuickFix(function, myTypeEvalContext)
+        )
         return true
       }
       return false
@@ -375,9 +369,9 @@ open class PyTypeCheckerInspection : PyInspection() {
           if (match(annotatedType, unpackedType, myTypeEvalContext)) continue
           val displayType = upcastLiteralToClass(unpackedType)
           registerProblem(rhs,
-                          PyPsiBundle.message("INSP.type.checker.expected.type.got.type.instead",
-                                              PythonDocumentationProvider.getVerboseTypeName(annotatedType, myTypeEvalContext),
-                                              PythonDocumentationProvider.getTypeName(displayType, myTypeEvalContext)),
+                          PyPsiBundle.problemMessage("INSP.type.checker.expected.type.got.type.instead",
+                                                     PythonDocumentationProvider.getVerboseTypeName(annotatedType, myTypeEvalContext),
+                                                     PythonDocumentationProvider.getTypeName(displayType, myTypeEvalContext)),
                           effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
           // stop after the first error, because otherwise we might start reporting different type errors on the same element
           return
@@ -406,9 +400,9 @@ open class PyTypeCheckerInspection : PyInspection() {
                   if (annotatedType != null && !isUnknown(annotatedType, myTypeEvalContext) &&
                       !match(annotatedType, actualType, myTypeEvalContext)) {
                     registerProblem(rhs,
-                                    PyPsiBundle.message("INSP.type.checker.expected.type.got.type.instead",
-                                                        PythonDocumentationProvider.getVerboseTypeName(annotatedType, myTypeEvalContext),
-                                                        PythonDocumentationProvider.getTypeName(actualType, myTypeEvalContext)),
+                                    PyPsiBundle.problemMessage("INSP.type.checker.expected.type.got.type.instead",
+                                                               PythonDocumentationProvider.getVerboseTypeName(annotatedType, myTypeEvalContext),
+                                                               PythonDocumentationProvider.getTypeName(actualType, myTypeEvalContext)),
                                     effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
                   }
                 }
@@ -519,23 +513,21 @@ open class PyTypeCheckerInspection : PyInspection() {
       }
     }
 
-    @Nls
     private fun typeMismatchMessage(
       expected: PyType?,
       actual: PyType?,
-    ): @Nls String {
+    ): PyInspectionMessages.ProblemMessage {
       return typeMismatchMessage(expected, actual, "INSP.type.checker.expected.type.got.type.instead")
     }
 
-    @Nls
     private fun typeMismatchMessage(
       expected: PyType?,
       actual: PyType?,
       @PropertyKey(resourceBundle = PyPsiBundle.BUNDLE) messageKey: @PropertyKey(resourceBundle = PyPsiBundle.BUNDLE) String,
-    ): @Nls String {
+    ): PyInspectionMessages.ProblemMessage {
       val expectedName = PythonDocumentationProvider.getVerboseTypeName(expected, myTypeEvalContext)
       val actualName = PythonDocumentationProvider.getTypeName(actual, myTypeEvalContext)
-      return PyPsiBundle.message(messageKey, expectedName, actualName)
+      return PyPsiBundle.problemMessage(messageKey, expectedName, actualName)
     }
 
     private fun matchesExpectedType(
@@ -638,16 +630,16 @@ open class PyTypeCheckerInspection : PyInspection() {
       result.extraKeys.forEach { error: ExtraKeyError? ->
         registerProblem(
           Objects.requireNonNullElse<PyExpression?>(error!!.actualExpression, expression),
-          PyPsiBundle.message("INSP.type.checker.typed.dict.extra.key", error.key, error.expectedTypedDictName)
+          PyPsiBundle.problemMessage("INSP.type.checker.typed.dict.extra.key", error.key, error.expectedTypedDictName)
         )
       }
       result.missingKeys.forEach { error: MissingKeysError? ->
         registerProblem(
           if (error!!.actualExpression != null) error.actualExpression else expression,
-          PyPsiBundle.message(
+          PyPsiBundle.problemMessage(
             "INSP.type.checker.typed.dict.missing.keys", error.expectedTypedDictName,
             error.missingKeys.size,
-            error.missingKeys.joinToString { "'$it'" }
+            PyInspectionMessages.CodifiedParam.joinNames(error.missingKeys)
           )
         )
       }
@@ -671,7 +663,7 @@ open class PyTypeCheckerInspection : PyInspection() {
       if (!match(typedDictType, argumentType, myTypeEvalContext)) {
         registerProblem(
           expression,
-          PyPsiBundle.message(
+          PyPsiBundle.problemMessage(
             "INSP.type.checker.expected.type.got.type.instead",
             PythonDocumentationProvider.getTypeName(typedDictType, myTypeEvalContext),
             PythonDocumentationProvider.getTypeName(argumentType, myTypeEvalContext)
@@ -703,11 +695,9 @@ open class PyTypeCheckerInspection : PyInspection() {
             val actual = node.getReturnStatementType(myTypeEvalContext)
             val annotationValue = if (annotation != null) annotation.value else node.typeComment
             if (annotationValue != null) {
-              holder
-                .problem(annotationValue, typeMismatchMessage(expected, actual))
-                .highlight(effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
-                .fix(PyMakeFunctionReturnTypeQuickFix(node, myTypeEvalContext))
-                .register()
+              registerProblem(annotationValue, typeMismatchMessage(expected, actual),
+                              effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING),
+                              PyMakeFunctionReturnTypeQuickFix(node, myTypeEvalContext))
             }
           }
         }
@@ -730,10 +720,9 @@ open class PyTypeCheckerInspection : PyInspection() {
           if (wrongSyncAsync || (generatorDesc == null && !match(annotatedType, inferredType, myTypeEvalContext))) {
             val annotationValue = if (annotation != null) annotation.value else node.typeComment
             if (annotationValue != null) {
-              holder
-                .problem(annotationValue, typeMismatchMessage(inferredType, annotatedType))
-                .fix(PyMakeFunctionReturnTypeQuickFix(node, myTypeEvalContext))
-                .register()
+              registerProblem(annotationValue, typeMismatchMessage(inferredType, annotatedType),
+                              ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
+                              PyMakeFunctionReturnTypeQuickFix(node, myTypeEvalContext))
             }
           }
         }
@@ -813,7 +802,7 @@ open class PyTypeCheckerInspection : PyInspection() {
       if (calleesResults.none { isMatched(it) }) {
         PyTypeCheckerInspectionProblemRegistrar
           .registerProblem(
-            this, callSite, getArgumentTypes(calleesResults), calleesResults, myTypeEvalContext,
+            this, callSite, calleesResults, myTypeEvalContext,
             effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
           )
       }
@@ -833,7 +822,8 @@ open class PyTypeCheckerInspection : PyInspection() {
 
         val qualifiedName = "collections.$iterableClassName"
         registerProblem(
-          highlightElement, PyPsiBundle.message("INSP.type.checker.expected.type.got.type.instead", qualifiedName, typeName),
+          highlightElement,
+          PyPsiBundle.problemMessage("INSP.type.checker.expected.type.got.type.instead", qualifiedName, typeName),
           effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
         )
         return true
@@ -921,7 +911,8 @@ open class PyTypeCheckerInspection : PyInspection() {
 
           val qualifiedName = "contextlib.$contextManagerClassName"
           registerProblem(
-            iteratedValue, PyPsiBundle.message("INSP.type.checker.expected.type.got.type.instead", qualifiedName, typeName),
+            iteratedValue,
+            PyPsiBundle.problemMessage("INSP.type.checker.expected.type.got.type.instead", qualifiedName, typeName),
             effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
           )
         }
@@ -976,6 +967,7 @@ open class PyTypeCheckerInspection : PyInspection() {
               result.add(
                 AnalyzeArgumentResult(
                   receiver,
+                  selfParameter,
                   expected,
                   substituteGenerics(expected, substitutions),
                   actual,
@@ -1045,7 +1037,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         }
         else {
           val matched = matchParameterAndArgument(expected, actual, argument, substitutions)
-          result.add(AnalyzeArgumentResult(argument, expected, substituteGenerics(expected, substitutions), actual, matched))
+          result.add(AnalyzeArgumentResult(argument, parameter, expected, substituteGenerics(expected, substitutions), actual, matched))
         }
       }
 
@@ -1136,7 +1128,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         val argType = myTypeEvalContext.getType(argument)
         val paramType = parameter.getType(myTypeEvalContext)
         val matched = matchParameterAndArgument(paramType, argType, argument, substitutions)
-        result.add(AnalyzeArgumentResult(argument, paramType, substituteGenerics(paramType, substitutions), argType, matched))
+        result.add(AnalyzeArgumentResult(argument, parameter, paramType, substituteGenerics(paramType, substitutions), argType, matched))
       }
       if (!mapping.unmappedArguments.isEmpty()) {
         for (argument in mapping.unmappedArguments) {
@@ -1194,7 +1186,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         val argument = arguments[i]
         val actual = myTypeEvalContext.getType(argument)
         val matched = matchParameterAndArgument(expected, actual, argument, substitutions)
-        result.add(AnalyzeArgumentResult(argument, expected, substituteGenerics(expected, substitutions), actual, matched))
+        result.add(AnalyzeArgumentResult(argument, null, expected, substituteGenerics(expected, substitutions), actual, matched))
       }
     }
 
@@ -1212,7 +1204,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         val matched = matchParameterAndArgument(expected, argumentTypes, null, substitutions)
         return arguments.map { argument ->
           val expectedWithSubstitutions = substituteGenerics(expected, substitutions)
-          AnalyzeArgumentResult(argument, expected, expectedWithSubstitutions, argumentTypes, matched)
+          AnalyzeArgumentResult(argument, container, expected, expectedWithSubstitutions, argumentTypes, matched)
         }
       }
 
@@ -1230,7 +1222,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           // Then match each argument type against the expected type after these substitutions.
           val actual = myTypeEvalContext.getType(it)
           val matched = matchParameterAndArgument(expected, actual, it, substitutions)
-          AnalyzeArgumentResult(it, expected, substituteGenerics(expected, substitutions), actual, matched)
+          AnalyzeArgumentResult(it, container, expected, substituteGenerics(expected, substitutions), actual, matched)
         }
       }
       else {
@@ -1240,7 +1232,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           val actual = promotedToLiteral ?: myTypeEvalContext.getType(argument)
           val matched = matchParameterAndArgument(expected, actual, argument, substitutions)
           val expectedWithSubstitutions = substituteGenerics(expected, substitutions)
-          AnalyzeArgumentResult(argument, expected, expectedWithSubstitutions, actual, matched)
+          AnalyzeArgumentResult(argument, container, expected, expectedWithSubstitutions, actual, matched)
         }
       }
     }
@@ -1328,14 +1320,6 @@ open class PyTypeCheckerInspection : PyInspection() {
                calleeResults.unfilledPositionalVarargs.isEmpty()
       }
 
-      private fun getArgumentTypes(calleesResults: List<AnalyzeCalleeResults>): List<PyType?> {
-        return calleesResults
-          .stream()
-          .map { it.results }
-          .max(Comparator.comparingInt { it.size })
-          .orElse(mutableListOf()).map { it.actualType }
-      }
-
       private fun hasExplicitType(node: PsiElement): Boolean {
         if (node is PyAnnotationOwner && node.annotation != null) return true
         if (node is PyTypeCommentOwner && node.typeCommentAnnotation != null) return true
@@ -1370,6 +1354,7 @@ open class PyTypeCheckerInspection : PyInspection() {
 
   internal class AnalyzeArgumentResult(
     val argument: PyExpression,
+    val parameter: PyCallableParameter?,
     val expectedType: PyType?,
     val expectedTypeAfterSubstitution: PyType?,
     val actualType: PyType?,

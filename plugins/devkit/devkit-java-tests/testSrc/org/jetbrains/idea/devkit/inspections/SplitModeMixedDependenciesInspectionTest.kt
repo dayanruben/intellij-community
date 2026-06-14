@@ -10,6 +10,7 @@ import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntil
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
 import org.jetbrains.idea.devkit.build.PluginBuildConfiguration
+import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeImplicitModuleKindInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeMixedDependenciesInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeModuleKindResolver
@@ -25,7 +26,7 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
     IntelliJProjectUtil.markAsIntelliJPlatformProject(project, true)
     RegistryManager.getInstance().get("devkit.split.mode.analysis.containing.plugins")
       .setValue(true, testRootDisposable)
-    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.xml.for.non.native.plugin")
+    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.in.implicit.module.kind")
       .setValue(true, testRootDisposable)
 
     val service = SplitModeApiRestrictionsService.getInstance(project)
@@ -34,7 +35,7 @@ internal class SplitModeMixedDependenciesInspectionTest : JavaCodeInsightFixture
       waitUntil("API restrictions failed to load", 2.seconds) { service.isLoaded() }
     }
 
-    myFixture.enableInspections(SplitModeMixedDependenciesInspection())
+    myFixture.enableInspections(SplitModeMixedDependenciesInspection(), SplitModeImplicitModuleKindInspection())
   }
 
   fun testMixedModuleDependenciesInPluginXml() {
@@ -284,7 +285,7 @@ Backend dependency 'intellij.platform.kernel.backend' from descriptor 'unique.mo
   }
 
   fun testPluginXmlWithIndirectFrontendOnlyDependenciesGetsSingleRootErrorWhenXmlInspectionsAreDisabled() {
-    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.xml.for.non.native.plugin")
+    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.in.implicit.module.kind")
       .setValue(false, testRootDisposable)
 
     addModuleWithXmlDescriptor(
@@ -324,7 +325,7 @@ via dependency 'unique.module.name.50.frontend.support' -> descriptor 'unique.mo
   }
 
   fun testPluginXmlWithIndirectBackendOnlyDependenciesGetsSingleRootErrorWhenXmlInspectionsAreDisabled() {
-    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.xml.for.non.native.plugin")
+    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.in.implicit.module.kind")
       .setValue(false, testRootDisposable)
 
     addModuleWithXmlDescriptor(
@@ -403,7 +404,7 @@ via dependency 'unique.module.name.52.backend.support' -> descriptor 'unique.mod
     val recognizedKind = recognizeSplitModeModuleKind(pluginXml as com.intellij.psi.xml.XmlFile)
     Assert.assertNotNull("Module kind should be recognized", recognizedKind)
     Assert.assertEquals("unique.module.name.53.consumer", recognizedKind!!.moduleName)
-    Assert.assertEquals("mixed", recognizedKind.kindId)
+    Assert.assertEquals("mixed", recognizedKind.kind.id)
     Assert.assertTrue(
       "Reasoning should mention the frontend alias provider.\nReasoning: ${recognizedKind.reasoning}",
       recognizedKind.reasoning.contains("unique.module.name.53.frontend.alias.provider"),
@@ -415,7 +416,7 @@ via dependency 'unique.module.name.52.backend.support' -> descriptor 'unique.mod
   }
 
   fun testMixedPluginXmlGetsSingleRootErrorWhenXmlInspectionsAreDisabled() {
-    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.xml.for.non.native.plugin")
+    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.in.implicit.module.kind")
       .setValue(false, testRootDisposable)
 
     addModuleWithXmlDescriptor(
@@ -444,7 +445,7 @@ via dependency 'unique.module.name.52.backend.support' -> descriptor 'unique.mod
       moduleName = "unique.module.name.51",
       descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
       pluginXmlContent = """
-        <<weak_warning descr="This plugin effectively depends on frontend-only and backend-only modules simultaneously. It may not get loaded in Split Mode.
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
 Computed module kind reasoning:
 
@@ -452,7 +453,7 @@ Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in
 via dependency 'unique.module.name.51.frontend.support' -> descriptor 'unique.module.name.51.frontend.support.xml' in module 'unique.module.name.51.frontend.support'.
 
 Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in module 'unique.module.name.51'
-via dependency 'unique.module.name.51.backend.support' -> descriptor 'unique.module.name.51.backend.support.xml' in module 'unique.module.name.51.backend.support'.">idea-plugin</weak_warning>>
+via dependency 'unique.module.name.51.backend.support' -> descriptor 'unique.module.name.51.backend.support.xml' in module 'unique.module.name.51.backend.support'.">idea-plugin</error>>
           <dependencies>
             <module name="unique.module.name.51.frontend.support"/>
             <module name="unique.module.name.51.backend.support"/>
@@ -577,7 +578,7 @@ via dependency 'unique.module.name.51.backend.support' -> descriptor 'unique.mod
     val recognizedKind = recognizeSplitModeModuleKind(contentModuleDescriptor as com.intellij.psi.xml.XmlFile)
     Assert.assertNotNull("Module kind should be recognized", recognizedKind)
     Assert.assertEquals("unique.module.name.38", recognizedKind!!.moduleName)
-    Assert.assertEquals("backend", recognizedKind.kindId)
+    Assert.assertEquals("backend", recognizedKind.kind.id)
     Assert.assertTrue(
       "Reasoning should mention the backend dependency.\nReasoning: ${recognizedKind.reasoning}",
       recognizedKind.reasoning.contains("intellij.platform.backend"),
@@ -612,7 +613,7 @@ via dependency 'unique.module.name.51.backend.support' -> descriptor 'unique.mod
     val recognizedKind = recognizeSplitModeModuleKind(contentModuleDescriptor as com.intellij.psi.xml.XmlFile)
     Assert.assertNotNull("Module kind should be recognized", recognizedKind)
     Assert.assertEquals("unique.module.name.39", recognizedKind!!.moduleName)
-    Assert.assertEquals("backend", recognizedKind.kindId)
+    Assert.assertEquals("backend", recognizedKind.kind.id)
   }
 
   fun testTransitivelyPredefinedSharedDependencyOverridesFrontendSuffix() {
@@ -654,7 +655,7 @@ via dependency 'unique.module.name.51.backend.support' -> descriptor 'unique.mod
     val recognizedKind = recognizeSplitModeModuleKind(contentModuleDescriptor as com.intellij.psi.xml.XmlFile)
     Assert.assertNotNull("Module kind should be recognized", recognizedKind)
     Assert.assertEquals("unique.module.name.41", recognizedKind!!.moduleName)
-    Assert.assertEquals("backend", recognizedKind.kindId)
+    Assert.assertEquals("backend", recognizedKind.kind.id)
   }
 
   private fun assertSharedModuleKindWithContainingPluginsOfDifferentKinds(moduleName: String) {

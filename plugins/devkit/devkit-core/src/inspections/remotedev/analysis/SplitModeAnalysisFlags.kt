@@ -19,8 +19,16 @@ internal object SplitModeAnalysisFlags {
     return RegistryManager.getInstance().`is`("devkit.split.mode.inspections.skip.predefined")
   }
 
-  fun isXmlInspectionsForNonNativePluginEnabled(): Boolean {
-    return RegistryManager.getInstance().`is`("devkit.split.mode.inspections.enable.xml.for.non.native.plugin")
+  fun isShowAllErrorsInModulesWithImplicitKind(): Boolean {
+    return RegistryManager.getInstance().`is`("devkit.split.mode.inspections.enable.in.implicit.module.kind")
+  }
+
+  fun isReportImplicitModuleKindEnabled(): Boolean {
+    return RegistryManager.getInstance().`is`("devkit.split.mode.report.implicit.module.kind")
+  }
+
+  fun isRunJpsToBazelInQuickFixEnabled(): Boolean {
+    return Registry.`is`("devkit.split.mode.run.jps.to.bazel.in.quick.fix", false)
   }
 
   fun isQodanaAnalysisScopeLimiterEnabled(): Boolean {
@@ -43,7 +51,8 @@ internal object SplitModeAnalysisFlags {
     registryKey: String,
     defaultMode: SplitModeInspectionResourceReadMode,
   ): SplitModeInspectionResourceReadMode {
-    val value = RegistryManager.getInstance().get(registryKey).asString()
+    val registryValue = RegistryManager.getInstance().get(registryKey)
+    val value = registryValue.selectedOption ?: registryValue.asString()
     return SplitModeInspectionResourceReadMode.fromRegistryValue(registryKey, value, defaultMode)
   }
 }

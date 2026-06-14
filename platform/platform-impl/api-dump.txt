@@ -1880,8 +1880,10 @@ f:com.intellij.notification.impl.NotificationsConfigurationImpl
 - com.intellij.openapi.components.PersistentStateComponent
 - changeSettings(com.intellij.notification.impl.NotificationSettings):V
 - s:getInstanceImpl():com.intellij.notification.impl.NotificationsConfigurationImpl
+- getNotificationLocation():com.intellij.notification.NotificationLocation
 - s:getSettings(java.lang.String):com.intellij.notification.impl.NotificationSettings
 - s:remove(java.lang.String[]):V
+- setNotificationLocation(com.intellij.notification.NotificationLocation):V
 f:com.intellij.notification.impl.NotificationsManagerImpl
 - com.intellij.notification.NotificationsManager
 - s:findWindowForBalloon(com.intellij.openapi.project.Project):java.awt.Window
@@ -3050,10 +3052,6 @@ c:com.intellij.openapi.fileEditor.impl.EditorComposite
 - f:isModified():Z
 - f:isPinned():Z
 - isPreview():Z
-c:com.intellij.openapi.fileEditor.impl.EditorEmptyTextPainter
-- <init>():V
-- p:appendDnd(com.intellij.util.ui.UIUtil$TextPainter):V
-- p:getActionShortcutText(java.lang.String):java.lang.String
 com.intellij.openapi.fileEditor.impl.EditorFileSwapper
 - s:findSinglePsiAwareEditor(java.util.List):com.intellij.openapi.fileEditor.impl.text.TextEditorImpl
 - a:getFileToSwapTo(com.intellij.openapi.project.Project,com.intellij.openapi.fileEditor.impl.EditorComposite):kotlin.Pair

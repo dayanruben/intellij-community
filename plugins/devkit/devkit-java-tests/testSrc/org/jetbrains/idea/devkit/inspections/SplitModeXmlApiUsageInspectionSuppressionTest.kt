@@ -10,6 +10,7 @@ import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntil
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
 import org.jetbrains.idea.devkit.build.PluginBuildConfiguration
+import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeImplicitModuleKindInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeMixedDependenciesInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.SplitModeXmlApiUsageInspection
 import org.jetbrains.idea.devkit.inspections.remotedev.analysis.SplitModeApiRestrictionsService
@@ -24,7 +25,7 @@ internal class SplitModeXmlApiUsageInspectionSuppressionTest : JavaCodeInsightFi
     IntelliJProjectUtil.markAsIntelliJPlatformProject(project, true)
     RegistryManager.getInstance().get("devkit.split.mode.analysis.containing.plugins")
       .setValue(true, testRootDisposable)
-    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.xml.for.non.native.plugin")
+    RegistryManager.getInstance().get("devkit.split.mode.inspections.enable.in.implicit.module.kind")
       .setValue(false, testRootDisposable)
 
     val service = SplitModeApiRestrictionsService.getInstance(project)
@@ -33,7 +34,11 @@ internal class SplitModeXmlApiUsageInspectionSuppressionTest : JavaCodeInsightFi
       waitUntil("API restrictions failed to load", 2.seconds) { service.isLoaded() }
     }
 
-    myFixture.enableInspections(SplitModeXmlApiUsageInspection(), SplitModeMixedDependenciesInspection())
+    myFixture.enableInspections(
+      SplitModeXmlApiUsageInspection(),
+      SplitModeMixedDependenciesInspection(),
+      SplitModeImplicitModuleKindInspection(),
+    )
   }
 
   fun testPluginXmlWithIndirectFrontendOnlyDependenciesShowsSingleRootError() {
@@ -190,7 +195,7 @@ Backend dependency 'intellij.platform.backend' from containing plugin descriptor
             <module name="intellij.platform.frontend"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.localInspection' can only be used in 'backend' module type. Actual module type is 'frontend'.
+            <<warning descr="'com.intellij.localInspection' should be used in 'backend' module type. Actual module type is 'frontend'.
 
 Computed module kind reasoning:
 
@@ -214,7 +219,7 @@ Frontend dependency 'intellij.platform.frontend' from descriptor 'plugin.xml' in
             <module name="intellij.platform.backend"/>
           </dependencies>
           <extensions defaultExtensionNs="com.intellij">
-            <<warning descr="'com.intellij.typedHandler' can only be used in 'shared' module type. Actual module type is 'backend'.
+            <<warning descr="'com.intellij.typedHandler' should be used in 'shared' module type. Actual module type is 'backend'.
 
 Computed module kind reasoning:
 
@@ -255,13 +260,13 @@ Backend dependency 'intellij.platform.backend' from descriptor 'plugin.xml' in m
       moduleName = "unique.module.name.33",
       descriptorRelativePathToResourcesDirectory = "META-INF/plugin.xml",
       pluginXmlContent = """
-        <<weak_warning descr="This plugin effectively depends on frontend-only and backend-only modules simultaneously. It may not get loaded in Split Mode.
+        <<error descr="This module effectively depends on frontend-only and backend-only modules simultaneously. It will not get loaded in Split Mode.
 
 Computed module kind reasoning:
 
 Frontend dependency 'intellij.platform.frontend' from required content module descriptor 'unique.module.name.31.xml' in module 'unique.module.name.31'
 
-Backend dependency 'intellij.platform.backend' from embedded content module descriptor 'unique.module.name.32.xml' in module 'unique.module.name.32'">idea-plugin</weak_warning>>
+Backend dependency 'intellij.platform.backend' from embedded content module descriptor 'unique.module.name.32.xml' in module 'unique.module.name.32'">idea-plugin</error>>
           <content>
             <module name="unique.module.name.31" loading="required"/>
             <module name="unique.module.name.32" loading="embedded"/>
