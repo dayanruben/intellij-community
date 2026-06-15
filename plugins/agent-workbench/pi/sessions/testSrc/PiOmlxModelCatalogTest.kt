@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.pi.sessions
 
+import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModelGroup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -133,9 +134,53 @@ class PiOmlxModelCatalogTest {
       )
     )
     assertThat(models.map { it.displayName }).containsExactly("Qwen 27B (oMLX)")
+    assertThat(models.single().group).isEqualTo(AgentPromptGenerationModelGroup.LOCAL)
     assertThat(models.single().isDefault).isTrue()
     assertThat(models.single().supportedReasoningEfforts).isEqualTo(PI_SUPPORTED_REASONING_EFFORTS)
     assertThat(PiOmlxModelCatalog.decodeGenerationModelId(models.single().id)?.tokenSource).isEqualTo(PiOmlxTokenSource.PI_AUTH)
+  }
+
+  @Test
+  fun fallsBackToMatchingOmlxSettingsWhenPiAuthConnectionIsUnavailable(): Unit = runBlocking(Dispatchers.Default) {
+    val agentDir = tempDir.resolve("pi-agent")
+    val files = mapOf(
+      agentDir.resolve("auth.json") to """
+        {
+          "http://127.0.0.1:8000": {
+            "type": "api_key",
+            "key": "stale-pi-key"
+          }
+        }
+      """.trimIndent(),
+      tempDir.resolve(".omlx/settings.json") to """
+        {
+          "server": {"host": "127.0.0.1", "port": 8000},
+          "auth": {"api_key": "settings-key"}
+        }
+      """.trimIndent(),
+    )
+    val requestedConnections = mutableListOf<PiOmlxConnection>()
+    val catalog = PiOmlxModelCatalog(
+      environmentProvider = { mapOf("PI_CODING_AGENT_DIR" to agentDir.toString()) },
+      userHomeProvider = { tempDir },
+      fileTextReader = { path -> files[path] },
+      modelsStatusFetcher = { connection ->
+        requestedConnections += connection
+        when (connection.tokenSource) {
+          PiOmlxTokenSource.PI_AUTH -> null
+          PiOmlxTokenSource.OMLX_SETTINGS -> statusJson(modelId = "Qwen3.6-27B-MLX-8bit", displayName = "Qwen 27B", loaded = true)
+        }
+      },
+    )
+
+    val models = catalog.listAvailableGenerationModels()
+
+    assertThat(requestedConnections).containsExactly(
+      PiOmlxConnection("http://127.0.0.1:8000", PiOmlxTokenSource.PI_AUTH, "stale-pi-key"),
+      PiOmlxConnection("http://127.0.0.1:8000", PiOmlxTokenSource.OMLX_SETTINGS, "settings-key"),
+    )
+    assertThat(models.map { it.displayName }).containsExactly("Qwen 27B (oMLX)")
+    assertThat(PiOmlxModelCatalog.decodeGenerationModelId(models.single().id)?.tokenSource).isEqualTo(PiOmlxTokenSource.OMLX_SETTINGS)
   }
 
   @Test

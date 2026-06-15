@@ -25,6 +25,7 @@ import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.common.session.AgentSubAgent
+import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchError
@@ -603,6 +604,7 @@ class AgentSessionLaunchService internal constructor(
     launchModalityState: ModalityState? = null,
     threadTitle: String? = null,
     generationSettings: AgentPromptGenerationSettings = AgentPromptGenerationSettings.AUTO,
+    generationModelCatalog: List<AgentPromptGenerationModel> = emptyList(),
     extraEnvVariables: Map<String, String> = emptyMap(),
     extraCommandArgs: List<String> = emptyList(),
   ) {
@@ -656,11 +658,20 @@ class AgentSessionLaunchService internal constructor(
                                    ?.let(descriptor::buildInitialMessagePlan)
                                  ?: AgentInitialMessagePlan.EMPTY
         val baseLaunchSpec = descriptor.buildNewSessionLaunchSpec(mode)
-        val generationLaunchSpec = descriptor.applyGenerationSettings(baseLaunchSpec, generationSettings)
+        val generationLaunchSpec = descriptor.applyGenerationSettings(
+          baseLaunchSpec = baseLaunchSpec,
+          generationSettings = generationSettings,
+          initialMessagePlan = initialMessagePlan,
+        )
+        val generationCatalogLaunchSpec = descriptor.applyGenerationModelCatalog(
+          baseLaunchSpec = generationLaunchSpec,
+          generationSettings = generationSettings,
+          generationModelCatalog = generationModelCatalog,
+        )
         val augmentedSpec = AgentSessionLaunchSpecs.augment(
           projectPath = normalizedPath,
           provider = provider,
-          launchSpec = generationLaunchSpec,
+          launchSpec = generationCatalogLaunchSpec,
         )
         // Apply launch contributors (e.g. AwbMcpConfigContributor writing the merged
         // `.awb/awb-mcp.json` and adding `--mcp-config`). sessionId is null for new
@@ -890,6 +901,7 @@ class AgentSessionLaunchService internal constructor(
             preferredDedicatedFrame = request.preferredDedicatedFrame,
             promptLaunchResolved = ::reportPromptLaunchResolved,
             generationSettings = request.generationSettings,
+            generationModelCatalog = request.generationModelCatalog,
             extraEnvVariables = request.containerSessionEnvVariables,
             extraCommandArgs = request.containerSessionExtraArgs,
           )
@@ -1072,18 +1084,21 @@ private fun buildInitialMessageDispatchPlan(
   allowStartupPromptOverride: Boolean,
 ): AgentInitialMessageDispatchPlan {
   val postStartDispatchSteps = descriptor.buildPostStartDispatchSteps(initialMessagePlan)
-  if (postStartDispatchSteps.isEmpty()) {
+  val startupLaunchSpecOverride = buildStartupLaunchSpecOverride(
+    descriptor = descriptor,
+    baseLaunchSpec = baseLaunchSpec,
+    initialMessagePlan = initialMessagePlan,
+    allowStartupPromptOverride = allowStartupPromptOverride,
+  )
+  if (postStartDispatchSteps.isEmpty() && startupLaunchSpecOverride == null) {
     return AgentInitialMessageDispatchPlan.EMPTY
   }
   return AgentInitialMessageDispatchPlan(
-    startupLaunchSpecOverride = buildStartupLaunchSpecOverride(
-      descriptor = descriptor,
-      baseLaunchSpec = baseLaunchSpec,
-      initialMessagePlan = initialMessagePlan,
-      allowStartupPromptOverride = allowStartupPromptOverride,
-    ),
+    startupLaunchSpecOverride = startupLaunchSpecOverride,
     postStartDispatchSteps = postStartDispatchSteps,
-    initialMessageToken = buildInitialMessageToken(identity = identity, steps = postStartDispatchSteps),
+    initialMessageToken = postStartDispatchSteps
+      .takeIf { steps -> steps.isNotEmpty() }
+      ?.let { steps -> buildInitialMessageToken(identity = identity, steps = steps) },
   )
 }
 
@@ -1105,6 +1120,9 @@ private fun buildStartupLaunchSpecOverride(
     return null
   }
   if (initialMessagePlan.startupPolicy != AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND) {
+    return null
+  }
+  if (initialMessagePlan.message == null && initialMessagePlan.mode == AgentInitialMessageMode.STANDARD) {
     return null
   }
   val startupLaunchSpec = descriptor.buildLaunchSpecWithInitialMessage(
@@ -1187,7 +1205,11 @@ private suspend fun resolvePromptInitialMessageDispatchPlan(
   val allowStartupPromptOverride = initialMessagePlan.mode == AgentInitialMessageMode.PLAN
   val resumeLaunchSpec =
     if (allowStartupPromptOverride && initialMessagePlan.startupPolicy == AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND) {
-      descriptor.applyGenerationSettings(baseResumeLaunchSpec, generationSettings)
+      descriptor.applyGenerationSettings(
+        baseLaunchSpec = baseResumeLaunchSpec,
+        generationSettings = generationSettings,
+        initialMessagePlan = initialMessagePlan,
+      )
     }
     else {
       baseResumeLaunchSpec
