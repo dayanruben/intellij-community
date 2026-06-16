@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.core.providers
 
-// @spec community/plugins/agent-workbench/spec/agent-terminal-sessions.spec.md
+// @spec community/plugins/agent-workbench/spec/sessions/agent-terminal-sessions.spec.md
 
 import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
@@ -127,6 +127,8 @@ interface AgentSessionProviderDescriptor {
     get() = null
   val yoloSessionLabelKey: String?
     get() = null
+  val yoloSessionModeLabelKey: String?
+    get() = null
   val icon: Icon
 
   /** Desaturated variant for persistent surfaces (tree, toolbar button, tabs, status bar); menus keep [icon]. */
@@ -144,7 +146,19 @@ interface AgentSessionProviderDescriptor {
   val supportedReasoningEfforts: Set<AgentPromptReasoningEffort>
     get() = emptySet()
 
+  /**
+   * True when the provider has a dedicated Plan-mode reasoning effort transport separate from normal reasoning effort.
+   */
+  val supportsPlanReasoningEffort: Boolean
+    get() = false
+
   val supportsGenerationModelSelection: Boolean
+    get() = false
+
+  /**
+   * True when provider model discovery should run even if the launch profile uses automatic generation settings.
+   */
+  val resolvesGenerationModelCatalogForAutoSettings: Boolean
     get() = false
 
   val supportsPromptLaunch: Boolean
@@ -237,6 +251,10 @@ interface AgentSessionProviderDescriptor {
     return emptyList()
   }
 
+  fun displayNameForGenerationModelId(modelId: String): String? {
+    return null
+  }
+
   suspend fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec
 
   fun sanitizeGenerationSettings(generationSettings: AgentPromptGenerationSettings): AgentPromptGenerationSettings {
@@ -246,9 +264,14 @@ interface AgentSessionProviderDescriptor {
     val reasoningEffort = generationSettings.reasoningEffort
                             .takeIf { effort -> effort == AgentPromptReasoningEffort.AUTO || effort in supportedReasoningEfforts }
                           ?: AgentPromptReasoningEffort.AUTO
-    val planReasoningEffort = generationSettings.planReasoningEffort
-      ?.takeIf { effort -> effort == AgentPromptReasoningEffort.AUTO || effort in supportedReasoningEfforts }
+    val planReasoningEffort = if (supportsPlanReasoningEffort) {
+      generationSettings.planReasoningEffort
+        ?.takeIf { effort -> effort == AgentPromptReasoningEffort.AUTO || effort in supportedReasoningEfforts }
       ?: generationSettings.planReasoningEffort?.let { AgentPromptReasoningEffort.AUTO }
+    }
+    else {
+      null
+    }
     return generationSettings.copy(
       modelId = modelId,
       reasoningEffort = reasoningEffort,

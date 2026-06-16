@@ -400,6 +400,33 @@ class PiAgentSessionProviderDescriptorTest {
   }
 
   @Test
+  fun applyGenerationSettingsIgnoresPlanReasoningEffort(): Unit = runBlocking(Dispatchers.Default) {
+    val modelId = PiOmlxModelCatalog.encodeGenerationModelId(omlxSelection())
+    val baseLaunchSpec = descriptor.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD)
+
+    val launchSpec = descriptor.applyGenerationSettings(
+      baseLaunchSpec,
+      AgentPromptGenerationSettings(
+        modelId = modelId,
+        planReasoningEffort = AgentPromptReasoningEffort.HIGH,
+      ),
+      STANDARD_INITIAL_MESSAGE_PLAN,
+    )
+
+    assertThat(launchSpec.command).containsExactly(
+      "pi",
+      "--extension",
+      "/tmp/pi-extension/agent-workbench-extension.ts",
+      "--provider",
+      "oMLX",
+      "--model",
+      "Qwen3.6-27B-MLX-8bit",
+      "--session-id",
+      "pi-session-1",
+    )
+  }
+
+  @Test
   fun applyGenerationModelCatalogAddsPiScopedModelsBeforeSessionFlags(): Unit = runBlocking(Dispatchers.Default) {
     val modelId = PiOmlxModelCatalog.encodeGenerationModelId(omlxSelection())
     val knownModelId = PiKnownModelCatalog.encodeGenerationModelId(knownSelection("openai", "gpt-5.4"))
@@ -447,6 +474,48 @@ class PiAgentSessionProviderDescriptorTest {
       .contains("agent")
       .contains("claude-code")
       .doesNotContain("gpt-5.4")
+  }
+
+  @Test
+  fun applyGenerationModelCatalogAddsPiScopedModelsForAutoSettingsWithoutSelectingModel(): Unit = runBlocking(Dispatchers.Default) {
+    val modelId = PiOmlxModelCatalog.encodeGenerationModelId(omlxSelection())
+    val knownModelId = PiKnownModelCatalog.encodeGenerationModelId(knownSelection("openai", "gpt-5.4"))
+    val baseLaunchSpec = descriptor.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD)
+
+    val launchSpec = descriptor.applyGenerationModelCatalog(
+      baseLaunchSpec = baseLaunchSpec,
+      generationSettings = AgentPromptGenerationSettings.AUTO,
+      generationModelCatalog = listOf(
+        AgentPromptGenerationModel(id = modelId, displayName = "Qwen3.6-27B-MLX-8bit (oMLX)"),
+        AgentPromptGenerationModel(id = knownModelId, displayName = "gpt-5.4 (openai)"),
+      ),
+    )
+
+    assertThat(launchSpec.command).containsExactly(
+      "pi",
+      "--extension",
+      "/tmp/pi-extension/agent-workbench-extension.ts",
+      "--models",
+      "oMLX/Qwen3.6-27B-MLX-8bit,openai/gpt-5.4",
+      "--session-id",
+      "pi-session-1",
+    )
+    assertThat(launchSpec.envVariables[PI_MODEL_CATALOG_ENVIRONMENT_VARIABLE])
+      .contains("Qwen3.6-27B-MLX-8bit")
+      .doesNotContain("gpt-5.4")
+  }
+
+  @Test
+  fun applyGenerationModelCatalogLeavesAutoSettingsUnchangedWhenCatalogIsEmpty(): Unit = runBlocking(Dispatchers.Default) {
+    val baseLaunchSpec = descriptor.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD)
+
+    val launchSpec = descriptor.applyGenerationModelCatalog(
+      baseLaunchSpec = baseLaunchSpec,
+      generationSettings = AgentPromptGenerationSettings.AUTO,
+      generationModelCatalog = emptyList(),
+    )
+
+    assertThat(launchSpec).isEqualTo(baseLaunchSpec)
   }
 
   @Test
@@ -644,6 +713,18 @@ class PiAgentSessionProviderDescriptorTest {
       "--session-id",
       "pi-session-1",
     )
+  }
+
+  @Test
+  fun displaysEncodedGenerationModelIdsAsDecodedModelNames() {
+    val omlxModelId = PiOmlxModelCatalog.encodeGenerationModelId(omlxSelection())
+    val jbCentralModelId = PiJbCentralModelCatalog.encodeGenerationModelId(jbCentralSelection())
+    val knownModelId = PiKnownModelCatalog.encodeGenerationModelId(knownSelection("openai", "gpt-5.5"))
+
+    assertThat(descriptor.displayNameForGenerationModelId(omlxModelId)).isEqualTo("Qwen3.6-27B-MLX-8bit")
+    assertThat(descriptor.displayNameForGenerationModelId(jbCentralModelId)).isEqualTo("gpt-5.5")
+    assertThat(descriptor.displayNameForGenerationModelId(knownModelId)).isEqualTo("gpt-5.5 (openai)")
+    assertThat(descriptor.displayNameForGenerationModelId("raw-model-id")).isNull()
   }
 
   @Test

@@ -670,6 +670,37 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
     doMultiFileTest();
   }
 
+  @TestFor(issues = "PY-42473")
+  public void testOverloadLiteralEnumImported() {
+    runWithAdditionalFileInLibDir("m.py", """
+      from enum import Enum, auto
+      from typing import Literal, overload
+      
+      
+      class E(Enum):
+          a = auto()
+          b = auto()
+      
+      
+      @overload
+      def f(x: Literal[E.a]) -> str: ...
+      
+      
+      @overload
+      def f(x: Literal[E.b]) -> int: ...
+      
+      
+      def f(x: E) -> object: ...
+      """, _ -> doTestByText(
+      """
+        from m import E, f
+  
+        a: int = f(E.b)
+        b: str = f(E.a)
+        """)
+    );
+  }
+
   // PY-42418
   public void testParametrizedBuiltinCollectionsAndTheirTypingAliasesAreEquivalent() {
     doTest();
@@ -3149,6 +3180,30 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
                    """);
   }
 
+  @TestFor(issues = "PY-90219")
+  public void testTupleNotCompatibleWithNamedTuple() {
+    doTestByText(
+      """
+        from typing import NamedTuple
+        
+        class N(NamedTuple):
+            a: int
+        
+        n1: N = N(1)
+        n2: N = <warning descr="Expected type 'N', got 'tuple[int]' instead">(1,)</warning>
+
+        class M(NamedTuple):
+            a: int
+        
+        n3: N = <warning descr="Expected type 'N', got 'M' instead">M(1)</warning>
+        
+        class N2(N): ...
+        
+        def f(n2: N2):
+          n4: N = n2
+        """);
+  }
+
   // PY-74277
   public void testPassingTypeIsCallable() {
     runWithLanguageLevel(
@@ -5405,6 +5460,34 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
       
       required_readonly_dict: IntDictRequiredReadOnly = {"id": 1}
       combined_error: dict[str, int] = <warning descr="Expected type 'dict[str, int]', got 'IntDictRequiredReadOnly' instead">required_readonly_dict</warning>  # Error: 'id' is both required and read-only
+      """
+    );
+  }
+
+  @TestFor(issues = "PY-85704")
+  public void testTypedDictAssignableToDictStrAny() {
+    doTestByText(
+      """
+      from typing import TypedDict, Any, Mapping
+
+      class TD(TypedDict):
+          name: str
+          data: int
+
+      def accepts_json(data: dict[str, Any]): ...
+
+      td: TD = {"name": "name", "data": 1}
+
+      # `Any` as the value type opts out of value-type checking, so a TypedDict is assignable
+      # to `dict[str, Any]` even though its keys are required.
+      accepts_json(td)  # OK
+      accepts_json(TD(name="name", data=1))  # OK
+      json_dict: dict[str, Any] = td  # OK
+      any_mapping: Mapping[str, Any] = td  # OK
+
+      # A TypedDict is still not assignable to `dict[str, object]` or `dict[str, <concrete>]`.
+      object_dict: dict[str, object] = <warning descr="Expected type 'dict[str, object]', got 'TD' instead">td</warning>
+      str_dict: dict[str, int] = <warning descr="Expected type 'dict[str, int]', got 'TD' instead">td</warning>
       """
     );
   }

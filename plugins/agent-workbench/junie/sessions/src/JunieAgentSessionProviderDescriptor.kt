@@ -53,6 +53,9 @@ internal class JunieAgentSessionProviderDescriptor(
   override val yoloSessionLabelKey: String
     get() = "toolwindow.action.new.session.junie.yolo"
 
+  override val yoloSessionModeLabelKey: String
+    get() = "toolwindow.action.new.session.junie.yolo.mode"
+
   override val icon: Icon
     get() = AgentWorkbenchCommonIcons.Junie
 
@@ -146,10 +149,7 @@ internal class JunieAgentSessionProviderDescriptor(
     initialMessagePlan: AgentInitialMessagePlan,
   ): AgentSessionTerminalLaunchSpec {
     val settings = sanitizeGenerationSettings(generationSettings)
-    val generationArgs = buildJunieGenerationArgs(
-      settings = settings,
-      planMode = initialMessagePlan.mode == AgentInitialMessageMode.PLAN,
-    )
+    val generationArgs = buildJunieGenerationArgs(settings)
     if (generationArgs.isEmpty()) {
       return baseLaunchSpec
     }
@@ -213,11 +213,10 @@ private val JUNIE_PROMPT_PROVIDER_PLAN_MODE_OPTION: AgentPromptProviderOption =
 
 private fun buildJunieGenerationArgs(
   settings: AgentPromptGenerationSettings,
-  planMode: Boolean,
 ): List<String> {
   val args = mutableListOf<String>()
   settings.modelId?.let { modelId -> args.addAll(listOf(MODEL_FLAG, modelId)) }
-  val effort = if (planMode) settings.planReasoningEffort ?: settings.reasoningEffort else settings.reasoningEffort
+  val effort = settings.reasoningEffort
   if (effort != AgentPromptReasoningEffort.AUTO) {
     args.addAll(listOf(EFFORT_FLAG, effort.junieCliValue()))
   }

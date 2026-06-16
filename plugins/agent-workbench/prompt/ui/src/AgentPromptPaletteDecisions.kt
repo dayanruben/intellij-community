@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-// @spec community/plugins/agent-workbench/spec/agent-workbench-telemetry.spec.md
+// @spec community/plugins/agent-workbench/spec/core/agent-workbench-telemetry.spec.md
 
 import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
@@ -187,11 +187,15 @@ internal fun shouldAllowPromptPopupCancellation(
   currentEvent: AWTEvent?,
   isExplicitClose: Boolean,
   resolveProject: (Component?) -> Project?,
+  autoClose: Boolean = true
 ): Boolean {
   return isExplicitClose || popupProject == null || when (currentEvent) {
-    is MouseEvent ->
+    is MouseEvent -> {
+      if (!autoClose) return false
+
       !isRecentSourceFrameActivation &&
       resolveProject(currentEvent.component) === popupProject
+    }
     is KeyEvent -> isEscapeKeyPress(currentEvent)
     is WindowEvent -> false
     else -> true

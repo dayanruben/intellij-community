@@ -255,7 +255,6 @@
                     serviceImplementation="com.jetbrains.python.codeInsight.completion.runtime.patProvider.DummyRemoteFilePathRetrievalService"
                     testServiceImplementation="com.jetbrains.python.codeInsight.completion.runtime.patProvider.DummyRemoteFilePathRetrievalService"/>
 
-    <applicationService serviceImplementation="com.jetbrains.python.packaging.pip.PyPiPackageCache"/>
     <applicationService serviceImplementation="com.jetbrains.python.packaging.PyPackageService"/>
     <applicationService serviceInterface="com.jetbrains.python.sdk.add.v2.EelFileSystemFactory"
                         serviceImplementation="com.jetbrains.python.sdk.add.v2.EelFileSystemFactoryImpl"/>
@@ -549,7 +548,6 @@
     <postStartupActivity implementation="com.jetbrains.python.sdk.PythonHeadlessSdkUpdater"/>
     <backgroundPostStartupActivity implementation="com.jetbrains.python.sdk.PythonSdkUpdateProjectActivity"/>
 
-    <backgroundPostStartupActivity implementation="com.jetbrains.python.packaging.PyPackagesUpdater"/>
     <directoryProjectConfigurator implementation="com.jetbrains.python.configuration.PyDefaultProjectAwareServiceConfigurator"
                                   id="integratedTools" order="after sdk"/>
 
@@ -770,6 +768,11 @@
                  defaultValue="false"
                  restartRequired="false"
                  description="Disables automatic updating of PyPI package cache and ranking on project startup."/>
+
+    <registryKey key="disable.python.cache.memory.mapping"
+                 defaultValue="false"
+                 restartRequired="true"
+                 description="Disables memory mapping for Python package cache, opting to use in-memory representation instead."/>
 
     <!-- Setting up cross-module dependencies -->
     <registryKey key="python.detect.cross.module.dependencies" defaultValue="false"
@@ -1086,6 +1089,8 @@
       <keyboard-shortcut keymap="NetBeans 6.5" first-keystroke="ctrl alt E" replace-all="true"/>
     </action>
 
+    <action id="ReloadPyPiCacheAction" class="com.jetbrains.python.packaging.pip.actions.ReloadPyPiCacheAction"/>
+
     <action id="PyRunFileInConsole" class="com.jetbrains.python.actions.PyRunFileInConsoleAction">
       <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="ExecuteInPyConsoleAction"/>
     </action>
@@ -1147,6 +1152,17 @@
     <action id="PyConvertPackageToModuleAction" class="com.jetbrains.python.refactoring.convertModulePackage.PyConvertPackageToModuleAction"
     >
       <add-to-group group-id="RefactoringMenu" anchor="last"/>
+    </action>
+
+    <action id="PyExtractFunction" class="com.jetbrains.python.refactoring.extractmethod.PyExtractFunctionAction"
+            use-shortcut-of="ExtractMethod">
+      <add-to-group group-id="IntroduceActionsGroup" anchor="after" relative-to-action="ExtractMethod"/>
+      <add-to-group group-id="Floating.CodeToolbar.Extract" anchor="first"/>
+    </action>
+
+    <action id="PyIntroduceAttribute" class="com.jetbrains.python.refactoring.introduce.field.PyIntroduceAttributeAction"
+            use-shortcut-of="IntroduceField">
+      <add-to-group group-id="IntroduceActionsGroup" anchor="after" relative-to-action="IntroduceField"/>
     </action>
 
     <action id="StepIntoMyCode" class="com.jetbrains.python.debugger.PyStepIntoMyCodeAction"

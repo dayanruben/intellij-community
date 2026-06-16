@@ -39,7 +39,7 @@ Ask Agent launch controls let users choose a provider, launch mode, model, and n
   [@test] ../../codex/sessions/testSrc/CodexAgentSessionProviderDescriptorTest.kt
   [@test] ../../claude/sessions/testSrc/ClaudeAgentSessionProviderDescriptorTest.kt
 
-- Plan-mode reasoning effort is distinct from normal effort. The Plan effort control is visible only while Plan mode is selected, supports `Same as Effort`, `Provider Default`, and explicit efforts, and clears the Plan-only override when Plan mode is not selected.
+- Plan-mode reasoning effort is distinct from normal effort and is exposed only for providers that support a dedicated Plan reasoning effort transport. The Plan effort control is visible for such providers, supports `Same as Effort`, `Provider Default`, and explicit efforts, is enabled and applied only while Plan mode is selected, and clears the Plan-only override when Plan mode is not selected.
   [@test] ../../prompt/ui/testSrc/AgentPromptProviderSelectorTest.kt
 
 - Codex Plan mode applies the selected model through the normal Codex model override because the Plan collaboration mask inherits the active model. A selected Plan-mode reasoning effort must also be passed through Codex's Plan-only `plan_mode_reasoning_effort` config so Plan turns do not fall back to the Codex Plan preset effort.
@@ -56,7 +56,7 @@ Ask Agent launch controls let users choose a provider, launch mode, model, and n
   [@test] ../../prompt/ui/testSrc/AgentPromptPaletteSubmitControllerTest.kt
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 
-- Persisted launch preferences are user profiles layered beside built-in profiles. They require explicit profile management actions such as `Save Current`, `Set as Default`, rename, or delete.
+- Persisted launch preferences are user profiles layered beside built-in profiles. The prompt generation-control row may explicitly save or default the current draft inline; broader management actions such as rename, delete, and built-in customization remain in `Manage Launch Profiles`.
   [@test] ../../prompt/ui/testSrc/AgentPromptProviderSelectorTest.kt
   [@test] ../../sessions/testSrc/AgentSessionUiPreferencesStateServiceTest.kt
 
@@ -71,7 +71,7 @@ Ask Agent launch controls let users choose a provider, launch mode, model, and n
   [@test] ../../sessions-actions/testSrc/AgentSessionsMainToolbarNewThreadActionsTest.kt
 
 ## User Experience
-- `Default` belongs to provider/model/effort selector state; `Default Profile` means no explicit saved profile is active. Plan mode belongs to the separate Plan checkbox, not to the selected profile.
+- `Default` belongs to provider/model/effort selector state. The profile header uses compact state labels: `Standard` for the built-in standard profile, saved profile names for exact user profiles, and `Custom` when current controls do not match an applicable profile. Plan mode belongs to the separate Plan checkbox, not to the selected profile.
 - Built-in profiles are safe fallbacks and should not require users to create a profile before the toolbar quick launch works.
 - Disabled popup actions are reserved for genuinely unavailable commands, not already-satisfied saved states.
 
@@ -84,4 +84,4 @@ Ask Agent launch controls let users choose a provider, launch mode, model, and n
 
 ## References
 - `global-prompt-entry.spec.md`
-- `../agent-core-contracts.spec.md`
+- `../core/agent-core-contracts.spec.md`

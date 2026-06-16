@@ -63,6 +63,9 @@ internal class CodexAgentSessionProviderDescriptor(
   override val yoloSessionLabelKey: String
     get() = "toolwindow.action.new.session.codex.yolo"
 
+  override val yoloSessionModeLabelKey: String
+    get() = "toolwindow.action.new.session.codex.yolo.mode"
+
   override val icon: Icon
     get() = AgentWorkbenchCommonIcons.Codex
 
@@ -88,6 +91,9 @@ internal class CodexAgentSessionProviderDescriptor(
       AgentPromptReasoningEffort.HIGH,
       AgentPromptReasoningEffort.XHIGH,
     )
+
+  override val supportsPlanReasoningEffort: Boolean
+    get() = true
 
   override val supportsGenerationModelSelection: Boolean
     get() = true

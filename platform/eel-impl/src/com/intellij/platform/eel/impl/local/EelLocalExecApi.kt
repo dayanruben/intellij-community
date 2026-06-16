@@ -103,6 +103,10 @@ class EelLocalExecPosixApi(
       EelExecApi.EnvironmentVariablesOptions.Mode.LOGIN_INTERACTIVE -> {
         environmentVariablesCache.getDeferred(mode, opts)
       }
+
+      EelExecApi.EnvironmentVariablesOptions.Mode.LOGIN_INTERACTIVE_VIA_SHELL -> {
+        environmentVariablesCache.getDeferred(EelExecApi.EnvironmentVariablesOptions.Mode.LOGIN_INTERACTIVE, opts)
+      }
     }
   }
 
@@ -113,6 +117,7 @@ class EelLocalExecPosixApi(
 
       EelExecApi.EnvironmentVariablesOptions.Mode.DEFAULT,
       EelExecApi.EnvironmentVariablesOptions.Mode.MINIMAL,
+      EelExecApi.EnvironmentVariablesOptions.Mode.LOGIN_INTERACTIVE_VIA_SHELL,
       null
         -> error("unreachable")
     }
@@ -199,9 +204,9 @@ class EelLocalExecPosixApi(
     }
 
     if (shell == null) {
-      val err = IllegalStateException("No shell detected for the current user")
-      errorsToAttach.forEach(err::addSuppressed)
-      throw err
+      // The last resort. It may be not what the user wants to see.
+      LOG.info("Failed to get OS-specific shell. Using /bin/sh as a fallback", errorsToAttach.lastOrNull())
+      shell = "/bin/sh"
     }
 
     return shell
@@ -210,6 +215,16 @@ class EelLocalExecPosixApi(
 
   override suspend fun findExeFilesInPath(binaryName: String): List<EelPath> =
     findExeFilesInPath(binaryName, LOG)
+
+  override suspend fun getUserLoginShell(): EelPath {
+    return EelPath.parse(getUserShell(), descriptor)
+  }
+
+  override suspend fun spawnLoginShell(opts: EelExecApi.LoginShellOptions): EelExecApi.LoginShellHandle {
+    throw UnsupportedOperationException(
+      "spawnLoginShell is not implemented for local Eel; use environmentVariables() for env-only queries"
+    )
+  }
 
   override suspend fun createExternalCli(options: EelExecApi.ExternalCliOptions): EelExecApi.ExternalCliEntrypoint {
     TODO("Not yet implemented")
@@ -242,6 +257,21 @@ class EelLocalExecWindowsApi : EelExecWindowsApi, LocalEelExecApi {
 
   override suspend fun findExeFilesInPath(binaryName: String): List<EelPath> =
     findExeFilesInPath(binaryName, LOG)
+
+  override suspend fun getUserLoginShell(): EelPath {
+    for (name in listOf("pwsh.exe", "powershell.exe")) {
+      val found = findExeFilesInPath(name, LOG).firstOrNull()
+      if (found != null) return found
+    }
+    val systemRoot = System.getenv("SystemRoot") ?: "C:\\Windows"
+    return EelPath.parse("$systemRoot\\System32\\cmd.exe", descriptor)
+  }
+
+  override suspend fun spawnLoginShell(opts: EelExecApi.LoginShellOptions): EelExecApi.LoginShellHandle {
+    throw UnsupportedOperationException(
+      "spawnLoginShell is not implemented for local Eel; use environmentVariables() for env-only queries"
+    )
+  }
 
   override suspend fun createExternalCli(options: EelExecApi.ExternalCliOptions): EelExecApi.ExternalCliEntrypoint {
     TODO("Not yet implemented")

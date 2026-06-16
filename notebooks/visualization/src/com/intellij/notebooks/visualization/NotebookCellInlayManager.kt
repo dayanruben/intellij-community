@@ -74,6 +74,19 @@ class NotebookCellInlayManager private constructor(
     editor.notebookViewUpdater.update(force = force, keepScrollingPositon = keepScrollingPosition, block = block)
   }
 
+  fun updateOutputs(pointer: NotebookIntervalPointer): Unit = runInEdt {
+    update { ctx ->
+      val cell = getCell(pointer) ?: return@update
+      cell.outputs.updateOutputs()
+      if (cell.isUnfolded.get()) {
+        createCellViewIfNecessary(cell, ctx)
+      }
+      cell.update(ctx)
+      cell.checkAndRebuildInlays()
+      cell.updateIfInVisibleRect()
+    }
+  }
+
   override fun dispose() {
     views.clear()
     editor.removeUserData(CELL_INLAY_MANAGER_KEY)
@@ -127,7 +140,7 @@ class NotebookCellInlayManager private constructor(
   suspend fun initialize() {
     editor.putUserData(CELL_INLAY_MANAGER_KEY, this)
 
-    val connection = ApplicationManager.getApplication().messageBus.connect(editor.disposable)
+    val connection = ApplicationManager.getApplication().messageBus.connect(this)
     connection.subscribe(EditorColorsManager.TOPIC, EditorColorsListener {
       updateAll()
     })

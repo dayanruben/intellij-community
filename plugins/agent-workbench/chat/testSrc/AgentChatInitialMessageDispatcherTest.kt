@@ -107,8 +107,14 @@ class AgentChatInitialMessageDispatcherTest {
 
     waitForCondition { file.initialMessageSent }
     assertThat(tab.events).containsExactly("backtab", "backtab", "backtab", "text:Refactor this")
+    assertThat(file.initialMessageDispatchSteps).hasSize(2)
     assertThat(file.initialMessageDispatchStepIndex).isEqualTo(2)
+    assertThat(file.initialMessageToken).isEqualTo("token")
+    assertThat(file.initialMessageSent).isTrue()
     assertThat(snapshots).hasSize(2)
+    assertThat(snapshots.last().runtime.initialMessageDispatchSteps).hasSize(2)
+    assertThat(snapshots.last().runtime.initialMessageDispatchStepIndex).isEqualTo(2)
+    assertThat(snapshots.last().runtime.initialMessageToken).isEqualTo("token")
     assertThat(snapshots.last().runtime.initialMessageSent).isTrue()
   }
 

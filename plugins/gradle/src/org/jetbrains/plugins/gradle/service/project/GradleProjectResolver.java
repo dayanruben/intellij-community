@@ -30,6 +30,7 @@ import com.intellij.openapi.externalSystem.util.ExternalSystemTelemetryUtil;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.CanonicalPathPrefixTree;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.NioPathUtil;
@@ -102,6 +103,8 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+import static com.intellij.gradle.toolingExtension.GradleToolingExtensionProperties.USE_RESILIENT_MODEL_FETCH_SYSTEM_PROPERTY_KEY;
+import static com.intellij.gradle.toolingExtension.util.GradleVersionSpecificsUtil.isResilientModelFetchApiSupported;
 import static com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.find;
 import static com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.findAll;
 import static com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.findAllRecursively;
@@ -285,8 +288,8 @@ public final class GradleProjectResolver implements ExternalSystemProjectResolve
       }
     }
 
-    var mainInitScriptPath = GradleInitScriptUtil.createMainInitScript(resolverContext.isBuildSrcProject(), toolingExtensionClasses);
-    executionSettings.withArguments(GradleConstants.INIT_SCRIPT_CMD_OPTION, mainInitScriptPath.toString());
+    var mainInitScript = GradleInitScriptUtil.createMainInitScript(resolverContext.isBuildSrcProject(), toolingExtensionClasses);
+    executionSettings.addInitScript(resolverContext.getGradleVersion(), mainInitScript);
 
     if (!executionSettings.isDownloadSources()) {
       var ideaPluginConfiguratorInitScriptPath = GradleInitScriptUtil.createIdeaPluginConfiguratorInitScript();
@@ -554,7 +557,7 @@ public final class GradleProjectResolver implements ExternalSystemProjectResolve
           index.buildClasspathNodesMap().get(Path.of(participant.getRootPath()).getParent());
 
         @NotNull Map<String, DataNode<? extends ModuleData>> buildSrcModules = new HashMap<>();
-        AtomicReference<DataNode<? extends ModuleData>> buildSrcModuleNode = new AtomicReference<>();
+        @NotNull Ref<DataNode<? extends ModuleData>> buildSrcModuleNodeRef = new Ref<>();
 
         findAll(projectDataNode, ProjectKeys.MODULE).stream()
           .filter(node -> buildSrcProjectPaths.contains(node.getData().getLinkedExternalProjectPath()))
@@ -566,18 +569,19 @@ public final class GradleProjectResolver implements ExternalSystemProjectResolve
 
             if (participant.getRootPath().equals(node.getData().getLinkedExternalProjectPath())) {
               if (ctx.isResolveModulePerSourceSet()) {
-                buildSrcModuleNode.set(findChild(node, GradleSourceSetData.KEY,
-                                                 sourceSetNode -> sourceSetNode.getData().getExternalName().endsWith(":main")));
+                buildSrcModuleNodeRef.set(findChild(node, GradleSourceSetData.KEY, sourceSetNode ->
+                  sourceSetNode.getData().getExternalName().endsWith(":main")));
               }
               else {
-                buildSrcModuleNode.set(node);
+                buildSrcModuleNodeRef.set(node);
               }
             }
           });
 
-        GradleBuildSrcProjectsResolver.addBuildSrcToBuildScriptClasspathData(buildClasspathNodes,
-                                                                             buildSrcModules,
-                                                                             buildSrcModuleNode.get());
+        DataNode<? extends ModuleData> buildSrcModuleNode = buildSrcModuleNodeRef.get();
+        if (buildSrcModuleNode != null) {
+          GradleBuildSrcProjectsResolver.addBuildSrcToBuildScriptClasspathData(buildClasspathNodes, buildSrcModules, buildSrcModuleNode);
+        }
       }
     }
   }
@@ -605,6 +609,9 @@ public final class GradleProjectResolver implements ExternalSystemProjectResolve
     }
     if (Registry.is("gradle.daemon.legacy.dependency.resolver", false)) {
       executionSettings.withArgument("-Didea.gradle.daemon.legacy.dependency.resolver=true");
+    }
+    if (Registry.is("gradle.use.resilient.model.fetch") && isResilientModelFetchApiSupported(resolverContext.getGradleVersion())) {
+      executionSettings.withVmOption("-D" + USE_RESILIENT_MODEL_FETCH_SYSTEM_PROPERTY_KEY + "=true");
     }
 
     GradleImportCustomizer importCustomizer = GradleImportCustomizer.get();

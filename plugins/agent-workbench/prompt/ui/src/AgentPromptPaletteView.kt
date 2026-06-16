@@ -24,6 +24,7 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.openapi.project.DumbAwareToggleAction
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.WindowMoveListener
 import com.intellij.ui.components.ActionLink
@@ -43,13 +44,13 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.NamedColorUtil
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
-import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.Nls
+import org.jetbrains.annotations.NonNls
 import java.awt.BorderLayout
 import java.awt.CardLayout
+import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
-import java.awt.Color
 import java.awt.FlowLayout
 import java.awt.event.ContainerAdapter
 import java.awt.event.ContainerEvent
@@ -57,15 +58,15 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.accessibility.AccessibleContext
 import javax.swing.DefaultListModel
-import javax.swing.JEditorPane
+import javax.swing.Icon
 import javax.swing.JComponent
+import javax.swing.JEditorPane
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.ListSelectionModel
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingConstants
 import javax.swing.text.DefaultCaret
-import javax.swing.Icon
 
 internal val AGENT_PROMPT_PALETTE_PREFERRED_SIZE: Dimension
   get() = JBUI.size(680, 380)
@@ -98,6 +99,7 @@ internal data class AgentPromptPaletteView(
   @JvmField val modelSelectorLink: ActionLink,
   @JvmField val reasoningEffortLink: ActionLink,
   @JvmField val planReasoningEffortLink: ActionLink,
+  @JvmField val defaultProfileActionControl: AgentPromptDefaultProfileActionControl,
   @JvmField val addContextButton: ActionLink,
   @JvmField val existingTaskListModel: DefaultListModel<ThreadEntry>,
   @JvmField val existingTaskList: JBList<ThreadEntry>,
@@ -183,6 +185,7 @@ internal class AgentPromptHeaderControls(
   private val previewAction: AgentPromptToolbarIconAction,
   private val promptLibraryAction: AgentPromptToolbarIconAction,
   private val profileAction: AgentPromptToolbarProfileAction,
+  private val pinAction: AgentPromptToolbarIconToggleAction,
 ) {
   private var providerOptionsVisible = true
 
@@ -226,7 +229,23 @@ internal class AgentPromptHeaderControls(
     rootGroup.add(previewAction)
     rootGroup.add(promptLibraryAction)
     rootGroup.add(profileAction)
+    rootGroup.add(pinAction)
     updateActions()
+  }
+}
+
+internal class AgentPromptToolbarIconToggleAction(
+  text: @Nls String,
+  initialIcon: Icon,
+  private val isSet: () -> Boolean,
+  private val onToggleClick: () -> Unit,
+) : DumbAwareToggleAction(text, null, initialIcon) {
+  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+  override fun isSelected(e: AnActionEvent): Boolean = isSet()
+
+  override fun setSelected(e: AnActionEvent, state: Boolean) {
+    onToggleClick.invoke()
   }
 }
 
@@ -404,11 +423,20 @@ internal fun createAgentPromptPaletteView(
   promptArea: EditorTextField,
   suggestionsPanel: JPanel = JPanel(),
   contextChipsPanel: JPanel,
+  pinned: () -> Boolean = { false },
   onPromptLibraryClicked: () -> Unit = {},
   onExistingTaskSelected: (ThreadEntry) -> Unit,
+  onPinClicked: () -> Unit = {},
 ): AgentPromptPaletteView {
+  val pinAction = AgentPromptToolbarIconToggleAction(
+    text = AgentPromptBundle.message("popup.pin.toggle.tooltip"),
+    initialIcon = AllIcons.Actions.PinTab,
+    isSet = pinned,
+    onToggleClick = onPinClicked,
+  )
+
   val profileSelectorAction = AgentPromptToolbarProfileAction(
-    initialText = AgentPromptBundle.message("popup.profile.default"),
+    initialText = AgentPromptBundle.message("popup.profile.header.standard"),
     initialDescription = AgentPromptBundle.message("popup.profile.tooltip"),
     initialIcon = AllIcons.Toolwindows.ToolWindowMessages,
   )
@@ -484,6 +512,7 @@ internal fun createAgentPromptPaletteView(
     previewAction = previewToggleAction,
     promptLibraryAction = promptLibraryAction,
     profileAction = profileSelectorAction,
+    pinAction = pinAction,
   )
   launchProfileLink.onVisibilityChanged = headerControls::updateActions
   profileSelectorAction.onPresentationChanged = headerControls::updateActions
@@ -585,6 +614,7 @@ internal fun createAgentPromptPaletteView(
     setToolTipText(HtmlChunk.text(AgentPromptBundle.message("popup.generation.plan.reasoning.tooltip")))
     accessibleContext.accessibleName = AgentPromptBundle.message("popup.generation.plan.reasoning.accessible.name")
   }
+  val defaultProfileActionControl = AgentPromptDefaultProfileActionControl()
 
   val contextChipsContainer = JPanel(BorderLayout()).apply {
     isOpaque = false
@@ -602,12 +632,17 @@ internal fun createAgentPromptPaletteView(
     addToBottom(composerContextActionsPanel)
   }
 
-  val generationSettingsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+  val generationSettingsControlsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
     isOpaque = false
-    border = JBUI.Borders.empty(0, 6, 6, 6)
     add(modelSelectorLink)
     add(reasoningEffortLink)
     add(planReasoningEffortLink)
+  }
+  val generationSettingsPanel = JPanel(BorderLayout()).apply {
+    isOpaque = false
+    border = JBUI.Borders.empty(0, 6, 6, 6)
+    add(generationSettingsControlsPanel, BorderLayout.WEST)
+    add(defaultProfileActionControl.component, BorderLayout.EAST)
   }
 
   val promptEditorPanel = BorderLayoutPanel().apply {
@@ -669,6 +704,7 @@ internal fun createAgentPromptPaletteView(
     modelSelectorLink = modelSelectorLink,
     reasoningEffortLink = reasoningEffortLink,
     planReasoningEffortLink = planReasoningEffortLink,
+    defaultProfileActionControl = defaultProfileActionControl,
     addContextButton = addContextButton,
     existingTaskListModel = existingTaskListModel,
     existingTaskList = existingTaskList,

@@ -3,7 +3,7 @@ package com.intellij.agent.workbench.prompt.ui
 
 // @spec community/plugins/agent-workbench/spec/actions/global-prompt-entry.spec.md
 // @spec community/plugins/agent-workbench/spec/actions/global-prompt-suggestions.spec.md
-// @spec community/plugins/agent-workbench/spec/agent-workbench-telemetry.spec.md
+// @spec community/plugins/agent-workbench/spec/core/agent-workbench-telemetry.spec.md
 
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INITIAL_TEXT_DATA_KEY
@@ -140,6 +140,7 @@ internal class AgentPromptPaletteSessionController(
       modelSelectorLink = view.modelSelectorLink,
       reasoningEffortLink = view.reasoningEffortLink,
       planReasoningEffortLink = view.planReasoningEffortLink,
+      defaultProfileActionControl = view.defaultProfileActionControl,
       modelCatalogScope = popupScope,
       launcherProvider = launcherProvider,
       onDefaultSaved = ::showInfo,
@@ -186,7 +187,6 @@ internal class AgentPromptPaletteSessionController(
     generationSettingsController.restoreLaunchProfiles(
       launcherProvider()?.loadProviderPreferences() ?: AgentPromptLauncherBridge.ProviderPreferences()
     )
-    generationSettingsController.refreshSelectedProviderModels()
     refreshExtensionTaskDraftsFromContext()
 
     if (invocationData.attributes[com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INVOCATION_PREFER_EXTENSIONS_KEY] == true) {
@@ -197,7 +197,7 @@ internal class AgentPromptPaletteSessionController(
     draftController.overrideInitialTextIfProvided(initialText)
     if (initialAddContextRequest != null) {
       applyInitialAddContextTarget(initialAddContextRequest.target)
-      generationSettingsController.refreshSelectedProviderModels()
+      generationSettingsController.refreshPresentation()
       contextController.syncActiveExtensionTab(view.tabbedPane.selectedComponent as? JPanel)
     }
     draftController.loadPromptTextForSelectedTab()
@@ -272,6 +272,13 @@ internal class AgentPromptPaletteSessionController(
     }
   }
 
+  val isPinned: Boolean
+    get() = !uiStateService.autoClose
+
+  fun togglePin() {
+    uiStateService.autoClose = !uiStateService.autoClose
+  }
+
   fun onExistingTaskSelected(selected: ThreadEntry) {
     existingTaskController.onUserSelected(selected)
     updateSendAvailability()
@@ -289,7 +296,7 @@ internal class AgentPromptPaletteSessionController(
   }
 
   fun onProviderSelectionChanged() {
-    generationSettingsController.refreshSelectedProviderModels()
+    generationSettingsController.refreshPresentation()
     updateProviderOptionsVisibility()
     updateSendAvailability()
     refreshFooterHintForCurrentState()

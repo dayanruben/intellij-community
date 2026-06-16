@@ -191,13 +191,16 @@ internal class KotlinGradleDependenciesCompletionProvider : CompletionProvider<C
     lookupStringProvider: (DependencyCompletionResult) -> String,
     invokePosition: GradleScriptDependencyCompletionPosition,
   ) {
-    val loadingAdvertiser = DependencyCompletionLoadingAdvertiser()
-    loadingAdvertiser.showSearchingStatus()
-
     val documentText = parameters.editor.document.text
     val offset = parameters.offset
     val startOffset = getDependencyCompletionStartOffset(documentText, offset)
     val text = documentText.substring(startOffset, offset)
+
+    // Autocomplete the dependency coordinate only after 3 or more characters are typed
+    if (parameters.isAutoPopup && text.length < 3) return
+
+    val loadingAdvertiser = DependencyCompletionLoadingAdvertiser()
+    loadingAdvertiser.showSearchingStatus()
 
     val completionService = service<DependencyCompletionService>()
     val request = DependencyCompletionRequest(text, parameters.getCompletionContext())
@@ -205,6 +208,7 @@ internal class KotlinGradleDependenciesCompletionProvider : CompletionProvider<C
     val resultSet = result.withPrefixMatcher(GradleDependencyCompletionFuzzyMatcher(text))
       .withRelevanceSorter(CompletionSorter.emptySorter().weigh(StrictOrderWeigher()))
     var index = 0
+    val seenLookupStrings = HashSet<String>()
     runBlockingCancellable {
       completionService.suggestCompletions(request)
         .collect { event ->
@@ -212,6 +216,7 @@ internal class KotlinGradleDependenciesCompletionProvider : CompletionProvider<C
           if (event !is DependencyCompletionEvent.Item) return@collect
           val item = event.result
           val lookupString = lookupStringProvider(item)
+          if (!seenLookupStrings.add(lookupString)) return@collect
           val lookupElement = LookupElementBuilder
             .create(item, lookupString)
             .withPresentableText(lookupString)

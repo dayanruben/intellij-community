@@ -946,7 +946,6 @@ platform/vcs-impl/frontend
 platform/vcs-impl/lang
 platform/vcs-impl/lang/actions
 platform/vcs-impl/lang/todo
-platform/vcs-impl/plugin
 platform/vcs-impl/shared
 platform/vcs-log/api
 platform/vcs-log/graph
@@ -1220,7 +1219,6 @@ plugins/kotlin/all-tests-compose
 plugins/kotlin/all-tests-fir
 plugins/kotlin/base/analysis
 plugins/kotlin/base/analysis-api-platform
-plugins/kotlin/base/analysis-api/analysis-api-k2-tests
 plugins/kotlin/base/analysis-api/analysis-api-utils
 plugins/kotlin/base/code-insight
 plugins/kotlin/base/code-insight/minimal
@@ -1402,7 +1400,6 @@ plugins/kotlin/project-wizard/idea
 plugins/kotlin/project-wizard/maven
 plugins/kotlin/project-wizard/tests
 plugins/kotlin/refactorings/kotlin.refactorings.common
-plugins/kotlin/refactorings/kotlin.refactorings.common.tests
 plugins/kotlin/refactorings/kotlin.refactorings.k2
 plugins/kotlin/refactorings/kotlin.refactorings.tests.k2
 plugins/kotlin/refactorings/rename.k2

@@ -32,6 +32,9 @@
     <customLiveTemplate
       implementation="com.intellij.compose.ide.plugin.resources.emmetLikeTemplates.ComposeResourcesEmmetLikeCustomLiveTemplate"
       order="before emmet"/>
+    <completion.contributor language="kotlin"
+                            implementationClass="com.intellij.compose.ide.plugin.resources.completion.ComposeResourcesCompletionContributor"
+                            order="first, before KotlinCompletionContributor"/>
     <gotoDeclarationHandler implementation="com.intellij.compose.ide.plugin.resources.ComposeResourcesGotoDeclarationHandler"/>
     <renamePsiElementProcessor id="ComposeResources"
                                implementation="com.intellij.compose.ide.plugin.resources.rename.ComposeResourcesRenameProcessor"
@@ -57,6 +60,10 @@
     <lang.foldingBuilder language="kotlin"
                          implementationClass="com.intellij.compose.ide.plugin.resources.folding.ComposeResourcesFoldingBuilder"/>
     <fileEditorProvider implementation="com.intellij.compose.ide.plugin.resources.vectorDrawable.preview.ComposeResourceEditorProvider"/>
+    <xml.xmlExtension implementation="com.intellij.compose.ide.plugin.resources.ComposeResourcesDrawableXmlExtension"/>
+    <xml.schemaProvider implementation="com.intellij.compose.ide.plugin.resources.ComposeResourcesDrawableXmlSchemaProvider"/>
+    <xml.elementDescriptorProvider
+      implementation="com.intellij.compose.ide.plugin.resources.ComposeResourcesDrawableXmlElementDescriptorProvider"/>
   </extensions>
 
   <projectListeners>

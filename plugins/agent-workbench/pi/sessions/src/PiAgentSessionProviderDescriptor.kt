@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.pi.sessions
 
-// @spec community/plugins/agent-workbench/spec/agent-sessions-pi.spec.md
+// @spec community/plugins/agent-workbench/spec/sessions/agent-sessions-pi.spec.md
 
 import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
 import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
@@ -12,7 +12,6 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageMode
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderCliVisibilityPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
@@ -97,6 +96,9 @@ internal class PiAgentSessionProviderDescriptor(
 
   override val supportsGenerationModelSelection: Boolean
     get() = omlxSupportEnabledResolver() || jbCentralSupportEnabledResolver()
+
+  override val resolvesGenerationModelCatalogForAutoSettings: Boolean
+    get() = true
 
   override val providerSettings: List<AgentWorkbenchCheckboxSetting>
     get() = listOf(
@@ -282,17 +284,17 @@ internal class PiAgentSessionProviderDescriptor(
                               (modelId != null && supportsPiReasoningEffort(modelId, effort))
                             }
                           ?: AgentPromptReasoningEffort.AUTO
-    val planReasoningEffort = generationSettings.planReasoningEffort
-      ?.takeIf { effort ->
-        effort == AgentPromptReasoningEffort.AUTO ||
-        (modelId != null && supportsPiReasoningEffort(modelId, effort))
-      }
-      ?: generationSettings.planReasoningEffort?.let { AgentPromptReasoningEffort.AUTO }
     return AgentPromptGenerationSettings(
       modelId = modelId,
       reasoningEffort = reasoningEffort,
-      planReasoningEffort = planReasoningEffort,
     )
+  }
+
+  override fun displayNameForGenerationModelId(modelId: String): String? {
+    PiOmlxModelCatalog.decodeGenerationModelId(modelId)?.let { selection -> return selection.displayName }
+    PiJbCentralModelCatalog.decodeGenerationModelId(modelId)?.let { selection -> return selection.displayName }
+    PiKnownModelCatalog.decodeGenerationModelId(modelId)?.let { selection -> return selection.displayName }
+    return null
   }
 
   private fun isEnabledPiGenerationModelId(modelId: String): Boolean {
@@ -321,12 +323,7 @@ internal class PiAgentSessionProviderDescriptor(
   ): AgentSessionTerminalLaunchSpec {
     val settings = sanitizeGenerationSettings(generationSettings)
     val sanitizedModelId = settings.modelId ?: return baseLaunchSpec
-    val reasoningEffort = if (initialMessagePlan.mode == AgentInitialMessageMode.PLAN) {
-      settings.planReasoningEffort ?: settings.reasoningEffort
-    }
-    else {
-      settings.reasoningEffort
-    }
+    val reasoningEffort = settings.reasoningEffort
     val reasoningArgs = buildPiReasoningArgs(reasoningEffort)
     PiOmlxModelCatalog.decodeGenerationModelId(sanitizedModelId)?.let { modelSelection ->
       return baseLaunchSpec.copy(
@@ -605,7 +602,8 @@ private sealed interface PiScopedModel {
 
   data class Known(val selection: PiKnownModelSelection) : PiScopedModel {
     override val identity: String = "known:${selection.provider}\u0000${selection.modelId}"
-    override val selector: String = if (selection.provider.isUrlLikePiProvider()) selection.modelId else "${selection.provider}/${selection.modelId}"
+    override val selector: String =
+      if (selection.provider.isUrlLikePiProvider()) selection.modelId else "${selection.provider}/${selection.modelId}"
   }
 }
 

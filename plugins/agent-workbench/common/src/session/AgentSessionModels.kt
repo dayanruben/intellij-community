@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.common.session
 
-// @spec community/plugins/agent-workbench/spec/agent-terminal-sessions.spec.md
+// @spec community/plugins/agent-workbench/spec/sessions/agent-terminal-sessions.spec.md
 
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.AgentThreadActivityReport
@@ -45,6 +45,7 @@ enum class AgentSessionLaunchMode {
 data class AgentSubAgent(
   @JvmField val id: @NlsSafe String,
   @JvmField val name: @NlsSafe String,
+  @JvmField val activity: AgentThreadActivity = AgentThreadActivity.READY,
 )
 
 data class AgentSessionThread(

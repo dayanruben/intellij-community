@@ -248,6 +248,9 @@ public final class MoveClassesOrPackagesUtil {
       if (document != null) {
         documentManager.commitDocument(document);
       }
+
+      file = MoveFileInvalidationStrategy.invalidate(moveDestination, file);
+
     }
 
     if (newPackage != null && file instanceof PsiClassOwner && !FileTypeUtils.isInServerPageFile(file) &&
