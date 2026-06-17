@@ -150,6 +150,9 @@ private suspend fun BuildContext.ijLightInitialPluginIds(): List<String> = listO
   "org.jetbrains.plugins.textmate",
   "org.jetbrains.plugins.terminal",
   "com.intellij.modules.jcef",
+  "com.intellij.platform.daemon",
+  "com.jetbrains.station",
+  "intellij.ssh.plugin",
 )
 
 internal suspend fun generateIjLightLaunchData(

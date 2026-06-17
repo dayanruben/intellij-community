@@ -787,6 +787,7 @@ platform/platform-impl/rpc
 platform/platform-impl/ui
 platform/platform-impl/ui-inspector
 platform/platform-impl/update-checker
+platform/platform-impl/update-checker/backend
 platform/platform-resources
 platform/platform-resources-en
 platform/platform-tests
@@ -989,6 +990,7 @@ plugins/agent-workbench/filewatch
 plugins/agent-workbench/json
 plugins/agent-workbench/junie/common
 plugins/agent-workbench/junie/sessions
+plugins/agent-workbench/opencode/sessions
 plugins/agent-workbench/pi/sessions
 plugins/agent-workbench/pi/sessions-filewatch
 plugins/agent-workbench/plugin
@@ -1432,6 +1434,7 @@ plugins/laf/win10
 plugins/lombok
 plugins/lombok/generated
 plugins/lsp.ui
+plugins/lsp.ui/idea.product.modules
 plugins/markdown/compose
 plugins/markdown/core
 plugins/markdown/core/backend
