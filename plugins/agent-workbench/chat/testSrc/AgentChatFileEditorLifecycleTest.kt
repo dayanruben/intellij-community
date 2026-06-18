@@ -14,6 +14,8 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageD
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
+import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptDeliveryChannel
+import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptDeliveryStatus
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
@@ -302,7 +304,7 @@ class AgentChatFileEditorLifecycleTest {
   }
 
   @Test
-  fun suppressedStartupCommandDispatchClearsInitialMessageFallbackBeforeRebindSnapshot() {
+  fun suppressedStartupCommandDispatchKeepsDeliveredInitialPromptBeforeRebindSnapshot() {
     val initialMessage = "Refactor selected code"
     val file = pendingTestFile()
     file.setStartupLaunchSpecOverride(
@@ -329,9 +331,15 @@ class AgentChatFileEditorLifecycleTest {
     assertThat(terminalTabs.tab.sentTexts).isEmpty()
     assertThat(file.hasPendingInitialMessageForDispatch()).isFalse()
     assertThat(file.initialMessageDispatchSteps).isEmpty()
-    assertThat(file.initialMessageToken).isNull()
-    assertThat(file.toSnapshot().runtime.initialMessageDispatchSteps).isEmpty()
-    assertThat(file.toSnapshot().runtime.initialMessageToken).isNull()
+    assertThat(file.initialComposedMessage).isEqualTo(initialMessage)
+    assertThat(file.initialMessageToken).isEqualTo("token-startup")
+    assertThat(file.initialMessageSent).isTrue()
+    val runtime = file.toSnapshot().runtime
+    assertThat(runtime.terminalPromptDispatch).isNull()
+    assertThat(runtime.initialPromptRecord?.message).isEqualTo(initialMessage)
+    assertThat(runtime.initialPromptRecord?.token).isEqualTo("token-startup")
+    assertThat(runtime.initialPromptRecord?.deliveryStatus).isEqualTo(AgentInitialPromptDeliveryStatus.DELIVERED)
+    assertThat(runtime.initialPromptRecord?.deliveryChannel).isEqualTo(AgentInitialPromptDeliveryChannel.STARTUP_COMMAND)
   }
 
   @Test
@@ -561,7 +569,7 @@ class AgentChatFileEditorLifecycleTest {
       notifyRefresh = { _, _, refreshedThreadId, _ ->
         refreshThreadIds += refreshedThreadId
       },
-      currentTimeProvider = { 2_000L + AgentSessionThreadRebindPolicy.CONCRETE_CODEX_NEW_THREAD_REBIND_MAX_AGE_MS },
+      currentTimeProvider = { 2_000L + AgentSessionThreadRebindPolicy.CONCRETE_NEW_THREAD_REBIND_MAX_AGE_MS },
     )
 
     try {
@@ -658,6 +666,40 @@ class AgentChatFileEditorLifecycleTest {
 
     assertThat(state.snapshot).isNull()
     assertThat(state.startupIntent).isNull()
+  }
+
+  @Test
+  fun restoredArchivedThreadClosesWithoutStartingTerminal() {
+    val file = restoredConcreteTestFile()
+    val terminalTabs = FakeAgentChatTerminalTabs()
+    val closedFiles = CopyOnWriteArrayList<AgentChatVirtualFile>()
+    val descriptor = ArchivedThreadsProviderDescriptor(
+      provider = AgentSessionProvider.CODEX,
+      archivedThreads = listOf(
+        AgentSessionThread(
+          id = "thread-restored",
+          title = "Restored thread",
+          updatedAt = 1L,
+          archived = true,
+          activity = AgentThreadActivity.READY,
+          provider = AgentSessionProvider.CODEX,
+        )
+      ),
+    )
+
+    AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
+      val editor = testEditor(
+        file = file,
+        terminalTabs = terminalTabs,
+        archivedRestoreHandler = AgentChatArchivedRestoreHandler { closedFile -> closedFiles += closedFile },
+      )
+
+      editor.selectNotify()
+    }
+
+    assertThat(terminalTabs.createCalls).isEqualTo(0)
+    assertThat(closedFiles).containsExactly(file)
+    assertThat(file.shouldRestoreOnRestart()).isFalse()
   }
 
   @Test
@@ -1201,7 +1243,7 @@ class AgentChatFileEditorLifecycleTest {
     editor.flushPendingInitialMessageIfInitialized()
 
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
-    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
+    waitForCondition { file.initialMessageSent }
 
     assertThat(file.initialMessageSent).isTrue()
     assertThat(terminalTabs.tab.sentTexts)
@@ -1565,29 +1607,34 @@ class AgentChatFileEditorLifecycleTest {
   }
 
   @Test
-  fun codexTerminalPlanModeFallbackSendsPromptWhenPlanModeIsNotConfirmed() {
+  fun codexTerminalPlanModeStopsPromptWhenPlanModeIsNotConfirmed() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
     terminalTabs.tab.enqueuePostSendOutput("Default mode", "Default mode", "Default mode")
     val file = testFile().also {
       it.updateInitialMessageMetadata(
-        initialMessageDispatchSteps = codexTerminalPlanDispatchSteps("Send after plan fallback"),
+        initialMessageDispatchSteps = codexTerminalPlanDispatchSteps("Do not send without plan mode"),
         initialMessageDispatchStepIndex = 0,
-        initialMessageToken = "token-terminal-plan-fallback",
+        initialMessageToken = "token-terminal-plan-stop",
         initialMessageSent = false,
       )
     }
-    val editor = testEditor(file = file, terminalTabs = terminalTabs)
+    val editor = testEditor(
+      file = file,
+      terminalTabs = terminalTabs,
+      behaviorResolver = { TestCodexPlanModeStopBehavior },
+    )
 
     editor.selectNotify()
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
     terminalTabs.tab.emitMeaningfulOutput("Codex ready")
 
-    waitForCondition(timeoutMs = 5_000) { file.initialMessageSent }
+    waitForCondition(timeoutMs = 5_000) { file.initialMessageDispatchSteps.isEmpty() }
     assertThat(terminalTabs.tab.backTabCount.get()).isEqualTo(3)
-    assertThat(file.initialMessageDispatchStepIndex).isEqualTo(2)
-    assertThat(terminalTabs.tab.sentTexts)
-      .containsExactly(SentTerminalText("Send after plan fallback", shouldExecute = true))
+    assertThat(file.initialMessageSent).isFalse()
+    assertThat(file.initialMessageDispatchStepIndex).isZero()
+    assertThat(file.initialMessageDispatchSteps).isEmpty()
+    assertThat(terminalTabs.tab.sentTexts).isEmpty()
   }
 
   @Test
@@ -1866,7 +1913,7 @@ class AgentChatFileEditorLifecycleTest {
 
     editor.selectNotify()
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
-    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
+    waitForCondition { file.initialMessageSent }
 
     assertThat(file.initialMessageSent).isTrue()
     assertThat(terminalTabs.tab.sentTexts)
@@ -2428,9 +2475,11 @@ private fun testEditor(
   terminalTabs: AgentChatTerminalTabs = FakeAgentChatTerminalTabs(),
   liveTerminalRegistry: AgentChatLiveTerminalRegistry = TestAgentChatLiveTerminalRegistry(project),
   snapshotWriter: AgentChatTabSnapshotWriter = AgentChatTabSnapshotWriter { },
+  archivedRestoreHandler: AgentChatArchivedRestoreHandler = AgentChatArchivedRestoreHandler { },
   pendingScopedRefreshRetryIntervalMs: Long = AgentSessionThreadRebindPolicy.PENDING_THREAD_REFRESH_RETRY_INTERVAL_MS,
   editorCoroutineScope: CoroutineScope? = unconfinedTestScope(),
   showComponent: Boolean = true,
+  behaviorResolver: (AgentSessionProvider?) -> AgentChatProviderBehavior = ::resolveAgentChatProviderBehavior,
 ): AgentChatFileEditor {
   return AgentChatFileEditor(
     project = project,
@@ -2438,13 +2487,39 @@ private fun testEditor(
     terminalTabs = terminalTabs,
     liveTerminalRegistry = liveTerminalRegistry,
     tabSnapshotWriter = snapshotWriter,
+    archivedRestoreHandler = archivedRestoreHandler,
     pendingScopedRefreshRetryIntervalMs = pendingScopedRefreshRetryIntervalMs,
     editorCoroutineScope = editorCoroutineScope,
+    behaviorResolver = behaviorResolver,
   ).also { editor ->
     if (showComponent) {
       editor.showComponentForTests()
     }
     editorsToDispose += editor
+  }
+}
+
+private object TestCodexPlanModeStopBehavior : AgentChatProviderBehavior {
+  override fun requiresPostSendObservation(dispatch: AgentChatInitialMessageDispatchContext): Boolean {
+    return dispatch.action == AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE
+  }
+
+  @Suppress("UNUSED_PARAMETER")
+  override fun afterInitialMessageSendObservation(
+    file: AgentChatBehaviorFile,
+    dispatch: AgentChatInitialMessageDispatchContext,
+    outputText: String,
+    retryAttempt: Int,
+  ): AgentChatInitialMessageRetryDecision {
+    if (dispatch.action != AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE) {
+      return AgentChatInitialMessageRetryDecision.PROCEED
+    }
+    return if (retryAttempt < 2) {
+      AgentChatInitialMessageRetryDecision.RetryWithoutReadiness(backoffMs = 0)
+    }
+    else {
+      AgentChatInitialMessageRetryDecision.Stop
+    }
   }
 }
 
@@ -2581,7 +2656,7 @@ private class CodexScopedRefreshSignalCollector {
   private val job = object : CoroutineScope {
     override val coroutineContext = Job() + Dispatchers.Default
   }.launch(start = CoroutineStart.UNDISPATCHED) {
-    codexScopedRefreshSignals().collect { signal ->
+    agentChatScopedRefreshSignals(AgentSessionProvider.CODEX).collect { signal ->
       codexSignals += signal.scopedPaths.orEmpty()
     }
   }
@@ -2595,6 +2670,38 @@ private data class ClosedTerminalSession(
   @JvmField val path: String,
   @JvmField val threadId: String,
 )
+
+private class ArchivedThreadsProviderDescriptor(
+  override val provider: AgentSessionProvider,
+  private val archivedThreads: List<AgentSessionThread>,
+) : AgentSessionProviderDescriptor {
+  override val displayNameKey: String = "test.provider"
+  override val newSessionLabelKey: String = "test.new.session"
+  override val icon: Icon = EmptyIcon.ICON_0
+  override val sessionSource: AgentSessionSource = object : AgentSessionSource {
+    override val provider: AgentSessionProvider
+      get() = this@ArchivedThreadsProviderDescriptor.provider
+
+    override val supportsArchivedThreads: Boolean = true
+
+    override suspend fun listThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> = emptyList()
+
+    override suspend fun listThreadsFromClosedProject(path: String): List<AgentSessionThread> = emptyList()
+
+    override suspend fun listArchivedThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> = archivedThreads
+  }
+  override val cliMissingMessageKey: String = "test.cli.missing"
+
+  override suspend fun isCliAvailable(): Boolean = true
+
+  override suspend fun buildResumeLaunchSpec(sessionId: String): AgentSessionTerminalLaunchSpec =
+    AgentSessionTerminalLaunchSpec(listOf(provider.value, "resume", sessionId))
+
+  override suspend fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec =
+    AgentSessionTerminalLaunchSpec(listOf(provider.value))
+
+  override fun buildInitialMessagePlan(request: AgentPromptInitialMessageRequest): AgentInitialMessagePlan = AgentInitialMessagePlan.EMPTY
+}
 
 private class RecordingTerminalSessionClosedProvider(
   override val provider: AgentSessionProvider,

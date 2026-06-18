@@ -12,6 +12,7 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.roots.impl.FilePropertyPusher
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.RecursionManager
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VfsUtil
@@ -45,6 +46,7 @@ import com.jetbrains.python.codeInsight.completion.PyTestAssertionParserUtils.sk
 import com.jetbrains.python.codeInsight.completion.PyTestAssertionType
 import com.jetbrains.python.documentation.PyTypeRenderer
 import com.jetbrains.python.documentation.PythonDocumentationProvider
+import com.jetbrains.python.fixtures.PyCodeInsightTestCase.Companion.myFixture
 import com.jetbrains.python.fixtures.PyTestAssertionInliner.findCounterparts
 import com.jetbrains.python.fixtures.PyTestAssertionParser.parseAssertions
 import com.jetbrains.python.inspections.PyAbstractClassInspection
@@ -295,11 +297,15 @@ abstract class PyCodeInsightTestCase {
     @Language("Python") fileContent: String,
     vararg otherFiles: Pair<String, String>,
   ) {
+    // using the shared `myFixture.projectDisposable` would accumulate flag modifications
+    // across all tests and dispose them only at @AfterAll, which can leave them non-nested and
+    // trip RecursionManager's "Non-nested assertion flag modifications" check.
+    val recursionFlagDisposable = Disposer.newDisposable("PyCodeInsightTestCase recursion-prevention flag")
     if (options.assertRecursionPrevention) {
-      RecursionManager.assertOnRecursionPrevention(myFixture.projectDisposable)
+      RecursionManager.assertOnRecursionPrevention(recursionFlagDisposable)
     }
     else {
-      RecursionManager.disableAssertOnRecursionPrevention(myFixture.projectDisposable)
+      RecursionManager.disableAssertOnRecursionPrevention(recursionFlagDisposable)
     }
     setLanguageLevel(options.languageLevel)
 
@@ -313,6 +319,7 @@ abstract class PyCodeInsightTestCase {
     finally {
       setLanguageLevel(null)
       anyTypeKey.setValue(oldAnyType)
+      Disposer.dispose(recursionFlagDisposable)
       testCallCount++
     }
   }
@@ -466,7 +473,7 @@ abstract class PyCodeInsightTestCase {
                                             codeLineStart = codeLineStart,
                                             codeColumnStart = codeColumnStart,
                                             codeColumnEnd = codeColumnEnd,
-                                            type = typeName.name,
+                                            type = typeName.name.replace(" ", "-"),
                                             content = highlight.description ?: "")
       actualAssertions.add(actualAssertion)
     }
@@ -527,8 +534,8 @@ abstract class PyCodeInsightTestCase {
     fun renderType(context: TypeEvalContext) =
       PythonDocumentationProvider.getTypeName(expr.getType(context), context, PyTypeRenderer.Feature.UNSAFE_UNION)
 
-    val actualTypeCA = renderType(codeAnalysis(project, containingFile))
-    val actualTypeUI = renderType(userInitiated(project, containingFile))
+    val actualTypeCA = renderType(codeAnalysis(project, containingFile).withTracing())
+    val actualTypeUI = renderType(userInitiated(project, containingFile).withTracing())
 
     if (actualTypeCA != actualTypeUI) {
       return "Type mismatch for code analysis context ('$actualTypeCA') and user initiated context ('$actualTypeUI')"

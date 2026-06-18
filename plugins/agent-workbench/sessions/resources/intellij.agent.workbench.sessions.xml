@@ -7,12 +7,13 @@
     <module name="intellij.agent.workbench.common"/>
     <module name="intellij.agent.workbench.prompt.core"/>
     <module name="intellij.agent.workbench.sessions.core"/>
+    <module name="intellij.agent.workbench.ui"/>
   </dependencies>
   <!-- endregion -->
 
   <extensions defaultExtensionNs="com.intellij">
     <agent.workbench.promptLauncher implementation="com.intellij.agent.workbench.sessions.service.AgentSessionPromptLauncherBridge"/>
-    <postStartupActivity implementation="com.intellij.agent.workbench.sessions.service.OpenRouterPriceCatalogStartupActivity"/>
+    <postStartupActivity implementation="com.intellij.agent.workbench.sessions.service.LiteLlmPriceCatalogStartupActivity"/>
     <postStartupActivity implementation="com.intellij.agent.workbench.sessions.sleep.AgentSessionSleepPreventionStartupActivity"/>
     <notificationGroup id="Agent Workbench Sessions" displayType="BALLOON" bundle="messages.AgentSessionsBundle"
                        key="notification.group.agent.workbench.sessions"/>
@@ -48,9 +49,8 @@
       groupKey="advanced.settings.agent.workbench"
       visible="false"/>
     <projectFrameCapabilitiesProvider implementation="com.intellij.agent.workbench.sessions.frame.AgentWorkbenchProjectFrameCapabilitiesProvider"/>
-    <projectFrameToolWindowLayout id="agent.workbench.dedicated" frameType="AGENT_DEDICATED" applyMode="forceOnce" migrationVersion="3">
+    <projectFrameToolWindowLayout id="agent.workbench.dedicated" frameType="AGENT_DEDICATED" applyMode="forceOnce" migrationVersion="4">
       <toolWindow id="Project" register="false"/>
-      <toolWindow id="Structure" register="false"/>
       <toolWindow id="agent.workbench.sessions" anchor="left" visible="true" showStripeButton="true" weight="0.25"/>
       <toolWindow id="Terminal" anchor="bottom" visible="false" showStripeButton="true"/>
     </projectFrameToolWindowLayout>

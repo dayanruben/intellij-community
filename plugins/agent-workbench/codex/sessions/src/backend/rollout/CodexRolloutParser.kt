@@ -2,8 +2,11 @@
 
 package com.intellij.agent.workbench.codex.sessions.backend.rollout
 
+// @spec community/plugins/agent-workbench/spec/chat/agent-chat-structure-view.spec.md
+
 import tools.jackson.core.JsonParser
 import tools.jackson.core.JsonToken
+import tools.jackson.core.ObjectReadContext
 import tools.jackson.core.json.JsonFactory
 import com.intellij.agent.workbench.codex.common.CodexThread
 import com.intellij.agent.workbench.codex.common.CodexThreadActivityProjection
@@ -17,11 +20,21 @@ import com.intellij.agent.workbench.codex.common.readStringOrNull
 import com.intellij.agent.workbench.codex.sessions.backend.CodexBackendThread
 import com.intellij.agent.workbench.codex.sessions.backend.isResponseRequired
 import com.intellij.agent.workbench.codex.sessions.backend.toCodexSessionActivity
+import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.common.session.agentSessionOutlinePhaseTitle
+import com.intellij.agent.workbench.common.session.compactAgentSessionOutlineText
+import com.intellij.agent.workbench.common.session.dedupeAgentSessionOutlineText
+import com.intellij.agent.workbench.common.session.normalizeAgentSessionOutlinePreview
+import com.intellij.agent.workbench.common.session.summarizeAgentSessionOutlineChildren
 import com.intellij.agent.workbench.json.WorkbenchJsonlScanner
 import com.intellij.agent.workbench.json.createJsonParser
 import com.intellij.agent.workbench.sessions.core.cost.AgentSessionUsageSnapshot
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineItem
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineItemKind
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadOutline
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
+import java.io.BufferedReader
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -31,12 +44,18 @@ import java.time.format.DateTimeParseException
 private const val USER_MESSAGE_BEGIN = "## My request for Codex:"
 private const val ENVIRONMENT_CONTEXT_OPEN_TAG = "<environment_context>"
 private const val TURN_ABORTED_OPEN_TAG = "<turn_aborted>"
+private const val CODEX_EXEC_HEADER = "OpenAI Codex"
+private const val CODEX_EXEC_WORKDIR_PREFIX = "workdir:"
+private const val CODEX_EXEC_SESSION_ID_PREFIX = "session id:"
+private const val MIN_SUB_AGENT_REPLAY_SNAPSHOTS = 3
 private val THREAD_TITLE_WHITESPACE = Regex("\\s+")
+private val CODEX_THREAD_ID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 private val LOG = logger<CodexRolloutParser>()
 
 internal class CodexRolloutParser(
   private val jsonFactory: JsonFactory = JsonFactory(),
+  private val openReader: (Path) -> BufferedReader = Files::newBufferedReader,
 ) {
   fun parse(path: Path): ParsedRolloutThread? {
     val state = try {
@@ -86,6 +105,7 @@ internal class CodexRolloutParser(
       projectFilesChangedAt = state.projectFilesChangedAt,
       projectFileChangeEvidence = state.projectFileChangeEvidence.sortedBy { it.timestampMillis },
       hasExplicitTitle = !usedFallbackTitle,
+      spawnedExecThreadIds = state.spawnedExecThreadIds,
       thread = CodexBackendThread(
         thread = CodexThread(
           id = resolvedSessionId,
@@ -100,12 +120,475 @@ internal class CodexRolloutParser(
         activity = activity,
         requiresResponse = activitySnapshot.activeFlags.isResponseRequired() || activitySnapshot.hasPendingPlan,
         summaryActivity = summaryActivity,
-        usageSnapshots = listOfNotNull(state.usageSnapshot),
+        usageSnapshots = when (
+          val usageSnapshots = collectRolloutUsageSnapshots(
+            path = path,
+            fallbackModelId = state.modelId,
+            isSubAgentThreadSpawn = state.parentThreadId != null,
+            openReader = openReader,
+          )
+        ) {
+          null -> emptyList()
+          else -> usageSnapshots.ifEmpty { listOfNotNull(state.usageSnapshot) }
+        },
         hasExplicitTitle = !usedFallbackTitle,
       ),
     )
   }
 
+  fun parseOutline(path: Path): AgentSessionThreadOutline? {
+    val state = try {
+      WorkbenchJsonlScanner.scanJsonObjects(
+        path = path,
+        jsonFactory = jsonFactory,
+        newState = ::RolloutOutlineParseState,
+      ) { parser, parseState ->
+        val event = parseEvent(parser) ?: return@scanJsonObjects true
+        reduceOutlineEvent(parseState, event)
+        true
+      }
+    }
+    catch (_: Throwable) {
+      return null
+    }
+
+    val sessionId = state.sessionId ?: return null
+    val fallbackUpdatedAt = runCatching { Files.getLastModifiedTime(path).toMillis() }.getOrDefault(0L)
+    val title = state.title ?: "Thread ${sessionId.take(8)}"
+    return AgentSessionThreadOutline(
+      provider = AgentSessionProvider.CODEX,
+      threadId = sessionId,
+      title = title,
+      updatedAt = if (state.updatedAt > 0L) state.updatedAt else fallbackUpdatedAt,
+      items = state.buildItems(),
+    )
+  }
+
+}
+
+private fun collectRolloutUsageSnapshots(
+  path: Path,
+  fallbackModelId: String?,
+  isSubAgentThreadSpawn: Boolean,
+  openReader: (Path) -> BufferedReader,
+): List<AgentSessionUsageSnapshot>? {
+  return try {
+    val usageByModel = LinkedHashMap<String?, UsageTotals>()
+    val modelState = CodexUsageModelState(currentModel = fallbackModelId)
+    var previousTotalUsage: AgentSessionUsageSnapshot? = null
+    val replaySecond = if (isSubAgentThreadSpawn) detectSubAgentReplaySecond(path, openReader) else null
+    var skipReplay = replaySecond != null
+    val fallbackTimestamp = runCatching { Files.getLastModifiedTime(path).toInstant().toString() }.getOrDefault("1970-01-01T00:00:00Z")
+
+    openReader(path).useLines { lines ->
+      for (line in lines) {
+        val parsed = parseUsageLine(line) ?: continue
+        if (parsed.isSessionUsageLine()) {
+          if (parsed.isTokenCountLine()) {
+            if (skipReplay && replaySecond == parsed.timestampSecond) {
+              if (parsed.totalUsage != null) {
+                previousTotalUsage = parsed.totalUsage
+              }
+              continue
+            }
+            if (skipReplay) {
+              skipReplay = false
+            }
+          }
+          when {
+            parsed.topLevelType == "turn_context" -> {
+              parsed.eventModelId?.let {
+                modelState.currentModel = it
+                modelState.currentModelIsFallback = false
+              }
+            }
+            parsed.isTokenCountLine() -> {
+              val usage = parsed.lastUsage ?: parsed.totalUsage?.let { totalUsage ->
+                totalUsage.subtract(previousTotalUsage)
+              }
+              if (parsed.totalUsage != null) {
+                previousTotalUsage = parsed.totalUsage
+              }
+              if (usage == null || usage.isZeroUsage()) {
+                continue
+              }
+
+              val resolvedModelId = resolveCodexUsageModel(
+                parsedModelId = parsed.eventModelId,
+                timestamp = parsed.eventTimestamp ?: parsed.timestampSecond,
+                modelState = modelState,
+              )
+              usageByModel.getOrPut(resolvedModelId) { UsageTotals(modelId = resolvedModelId) }
+                .add(usage.copy(modelId = resolvedModelId))
+            }
+          }
+        }
+        else if (parsed.execUsage != null) {
+          val resolvedModelId = resolveCodexUsageModel(
+            parsedModelId = parsed.execModelId,
+            timestamp = parsed.execTimestamp ?: parsed.eventTimestamp ?: fallbackTimestamp,
+            modelState = modelState,
+          )
+          usageByModel.getOrPut(resolvedModelId) { UsageTotals(modelId = resolvedModelId) }
+            .add(parsed.execUsage.copy(modelId = resolvedModelId))
+        }
+      }
+    }
+
+    usageByModel.values
+      .map(UsageTotals::toSnapshot)
+      .filterNot(AgentSessionUsageSnapshot::isZeroUsage)
+  }
+  catch (_: Throwable) {
+    null
+  }
+}
+
+private data class CodexUsageModelState(
+  @JvmField var currentModel: String?,
+  @JvmField var currentModelIsFallback: Boolean = false,
+)
+
+private data class UsageTotals(
+  @JvmField var modelId: String?,
+  @JvmField var inputTokens: Long = 0,
+  @JvmField var outputTokens: Long = 0,
+  @JvmField var cacheReadTokens: Long = 0,
+  @JvmField var cacheWriteTokens: Long = 0,
+  @JvmField var cacheWrite5mTokens: Long = 0,
+  @JvmField var cacheWrite1hTokens: Long = 0,
+  @JvmField var reasoningTokens: Long = 0,
+) {
+  fun add(usage: AgentSessionUsageSnapshot) {
+    if (modelId == null) {
+      modelId = usage.modelId
+    }
+    inputTokens += usage.inputTokens
+    outputTokens += usage.outputTokens
+    cacheReadTokens += usage.cacheReadTokens
+    cacheWriteTokens += usage.cacheWriteTokens
+    cacheWrite5mTokens += usage.cacheWrite5mTokens
+    cacheWrite1hTokens += usage.cacheWrite1hTokens
+    reasoningTokens += usage.reasoningTokens
+  }
+
+  fun toSnapshot(): AgentSessionUsageSnapshot {
+    return AgentSessionUsageSnapshot(
+      modelId = modelId,
+      inputTokens = inputTokens,
+      outputTokens = outputTokens,
+      cacheReadTokens = cacheReadTokens,
+      cacheWriteTokens = cacheWriteTokens,
+      cacheWrite5mTokens = cacheWrite5mTokens,
+      cacheWrite1hTokens = cacheWrite1hTokens,
+      reasoningTokens = reasoningTokens,
+    )
+  }
+}
+
+private fun detectSubAgentReplaySecond(path: Path, openReader: (Path) -> BufferedReader): String? {
+  var firstSecond: String? = null
+  var firstSecondSnapshotCount = 0
+  openReader(path).useLines { lines ->
+    for (line in lines) {
+      val parsed = parseUsageLine(line) ?: continue
+      if (!parsed.isTokenCountLine() || (parsed.lastUsage == null && parsed.totalUsage == null)) {
+        continue
+      }
+      val timestampSecond = parsed.timestampSecond.takeIf(String::isNotEmpty) ?: continue
+      val first = firstSecond
+      if (first == null) {
+        firstSecond = timestampSecond
+        firstSecondSnapshotCount = 1
+        continue
+      }
+      if (first == timestampSecond) {
+        firstSecondSnapshotCount += 1
+        continue
+      }
+      return first.takeIf { firstSecondSnapshotCount >= MIN_SUB_AGENT_REPLAY_SNAPSHOTS }
+    }
+  }
+  return firstSecond?.takeIf { firstSecondSnapshotCount >= MIN_SUB_AGENT_REPLAY_SNAPSHOTS }
+}
+
+private data class ParsedUsageLine(
+  @JvmField val topLevelType: String?,
+  @JvmField val payloadType: String?,
+  @JvmField val eventType: String?,
+  @JvmField val eventTimestamp: String?,
+  @JvmField val timestampSecond: String,
+  @JvmField val eventModelId: String?,
+  @JvmField val totalUsage: AgentSessionUsageSnapshot?,
+  @JvmField val lastUsage: AgentSessionUsageSnapshot?,
+  @JvmField val execModelId: String?,
+  @JvmField val execTimestamp: String?,
+  @JvmField val execUsage: AgentSessionUsageSnapshot?,
+)
+
+private fun parseUsageLine(line: String): ParsedUsageLine? {
+  var topLevelType: String? = null
+  var eventTimestamp: String? = null
+  var timestampSecond = ""
+  var payloadType: String? = null
+  var payloadModelId: String? = null
+  var infoModelId: String? = null
+  var totalUsage: AgentSessionUsageSnapshot? = null
+  var lastUsage: AgentSessionUsageSnapshot? = null
+  var execModelId: String? = null
+  var execTimestamp: String? = null
+  var execUsage: AgentSessionUsageSnapshot? = null
+
+  try {
+    JsonFactory().createParser(ObjectReadContext.empty(), line).use { parser ->
+      if (parser.nextToken() != JsonToken.START_OBJECT) return null
+      forEachObjectField(parser) { fieldName ->
+        when (fieldName) {
+          "type" -> topLevelType = readStringOrNull(parser)
+          "timestamp" -> {
+            val timestamp = readStringOrNull(parser)
+            eventTimestamp = eventTimestamp ?: timestamp
+            timestampSecond = timestamp?.take(19).orEmpty()
+          }
+          "created_at", "createdAt" -> eventTimestamp = eventTimestamp ?: readStringOrNull(parser)
+          "model" -> execModelId = readStringOrNull(parser)
+          "model_name" -> execModelId = execModelId ?: readStringOrNull(parser)
+          "usage" -> execUsage = parseUsageSnapshotObject(parser)
+          "result", "data", "response" -> {
+            val nested = parseUsageContainer(parser)
+            if (execModelId == null) {
+              execModelId = nested.modelId
+            }
+            if (execUsage == null) {
+              execUsage = nested.usage
+            }
+            if (execTimestamp == null) {
+              execTimestamp = nested.timestamp
+            }
+          }
+          "payload" -> {
+            if (parser.currentToken() == JsonToken.START_OBJECT) {
+              forEachObjectField(parser) { payloadField ->
+                when (payloadField) {
+                  "type" -> payloadType = readStringOrNull(parser)
+                  "model" -> payloadModelId = readStringOrNull(parser)
+                  "model_name" -> payloadModelId = payloadModelId ?: readStringOrNull(parser)
+                  "info" -> {
+                    val parsedInfo = parseTokenInfo(parser)
+                    infoModelId = parsedInfo.modelId
+                    totalUsage = parsedInfo.totalUsage
+                    lastUsage = parsedInfo.lastUsage
+                  }
+                  else -> parser.skipChildren()
+                }
+                true
+              }
+            }
+            else {
+              parser.skipChildren()
+            }
+          }
+          else -> parser.skipChildren()
+        }
+        true
+      }
+    }
+  }
+  catch (_: Throwable) {
+    return null
+  }
+
+  return ParsedUsageLine(
+    topLevelType = topLevelType,
+    payloadType = payloadType,
+    eventType = payloadType ?: topLevelType,
+    eventTimestamp = eventTimestamp,
+    timestampSecond = timestampSecond,
+    eventModelId = payloadModelId ?: infoModelId,
+    totalUsage = totalUsage,
+    lastUsage = lastUsage,
+    execModelId = execModelId,
+    execTimestamp = execTimestamp ?: eventTimestamp,
+    execUsage = execUsage,
+  )
+}
+
+private data class ParsedTokenInfo(
+  @JvmField val modelId: String?,
+  @JvmField val totalUsage: AgentSessionUsageSnapshot?,
+  @JvmField val lastUsage: AgentSessionUsageSnapshot?,
+)
+
+private fun parseTokenInfo(parser: JsonParser): ParsedTokenInfo {
+  if (parser.currentToken() != JsonToken.START_OBJECT) {
+    parser.skipChildren()
+    return ParsedTokenInfo(modelId = null, totalUsage = null, lastUsage = null)
+  }
+
+  var modelId: String? = null
+  var totalUsage: AgentSessionUsageSnapshot? = null
+  var lastUsage: AgentSessionUsageSnapshot? = null
+  forEachObjectField(parser) { fieldName ->
+    when (fieldName) {
+      "model" -> modelId = readStringOrNull(parser)
+      "model_name" -> modelId = modelId ?: readStringOrNull(parser)
+      "total_token_usage", "total_usage", "usage" -> {
+        if (totalUsage == null) {
+          totalUsage = parseUsageSnapshotObject(parser)
+        }
+        else {
+          parser.skipChildren()
+        }
+      }
+      "last_token_usage" -> lastUsage = parseUsageSnapshotObject(parser)
+      else -> parser.skipChildren()
+    }
+    true
+  }
+  return ParsedTokenInfo(modelId = modelId, totalUsage = totalUsage, lastUsage = lastUsage)
+}
+
+private data class ParsedUsageContainer(
+  @JvmField val modelId: String?,
+  @JvmField val timestamp: String?,
+  @JvmField val usage: AgentSessionUsageSnapshot?,
+)
+
+private fun parseUsageContainer(parser: JsonParser): ParsedUsageContainer {
+  if (parser.currentToken() != JsonToken.START_OBJECT) {
+    parser.skipChildren()
+    return ParsedUsageContainer(modelId = null, timestamp = null, usage = null)
+  }
+
+  var modelId: String? = null
+  var timestamp: String? = null
+  var usage: AgentSessionUsageSnapshot? = null
+  forEachObjectField(parser) { fieldName ->
+    when (fieldName) {
+      "model" -> modelId = readStringOrNull(parser)
+      "model_name" -> modelId = modelId ?: readStringOrNull(parser)
+      "timestamp", "created_at", "createdAt" -> timestamp = timestamp ?: readStringOrNull(parser)
+      "usage" -> usage = parseUsageSnapshotObject(parser)
+      else -> parser.skipChildren()
+    }
+    true
+  }
+  return ParsedUsageContainer(modelId = modelId, timestamp = timestamp, usage = usage)
+}
+
+private fun parseUsageSnapshotObject(parser: JsonParser): AgentSessionUsageSnapshot? {
+  if (parser.currentToken() != JsonToken.START_OBJECT) {
+    parser.skipChildren()
+    return null
+  }
+
+  var inputTokens = 0L
+  var cachedInputTokens = 0L
+  var outputTokens = 0L
+  var reasoningTokens = 0L
+  forEachObjectField(parser) { fieldName ->
+    when (fieldName) {
+      "input_tokens", "prompt_tokens", "input" -> inputTokens = readLongOrNull(parser) ?: 0L
+      "cached_input_tokens", "cache_read_input_tokens", "cached_tokens" -> cachedInputTokens = readLongOrNull(parser) ?: 0L
+      "output_tokens", "completion_tokens", "output" -> outputTokens = readLongOrNull(parser) ?: 0L
+      "reasoning_output_tokens", "reasoning_tokens" -> reasoningTokens = readLongOrNull(parser) ?: 0L
+      else -> parser.skipChildren()
+    }
+    true
+  }
+
+  return AgentSessionUsageSnapshot(
+    modelId = null,
+    inputTokens = maxOf(inputTokens - cachedInputTokens, 0L),
+    outputTokens = outputTokens,
+    cacheReadTokens = minOf(cachedInputTokens, inputTokens),
+    reasoningTokens = reasoningTokens,
+  ).takeUnless(AgentSessionUsageSnapshot::isZeroUsage)
+}
+
+private fun AgentSessionUsageSnapshot.subtract(previous: AgentSessionUsageSnapshot?): AgentSessionUsageSnapshot {
+  if (previous == null) return this
+  return copy(
+    inputTokens = maxOf(inputTokens - previous.inputTokens, 0L),
+    outputTokens = maxOf(outputTokens - previous.outputTokens, 0L),
+    cacheReadTokens = maxOf(cacheReadTokens - previous.cacheReadTokens, 0L),
+    cacheWriteTokens = maxOf(cacheWriteTokens - previous.cacheWriteTokens, 0L),
+    cacheWrite5mTokens = maxOf(cacheWrite5mTokens - previous.cacheWrite5mTokens, 0L),
+    cacheWrite1hTokens = maxOf(cacheWrite1hTokens - previous.cacheWrite1hTokens, 0L),
+    reasoningTokens = maxOf(reasoningTokens - previous.reasoningTokens, 0L),
+  )
+}
+
+private fun AgentSessionUsageSnapshot.isZeroUsage(): Boolean {
+  return inputTokens == 0L &&
+         outputTokens == 0L &&
+         cacheReadTokens == 0L &&
+         cacheWriteTokens == 0L &&
+         cacheWrite5mTokens == 0L &&
+         cacheWrite1hTokens == 0L &&
+         reasoningTokens == 0L
+}
+
+private fun ParsedUsageLine.isSessionUsageLine(): Boolean {
+  return topLevelType == "turn_context" || isTokenCountLine()
+}
+
+private fun ParsedUsageLine.isTokenCountLine(): Boolean {
+  return topLevelType == "event_msg" && payloadType == "token_count"
+}
+
+private fun resolveCodexUsageModel(
+  parsedModelId: String?,
+  timestamp: String,
+  modelState: CodexUsageModelState,
+): String? {
+  if (parsedModelId != null) {
+    modelState.currentModel = parsedModelId
+    modelState.currentModelIsFallback = false
+  }
+  val modelId = parsedModelId ?: modelState.currentModel ?: run {
+    modelState.currentModelIsFallback = true
+    modelState.currentModel = "gpt-5"
+    return "gpt-5"
+  }
+  return codexLogModelFallback(modelId, timestamp) ?: modelId
+}
+
+private fun codexLogModelFallback(modelId: String, timestamp: String): String? {
+  if (modelId != "codex-auto-review") {
+    return null
+  }
+  val date = codexTimestampDate(timestamp) ?: return "gpt-5"
+  return CODEX_AUTO_REVIEW_FALLBACK_MODELS.firstOrNull { date >= it.releasedOn }?.model ?: "gpt-5"
+}
+
+private fun codexTimestampDate(timestamp: String): String? {
+  val date = timestamp.takeIf { it.length >= 10 }?.substring(0, 10) ?: return null
+  return date.takeIf { CODEX_DATE_REGEX.matches(it) }
+}
+
+private data class CodexAutoReviewFallback(
+  @JvmField val releasedOn: String,
+  @JvmField val model: String,
+)
+
+private val CODEX_AUTO_REVIEW_FALLBACK_MODELS = listOf(
+  CodexAutoReviewFallback(releasedOn = "2026-04-23", model = "gpt-5.5"),
+  CodexAutoReviewFallback(releasedOn = "2026-03-05", model = "gpt-5.4"),
+  CodexAutoReviewFallback(releasedOn = "2026-02-05", model = "gpt-5.3-codex"),
+  CodexAutoReviewFallback(releasedOn = "2025-12-11", model = "gpt-5.2-codex"),
+  CodexAutoReviewFallback(releasedOn = "2025-11-13", model = "gpt-5.1-codex"),
+  CodexAutoReviewFallback(releasedOn = "2025-09-15", model = "gpt-5-codex"),
+  CodexAutoReviewFallback(releasedOn = "2025-08-07", model = "gpt-5"),
+)
+
+private val CODEX_DATE_REGEX = Regex("""\d{4}-\d{2}-\d{2}""")
+
+private fun resolveCodexPricingModel(modelId: String?): String? {
+  return when (modelId) {
+    null -> null
+    else -> modelId
+  }
 }
 
 private fun CodexThreadSourceKind.isSubAgentSourceKind(): Boolean {
@@ -165,6 +648,63 @@ private fun reduceSessionMetadata(parseState: RolloutParseState, event: RolloutE
   }
 }
 
+private fun reduceOutlineEvent(parseState: RolloutOutlineParseState, event: RolloutEvent) {
+  parseState.updatedAt = maxTimestamp(parseState.updatedAt, event.timestampMs)
+  parseState.updatedAt = maxTimestamp(parseState.updatedAt, event.sessionTimestampMs)
+  parseState.sessionId = parseState.sessionId ?: event.sessionId
+  if (event.topLevelType == "event_msg") {
+    when (normalizeToken(event.payloadType)) {
+      "usermessage" -> {
+        val preview = stripUserMessagePrefix(event.payloadMessage.orEmpty()).trim().takeIf { it.isNotEmpty() }
+        parseState.title = parseState.title ?: preview?.let(::normalizeThreadTitle)
+        parseState.addUserPrompt(event, preview)
+      }
+      "agentmessage" -> parseState.addAssistantResponse(event, event.payloadMessage)
+      "taskstarted", "turnstarted" -> parseState.noteTurnStarted(event)
+      "taskcomplete", "turncomplete", "turnaborted" -> parseState.noteTurnCompleted(event)
+      "requestuserinput" -> parseState.addDetailItem(event, AgentSessionOutlineItemKind.INPUT_REQUEST, "Input requested")
+      "execapprovalrequest", "applypatchapprovalrequest", "requestpermissions", "elicitationrequest" -> {
+        parseState.addDetailItem(event, AgentSessionOutlineItemKind.APPROVAL_REQUEST, "Approval requested")
+      }
+      in PROJECT_MUTATING_BEGIN_EVENT_TYPES -> parseState.addToolCall(event)
+      in PROJECT_MUTATING_END_EVENT_TYPES -> parseState.addToolResult(event)
+      "itemcompleted" -> {
+        if (isPlanItemType(event.payloadItemType)) {
+          parseState.addDetailItem(event, AgentSessionOutlineItemKind.PLAN, "Plan updated")
+        }
+      }
+      "threadnameupdated" -> parseState.title = extractThreadName(event.payloadThreadName) ?: parseState.title
+    }
+    return
+  }
+
+  if (event.topLevelType == "response_item") {
+    when (normalizeToken(event.payloadType)) {
+      "message" -> when (event.payloadRole) {
+        "user" -> {
+          if (isUsefulOutlineUserPrompt(event.payloadContentPreview)) {
+            parseState.title = parseState.title ?: normalizeThreadTitle(event.payloadContentPreview)
+            parseState.addUserPrompt(event, event.payloadContentPreview)
+          }
+        }
+        "assistant" -> parseState.addAssistantResponse(event, event.payloadContentPreview)
+      }
+      "functioncall", "customtoolcall" -> {
+        when {
+          normalizeToken(event.payloadName) == "requestuserinput" -> {
+            parseState.addDetailItem(event, AgentSessionOutlineItemKind.INPUT_REQUEST, "Input requested")
+          }
+          isApprovalFunctionCall(event) -> parseState.addDetailItem(event,
+                                                                    AgentSessionOutlineItemKind.APPROVAL_REQUEST,
+                                                                    "Approval requested")
+          else -> parseState.addToolCall(event)
+        }
+      }
+      "functioncalloutput", "customtoolcalloutput" -> parseState.addToolResult(event)
+    }
+  }
+}
+
 private fun reduceActivityEvent(
   parseState: RolloutParseState,
   event: RolloutEvent,
@@ -194,7 +734,8 @@ private fun reduceActivityEvent(
         }
 
         "mcptoolcallend" -> {
-          parseState.activityProjection.apply(CodexThreadActivitySignal.ClearToolCall(callId = event.payloadCallId, turnId = event.payloadTurnId))
+          parseState.activityProjection.apply(CodexThreadActivitySignal.ClearToolCall(callId = event.payloadCallId,
+                                                                                      turnId = event.payloadTurnId))
           event.payloadCallId?.let(parseState.pendingFunctionCallByCallId::remove)
         }
 
@@ -204,8 +745,8 @@ private fun reduceActivityEvent(
 
         "execapprovalrequest", "applypatchapprovalrequest", "requestpermissions", "elicitationrequest" -> {
           parseState.activityProjection.apply(CodexThreadActivitySignal.PendingApproval(order = eventOrder,
-                                                                                       callId = event.payloadCallId,
-                                                                                       turnId = event.payloadTurnId))
+                                                                                        callId = event.payloadCallId,
+                                                                                        turnId = event.payloadTurnId))
         }
 
         in PROJECT_MUTATING_BEGIN_EVENT_TYPES -> {
@@ -259,7 +800,8 @@ private fun reduceProjectMutatingEventBegin(
   eventOrder: Long,
   eventTimestamp: Long?,
 ) {
-  parseState.activityProjection.apply(CodexThreadActivitySignal.ClearPendingApproval(callId = event.payloadCallId, turnId = event.payloadTurnId))
+  parseState.activityProjection.apply(CodexThreadActivitySignal.ClearPendingApproval(callId = event.payloadCallId,
+                                                                                     turnId = event.payloadTurnId))
   parseState.markPendingFunctionCall(
     eventTimestamp = eventTimestamp,
     callId = event.payloadCallId,
@@ -312,12 +854,17 @@ private fun reduceResponseFunctionCall(
   parseState.activityProjection.apply(CodexThreadActivitySignal.ToolCallStarted(order = eventOrder,
                                                                                 callId = event.payloadCallId,
                                                                                 turnId = event.payloadTurnId))
+  if (isCodexExecFunctionCall(event)) {
+    parseState.markPendingCodexExecFunctionCall(event.payloadCallId)
+  }
 }
 
 private fun reduceResponseFunctionCallOutput(parseState: RolloutParseState, event: RolloutEvent, eventTimestamp: Long?) {
   parseState.activityProjection.apply(CodexThreadActivitySignal.ClearPendingUserInput(event.payloadCallId))
-  parseState.activityProjection.apply(CodexThreadActivitySignal.ClearPendingApproval(callId = event.payloadCallId, turnId = event.payloadTurnId))
+  parseState.activityProjection.apply(CodexThreadActivitySignal.ClearPendingApproval(callId = event.payloadCallId,
+                                                                                     turnId = event.payloadTurnId))
   parseState.markProjectFilesChangedForCompletedFunctionCall(eventTimestamp = eventTimestamp, callId = event.payloadCallId)
+  parseState.markSpawnedExecThreadsForCompletedFunctionCall(callId = event.payloadCallId, output = event.payloadOutput)
   parseState.activityProjection.apply(CodexThreadActivitySignal.ClearToolCall(callId = event.payloadCallId, turnId = event.payloadTurnId))
   event.payloadCallId?.let(parseState.pendingFunctionCallByCallId::remove)
 }
@@ -331,8 +878,10 @@ private fun parseEvent(parser: JsonParser): RolloutEvent? {
     var payloadType: String? = null
     var payloadRole: String? = null
     var payloadMessage: String? = null
+    var payloadContentPreview: String? = null
     var payloadName: String? = null
     var payloadArguments: String? = null
+    var payloadOutput: String? = null
     var payloadCallId: String? = null
     var payloadItemType: String? = null
     var payloadThreadName: String? = null
@@ -357,8 +906,10 @@ private fun parseEvent(parser: JsonParser): RolloutEvent? {
                 "type" -> payloadType = readStringOrNull(parser)
                 "role" -> payloadRole = readStringOrNull(parser)
                 "message" -> payloadMessage = readStringOrNull(parser)
+                "content" -> payloadContentPreview = readRolloutContentPreview(parser)
                 "name" -> payloadName = readStringOrNull(parser)
                 "arguments" -> payloadArguments = readStringOrNull(parser)
+                "output" -> payloadOutput = readStringOrNull(parser)
                 "call_id" -> payloadCallId = readStringOrNull(parser)
                 "item" -> payloadItemType = parseRolloutItemType(parser)
                 "thread_name", "threadName" -> payloadThreadName = readStringOrNull(parser)
@@ -401,8 +952,10 @@ private fun parseEvent(parser: JsonParser): RolloutEvent? {
       payloadType = payloadType,
       payloadRole = payloadRole,
       payloadMessage = payloadMessage,
+      payloadContentPreview = payloadContentPreview,
       payloadName = payloadName,
       payloadArguments = payloadArguments,
+      payloadOutput = payloadOutput,
       payloadCallId = payloadCallId,
       payloadItemType = payloadItemType,
       payloadThreadName = payloadThreadName,
@@ -429,6 +982,7 @@ internal data class ParsedRolloutThread(
   @JvmField val projectFilesChangedAt: Long,
   @JvmField val projectFileChangeEvidence: List<CodexProjectFileChangeEvidence>,
   @JvmField val hasExplicitTitle: Boolean,
+  @JvmField val spawnedExecThreadIds: Set<String>,
   @JvmField val thread: CodexBackendThread,
 )
 
@@ -443,8 +997,10 @@ private data class RolloutEvent(
   @JvmField val payloadType: String?,
   @JvmField val payloadRole: String?,
   @JvmField val payloadMessage: String?,
+  @JvmField val payloadContentPreview: String?,
   @JvmField val payloadName: String?,
   @JvmField val payloadArguments: String?,
+  @JvmField val payloadOutput: String?,
   @JvmField val payloadCallId: String?,
   @JvmField val payloadItemType: String?,
   @JvmField val payloadThreadName: String?,
@@ -458,6 +1014,214 @@ private data class RolloutEvent(
   @JvmField val parentThreadId: String?,
   @JvmField val gitBranch: String?,
 )
+
+private data class RolloutOutlineParseState(
+  @JvmField var sessionId: String? = null,
+  @JvmField var title: String? = null,
+  @JvmField var updatedAt: Long = 0L,
+  @JvmField var nextItemIndex: Int = 0,
+  @JvmField val rootItems: MutableList<RolloutOutlineItemBuilder> = ArrayList(),
+  @JvmField val turnItemsById: LinkedHashMap<String, RolloutOutlineItemBuilder> = LinkedHashMap(),
+  @JvmField val currentPhaseByTurnKey: LinkedHashMap<String, RolloutOutlineItemBuilder> = LinkedHashMap(),
+  @JvmField val parentByCallId: LinkedHashMap<String, RolloutOutlineItemBuilder> = LinkedHashMap(),
+  @JvmField val resultByCallId: LinkedHashMap<String, RolloutOutlineItemBuilder> = LinkedHashMap(),
+  @JvmField val seenConversationKeys: MutableSet<String> = HashSet(),
+  @JvmField val seenToolCallKeys: MutableSet<String> = HashSet(),
+  @JvmField var activeTurnId: String? = null,
+) {
+  fun noteTurnStarted(event: RolloutEvent) {
+    val turnId = event.payloadTurnId?.takeIf { it.isNotBlank() } ?: return
+    activeTurnId = turnId
+    turnFor(turnId = turnId, event = event)
+  }
+
+  fun noteTurnCompleted(event: RolloutEvent) {
+    val turnId = event.payloadTurnId?.takeIf { it.isNotBlank() }
+    if (turnId == null || turnId == activeTurnId) {
+      activeTurnId = null
+    }
+  }
+
+  fun addUserPrompt(event: RolloutEvent, preview: String?) {
+    val normalizedPreview = normalizeOutlinePreview(preview) ?: return
+    if (!isUsefulOutlineUserPrompt(normalizedPreview) || !seenConversationKeys.add("user:${dedupeOutlineText(normalizedPreview)}")) {
+      return
+    }
+    val item = newItem(event = event, kind = AgentSessionOutlineItemKind.USER_PROMPT, title = "My prompt", preview = normalizedPreview)
+    val turn = turnFor(event)
+    if (turn == null) {
+      rootItems += item
+    }
+    else {
+      if (turn.title.startsWith("Turn ")) {
+        turn.title = normalizedPreview
+      }
+      turn.children += item
+      currentPhaseByTurnKey.remove(turn.id)
+    }
+  }
+
+  fun addAssistantResponse(event: RolloutEvent, preview: String?) {
+    val normalizedPreview = normalizeOutlinePreview(preview) ?: return
+    if (!seenConversationKeys.add("assistant:${dedupeOutlineText(normalizedPreview)}")) {
+      return
+    }
+    val phase = newItem(
+      event = event,
+      kind = AgentSessionOutlineItemKind.ASSISTANT_RESPONSE,
+      title = outlinePhaseTitle(normalizedPreview) ?: "Agent response",
+      preview = normalizedPreview,
+      summarizesChildren = true,
+    )
+    val turn = turnFor(event)
+    if (turn == null) {
+      rootItems += phase
+      currentPhaseByTurnKey[ROOT_OUTLINE_TURN_KEY] = phase
+    }
+    else {
+      turn.children += phase
+      currentPhaseByTurnKey[turn.id] = phase
+    }
+  }
+
+  fun addDetailItem(event: RolloutEvent, kind: AgentSessionOutlineItemKind, title: String, preview: String? = null) {
+    val item = newItem(event = event, kind = kind, title = title, preview = preview)
+    parentForDetail(event).children += item
+  }
+
+  fun addToolCall(event: RolloutEvent) {
+    val key = outlineCallKey(event)
+    if (key != null && !seenToolCallKeys.add(key)) {
+      return
+    }
+    val item = newItem(
+      event = event,
+      kind = AgentSessionOutlineItemKind.TOOL_CALL,
+      title = outlineToolTitle(event),
+      preview = outlineToolCallPreview(event),
+    )
+    val parent = parentForDetail(event)
+    parent.children += item
+    event.payloadCallId?.takeIf { it.isNotBlank() }?.let { callId -> parentByCallId[callId] = parent }
+  }
+
+  fun addToolResult(event: RolloutEvent) {
+    val callId = event.payloadCallId?.takeIf { it.isNotBlank() }
+    val existing = callId?.let(resultByCallId::get)
+    if (existing != null) {
+      updateToolResult(existing, event)
+      return
+    }
+    val item = newItem(
+      event = event,
+      kind = AgentSessionOutlineItemKind.TOOL_RESULT,
+      title = outlineToolResultTitle(event),
+      preview = event.payloadOutput,
+    )
+    val parent = callId?.let(parentByCallId::get) ?: parentForDetail(event)
+    parent.children += item
+    if (callId != null) {
+      resultByCallId[callId] = item
+    }
+  }
+
+  private fun updateToolResult(item: RolloutOutlineItemBuilder, event: RolloutEvent) {
+    val preview = normalizeOutlinePreview(event.payloadOutput)
+    if (item.preview == null && preview != null) {
+      item.preview = preview
+    }
+    val title = outlineToolResultTitle(event)
+    if (title.startsWith("Exit ") || item.title == "Tool result") {
+      item.title = title
+    }
+  }
+
+  private fun newItem(
+    event: RolloutEvent,
+    kind: AgentSessionOutlineItemKind,
+    title: String,
+    preview: String? = null,
+    summarizesChildren: Boolean = false,
+  ): RolloutOutlineItemBuilder {
+    val item = RolloutOutlineItemBuilder(
+      id = event.payloadCallId ?: event.payloadTurnId ?: "outline-${nextItemIndex}",
+      kind = kind,
+      title = title,
+      preview = normalizeOutlinePreview(preview),
+      timestampMs = event.timestampMs,
+      summarizesChildren = summarizesChildren,
+    )
+    nextItemIndex++
+    return item
+  }
+
+  private fun turnFor(event: RolloutEvent): RolloutOutlineItemBuilder? {
+    val turnId = event.payloadTurnId?.takeIf { it.isNotBlank() } ?: activeTurnId ?: return null
+    return turnFor(turnId = turnId, event = event)
+  }
+
+  private fun turnFor(turnId: String, event: RolloutEvent): RolloutOutlineItemBuilder {
+    val turn = turnItemsById.getOrPut(turnId) {
+      RolloutOutlineItemBuilder(
+        id = "turn-$turnId",
+        kind = AgentSessionOutlineItemKind.AGENT_WORK,
+        title = "Turn ${turnId.take(8)}",
+        preview = null,
+        timestampMs = event.timestampMs,
+      ).also(rootItems::add)
+    }
+    return turn
+  }
+
+  private fun parentForDetail(event: RolloutEvent): RolloutOutlineItemBuilder {
+    val turn = turnFor(event)
+    val turnKey = turn?.id ?: ROOT_OUTLINE_TURN_KEY
+    val currentPhase = currentPhaseByTurnKey[turnKey]
+    if (currentPhase != null) {
+      currentPhase.kind = AgentSessionOutlineItemKind.AGENT_WORK
+      return currentPhase
+    }
+    if (turn != null) {
+      return turn
+    }
+    return RolloutOutlineItemBuilder(
+      id = "work-${nextItemIndex++}",
+      kind = AgentSessionOutlineItemKind.AGENT_WORK,
+      title = "Agent work",
+      preview = null,
+      timestampMs = event.timestampMs,
+    ).also { work ->
+      rootItems += work
+      currentPhaseByTurnKey[ROOT_OUTLINE_TURN_KEY] = work
+    }
+  }
+
+  fun buildItems(): List<AgentSessionOutlineItem> = rootItems.map(RolloutOutlineItemBuilder::build)
+}
+
+private data class RolloutOutlineItemBuilder(
+  @JvmField val id: String,
+  @JvmField var kind: AgentSessionOutlineItemKind,
+  @JvmField var title: String,
+  @JvmField var preview: String?,
+  @JvmField val timestampMs: Long?,
+  @JvmField val summarizesChildren: Boolean = false,
+  @JvmField val children: MutableList<RolloutOutlineItemBuilder> = ArrayList(),
+) {
+  fun build(): AgentSessionOutlineItem {
+    val builtChildren = children.map(RolloutOutlineItemBuilder::build)
+    return AgentSessionOutlineItem(
+      id = id,
+      kind = kind,
+      title = title,
+      preview = if (summarizesChildren && builtChildren.isNotEmpty()) summarizeOutlineChildren(builtChildren) else preview,
+      timestampMs = timestampMs,
+      children = builtChildren,
+    )
+  }
+}
+
+private const val ROOT_OUTLINE_TURN_KEY = "<root>"
 
 private data class RolloutParseState(
   @JvmField var sessionId: String? = null,
@@ -475,6 +1239,7 @@ private data class RolloutParseState(
   @JvmField var projectFilesChangedAt: Long = Long.MIN_VALUE,
   @JvmField val projectFileChangeEvidence: MutableList<CodexProjectFileChangeEvidence> = ArrayList(),
   @JvmField val pendingFunctionCallByCallId: LinkedHashMap<String, PendingFunctionCall> = LinkedHashMap(),
+  @JvmField val spawnedExecThreadIds: MutableSet<String> = LinkedHashSet(),
   @JvmField var nextSyntheticPendingFunctionCallId: Int = 0,
 )
 
@@ -483,6 +1248,7 @@ private data class PendingFunctionCall(
   @JvmField val turnId: String?,
   @JvmField val projectMutating: Boolean,
   @JvmField val changedProjectFilePaths: Set<String>?,
+  @JvmField val codexExecCommand: Boolean = false,
 )
 
 private fun RolloutParseState.markPendingFunctionCall(
@@ -508,8 +1274,23 @@ private fun RolloutParseState.markPendingFunctionCall(
       turnId = turnId,
       projectMutating = mergedProjectMutating,
       changedProjectFilePaths = mergedChangedProjectFilePaths,
+      codexExecCommand = previous?.codexExecCommand == true,
     )
   }
+}
+
+private fun RolloutParseState.markPendingCodexExecFunctionCall(callId: String?) {
+  val resolvedCallId = callId ?: return
+  val pendingFunctionCall = pendingFunctionCallByCallId[resolvedCallId] ?: return
+  pendingFunctionCallByCallId[resolvedCallId] = pendingFunctionCall.copy(codexExecCommand = true)
+}
+
+private fun RolloutParseState.markSpawnedExecThreadsForCompletedFunctionCall(callId: String?, output: String?) {
+  val pendingFunctionCall = callId?.let(pendingFunctionCallByCallId::get) ?: return
+  if (!pendingFunctionCall.codexExecCommand) {
+    return
+  }
+  spawnedExecThreadIds.addAll(extractSpawnedCodexExecThreadIds(output))
 }
 
 private fun RolloutParseState.markProjectFilesChanged(eventTimestamp: Long?, changedProjectFilePaths: Set<String>?) {
@@ -596,6 +1377,55 @@ private fun isToolFunctionCall(event: RolloutEvent): Boolean {
 
 private fun isProjectMutatingFunctionCall(event: RolloutEvent): Boolean {
   return normalizeToken(event.payloadName) in PROJECT_MUTATING_FUNCTION_CALL_NAMES
+}
+
+private fun isCodexExecFunctionCall(event: RolloutEvent): Boolean {
+  return normalizeToken(event.payloadName) == "execcommand" && readCommandText(event.payloadArguments)?.let(::isCodexExecCommand) == true
+}
+
+private fun isCodexExecCommand(command: String): Boolean {
+  val text = command.trimStart()
+  return text == "codex exec" ||
+         text.startsWith("codex exec ") ||
+         text == "/Applications/Codex.app/Contents/Resources/codex exec" ||
+         text.startsWith("/Applications/Codex.app/Contents/Resources/codex exec ")
+}
+
+private fun readCommandText(arguments: String?): String? {
+  val text = arguments?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  return try {
+    JsonFactory().createJsonParser(text).use { parser ->
+      if (parser.nextToken() != JsonToken.START_OBJECT) return@use null
+      var commandText: String? = null
+      forEachObjectField(parser) { fieldName ->
+        when (fieldName) {
+          "cmd", "command" -> commandText = readStringOrNull(parser) ?: commandText
+          else -> parser.skipChildren()
+        }
+        true
+      }
+      commandText
+    }
+  }
+  catch (_: Throwable) {
+    null
+  }
+}
+
+private fun extractSpawnedCodexExecThreadIds(output: String?): Set<String> {
+  val text = output?.takeIf { it.contains(CODEX_EXEC_HEADER) && it.contains(CODEX_EXEC_WORKDIR_PREFIX) } ?: return emptySet()
+  val result = LinkedHashSet<String>()
+  text.lineSequence().forEach { line ->
+    val trimmedLine = line.trim()
+    if (!trimmedLine.startsWith(CODEX_EXEC_SESSION_ID_PREFIX, ignoreCase = true)) {
+      return@forEach
+    }
+    val threadId = trimmedLine.substring(CODEX_EXEC_SESSION_ID_PREFIX.length).trim()
+    if (CODEX_THREAD_ID.matches(threadId)) {
+      result.add(threadId)
+    }
+  }
+  return result
 }
 
 private fun changedProjectFilePathsForProjectMutatingFunctionCall(event: RolloutEvent, cwd: String?): Set<String>? {
@@ -786,7 +1616,9 @@ private fun stripUserMessagePrefix(text: String): String {
 
 private fun isSessionPrefix(text: String): Boolean {
   val normalized = text.trimStart().lowercase()
-  return normalized.startsWith(ENVIRONMENT_CONTEXT_OPEN_TAG) || normalized.startsWith(TURN_ABORTED_OPEN_TAG)
+  return normalized.startsWith(ENVIRONMENT_CONTEXT_OPEN_TAG) ||
+         normalized.startsWith(TURN_ABORTED_OPEN_TAG) ||
+         normalized.startsWith("<permissions instructions>")
 }
 
 private fun normalizeThreadTitle(value: String?): String? {
@@ -834,6 +1666,42 @@ private fun parseRolloutItemType(parser: JsonParser): String? {
     true
   }
   return type
+}
+
+private fun readRolloutContentPreview(parser: JsonParser): String? {
+  return when (parser.currentToken()) {
+    JsonToken.VALUE_STRING -> readStringOrNull(parser)
+    JsonToken.START_ARRAY -> readRolloutContentArrayPreview(parser)
+    else -> {
+      parser.skipChildren()
+      null
+    }
+  }
+}
+
+private fun readRolloutContentArrayPreview(parser: JsonParser): String? {
+  var firstText: String? = null
+  while (true) {
+    val token = parser.nextToken() ?: return firstText
+    if (token == JsonToken.END_ARRAY) return firstText
+    if (token != JsonToken.START_OBJECT) {
+      parser.skipChildren()
+      continue
+    }
+    var itemType: String? = null
+    var itemText: String? = null
+    forEachObjectField(parser) { fieldName ->
+      when (fieldName) {
+        "type" -> itemType = readStringOrNull(parser)
+        "text" -> itemText = readStringOrNull(parser)
+        else -> parser.skipChildren()
+      }
+      true
+    }
+    if (firstText == null && itemType == "text" && !itemText.isNullOrBlank()) {
+      firstText = itemText
+    }
+  }
 }
 
 private fun parseRolloutSource(parser: JsonParser): ParsedRolloutSource {
@@ -986,7 +1854,71 @@ private fun normalizeToken(value: String?): String {
     .orEmpty()
 }
 
+private fun outlineToolTitle(event: RolloutEvent): String {
+  readCommandText(event.payloadArguments)?.let(::compactOutlineCommand)?.let { command ->
+    return command
+  }
+  event.payloadName?.trim()?.takeIf { it.isNotEmpty() }?.let { toolName -> return toolName }
+  return when (normalizeToken(event.payloadType)) {
+    "execcommandbegin" -> "exec"
+    "patchapplybegin" -> "apply patch"
+    else -> "Tool call"
+  }
+}
+
+private fun outlineToolCallPreview(event: RolloutEvent): String? {
+  if (readCommandText(event.payloadArguments) != null) {
+    return null
+  }
+  return event.payloadArguments
+}
+
+private fun outlineToolResultTitle(event: RolloutEvent): String {
+  toolResultExitCode(event.payloadOutput)?.let { exitCode -> return "Exit $exitCode" }
+  return when (normalizeToken(event.payloadType)) {
+    "execcommandend" -> "exec finished"
+    "patchapplyend" -> "apply patch finished"
+    else -> "Tool result"
+  }
+}
+
+private fun outlineCallKey(event: RolloutEvent): String? {
+  return event.payloadCallId?.trim()?.takeIf { it.isNotEmpty() }
+}
+
+private fun outlinePhaseTitle(preview: String?): String? {
+  return agentSessionOutlinePhaseTitle(preview)
+}
+
+private fun isUsefulOutlineUserPrompt(preview: String?): Boolean {
+  val normalizedPreview = normalizeOutlinePreview(preview) ?: return false
+  return !isSessionPrefix(normalizedPreview)
+}
+
+private fun dedupeOutlineText(value: String): String {
+  return dedupeAgentSessionOutlineText(value)
+}
+
+private fun summarizeOutlineChildren(children: List<AgentSessionOutlineItem>): String? {
+  return summarizeAgentSessionOutlineChildren(children)
+}
+
+private fun compactOutlineCommand(command: String): String? {
+  return compactAgentSessionOutlineText(command, maxLength = 100)
+}
+
+private fun toolResultExitCode(output: String?): String? {
+  val text = output ?: return null
+  return TOOL_RESULT_EXIT_CODE.find(text)?.groupValues?.getOrNull(1)
+}
+
+private fun normalizeOutlinePreview(value: String?): String? {
+  return normalizeAgentSessionOutlinePreview(value)
+}
+
 private fun maxTimestamp(current: Long, candidate: Long?): Long {
   if (candidate == null) return current
   return if (candidate > current) candidate else current
 }
+
+private val TOOL_RESULT_EXIT_CODE = Regex("(?:Process exited with code|Exit code:)\\s*(-?\\d+)", RegexOption.IGNORE_CASE)

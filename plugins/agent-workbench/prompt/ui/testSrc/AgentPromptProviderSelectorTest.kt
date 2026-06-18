@@ -25,6 +25,8 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminal
 import com.intellij.agent.workbench.sessions.core.providers.builtInLaunchProfileId
 import com.intellij.agent.workbench.sessions.providerItemMonochromeIconWithMode
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
+import com.intellij.agent.workbench.ui.AgentWorkbenchPopupRow
+import com.intellij.agent.workbench.ui.AgentWorkbenchPopupRowRenderer
 import com.intellij.openapi.actionSystem.ActionUiKind
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -47,6 +49,7 @@ import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.components.JBCheckBox
+import com.intellij.ui.popup.list.SelectablePanel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.EmptyIcon
 import kotlinx.coroutines.CompletableDeferred
@@ -65,6 +68,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.awt.event.KeyEvent
 import javax.swing.Icon
+import javax.swing.JList
 import javax.swing.JPanel
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -455,6 +459,70 @@ class AgentPromptProviderSelectorTest {
         .containsExactly("Codex", "Careful", "Codex (Full Auto)", "Manage Launch Profiles…")
       assertThat(profileActions.last().templatePresentation.keepPopupOnPerform).isEqualTo(KeepPopupOnPerform.Never)
       assertThat(actions.filterIsInstance<Separator>()).hasSize(3)
+    }
+  }
+
+  @Test
+  fun launchProfilePopupRowsKeepDefaultMarkerSeparateFromCurrentSelection() {
+    runInEdtAndWait {
+      val provider = testProviderBridge(
+        provider = AgentSessionProvider.CODEX,
+        promptOptions = emptyList(),
+        supportedReasoningEffortsOverride = setOf(AgentPromptReasoningEffort.HIGH),
+        supportsGenerationModelSelection = true,
+      )
+      val defaultProfile = AgentPromptLaunchProfile(
+        id = "user:careful",
+        name = "Careful",
+        providerId = AgentSessionProvider.CODEX.value,
+        generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.HIGH),
+      )
+      val launcher = TestPromptLauncherBridge(
+        AgentPromptLauncherBridge.ProviderPreferences(
+          launchProfiles = listOf(defaultProfile),
+          activeLaunchProfileId = defaultProfile.id,
+        )
+      )
+      val fixture = createSelectorFixture(listOf(provider))
+      fixture.selector.refresh()
+      val controller = AgentPromptGenerationSettingsController(
+        invocationData = testInvocationData(ProjectManager.getInstance().defaultProject),
+        providerSelector = fixture.selector,
+        generationSettingsPanel = fixture.view.generationSettingsPanel,
+        launchProfileLink = fixture.view.launchProfileLink,
+        modelSelectorLink = fixture.view.modelSelectorLink,
+        reasoningEffortLink = fixture.view.reasoningEffortLink,
+        modelCatalogScope = testScope(),
+        launcherProvider = { launcher },
+        onDefaultSaved = { _ -> },
+      )
+      controller.restoreLaunchProfiles(launcher.preferences)
+
+      val standardAction = controller.createLaunchProfileActionGroupForTest()
+        .getChildren(TestActionEvent.createTestEvent())
+        .single { action -> action.templatePresentation.text == "Codex" }
+      standardAction.actionPerformed(TestActionEvent.createTestEvent(standardAction))
+
+      val rows = controller.createLaunchProfilePopupRowsForTest()
+      val popupStep = controller.createLaunchProfilePopupStepForTest()
+
+      val currentRow = rows.single { row -> row.text == "Codex" }
+      assertThat(currentRow.selected).isTrue()
+      assertThat(currentRow.primaryIcon).isNotNull()
+      val workbenchRow = AgentWorkbenchPopupRow(text = currentRow.text)
+      assertThat(popupStep.getIconFor(workbenchRow)).isNull()
+      assertThat(popupStep.getSelectedIconFor(workbenchRow)).isNull()
+      val defaultRow = rows.single { row -> row.text == "Careful" }
+      assertThat(defaultRow.selected).isFalse()
+      assertThat(defaultRow.marksDefaultProfile).isTrue()
+      assertThat(defaultRow.secondaryIcon).isNotNull()
+      assertThat(defaultRow.tooltipText).isEqualTo("Default profile")
+
+      val renderedCurrentRow = AgentWorkbenchPopupRowRenderer()
+        .getListCellRendererComponent(JList(arrayOf(workbenchRow)), workbenchRow, 0, true, true)
+
+      assertThat(renderedCurrentRow).isInstanceOf(SelectablePanel::class.java)
+      assertThat((renderedCurrentRow as SelectablePanel).selectionColor).isNotNull()
     }
   }
 
@@ -1164,6 +1232,48 @@ class AgentPromptProviderSelectorTest {
   }
 
   @Test
+  fun launchProfileEditorReasoningEffortCustomizesBuiltInProfile() {
+    runInEdtAndWait {
+      val builtInProfileId = builtInLaunchProfileId(AgentSessionProvider.CODEX, AgentSessionLaunchMode.STANDARD)
+      val launcher = TestPromptLauncherBridge(AgentPromptLauncherBridge.ProviderPreferences())
+      val provider = testProviderBridge(
+        provider = AgentSessionProvider.CODEX,
+        promptOptions = emptyList(),
+        supportedReasoningEffortsOverride = setOf(AgentPromptReasoningEffort.HIGH),
+      )
+      val fixture = createSelectorFixture(listOf(provider))
+      fixture.selector.refresh()
+      val controller = AgentPromptGenerationSettingsController(
+        invocationData = testInvocationData(ProjectManager.getInstance().defaultProject),
+        providerSelector = fixture.selector,
+        generationSettingsPanel = fixture.view.generationSettingsPanel,
+        launchProfileLink = fixture.view.launchProfileLink,
+        modelSelectorLink = fixture.view.modelSelectorLink,
+        reasoningEffortLink = fixture.view.reasoningEffortLink,
+        modelCatalogScope = testScope(),
+        launcherProvider = { launcher },
+        onDefaultSaved = { _ -> },
+      )
+      controller.restoreLaunchProfiles(launcher.preferences)
+      val editor = controller.createManageProfilesDialogForTest()
+      try {
+        editor.selectProfileForTest(builtInProfileId)
+        editor.selectReasoningEffortForTest(AgentPromptReasoningEffort.HIGH)
+
+        assertThat(launcher.preferences.launchProfiles.single().generationSettings.reasoningEffort)
+          .isEqualTo(AgentPromptReasoningEffort.HIGH)
+
+        editor.selectReasoningEffortForTest(AgentPromptReasoningEffort.AUTO)
+
+        assertThat(launcher.preferences.launchProfiles).isEmpty()
+      }
+      finally {
+        editor.closeForTest()
+      }
+    }
+  }
+
+  @Test
   fun launchProfileEditorPlanEffortCustomizesBuiltInProfile() {
     runInEdtAndWait {
       val builtInProfileId = builtInLaunchProfileId(AgentSessionProvider.CODEX, AgentSessionLaunchMode.STANDARD)
@@ -1556,6 +1666,37 @@ class AgentPromptProviderSelectorTest {
           "Claude Code",
           "Other",
         )
+      }
+      finally {
+        editor.closeForTest()
+      }
+    }
+  }
+
+  @Test
+  fun launchProfileEditorAllowsCustomModelId() {
+    runInEdtAndWait {
+      val profile = AgentPromptLaunchProfile(
+        id = "user:custom-model",
+        name = "Custom Model",
+        providerId = AgentSessionProvider.CODEX.value,
+      )
+      val updatedProfiles = ArrayList<AgentPromptLaunchProfile>()
+      val editor = createLaunchProfileEditorForTest(
+        profiles = listOf(profile),
+        activeProfileId = profile.id,
+        modelCatalog = listOf(
+          AgentPromptGenerationModel(id = "gpt-5.5", displayName = "GPT-5.5").withGroup(AgentPromptGenerationModelGroup.OPENAI),
+        ),
+        onUpdateProfile = { updatedProfile -> updatedProfiles += updatedProfile },
+      )
+      try {
+        editor.selectProfileForTest(profile.id)
+        editor.setSelectedProfileModelIdForTest("claude-future-6")
+
+        assertThat(editor.isModelComboEditableForTest()).isTrue()
+        assertThat(editor.selectedProfileModelIdForTest()).isEqualTo("claude-future-6")
+        assertThat(updatedProfiles.last().generationSettings.modelId).isEqualTo("claude-future-6")
       }
       finally {
         editor.closeForTest()
@@ -2011,6 +2152,64 @@ class AgentPromptProviderSelectorTest {
   }
 
   @Test
+  fun inlineUpdateProfileActionUpdatesActiveCustomProfile() {
+    runInEdtAndWait {
+      val carefulProfile = AgentPromptLaunchProfile(
+        id = "user:careful",
+        name = "Careful",
+        providerId = AgentSessionProvider.CODEX.value,
+      )
+      val launcher = TestPromptLauncherBridge(
+        AgentPromptLauncherBridge.ProviderPreferences(
+          launchProfiles = listOf(carefulProfile),
+          activeLaunchProfileId = carefulProfile.id,
+        )
+      )
+      val provider = testProviderBridge(
+        provider = AgentSessionProvider.CODEX,
+        promptOptions = emptyList(),
+        supportedReasoningEffortsOverride = setOf(AgentPromptReasoningEffort.HIGH),
+      )
+      val fixture = createSelectorFixture(listOf(provider))
+      fixture.selector.refresh()
+      var statusMessage: String? = null
+      val controller = AgentPromptGenerationSettingsController(
+        invocationData = testInvocationData(ProjectManager.getInstance().defaultProject),
+        providerSelector = fixture.selector,
+        generationSettingsPanel = fixture.view.generationSettingsPanel,
+        launchProfileLink = fixture.view.launchProfileLink,
+        modelSelectorLink = fixture.view.modelSelectorLink,
+        reasoningEffortLink = fixture.view.reasoningEffortLink,
+        defaultProfileActionControl = fixture.view.defaultProfileActionControl,
+        modelCatalogScope = testScope(),
+        launcherProvider = { launcher },
+        onDefaultSaved = { message -> statusMessage = message },
+      )
+      controller.restoreLaunchProfiles(launcher.preferences)
+      val highAction = checkNotNull(controller.createReasoningEffortActionGroupForTest())
+        .getChildren(TestActionEvent.createTestEvent())
+        .single { action -> action.templatePresentation.text == "High" }
+
+      highAction.actionPerformed(TestActionEvent.createTestEvent(highAction))
+
+      assertThat(fixture.view.launchProfileLink.text).isEqualTo("Custom")
+      assertThat(fixture.view.defaultProfileActionControl.component.isVisible).isTrue()
+      assertThat(fixture.view.defaultProfileActionControl.component.text).isEqualTo("Update Profile")
+
+      fixture.view.defaultProfileActionControl.component.doClick()
+
+      val savedProfile = launcher.preferences.launchProfiles.single()
+      assertThat(statusMessage).isEqualTo("Launch profile updated.")
+      assertThat(savedProfile.id).isEqualTo(carefulProfile.id)
+      assertThat(savedProfile.name).isEqualTo(carefulProfile.name)
+      assertThat(savedProfile.generationSettings.reasoningEffort).isEqualTo(AgentPromptReasoningEffort.HIGH)
+      assertThat(launcher.preferences.activeLaunchProfileId).isEqualTo(carefulProfile.id)
+      assertThat(fixture.view.launchProfileLink.text).isEqualTo("Careful")
+      assertThat(fixture.view.defaultProfileActionControl.component.isVisible).isFalse()
+    }
+  }
+
+  @Test
   fun manageProfilesRowsIncludeBuiltInAndUserProfiles() {
     runInEdtAndWait {
       val profile = AgentPromptLaunchProfile(
@@ -2099,7 +2298,7 @@ class AgentPromptProviderSelectorTest {
         val actions = actionGroup.getChildren(TestActionEvent.createTestEvent())
 
         assertThat(modelActionEntries(actions))
-          .containsExactly("model:Default", "separator:OpenAI", "model:GPT-5.1 Codex")
+          .containsExactly("model:Default", "model:GPT-5.1 Codex")
         assertThat(actions.filterNot { action -> action is Separator }.map { action -> action.templatePresentation.keepPopupOnPerform })
           .containsOnly(KeepPopupOnPerform.Never)
       }

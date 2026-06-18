@@ -33,6 +33,9 @@ Agent Chat tabs are protocol-backed editor tabs around terminal-backed agent ses
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
   [@test] ../../chat/testSrc/AgentChatFileEditorProviderTest.kt
 
+- Restore of a concrete tab whose provider now reports the backing thread or sub-agent as archived must close and forget that persisted tab without starting a terminal or showing a restore-failure warning. Explicitly opening an archived row remains owned by the sessions archived view and must unarchive before opening.
+  [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
+
 - Open pending Agent Chat editor tabs are tracked by the pending-tabs state/lifecycle service. Closing a pending tab removes its matching ephemeral projection.
 
 - Terminal content initialization is lazy: the lightweight editor shell appears immediately, and the terminal starts only after explicit tab selection/focus.
@@ -61,7 +64,7 @@ Agent Chat tabs are protocol-backed editor tabs around terminal-backed agent ses
 
 - Pending-thread and concrete `/new` rebinding follow `../actions/codex-thread-rebinding.spec.md`.
 
-- Initial prompt dispatch is readiness-gated and follows shared command/dispatch contracts in `../core/agent-core-contracts.spec.md`.
+- Initial prompt delivery is readiness-gated for terminal dispatch and follows shared live prompt-record/startup-command contracts in `../core/agent-core-contracts.spec.md`. Prompt text, tokens, delivery state, and terminal dispatch queues are live-session-only metadata and must not be persisted in editor state or tab cache restore data.
   [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 

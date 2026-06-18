@@ -2,10 +2,12 @@
 package com.intellij.agent.workbench.chat
 
 // @spec community/plugins/agent-workbench/spec/chat/agent-chat-editor.spec.md
+// @spec community/plugins/agent-workbench/spec/chat/agent-chat-structure-view.spec.md
 
 import com.intellij.CommonBundle
 import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeFormatter
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeSummary
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
@@ -13,6 +15,8 @@ import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy
 import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchIntent
 import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchOperation
 import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchPlanner
+import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptDeliveryChannel
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.ide.OccurenceNavigator
@@ -34,6 +38,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.wm.StatusBar
+import com.intellij.ide.structureView.StructureViewBuilder
 import com.intellij.terminal.frontend.view.TerminalInputInterceptor
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
 import kotlinx.coroutines.CancellationException
@@ -67,9 +72,11 @@ internal class AgentChatFileEditor(
   private val terminalTabs: AgentChatTerminalTabs = ToolWindowAgentChatTerminalTabs,
   private val liveTerminalRegistry: AgentChatLiveTerminalRegistry? = null,
   private val tabSnapshotWriter: AgentChatTabSnapshotWriter = ApplicationAgentChatTabSnapshotWriter,
+  private val archivedRestoreHandler: AgentChatArchivedRestoreHandler = ApplicationAgentChatArchivedRestoreHandler,
   private val currentTimeProvider: () -> Long = System::currentTimeMillis,
   private val pendingScopedRefreshRetryIntervalMs: Long = AgentSessionThreadRebindPolicy.PENDING_THREAD_REFRESH_RETRY_INTERVAL_MS,
   editorCoroutineScope: CoroutineScope? = null,
+  private val behaviorResolver: (AgentSessionProvider?) -> AgentChatProviderBehavior = ::resolveAgentChatProviderBehavior,
 ) : UserDataHolderBase(), FileEditor {
   private val ownedTerminalStartupJob = if (editorCoroutineScope == null) SupervisorJob() else null
 
@@ -138,6 +145,10 @@ internal class AgentChatFileEditor(
       cachedTabActionsInitialized = true
     }
     return cachedTabActions
+  }
+
+  override fun getStructureViewBuilder(): StructureViewBuilder? {
+    return createAgentChatStructureViewBuilder(file = file)
   }
 
   override fun getState(level: FileEditorStateLevel): FileEditorState {
@@ -257,6 +268,11 @@ internal class AgentChatFileEditor(
     initializationJob = terminalStartupScope.launch {
       try {
         awaitEditorComponentShowing()
+        if (startupLaunchSpecOverride == null && startupIntent == null && isRestoredArchivedThread(providerDescriptor)) {
+          file.updateRestoreOnRestart(false)
+          archivedRestoreHandler.closeAndForget(file)
+          return@launch
+        }
         val startupLaunchSpec = startupLaunchSpecOverride ?: resolveStartupLaunchSpec(startupIntent)
         val resolvedRegistry = resolveLiveTerminalRegistry()
         attachTerminal(resolvedRegistry, startupLaunchSpec, suppressInitialMessageDispatch)
@@ -268,6 +284,23 @@ internal class AgentChatFileEditor(
         AgentChatRestoreNotificationService.reportTerminalInitializationFailure(project, file, e)
       }
     }
+  }
+
+  private suspend fun isRestoredArchivedThread(descriptor: AgentSessionProviderDescriptor?): Boolean {
+    val source = descriptor?.sessionSource ?: return false
+    if (!source.supportsArchivedThreads) {
+      return false
+    }
+    val archivedThreads = try {
+      source.listArchivedThreadsFromOpenProject(path = file.projectPath, project = project)
+    }
+    catch (e: CancellationException) {
+      throw e
+    }
+    catch (_: Throwable) {
+      return false
+    }
+    return archivedThreads.any { thread -> thread.matchesRestoredAgentChatFile(file) }
   }
 
   private suspend fun awaitEditorComponentShowing() {
@@ -353,7 +386,7 @@ internal class AgentChatFileEditor(
     if (deferredStartState?.phase == AgentChatDeferredStartPhase.READY_TO_START) {
       file.updateDeferredStartState(null)
     }
-    val behavior = resolveAgentChatProviderBehavior(file.provider)
+    val behavior = behaviorResolver(file.provider)
     val createdTab = liveTerminalRegistry.acquireOrCreate(
       file = file,
       terminalTabs = terminalTabs,
@@ -362,9 +395,7 @@ internal class AgentChatFileEditor(
     tab = createdTab
     file.updateStartupIntent(null)
     if (suppressInitialMessageDispatch) {
-      // The startup command already carried this prompt; do not snapshot and replay the fallback after title rebind
-      // or restore.
-      file.clearInitialMessageDispatchMetadata()
+      file.markInitialPromptDelivered(AgentInitialPromptDeliveryChannel.STARTUP_COMMAND)
     }
     if (file.isPendingThread) {
       file.updateRestoreOnRestart(false)
@@ -385,6 +416,7 @@ internal class AgentChatFileEditor(
     )
     concreteThreadRebindController = concreteController
     val messageDispatcher = AgentChatInitialMessageDispatcher(
+      project = project,
       file = file,
       behavior = behavior,
       tabSnapshotWriter = tabSnapshotWriter,
@@ -444,7 +476,7 @@ internal class AgentChatFileEditor(
       }
       withContext(Dispatchers.EDT) {
         if (!disposed && tab === createdTab && semanticRegionController == null) {
-          semanticRegionController = behavior.createSemanticRegionController(createdTab)
+          semanticRegionController = createAgentChatSemanticRegionController(behavior, createdTab)
         }
       }
     }
@@ -758,6 +790,31 @@ internal fun interface AgentChatTabSnapshotWriter {
 private object ApplicationAgentChatTabSnapshotWriter : AgentChatTabSnapshotWriter {
   @Suppress("UNUSED_PARAMETER")
   override suspend fun upsert(snapshot: AgentChatTabSnapshot) = Unit
+}
+
+internal fun interface AgentChatArchivedRestoreHandler {
+  suspend fun closeAndForget(file: AgentChatVirtualFile)
+}
+
+private object ApplicationAgentChatArchivedRestoreHandler : AgentChatArchivedRestoreHandler {
+  override suspend fun closeAndForget(file: AgentChatVirtualFile) {
+    closeAndForgetAgentChatsForThread(
+      projectPath = file.projectPath,
+      threadIdentity = file.threadIdentity,
+      subAgentId = file.subAgentId,
+    )
+  }
+}
+
+internal fun AgentSessionThread.matchesRestoredAgentChatFile(file: AgentChatVirtualFile): Boolean {
+  if (provider != file.provider) {
+    return false
+  }
+  if (id == file.sessionId || id == file.threadId) {
+    return true
+  }
+  val restoredSubAgentId = file.subAgentId ?: return false
+  return subAgents.any { subAgent -> subAgent.id == restoredSubAgentId || subAgent.id == file.threadId }
 }
 
 internal fun buildAgentChatEditorTabActionGroup(actions: List<AnAction>): ActionGroup? {

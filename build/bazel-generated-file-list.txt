@@ -982,6 +982,7 @@ plugins/agent-workbench/ai-review
 plugins/agent-workbench/chat
 plugins/agent-workbench/claude/common
 plugins/agent-workbench/claude/sessions
+plugins/agent-workbench/codex/chat
 plugins/agent-workbench/codex/common
 plugins/agent-workbench/codex/ide
 plugins/agent-workbench/codex/sessions
@@ -1007,6 +1008,7 @@ plugins/agent-workbench/sessions-jbcentral
 plugins/agent-workbench/sessions-launch-config/backend
 plugins/agent-workbench/sessions-toolwindow
 plugins/agent-workbench/terminal/sessions
+plugins/agent-workbench/ui
 plugins/agent-workbench/vcs-merge
 plugins/ant
 plugins/ant/jps-plugin
@@ -1579,6 +1581,13 @@ plugins/ui-designer
 plugins/ui-designer-core
 plugins/ui-designer/jps-plugin
 plugins/ui-designer/jps-plugin/tests
+plugins/ui.webview
+plugins/ui.webview/demo
+plugins/ui.webview/jcef
+plugins/ui.webview/jcef/tests
+plugins/ui.webview/markdown-preview
+plugins/ui.webview/markdown-preview/tests
+plugins/ui.webview/tests
 plugins/webp
 plugins/xpath
 plugins/xpath/xslt-rt
@@ -1620,6 +1629,8 @@ python/python-external-index
 python/python-features-trainer
 python/python-grazie
 python/python-hatch
+python/python-lsp-core
+python/python-lsp-impl
 python/python-markdown
 python/python-packaging
 python/python-parser
@@ -1631,11 +1642,14 @@ python/python-process-output/frontend
 python/python-psi-api
 python/python-psi-impl
 python/python-pyproject
+python/python-pyrefly
+python/python-pyright
 python/python-pytools
 python/python-pytools-ui
 python/python-pytools/tests
 python/python-requirements
 python/python-restructuredtext
+python/python-ruff
 python/python-sdk
 python/python-sdk-configurator/backend
 python/python-sdk-configurator/common
@@ -1650,6 +1664,8 @@ python/python-test-env/junit4
 python/python-test-env/junit5
 python/python-test-env/plain
 python/python-test-env/uv
+python/python-ty
+python/python-type-engine
 python/python-uv/backend
 python/python-uv/common
 python/python-uv/tests

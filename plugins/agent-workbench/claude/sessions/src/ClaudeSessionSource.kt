@@ -1,6 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.claude.sessions
 
+// @spec community/plugins/agent-workbench/spec/chat/agent-chat-structure-view.spec.md
+
 import com.intellij.agent.workbench.claude.common.ClaudeSessionActivity
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.AgentThreadActivityReport
@@ -9,10 +11,11 @@ import com.intellij.agent.workbench.common.session.AgentSessionCostKind
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.core.cost.AgentSessionUsageSnapshot
-import com.intellij.agent.workbench.sessions.core.cost.OpenRouterPriceCatalogService
+import com.intellij.agent.workbench.sessions.core.cost.LiteLlmPriceCatalogService
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRebindCandidate
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshHints
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshThreadSeed
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadOutline
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceRefreshRequest
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceRefreshResult
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
@@ -35,7 +38,7 @@ class ClaudeSessionSource internal constructor(
     backend: ClaudeSessionBackend = createDefaultClaudeSessionBackend(),
   ) : this(
     backend = backend,
-    calculateCost = { usage -> service<OpenRouterPriceCatalogService>().calculateCost(usage) },
+    calculateCost = { usage -> service<LiteLlmPriceCatalogService>().calculateCost(usage) },
   )
 
   private val observedUpdatedAtByThreadId: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
@@ -211,6 +214,10 @@ class ClaudeSessionSource internal constructor(
       .associate { thread ->
         thread.id to thread.usageSnapshots.toAgentSessionCost(calculateCost)
       }
+  }
+
+  override suspend fun loadThreadOutline(path: String, threadId: String, subAgentId: String?): AgentSessionThreadOutline? {
+    return backend.loadThreadOutline(path = path, threadId = threadId)
   }
 
   private fun rememberActiveNonReadyThreadRead(threads: Iterable<ClaudeBackendThread>) {

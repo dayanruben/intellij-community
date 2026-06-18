@@ -6,6 +6,8 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageD
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.terminal.frontend.view.TerminalKeyEvent
 import com.intellij.terminal.frontend.view.TerminalView
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
@@ -28,96 +30,6 @@ import kotlin.time.Duration.Companion.milliseconds
 @TestApplication
 @Timeout(value = 2, unit = TimeUnit.MINUTES)
 class AgentChatInitialMessageDispatcherTest {
-  @Test
-  fun codexPlanModeEnsureSendsBackTabBeforePrompt(): Unit = timeoutRunBlocking {
-    val file = createFile(
-      listOf(
-        terminalPlanModeStep(
-          completionPolicy = AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY,
-        ),
-        AgentInitialMessageDispatchStep(
-          text = "Refactor this",
-          timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-        ),
-      )
-    )
-    val tab = FakeTerminalTab(
-      coroutineScope = this,
-      outputObservations = listOf(AgentChatTerminalOutputObservation(AgentChatTerminalInputReadiness.READY, "Plan mode")),
-    )
-
-    createDispatcher(file).schedule(tab)
-
-    waitForCondition { file.initialMessageSent }
-    assertThat(tab.events).containsExactly("backtab", "text:Refactor this")
-  }
-
-  @Test
-  fun codexPlanModeEnsureSkipsBackTabWhenPlanModeAlreadyVisible(): Unit = timeoutRunBlocking {
-    val file = createFile(
-      listOf(
-        terminalPlanModeStep(
-          completionPolicy = AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY,
-        ),
-        AgentInitialMessageDispatchStep(
-          text = "Refactor this",
-          timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-        ),
-      )
-    )
-    val tab = FakeTerminalTab(
-      coroutineScope = this,
-      recentOutputTail = "gpt-5.3-codex medium Plan mode (shift+tab to cycle)",
-    )
-
-    createDispatcher(file).schedule(tab)
-
-    waitForCondition { file.initialMessageSent }
-    assertThat(tab.events).containsExactly("text:Refactor this")
-  }
-
-  @Test
-  fun codexPlanModeEnsureFailureFallsBackToPromptSubmission(): Unit = timeoutRunBlocking {
-    val file = createFile(
-      listOf(
-        terminalPlanModeStep(
-          completionPolicy = AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY,
-        ),
-        AgentInitialMessageDispatchStep(
-          text = "Refactor this",
-          timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-        ),
-      )
-    )
-    val snapshots = mutableListOf<AgentChatTabSnapshot>()
-    val tab = FakeTerminalTab(
-      coroutineScope = this,
-      outputObservations = listOf(
-        AgentChatTerminalOutputObservation(AgentChatTerminalInputReadiness.READY, "Default mode"),
-        AgentChatTerminalOutputObservation(AgentChatTerminalInputReadiness.READY, "Default mode"),
-        AgentChatTerminalOutputObservation(AgentChatTerminalInputReadiness.READY, "Default mode"),
-      ),
-    )
-
-    AgentChatInitialMessageDispatcher(
-      file = file,
-      behavior = resolveAgentChatProviderBehavior(AgentSessionProvider.CODEX),
-      tabSnapshotWriter = AgentChatTabSnapshotWriter { snapshot -> snapshots.add(snapshot) },
-    ).schedule(tab)
-
-    waitForCondition { file.initialMessageSent }
-    assertThat(tab.events).containsExactly("backtab", "backtab", "backtab", "text:Refactor this")
-    assertThat(file.initialMessageDispatchSteps).hasSize(2)
-    assertThat(file.initialMessageDispatchStepIndex).isEqualTo(2)
-    assertThat(file.initialMessageToken).isEqualTo("token")
-    assertThat(file.initialMessageSent).isTrue()
-    assertThat(snapshots).hasSize(2)
-    assertThat(snapshots.last().runtime.initialMessageDispatchSteps).hasSize(2)
-    assertThat(snapshots.last().runtime.initialMessageDispatchStepIndex).isEqualTo(2)
-    assertThat(snapshots.last().runtime.initialMessageToken).isEqualTo("token")
-    assertThat(snapshots.last().runtime.initialMessageSent).isTrue()
-  }
-
   @Test
   fun juniePlanModeEnsureSendsBackTabAfterPromptInputIsReady(): Unit = timeoutRunBlocking {
     val file = createFile(
@@ -166,11 +78,11 @@ class AgentChatInitialMessageDispatcherTest {
   }
 
   @Test
-  fun legacyCodexPlanModeActionRestoresAsTerminalPlanModeAction() {
+  fun persistedPromptDataIsNotRestoredForDispatch() {
     val identity = AgentChatTabIdentity(
       projectHash = "hash",
       projectPath = "/project",
-      threadIdentity = "codex:new-test",
+      threadIdentity = "junie:new-test",
       subAgentId = null,
     )
     val tabKey = AgentChatTabKey.fromIdentity(identity)
@@ -184,13 +96,7 @@ class AgentChatInitialMessageDispatcherTest {
             threadIdentity = identity.threadIdentity,
             subAgentId = identity.subAgentId,
             threadId = "new-test",
-            lastKnownTitle = "Codex",
-            initialMessageDispatchSteps = listOf(
-              PersistedAgentChatInitialMessageDispatchStep(
-                action = "ENSURE_CODEX_PLAN_MODE",
-                timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS.name,
-              )
-            ),
+            lastKnownTitle = "Junie",
             updatedAt = System.currentTimeMillis(),
           )
         ),
@@ -199,25 +105,82 @@ class AgentChatInitialMessageDispatcherTest {
 
     val loaded = checkNotNull(service.load(tabKey))
 
-    assertThat(loaded.runtime.initialMessageDispatchSteps.single().action)
-      .isEqualTo(AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE)
+    assertThat(loaded.runtime.initialPromptRecord).isNull()
+    assertThat(loaded.runtime.terminalPromptDispatch).isNull()
+    assertThat(loaded.runtime.initialMessageDispatchSteps).isEmpty()
+    assertThat(loaded.runtime.initialMessageToken).isNull()
+    assertThat(loaded.runtime.initialMessageSent).isFalse()
+  }
+
+  @Test
+  fun stoppedPlanModeDispatchReportsPromptNotSent(): Unit = timeoutRunBlocking {
+    val file = createFile(
+      provider = AgentSessionProvider.CODEX,
+      steps = listOf(
+        terminalPlanModeStep(),
+        AgentInitialMessageDispatchStep(
+          text = "Refactor this",
+          timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
+        ),
+      )
+    )
+    val tab = FakeTerminalTab(
+      coroutineScope = this,
+      outputObservations = listOf(AgentChatTerminalOutputObservation(AgentChatTerminalInputReadiness.READY, "Default mode")),
+    )
+    val reportedFiles = mutableListOf<AgentChatVirtualFile>()
+
+    createDispatcher(
+      file = file,
+      behavior = StopPlanModeBehavior,
+      planModeInitialPromptStopReporter = { _, stoppedFile -> reportedFiles += stoppedFile },
+    ).schedule(tab)
+
+    waitForCondition { file.initialMessageDispatchSteps.isEmpty() }
+    assertThat(tab.events).containsExactly("backtab")
+    assertThat(file.initialMessageSent).isFalse()
+    assertThat(reportedFiles).containsExactly(file)
   }
 }
 
 private fun createDispatcher(
   file: AgentChatVirtualFile,
-  provider: AgentSessionProvider = AgentSessionProvider.CODEX,
+  provider: AgentSessionProvider = AgentSessionProvider.JUNIE,
+  behavior: AgentChatProviderBehavior = resolveAgentChatProviderBehavior(provider),
+  planModeInitialPromptStopReporter: (Project, AgentChatVirtualFile) -> Unit = { _, _ -> },
 ): AgentChatInitialMessageDispatcher {
   return AgentChatInitialMessageDispatcher(
+    project = ProjectManager.getInstance().defaultProject,
     file = file,
-    behavior = resolveAgentChatProviderBehavior(provider),
+    behavior = behavior,
     tabSnapshotWriter = AgentChatTabSnapshotWriter {},
+    planModeInitialPromptStopReporter = planModeInitialPromptStopReporter,
   )
+}
+
+private object StopPlanModeBehavior : AgentChatProviderBehavior {
+  override fun requiresPostSendObservation(dispatch: AgentChatInitialMessageDispatchContext): Boolean {
+    return dispatch.action == AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE
+  }
+
+  override fun afterInitialMessageSendObservation(
+    file: AgentChatBehaviorFile,
+    dispatch: AgentChatInitialMessageDispatchContext,
+    outputText: String,
+    retryAttempt: Int,
+  ): AgentChatInitialMessageRetryDecision {
+    return if (dispatch.action == AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE) {
+      AgentChatInitialMessageRetryDecision.Stop
+    }
+    else {
+      AgentChatInitialMessageRetryDecision.PROCEED
+    }
+  }
 }
 
 private fun createFile(
   steps: List<AgentInitialMessageDispatchStep>,
-  provider: AgentSessionProvider = AgentSessionProvider.CODEX,
+  provider: AgentSessionProvider = AgentSessionProvider.JUNIE,
 ): AgentChatVirtualFile {
   return AgentChatVirtualFile(
     projectPath = "/project",

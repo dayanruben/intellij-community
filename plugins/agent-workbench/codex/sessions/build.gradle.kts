@@ -46,7 +46,6 @@ dependencies {
   implementation(project(":common"))
   implementation(project(":json"))
   implementation(project(":filewatch"))
-  implementation(project(":chat"))
   implementation(project(":codex-common"))
   implementation(project(":prompt-core"))
   implementation(project(":sessions-core"))

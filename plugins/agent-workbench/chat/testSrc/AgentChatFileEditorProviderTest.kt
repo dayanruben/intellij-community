@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
+import com.intellij.icons.AllIcons
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.AgentThreadActivityReport
 import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
@@ -14,21 +15,31 @@ import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentation
 import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationModel
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineItem
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineItemKind
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadOutline
 import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
 import com.intellij.agent.workbench.sessions.core.providers.agentSessionThreadStatusIcon
+import com.intellij.ide.projectView.PresentationData
+import com.intellij.ide.structureView.StructureViewModel
+import com.intellij.ide.structureView.StructureViewTreeElement
+import com.intellij.ide.structureView.TreeBasedStructureViewBuilder
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileEditorManagerKeys
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.ui.IconManager
 import com.intellij.util.ui.EmptyIcon
+import com.intellij.util.text.DateFormatUtil
+import kotlinx.coroutines.CompletableDeferred
 import org.assertj.core.api.Assertions.assertThat
 import org.jdom.Element
 import org.junit.jupiter.api.AfterEach
@@ -184,6 +195,13 @@ class AgentChatFileEditorProviderTest {
     assertThat(element.getAttributeValue("startupProvider")).isEqualTo(AgentSessionProvider.CODEX.value)
     assertThat(element.getAttributeValue("startupLaunchMode")).isEqualTo(AgentSessionLaunchMode.YOLO.name)
     assertThat(element.getAttributeValue("launchMode")).isEqualTo("yolo")
+    assertThat(element.getAttributeValue("initialPromptMessage")).isNull()
+    assertThat(element.getAttributeValue("initialPromptMode")).isNull()
+    assertThat(element.getAttributeValue("initialPromptToken")).isNull()
+    assertThat(element.getAttributeValue("initialPromptDeliveryStatus")).isNull()
+    assertThat(element.getAttributeValue("initialPromptDeliveryChannel")).isNull()
+    assertThat(element.getAttributeValue("terminalPromptDispatchStepIndex")).isNull()
+    assertThat(element.getChild("initialMessageDispatchSteps")).isNull()
 
     val file = AgentChatVirtualFile(
       projectPath = snapshot.identity.projectPath,
@@ -206,12 +224,55 @@ class AgentChatFileEditorProviderTest {
     assertThat(restored?.runtime?.pendingLaunchMode).isEqualTo(AgentSessionLaunchMode.STANDARD.name)
     assertThat(restored?.runtime?.launchMode).isEqualTo("yolo")
     assertThat(restored?.runtime?.newThreadRebindRequestedAtMs).isEqualTo(300)
-    assertThat(restored?.runtime?.initialMessageDispatchSteps).containsExactlyElementsOf(dispatchSteps)
-    assertThat(restored?.runtime?.initialMessageDispatchStepIndex).isEqualTo(1)
-    assertThat(restored?.runtime?.initialMessageToken).isEqualTo("token-state")
+    assertThat(restored?.runtime?.initialMessageDispatchSteps).isEmpty()
+    assertThat(restored?.runtime?.initialMessageDispatchStepIndex).isEqualTo(0)
+    assertThat(restored?.runtime?.initialMessageToken).isNull()
     assertThat(restored?.runtime?.initialMessageSent).isFalse()
+    assertThat(restored?.runtime?.initialPromptRecord).isNull()
+    assertThat(restored?.runtime?.terminalPromptDispatch).isNull()
     assertThat(restoredState.startupIntent).isEqualTo(startupIntent)
     assertThat(file.launchMode).isEqualTo("yolo")
+  }
+
+  @Test
+  fun fileEditorStateIgnoresLegacyPromptDispatchMetadata() {
+    val element = Element("state").apply {
+      setAttribute("version", "3")
+      setAttribute("projectHash", "hash-1")
+      setAttribute("projectPath", "/work/project-a")
+      setAttribute("threadIdentity", "CODEX:thread-legacy")
+      setAttribute("threadId", "thread-legacy")
+      setAttribute("threadTitle", "Legacy thread")
+      setAttribute("threadActivity", AgentThreadActivity.UNREAD.name)
+      setAttribute("initialMessageDispatchStepIndex", "1")
+      setAttribute("initialMessageToken", "legacy-token")
+      setAttribute("initialMessageSent", "false")
+      addContent(Element("initialMessageDispatchSteps").apply {
+        addContent(Element("step").apply { text = "first step" })
+        addContent(Element("step").apply { text = "second step" })
+      })
+    }
+    val file = AgentChatVirtualFile(
+      projectPath = "/work/project-a",
+      threadIdentity = "CODEX:thread-legacy",
+      shellCommand = emptyList(),
+      threadId = "thread-legacy",
+      threadTitle = "Legacy thread",
+      subAgentId = null,
+      projectHash = "hash-1",
+    )
+
+    val restored = readAgentChatFileEditorState(element, file).snapshot
+
+    assertThat(restored?.runtime?.threadId).isEqualTo("thread-legacy")
+    assertThat(restored?.runtime?.threadTitle).isEqualTo("Legacy thread")
+    assertThat(restored?.runtime?.threadActivity).isEqualTo(AgentThreadActivity.UNREAD)
+    assertThat(restored?.runtime?.initialMessageDispatchSteps).isEmpty()
+    assertThat(restored?.runtime?.initialMessageDispatchStepIndex).isEqualTo(0)
+    assertThat(restored?.runtime?.initialMessageToken).isNull()
+    assertThat(restored?.runtime?.initialMessageSent).isFalse()
+    assertThat(restored?.runtime?.initialPromptRecord).isNull()
+    assertThat(restored?.runtime?.terminalPromptDispatch).isNull()
   }
 
   @Test
@@ -344,6 +405,200 @@ class AgentChatFileEditorProviderTest {
     )
 
     assertThat(file.getUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT)).isTrue()
+  }
+
+  @Test
+  fun exposesStructureViewBuilderOnlyForConcreteChatFiles() {
+    val project = ProjectManager.getInstance().defaultProject
+    val provider = AgentChatFileEditorProvider()
+    val concreteFile = AgentChatVirtualFile(
+      projectPath = "/work/project-a",
+      threadIdentity = "CODEX:thread-42",
+      shellCommand = emptyList(),
+      threadId = "thread-42",
+      threadTitle = "Implement parser",
+      subAgentId = null,
+    )
+    val pendingFile = AgentChatVirtualFile(
+      projectPath = "/work/project-a",
+      threadIdentity = "CODEX:new-thread",
+      shellCommand = emptyList(),
+      threadId = "new-thread",
+      threadTitle = "Pending thread",
+      subAgentId = null,
+    )
+
+    assertThat(provider.getStructureViewBuilder(project, concreteFile)).isNotNull
+    assertThat(provider.getStructureViewBuilder(project, pendingFile)).isNull()
+  }
+
+  @Test
+  fun structureViewNotifiesLateListenersAfterOutlineIsLoaded() = timeoutRunBlocking {
+    val project = ProjectManager.getInstance().defaultProject
+    val provider = AgentChatFileEditorProvider()
+    val file = AgentChatVirtualFile(
+      projectPath = "/work/project-a",
+      threadIdentity = "CODEX:thread-42",
+      shellCommand = emptyList(),
+      threadId = "thread-42",
+      threadTitle = "Resolve the current merge conflicts",
+      subAgentId = null,
+    )
+    val outlineLoadGate = CompletableDeferred<Unit>()
+    val outline = AgentSessionThreadOutline(
+      provider = AgentSessionProvider.CODEX,
+      threadId = "thread-42",
+      title = "Resolve the current merge conflicts",
+      updatedAt = 1L,
+      items = listOf(
+        AgentSessionOutlineItem(
+          id = "root-work",
+          kind = AgentSessionOutlineItemKind.AGENT_WORK,
+          title = "Resolve the current merge conflicts",
+          children = listOf(
+            AgentSessionOutlineItem(
+              id = "user-1",
+              kind = AgentSessionOutlineItemKind.USER_PROMPT,
+              title = "My prompt",
+              preview = "Resolve the current merge conflicts",
+            ),
+            AgentSessionOutlineItem(
+              id = "work-1",
+              kind = AgentSessionOutlineItemKind.AGENT_WORK,
+              title = "I'll inspect the Git operation state",
+              timestampMs = 1_000L,
+              children = listOf(
+                AgentSessionOutlineItem(
+                  id = "tool-1",
+                  kind = AgentSessionOutlineItemKind.TOOL_CALL,
+                  title = "git status",
+                  preview = "Updated at 10.06.26, 10:58",
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+    var loadCalls = 0
+    val bridge = ChatTestProviderBridge(
+      provider = AgentSessionProvider.CODEX,
+      icon = EmptyIcon.create(18, 18),
+      outlineLoader = { _, _, _ ->
+        loadCalls++
+        outlineLoadGate.await()
+        outline
+      },
+    )
+
+    AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(bridge))) {
+      val builder = checkNotNull(provider.getStructureViewBuilder(project, file)) as TreeBasedStructureViewBuilder
+      assertThat(builder.isRootNodeShown).isFalse()
+      val model = builder.createStructureViewModel(null)
+      try {
+        val root = model.root
+        val expandInfoProvider = model as StructureViewModel.ExpandInfoProvider
+        assertThat(expandInfoProvider.isAutoExpand(root)).isTrue()
+        assertThat(root.presentation.presentableText).isEqualTo("Resolve the current merge conflicts")
+        assertThat(root.presentation.locationString).isNull()
+        assertThat(loadCalls).isEqualTo(0)
+
+        var earlyListenerNotified = false
+        model.addModelListener { earlyListenerNotified = true }
+
+        val loadingElement = root.children.single()
+        assertThat(loadingElement.presentation.presentableText).isEqualTo("Resolve the current merge conflicts")
+        assertThat(loadingElement.presentation.locationString).isEqualTo(AgentChatBundle.message("chat.structure.loading"))
+        waitForCondition { loadCalls == 1 }
+
+        outlineLoadGate.complete(Unit)
+        waitForCondition {
+          val children = root.children
+          model.root === root &&
+          children.size == 1 &&
+          children[0].presentation.presentableText == "Resolve the current merge conflicts" &&
+          children[0].presentation.locationString == null
+        }
+        val loadedChildren = root.children.map { child -> child as StructureViewTreeElement }
+        assertThat(loadedChildren.map { it.presentation.presentableText }).containsExactly("Resolve the current merge conflicts")
+        val providerRoot = loadedChildren.single()
+        assertThat(expandInfoProvider.isAutoExpand(providerRoot)).isTrue()
+        val providerRootChildren = providerRoot.children.map { child -> child as StructureViewTreeElement }
+        assertThat(providerRootChildren.map { it.presentation.presentableText })
+          .containsExactly("My prompt", "I'll inspect the Git operation state")
+        val promptPresentation = providerRootChildren[0].presentation
+        assertThat(promptPresentation.getIcon(false)).isSameAs(AllIcons.General.User)
+        assertThat(promptPresentation.locationString).isEqualTo("Resolve the current merge conflicts")
+        val promptPresentationData = promptPresentation as PresentationData
+        assertThat(promptPresentationData.tooltip).isEqualTo("Resolve the current merge conflicts")
+        assertThat(promptPresentationData.coloredText).isNotEmpty
+        val workElement = providerRootChildren[1]
+        assertThat(workElement.presentation.locationString)
+          .isEqualTo(AgentChatBundle.message("chat.structure.timestamp", DateFormatUtil.formatPrettyDateTime(1_000L)))
+        assertThat(workElement.children.map { it.presentation.presentableText }).containsExactly("git status")
+        assertThat(expandInfoProvider.isAutoExpand(workElement)).isFalse()
+        assertThat(earlyListenerNotified).isTrue()
+
+        var lateListenerNotified = false
+        model.addModelListener { lateListenerNotified = true }
+
+        waitForCondition { lateListenerNotified }
+      }
+      finally {
+        Disposer.dispose(model)
+      }
+    }
+  }
+
+  @Test
+  fun structureViewShowsSingleTopLevelStatusRowsForFallbackOutlines() = timeoutRunBlocking {
+    val project = ProjectManager.getInstance().defaultProject
+    val provider = AgentChatFileEditorProvider()
+    val cases: List<Pair<AgentSessionThreadOutline?, String>> = listOf(
+      null to AgentChatBundle.message("chat.structure.unavailable"),
+      AgentSessionThreadOutline(
+        provider = AgentSessionProvider.CODEX,
+        threadId = "thread-empty",
+        title = "Empty thread",
+        updatedAt = 1L,
+        items = emptyList(),
+      ) to AgentChatBundle.message("chat.structure.empty"),
+    )
+
+    cases.forEachIndexed { index, (outline, expectedStatus) ->
+      val file = AgentChatVirtualFile(
+        projectPath = "/work/project-a",
+        threadIdentity = "CODEX:thread-status-$index",
+        shellCommand = emptyList(),
+        threadId = "thread-status-$index",
+        threadTitle = "Status thread $index",
+        subAgentId = null,
+      )
+      val bridge = ChatTestProviderBridge(
+        provider = AgentSessionProvider.CODEX,
+        icon = EmptyIcon.create(18, 18),
+        outlineLoader = { _, _, _ -> outline },
+      )
+
+      AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(bridge))) {
+        val builder = checkNotNull(provider.getStructureViewBuilder(project, file)) as TreeBasedStructureViewBuilder
+        assertThat(builder.isRootNodeShown).isFalse()
+        val model = builder.createStructureViewModel(null)
+        try {
+          val root = model.root
+          root.children
+          waitForCondition {
+            root.children.singleOrNull()?.presentation?.locationString == expectedStatus
+          }
+          val statusElement = root.children.single()
+          assertThat(statusElement.presentation.locationString).isEqualTo(expectedStatus)
+          assertThat(statusElement.children).isEmpty()
+        }
+        finally {
+          Disposer.dispose(model)
+        }
+      }
+    }
   }
 
   @Test
@@ -526,6 +781,9 @@ class AgentChatFileEditorProviderTest {
       threadTitle = "Thread",
       subAgentId = null,
       threadActivity = AgentThreadActivity.UNREAD,
+      initialMessageDispatchSteps = listOf(AgentInitialMessageDispatchStep(text = "do not persist this prompt")),
+      initialMessageToken = "do-not-persist-token",
+      initialMessageSent = false,
     )
     val store = AgentChatTabsStateService(null)
     store.upsert(snapshot)
@@ -538,6 +796,13 @@ class AgentChatFileEditorProviderTest {
       assertThat(loaded?.runtime?.threadTitle).isEqualTo(snapshot.runtime.threadTitle)
       assertThat(loaded?.identity?.subAgentId).isEqualTo(snapshot.identity.subAgentId)
       assertThat(loaded?.runtime?.threadActivity).isEqualTo(AgentThreadActivity.UNREAD)
+      assertThat(loaded?.runtime?.initialMessageDispatchSteps).isEmpty()
+      assertThat(loaded?.runtime?.initialMessageDispatchStepIndex).isZero()
+      assertThat(loaded?.runtime?.initialComposedMessage).isNull()
+      assertThat(loaded?.runtime?.initialMessageToken).isNull()
+      assertThat(loaded?.runtime?.initialMessageSent).isFalse()
+      assertThat(loaded?.runtime?.initialPromptRecord).isNull()
+      assertThat(loaded?.runtime?.terminalPromptDispatch).isNull()
     }
     finally {
       store.delete(snapshot.tabKey)
@@ -810,6 +1075,7 @@ private fun presentationKey(
 private class ChatTestProviderBridge(
   override val provider: AgentSessionProvider,
   override val icon: Icon,
+  private val outlineLoader: suspend (path: String, threadId: String, subAgentId: String?) -> AgentSessionThreadOutline? = { _, _, _ -> null },
 ) : AgentSessionProviderDescriptor {
   override val displayNameKey: String
     get() = provider.value
@@ -824,6 +1090,10 @@ private class ChatTestProviderBridge(
     override suspend fun listThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> = emptyList()
 
     override suspend fun listThreadsFromClosedProject(path: String): List<AgentSessionThread> = emptyList()
+
+    override suspend fun loadThreadOutline(path: String, threadId: String, subAgentId: String?): AgentSessionThreadOutline? {
+      return outlineLoader(path, threadId, subAgentId)
+    }
   }
 
   override val cliMissingMessageKey: String
@@ -842,4 +1112,15 @@ private class ChatTestProviderBridge(
   override fun buildInitialMessagePlan(request: AgentPromptInitialMessageRequest): AgentInitialMessagePlan {
     return AgentInitialMessagePlan.composeDefault(request)
   }
+}
+
+private fun waitForCondition(timeoutMs: Long = 5_000, condition: () -> Boolean) {
+  val deadline = System.currentTimeMillis() + timeoutMs
+  while (System.currentTimeMillis() < deadline) {
+    if (condition()) {
+      return
+    }
+    Thread.sleep(20)
+  }
+  throw AssertionError("Condition was not satisfied within ${timeoutMs}ms")
 }

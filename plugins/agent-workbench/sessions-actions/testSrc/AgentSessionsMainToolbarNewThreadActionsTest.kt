@@ -22,6 +22,7 @@ import com.intellij.agent.workbench.sessions.core.providers.builtInLaunchProfile
 import com.intellij.agent.workbench.sessions.core.providers.initialMessageRequestForLaunchProfile
 import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
+import com.intellij.agent.workbench.ui.AgentWorkbenchPopupStep
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.ActionGroup
@@ -612,7 +613,10 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
     selectedAction.update(selectedPopupEvent)
     unselectedAction.update(unselectedPopupEvent)
 
-    assertThat(Toggleable.isSelected(selectedPopupEvent.presentation)).isTrue()
+    // The active profile is marked only by the trailing checkmark (SECONDARY_ICON); it must not be a
+    // selected Toggleable, otherwise the platform action menu paints a PoppedIcon background behind the icon.
+    assertThat(selectedAction).isNotInstanceOf(Toggleable::class.java)
+    assertThat(Toggleable.isSelected(selectedPopupEvent.presentation)).isFalse()
     assertThat(selectedPopupEvent.presentation.icon).isSameAs(providerIcon)
     assertThat(selectedPopupEvent.presentation.getClientProperty(ActionUtil.SECONDARY_ICON)).isNotNull()
     assertThat(Toggleable.isSelected(unselectedPopupEvent.presentation)).isFalse()
@@ -665,6 +669,37 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
     finally {
       cleanup()
     }
+  }
+
+  @Test
+  fun mainToolbarProfileRowsUseSharedListPopupIconsAndDefaultCheckmark() {
+    val context = newThreadContext(path = "/tmp/repo-direct")
+    val activeProfileId = builtInLaunchProfileId(AgentSessionProvider.CODEX, AgentSessionLaunchMode.STANDARD)
+    val codexBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.CODEX,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD, AgentSessionLaunchMode.YOLO),
+      cliAvailable = true,
+      yoloSessionLabelKey = "toolwindow.action.new.session.codex.yolo",
+    )
+    val action = AgentSessionsMainToolbarNewThreadAction(
+      resolveContext = { context },
+      allBridges = { listOf(codexBridge) },
+      createNewSession = { _, _, _, _ -> },
+      activeLaunchProfileId = { activeProfileId },
+    )
+    val rows = action.createProfilePickerRowsForTest(TestActionEvent.createTestEvent(action))
+    val popupStep = AgentWorkbenchPopupStep(rows)
+
+    val selectedRow = rows.single { row -> row.text == AgentSessionsBundle.message("toolwindow.action.new.session.codex") }
+    val yoloRow = rows.single { row -> row.text == AgentSessionsBundle.message("toolwindow.action.new.session.codex.yolo") }
+    assertThat(selectedRow.selected).isTrue()
+    assertThat(selectedRow.primaryIcon).isNotNull()
+    assertThat(selectedRow.secondaryIcon).isNotNull()
+    assertThat(yoloRow.selected).isFalse()
+    assertThat(yoloRow.secondaryIcon).isNull()
+    assertThat(popupStep.getIconFor(selectedRow)).isNull()
+    assertThat(popupStep.getSelectedIconFor(selectedRow)).isNull()
+    assertThat(popupStep.getSecondaryIconFor(selectedRow)).isNull()
   }
 
   @Test
@@ -773,7 +808,8 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
 
     selectedAction.update(selectedPopupEvent)
 
-    assertThat(Toggleable.isSelected(selectedPopupEvent.presentation)).isTrue()
+    assertThat(selectedAction).isNotInstanceOf(Toggleable::class.java)
+    assertThat(Toggleable.isSelected(selectedPopupEvent.presentation)).isFalse()
     assertThat(selectedPopupEvent.presentation.icon).isSameAs(providerIcon)
     assertThat(selectedPopupEvent.presentation.getClientProperty(ActionUtil.SECONDARY_ICON)).isNotNull()
   }

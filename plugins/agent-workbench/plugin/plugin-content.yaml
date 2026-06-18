@@ -22,6 +22,9 @@
 - name: lib/modules/intellij.agent.workbench.claude.sessions.jar
   contentModules:
   - name: intellij.agent.workbench.claude.sessions
+- name: lib/modules/intellij.agent.workbench.codex.chat.jar
+  contentModules:
+  - name: intellij.agent.workbench.codex.chat
 - name: lib/modules/intellij.agent.workbench.codex.common.jar
   contentModules:
   - name: intellij.agent.workbench.codex.common
@@ -114,6 +117,9 @@
 - name: lib/modules/intellij.agent.workbench.terminal.sessions.jar
   contentModules:
   - name: intellij.agent.workbench.terminal.sessions
+- name: lib/modules/intellij.agent.workbench.ui.jar
+  contentModules:
+  - name: intellij.agent.workbench.ui
 - name: lib/modules/intellij.agent.workbench.vcs.merge.jar
   contentModules:
   - name: intellij.agent.workbench.vcs.merge

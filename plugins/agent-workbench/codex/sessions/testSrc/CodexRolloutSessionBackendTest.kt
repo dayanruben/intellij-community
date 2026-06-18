@@ -2,11 +2,14 @@
 package com.intellij.agent.workbench.codex.sessions
 
 import com.intellij.agent.workbench.codex.sessions.backend.CodexSessionActivity
+import com.intellij.agent.workbench.codex.sessions.backend.rollout.CodexRolloutParser
 import com.intellij.agent.workbench.codex.sessions.backend.rollout.CodexRolloutSessionBackend
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.AgentThreadActivityReport
+import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.json.filebacked.FileBackedSessionChangeSet
 import com.intellij.agent.workbench.sessions.core.cost.AgentSessionUsageSnapshot
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineItemKind
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
@@ -23,6 +26,7 @@ import org.junit.jupiter.api.Timeout
 import java.util.concurrent.TimeUnit
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.time.Instant
@@ -68,6 +72,140 @@ class CodexRolloutSessionBackendTest {
   }
 
   @Test
+  fun parsesThreadOutlineFromRollout() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-outline")
+      Files.createDirectories(projectDir)
+      val rollout = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("13")
+        .resolve("rollout-outline.jsonl")
+      writeRollout(
+        file = rollout,
+        lines = listOf(
+          sessionMetaLine(timestamp = "2026-02-13T10:00:00.000Z", id = "session-outline", cwd = projectDir),
+          """{"timestamp":"2026-02-13T10:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Fix flaky test","turn_id":"turn-1"}}""",
+          """{"timestamp":"2026-02-13T10:00:01.500Z","type":"event_msg","payload":{"type":"agent_message","message":"I will inspect the failure.","turn_id":"turn-1"}}""",
+          responseItemFunctionCall(
+            timestamp = "2026-02-13T10:00:02.000Z",
+            callId = "call-1",
+            name = "exec_command",
+            turnId = "turn-1",
+          ),
+          """{"timestamp":"2026-02-13T10:00:03.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"ok","turn_id":"turn-1"}}""",
+          itemCompletedPlan(timestamp = "2026-02-13T10:00:04.000Z", turnId = "turn-1"),
+        ),
+      )
+
+      val outline = CodexRolloutParser().parseOutline(rollout)
+
+      assertThat(outline).isNotNull
+      assertThat(outline!!.provider).isEqualTo(AgentSessionProvider.CODEX)
+      assertThat(outline.threadId).isEqualTo("session-outline")
+      assertThat(outline.title).isEqualTo("Fix flaky test")
+      assertThat(outline.updatedAt).isEqualTo(Instant.parse("2026-02-13T10:00:04.000Z").toEpochMilli())
+      val turn = outline.items.single()
+      assertThat(turn.kind).isEqualTo(AgentSessionOutlineItemKind.AGENT_WORK)
+      assertThat(turn.title).isEqualTo("Fix flaky test")
+      assertThat(turn.children.map { it.kind }).containsExactly(
+        AgentSessionOutlineItemKind.USER_PROMPT,
+        AgentSessionOutlineItemKind.AGENT_WORK,
+      )
+      val phase = turn.children[1]
+      assertThat(phase.title).isEqualTo("I will inspect the failure.")
+      assertThat(phase.preview).isEqualTo("1 tool, 1 result, 1 plan")
+      assertThat(phase.children.map { it.kind }).containsExactly(
+        AgentSessionOutlineItemKind.TOOL_CALL,
+        AgentSessionOutlineItemKind.TOOL_RESULT,
+        AgentSessionOutlineItemKind.PLAN,
+      )
+      assertThat(turn.children[0].preview).isEqualTo("Fix flaky test")
+      assertThat(phase.children[0].title).isEqualTo("exec_command")
+      assertThat(phase.children[1].preview).isEqualTo("ok")
+    }
+  }
+
+  @Test
+  fun groupsCodexOutlineLikeRenderedExampleThread() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-rendered-example")
+      Files.createDirectories(projectDir)
+      val rollout = tempDir.resolve("sessions").resolve("2026").resolve("06").resolve("10")
+        .resolve("rollout-rendered-example.jsonl")
+      writeRollout(
+        file = rollout,
+        lines = listOf(
+          sessionMetaLine(timestamp = "2026-06-10T08:58:13.000Z", id = "019eb0c0-e905-72c0-8135-f2e363ff14c2", cwd = projectDir),
+          """{"timestamp":"2026-06-10T08:58:14.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"019eb0c0"}}""",
+          """{"timestamp":"2026-06-10T08:58:14.500Z","type":"response_item","payload":{"type":"message","role":"user","content":"<environment_context> <cwd>$projectDir</cwd> </environment_context>"}}""",
+          """{"timestamp":"2026-06-10T08:58:15.000Z","type":"response_item","payload":{"type":"message","role":"user","content":"Resolve current merge conflicts"}}""",
+          """{"timestamp":"2026-06-10T08:58:15.100Z","type":"event_msg","payload":{"type":"user_message","message":"Resolve current merge conflicts","turn_id":"019eb0c0"}}""",
+          """{"timestamp":"2026-06-10T08:58:16.000Z","type":"event_msg","payload":{"type":"agent_message","message":"I will inspect the Git state.","turn_id":"019eb0c0"}}""",
+          """{"timestamp":"2026-06-10T08:58:16.100Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"text","text":"I will inspect the Git state."}]}}""",
+          responseItemFunctionCall(
+            timestamp = "2026-06-10T08:58:17.000Z",
+            callId = "call-status",
+            name = "exec_command",
+            arguments = """{"cmd":"git status --short","workdir":"$projectDir"}""",
+          ),
+          responseItemFunctionCall(
+            timestamp = "2026-06-10T08:58:18.000Z",
+            callId = "call-diff",
+            name = "exec_command",
+            arguments = """{"cmd":"git diff --name-only --diff-filter=U","workdir":"$projectDir"}""",
+          ),
+          responseItemFunctionCallOutput(
+            timestamp = "2026-06-10T08:58:19.000Z",
+            callId = "call-status",
+            output = "Process exited with code 0",
+          ),
+          responseItemFunctionCallOutput(
+            timestamp = "2026-06-10T08:58:20.000Z",
+            callId = "call-diff",
+            output = "Process exited with code 0",
+          ),
+          """{"timestamp":"2026-06-10T08:58:21.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Conflict markers are removed.","turn_id":"019eb0c0"}}""",
+          """{"timestamp":"2026-06-10T08:58:22.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"call-patch"}}""",
+          """{"timestamp":"2026-06-10T08:58:23.000Z","type":"event_msg","payload":{"type":"patch_apply_end","call_id":"call-patch","turn_id":"019eb0c0"}}""",
+          """{"timestamp":"2026-06-10T08:58:24.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-patch","output":"Success. Updated files."}}""",
+          tokenUsageLine(timestamp = "2026-06-10T08:58:25.000Z",
+                         model = "gpt-5",
+                         totalInputTokens = 100,
+                         cachedInputTokens = 10,
+                         outputTokens = 5),
+          """{"timestamp":"2026-06-10T08:58:26.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"019eb0c0"}}""",
+        ),
+      )
+
+      val outline = CodexRolloutParser().parseOutline(rollout)
+
+      assertThat(outline).isNotNull
+      val turn = outline!!.items.single()
+      assertThat(turn.title).isEqualTo("Resolve current merge conflicts")
+      assertThat(turn.children.map { it.kind }).containsExactly(
+        AgentSessionOutlineItemKind.USER_PROMPT,
+        AgentSessionOutlineItemKind.AGENT_WORK,
+        AgentSessionOutlineItemKind.AGENT_WORK,
+      )
+      assertThat(turn.children.mapNotNull { it.preview }).doesNotContain("<environment_context> <cwd>$projectDir</cwd> </environment_context>")
+
+      val firstPhase = turn.children[1]
+      assertThat(firstPhase.title).isEqualTo("I will inspect the Git state.")
+      assertThat(firstPhase.preview).isEqualTo("2 tools, 2 results")
+      assertThat(firstPhase.children.map { it.title }).containsExactly(
+        "git status --short",
+        "git diff --name-only --diff-filter=U",
+        "Exit 0",
+        "Exit 0",
+      )
+
+      val patchPhase = turn.children[2]
+      assertThat(patchPhase.title).isEqualTo("Conflict markers are removed.")
+      assertThat(patchPhase.preview).isEqualTo("1 tool, 1 result")
+      assertThat(patchPhase.children.map { it.title }).containsExactly("apply_patch", "apply patch finished")
+      assertThat(patchPhase.children[1].preview).isEqualTo("Success. Updated files.")
+    }
+  }
+
+  @Test
   fun ignoresRolloutWithoutSessionMetaId() {
     runBlocking(Dispatchers.Default) {
       val projectDir = tempDir.resolve("project-no-id")
@@ -89,7 +227,7 @@ class CodexRolloutSessionBackendTest {
   }
 
   @Test
-  fun keepsLatestCumulativeTokenUsageWithoutDoubleCountingRepeatedSnapshots() {
+  fun prefersLastTokenUsageWhenRepeatedSnapshotsAlsoCarryCumulativeTotals() {
     runBlocking(Dispatchers.Default) {
       val projectDir = tempDir.resolve("project-cost-usage")
       Files.createDirectories(projectDir)
@@ -106,9 +244,105 @@ class CodexRolloutSessionBackendTest {
       assertThat(threads.single().usageSnapshots).containsExactly(
         AgentSessionUsageSnapshot(
           modelId = "gpt-5.4",
-          inputTokens = 10_230_044,
-          outputTokens = 408_288,
-          cacheReadTokens = 131_931_008,
+          inputTokens = 599_919,
+          outputTokens = 1_939,
+          cacheReadTokens = 11_392,
+          reasoningTokens = 1_002,
+        )
+      )
+    }
+  }
+
+  @Test
+  fun ignoresTransientSecondPassReadFailureWhenParsingUsageSnapshots() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-usage-read-failure")
+      Files.createDirectories(projectDir)
+      val rollout = tempDir.resolve("sessions").resolve("2026").resolve("05").resolve("08")
+        .resolve("rollout-usage-read-failure.jsonl")
+      writeRollout(
+        file = rollout,
+        lines = listOf(
+          subAgentSessionMetaLine(
+            timestamp = "2026-05-08T09:00:00.000Z",
+            id = "usage-read-failure",
+            cwd = projectDir,
+            parentThreadId = "parent-usage-read-failure",
+          ),
+          tokenUsageLine(
+            timestamp = "2026-05-08T09:00:01.000Z",
+            model = "gpt-5",
+            totalInputTokens = 100,
+            cachedInputTokens = 20,
+            outputTokens = 7,
+          ),
+        ),
+      )
+
+      var openCount = 0
+      val parser = CodexRolloutParser(
+        openReader = { path ->
+          openCount += 1
+          if (openCount == 1) Files.newBufferedReader(path) else throw NoSuchFileException(path.toString())
+        }
+      )
+
+      val parsed = checkNotNull(parser.parse(rollout))
+
+      assertThat(parsed.thread.thread.id).isEqualTo("usage-read-failure")
+      assertThat(parsed.thread.usageSnapshots).isEmpty()
+    }
+  }
+
+  @Test
+  fun keepsFastSubAgentCumulativeUsageWhenOnlyTwoSnapshotsShareFirstSecond() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-subagent-fast-start")
+      Files.createDirectories(projectDir)
+      writeRollout(
+        file = tempDir.resolve("sessions").resolve("2026").resolve("05").resolve("08")
+          .resolve("rollout-subagent-fast-start.jsonl"),
+        lines = listOf(
+          subAgentSessionMetaLine(
+            timestamp = "2026-05-08T10:00:00.000Z",
+            id = "subagent-fast-start",
+            cwd = projectDir,
+            parentThreadId = "parent-fast-start",
+          ),
+          tokenUsageLine(
+            timestamp = "2026-05-08T10:00:01.100Z",
+            model = "gpt-5",
+            totalInputTokens = 100,
+            cachedInputTokens = 20,
+            outputTokens = 7,
+          ),
+          tokenUsageLine(
+            timestamp = "2026-05-08T10:00:01.900Z",
+            model = "gpt-5",
+            totalInputTokens = 220,
+            cachedInputTokens = 40,
+            outputTokens = 9,
+          ),
+          tokenUsageLine(
+            timestamp = "2026-05-08T10:00:02.100Z",
+            model = "gpt-5",
+            totalInputTokens = 260,
+            cachedInputTokens = 60,
+            outputTokens = 12,
+          ),
+        ),
+      )
+
+      val backend = CodexRolloutSessionBackend(codexHomeProvider = { tempDir })
+      val threads = backend.listThreads(path = projectDir.toString(), openProject = null)
+
+      assertThat(threads).hasSize(1)
+      assertThat(threads.single().usageSnapshots).containsExactly(
+        AgentSessionUsageSnapshot(
+          modelId = "gpt-5",
+          inputTokens = 200,
+          outputTokens = 12,
+          cacheReadTokens = 60,
         )
       )
     }
@@ -821,6 +1055,200 @@ class CodexRolloutSessionBackendTest {
       assertThat(subAgent.id).isEqualTo("session-subagent")
       assertThat(subAgent.name).isEqualTo("review the agent threads for rollout nesting")
       assertThat(parentThread.subAgentActivitiesById).containsEntry("session-subagent", CodexSessionActivity.UNREAD)
+    }
+  }
+
+  @Test
+  fun foldsCodexExecOutputThreadUnderParentThread() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-codex-exec-subagent")
+      Files.createDirectories(projectDir)
+      val sessionsRoot = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("14")
+      writeRollout(
+        file = sessionsRoot.resolve("rollout-root.jsonl"),
+        lines = listOf(
+          sessionMetaLine(timestamp = "2026-02-14T16:00:00.000Z", id = "session-root", cwd = projectDir),
+          """{"timestamp":"2026-02-14T16:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Root title"}}""",
+        ),
+      )
+      writeRollout(
+        file = sessionsRoot.resolve("rollout-parent-subagent.jsonl"),
+        lines = listOf(
+          subAgentSessionMetaLine(
+            timestamp = "2026-02-14T16:01:00.000Z",
+            id = "session-parent-subagent",
+            cwd = projectDir,
+            parentThreadId = "session-root",
+          ),
+          """{"timestamp":"2026-02-14T16:01:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Parent subagent title"}}""",
+          responseItemFunctionCall(
+            timestamp = "2026-02-14T16:01:02.000Z",
+            callId = "call-codex-exec",
+            name = "exec_command",
+            arguments = codexExecArguments(projectDir),
+          ),
+          responseItemFunctionCallOutput(
+            timestamp = "2026-02-14T16:01:03.000Z",
+            callId = "call-codex-exec",
+            output = codexExecOutput(projectDir = projectDir, childThreadId = "11111111-1111-4111-8111-111111111111"),
+          ),
+        ),
+      )
+      writeRollout(
+        file = sessionsRoot.resolve("rollout-exec-child.jsonl"),
+        lines = listOf(
+          execSessionMetaLine(timestamp = "2026-02-14T16:02:00.000Z", id = "11111111-1111-4111-8111-111111111111", cwd = projectDir),
+          """{"timestamp":"2026-02-14T16:02:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Exec child title"}}""",
+        ),
+      )
+
+      val backend = CodexRolloutSessionBackend(codexHomeProvider = { tempDir })
+      val threads = backend.listThreads(path = projectDir.toString(), openProject = null)
+
+      assertThat(threads).hasSize(1)
+      val rootThread = threads.single()
+      assertThat(rootThread.thread.id).isEqualTo("session-root")
+      assertThat(rootThread.thread.subAgents.map { subAgent -> subAgent.id })
+        .containsExactlyInAnyOrder("session-parent-subagent", "11111111-1111-4111-8111-111111111111")
+      assertThat(rootThread.subAgentActivitiesById).containsEntry("11111111-1111-4111-8111-111111111111", CodexSessionActivity.UNREAD)
+    }
+  }
+
+  @Test
+  fun keepsCodexExecThreadTopLevelWithoutParentOutputEvidence() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-codex-exec-root")
+      Files.createDirectories(projectDir)
+      writeRollout(
+        file = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("14").resolve("rollout-exec-root.jsonl"),
+        lines = listOf(
+          execSessionMetaLine(timestamp = "2026-02-14T17:00:00.000Z", id = "session-exec-root", cwd = projectDir),
+          """{"timestamp":"2026-02-14T17:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Standalone exec title"}}""",
+        ),
+      )
+
+      val backend = CodexRolloutSessionBackend(codexHomeProvider = { tempDir })
+      val threads = backend.listThreads(path = projectDir.toString(), openProject = null)
+
+      assertThat(threads).hasSize(1)
+      assertThat(threads.single().thread.id).isEqualTo("session-exec-root")
+      assertThat(threads.single().thread.subAgents).isEmpty()
+    }
+  }
+
+  @Test
+  fun ignoresCodexHeaderOutputFromNonCodexExecCommand() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-codex-exec-false-positive")
+      Files.createDirectories(projectDir)
+      val sessionsRoot = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("14")
+      writeRollout(
+        file = sessionsRoot.resolve("rollout-parent.jsonl"),
+        lines = listOf(
+          sessionMetaLine(timestamp = "2026-02-14T18:00:00.000Z", id = "session-parent", cwd = projectDir),
+          responseItemFunctionCall(
+            timestamp = "2026-02-14T18:00:01.000Z",
+            callId = "call-not-codex-exec",
+            name = "exec_command",
+            arguments = """{"cmd":"echo codex exec","workdir":"$projectDir"}""",
+          ),
+          responseItemFunctionCallOutput(
+            timestamp = "2026-02-14T18:00:02.000Z",
+            callId = "call-not-codex-exec",
+            output = codexExecOutput(projectDir = projectDir, childThreadId = "22222222-2222-4222-8222-222222222222"),
+          ),
+        ),
+      )
+      writeRollout(
+        file = sessionsRoot.resolve("rollout-exec-child.jsonl"),
+        lines = listOf(
+          execSessionMetaLine(timestamp = "2026-02-14T18:01:00.000Z", id = "22222222-2222-4222-8222-222222222222", cwd = projectDir),
+        ),
+      )
+
+      val backend = CodexRolloutSessionBackend(codexHomeProvider = { tempDir })
+      val threads = backend.listThreads(path = projectDir.toString(), openProject = null)
+
+      assertThat(threads.map { thread -> thread.thread.id }).containsExactlyInAnyOrder("session-parent",
+                                                                                       "22222222-2222-4222-8222-222222222222")
+      assertThat(threads.flatMap { thread -> thread.thread.subAgents }).isEmpty()
+    }
+  }
+
+  @Test
+  fun scopedRolloutUpdateForInferredCodexExecChildRefreshesParentChain() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-codex-exec-update")
+      Files.createDirectories(projectDir)
+      val sessionsRoot = tempDir.resolve("sessions").resolve("2026").resolve("02").resolve("14")
+      writeRollout(
+        file = sessionsRoot.resolve("rollout-root.jsonl"),
+        lines = listOf(sessionMetaLine(timestamp = "2026-02-14T19:00:00.000Z", id = "session-root", cwd = projectDir)),
+      )
+      writeRollout(
+        file = sessionsRoot.resolve("rollout-parent-subagent.jsonl"),
+        lines = listOf(
+          subAgentSessionMetaLine(
+            timestamp = "2026-02-14T19:01:00.000Z",
+            id = "session-parent-subagent",
+            cwd = projectDir,
+            parentThreadId = "session-root",
+          ),
+          responseItemFunctionCall(
+            timestamp = "2026-02-14T19:01:01.000Z",
+            callId = "call-codex-exec-update",
+            name = "exec_command",
+            arguments = codexExecArguments(projectDir),
+          ),
+          responseItemFunctionCallOutput(
+            timestamp = "2026-02-14T19:01:02.000Z",
+            callId = "call-codex-exec-update",
+            output = codexExecOutput(projectDir = projectDir, childThreadId = "33333333-3333-4333-8333-333333333333"),
+          ),
+        ),
+      )
+      val childRollout = sessionsRoot.resolve("rollout-exec-child.jsonl")
+      writeRollout(
+        file = childRollout,
+        lines = listOf(
+          execSessionMetaLine(timestamp = "2026-02-14T19:02:00.000Z", id = "33333333-3333-4333-8333-333333333333", cwd = projectDir),
+          responseItemFunctionCall(
+            timestamp = "2026-02-14T19:02:01.000Z",
+            callId = "call-child-tool",
+            name = "exec_command",
+          ),
+        ),
+      )
+
+      val sourceUpdates = MutableSharedFlow<FileBackedSessionChangeSet>(replay = 1, extraBufferCapacity = 1)
+      val backend = CodexRolloutSessionBackend(
+        codexHomeProvider = { tempDir },
+        rolloutChangeSource = { sourceUpdates },
+      )
+      backend.listThreads(path = projectDir.toString(), openProject = null)
+      val updates = Channel<AgentSessionSourceUpdateEvent>(capacity = Channel.CONFLATED)
+      val updatesJob = launch {
+        backend.sessionUpdates.collect { update ->
+          updates.trySend(update)
+        }
+      }
+
+      try {
+        drainUpdateChannel(updates)
+        sourceUpdates.emit(FileBackedSessionChangeSet(changedPaths = setOf(childRollout)))
+
+        val update = withTimeoutOrNull(WATCHER_UPDATE_WAIT_TIMEOUT) { updates.receive() }
+        assertThat(update).isNotNull
+        assertThat(update!!.scopedPaths).containsExactly(projectDir.toString())
+        assertThat(update.threadIds).containsExactlyInAnyOrder("session-root",
+                                                               "session-parent-subagent",
+                                                               "33333333-3333-4333-8333-333333333333")
+        assertThat(update.activityUpdatesByThreadId).doesNotContainKey("33333333-3333-4333-8333-333333333333")
+        assertThat(update.presentationUpdatesByThreadId).doesNotContainKey("33333333-3333-4333-8333-333333333333")
+      }
+      finally {
+        updatesJob.cancelAndJoin()
+      }
     }
   }
 
@@ -1905,6 +2333,37 @@ private fun subAgentSessionMetaLine(timestamp: String, id: String, cwd: Path, pa
   return """{"timestamp":"$timestamp","type":"session_meta","payload":{"id":"$id","timestamp":"$timestamp","cwd":"${
     cwd.toString().replace("\\", "\\\\")
   }","source":{"subagent":{"thread_spawn":{"parent_thread_id":"$parentThreadId","depth":1}}}}}"""
+}
+
+private fun execSessionMetaLine(timestamp: String, id: String, cwd: Path): String {
+  return """{"timestamp":"$timestamp","type":"session_meta","payload":{"id":"$id","timestamp":"$timestamp","cwd":"${
+    cwd.toString().replace("\\", "\\\\")
+  }","source":"exec","thread_source":"user"}}"""
+}
+
+private fun codexExecArguments(projectDir: Path): String {
+  return """{"cmd":"codex exec --sandbox read-only --cd $projectDir Review launch profiles","workdir":"$projectDir"}"""
+}
+
+private fun codexExecOutput(projectDir: Path, childThreadId: String): String {
+  return """
+    Chunk ID: abc123
+    Wall time: 30.0000 seconds
+    Process running with session ID 12345
+    Output:
+    OpenAI Codex v0.139.0
+    --------
+    workdir: $projectDir
+    model: gpt-5.5
+    provider: wire
+    approval: never
+    sandbox: read-only
+    reasoning effort: xhigh
+    session id: $childThreadId
+    --------
+    user
+    Review launch profiles
+  """.trimIndent()
 }
 
 private fun tokenUsageLine(

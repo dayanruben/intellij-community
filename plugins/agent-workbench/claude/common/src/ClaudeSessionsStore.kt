@@ -1,6 +1,15 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.claude.common
 
+// @spec community/plugins/agent-workbench/spec/chat/agent-chat-structure-view.spec.md
+
+import com.intellij.agent.workbench.common.session.AgentSessionOutlineItem
+import com.intellij.agent.workbench.common.session.AgentSessionOutlineItemKind
+import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.common.session.AgentSessionThreadOutline
+import com.intellij.agent.workbench.common.session.agentSessionOutlinePhaseTitle
+import com.intellij.agent.workbench.common.session.normalizeAgentSessionOutlinePreview
+import com.intellij.agent.workbench.common.session.summarizeAgentSessionOutlineChildren
 import com.intellij.agent.workbench.json.createJsonParser
 import tools.jackson.core.JsonParser
 import tools.jackson.core.JsonToken
@@ -52,6 +61,10 @@ data class ClaudeSessionThread(
   @JvmField val titleSource: ClaudeSessionTitleSource = ClaudeSessionTitleSource.DEFAULT,
   @JvmField val projectPath: String? = null,
 )
+
+typealias ClaudeSessionOutline = AgentSessionThreadOutline
+typealias ClaudeSessionOutlineItem = AgentSessionOutlineItem
+typealias ClaudeSessionOutlineItemKind = AgentSessionOutlineItemKind
 
 data class ClaudeProjectFileChangeEvidence(
   @JvmField val timestampMillis: Long,
@@ -140,6 +153,64 @@ class ClaudeSessionsStore(
       hasCustomTitle = tailState.agentName != null || tailState.customTitle != null,
       titleSource = resolvedTitle.source,
       projectPath = projectPath,
+    )
+  }
+
+  fun parseOutlineJsonlFile(path: Path): ClaudeSessionOutline? {
+    val state = try {
+      WorkbenchJsonlScanner.scanJsonObjects(
+        path = path,
+        jsonFactory = jsonFactory,
+        newState = ::JsonlOutlineScanState,
+      ) { parser, outlineState ->
+        val lineData = parseJsonlLine(parser) ?: return@scanJsonObjects true
+        if (lineData.isSidechain) {
+          outlineState.isSidechain = true
+          return@scanJsonObjects false
+        }
+        if (outlineState.sessionId == null && !lineData.sessionId.isNullOrBlank()) {
+          outlineState.sessionId = lineData.sessionId
+        }
+        if (outlineState.firstPrompt == null && !lineData.firstPrompt.isNullOrBlank()) {
+          outlineState.firstPrompt = lineData.firstPrompt
+        }
+        if (!lineData.agentName.isNullOrBlank()) {
+          outlineState.agentName = lineData.agentName
+        }
+        if (!lineData.customTitle.isNullOrBlank()) {
+          outlineState.customTitle = lineData.customTitle
+        }
+        if (!lineData.aiTitle.isNullOrBlank()) {
+          outlineState.aiTitle = lineData.aiTitle
+        }
+        if (!lineData.lastPrompt.isNullOrBlank()) {
+          outlineState.lastPrompt = lineData.lastPrompt
+        }
+        lineData.timestampMillis?.let { timestamp -> outlineState.updatedAt = maxOf(outlineState.updatedAt ?: 0L, timestamp) }
+        outlineState.record(lineData)
+        true
+      }
+    }
+    catch (_: Throwable) {
+      return null
+    }
+    if (state.isSidechain) return null
+    val sessionId = state.sessionId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val title = resolveThreadTitle(
+      agentName = state.agentName,
+      customTitle = state.customTitle,
+      aiTitle = state.aiTitle,
+      firstPrompt = state.firstPrompt,
+      lastPrompt = state.lastPrompt,
+      sessionId = sessionId,
+    ).title
+    val updatedAt = state.updatedAt ?: runCatching { Files.getLastModifiedTime(path).toMillis() }.getOrDefault(0L)
+    return ClaudeSessionOutline(
+      provider = AgentSessionProvider.CLAUDE,
+      threadId = sessionId,
+      title = title,
+      updatedAt = updatedAt,
+      items = state.buildItems(),
     )
   }
 
@@ -467,6 +538,8 @@ private fun parseJsonlLine(parser: JsonParser): ParsedJsonlLine? {
           outputTokens = usage.outputTokens,
           cacheReadTokens = usage.cacheReadTokens,
           cacheWriteTokens = usage.cacheWriteTokens,
+          cacheWrite5mTokens = usage.cacheWrite5mTokens,
+          cacheWrite1hTokens = usage.cacheWrite1hTokens,
         )
       }
     }
@@ -490,6 +563,11 @@ private fun parseJsonlLine(parser: JsonParser): ParsedJsonlLine? {
       assistantUsage = assistantUsage,
       projectMutatingToolUsesById = messageProjectMutatingToolUsesById,
       completedToolUseIds = messageCompletedToolUseIds,
+      messageRole = messageRole,
+      messageContent = messageContent,
+      messageHasToolUse = messageHasToolUse,
+      messageNeedsInputToolUse = messageNeedsInputToolUse,
+      messageHasToolResult = messageHasToolResult,
     )
   }
   catch (_: Throwable) {
@@ -558,6 +636,8 @@ private fun readUsageObject(parser: JsonParser): ParsedClaudeUsage? {
   var sawUsageField = false
   var inputTokens = 0L
   var cacheWriteTokens = 0L
+  var cacheWrite5mTokens = 0L
+  var cacheWrite1hTokens = 0L
   var cacheReadTokens = 0L
   var outputTokens = 0L
   forEachJsonObjectField(parser) { fieldName ->
@@ -569,6 +649,27 @@ private fun readUsageObject(parser: JsonParser): ParsedClaudeUsage? {
       "cache_creation_input_tokens" -> {
         cacheWriteTokens = readLongOrZero(parser)
         sawUsageField = true
+      }
+      "cache_creation" -> {
+        if (parser.currentToken() == JsonToken.START_OBJECT) {
+          forEachJsonObjectField(parser) { nestedField ->
+            when (nestedField) {
+              "ephemeral_5m_input_tokens" -> {
+                cacheWrite5mTokens = readLongOrZero(parser)
+                sawUsageField = true
+              }
+              "ephemeral_1h_input_tokens" -> {
+                cacheWrite1hTokens = readLongOrZero(parser)
+                sawUsageField = true
+              }
+              else -> parser.skipChildren()
+            }
+            true
+          }
+        }
+        else {
+          parser.skipChildren()
+        }
       }
       "cache_read_input_tokens" -> {
         cacheReadTokens = readLongOrZero(parser)
@@ -584,11 +685,23 @@ private fun readUsageObject(parser: JsonParser): ParsedClaudeUsage? {
   }
 
   return if (sawUsageField) {
+    val resolvedCacheWrite5mTokens: Long
+    val resolvedCacheWrite1hTokens: Long
+    if (cacheWrite5mTokens == 0L && cacheWrite1hTokens == 0L) {
+      resolvedCacheWrite5mTokens = cacheWriteTokens
+      resolvedCacheWrite1hTokens = 0L
+    }
+    else {
+      resolvedCacheWrite5mTokens = cacheWrite5mTokens
+      resolvedCacheWrite1hTokens = cacheWrite1hTokens
+    }
     ParsedClaudeUsage(
       inputTokens = inputTokens,
       outputTokens = outputTokens,
       cacheReadTokens = cacheReadTokens,
       cacheWriteTokens = cacheWriteTokens,
+      cacheWrite5mTokens = resolvedCacheWrite5mTokens,
+      cacheWrite1hTokens = resolvedCacheWrite1hTokens,
     )
   }
   else {
@@ -768,6 +881,18 @@ private fun normalizeNonBlank(value: String?): String? {
   return value?.trim()?.takeIf { it.isNotEmpty() }
 }
 
+private fun outlinePhaseTitle(preview: String?): String? {
+  return agentSessionOutlinePhaseTitle(preview)
+}
+
+private fun summarizeClaudeOutlineChildren(children: List<ClaudeSessionOutlineItem>): String? {
+  return summarizeAgentSessionOutlineChildren(children)
+}
+
+private fun normalizeOutlinePreview(value: String?): String? {
+  return normalizeAgentSessionOutlinePreview(value)
+}
+
 private fun parseIsoTimestamp(value: String?): Long? {
   val text = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
   return try {
@@ -850,7 +975,133 @@ private data class ParsedJsonlLine(
   @JvmField val assistantUsage: ClaudeAssistantUsage? = null,
   @JvmField val projectMutatingToolUsesById: Map<String, Set<String>?> = emptyMap(),
   @JvmField val completedToolUseIds: Set<String> = emptySet(),
+  @JvmField val messageRole: String? = null,
+  @JvmField val messageContent: String? = null,
+  @JvmField val messageHasToolUse: Boolean = false,
+  @JvmField val messageNeedsInputToolUse: Boolean = false,
+  @JvmField val messageHasToolResult: Boolean = false,
 )
+
+private data class JsonlOutlineScanState(
+  @JvmField var sessionId: String? = null,
+  @JvmField var firstPrompt: String? = null,
+  @JvmField var agentName: String? = null,
+  @JvmField var customTitle: String? = null,
+  @JvmField var aiTitle: String? = null,
+  @JvmField var lastPrompt: String? = null,
+  @JvmField var updatedAt: Long? = null,
+  @JvmField var isSidechain: Boolean = false,
+  @JvmField var nextItemIndex: Int = 0,
+  @JvmField val items: MutableList<ClaudeSessionOutlineItemBuilder> = ArrayList(),
+  @JvmField var currentPhase: ClaudeSessionOutlineItemBuilder? = null,
+) {
+  fun record(lineData: ParsedJsonlLine) {
+    when (lineData.activityEvent) {
+      ClaudeActivityEvent.USER_PROMPT -> {
+        currentPhase = null
+        addRootItem(ClaudeSessionOutlineItemKind.USER_PROMPT, "My prompt", lineData.messageContent, lineData.timestampMillis)
+      }
+      ClaudeActivityEvent.TOOL_CONTINUATION -> addPhaseDetail(ClaudeSessionOutlineItemKind.TOOL_RESULT,
+                                                              "Tool result",
+                                                              lineData.messageContent,
+                                                              lineData.timestampMillis)
+      ClaudeActivityEvent.ASSISTANT_NEEDS_INPUT -> {
+        val phase = addAssistantResponse(lineData)
+        phase.kind = ClaudeSessionOutlineItemKind.AGENT_WORK
+        phase.children += newItem(ClaudeSessionOutlineItemKind.INPUT_REQUEST, "Input requested", null, lineData.timestampMillis)
+      }
+      ClaudeActivityEvent.ASSISTANT_IN_PROGRESS -> {
+        val phase = addAssistantResponse(lineData)
+        if (lineData.messageHasToolUse) {
+          phase.kind = ClaudeSessionOutlineItemKind.AGENT_WORK
+          phase.children += newItem(ClaudeSessionOutlineItemKind.TOOL_CALL, "Tool call", null, lineData.timestampMillis)
+        }
+      }
+      ClaudeActivityEvent.ASSISTANT_TERMINAL -> addAssistantResponse(lineData)
+      ClaudeActivityEvent.PROGRESS,
+      ClaudeActivityEvent.QUEUE_OPERATION,
+        -> addPhaseDetail(ClaudeSessionOutlineItemKind.AGENT_WORK, "Agent work", null, lineData.timestampMillis)
+      ClaudeActivityEvent.OTHER -> Unit
+    }
+  }
+
+  fun buildItems(): List<ClaudeSessionOutlineItem> = items.map(ClaudeSessionOutlineItemBuilder::build)
+
+  private fun addAssistantResponse(lineData: ParsedJsonlLine): ClaudeSessionOutlineItemBuilder {
+    if (lineData.messageRole == "assistant" || !lineData.messageContent.isNullOrBlank()) {
+      val phase = newItem(
+        kind = ClaudeSessionOutlineItemKind.ASSISTANT_RESPONSE,
+        title = outlinePhaseTitle(lineData.messageContent) ?: "Assistant response",
+        preview = lineData.messageContent,
+        timestampMillis = lineData.timestampMillis,
+        summarizesChildren = true,
+      )
+      items += phase
+      currentPhase = phase
+      return phase
+    }
+    return currentPhase ?: addRootItem(ClaudeSessionOutlineItemKind.AGENT_WORK, "Agent work", null, lineData.timestampMillis)
+  }
+
+  private fun addPhaseDetail(kind: ClaudeSessionOutlineItemKind, title: String, preview: String?, timestampMillis: Long?) {
+    val item = newItem(kind, title, preview, timestampMillis)
+    val phase = currentPhase
+    if (phase == null) {
+      items += item
+      return
+    }
+    phase.kind = ClaudeSessionOutlineItemKind.AGENT_WORK
+    phase.children += item
+  }
+
+  private fun addRootItem(
+    kind: ClaudeSessionOutlineItemKind,
+    title: String,
+    preview: String?,
+    timestampMillis: Long?,
+  ): ClaudeSessionOutlineItemBuilder {
+    return newItem(kind, title, preview, timestampMillis).also(items::add)
+  }
+
+  private fun newItem(
+    kind: ClaudeSessionOutlineItemKind,
+    title: String,
+    preview: String?,
+    timestampMillis: Long?,
+    summarizesChildren: Boolean = false,
+  ): ClaudeSessionOutlineItemBuilder {
+    return ClaudeSessionOutlineItemBuilder(
+      id = "outline-${nextItemIndex++}",
+      kind = kind,
+      title = title,
+      preview = normalizeOutlinePreview(preview),
+      timestampMillis = timestampMillis,
+      summarizesChildren = summarizesChildren,
+    )
+  }
+}
+
+private data class ClaudeSessionOutlineItemBuilder(
+  @JvmField val id: String,
+  @JvmField var kind: ClaudeSessionOutlineItemKind,
+  @JvmField val title: String,
+  @JvmField val preview: String?,
+  @JvmField val timestampMillis: Long?,
+  @JvmField val summarizesChildren: Boolean = false,
+  @JvmField val children: MutableList<ClaudeSessionOutlineItemBuilder> = ArrayList(),
+) {
+  fun build(): ClaudeSessionOutlineItem {
+    val builtChildren = children.map(ClaudeSessionOutlineItemBuilder::build)
+    return ClaudeSessionOutlineItem(
+      id = id,
+      kind = kind,
+      title = title,
+      preview = if (summarizesChildren && builtChildren.isNotEmpty()) summarizeClaudeOutlineChildren(builtChildren) else preview,
+      timestampMs = timestampMillis,
+      children = builtChildren,
+    )
+  }
+}
 
 private data class ParsedMessageObject(
   @JvmField val modelId: String?,
@@ -872,6 +1123,8 @@ private data class ParsedClaudeUsage(
   @JvmField val outputTokens: Long,
   @JvmField val cacheReadTokens: Long,
   @JvmField val cacheWriteTokens: Long,
+  @JvmField val cacheWrite5mTokens: Long,
+  @JvmField val cacheWrite1hTokens: Long,
 )
 
 private data class ClaudeAssistantUsage(
@@ -881,6 +1134,8 @@ private data class ClaudeAssistantUsage(
   @JvmField val outputTokens: Long,
   @JvmField val cacheReadTokens: Long,
   @JvmField val cacheWriteTokens: Long,
+  @JvmField val cacheWrite5mTokens: Long,
+  @JvmField val cacheWrite1hTokens: Long,
 )
 
 private data class ParsedMessageContent(
@@ -1080,6 +1335,8 @@ private data class UsageByModelAccumulator(
   @JvmField var outputTokens: Long = 0,
   @JvmField var cacheReadTokens: Long = 0,
   @JvmField var cacheWriteTokens: Long = 0,
+  @JvmField var cacheWrite5mTokens: Long = 0,
+  @JvmField var cacheWrite1hTokens: Long = 0,
   @JvmField var requestCount: Long = 0,
 ) {
   fun add(usage: ClaudeAssistantUsage) {
@@ -1090,6 +1347,8 @@ private data class UsageByModelAccumulator(
     outputTokens += usage.outputTokens
     cacheReadTokens += usage.cacheReadTokens
     cacheWriteTokens += usage.cacheWriteTokens
+    cacheWrite5mTokens += usage.cacheWrite5mTokens
+    cacheWrite1hTokens += usage.cacheWrite1hTokens
     requestCount += 1
   }
 
@@ -1100,6 +1359,8 @@ private data class UsageByModelAccumulator(
       outputTokens = outputTokens,
       cacheReadTokens = cacheReadTokens,
       cacheWriteTokens = cacheWriteTokens,
+      cacheWrite5mTokens = cacheWrite5mTokens,
+      cacheWrite1hTokens = cacheWrite1hTokens,
       requestCount = requestCount,
     )
   }
@@ -1111,6 +1372,8 @@ data class ClaudeUsageSnapshot(
   @JvmField val outputTokens: Long = 0,
   @JvmField val cacheReadTokens: Long = 0,
   @JvmField val cacheWriteTokens: Long = 0,
+  @JvmField val cacheWrite5mTokens: Long = 0,
+  @JvmField val cacheWrite1hTokens: Long = 0,
   @JvmField val requestCount: Long = 0,
 )
 
@@ -1122,9 +1385,27 @@ private fun mergeAssistantUsage(left: ClaudeAssistantUsage, right: ClaudeAssista
     outputTokens = maxOf(left.outputTokens, right.outputTokens),
     cacheReadTokens = maxOf(left.cacheReadTokens, right.cacheReadTokens),
     cacheWriteTokens = maxOf(left.cacheWriteTokens, right.cacheWriteTokens),
+    cacheWrite5mTokens = maxOf(left.cacheWrite5mTokens, right.cacheWrite5mTokens),
+    cacheWrite1hTokens = maxOf(left.cacheWrite1hTokens, right.cacheWrite1hTokens),
   )
 }
 
 private fun MutableMap<String?, UsageByModelAccumulator>.accumulate(usage: ClaudeAssistantUsage) {
+  if (usage.isIgnorableZeroTokenUsage()) return
   getOrPut(usage.modelId) { UsageByModelAccumulator(modelId = usage.modelId) }.add(usage)
+}
+
+private fun ClaudeAssistantUsage.isIgnorableZeroTokenUsage(): Boolean {
+  val hasNoTokens = inputTokens == 0L &&
+                    outputTokens == 0L &&
+                    cacheReadTokens == 0L &&
+                    cacheWriteTokens == 0L &&
+                    cacheWrite5mTokens == 0L &&
+                    cacheWrite1hTokens == 0L
+  if (!hasNoTokens) return false
+
+  return when (modelId?.trim()?.lowercase()) {
+    null, "", "synthetic", "<synthetic>" -> true
+    else -> false
+  }
 }
