@@ -39,6 +39,7 @@ import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetData
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetWithCustomData
 import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileInternalInfo.NonWorkspace
 import kotlinx.coroutines.CoroutineScope
+import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.TimeUnit.MINUTES
 import java.util.concurrent.atomic.AtomicReference
 
@@ -46,6 +47,18 @@ class WorkspaceFileIndexImpl : WorkspaceFileIndexEx, Disposable.Default {
   companion object {
     @JvmField
     val EP_NAME: ExtensionPointName<WorkspaceFileIndexContributor<*>> = ExtensionPointName("com.intellij.workspaceModel.fileIndexContributor")
+
+    /**
+     * Retrieves the [WorkspaceFileSet] corresponding to the given [WorkspaceFileInternalInfo].
+     */
+    @ApiStatus.Internal
+    fun fileSetByWorkspaceInfo(info: WorkspaceFileInternalInfo): WorkspaceFileSet? {
+      return when (info) {
+        is WorkspaceFileSetImpl -> info
+        is MultipleWorkspaceFileSets -> info.find(null)
+        else -> null
+      }
+    }
   }
 
   private val project: Project
@@ -250,8 +263,7 @@ class WorkspaceFileIndexImpl : WorkspaceFileIndexEx, Disposable.Default {
     /* there may be other file sets under this directory; their URLs must be registered in VirtualFileUrlManager,
        so it's enough to process VirtualFileUrls only. */
     val virtualFileUrlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager() as VirtualFileUrlManagerImpl
-    val virtualFileUrl = virtualFileUrlManager.findByUrl(dir.url) ?: return VirtualFileVisitor.SKIP_CHILDREN
-    val processed = virtualFileUrlManager.processChildrenRecursively(virtualFileUrl) { childUrl ->
+    val processed = virtualFileUrlManager.processChildrenRecursively(dir.url) { childUrl ->
       val childFile = childUrl.virtualFile ?: return@processChildrenRecursively TreeNodeProcessingResult.SKIP_CHILDREN
       val isChildInContent = runReadActionBlocking {
         findFileSet(
@@ -291,11 +303,7 @@ class WorkspaceFileIndexImpl : WorkspaceFileIndexEx, Disposable.Default {
       file, honorExclusion, includeContentSets, includeContentNonIndexableSets, includeExternalSets, includeExternalSourceSets,
       includeExternalNonIndexableSets, includeCustomKindSets
     )
-    return when (info) {
-      is WorkspaceFileSetImpl -> info
-      is MultipleWorkspaceFileSets -> info.find(null)
-      else -> null
-    }
+    return fileSetByWorkspaceInfo(info)
   }
 
   override fun findFileSets(
