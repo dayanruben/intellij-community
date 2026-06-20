@@ -6,6 +6,7 @@ targets:
   - ../../pi/sessions/resources/intellij.agent.workbench.pi.sessions.xml
   - ../../pi/sessions-filewatch/resources/intellij.agent.workbench.pi.sessions.filewatch.xml
   - ../../pi/sessions/resources/pi-extension/agent-workbench-extension.ts
+  - ../../pi/sessions/resources/pi-extension/control.ts
   - ../../pi/sessions/src/**/*.kt
   - ../../pi/sessions/testSrc/*.kt
   - ../../sessions-core/src/providers/AgentSessionProviderDescriptor.kt
@@ -30,7 +31,7 @@ Agent Workbench treats Pi as a first-class terminal-backed provider. Pi sessions
   [@test] ../../pi/sessions/testSrc/PiAgentSessionProviderDescriptorTest.kt
   [@test] ../../plugin/testSrc/AgentWorkbenchProviderRegistrationTest.kt
 
-- Pi launch support must use the shared Terminal agent resolver for the `pi` executable without registering Pi as a built-in Terminal agent. New Agent Workbench sessions must launch `pi --extension <agentWorkbenchExtension> --session-id <uuid>` with a provider-allocated session id, while resumed sessions must launch `pi --extension <agentWorkbenchExtension> --session <threadId>`. The launch environment must pass `AGENT_WORKBENCH_PI_THEME_STATE=<stateFile>`, `AGENT_WORKBENCH_PI_STATUS_ENDPOINT=<url>`, and a launch-scoped `AGENT_WORKBENCH_PI_STATUS_TOKEN=<token>` when the Agent Workbench-managed Pi extension is available; the token must be retained only in memory by the IDE bridge, must not be persisted in tab state, and must be invalidated when the live terminal session closes. If the extension cannot be materialized, launch must continue without `--extension`.
+- Pi launch support must use the shared Terminal agent resolver for the `pi` executable without registering Pi as a built-in Terminal agent. New Agent Workbench sessions must launch `pi --extension <agentWorkbenchExtension> --session-id <uuid>` with a provider-allocated session id, while resumed sessions must launch `pi --extension <agentWorkbenchExtension> --session <threadId>`. The launch environment must pass `AGENT_WORKBENCH_PI_THEME_STATE=<stateFile>`, `AGENT_WORKBENCH_PI_STATUS_ENDPOINT=<url>`, `AGENT_WORKBENCH_PI_CONTROL_WS_ENDPOINT=<url>`, and a launch-scoped `AGENT_WORKBENCH_PI_STATUS_TOKEN=<token>` when the Agent Workbench-managed Pi extension is available; the token must be retained only in memory by the IDE bridge, must not be persisted in tab state, and must be invalidated when the live terminal session closes. If the extension cannot be materialized, launch must continue without `--extension`.
   [@test] ../../pi/sessions/testSrc/PiAgentSessionProviderDescriptorTest.kt
 
 - Pi oMLX model support must be enabled by default but controllable through a Pi provider setting under Agent Workbench > Providers. When enabled, Pi discovers local oMLX generation models from PI auth and `.omlx/settings.json`; PI auth is preferred for a matching base URL, but `.omlx/settings.json` must remain a fallback if the PI auth endpoint does not return usable generation models. A selected oMLX model launches with `--provider`, `--model`, and `AGENT_WORKBENCH_PI_OMLX_PROVIDER` metadata so the bundled Pi extension can register the selected local provider. When disabled, model selection is hidden, oMLX catalog refresh is skipped, saved oMLX selections sanitize back to provider default, and launches must not include oMLX registration metadata.
@@ -70,7 +71,7 @@ Agent Workbench treats Pi as a first-class terminal-backed provider. Pi sessions
 - Listed Pi threads must be filtered by the session header `cwd`, use the header `id`, use the latest `session_info.name` as the title, fall back to the first user message, and sort newest first by latest user/assistant activity timestamp, header timestamp, or file mtime.
   [@test] ../../pi/sessions/testSrc/PiSessionSourceTest.kt
 
-- Pi thread outlines must be loaded from persisted JSONL without launching Pi or parsing interactive `/tree` output. Outline loading follows Pi tree semantics by resolving `id`/`parentId`, treating missing and self-parent nodes as roots, sorting siblings by timestamp, promoting visible descendants of hidden bookkeeping nodes, and mapping conversation/tool records to the shared Agent Chat Structure View outline kinds.
+- Pi thread outlines must be loaded from persisted JSONL without launching Pi or parsing interactive `/tree` output. Outline loading follows Pi tree display semantics by showing normal visible conversation/work rows as a chronological top-level timeline, keeping tool details under their owning assistant/work rows, hiding bookkeeping nodes, and mapping conversation/tool records to the shared Agent Chat Structure View outline kinds.
   [@test] ../../pi/sessions/testSrc/PiSessionSourceTest.kt
 
 - Pi thread activity must be inferred from the persisted JSONL leaf. User, tool-result, custom, and assistant `toolUse` leaves are shown
@@ -78,11 +79,14 @@ Agent Workbench treats Pi as a first-class terminal-backed provider. Pi sessions
   `NEEDS_INPUT` from session JSONL until an explicit persisted status signal exists.
   [@test] ../../pi/sessions/testSrc/PiSessionSourceTest.kt
 
-- The bundled Pi extension must also post fast activity hints on Pi lifecycle events to the IDE-local status endpoint. Requests must be `POST` calls from an accessible local origin, authenticated with `Authorization: Bearer <token>`, and accepted only when the token is bound to the posted Pi `sessionId`. Accepted requests emit scoped, thread-scoped `HINTS_CHANGED` activity updates; `done` updates use the shared Done/read semantics. Malformed, oversized, unauthorized, or cross-session requests must not emit updates. JSONL file watching is an opt-in durable fallback for persisted session and archive-state changes, isolated in a separate content module and disabled by default behind `agent.workbench.pi.file.watch.fallback`.
+- The bundled Pi extension must also post fast activity hints on Pi lifecycle events to the IDE-local status endpoint. Requests must be `POST` calls from an accessible local origin, authenticated with `Authorization: Bearer <token>`, and accepted only when the token is bound to the posted Pi `sessionId`. Accepted requests emit scoped, thread-scoped `HINTS_CHANGED` activity updates; `done` updates use the shared Done/read semantics. Malformed, oversized, unauthorized, or cross-session requests must not emit updates. JSONL file watching is an opt-in durable fallback for persisted session changes, isolated in a separate content module and disabled by default behind `agent.workbench.pi.file.watch.fallback`.
   [@test] ../../pi/sessions/testSrc/PiExtensionStatusHttpRequestHandlerTest.kt
   [@test] ../../pi/sessions-filewatch/testSrc/PiSessionFileWatchUpdateEventsContributorTest.kt
 
-- Rename must append a Pi-compatible `session_info` entry to the session JSONL file. Archive and unarchive must persist Agent Workbench sidecar state keyed by normalized project path and session id.
+- The bundled Pi extension must open one private IDE-local WebSocket control connection for live Structure View actions. The WebSocket handshake must be authenticated with `Authorization: Bearer <launchToken>`, the first `hello` frame must bind the connection to the same launch-scoped token/session id/cwd, and every command must target the currently bound session id. The IDE may send `navigateTree` and `forkFromEntry` commands only when the live connection advertises those capabilities. Fork commands must use Pi `fork(entryId, { position: "at", withSession })` and return the fresh replacement session state captured from `withSession`; there is no long-polling, polling, slash-command, or unauthenticated fallback.
+  [@test] ../../pi/sessions/testSrc/PiExtensionControlWebSocketHandlerTest.kt
+
+- Rename must append a Pi-compatible `session_info` entry to the session JSONL file while preserving the thread's current archive state. Archive and unarchive must use the same mechanism by writing a title with or without the shared `[archived] ` prefix; loaded Pi titles must strip that prefix for display and use it only as Agent Workbench archive state.
   [@test] ../../pi/sessions/testSrc/PiSessionSourceTest.kt
 
 ## Theme Mapping Notes

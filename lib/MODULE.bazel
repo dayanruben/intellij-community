@@ -302,20 +302,6 @@ http_file(
 )
 
 http_file(
-    name = "com_github_ajalt_clikt-clikt-jvm-3_5_4_http",
-    downloaded_file_path = "clikt-jvm-3.5.4.jar",
-    sha256 = "b58b4d93fc1870b99b2adb3e16e9c483c8e73766b2944bc3cff805c0be47d19e",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/github/ajalt/clikt/clikt-jvm/3.5.4/clikt-jvm-3.5.4.jar",
-)
-
-http_file(
-    name = "com_github_ajalt_clikt-clikt-jvm-3_5_4-sources_http",
-    downloaded_file_path = "clikt-jvm-3.5.4-sources.jar",
-    sha256 = "0d781e6ded81e3b3bd4a0e8927de34c0c1f5f92e0b176a86a4469417b6729c3c",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/github/ajalt/clikt/clikt-jvm/3.5.4/clikt-jvm-3.5.4-sources.jar",
-)
-
-http_file(
     name = "com_jetbrains_cloudconfig-cloudconfig-2023_9_http",
     downloaded_file_path = "cloudconfig-2023.9.jar",
     sha256 = "e51ee1761684a946b9d5a0caaec2b92cf4598860cf231dbaf495f268fda35d10",
@@ -1090,20 +1076,6 @@ http_file(
     downloaded_file_path = "easymock-5.6.0-sources.jar",
     sha256 = "42a5f5b70878719fe17f1d73486a3e11457ba949359890621d008e3472a187b6",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/easymock/easymock/5.6.0/easymock-5.6.0-sources.jar",
-)
-
-http_file(
-    name = "org_ec4j_core-ec4j-core-0_3_0_http",
-    downloaded_file_path = "ec4j-core-0.3.0.jar",
-    sha256 = "cadef0207077074b11a12be442f89ab6cf93fbc2f848702d9371a9611414d558",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/ec4j/core/ec4j-core/0.3.0/ec4j-core-0.3.0.jar",
-)
-
-http_file(
-    name = "org_ec4j_core-ec4j-core-0_3_0-sources_http",
-    downloaded_file_path = "ec4j-core-0.3.0-sources.jar",
-    sha256 = "68091d2dc8e872b2f4b34c74cf506dc02ad9f8454d3a64adccc8621de1ef1d2b",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/ec4j/core/ec4j-core/0.3.0/ec4j-core-0.3.0-sources.jar",
 )
 
 http_file(
@@ -7988,6 +7960,20 @@ http_file(
 )
 
 http_file(
+    name = "com_github_ajalt_clikt-clikt-jvm-3_5_4_http",
+    downloaded_file_path = "clikt-jvm-3.5.4.jar",
+    sha256 = "b58b4d93fc1870b99b2adb3e16e9c483c8e73766b2944bc3cff805c0be47d19e",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/github/ajalt/clikt/clikt-jvm/3.5.4/clikt-jvm-3.5.4.jar",
+)
+
+http_file(
+    name = "com_github_ajalt_clikt-clikt-jvm-3_5_4-sources_http",
+    downloaded_file_path = "clikt-jvm-3.5.4-sources.jar",
+    sha256 = "0d781e6ded81e3b3bd4a0e8927de34c0c1f5f92e0b176a86a4469417b6729c3c",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/github/ajalt/clikt/clikt-jvm/3.5.4/clikt-jvm-3.5.4-sources.jar",
+)
+
+http_file(
     name = "io_coil-kt_coil3-coil-compose-jvm-3_2_0_http",
     downloaded_file_path = "coil-compose-jvm-3.2.0.jar",
     sha256 = "b135eafcff7545cba7e39c0c8d4e724c0f42e91050b10df5d635a6c7dfd3fb42",
@@ -8741,6 +8727,20 @@ http_file(
     downloaded_file_path = "download-pgp-verifier-1.1.4-sources.jar",
     sha256 = "a74a11f703331f9e36f7554fde6ce6703e680d64000c688bf116d41aa149a466",
     url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/infra/download-pgp-verifier/1.1.4/download-pgp-verifier-1.1.4-sources.jar",
+)
+
+http_file(
+    name = "org_ec4j_core-ec4j-core-0_3_0_http",
+    downloaded_file_path = "ec4j-core-0.3.0.jar",
+    sha256 = "cadef0207077074b11a12be442f89ab6cf93fbc2f848702d9371a9611414d558",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/ec4j/core/ec4j-core/0.3.0/ec4j-core-0.3.0.jar",
+)
+
+http_file(
+    name = "org_ec4j_core-ec4j-core-0_3_0-sources_http",
+    downloaded_file_path = "ec4j-core-0.3.0-sources.jar",
+    sha256 = "68091d2dc8e872b2f4b34c74cf506dc02ad9f8454d3a64adccc8621de1ef1d2b",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/ec4j/core/ec4j-core/0.3.0/ec4j-core-0.3.0-sources.jar",
 )
 
 http_file(
@@ -10729,6 +10729,20 @@ http_file(
     downloaded_file_path = "semver-jvm-2.0.0-sources.jar",
     sha256 = "db8d695e786aeb04af526a37187f6d9d1b5d27d2d936d7fa41b50e211985a548",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/github/z4kn4fein/semver-jvm/2.0.0/semver-jvm-2.0.0-sources.jar",
+)
+
+http_file(
+    name = "com_vdurmont-semver4j-3_1_0_http",
+    downloaded_file_path = "semver4j-3.1.0.jar",
+    sha256 = "0f33724dd012099f0737e3d9203e28f4a804435526998d4f5841993058651cb8",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/vdurmont/semver4j/3.1.0/semver4j-3.1.0.jar",
+)
+
+http_file(
+    name = "com_vdurmont-semver4j-3_1_0-sources_http",
+    downloaded_file_path = "semver4j-3.1.0-sources.jar",
+    sha256 = "d1d07a146c97f73b723b23e9cc8dbd7139231704db9dcbc2363fecf0c12beda1",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/vdurmont/semver4j/3.1.0/semver4j-3.1.0-sources.jar",
 )
 
 http_file(

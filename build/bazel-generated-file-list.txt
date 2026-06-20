@@ -393,6 +393,7 @@ libraries/byte-buddy/agent
 libraries/caffeine
 libraries/classgraph
 libraries/cli-parser
+libraries/clikt
 libraries/coil
 libraries/commons/cli
 libraries/commons/codec
@@ -407,6 +408,7 @@ libraries/compose-foundation-desktop-junit
 libraries/compose-runtime-desktop
 libraries/dokka
 libraries/download-pgp-verifier
+libraries/ec4j/core
 libraries/fastutil
 libraries/groovy
 libraries/groovy/ant
@@ -536,6 +538,7 @@ libraries/rd/swing
 libraries/rd/text
 libraries/rhino
 libraries/semver
+libraries/semver4j
 libraries/skiko
 libraries/snakeyaml
 libraries/snakeyaml-engine
@@ -987,9 +990,11 @@ plugins/agent-workbench/ai-review
 plugins/agent-workbench/chat
 plugins/agent-workbench/claude/common
 plugins/agent-workbench/claude/sessions
+plugins/agent-workbench/cli
 plugins/agent-workbench/codex/chat
 plugins/agent-workbench/codex/common
 plugins/agent-workbench/codex/ide
+plugins/agent-workbench/codex/prompt-suggestions
 plugins/agent-workbench/codex/sessions
 plugins/agent-workbench/common
 plugins/agent-workbench/filewatch
@@ -1225,7 +1230,6 @@ plugins/keymaps/xcode-keymap
 plugins/kotlin
 plugins/kotlin/all-tests
 plugins/kotlin/all-tests-compose
-plugins/kotlin/all-tests-fir
 plugins/kotlin/base/analysis
 plugins/kotlin/base/analysis-api-platform
 plugins/kotlin/base/analysis-api/analysis-api-utils

@@ -665,21 +665,6 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.github.ajalt.clikt/clikt-jvm-3.5.4.jar_copy",
-    src = "@com_github_ajalt_clikt-clikt-jvm-3_5_4_http//file",
-    out = "com.github.ajalt.clikt/clikt-jvm-3.5.4.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "clikt",
-    jar = "@com_github_ajalt_clikt-clikt-jvm-3_5_4_http//file",
-    source_jar = "@com_github_ajalt_clikt-clikt-jvm-3_5_4-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
     name = "com.jetbrains.cloudconfig/cloudconfig-2023.9.jar_copy",
     src = "@com_jetbrains_cloudconfig-cloudconfig-2023_9_http//file",
     out = "com.jetbrains.cloudconfig/cloudconfig-2023.9.jar",
@@ -1602,21 +1587,6 @@ jvm_import(
     name = "easymock",
     jar = "@org_easymock-easymock-5_6_0_http//file",
     source_jar = "@org_easymock-easymock-5_6_0-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "org.ec4j.core/ec4j-core-0.3.0.jar_copy",
-    src = "@org_ec4j_core-ec4j-core-0_3_0_http//file",
-    out = "org.ec4j.core/ec4j-core-0.3.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "ec4j-core",
-    jar = "@org_ec4j_core-ec4j-core-0_3_0_http//file",
-    source_jar = "@org_ec4j_core-ec4j-core-0_3_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -10388,6 +10358,21 @@ jvm_import(
 )
 
 copy_file(
+    name = "com.github.ajalt.clikt/clikt-jvm-3.5.4.jar_copy",
+    src = "@com_github_ajalt_clikt-clikt-jvm-3_5_4_http//file",
+    out = "com.github.ajalt.clikt/clikt-jvm-3.5.4.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-clikt-clikt",
+    jar = "@com_github_ajalt_clikt-clikt-jvm-3_5_4_http//file",
+    source_jar = "@com_github_ajalt_clikt-clikt-jvm-3_5_4-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
     name = "io.coil-kt.coil3/coil-compose-jvm-3.2.0.jar_copy",
     src = "@io_coil-kt_coil3-coil-compose-jvm-3_2_0_http//file",
     out = "io.coil-kt.coil3/coil-compose-jvm-3.2.0.jar",
@@ -11273,6 +11258,21 @@ jvm_import(
     name = "libraries-download-pgp-verifier-download-pgp-verifier",
     jar = "@com_jetbrains_infra-download-pgp-verifier-1_1_4_http//file",
     source_jar = "@com_jetbrains_infra-download-pgp-verifier-1_1_4-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.ec4j.core/ec4j-core-0.3.0.jar_copy",
+    src = "@org_ec4j_core-ec4j-core-0_3_0_http//file",
+    out = "org.ec4j.core/ec4j-core-0.3.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-ec4j-core-ec4j-core",
+    jar = "@org_ec4j_core-ec4j-core-0_3_0_http//file",
+    source_jar = "@org_ec4j_core-ec4j-core-0_3_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -13690,6 +13690,21 @@ jvm_import(
     name = "libraries-semver-io-github-z4kn4fein-semver-jvm",
     jar = "@io_github_z4kn4fein-semver-jvm-2_0_0_http//file",
     source_jar = "@io_github_z4kn4fein-semver-jvm-2_0_0-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "com.vdurmont/semver4j-3.1.0.jar_copy",
+    src = "@com_vdurmont-semver4j-3_1_0_http//file",
+    out = "com.vdurmont/semver4j-3.1.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-semver4j-semver4j",
+    jar = "@com_vdurmont-semver4j-3_1_0_http//file",
+    source_jar = "@com_vdurmont-semver4j-3_1_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 

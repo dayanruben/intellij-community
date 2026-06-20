@@ -19,6 +19,7 @@
   <!--suppress PluginXmlValidity -->
   <vendor>Vladimir Krivosheev</vendor>
   <content namespace="agent-workbench">
+    <module name="intellij.agent.workbench.cli"/>
     <module name="intellij.agent.workbench.common"/>
     <module name="intellij.agent.workbench.json"/>
     <module name="intellij.agent.workbench.claude.common"/>
@@ -26,6 +27,7 @@
     <module name="intellij.agent.workbench.codex.common"/>
     <module name="intellij.agent.workbench.codex.chat"/>
     <module name="intellij.agent.workbench.codex.ide"/>
+    <module name="intellij.agent.workbench.codex.prompt.suggestions"/>
     <module name="intellij.agent.workbench.codex.sessions"/>
     <module name="intellij.agent.workbench.junie.common"/>
     <module name="intellij.agent.workbench.junie.sessions"/>
@@ -59,9 +61,6 @@
   </content>
 
   <extensions defaultExtensionNs="com.intellij">
-    <registryKey key="agent.workbench.semantic.proposed.plan.navigation"
-                    defaultValue="false"
-                    description="Highlight and navigate proposed plans in Agent Workbench chat tabs"/>
     <registryKey key="agent.workbench.use.monochrome.icons"
                  defaultValue="true"
                  description="Use monochrome line icons on main toolbar buttons, action buttons, and status indicators in Agent Workbench"

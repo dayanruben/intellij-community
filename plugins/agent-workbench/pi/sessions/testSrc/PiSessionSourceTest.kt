@@ -7,6 +7,7 @@ import com.intellij.agent.workbench.common.session.AgentSessionOutlineItemKind
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.junit5.RegistryKey
 import com.intellij.testFramework.junit5.TestApplication
 import kotlinx.coroutines.Dispatchers
@@ -248,10 +249,15 @@ class PiSessionSourceTest {
       assertThat(outline.threadId).isEqualTo("session-outline")
       assertThat(outline.title).isEqualTo("Named outline")
       assertThat(outline.updatedAt).isEqualTo(3_000L)
-      val userPrompt = outline.items.single()
+      assertThat(outline.items.map { it.kind }).containsExactly(
+        AgentSessionOutlineItemKind.USER_PROMPT,
+        AgentSessionOutlineItemKind.ASSISTANT_RESPONSE,
+      )
+      val userPrompt = outline.items[0]
       assertThat(userPrompt.kind).isEqualTo(AgentSessionOutlineItemKind.USER_PROMPT)
       assertThat(userPrompt.preview).isEqualTo("Fix flaky test")
-      val assistant = userPrompt.children.single()
+      assertThat(userPrompt.children).isEmpty()
+      val assistant = outline.items[1]
       assertThat(assistant.kind).isEqualTo(AgentSessionOutlineItemKind.ASSISTANT_RESPONSE)
       assertThat(assistant.title).isEqualTo("I will inspect the failure.")
       assertThat(assistant.children.map { it.kind }).containsExactly(
@@ -265,7 +271,80 @@ class PiSessionSourceTest {
   }
 
   @Test
-  fun `archive and unarchive use sidecar state`() {
+  fun `forks outline item from local session file when live control is unavailable`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-local-fork")
+      val sessionDir = tempDir.resolve("local-fork-sessions")
+      writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-local-fork",
+        cwd = projectDir,
+        piUserMessageEntry(id = "user-first", content = "First task", timestamp = 1_000L),
+        piAssistantTextMessageEntry(id = "assistant-first", parentId = "user-first", content = "First answer", timestamp = 2_000L),
+        piUserMessageEntry(id = "user-second", content = "Second task", timestamp = 3_000L, parentId = "assistant-first"),
+        piAssistantTextMessageEntry(id = "assistant-second", parentId = "user-second", content = "Second answer", timestamp = 4_000L),
+      )
+      val source = sourceFor(sessionDir)
+
+      assertThat(source.canForkThreadFromOutlineItem(projectDir.toString(),
+                                                     "session-local-fork",
+                                                     "assistant-first",
+                                                     null,
+                                                     "tab-1")).isTrue()
+
+      val forkResult = source.forkThreadFromOutlineItem(
+        project = ProjectManager.getInstance().defaultProject,
+        path = projectDir.toString(),
+        threadId = "session-local-fork",
+        itemId = "assistant-first",
+        subAgentId = null,
+        tabKey = "tab-1",
+      )
+
+      val forkedThread = checkNotNull(forkResult?.thread)
+      assertThat(forkedThread.provider).isEqualTo(AgentSessionProvider.PI)
+      assertThat(forkedThread.id).isNotEqualTo("session-local-fork")
+      assertThat(forkedThread.title).isEqualTo("First task")
+      val forkedOutline = source.loadThreadOutline(projectDir.toString(), forkedThread.id, null)
+      assertThat(forkedOutline).isNotNull
+      assertThat(forkedOutline!!.items.map { it.id }).containsExactly("user-first", "assistant-first")
+    }
+  }
+
+  @Test
+  fun `flattens linear pi conversation parent chain in outline`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-linear-outline")
+      val sessionDir = tempDir.resolve("linear-outline-sessions")
+      writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-linear-outline",
+        cwd = projectDir,
+        piModelChangeEntry(id = "model-first", parentId = null),
+        piUserMessageEntry(id = "user-first", content = "2 + 2?", timestamp = 1_000L, parentId = "model-first"),
+        piAssistantTextMessageEntry(id = "assistant-first", parentId = "user-first", content = "2 + 2 = 4", timestamp = 2_000L),
+        piModelChangeEntry(id = "model-second", parentId = "assistant-first"),
+        piUserMessageEntry(id = "user-second", content = "5 + 5?=", timestamp = 3_000L, parentId = "model-second"),
+        piAssistantTextMessageEntry(id = "assistant-second", parentId = "user-second", content = "5 + 5 = 10", timestamp = 4_000L),
+      )
+      val source = sourceFor(sessionDir)
+
+      val outline = source.loadThreadOutline(projectDir.toString(), "session-linear-outline", null)
+
+      assertThat(outline).isNotNull
+      assertThat(outline!!.items.map { it.kind }).containsExactly(
+        AgentSessionOutlineItemKind.USER_PROMPT,
+        AgentSessionOutlineItemKind.ASSISTANT_RESPONSE,
+        AgentSessionOutlineItemKind.USER_PROMPT,
+        AgentSessionOutlineItemKind.ASSISTANT_RESPONSE,
+      )
+      assertThat(outline.items.map { it.preview }).containsExactly("2 + 2?", "2 + 2 = 4", "5 + 5?=", "5 + 5 = 10")
+      assertThat(outline.items.flatMap { it.children }).isEmpty()
+    }
+  }
+
+  @Test
+  fun `archive and unarchive use session info title prefix`() {
     runBlocking(Dispatchers.Default) {
       val projectDir = tempDir.resolve("project-archive")
       val sessionDir = tempDir.resolve("archive-sessions")
@@ -283,16 +362,48 @@ class PiSessionSourceTest {
       assertThat(source.listThreadsFromClosedProject(projectDir.toString())).isEmpty()
       val archivedThread = source.listArchivedThreadsFromClosedProject(projectDir.toString()).single()
       assertThat(archivedThread.id).isEqualTo("session-archive")
+      assertThat(archivedThread.title).isEqualTo("Archive me")
       assertThat(archivedThread.archived).isTrue()
-      assertThat(archivedThread.updatedAt).isEqualTo(4_000L)
+      assertThat(archivedThread.updatedAt).isEqualTo(3_000L)
+      val sessionFile = sessionDir.resolve("2026-01-01T00-00-00-000Z_session-archive.jsonl")
+      assertThat(Files.readString(sessionFile)).contains("\"name\":\"[archived] Archive me\"")
 
       now = 5_000L
       assertThat(store.unarchiveThread(projectDir.toString(), "session-archive")).isTrue()
       val activeThread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+      assertThat(activeThread.title).isEqualTo("Archive me")
       assertThat(activeThread.archived).isFalse()
-      assertThat(activeThread.updatedAt).isEqualTo(5_000L)
+      assertThat(activeThread.updatedAt).isEqualTo(3_000L)
       assertThat(source.listArchivedThreadsFromClosedProject(projectDir.toString())).isEmpty()
-      assertThat(lineCount(sessionDir.resolve("agent-workbench-archive-state.jsonl"))).isEqualTo(2)
+      assertThat(Files.readString(sessionFile)).contains("\"name\":\"Archive me\"")
+      assertThat(Files.exists(sessionDir.resolve("agent-workbench-archive-state.jsonl"))).isFalse()
+    }
+  }
+
+  @Test
+  fun `archive and unarchive preserve processing activity`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-archive-processing")
+      val sessionDir = tempDir.resolve("archive-processing-sessions")
+      writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-archive-processing",
+        cwd = projectDir,
+        piUserMessageEntry(id = "user-archive-processing", content = "Still running", timestamp = 3_000L),
+      )
+      var now = 4_000L
+      val store = PiSessionStore(sessionDirResolver = { sessionDir }, timeProvider = { now })
+      val source = PiSessionSource(sessionStore = store)
+
+      assertThat(source.listThreadsFromClosedProject(projectDir.toString()).single().activity).isEqualTo(AgentThreadActivity.PROCESSING)
+      assertThat(store.archiveThread(projectDir.toString(), "session-archive-processing")).isTrue()
+      val archivedThread = source.listArchivedThreadsFromClosedProject(projectDir.toString()).single()
+      assertThat(archivedThread.activity).isEqualTo(AgentThreadActivity.PROCESSING)
+
+      now = 5_000L
+      assertThat(store.unarchiveThread(projectDir.toString(), "session-archive-processing")).isTrue()
+      val activeThread = source.listThreadsFromClosedProject(projectDir.toString()).single()
+      assertThat(activeThread.activity).isEqualTo(AgentThreadActivity.PROCESSING)
     }
   }
 
@@ -318,6 +429,30 @@ class PiSessionSourceTest {
       assertThat(lines.last()).contains("\"type\":\"session_info\"")
       assertThat(lines.last()).contains("\"parentId\":\"user-rename\"")
       assertThat(lines.last()).contains("\"name\":\"New title\"")
+    }
+  }
+
+  @Test
+  fun `rename preserves pi archive title prefix`() {
+    runBlocking(Dispatchers.Default) {
+      val projectDir = tempDir.resolve("project-rename-archived")
+      val sessionDir = tempDir.resolve("rename-archived-sessions")
+      val sessionFile = writePiSession(
+        sessionDir = sessionDir,
+        sessionId = "session-rename-archived",
+        cwd = projectDir,
+        piUserMessageEntry(id = "user-rename-archived", content = "Old title", timestamp = 3_000L),
+      )
+      val store = PiSessionStore(sessionDirResolver = { sessionDir }, timeProvider = { 4_000L })
+      val source = PiSessionSource(sessionStore = store)
+
+      assertThat(store.archiveThread(projectDir.toString(), "session-rename-archived")).isTrue()
+      assertThat(store.renameThread(projectDir.toString(), "session-rename-archived", "New title")).isTrue()
+
+      val archivedThread = source.listArchivedThreadsFromClosedProject(projectDir.toString()).single()
+      assertThat(archivedThread.title).isEqualTo("New title")
+      assertThat(archivedThread.archived).isTrue()
+      assertThat(Files.readAllLines(sessionFile).last()).contains("\"name\":\"[archived] New title\"")
     }
   }
 
@@ -508,6 +643,39 @@ class PiSessionSourceTest {
     assertThat(envConfigured).isEqualTo(envSessionDir)
   }
 
+  @Test
+  fun `outline fork action is shown only for concrete top level items`() {
+    val source = sourceFor(tempDir.resolve("sessions"))
+
+    assertThat(
+      source.canShowThreadOutlineForkAction(
+        path = "/work/project-a",
+        threadId = "thread-1",
+        itemId = "entry-1",
+        subAgentId = null,
+        tabKey = "tab-1",
+      )
+    ).isTrue()
+    assertThat(
+      source.canShowThreadOutlineForkAction(
+        path = "/work/project-a",
+        threadId = "thread-1",
+        itemId = " ",
+        subAgentId = null,
+        tabKey = "tab-1",
+      )
+    ).isFalse()
+    assertThat(
+      source.canShowThreadOutlineForkAction(
+        path = "/work/project-a",
+        threadId = "thread-1",
+        itemId = "entry-1",
+        subAgentId = "alpha",
+        tabKey = "tab-1",
+      )
+    ).isFalse()
+  }
+
   private fun sourceFor(sessionDir: Path): PiSessionSource {
     return PiSessionSource(sessionStore = PiSessionStore(sessionDirResolver = { sessionDir }))
   }
@@ -525,17 +693,23 @@ class PiSessionSourceTest {
     Files.writeString(sessionFile, entry + "\n", StandardOpenOption.APPEND)
   }
 
-  private fun lineCount(path: Path): Int {
-    return Files.readString(path).lineSequence().count { it.isNotBlank() }
-  }
 }
 
-private fun piUserMessageEntry(id: String, content: String, timestamp: Long): String {
+private fun piUserMessageEntry(id: String, content: String, timestamp: Long, parentId: String? = null): String {
   return piMessageEntry(
     id = id,
-    parentId = null,
+    parentId = parentId,
     entryTimestamp = "2026-01-01T00:00:02Z",
     messageFields = "\"role\":\"user\",\"content\":${content.jsonString()},\"timestamp\":$timestamp",
+  )
+}
+
+private fun piAssistantTextMessageEntry(id: String, parentId: String, content: String, timestamp: Long): String {
+  return piMessageEntry(
+    id = id,
+    parentId = parentId,
+    entryTimestamp = "2026-01-01T00:00:03Z",
+    messageFields = "\"role\":\"assistant\",\"content\":${content.jsonString()},\"timestamp\":$timestamp",
   )
 }
 
@@ -595,6 +769,15 @@ private fun piLabelEntry(): String {
     "\"parentId\":\"user-outline\"",
     "\"timestamp\":\"2026-01-01T00:00:02Z\"",
     "\"label\":\"hidden\"",
+  ).joinToString(separator = ",", prefix = "{", postfix = "}")
+}
+
+private fun piModelChangeEntry(id: String, parentId: String?): String {
+  return listOf(
+    "\"type\":\"model_change\"",
+    "\"id\":${id.jsonString()}",
+    "\"parentId\":${parentId?.jsonString() ?: "null"}",
+    "\"timestamp\":\"2026-01-01T00:00:02Z\"",
   ).joinToString(separator = ",", prefix = "{", postfix = "}")
 }
 

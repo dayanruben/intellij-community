@@ -28,14 +28,20 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 
 @TestApplication
 @Timeout(value = 2, unit = TimeUnit.MINUTES)
 class ClaudeAgentSessionProviderDescriptorTest {
+  @TempDir
+  lateinit var tempDir: Path
+
   private val bridge = ClaudeAgentSessionProviderDescriptor(
     executableResolver = { ClaudeCliSupport.CLAUDE_COMMAND },
+    hookSettingsProvider = { TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT },
   )
 
   private fun assertValidUuid(sessionId: String?): String {
@@ -47,15 +53,43 @@ class ClaudeAgentSessionProviderDescriptorTest {
   @Test
   fun buildResumeLaunchSpec(): Unit = runBlocking(Dispatchers.Default) {
     assertThat(bridge.buildResumeLaunchSpec("session-1").command)
-      .containsExactly("claude", "--resume", "session-1")
+      .containsExactly("claude", "--resume", "session-1", "--settings", TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT)
     assertThat(bridge.buildResumeLaunchSpec("session-1").envVariables)
       .containsExactlyEntriesOf(mapOf("DISABLE_AUTOUPDATER" to "1"))
   }
 
   @Test
+  fun buildForkResumeLaunchSpec() {
+    val launchSpec = buildClaudeForkResumeLaunchSpec(
+      sourceSessionId = "source-session",
+      forkSessionId = "fork-session",
+      executable = "claude",
+      hookSettingsArgument = TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+    )
+
+    assertThat(launchSpec.command)
+      .containsExactly("claude",
+                       "--resume",
+                       "source-session",
+                       "--fork-session",
+                       "--session-id",
+                       "fork-session",
+                       "--settings",
+                       TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT)
+    assertThat(launchSpec.envVariables)
+      .containsExactlyEntriesOf(mapOf("DISABLE_AUTOUPDATER" to "1"))
+    assertThat(launchSpec.preallocatedSessionId).isEqualTo("fork-session")
+  }
+
+  @Test
   fun buildYoloResumeLaunchSpec(): Unit = runBlocking(Dispatchers.Default) {
     assertThat(bridge.buildResumeLaunchSpec("session-1", AgentSessionLaunchMode.YOLO).command)
-      .containsExactly("claude", "--resume", "session-1", "--dangerously-skip-permissions")
+      .containsExactly("claude",
+                       "--resume",
+                       "session-1",
+                       "--dangerously-skip-permissions",
+                       "--settings",
+                       TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT)
     assertThat(bridge.buildResumeLaunchSpec("session-1", AgentSessionLaunchMode.YOLO).envVariables)
       .containsExactlyEntriesOf(mapOf("DISABLE_AUTOUPDATER" to "1"))
   }
@@ -66,7 +100,12 @@ class ClaudeAgentSessionProviderDescriptorTest {
     val sessionId = assertValidUuid(launchSpec.preallocatedSessionId)
 
     assertThat(launchSpec.command)
-      .containsExactly("claude", "--dangerously-skip-permissions", "--session-id", sessionId)
+      .containsExactly("claude",
+                       "--dangerously-skip-permissions",
+                       "--session-id",
+                       sessionId,
+                       "--settings",
+                       TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT)
   }
 
   @Test
@@ -75,7 +114,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
     val sessionId = assertValidUuid(launchSpec.preallocatedSessionId)
 
     assertThat(launchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId)
+      .containsExactly("claude", "--session-id", sessionId, "--settings", TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT)
   }
 
   @Test
@@ -86,7 +125,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
     val updatedLaunchSpec = bridge.applyGenerationSettings(launchSpec, AgentPromptGenerationSettings.AUTO, STANDARD_INITIAL_MESSAGE_PLAN)
 
     assertThat(updatedLaunchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId)
+      .containsExactly("claude", "--session-id", sessionId, "--settings", TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT)
     assertThat(updatedLaunchSpec.preallocatedSessionId).isEqualTo(sessionId)
   }
 
@@ -102,7 +141,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
     )
 
     assertThat(updatedLaunchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId, "--effort", "max")
+      .containsExactly("claude", "--session-id", sessionId, "--settings", TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT, "--effort", "max")
     assertThat(updatedLaunchSpec.preallocatedSessionId).isEqualTo(sessionId)
   }
 
@@ -118,7 +157,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
     )
 
     assertThat(updatedLaunchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId, "--model", "sonnet")
+      .containsExactly("claude", "--session-id", sessionId, "--settings", TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT, "--model", "sonnet")
     assertThat(updatedLaunchSpec.preallocatedSessionId).isEqualTo(sessionId)
   }
 
@@ -134,7 +173,15 @@ class ClaudeAgentSessionProviderDescriptorTest {
     )
 
     assertThat(updatedLaunchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId, "--model", "opus", "--effort", "high")
+      .containsExactly("claude",
+                       "--session-id",
+                       sessionId,
+                       "--settings",
+                       TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+                       "--model",
+                       "opus",
+                       "--effort",
+                       "high")
     assertThat(updatedLaunchSpec.preallocatedSessionId).isEqualTo(sessionId)
   }
 
@@ -150,7 +197,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
     )
 
     assertThat(updatedLaunchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId)
+      .containsExactly("claude", "--session-id", sessionId, "--settings", TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT)
     assertThat(updatedLaunchSpec.preallocatedSessionId).isEqualTo(sessionId)
   }
 
@@ -176,6 +223,80 @@ class ClaudeAgentSessionProviderDescriptorTest {
   fun replaceOrAddModelReplacesExistingFlag() {
     assertThat(replaceOrAddModel(listOf("claude", "--model", "opus", "--session-id", "session-1"), "sonnet"))
       .containsExactly("claude", "--model", "sonnet", "--session-id", "session-1")
+  }
+
+  @Test
+  fun addClaudeHookSettingsInsertsBeforePromptSeparator() {
+    assertThat(
+      addClaudeHookSettings(
+        listOf("claude", "--session-id", "session-1", "--", "Refactor this"),
+        TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+      )
+    ).containsExactly("claude",
+                      "--session-id",
+                      "session-1",
+                      "--settings",
+                      TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+                      "--",
+                      "Refactor this")
+  }
+
+  @Test
+  fun addClaudeHookSettingsReplacesExistingSettingsBeforePromptSeparator() {
+    assertThat(
+      addClaudeHookSettings(
+        listOf("claude", "--settings", "/tmp/old-settings.json", "--", "Refactor this"),
+        TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+      )
+    ).containsExactly("claude",
+                      "--settings",
+                      TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+                      "--",
+                      "Refactor this")
+  }
+
+  @Test
+  fun addClaudeHookSettingsSkipsHookDisabledModes() {
+    assertThat(
+      addClaudeHookSettings(
+        listOf("claude", "--bare", "--session-id", "session-1"),
+        TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+      )
+    )
+      .containsExactly("claude", "--bare", "--session-id", "session-1")
+    assertThat(
+      addClaudeHookSettings(
+        listOf("claude", "--safe-mode", "--session-id", "session-1"),
+        TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+      )
+    )
+      .containsExactly("claude", "--safe-mode", "--session-id", "session-1")
+  }
+
+  @Test
+  fun recordTerminalSessionClosedInvalidatesClaudeHookToken() {
+    val sessionId = "session-closed-hook"
+    val settings = checkNotNull(
+      ClaudeHookBridge.createLaunchSettings(
+        sessionId = sessionId,
+        portProvider = { 4321 },
+        settingsDirectoryProvider = { tempDir.resolve("hook-settings") },
+      )
+    )
+
+    try {
+      bridge.recordTerminalSessionClosed(path = "/work/project", threadId = sessionId)
+
+      assertThat(
+        ClaudeHookBridge.handleHookRequest(
+          token = settings.token,
+          content = """{"hook_event_name":"PreToolUse","session_id":"$sessionId","cwd":"/work/project","tool_name":"AskUserQuestion","tool_input":{}}""",
+        )
+      ).isEqualTo(ClaudeHookRequestResult.UNAUTHORIZED)
+    }
+    finally {
+      ClaudeHookBridge.invalidateSession(sessionId)
+    }
   }
 
   @Test
@@ -209,7 +330,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
     val sessionId = checkNotNull(baseLaunchSpec.preallocatedSessionId)
 
     assertThat(launchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId, "--", "Refactor this")
+      .containsExactly("claude", "--session-id", sessionId, "--settings", TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT, "--", "Refactor this")
     assertThat(launchSpec.preallocatedSessionId).isEqualTo(sessionId)
   }
 
@@ -227,7 +348,15 @@ class ClaudeAgentSessionProviderDescriptorTest {
     val sessionId = checkNotNull(baseLaunchSpec.preallocatedSessionId)
 
     assertThat(launchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId, "--permission-mode", "plan", "--", "Refactor this")
+      .containsExactly("claude",
+                       "--session-id",
+                       sessionId,
+                       "--settings",
+                       TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+                       "--permission-mode",
+                       "plan",
+                       "--",
+                       "Refactor this")
     assertThat(launchSpec.preallocatedSessionId).isEqualTo(sessionId)
   }
 
@@ -242,7 +371,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
     val sessionId = checkNotNull(baseLaunchSpec.preallocatedSessionId)
 
     assertThat(launchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId, "--permission-mode", "plan")
+      .containsExactly("claude", "--session-id", sessionId, "--settings", TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT, "--permission-mode", "plan")
     assertThat(launchSpec.preallocatedSessionId).isEqualTo(sessionId)
   }
 
@@ -257,7 +386,13 @@ class ClaudeAgentSessionProviderDescriptorTest {
     val sessionId = checkNotNull(baseLaunchSpec.preallocatedSessionId)
 
     assertThat(launchSpec.command)
-      .containsExactly("claude", "--session-id", sessionId, "--", "/planner Refactor this")
+      .containsExactly("claude",
+                       "--session-id",
+                       sessionId,
+                       "--settings",
+                       TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT,
+                       "--",
+                       "/planner Refactor this")
     assertThat(launchSpec.preallocatedSessionId).isEqualTo(sessionId)
   }
 
@@ -271,7 +406,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
     )
 
     assertThat(launchSpec.command)
-      .containsExactly("claude", "--resume", "session-1", "--", "-summarize\nchanges")
+      .containsExactly("claude", "--resume", "session-1", "--settings", TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT, "--", "-summarize\nchanges")
     assertThat(launchSpec.envVariables)
       .containsExactlyEntriesOf(mapOf("DISABLE_AUTOUPDATER" to "1"))
   }
@@ -448,6 +583,7 @@ class ClaudeAgentSessionProviderDescriptorTest {
 }
 
 private val STANDARD_INITIAL_MESSAGE_PLAN: AgentInitialMessagePlan = AgentInitialMessagePlan(message = "Refactor this")
+private const val TEST_CLAUDE_HOOK_SETTINGS_ARGUMENT: String = "/tmp/agent-workbench-claude-hooks.json"
 
 private fun emptyBackend(): ClaudeSessionBackend {
   return object : ClaudeSessionBackend {

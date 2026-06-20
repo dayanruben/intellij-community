@@ -2,12 +2,16 @@
 package com.intellij.agent.workbench.chat
 
 import com.intellij.icons.AllIcons
+import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
 import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.AgentThreadActivityReport
 import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
 import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
+import com.intellij.agent.workbench.common.session.AgentSessionOutlineItem
+import com.intellij.agent.workbench.common.session.AgentSessionOutlineItemKind
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.agent.workbench.common.session.AgentSessionThreadOutline
 import com.intellij.agent.workbench.common.withAgentThreadActivityBadge
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentation
@@ -15,38 +19,44 @@ import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentation
 import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationModel
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineItem
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineItemKind
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineForkResult
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadOutline
 import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
 import com.intellij.agent.workbench.sessions.core.providers.agentSessionThreadStatusIcon
-import com.intellij.ide.projectView.PresentationData
-import com.intellij.ide.structureView.StructureViewModel
-import com.intellij.ide.structureView.StructureViewTreeElement
-import com.intellij.ide.structureView.TreeBasedStructureViewBuilder
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileEditorManagerKeys
+import com.intellij.openapi.fileEditor.ex.StructureViewFileEditorProvider
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
+import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.ui.IconManager
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.text.DateFormatUtil
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import org.assertj.core.api.Assertions.assertThat
 import org.jdom.Element
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.Icon
 
 @TestApplication
@@ -357,6 +367,9 @@ class AgentChatFileEditorProviderTest {
       .contains(
         "serviceImplementation=\"com.intellij.agent.workbench.chat.AgentChatOpenTopLevelThreadDispatchService\"/>",
       )
+      .contains("AgentWorkbenchSessions.ThreadOutline.Popup")
+      .contains(AgentWorkbenchActionIds.Sessions.ThreadOutline.START_NEW_CONVERSATION_FROM_HERE)
+      .doesNotContain("StructureViewPopupMenu")
   }
 
   @Test
@@ -408,197 +421,524 @@ class AgentChatFileEditorProviderTest {
   }
 
   @Test
-  fun exposesStructureViewBuilderOnlyForConcreteChatFiles() {
-    val project = ProjectManager.getInstance().defaultProject
-    val provider = AgentChatFileEditorProvider()
-    val concreteFile = AgentChatVirtualFile(
-      projectPath = "/work/project-a",
-      threadIdentity = "CODEX:thread-42",
-      shellCommand = emptyList(),
-      threadId = "thread-42",
-      threadTitle = "Implement parser",
-      subAgentId = null,
-    )
-    val pendingFile = AgentChatVirtualFile(
-      projectPath = "/work/project-a",
-      threadIdentity = "CODEX:new-thread",
-      shellCommand = emptyList(),
-      threadId = "new-thread",
-      threadTitle = "Pending thread",
-      subAgentId = null,
-    )
-
-    assertThat(provider.getStructureViewBuilder(project, concreteFile)).isNotNull
-    assertThat(provider.getStructureViewBuilder(project, pendingFile)).isNull()
+  fun doesNotExposePlatformStructureViewForChatFiles() {
+    assertThat(AgentChatFileEditorProvider()).isNotInstanceOf(StructureViewFileEditorProvider::class.java)
   }
 
   @Test
-  fun structureViewNotifiesLateListenersAfterOutlineIsLoaded() = timeoutRunBlocking {
-    val project = ProjectManager.getInstance().defaultProject
-    val provider = AgentChatFileEditorProvider()
-    val file = AgentChatVirtualFile(
-      projectPath = "/work/project-a",
-      threadIdentity = "CODEX:thread-42",
-      shellCommand = emptyList(),
-      threadId = "thread-42",
-      threadTitle = "Resolve the current merge conflicts",
-      subAgentId = null,
-    )
-    val outlineLoadGate = CompletableDeferred<Unit>()
-    val outline = AgentSessionThreadOutline(
-      provider = AgentSessionProvider.CODEX,
-      threadId = "thread-42",
-      title = "Resolve the current merge conflicts",
-      updatedAt = 1L,
-      items = listOf(
-        AgentSessionOutlineItem(
-          id = "root-work",
-          kind = AgentSessionOutlineItemKind.AGENT_WORK,
-          title = "Resolve the current merge conflicts",
-          children = listOf(
-            AgentSessionOutlineItem(
-              id = "user-1",
-              kind = AgentSessionOutlineItemKind.USER_PROMPT,
-              title = "My prompt",
-              preview = "Resolve the current merge conflicts",
-            ),
-            AgentSessionOutlineItem(
-              id = "work-1",
-              kind = AgentSessionOutlineItemKind.AGENT_WORK,
-              title = "I'll inspect the Git operation state",
-              timestampMs = 1_000L,
-              children = listOf(
-                AgentSessionOutlineItem(
-                  id = "tool-1",
-                  kind = AgentSessionOutlineItemKind.TOOL_CALL,
-                  title = "git status",
-                  preview = "Updated at 10.06.26, 10:58",
+  fun threadOutlinePanelLoadsOutlineAndUpdatesModel() {
+    timeoutRunBlocking {
+      val project = ProjectManager.getInstance().defaultProject
+      val file = AgentChatVirtualFile(
+        projectPath = "/work/project-a",
+        threadIdentity = "CODEX:thread-42",
+        shellCommand = emptyList(),
+        threadId = "thread-42",
+        threadTitle = "Resolve the current merge conflicts",
+        subAgentId = null,
+      )
+      val outlineLoadGate = CompletableDeferred<Unit>()
+      val outline = AgentSessionThreadOutline(
+        provider = AgentSessionProvider.CODEX,
+        threadId = "thread-42",
+        title = "Resolve the current merge conflicts",
+        updatedAt = 1L,
+        items = listOf(
+          AgentSessionOutlineItem(
+            id = "root-work",
+            kind = AgentSessionOutlineItemKind.AGENT_WORK,
+            title = "Resolve the current merge conflicts",
+            children = listOf(
+              AgentSessionOutlineItem(
+                id = "user-1",
+                kind = AgentSessionOutlineItemKind.USER_PROMPT,
+                title = "",
+                preview = "Resolve the current merge conflicts",
+                timestampMs = 2_000L,
+              ),
+              AgentSessionOutlineItem(
+                id = "work-1",
+                kind = AgentSessionOutlineItemKind.ASSISTANT_RESPONSE,
+                title = "I'll inspect the Git operation state",
+                timestampMs = 1_000L,
+                children = listOf(
+                  AgentSessionOutlineItem(
+                    id = "tool-1",
+                    kind = AgentSessionOutlineItemKind.TOOL_CALL,
+                    title = "git status",
+                    preview = "Updated at 10.06.26, 10:58",
+                  ),
                 ),
               ),
             ),
           ),
         ),
-      ),
-    )
-    var loadCalls = 0
-    val bridge = ChatTestProviderBridge(
-      provider = AgentSessionProvider.CODEX,
-      icon = EmptyIcon.create(18, 18),
-      outlineLoader = { _, _, _ ->
-        loadCalls++
-        outlineLoadGate.await()
-        outline
-      },
-    )
+      )
+      var loadCalls = 0
+      val bridge = ChatTestProviderBridge(
+        provider = AgentSessionProvider.CODEX,
+        icon = EmptyIcon.create(18, 18),
+        outlineLoader = { _, _, _ ->
+          loadCalls++
+          outlineLoadGate.await()
+          outline
+        },
+      )
 
-    AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(bridge))) {
-      val builder = checkNotNull(provider.getStructureViewBuilder(project, file)) as TreeBasedStructureViewBuilder
-      assertThat(builder.isRootNodeShown).isFalse()
-      val model = builder.createStructureViewModel(null)
-      try {
-        val root = model.root
-        val expandInfoProvider = model as StructureViewModel.ExpandInfoProvider
-        assertThat(expandInfoProvider.isAutoExpand(root)).isTrue()
-        assertThat(root.presentation.presentableText).isEqualTo("Resolve the current merge conflicts")
-        assertThat(root.presentation.locationString).isNull()
-        assertThat(loadCalls).isEqualTo(0)
+      AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(bridge))) {
+        val panel = AgentChatThreadOutlinePanel(project, startSelectionSubscription = false)
+        try {
+          panel.selectFileForTests(file)
+          assertThat(panel.modelForTests().singleNode().location).isEqualTo(AgentChatBundle.message("chat.thread.outline.loading"))
+          waitForCondition { loadCalls == 1 }
 
-        var earlyListenerNotified = false
-        model.addModelListener { earlyListenerNotified = true }
+          outlineLoadGate.complete(Unit)
+          val providerRootId = AgentChatThreadOutlineId.Item("0")
+          waitForCondition {
+            panel.modelForTests().entriesById[providerRootId]?.childIds ==
+              listOf(AgentChatThreadOutlineId.Item("0/0"), AgentChatThreadOutlineId.Item("0/1"))
+          }
 
-        val loadingElement = root.children.single()
-        assertThat(loadingElement.presentation.presentableText).isEqualTo("Resolve the current merge conflicts")
-        assertThat(loadingElement.presentation.locationString).isEqualTo(AgentChatBundle.message("chat.structure.loading"))
-        waitForCondition { loadCalls == 1 }
-
-        outlineLoadGate.complete(Unit)
-        waitForCondition {
-          val children = root.children
-          model.root === root &&
-          children.size == 1 &&
-          children[0].presentation.presentableText == "Resolve the current merge conflicts" &&
-          children[0].presentation.locationString == null
+          val model = panel.modelForTests()
+          assertThat(model.autoExpandIds).containsExactly(providerRootId)
+          assertThat(model.entriesById.getValue(providerRootId).childIds)
+            .containsExactly(AgentChatThreadOutlineId.Item("0/0"), AgentChatThreadOutlineId.Item("0/1"))
+          val promptNode = model.entriesById.getValue(AgentChatThreadOutlineId.Item("0/0")).node
+          assertThat(promptNode.title).isEqualTo("user: Resolve the current merge conflicts")
+          assertThat(promptNode.icon).isSameAs(AllIcons.General.User)
+          assertThat(promptNode.timestamp).isEqualTo(DateFormatUtil.formatPrettyDateTime(2_000L))
+          assertThat(promptNode.location).isNull()
+          assertThat(promptNode.tooltip).isEqualTo(
+            "Resolve the current merge conflicts\n" +
+            AgentChatBundle.message("chat.thread.outline.timestamp", DateFormatUtil.formatPrettyDateTime(2_000L))
+          )
+          val assistantNode = model.entriesById.getValue(AgentChatThreadOutlineId.Item("0/1")).node
+          assertThat(assistantNode.title).isEqualTo("assistant: I'll inspect the Git operation state")
+          assertThat(assistantNode.timestamp).isEqualTo(DateFormatUtil.formatPrettyDateTime(1_000L))
+          assertThat(assistantNode.location).isNull()
+          assertThat(assistantNode.tooltip)
+            .isEqualTo(AgentChatBundle.message("chat.thread.outline.timestamp", DateFormatUtil.formatPrettyDateTime(1_000L)))
+          assertThat(model.entriesById.getValue(AgentChatThreadOutlineId.Item("0/1")).childIds)
+            .containsExactly(AgentChatThreadOutlineId.Item("0/1/0"))
         }
-        val loadedChildren = root.children.map { child -> child as StructureViewTreeElement }
-        assertThat(loadedChildren.map { it.presentation.presentableText }).containsExactly("Resolve the current merge conflicts")
-        val providerRoot = loadedChildren.single()
-        assertThat(expandInfoProvider.isAutoExpand(providerRoot)).isTrue()
-        val providerRootChildren = providerRoot.children.map { child -> child as StructureViewTreeElement }
-        assertThat(providerRootChildren.map { it.presentation.presentableText })
-          .containsExactly("My prompt", "I'll inspect the Git operation state")
-        val promptPresentation = providerRootChildren[0].presentation
-        assertThat(promptPresentation.getIcon(false)).isSameAs(AllIcons.General.User)
-        assertThat(promptPresentation.locationString).isEqualTo("Resolve the current merge conflicts")
-        val promptPresentationData = promptPresentation as PresentationData
-        assertThat(promptPresentationData.tooltip).isEqualTo("Resolve the current merge conflicts")
-        assertThat(promptPresentationData.coloredText).isNotEmpty
-        val workElement = providerRootChildren[1]
-        assertThat(workElement.presentation.locationString)
-          .isEqualTo(AgentChatBundle.message("chat.structure.timestamp", DateFormatUtil.formatPrettyDateTime(1_000L)))
-        assertThat(workElement.children.map { it.presentation.presentableText }).containsExactly("git status")
-        assertThat(expandInfoProvider.isAutoExpand(workElement)).isFalse()
-        assertThat(earlyListenerNotified).isTrue()
-
-        var lateListenerNotified = false
-        model.addModelListener { lateListenerNotified = true }
-
-        waitForCondition { lateListenerNotified }
-      }
-      finally {
-        Disposer.dispose(model)
+        finally {
+          disposePanel(panel)
+        }
       }
     }
   }
 
   @Test
-  fun structureViewShowsSingleTopLevelStatusRowsForFallbackOutlines() = timeoutRunBlocking {
-    val project = ProjectManager.getInstance().defaultProject
-    val provider = AgentChatFileEditorProvider()
-    val cases: List<Pair<AgentSessionThreadOutline?, String>> = listOf(
-      null to AgentChatBundle.message("chat.structure.unavailable"),
-      AgentSessionThreadOutline(
-        provider = AgentSessionProvider.CODEX,
-        threadId = "thread-empty",
-        title = "Empty thread",
-        updatedAt = 1L,
-        items = emptyList(),
-      ) to AgentChatBundle.message("chat.structure.empty"),
-    )
-
-    cases.forEachIndexed { index, (outline, expectedStatus) ->
+  fun threadOutlineRefreshesLoadedOutlineOnActiveThreadUpdate() {
+    timeoutRunBlocking {
+      val project = ProjectManager.getInstance().defaultProject
       val file = AgentChatVirtualFile(
         projectPath = "/work/project-a",
-        threadIdentity = "CODEX:thread-status-$index",
+        threadIdentity = "CODEX:thread-refresh",
         shellCommand = emptyList(),
-        threadId = "thread-status-$index",
-        threadTitle = "Status thread $index",
+        threadId = "thread-refresh",
+        threadTitle = "Refresh thread",
         subAgentId = null,
       )
+      val updateEvents = MutableSharedFlow<AgentSessionSourceUpdateEvent>(extraBufferCapacity = 1)
+      var outline = testOutline(
+        updatedAt = 1L,
+        items = listOf(testOutlineItem(id = "prompt-1", title = "Initial prompt")),
+      )
+      val loadCalls = AtomicInteger()
       val bridge = ChatTestProviderBridge(
         provider = AgentSessionProvider.CODEX,
         icon = EmptyIcon.create(18, 18),
-        outlineLoader = { _, _, _ -> outline },
+        outlineLoader = { path, threadId, subAgentId ->
+          assertThat(path).isEqualTo("/work/project-a")
+          assertThat(threadId).isEqualTo("thread-refresh")
+          assertThat(subAgentId).isNull()
+          loadCalls.incrementAndGet()
+          outline
+        },
+        activeThreadUpdateEventsProvider = { path, threadId ->
+          assertThat(path).isEqualTo("/work/project-a")
+          assertThat(threadId).isEqualTo("thread-refresh")
+          updateEvents
+        },
       )
 
       AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(bridge))) {
-        val builder = checkNotNull(provider.getStructureViewBuilder(project, file)) as TreeBasedStructureViewBuilder
-        assertThat(builder.isRootNodeShown).isFalse()
-        val model = builder.createStructureViewModel(null)
+        val panel = AgentChatThreadOutlinePanel(project, startSelectionSubscription = false)
         try {
-          val root = model.root
-          root.children
-          waitForCondition {
-            root.children.singleOrNull()?.presentation?.locationString == expectedStatus
-          }
-          val statusElement = root.children.single()
-          assertThat(statusElement.presentation.locationString).isEqualTo(expectedStatus)
-          assertThat(statusElement.children).isEmpty()
+          panel.selectFileForTests(file)
+          waitForCondition { panel.modelForTests().rootNodeTitles() == listOf("user: Initial prompt") }
+          assertThat(loadCalls.get()).isEqualTo(1)
+          waitForCondition { updateEvents.subscriptionCount.value > 0 }
+
+          outline = testOutline(
+            updatedAt = 2L,
+            items = listOf(
+              testOutlineItem(id = "prompt-1", title = "Initial prompt"),
+              testOutlineItem(id = "assistant-1", kind = AgentSessionOutlineItemKind.ASSISTANT_RESPONSE, title = "Assistant reply"),
+            ),
+          )
+          assertThat(updateEvents.tryEmit(testUpdateEvent())).isTrue()
+
+          waitForCondition { panel.modelForTests().rootNodeTitles() == listOf("user: Initial prompt", "assistant: Assistant reply") }
+          assertThat(loadCalls.get()).isEqualTo(2)
         }
         finally {
-          Disposer.dispose(model)
+          disposePanel(panel)
         }
       }
     }
+  }
+
+  @Test
+  fun threadOutlineLoadsAfterSelectedPendingThreadRebindsOnScopedRefresh() {
+    timeoutRunBlocking {
+      val project = ProjectManager.getInstance().defaultProject
+      val file = AgentChatVirtualFile(
+        projectPath = "/work/project-a",
+        threadIdentity = "CODEX:new-thread-rebind",
+        shellCommand = emptyList(),
+        threadId = "new-thread-rebind",
+        threadTitle = "New thread",
+        subAgentId = null,
+      )
+      val outline = AgentSessionThreadOutline(
+        provider = AgentSessionProvider.CODEX,
+        threadId = "thread-rebound",
+        title = "Rebound thread",
+        updatedAt = 1L,
+        items = listOf(testOutlineItem(id = "prompt-rebound", title = "Prompt after rebind")),
+      )
+      val loadCalls = AtomicInteger()
+      val bridge = ChatTestProviderBridge(
+        provider = AgentSessionProvider.CODEX,
+        icon = EmptyIcon.create(18, 18),
+        outlineLoader = { path, threadId, subAgentId ->
+          assertThat(path).isEqualTo("/work/project-a")
+          assertThat(threadId).isEqualTo("thread-rebound")
+          assertThat(subAgentId).isNull()
+          loadCalls.incrementAndGet()
+          outline
+        },
+      )
+
+      AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(bridge))) {
+        val panel = AgentChatThreadOutlinePanel(project, startSelectionSubscription = false)
+        try {
+          panel.selectFileForTests(file)
+          assertThat(panel.modelForTests().singleNode().location)
+            .isEqualTo(AgentChatBundle.message("chat.thread.outline.unavailable"))
+          assertThat(loadCalls.get()).isZero()
+
+          assertThat(
+            file.rebindPendingThread(
+              threadIdentity = "CODEX:thread-rebound",
+              threadId = "thread-rebound",
+              threadTitle = "Rebound thread",
+              threadActivity = AgentThreadActivity.READY,
+            )
+          ).isTrue()
+
+          waitForCondition {
+            notifyAgentChatScopedRefresh(
+              provider = AgentSessionProvider.CODEX,
+              projectPath = "/work/project-a",
+              threadId = "thread-rebound",
+            )
+            panel.modelForTests().rootNodeTitles() == listOf("user: Prompt after rebind")
+          }
+          assertThat(loadCalls.get()).isGreaterThanOrEqualTo(1)
+        }
+        finally {
+          disposePanel(panel)
+        }
+      }
+    }
+  }
+
+  @Test
+  fun threadOutlineShowsSingleTopLevelStatusRowsForFallbackOutlines() {
+    timeoutRunBlocking {
+      val project = ProjectManager.getInstance().defaultProject
+      val cases: List<Pair<AgentSessionThreadOutline?, String>> = listOf(
+        null to AgentChatBundle.message("chat.thread.outline.unavailable"),
+        AgentSessionThreadOutline(
+          provider = AgentSessionProvider.CODEX,
+          threadId = "thread-empty",
+          title = "Empty thread",
+          updatedAt = 1L,
+          items = emptyList(),
+        ) to AgentChatBundle.message("chat.thread.outline.empty"),
+      )
+
+      cases.forEachIndexed { index, (outline, expectedStatus) ->
+        val file = AgentChatVirtualFile(
+          projectPath = "/work/project-a",
+          threadIdentity = "CODEX:thread-status-$index",
+          shellCommand = emptyList(),
+          threadId = "thread-status-$index",
+          threadTitle = "Status thread $index",
+          subAgentId = null,
+        )
+        val bridge = ChatTestProviderBridge(
+          provider = AgentSessionProvider.CODEX,
+          icon = EmptyIcon.create(18, 18),
+          outlineLoader = { _, _, _ -> outline },
+        )
+
+        AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(bridge))) {
+          val panel = AgentChatThreadOutlinePanel(project, startSelectionSubscription = false)
+          try {
+            panel.selectFileForTests(file)
+            waitForCondition { panel.modelForTests().singleNode().location == expectedStatus }
+            assertThat(panel.modelForTests().rootIds).hasSize(1)
+            assertThat(panel.modelForTests().entriesById.getValue(panel.modelForTests().rootIds.single()).childIds).isEmpty()
+          }
+          finally {
+            disposePanel(panel)
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  fun threadOutlineRowsDelegateLiveNavigationToProvider() {
+    timeoutRunBlocking {
+      val project = ProjectManager.getInstance().defaultProject
+      val file = AgentChatVirtualFile(
+        projectPath = "/work/project-a",
+        threadIdentity = "PI:thread-nav",
+        shellCommand = emptyList(),
+        threadId = "thread-nav",
+        threadTitle = "Navigation thread",
+        subAgentId = null,
+      )
+      val outlineItem = AgentSessionOutlineItem(
+        id = "entry-nav",
+        kind = AgentSessionOutlineItemKind.USER_PROMPT,
+        title = "Open entry",
+        preview = "Jump to this entry",
+      )
+      val outline = AgentSessionThreadOutline(
+        provider = AgentSessionProvider.PI,
+        threadId = "thread-nav",
+        title = "Navigation thread",
+        updatedAt = 1L,
+        items = listOf(outlineItem),
+      )
+      val navigationCalls = LinkedBlockingQueue<OutlineNavigationCall>()
+      val bridge = ChatTestProviderBridge(
+        provider = AgentSessionProvider.PI,
+        icon = EmptyIcon.create(18, 18),
+        outlineLoader = { _, _, _ -> outline },
+        canNavigateOutlineItem = { path, threadId, itemId, subAgentId, tabKey ->
+          path == "/work/project-a" &&
+          threadId == "thread-nav" &&
+          itemId == "entry-nav" &&
+          subAgentId == null &&
+          tabKey == file.tabKey
+        },
+        navigateOutlineItem = { path, threadId, itemId, subAgentId, tabKey ->
+          navigationCalls.add(OutlineNavigationCall(path, threadId, itemId, subAgentId, tabKey))
+          true
+        },
+      )
+
+      AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(bridge))) {
+        val panel = AgentChatThreadOutlinePanel(project, startSelectionSubscription = false)
+        try {
+          panel.selectFileForTests(file)
+          waitForCondition { panel.modelForTests().rootNodeTitles() == listOf("user: Open entry") }
+
+          assertThat(panel.navigateOutlineIdForTests(AgentChatThreadOutlineId.Item("0"))).isTrue()
+
+          assertThat(navigationCalls.poll(5, TimeUnit.SECONDS))
+            .isEqualTo(OutlineNavigationCall("/work/project-a", "thread-nav", "entry-nav", null, file.tabKey))
+        }
+        finally {
+          disposePanel(panel)
+        }
+      }
+    }
+  }
+
+  @Test
+  fun threadOutlinePopupHasKeyboardActivation() {
+    val project = ProjectManager.getInstance().defaultProject
+    val panel = AgentChatThreadOutlinePanel(project, startSelectionSubscription = false)
+    try {
+      assertThat(panel.hasPopupKeyboardActivationForTests()).isTrue()
+    }
+    finally {
+      disposePanel(panel)
+    }
+  }
+
+  @Test
+  fun threadOutlineForkActionStaysHiddenWhenLiveForkUnavailable() {
+    val file = AgentChatVirtualFile(
+      projectPath = "/work/project-a",
+      threadIdentity = "PI:thread-fork",
+      shellCommand = emptyList(),
+      threadId = "thread-fork",
+      threadTitle = "Fork thread",
+      subAgentId = null,
+    )
+    val item = AgentSessionOutlineItem(
+      id = "entry-fork",
+      kind = AgentSessionOutlineItemKind.USER_PROMPT,
+      title = "Fork from here",
+    )
+    val bridge = ChatTestProviderBridge(
+      provider = AgentSessionProvider.PI,
+      icon = EmptyIcon.create(18, 18),
+      canShowForkOutlineItem = { path, threadId, itemId, subAgentId, tabKey ->
+        path == "/work/project-a" &&
+        threadId == "thread-fork" &&
+        itemId == "entry-fork" &&
+        subAgentId == null &&
+        tabKey == file.tabKey
+      },
+    )
+    val action = AgentChatThreadOutlineForkAction()
+    val event = threadOutlineForkActionEvent(action, threadOutlineForkTarget(file, bridge.sessionSource, item))
+
+    action.update(event)
+
+    assertThat(event.presentation.isVisible).isFalse()
+    assertThat(event.presentation.isEnabled).isFalse()
+  }
+
+  @Test
+  fun threadOutlineForkActionEnablesWhenLiveForkAvailableFromCustomDataKey() {
+    val file = AgentChatVirtualFile(
+      projectPath = "/work/project-a",
+      threadIdentity = "PI:thread-fork",
+      shellCommand = emptyList(),
+      threadId = "thread-fork",
+      threadTitle = "Fork thread",
+      subAgentId = null,
+    )
+    val item = AgentSessionOutlineItem(
+      id = "entry-fork",
+      kind = AgentSessionOutlineItemKind.USER_PROMPT,
+      title = "Fork from here",
+    )
+    val bridge = ChatTestProviderBridge(
+      provider = AgentSessionProvider.PI,
+      icon = EmptyIcon.create(18, 18),
+      canShowForkOutlineItem = { _, _, _, _, _ -> true },
+      canForkOutlineItem = { path, threadId, itemId, subAgentId, tabKey ->
+        path == "/work/project-a" &&
+        threadId == "thread-fork" &&
+        itemId == "entry-fork" &&
+        subAgentId == null &&
+        tabKey == file.tabKey
+      },
+    )
+    val action = AgentChatThreadOutlineForkAction()
+    val event = threadOutlineForkActionEvent(action, threadOutlineForkTarget(file, bridge.sessionSource, item))
+
+    action.update(event)
+
+    assertThat(event.presentation.isVisible).isTrue()
+    assertThat(event.presentation.isEnabled).isTrue()
+  }
+
+  @Test
+  fun threadOutlinePopupBecomesAvailableWhenActiveThreadReportsLiveForkSupport() {
+    timeoutRunBlocking {
+      val project = ProjectManager.getInstance().defaultProject
+      val file = AgentChatVirtualFile(
+        projectPath = "/work/project-a",
+        threadIdentity = "PI:thread-fork-refresh",
+        shellCommand = emptyList(),
+        threadId = "thread-fork-refresh",
+        threadTitle = "Fork refresh thread",
+        subAgentId = null,
+      )
+      val updateEvents = MutableSharedFlow<AgentSessionSourceUpdateEvent>(extraBufferCapacity = 1)
+      var liveForkAvailable = false
+      val bridge = ChatTestProviderBridge(
+        provider = AgentSessionProvider.PI,
+        icon = EmptyIcon.create(18, 18),
+        outlineLoader = { _, _, _ ->
+          testOutline(
+            updatedAt = 1L,
+            items = listOf(testOutlineItem(id = "entry-fork-refresh", title = "Fork from here")),
+          )
+        },
+        activeThreadUpdateEventsProvider = { path, threadId ->
+          assertThat(path).isEqualTo("/work/project-a")
+          assertThat(threadId).isEqualTo("thread-fork-refresh")
+          updateEvents
+        },
+        canShowForkOutlineItem = { path, threadId, itemId, subAgentId, tabKey ->
+          path == "/work/project-a" &&
+          threadId == "thread-fork-refresh" &&
+          itemId == "entry-fork-refresh" &&
+          subAgentId == null &&
+          tabKey == file.tabKey
+        },
+        canForkOutlineItem = { path, threadId, itemId, subAgentId, tabKey ->
+          liveForkAvailable &&
+          path == "/work/project-a" &&
+          threadId == "thread-fork-refresh" &&
+          itemId == "entry-fork-refresh" &&
+          subAgentId == null &&
+          tabKey == file.tabKey
+        },
+      )
+
+      AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(bridge))) {
+        val panel = AgentChatThreadOutlinePanel(project, startSelectionSubscription = false)
+        try {
+          panel.selectFileForTests(file)
+          waitForCondition { panel.modelForTests().rootNodeTitles() == listOf("user: Fork from here") }
+          waitForCondition { updateEvents.subscriptionCount.value > 0 }
+          val outlineId = AgentChatThreadOutlineId.Item("0")
+          assertThat(panel.canShowPopupForOutlineIdForTests(outlineId)).isFalse()
+
+          liveForkAvailable = true
+          assertThat(updateEvents.tryEmit(testUpdateEvent(path = "/work/project-a", threadId = "thread-fork-refresh"))).isTrue()
+
+          waitForCondition { panel.canShowPopupForOutlineIdForTests(outlineId) }
+        }
+        finally {
+          disposePanel(panel)
+        }
+      }
+    }
+  }
+
+  @Test
+  fun threadOutlineForkActionStaysHiddenForProvidersWithoutStaticSupport() {
+    val file = AgentChatVirtualFile(
+      projectPath = "/work/project-a",
+      threadIdentity = "CODEX:thread-fork",
+      shellCommand = emptyList(),
+      threadId = "thread-fork",
+      threadTitle = "Fork thread",
+      subAgentId = null,
+    )
+    val item = AgentSessionOutlineItem(
+      id = "entry-fork",
+      kind = AgentSessionOutlineItemKind.USER_PROMPT,
+      title = "Fork from here",
+    )
+    val bridge = ChatTestProviderBridge(
+      provider = AgentSessionProvider.CODEX,
+      icon = EmptyIcon.create(18, 18),
+      canForkOutlineItem = { _, _, _, _, _ -> true },
+    )
+    val action = AgentChatThreadOutlineForkAction()
+    val event = threadOutlineForkActionEvent(action, threadOutlineForkTarget(file, bridge.sessionSource, item))
+
+    action.update(event)
+
+    assertThat(event.presentation.isVisible).isFalse()
+    assertThat(event.presentation.isEnabled).isFalse()
   }
 
   @Test
@@ -682,92 +1022,98 @@ class AgentChatFileEditorProviderTest {
   }
 
   @Test
-  fun sharedThreadPresentationActivityOnlyUpdateKeepsExistingTitle(): Unit = timeoutRunBlocking {
-    val model = service<AgentSessionThreadPresentationModel>()
-    val key = presentationKey("/work/project-a", AgentSessionProvider.CODEX, "thread-1")
-    model.updateThread(
-      path = "/work/project-a",
-      provider = AgentSessionProvider.CODEX,
-      threadId = "thread-1",
-      title = "Existing title",
-      activity = AgentThreadActivity.READY,
-    )
+  fun sharedThreadPresentationActivityOnlyUpdateKeepsExistingTitle() {
+    timeoutRunBlocking {
+      val model = service<AgentSessionThreadPresentationModel>()
+      val key = presentationKey("/work/project-a", AgentSessionProvider.CODEX, "thread-1")
+      model.updateThread(
+        path = "/work/project-a",
+        provider = AgentSessionProvider.CODEX,
+        threadId = "thread-1",
+        title = "Existing title",
+        activity = AgentThreadActivity.READY,
+      )
 
-    val changeSet = model.updateActivityHints(
-      provider = AgentSessionProvider.CODEX,
-      updates = listOf(
-        com.intellij.agent.workbench.sessions.core.AgentSessionThreadActivityPresentationUpdate(
-          path = "/work/project-a",
-          threadId = "thread-1",
+      val changeSet = model.updateActivityHints(
+        provider = AgentSessionProvider.CODEX,
+        updates = listOf(
+          com.intellij.agent.workbench.sessions.core.AgentSessionThreadActivityPresentationUpdate(
+            path = "/work/project-a",
+            threadId = "thread-1",
+            activity = AgentThreadActivity.UNREAD,
+          )
+        ),
+      )
+
+      assertThat(changeSet.changedKeys).containsExactly(key)
+      assertThat(model.resolve(key))
+        .isEqualTo(AgentSessionThreadPresentation(title = "Existing title", activity = AgentThreadActivity.UNREAD))
+    }
+  }
+
+  @Test
+  fun restoreMaterializationKeepsPersistedPresentationAsBootstrapFallback() {
+    timeoutRunBlocking {
+      val snapshot = AgentChatTabSnapshot.create(
+        projectHash = "hash-1",
+        projectPath = "/work/project-a",
+        threadIdentity = "CODEX:thread-restore",
+        threadId = "thread-restore",
+        threadTitle = "Restored thread",
+        subAgentId = null,
+        threadActivity = AgentThreadActivity.UNREAD,
+      )
+      val tabsService = service<AgentChatTabsService>()
+      val model = service<AgentSessionThreadPresentationModel>()
+      val key = presentationKey(snapshot.identity.projectPath, AgentSessionProvider.CODEX, snapshot.runtime.threadId)
+      tabsService.upsert(snapshot)
+      try {
+        model.clearForTests()
+
+        val file = agentChatVirtualFileSystem().findFileByPath(snapshot.tabKey.toPath()) as AgentChatVirtualFile?
+
+        assertThat(file).isNotNull
+        assertThat(model.resolve(key)).isNull()
+        assertThat(resolveAgentChatThreadPresentation(checkNotNull(file)))
+          .isEqualTo(AgentSessionThreadPresentation(title = "Restored thread", activity = AgentThreadActivity.UNREAD))
+      }
+      finally {
+        tabsService.forget(snapshot.tabKey)
+      }
+    }
+  }
+
+  @Test
+  fun forgettingTabDoesNotEvictSharedThreadPresentation() {
+    timeoutRunBlocking {
+      val snapshot = AgentChatTabSnapshot.create(
+        projectHash = "hash-1",
+        projectPath = "/work/project-a",
+        threadIdentity = "CODEX:thread-forget",
+        threadId = "thread-forget",
+        threadTitle = "Forget me",
+        subAgentId = null,
+      )
+      val tabsService = service<AgentChatTabsService>()
+      val model = service<AgentSessionThreadPresentationModel>()
+      val key = presentationKey(snapshot.identity.projectPath, AgentSessionProvider.CODEX, snapshot.runtime.threadId)
+      tabsService.upsert(snapshot)
+      try {
+        model.updateThread(
+          path = snapshot.identity.projectPath,
+          provider = AgentSessionProvider.CODEX,
+          threadId = snapshot.runtime.threadId,
+          title = "Forget me",
           activity = AgentThreadActivity.UNREAD,
         )
-      ),
-    )
+        assertThat(model.resolve(key)).isNotNull
 
-    assertThat(changeSet.changedKeys).containsExactly(key)
-    assertThat(model.resolve(key))
-      .isEqualTo(AgentSessionThreadPresentation(title = "Existing title", activity = AgentThreadActivity.UNREAD))
-  }
-
-  @Test
-  fun restoreMaterializationKeepsPersistedPresentationAsBootstrapFallback(): Unit = timeoutRunBlocking {
-    val snapshot = AgentChatTabSnapshot.create(
-      projectHash = "hash-1",
-      projectPath = "/work/project-a",
-      threadIdentity = "CODEX:thread-restore",
-      threadId = "thread-restore",
-      threadTitle = "Restored thread",
-      subAgentId = null,
-      threadActivity = AgentThreadActivity.UNREAD,
-    )
-    val tabsService = service<AgentChatTabsService>()
-    val model = service<AgentSessionThreadPresentationModel>()
-    val key = presentationKey(snapshot.identity.projectPath, AgentSessionProvider.CODEX, snapshot.runtime.threadId)
-    tabsService.upsert(snapshot)
-    try {
-      model.clearForTests()
-
-      val file = agentChatVirtualFileSystem().findFileByPath(snapshot.tabKey.toPath()) as AgentChatVirtualFile?
-
-      assertThat(file).isNotNull
-      assertThat(model.resolve(key)).isNull()
-      assertThat(resolveAgentChatThreadPresentation(checkNotNull(file)))
-        .isEqualTo(AgentSessionThreadPresentation(title = "Restored thread", activity = AgentThreadActivity.UNREAD))
-    }
-    finally {
-      tabsService.forget(snapshot.tabKey)
-    }
-  }
-
-  @Test
-  fun forgettingTabDoesNotEvictSharedThreadPresentation(): Unit = timeoutRunBlocking {
-    val snapshot = AgentChatTabSnapshot.create(
-      projectHash = "hash-1",
-      projectPath = "/work/project-a",
-      threadIdentity = "CODEX:thread-forget",
-      threadId = "thread-forget",
-      threadTitle = "Forget me",
-      subAgentId = null,
-    )
-    val tabsService = service<AgentChatTabsService>()
-    val model = service<AgentSessionThreadPresentationModel>()
-    val key = presentationKey(snapshot.identity.projectPath, AgentSessionProvider.CODEX, snapshot.runtime.threadId)
-    tabsService.upsert(snapshot)
-    try {
-      model.updateThread(
-        path = snapshot.identity.projectPath,
-        provider = AgentSessionProvider.CODEX,
-        threadId = snapshot.runtime.threadId,
-        title = "Forget me",
-        activity = AgentThreadActivity.UNREAD,
-      )
-      assertThat(model.resolve(key)).isNotNull
-
-      assertThat(tabsService.forget(snapshot.tabKey)).isTrue()
-      assertThat(model.resolve(key)).isNotNull
-    }
-    finally {
-      tabsService.forget(snapshot.tabKey)
+        assertThat(tabsService.forget(snapshot.tabKey)).isTrue()
+        assertThat(model.resolve(key)).isNotNull
+      }
+      finally {
+        tabsService.forget(snapshot.tabKey)
+      }
     }
   }
 
@@ -854,27 +1200,29 @@ class AgentChatFileEditorProviderTest {
   }
 
   @Test
-  fun promotesUnresolvedVirtualFileWhenDescriptorBecomesAvailable(): Unit = timeoutRunBlocking {
-    val snapshot = AgentChatTabSnapshot.create(
-      projectHash = "hash-1",
-      projectPath = "/work/project-a",
-      threadIdentity = "CODEX:thread-9",
-      threadId = "thread-9",
-      threadTitle = "Thread",
-      subAgentId = "alpha",
-    )
-    val fileSystem = AgentChatVirtualFileSystem()
+  fun promotesUnresolvedVirtualFileWhenDescriptorBecomesAvailable() {
+    timeoutRunBlocking {
+      val snapshot = AgentChatTabSnapshot.create(
+        projectHash = "hash-1",
+        projectPath = "/work/project-a",
+        threadIdentity = "CODEX:thread-9",
+        threadId = "thread-9",
+        threadTitle = "Thread",
+        subAgentId = "alpha",
+      )
+      val fileSystem = AgentChatVirtualFileSystem()
 
-    val unresolved = fileSystem.getOrCreateFile(AgentChatTabResolution.Unresolved(snapshot.tabKey))
-    assertThat(unresolved.projectPath).isBlank()
-    assertThat(unresolved.threadIdentity).isBlank()
+      val unresolved = fileSystem.getOrCreateFile(AgentChatTabResolution.Unresolved(snapshot.tabKey))
+      assertThat(unresolved.projectPath).isBlank()
+      assertThat(unresolved.threadIdentity).isBlank()
 
-    val resolved = fileSystem.getOrCreateFile(snapshot)
-    assertThat(resolved).isNotSameAs(unresolved)
-    assertThat(resolved.projectPath).isEqualTo(snapshot.identity.projectPath)
-    assertThat(resolved.threadIdentity).isEqualTo(snapshot.identity.threadIdentity)
-    assertThat(resolved.threadId).isEqualTo(snapshot.runtime.threadId)
-    assertThat(resolved.subAgentId).isEqualTo(snapshot.identity.subAgentId)
+      val resolved = fileSystem.getOrCreateFile(snapshot)
+      assertThat(resolved).isNotSameAs(unresolved)
+      assertThat(resolved.projectPath).isEqualTo(snapshot.identity.projectPath)
+      assertThat(resolved.threadIdentity).isEqualTo(snapshot.identity.threadIdentity)
+      assertThat(resolved.threadId).isEqualTo(snapshot.runtime.threadId)
+      assertThat(resolved.subAgentId).isEqualTo(snapshot.identity.subAgentId)
+    }
   }
 
   @Test
@@ -1072,10 +1420,96 @@ private fun presentationKey(
   return checkNotNull(AgentSessionThreadPresentationKey.create(path, provider, threadId))
 }
 
+private fun threadOutlineForkTarget(
+  file: AgentChatVirtualFile,
+  source: AgentSessionSource,
+  item: AgentSessionOutlineItem,
+): AgentChatThreadOutlineTarget {
+  return AgentChatThreadOutlineTarget(file = file, source = source, item = item)
+}
+
+private fun threadOutlineForkActionEvent(
+  action: AgentChatThreadOutlineForkAction,
+  target: AgentChatThreadOutlineTarget,
+): AnActionEvent {
+  return TestActionEvent.createTestEvent(
+    action,
+    SimpleDataContext.builder()
+      .add(AgentChatThreadOutlineDataKeys.SELECTED_TARGET, target)
+      .build(),
+  )
+}
+
+private fun AgentChatThreadOutlineModel.rootNodeTitles(): List<String> {
+  return rootIds.map { id -> entriesById.getValue(id).node.title }
+}
+
+private fun AgentChatThreadOutlineModel.singleNode(): AgentChatThreadOutlineNode {
+  return entriesById.getValue(rootIds.single()).node
+}
+
+private fun disposePanel(panel: AgentChatThreadOutlinePanel) {
+  runInEdtAndWait {
+    Disposer.dispose(panel)
+  }
+}
+
+private data class OutlineNavigationCall(
+  @JvmField val path: String,
+  @JvmField val threadId: String,
+  @JvmField val itemId: String,
+  @JvmField val subAgentId: String?,
+  @JvmField val tabKey: String?,
+)
+
+private fun testOutline(
+  updatedAt: Long,
+  items: List<AgentSessionOutlineItem>,
+): AgentSessionThreadOutline {
+  return AgentSessionThreadOutline(
+    provider = AgentSessionProvider.CODEX,
+    threadId = "thread-refresh",
+    title = "Refresh thread",
+    updatedAt = updatedAt,
+    items = items,
+  )
+}
+
+private fun testOutlineItem(
+  id: String,
+  kind: AgentSessionOutlineItemKind = AgentSessionOutlineItemKind.USER_PROMPT,
+  title: String,
+): AgentSessionOutlineItem {
+  return AgentSessionOutlineItem(
+    id = id,
+    kind = kind,
+    title = title,
+  )
+}
+
+private fun testUpdateEvent(path: String = "/work/project-a", threadId: String = "thread-refresh"): AgentSessionSourceUpdateEvent {
+  return AgentSessionSourceUpdateEvent(
+    type = AgentSessionSourceUpdate.THREADS_CHANGED,
+    scopedPaths = setOf(path),
+    threadIds = setOf(threadId),
+  )
+}
+
 private class ChatTestProviderBridge(
   override val provider: AgentSessionProvider,
   override val icon: Icon,
   private val outlineLoader: suspend (path: String, threadId: String, subAgentId: String?) -> AgentSessionThreadOutline? = { _, _, _ -> null },
+  private val activeThreadUpdateEventsProvider: (path: String, threadId: String) -> Flow<AgentSessionSourceUpdateEvent> = { _, _ -> emptyFlow() },
+  private val canNavigateOutlineItem: (path: String, threadId: String, itemId: String, subAgentId: String?, tabKey: String?) -> Boolean =
+    { _, _, _, _, _ -> false },
+  private val navigateOutlineItem: suspend (path: String, threadId: String, itemId: String, subAgentId: String?, tabKey: String?) -> Boolean =
+    { _, _, _, _, _ -> false },
+  private val canShowForkOutlineItem: (path: String, threadId: String, itemId: String, subAgentId: String?, tabKey: String?) -> Boolean =
+    { _, _, _, _, _ -> false },
+  private val canForkOutlineItem: (path: String, threadId: String, itemId: String, subAgentId: String?, tabKey: String?) -> Boolean =
+    { _, _, _, _, _ -> false },
+  private val forkOutlineItem: suspend (project: Project, path: String, threadId: String, itemId: String, subAgentId: String?, tabKey: String?) -> AgentSessionOutlineForkResult? =
+    { _, _, _, _, _, _ -> null },
 ) : AgentSessionProviderDescriptor {
   override val displayNameKey: String
     get() = provider.value
@@ -1093,6 +1527,61 @@ private class ChatTestProviderBridge(
 
     override suspend fun loadThreadOutline(path: String, threadId: String, subAgentId: String?): AgentSessionThreadOutline? {
       return outlineLoader(path, threadId, subAgentId)
+    }
+
+    override fun activeThreadUpdateEvents(path: String, threadId: String): Flow<AgentSessionSourceUpdateEvent> {
+      return activeThreadUpdateEventsProvider(path, threadId)
+    }
+
+    override fun canNavigateThreadOutlineItem(
+      path: String,
+      threadId: String,
+      itemId: String,
+      subAgentId: String?,
+      tabKey: String?,
+    ): Boolean {
+      return canNavigateOutlineItem(path, threadId, itemId, subAgentId, tabKey)
+    }
+
+    override suspend fun navigateThreadOutlineItem(
+      path: String,
+      threadId: String,
+      itemId: String,
+      subAgentId: String?,
+      tabKey: String?,
+    ): Boolean {
+      return navigateOutlineItem(path, threadId, itemId, subAgentId, tabKey)
+    }
+
+    override fun canShowThreadOutlineForkAction(
+      path: String,
+      threadId: String,
+      itemId: String,
+      subAgentId: String?,
+      tabKey: String?,
+    ): Boolean {
+      return canShowForkOutlineItem(path, threadId, itemId, subAgentId, tabKey)
+    }
+
+    override fun canForkThreadFromOutlineItem(
+      path: String,
+      threadId: String,
+      itemId: String,
+      subAgentId: String?,
+      tabKey: String?,
+    ): Boolean {
+      return canForkOutlineItem(path, threadId, itemId, subAgentId, tabKey)
+    }
+
+    override suspend fun forkThreadFromOutlineItem(
+      project: Project,
+      path: String,
+      threadId: String,
+      itemId: String,
+      subAgentId: String?,
+      tabKey: String?,
+    ): AgentSessionOutlineForkResult? {
+      return forkOutlineItem(project, path, threadId, itemId, subAgentId, tabKey)
     }
   }
 

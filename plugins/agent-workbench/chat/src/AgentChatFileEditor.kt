@@ -2,10 +2,8 @@
 package com.intellij.agent.workbench.chat
 
 // @spec community/plugins/agent-workbench/spec/chat/agent-chat-editor.spec.md
-// @spec community/plugins/agent-workbench/spec/chat/agent-chat-structure-view.spec.md
 
 import com.intellij.CommonBundle
-import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeFormatter
@@ -19,11 +17,9 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptDe
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
-import com.intellij.ide.OccurenceNavigator
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.EDT
@@ -38,16 +34,13 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.wm.StatusBar
-import com.intellij.ide.structureView.StructureViewBuilder
 import com.intellij.terminal.frontend.view.TerminalInputInterceptor
-import com.intellij.terminal.frontend.view.TerminalViewSessionState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -76,26 +69,19 @@ internal class AgentChatFileEditor(
   private val currentTimeProvider: () -> Long = System::currentTimeMillis,
   private val pendingScopedRefreshRetryIntervalMs: Long = AgentSessionThreadRebindPolicy.PENDING_THREAD_REFRESH_RETRY_INTERVAL_MS,
   editorCoroutineScope: CoroutineScope? = null,
+  private val providerDescriptorResolver: (AgentSessionProvider) -> AgentSessionProviderDescriptor? = AgentSessionProviders::find,
   private val behaviorResolver: (AgentSessionProvider?) -> AgentChatProviderBehavior = ::resolveAgentChatProviderBehavior,
 ) : UserDataHolderBase(), FileEditor {
   private val ownedTerminalStartupJob = if (editorCoroutineScope == null) SupervisorJob() else null
 
   @Suppress("RAW_SCOPE_CREATION")
   private val terminalStartupScope = editorCoroutineScope ?: CoroutineScope(checkNotNull(ownedTerminalStartupJob) + Dispatchers.Default)
-  private val component = AgentChatFileEditorComponent {
-    semanticRegionController?.occurrenceNavigator() ?: OccurenceNavigator.EMPTY
-  }
+  private val component = AgentChatFileEditorComponent()
 
   private fun buildEditorTabActions(): ActionGroup? {
     val actionManager = ActionManager.getInstance()
     val providerActionIds = providerDescriptor?.editorTabActionIds.orEmpty()
     val actions = buildList {
-      listOf(
-        PREVIOUS_PROPOSED_PLAN_FROM_EDITOR_TAB_ACTION_ID,
-        NEXT_PROPOSED_PLAN_FROM_EDITOR_TAB_ACTION_ID,
-      ).forEach { actionId ->
-        actionManager.getAction(actionId)?.let(::add)
-      }
       providerActionIds.forEach { actionId ->
         actionManager.getAction(actionId)?.let(::add)
       }
@@ -121,13 +107,10 @@ internal class AgentChatFileEditor(
   private var initialMessageDispatcher: AgentChatInitialMessageDispatcher? = null
   private var scopedTerminalRefreshController: AgentChatDisposableController? = null
   private var terminalRestoreContextController: AgentChatDisposableController? = null
-  private var patchFoldController: AgentChatDisposableController? = null
-  private var semanticRegionController: AgentChatSemanticRegionController? = null
-  private var semanticRegionControllerJob: Job? = null
   private var crossProjectDockTargetRegistration: Disposable? = null
 
   private val providerDescriptor
-    get() = file.provider?.let(AgentSessionProviders::find)
+    get() = file.provider?.let(providerDescriptorResolver)
 
   override fun getComponent(): JComponent = component
 
@@ -145,10 +128,6 @@ internal class AgentChatFileEditor(
       cachedTabActionsInitialized = true
     }
     return cachedTabActions
-  }
-
-  override fun getStructureViewBuilder(): StructureViewBuilder? {
-    return createAgentChatStructureViewBuilder(file = file)
   }
 
   override fun getState(level: FileEditorStateLevel): FileEditorState {
@@ -212,27 +191,9 @@ internal class AgentChatFileEditor(
     component.cancelAwaitShowing()
     crossProjectDockTargetRegistration?.let(Disposer::dispose)
     crossProjectDockTargetRegistration = null
-    initialMessageDispatcher?.dispose()
-    initialMessageDispatcher = null
-    pendingThreadRefreshController?.dispose()
-    pendingThreadRefreshController = null
-    terminalTitleThreadRebindController?.dispose()
-    terminalTitleThreadRebindController = null
-    concreteThreadRebindController?.dispose()
-    concreteThreadRebindController = null
-    scopedTerminalRefreshController?.dispose()
-    scopedTerminalRefreshController = null
-    terminalRestoreContextController?.dispose()
-    terminalRestoreContextController = null
-    patchFoldController?.dispose()
-    patchFoldController = null
-    semanticRegionControllerJob?.cancel()
-    semanticRegionControllerJob = null
-    semanticRegionController?.dispose()
-    semanticRegionController = null
+    disposeTerminalAttachments(clearPendingContextPanel = true)
     pendingContextPanel = null
     pendingContextPanelInstalled = false
-    tab = null
     component.removeAll()
   }
 
@@ -440,8 +401,6 @@ internal class AgentChatFileEditor(
       tab = createdTab,
       tabSnapshotWriter = tabSnapshotWriter,
     )
-    patchFoldController = behavior.createPatchFoldController(createdTab)
-    scheduleSemanticRegionControllerInstallation(behavior, createdTab)
     installPendingContextInterceptor(createdTab)
     component.removeAll()
     pendingContextPanelInstalled = false
@@ -459,27 +418,6 @@ internal class AgentChatFileEditor(
     }
     focusTerminalAfterInitialization = false
     createdTab.preferredFocusableComponent.requestFocusInWindow()
-  }
-
-  private fun scheduleSemanticRegionControllerInstallation(
-    behavior: AgentChatProviderBehavior,
-    createdTab: AgentChatTerminalTab,
-  ) {
-    if (createdTab.terminalView == null || !behavior.shouldInstallSemanticRegionNavigation()) {
-      return
-    }
-    semanticRegionControllerJob?.cancel()
-    semanticRegionControllerJob = createdTab.coroutineScope.launch {
-      createdTab.sessionState.first { state -> state == TerminalViewSessionState.Running || state == TerminalViewSessionState.Terminated }
-      if (createdTab.sessionState.value != TerminalViewSessionState.Running) {
-        return@launch
-      }
-      withContext(Dispatchers.EDT) {
-        if (!disposed && tab === createdTab && semanticRegionController == null) {
-          semanticRegionController = createAgentChatSemanticRegionController(behavior, createdTab)
-        }
-      }
-    }
   }
 
   private fun getOrCreatePendingContextPanel(): AgentChatPendingContextPanel {
@@ -534,6 +472,30 @@ internal class AgentChatFileEditor(
     ensureInitialized()
   }
 
+  internal suspend fun restartForFileStateChange(
+    startupLaunchSpec: AgentSessionTerminalLaunchSpec,
+    replaceRetainedTerminal: Boolean,
+  ): Boolean {
+    if (disposed) {
+      return false
+    }
+    val initializedTab = tab
+    if (initializedTab == null) {
+      file.setStartupLaunchSpecOverride(startupLaunchSpec)
+      refreshForFileStateChange()
+      return false
+    }
+    val resolvedRegistry = resolveLiveTerminalRegistry()
+    return if (this.liveTerminalRegistry == null) {
+      withContext(Dispatchers.EDT) {
+        restartTerminalOnEdt(resolvedRegistry, startupLaunchSpec, replaceRetainedTerminal)
+      }
+    }
+    else {
+      restartTerminalOnEdt(resolvedRegistry, startupLaunchSpec, replaceRetainedTerminal)
+    }
+  }
+
   internal fun flushPendingInitialMessageIfInitialized() {
     val initializedTab = tab ?: return
     initialMessageDispatcher?.schedule(initializedTab)
@@ -558,19 +520,56 @@ internal class AgentChatFileEditor(
     component.showForTests()
   }
 
-  internal fun canNavigateProposedPlan(direction: AgentChatSemanticNavigationDirection): Boolean {
-    return semanticRegionController?.canNavigate(direction) == true
-  }
-
-  internal fun navigateProposedPlan(direction: AgentChatSemanticNavigationDirection): Boolean {
-    return semanticRegionController?.navigate(direction) == true
-  }
-
   private fun renderDeferredStartState(state: AgentChatDeferredStartState) {
     component.removeAll()
     component.add(createDeferredStartComponent(state), BorderLayout.CENTER)
     component.revalidate()
     component.repaint()
+  }
+
+  private fun restartTerminalOnEdt(
+    liveTerminalRegistry: AgentChatLiveTerminalRegistry,
+    startupLaunchSpec: AgentSessionTerminalLaunchSpec,
+    replaceRetainedTerminal: Boolean,
+  ): Boolean {
+    if (disposed || tab == null) {
+      return false
+    }
+    disposeTerminalAttachments(clearPendingContextPanel = false)
+    val replaced = if (replaceRetainedTerminal) {
+      liveTerminalRegistry.replace(
+        file = file,
+        terminalTabs = terminalTabs,
+        startupLaunchSpec = startupLaunchSpec,
+      )
+      true
+    }
+    else {
+      false
+    }
+    attachTerminalOnEdt(liveTerminalRegistry, startupLaunchSpec)
+    return replaced
+  }
+
+  private fun disposeTerminalAttachments(clearPendingContextPanel: Boolean) {
+    initialMessageDispatcher?.dispose()
+    initialMessageDispatcher = null
+    pendingThreadRefreshController?.dispose()
+    pendingThreadRefreshController = null
+    terminalTitleThreadRebindController?.dispose()
+    terminalTitleThreadRebindController = null
+    concreteThreadRebindController?.dispose()
+    concreteThreadRebindController = null
+    scopedTerminalRefreshController?.dispose()
+    scopedTerminalRefreshController = null
+    terminalRestoreContextController?.dispose()
+    terminalRestoreContextController = null
+    tab = null
+    component.removeAll()
+    pendingContextPanelInstalled = false
+    if (clearPendingContextPanel) {
+      pendingContextPanel = null
+    }
   }
 
   private fun installPendingContextInterceptor(tab: AgentChatTerminalTab) {
@@ -704,9 +703,7 @@ private fun shouldBlockTerminalInitialization(state: AgentChatDeferredStartState
   }
 }
 
-private class AgentChatFileEditorComponent(
-  private val navigatorProvider: () -> OccurenceNavigator,
-) : JPanel(BorderLayout()), OccurenceNavigator {
+private class AgentChatFileEditorComponent : JPanel(BorderLayout()) {
   private var showingForTests: Boolean = false
   private var showingContinuation: CancellableContinuation<Unit>? = null
   private var showingListener: HierarchyListener? = null
@@ -768,19 +765,6 @@ private class AgentChatFileEditorComponent(
     showingListener = null
   }
 
-  override fun hasNextOccurence(): Boolean = navigatorProvider().hasNextOccurence()
-
-  override fun hasPreviousOccurence(): Boolean = navigatorProvider().hasPreviousOccurence()
-
-  override fun goNextOccurence(): OccurenceNavigator.OccurenceInfo? = navigatorProvider().goNextOccurence()
-
-  override fun goPreviousOccurence(): OccurenceNavigator.OccurenceInfo? = navigatorProvider().goPreviousOccurence()
-
-  override fun getNextOccurenceActionName(): String = navigatorProvider().nextOccurenceActionName
-
-  override fun getPreviousOccurenceActionName(): String = navigatorProvider().previousOccurenceActionName
-
-  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 }
 
 internal fun interface AgentChatTabSnapshotWriter {
@@ -833,7 +817,3 @@ private class DumbAwareAgentChatActionGroup : DefaultActionGroup, DumbAware {
 
   constructor(actions: List<AnAction>) : super(actions)
 }
-
-private const val PREVIOUS_PROPOSED_PLAN_FROM_EDITOR_TAB_ACTION_ID: String =
-  AgentWorkbenchActionIds.Sessions.EditorTab.PREVIOUS_PROPOSED_PLAN
-private const val NEXT_PROPOSED_PLAN_FROM_EDITOR_TAB_ACTION_ID: String = AgentWorkbenchActionIds.Sessions.EditorTab.NEXT_PROPOSED_PLAN

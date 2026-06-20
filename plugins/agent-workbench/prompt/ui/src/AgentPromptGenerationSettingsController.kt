@@ -100,7 +100,7 @@ internal class AgentPromptGenerationSettingsController(
       preferences = preferences,
       implicitDefaultProfileId = implicitBuiltInDefaultProfileId(),
     )
-    val activeProfile = preferences.activeLaunchProfileId?.let(::findProfile)
+    val activeProfile = launchProfileState.selectedProfile()
     if (activeProfile != null) {
       if (!applyProfile(activeProfile)) {
         launchProfileState.clearSelectedProfile()
@@ -735,7 +735,7 @@ internal class AgentPromptGenerationSettingsController(
     launcher.saveProviderPreferences(
       currentPreferences.copy(
         launchProfiles = launchProfileState.userProfiles(),
-        activeLaunchProfileId = launchProfileState.persistedDefaultProfileId,
+        defaultLaunchProfileId = launchProfileState.persistedDefaultProfileId,
       )
     )
   }
@@ -898,11 +898,7 @@ internal class AgentPromptGenerationSettingsController(
   }
 
   private fun implicitBuiltInDefaultProfileId(): String? {
-    val selectedProviderId = providerSelector.selectedProvider?.bridge?.provider?.value ?: return null
-    val selectedLaunchMode = providerSelector.selectedLaunchMode
-    return builtInLaunchProfiles().firstOrNull { profile ->
-      profile.providerId == selectedProviderId && profile.launchMode == selectedLaunchMode
-    }?.id
+    return builtInLaunchProfiles().firstOrNull(::canApplyProfile)?.id
   }
 
   private inner class ModelAction(

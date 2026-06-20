@@ -20,6 +20,7 @@ import com.intellij.agent.workbench.codex.common.readStringOrNull
 import com.intellij.agent.workbench.codex.sessions.backend.CodexBackendThread
 import com.intellij.agent.workbench.codex.sessions.backend.isResponseRequired
 import com.intellij.agent.workbench.codex.sessions.backend.toCodexSessionActivity
+import com.intellij.agent.workbench.codex.sessions.codexUserPromptOutlineItemId
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.common.session.agentSessionOutlinePhaseTitle
 import com.intellij.agent.workbench.common.session.compactAgentSessionOutlineText
@@ -29,9 +30,9 @@ import com.intellij.agent.workbench.common.session.summarizeAgentSessionOutlineC
 import com.intellij.agent.workbench.json.WorkbenchJsonlScanner
 import com.intellij.agent.workbench.json.createJsonParser
 import com.intellij.agent.workbench.sessions.core.cost.AgentSessionUsageSnapshot
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineItem
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineItemKind
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadOutline
+import com.intellij.agent.workbench.common.session.AgentSessionOutlineItem
+import com.intellij.agent.workbench.common.session.AgentSessionOutlineItemKind
+import com.intellij.agent.workbench.common.session.AgentSessionThreadOutline
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import java.io.BufferedReader
@@ -1028,6 +1029,7 @@ private data class RolloutOutlineParseState(
   @JvmField val seenConversationKeys: MutableSet<String> = HashSet(),
   @JvmField val seenToolCallKeys: MutableSet<String> = HashSet(),
   @JvmField var activeTurnId: String? = null,
+  @JvmField var nextUserPromptIndex: Int = 0,
 ) {
   fun noteTurnStarted(event: RolloutEvent) {
     val turnId = event.payloadTurnId?.takeIf { it.isNotBlank() } ?: return
@@ -1047,15 +1049,19 @@ private data class RolloutOutlineParseState(
     if (!isUsefulOutlineUserPrompt(normalizedPreview) || !seenConversationKeys.add("user:${dedupeOutlineText(normalizedPreview)}")) {
       return
     }
-    val item = newItem(event = event, kind = AgentSessionOutlineItemKind.USER_PROMPT, title = "My prompt", preview = normalizedPreview)
+    val userPromptIndex = nextUserPromptIndex++
+    val item = newItem(
+      event = event,
+      kind = AgentSessionOutlineItemKind.USER_PROMPT,
+      title = "",
+      preview = normalizedPreview,
+      idOverride = codexUserPromptOutlineItemId(userPromptIndex),
+    )
     val turn = turnFor(event)
     if (turn == null) {
       rootItems += item
     }
     else {
-      if (turn.title.startsWith("Turn ")) {
-        turn.title = normalizedPreview
-      }
       turn.children += item
       currentPhaseByTurnKey.remove(turn.id)
     }
@@ -1142,9 +1148,10 @@ private data class RolloutOutlineParseState(
     title: String,
     preview: String? = null,
     summarizesChildren: Boolean = false,
+    idOverride: String? = null,
   ): RolloutOutlineItemBuilder {
     val item = RolloutOutlineItemBuilder(
-      id = event.payloadCallId ?: event.payloadTurnId ?: "outline-${nextItemIndex}",
+      id = idOverride ?: event.payloadCallId ?: event.payloadTurnId ?: "outline-${nextItemIndex}",
       kind = kind,
       title = title,
       preview = normalizeOutlinePreview(preview),
@@ -1168,6 +1175,7 @@ private data class RolloutOutlineParseState(
         title = "Turn ${turnId.take(8)}",
         preview = null,
         timestampMs = event.timestampMs,
+        visible = false,
       ).also(rootItems::add)
     }
     return turn
@@ -1178,25 +1186,31 @@ private data class RolloutOutlineParseState(
     val turnKey = turn?.id ?: ROOT_OUTLINE_TURN_KEY
     val currentPhase = currentPhaseByTurnKey[turnKey]
     if (currentPhase != null) {
-      currentPhase.kind = AgentSessionOutlineItemKind.AGENT_WORK
       return currentPhase
     }
     if (turn != null) {
-      return turn
+      return newWorkPhase(event).also { work ->
+        turn.children += work
+        currentPhaseByTurnKey[turn.id] = work
+      }
     }
+    return newWorkPhase(event).also { work ->
+      rootItems += work
+      currentPhaseByTurnKey[ROOT_OUTLINE_TURN_KEY] = work
+    }
+  }
+
+  private fun newWorkPhase(event: RolloutEvent): RolloutOutlineItemBuilder {
     return RolloutOutlineItemBuilder(
       id = "work-${nextItemIndex++}",
       kind = AgentSessionOutlineItemKind.AGENT_WORK,
       title = "Agent work",
       preview = null,
       timestampMs = event.timestampMs,
-    ).also { work ->
-      rootItems += work
-      currentPhaseByTurnKey[ROOT_OUTLINE_TURN_KEY] = work
-    }
+    )
   }
 
-  fun buildItems(): List<AgentSessionOutlineItem> = rootItems.map(RolloutOutlineItemBuilder::build)
+  fun buildItems(): List<AgentSessionOutlineItem> = rootItems.flatMap(RolloutOutlineItemBuilder::buildVisible)
 }
 
 private data class RolloutOutlineItemBuilder(
@@ -1206,10 +1220,14 @@ private data class RolloutOutlineItemBuilder(
   @JvmField var preview: String?,
   @JvmField val timestampMs: Long?,
   @JvmField val summarizesChildren: Boolean = false,
+  @JvmField val visible: Boolean = true,
   @JvmField val children: MutableList<RolloutOutlineItemBuilder> = ArrayList(),
 ) {
-  fun build(): AgentSessionOutlineItem {
-    val builtChildren = children.map(RolloutOutlineItemBuilder::build)
+  fun buildVisible(): List<AgentSessionOutlineItem> {
+    val builtChildren = children.flatMap(RolloutOutlineItemBuilder::buildVisible)
+    if (!visible) {
+      return builtChildren
+    }
     return AgentSessionOutlineItem(
       id = id,
       kind = kind,
@@ -1217,7 +1235,7 @@ private data class RolloutOutlineItemBuilder(
       preview = if (summarizesChildren && builtChildren.isNotEmpty()) summarizeOutlineChildren(builtChildren) else preview,
       timestampMs = timestampMs,
       children = builtChildren,
-    )
+    ).let(::listOf)
   }
 }
 

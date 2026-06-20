@@ -3592,6 +3592,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/contextParameter/addExplicitContextArguments/noSurrounding.kt");
             }
 
+            @TestMetadata("notEnabledLanguageFeature.kt")
+            public void testNotEnabledLanguageFeature() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/contextParameter/addExplicitContextArguments/notEnabledLanguageFeature.kt");
+            }
+
             @TestMetadata("nullableContext.kt")
             public void testNullableContext() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/contextParameter/addExplicitContextArguments/nullableContext.kt");
@@ -17672,6 +17677,16 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("notRedundantBranch.kt")
             public void testNotRedundantBranch() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/when/notRedundantBranch.kt");
+            }
+
+            @TestMetadata("removeDuplicateBranchClass.kt")
+            public void testRemoveDuplicateBranchClass() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/when/removeDuplicateBranchClass.kt");
+            }
+
+            @TestMetadata("removeDuplicateBranchEnums.kt")
+            public void testRemoveDuplicateBranchEnums() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/when/removeDuplicateBranchEnums.kt");
             }
 
             @TestMetadata("removeRedundantBranch.kt")

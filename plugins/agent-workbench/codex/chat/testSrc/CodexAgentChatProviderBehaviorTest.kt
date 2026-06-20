@@ -1,7 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.codex.chat
 
-import com.intellij.agent.workbench.chat.AGENT_CHAT_PROPOSED_PLAN_NAVIGATION_REGISTRY_KEY
 import com.intellij.agent.workbench.chat.AgentChatBehaviorFile
 import com.intellij.agent.workbench.chat.AgentChatBehaviorTerminalTab
 import com.intellij.agent.workbench.chat.AgentChatInitialMessageDispatchContext
@@ -11,13 +10,7 @@ import com.intellij.agent.workbench.common.AgentThreadActivity
 import com.intellij.agent.workbench.common.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchAction
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
-import com.intellij.terminal.frontend.view.TerminalView
-import com.intellij.terminal.frontend.view.TerminalViewSessionState
-import com.intellij.testFramework.junit5.RegistryKey
 import com.intellij.testFramework.junit5.TestApplication
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -30,18 +23,6 @@ class CodexAgentChatProviderBehaviorTest {
   fun behaviorIsRegisteredForCodexProvider() {
     assertThat(AgentChatProviderBehaviors.find(AgentSessionProvider.CODEX))
       .isSameAs(CodexAgentChatProviderBehavior)
-  }
-
-  @Test
-  @RegistryKey(key = AGENT_CHAT_PROPOSED_PLAN_NAVIGATION_REGISTRY_KEY, value = "true")
-  fun semanticNavigationInstallCheckHonorsRegistryKey() {
-    assertThat(CodexAgentChatProviderBehavior.shouldInstallSemanticRegionNavigation()).isTrue()
-  }
-
-  @Test
-  @RegistryKey(key = CODEX_TUI_PATCH_FOLDING_REGISTRY_KEY, value = "true")
-  fun patchFoldingInstallCheckHonorsRegistryKey() {
-    assertThat(CodexAgentChatProviderBehavior.shouldInstallPatchFolding()).isTrue()
   }
 
   @Test
@@ -107,11 +88,6 @@ private data class TestBehaviorFile(
 private class TestBehaviorTerminalTab(
   private val recentOutputTail: String,
 ) : AgentChatBehaviorTerminalTab {
-  override val coroutineScope: CoroutineScope
-    get() = error("Not used in behavior tests")
-  override val sessionState: StateFlow<TerminalViewSessionState> = MutableStateFlow(TerminalViewSessionState.Running)
-  override val terminalView: TerminalView? = null
-
   override suspend fun readRecentOutputTail(): String = recentOutputTail
 }
 

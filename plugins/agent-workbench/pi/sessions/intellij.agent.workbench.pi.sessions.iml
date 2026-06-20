@@ -14,12 +14,14 @@
     <orderEntry type="module" module-name="intellij.platform.ide" />
     <orderEntry type="module" module-name="intellij.platform.projectModel" />
     <orderEntry type="module" module-name="intellij.platform.builtInServer" />
+    <orderEntry type="module" module-name="intellij.platform.builtInServer.impl" />
     <orderEntry type="module" module-name="intellij.platform.ide.util.netty" />
     <orderEntry type="module" module-name="intellij.platform.util" />
     <orderEntry type="module" module-name="intellij.platform.execution.impl" />
     <orderEntry type="module" module-name="intellij.platform.eel" />
     <orderEntry type="module" module-name="intellij.platform.eel.nioFs" />
     <orderEntry type="module" module-name="intellij.platform.eel.provider" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.cli" />
     <orderEntry type="module" module-name="intellij.agent.workbench.common" />
     <orderEntry type="module" module-name="intellij.agent.workbench.json" />
     <orderEntry type="module" module-name="intellij.agent.workbench.prompt.core" />

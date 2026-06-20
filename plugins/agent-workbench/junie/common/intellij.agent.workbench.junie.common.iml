@@ -12,9 +12,8 @@
     <orderEntry type="module" module-name="intellij.platform.core" />
     <orderEntry type="module" module-name="intellij.platform.util" />
     <orderEntry type="module" module-name="intellij.platform.execution.impl" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.cli" />
     <orderEntry type="module" module-name="intellij.platform.ide.util.io" />
-    <orderEntry type="module" module-name="intellij.terminal" />
-    <orderEntry type="module" module-name="intellij.terminal.backend" />
     <orderEntry type="module" module-name="intellij.platform.eel" />
     <orderEntry type="module" module-name="intellij.platform.eel.provider" />
   </component>

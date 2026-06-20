@@ -29,6 +29,7 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" scope="TEST" name="kotlin-stdlib" level="project" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.cli" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.common" scope="TEST" />
     <orderEntry type="module" module-name="intellij.agent.workbench.chat" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.claude.common" scope="RUNTIME" />
@@ -81,6 +82,9 @@
     <orderEntry type="module" module-name="intellij.agent.workbench.sessions.toolwindow.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.agent.workbench.filewatch.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.agent.workbench.ui.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.cli.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.codex.prompt.suggestions.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.codex.common.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.agent.workbench.sessions.launch.config.backend.tests" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.agent.workbench.plugin" />

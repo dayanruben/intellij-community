@@ -2,6 +2,7 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <plugin id="org.jetbrains.plugins.terminal"/>
+    <module name="intellij.agent.workbench.cli"/>
     <module name="intellij.agent.workbench.common"/>
     <module name="intellij.agent.workbench.json"/>
     <module name="intellij.agent.workbench.prompt.core"/>
@@ -32,6 +33,7 @@
       order="after agentWorkbenchJunie"
       implementation="com.intellij.agent.workbench.pi.sessions.PiAgentSessionProviderDescriptor"/>
     <httpRequestHandler implementation="com.intellij.agent.workbench.pi.sessions.PiExtensionStatusHttpRequestHandler"/>
+    <httpRequestHandler implementation="com.intellij.agent.workbench.pi.sessions.PiExtensionControlWebSocketHandler"/>
   </extensions>
 
   <applicationListeners>

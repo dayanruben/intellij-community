@@ -40,8 +40,9 @@ class PiAgentSessionProviderDescriptorTest {
     },
     statusLaunchEnvironmentResolver = { sessionId ->
       mapOf(
-        PI_STATUS_ENDPOINT_ENVIRONMENT_VARIABLE to "http://localhost:63342/agent-workbench/pi/status",
+        PI_STATUS_ENDPOINT_ENVIRONMENT_VARIABLE to "http://127.0.0.1:63342/agent-workbench/pi/status",
         PI_STATUS_TOKEN_ENVIRONMENT_VARIABLE to "status-token-$sessionId",
+        PI_CONTROL_WS_ENDPOINT_ENVIRONMENT_VARIABLE to "ws://127.0.0.1:63342/agent-workbench/pi/control",
       )
     },
     omlxSupportEnabledResolver = { true },
@@ -299,9 +300,13 @@ class PiAgentSessionProviderDescriptorTest {
     )
     assertThat(launchSpec.envVariables).containsEntry(
       PI_STATUS_ENDPOINT_ENVIRONMENT_VARIABLE,
-      "http://localhost:63342/agent-workbench/pi/status",
+      "http://127.0.0.1:63342/agent-workbench/pi/status",
     )
     assertThat(launchSpec.envVariables).containsEntry(PI_STATUS_TOKEN_ENVIRONMENT_VARIABLE, "status-token-pi-session-1")
+    assertThat(launchSpec.envVariables).containsEntry(
+      PI_CONTROL_WS_ENDPOINT_ENVIRONMENT_VARIABLE,
+      "ws://127.0.0.1:63342/agent-workbench/pi/control",
+    )
     assertThat(launchSpec.preallocatedSessionId).isEqualTo("pi-session-1")
   }
 
@@ -318,9 +323,13 @@ class PiAgentSessionProviderDescriptorTest {
     )
     assertThat(launchSpec.envVariables).containsEntry(
       PI_STATUS_ENDPOINT_ENVIRONMENT_VARIABLE,
-      "http://localhost:63342/agent-workbench/pi/status",
+      "http://127.0.0.1:63342/agent-workbench/pi/status",
     )
     assertThat(launchSpec.envVariables).containsEntry(PI_STATUS_TOKEN_ENVIRONMENT_VARIABLE, "status-token-thread-1")
+    assertThat(launchSpec.envVariables).containsEntry(
+      PI_CONTROL_WS_ENDPOINT_ENVIRONMENT_VARIABLE,
+      "ws://127.0.0.1:63342/agent-workbench/pi/control",
+    )
   }
 
   @Test
@@ -503,6 +512,43 @@ class PiAgentSessionProviderDescriptorTest {
     assertThat(launchSpec.envVariables[PI_MODEL_CATALOG_ENVIRONMENT_VARIABLE])
       .contains("Qwen3.6-27B-MLX-8bit")
       .doesNotContain("gpt-5.4")
+  }
+
+  @Test
+  fun applyGenerationModelCatalogReplacesMalformedStalePiScopedModelArgs(): Unit = runBlocking(Dispatchers.Default) {
+    val modelId = PiOmlxModelCatalog.encodeGenerationModelId(omlxSelection())
+    val knownModelId = PiKnownModelCatalog.encodeGenerationModelId(knownSelection("openai", "gpt-5.4"))
+    val staleBaseLaunchSpec = descriptor.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD).copy(
+      command = listOf(
+        "pi",
+        "--extension",
+        "/tmp/pi-extension/agent-workbench-extension.ts",
+        "--models",
+        "old-models",
+        "--models",
+        "--session-id",
+        "pi-session-1",
+      )
+    )
+
+    val launchSpec = descriptor.applyGenerationModelCatalog(
+      baseLaunchSpec = staleBaseLaunchSpec,
+      generationSettings = AgentPromptGenerationSettings.AUTO,
+      generationModelCatalog = listOf(
+        AgentPromptGenerationModel(id = modelId, displayName = "Qwen3.6-27B-MLX-8bit (oMLX)"),
+        AgentPromptGenerationModel(id = knownModelId, displayName = "gpt-5.4 (openai)"),
+      ),
+    )
+
+    assertThat(launchSpec.command).containsExactly(
+      "pi",
+      "--extension",
+      "/tmp/pi-extension/agent-workbench-extension.ts",
+      "--models",
+      "oMLX/Qwen3.6-27B-MLX-8bit,openai/gpt-5.4",
+      "--session-id",
+      "pi-session-1",
+    )
   }
 
   @Test
@@ -728,7 +774,7 @@ class PiAgentSessionProviderDescriptorTest {
   }
 
   @Test
-  fun applyGenerationSettingsReplacesStalePiGenerationArgs(): Unit = runBlocking(Dispatchers.Default) {
+  fun applyGenerationSettingsReplacesMalformedStalePiGenerationArgs(): Unit = runBlocking(Dispatchers.Default) {
     val modelId = PiOmlxModelCatalog.encodeGenerationModelId(omlxSelection())
     val staleBaseLaunchSpec = descriptor.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD).copy(
       command = listOf(
@@ -741,6 +787,9 @@ class PiAgentSessionProviderDescriptorTest {
         "old-model",
         "--thinking",
         "high",
+        "--provider",
+        "stale-provider",
+        "--thinking",
         "--session-id",
         "pi-session-1",
       )

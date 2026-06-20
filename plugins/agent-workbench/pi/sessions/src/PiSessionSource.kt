@@ -15,20 +15,27 @@ import com.intellij.agent.workbench.common.session.AgentSessionThread
 import com.intellij.agent.workbench.common.session.AgentSessionThreadOutline
 import com.intellij.agent.workbench.common.session.AgentSessionOutlineTreeRecord
 import com.intellij.agent.workbench.common.session.agentSessionOutlinePhaseTitle
+import com.intellij.agent.workbench.common.session.buildAgentSessionArchivedThreadTitle
 import com.intellij.agent.workbench.common.session.buildAgentSessionOutlineTree
+import com.intellij.agent.workbench.common.session.isAgentSessionArchivedThreadTitle
 import com.intellij.agent.workbench.common.session.normalizeAgentSessionOutlinePreview
+import com.intellij.agent.workbench.common.session.resolveAgentSessionArchivedTitleState
 import com.intellij.agent.workbench.json.createJsonGenerator
 import com.intellij.agent.workbench.json.WorkbenchJsonlScanner
 import com.intellij.agent.workbench.json.forEachJsonObjectField
 import com.intellij.agent.workbench.json.readJsonLongOrNull
 import com.intellij.agent.workbench.json.readJsonStringOrNull
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineForkResult
 import com.intellij.agent.workbench.sessions.core.providers.BaseAgentSessionSource
 import com.intellij.agent.workbench.sessions.core.providers.resolveReadTrackedActivity
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.merge
 import java.io.StringWriter
 import java.nio.charset.StandardCharsets
@@ -54,7 +61,6 @@ internal interface PiSessionThreadMutationBackend {
 
 internal class PiSessionStore(
   private val sessionDirResolver: (String) -> Path = ::resolveEffectivePiSessionDir,
-  private val archiveStatePathResolver: (Path) -> Path = { sessionDir -> sessionDir.resolve(PI_AGENT_WORKBENCH_ARCHIVE_STATE_FILE) },
   private val jsonFactory: JsonFactory = JsonFactory(),
   private val timeProvider: () -> Long = System::currentTimeMillis,
 ) : PiSessionThreadMutationBackend {
@@ -65,23 +71,24 @@ internal class PiSessionStore(
     val sessionDir = sessionDirResolver(projectPath)
     val parsedEntries = loadSessionFiles(sessionDir)
       .filter { entry -> entry.normalizedProjectDir == normalizedProjectPath }
-    if (parsedEntries.isEmpty()) return emptyList()
-
-    val archiveState = loadArchiveState(archiveStatePathResolver(sessionDir))
-    return parsedEntries.map { entry ->
-      val archiveEntry = archiveState[PiSessionArchiveKey(normalizedProjectPath, entry.sessionId)]
-      if (archiveEntry == null) {
-        entry
-      }
-      else {
-        entry.copy(archived = archiveEntry.archived, updatedAt = maxOf(entry.updatedAt, archiveEntry.updatedAt))
-      }
-    }
+    return parsedEntries
   }
 
   fun loadOutline(projectPath: String, threadId: String): AgentSessionThreadOutline? {
     val entry = findEntry(projectPath, threadId) ?: return null
     return parseSessionOutline(entry)
+  }
+
+  fun canForkThreadFromOutlineItem(path: String, threadId: String, itemId: String): Boolean {
+    val entry = findEntry(path, threadId) ?: return false
+    return resolveForkBranch(entry.sessionFile, itemId) != null
+  }
+
+  fun forkThreadFromOutlineItem(path: String, threadId: String, itemId: String): PiSessionIndexEntry? {
+    val entry = findEntry(path, threadId) ?: return null
+    val branch = resolveForkBranch(entry.sessionFile, itemId) ?: return null
+    val forkedSessionFile = writeForkedSessionFile(entry, branch) ?: return null
+    return parseSessionFile(forkedSessionFile)
   }
 
   private fun loadSessionFiles(sessionDir: Path): List<PiSessionIndexEntry> {
@@ -121,12 +128,13 @@ internal class PiSessionStore(
     val title = state.name?.normalizePiSessionTitle()
                 ?: state.firstUserMessage?.normalizePiSessionTitle()
                 ?: header.id
+    val titleState = resolveAgentSessionArchivedTitleState(title, header.id)
     val headerTime = parseIsoTimestamp(header.timestamp)
     val fileMtime = runCatching { Files.getLastModifiedTime(sessionFile).toMillis() }.getOrDefault(0L)
     val updatedAt = state.lastActivityAtMs ?: headerTime ?: fileMtime
     return PiSessionIndexEntry(
       sessionId = header.id,
-      title = title,
+      title = titleState.title,
       updatedAt = updatedAt,
       projectDir = header.cwd,
       normalizedProjectDir = normalizedProjectDir,
@@ -134,7 +142,7 @@ internal class PiSessionStore(
       leafId = state.leafId,
       entryIds = state.entryIds,
       activity = state.leafActivity,
-      archived = false,
+      archived = titleState.archived,
     )
   }
 
@@ -160,47 +168,140 @@ internal class PiSessionStore(
     val title = state.name?.normalizePiSessionTitle()
                 ?: state.firstUserMessage?.normalizePiSessionTitle()
                 ?: header.id
+    val titleState = resolveAgentSessionArchivedTitleState(title, header.id)
     val headerTime = parseIsoTimestamp(header.timestamp)
     val fileMtime = runCatching { Files.getLastModifiedTime(entry.sessionFile).toMillis() }.getOrDefault(0L)
     val updatedAt = state.updatedAtMs ?: headerTime ?: fileMtime
     return AgentSessionThreadOutline(
       provider = AgentSessionProvider.PI,
       threadId = header.id,
-      title = title,
+      title = titleState.title,
       updatedAt = updatedAt,
       items = buildAgentSessionOutlineTree(state.records),
     )
   }
 
-  private fun loadArchiveState(archiveStatePath: Path): Map<PiSessionArchiveKey, PiSessionArchiveEntry> {
-    if (!Files.isRegularFile(archiveStatePath)) return emptyMap()
-    return try {
-      WorkbenchJsonlScanner.scanJsonObjects(
-        path = archiveStatePath,
-        jsonFactory = jsonFactory,
-        newState = { LinkedHashMap() },
-      ) { parser, state ->
-        parseArchiveStateEntry(parser)?.let { (key, entry) -> state[key] = entry }
-        true
+  private fun resolveForkBranch(sessionFile: Path, itemId: String): List<PiForkRawEntry>? {
+    val targetId = itemId.trim().takeIf { it.isNotEmpty() } ?: return null
+    val entriesById = LinkedHashMap<String, PiForkRawEntry>()
+    try {
+      Files.newBufferedReader(sessionFile, StandardCharsets.UTF_8).use { reader ->
+        while (true) {
+          val line = reader.readLine() ?: break
+          val entry = parseForkRawEntry(line.trim()) ?: continue
+          entriesById[entry.id] = entry
+        }
       }
     }
     catch (e: Exception) {
-      LOG.warn("Failed to load Pi archive state: $archiveStatePath", e)
-      emptyMap()
+      LOG.debug("Failed to parse Pi session fork entries: $sessionFile", e)
+      return null
     }
+
+    val branch = ArrayList<PiForkRawEntry>()
+    val seenIds = HashSet<String>()
+    var currentId: String? = targetId
+    while (currentId != null) {
+      if (!seenIds.add(currentId)) {
+        return null
+      }
+      val entry = entriesById[currentId] ?: return null
+      branch += entry
+      currentId = entry.parentId
+    }
+    branch.reverse()
+    return branch
+  }
+
+  private fun parseForkRawEntry(line: String): PiForkRawEntry? {
+    if (line.isEmpty()) return null
+    return try {
+      jsonFactory.createJsonParser(line).use { parser ->
+        if (parser.nextToken() != JsonToken.START_OBJECT) return null
+        var type: String? = null
+        var id: String? = null
+        var parentId: String? = null
+        forEachJsonObjectField(parser) { fieldName ->
+          when (fieldName) {
+            "type" -> type = readJsonStringOrNull(parser)
+            "id" -> id = readJsonStringOrNull(parser)
+            "parentId" -> parentId = readJsonStringOrNull(parser)
+            else -> parser.skipChildren()
+          }
+          true
+        }
+        if (type == "session") return null
+        PiForkRawEntry(
+          id = id?.trim()?.takeIf { it.isNotEmpty() } ?: return null,
+          parentId = parentId?.trim()?.takeIf { it.isNotEmpty() },
+          line = line,
+        )
+      }
+    }
+    catch (_: Exception) {
+      null
+    }
+  }
+
+  private fun writeForkedSessionFile(entry: PiSessionIndexEntry, branch: List<PiForkRawEntry>): Path? {
+    val sessionId = UUID.randomUUID().toString()
+    val timestamp = Instant.ofEpochMilli(timeProvider()).toString()
+    val sessionDir = entry.sessionFile.parent ?: sessionDirResolver(entry.projectDir)
+    val sessionFile = sessionDir.resolve("${timestamp.toPiSessionFileTimestamp()}_$sessionId.jsonl")
+    return try {
+      Files.createDirectories(sessionDir)
+      val lines = ArrayList<String>(branch.size + 1)
+      lines += buildForkedSessionHeaderLine(
+        sessionId = sessionId,
+        timestamp = timestamp,
+        cwd = entry.projectDir,
+        parentSession = entry.sessionFile.toString(),
+      )
+      branch.mapTo(lines, PiForkRawEntry::line)
+      Files.writeString(
+        sessionFile,
+        lines.joinToString(separator = "\n", postfix = "\n"),
+        StandardCharsets.UTF_8,
+        StandardOpenOption.CREATE_NEW,
+        StandardOpenOption.WRITE,
+      )
+      sessionFile
+    }
+    catch (e: Exception) {
+      LOG.warn("Failed to create Pi forked session: $sessionFile", e)
+      null
+    }
+  }
+
+  private fun buildForkedSessionHeaderLine(sessionId: String, timestamp: String, cwd: String, parentSession: String): String {
+    val writer = StringWriter()
+    jsonFactory.createJsonGenerator(writer).use { generator ->
+      generator.writeStartObject()
+      generator.writeStringProperty("type", "session")
+      generator.writeNumberProperty("version", PI_CURRENT_SESSION_VERSION)
+      generator.writeStringProperty("id", sessionId)
+      generator.writeStringProperty("timestamp", timestamp)
+      generator.writeStringProperty("cwd", cwd)
+      generator.writeStringProperty("parentSession", parentSession)
+      generator.writeEndObject()
+    }
+    return writer.toString()
   }
 
   override fun renameThread(path: String, threadId: String, normalizedName: String): Boolean {
     val entry = findEntry(path, threadId) ?: return false
-    return appendSessionInfo(entry, normalizedName)
+    val storedName = if (entry.archived) buildAgentSessionArchivedThreadTitle(normalizedName, entry.sessionId) else normalizedName
+    return appendSessionInfo(entry, storedName)
   }
 
   override fun archiveThread(path: String, threadId: String): Boolean {
-    return appendArchiveStateEntry(path, threadId, archived = true)
+    val entry = findEntry(path, threadId) ?: return false
+    return appendSessionInfo(entry, buildAgentSessionArchivedThreadTitle(entry.title, entry.sessionId))
   }
 
   override fun unarchiveThread(path: String, threadId: String): Boolean {
-    return appendArchiveStateEntry(path, threadId, archived = false)
+    val entry = findEntry(path, threadId) ?: return false
+    return appendSessionInfo(entry, resolveAgentSessionArchivedTitleState(entry.title, entry.sessionId).title)
   }
 
   private fun findEntry(path: String, threadId: String): PiSessionIndexEntry? {
@@ -227,27 +328,6 @@ internal class PiSessionStore(
     }
   }
 
-  private fun appendArchiveStateEntry(path: String, threadId: String, archived: Boolean): Boolean {
-    val normalizedProjectPath = normalizePiProjectPath(path) ?: return false
-    val sessionDir = sessionDirResolver(path)
-    val archiveStatePath = archiveStatePathResolver(sessionDir)
-    return try {
-      archiveStatePath.parent?.let(Files::createDirectories)
-      Files.writeString(
-        archiveStatePath,
-        buildArchiveStateLine(projectDir = normalizedProjectPath, sessionId = threadId, archived = archived) + "\n",
-        StandardCharsets.UTF_8,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.APPEND,
-      )
-      true
-    }
-    catch (e: Exception) {
-      LOG.warn("Failed to update Pi archive state: $archiveStatePath", e)
-      false
-    }
-  }
-
   private fun buildSessionInfoLine(entry: PiSessionIndexEntry, normalizedName: String): String {
     val writer = StringWriter()
     jsonFactory.createJsonGenerator(writer).use { generator ->
@@ -262,18 +342,6 @@ internal class PiSessionStore(
     return writer.toString()
   }
 
-  private fun buildArchiveStateLine(projectDir: String, sessionId: String, archived: Boolean): String {
-    val writer = StringWriter()
-    jsonFactory.createJsonGenerator(writer).use { generator ->
-      generator.writeStartObject()
-      generator.writeStringProperty("projectDir", projectDir)
-      generator.writeStringProperty("sessionId", sessionId)
-      generator.writeBooleanProperty("archived", archived)
-      generator.writeNumberProperty("updatedAt", timeProvider())
-      generator.writeEndObject()
-    }
-    return writer.toString()
-  }
 }
 
 internal class PiSessionSource(
@@ -290,17 +358,28 @@ internal class PiSessionSource(
 
   override val supportsUpdates: Boolean get() = true
 
+  override val supportsActiveThreadUpdateEvents: Boolean get() = true
+
   override val supportsArchivedThreads: Boolean get() = true
 
   override val updateEvents: Flow<AgentSessionSourceUpdateEvent> = merge(
     readStateUpdateEvents,
     extensionStatusEvents,
+    PiExtensionControlBridge.updateEvents,
     createPiSessionUpdateEvents(
       watchedProjectPathsBySessionDir = watchedProjectPathsBySessionDir,
       fileWatchFallbackEnabledProvider = { fileWatchFallbackEnabled },
       sessionUpdateEventsContributorProvider = sessionUpdateEventsContributorProvider,
     ),
   )
+
+  override fun activeThreadUpdateEvents(path: String, threadId: String): Flow<AgentSessionSourceUpdateEvent> {
+    val normalizedPath = normalizePiProjectPath(path) ?: return emptyFlow()
+    val normalizedThreadId = threadId.trim().takeIf { it.isNotEmpty() } ?: return emptyFlow()
+    val matchingUpdates = updateEvents.filter { updateEvent -> updateEvent.matchesActivePiThread(normalizedPath, normalizedThreadId) }
+    val currentControlUpdate = PiExtensionControlBridge.currentThreadUpdateEvent(path = normalizedPath, threadId = normalizedThreadId)
+    return if (currentControlUpdate == null) matchingUpdates else merge(flowOf(currentControlUpdate), matchingUpdates)
+  }
 
   override suspend fun listThreads(path: String, openProject: Project?): List<AgentSessionThread> {
     rememberSessionDirectory(path)
@@ -330,6 +409,67 @@ internal class PiSessionSource(
   override suspend fun loadThreadOutline(path: String, threadId: String, subAgentId: String?): AgentSessionThreadOutline? {
     rememberSessionDirectory(path)
     return sessionStore.loadOutline(path, threadId)
+  }
+
+  override fun canNavigateThreadOutlineItem(
+    path: String,
+    threadId: String,
+    itemId: String,
+    subAgentId: String?,
+    tabKey: String?,
+  ): Boolean {
+    return subAgentId == null && PiExtensionControlBridge.canNavigateThreadOutlineItem(path = path, threadId = threadId, itemId = itemId)
+  }
+
+  override suspend fun navigateThreadOutlineItem(
+    path: String,
+    threadId: String,
+    itemId: String,
+    subAgentId: String?,
+    tabKey: String?,
+  ): Boolean {
+    return subAgentId == null && PiExtensionControlBridge.navigateThreadOutlineItem(path = path, threadId = threadId, itemId = itemId)
+  }
+
+  override fun canShowThreadOutlineForkAction(
+    path: String,
+    threadId: String,
+    itemId: String,
+    subAgentId: String?,
+    tabKey: String?,
+  ): Boolean {
+    return subAgentId == null && itemId.isNotBlank()
+  }
+
+  override fun canForkThreadFromOutlineItem(
+    path: String,
+    threadId: String,
+    itemId: String,
+    subAgentId: String?,
+    tabKey: String?,
+  ): Boolean {
+    return subAgentId == null &&
+           (PiExtensionControlBridge.canForkThreadFromOutlineItem(path = path, threadId = threadId, itemId = itemId) ||
+            sessionStore.canForkThreadFromOutlineItem(path = path, threadId = threadId, itemId = itemId))
+  }
+
+  override suspend fun forkThreadFromOutlineItem(
+    project: Project,
+    path: String,
+    threadId: String,
+    itemId: String,
+    subAgentId: String?,
+    tabKey: String?,
+  ): AgentSessionOutlineForkResult? {
+    if (subAgentId != null) return null
+    if (PiExtensionControlBridge.canForkThreadFromOutlineItem(path = path, threadId = threadId, itemId = itemId)) {
+      val liveThread = PiExtensionControlBridge.forkThreadFromOutlineItem(path = path, threadId = threadId, itemId = itemId)
+      if (liveThread != null) {
+        return AgentSessionOutlineForkResult(thread = liveThread)
+      }
+    }
+    val forkedEntry = sessionStore.forkThreadFromOutlineItem(path = path, threadId = threadId, itemId = itemId) ?: return null
+    return AgentSessionOutlineForkResult(thread = forkedEntry.toAgentSessionThread(readTracker))
   }
 
   private fun rememberActiveWorkingThreadRead(entries: Iterable<PiSessionIndexEntry>) {
@@ -369,6 +509,15 @@ internal class PiSessionSource(
   }
 }
 
+private fun AgentSessionSourceUpdateEvent.matchesActivePiThread(projectPath: String, threadId: String): Boolean {
+  val scopedPaths = scopedPaths
+  if (scopedPaths != null && projectPath !in scopedPaths) {
+    return false
+  }
+  val threadIds = threadIds
+  return threadIds == null || threadId in threadIds
+}
+
 private fun normalizePiSessionDirectoryPath(path: Path): Path {
   return runCatching {
     path.toAbsolutePath().normalize()
@@ -406,6 +555,12 @@ private data class PiSessionFileState(
   val entryIds: LinkedHashSet<String> = LinkedHashSet(),
 )
 
+private data class PiForkRawEntry(
+  val id: String,
+  val parentId: String?,
+  val line: String,
+)
+
 private data class PiSessionOutlineState(
   var header: PiSessionHeader? = null,
   var firstUserMessage: String? = null,
@@ -434,7 +589,7 @@ private data class PiSessionOutlineState(
     val recordId = uniqueRecordId(baseId)
     records += AgentSessionOutlineTreeRecord(
       id = recordId,
-      parentId = parentId?.trim()?.takeIf { it.isNotEmpty() },
+      parentId = normalizePiOutlineParentId(parentId, kind, visible),
       kind = kind,
       title = title,
       preview = preview,
@@ -473,15 +628,27 @@ private data class PiSessionOutlineState(
   }
 }
 
-private data class PiSessionArchiveKey(
-  val normalizedProjectDir: String,
-  val sessionId: String,
-)
+private fun normalizePiOutlineParentId(parentId: String?, kind: AgentSessionOutlineItemKind, visible: Boolean): String? {
+  val normalizedParentId = parentId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  return if (visible && kind.isPiOutlineTimelineRoot()) null else normalizedParentId
+}
 
-private data class PiSessionArchiveEntry(
-  val archived: Boolean,
-  val updatedAt: Long,
-)
+private fun AgentSessionOutlineItemKind.isPiOutlineTimelineRoot(): Boolean {
+  return when (this) {
+    AgentSessionOutlineItemKind.USER_PROMPT,
+    AgentSessionOutlineItemKind.ASSISTANT_RESPONSE,
+    AgentSessionOutlineItemKind.AGENT_WORK,
+    AgentSessionOutlineItemKind.PLAN,
+    AgentSessionOutlineItemKind.APPROVAL_REQUEST,
+    AgentSessionOutlineItemKind.INPUT_REQUEST,
+    AgentSessionOutlineItemKind.SUMMARY,
+    AgentSessionOutlineItemKind.METADATA,
+      -> true
+    AgentSessionOutlineItemKind.TOOL_CALL,
+    AgentSessionOutlineItemKind.TOOL_RESULT,
+      -> false
+  }
+}
 
 internal fun resolveEffectivePiSessionDir(
   projectPath: String,
@@ -544,18 +711,23 @@ private fun parseSessionObject(parser: JsonParser, state: PiSessionFileState) {
   }
 
   val entryId = id?.trim()?.takeIf { it.isNotEmpty() }
+  val preserveLeaf = normalizedType == "session_info" && shouldPreserveLeafForPiSessionInfo(state.name, sessionInfoName)
   if (entryId != null) {
     state.entryIds += entryId
+  }
+  if (entryId != null && !preserveLeaf) {
     state.leafId = entryId
     state.leafActivity = null
   }
-  else if (parentId != null) {
+  else if (entryId == null && parentId != null && !preserveLeaf) {
     state.leafId = parentId
     state.leafActivity = null
   }
 
   when (normalizedType) {
-    "session_info" -> state.name = sessionInfoName?.trim()?.takeIf { it.isNotEmpty() }
+    "session_info" -> {
+      state.name = sessionInfoName?.trim()?.takeIf { it.isNotEmpty() }
+    }
     "message" -> {
       val role = messageRole ?: return
       if (!isPiActivityMessageRole(role)) return
@@ -576,6 +748,11 @@ private fun parseSessionObject(parser: JsonParser, state: PiSessionFileState) {
       state.leafActivity = AgentThreadActivity.PROCESSING
     }
   }
+}
+
+private fun shouldPreserveLeafForPiSessionInfo(previousName: String?, nextName: String?): Boolean {
+  val normalizedNextName = nextName?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+  return isAgentSessionArchivedThreadTitle(normalizedNextName) || previousName?.let(::isAgentSessionArchivedThreadTitle) == true
 }
 
 private fun parseSessionOutlineObject(parser: JsonParser, state: PiSessionOutlineState) {
@@ -702,7 +879,7 @@ private fun recordPiOutlineMessage(
         id = id,
         parentId = parentId,
         kind = AgentSessionOutlineItemKind.USER_PROMPT,
-        title = "My prompt",
+        title = "",
         preview = preview,
         timestampMs = timestampMs,
       )
@@ -1015,32 +1192,6 @@ private fun readPiTextBlock(parser: JsonParser): String? {
   return if (type == "text") text else null
 }
 
-private fun parseArchiveStateEntry(parser: JsonParser): Pair<PiSessionArchiveKey, PiSessionArchiveEntry>? {
-  var sessionId: String? = null
-  var projectDir: String? = null
-  var archived: Boolean? = null
-  var updatedAt: Long? = null
-
-  forEachJsonObjectField(parser) { fieldName ->
-    when (fieldName) {
-      "sessionId" -> sessionId = readJsonStringOrNull(parser)
-      "projectDir" -> projectDir = readJsonStringOrNull(parser)
-      "archived" -> archived = readJsonBooleanOrNull(parser)
-      "updatedAt" -> updatedAt = readJsonLongOrNull(parser)
-      else -> parser.skipChildren()
-    }
-    true
-  }
-
-  val normalizedSessionId = sessionId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-  val normalizedProjectDir = projectDir?.let(::normalizePiProjectPath) ?: return null
-  val resolvedArchived = archived ?: return null
-  return PiSessionArchiveKey(normalizedProjectDir, normalizedSessionId) to PiSessionArchiveEntry(
-    archived = resolvedArchived,
-    updatedAt = updatedAt ?: 0L,
-  )
-}
-
 private fun readPiSettingsSessionDir(settingsPath: Path): String? {
   if (!Files.isRegularFile(settingsPath)) return null
   return try {
@@ -1059,20 +1210,6 @@ private fun readPiSettingsSessionDir(settingsPath: Path): String? {
   catch (e: Exception) {
     LOG.debug("Failed to read Pi settings: $settingsPath", e)
     null
-  }
-}
-
-private fun readJsonBooleanOrNull(parser: JsonParser): Boolean? {
-  return when (parser.currentToken()) {
-    JsonToken.VALUE_TRUE -> true
-    JsonToken.VALUE_FALSE -> false
-    JsonToken.VALUE_NUMBER_INT -> parser.intValue != 0
-    JsonToken.VALUE_STRING -> parser.string.equals("true", ignoreCase = true)
-    JsonToken.VALUE_NULL -> null
-    else -> {
-      parser.skipChildren()
-      null
-    }
   }
 }
 
@@ -1160,6 +1297,10 @@ private fun encodePiSessionCwd(projectPath: String): String {
     .replace(PI_SESSION_DIR_UNSAFE_CHARS, "-") + "--"
 }
 
+private fun String.toPiSessionFileTimestamp(): String {
+  return replace(':', '-').replace('.', '-')
+}
+
 private fun expandPiTildePath(path: String, homeDir: String): String {
   return when {
     path == "~" -> homeDir
@@ -1181,7 +1322,7 @@ private val PI_THREAD_TITLE_WHITESPACE = Regex("\\s+")
 private val PI_LEADING_SEPARATOR = Regex("^[/\\\\]+")
 private val PI_SESSION_DIR_UNSAFE_CHARS = Regex("[/\\\\:]")
 
-private const val PI_AGENT_WORKBENCH_ARCHIVE_STATE_FILE = "agent-workbench-archive-state.jsonl"
+private const val PI_CURRENT_SESSION_VERSION = 3
 private const val PI_CONFIG_DIR = ".pi"
 private const val PI_AGENT_DIR_ENV = "PI_CODING_AGENT_DIR"
 private const val PI_SESSION_DIR_ENV = "PI_CODING_AGENT_SESSION_DIR"
