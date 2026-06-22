@@ -97,6 +97,7 @@ dependencies {
       localPlugin(spacePluginDir)
     }
 
+    pluginModule(implementation(project(":core")))
     pluginModule(implementation(project(":common")))
     pluginModule(implementation(project(":json")))
     pluginModule(implementation(project(":filewatch")))
@@ -109,6 +110,7 @@ dependencies {
     pluginModule(implementation(project(":prompt-testrunner")))
     pluginModule(implementation(project(":sessions")))
     pluginModule(implementation(project(":sessions-jbcentral")))
+    pluginModule(implementation(project(":settings")))
     pluginModule(implementation(project(":sessions-core")))
     pluginModule(implementation(project(":ui")))
     pluginModule(implementation(project(":sessions-actions")))

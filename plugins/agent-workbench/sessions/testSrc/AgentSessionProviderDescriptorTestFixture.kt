@@ -2,9 +2,9 @@
 package com.intellij.agent.workbench.sessions
 
 import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
+import com.intellij.agent.workbench.core.session.AgentSessionProvider
+import com.intellij.agent.workbench.core.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderCliVisibilityPolicy
@@ -12,7 +12,6 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.agent.workbench.sessions.core.providers.AgentThreadRenameAction
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchCheckboxSetting
 import com.intellij.openapi.project.Project
 import javax.swing.Icon
 
@@ -36,7 +35,6 @@ open class TestAgentSessionProviderDescriptor(
   override val suppressArchivedThreadsDuringRefresh: Boolean = false,
   override val supportsArchiveThread: Boolean = false,
   override val supportsUnarchiveThread: Boolean = false,
-  override val providerSettings: List<AgentWorkbenchCheckboxSetting> = emptyList(),
   private val newSessionLabelKeyOverride: String? = null,
   override val quickStartActionTextKey: String = "action.AgentWorkbenchSessions.NewThreadQuick.text",
   override val quickStartActionDescriptionKey: String = "action.AgentWorkbenchSessions.NewThreadQuick.description",

@@ -1,8 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
+import com.intellij.agent.workbench.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
 import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
@@ -15,7 +15,7 @@ import com.intellij.agent.workbench.sessions.core.providers.buildBuiltInLaunchPr
 import com.intellij.agent.workbench.sessions.core.providers.hasEntries
 import com.intellij.agent.workbench.sessions.providerItemIconWithMode
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -66,7 +66,9 @@ internal class AgentPromptProviderSelector(
   }
 
   fun refresh() {
-    val bridges = providerSettingsService.enabledProviders(providersProvider().filter { provider -> provider.supportsPromptLaunch })
+    val bridges = providersProvider().filter { provider ->
+      provider.supportsPromptLaunch && providerSettingsService.isProviderEnabled(provider.provider)
+    }
     val (resolvedMenuModel, resolvedEntries) = resolveProviderState(bridges, providerAvailabilityService.availabilitySnapshot(bridges))
     applyResolvedState(resolvedMenuModel, resolvedEntries)
     asyncRefreshScope?.launch { refreshProviderAvailability(bridges) }

@@ -1,10 +1,10 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.agent.workbench.core.AgentThreadActivity
+import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
+import com.intellij.agent.workbench.core.session.AgentSessionProvider
+import com.intellij.agent.workbench.core.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeSummary
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextRendererIds
@@ -28,7 +28,7 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.agent.workbench.sessions.core.providers.buildPlanModeInitialMessagePlan
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.junit5.TestApplication

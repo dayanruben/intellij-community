@@ -30,6 +30,7 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" scope="TEST" name="kotlin-stdlib" level="project" />
     <orderEntry type="module" module-name="intellij.agent.workbench.cli" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.core" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.common" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.chat" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.claude.common" scope="RUNTIME" />
@@ -50,9 +51,11 @@
     <orderEntry type="module" module-name="intellij.agent.workbench.sessions.toolwindow" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.codex.sessions" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.claude.sessions" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.claude.awb" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.junie.sessions" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.opencode.sessions" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.pi.sessions" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.pi.awb" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.terminal.sessions" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.agent.workbench.sessions.launch.config.backend" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />

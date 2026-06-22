@@ -18,13 +18,13 @@ import com.intellij.agent.workbench.chat.openChat
 import com.intellij.agent.workbench.chat.rebindOpenPendingAgentChatTabs
 import com.intellij.agent.workbench.chat.serializeAgentChatLaunchMode
 import com.intellij.agent.workbench.chat.updateAgentChatDeferredStartState
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.parseAgentWorkbenchPathOrNull
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
-import com.intellij.agent.workbench.common.session.AgentSubAgent
+import com.intellij.agent.workbench.core.AgentThreadActivity
+import com.intellij.agent.workbench.core.normalizeAgentWorkbenchPath
+import com.intellij.agent.workbench.core.parseAgentWorkbenchPathOrNull
+import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
+import com.intellij.agent.workbench.core.session.AgentSessionProvider
+import com.intellij.agent.workbench.core.session.AgentSessionThread
+import com.intellij.agent.workbench.core.session.AgentSubAgent
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
@@ -51,6 +51,7 @@ import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageS
 import com.intellij.agent.workbench.sessions.core.providers.AgentTerminalPromptDispatch
 import com.intellij.agent.workbench.sessions.core.providers.AgentPromptProviderOptionTarget
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderUiContributors
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.agent.workbench.sessions.core.providers.isBlockedForExistingThreadPlanMode
@@ -63,7 +64,7 @@ import com.intellij.agent.workbench.sessions.frame.AGENT_WORKBENCH_DEDICATED_FRA
 import com.intellij.agent.workbench.sessions.frame.AgentChatOpenModeSettings
 import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameProjectManager
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import com.intellij.agent.workbench.sessions.util.SingleFlightActionGate
@@ -301,7 +302,7 @@ class AgentSessionLaunchService internal constructor(
   ) {
     val normalizedPath = normalizeAgentWorkbenchPath(path)
     val descriptor = AgentSessionProviders.find(thread.provider)
-    descriptor?.onConversationOpened()
+    notifyAgentSessionConversationOpened(descriptor)
     syncService.prepareThreadForOpen(
       path = normalizedPath,
       provider = thread.provider,
@@ -503,7 +504,7 @@ class AgentSessionLaunchService internal constructor(
   ) {
     val normalizedPath = normalizeAgentWorkbenchPath(path)
     val descriptor = AgentSessionProviders.find(thread.provider)
-    descriptor?.onConversationOpened()
+    notifyAgentSessionConversationOpened(descriptor)
     launchDropAction(
       key = buildOpenSubAgentActionKey(path = normalizedPath, thread = thread, subAgent = subAgent),
       droppedActionMessage = "Dropped duplicate open sub-agent action for $normalizedPath:${thread.provider}:${thread.id}:${subAgent.id}",
@@ -658,7 +659,7 @@ class AgentSessionLaunchService internal constructor(
           promptLaunchResolved?.invoke(AgentPromptLaunchResult.failure(AgentPromptLaunchError.PROVIDER_UNAVAILABLE))
           return@launchDropAction
         }
-        descriptor.onConversationOpened()
+        notifyAgentSessionConversationOpened(descriptor)
         val effectiveInitialMessageRequest = initialMessageRequest?.withEffectiveProviderOptions(
           descriptor = descriptor,
           target = AgentPromptProviderOptionTarget.NEW_TASK,
@@ -765,7 +766,7 @@ class AgentSessionLaunchService internal constructor(
     if (!isProviderCliAvailableForLaunch(provider = provider, descriptor = descriptor, currentProject = null)) {
       return AgentDeferredNewSessionLaunchResult(error = AgentPromptLaunchError.PROVIDER_UNAVAILABLE)
     }
-    descriptor.onConversationOpened()
+    notifyAgentSessionConversationOpened(descriptor)
     if (updateGeneralProviderPreferences && descriptor.supportsPromptLaunch) {
       uiPreferencesState.updateProviderOptionsOnLaunch(provider.value, initialMessageRequest = null)
     }
@@ -1763,6 +1764,14 @@ private fun showBranchMismatchDialog(project: Project?, originBranch: String, cu
     })
     .asWarning()
     .ask(project)
+}
+
+private fun notifyAgentSessionConversationOpened(descriptor: AgentSessionProviderDescriptor?) {
+  descriptor ?: return
+  descriptor.onConversationOpened()
+  AgentSessionProviderUiContributors.forProvider(descriptor.provider).forEach { contributor ->
+    contributor.onConversationOpened()
+  }
 }
 
 private fun AgentSessionThread.matchesPromptTarget(provider: AgentSessionProvider, threadId: String): Boolean {

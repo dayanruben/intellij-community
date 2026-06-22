@@ -20,10 +20,12 @@
   <vendor>Vladimir Krivosheev</vendor>
   <content namespace="agent-workbench">
     <module name="intellij.agent.workbench.cli"/>
+    <module name="intellij.agent.workbench.core"/>
     <module name="intellij.agent.workbench.common"/>
     <module name="intellij.agent.workbench.json"/>
     <module name="intellij.agent.workbench.claude.common"/>
     <module name="intellij.agent.workbench.claude.sessions"/>
+    <module name="intellij.agent.workbench.claude.awb"/>
     <module name="intellij.agent.workbench.codex.common"/>
     <module name="intellij.agent.workbench.codex.chat"/>
     <module name="intellij.agent.workbench.codex.ide"/>
@@ -33,9 +35,12 @@
     <module name="intellij.agent.workbench.junie.sessions"/>
     <module name="intellij.agent.workbench.opencode.sessions"/>
     <module name="intellij.agent.workbench.pi.sessions"/>
+    <module name="intellij.agent.workbench.pi.awb"/>
     <module name="intellij.agent.workbench.pi.sessions.filewatch"/>
     <module name="intellij.agent.workbench.terminal.sessions"/>
+    <module name="intellij.agent.workbench.settings"/>
     <module name="intellij.agent.workbench.sessions.core"/>
+    <module name="intellij.agent.workbench.sessions.cost"/>
     <module name="intellij.agent.workbench.sessions.launch.config.backend"/>
     <module name="intellij.agent.workbench.prompt.core"/>
     <module name="intellij.agent.workbench.prompt.context"/>

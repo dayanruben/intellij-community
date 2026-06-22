@@ -10,9 +10,9 @@ import com.intellij.agent.workbench.chat.agentChatScopedRefreshSignals
 import com.intellij.agent.workbench.chat.clearOpenConcreteAgentChatNewThreadRebindAnchors
 import com.intellij.agent.workbench.chat.collectOpenAgentChatRefreshSnapshot
 import com.intellij.agent.workbench.chat.rebindOpenPendingAgentChatTabs
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.parseAgentWorkbenchPathOrNull
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.core.normalizeAgentWorkbenchPath
+import com.intellij.agent.workbench.core.parseAgentWorkbenchPathOrNull
+import com.intellij.agent.workbench.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationModel
 import com.intellij.agent.workbench.sessions.core.config.AgentWorkbenchProjectRuntimeConfigs
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
@@ -24,8 +24,8 @@ import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameP
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.agent.workbench.sessions.model.ProjectEntry
 import com.intellij.agent.workbench.sessions.model.hasAnyProviderSnapshot
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsListener
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsListener
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.agent.workbench.sessions.state.AgentSessionWarmStateService
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import com.intellij.agent.workbench.sessions.state.SessionWarmState
@@ -84,7 +84,8 @@ class AgentSessionRefreshService internal constructor(
   constructor(serviceScope: CoroutineScope) : this(
     serviceScope = serviceScope,
     sessionSourcesProvider = {
-      service<AgentSessionProviderSettingsService>().enabledSessionSources(AgentSessionProviders.sessionSources())
+      val providerSettings = service<AgentSessionProviderSettingsService>()
+      AgentSessionProviders.sessionSources().filter { source -> providerSettings.isProviderEnabled(source.provider) }
     },
     projectEntriesProvider = AgentSessionProjectCatalog()::collectProjects,
     stateStore = service<AgentSessionsStateStore>(),

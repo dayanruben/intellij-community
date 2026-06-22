@@ -8,7 +8,7 @@ package com.intellij.agent.workbench.sessions.toolwindow.ui
 import com.intellij.agent.workbench.chat.AgentChatTabSelectionService
 import com.intellij.agent.workbench.chat.AgentChatOpenPendingTabsStateService
 import com.intellij.agent.workbench.chat.AgentChatPendingEditorLifecycleService
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.AgentSessionCostHintBanner
 import com.intellij.agent.workbench.sessions.AgentSessionCostHintStateService
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
@@ -16,6 +16,7 @@ import com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaCliSupport
 import com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaHintBanner
 import com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaHintStateService
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderUiContributors
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
 import com.intellij.agent.workbench.sessions.service.AgentArchivedSessionsService
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityListener
@@ -23,7 +24,7 @@ import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailab
 import com.intellij.agent.workbench.sessions.service.AgentSessionReadService
 import com.intellij.agent.workbench.sessions.service.AgentSessionRefreshService
 import com.intellij.agent.workbench.sessions.service.AgentSessionsToolWindowVisibilityService
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsListener
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsListener
 import com.intellij.agent.workbench.sessions.state.AgentSessionThreadViewStateService
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeId
@@ -66,8 +67,14 @@ internal fun createAgentSessionsNorthComponents(
   parentDisposable: Disposable,
   refreshSessions: () -> Unit,
 ): List<JComponent> {
-  val providerContributions = AgentSessionProviders.allProvidersById()
-    .mapNotNull { provider -> provider.createToolWindowNorthComponent(project) }
+  val providerContributions = AgentSessionProviders.allProvidersById().flatMap { provider ->
+    buildList {
+      provider.createToolWindowNorthComponent(project)?.let(::add)
+      AgentSessionProviderUiContributors.forProvider(provider.provider).mapNotNullTo(this) { contributor ->
+        contributor.createToolWindowNorthComponent(project)
+      }
+    }
+  }
   service<JbCentralQuotaHintStateService>().setEligible(JbCentralQuotaCliSupport.isAvailable())
   return buildList {
     add(AgentProviderCliStatusBanner(project, parentDisposable, refreshSessions = refreshSessions))

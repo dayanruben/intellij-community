@@ -16,6 +16,9 @@
 - name: lib/modules/intellij.agent.workbench.chat.jar
   contentModules:
   - name: intellij.agent.workbench.chat
+- name: lib/modules/intellij.agent.workbench.claude.awb.jar
+  contentModules:
+  - name: intellij.agent.workbench.claude.awb
 - name: lib/modules/intellij.agent.workbench.claude.common.jar
   contentModules:
   - name: intellij.agent.workbench.claude.common
@@ -63,6 +66,9 @@
   - name: $MAVEN_REPOSITORY$/io/modelcontextprotocol/kotlin-sdk-server-jvm/0/kotlin-sdk-server-jvm-0.jar
   - name: $MAVEN_REPOSITORY$/io/modelcontextprotocol/kotlin-sdk-core-jvm/0/kotlin-sdk-core-jvm-0.jar
   reason: <- intellij.agent.workbench.container.mcp
+- name: lib/modules/intellij.agent.workbench.core.jar
+  contentModules:
+  - name: intellij.agent.workbench.core
 - name: lib/modules/intellij.agent.workbench.filewatch.jar
   contentModules:
   - name: intellij.agent.workbench.filewatch
@@ -78,6 +84,9 @@
 - name: lib/modules/intellij.agent.workbench.opencode.sessions.jar
   contentModules:
   - name: intellij.agent.workbench.opencode.sessions
+- name: lib/modules/intellij.agent.workbench.pi.awb.jar
+  contentModules:
+  - name: intellij.agent.workbench.pi.awb
 - name: lib/modules/intellij.agent.workbench.pi.sessions.filewatch.jar
   contentModules:
   - name: intellij.agent.workbench.pi.sessions.filewatch
@@ -108,6 +117,9 @@
 - name: lib/modules/intellij.agent.workbench.sessions.core.jar
   contentModules:
   - name: intellij.agent.workbench.sessions.core
+- name: lib/modules/intellij.agent.workbench.sessions.cost.jar
+  contentModules:
+  - name: intellij.agent.workbench.sessions.cost
 - name: lib/modules/intellij.agent.workbench.sessions.jar
   contentModules:
   - name: intellij.agent.workbench.sessions
@@ -120,6 +132,9 @@
 - name: lib/modules/intellij.agent.workbench.sessions.toolwindow.jar
   contentModules:
   - name: intellij.agent.workbench.sessions.toolwindow
+- name: lib/modules/intellij.agent.workbench.settings.jar
+  contentModules:
+  - name: intellij.agent.workbench.settings
 - name: lib/modules/intellij.agent.workbench.terminal.sessions.jar
   contentModules:
   - name: intellij.agent.workbench.terminal.sessions

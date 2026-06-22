@@ -2,18 +2,19 @@
 package com.intellij.agent.workbench.sessions.settings
 
 import com.intellij.agent.workbench.sessions.AgentSessionCostPresentationSettings
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
+import com.intellij.agent.workbench.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.TestAgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
 import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
-import com.intellij.agent.workbench.sessions.core.settings.AGENT_WORKBENCH_CHAT_SETTINGS_COMPONENT_ID
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchCheckboxSetting
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettings
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettingsComponent
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettingsContributor
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettingsContributors
+import com.intellij.agent.workbench.settings.AGENT_WORKBENCH_CHAT_SETTINGS_COMPONENT_ID
+import com.intellij.agent.workbench.settings.AgentWorkbenchCheckboxSetting
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettings
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettingsComponent
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettingsContributor
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettingsContributors
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.agent.workbench.sessions.sleep.PREVENT_SYSTEM_SLEEP_WHILE_WORKING_SETTING_ID
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
@@ -67,7 +68,6 @@ class AgentWorkbenchSettingsConfigurableTest {
       .contains("id=\"${AgentWorkbenchProvidersSettingsConfigurable.ID}\"")
       .contains("key=\"settings.agent.workbench.providers.name\"")
       .contains("parentId=\"${AgentWorkbenchSettingsConfigurable.ID}\"")
-      .contains("<applicationSettings service=\"com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService\"/>")
   }
 
   @Test
@@ -250,8 +250,26 @@ class AgentWorkbenchSettingsConfigurableTest {
   }
 
   @Test
-  fun configurableAppliesProviderFeatureSettings() {
+  fun configurableAppliesProviderFeatureSettings(@TestDisposable disposable: Disposable) {
     var providerFeatureEnabled = true
+    AgentWorkbenchSettingsContributors.EP_NAME.point.registerExtension(
+      object : AgentWorkbenchSettingsContributor {
+        override fun providerCheckboxSettings(provider: AgentSessionProvider): List<AgentWorkbenchCheckboxSetting> {
+          if (provider != AgentSessionProvider.CODEX) {
+            return emptyList()
+          }
+          return listOf(
+            AgentWorkbenchCheckboxSetting(
+              text = TEST_PROVIDER_FEATURE_CHECKBOX_TEXT,
+              description = TEST_PROVIDER_FEATURE_CHECKBOX_DESCRIPTION,
+              isSelected = { providerFeatureEnabled },
+              setSelected = { enabled -> providerFeatureEnabled = enabled },
+            )
+          )
+        }
+      },
+      disposable,
+    )
 
     AgentSessionProviders.withRegistryForTest(
       InMemoryAgentSessionProviderRegistry(
@@ -260,14 +278,6 @@ class AgentWorkbenchSettingsConfigurableTest {
             provider = AgentSessionProvider.CODEX,
             supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
             cliAvailable = true,
-            providerSettings = listOf(
-              AgentWorkbenchCheckboxSetting(
-                text = TEST_PROVIDER_FEATURE_CHECKBOX_TEXT,
-                description = TEST_PROVIDER_FEATURE_CHECKBOX_DESCRIPTION,
-                isSelected = { providerFeatureEnabled },
-                setSelected = { enabled -> providerFeatureEnabled = enabled },
-              )
-            ),
           )
         )
       )

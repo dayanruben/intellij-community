@@ -3,15 +3,17 @@
 
   <applicationListeners>
     <listener class="com.intellij.agent.workbench.sessions.frame.AgentChatThreadOutlineAvailabilitySettingsListener"
-              topic="com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettingsListener"/>
+              topic="com.intellij.agent.workbench.settings.AgentWorkbenchSettingsListener"/>
   </applicationListeners>
 
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.agent.workbench.chat"/>
     <module name="intellij.agent.workbench.common"/>
+    <module name="intellij.agent.workbench.core"/>
     <module name="intellij.agent.workbench.prompt.core"/>
     <module name="intellij.agent.workbench.sessions.core"/>
+    <module name="intellij.agent.workbench.settings"/>
     <module name="intellij.agent.workbench.ui"/>
   </dependencies>
   <!-- endregion -->
@@ -20,7 +22,6 @@
     <agent.workbench.promptLauncher implementation="com.intellij.agent.workbench.sessions.service.AgentSessionPromptLauncherBridge"/>
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchFusCollector"/>
-    <postStartupActivity implementation="com.intellij.agent.workbench.sessions.service.LiteLlmPriceCatalogStartupActivity"/>
     <postStartupActivity implementation="com.intellij.agent.workbench.sessions.sleep.AgentSessionSleepPreventionStartupActivity"/>
     <notificationGroup id="Agent Workbench Sessions" displayType="BALLOON" bundle="messages.AgentSessionsBundle"
                        key="notification.group.agent.workbench.sessions"/>
@@ -79,7 +80,6 @@
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionTreeUiStateService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionLaunchProfileStateService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService"/>
-    <applicationSettings service="com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionWarmStateService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.AgentSessionCostHintStateService"/>
   </extensions>

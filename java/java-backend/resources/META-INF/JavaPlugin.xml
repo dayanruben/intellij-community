@@ -263,12 +263,6 @@
     <statistics.projectUsagesCollector implementation="com.intellij.compiler.CompilerSettingsCollector"/>
     <statistics.projectUsagesCollector implementation="com.intellij.pom.java.JavaLanguageVersionsCollector"/>
 
-    <changesGroupingPolicy key="module" id="module" weight="20"
-                           implementationClass="com.intellij.openapi.vcs.changes.ui.ModuleChangesGroupingPolicy$Factory"/>
-    <projectService serviceInterface="com.intellij.openapi.vcs.impl.VcsPathPresenter"
-                    serviceImplementation="com.intellij.openapi.vcs.impl.ModuleVcsPathPresenter"
-                    overrides="true"/>
-
     <projectService serviceImplementation="com.intellij.compiler.impl.javaCompiler.eclipse.EclipseCompilerConfiguration"/>
     <projectService serviceImplementation="com.intellij.compiler.impl.rmiCompiler.RmicConfiguration"/>
     <pathMacroFilter implementation="com.intellij.compiler.impl.javaCompiler.javac.JavacConfigurationMacroFilter"/>
@@ -373,7 +367,6 @@
 
     <postStartupActivity implementation="com.intellij.openapi.projectRoots.JavaVersionChecker"/>
 
-    <checkinHandlerFactory implementation="com.intellij.compiler.impl.vcs.UnloadedModulesCompilationCheckinHandler$Factory"/>
 
     <applicationService serviceInterface="com.intellij.openapi.roots.ModifiableModelsProvider"
                         serviceImplementation="com.intellij.openapi.roots.IdeaModifiableModelsProvider"
@@ -870,7 +863,6 @@
     <preFormatProcessor implementation="com.intellij.psi.impl.source.codeStyle.FormatCommentsProcessor"/>
     <elementSignatureProvider implementation="com.intellij.codeInsight.folding.impl.JavaElementSignatureProvider"/>
     <smartPointer.anchorProvider implementation="com.intellij.psi.impl.smartPointers.JavaAnchorProvider"/>
-    <vcsSelectionProvider implementation="com.intellij.vcsUtil.JavaVcsSelectionProvider"/>
     <uiDataRule implementation="com.intellij.analysis.AnalysisScopeRule"/>
 
     <extendWordSelectionHandler implementation="com.intellij.codeInsight.editorActions.wordSelection.VarargsSelectioner"/>
@@ -1226,8 +1218,6 @@
 
     <java.externalAnnotation.locationProvider
       implementation="com.intellij.codeInsight.externalAnnotation.location.JBBundledAnnotationsProvider"/>
-    <vcs.codeVisionLanguageContext language="JAVA" implementationClass="com.intellij.codeInsight.hints.JavaVcsCodeVisionContext"/>
-    <codeInsight.codeVisionSettingsPreviewLanguage modelId="vcs.code.vision" language="JAVA"/>
     <codeInsight.codeVisionProvider implementation="com.intellij.codeInsight.daemon.impl.JavaReferencesCodeVisionProvider"/>
     <codeInsight.codeVisionSettingsPreviewLanguage modelId="references" language="JAVA"/>
     <codeInsight.daemonBoundCodeVisionProvider implementation="com.intellij.codeInsight.daemon.impl.JavaInheritorsCodeVisionProvider"/>

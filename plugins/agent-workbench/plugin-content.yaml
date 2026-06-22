@@ -3,6 +3,7 @@
   - name: intellij.agent.workbench.plugin
   contentModules:
   - name: intellij.agent.workbench.cli
+  - name: intellij.agent.workbench.core
   - name: intellij.agent.workbench.common
   - name: intellij.agent.workbench.json
   - name: intellij.agent.workbench.claude.common
@@ -17,6 +18,7 @@
   - name: intellij.agent.workbench.pi.sessions
   - name: intellij.agent.workbench.terminal.sessions
   - name: intellij.agent.workbench.sessions.core
+  - name: intellij.agent.workbench.sessions.cost
   - name: intellij.agent.workbench.sessions.launch.config.backend
   - name: intellij.agent.workbench.prompt.core
   - name: intellij.agent.workbench.prompt.context
