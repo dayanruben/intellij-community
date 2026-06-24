@@ -4,19 +4,22 @@ package com.intellij.agent.workbench.chat
 // @spec community/plugins/agent-workbench/spec/chat/agent-chat-editor.spec.md
 
 import com.intellij.CommonBundle
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.session.AgentSessionThread
+import com.intellij.agent.workbench.ui.AgentWorkbenchActionIds
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeFormatter
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeSummary
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy
-import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchIntent
-import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchOperation
-import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchPlanner
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptDeliveryChannel
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchIntent
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchOperation
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchPlanner
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryChannel
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionLaunchProfileResolver
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionResolvedLaunchProfile
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
@@ -24,6 +27,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.serviceAsync
+import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorState
@@ -80,7 +84,11 @@ internal class AgentChatFileEditor(
 
   private fun buildEditorTabActions(): ActionGroup? {
     val actionManager = ActionManager.getInstance()
-    val providerActionIds = providerDescriptor?.editorTabActionIds.orEmpty()
+    val providerActionIds = buildList {
+      if (providerDescriptor?.supportsPendingEditorTabRebind == true) {
+        add(AgentWorkbenchActionIds.Sessions.BIND_PENDING_AGENT_THREAD_FROM_EDITOR_TAB)
+      }
+    }
     val actions = buildList {
       providerActionIds.forEach { actionId ->
         actionManager.getAction(actionId)?.let(::add)
@@ -287,18 +295,25 @@ internal class AgentChatFileEditor(
   }
 
   private suspend fun resolveNewSessionLaunchSpec(startupIntent: AgentChatStartupIntent.NewSession): AgentSessionTerminalLaunchSpec {
-    val descriptor = AgentSessionProviders.find(startupIntent.provider)
-                     ?: throw IllegalStateException("Missing Agent Chat provider for ${startupIntent.provider.value}")
-    if (startupIntent.launchMode !in descriptor.supportedLaunchModes) {
-      throw IllegalStateException("Unsupported Agent Chat launch mode ${startupIntent.launchMode} for ${startupIntent.provider.value}")
+    val resolvedLaunchProfile = resolveLaunchProfile(
+      launchProfileId = startupIntent.launchProfileId,
+      requiredProvider = startupIntent.provider,
+    )
+    val provider = resolvedLaunchProfile?.provider ?: startupIntent.provider
+    val launchMode = resolvedLaunchProfile?.launchMode ?: startupIntent.launchMode
+    val generationSettings = resolvedLaunchProfile?.generationSettings ?: file.generationSettings
+    val descriptor = AgentSessionProviders.find(provider)
+                     ?: throw IllegalStateException("Missing Agent Chat provider for ${provider.value}")
+    if (launchMode !in descriptor.supportedLaunchModes) {
+      throw IllegalStateException("Unsupported Agent Chat launch mode $launchMode for ${provider.value}")
     }
     return AgentSessionLaunchPlanner.plan(
       intent = AgentSessionLaunchIntent(
         projectPath = file.projectPath,
-        provider = startupIntent.provider,
+        provider = provider,
         operation = AgentSessionLaunchOperation.NEW,
-        launchMode = startupIntent.launchMode,
-        generationSettings = file.generationSettings,
+        launchMode = launchMode,
+        generationSettings = generationSettings,
       ),
       project = project,
     ).launchSpec
@@ -306,17 +321,31 @@ internal class AgentChatFileEditor(
 
   private suspend fun resolveResumeLaunchSpec(): AgentSessionTerminalLaunchSpec {
     val provider = file.provider ?: throw IllegalStateException("Missing Agent Chat provider for ${file.url}")
+    val resolvedLaunchProfile = resolveLaunchProfile(
+      launchProfileId = file.launchProfileId,
+      requiredProvider = provider,
+    )
     return AgentSessionLaunchPlanner.plan(
       intent = AgentSessionLaunchIntent(
         projectPath = file.projectPath,
         provider = provider,
         operation = AgentSessionLaunchOperation.RESUME,
         sessionId = file.threadId.ifBlank { file.sessionId },
-        launchMode = parseAgentChatLaunchMode(file.launchMode),
-        generationSettings = file.generationSettings,
+        launchMode = resolvedLaunchProfile?.launchMode ?: parseAgentChatLaunchMode(file.launchMode),
+        generationSettings = resolvedLaunchProfile?.generationSettings ?: file.generationSettings,
       ),
       project = project,
     ).launchSpec
+  }
+
+  private fun resolveLaunchProfile(
+    launchProfileId: String?,
+    requiredProvider: AgentSessionProvider,
+  ): AgentSessionResolvedLaunchProfile? {
+    return serviceOrNull<AgentSessionLaunchProfileResolver>()?.resolveLaunchProfile(
+      launchProfileId = launchProfileId,
+      requiredProvider = requiredProvider,
+    )
   }
 
   private suspend fun attachTerminal(

@@ -120,7 +120,7 @@
 
     <!-- PyDocstring -->
     <languageInjector implementation="com.jetbrains.python.documentation.doctest.PyDocstringLanguageInjector"/>
-    <lang.parserDefinition language="Doctest" implementationClass="com.jetbrains.python.documentation.doctest.PyDocstringParserDefinition"/>
+    <lang.parserDefinition language="Doctest" implementationClass="com.jetbrains.python.documentation.doctest.PyDoctestParserDefinition"/>
     <highlightErrorFilter implementation="com.jetbrains.python.documentation.doctest.PyDocstringErrorFilter"/>
     <lang.formatter language="Doctest" implementationClass="com.jetbrains.python.documentation.doctest.PyDocstringFormattingModelBuilder"/>
 
@@ -156,6 +156,8 @@
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyStructuralTypeAttributesCompletionContributor"/>
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyDataclassCompletionContributor"/>
+    <completion.contributor language="Python"
+                            implementationClass="com.jetbrains.python.codeInsight.completion.PyClassFormCompletionContributor"/>
 
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyStringFormatCompletionContributor" />
@@ -699,7 +701,7 @@
 
     <!-- PyDocstring -->
     <typeProvider implementation="com.jetbrains.python.documentation.docstrings.PyDocStringTypeProvider" id="pythonDocstringTypeProvider"/>
-    <dialectsTokenSetContributor implementation="com.jetbrains.python.documentation.doctest.PyDocstringTokenSetContributor"/>
+    <dialectsTokenSetContributor implementation="com.jetbrains.python.documentation.doctest.PyDoctestTokenSetContributor"/>
 
     <!-- PyTypeRepresentation -->
     <dialectsTokenSetContributor implementation="com.jetbrains.python.codeInsight.typeRepresentation.PyTypeRepresentationTokenSetContributor"/>

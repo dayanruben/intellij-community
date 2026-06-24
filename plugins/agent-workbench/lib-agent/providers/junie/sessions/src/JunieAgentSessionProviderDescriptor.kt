@@ -1,31 +1,30 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.agent.workbench.junie.sessions
+package com.intellij.platform.ai.agent.junie.sessions
 
-import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
-import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.junie.common.BRAVE_FLAG
-import com.intellij.agent.workbench.junie.common.JunieCliInfo
-import com.intellij.agent.workbench.junie.common.JunieCliSupport
+import com.intellij.platform.ai.agent.common.icons.AgentWorkbenchCommonIcons
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.junie.common.BRAVE_FLAG
+import com.intellij.platform.ai.agent.junie.common.JunieCliInfo
+import com.intellij.platform.ai.agent.junie.common.JunieCliSupport
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
-import com.intellij.agent.workbench.sessions.core.launch.insertArgumentsBefore
-import com.intellij.agent.workbench.sessions.core.launch.removeOptions
-import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageMode
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageStartupPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentPromptProviderOption
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
-import com.intellij.agent.workbench.sessions.core.providers.AgentThreadRenameAction
-import com.intellij.agent.workbench.sessions.core.providers.buildPlanModeInitialMessagePlan
-import com.intellij.agent.workbench.sessions.core.providers.buildTerminalPlanModePostStartDispatchSteps
+import com.intellij.platform.ai.agent.sessions.core.launch.insertArgumentsBefore
+import com.intellij.platform.ai.agent.sessions.core.launch.removeOptions
+import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessagePlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageStartupPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentPromptProviderOption
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentThreadRenameAction
+import com.intellij.platform.ai.agent.sessions.core.providers.buildPlanModeInitialMessagePlan
+import com.intellij.platform.ai.agent.sessions.core.providers.isPlanModeRequested
 import com.intellij.openapi.project.Project
 import javax.swing.Icon
 
@@ -69,7 +68,7 @@ internal class JunieAgentSessionProviderDescriptor(
     get() = setOf(AgentSessionLaunchMode.STANDARD, AgentSessionLaunchMode.YOLO)
 
   override val promptOptions: List<AgentPromptProviderOption>
-    get() = listOf(JUNIE_PROMPT_PROVIDER_PLAN_MODE_OPTION)
+    get() = if (supportsInteractivePromptLaunch()) listOf(JUNIE_PROMPT_PROVIDER_PLAN_MODE_OPTION) else emptyList()
 
   override val supportedReasoningEfforts: Set<AgentPromptReasoningEffort>
     get() = setOf(
@@ -81,9 +80,6 @@ internal class JunieAgentSessionProviderDescriptor(
 
   override val supportsGenerationModelSelection: Boolean
     get() = true
-
-  override val editorTabActionIds: List<String>
-    get() = listOf(AgentWorkbenchActionIds.Sessions.BIND_PENDING_AGENT_THREAD_FROM_EDITOR_TAB)
 
   override val supportsPendingEditorTabRebind: Boolean
     get() = true
@@ -174,14 +170,12 @@ internal class JunieAgentSessionProviderDescriptor(
   }
 
   override fun buildInitialMessagePlan(request: AgentPromptInitialMessageRequest): AgentInitialMessagePlan {
+    if (request.isPlanModeRequested() && !supportsInteractivePromptLaunch()) {
+      return AgentInitialMessagePlan.EMPTY
+    }
     return buildPlanModeInitialMessagePlan(
       request = request,
-      startupPolicyWhenPlanModeEnabled = if (supportsInteractivePromptLaunch()) {
-        AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND
-      }
-      else {
-        AgentInitialMessageStartupPolicy.POST_START_ONLY
-      },
+      startupPolicyWhenPlanModeEnabled = AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND,
     )
   }
 
@@ -203,11 +197,10 @@ internal class JunieAgentSessionProviderDescriptor(
   }
 
   override fun buildPostStartDispatchSteps(initialMessagePlan: AgentInitialMessagePlan): List<AgentInitialMessageDispatchStep> {
-    if (initialMessagePlan.mode != AgentInitialMessageMode.PLAN) {
-      return super.buildPostStartDispatchSteps(initialMessagePlan)
+    if (initialMessagePlan.mode == AgentInitialMessageMode.PLAN) {
+      return emptyList()
     }
-
-    return buildTerminalPlanModePostStartDispatchSteps(initialMessagePlan)
+    return super.buildPostStartDispatchSteps(initialMessagePlan)
   }
 
   override suspend fun archiveThread(path: String, threadId: String): Boolean {

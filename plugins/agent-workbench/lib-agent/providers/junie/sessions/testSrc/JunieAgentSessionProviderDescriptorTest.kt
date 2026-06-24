@@ -1,25 +1,23 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.agent.workbench.junie.sessions
+package com.intellij.platform.ai.agent.junie.sessions
 
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
-import com.intellij.agent.workbench.junie.common.JunieCliInfo
-import com.intellij.agent.workbench.junie.common.JunieCliSupport
-import com.intellij.agent.workbench.junie.common.JunieCliVersion
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.junie.common.JunieCliInfo
+import com.intellij.platform.ai.agent.junie.common.JunieCliSupport
+import com.intellij.platform.ai.agent.junie.common.JunieCliVersion
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextRendererIds
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
-import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchAction
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageMode
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageStartupPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessagePlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageStartupPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageTimeoutPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.testFramework.junit5.TestApplication
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -42,10 +40,8 @@ class JunieAgentSessionProviderDescriptorTest {
     assertThat(descriptor.newSessionLabelKey).isEqualTo("toolwindow.action.new.session.junie")
     assertThat(descriptor.yoloSessionLabelKey).isEqualTo("toolwindow.action.new.session.junie.yolo")
     assertThat(descriptor.supportedLaunchModes).containsExactly(AgentSessionLaunchMode.STANDARD, AgentSessionLaunchMode.YOLO)
-    assertThat(descriptor.promptOptions.map { it.id }).containsExactly(AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE)
-    assertThat(descriptor.promptOptions.single().defaultSelected).isFalse()
+    assertThat(descriptor.promptOptions).isEmpty()
     assertThat(descriptor.supportsGenerationModelSelection).isTrue()
-    assertThat(descriptor.editorTabActionIds).containsExactly(AgentWorkbenchActionIds.Sessions.BIND_PENDING_AGENT_THREAD_FROM_EDITOR_TAB)
     assertThat(descriptor.supportsPendingEditorTabRebind).isTrue()
     assertThat(descriptor.supportsNewThreadRebind).isFalse()
     assertThat(descriptor.emitsScopedRefreshSignals).isTrue()
@@ -55,6 +51,19 @@ class JunieAgentSessionProviderDescriptorTest {
     assertThat(descriptor.archiveRefreshDelayMs).isEqualTo(1_000L)
     assertThat(descriptor.suppressArchivedThreadsDuringRefresh).isTrue()
     assertThat(descriptor.icon).isNotNull()
+  }
+
+  @Test
+  fun `plan mode prompt option is exposed only when Junie supports plan prompt command`(): Unit = runBlocking(Dispatchers.Default) {
+    val supportedDescriptor = descriptorWithCliVersion(JunieCliVersion(2030, 1))
+    val oldDescriptor = descriptorWithCliVersion(JunieCliVersion(1962, 1))
+
+    assertThat(supportedDescriptor.isCliAvailable()).isTrue()
+    assertThat(oldDescriptor.isCliAvailable()).isTrue()
+
+    assertThat(supportedDescriptor.promptOptions.map { it.id }).containsExactly(AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE)
+    assertThat(supportedDescriptor.promptOptions.single().defaultSelected).isFalse()
+    assertThat(oldDescriptor.promptOptions).isEmpty()
   }
 
   @Test
@@ -600,7 +609,6 @@ class JunieAgentSessionProviderDescriptorTest {
       "--prompt",
       "Implement the feature",
     )
-    assertThat(dispatchSteps.map { it.action }).containsExactly(AgentInitialMessageDispatchAction.SEND_TEXT)
     assertThat(dispatchSteps.map { it.text }).containsExactly("Implement the feature")
   }
 
@@ -617,7 +625,6 @@ class JunieAgentSessionProviderDescriptorTest {
     val dispatchSteps = descriptor.buildPostStartDispatchSteps(initialMessagePlan)
 
     assertThat(launchSpec).isNull()
-    assertThat(dispatchSteps.map { it.action }).containsExactly(AgentInitialMessageDispatchAction.SEND_TEXT)
     assertThat(dispatchSteps.map { it.text }).containsExactly("Implement the feature")
   }
 
@@ -649,15 +656,11 @@ class JunieAgentSessionProviderDescriptorTest {
       "--prompt",
       "Implement the feature",
     )
-    assertThat(dispatchSteps.map { it.action }).containsExactly(
-      AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE,
-      AgentInitialMessageDispatchAction.SEND_TEXT,
-    )
-    assertThat(dispatchSteps.map { it.text }).containsExactly("", "Implement the feature")
+    assertThat(dispatchSteps).isEmpty()
   }
 
   @Test
-  fun `old Junie plan mode initial message uses terminal plan mode dispatch`(): Unit = runBlocking(Dispatchers.Default) {
+  fun `old Junie plan mode initial message is not dispatched`(): Unit = runBlocking(Dispatchers.Default) {
     val descriptor = descriptorWithCliVersion(JunieCliVersion(1962, 1))
     assertThat(descriptor.isCliAvailable()).isTrue()
 
@@ -667,22 +670,10 @@ class JunieAgentSessionProviderDescriptorTest {
         providerOptionIds = setOf(AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE),
       )
     )
-    val launchSpec = descriptor.buildLaunchSpecWithInitialMessage(
-      baseLaunchSpec = AgentSessionTerminalLaunchSpec(listOf("junie-test", "--skip-update-check")),
-      initialMessagePlan = plan,
-    )
     val dispatchSteps = descriptor.buildPostStartDispatchSteps(plan)
 
-    assertThat(plan.message).isEqualTo("Implement the feature")
-    assertThat(plan.mode).isEqualTo(AgentInitialMessageMode.PLAN)
-    assertThat(plan.startupPolicy).isEqualTo(AgentInitialMessageStartupPolicy.POST_START_ONLY)
-    assertThat(plan.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS)
-    assertThat(launchSpec).isNull()
-    assertThat(dispatchSteps.map { it.action }).containsExactly(
-      AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE,
-      AgentInitialMessageDispatchAction.SEND_TEXT,
-    )
-    assertThat(dispatchSteps.map { it.text }).containsExactly("", "Implement the feature")
+    assertThat(plan).isEqualTo(AgentInitialMessagePlan.EMPTY)
+    assertThat(dispatchSteps).isEmpty()
   }
 
   @Test
@@ -696,7 +687,6 @@ class JunieAgentSessionProviderDescriptorTest {
 
     assertThat(plan.message).isEqualTo("/plan Implement the feature")
     assertThat(plan.mode).isEqualTo(AgentInitialMessageMode.STANDARD)
-    assertThat(dispatchSteps.map { it.action }).containsExactly(AgentInitialMessageDispatchAction.SEND_TEXT)
     assertThat(dispatchSteps.map { it.text }).containsExactly("/plan Implement the feature")
   }
 

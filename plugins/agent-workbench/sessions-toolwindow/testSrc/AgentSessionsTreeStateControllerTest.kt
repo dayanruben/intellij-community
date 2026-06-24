@@ -4,10 +4,10 @@ package com.intellij.agent.workbench.sessions.toolwindow
 import com.intellij.agent.workbench.chat.AgentChatOpenPendingTabsState
 import com.intellij.agent.workbench.chat.AgentChatPendingTabSnapshot
 import com.intellij.agent.workbench.chat.AgentChatTabSelection
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.buildAgentThreadIdentity
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.buildAgentThreadIdentity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.model.AgentArchivedSessionsState
 import com.intellij.agent.workbench.sessions.model.AgentSessionArchivedRangePreset
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
@@ -102,73 +102,6 @@ class AgentSessionsTreeStateControllerTest {
     }
     finally {
       runInEdtAndWait { harness.controller.dispose() }
-    }
-  }
-
-  @Test
-  fun selectedThreadDoneIsMarkedReadWhenSelectionLeavesIt() {
-    runBlocking {
-      val harness = createHarness()
-      try {
-        runInEdtAndWait { harness.controller.start() }
-        harness.sessionsState.value = stateWithThread("thread-1", activity = AgentThreadActivity.READY, updatedAt = 100)
-
-        waitForCondition {
-          harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1"))
-        }
-        harness.selectedChatTab.value = thread1ChatSelection()
-        waitForCondition {
-          harness.selectedIds.any { ids ->
-            ids == listOf(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1"))
-          }
-        }
-        harness.readMarks.clear()
-        harness.invalidatedDiffs.clear()
-
-        harness.sessionsState.value = stateWithThread("thread-1", activity = AgentThreadActivity.UNREAD, updatedAt = 200)
-
-        waitForCondition {
-          harness.controller.displayedStateSnapshot().projects.firstOrNull()
-            ?.threads
-            ?.singleOrNull()
-            ?.activity == AgentThreadActivity.UNREAD && harness.invalidatedDiffs.isNotEmpty()
-        }
-        assertThat(harness.readMarks).isEmpty()
-
-        harness.selectedChatTab.value = null
-
-        val expectedReadMark = ReadMark(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1", 200)
-        waitForCondition { harness.readMarks.contains(expectedReadMark) }
-        assertThat(harness.readMarks).containsExactly(expectedReadMark)
-      }
-      finally {
-        runInEdtAndWait { harness.controller.dispose() }
-      }
-    }
-  }
-
-  @Test
-  fun selectingDoneThreadMarksItReadImmediately() {
-    runBlocking {
-      val harness = createHarness()
-      try {
-        runInEdtAndWait { harness.controller.start() }
-        harness.sessionsState.value = stateWithThread("thread-1", activity = AgentThreadActivity.UNREAD, updatedAt = 300)
-
-        waitForCondition {
-          harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1"))
-        }
-        harness.readMarks.clear()
-
-        harness.selectedChatTab.value = thread1ChatSelection()
-
-        val expectedReadMark = ReadMark(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1", 300)
-        waitForCondition { harness.readMarks.contains(expectedReadMark) }
-        assertThat(harness.readMarks).containsExactly(expectedReadMark)
-      }
-      finally {
-        runInEdtAndWait { harness.controller.dispose() }
-      }
     }
   }
 
@@ -268,7 +201,6 @@ private class ControllerHarness {
   val pendingChatTabsState = MutableStateFlow(AgentChatOpenPendingTabsState.EMPTY)
   val invalidatedDiffs: MutableList<SessionTreeModelDiff> = Collections.synchronizedList(mutableListOf<SessionTreeModelDiff>())
   val selectedIds: MutableList<List<SessionTreeId>> = Collections.synchronizedList(mutableListOf<List<SessionTreeId>>())
-  val readMarks: MutableList<ReadMark> = Collections.synchronizedList(mutableListOf<ReadMark>())
 
   @Volatile
   var model: SessionTreeModel = SessionTreeModel.EMPTY
@@ -279,9 +211,6 @@ private class ControllerHarness {
     threadViewStateFlow = threadViewState,
     selectedChatTabFlow = selectedChatTab,
     pendingChatTabsStateFlow = pendingChatTabsState,
-    markThreadAsRead = { path, provider, threadId, updatedAt ->
-      readMarks += ReadMark(path, provider, threadId, updatedAt)
-    },
     ensureArchivedSessionsLoaded = {},
     tree = Tree(),
     getSessionTreeModel = { model },
@@ -301,13 +230,6 @@ private class ControllerHarness {
     },
   )
 }
-
-private data class ReadMark(
-  val path: String,
-  val provider: AgentSessionProvider,
-  val threadId: String,
-  val updatedAt: Long,
-)
 
 private fun stateWithThread(
   threadId: String,
@@ -367,15 +289,6 @@ private fun pendingState(): AgentChatOpenPendingTabsState {
         )
       )
     )
-  )
-}
-
-private fun thread1ChatSelection(): AgentChatTabSelection {
-  return AgentChatTabSelection(
-    projectPath = PROJECT_PATH,
-    threadIdentity = "codex:thread-1",
-    threadId = "thread-1",
-    subAgentId = null,
   )
 }
 

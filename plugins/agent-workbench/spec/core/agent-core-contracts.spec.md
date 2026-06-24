@@ -60,7 +60,7 @@ These contracts keep shared identity, command mapping, provider capabilities, pr
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
 
-- Providers with startup prompt CLI support must use startup delivery for both new sessions and resumed threads when Agent Workbench opens the process. Junie build `2030.1` qualifies for both `--prompt` and plan `--plan --prompt` startup delivery; older Junie builds without plan startup support fall back to terminal plan-mode dispatch.
+- Providers with startup prompt CLI support must use startup delivery for both new sessions and resumed threads when Agent Workbench opens the process. Junie build `2030.1` qualifies for both `--prompt` and plan `--plan --prompt` startup delivery; older Junie builds do not expose or dispatch Agent Workbench Plan Mode.
   [@test] ../../junie/sessions/testSrc/JunieAgentSessionProviderDescriptorTest.kt
   [@test] ../../junie/sessions/testSrc/JunieNewThreadPromptLaunchIntegrationTest.kt
   [@test] ../../junie/sessions/testSrc/JunieExistingThreadPromptLaunchIntegrationTest.kt
@@ -71,7 +71,7 @@ These contracts keep shared identity, command mapping, provider capabilities, pr
   [@test] ../../junie/sessions/testSrc/JunieAgentSessionProviderDescriptorTest.kt
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 
-- Post-start prompt dispatch is terminal-readiness-gated. Terminal plan-mode dispatch first ensures the TUI is visibly in Plan mode via the BackTab terminal sequence, then sends the plain prompt body; if Plan mode cannot be confirmed, the prompt body is not submitted and dispatch must not fall back to standard-mode execution. Codex is the exception: Codex plan-mode dispatch sends `/plan` as the first executable terminal text step and sends the prompt body as a separate second text step. Codex retries the `/plan` step when post-send output explicitly says `'/plan' is disabled while a task is in progress.` or when `/plan` produces blank output within the bounded retry limit, and it stops prompt delivery when Codex reports `Plan mode unavailable right now.`, `Collaboration modes are disabled.`, or an unsupported `/plan` command. Codex startup hook, MCP startup, `Working` status, queue-hint, stale terminal tail, and thread-activity output must not delay or retry the initial `/plan` command.
+- Post-start prompt dispatch is terminal-readiness-gated. Codex plan-mode dispatch sends `/plan` as the first executable terminal text step and sends the prompt body as a separate second text step. Codex does not parse terminal output to decide whether `/plan` succeeded or failed. Instead, structured Workbench thread activity delays and retries Codex plan-mode dispatch while an existing thread is busy; if busy activity is detected before the prompt step, dispatch rewinds to step 0 so `/plan` is replayed before the prompt after fresh readiness.
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
   [@test] ../../codex/chat/testSrc/CodexAgentChatProviderBehaviorTest.kt
   [@test] ../../chat/testSrc/AgentChatInitialMessageDispatcherTest.kt
@@ -108,9 +108,9 @@ These contracts keep shared identity, command mapping, provider capabilities, pr
   [@test] ../../sessions/testSrc/AgentSessionRefreshOnDemandIntegrationTest.kt
 
 ## Testing / Local Run
-- `./tests.cmd --module intellij.agent.workbench.codex.sessions.tests --test com.intellij.agent.workbench.codex.sessions.CodexAgentSessionProviderDescriptorTest`
-- `./tests.cmd --module intellij.agent.workbench.claude.sessions.tests --test com.intellij.agent.workbench.claude.sessions.ClaudeAgentSessionProviderDescriptorTest`
-- `./tests.cmd --module intellij.agent.workbench.junie.sessions.tests --test com.intellij.agent.workbench.junie.sessions.JunieAgentSessionProviderDescriptorTest`
+- `./tests.cmd --module intellij.platform.ai.agent.codex.sessions.tests --test com.intellij.platform.ai.agent.codex.sessions.CodexAgentSessionProviderDescriptorTest`
+- `./tests.cmd --module intellij.platform.ai.agent.claude.sessions.tests --test com.intellij.platform.ai.agent.claude.sessions.ClaudeAgentSessionProviderDescriptorTest`
+- `./tests.cmd --module intellij.platform.ai.agent.junie.sessions.tests --test com.intellij.platform.ai.agent.junie.sessions.JunieAgentSessionProviderDescriptorTest`
 - `./tests.cmd --module intellij.agent.workbench.sessions.actions.tests --test com.intellij.agent.workbench.sessions.AgentSessionsEditorTabActionsTest`
 - `./tests.cmd --module intellij.agent.workbench.sessions.toolwindow.tests --test com.intellij.agent.workbench.sessions.toolwindow.SessionTreeSelectionSyncTest`
 

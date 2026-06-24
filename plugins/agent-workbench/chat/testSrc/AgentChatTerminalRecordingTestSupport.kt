@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.components.service
@@ -42,9 +42,6 @@ class RecordingAgentChatTerminalHarness {
 
   val sentTexts: List<RecordingTerminalSentText>
     get() = terminalTabs.tab.sentTexts.toList()
-
-  val backTabCalls: Int
-    get() = terminalTabs.tab.backTabCalls.get()
 
   fun registerEditorFactory(parentDisposable: Disposable) {
     registerAgentChatFileEditorFactoryOverrideForTests(
@@ -185,8 +182,6 @@ private class RecordingAgentChatTerminalTab : AgentChatTerminalTab {
 
   val sentTexts: CopyOnWriteArrayList<RecordingTerminalSentText> = CopyOnWriteArrayList()
   val sentTextsFlow: MutableStateFlow<List<RecordingTerminalSentText>> = MutableStateFlow(emptyList())
-  val backTabCalls: AtomicInteger = AtomicInteger()
-  val backTabCallsFlow: MutableStateFlow<Int> = MutableStateFlow(0)
 
   @Volatile
   private var recentOutputTail: String = ""
@@ -259,12 +254,6 @@ private class RecordingAgentChatTerminalTab : AgentChatTerminalTab {
     sentTexts += RecordingTerminalSentText(text, shouldExecute, useBracketedPasteMode)
     sentTextsFlow.value = sentTexts.toList()
     sentTextOutputTexts.poll()?.let(::emitTerminalOutput)
-  }
-
-  override fun sendBackTab(): Boolean {
-    backTabCallsFlow.value = backTabCalls.incrementAndGet()
-    emitTerminalOutput("Plan mode")
-    return true
   }
 
   private fun emitTerminalOutput(text: String) {

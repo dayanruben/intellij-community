@@ -5,7 +5,7 @@ package com.intellij.agent.workbench.prompt.ui
 // @spec community/plugins/agent-workbench/spec/actions/global-prompt-suggestions.spec.md
 // @spec community/plugins/agent-workbench/spec/core/agent-workbench-telemetry.spec.md
 
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INITIAL_TEXT_DATA_KEY
 import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextTargetCandidate
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
@@ -51,6 +51,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.Nls
+import org.jetbrains.annotations.TestOnly
 import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.event.ChangeListener
@@ -167,7 +168,7 @@ internal class AgentPromptPaletteSessionController(
       onSubmitBlocked = ::showError,
       onSubmitSucceeded = ::closeAfterSuccessfulSubmit,
       onPromptSubmitted = uiStateService::saveSubmittedPromptHistoryEntry,
-      onProviderSubmitted = ::saveSelectedProviderSelection,
+      launchProfileIdProvider = generationSettingsController::currentLaunchProfileId,
       generationSettingsProvider = generationSettingsController::currentLaunchSettings,
       generationModelCatalogProvider = generationSettingsController::currentGenerationModelCatalog,
       isContainerModeSelected = ::isContainerModeSelectedForCurrentState,
@@ -188,7 +189,7 @@ internal class AgentPromptPaletteSessionController(
     generationSettingsController.restoreLaunchProfiles(
       launcherProvider()?.loadProviderPreferences() ?: AgentPromptLauncherBridge.ProviderPreferences()
     )
-    restoreSelectedProviderSelection()
+    generationSettingsController.restoreDraftLaunchProfile(draft.selectedLaunchProfileId)
     refreshExtensionTaskDraftsFromContext()
 
     if (invocationData.attributes[com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INVOCATION_PREFER_EXTENSIONS_KEY] == true) {
@@ -255,8 +256,7 @@ internal class AgentPromptPaletteSessionController(
       uiStateService.clearDraft()
     }
     else {
-      saveSelectedProviderSelection()
-      draftController.saveDraft(currentTargetMode())
+      draftController.saveDraft(currentTargetMode(), generationSettingsController.selectedLaunchProfileIdForDraft())
     }
   }
 
@@ -299,7 +299,7 @@ internal class AgentPromptPaletteSessionController(
   }
 
   fun onProviderSelectionChanged() {
-    generationSettingsController.refreshPresentation()
+    generationSettingsController.onProviderSelectionChanged()
     updateProviderOptionsVisibility()
     if (contextState.activeExtensionTab == null && currentTargetMode() == PromptTargetMode.EXISTING_TASK) {
       reloadExistingTasks()
@@ -320,6 +320,11 @@ internal class AgentPromptPaletteSessionController(
   fun codexSkillCompletionEntriesForCompletion(): List<AgentPromptReusableSourceEntry> = codexSkillCompletionEntries
 
   fun resolveWorkingProjectPath(): String? = submitController.resolveWorkingProjectPath()
+
+  @TestOnly
+  internal fun applyLaunchProfileForTest(profileId: String): Boolean {
+    return generationSettingsController.applyLaunchProfileForTest(profileId)
+  }
 
   fun applyAddContextRequest(request: AgentPromptAddContextRequest): AgentPromptAddContextApplyResult {
     val result = contextController.addExternalContextItems(request.contextItems)
@@ -698,18 +703,6 @@ internal class AgentPromptPaletteSessionController(
 
   private fun updateSendAvailability() {
     submitController.updateSendAvailability()
-  }
-
-  private fun restoreSelectedProviderSelection() {
-    val selection = uiStateService.loadSelectedProviderSelection() ?: return
-    providerSelector.selectProvider(selection.provider, selection.launchMode)
-    generationSettingsController.refreshPresentation()
-    updateProviderOptionsVisibility()
-  }
-
-  private fun saveSelectedProviderSelection() {
-    val provider = providerSelector.selectedProvider?.bridge?.provider ?: return
-    uiStateService.saveSelectedProviderSelection(provider, providerSelector.selectedLaunchMode)
   }
 
   private fun refreshSuggestions() {

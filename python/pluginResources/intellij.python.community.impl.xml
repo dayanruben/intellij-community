@@ -952,7 +952,7 @@
     <documentationLinkProvider implementation="com.jetbrains.python.numpy.codeInsight.SciPyDocumentationLinkProvider"/>
 
     <!-- PyDocstring -->
-    <visitorFilter language="Doctest" implementationClass="com.jetbrains.python.documentation.PyDocstringVisitorFilter"/>
+    <visitorFilter language="Doctest" implementationClass="com.jetbrains.python.documentation.PyDoctestVisitorFilter"/>
     <visitorFilter language="Python" implementationClass="com.jetbrains.python.documentation.doctest.PyDocstringCodeBlockVisitorFilter"/>
 
     <!-- Console -->
@@ -978,8 +978,6 @@
     <!-- Poetry -->
     <pythonFlavorProvider implementation="com.jetbrains.python.sdk.poetry.PyPoetrySdkFlavorProvider"/>
 
-    <!-- Uv -->
-    <pythonFlavorProvider implementation="com.jetbrains.python.sdk.uv.UvSdkFlavorProvider"/>
 
     <!-- Hatch -->
     <pySdkProvider implementation="com.jetbrains.python.hatch.sdk.HatchSdkProvider"/>

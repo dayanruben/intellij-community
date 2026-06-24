@@ -1,27 +1,30 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.buildAgentThreadIdentity
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.session.AgentSessionThread
-import com.intellij.agent.workbench.common.session.isClaudeMenuCommandPrompt
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.buildAgentThreadIdentity
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.common.session.isClaudeMenuCommandPrompt
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchAction
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptDeliveryChannel
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptDeliveryStatus
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
-import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessagePlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchAction
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageTimeoutPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryChannel
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryStatus
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptRecord
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentTerminalPromptDispatch
+import com.intellij.platform.ai.agent.sessions.core.providers.InMemoryAgentSessionProviderRegistry
+import com.intellij.platform.ai.agent.sessions.core.providers.isBusyForExistingThreadPlanMode
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditor
@@ -53,6 +56,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.terminal.view.TerminalOffset
 import org.junit.jupiter.api.AfterEach
@@ -65,7 +69,6 @@ import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -142,7 +145,7 @@ class AgentChatFileEditorLifecycleTest {
           outcomesByPath = emptyMap(),
         )
       },
-      notifyRefresh = { _, _, refreshedThreadId, _ ->
+      notifyRefresh = { _, _, refreshedThreadId, _, _ ->
         refreshThreadIds += refreshedThreadId
       },
     )
@@ -203,7 +206,7 @@ class AgentChatFileEditorLifecycleTest {
           pendingRebindReport(file.projectPath, request, AgentChatPendingTabRebindStatus.REBOUND)
         }
       },
-      notifyRefresh = { _, _, refreshedThreadId, _ ->
+      notifyRefresh = { _, _, refreshedThreadId, _, _ ->
         refreshThreadIds += refreshedThreadId
       },
     )
@@ -241,7 +244,6 @@ class AgentChatFileEditorLifecycleTest {
         AgentInitialMessageDispatchStep(
           text = "/plan",
           timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-          completionPolicy = AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY,
         ),
         AgentInitialMessageDispatchStep(
           text = initialMessage,
@@ -464,13 +466,22 @@ class AgentChatFileEditorLifecycleTest {
 
   @Test
   fun terminalTitleRebindsConcreteTabAfterNewThreadCommand() {
+    assertTerminalTitleRebindsConcreteTabAfterConcreteThreadCommand("Fresh /new thread")
+  }
+
+  @Test
+  fun terminalTitleRebindsConcreteTabAfterForkCommand() {
+    assertTerminalTitleRebindsConcreteTabAfterConcreteThreadCommand("Fresh /fork thread")
+  }
+
+  private fun assertTerminalTitleRebindsConcreteTabAfterConcreteThreadCommand(threadTitle: String) {
     val threadId = "018f4b30-f1b2-7000-9b4d-abcdef123456"
     val file = testFile()
     file.updateNewThreadRebindRequestedAtMs(2_000L)
     val title = TerminalTitle()
     val snapshotWriter = RecordingSnapshotWriter()
     val requests = mutableListOf<AgentChatConcreteTabRebindRequest>()
-    val refreshThreadIds = mutableListOf<String?>()
+    val refreshSignals = mutableListOf<Pair<String?, String?>>()
     val controllerScope = unconfinedTestScope()
     val controller = AgentChatTerminalTitleThreadRebindController(
       file = file,
@@ -494,15 +505,15 @@ class AgentChatFileEditorLifecycleTest {
           outcomesByPath = emptyMap(),
         )
       },
-      notifyRefresh = { _, _, refreshedThreadId, _ ->
-        refreshThreadIds += refreshedThreadId
+      notifyRefresh = { _, _, refreshedThreadId, refreshedThreadTitle, _ ->
+        refreshSignals += refreshedThreadId to refreshedThreadTitle
       },
       currentTimeProvider = { 2_100L },
     )
 
     try {
       controller.attach(terminalTitle = title, parentScope = controllerScope)
-      title.change { applicationTitle = terminalTitle(threadId) }
+      title.change { applicationTitle = terminalTitle(threadId, threadTitle) }
 
       assertThat(requests).hasSize(1)
       val request = requests.single()
@@ -510,11 +521,64 @@ class AgentChatFileEditorLifecycleTest {
       assertThat(request.currentThreadIdentity).isEqualTo("CODEX:thread-1")
       assertThat(request.newThreadRebindRequestedAtMs).isEqualTo(2_000L)
       assertThat(request.target.threadIdentity).isEqualTo("codex:$threadId")
+      assertThat(request.target.threadTitle).isEqualTo(threadTitle)
       assertThat(file.threadIdentity).isEqualTo("codex:$threadId")
       assertThat(file.threadId).isEqualTo(threadId)
+      assertThat(file.threadTitle).isEqualTo(threadTitle)
       assertThat(file.newThreadRebindRequestedAtMs).isNull()
       assertThat(snapshotWriter.snapshots.single().identity.threadIdentity).isEqualTo("codex:$threadId")
-      assertThat(refreshThreadIds).containsExactly(threadId)
+      assertThat(refreshSignals).containsExactly(threadId to threadTitle)
+    }
+    finally {
+      controller.dispose()
+      controllerScope.cancel()
+    }
+  }
+
+  @Test
+  fun terminalTitleRebindCompletesWhenConcreteTabRestartDisposesController() {
+    val threadId = "018f4b30-f1b2-7000-9b4d-abcdef123456"
+    val threadTitle = "Fresh /new thread"
+    val file = testFile()
+    file.updateNewThreadRebindRequestedAtMs(2_000L)
+    val snapshotWriter = RecordingSnapshotWriter()
+    val requests = mutableListOf<AgentChatConcreteTabRebindRequest>()
+    val refreshSignals = mutableListOf<Pair<String?, String?>>()
+    val controllerScope = unconfinedTestScope()
+    lateinit var controller: AgentChatTerminalTitleThreadRebindController
+    controller = AgentChatTerminalTitleThreadRebindController(
+      file = file,
+      contributor = terminalTitleThreadRebindContributor(AgentSessionProvider.CODEX),
+      tabSnapshotWriter = snapshotWriter,
+      rebindConcreteTabs = { _, requestsByPath ->
+        val request = requestsByPath.getValue(file.projectPath).single()
+        requests += request
+        file.rebindConcreteThread(
+          threadIdentity = request.target.threadIdentity,
+          threadId = request.target.threadId,
+          threadTitle = request.target.threadTitle,
+          threadActivity = request.target.threadActivity,
+        )
+        controller.dispose()
+        withContext(Dispatchers.Default) {}
+        concreteRebindReport(file.projectPath, request, AgentChatConcreteTabRebindStatus.REBOUND)
+      },
+      notifyRefresh = { _, _, refreshedThreadId, refreshedThreadTitle, _ ->
+        refreshSignals += refreshedThreadId to refreshedThreadTitle
+      },
+      currentTimeProvider = { 2_100L },
+    )
+
+    try {
+      assertThat(controller.bindFromApplicationTitle(terminalTitle(threadId, threadTitle), controllerScope)).isTrue()
+
+      waitForCondition { snapshotWriter.snapshots.isNotEmpty() && refreshSignals.isNotEmpty() }
+
+      assertThat(requests).hasSize(1)
+      assertThat(file.threadIdentity).isEqualTo("codex:$threadId")
+      assertThat(file.threadTitle).isEqualTo(threadTitle)
+      assertThat(snapshotWriter.snapshots.single().identity.threadIdentity).isEqualTo("codex:$threadId")
+      assertThat(refreshSignals).containsExactly(threadId to threadTitle)
     }
     finally {
       controller.dispose()
@@ -553,7 +617,7 @@ class AgentChatFileEditorLifecycleTest {
           concreteRebindReport(file.projectPath, request, AgentChatConcreteTabRebindStatus.REBOUND)
         }
       },
-      notifyRefresh = { _, _, refreshedThreadId, _ ->
+      notifyRefresh = { _, _, refreshedThreadId, _, _ ->
         refreshThreadIds += refreshedThreadId
       },
       currentTimeProvider = { 2_100L },
@@ -600,7 +664,7 @@ class AgentChatFileEditorLifecycleTest {
       rebindConcreteTabs = { _, _ ->
         error("Expired /new anchor must not rebind a concrete chat tab")
       },
-      notifyRefresh = { _, _, refreshedThreadId, _ ->
+      notifyRefresh = { _, _, refreshedThreadId, _, _ ->
         refreshThreadIds += refreshedThreadId
       },
       currentTimeProvider = { 2_000L + AgentSessionThreadRebindPolicy.CONCRETE_NEW_THREAD_REBIND_MAX_AGE_MS },
@@ -1400,39 +1464,6 @@ class AgentChatFileEditorLifecycleTest {
   }
 
   @Test
-  fun juniePlanModeInitialMessageSwitchesModeBeforeSending() {
-    val terminalTabs = FakeAgentChatTerminalTabs()
-    val file = testFile(
-      threadIdentity = "junie:new-plan",
-      shellCommand = listOf("junie", "--skip-update-check"),
-    ).also {
-      it.updateInitialMessageMetadata(
-        initialMessageDispatchSteps = juniePlanDispatchSteps("Plan the feature"),
-        initialMessageDispatchStepIndex = 0,
-        initialMessageToken = "token-junie-plan",
-        initialMessageSent = false,
-      )
-    }
-    val editor = testEditor(file = file, terminalTabs = terminalTabs)
-
-    editor.selectNotify()
-    terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
-    terminalTabs.tab.emitMeaningfulOutput("Welcome to Junie Type your prompt...")
-    waitForCondition { terminalTabs.tab.backTabCount.get() == 1 }
-
-    assertThat(file.initialMessageSent).isFalse()
-    assertThat(terminalTabs.tab.sentTexts).isEmpty()
-
-    terminalTabs.tab.emitMeaningfulOutput("Junie switched to Plan Mode Type your prompt...")
-    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
-
-    assertThat(terminalTabs.tab.backTabCount.get()).isEqualTo(1)
-    assertThat(file.initialMessageSent).isTrue()
-    assertThat(terminalTabs.tab.sentTexts)
-      .containsExactly(SentTerminalText("Plan the feature", shouldExecute = true))
-  }
-
-  @Test
   fun codexPlanModeTimeoutReadinessWaitsWithoutSending() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
@@ -1459,7 +1490,6 @@ class AgentChatFileEditorLifecycleTest {
   fun codexPlanModeTimeoutThenFreshReadySignalsSendPlanStepThenPrompt() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
-    terminalTabs.tab.enqueuePostSendOutput(codexIdleTerminalSnapshot())
     val file = testFile().also {
       it.updateInitialMessageMetadata(
         initialMessageDispatchSteps = codexPlanDispatchSteps("Send after retry"),
@@ -1476,6 +1506,9 @@ class AgentChatFileEditorLifecycleTest {
     assertThat(terminalTabs.tab.sentTexts).isEmpty()
 
     terminalTabs.tab.emitMeaningfulOutput("ready for /plan")
+    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
+
+    terminalTabs.tab.emitMeaningfulOutput("ready for prompt")
     waitForCondition {
       file.initialMessageSent &&
       terminalTabs.tab.sentTexts.size == 2
@@ -1490,40 +1523,40 @@ class AgentChatFileEditorLifecycleTest {
   }
 
   @Test
-  fun codexPlanModeBusyResponseRetriesPlanStepBeforePrompt() {
+  fun codexPlanModeBusyActivityWaitsForFreshReadinessBeforeSendingPlanStep() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
-    terminalTabs.tab.enqueuePostSendOutput(
-      "'/plan' is disabled while a task is in progress.",
-      codexIdleTerminalSnapshot(),
-    )
     val file = testFile().also {
-      it.updateInitialMessageMetadata(
-        initialMessageDispatchSteps = codexPlanDispatchSteps("Retry after busy output"),
-        initialMessageDispatchStepIndex = 0,
+      it.updateBootstrapThreadActivity(AgentThreadActivity.PROCESSING)
+      it.updateCodexPlanInitialMessageMetadata(
+        prompt = "Send after busy activity",
         initialMessageToken = "token-plan-busy",
-        initialMessageSent = false,
       )
     }
     val editor = testEditor(file = file, terminalTabs = terminalTabs)
 
     editor.selectNotify()
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
-    terminalTabs.tab.emitMeaningfulOutput("ready for first /plan")
+    terminalTabs.tab.emitMeaningfulOutput("ready while busy")
+
+    Thread.sleep(500)
+    assertThat(terminalTabs.tab.sentTexts).isEmpty()
+
+    file.updateBootstrapThreadActivity(AgentThreadActivity.READY)
+    terminalTabs.tab.emitMeaningfulOutput("ready after busy for /plan")
     waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
 
-    terminalTabs.tab.emitMeaningfulOutput(codexIdleTerminalSnapshot())
+    terminalTabs.tab.emitMeaningfulOutput("ready after busy for prompt")
     waitForCondition(timeoutMs = 5_000) {
       file.initialMessageSent &&
-      terminalTabs.tab.sentTexts.size == 3
+      terminalTabs.tab.sentTexts.size == 2
     }
 
     assertThat(file.initialMessageSent).isTrue()
     assertThat(terminalTabs.tab.sentTexts)
       .containsExactly(
         SentTerminalText("/plan", shouldExecute = true),
-        SentTerminalText("/plan", shouldExecute = true),
-        SentTerminalText("Retry after busy output", shouldExecute = true),
+        SentTerminalText("Send after busy activity", shouldExecute = true),
       )
   }
 
@@ -1545,9 +1578,6 @@ class AgentChatFileEditorLifecycleTest {
     editor.selectNotify()
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
     terminalTabs.tab.emitMeaningfulOutput("ready for first /plan")
-    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
-
-    terminalTabs.tab.emitMeaningfulOutput("ready for prompt after MCP startup")
     waitForCondition(timeoutMs = 5_000) {
       file.initialMessageSent && terminalTabs.tab.sentTexts.size == 2
     }
@@ -1563,7 +1593,6 @@ class AgentChatFileEditorLifecycleTest {
   @Test
   fun codexPlanModeRunningHookPostSendOutputDoesNotRetryPlanStepBeforePrompt() {
     val terminalTabs = FakeAgentChatTerminalTabs()
-    terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
     terminalTabs.tab.enqueuePostSendOutput(codexRunningHookTerminalSnapshot())
     val file = testFile().also {
       it.updateInitialMessageMetadata(
@@ -1577,10 +1606,6 @@ class AgentChatFileEditorLifecycleTest {
 
     editor.selectNotify()
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
-    terminalTabs.tab.emitMeaningfulOutput("ready for first /plan")
-    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
-
-    terminalTabs.tab.emitMeaningfulOutput("ready for prompt after SessionStart hook")
     waitForCondition(timeoutMs = 5_000) {
       file.initialMessageSent && terminalTabs.tab.sentTexts.size == 2
     }
@@ -1594,13 +1619,13 @@ class AgentChatFileEditorLifecycleTest {
   }
 
   @Test
-  fun codexPlanModeStopsPromptWhenPlanModeIsUnavailable() {
+  fun codexPlanModeUnavailableTerminalOutputDoesNotStopPrompt() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
     terminalTabs.tab.enqueuePostSendOutput("Plan mode unavailable right now.")
     val file = testFile().also {
       it.updateInitialMessageMetadata(
-        initialMessageDispatchSteps = codexPlanDispatchSteps("Do not send when plan mode is unavailable"),
+        initialMessageDispatchSteps = codexPlanDispatchSteps("Send despite unavailable output"),
         initialMessageDispatchStepIndex = 0,
         initialMessageToken = "token-terminal-plan-stop",
         initialMessageSent = false,
@@ -1615,23 +1640,25 @@ class AgentChatFileEditorLifecycleTest {
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
     terminalTabs.tab.emitMeaningfulOutput("Codex ready")
 
-    waitForCondition(timeoutMs = 5_000) { file.initialMessageDispatchSteps.isEmpty() }
-    assertThat(terminalTabs.tab.backTabCount.get()).isZero()
-    assertThat(file.initialMessageSent).isFalse()
+    waitForCondition(timeoutMs = 5_000) { file.initialMessageSent && terminalTabs.tab.sentTexts.size == 2 }
+    assertThat(file.initialMessageSent).isTrue()
     assertThat(file.initialMessageDispatchStepIndex).isZero()
     assertThat(file.initialMessageDispatchSteps).isEmpty()
     assertThat(terminalTabs.tab.sentTexts)
-      .containsExactly(SentTerminalText("/plan", shouldExecute = true))
+      .containsExactly(
+        SentTerminalText("/plan", shouldExecute = true),
+        SentTerminalText("Send despite unavailable output", shouldExecute = true),
+      )
   }
 
   @Test
-  fun codexPlanModeStopsPromptWhenPlanCommandIsUnsupported() {
+  fun codexPlanModeUnsupportedTerminalOutputDoesNotStopPrompt() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
     terminalTabs.tab.enqueuePostSendOutput("Unknown command: /plan")
     val file = testFile().also {
       it.updateInitialMessageMetadata(
-        initialMessageDispatchSteps = codexPlanDispatchSteps("Do not send when /plan is unsupported"),
+        initialMessageDispatchSteps = codexPlanDispatchSteps("Send despite unsupported output"),
         initialMessageDispatchStepIndex = 0,
         initialMessageToken = "token-terminal-plan-unsupported",
         initialMessageSent = false,
@@ -1646,12 +1673,15 @@ class AgentChatFileEditorLifecycleTest {
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
     terminalTabs.tab.emitMeaningfulOutput("Codex ready")
 
-    waitForCondition(timeoutMs = 5_000) { file.initialMessageDispatchSteps.isEmpty() }
-    assertThat(file.initialMessageSent).isFalse()
+    waitForCondition(timeoutMs = 5_000) { file.initialMessageSent && terminalTabs.tab.sentTexts.size == 2 }
+    assertThat(file.initialMessageSent).isTrue()
     assertThat(file.initialMessageDispatchStepIndex).isZero()
     assertThat(file.initialMessageDispatchSteps).isEmpty()
     assertThat(terminalTabs.tab.sentTexts)
-      .containsExactly(SentTerminalText("/plan", shouldExecute = true))
+      .containsExactly(
+        SentTerminalText("/plan", shouldExecute = true),
+        SentTerminalText("Send despite unsupported output", shouldExecute = true),
+      )
   }
 
   @Test
@@ -1688,7 +1718,7 @@ class AgentChatFileEditorLifecycleTest {
   }
 
   @Test
-  fun codexPlanModeRepeatedBusyResponsesKeepRetryingPlanStepBeforePrompt() {
+  fun codexPlanModeRepeatedBusyTerminalOutputDoesNotRetryPlanStepBeforePrompt() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
     terminalTabs.tab.enqueuePostSendOutput(
@@ -1710,29 +1740,21 @@ class AgentChatFileEditorLifecycleTest {
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
     terminalTabs.tab.emitMeaningfulOutput("ready for first /plan")
 
-    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
-
-    terminalTabs.tab.emitMeaningfulOutput(codexIdleTerminalSnapshot())
-    waitForCondition { terminalTabs.tab.sentTexts.size == 2 }
-
-    terminalTabs.tab.emitMeaningfulOutput(codexIdleTerminalSnapshot())
     waitForCondition(timeoutMs = 6_000) {
       file.initialMessageSent &&
-      terminalTabs.tab.sentTexts.size == 4
+      terminalTabs.tab.sentTexts.size == 2
     }
 
     assertThat(file.initialMessageSent).isTrue()
     assertThat(terminalTabs.tab.sentTexts)
       .containsExactly(
         SentTerminalText("/plan", shouldExecute = true),
-        SentTerminalText("/plan", shouldExecute = true),
-        SentTerminalText("/plan", shouldExecute = true),
         SentTerminalText("Retry after repeated busy output", shouldExecute = true),
       )
   }
 
   @Test
-  fun codexPlanModeDelayedBusyResponseWithinObservationWindowRetriesPlanStep() {
+  fun codexPlanModeDelayedBusyTerminalOutputDoesNotRetryPlanStep() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
     terminalTabs.tab.enqueueDelayedPostSendOutput(
@@ -1753,44 +1775,26 @@ class AgentChatFileEditorLifecycleTest {
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
     terminalTabs.tab.emitMeaningfulOutput("ready for first /plan")
 
-    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
-    waitForCondition(timeoutMs = 5_000) { terminalTabs.tab.sentTexts.size == 2 }
-
-    assertThat(file.initialMessageSent).isFalse()
-    assertThat(terminalTabs.tab.sentTexts)
-      .containsExactly(
-        SentTerminalText("/plan", shouldExecute = true),
-        SentTerminalText("/plan", shouldExecute = true),
-      )
-
-    terminalTabs.tab.emitMeaningfulOutput(codexIdleTerminalSnapshot())
     waitForCondition(timeoutMs = 6_000) {
-      file.initialMessageSent && terminalTabs.tab.sentTexts.size == 3
+      file.initialMessageSent && terminalTabs.tab.sentTexts.size == 2
     }
 
     assertThat(file.initialMessageSent).isTrue()
     assertThat(terminalTabs.tab.sentTexts)
       .containsExactly(
         SentTerminalText("/plan", shouldExecute = true),
-        SentTerminalText("/plan", shouldExecute = true),
         SentTerminalText("Retry after delayed busy output", shouldExecute = true),
       )
   }
 
   @Test
-  fun codexPlanModeBusyRetryDoesNotWaitForThreadActivityBeforeResendingPlan() {
+  fun codexPlanModeBusyPromptStepRewindsToPlanStepAfterFreshReadiness() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
-    terminalTabs.tab.enqueuePostSendOutput(
-      "'/plan' is disabled while a task is in progress.",
-      codexIdleTerminalSnapshot(),
-    )
     val file = testFile().also {
-      it.updateInitialMessageMetadata(
-        initialMessageDispatchSteps = codexPlanDispatchSteps("Retry while activity remains busy"),
-        initialMessageDispatchStepIndex = 0,
+      it.updateCodexPlanInitialMessageMetadata(
+        prompt = "Send after prompt busy activity",
         initialMessageToken = "token-plan-busy-activity",
-        initialMessageSent = false,
       )
     }
     val editor = testEditor(file = file, terminalTabs = terminalTabs)
@@ -1801,7 +1805,17 @@ class AgentChatFileEditorLifecycleTest {
     waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
 
     file.updateBootstrapThreadActivity(AgentThreadActivity.PROCESSING)
-    terminalTabs.tab.emitMeaningfulOutput(codexIdleTerminalSnapshot())
+    terminalTabs.tab.emitMeaningfulOutput("ready while prompt is busy")
+    Thread.sleep(500)
+    assertThat(file.initialMessageSent).isFalse()
+    assertThat(terminalTabs.tab.sentTexts)
+      .containsExactly(SentTerminalText("/plan", shouldExecute = true))
+
+    file.updateBootstrapThreadActivity(AgentThreadActivity.READY)
+    terminalTabs.tab.emitMeaningfulOutput("ready after prompt busy for /plan")
+    waitForCondition { terminalTabs.tab.sentTexts.size == 2 }
+
+    terminalTabs.tab.emitMeaningfulOutput("ready after prompt busy for prompt")
     waitForCondition(timeoutMs = 5_000) {
       file.initialMessageSent &&
       terminalTabs.tab.sentTexts.size == 3
@@ -1812,12 +1826,12 @@ class AgentChatFileEditorLifecycleTest {
       .containsExactly(
         SentTerminalText("/plan", shouldExecute = true),
         SentTerminalText("/plan", shouldExecute = true),
-        SentTerminalText("Retry while activity remains busy", shouldExecute = true),
+        SentTerminalText("Send after prompt busy activity", shouldExecute = true),
       )
   }
 
   @Test
-  fun codexPlanModeBusyResponseWithFormattingNoiseStillRetriesPlanStep() {
+  fun codexPlanModeFormattedBusyTerminalOutputDoesNotRetryPlanStep() {
     val terminalTabs = FakeAgentChatTerminalTabs()
     terminalTabs.tab.readinessResult = AgentChatTerminalInputReadiness.TIMEOUT
     terminalTabs.tab.enqueuePostSendOutput(
@@ -1838,18 +1852,14 @@ class AgentChatFileEditorLifecycleTest {
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
     terminalTabs.tab.emitMeaningfulOutput("ready for first /plan")
 
-    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
-
-    terminalTabs.tab.emitMeaningfulOutput(codexIdleTerminalSnapshot())
     waitForCondition(timeoutMs = 6_000) {
       file.initialMessageSent &&
-      terminalTabs.tab.sentTexts.size == 3
+      terminalTabs.tab.sentTexts.size == 2
     }
 
     assertThat(file.initialMessageSent).isTrue()
     assertThat(terminalTabs.tab.sentTexts)
       .containsExactly(
-        SentTerminalText("/plan", shouldExecute = true),
         SentTerminalText("/plan", shouldExecute = true),
         SentTerminalText("Retry after formatted busy output", shouldExecute = true),
       )
@@ -2190,8 +2200,6 @@ private class FakeAgentChatTerminalTab : AgentChatTerminalTab {
   val focusRequests: Int
     get() = focusableComponent.requestFocusInWindowCalls
 
-  @JvmField
-  val backTabCount: AtomicInteger = AtomicInteger()
 
   fun enqueuePostSendOutput(vararg outputs: String) {
     postSendOutputQueue.addAll(outputs.map { output -> PostSendOutput(text = output, delayMs = 0) })
@@ -2261,12 +2269,6 @@ private class FakeAgentChatTerminalTab : AgentChatTerminalTab {
   override fun sendText(text: String, shouldExecute: Boolean, useBracketedPasteMode: Boolean) {
     sentTexts += SentTerminalText(text, shouldExecute, useBracketedPasteMode)
     emitNextPostSendOutput()
-  }
-
-  override fun sendBackTab(): Boolean {
-    backTabCount.incrementAndGet()
-    emitNextPostSendOutput()
-    return true
   }
 
   private fun emitNextPostSendOutput() {
@@ -2512,34 +2514,6 @@ private object TestJunieAgentChatProviderBehavior : AgentChatProviderBehavior {
     }
   }
 
-  override suspend fun isInitialMessageDispatchAlreadySatisfied(
-    tab: AgentChatBehaviorTerminalTab,
-    dispatch: AgentChatInitialMessageDispatchContext,
-  ): Boolean {
-    return dispatch.action == AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE &&
-           testJuniePlanModeVisible(tab.readRecentOutputTail())
-  }
-
-  override fun requiresPostSendObservation(dispatch: AgentChatInitialMessageDispatchContext): Boolean {
-    return dispatch.action == AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE
-  }
-
-  override fun afterInitialMessageSendObservation(
-    file: AgentChatBehaviorFile,
-    dispatch: AgentChatInitialMessageDispatchContext,
-    observation: AgentChatInitialMessageSendObservation,
-    retryAttempt: Int,
-  ): AgentChatInitialMessageRetryDecision {
-    if (dispatch.action != AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE) {
-      return AgentChatInitialMessageRetryDecision.PROCEED
-    }
-    return if (testJuniePlanModeVisible(observation.textWithRecentOutputTail)) {
-      AgentChatInitialMessageRetryDecision.PROCEED
-    }
-    else {
-      AgentChatInitialMessageRetryDecision.Stop
-    }
-  }
 }
 
 private object TestCodexAgentChatProviderBehavior : AgentChatProviderBehavior {
@@ -2567,37 +2541,22 @@ private object TestCodexAgentChatProviderBehavior : AgentChatProviderBehavior {
     return descriptor?.supportsNewThreadRebind == true && !file.isPendingThread && file.subAgentId == null
   }
 
-  override fun isConcreteNewThreadRebindCommand(command: String): Boolean = command == "/new"
+  override fun isConcreteNewThreadRebindCommand(command: String): Boolean = command == "/new" || command == "/fork"
 
-  override fun requiresPostSendObservation(dispatch: AgentChatInitialMessageDispatchContext): Boolean {
-    return dispatch.completionPolicy == AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY
-  }
-
-  override fun afterInitialMessageSendObservation(
+  override suspend fun beforeInitialMessageSend(
     file: AgentChatBehaviorFile,
+    tab: AgentChatBehaviorTerminalTab,
     dispatch: AgentChatInitialMessageDispatchContext,
-    observation: AgentChatInitialMessageSendObservation,
     retryAttempt: Int,
   ): AgentChatInitialMessageRetryDecision {
-    if (dispatch.completionPolicy != AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY) {
+    if (file.initialMessageMode != AgentInitialMessageMode.PLAN || !file.threadActivity.isBusyForExistingThreadPlanMode()) {
       return AgentChatInitialMessageRetryDecision.PROCEED
     }
-    if (testCodexPlanModeBusyOutput(observation.outputText)) {
-      return AgentChatInitialMessageRetryDecision.RetryTransientBusyWithoutReadiness(testProviderRetryBackoffMs(retryAttempt))
+    val backoffMs = testProviderRetryBackoffMs(retryAttempt)
+    if (dispatch.stepIndex > 0) {
+      return AgentChatInitialMessageRetryDecision.RetryTransientBusyAfterRewindAndReadiness(backoffMs)
     }
-    if (testCodexPlanModeUnavailableOutput(observation.outputText)) {
-      return AgentChatInitialMessageRetryDecision.Stop
-    }
-    if (testCodexPlanModeUnsupportedOutput(observation.outputText)) {
-      return AgentChatInitialMessageRetryDecision.Stop
-    }
-    if (testCodexPlanModeBlankOutput(observation.outputText)) {
-      if (retryAttempt < TEST_CODEX_PLAN_MODE_BLANK_OUTPUT_RETRY_LIMIT) {
-        return AgentChatInitialMessageRetryDecision.RetryWithoutReadiness(testProviderRetryBackoffMs(retryAttempt))
-      }
-      return AgentChatInitialMessageRetryDecision.Stop
-    }
-    return AgentChatInitialMessageRetryDecision.PROCEED
+    return AgentChatInitialMessageRetryDecision.RetryTransientBusyAfterReadiness(backoffMs)
   }
 }
 
@@ -2609,34 +2568,6 @@ private fun testProviderRetryBackoffMs(retryAttempt: Int): Long {
 private fun testJuniePromptInputReady(text: String): Boolean {
   val normalized = testSanitizeTerminalText(text)
   return normalized.contains("Type your prompt", ignoreCase = true)
-}
-
-private fun testJuniePlanModeVisible(text: String): Boolean {
-  return testSanitizeTerminalText(text).contains("Plan Mode", ignoreCase = true)
-}
-
-private fun testCodexPlanModeBusyOutput(text: String): Boolean {
-  return TEST_CODEX_PLAN_MODE_BUSY_MESSAGE_REGEX.containsMatchIn(testNormalizeCodexTerminalOutput(text))
-}
-
-private fun testCodexPlanModeUnavailableOutput(text: String): Boolean {
-  val normalized = testNormalizeCodexTerminalOutput(text)
-  return normalized.contains(TEST_CODEX_PLAN_MODE_UNAVAILABLE_MESSAGE, ignoreCase = true) ||
-         normalized.contains(TEST_CODEX_COLLABORATION_MODES_DISABLED_MESSAGE, ignoreCase = true)
-}
-
-private fun testCodexPlanModeUnsupportedOutput(text: String): Boolean {
-  val normalized = testNormalizeCodexTerminalOutput(text)
-  return normalized.contains(TEST_CODEX_PLAN_COMMAND, ignoreCase = true) &&
-         TEST_CODEX_PLAN_MODE_UNSUPPORTED_MARKERS.any { marker -> normalized.contains(marker, ignoreCase = true) }
-}
-
-private fun testCodexPlanModeBlankOutput(text: String): Boolean {
-  return testNormalizeCodexTerminalOutput(text).isEmpty()
-}
-
-private fun testNormalizeCodexTerminalOutput(text: String): String {
-  return testSanitizeTerminalText(testStripCodexTerminalAnsi(text))
 }
 
 private fun testSanitizeTerminalText(text: String): String {
@@ -2653,29 +2584,8 @@ private fun testSanitizeTerminalText(text: String): String {
   return sanitized.replace(TEST_TERMINAL_WHITESPACE_REGEX, " ").trim()
 }
 
-private fun testStripCodexTerminalAnsi(text: String): String = TEST_CODEX_TERMINAL_ANSI_ESCAPE_REGEX.replace(text, "")
-
 private const val TEST_PROVIDER_RETRY_BACKOFF_MS: Long = 250
 private const val TEST_PROVIDER_MAX_RETRY_BACKOFF_MS: Long = 1_000
-private const val TEST_CODEX_PLAN_MODE_BLANK_OUTPUT_RETRY_LIMIT: Int = 2
-private const val TEST_CODEX_PLAN_COMMAND: String = "/plan"
-private val TEST_CODEX_PLAN_MODE_BUSY_MESSAGE_REGEX: Regex =
-  Regex("'\\s*/plan\\s*'\\s+is disabled while a task is in progress\\.", RegexOption.IGNORE_CASE)
-private const val TEST_CODEX_PLAN_MODE_UNAVAILABLE_MESSAGE: String = "Plan mode unavailable right now."
-private const val TEST_CODEX_COLLABORATION_MODES_DISABLED_MESSAGE: String = "Collaboration modes are disabled."
-private val TEST_CODEX_PLAN_MODE_UNSUPPORTED_MARKERS: List<String> = listOf(
-  "unknown command",
-  "unknown slash command",
-  "unrecognized command",
-  "unrecognized slash command",
-  "unsupported command",
-  "invalid command",
-  "no such command",
-  "command not found",
-  "not a recognized command",
-  "not recognized as a command",
-)
-private val TEST_CODEX_TERMINAL_ANSI_ESCAPE_REGEX: Regex = Regex("\\u001B\\[[0-9;?]*[ -/]*[@-~]")
 private val TEST_TERMINAL_WHITESPACE_REGEX: Regex = Regex(" +")
 
 private fun unconfinedTestScope(): CoroutineScope {
@@ -2685,7 +2595,9 @@ private fun unconfinedTestScope(): CoroutineScope {
 }
 
 @Suppress("SameParameterValue")
-private fun terminalTitle(threadId: String): String = "thread:$threadId"
+private fun terminalTitle(threadId: String, threadTitle: String? = null): String {
+  return listOfNotNull("thread:$threadId", threadTitle).joinToString(" | ")
+}
 
 private fun terminalTitleThreadRebindContributor(providerId: AgentSessionProvider): AgentChatTerminalTitleThreadRebindContributor {
   return object : AgentChatTerminalTitleThreadRebindContributor {
@@ -2694,6 +2606,15 @@ private fun terminalTitleThreadRebindContributor(providerId: AgentSessionProvide
 
     override fun extractThreadId(applicationTitle: String?): String? {
       return applicationTitle?.substringAfter("thread:", missingDelimiterValue = "")?.takeIf { it.isNotBlank() }
+    }
+
+    override fun extractThreadSignal(applicationTitle: String?): AgentChatTerminalTitleThreadRebindSignal? {
+      val value = applicationTitle?.substringAfter("thread:", missingDelimiterValue = "")?.takeIf { it.isNotBlank() } ?: return null
+      val parts = value.split(" | ", limit = 2)
+      return AgentChatTerminalTitleThreadRebindSignal(
+        threadId = parts[0],
+        threadTitle = parts.getOrNull(1),
+      )
     }
   }
 }
@@ -2710,7 +2631,6 @@ private fun codexPlanDispatchSteps(
     AgentInitialMessageDispatchStep(
       text = "/plan",
       timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-      completionPolicy = AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY,
     ),
     AgentInitialMessageDispatchStep(
       text = prompt,
@@ -2719,17 +2639,29 @@ private fun codexPlanDispatchSteps(
   )
 }
 
-@Suppress("SameParameterValue")
-private fun juniePlanDispatchSteps(prompt: String): List<AgentInitialMessageDispatchStep> {
-  return listOf(
-    AgentInitialMessageDispatchStep(
-      action = AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE,
-      timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
+private fun AgentChatVirtualFile.updateCodexPlanInitialMessageMetadata(
+  prompt: String,
+  initialMessageToken: String,
+  initialMessageSent: Boolean = false,
+  promptTimeoutPolicy: AgentInitialMessageTimeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
+  initialMessageDispatchStepIndex: Int = 0,
+): Boolean {
+  val steps = codexPlanDispatchSteps(
+    prompt = prompt,
+    promptTimeoutPolicy = promptTimeoutPolicy,
+  )
+  return updateInitialPromptDelivery(
+    promptRecord = AgentInitialPromptRecord(
+      message = prompt,
+      mode = AgentInitialMessageMode.PLAN,
+      token = initialMessageToken,
+      deliveryStatus = if (initialMessageSent) AgentInitialPromptDeliveryStatus.DELIVERED else AgentInitialPromptDeliveryStatus.PENDING,
+      deliveryChannel = AgentInitialPromptDeliveryChannel.TERMINAL,
     ),
-    AgentInitialMessageDispatchStep(
-      text = prompt,
-      timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-    ),
+    terminalDispatch = AgentTerminalPromptDispatch(
+      steps = steps,
+      stepIndex = initialMessageDispatchStepIndex,
+    ).takeUnless { initialMessageSent },
   )
 }
 

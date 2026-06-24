@@ -4,6 +4,8 @@ description: Requirements for Codex pending-thread and concrete /new editor-tab 
 targets:
   - ../../chat/src/**/*.kt
   - ../../sessions/src/service/*.kt
+  - ../../codex/chat/src/**/*.kt
+  - ../../codex/chat/testSrc/**/*.kt
   - ../../codex/sessions/src/**/*.kt
   - ../../chat/testSrc/AgentChatEditorServiceTest.kt
   - ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
@@ -29,7 +31,7 @@ Codex starts new threads before the concrete provider thread id is known. Workbe
   [@test] ../../codex/sessions/testSrc/CodexAgentSessionProviderDescriptorTest.kt
   [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
 
-- Codex plan-mode launches with a non-empty stripped prompt use the normal pending PTY path and enqueue ordered post-start dispatch: first ensure the TUI is visibly in Plan mode via BackTab, then submit the plain prompt body. If Plan mode cannot be confirmed, the plain prompt body must not be submitted.
+- Codex plan-mode launches with a non-empty stripped prompt use the normal pending PTY path and enqueue ordered post-start dispatch: first send the `/plan` command, then submit the plain prompt body. Busy output from the `/plan` command is ignored once the command has been dispatched.
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
   [@test] ../../codex/sessions/testSrc/CodexNewThreadPromptLaunchIntegrationTest.kt
   [@test] ../../chat/testSrc/AgentChatInitialMessageDispatcherTest.kt
@@ -46,11 +48,12 @@ Codex starts new threads before the concrete provider thread id is known. Workbe
 - Rebinding updates tab identity, resume command, stored title/activity fallback, editor-tab presentation, and persisted snapshot without opening a second tab.
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
 
-- Concrete top-level Codex tabs detect exact terminal command `/new`, store a single anchor timestamp, and run bounded scoped-refresh retries for the tab path until the tab-local title signal rebinds or the anchor expires.
+- Concrete top-level Codex tabs detect exact terminal commands `/new` and `/fork`, store a single anchor timestamp, and run bounded scoped-refresh retries for the tab path until the tab-local title signal rebinds or the anchor expires.
+  [@test] ../../codex/chat/testSrc/CodexAgentChatProviderBehaviorTest.kt
   [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
   [@test] ../../chat/testSrc/AgentChatConcreteThreadRebindControllerTest.kt
 
-- Concrete `/new` rebinding is Codex-only and tab-local. Provider refresh must not match concrete `/new` anchors to timestamp-bounded refresh candidates; the concrete tab identity changes only when the originating tab exposes a concrete thread id through its terminal title.
+- Concrete `/new` and `/fork` rebinding is Codex-only and tab-local. Provider refresh must not match concrete anchors to timestamp-bounded refresh candidates; the concrete tab identity changes only when the originating tab exposes a concrete thread id through its terminal title.
   [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
   [@test] ../../sessions/testSrc/AgentSessionRefreshCoordinatorTest.kt
 
@@ -67,7 +70,7 @@ Codex starts new threads before the concrete provider thread id is known. Workbe
 - `./tests.cmd --module intellij.agent.workbench.chat.tests --test com.intellij.agent.workbench.chat.AgentChatConcreteThreadRebindControllerTest`
 - `./tests.cmd --module intellij.agent.workbench.chat.tests --test com.intellij.agent.workbench.chat.AgentChatFileEditorLifecycleTest`
 - `./tests.cmd --module intellij.agent.workbench.sessions.tests --test com.intellij.agent.workbench.sessions.AgentSessionRefreshCoordinatorTest`
-- `./tests.cmd --module intellij.agent.workbench.codex.sessions.tests --test com.intellij.agent.workbench.codex.sessions.backend.rollout.CodexRolloutRefreshHintsProviderTest`
+- `./tests.cmd --module intellij.platform.ai.agent.codex.sessions.tests --test com.intellij.platform.ai.agent.codex.sessions.backend.rollout.CodexRolloutRefreshHintsProviderTest`
 
 ## References
 - `new-thread.spec.md`

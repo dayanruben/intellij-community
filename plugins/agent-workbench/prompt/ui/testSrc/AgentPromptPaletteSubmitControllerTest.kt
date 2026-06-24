@@ -1,10 +1,10 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeSummary
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextRendererIds
@@ -18,15 +18,15 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
-import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
-import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageStartupPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentPromptProviderOption
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
-import com.intellij.agent.workbench.sessions.core.providers.buildPlanModeInitialMessagePlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
+import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessagePlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageStartupPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentPromptProviderOption
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.buildPlanModeInitialMessagePlan
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
 import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.openapi.components.service
@@ -162,6 +162,36 @@ class AgentPromptPaletteSubmitControllerTest {
       assertThat(request.initialMessageRequest.prompt).isEqualTo("/mcp")
       assertThat(request.initialMessageRequest.contextItems).isEmpty()
       assertThat(request.initialMessageRequest.contextEnvelopeSummary).isNull()
+    }
+  }
+
+  @Test
+  fun submitIncludesLaunchProfileId() {
+    runInEdtAndWait {
+      var capturedRequest: AgentPromptLaunchRequest? = null
+      val fixture = createFixture(
+        project = ProjectManager.getInstance().defaultProject,
+        launcherProvider = {
+          object : AgentPromptLauncherBridge {
+            override fun launch(request: AgentPromptLaunchRequest): AgentPromptLaunchResult {
+              capturedRequest = request
+              return AgentPromptLaunchResult.SUCCESS
+            }
+
+            override fun resolveWorkingProjectPath(invocationData: AgentPromptInvocationData): String = "/launcher/path"
+          }
+        },
+        currentTargetMode = { PromptTargetMode.NEW_TASK },
+        launchProfileIdProvider = { "profile:codex-fast" },
+      )
+      fixture.providerSelector.refresh()
+      fixture.providerSelector.selectProvider(AgentSessionProvider.CODEX)
+      fixture.promptArea.text = "Plan the change"
+      fixture.launchState.selectedWorkingProjectPath = "/repo"
+
+      fixture.controller.submit()
+
+      assertThat(checkNotNull(capturedRequest).launchProfileId).isEqualTo("profile:codex-fast")
     }
   }
 
@@ -403,7 +433,6 @@ class AgentPromptPaletteSubmitControllerTest {
     runInEdtAndWait {
       val project = ProjectManager.getInstance().defaultProject
       val submittedHistory = mutableListOf<AgentPromptHistoryEntry>()
-      var providerSubmittedCount = 0
       val fixture = createFixture(
         project = project,
         launcherProvider = {
@@ -418,7 +447,6 @@ class AgentPromptPaletteSubmitControllerTest {
         providersProvider = { listOf(testProviderBridge(provider = AgentSessionProvider.CODEX)) },
         currentTargetMode = { PromptTargetMode.NEW_TASK },
         onPromptSubmitted = submittedHistory::add,
-        onProviderSubmitted = { providerSubmittedCount++ },
       )
       fixture.providerSelector.refresh()
       fixture.providerSelector.selectProvider(AgentSessionProvider.CODEX)
@@ -432,7 +460,6 @@ class AgentPromptPaletteSubmitControllerTest {
       assertThat(submittedHistory.single().providerId).isEqualTo("codex")
       assertThat(submittedHistory.single().targetMode).isEqualTo(PromptTargetMode.NEW_TASK)
       assertThat(submittedHistory.single().launchMode).isEqualTo(AgentSessionLaunchMode.STANDARD.name)
-      assertThat(providerSubmittedCount).isEqualTo(1)
     }
   }
 
@@ -441,7 +468,6 @@ class AgentPromptPaletteSubmitControllerTest {
     runInEdtAndWait {
       val project = ProjectManager.getInstance().defaultProject
       val submittedHistory = mutableListOf<AgentPromptHistoryEntry>()
-      var providerSubmittedCount = 0
       val fixture = createFixture(
         project = project,
         launcherProvider = {
@@ -456,7 +482,6 @@ class AgentPromptPaletteSubmitControllerTest {
         providersProvider = { listOf(testProviderBridge(provider = AgentSessionProvider.CODEX)) },
         currentTargetMode = { PromptTargetMode.NEW_TASK },
         onPromptSubmitted = submittedHistory::add,
-        onProviderSubmitted = { providerSubmittedCount++ },
       )
       fixture.providerSelector.refresh()
       fixture.providerSelector.selectProvider(AgentSessionProvider.CODEX)
@@ -466,7 +491,6 @@ class AgentPromptPaletteSubmitControllerTest {
       fixture.controller.submit()
 
       assertThat(submittedHistory).isEmpty()
-      assertThat(providerSubmittedCount).isZero()
     }
   }
 
@@ -550,7 +574,7 @@ class AgentPromptPaletteSubmitControllerTest {
     onSubmitBlocked: (String) -> Unit = {},
     onSubmitSucceeded: () -> Unit = {},
     onPromptSubmitted: (AgentPromptHistoryEntry) -> Unit = {},
-    onProviderSubmitted: () -> Unit = {},
+    launchProfileIdProvider: () -> String? = { null },
     generationSettingsProvider: () -> AgentPromptGenerationSettings = { AgentPromptGenerationSettings.AUTO },
     generationModelCatalogProvider: () -> List<AgentPromptGenerationModel> = { emptyList() },
     isContainerModeSelected: () -> Boolean = { false },
@@ -605,7 +629,7 @@ class AgentPromptPaletteSubmitControllerTest {
       onSubmitBlocked = onSubmitBlocked,
       onSubmitSucceeded = onSubmitSucceeded,
       onPromptSubmitted = onPromptSubmitted,
-      onProviderSubmitted = onProviderSubmitted,
+      launchProfileIdProvider = launchProfileIdProvider,
       generationSettingsProvider = generationSettingsProvider,
       generationModelCatalogProvider = generationModelCatalogProvider,
       isContainerModeSelected = isContainerModeSelected,

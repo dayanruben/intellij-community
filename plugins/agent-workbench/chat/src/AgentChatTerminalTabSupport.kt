@@ -3,11 +3,11 @@ package com.intellij.agent.workbench.chat
 
 // @spec community/plugins/agent-workbench/spec/sessions/agent-terminal-sessions.spec.md
 
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.AgentThreadActivityReport
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.project.Project
@@ -69,8 +69,6 @@ internal interface AgentChatTerminalTab : AgentChatBehaviorTerminalTab {
   override suspend fun readRecentOutputTail(): String
 
   fun sendText(text: String, shouldExecute: Boolean, useBracketedPasteMode: Boolean = true)
-
-  fun sendBackTab(): Boolean = false
 
   fun sendPendingContextAndExecute(text: String): AgentChatPendingContextSubmissionResult {
     if (text.isEmpty() || sessionState.value != TerminalViewSessionState.Running) {
@@ -277,10 +275,6 @@ private class ToolWindowAgentChatTerminalTab(
     sendTextBuilder.send(text)
   }
 
-  override fun sendBackTab(): Boolean {
-    terminalView.createSendTextBuilder().send(TERMINAL_BACK_TAB_SEQUENCE)
-    return true
-  }
 }
 
 internal class AgentChatTerminalCommandTracker {
@@ -535,4 +529,3 @@ internal const val INITIAL_MESSAGE_POST_SEND_OUTPUT_IDLE_MS: Long = 150
 private const val POST_SEND_SCAN_LIMIT_CHARS: Long = 8_192
 private const val READINESS_SCAN_LIMIT_CHARS: Long = 8_192
 private const val TERMINAL_TAIL_SCAN_LIMIT_CHARS: Long = 4_096
-private const val TERMINAL_BACK_TAB_SEQUENCE: String = "\u001B[Z"

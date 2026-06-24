@@ -1,14 +1,14 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.agent.workbench.codex.sessions
+package com.intellij.platform.ai.agent.codex.sessions
 
-import com.intellij.agent.workbench.codex.common.CodexCliUtils
+import com.intellij.platform.ai.agent.codex.common.CodexCliUtils
 import com.intellij.agent.workbench.chat.RecordingAgentChatTerminalHarness
 import com.intellij.agent.workbench.chat.RecordingTerminalSentText
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.ui.captureNewTaskPromptLaunchRequest
 import com.intellij.agent.workbench.sessions.ScriptedSessionSource
 import com.intellij.agent.workbench.sessions.launchNewThreadPromptRequestWithDefaultChatOpenExecutor
-import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
+import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -35,6 +35,7 @@ class CodexNewThreadPromptLaunchTerminalIntegrationTest {
     timeoutRunBlocking {
       val descriptor = descriptor()
       val terminalHarness = RecordingAgentChatTerminalHarness()
+      terminalHarness.setSentTextOutputTexts(listOf("Plan mode"))
       runInUi {
         fileEditorManagerFixture.get()
         terminalHarness.registerEditorFactory(disposable)
@@ -72,20 +73,19 @@ class CodexNewThreadPromptLaunchTerminalIntegrationTest {
       assertThat(startupCommand).containsExactlyElementsOf(CODEX_BASE_COMMAND)
       assertThat(startupCommand).doesNotContain("--")
       assertThat(startupCommand).doesNotContain(PLAN_PROMPT)
-      assertThat(terminalHarness.backTabCalls).isZero()
       assertThat(terminalHarness.sentTexts)
         .containsExactly(
-          RecordingTerminalSentText("/plan", shouldExecute = true, useBracketedPasteMode = true),
+          RecordingTerminalSentText("/plan", shouldExecute = true, useBracketedPasteMode = false),
           RecordingTerminalSentText(PLAN_PROMPT, shouldExecute = true, useBracketedPasteMode = true),
         )
     }
 
   @Test
-  fun globalPromptNewTaskPlanModeRetriesWhenPlanCommandIsBusy(@TestDisposable disposable: Disposable): Unit =
+  fun globalPromptNewTaskPlanModeIgnoresBusyPlanCommandOutput(@TestDisposable disposable: Disposable): Unit =
     timeoutRunBlocking {
       val descriptor = descriptor()
       val terminalHarness = RecordingAgentChatTerminalHarness()
-      terminalHarness.setSentTextOutputTexts(listOf("'/plan' is disabled while a task is in progress.", "Plan mode"))
+      terminalHarness.setSentTextOutputTexts(listOf("'/plan' is disabled while a task is in progress."))
       runInUi {
         fileEditorManagerFixture.get()
         terminalHarness.registerEditorFactory(disposable)
@@ -108,16 +108,14 @@ class CodexNewThreadPromptLaunchTerminalIntegrationTest {
       ) {
         terminalHarness.awaitCreateCalls(1)
         terminalHarness.setRunning()
-        terminalHarness.awaitSentTexts(3)
+        terminalHarness.awaitSentTexts(2)
         val finalSnapshot = terminalHarness.awaitInitialMessageSent()
         assertThat(finalSnapshot.initialMessageDispatchStepIndex).isZero()
       }
 
-      assertThat(terminalHarness.backTabCalls).isZero()
       assertThat(terminalHarness.sentTexts)
         .containsExactly(
-          RecordingTerminalSentText("/plan", shouldExecute = true, useBracketedPasteMode = true),
-          RecordingTerminalSentText("/plan", shouldExecute = true, useBracketedPasteMode = true),
+          RecordingTerminalSentText("/plan", shouldExecute = true, useBracketedPasteMode = false),
           RecordingTerminalSentText(PLAN_PROMPT, shouldExecute = true, useBracketedPasteMode = true),
         )
     }

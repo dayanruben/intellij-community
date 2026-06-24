@@ -1,12 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.agent.workbench.sessions.core.providers
+package com.intellij.platform.ai.agent.sessions.core.providers
 
 // @spec community/plugins/agent-workbench/spec/sessions/agent-terminal-sessions.spec.md
 
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.parseAgentThreadIdentity
-import com.intellij.agent.workbench.sessions.core.isAgentSessionPendingThreadId
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.parseAgentThreadIdentity
+import com.intellij.platform.ai.agent.sessions.core.isAgentSessionPendingThreadId
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeFormatter
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
@@ -39,7 +39,6 @@ enum class AgentInitialMessageDispatchCompletionPolicy {
 
 enum class AgentInitialMessageDispatchAction {
   SEND_TEXT,
-  ENSURE_TERMINAL_PLAN_MODE,
 }
 
 /**
@@ -78,7 +77,7 @@ data class AgentInitialMessageDispatchStep(
   @JvmField val action: AgentInitialMessageDispatchAction = AgentInitialMessageDispatchAction.SEND_TEXT,
 ) {
   fun isDispatchable(): Boolean {
-    return action != AgentInitialMessageDispatchAction.SEND_TEXT || text.isNotBlank()
+    return text.isNotBlank()
   }
 }
 
@@ -150,11 +149,11 @@ data class AgentInitialPromptDeliveryPlan(
     if (startupLaunchSpecOverride == null) {
       return this
     }
-    val fallbackDispatch = terminalDispatch ?: startupFallbackTerminalDispatch ?: buildTerminalDispatch(record)
+    val fallbackDispatch = terminalDispatch ?: startupFallbackTerminalDispatch ?: buildTerminalDispatch(record) ?: return EMPTY
     return AgentInitialPromptDeliveryPlan(
       promptRecord = record.copy(
         deliveryStatus = AgentInitialPromptDeliveryStatus.PENDING,
-        deliveryChannel = fallbackDispatch?.let { AgentInitialPromptDeliveryChannel.TERMINAL },
+        deliveryChannel = AgentInitialPromptDeliveryChannel.TERMINAL,
       ),
       terminalDispatch = fallbackDispatch,
     )
@@ -168,19 +167,10 @@ data class AgentInitialPromptDeliveryPlan(
 
 private fun buildTerminalDispatch(promptRecord: AgentInitialPromptRecord): AgentTerminalPromptDispatch? {
   val message = promptRecord.message?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-  val steps = when (promptRecord.mode) {
-    AgentInitialMessageMode.STANDARD -> listOf(AgentInitialMessageDispatchStep(text = message))
-    AgentInitialMessageMode.PLAN -> listOf(
-      AgentInitialMessageDispatchStep(
-        action = AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE,
-        timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-      ),
-      AgentInitialMessageDispatchStep(
-        text = message,
-        timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-      ),
-    )
+  if (promptRecord.mode == AgentInitialMessageMode.PLAN) {
+    return null
   }
+  val steps = listOf(AgentInitialMessageDispatchStep(text = message))
   return AgentTerminalPromptDispatch(steps = steps).normalized()
 }
 
@@ -288,9 +278,6 @@ interface AgentSessionProviderDescriptor {
 
   val suppressPromptExistingTaskSelectionHint: Boolean
     get() = false
-
-  val editorTabActionIds: List<String>
-    get() = emptyList()
 
   val supportsPendingEditorTabRebind: Boolean
     get() = false

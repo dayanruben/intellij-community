@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package com.intellij.agent.workbench.sessions.core.providers
+package com.intellij.platform.ai.agent.sessions.core.providers
 
-import com.intellij.agent.workbench.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 
 fun AgentPromptInitialMessageRequest.isPlanModeRequested(): Boolean {
@@ -43,30 +43,6 @@ fun buildPlanModeInitialMessagePlan(
     }
     else {
       AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK
-    },
-  )
-}
-
-fun buildTerminalPlanModePostStartDispatchSteps(
-  initialMessagePlan: AgentInitialMessagePlan,
-  completionPolicy: AgentInitialMessageDispatchCompletionPolicy = AgentInitialMessageDispatchCompletionPolicy.IMMEDIATE,
-): List<AgentInitialMessageDispatchStep> {
-  if (initialMessagePlan.mode != AgentInitialMessageMode.PLAN) {
-    return emptyList()
-  }
-
-  val message = initialMessagePlan.message.orEmpty()
-  return listOfNotNull(
-    AgentInitialMessageDispatchStep(
-      action = AgentInitialMessageDispatchAction.ENSURE_TERMINAL_PLAN_MODE,
-      timeoutPolicy = initialMessagePlan.timeoutPolicy,
-      completionPolicy = completionPolicy,
-    ),
-    message.takeIf(String::isNotEmpty)?.let { prompt ->
-      AgentInitialMessageDispatchStep(
-        text = prompt,
-        timeoutPolicy = initialMessagePlan.timeoutPolicy,
-      )
     },
   )
 }

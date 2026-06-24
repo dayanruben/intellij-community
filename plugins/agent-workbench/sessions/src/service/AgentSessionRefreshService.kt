@@ -10,15 +10,17 @@ import com.intellij.agent.workbench.chat.agentChatScopedRefreshSignals
 import com.intellij.agent.workbench.chat.clearOpenConcreteAgentChatNewThreadRebindAnchors
 import com.intellij.agent.workbench.chat.collectOpenAgentChatRefreshSnapshot
 import com.intellij.agent.workbench.chat.rebindOpenPendingAgentChatTabs
-import com.intellij.agent.workbench.core.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.core.parseAgentWorkbenchPathOrNull
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationModel
-import com.intellij.agent.workbench.sessions.core.config.AgentWorkbenchProjectRuntimeConfigs
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.parseAgentWorkbenchPathOrNull
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadActivityPresentationUpdate
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationModel
+import com.intellij.platform.ai.agent.sessions.core.config.AgentWorkbenchProjectRuntimeConfigs
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
 import com.intellij.agent.workbench.sessions.frame.AGENT_SESSIONS_TOOL_WINDOW_ID
 import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameProjectManager
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
@@ -227,16 +229,34 @@ class AgentSessionRefreshService internal constructor(
   }
 
   internal fun prepareThreadForOpen(path: String, provider: AgentSessionProvider, threadId: String, updatedAt: Long) {
-    contentRepository.markThreadAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)
+    if (contentRepository.markThreadAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)) {
+      markThreadPresentationAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)
+    }
     val source = sessionSourcesProvider().firstOrNull { it.provider == provider } ?: return
     source.setActiveThreadId(threadId)
     source.markThreadAsRead(threadId, updatedAt)
   }
 
   fun markThreadAsRead(path: String, provider: AgentSessionProvider, threadId: String, updatedAt: Long) {
-    contentRepository.markThreadAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)
+    if (contentRepository.markThreadAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)) {
+      markThreadPresentationAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)
+    }
     val source = sessionSourcesProvider().firstOrNull { it.provider == provider } ?: return
     source.markThreadAsRead(threadId, updatedAt)
+  }
+
+  private fun markThreadPresentationAsRead(path: String, provider: AgentSessionProvider, threadId: String, updatedAt: Long) {
+    service<AgentSessionThreadPresentationModel>().updateActivityHints(
+      provider = provider,
+      updates = listOf(
+        AgentSessionThreadActivityPresentationUpdate(
+          path = path,
+          threadId = threadId,
+          activityReport = AgentThreadActivityReport.READY,
+          updatedAt = updatedAt,
+        )
+      ),
+    )
   }
 
   fun appendProviderUnavailableWarning(path: String, provider: AgentSessionProvider) {

@@ -8,15 +8,15 @@ package com.intellij.agent.workbench.sessions.toolwindow.ui
 import com.intellij.agent.workbench.chat.AgentChatTabSelectionService
 import com.intellij.agent.workbench.chat.AgentChatOpenPendingTabsStateService
 import com.intellij.agent.workbench.chat.AgentChatPendingEditorLifecycleService
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.AgentSessionCostHintBanner
 import com.intellij.agent.workbench.sessions.AgentSessionCostHintStateService
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaCliSupport
 import com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaHintBanner
 import com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaHintStateService
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderUiContributors
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderUiContributors
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
 import com.intellij.agent.workbench.sessions.service.AgentArchivedSessionsService
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityListener
@@ -177,9 +177,6 @@ internal class AgentSessionsToolWindowPanel(
     threadViewStateFlow = service<AgentSessionThreadViewStateService>().state,
     selectedChatTabFlow = project.service<AgentChatTabSelectionService>().selectedChatTab,
     pendingChatTabsStateFlow = service<AgentChatOpenPendingTabsStateService>().state,
-    markThreadAsRead = { path, provider, threadId, updatedAt ->
-      service<AgentSessionRefreshService>().markThreadAsRead(path, provider, threadId, updatedAt)
-    },
     ensureArchivedSessionsLoaded = { service<AgentArchivedSessionsService>().ensureLoaded() },
     tree = tree,
     getSessionTreeModel = { sessionTreeModel },

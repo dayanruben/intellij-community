@@ -1,18 +1,19 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptDeliveryChannel
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptDeliveryStatus
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialPromptRecord
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchAction
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
-import com.intellij.agent.workbench.sessions.core.providers.AgentTerminalPromptDispatch
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryChannel
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryStatus
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptRecord
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchAction
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageTimeoutPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentTerminalPromptDispatch
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManagerKeys
@@ -110,6 +111,9 @@ internal class AgentChatVirtualFile internal constructor(
   var launchMode: String? = null
     private set
 
+  var launchProfileId: String? = null
+    private set
+
   var generationSettings: AgentPromptGenerationSettings = AgentPromptGenerationSettings.AUTO
     private set
 
@@ -131,6 +135,9 @@ internal class AgentChatVirtualFile internal constructor(
 
   val initialMessageToken: String?
     get() = initialPromptRecord?.token
+
+  override val initialMessageMode: AgentInitialMessageMode?
+    get() = initialPromptRecord?.mode
 
   val initialMessageSent: Boolean
     get() = initialPromptRecord?.deliveryStatus == AgentInitialPromptDeliveryStatus.DELIVERED
@@ -317,6 +324,15 @@ internal class AgentChatVirtualFile internal constructor(
     return true
   }
 
+  fun updateLaunchProfileId(launchProfileId: String?): Boolean {
+    val normalized = launchProfileId?.trim()?.takeIf(String::isNotEmpty)
+    if (this.launchProfileId == normalized) {
+      return false
+    }
+    this.launchProfileId = normalized
+    return true
+  }
+
   fun updateGenerationSettings(generationSettings: AgentPromptGenerationSettings): Boolean {
     if (this.generationSettings == generationSettings) {
       return false
@@ -492,6 +508,20 @@ internal class AgentChatVirtualFile internal constructor(
   }
 
   @Synchronized
+  fun rewindInitialMessageDispatch(dispatch: AgentChatInitialMessageDispatch): Boolean {
+    if (initialMessageDispatchInFlight !== dispatch) {
+      return false
+    }
+    val terminalDispatch = terminalPromptDispatch ?: run {
+      initialMessageDispatchInFlight = null
+      return false
+    }
+    terminalPromptDispatch = terminalDispatch.copy(stepIndex = 0)
+    initialMessageDispatchInFlight = null
+    return true
+  }
+
+  @Synchronized
   private fun currentPendingInitialMessageStep(): AgentInitialMessageDispatchStep? {
     if (initialMessageSent) {
       return null
@@ -616,6 +646,7 @@ internal class AgentChatVirtualFile internal constructor(
       pendingLaunchMode = snapshot.runtime.pendingLaunchMode,
     )
     updateLaunchMode(snapshot.runtime.launchMode)
+    updateLaunchProfileId(snapshot.runtime.launchProfileId)
     updateGenerationSettings(snapshot.runtime.generationSettings)
     updateNewThreadRebindRequestedAtMs(snapshot.runtime.newThreadRebindRequestedAtMs)
     updateInitialPromptDelivery(
@@ -648,6 +679,7 @@ internal class AgentChatVirtualFile internal constructor(
         pendingFirstInputAtMs = pendingFirstInputAtMs,
         pendingLaunchMode = pendingLaunchMode,
         launchMode = launchMode,
+        launchProfileId = launchProfileId,
         generationSettings = generationSettings,
         newThreadRebindRequestedAtMs = newThreadRebindRequestedAtMs,
         initialPromptRecord = initialPromptRecord,
@@ -663,8 +695,8 @@ private fun buildInitialPromptRecord(
   sent: Boolean,
 ): AgentInitialPromptRecord? {
   val message = steps.lastOrNull { step -> step.action == AgentInitialMessageDispatchAction.SEND_TEXT && step.text.isNotBlank() }
-    ?.text
-    ?: return null
+                  ?.text
+                ?: return null
   return AgentInitialPromptRecord(
     message = message,
     token = token,
@@ -675,9 +707,9 @@ private fun buildInitialPromptRecord(
 
 internal class AgentChatInitialMessageDispatch internal constructor(
   override val action: AgentInitialMessageDispatchAction,
-  val message: String,
+  override val message: String,
   val token: String?,
-  val stepIndex: Int,
+  override val stepIndex: Int,
   override val completionPolicy: AgentInitialMessageDispatchCompletionPolicy,
 ) : AgentChatInitialMessageDispatchContext
 

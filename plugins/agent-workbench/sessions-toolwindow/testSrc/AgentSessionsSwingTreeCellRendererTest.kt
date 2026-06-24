@@ -1,17 +1,17 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow
 
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.AgentThreadActivityReport
-import com.intellij.agent.workbench.core.session.AgentSessionCost
-import com.intellij.agent.workbench.core.session.AgentSessionCostKind
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.session.AgentSessionThread
-import com.intellij.agent.workbench.core.session.AgentSubAgent
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionCost
+import com.intellij.platform.ai.agent.core.session.AgentSessionCostKind
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSubAgent
 import com.intellij.agent.workbench.sessions.AgentSessionCostPresentationSettings
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.InMemoryAgentSessionProviderRegistry
 import com.intellij.agent.workbench.ui.agentSessionThreadStatusIcon
 import com.intellij.agent.workbench.ui.clearAgentSessionThreadStatusIconCacheForTests
 import com.intellij.agent.workbench.sessions.model.ProjectBuildSystemBadge
@@ -657,7 +657,7 @@ class AgentSessionsSwingTreeCellRendererTest {
   }
 
   @Test
-  fun threadTrailingMetadataOmitsInlineStatusForNonReadyThread() {
+  fun threadTrailingMetadataShowsStatusForActionableThread() {
     val now = 28L * 24L * 60L * 60L * 1000L
     val tree = createTree(width = 460)
     val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", isOpen = true)
@@ -685,10 +685,47 @@ class AgentSessionsSwingTreeCellRendererTest {
     assertThat(trailing).isNotNull()
     trailing ?: return
 
-    assertThat(trailing.statusLabel).isNull()
-    assertThat(trailing.statusTextWidth).isEqualTo(0)
-    assertThat(trailing.statusColumnWidth).isEqualTo(0)
+    assertThat(trailing.statusLabel).isEqualTo(AgentSessionsBundle.message("toolwindow.thread.status.needs.input"))
+    assertThat(trailing.statusTextWidth).isGreaterThan(0)
+    assertThat(trailing.statusColumnWidth).isGreaterThanOrEqualTo(trailing.statusTextWidth)
     assertThat(renderer.accessibleContext.accessibleName).contains(AgentSessionsBundle.message("toolwindow.thread.status.needs.input"))
+  }
+
+  @Test
+  fun threadTrailingMetadataShowsProcessingTimeWithoutInlineStatus() {
+    val now = 28L * 24L * 60L * 60L * 1000L
+    val tree = createTree(width = 460)
+    val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", isOpen = true)
+    val thread = AgentSessionThread(
+      provider = AgentSessionProvider.CODEX,
+      id = "thread-1",
+      title = "Processing",
+      updatedAt = 14L * 24L * 60L * 60L * 1000L,
+      archived = false,
+      activity = AgentThreadActivity.PROCESSING,
+    )
+    val threadId = SessionTreeId.Thread(project.path, thread.provider, thread.id)
+    val renderer = SessionTreeCellRenderer(
+      nowProvider = { now },
+      rowActionsProvider = { _, _, _ -> null },
+      nodeResolver = { id ->
+        if (id == threadId) SessionTreeNode.Thread(project, thread) else null
+      },
+      providerIconProvider = { EmptyIcon.create(12, 12) },
+    )
+
+    renderer.getTreeCellRendererComponent(tree, descriptorValue(threadId), false, false, true, 0, false)
+
+    val trailing = renderer.trailingThreadPaintForTest
+    assertThat(trailing).isNotNull()
+    trailing ?: return
+
+    assertThat(trailing.statusLabel).isNull()
+    assertThat(trailing.timeLabel).isEqualTo("2w")
+    assertThat(trailing.timeX + trailing.timeTextWidth).isEqualTo(trailing.timeRightBoundary)
+    assertThat(renderer.getCharSequence(true).toString())
+      .doesNotContain(AgentSessionsBundle.message("toolwindow.thread.status.in.progress"))
+    assertThat(renderer.accessibleContext.accessibleName).contains(AgentSessionsBundle.message("toolwindow.thread.status.in.progress"))
   }
 
   @Test
@@ -1217,6 +1254,54 @@ class AgentSessionsSwingTreeCellRendererTest {
     )
 
     assertThat(presentation.costLabel).isEqualTo("~$0.42")
+    assertThat(presentation.trailingMetadataLabel).isEqualTo("~$0.42")
+  }
+
+  @Test
+  fun threadPresentationCombinesVisibleStatusAndCostForActionableThread() {
+    AgentSessionCostPresentationSettings.setEnabled(true)
+    val thread = AgentSessionThread(
+      provider = AgentSessionProvider.CODEX,
+      id = "abcdef123456",
+      title = "Needs input",
+      updatedAt = 0L,
+      archived = false,
+      activity = AgentThreadActivity.NEEDS_INPUT,
+      cost = AgentSessionCost(amountUsd = BigDecimal("0.42"), kind = AgentSessionCostKind.ESTIMATED),
+    )
+    val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", isOpen = true)
+
+    val presentation = buildSessionTreeThreadRowPresentation(
+      treeNode = SessionTreeNode.Thread(project, thread),
+      now = 0L,
+    )
+
+    assertThat(presentation.trailingMetadataLabel).isEqualTo(
+      "${AgentSessionsBundle.message("toolwindow.thread.status.needs.input")} · ~$0.42"
+    )
+  }
+
+  @Test
+  fun threadPresentationDoesNotShowDoneStatusInline() {
+    AgentSessionCostPresentationSettings.setEnabled(true)
+    val thread = AgentSessionThread(
+      provider = AgentSessionProvider.CODEX,
+      id = "abcdef123456",
+      title = "Done",
+      updatedAt = 0L,
+      archived = false,
+      activity = AgentThreadActivity.UNREAD,
+      cost = AgentSessionCost(amountUsd = BigDecimal("0.42"), kind = AgentSessionCostKind.ESTIMATED),
+    )
+    val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", isOpen = true)
+
+    val presentation = buildSessionTreeThreadRowPresentation(
+      treeNode = SessionTreeNode.Thread(project, thread),
+      now = 0L,
+    )
+
+    assertThat(presentation.trailingMetadataLabel).isEqualTo("~$0.42")
+    assertThat(presentation.accessibleStatusText).contains(AgentSessionsBundle.message("toolwindow.thread.status.done"))
   }
 
   @Test
@@ -1238,6 +1323,7 @@ class AgentSessionsSwingTreeCellRendererTest {
     )
 
     assertThat(presentation.costLabel).isNull()
+    assertThat(presentation.trailingMetadataLabel).isNull()
   }
 
   @Test

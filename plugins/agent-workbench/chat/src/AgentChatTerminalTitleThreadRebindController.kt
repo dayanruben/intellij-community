@@ -1,11 +1,11 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.core.AgentThreadActivityReport
-import com.intellij.agent.workbench.core.buildAgentThreadIdentity
-import com.intellij.agent.workbench.core.extensions.SnapshotExtensionPointCache
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.buildAgentThreadIdentity
+import com.intellij.platform.ai.agent.core.extensions.SnapshotExtensionPointCache
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -15,16 +15,28 @@ import com.intellij.terminal.TerminalTitle
 import com.intellij.terminal.TerminalTitleListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 
 private val LOG = logger<AgentChatTerminalTitleThreadRebindController>()
+
+@ApiStatus.Internal
+data class AgentChatTerminalTitleThreadRebindSignal(
+  @JvmField val threadId: String,
+  @JvmField val threadTitle: String? = null,
+)
 
 @ApiStatus.Internal
 interface AgentChatTerminalTitleThreadRebindContributor {
   val provider: AgentSessionProvider
 
   fun extractThreadId(applicationTitle: String?): String?
+
+  fun extractThreadSignal(applicationTitle: String?): AgentChatTerminalTitleThreadRebindSignal? {
+    return extractThreadId(applicationTitle)?.let { threadId -> AgentChatTerminalTitleThreadRebindSignal(threadId = threadId) }
+  }
 }
 
 private class AgentChatTerminalTitleThreadRebindContributorRegistryLog
@@ -127,7 +139,10 @@ internal class AgentChatTerminalTitleThreadRebindController(
     AgentSessionProvider,
     Map<String, List<AgentChatConcreteTabRebindRequest>>,
   ) -> AgentChatConcreteTabRebindReport = ::rebindOpenConcreteAgentChatTabs,
-  private val notifyRefresh: (AgentSessionProvider, String, String?, AgentThreadActivityReport?) -> Unit = ::notifyAgentChatScopedRefresh,
+  private val notifyRefresh: (AgentSessionProvider, String, String?, String?, AgentThreadActivityReport?) -> Unit =
+    { provider, projectPath, threadId, threadTitle, activityReport ->
+      notifyAgentChatScopedRefresh(provider, projectPath, threadId, threadTitle, activityReport)
+    },
   private val currentTimeProvider: () -> Long = System::currentTimeMillis,
 ) : AgentChatDisposableController {
   private var listenerDisposable: Disposable? = null
@@ -158,37 +173,45 @@ internal class AgentChatTerminalTitleThreadRebindController(
     if (provider != contributor.provider || file.subAgentId != null || file.projectPath.isBlank()) {
       return false
     }
-    val threadId = contributor.extractThreadId(applicationTitle) ?: return false
+    val signal = contributor.extractThreadSignal(applicationTitle) ?: return false
+    val threadId = signal.threadId
     if (reboundThreadId == threadId || rebindJob?.isActive == true) {
       return false
     }
 
     val projectPath = file.projectPath
-    val request = buildRebindRequest(provider = provider, projectPath = projectPath, threadId = threadId) ?: return false
+    val request = buildRebindRequest(
+      provider = provider,
+      projectPath = projectPath,
+      threadId = threadId,
+      threadTitle = signal.threadTitle,
+    ) ?: return false
 
     val job = parentScope.launch {
-      val rebindResult = when (request) {
-        is AgentChatTerminalTitleRebindRequest.Pending -> rebindPendingTabs(
-          provider,
-          mapOf(projectPath to listOf(request.request)),
-        ).toTerminalTitleRebindResult()
+      withContext(NonCancellable) {
+        val rebindResult = when (request) {
+          is AgentChatTerminalTitleRebindRequest.Pending -> rebindPendingTabs(
+            provider,
+            mapOf(projectPath to listOf(request.request)),
+          ).toTerminalTitleRebindResult()
 
-        is AgentChatTerminalTitleRebindRequest.Concrete -> rebindConcreteTabs(
-          provider,
-          mapOf(projectPath to listOf(request.request)),
-        ).toTerminalTitleRebindResult()
-      }
-      if (rebindResult.reboundBindings > 0) {
-        tabSnapshotWriter.upsert(file.toSnapshot())
-        synchronized(this@AgentChatTerminalTitleThreadRebindController) {
-          reboundThreadId = threadId
+          is AgentChatTerminalTitleRebindRequest.Concrete -> rebindConcreteTabs(
+            provider,
+            mapOf(projectPath to listOf(request.request)),
+          ).toTerminalTitleRebindResult()
         }
-      }
-      notifyRefresh(provider, projectPath, threadId, null)
-      LOG.debug {
-        "Agent Chat terminal title rebind requested for provider=${provider.value} path=$projectPath threadId=$threadId " +
-        "requestedBindings=${rebindResult.requestedBindings}, reboundBindings=${rebindResult.reboundBindings}, " +
-        "outcomes=${rebindResult.outcomesByPath}"
+        if (rebindResult.reboundBindings > 0) {
+          tabSnapshotWriter.upsert(file.toSnapshot())
+          synchronized(this@AgentChatTerminalTitleThreadRebindController) {
+            reboundThreadId = threadId
+          }
+        }
+        notifyRefresh(provider, projectPath, threadId, signal.threadTitle, null)
+        LOG.debug {
+          "Agent Chat terminal title rebind requested for provider=${provider.value} path=$projectPath threadId=$threadId " +
+          "requestedBindings=${rebindResult.requestedBindings}, reboundBindings=${rebindResult.reboundBindings}, " +
+          "outcomes=${rebindResult.outcomesByPath}"
+        }
       }
     }
     rebindJob = job
@@ -206,13 +229,14 @@ internal class AgentChatTerminalTitleThreadRebindController(
     provider: AgentSessionProvider,
     projectPath: String,
     threadId: String,
+    threadTitle: String?,
   ): AgentChatTerminalTitleRebindRequest? {
     val target = AgentChatTabRebindTarget(
       projectPath = projectPath,
       provider = provider,
       threadIdentity = buildAgentThreadIdentity(provider.value, threadId),
       threadId = threadId,
-      threadTitle = file.threadTitle,
+      threadTitle = threadTitle?.takeIf { it.isNotBlank() } ?: file.threadTitle,
       threadActivity = file.threadActivity,
     )
     if (file.isPendingThread) {

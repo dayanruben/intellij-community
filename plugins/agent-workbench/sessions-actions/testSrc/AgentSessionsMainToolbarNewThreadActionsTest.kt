@@ -2,24 +2,24 @@
 package com.intellij.agent.workbench.sessions
 
 import com.intellij.agent.workbench.chat.AgentChatEditorTabActionContext
-import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
-import com.intellij.agent.workbench.core.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
+import com.intellij.agent.workbench.ui.AgentWorkbenchActionIds
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfileKind
 import com.intellij.agent.workbench.prompt.core.AgentPromptProjectPathCandidate
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsDirectPathNewThreadAction
-import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadContext
-import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadTarget
+import com.intellij.agent.workbench.sessions.actions.AgentSessionsNewThreadContext
+import com.intellij.agent.workbench.sessions.actions.AgentSessionsNewThreadTarget
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsMainToolbarNewThreadAction
 import com.intellij.agent.workbench.sessions.actions.ProfileQuickStartAction
 import com.intellij.agent.workbench.sessions.actions.resolveAgentSessionsMainToolbarNewThreadContext
 import com.intellij.agent.workbench.sessions.actions.resolveQuickStartProjectPopupAnchor
-import com.intellij.agent.workbench.sessions.core.providers.builtInLaunchProfileId
-import com.intellij.agent.workbench.sessions.core.providers.initialMessageRequestForLaunchProfile
+import com.intellij.platform.ai.agent.sessions.core.providers.builtInLaunchProfileId
+import com.intellij.platform.ai.agent.sessions.core.providers.initialMessageRequestForLaunchProfile
 import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
 import com.intellij.agent.workbench.ui.AgentWorkbenchPopupStep
@@ -1025,11 +1025,11 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
   @Test
   fun updateUsesDeferredTargetPlaceholderWithoutResolvingCandidates() {
     var candidatesResolved = false
-    val context = AgentSessionsEditorTabNewThreadContext(
+    val context = AgentSessionsNewThreadContext(
       project = ProjectManager.getInstance().defaultProject,
       resolveTarget = {
         candidatesResolved = true
-        AgentSessionsEditorTabNewThreadTarget.Candidates(
+        AgentSessionsNewThreadTarget.Candidates(
           listOf(projectCandidate(path = "/work/repo-a", displayName = "Project A")),
         )
       },
@@ -1110,7 +1110,7 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
       selectedSourcePath = { "/work/chat-repo" },
     )
 
-    val target = checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Direct
+    val target = checkNotNull(context).target as AgentSessionsNewThreadTarget.Direct
     assertThat(target.path).isEqualTo("/work/chat-repo")
   }
 
@@ -1125,7 +1125,7 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
       selectedSourcePath = { null },
     )
 
-    val target = checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Direct
+    val target = checkNotNull(context).target as AgentSessionsNewThreadTarget.Direct
     assertThat(target.path).isEqualTo("/work/repo-a")
   }
 
@@ -1141,7 +1141,7 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
       selectedSourcePath = { "/work/selected-chat-repo" },
     )
 
-    val target = checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Direct
+    val target = checkNotNull(context).target as AgentSessionsNewThreadTarget.Direct
     assertThat(target.path).isEqualTo("/work/event-chat-repo")
   }
 
@@ -1161,7 +1161,7 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
 
     assertThat(openProjectPathsResolved).isFalse()
 
-    val candidates = (checkNotNull(context).target as AgentSessionsEditorTabNewThreadTarget.Candidates).candidates
+    val candidates = (checkNotNull(context).target as AgentSessionsNewThreadTarget.Candidates).candidates
     assertThat(openProjectPathsResolved).isTrue()
     assertThat(candidates.map(AgentPromptProjectPathCandidate::path))
       .containsExactly("/work/repo-a", "/tmp/repo-a")

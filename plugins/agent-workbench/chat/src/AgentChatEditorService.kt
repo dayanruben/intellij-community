@@ -5,23 +5,24 @@ package com.intellij.agent.workbench.chat
 
 // @spec community/plugins/agent-workbench/spec/chat/agent-chat-editor.spec.md
 
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.AgentThreadActivityReport
-import com.intellij.agent.workbench.core.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextToTargetResult
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
-import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchIntent
-import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchOperation
-import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchPlanner
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchPlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadActivityUpdate
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchIntent
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchOperation
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchPlanner
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchPlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadActivityUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadPresentationUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.UI
@@ -60,10 +61,33 @@ private object AgentChatScopedRefreshSignalBus {
     threadId: String? = null,
     activityReport: AgentThreadActivityReport? = null,
   ): Boolean {
+    return signal(
+      provider = provider,
+      projectPath = projectPath,
+      threadId = threadId,
+      threadTitle = null,
+      activityReport = activityReport,
+    )
+  }
+
+  fun signal(
+    provider: AgentSessionProvider,
+    projectPath: String,
+    threadId: String?,
+    threadTitle: String?,
+    activityReport: AgentThreadActivityReport?,
+  ): Boolean {
     val normalizedPath = normalizeAgentWorkbenchPath(projectPath)
     val normalizedThreadId = threadId?.trim()?.takeIf { it.isNotEmpty() }
+    val normalizedThreadTitle = threadTitle?.trim()?.takeIf { it.isNotEmpty() }
     val activityUpdatesByThreadId = if (normalizedThreadId != null && activityReport != null) {
       mapOf(normalizedThreadId to AgentSessionThreadActivityUpdate(activityReport))
+    }
+    else {
+      emptyMap()
+    }
+    val presentationUpdatesByThreadId = if (normalizedThreadId != null && normalizedThreadTitle != null) {
+      mapOf(normalizedThreadId to AgentSessionThreadPresentationUpdate(title = normalizedThreadTitle))
     }
     else {
       emptyMap()
@@ -80,6 +104,7 @@ private object AgentChatScopedRefreshSignalBus {
         scopedPaths = setOf(normalizedPath),
         threadIds = if (activityUpdatesByThreadId.isEmpty()) normalizedThreadId?.let { setOf(it) } else null,
         activityUpdatesByThreadId = activityUpdatesByThreadId,
+        presentationUpdatesByThreadId = presentationUpdatesByThreadId,
       ),
     )
   }
@@ -210,6 +235,7 @@ suspend fun openChat(
   pendingFirstInputAtMs: Long? = null,
   pendingLaunchMode: String? = null,
   launchMode: String? = null,
+  launchProfileId: String? = null,
   newSessionProvider: AgentSessionProvider? = null,
   newSessionLaunchMode: AgentSessionLaunchMode? = null,
   initialMessageDispatchPlan: AgentInitialMessageDispatchPlan = AgentInitialMessageDispatchPlan.EMPTY,
@@ -238,6 +264,7 @@ suspend fun openChat(
   else {
     generationSettings
   }
+  val effectiveLaunchProfileId = launchProfileId?.trim()?.takeIf(String::isNotEmpty) ?: existing?.launchProfileId
   val startupOverrideForTab = if (isNewTab) {
     initialMessageDispatchPlan.startupLaunchSpecOverride ?: launchSpec.takeIf(::shouldUseStartupLaunchSpecOverride)
   }
@@ -248,8 +275,11 @@ suspend fun openChat(
     buildNewSessionStartupIntent(
       provider = newSessionProvider,
       launchMode = newSessionLaunchMode,
+      launchProfileId = effectiveLaunchProfileId,
     ) ?: pendingProviderForThreadIdentity(threadIdentity)?.let { provider ->
-      AgentChatStartupIntent.NewSession(provider = provider, launchMode = parseAgentChatLaunchMode(pendingLaunchMode))
+      AgentChatStartupIntent.NewSession(provider = provider,
+                                        launchMode = parseAgentChatLaunchMode(pendingLaunchMode),
+                                        launchProfileId = effectiveLaunchProfileId)
     }
   }
   else {
@@ -276,6 +306,7 @@ suspend fun openChat(
     pendingFirstInputAtMs = pendingFirstInputAtMs,
     pendingLaunchMode = pendingLaunchMode,
     launchMode = launchMode ?: existing?.launchMode,
+    launchProfileId = effectiveLaunchProfileId,
     generationSettings = effectiveGenerationSettings,
     newThreadRebindRequestedAtMs = existing?.newThreadRebindRequestedAtMs,
     initialPromptRecord = snapshotInitialPromptRecord,
@@ -375,11 +406,13 @@ private fun shouldUseStartupLaunchSpecOverride(launchSpec: AgentSessionTerminalL
 private fun buildNewSessionStartupIntent(
   provider: AgentSessionProvider?,
   launchMode: AgentSessionLaunchMode?,
+  launchProfileId: String?,
 ): AgentChatStartupIntent.NewSession? {
   val resolvedProvider = provider ?: return null
   return AgentChatStartupIntent.NewSession(
     provider = resolvedProvider,
     launchMode = launchMode ?: AgentSessionLaunchMode.STANDARD,
+    launchProfileId = launchProfileId,
   )
 }
 
@@ -434,6 +467,7 @@ suspend fun updateAgentChatDeferredStartState(
         buildNewSessionStartupIntent(
           provider = newSessionProvider,
           launchMode = newSessionLaunchMode,
+          launchProfileId = chatFile.launchProfileId,
         ) ?: resolveAgentChatNewSessionStartupIntent(chatFile)
       )
     }
@@ -458,6 +492,16 @@ fun notifyAgentChatScopedRefresh(
   activityReport: AgentThreadActivityReport? = null,
 ) {
   AgentChatScopedRefreshSignalBus.signal(provider, projectPath, threadId, activityReport)
+}
+
+fun notifyAgentChatScopedRefresh(
+  provider: AgentSessionProvider,
+  projectPath: String,
+  threadId: String?,
+  threadTitle: String?,
+  activityReport: AgentThreadActivityReport?,
+) {
+  AgentChatScopedRefreshSignalBus.signal(provider, projectPath, threadId, threadTitle, activityReport)
 }
 
 fun notifyAgentChatScopedRefresh(

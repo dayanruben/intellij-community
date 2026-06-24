@@ -2,8 +2,6 @@
 package com.intellij.agent.workbench.prompt.ui
 
 import com.dynatrace.hash4j.hashing.Hashing
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextRendererIds
 import org.assertj.core.api.Assertions.assertThat
@@ -23,6 +21,7 @@ class AgentPromptUiSessionStateServiceTest {
       selectedExistingTaskId = "task-1",
       taskDrafts = mapOf(PromptTargetMode.NEW_TASK.name to "fix"),
       providerOptionsByProviderId = mapOf("codex" to emptySet()),
+      selectedLaunchProfileId = "user:careful",
     )
     val snapshot = AgentPromptUiContextRestoreSnapshot(
       contextFingerprint = Hashing.xxh3_128().hashCharsTo128Bits("context"),
@@ -103,19 +102,6 @@ class AgentPromptUiSessionStateServiceTest {
     )
 
     assertThat(service.loadContextRestoreSnapshot()).isEqualTo(snapshot)
-  }
-
-  @Test
-  fun selectedProviderSelectionRoundTripUsesProjectState() {
-    val service = AgentPromptUiSessionStateService()
-
-    service.saveSelectedProviderSelection(AgentSessionProvider.CLAUDE, AgentSessionLaunchMode.YOLO)
-
-    val reloaded = AgentPromptUiSessionStateService()
-    reloaded.loadState(service.state)
-    assertThat(reloaded.loadSelectedProviderSelection()).isEqualTo(
-      AgentPromptSelectedProviderSelection(AgentSessionProvider.CLAUDE, AgentSessionLaunchMode.YOLO)
-    )
   }
 
   @Test

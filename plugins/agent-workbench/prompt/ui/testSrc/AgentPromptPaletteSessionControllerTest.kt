@@ -1,21 +1,22 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextResolverService
 import com.intellij.agent.workbench.prompt.core.AgentPromptExistingThreadsSnapshot
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
+import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessagePlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
 import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.openapi.components.service
@@ -98,44 +99,30 @@ class AgentPromptPaletteSessionControllerTest {
   }
 
   @Test
-  fun initializeRestoresSelectedProviderFromProjectState() {
+  fun closeWithDraftPersistsSelectedLaunchProfileForNextPopup() {
     runInEdtAndWait {
       val project = ProjectManager.getInstance().defaultProject
-      project.service<AgentPromptUiSessionStateService>().saveSelectedProviderSelection(
-        AgentSessionProvider.CLAUDE,
-        AgentSessionLaunchMode.STANDARD,
-      )
-      val fixture = createSessionControllerFixture()
-      try {
-        fixture.controller.initialize()
-
-        assertThat(fixture.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.CLAUDE)
-      }
-      finally {
-        fixture.dispose()
-      }
-    }
-  }
-
-  @Test
-  fun closeWithDraftPersistsSelectedProviderForNextPopup() {
-    runInEdtAndWait {
-      val firstPopup = createSessionControllerFixture()
+      val profile = carefulClaudeProfile()
+      val preferences = AgentPromptLauncherBridge.ProviderPreferences(launchProfiles = listOf(profile))
+      val firstPopup = createSessionControllerFixture(providerPreferences = preferences)
       try {
         firstPopup.controller.initialize()
         firstPopup.controller.installHandlers()
+        assertThat(firstPopup.controller.applyLaunchProfileForTest(profile.id)).isTrue()
         firstPopup.promptArea.text = "draft"
-        firstPopup.providerSelector.selectProvider(AgentSessionProvider.JUNIE)
       }
       finally {
         firstPopup.dispose()
       }
 
-      val reopenedPopup = createSessionControllerFixture()
+      val savedDraft = project.service<AgentPromptUiSessionStateService>().loadDraft()
+      assertThat(savedDraft.selectedLaunchProfileId).isEqualTo(profile.id)
+
+      val reopenedPopup = createSessionControllerFixture(providerPreferences = preferences)
       try {
         reopenedPopup.controller.initialize()
 
-        assertThat(reopenedPopup.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.JUNIE)
+        assertThat(reopenedPopup.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.CLAUDE)
       }
       finally {
         reopenedPopup.dispose()
@@ -143,7 +130,63 @@ class AgentPromptPaletteSessionControllerTest {
     }
   }
 
-  private fun createSessionControllerFixture(): SessionControllerFixture {
+  @Test
+  fun closeWithoutDraftDoesNotPersistSelectedLaunchProfileForNextPopup() {
+    runInEdtAndWait {
+      val project = ProjectManager.getInstance().defaultProject
+      val profile = carefulClaudeProfile()
+      val preferences = AgentPromptLauncherBridge.ProviderPreferences(launchProfiles = listOf(profile))
+      val firstPopup = createSessionControllerFixture(providerPreferences = preferences)
+      try {
+        firstPopup.controller.initialize()
+        firstPopup.controller.installHandlers()
+        assertThat(firstPopup.controller.applyLaunchProfileForTest(profile.id)).isTrue()
+      }
+      finally {
+        firstPopup.dispose()
+      }
+
+      val savedDraft = project.service<AgentPromptUiSessionStateService>().loadDraft()
+      assertThat(savedDraft.selectedLaunchProfileId).isNull()
+
+      val reopenedPopup = createSessionControllerFixture(providerPreferences = preferences)
+      try {
+        reopenedPopup.controller.initialize()
+
+        assertThat(reopenedPopup.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.CODEX)
+      }
+      finally {
+        reopenedPopup.dispose()
+      }
+    }
+  }
+
+  @Test
+  fun initializeIgnoresStaleDraftLaunchProfile() {
+    runInEdtAndWait {
+      val project = ProjectManager.getInstance().defaultProject
+      project.service<AgentPromptUiSessionStateService>().saveDraft(
+        AgentPromptUiDraft(
+          promptText = "draft",
+          taskDrafts = mapOf(PromptTargetMode.NEW_TASK.name to "draft"),
+          selectedLaunchProfileId = "user:missing",
+        )
+      )
+      val fixture = createSessionControllerFixture()
+      try {
+        fixture.controller.initialize()
+
+        assertThat(fixture.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.CODEX)
+      }
+      finally {
+        fixture.dispose()
+      }
+    }
+  }
+
+  private fun createSessionControllerFixture(
+    providerPreferences: AgentPromptLauncherBridge.ProviderPreferences = AgentPromptLauncherBridge.ProviderPreferences(),
+  ): SessionControllerFixture {
     val project = ProjectManager.getInstance().defaultProject
     val providers = listOf(
       testProviderDescriptor(AgentSessionProvider.CODEX),
@@ -161,7 +204,7 @@ class AgentPromptPaletteSessionControllerTest {
 
     @Suppress("RAW_SCOPE_CREATION")
     val popupScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-    val launcher = RecordingPromptLauncher()
+    val launcher = RecordingPromptLauncher(providerPreferences)
     val promptArea = AgentPromptTextField(project).apply {
       setDisposedWith(disposable)
     }
@@ -240,6 +283,14 @@ class AgentPromptPaletteSessionControllerTest {
     return (0 until view.existingTaskListModel.size()).map { index -> view.existingTaskListModel.getElementAt(index).id }
   }
 
+  private fun carefulClaudeProfile(): AgentPromptLaunchProfile {
+    return AgentPromptLaunchProfile(
+      id = "user:careful-claude",
+      name = "Careful Claude",
+      providerId = AgentSessionProvider.CLAUDE.value,
+    )
+  }
+
   private fun testInvocationData(project: Project): AgentPromptInvocationData {
     return AgentPromptInvocationData(
       project = project,
@@ -276,11 +327,23 @@ class AgentPromptPaletteSessionControllerTest {
     }
   }
 
-  private class RecordingPromptLauncher : AgentPromptLauncherBridge {
+  private class RecordingPromptLauncher(
+    initialPreferences: AgentPromptLauncherBridge.ProviderPreferences,
+  ) : AgentPromptLauncherBridge {
     val observedProviders = mutableListOf<AgentSessionProvider>()
+    var preferences: AgentPromptLauncherBridge.ProviderPreferences = initialPreferences
+      private set
 
     override fun launch(request: AgentPromptLaunchRequest): AgentPromptLaunchResult {
       return AgentPromptLaunchResult.SUCCESS
+    }
+
+    override fun loadProviderPreferences(): AgentPromptLauncherBridge.ProviderPreferences {
+      return preferences
+    }
+
+    override fun saveProviderPreferences(preferences: AgentPromptLauncherBridge.ProviderPreferences) {
+      this.preferences = preferences
     }
 
     override fun resolveWorkingProjectPath(invocationData: AgentPromptInvocationData): String {

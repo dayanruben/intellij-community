@@ -16521,11 +16521,6 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                     runTest("testData/inspectionsLocal/coroutines/mapAwaitOnCollectionOfDeferred/basicCall.kt");
                 }
 
-                @TestMetadata("basicCall_caretInsideLambda.kt")
-                public void testBasicCall_caretInsideLambda() throws Exception {
-                    runTest("testData/inspectionsLocal/coroutines/mapAwaitOnCollectionOfDeferred/basicCall_caretInsideLambda.kt");
-                }
-
                 @TestMetadata("basicCall_withStarImport.kt")
                 public void testBasicCall_withStarImport() throws Exception {
                     runTest("testData/inspectionsLocal/coroutines/mapAwaitOnCollectionOfDeferred/basicCall_withStarImport.kt");
@@ -26322,9 +26317,39 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/listDestructuring.kt");
         }
 
+        @TestMetadata("mapEntryKeyOnly.kt")
+        public void testMapEntryKeyOnly() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapEntryKeyOnly.kt");
+        }
+
+        @TestMetadata("mapEntryReversedNames.kt")
+        public void testMapEntryReversedNames() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapEntryReversedNames.kt");
+        }
+
+        @TestMetadata("mapEntrySubtypeMatchingNames.kt")
+        public void testMapEntrySubtypeMatchingNames() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapEntrySubtypeMatchingNames.kt");
+        }
+
+        @TestMetadata("mapEntryUnderscoreValue.kt")
+        public void testMapEntryUnderscoreValue() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapEntryUnderscoreValue.kt");
+        }
+
         @TestMetadata("mapLoopDestructuring.kt")
         public void testMapLoopDestructuring() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapLoopDestructuring.kt");
+        }
+
+        @TestMetadata("mapMatchingNames.kt")
+        public void testMapMatchingNames() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapMatchingNames.kt");
+        }
+
+        @TestMetadata("nonDataClassMatchingNames.kt")
+        public void testNonDataClassMatchingNames() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/nonDataClassMatchingNames.kt");
         }
     }
 

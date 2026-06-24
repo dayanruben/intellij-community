@@ -1,11 +1,11 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.buildAgentThreadIdentity
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.buildAgentThreadIdentity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.terminal.frontend.view.TerminalKeyEvent
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +34,15 @@ import kotlin.time.Duration.Companion.milliseconds
 class AgentChatConcreteThreadRebindControllerTest {
   @Test
   fun slashNewPersistsAnchorAndRetriesScopedRefresh(): Unit = runBlocking {
+    assertConcreteThreadRebindCommandPersistsAnchorAndRetriesScopedRefresh("/new")
+  }
+
+  @Test
+  fun slashForkPersistsAnchorAndRetriesScopedRefresh(): Unit = runBlocking {
+    assertConcreteThreadRebindCommandPersistsAnchorAndRetriesScopedRefresh("/fork")
+  }
+
+  private fun assertConcreteThreadRebindCommandPersistsAnchorAndRetriesScopedRefresh(command: String) {
     val file = concreteCodexFile()
     val tab = ConcreteRebindTestTerminalTab()
     val snapshots = ConcreteRebindRecordingSnapshotWriter()
@@ -50,7 +59,7 @@ class AgentChatConcreteThreadRebindControllerTest {
     try {
       tab.setSessionState(TerminalViewSessionState.Running)
       controller.attach(tab = tab, descriptor = null)
-      tab.emitCommand("/new")
+      tab.emitCommand(command)
 
       waitForCondition {
         file.newThreadRebindRequestedAtMs == 1_000L &&
@@ -210,7 +219,7 @@ private object TestConcreteThreadRebindBehavior : AgentChatProviderBehavior {
     return file.provider == AgentSessionProvider.CODEX && !file.isPendingThread && file.subAgentId == null
   }
 
-  override fun isConcreteNewThreadRebindCommand(command: String): Boolean = command == "/new"
+  override fun isConcreteNewThreadRebindCommand(command: String): Boolean = command == "/new" || command == "/fork"
 }
 
 private class ConcreteRebindTestTerminalTab : AgentChatTerminalTab {

@@ -9,21 +9,21 @@ import com.intellij.agent.workbench.chat.AgentChatPendingTabSnapshot
 import com.intellij.agent.workbench.chat.collectOpenConcreteAgentChatThreadIdentitiesByPath
 import com.intellij.agent.workbench.chat.collectOpenPendingAgentChatTabsByPath
 import com.intellij.agent.workbench.chat.rebindOpenPendingAgentChatTabs
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.AgentThreadActivityReport
-import com.intellij.agent.workbench.core.session.AgentSessionCost
-import com.intellij.agent.workbench.core.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.session.AgentSessionThread
-import com.intellij.agent.workbench.core.session.AgentSubAgent
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshHints
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshThreadSeed
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceRefreshRequest
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceRefreshResult
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadActivityUpdate
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionCost
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSubAgent
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshHints
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshThreadSeed
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceRefreshRequest
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceRefreshResult
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadActivityUpdate
 import com.intellij.agent.workbench.sessions.frame.AgentChatOpenModeSettings
 import com.intellij.agent.workbench.sessions.frame.OPEN_CHAT_IN_DEDICATED_FRAME_SETTING_ID
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
@@ -33,6 +33,7 @@ import com.intellij.agent.workbench.sessions.service.AgentSessionArchiveBackgrou
 import com.intellij.agent.workbench.sessions.service.AgentSessionArchiveService
 import com.intellij.agent.workbench.sessions.service.AgentSessionChatOpenExecutor
 import com.intellij.agent.workbench.sessions.service.AgentSessionContentRepository
+import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchProfileResolverImpl
 import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
 import com.intellij.agent.workbench.sessions.service.AgentSessionRefreshService
 import com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService
@@ -641,12 +642,14 @@ internal suspend fun withServiceAndArchiveAndLaunch(
       stateStore = stateStore,
       syncService = syncService,
     )
+    val launchProfileResolver = AgentSessionLaunchProfileResolverImpl(uiPreferencesState)
     val launchService = if (chatOpenExecutor == null) {
       AgentSessionLaunchService(
         serviceScope = scope,
         stateStore = stateStore,
         syncService = syncService,
         uiPreferencesState = uiPreferencesState,
+        launchProfileResolver = launchProfileResolver,
         openPendingAgentChatTabsProvider = openPendingAgentChatTabsProvider,
         openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinderWithProvider,
         archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
@@ -659,6 +662,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
         stateStore = stateStore,
         syncService = syncService,
         uiPreferencesState = uiPreferencesState,
+        launchProfileResolver = launchProfileResolver,
         chatOpenExecutor = chatOpenExecutor,
         openPendingAgentChatTabsProvider = openPendingAgentChatTabsProvider,
         openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinderWithProvider,

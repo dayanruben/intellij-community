@@ -1699,8 +1699,6 @@ f:com.intellij.util.containers.UtilKt
 - sf:headTailOrNull(java.util.List):kotlin.Pair
 - sf:isEmpty(java.util.stream.Stream):Z
 - sf:isNullOrEmpty(java.util.Collection):Z
-- sf:mapValues(com.intellij.util.containers.MultiMap,kotlin.jvm.functions.Function1):com.intellij.util.containers.MultiMap
-- sf:mapValuesTo(com.intellij.util.containers.MultiMap,com.intellij.util.containers.MultiMap,kotlin.jvm.functions.Function1):com.intellij.util.containers.MultiMap
 - sf:notNullize(java.util.stream.Stream):java.util.stream.Stream
 - sf:nullize(java.util.List):java.util.List
 - sf:orNull(java.util.Optional):java.lang.Object

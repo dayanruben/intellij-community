@@ -1,22 +1,22 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.session.AgentSessionThread
-import com.intellij.agent.workbench.core.session.AgentSubAgent
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSubAgent
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
-import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchPlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
-import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
+import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchPlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.InMemoryAgentSessionProviderRegistry
 import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
 import com.intellij.agent.workbench.sessions.service.AgentSessionChatOpenExecutor
@@ -142,12 +142,58 @@ fun assertExistingThreadLaunchUsesPostStartDispatch(
   }
 }
 
+fun assertExistingThreadLaunchUsesNoInitialPromptDelivery(
+  descriptor: AgentSessionProviderDescriptor,
+  request: AgentPromptLaunchRequest,
+  projectPath: String,
+  threadId: String,
+  projectName: String = "Project A",
+) {
+  val provider = descriptor.provider
+  val chatOpenExecutor = RecordingChatOpenExecutor()
+  AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
+    runBlocking(Dispatchers.Default) {
+      withTestServiceAndLaunch(
+        sessionSourcesProvider = { listOf(descriptor.sessionSource) },
+        projectEntriesProvider = { listOf(openTestProjectEntry(projectPath, projectName)) },
+        chatOpenExecutor = chatOpenExecutor,
+      ) { service, launchService ->
+        service.refresh()
+        waitForCondition(timeoutMs = PROMPT_LAUNCH_WAIT_TIMEOUT_MS) {
+          val project = service.state.value.projects.firstOrNull { it.path == projectPath } ?: return@waitForCondition false
+          project.providerLoadStates[provider] == AgentSessionProviderLoadState.LOADED &&
+          project.threads.any { thread -> thread.id == threadId }
+        }
+
+        val result = launchService.launchPromptRequest(request)
+
+        assertThat(result.launched).isTrue()
+        assertThat(result.error).isNull()
+        chatOpenExecutor.awaitOpenChatCalls(1)
+
+        val openRequest = checkNotNull(chatOpenExecutor.lastOpenChatRequest.get())
+
+        assertThat(chatOpenExecutor.openNewChatCalls.get()).isZero()
+        assertThat(openRequest.normalizedPath).isEqualTo(projectPath)
+        assertThat(openRequest.thread.id).isEqualTo(threadId)
+        assertThat(openRequest.thread.provider).isEqualTo(provider)
+        assertThat(openRequest.subAgent).isNull()
+        assertThat(openRequest.startupLaunchSpecOverride).isNull()
+        assertThat(openRequest.postStartDispatchSteps).isEmpty()
+        assertThat(openRequest.initialMessageToken).isNull()
+        assertThat(openRequest.initialPromptMessage).isNull()
+      }
+    }
+  }
+}
+
 fun assertExistingThreadLaunchUsesStartupOverride(
   descriptor: AgentSessionProviderDescriptor,
   request: AgentPromptLaunchRequest,
   projectPath: String,
   threadId: String,
   projectName: String = "Project A",
+  expectInitialMessageToken: Boolean = true,
 ): ExistingThreadPromptLaunchObservation {
   val provider = descriptor.provider
   val chatOpenExecutor = RecordingChatOpenExecutor()
@@ -183,7 +229,12 @@ fun assertExistingThreadLaunchUsesStartupOverride(
         assertThat(openRequest.startupLaunchSpecOverride).isNotNull()
         assertThat(openRequest.postStartDispatchSteps).isEmpty()
         assertThat(openRequest.initialPromptMessage).isEqualTo(initialMessagePlan.message)
-        assertThat(openRequest.initialMessageToken).isNotNull()
+        if (expectInitialMessageToken) {
+          assertThat(openRequest.initialMessageToken).isNotNull()
+        }
+        else {
+          assertThat(openRequest.initialMessageToken).isNull()
+        }
         observation = ExistingThreadPromptLaunchObservation(
           launchResult = result,
           normalizedPath = openRequest.normalizedPath,
@@ -192,6 +243,7 @@ fun assertExistingThreadLaunchUsesStartupOverride(
           postStartDispatchSteps = openRequest.postStartDispatchSteps,
           initialPromptMessage = openRequest.initialPromptMessage,
           initialMessageToken = openRequest.initialMessageToken,
+          launchProfileId = openRequest.launchProfileId,
         )
       }
     }
@@ -243,6 +295,7 @@ fun assertNewThreadPromptLaunchOpensNewChat(
           postStartDispatchSteps = openRequest.postStartDispatchSteps,
           initialPromptMessage = openRequest.initialPromptMessage,
           initialMessageToken = openRequest.initialMessageToken,
+          launchProfileId = openRequest.launchProfileId,
           preferredDedicatedFrame = openRequest.preferredDedicatedFrame,
         )
       }
@@ -331,6 +384,7 @@ internal class RecordingChatOpenExecutor(
     launchSpecOverride: AgentSessionTerminalLaunchSpec?,
     initialMessageDispatchPlan: AgentInitialMessageDispatchPlan,
     launchMode: AgentSessionLaunchMode?,
+    launchProfileId: String?,
     generationSettings: AgentPromptGenerationSettings,
   ) {
     val request = OpenChatRequest(
@@ -343,6 +397,7 @@ internal class RecordingChatOpenExecutor(
       initialPromptMessage = initialMessageDispatchPlan.promptRecord?.message,
       initialMessageToken = initialMessageDispatchPlan.initialMessageToken,
       launchMode = launchMode,
+      launchProfileId = launchProfileId,
       generationSettings = generationSettings,
     )
     val callIndex = openChatCalls.incrementAndGet()
@@ -358,6 +413,7 @@ internal class RecordingChatOpenExecutor(
     launchSpec: AgentSessionTerminalLaunchSpec,
     initialMessageDispatchPlan: AgentInitialMessageDispatchPlan,
     launchMode: AgentSessionLaunchMode?,
+    launchProfileId: String?,
     generationSettings: AgentPromptGenerationSettings,
     preferredDedicatedFrame: Boolean?,
     openedChatHandler: (suspend (Project, VirtualFile) -> Unit)?,
@@ -372,6 +428,7 @@ internal class RecordingChatOpenExecutor(
       initialPromptMessage = initialMessageDispatchPlan.promptRecord?.message,
       initialMessageToken = initialMessageDispatchPlan.initialMessageToken,
       launchMode = launchMode,
+      launchProfileId = launchProfileId,
       generationSettings = generationSettings,
       preferredDedicatedFrame = preferredDedicatedFrame,
     )
@@ -393,6 +450,7 @@ internal data class OpenChatRequest(
   @JvmField val initialPromptMessage: String?,
   @JvmField val initialMessageToken: String?,
   @JvmField val launchMode: AgentSessionLaunchMode?,
+  @JvmField val launchProfileId: String?,
   @JvmField val generationSettings: AgentPromptGenerationSettings,
 ) {
   val initialComposedMessage: String?
@@ -408,6 +466,7 @@ internal data class OpenNewChatRequest(
   @JvmField val initialPromptMessage: String?,
   @JvmField val initialMessageToken: String?,
   @JvmField val launchMode: AgentSessionLaunchMode?,
+  @JvmField val launchProfileId: String?,
   @JvmField val generationSettings: AgentPromptGenerationSettings,
   @JvmField val preferredDedicatedFrame: Boolean?,
 ) {
@@ -424,6 +483,7 @@ data class NewThreadPromptLaunchObservation(
   @JvmField val postStartDispatchSteps: List<AgentInitialMessageDispatchStep>,
   @JvmField val initialPromptMessage: String?,
   @JvmField val initialMessageToken: String?,
+  @JvmField val launchProfileId: String?,
   @JvmField val preferredDedicatedFrame: Boolean?,
 )
 
@@ -435,6 +495,7 @@ data class ExistingThreadPromptLaunchObservation(
   @JvmField val postStartDispatchSteps: List<AgentInitialMessageDispatchStep>,
   @JvmField val initialPromptMessage: String?,
   @JvmField val initialMessageToken: String?,
+  @JvmField val launchProfileId: String?,
 )
 
 private const val PROMPT_LAUNCH_WAIT_TIMEOUT_MS: Long = 20_000

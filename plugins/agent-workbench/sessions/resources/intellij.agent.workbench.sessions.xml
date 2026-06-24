@@ -9,10 +9,10 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.agent.workbench.chat"/>
-    <module name="intellij.agent.workbench.common"/>
-    <module name="intellij.agent.workbench.core"/>
+    <module name="intellij.platform.ai.agent.common"/>
+    <module name="intellij.platform.ai.agent.core"/>
     <module name="intellij.agent.workbench.prompt.core"/>
-    <module name="intellij.agent.workbench.sessions.core"/>
+    <module name="intellij.platform.ai.agent.sessions.core"/>
     <module name="intellij.agent.workbench.settings"/>
     <module name="intellij.agent.workbench.ui"/>
   </dependencies>
@@ -23,6 +23,7 @@
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchFusCollector"/>
     <postStartupActivity implementation="com.intellij.agent.workbench.sessions.sleep.AgentSessionSleepPreventionStartupActivity"/>
+    <postStartupActivity implementation="com.intellij.agent.workbench.sessions.service.AgentChatUnreadAcknowledgementStartupActivity"/>
     <notificationGroup id="Agent Workbench Sessions" displayType="BALLOON" bundle="messages.AgentSessionsBundle"
                        key="notification.group.agent.workbench.sessions"/>
     <applicationConfigurable
@@ -82,6 +83,8 @@
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionWarmStateService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.AgentSessionCostHintStateService"/>
+    <applicationService serviceInterface="com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionLaunchProfileResolver"
+                        serviceImplementation="com.intellij.agent.workbench.sessions.service.AgentSessionLaunchProfileResolverImpl"/>
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij.agent.workbench">

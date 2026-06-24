@@ -2,31 +2,31 @@
 package com.intellij.agent.workbench.chat
 
 import com.intellij.icons.AllIcons
-import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
-import com.intellij.agent.workbench.core.AgentThreadActivity
-import com.intellij.agent.workbench.core.AgentThreadActivityReport
-import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
-import com.intellij.agent.workbench.core.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.core.session.AgentSessionOutlineItem
-import com.intellij.agent.workbench.core.session.AgentSessionOutlineItemKind
-import com.intellij.agent.workbench.core.session.AgentSessionProvider
-import com.intellij.agent.workbench.core.session.AgentSessionThread
-import com.intellij.agent.workbench.core.session.AgentSessionThreadOutline
-import com.intellij.agent.workbench.common.withAgentThreadActivityBadge
+import com.intellij.agent.workbench.ui.AgentWorkbenchActionIds
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.common.icons.AgentWorkbenchCommonIcons
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionOutlineItem
+import com.intellij.platform.ai.agent.core.session.AgentSessionOutlineItemKind
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSessionThreadOutline
+import com.intellij.platform.ai.agent.common.withAgentThreadActivityBadge
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentation
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationKey
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationModel
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessagePlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionOutlineForkResult
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
-import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentation
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationKey
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationModel
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessagePlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionOutlineForkResult
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.InMemoryAgentSessionProviderRegistry
 import com.intellij.agent.workbench.ui.agentSessionThreadStatusIcon
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
@@ -184,6 +184,7 @@ class AgentChatFileEditorProviderTest {
       pendingFirstInputAtMs = 200,
       pendingLaunchMode = AgentSessionLaunchMode.STANDARD.name,
       launchMode = AgentSessionLaunchMode.YOLO.name,
+      launchProfileId = "profile:codex-yolo",
       newThreadRebindRequestedAtMs = 300,
       initialMessageDispatchSteps = dispatchSteps,
       initialMessageDispatchStepIndex = 1,
@@ -195,6 +196,7 @@ class AgentChatFileEditorProviderTest {
     val startupIntent = AgentChatStartupIntent.NewSession(
       provider = AgentSessionProvider.CODEX,
       launchMode = AgentSessionLaunchMode.YOLO,
+      launchProfileId = "profile:codex-yolo",
     )
 
     writeAgentChatFileEditorState(AgentChatFileEditorState(snapshot = snapshot, startupIntent = startupIntent), element)
@@ -204,7 +206,9 @@ class AgentChatFileEditorProviderTest {
     assertThat(element.getAttributeValue("startupKind")).isEqualTo("newSession")
     assertThat(element.getAttributeValue("startupProvider")).isEqualTo(AgentSessionProvider.CODEX.value)
     assertThat(element.getAttributeValue("startupLaunchMode")).isEqualTo(AgentSessionLaunchMode.YOLO.name)
+    assertThat(element.getAttributeValue("startupLaunchProfileId")).isEqualTo("profile:codex-yolo")
     assertThat(element.getAttributeValue("launchMode")).isEqualTo("yolo")
+    assertThat(element.getAttributeValue("launchProfileId")).isEqualTo("profile:codex-yolo")
     assertThat(element.getAttributeValue("initialPromptMessage")).isNull()
     assertThat(element.getAttributeValue("initialPromptMode")).isNull()
     assertThat(element.getAttributeValue("initialPromptToken")).isNull()
@@ -233,6 +237,7 @@ class AgentChatFileEditorProviderTest {
     assertThat(restored?.runtime?.pendingFirstInputAtMs).isEqualTo(200)
     assertThat(restored?.runtime?.pendingLaunchMode).isEqualTo(AgentSessionLaunchMode.STANDARD.name)
     assertThat(restored?.runtime?.launchMode).isEqualTo("yolo")
+    assertThat(restored?.runtime?.launchProfileId).isEqualTo("profile:codex-yolo")
     assertThat(restored?.runtime?.newThreadRebindRequestedAtMs).isEqualTo(300)
     assertThat(restored?.runtime?.initialMessageDispatchSteps).isEmpty()
     assertThat(restored?.runtime?.initialMessageDispatchStepIndex).isEqualTo(0)
@@ -242,6 +247,79 @@ class AgentChatFileEditorProviderTest {
     assertThat(restored?.runtime?.terminalPromptDispatch).isNull()
     assertThat(restoredState.startupIntent).isEqualTo(startupIntent)
     assertThat(file.launchMode).isEqualTo("yolo")
+    assertThat(file.launchProfileId).isEqualTo("profile:codex-yolo")
+  }
+
+  @Test
+  fun fileEditorStateReadsLegacyStartupProviderWhenThreadIdentityHasNoProvider() {
+    val file = AgentChatVirtualFile(
+      projectPath = "/work/project-a",
+      threadIdentity = "new-legacy-thread",
+      shellCommand = emptyList(),
+      threadId = "new-legacy-thread",
+      threadTitle = "Legacy new thread",
+      subAgentId = null,
+      projectHash = "hash-1",
+    )
+    val element = Element("state").apply {
+      setAttribute("version", "4")
+      setAttribute("projectHash", "hash-1")
+      setAttribute("projectPath", "/work/project-a")
+      setAttribute("threadIdentity", "new-legacy-thread")
+      setAttribute("threadId", "new-legacy-thread")
+      setAttribute("threadTitle", "Legacy new thread")
+      setAttribute("threadActivity", AgentThreadActivity.READY.name)
+      setAttribute("pendingLaunchMode", AgentSessionLaunchMode.STANDARD.name)
+      setAttribute("startupKind", "newSession")
+      setAttribute("startupProvider", AgentSessionProvider.CODEX.value)
+      setAttribute("startupLaunchMode", AgentSessionLaunchMode.YOLO.name)
+    }
+
+    val restoredState = readAgentChatFileEditorState(element, file)
+
+    assertThat(restoredState.startupIntent).isEqualTo(
+      AgentChatStartupIntent.NewSession(
+        provider = AgentSessionProvider.CODEX,
+        launchMode = AgentSessionLaunchMode.YOLO,
+      )
+    )
+  }
+
+  @Test
+  fun fileEditorStateKeepsStartupProviderFallbackWhenLaunchProfileIsPersisted() {
+    val file = AgentChatVirtualFile(
+      projectPath = "/work/project-a",
+      threadIdentity = "new-profile-thread",
+      shellCommand = emptyList(),
+      threadId = "new-profile-thread",
+      threadTitle = "Profile thread",
+      subAgentId = null,
+      projectHash = "hash-1",
+    )
+    val element = Element("state").apply {
+      setAttribute("version", "5")
+      setAttribute("projectHash", "hash-1")
+      setAttribute("projectPath", "/work/project-a")
+      setAttribute("threadIdentity", "new-profile-thread")
+      setAttribute("threadId", "new-profile-thread")
+      setAttribute("threadTitle", "Profile thread")
+      setAttribute("threadActivity", AgentThreadActivity.READY.name)
+      setAttribute("pendingLaunchMode", AgentSessionLaunchMode.STANDARD.name)
+      setAttribute("startupKind", "newSession")
+      setAttribute("startupProvider", AgentSessionProvider.CODEX.value)
+      setAttribute("startupLaunchMode", AgentSessionLaunchMode.YOLO.name)
+      setAttribute("startupLaunchProfileId", "profile:missing")
+    }
+
+    val restoredState = readAgentChatFileEditorState(element, file)
+
+    assertThat(restoredState.startupIntent).isEqualTo(
+      AgentChatStartupIntent.NewSession(
+        provider = AgentSessionProvider.CODEX,
+        launchMode = AgentSessionLaunchMode.YOLO,
+        launchProfileId = "profile:missing",
+      )
+    )
   }
 
   @Test
@@ -362,7 +440,7 @@ class AgentChatFileEditorProviderTest {
     assertThat(descriptor)
       .contains("<fileIconProvider implementation=\"com.intellij.agent.workbench.chat.AgentChatFileIconProvider\"/>")
       .contains(
-        "<applicationService serviceInterface=\"com.intellij.agent.workbench.sessions.core.providers.AgentOpenTopLevelThreadDispatchService\"",
+        "<applicationService serviceInterface=\"com.intellij.platform.ai.agent.sessions.core.providers.AgentOpenTopLevelThreadDispatchService\"",
       )
       .contains(
         "serviceImplementation=\"com.intellij.agent.workbench.chat.AgentChatOpenTopLevelThreadDispatchService\"/>",
@@ -1037,7 +1115,7 @@ class AgentChatFileEditorProviderTest {
       val changeSet = model.updateActivityHints(
         provider = AgentSessionProvider.CODEX,
         updates = listOf(
-          com.intellij.agent.workbench.sessions.core.AgentSessionThreadActivityPresentationUpdate(
+          com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadActivityPresentationUpdate(
             path = "/work/project-a",
             threadId = "thread-1",
             activity = AgentThreadActivity.UNREAD,
