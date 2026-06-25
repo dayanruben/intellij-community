@@ -20,6 +20,7 @@
     <module name="intellij.python.community.impl.conda"/>
     <module name="intellij.python.community.impl.installer"/>
     <module name="intellij.python.community.impl.pipenv"/>
+    <module name="intellij.python.community.impl.poetry.backend"/>
     <module name="intellij.python.community.impl.poetry.common"/>
     <module name="intellij.python.community.interpreters"/>
     <module name="intellij.python.community.services.systemPython"/>
@@ -103,6 +104,12 @@
       <option bundle="messages.PyPsiBundle" descriptionKey="INLAY.parameter.type.annotations" enabledByDefault="true"
               nameKey="INLAY.parameter.type.annotations"
               optionId="python.type.inlays.parameter.annotation"/>
+      <option bundle="messages.PyPsiBundle" descriptionKey="INLAY.solved.type.parameters.class.description" enabledByDefault="true"
+              nameKey="INLAY.solved.type.parameters.class"
+              optionId="python.type.inlays.solved.type.parameters.class"/>
+      <option bundle="messages.PyPsiBundle" descriptionKey="INLAY.solved.type.parameters.function.description" enabledByDefault="false"
+              nameKey="INLAY.solved.type.parameters.function"
+              optionId="python.type.inlays.solved.type.parameters.function"/>
     </codeInsight.declarativeInlayProvider>
 
     <codeInsight.declarativeInlayProvider group="TYPES_GROUP"
@@ -975,13 +982,9 @@
     <!-- Pipenv -->
     <pythonFlavorProvider implementation="com.jetbrains.python.sdk.pipenv.PyPipEnvSdkFlavorProvider"/>
 
-    <!-- Poetry -->
-    <pythonFlavorProvider implementation="com.jetbrains.python.sdk.poetry.PyPoetrySdkFlavorProvider"/>
 
 
-    <!-- Hatch -->
-    <pySdkProvider implementation="com.jetbrains.python.hatch.sdk.HatchSdkProvider"/>
-    <pythonFlavorProvider implementation="com.jetbrains.python.hatch.sdk.HatchSdkFlavorProvider"/>
+
     <pythonPackageManagerProvider implementation="com.jetbrains.python.hatch.packaging.HatchPackageManagerProvider"/>
 
     <!-- SDK Flavors -->
@@ -1004,7 +1007,6 @@
 
     <pythonSdkReadOnlyProvider implementation="com.jetbrains.python.sdk.readOnly.PythonSystemSdkReadOnlyProvider"/>
 
-    <pySdkProvider implementation="com.jetbrains.python.sdk.poetry.PoetrySdkProvider"/>
     <pythonPackageManagerProvider implementation="com.jetbrains.python.sdk.poetry.PoetryPackageManagerProvider"/>
 
     <pySdkProvider implementation="com.jetbrains.python.sdk.uv.UvSdkProvider"/>

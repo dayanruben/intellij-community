@@ -102,14 +102,27 @@ class AgentSessionsToolWindowFactorySwingTest {
       "AgentWorkbenchSessions.ShowArchivedThreads",
       "AgentWorkbenchSessions.Refresh",
       SEPARATOR_MARKER,
-      "AgentWorkbenchSessions.ToggleSessionCost",
-      "AgentWorkbenchSessions.ToggleJbCentralQuotaWidget",
-      "AgentWorkbenchSessions.ToggleClaudeQuotaWidget",
       "AgentWorkbenchSessions.ToggleDedicatedFrame",
+      "AgentWorkbenchSessions.ToggleCurrentProjectOnly",
+      SEPARATOR_MARKER,
+      "AgentWorkbenchSessions.ToggleSessionCost",
+      "AgentWorkbenchSessions.TogglePreventSleepWhileWorking",
     )
     assertThat(entries)
-      .contains("AgentWorkbenchSessions.TogglePreventSleepWhileWorking")
+      .contains("AgentWorkbenchSessions.MoreSettings")
       .doesNotContain("AgentWorkbenchSessions.OpenDedicatedFrame")
+      .doesNotContain("AgentWorkbenchSessions.ToggleJbCentralQuotaWidget")
+      .doesNotContain("AgentWorkbenchSessions.ToggleClaudeQuotaWidget")
+  }
+
+  @Test
+  fun titleActionsKeepScopeToggleOutOfTitleToolbar() {
+    val actions = createAgentSessionsTitleActions()
+
+    assertThat(actions.take(3)).allMatch { action -> action is AgentSessionsActivityCounterAction }
+    assertThat(actions[3]).isInstanceOf(AgentSessionsShowActiveThreadsHeaderAction::class.java)
+    assertThat(actions.mapNotNull { ActionManager.getInstance().getId(it) })
+      .doesNotContain(AgentWorkbenchActionIds.Sessions.TOGGLE_CURRENT_PROJECT_ONLY)
   }
 
   @Test

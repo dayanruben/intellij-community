@@ -34,9 +34,9 @@ internal class FrontendHotSwapManager(private val project: Project, val coroutin
         statusFlow.collectLatest { state ->
           currentStatusFlow.value = state
           // clear success status after delay
-          if (state?.status == HotSwapVisibleStatus.SUCCESS) {
+          if (state?.status == HotSwapVisibleStatus.Success) {
             delay(NOTIFICATION_TIME_SECONDS.seconds)
-            currentStatusFlow.compareAndSet(state, state.copy(status = HotSwapVisibleStatus.NO_CHANGES))
+            currentStatusFlow.compareAndSet(state, state.copy(status = HotSwapVisibleStatus.NoChanges))
           }
         }
       }, stateReset = { currentStatusFlow.value = null })
@@ -48,6 +48,12 @@ internal class FrontendHotSwapManager(private val project: Project, val coroutin
   fun performHotSwap(sessionId: XDebugHotSwapSessionId, source: HotSwapSource) {
     sequentialExecutor.execute {
       XDebuggerHotSwapApi.getInstance().performHotSwap(sessionId, source)
+    }
+  }
+
+  fun performRestart(sessionId: XDebugHotSwapSessionId) {
+    sequentialExecutor.execute {
+      XDebuggerHotSwapApi.getInstance().restart(sessionId)
     }
   }
 

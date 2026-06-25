@@ -1007,8 +1007,6 @@ class PySubtypingTypeTest : PyCodeInsightTestCase() {
       def test_numerics():
           abs(False)
           int(10)
-          long(False)
-      #   ^^^^ ERROR Unresolved reference 'long'
           float(False)
           complex(False)
           divmod(False, False)
@@ -1283,7 +1281,7 @@ class PySubtypingTypeTest : PyCodeInsightTestCase() {
       class StrBox(Box[str]):
           pass
 
-      StrBox(42) # WARNING Expected type 'str' (matched generic type 'T'), got 'Literal[42]' instead
+      StrBox(42) # WARNING Expected type 'str', got 'Literal[42]' instead
       """)
 
     @Test
@@ -1291,7 +1289,7 @@ class PySubtypingTypeTest : PyCodeInsightTestCase() {
       class A[T]:
           def __init__(self, v: T) -> None: ...
 
-      A[int]("") # WARNING Expected type 'int' (matched generic type 'T'), got 'Literal[""]' instead
+      A[int]("") # WARNING Expected type 'int', got 'Literal[""]' instead
       """)
 
     @Test
@@ -1395,7 +1393,7 @@ class PySubtypingTypeTest : PyCodeInsightTestCase() {
               pass
 
 
-      x = MyClass(1) < MyClass(2) < MyClass('foo') # WARNING Expected type 'MyClass[int]' (matched generic type 'MyClass[T]'), got 'MyClass[str]' instead
+      x = MyClass(1) < MyClass(2) < MyClass('foo') # WARNING Expected type 'MyClass[int]', got 'MyClass[str]' instead
       """)
 
     @Test

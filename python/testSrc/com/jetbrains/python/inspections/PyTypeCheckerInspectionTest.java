@@ -1,6 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.inspections;
 
+import com.jetbrains.python.allure.Layers;
+import com.jetbrains.python.allure.Subsystems;
+
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
@@ -23,6 +26,8 @@ import org.junit.ComparisonFailure;
  * <p>
  * NOTE: upon removal, remove the corresponding python fixtures
  */
+@Subsystems.Inspections
+@Layers.Functional
 public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
 
   @Override
@@ -1024,7 +1029,7 @@ public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
                                    pass
                            
                            def foo(cb: Callback[int]):
-                               cb(<warning descr="Expected type 'int' (matched generic type '_T'), got 'Literal[\\"42\\"]' instead">"42"</warning>)
+                               cb(<warning descr="Expected type 'int', got 'Literal[\\"42\\"]' instead">"42"</warning>)
                            """)
     );
   }
@@ -1219,7 +1224,7 @@ public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
           d: MyMapping[str, str] = undefined1
           d.get(undefined2)
           d.get("str")
-          d.get(<warning descr="Expected type 'str' (matched generic type '_KT'), got 'Literal[1]' instead">1</warning>)
+          d.get(<warning descr="Expected type 'str', got 'Literal[1]' instead">1</warning>)
           """
       )
     );
@@ -1712,13 +1717,11 @@ public class PyTypeCheckerInspectionTest extends PyInspectionTestCase {
 
   // PY-84657
   public void testClassOverloadedFunctionAssignedToGlobalFunction() {
-    fixme("PY-84657", ComparisonFailure.class, "Expected type 'str', got 'float | int | str' instead", () -> {
-      runWithLanguageLevel(
-        LanguageLevel.PYTHON312,
-        () -> {
-          doMultiFileTest("main.py");
-        });
-    });
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON312,
+      () -> {
+        doMultiFileTest("main.py");
+      });
   }
 
   public void testClassOverloadedFunctionAssignedToGlobalFunction2() {

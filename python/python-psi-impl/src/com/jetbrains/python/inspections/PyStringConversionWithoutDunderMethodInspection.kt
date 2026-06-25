@@ -5,6 +5,7 @@ import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
 import com.intellij.codeInspection.LocalInspectionToolSession
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
+import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.codeInspection.ex.modifyAndCommitProjectProfile
 import com.intellij.codeInspection.options.OptPane
@@ -17,6 +18,7 @@ import com.jetbrains.python.PyNames
 import com.jetbrains.python.PyPsiBundle
 import com.jetbrains.python.PyTokenTypes
 import com.jetbrains.python.codeInsight.parseDataclassParameters
+import com.jetbrains.python.inspections.PyInspectionMessages.CodifiedParam
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyFormattedStringElement
@@ -82,7 +84,7 @@ class PyStringConversionWithoutDunderMethodInspection : PyInspection() {
         PyResolveUtil.resolveDeclaration(callee.reference, PyResolveContext.defaultContext(myTypeEvalContext))
         ?: return
 
-      val qualifiedCalleeName = (resolvedCallee as? PyQualifiedNameOwner)?.qualifiedName
+      val qualifiedCalleeName = PyNames.FQN.unqualifyBuiltinName((resolvedCallee as? PyQualifiedNameOwner)?.qualifiedName)
 
       when (qualifiedCalleeName) {
         "${PyNames.TYPE_STR}.__new__" -> node.arguments.firstOrNull()?.checkStringConversion(DUNDER_STR)
@@ -147,18 +149,21 @@ class PyStringConversionWithoutDunderMethodInspection : PyInspection() {
           }
         }
         type is PyFunctionType && "types.FunctionType" in inspection.reportedTypes -> {
-          registerProblem(this, PyPsiBundle.message("INSP.string.not.helpful", "FunctionType"),
+          registerProblem(this, PyPsiBundle.problemMessage("INSP.string.not.helpful", "FunctionType"),
+                          ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                           RemoveFromReportedTypesQuickFix("types.FunctionType", "FunctionType"))
         }
         type !is PyClassType -> return
-        type.classQName in inspection.reportedTypes -> {
-          val classQName = type.classQName ?: return
+        PyNames.FQN.unqualifyBuiltinName(type.classQName) in inspection.reportedTypes -> {
+          val classQName = PyNames.FQN.unqualifyBuiltinName(type.classQName) ?: return
           val typeName = type.name ?: return
-          registerProblem(this, PyPsiBundle.message("INSP.string.not.helpful", typeName),
+          registerProblem(this, PyPsiBundle.problemMessage("INSP.string.not.helpful", CodifiedParam.ofReference(type.pyClass, typeName)),
+                          ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                           RemoveFromReportedTypesQuickFix(classQName, typeName))
         }
         type.isDefinition && "type" in inspection.reportedTypes -> {
-          registerProblem(this, PyPsiBundle.message("INSP.string.not.helpful", "type"),
+          registerProblem(this, PyPsiBundle.problemMessage("INSP.string.not.helpful", "type"),
+                          ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                           RemoveFromReportedTypesQuickFix("type", "type"))
         }
         type.shouldWarnForType(requiredMethod) -> registerProblem(type, requiredMethod)
@@ -168,26 +173,27 @@ class PyStringConversionWithoutDunderMethodInspection : PyInspection() {
     private fun PyExpression.registerProblem(type: PyType, requiredMethod: String) {
       val typeName = if (type is PyClassType && type.isDefinition) "type[${type.name}]" else type.name
       val message = when (requiredMethod) {
-        DUNDER_REPR -> PyPsiBundle.message("INSP.string.conversion.without.dunder.repr", typeName)
-        DUNDER_STR -> PyPsiBundle.message("INSP.string.conversion.without.dunder.str", typeName)
-        DUNDER_FORMAT -> PyPsiBundle.message("INSP.string.conversion.without.dunder.format", typeName)
+        DUNDER_REPR -> PyPsiBundle.problemMessage("INSP.string.conversion.without.dunder.repr", typeName)
+        DUNDER_STR -> PyPsiBundle.problemMessage("INSP.string.conversion.without.dunder.str", typeName)
+        DUNDER_FORMAT -> PyPsiBundle.problemMessage("INSP.string.conversion.without.dunder.format", typeName)
         else -> return
       }
       if (type is PyClassType) {
-        val classQName = type.classQName ?: return
+        val classQName = PyNames.FQN.unqualifyBuiltinName(type.classQName) ?: return
         registerProblem(this, message,
+                        ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                         AddToIgnoredTypesQuickFix(classQName, classQName.split(".").last()))
       }
       else registerProblem(this, message)
     }
 
     private fun PyClassType.shouldWarnForType(requiredMethod: String): Boolean {
-      if (classQName in inspection.ignoredTypes) return false
+      if (PyNames.FQN.unqualifyBuiltinName(classQName) in inspection.ignoredTypes) return false
 
       // Check if any ancestor is in ignored types (e.g., class A(int) should be ignored
       // because int defines __str__ even though it's not in stubs)
       val pyClass = pyClass
-      if (pyClass.getAncestorTypes(myTypeEvalContext).any { it?.classQName in inspection.ignoredTypes }) {
+      if (pyClass.getAncestorTypes(myTypeEvalContext).any { PyNames.FQN.unqualifyBuiltinName(it?.classQName) in inspection.ignoredTypes }) {
         return false
       }
 
@@ -212,7 +218,7 @@ class PyStringConversionWithoutDunderMethodInspection : PyInspection() {
                .firstOrNull()
                ?.element
                ?.let {
-                 (it as? PyFunction)?.qualifiedName != "${PyNames.OBJECT}.$methodName"
+                 (it as? PyFunction)?.qualifiedName != "${PyNames.FQN.OBJECT}.$methodName"
                }
              ?: false
     }

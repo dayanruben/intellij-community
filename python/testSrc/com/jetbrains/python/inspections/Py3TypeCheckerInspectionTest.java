@@ -1,6 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.inspections;
 
+import com.jetbrains.python.allure.Layers;
+import com.jetbrains.python.allure.Subsystems;
+
 import com.intellij.idea.TestFor;
 import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import org.jetbrains.annotations.NotNull;
@@ -8,6 +11,8 @@ import org.jetbrains.annotations.NotNull;
 /**
  * legacy, use a `PyCodeInsightTestCase` suite
  */
+@Subsystems.Inspections
+@Layers.Functional
 public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
   public static final String TEST_DIRECTORY = "inspections/PyTypeCheckerInspection/";
 
@@ -473,5 +478,22 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
         def f(n2: N2):
           n4: N = n2
         """);
+  }
+
+  // PY-79220
+  public void testAnnotatedSelfInOverloads() {
+    doTestByText("""
+                   from typing import overload
+
+                   class A[T]:
+                       @overload
+                       def foo(self: A[int]) -> None: ...
+                       @overload
+                       def foo(self: A[str]) -> None: ...
+                       def foo(self): ...
+
+                   A[str]().foo()
+                   <warning descr="Invalid self argument `A[float | int]` to method `A.foo` with type `(self: A[int]) -> None`">A[float]().foo</warning>()
+                   """);
   }
 }

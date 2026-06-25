@@ -17,6 +17,7 @@ import com.jetbrains.python.PyStringFormatParser.NewStyleSubstitutionChunk
 import com.jetbrains.python.PyStringFormatParser.PercentSubstitutionChunk
 import com.jetbrains.python.codeInsight.PySubstitutionChunkReference
 import com.jetbrains.python.documentation.PythonDocumentationProvider
+import com.jetbrains.python.inspections.PyInspectionMessages.ProblemMessage
 import com.jetbrains.python.inspections.quickfix.PyAddSpecifierToFormatQuickFix
 import com.jetbrains.python.psi.AccessDirection
 import com.jetbrains.python.psi.LanguageLevel
@@ -275,7 +276,7 @@ class PyStringFormatInspection : PyInspection() {
           if (!myUsedMappingKeys[key]!!) {
             unresolved++
             if (unresolved > referenceKeyNumber) {
-              registerProblem(problemTarget, PyPsiBundle.message("INSP.str.format.key.has.no.argument", key))
+              registerProblem(problemTarget, PyPsiBundle.problemMessage("INSP.str.format.key.has.no.argument", key))
               break
             }
           }
@@ -303,6 +304,11 @@ class PyStringFormatInspection : PyInspection() {
       }
 
       fun registerProblem(problemTarget: PsiElement, @InspectionMessage message: @InspectionMessage String) {
+        isProblem = true
+        myVisitor.registerProblem(problemTarget, message)
+      }
+
+      fun registerProblem(problemTarget: PsiElement, message: ProblemMessage) {
         isProblem = true
         myVisitor.registerProblem(problemTarget, message)
       }
@@ -544,7 +550,7 @@ class PyStringFormatInspection : PyInspection() {
           NEW_STYLE_FORMAT_CONVERSIONS[conversionType]?.let {
             specifyTypes(supportedTypes, it)
             hasTypeOptions = true
-          } ?: registerProblem(myProblemTarget, PyPsiBundle.message("INSP.unsupported.format.character", conversionType))
+          } ?: registerProblem(myProblemTarget, PyPsiBundle.problemMessage("INSP.unsupported.format.character", conversionType))
         }
 
         if (supportedTypes.isNotEmpty()) {
@@ -564,8 +570,8 @@ class PyStringFormatInspection : PyInspection() {
           if (chunkMapping != null) {
             registerProblem(
               myProblemTarget,
-              if (hasElementIndex) PyPsiBundle.message("INSP.too.few.args.for.fmt.string")
-              else PyPsiBundle.message(
+              if (hasElementIndex) PyPsiBundle.problemMessage("INSP.too.few.args.for.fmt.string")
+              else PyPsiBundle.problemMessage(
                 "INSP.str.format.key.has.no.argument",
                 chunkMapping
               )
@@ -585,6 +591,11 @@ class PyStringFormatInspection : PyInspection() {
         myVisitor.registerProblem(problemTarget, message)
       }
 
+      fun registerProblem(problemTarget: PsiElement, message: ProblemMessage) {
+        isProblem = true
+        myVisitor.registerProblem(problemTarget, message)
+      }
+
       fun checkTypesCompatibleForCheckedTypesOnly(
         anchor: PyElement,
         target: PsiElement,
@@ -595,7 +606,7 @@ class PyStringFormatInspection : PyInspection() {
         val actual = PyUnionType.toNonWeakType(myTypeEvalContext.getType(typedElement)) ?: return
         val expected = PyTypeParser.getTypeByName(anchor, type) ?: return
         if (
-          actual.asUnionSequence().all { it != null && it.name in CHECKED_TYPES }
+          actual.asUnionSequence().all { (it as? PyClassType)?.classQName in CHECKED_TYPES }
           && !match(expected, actual, myTypeEvalContext)
         ) {
           registerProblem(typedElement, PyPsiBundle.message("INSP.str.format.unexpected.argument.type", actual.name))
@@ -664,7 +675,7 @@ class PyStringFormatInspection : PyInspection() {
 
       if (typeChar !in VALID_NON_TYPE_FORMAT_SPEC_ENDINGS) {
         val typeCharElement = formatPart.findElementAt(trimmedSpec.length - 1) ?: formatPart
-        registerProblem(typeCharElement, PyPsiBundle.message("INSP.str.format.invalid.format.spec", typeChar))
+        registerProblem(typeCharElement, PyPsiBundle.problemMessage("INSP.str.format.invalid.format.spec", typeChar))
         return
       }
 
@@ -715,7 +726,7 @@ class PyStringFormatInspection : PyInspection() {
       val reportElement = formatPart.findElementAt(reportOffset) ?: formatPart
       val incompatibleTypeName =
         incompatibleTypes.joinToString(" | ") { PythonDocumentationProvider.getTypeName(PyLiteralType.upcastLiteralToClass(it), myTypeEvalContext) }
-      registerProblem(reportElement, PyPsiBundle.message("INSP.str.format.code.not.supported", reportChar, incompatibleTypeName))
+      registerProblem(reportElement, PyPsiBundle.problemMessage("INSP.str.format.code.not.supported", reportChar, incompatibleTypeName))
     }
 
     /**
@@ -749,9 +760,9 @@ class PyStringFormatInspection : PyInspection() {
         resolveContext: PyResolveContext,
         evalContext: TypeEvalContext,
       ): Int {
-        val statistics = callExpression.multiResolveCalleeFunction(resolveContext)
+        val statistics = callExpression.multiResolveCallee(resolveContext)
           .stream()
-          .map { it.getCallType(evalContext, callExpression) }
+          .map { callableType -> callableType.getCallType(evalContext, callExpression) }
           .collect(
             Collectors.summarizingInt(
               ToIntFunction { callType ->
@@ -789,7 +800,7 @@ class PyStringFormatInspection : PyInspection() {
       }
 
       private fun PyClassType.countElements(evalContext: TypeEvalContext) = when {
-        !pyClass.isSubclass(PyNames.TUPLE, evalContext) -> 1
+        !pyClass.isSubclass(PyNames.FQN.TUPLE, evalContext) -> 1
         this is PyTupleType -> elementCount
         else -> -1
       }
@@ -801,18 +812,18 @@ private val VALID_NON_TYPE_FORMAT_SPEC_ENDINGS = ('0'..'9').toSet() +
                                                  setOf('<', '>', '^', '=', '+', '-', ' ', '_', ',', '#', 'z')
 
 private val INT_TYPES = setOf(
-  PyNames.TYPE_INT,
+  PyNames.FQN.INT,
   "numpy.int8", "numpy.int16", "numpy.int32", "numpy.int64",
 )
 
 private val FLOAT_INT_TYPES = INT_TYPES + setOf(
-  PyNames.TYPE_LONG, PyNames.TYPE_FLOAT,
+  PyNames.FQN.LONG, PyNames.FQN.FLOAT,
   "decimal.Decimal", "fractions.Fraction",
   "numpy.float16", "numpy.float32", "numpy.float64",
 )
 
 private val NUMERIC_TYPES = FLOAT_INT_TYPES + setOf(
-  PyNames.TYPE_COMPLEX, "numpy.complex64", "numpy.complex128",
+  PyNames.FQN.COMPLEX, "numpy.complex64", "numpy.complex128",
 )
 
 // Builtin numeric type names that [PyTypeParser.getTypeByName] can resolve. Used by the `str.format()` path,
@@ -838,7 +849,7 @@ private val NEW_STYLE_FORMAT_CONVERSIONS = mapOf(
   '%' to setOf("int", "float"),
 )
 
-private val CHECKED_TYPES = NUMERIC_TYPES + setOf(PyNames.TYPE_STR)
+private val CHECKED_TYPES = NUMERIC_TYPES + setOf(PyNames.FQN.STR)
 
 /**
  * Fully qualified names of types whose `__format__` override is trusted to accept the given presentation [typeChar],
@@ -848,7 +859,7 @@ private fun allowedFormatOverrideQNames(typeChar: Char): Set<String> = when (typ
   'b', 'c', 'd', 'o', 'x', 'X' -> INT_TYPES
   'e', 'E', 'f', 'F', 'g', 'G', 'n' -> NUMERIC_TYPES
   '%' -> FLOAT_INT_TYPES
-  's' -> setOf(PyNames.TYPE_STR)
+  's' -> setOf(PyNames.FQN.STR)
   else -> emptySet()
 }
 

@@ -1,11 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui.webview.impl
 
+import com.intellij.ide.KeyboardAwareFocusOwner
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.webview.impl.engine.WebViewFocusDirection
 import com.intellij.ui.webview.impl.host.NativeWebViewHostPeer
+import com.intellij.ui.webview.impl.host.WebViewEditShortcutPolicy
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.EDT
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +32,7 @@ import java.awt.event.HierarchyBoundsAdapter
 import java.awt.event.HierarchyBoundsListener
 import java.awt.event.HierarchyEvent
 import java.awt.event.HierarchyListener
+import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferInt
@@ -59,7 +62,7 @@ internal class SwingWebViewHostPanel(
   val engine: WebViewEngineBridge,
   private val focusEntrySink: WebViewFocusEntrySink? = null,
   nativeHostPeer: NativeWebViewHostPeer? = null,
-) : JPanel(BorderLayout()), SwingWebViewHost {
+) : JPanel(BorderLayout()), SwingWebViewHost, KeyboardAwareFocusOwner {
 
   internal data class NativeFrame(
     val x: Double,
@@ -159,6 +162,20 @@ internal class SwingWebViewHostPanel(
 
   override val component: JComponent
     get() = this
+
+  override fun skipKeyEventDispatcher(event: KeyEvent): Boolean {
+    val peer = nativePeer ?: return false
+    val policy = peer.editShortcutPolicy
+    if (policy == WebViewEditShortcutPolicy.NONE || !focusInsideHost) return false
+
+    val command = WebViewEditCommand.matchingCommand(event.keyCode, event.modifiersEx, WebViewEditCommand.DEFAULTS) ?: return false
+    // Returning true only keeps the IDE dispatcher out of this shortcut. The backend policy decides
+    // whether the original native event path handles it or an explicit native command is required.
+    if (policy == WebViewEditShortcutPolicy.HANDLE_IN_NATIVE_PEER && peer.handleWebViewShortcut(event, command)) {
+      event.consume()
+    }
+    return true
+  }
 
   private var hierarchyListener: HierarchyListener? = null
   private var hierarchyBoundsListener: HierarchyBoundsListener? = null

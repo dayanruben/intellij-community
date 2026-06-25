@@ -4,8 +4,8 @@
 class Ctx
 
 /** Important function. */
-context(ctx: Ctx)
 @Suppress("unused")
+context(ctx: Ctx)
 fun f1() {}
 
 fun fdemo() {

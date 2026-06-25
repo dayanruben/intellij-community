@@ -1121,6 +1121,34 @@ http_file(
 )
 
 http_file(
+    name = "org_jetbrains_diogen-diogen-analysis-0_1_0_http",
+    downloaded_file_path = "diogen-analysis-0.1.0.jar",
+    sha256 = "911185567a8dacb8c90c81c98ec08663c4414887ae097819bdde4ecf191e75c0",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/diogen/diogen-analysis/0.1.0/diogen-analysis-0.1.0.jar",
+)
+
+http_file(
+    name = "com_hankcs-aho-corasick-double-array-trie-1_2_3_http",
+    downloaded_file_path = "aho-corasick-double-array-trie-1.2.3.jar",
+    sha256 = "564f0fc690d50702a313510b9a72e9505ace6e81108e84f65de4feb0da244eb8",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/hankcs/aho-corasick-double-array-trie/1.2.3/aho-corasick-double-array-trie-1.2.3.jar",
+)
+
+http_file(
+    name = "org_jetbrains_diogen-diogen-analysis-0_1_0-sources_http",
+    downloaded_file_path = "diogen-analysis-0.1.0-sources.jar",
+    sha256 = "c3cda6679e9d0f27863783d6eb80dfe7fabf350c9b71a92e8acb295b9e4b9fd4",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/diogen/diogen-analysis/0.1.0/diogen-analysis-0.1.0-sources.jar",
+)
+
+http_file(
+    name = "com_hankcs-aho-corasick-double-array-trie-1_2_3-sources_http",
+    downloaded_file_path = "aho-corasick-double-array-trie-1.2.3-sources.jar",
+    sha256 = "c8913fd1a8927c8a4c0be5c66a3eabfb4f5c6a29b07891b990c9a25979ade771",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/hankcs/aho-corasick-double-array-trie/1.2.3/aho-corasick-double-array-trie-1.2.3-sources.jar",
+)
+
+http_file(
     name = "org_easymock-easymock-5_6_0_http",
     downloaded_file_path = "easymock-5.6.0.jar",
     sha256 = "63efc00da99774fb0253330ef9b5788b261022ba73f36bf76889ce7edf3d2b31",
@@ -3001,20 +3029,6 @@ http_file(
     downloaded_file_path = "hppc-0.9.1-sources.jar",
     sha256 = "cfbf1945a51d9c4bfb25c6092cd1199b6e5d02251075dce38977551a922d342e",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/carrotsearch/hppc/0.9.1/hppc-0.9.1-sources.jar",
-)
-
-http_file(
-    name = "com_hankcs-aho-corasick-double-array-trie-1_2_3_http",
-    downloaded_file_path = "aho-corasick-double-array-trie-1.2.3.jar",
-    sha256 = "564f0fc690d50702a313510b9a72e9505ace6e81108e84f65de4feb0da244eb8",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/hankcs/aho-corasick-double-array-trie/1.2.3/aho-corasick-double-array-trie-1.2.3.jar",
-)
-
-http_file(
-    name = "com_hankcs-aho-corasick-double-array-trie-1_2_3-sources_http",
-    downloaded_file_path = "aho-corasick-double-array-trie-1.2.3-sources.jar",
-    sha256 = "c8913fd1a8927c8a4c0be5c66a3eabfb4f5c6a29b07891b990c9a25979ade771",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/hankcs/aho-corasick-double-array-trie/1.2.3/aho-corasick-double-array-trie-1.2.3-sources.jar",
 )
 
 http_file(
@@ -5573,17 +5587,17 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-262_31_http",
-    downloaded_file_path = "intellij-deps-java-atk-wrapper-262.31.jar",
-    sha256 = "9738631c363b906825a179a2130f47b20ae3534efe02aaa975f3d44d72f94118",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/intellij-deps-java-atk-wrapper/262.31/intellij-deps-java-atk-wrapper-262.31.jar",
+    name = "org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-263_33_http",
+    downloaded_file_path = "intellij-deps-java-atk-wrapper-263.33.jar",
+    sha256 = "effd191bd2589daa12c1d6a11dbdd84529ad290808c8effbb02e86d758d069a3",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/intellij-deps-java-atk-wrapper/263.33/intellij-deps-java-atk-wrapper-263.33.jar",
 )
 
 http_file(
-    name = "org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-262_31-sources_http",
-    downloaded_file_path = "intellij-deps-java-atk-wrapper-262.31-sources.jar",
-    sha256 = "a08678c063a5f6b321ea9c5eabc25f538d1c611df4cc5851fc469ba0ce439b88",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/intellij-deps-java-atk-wrapper/262.31/intellij-deps-java-atk-wrapper-262.31-sources.jar",
+    name = "org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-263_33-sources_http",
+    downloaded_file_path = "intellij-deps-java-atk-wrapper-263.33-sources.jar",
+    sha256 = "1e1e745d570e68d9044a417695294ee1f9b0ecfb7fde99d3d87843a688ef5479",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/intellij-deps-java-atk-wrapper/263.33/intellij-deps-java-atk-wrapper-263.33-sources.jar",
 )
 
 http_file(
@@ -7096,20 +7110,6 @@ http_file(
     downloaded_file_path = "kotlinx-coroutines-test-jvm-1.10.2-intellij-1-sources.jar",
     sha256 = "03c2bbc551541ef7b7fdcda0c3be67a51e4ddb0e553fdb9df0493acdaebf7ba7",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/intellij/deps/kotlinx/kotlinx-coroutines-test-jvm/1.10.2-intellij-1/kotlinx-coroutines-test-jvm-1.10.2-intellij-1-sources.jar",
-)
-
-http_file(
-    name = "org_jetbrains_kotlinx-kotlinx-datetime-jvm-0_7_1-0_6_x-compat_http",
-    downloaded_file_path = "kotlinx-datetime-jvm-0.7.1-0.6.x-compat.jar",
-    sha256 = "cf9cdf7b3074044657a1a80bc1bb5280b58545a967ac7fe42b1aa3cf93305714",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-datetime-jvm/0.7.1-0.6.x-compat/kotlinx-datetime-jvm-0.7.1-0.6.x-compat.jar",
-)
-
-http_file(
-    name = "org_jetbrains_kotlinx-kotlinx-datetime-jvm-0_7_1-0_6_x-compat-sources_http",
-    downloaded_file_path = "kotlinx-datetime-jvm-0.7.1-0.6.x-compat-sources.jar",
-    sha256 = "c9b064d79c497897174feb81252d048063c038a363dcdc8559a397c1ddc693f3",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-datetime-jvm/0.7.1-0.6.x-compat/kotlinx-datetime-jvm-0.7.1-0.6.x-compat-sources.jar",
 )
 
 http_file(
@@ -9952,6 +9952,20 @@ http_file(
     downloaded_file_path = "jzlib-1.1.3-sources.jar",
     sha256 = "35ebd67941ce7024e6e7d80b60a4252a9687fa0f909a7079ac904bef6c1658cf",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/jcraft/jzlib/1.1.3/jzlib-1.1.3-sources.jar",
+)
+
+http_file(
+    name = "org_jetbrains_kotlinx-kotlinx-datetime-jvm-0_7_1-0_6_x-compat_http",
+    downloaded_file_path = "kotlinx-datetime-jvm-0.7.1-0.6.x-compat.jar",
+    sha256 = "cf9cdf7b3074044657a1a80bc1bb5280b58545a967ac7fe42b1aa3cf93305714",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-datetime-jvm/0.7.1-0.6.x-compat/kotlinx-datetime-jvm-0.7.1-0.6.x-compat.jar",
+)
+
+http_file(
+    name = "org_jetbrains_kotlinx-kotlinx-datetime-jvm-0_7_1-0_6_x-compat-sources_http",
+    downloaded_file_path = "kotlinx-datetime-jvm-0.7.1-0.6.x-compat-sources.jar",
+    sha256 = "c9b064d79c497897174feb81252d048063c038a363dcdc8559a397c1ddc693f3",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-datetime-jvm/0.7.1-0.6.x-compat/kotlinx-datetime-jvm-0.7.1-0.6.x-compat-sources.jar",
 )
 
 http_file(

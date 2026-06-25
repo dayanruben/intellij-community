@@ -12,6 +12,8 @@ import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.model.AgentSessionArchivedRangePreset
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
 import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
+import com.intellij.agent.workbench.sessions.service.openableSourceProjectPath
+import com.intellij.agent.workbench.sessions.settings.AgentThreadsProjectScopeSettings
 import com.intellij.agent.workbench.sessions.state.AgentSessionThreadViewStateService
 import com.intellij.agent.workbench.sessions.toolwindow.tree.formatRelativeTimeShort
 import com.intellij.agent.workbench.sessions.tree.threadDisplayTitle
@@ -257,8 +259,10 @@ internal class AgentSessionsActivityCounterAction(
 }
 
 private fun defaultActivityRowsFor(project: Project?, bucket: AgentSessionsActivityBucket): List<AgentSessionsActivityThreadRow> {
-  val service = project?.service<AgentSessionsActivityService>() ?: return emptyList()
-  return service.latestChromeSummary().rowsFor(bucket)
+  project ?: return emptyList()
+  val rows = project.service<AgentSessionsActivityService>().latestChromeSummary().rowsFor(bucket)
+  if (!AgentThreadsProjectScopeSettings.isCurrentProjectOnly()) return rows
+  return rows.filterToCurrentProjectActivityRows(openableSourceProjectPath(project))
 }
 
 private fun isActiveThreadViewMode(): Boolean {

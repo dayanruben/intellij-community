@@ -30,6 +30,7 @@ import com.jetbrains.python.psi.types.PyCallableParameterImpl;
 import com.jetbrains.python.psi.types.PyCallableType;
 import com.jetbrains.python.psi.types.PyStructuralType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -40,6 +41,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @ApiStatus.Internal
@@ -90,6 +92,9 @@ public final class PyParameterInfoUtils {
                                                                   @NotNull TypeEvalContext context) {
     final int[] currentParameterIndex = new int[]{0};
     final List<ParameterDescription> parameterDescriptions = new ArrayList<>();
+    final Map<PyParameter, PyCallableParameter> parameterMap = StreamEx.of(parameters)
+      .filter(p -> p.getParameter() != null)
+      .toMap(PyCallableParameter::getParameter, Function.identity(), (a, _) -> a);
     ParamHelper.walkDownParameters(
       parameters,
       new ParamHelper.ParamWalker() {
@@ -111,7 +116,11 @@ public final class PyParameterInfoUtils {
 
         @Override
         public void visitNamedParameter(PyNamedParameter param, boolean first, boolean last) {
-          visitNonPsiParameter(PyCallableParameterImpl.psi(param), first, last);
+          PyCallableParameter parameter = parameterMap.get(param);
+          if (parameter == null) {
+            parameter = PyCallableParameterImpl.psi(param);
+          }
+          visitNonPsiParameter(parameter, first, last);
         }
 
         @Override
@@ -193,7 +202,7 @@ public final class PyParameterInfoUtils {
                                       int currentParamOffset) {
     final PyCallableType callableType = mapping.getCallableType();
     assert callableType != null;
-    int lastParamIndex = callableType.getImplicitOffset();
+    int lastParamIndex = 0;
     final Map<PyExpression, PyCallableParameter> mappedParameters = mapping.getMappedParameters();
     final Map<PyExpression, PyCallableParameter> mappedTupleParameters = mapping.getMappedTupleParameters();
     for (PyExpression arg : flatArgs) {
@@ -240,8 +249,7 @@ public final class PyParameterInfoUtils {
     return lastParamIndex;
   }
 
-  public static void highlightNext(final @NotNull PyCallableType callableType,
-                                   final @NotNull List<PyCallableParameter> parameterList,
+  public static void highlightNext(final @NotNull List<PyCallableParameter> parameterList,
                                    final @NotNull Map<Integer, PyCallableParameter> indexToNamedParameter,
                                    final @NotNull Map<PyCallableParameter, Integer> parameterToHintIndex,
                                    final @NotNull Map<Integer, EnumSet<ParameterFlag>> hintFlags,
@@ -257,7 +265,7 @@ public final class PyParameterInfoUtils {
     if (canOfferNext) {
       int highlightIndex = Integer.MAX_VALUE; // initially beyond reason = no highlight
       if (isArgsEmpty) {
-        highlightIndex = callableType.getImplicitOffset(); // no args, highlight first (PY-3690)
+        highlightIndex = 0; // no args, highlight first (PY-3690)
       }
       else if (lastParamIndex < parameterList.size() - 1) { // lastParamIndex not at end, or no args
         if (!indexToNamedParameter.containsKey(lastParamIndex) || indexToNamedParameter.get(lastParamIndex).isPositionalContainer()) {
@@ -280,26 +288,17 @@ public final class PyParameterInfoUtils {
   }
 
   public static void highlightParameters(PyCallExpression callExpression,
-                                         PyCallableType callableType,
                                          List<PyCallableParameter> parameters,
                                          PyCallExpression.PyArgumentsMapping mapping,
                                          Map<Integer, PyCallableParameter> indexToNamedParameter,
                                          Map<PyCallableParameter, Integer> parameterToHintIndex,
                                          Map<Integer, EnumSet<ParameterFlag>> hintFlags,
                                          int currentParamOffset) {
-    // gray out enough first parameters as implicit (self, cls, ...)
-    for (int i = 0; i < callableType.getImplicitOffset(); i++) {
-      if (indexToNamedParameter.containsKey(i)) {
-        final PyCallableParameter parameter = indexToNamedParameter.get(i);
-        hintFlags.get(parameterToHintIndex.get(parameter)).add(ParameterFlag.DISABLE); // show but mark as absent
-      }
-    }
-
     final List<PyExpression> flattenedArguments = PyUtil.flattenedParensAndLists(callExpression.getArguments());
     final int lastParamIndex =
       collectHighlights(mapping, parameters, parameterToHintIndex, hintFlags, flattenedArguments, currentParamOffset);
 
-    highlightNext(callableType, parameters, indexToNamedParameter, parameterToHintIndex, hintFlags, flattenedArguments.isEmpty(),
+    highlightNext(parameters, indexToNamedParameter, parameterToHintIndex, hintFlags, flattenedArguments.isEmpty(),
                   lastParamIndex);
   }
 
@@ -350,7 +349,7 @@ public final class PyParameterInfoUtils {
     final List<ParameterDescription> hintsAndAnnotations =
       buildParameterListHint(parameters, indexToNamedParameter, parameterToHintIndex, hintFlags, typeEvalContext);
 
-    highlightParameters(callExpression, callableType, parameters, mapping, indexToNamedParameter, parameterToHintIndex, hintFlags,
+    highlightParameters(callExpression, parameters, mapping, indexToNamedParameter, parameterToHintIndex, hintFlags,
                         currentParamOffset);
 
     return new ParameterHints(hintsAndAnnotations, hintFlags);

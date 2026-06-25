@@ -45,7 +45,6 @@ import com.jetbrains.python.psi.types.PyLiteralType.Companion.match
 import com.jetbrains.python.psi.types.PyRecursiveTypeVisitor.PyTypeTraverser
 import com.jetbrains.python.psi.types.PyTypeChecker.convertToType
 import com.jetbrains.python.psi.types.PyTypeChecker.match
-import com.jetbrains.python.psi.types.PyTypeChecker.substituteSelfInProtocolMember
 import com.jetbrains.python.psi.types.PyTypeParameterMapping.Option.USE_DEFAULTS
 import com.jetbrains.python.psi.types.PyTypeParameterType.Variance
 import com.jetbrains.python.psi.types.PyTypeUtil.derefOrUnknown
@@ -1352,14 +1351,14 @@ object PyTypeChecker {
       val subIsBool = "bool" == subName
       val subIsInt = PyNames.TYPE_INT == subName
       val subIsLong = PyNames.TYPE_LONG == subName
-      val subIsFloat = "float" == subName
-      val subIsComplex = "complex" == subName
+      val subIsFloat = PyNames.TYPE_FLOAT == subName
+      val subIsComplex = PyNames.TYPE_COMPLEX == subName
       if (superName == null || subName == null ||
           superName == subName ||
           (PyNames.TYPE_INT == superName && subIsBool) ||
           ((PyNames.TYPE_LONG == superName || PyNames.ABC_INTEGRAL == superName) && (subIsBool || subIsInt)) ||
-          (("float" == superName || PyNames.ABC_REAL == superName) && (subIsBool || subIsInt || subIsLong)) ||
-          (("complex" == superName || PyNames.ABC_COMPLEX == superName) && (subIsBool || subIsInt || subIsLong || subIsFloat)) ||
+          ((PyNames.TYPE_FLOAT == superName || PyNames.ABC_REAL == superName) && (subIsBool || subIsInt || subIsLong)) ||
+          ((PyNames.TYPE_COMPLEX == superName || PyNames.ABC_COMPLEX == superName) && (subIsBool || subIsInt || subIsLong || subIsFloat)) ||
           (PyNames.ABC_NUMBER == superName && (subIsBool || subIsInt || subIsLong || subIsFloat || subIsComplex))
       ) {
         return true
@@ -1466,26 +1465,50 @@ object PyTypeChecker {
 
   @JvmStatic
   fun getSubstitutionsWithUnresolvedReturnGenerics(
-    parameters: Collection<PyCallableParameter>,
+    callableType: PyCallableType,
     returnType: PyType?,
     substitutions: GenericSubstitutions?,
     context: TypeEvalContext,
   ): GenericSubstitutions {
-    val parameterTypes = parameters.map { it.getArgumentType(context) }
-    return substituteUnboundTypeVarsWithDefaultOrAny(returnType, parameterTypes, substitutions, context)
+    val substitutions = substitutions ?: GenericSubstitutions()
+
+    val typeParameters = callableType.getTypeParameters(context).orEmpty()
+    typeParameters.forEach { typeParameter ->
+      when (typeParameter) {
+        is PyTypeVarType -> {
+          @Suppress("UNCHECKED_CAST")
+          substitutions.putTypeVar(typeParameter, typeParameter.defaultType as Ref<PyType?>?, KeyImpl, true)
+        }
+        is PyTypeVarTupleType -> {
+          substitutions.putTypeVarTuple(typeParameter, Ref.deref(typeParameter.defaultType), KeyImpl, true)
+        }
+        is PyParamSpecType -> {
+          substitutions.putParamSpec(typeParameter, Ref.deref(typeParameter.defaultType), KeyImpl, true)
+        }
+      }
+    }
+
+    // Restrict defaulting to `callableType`-scoped type parameters.
+    val resolvableTypeParams = GenericsImpl()
+    val callable = callableType.callable
+    if (callable != null) {
+      callableType.getParameters(context)?.forEach { parameter ->
+        collectGenerics(parameter.getArgumentType(context), context, resolvableTypeParams)
+      }
+      resolvableTypeParams.typeVars.removeAll { it.scopeOwner !== callable }
+      resolvableTypeParams.typeVarTuples.removeAll { it.scopeOwner !== callable }
+      resolvableTypeParams.paramSpecs.removeAll { it.scopeOwner !== callable }
+    }
+
+    return substituteUnboundTypeVarsWithDefaultOrAny(returnType, resolvableTypeParams, substitutions, context)
   }
 
   private fun substituteUnboundTypeVarsWithDefaultOrAny(
     targetType: PyType?,
-    typeParameterSources: List<PyType?>,
+    resolvableTypeParams: Generics,
     substitutions: GenericSubstitutions?,
     context: TypeEvalContext,
   ): GenericSubstitutions {
-    val resolvableTypeParams = GenericsImpl()
-    for (parameterType in typeParameterSources) {
-      collectGenerics(parameterType, context, resolvableTypeParams)
-    }
-
     val existingSubstitutions = substitutions ?: GenericSubstitutions()
     val requiredTypeParams = targetType.collectGenerics(context)
     // TODO Handle unmatched TypeVarTuples here as well
@@ -1767,8 +1790,13 @@ object PyTypeChecker {
           clone(callableType.getReturnType(context)),
           callableType.callable,
           callableType.modifier,
-          callableType.implicitOffset,
         )
+      }
+
+      override fun visitPyOverloadType(overloadType: PyOverloadType): PyType? {
+        return overloadType.map {
+          if (it != null) visitPyCallableType(it) as PyCallableType else null
+        }
       }
 
       override fun visitPyCallableParameterListType(callableParameterListType: PyCallableParameterListType): PyType {
@@ -2069,6 +2097,7 @@ object PyTypeChecker {
     return when (type) {
       null, is PyAnyType -> null
       is PyUnionType -> isUnionCallable(type)
+      is PyOverloadType -> true
       is PyCallableType -> type.isCallable
       is PyStructuralType if type.isInferredFromUsages -> true
       is PyTypeVarType -> {
@@ -2285,7 +2314,8 @@ object PyTypeChecker {
       // we don't keep the bind T@Iterable -> Any (see the implementation of `match(PyTypeVarType, PyType, MatchContext)`).
       // As a workaround, until we migrate to type checking with CSP, we consider that
       // all parameter of the super types should be bound, and if they aren't, we fall back them to Any.
-      val substitutions = substituteUnboundTypeVarsWithDefaultOrAny(superType, listOf(superType), matchContext.mySubstitutions, context)
+      val resolvableTypeParams = superType.collectGenerics(context)
+      val substitutions = substituteUnboundTypeVarsWithDefaultOrAny(superType, resolvableTypeParams, matchContext.mySubstitutions, context)
       return substitute(superType, substitutions, context)
     }
     return null

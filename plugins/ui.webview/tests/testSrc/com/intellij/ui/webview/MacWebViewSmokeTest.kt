@@ -101,6 +101,171 @@ class MacWebViewSmokeTest {
   }
 
   @Test
+  fun applicationMode_preventsContextMenuDefault(): Unit = runBlocking {
+    val facade = createMacWebViewEngine(scope!!)
+
+    SwingUtilities.invokeAndWait {
+      val host = createHost(scope!!, facade)
+      frame!!.contentPane.add(host)
+      frame!!.revalidate()
+    }
+
+    delay(1000.milliseconds)
+
+    facade.loadHtml(/*language=HTML*/ "<html><body>menu target</body></html>")
+    delay(500.milliseconds)
+
+    val result = facade.evaluateJavaScript(/*language=JavaScript*/ """
+      (function() {
+        const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+        document.body.dispatchEvent(event);
+        return String(event.defaultPrevented);
+      })()
+    """.trimIndent())
+    assertEquals("true", result)
+
+    facade.close()
+  }
+
+  @Test
+  @Suppress("HtmlDeprecatedAttribute")
+  fun applicationMode_disablesInputAssistForFormControls(): Unit = runBlocking {
+    val facade = createMacWebViewEngine(scope!!)
+
+    SwingUtilities.invokeAndWait {
+      val host = createHost(scope!!, facade)
+      frame!!.contentPane.add(host)
+      frame!!.revalidate()
+    }
+
+    delay(1000.milliseconds)
+
+    facade.loadHtml(/*language=HTML*/ """
+      <html>
+      <body>
+        <input id="existing" autocomplete="email" autocorrect="on" autocapitalize="sentences" spellcheck="true">
+      </body>
+      </html>
+    """.trimIndent())
+    delay(500.milliseconds)
+
+    val initialResult = facade.evaluateJavaScript(/*language=JavaScript*/ """
+      (function() {
+        const existing = document.getElementById('existing');
+        return inputAssistState(existing);
+
+        function inputAssistState(element) {
+          const attributeNames = ['autocomplete', 'autocorrect', 'autocapitalize', 'spellcheck'];
+          return attributeNames.map(name => element.getAttribute(name)).join('|') + '|' + String(element.spellcheck);
+        }
+      })()
+    """.trimIndent())
+    assertEquals("off|off|off|false|false", initialResult)
+
+    facade.evaluateJavaScript(/*language=JavaScript*/ """
+      (function() {
+        const dynamic = document.createElement('input');
+        dynamic.id = 'dynamic';
+        setInputAssistEnabled(dynamic);
+        document.body.appendChild(dynamic);
+
+        const host = document.createElement('div');
+        host.id = 'shadow-host';
+        document.body.appendChild(host);
+
+        const shadow = host.attachShadow({ mode: 'open' });
+        const shadowInput = document.createElement('input');
+        shadowInput.id = 'shadow';
+        setInputAssistEnabled(shadowInput);
+        shadow.appendChild(shadowInput);
+
+        return 'created';
+
+        function setInputAssistEnabled(element) {
+          element.setAttribute('autocomplete', 'email');
+          element.setAttribute('autocorrect', 'on');
+          element.setAttribute('autocapitalize', 'sentences');
+          element.setAttribute('spellcheck', 'true');
+          element.spellcheck = true;
+        }
+      })()
+    """.trimIndent())
+    delay(100.milliseconds)
+
+    val dynamicResult = facade.evaluateJavaScript(/*language=JavaScript*/ """
+      (function() {
+        return [
+          inputAssistState(document.getElementById('existing')),
+          inputAssistState(document.getElementById('dynamic')),
+          inputAssistState(document.getElementById('shadow-host').shadowRoot.getElementById('shadow'))
+        ].join(';');
+
+        function inputAssistState(element) {
+          const attributeNames = ['autocomplete', 'autocorrect', 'autocapitalize', 'spellcheck'];
+          return attributeNames.map(name => element.getAttribute(name)).join('|') + '|' + String(element.spellcheck);
+        }
+      })()
+    """.trimIndent())
+    assertEquals("off|off|off|false|false;off|off|off|false|false;off|off|off|false|false", dynamicResult)
+
+    val eventResult = facade.evaluateJavaScript(/*language=JavaScript*/ """
+      (function() {
+        const existing = document.getElementById('existing');
+        const dynamic = document.getElementById('dynamic');
+        const shadowInput = document.getElementById('shadow-host').shadowRoot.getElementById('shadow');
+        for (const element of [existing, dynamic, shadowInput]) {
+          setInputAssistEnabled(element);
+        }
+
+        const eventLog = [];
+        document.addEventListener('focusin', function() { eventLog.push('focusin'); }, { once: true });
+        document.addEventListener('beforeinput', function() { eventLog.push('beforeinput'); }, { once: true });
+        document.addEventListener('input', function() { eventLog.push('input'); }, { once: true });
+
+        const focusEvent = new Event('focusin', { bubbles: true, composed: true });
+        const beforeInputEvent = new Event('beforeinput', { bubbles: true, composed: true, cancelable: true });
+        const inputEvent = new Event('input', { bubbles: true, composed: true });
+        shadowInput.dispatchEvent(focusEvent);
+        shadowInput.dispatchEvent(beforeInputEvent);
+        shadowInput.dispatchEvent(inputEvent);
+
+        window['__inputAssistEventState'] = eventLog.join(',') + '|' + String(beforeInputEvent.defaultPrevented) + '|' + String(inputEvent.defaultPrevented);
+        return window['__inputAssistEventState'];
+
+        function setInputAssistEnabled(element) {
+          element.setAttribute('autocomplete', 'email');
+          element.setAttribute('autocorrect', 'on');
+          element.setAttribute('autocapitalize', 'sentences');
+          element.setAttribute('spellcheck', 'true');
+          element.spellcheck = true;
+        }
+      })()
+    """.trimIndent())
+    assertEquals("focusin,beforeinput,input|false|false", eventResult)
+
+    delay(100.milliseconds)
+
+    val resetResult = facade.evaluateJavaScript(/*language=JavaScript*/ """
+      (function() {
+        return [
+          inputAssistState(document.getElementById('existing')),
+          inputAssistState(document.getElementById('dynamic')),
+          inputAssistState(document.getElementById('shadow-host').shadowRoot.getElementById('shadow')),
+          window['__inputAssistEventState']
+        ].join(';');
+
+        function inputAssistState(element) {
+          const attributeNames = ['autocomplete', 'autocorrect', 'autocapitalize', 'spellcheck'];
+          return attributeNames.map(name => element.getAttribute(name)).join('|') + '|' + String(element.spellcheck);
+        }
+      })()
+    """.trimIndent())
+    assertEquals("off|off|off|false|false;off|off|off|false|false;off|off|off|false|false;focusin,beforeinput,input|false|false", resetResult)
+
+    facade.close()
+  }
+
+  @Test
   fun loadHtml_beforeAttach_isAppliedAfterAttach(): Unit = runBlocking {
     val facade = createMacWebViewEngine(scope!!)
     facade.loadHtml(/*language=HTML*/ "<html><body>queued-before-attach</body></html>")
