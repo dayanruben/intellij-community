@@ -6,7 +6,8 @@ import {
   MarkdownPreviewApp,
   scrollMarkdownPreviewToLine,
   type MarkdownChangedBlockDescriptor,
-  type MarkdownCommandDescriptor,
+  type MarkdownResolveRunCommandsRequest,
+  type MarkdownResolvedRunCommandsResponse,
   type MarkdownRunCommandRequest,
   type MarkdownSourceRange,
 } from "./MarkdownPreviewApp"
@@ -15,12 +16,12 @@ interface MarkdownContentChangedParams {
   markdown: string
   scrollLine: number
   settings: MarkdownPreviewSettingsParams
-  commands: MarkdownCommandDescriptor[]
+  contentVersion: number
   changes: MarkdownChangedBlockDescriptor[]
 }
 
 interface MarkdownPreviewSettingsParams {
-  fontSize: number
+  fontSize?: number | null
 }
 
 interface MarkdownScrollToLineParams {
@@ -40,6 +41,7 @@ interface MarkdownSelectionChangedParams {
 interface MarkdownPreviewHostApi extends WebViewCallable {
   pageReady(): Promise<void>
   openLink(params: MarkdownOpenLinkParams): Promise<void>
+  resolveRunCommands(params: MarkdownResolveRunCommandsRequest): Promise<MarkdownResolvedRunCommandsResponse>
   runCommand(params: MarkdownRunCommandRequest): Promise<void>
 }
 
@@ -53,7 +55,7 @@ const contentElement = requiredElement<HTMLElement>("content")
 const root = createRoot(contentElement)
 let markdown = ""
 let scrollLine = 0
-let commands: MarkdownCommandDescriptor[] = []
+let contentVersion = -1
 let changes: MarkdownChangedBlockDescriptor[] = []
 let selection: MarkdownSourceRange | undefined
 let theme = webViewTheme.current
@@ -62,8 +64,8 @@ webView.implement(markdownPreviewPageApiId, {
   contentChanged(params) {
     markdown = params.markdown
     scrollLine = params.scrollLine
+    contentVersion = params.contentVersion
     applyPreviewSettings(params.settings)
-    commands = params.commands
     changes = params.changes ?? []
     renderPreview()
   },
@@ -90,11 +92,12 @@ function renderPreview(): void {
     <MarkdownPreviewApp
       markdown={markdown}
       scrollLine={scrollLine}
-      commands={commands}
+      contentVersion={contentVersion}
       changes={changes}
       selection={selection}
       theme={theme}
       onOpenLink={openMarkdownLink}
+      onResolveRunCommands={resolveMarkdownRunCommands}
       onRunCommand={runMarkdownCommand}
     />
   )
@@ -102,6 +105,10 @@ function renderPreview(): void {
 
 function openMarkdownLink(href: string): void {
   void markdownPreviewHostApi.openLink({ href })
+}
+
+function resolveMarkdownRunCommands(request: MarkdownResolveRunCommandsRequest): Promise<MarkdownResolvedRunCommandsResponse> {
+  return markdownPreviewHostApi.resolveRunCommands(request)
 }
 
 function runMarkdownCommand(request: MarkdownRunCommandRequest): void {
@@ -113,8 +120,13 @@ function applyTheme(theme: "light" | "dark"): void {
 }
 
 function applyPreviewSettings(settings: MarkdownPreviewSettingsParams): void {
-  const fontSize = Number.isFinite(settings.fontSize) && settings.fontSize > 0 ? settings.fontSize : 14
-  document.documentElement.style.setProperty("--default-font-size", `${fontSize}px`)
+  const fontSize = settings.fontSize
+  if (typeof fontSize === "number" && Number.isFinite(fontSize) && fontSize > 0) {
+    document.documentElement.style.setProperty("--markdown-preview-font-size", `${fontSize}px`)
+  }
+  else {
+    document.documentElement.style.removeProperty("--markdown-preview-font-size")
+  }
 }
 
 function requiredElement<T extends HTMLElement>(id: string): T {

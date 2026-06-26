@@ -61,14 +61,18 @@ public class PostfixTemplateLookupElement extends CustomLiveTemplateLookupElemen
   @ApiStatus.Experimental
   @Override
   public @NotNull IntentionPreviewInfo preview(@NotNull ActionContext ctx) {
-    //todo disabled for now
-    if (InjectedLanguageManager.getInstance(ctx.project()).isInjectedFragment(ctx.file())) return IntentionPreviewInfo.EMPTY;
     PostfixModExpander expander = myTemplate.createModExpander();
     if (myTemplate.isApplicableForModCommand() && expander != null) {
       String key = PostfixLiveTemplate.computeTemplateKeyWithoutContextChecking(
         myProvider, ctx.file().getFileDocument().getCharsSequence(), ctx.offset());
       if (key == null) return IntentionPreviewInfo.EMPTY;
       TextRange keyRange = PostfixTemplatesUtils.computeKeyRange(ctx, key, myTemplate.getKey());
+      InjectedLanguageManager injectedLanguageManager = InjectedLanguageManager.getInstance(ctx.project());
+      if (injectedLanguageManager.isInjectedFragment(ctx.file())) {
+        TextRange selection = TextRange.create(injectedLanguageManager.injectedToHost(ctx.file(), ctx.selection().getStartOffset()),
+                                               injectedLanguageManager.injectedToHost(ctx.file(), ctx.selection().getEndOffset()));
+        ctx = ctx.withSelection(selection);
+      }
       var command = expander.expand(ctx, myProvider, keyRange);
       return IntentionPreviewUtils.getModCommandPreview(command, ctx);
     }

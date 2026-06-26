@@ -191,7 +191,6 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     //noinspection TestOnlyProblems
     DaemonProgressIndicator.setDebug(LOG.isDebugEnabled());
 
-    myDisposed = false;
     myFileStatusMap.markAllFilesDirty("DaemonCodeAnalyzer init");
     Disposer.register(this, () -> {
       assert !myDisposed : "Double dispose";
@@ -794,6 +793,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   private long getDelta() {
     long u = updateRequests.get();
     long diff = (queuedRequests(u) - executedRequests(u) + 0x1_0000_0000L/*Assume not more than one wraparound*/) & 0x0000_0000_ffff_ffffL;
+    //noinspection ConstantValue
     assert diff >= 0 : diff + ":" + Long.toHexString(u);
     return diff;
   }
@@ -1630,9 +1630,14 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     return activeTextEditors;
   }
 
-  private static boolean isValidEditor(@NotNull FileEditor editor) {
+  private boolean isValidEditor(@NotNull FileEditor editor) {
     VirtualFile virtualFile = editor.getFile();
-    return virtualFile != null && virtualFile.isValid() && editor.isValid() && isInActiveProject(editor);
+    return virtualFile != null && virtualFile.isValid() && editor.isValid() && isInActiveProject(editor) && isFromMyProject(editor);
+  }
+
+  private boolean isFromMyProject(@NotNull FileEditor fileEditor) {
+    Project project = fileEditor instanceof TextEditor te ? te.getEditor().getProject() : null;
+    return project == null || project == myProject;
   }
 
   private static boolean isInActiveProject(@NotNull FileEditor editor) {
@@ -1645,21 +1650,17 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     // Can't just check the editor's window, though, because the active window might be something else, e.g., a detached Project View,
     // see IDEA-343992.
     Window editorWindow = SwingUtilities.getWindowAncestor(editor.getComponent());
-    var editorProject = getProject(editorWindow);
+    var editorProject = ProjectUtil.getProjectForComponent(editorWindow);
     for (Window window : Window.getWindows()) {
       if (!window.isActive()) {
         continue;
       }
-      if (window == editorWindow || getProject(window) == editorProject) {
+      if (window == editorWindow || ProjectUtil.getProjectForComponent(window) == editorProject) {
         return true;
       }
     }
     // Project should be active in a headless case (see FL-25764)
     return editorWindow == null;
-  }
-
-  private static @Nullable Project getProject(@Nullable Window window) {
-    return ProjectUtil.getProjectForComponent(window);
   }
 
   /**

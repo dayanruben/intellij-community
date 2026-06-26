@@ -19,12 +19,10 @@ import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil
 import com.jetbrains.python.codeInsight.typing.PyTypedDictTypeProvider.Helper.isTypingTypedDictInheritor
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
 import com.jetbrains.python.psi.AccessDirection
-import com.jetbrains.python.psi.PyArgumentList
 import com.jetbrains.python.psi.PyAugAssignmentStatement
 import com.jetbrains.python.psi.PyBinaryExpression
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallExpression.PyArgumentsMapping
-import com.jetbrains.python.psi.PyCallSiteExpression
 import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyCallable
 import com.jetbrains.python.psi.PyClass
@@ -37,7 +35,6 @@ import com.jetbrains.python.psi.PyLambdaExpression
 import com.jetbrains.python.psi.PyNamedParameter
 import com.jetbrains.python.psi.PyParameter
 import com.jetbrains.python.psi.PyParameterList
-import com.jetbrains.python.psi.PyParenthesizedExpression
 import com.jetbrains.python.psi.PyQualifiedExpression
 import com.jetbrains.python.psi.PyReferenceExpression
 import com.jetbrains.python.psi.PySequenceExpression
@@ -62,7 +59,6 @@ import com.jetbrains.python.psi.types.PyCallableTypeImpl
 import com.jetbrains.python.psi.types.PyClassLikeType
 import com.jetbrains.python.psi.types.PyClassType
 import com.jetbrains.python.psi.types.PyClassTypeImpl
-import com.jetbrains.python.psi.types.PyCollectionType
 import com.jetbrains.python.psi.types.PyConcatenateType
 import com.jetbrains.python.psi.types.PyFunctionType
 import com.jetbrains.python.psi.types.PyModuleType
@@ -74,8 +70,8 @@ import com.jetbrains.python.psi.types.PyTupleType
 import com.jetbrains.python.psi.types.PyType
 import com.jetbrains.python.psi.types.PyTypeChecker
 import com.jetbrains.python.psi.types.PyTypeChecker.GenericSubstitutions
-import com.jetbrains.python.psi.types.PyTypeParameterType
 import com.jetbrains.python.psi.types.PyTypeMember
+import com.jetbrains.python.psi.types.PyTypeParameterType
 import com.jetbrains.python.psi.types.PyTypeUtil
 import com.jetbrains.python.psi.types.PyTypeUtil.components
 import com.jetbrains.python.psi.types.PyTypeUtil.toStream
@@ -289,7 +285,13 @@ object PyCallExpressionHelper {
         val resolveResults = ResolveResultList()
         PyResolveUtil.addImplicitResolveResults(referencedName, resolveResults, callee)
 
-        return forEveryScopeTakeOverloadsOtherwiseImplementations(resolveResults, context).selectCallableTypes(context)
+        return PyUtil.filterTopPriorityElements(forEveryScopeTakeOverloadsOtherwiseImplementations(resolveResults, context) { it.element })
+          .asSequence()
+          .filterIsInstance<PyTypedElement>()
+          .map { context.getType(it) }
+          .flatMap { it.toStream() }
+          .filterIsInstance<PyCallableType>()
+          .toList()
       }
     }
 
@@ -302,14 +304,6 @@ object PyCallExpressionHelper {
     if (file == null || !PythonRuntimeService.getInstance().isInPydevConsole(file)) return mutableListOf()
     val calleeType = getCalleeType(expression, resolveContext)
     return calleeType.components.filterIsInstance<PyCallableType>()
-  }
-
-  private fun List<PsiElement>.selectCallableTypes(context: TypeEvalContext): List<PyCallableType> {
-    return this
-      .filterIsInstance<PyTypedElement>()
-      .map { context.getType(it) }
-      .flatMap { it.toStream() }
-      .filterIsInstance<PyCallableType>()
   }
 
   private fun multipleResolveCallee(expression: PyExpression?, resolveContext: PyResolveContext): List<QualifiedRatedResolveResult> {
@@ -681,7 +675,9 @@ object PyCallExpressionHelper {
     val arguments = callSite.getArguments(types[0].callable)
     val matchingOverloads = types.filter { matchesByArgumentTypes(it, callSite, context) }
     if (matchingOverloads.isEmpty()) {
-      return PyAnyType.unknown
+      return types
+        .map { it.getCallType(context, callSite) }
+        .let { PyUnsafeUnionType.unsafeUnion(it) }
     }
     if (matchingOverloads.size == 1) {
       return matchingOverloads[0].getCallType(context, callSite)
@@ -692,7 +688,7 @@ object PyCallExpressionHelper {
     if (someArgumentsHaveUnknownType) {
       return matchingOverloads
         .map { it.getCallType(context, callSite) }
-        .let { PyUnionType.union(it) }
+        .let { PyUnsafeUnionType.unsafeUnion(it) }
     }
     return matchingOverloads.firstOrNull()?.getCallType(context, callSite) ?: PyAnyType.unknown
   }
@@ -778,37 +774,6 @@ object PyCallExpressionHelper {
     return null
   }
 
-  /**
-   * `argument` can be (parenthesized) expression or a value of a [PyKeywordArgument]
-   */
-  @ApiStatus.Internal
-  fun getMappedParameters(expression: PyExpression, resolveContext: PyResolveContext): List<PyCallableParameter>? {
-    var argument = expression
-    while (true) {
-      val newArgument = argument.parent
-      newArgument as? PyParenthesizedExpression ?: break
-      argument = newArgument
-    }
-
-    (argument.parent as? PyKeywordArgument)?.let {
-      assert(it.valueExpression === argument)
-      argument = it
-    }
-
-    var parent = argument.parent
-    if (parent is PyArgumentList) {
-      parent = parent.parent
-    }
-    if (parent !is PyCallSiteExpression) {
-      return null
-    }
-
-    val finalArgument = argument
-    return mapArguments(parent, resolveContext).mapNotNull {
-      it.mappedParameters[finalArgument]
-    }
-  }
-
   @JvmStatic
   fun mapArguments(expression: PyCallSiteOwner, callableType: PyCallableType, context: TypeEvalContext): PyArgumentsMapping {
     val arguments = expression.getArguments(callableType.callable)
@@ -874,11 +839,6 @@ object PyCallExpressionHelper {
     return metaClassType !== PyBuiltinCache.getInstance(this).typeType
   }
 
-  /**
-   * Tries to infer implicit offset from the `callSite` and `callable`.
-   *
-   * @see mapArguments
-   */
   @JvmStatic
   fun mapArguments(expression: PyCallSiteOwner, callable: PyCallable, context: TypeEvalContext): PyArgumentsMapping {
     val callableType = context.getType(callable) as? PyCallableType?
@@ -977,7 +937,7 @@ object PyCallExpressionHelper {
     //  covers most cases.
 
     val classType = stripDefaultTypeArguments(classType, context)
-    val classTypeParams = (classType as? PyCollectionType)?.elementTypes.orEmpty().filterIsInstance<PyTypeParameterType>()
+    val classTypeParams = classType.typeArguments.filterIsInstance<PyTypeParameterType>()
 
     val metaClassCall = resolveMetaClassCallMethod(classType, resolveContext)
     if (metaClassCall != null) {
@@ -1046,7 +1006,7 @@ object PyCallExpressionHelper {
 
   private fun stripDefaultTypeArguments(classType: PyClassType, context: TypeEvalContext): PyClassType {
     val genericDef = PyTypeChecker.findGenericDefinitionType(classType.pyClass, context) ?: return classType
-    if (classType !is PyCollectionType) return genericDef.toClass()
+    if (!classType.isParameterized) return genericDef.toClass()
 
     val allSubstitutions = PyTypeChecker.collectTypeSubstitutions(classType, context)
     val nonDefaultSubstitutions = GenericSubstitutions(
@@ -1155,12 +1115,11 @@ object PyCallExpressionHelper {
     return analyzeArguments(arguments, parameters, context)
   }
 
-  @JvmStatic
-  fun analyzeArguments(
+  private fun analyzeArguments(
     arguments: List<PyExpression>,
     parameters: List<PyCallableParameter>,
     context: TypeEvalContext,
-): ArgumentMappingResults {
+  ): ArgumentMappingResults {
     val hasSlashParameter = parameters.any { it.isPositionOnlySeparator }
     val firstExplicitParam = parameters.dropWhile { it.isSelf }.firstOrNull()
     val oldStylePositionalOnly = firstExplicitParam != null && isLegacyPositionalOnly(firstExplicitParam)
@@ -1368,10 +1327,6 @@ object PyCallExpressionHelper {
   private fun isParamSpecOrConcatenate(parameter: PyCallableParameter, context: TypeEvalContext): Boolean {
     val type = parameter.getType(context)
     return type is PyParamSpecType || type is PyConcatenateType
-  }
-
-  private fun forEveryScopeTakeOverloadsOtherwiseImplementations(results: List<ResolveResult>, context: TypeEvalContext): List<PsiElement> {
-    return PyUtil.filterTopPriorityElements(forEveryScopeTakeOverloadsOtherwiseImplementations(results, context) { it.element })
   }
 
   private fun <E : ResolveResult> forEveryScopeTakeOverloadsOtherwiseImplementations(

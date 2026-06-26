@@ -608,6 +608,21 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
       """)
 
     @Test
+    fun `bound method returning generic of type var`() = test("""
+      class Box[U]:
+        def get(self) -> U: ...
+  
+  
+      def foo[T: Box[int], Y: Box[int] | Box[str], Z: (Box[int], Box[str])](t: T, y: Y, z: Z):
+          v1 = t.get()
+      #   └ TYPE int
+          v2 = y.get()
+      #   └ TYPE int | str
+          v3 = z.get()
+      #   └ TYPE int | str
+      """)
+
+    @Test
     fun `metaclass method call on class`() = test("""
       class Meta(type):
           def foo(cls) -> int: ...
@@ -2388,6 +2403,28 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
       call = empty
       #│     ^^^^^ WARNING Expected type '(Concatenate(int, ...)) -> str', got '() -> str' instead
       #^^^ WARNING Redeclared 'call' defined above without usage
+      """)
+
+    @TestFor(issues = ["PY-89912"])
+    @Test
+    fun `callable with parameter of type Self`() = test("""
+      from typing import Self, Callable
+
+      class Shape:
+          def apply(self, f: Callable[[Self], None]) -> None: ...
+
+      class Circle(Shape): ...
+
+      def accept_circle(c: Circle): ...
+      
+      def accept_shape(s: Shape): ...
+
+      circle = Circle()
+      circle.apply(accept_shape)
+
+      shape = Shape()
+      shape.apply(accept_circle)
+      #           ^^^^^^^^^^^^^ WARNING Expected type '(Shape) -> None', got '(c: Circle) -> None' instead
       """)
   }
 

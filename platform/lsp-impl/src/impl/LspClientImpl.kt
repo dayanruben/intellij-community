@@ -288,11 +288,13 @@ class LspClientImpl internal constructor(
       logInfo("Stopping LSP server ${if (explicitStop) "normally" else "unexpectedly"}")
       state = if (explicitStop) LspServerState.ShutdownNormally else LspServerState.ShutdownUnexpectedly
 
-      forEachOpenedFile { file ->
-        LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
-        LspInlayApplier.getInstance(project).scheduleRefresh(file)
+      if (!project.isDisposed) {
+        forEachOpenedFile { file ->
+          LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
+          LspInlayApplier.getInstance(project).scheduleRefresh(file)
+        }
       }
-      documentSyncManager.clearOpenedFiles()
+      documentSyncManager.close()
       requestExecutor.shutdownNow()
 
       highlightingCacheRegistry.clearCache()

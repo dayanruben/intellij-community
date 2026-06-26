@@ -94,6 +94,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import javax.swing.Action;
 import javax.swing.JComponent;
@@ -388,11 +389,14 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
 
   private void doSaveDocument(@NotNull Document document, boolean isExplicit) throws IOException, SaveVetoException {
     VirtualFile file = getFile(document);
-    if (LOG.isTraceEnabled()) LOG.trace("saving: " + file);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("saving: " + file);
+    }
 
-    if (file == null ||
-        !isTrackable(file) ||
-        file.isValid() && !isFileModified(file)) {
+    if (file == null || !isTrackable(file) || file.isValid() && !isFileModified(file)) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("doSaveDocument: removing from unsaved without saving: file:"+file+"; isTrackable:"+(file==null?"-":isTrackable(file))+"; isValid:"+(file==null?"-":file.isValid())+"; isFileModified:"+(file==null?"-":isFileModified(file)));
+      }
       removeFromUnsaved(document);
       return;
     }
@@ -419,13 +423,17 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
 
   private boolean maySaveDocument(@NotNull VirtualFile file, @NotNull Document document, boolean isExplicit) {
     if (myConflictResolver.hasConflict(file)) {
-      if (LOG.isTraceEnabled()) LOG.trace("maySaveDocument: save for " + file + " is vetoed by conflict resolver");
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("maySaveDocument: save for " + file + " is vetoed by conflict resolver");
+      }
       return false;
     }
 
     for (FileDocumentSynchronizationVetoer vetoer : FileDocumentSynchronizationVetoer.EP_NAME.getExtensionList()) {
       if (!vetoer.maySaveDocument(document, isExplicit)) {
-        if (LOG.isTraceEnabled()) LOG.trace("maySaveDocument: save for " + file + " is vetoed by " + vetoer);
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("maySaveDocument: save for " + file + " is vetoed by " + vetoer);
+        }
         return false;
       }
     }
@@ -467,8 +475,7 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
     }
 
     PomModelImpl.guardPsiModificationsIn(() -> {
-      ApplicationManager.getApplication().getMessageBus().syncPublisher(FileDocumentManagerListenerBackgroundable.TOPIC)
-        .beforeDocumentSaving(document);
+      ApplicationManager.getApplication().getMessageBus().syncPublisher(FileDocumentManagerListenerBackgroundable.TOPIC).beforeDocumentSaving(document);
       LOG.assertTrue(file.isValid());
 
       String text = document.getText();
@@ -511,8 +518,10 @@ public class FileDocumentManagerImpl extends FileDocumentManagerBase implements 
     LOG.assertTrue(!myUnsavedDocuments.contains(document));
   }
 
-  private static boolean isSaveNeeded(@NotNull Document document, @NotNull VirtualFile file) throws IOException {
-    if (document.getUserData(FORCE_SAVE_DOCUMENT_KEY)== Boolean.TRUE) {
+  @ApiStatus.Internal
+  @VisibleForTesting
+  public static boolean isSaveNeeded(@NotNull Document document, @NotNull VirtualFile file) throws IOException {
+    if (document.getUserData(FORCE_SAVE_DOCUMENT_KEY) == Boolean.TRUE) {
       return true;
     }
 

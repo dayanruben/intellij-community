@@ -14,7 +14,9 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.FileDocumentManagerListenerBackgroundable;
 import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.fileEditor.impl.FileDocumentManagerBase;
 import com.intellij.openapi.fileEditor.impl.FileDocumentManagerImpl;
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.fileTypes.ExtensionFileNameMatcher;
@@ -40,6 +42,7 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.IoTestUtil;
+import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.JarFileSystem;
@@ -67,6 +70,7 @@ import com.intellij.testFramework.rules.TempDirectory;
 import com.intellij.tools.ide.metrics.benchmark.Benchmark;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.TestTimeOut;
 import com.intellij.util.TimeoutUtil;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.text.ByteArrayCharSequence;
@@ -97,6 +101,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.Objects.requireNonNull;
@@ -173,6 +179,8 @@ public class FileEncodingTest implements TestDialog {
 
   private static void setText(@NotNull Document document, @NotNull String text) {
     ApplicationManager.getApplication().runWriteAction(() -> document.setText(text));
+    List<Document> unsavedDocuments = Arrays.asList(FileDocumentManager.getInstance().getUnsavedDocuments());
+    assertTrue(unsavedDocuments.toString(), unsavedDocuments.contains(document));
   }
 
   private @NotNull Disposable getTestRootDisposable() {
@@ -202,20 +210,20 @@ public class FileEncodingTest implements TestDialog {
   }
 
   private @NotNull VirtualFile createTempFile(@NotNull String ext, byte @NotNull [] BOM, @NotNull String content, @NotNull Charset charset) throws IOException {
-    Path file = Files.createTempFile(tempDir.getRootPath(), "copy", '.' + ext);
-    try (OutputStream stream = Files.newOutputStream(file)) {
+    Path path = Files.createTempFile(tempDir.getRootPath(), "copy", '.' + ext);
+    try (OutputStream stream = Files.newOutputStream(path)) {
       stream.write(BOM);
       stream.write(content.getBytes(charset));
     }
     Disposer.register(getTestRootDisposable(), () -> {
       try {
-        Files.delete(file);
+        Files.delete(path);
       }
       catch (IOException e) {
         throw new UncheckedIOException(e);
       }
     });
-    return refreshAndFindFile(file);
+    return refreshAndFindFile(path);
   }
 
   @Test
@@ -276,19 +284,20 @@ public class FileEncodingTest implements TestDialog {
   @Test
   public void testChangeToUtfProlog() throws IOException {
     VirtualFile src = getTestRoot().findChild("xWin1251.xml");
-    Path file = tempDir.getRootPath().resolve("copy.xml");
-    Files.copy(src.toNioPath(), file, StandardCopyOption.REPLACE_EXISTING);
+    Path path = tempDir.getRootPath().resolve("copy.xml");
+    Files.copy(src.toNioPath(), path, StandardCopyOption.REPLACE_EXISTING);
 
     WriteCommandAction.writeCommandAction(getProject()).run(() -> {
-      VirtualFile xml = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file);
+      VirtualFile xml = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
       Document document = getDocument(xml);
 
       setText(document, UTF8_XML_PROLOG + XML_TEST_BODY);
+      assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, xml));
       FileDocumentManager.getInstance().saveAllDocuments();
       //ensure pending VFS IOps are finished before reading files via Path API:
       PlatformTestUtil.flushAllPendingVFSUpdates();
 
-      byte[] savedBytes = Files.readAllBytes(file);
+      byte[] savedBytes = Files.readAllBytes(path);
       String saved = new String(savedBytes, StandardCharsets.UTF_8).replace("\r\n", "\n");
       String expected = (UTF8_XML_PROLOG + XML_TEST_BODY).replace("\r\n", "\n");
 
@@ -354,6 +363,7 @@ public class FileEncodingTest implements TestDialog {
     //assertTrue(CharsetToolkit.hasUTF16LEBom(fileCopy.getBOM()));
 
     setText(document, "\u04ab\u04cd\u04ef");
+    assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, fileCopy));
 
     FileDocumentManager.getInstance().saveAllDocuments();
     //ensure pending VFS IOps are finished before reading files via Path API:
@@ -381,14 +391,14 @@ public class FileEncodingTest implements TestDialog {
   }
 
   private void doHtmlTest(@Language("HTML") String metaWithWindowsEncoding, @Language("HTML") String metaWithUtf8Encoding) throws IOException {
-    VirtualFile
-      file = createTempFile("html", NO_BOM, "<html><head>" + metaWithWindowsEncoding + "</head>" + THREE_RUSSIAN_LETTERS + "</html>", WINDOWS_1252);
+    VirtualFile file = createTempFile("html", NO_BOM, "<html><head>" + metaWithWindowsEncoding + "</head>" + THREE_RUSSIAN_LETTERS + "</html>", WINDOWS_1252);
     assertEquals(WINDOWS_1252, file.getCharset());
 
     Document document = getDocument(file);
     @Language("HTML")
     String text = "<html><head>" + metaWithUtf8Encoding + "</head>" + THREE_RUSSIAN_LETTERS + "</html>";
     setText(document, text);
+    assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, file));
     FileDocumentManager.getInstance().saveAllDocuments();
     assertEquals(StandardCharsets.UTF_8, file.getCharset());
   }
@@ -443,10 +453,12 @@ public class FileEncodingTest implements TestDialog {
 
     Document document = getDocument(file);
     setText(document, xmlProlog(WINDOWS_1251) + document.getText());
+    assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, file));
     FileDocumentManager.getInstance().saveAllDocuments();
     assertEquals(WINDOWS_1251, file.getCharset());
 
     setText(document, xmlProlog(StandardCharsets.US_ASCII) + "\n<xxx></xxx>");
+    assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, file));
     FileDocumentManager.getInstance().saveAllDocuments();
     assertEquals(StandardCharsets.US_ASCII, file.getCharset());
 
@@ -466,7 +478,7 @@ public class FileEncodingTest implements TestDialog {
     UIUtil.dispatchAllInvocationEvents();
 
     Document document = getDocument(file);
-    boolean[] changed = new boolean[]{false};
+    boolean[] changed = {false};
     document.addDocumentListener(new DocumentListener() {
       @Override
       public void documentChanged(@NotNull DocumentEvent event) {
@@ -567,14 +579,32 @@ public class FileEncodingTest implements TestDialog {
     assertArrayEquals(CharsetToolkit.UTF8_BOM, file.getBOM());
 
     Document document = getDocument(file);
-    setText(document, "horseradish");
+    String text = "horseradish";
+    setText(document, text);
+    assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, file));
+    assertTrue(FileDocumentManager.getInstance().isFileModified(file));
+    assertTrue(file.isValid());
+    assertTrue(FileDocumentManagerBase.isTrackable(file));
+    AtomicBoolean beforeSaving = new AtomicBoolean();
+    ApplicationManager.getApplication().getMessageBus().connect(getTestRootDisposable()).subscribe(
+      FileDocumentManagerListenerBackgroundable.TOPIC, new FileDocumentManagerListenerBackgroundable() {
+        @Override
+        public void beforeDocumentSaving(@NotNull Document toSave) {
+          if (document == toSave) {
+            beforeSaving.set(true);
+          }
+        }
+      });
+
     FileDocumentManager.getInstance().saveAllDocuments();
+    assertTrue(beforeSaving.get());
 
     assertEquals(StandardCharsets.UTF_8, file.getCharset());
     assertArrayEquals(CharsetToolkit.UTF8_BOM, file.getBOM());
 
-    byte[] bytes = FileUtil.loadFileBytes(VfsUtilCore.virtualToIoFile(file));
-    assertTrue(CharsetToolkit.hasUTF8Bom(bytes));
+    byte[] bytes = Files.readAllBytes(file.toNioPath());
+    assertTrue(Arrays.toString(bytes), CharsetToolkit.hasUTF8Bom(bytes));
+    assertEquals(text, CharsetToolkit.decodeString(bytes, StandardCharsets.UTF_8));
   }
 
   @Test
@@ -587,15 +617,17 @@ public class FileEncodingTest implements TestDialog {
     Document document = getDocument(file);
     String newContent = "horseradish";
     setText(document, newContent);
+    assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, file));
 
     FileDocumentManager.getInstance().saveAllDocuments();
 
-    byte[] bytes = FileUtil.loadFileBytes(VfsUtilCore.virtualToIoFile(file));
+    byte[] bytes = Files.readAllBytes(file.toNioPath());
     Charset charset = LoadTextUtil.detectCharsetAndSetBOM(file, bytes, file.getFileType());
     assertEquals(StandardCharsets.UTF_8, charset);
     assertArrayEquals(CharsetToolkit.UTF8_BOM, file.getBOM());
 
-    assertTrue(CharsetToolkit.hasUTF8Bom(bytes));
+    assertTrue(Arrays.toString(bytes), CharsetToolkit.hasUTF8Bom(bytes));
+    assertEquals(newContent, CharsetToolkit.decodeString(bytes, StandardCharsets.UTF_8));
   }
 
   @Test
@@ -630,18 +662,19 @@ public class FileEncodingTest implements TestDialog {
     Document document = getDocument(file);
     String newContent = "horseradish";
     setText(document, newContent);
+    assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, file));
     FileDocumentManager.getInstance().saveAllDocuments();
     assertEquals(StandardCharsets.UTF_16BE, file.getCharset());
     assertArrayEquals(CharsetToolkit.UTF16BE_BOM, file.getBOM());
 
     EncodingUtil.saveIn(getProject(), document, null, file, StandardCharsets.UTF_8);
 
-    byte[] bytes = FileUtil.loadFileBytes(VfsUtilCore.virtualToIoFile(file));
+    byte[] bytes = Files.readAllBytes(file.toNioPath());
 
     assertEquals(StandardCharsets.UTF_8, file.getCharset());
     assertNull(file.getBOM());
 
-    assertFalse(CharsetToolkit.hasUTF8Bom(bytes));
+    assertFalse(Arrays.toString(bytes), CharsetToolkit.hasUTF8Bom(bytes));
   }
 
   @Test
@@ -706,6 +739,7 @@ public class FileEncodingTest implements TestDialog {
 
     text = "xxx";
     setText(document, text);
+    assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, file));
     assertNotSame(EncodingUtil.Magic8.NO_WAY, EncodingUtil.isSafeToConvertTo(file, text, bytes, WINDOWS_1251));
     assertNotSame(EncodingUtil.Magic8.NO_WAY, EncodingUtil.isSafeToConvertTo(file, text, bytes, StandardCharsets.US_ASCII));
 
@@ -716,6 +750,7 @@ public class FileEncodingTest implements TestDialog {
 
     text = "qqq";
     setText(document, text);
+    assertTrue(FileDocumentManagerImpl.isSaveNeeded(document, file));
     assertNotSame(EncodingUtil.Magic8.NO_WAY, EncodingUtil.isSafeToConvertTo(file, text, bytes, WINDOWS_1251));
     assertNotSame(EncodingUtil.Magic8.NO_WAY, EncodingUtil.isSafeToConvertTo(file, text, bytes, StandardCharsets.US_ASCII));
 
@@ -761,9 +796,13 @@ public class FileEncodingTest implements TestDialog {
     assertEquals(LoadTextUtil.AutoDetectionReason.FROM_BYTES, LoadTextUtil.getCharsetAutoDetectionReason(file));
 
     Files.writeString(file.toNioPath(), THREE_RUSSIAN_LETTERS, WINDOWS_1251);
-    file.refresh(false, false);
-
-    assertNull(LoadTextUtil.getCharsetAutoDetectionReason(file));
+    // clearing of LoadTextUtil.getCharsetAutoDetectionReason(file) happens in background
+    TestTimeOut t = TestTimeOut.setTimeout(10, TimeUnit.SECONDS);
+    while (LoadTextUtil.getCharsetAutoDetectionReason(file) != null) {
+      file.refresh(false, false);
+      PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+      t.assertNoTimeout("getCharsetAutoDetectionReason");
+    }
   }
 
   @Test
@@ -917,9 +956,9 @@ public class FileEncodingTest implements TestDialog {
     assertEquals(StandardCharsets.UTF_8, file.getCharset());
     assertArrayEquals(CharsetToolkit.UTF8_BOM, file.getBOM());
 
-    FileUtil.writeToFile(VfsUtilCore.virtualToIoFile(file), text.getBytes(StandardCharsets.UTF_8));
+    Files.writeString(file.toNioPath(), text);
     file.refresh(false, false);
-    UIUtil.dispatchAllInvocationEvents();
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
 
     assertEquals(text, document.getText());
     assertEquals(defaultProjectEncoding(), file.getCharset());
@@ -1139,8 +1178,8 @@ public class FileEncodingTest implements TestDialog {
 
   @Test
   public void testEncodingDetectionRequestsRunAtMostOneThreadForEachDocument() throws Throwable {
-    ConcurrentHashMap<VirtualFile, Thread> detectThreads = new ConcurrentHashMap<VirtualFile, Thread>();
-    AtomicReference<Throwable> exception = new AtomicReference<Throwable>();
+    ConcurrentHashMap<VirtualFile, Thread> detectThreads = new ConcurrentHashMap<>();
+    AtomicReference<Throwable> exception = new AtomicReference<>();
     class MyFT extends LanguageFileType implements FileTypeIdentifiableByVirtualFile {
       private MyFT() { super(new com.intellij.lang.Language("my") {}); }
       @Override public boolean isMyFileType(@NotNull VirtualFile file) { return getDefaultExtension().equals(file.getExtension()); }
@@ -1329,12 +1368,12 @@ public class FileEncodingTest implements TestDialog {
   @Test
   public void testCharsetToolkitMustDetectBinaryEvenThoughItThinksThereAreInvalidUTF8There() {
     {
-      byte[] bytes = new byte[]{-1, -2, -3};
+      byte[] bytes = {-1, -2, -3};
       CharsetToolkit toolkit = new CharsetToolkit(bytes, StandardCharsets.UTF_16BE, false);
       assertEquals(CharsetToolkit.GuessedEncoding.INVALID_UTF8, toolkit.guessFromContent(bytes.length));
     }
     {
-      byte[] bytes = new byte[]{-1, -2, -3, 0,0,0,0,0,0,0,0,0};
+      byte[] bytes = {-1, -2, -3, 0, 0, 0, 0, 0, 0, 0, 0, 0};
       CharsetToolkit toolkit = new CharsetToolkit(bytes, StandardCharsets.UTF_16BE, false);
       assertEquals(CharsetToolkit.GuessedEncoding.BINARY, toolkit.guessFromContent(bytes.length));
     }
