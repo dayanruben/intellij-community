@@ -293,7 +293,7 @@ class AgentPromptExistingTaskControllerTest {
     val controller = AgentPromptExistingTaskController(
       existingTaskListModel = listModel,
       existingTaskList = list,
-      popupScope = scope,
+      sessionScope = scope,
       sessionsMessageResolver = AgentPromptSessionsMessageResolver(AgentPromptExistingTaskControllerTest::class.java.classLoader),
       onStateChanged = {},
     )
@@ -312,7 +312,7 @@ class AgentPromptExistingTaskControllerTest {
       updatedAt = updatedAt,
       archived = false,
       activity = activity,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
     )
   }
 

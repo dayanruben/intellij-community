@@ -24,6 +24,7 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.ApiStatus
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -45,7 +46,9 @@ private const val WEBSOCKET_REQUEST_TIMEOUT_MS = 30_000L
 private const val WEBSOCKET_STARTUP_TIMEOUT_MS = 10_000L
 private const val WEBSOCKET_READY_POLL_INTERVAL_MS = 100L
 private const val PROCESS_TERMINATION_TIMEOUT_MS = 2_000L
+private const val THREAD_SETTINGS_UPDATED_GRACE_MS = 1_000L
 private const val PAGE_LIMIT = 50
+private const val THREAD_SETTINGS_UPDATED_METHOD = "thread/settings/updated"
 
 private val THREAD_LIST_SOURCE_KINDS: List<String> = listOf(
   "cli",
@@ -70,6 +73,7 @@ class CodexWebSocketAppServerClient(
   workingDirectory: Path? = null,
 ) {
   private val pending = ConcurrentHashMap<String, CompletableDeferred<String>>()
+  private val threadSettingsUpdateWaiters = ConcurrentHashMap<String, MutableList<CompletableDeferred<Unit>>>()
   private val requestCounter = AtomicLong(0)
   private val writeMutex = Mutex()
   private val startMutex = Mutex()
@@ -97,6 +101,11 @@ class CodexWebSocketAppServerClient(
 
   val notifications: Flow<CodexAppServerNotification>
     get() = notificationsFlow
+
+  suspend fun currentRemoteUrl(): String {
+    ensureInitialized()
+    return remoteUrl ?: throw CodexAppServerException("Codex app-server remote URL is unavailable")
+  }
 
   suspend fun listThreadsPage(
     archived: Boolean,
@@ -276,12 +285,14 @@ class CodexWebSocketAppServerClient(
 
   suspend fun createThreadSession(
     cwd: String? = null,
+    model: String? = null,
     approvalPolicy: String? = null,
     sandbox: String? = null,
     ephemeral: Boolean? = null,
   ): CodexStartedThreadSession {
     return startThread(
       cwd = cwd,
+      model = model,
       approvalPolicy = approvalPolicy,
       sandbox = sandbox,
       ephemeral = ephemeral,
@@ -323,21 +334,75 @@ class CodexWebSocketAppServerClient(
   }
 
   suspend fun persistThread(threadId: String, text: String = "") {
+    startTurn(threadId = threadId, text = text)
+  }
+
+  suspend fun materializeThread(threadId: String) {
     requestUnit(
-      method = "turn/start",
+      method = "thread/inject_items",
       paramsWriter = { generator ->
-        generator.writeStartObject()
-        generator.writeStringField("threadId", threadId)
-        generator.writeFieldName("input")
-        generator.writeStartArray()
-        generator.writeStartObject()
-        generator.writeStringField("type", "text")
-        generator.writeStringField("text", text)
-        generator.writeEndObject()
-        generator.writeEndArray()
-        generator.writeEndObject()
+        writeThreadInjectItemsParams(generator = generator, threadId = threadId)
       },
     )
+  }
+
+  suspend fun startTurn(
+    threadId: String,
+    text: String,
+    collaborationMode: CodexTurnCollaborationMode? = null,
+  ) {
+    val turn = request(
+      method = "turn/start",
+      paramsWriter = { generator ->
+        writeTurnStartParams(
+          generator = generator,
+          threadId = threadId,
+          text = text,
+          collaborationMode = collaborationMode,
+        )
+      },
+      resultParser = { parser -> protocol.parseTurnStartResult(parser) },
+      defaultResult = null,
+    )
+    if (turn == null) {
+      throw CodexAppServerException("Codex app-server returned empty turn/start result")
+    }
+  }
+
+  suspend fun updateThreadCollaborationMode(
+    threadId: String,
+    collaborationMode: CodexTurnCollaborationMode,
+  ) {
+    val normalizedThreadId = threadId.trim()
+    if (normalizedThreadId.isEmpty()) {
+      throw CodexAppServerException("Cannot update Codex thread settings without a thread id")
+    }
+    val settingsUpdated = CompletableDeferred<Unit>()
+    threadSettingsUpdateWaiters.addThreadSettingsUpdateWaiter(normalizedThreadId, settingsUpdated)
+    try {
+      requestUnit(
+        method = "thread/settings/update",
+        paramsWriter = { generator ->
+          generator.writeStartObject()
+          generator.writeStringField("threadId", normalizedThreadId)
+          collaborationMode.model?.let { generator.writeStringField("model", it) }
+          collaborationMode.reasoningEffort?.let { generator.writeStringField("effort", it) }
+          writeCollaborationMode(generator, collaborationMode)
+          generator.writeEndObject()
+        },
+      )
+      // Codex emits thread/settings/updated only for effective changes. A plain ack can mean the
+      // resumed TUI was already in the requested mode, so do not fail Plan prompt delivery on it.
+      val observedSettingsUpdate = withTimeoutOrNull(THREAD_SETTINGS_UPDATED_GRACE_MS.milliseconds) { settingsUpdated.await() } != null
+      if (!observedSettingsUpdate) {
+        LOG.debug {
+          "Codex thread/settings/update for $normalizedThreadId was acknowledged without thread/settings/updated; continuing as no-op update"
+        }
+      }
+    }
+    finally {
+      threadSettingsUpdateWaiters.removeThreadSettingsUpdateWaiter(normalizedThreadId, settingsUpdated)
+    }
   }
 
   fun shutdown() {
@@ -346,6 +411,7 @@ class CodexWebSocketAppServerClient(
 
   private suspend fun startThread(
     cwd: String? = null,
+    model: String? = null,
     approvalPolicy: String? = null,
     sandbox: String? = null,
     ephemeral: Boolean? = null,
@@ -355,6 +421,7 @@ class CodexWebSocketAppServerClient(
       paramsWriter = { generator ->
         generator.writeStartObject()
         cwd?.let { generator.writeStringField("cwd", it) }
+        model?.let { generator.writeStringField("model", it) }
         approvalPolicy?.let { generator.writeStringField("approvalPolicy", it) }
         sandbox?.let { generator.writeStringField("sandbox", it) }
         ephemeral?.let { generator.writeBooleanField("ephemeral", it) }
@@ -675,6 +742,9 @@ class CodexWebSocketAppServerClient(
                        } ?: return
 
     val result = notificationsChannel.trySend(notification.toPublicNotification())
+    if (notification.method == THREAD_SETTINGS_UPDATED_METHOD && notification.threadId != null) {
+      threadSettingsUpdateWaiters.completeThreadSettingsUpdateWaiters(notification.threadId)
+    }
     if (result.isFailure) {
       LOG.warn("Failed to enqueue Codex websocket app-server notification: ${notification.method}")
     }
@@ -760,6 +830,89 @@ class CodexWebSocketAppServerClient(
       handleTransportFailure("Codex websocket app-server connection failed", error)
     }
   }
+}
+
+private fun threadSettingsUpdateWaiterKey(threadId: String): String {
+  return threadId.trim().lowercase()
+}
+
+private fun ConcurrentHashMap<String, MutableList<CompletableDeferred<Unit>>>.addThreadSettingsUpdateWaiter(
+  threadId: String,
+  waiter: CompletableDeferred<Unit>,
+) {
+  compute(threadSettingsUpdateWaiterKey(threadId)) { _, current ->
+    val waiters = current ?: mutableListOf()
+    waiters.add(waiter)
+    waiters
+  }
+}
+
+private fun ConcurrentHashMap<String, MutableList<CompletableDeferred<Unit>>>.removeThreadSettingsUpdateWaiter(
+  threadId: String,
+  waiter: CompletableDeferred<Unit>,
+) {
+  computeIfPresent(threadSettingsUpdateWaiterKey(threadId)) { _, current ->
+    current.remove(waiter)
+    current.takeIf { it.isNotEmpty() }
+  }
+}
+
+private fun ConcurrentHashMap<String, MutableList<CompletableDeferred<Unit>>>.completeThreadSettingsUpdateWaiters(threadId: String) {
+  remove(threadSettingsUpdateWaiterKey(threadId))?.forEach { waiter -> waiter.complete(Unit) }
+}
+
+private fun writeTurnStartParams(
+  generator: JsonGenerator,
+  threadId: String,
+  text: String,
+  collaborationMode: CodexTurnCollaborationMode?,
+) {
+  generator.writeStartObject()
+  generator.writeStringField("threadId", threadId)
+  generator.writeFieldName("input")
+  generator.writeStartArray()
+  generator.writeStartObject()
+  generator.writeStringField("type", "text")
+  generator.writeStringField("text", text)
+  generator.writeEndObject()
+  generator.writeEndArray()
+  collaborationMode?.let { mode -> writeCollaborationMode(generator, mode) }
+  generator.writeEndObject()
+}
+
+private fun writeThreadInjectItemsParams(generator: JsonGenerator, threadId: String) {
+  generator.writeStartObject()
+  generator.writeStringField("threadId", threadId)
+  generator.writeFieldName("items")
+  generator.writeStartArray()
+  generator.writeStartObject()
+  generator.writeStringField("type", "message")
+  generator.writeStringField("role", "user")
+  generator.writeFieldName("content")
+  generator.writeStartArray()
+  generator.writeStartObject()
+  generator.writeStringField("type", "input_text")
+  generator.writeStringField("text", "")
+  generator.writeEndObject()
+  generator.writeEndArray()
+  generator.writeEndObject()
+  generator.writeEndArray()
+  generator.writeEndObject()
+}
+
+private fun writeCollaborationMode(generator: JsonGenerator, collaborationMode: CodexTurnCollaborationMode) {
+  generator.writeFieldName("collaborationMode")
+  generator.writeStartObject()
+  generator.writeStringField("mode", collaborationMode.mode)
+  generator.writeFieldName("settings")
+  generator.writeStartObject()
+  collaborationMode.model?.let { generator.writeStringField("model", it) }
+  collaborationMode.reasoningEffort?.let { generator.writeStringField("reasoning_effort", it) }
+  collaborationMode.developerInstructions?.let { instructions ->
+    generator.writeStringField("developer_instructions", instructions)
+  } ?: generator.writeNullField("developer_instructions")
+  generator.writeEndObject()
+  generator.writeEndObject()
 }
 
 private const val CODEX_AUTO_UPDATE_CONFIG: String = "check_for_update_on_startup=false"

@@ -8,7 +8,6 @@ import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPrompt
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryStatus
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptRecord
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchAction
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageTimeoutPolicy
@@ -459,7 +458,6 @@ internal class AgentChatVirtualFile internal constructor(
       message = message,
       token = token,
       stepIndex = stepIndex,
-      completionPolicy = currentStep.completionPolicy,
     ).also {
       initialMessageDispatchInFlight = it
     }
@@ -489,7 +487,7 @@ internal class AgentChatVirtualFile internal constructor(
     if (nextStepIndex >= terminalDispatch.steps.size) {
       initialPromptRecord = initialPromptRecord?.copy(
         deliveryStatus = AgentInitialPromptDeliveryStatus.DELIVERED,
-        deliveryChannel = AgentInitialPromptDeliveryChannel.TERMINAL,
+        deliveryChannel = dispatch.deliveryChannel(),
       )
       terminalPromptDispatch = null
     }
@@ -694,9 +692,11 @@ private fun buildInitialPromptRecord(
   token: String?,
   sent: Boolean,
 ): AgentInitialPromptRecord? {
-  val message = steps.lastOrNull { step -> step.action == AgentInitialMessageDispatchAction.SEND_TEXT && step.text.isNotBlank() }
-                  ?.text
-                ?: return null
+  val message = steps.lastOrNull { step ->
+    step.recordsPrompt &&
+    step.action == AgentInitialMessageDispatchAction.SEND_TEXT &&
+    step.text.isNotBlank()
+  }?.text ?: return null
   return AgentInitialPromptRecord(
     message = message,
     token = token,
@@ -710,8 +710,14 @@ internal class AgentChatInitialMessageDispatch internal constructor(
   override val message: String,
   val token: String?,
   override val stepIndex: Int,
-  override val completionPolicy: AgentInitialMessageDispatchCompletionPolicy,
 ) : AgentChatInitialMessageDispatchContext
+
+private fun AgentChatInitialMessageDispatch.deliveryChannel(): AgentInitialPromptDeliveryChannel {
+  return when (action) {
+    AgentInitialMessageDispatchAction.SEND_TEXT -> AgentInitialPromptDeliveryChannel.TERMINAL
+    AgentInitialMessageDispatchAction.PROVIDER -> AgentInitialPromptDeliveryChannel.APP_SERVER
+  }
+}
 
 private fun resolveFileName(tabKey: String): String {
   return "chat-$tabKey"

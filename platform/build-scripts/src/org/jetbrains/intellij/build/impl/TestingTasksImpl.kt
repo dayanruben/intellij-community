@@ -371,6 +371,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     testPatternSystemPropertyKey.let { options.testPatterns?.run { System.setProperty(it, this) } }  // from options, e.g. TestingTasksImpl#runTestsSkippedInHeadlessEnvironment
     testGroupSystemPropertyKey.let { options.testGroups?.run { System.setProperty(it, this) } }  // from options, e.g. RunAnyTestTheSameWayTeamCityDoes#run
     setPropertyFromPass(TestCaseLoader.INCLUDE_UNCONVENTIONALLY_NAMED_TESTS_FLAG)
+    setPropertyFromPass(TestCaseLoader.INCLUDE_ALL_UNCONVENTIONALLY_NAMED_TESTS_FLAG)
 
     // configure TestCaseLoader#matchesCurrentBucket with the properties from the test process
     listOf(
@@ -1487,5 +1488,33 @@ private suspend fun publishTestDiscovery(messages: BuildMessages, file: String?)
 }
 
 private val COMMUNITY_AGGREGATOR_BAZEL_MIGRATED_MODULES = listOf(
-  "intellij.maven.server.eventListener.tests"
+  "intellij.maven.server.eventListener.tests",
+  "intellij.agent.workbench.ai.review.tests",
+  "intellij.agent.workbench.chat.tests",
+  "intellij.agent.workbench.codex.prompt.suggestions.tests",
+  "intellij.platform.ai.agent.cli.tests",
+  "intellij.platform.ai.agent.common.tests",
+  "intellij.platform.ai.agent.core.tests",
+  "intellij.platform.ai.agent.filewatch.tests",
+  "intellij.platform.ai.agent.json.tests",
+  "intellij.platform.ai.agent.codex.common.tests",
+  "intellij.platform.ai.agent.opencode.sessions.tests",
+  "intellij.platform.ai.agent.pi.sessions.filewatch.tests",
+  "intellij.platform.ai.agent.terminal.sessions.tests",
+  "intellij.agent.workbench.prompt.core.tests",
+  "intellij.agent.workbench.prompt.testrunner.tests",
+  "intellij.agent.workbench.prompt.vcs.tests",
+  "intellij.agent.workbench.sessions.cost.tests",
+  "intellij.agent.workbench.sessions.jbcentral.tests",
+  "intellij.agent.workbench.sessions.launch.config.backend.tests",
+  "intellij.agent.workbench.settings.tests",
+  "intellij.agent.workbench.ui.tests",
+  "intellij.agent.workbench.claude.awb.tests",
+  "intellij.agent.workbench.codex.chat.tests",
+  "intellij.agent.workbench.codex.ide.tests",
+  "intellij.platform.ai.agent.claude.sessions.tests",
+  "intellij.platform.ai.agent.junie.sessions.tests",
+  "intellij.platform.ai.agent.pi.sessions.tests",
+  "intellij.agent.workbench.sessions.tests",
+  "intellij.agent.workbench.vcs.merge.tests",
 )

@@ -30,6 +30,7 @@ import tools.jackson.core.JsonGenerator
 import tools.jackson.core.JsonParser
 import tools.jackson.core.JsonToken
 import tools.jackson.core.json.JsonFactory
+import java.io.InputStream
 import java.io.StringWriter
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -93,9 +94,17 @@ internal object ClaudeHookBridge {
   }
 
   fun handleHookRequest(token: String?, content: String): ClaudeHookRequestResult {
+    return handleHookRequest(token = token) { parseHookPayload(content) }
+  }
+
+  fun handleHookRequest(token: String?, content: InputStream): ClaudeHookRequestResult {
+    return handleHookRequest(token = token) { parseHookPayload(content) }
+  }
+
+  private fun handleHookRequest(token: String?, payloadProvider: () -> ClaudeHookPayload?): ClaudeHookRequestResult {
     val normalizedToken = token?.trim()?.takeIf { it.isNotEmpty() } ?: return ClaudeHookRequestResult.UNAUTHORIZED
     val expectedSessionId = sessionIdsByToken[normalizedToken] ?: return ClaudeHookRequestResult.UNAUTHORIZED
-    val payload = parseHookPayload(content) ?: return ClaudeHookRequestResult.BAD_REQUEST
+    val payload = payloadProvider() ?: return ClaudeHookRequestResult.BAD_REQUEST
     val sessionId = payload.sessionId?.trim()?.takeIf { it.isNotEmpty() } ?: return ClaudeHookRequestResult.BAD_REQUEST
     if (sessionId != expectedSessionId) return ClaudeHookRequestResult.UNAUTHORIZED
 
@@ -151,8 +160,16 @@ internal object ClaudeHookBridge {
   }
 
   private fun parseHookPayload(content: String): ClaudeHookPayload? {
+    return parseHookPayload { jsonFactory.createJsonParser(content) }
+  }
+
+  private fun parseHookPayload(content: InputStream): ClaudeHookPayload? {
+    return parseHookPayload { jsonFactory.createJsonParser(content) }
+  }
+
+  private fun parseHookPayload(parserProvider: () -> JsonParser): ClaudeHookPayload? {
     return try {
-      jsonFactory.createJsonParser(content).use { parser ->
+      parserProvider().use { parser ->
         if (parser.nextToken() != JsonToken.START_OBJECT) return null
         readHookPayload(parser)
       }
@@ -194,6 +211,9 @@ internal fun createClaudeHookSettingsText(endpoint: String, token: String): Stri
     generator.writeStartObject()
     generator.writeName("PreToolUse")
     generator.writeStartArray()
+    // ToolSearch is intentionally excluded from the broad PreToolUse matcher. Add it only with
+    // a verified input-aware hook condition so ordinary deferred-tool lookups do not call this endpoint.
+    // Deferred plan-approval status is reconciled from Claude JSONL transcripts instead.
     generator.writeHookEntry(matcher = CLAUDE_USER_INTERACTION_TOOL_MATCHER, endpoint = endpoint, token = token)
     generator.writeEndArray()
     generator.writeName("PostToolUse")

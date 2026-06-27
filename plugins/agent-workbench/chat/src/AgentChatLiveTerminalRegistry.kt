@@ -3,7 +3,6 @@
 
 package com.intellij.agent.workbench.chat
 
-import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.Disposable
@@ -126,6 +125,15 @@ internal class AgentChatLiveTerminalRegistryService(
   }
 
   override fun dispose() {
+    disposeLiveTerminals()
+  }
+
+  @TestOnly
+  fun disposeLiveTerminalsForTest() {
+    disposeLiveTerminals()
+  }
+
+  private fun disposeLiveTerminals() {
     pendingCloseJobs.values.forEach(Job::cancel)
     pendingCloseJobs.clear()
     store.disposeProject(project)
@@ -175,7 +183,8 @@ internal class AgentChatLiveTerminalRegistryService(
       return
     }
     serviceScope.launch {
-      val descriptor = AgentSessionProviders.find(AgentSessionProvider.TERMINAL)
+      val provider = file.provider ?: return@launch
+      val descriptor = AgentSessionProviders.find(provider)
       if (descriptor == null || !descriptor.supportsArchiveThread) {
         return@launch
       }
@@ -193,7 +202,9 @@ internal class AgentChatLiveTerminalRegistryService(
 }
 
 internal fun shouldArchiveTerminalSessionOnLastEditorClose(file: AgentChatVirtualFile): Boolean {
-  return file.provider == AgentSessionProvider.TERMINAL &&
+  val provider = file.provider ?: return false
+  val descriptor = AgentSessionProviders.find(provider) ?: return false
+  return descriptor.supportsArchiveThread &&
          !file.isPendingThread &&
          file.subAgentId == null &&
          file.projectPath.isNotBlank() &&

@@ -10,6 +10,7 @@ import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.webview.api.WebViewAssetRoot
+import com.intellij.ui.webview.api.WebViewIconSet
 import com.intellij.ui.webview.api.WebViewPanel
 import com.intellij.ui.webview.api.WebViewPanelOptions
 import com.intellij.ui.webview.api.createWebViewPanel
@@ -30,10 +31,13 @@ import javax.swing.SwingUtilities
 private const val SHOWCASE_SOURCE_PATH = "community/plugins/ui.webview/demo/webview-src/views/controls-showcase/src/main.ts"
 
 private val LOG = logger<WebViewControlsShowcasePanel>()
-private val SHOWCASE_ASSET_ROOT = WebViewAssetRoot.forView("controls-showcase")
+private val SHOWCASE_ASSET_ROOT = WebViewAssetRoot
+  .forView("controls-showcase")
+  .withIconSets(WebViewIconSet.allIcons())
 
 private val SHOWCASE_TABS = listOf(
   ShowcaseTab("components", "webview.controls.showcase.tab.components", "webview.controls.showcase.tab.components.description"),
+  ShowcaseTab("icons", "webview.controls.showcase.tab.icons", "webview.controls.showcase.tab.icons.description"),
   ShowcaseTab("labels-help", "webview.controls.showcase.tab.labels.help", "webview.controls.showcase.tab.labels.help.description"),
   ShowcaseTab("validation", "webview.controls.showcase.tab.validation", "webview.controls.showcase.tab.validation.description"),
   ShowcaseTab("states", "webview.controls.showcase.tab.states", "webview.controls.showcase.tab.states.description"),

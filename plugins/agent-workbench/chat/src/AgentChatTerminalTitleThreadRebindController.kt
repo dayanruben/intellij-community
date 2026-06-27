@@ -10,15 +10,23 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.extensions.RequiredElement
 import com.intellij.openapi.util.Disposer
+import com.intellij.serviceContainer.BaseKeyedLazyInstance
 import com.intellij.terminal.TerminalTitle
 import com.intellij.terminal.TerminalTitleListener
+import com.intellij.terminal.frontend.view.TerminalViewSessionState
+import com.intellij.util.xmlb.annotations.Attribute
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.ApiStatus
+import kotlin.coroutines.resume
+import kotlin.time.Duration.Companion.milliseconds
 
 private val LOG = logger<AgentChatTerminalTitleThreadRebindController>()
 
@@ -30,8 +38,6 @@ data class AgentChatTerminalTitleThreadRebindSignal(
 
 @ApiStatus.Internal
 interface AgentChatTerminalTitleThreadRebindContributor {
-  val provider: AgentSessionProvider
-
   fun extractThreadId(applicationTitle: String?): String?
 
   fun extractThreadSignal(applicationTitle: String?): AgentChatTerminalTitleThreadRebindSignal? {
@@ -42,8 +48,30 @@ interface AgentChatTerminalTitleThreadRebindContributor {
 private class AgentChatTerminalTitleThreadRebindContributorRegistryLog
 
 private val CONTRIBUTOR_LOG = logger<AgentChatTerminalTitleThreadRebindContributorRegistryLog>()
-private val AGENT_CHAT_TERMINAL_TITLE_THREAD_REBIND_CONTRIBUTOR_EP: ExtensionPointName<AgentChatTerminalTitleThreadRebindContributor> =
+private val AGENT_CHAT_TERMINAL_TITLE_THREAD_REBIND_CONTRIBUTOR_EP: ExtensionPointName<AgentChatTerminalTitleThreadRebindContributorBean> =
   ExtensionPointName("com.intellij.agent.workbench.chatTerminalTitleThreadRebindContributor")
+
+class AgentChatTerminalTitleThreadRebindContributorBean : BaseKeyedLazyInstance<AgentChatTerminalTitleThreadRebindContributor>() {
+  @Attribute("providerId")
+  @JvmField
+  @RequiredElement
+  var providerId: String = ""
+
+  @Attribute("implementation")
+  @JvmField
+  @RequiredElement
+  var implementation: String = ""
+
+  override fun getImplementationClassName(): String = implementation
+
+  fun providerOrNull(): AgentSessionProvider? {
+    val provider = AgentSessionProvider.fromOrNull(providerId)
+    if (provider == null) {
+      CONTRIBUTOR_LOG.warn("Ignoring Agent Chat terminal title thread rebind contributor with invalid providerId '$providerId': $implementation")
+    }
+    return provider
+  }
+}
 
 private data class AgentChatTerminalTitleThreadRebindContributorSnapshot(
   @JvmField val contributorsByProvider: Map<AgentSessionProvider, AgentChatTerminalTitleThreadRebindContributor>,
@@ -70,14 +98,16 @@ interface AgentChatTerminalTitleThreadRebindContributorRegistry {
 }
 
 private fun buildAgentChatTerminalTitleThreadRebindContributorSnapshot(
-  contributors: Iterable<AgentChatTerminalTitleThreadRebindContributor>,
+  contributorBeans: Iterable<AgentChatTerminalTitleThreadRebindContributorBean>,
 ): AgentChatTerminalTitleThreadRebindContributorSnapshot {
   val contributorsByProvider = LinkedHashMap<AgentSessionProvider, AgentChatTerminalTitleThreadRebindContributor>()
-  for (contributor in contributors) {
-    val previous = contributorsByProvider.putIfAbsent(contributor.provider, contributor)
+  for (contributorBean in contributorBeans) {
+    val provider = contributorBean.providerOrNull() ?: continue
+    val contributor = contributorBean.instance
+    val previous = contributorsByProvider.putIfAbsent(provider, contributor)
     if (previous != null && previous !== contributor) {
       CONTRIBUTOR_LOG.warn(
-        "Duplicate Agent Chat terminal title thread rebind contributor for ${contributor.provider.value}: " +
+        "Duplicate Agent Chat terminal title thread rebind contributor for ${provider.value}: " +
         "keeping ${previous::class.java.name}, ignoring ${contributor::class.java.name}",
       )
     }
@@ -127,6 +157,67 @@ internal fun createAgentChatTerminalTitleThreadRebindController(
   }
 }
 
+internal suspend fun AgentChatTerminalTab.awaitAgentChatTerminalTitleThreadId(
+  provider: AgentSessionProvider?,
+  expectedThreadId: String,
+  timeoutMs: Long,
+): AgentChatTerminalInputReadiness {
+  val normalizedExpectedThreadId = expectedThreadId.trim().takeIf { it.isNotEmpty() }
+                                 ?: return AgentChatTerminalInputReadiness.READY
+  val actualProvider = provider ?: return AgentChatTerminalInputReadiness.READY
+  val terminalTitle = terminalView?.title ?: return AgentChatTerminalInputReadiness.READY
+  val contributor = AgentChatTerminalTitleThreadRebindContributors.find(actualProvider)
+                    ?: return AgentChatTerminalInputReadiness.READY
+  if (contributor.matchesThreadId(terminalTitle.applicationTitle, normalizedExpectedThreadId)) {
+    return AgentChatTerminalInputReadiness.READY
+  }
+  val matched = withTimeoutOrNull(timeoutMs.milliseconds) {
+    terminalTitle.awaitThreadId(contributor, normalizedExpectedThreadId)
+  } ?: false
+  return when {
+    matched -> AgentChatTerminalInputReadiness.READY
+    sessionState.value == TerminalViewSessionState.Terminated -> AgentChatTerminalInputReadiness.TERMINATED
+    else -> AgentChatTerminalInputReadiness.TIMEOUT
+  }
+}
+
+private suspend fun TerminalTitle.awaitThreadId(
+  contributor: AgentChatTerminalTitleThreadRebindContributor,
+  expectedThreadId: String,
+): Boolean {
+  return suspendCancellableCoroutine { continuation ->
+    val disposable = Disposer.newDisposable("Agent Chat terminal title await thread id")
+
+    fun resumeIfMatched(applicationTitle: String?): Boolean {
+      if (!contributor.matchesThreadId(applicationTitle, expectedThreadId)) {
+        return false
+      }
+      Disposer.dispose(disposable)
+      if (continuation.isActive) {
+        continuation.resume(true)
+      }
+      return true
+    }
+
+    addTitleListener(
+      object : TerminalTitleListener {
+        override fun onTitleChanged(terminalTitle: TerminalTitle) {
+          resumeIfMatched(terminalTitle.applicationTitle)
+        }
+      },
+      disposable,
+    )
+    resumeIfMatched(applicationTitle)
+    continuation.invokeOnCancellation {
+      Disposer.dispose(disposable)
+    }
+  }
+}
+
+private fun AgentChatTerminalTitleThreadRebindContributor.matchesThreadId(applicationTitle: String?, expectedThreadId: String): Boolean {
+  return extractThreadSignal(applicationTitle)?.threadId?.equals(expectedThreadId, ignoreCase = true) == true
+}
+
 internal class AgentChatTerminalTitleThreadRebindController(
   private val file: AgentChatVirtualFile,
   private val contributor: AgentChatTerminalTitleThreadRebindContributor,
@@ -170,7 +261,7 @@ internal class AgentChatTerminalTitleThreadRebindController(
   @Synchronized
   internal fun bindFromApplicationTitle(applicationTitle: String?, parentScope: CoroutineScope): Boolean {
     val provider = file.provider ?: return false
-    if (provider != contributor.provider || file.subAgentId != null || file.projectPath.isBlank()) {
+    if (file.subAgentId != null || file.projectPath.isBlank()) {
       return false
     }
     val signal = contributor.extractThreadSignal(applicationTitle) ?: return false

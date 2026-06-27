@@ -11,7 +11,6 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
 import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchPlan
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
@@ -20,9 +19,15 @@ import com.intellij.platform.ai.agent.sessions.core.providers.InMemoryAgentSessi
 import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
 import com.intellij.agent.workbench.sessions.service.AgentSessionChatOpenExecutor
+import com.intellij.agent.workbench.sessions.service.DeferredAgentSessionChatOpenResult
+import com.intellij.agent.workbench.chat.AgentChatDeferredStartState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryChannel
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryPlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryStatus
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentPendingSessionMetadata
 import com.intellij.testFramework.LightVirtualFile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -295,6 +300,8 @@ fun assertNewThreadPromptLaunchOpensNewChat(
           postStartDispatchSteps = openRequest.postStartDispatchSteps,
           initialPromptMessage = openRequest.initialPromptMessage,
           initialMessageToken = openRequest.initialMessageToken,
+          initialPromptDeliveryStatus = openRequest.initialPromptDeliveryStatus,
+          initialPromptDeliveryChannel = openRequest.initialPromptDeliveryChannel,
           launchProfileId = openRequest.launchProfileId,
           preferredDedicatedFrame = openRequest.preferredDedicatedFrame,
         )
@@ -356,14 +363,20 @@ fun launchNewThreadPromptRequestWithDefaultChatOpenExecutor(
 internal class RecordingChatOpenExecutor(
   private val onOpenChat: (suspend (OpenChatRequest, Int) -> Unit)? = null,
   private val onOpenNewChat: (suspend (OpenNewChatRequest, Int) -> Unit)? = null,
+  private val onOpenPreparingNewChat: (suspend (OpenPreparingNewChatRequest, Int) -> Unit)? = null,
 ) : AgentSessionChatOpenExecutor {
   val openChatCalls: AtomicInteger = AtomicInteger(0)
   val openNewChatCalls: AtomicInteger = AtomicInteger(0)
+  val openPreparingNewChatCalls: AtomicInteger = AtomicInteger(0)
+  val failPreparingNewChatCalls: AtomicInteger = AtomicInteger(0)
   val openChatRequests: CopyOnWriteArrayList<OpenChatRequest> = CopyOnWriteArrayList()
   val lastOpenChatRequest: AtomicReference<OpenChatRequest?> = AtomicReference(null)
   val lastOpenNewChatRequest: AtomicReference<OpenNewChatRequest?> = AtomicReference(null)
+  val lastOpenPreparingNewChatRequest: AtomicReference<OpenPreparingNewChatRequest?> = AtomicReference(null)
+  val lastFailPreparingNewChatMessage: AtomicReference<String?> = AtomicReference(null)
   private val openChatCallsFlow: MutableStateFlow<Int> = MutableStateFlow(0)
   private val openNewChatCallsFlow: MutableStateFlow<Int> = MutableStateFlow(0)
+  private val openPreparingNewChatCallsFlow: MutableStateFlow<Int> = MutableStateFlow(0)
 
   suspend fun awaitOpenChatCalls(expected: Int, timeoutMs: Long = PROMPT_LAUNCH_WAIT_TIMEOUT_MS) {
     withTimeout(timeoutMs.milliseconds) {
@@ -377,15 +390,21 @@ internal class RecordingChatOpenExecutor(
     }
   }
 
+  suspend fun awaitOpenPreparingNewChatCalls(expected: Int, timeoutMs: Long = PROMPT_LAUNCH_WAIT_TIMEOUT_MS) {
+    withTimeout(timeoutMs.milliseconds) {
+      openPreparingNewChatCallsFlow.first { calls -> calls >= expected }
+    }
+  }
+
   override suspend fun openChat(
-    normalizedPath: String,
-    thread: AgentSessionThread,
-    subAgent: AgentSubAgent?,
-    launchSpecOverride: AgentSessionTerminalLaunchSpec?,
-    initialMessageDispatchPlan: AgentInitialMessageDispatchPlan,
-    launchMode: AgentSessionLaunchMode?,
-    launchProfileId: String?,
-    generationSettings: AgentPromptGenerationSettings,
+      normalizedPath: String,
+      thread: AgentSessionThread,
+      subAgent: AgentSubAgent?,
+      launchSpecOverride: AgentSessionTerminalLaunchSpec?,
+      initialMessageDispatchPlan: AgentInitialPromptDeliveryPlan,
+      launchMode: AgentSessionLaunchMode?,
+      launchProfileId: String?,
+      generationSettings: AgentPromptGenerationSettings,
   ) {
     val request = OpenChatRequest(
       normalizedPath = normalizedPath,
@@ -396,6 +415,8 @@ internal class RecordingChatOpenExecutor(
       postStartDispatchSteps = initialMessageDispatchPlan.postStartDispatchSteps,
       initialPromptMessage = initialMessageDispatchPlan.promptRecord?.message,
       initialMessageToken = initialMessageDispatchPlan.initialMessageToken,
+      initialPromptDeliveryStatus = initialMessageDispatchPlan.promptRecord?.deliveryStatus,
+      initialPromptDeliveryChannel = initialMessageDispatchPlan.promptRecord?.deliveryChannel,
       launchMode = launchMode,
       launchProfileId = launchProfileId,
       generationSettings = generationSettings,
@@ -408,16 +429,16 @@ internal class RecordingChatOpenExecutor(
   }
 
   override suspend fun openNewChat(
-    normalizedPath: String,
-    identity: String,
-    launchSpec: AgentSessionTerminalLaunchSpec,
-    initialMessageDispatchPlan: AgentInitialMessageDispatchPlan,
-    launchMode: AgentSessionLaunchMode?,
-    launchProfileId: String?,
-    generationSettings: AgentPromptGenerationSettings,
-    preferredDedicatedFrame: Boolean?,
-    openedChatHandler: (suspend (Project, VirtualFile) -> Unit)?,
-    threadTitle: String?,
+      normalizedPath: String,
+      identity: String,
+      launchSpec: AgentSessionTerminalLaunchSpec,
+      initialMessageDispatchPlan: AgentInitialPromptDeliveryPlan,
+      launchMode: AgentSessionLaunchMode?,
+      launchProfileId: String?,
+      generationSettings: AgentPromptGenerationSettings,
+      preferredDedicatedFrame: Boolean?,
+      openedChatHandler: (suspend (Project, VirtualFile) -> Unit)?,
+      threadTitle: String?,
   ) {
     val request = OpenNewChatRequest(
       normalizedPath = normalizedPath,
@@ -427,6 +448,8 @@ internal class RecordingChatOpenExecutor(
       postStartDispatchSteps = initialMessageDispatchPlan.postStartDispatchSteps,
       initialPromptMessage = initialMessageDispatchPlan.promptRecord?.message,
       initialMessageToken = initialMessageDispatchPlan.initialMessageToken,
+      initialPromptDeliveryStatus = initialMessageDispatchPlan.promptRecord?.deliveryStatus,
+      initialPromptDeliveryChannel = initialMessageDispatchPlan.promptRecord?.deliveryChannel,
       launchMode = launchMode,
       launchProfileId = launchProfileId,
       generationSettings = generationSettings,
@@ -437,6 +460,74 @@ internal class RecordingChatOpenExecutor(
     openNewChatCallsFlow.value = callIndex
     onOpenNewChat?.invoke(request, callIndex)
     openedChatHandler?.invoke(ProjectManager.getInstance().defaultProject, LightVirtualFile("opened-chat-$callIndex"))
+  }
+
+  override suspend fun openPreparingNewChat(
+      normalizedPath: String,
+      identity: String,
+      launchSpec: AgentSessionTerminalLaunchSpec,
+      launchMode: AgentSessionLaunchMode?,
+      launchProfileId: String?,
+      generationSettings: AgentPromptGenerationSettings,
+      preferredDedicatedFrame: Boolean?,
+      openedChatHandler: (suspend (Project, VirtualFile) -> Unit)?,
+      threadTitle: String?,
+      waitingState: AgentChatDeferredStartState,
+  ): DeferredAgentSessionChatOpenResult {
+    val request = OpenPreparingNewChatRequest(
+      normalizedPath = normalizedPath,
+      identity = identity,
+      launchSpec = launchSpec,
+      launchMode = launchMode,
+      launchProfileId = launchProfileId,
+      generationSettings = generationSettings,
+      preferredDedicatedFrame = preferredDedicatedFrame,
+      waitingState = waitingState,
+    )
+    val callIndex = openPreparingNewChatCalls.incrementAndGet()
+    lastOpenPreparingNewChatRequest.set(request)
+    openPreparingNewChatCallsFlow.value = callIndex
+    onOpenPreparingNewChat?.invoke(request, callIndex)
+    val project = ProjectManager.getInstance().defaultProject
+    val file = LightVirtualFile("preparing-chat-$callIndex")
+    openedChatHandler?.invoke(project, file)
+    return DeferredAgentSessionChatOpenResult(project = project, file = file)
+  }
+
+  override suspend fun completePreparingNewChat(
+      openedChat: DeferredAgentSessionChatOpenResult,
+      projectPath: String,
+      identity: String,
+      launchSpec: AgentSessionTerminalLaunchSpec,
+      launchMode: AgentSessionLaunchMode?,
+      launchProfileId: String?,
+      generationSettings: AgentPromptGenerationSettings,
+      preferredDedicatedFrame: Boolean?,
+      initialMessageDispatchPlan: AgentInitialPromptDeliveryPlan,
+      threadTitle: String,
+      pendingMetadata: AgentPendingSessionMetadata?,
+  ) {
+    openNewChat(
+      normalizedPath = projectPath,
+      identity = identity,
+      launchSpec = launchSpec,
+      initialMessageDispatchPlan = initialMessageDispatchPlan,
+      launchMode = launchMode,
+      launchProfileId = launchProfileId,
+      generationSettings = generationSettings,
+      preferredDedicatedFrame = preferredDedicatedFrame,
+      openedChatHandler = null,
+      threadTitle = threadTitle,
+    )
+  }
+
+  override suspend fun failPreparingNewChat(
+      openedChat: DeferredAgentSessionChatOpenResult,
+      title: String,
+      message: String?,
+  ) {
+    failPreparingNewChatCalls.incrementAndGet()
+    lastFailPreparingNewChatMessage.set(message)
   }
 }
 
@@ -449,6 +540,8 @@ internal data class OpenChatRequest(
   @JvmField val postStartDispatchSteps: List<AgentInitialMessageDispatchStep>,
   @JvmField val initialPromptMessage: String?,
   @JvmField val initialMessageToken: String?,
+  @JvmField val initialPromptDeliveryStatus: AgentInitialPromptDeliveryStatus?,
+  @JvmField val initialPromptDeliveryChannel: AgentInitialPromptDeliveryChannel?,
   @JvmField val launchMode: AgentSessionLaunchMode?,
   @JvmField val launchProfileId: String?,
   @JvmField val generationSettings: AgentPromptGenerationSettings,
@@ -465,6 +558,8 @@ internal data class OpenNewChatRequest(
   @JvmField val postStartDispatchSteps: List<AgentInitialMessageDispatchStep>,
   @JvmField val initialPromptMessage: String?,
   @JvmField val initialMessageToken: String?,
+  @JvmField val initialPromptDeliveryStatus: AgentInitialPromptDeliveryStatus?,
+  @JvmField val initialPromptDeliveryChannel: AgentInitialPromptDeliveryChannel?,
   @JvmField val launchMode: AgentSessionLaunchMode?,
   @JvmField val launchProfileId: String?,
   @JvmField val generationSettings: AgentPromptGenerationSettings,
@@ -473,6 +568,17 @@ internal data class OpenNewChatRequest(
   val initialComposedMessage: String?
     get() = initialPromptMessage ?: postStartDispatchSteps.singleOrNull()?.text
 }
+
+internal data class OpenPreparingNewChatRequest(
+  @JvmField val normalizedPath: String,
+  @JvmField val identity: String,
+  @JvmField val launchSpec: AgentSessionTerminalLaunchSpec,
+  @JvmField val launchMode: AgentSessionLaunchMode?,
+  @JvmField val launchProfileId: String?,
+  @JvmField val generationSettings: AgentPromptGenerationSettings,
+  @JvmField val preferredDedicatedFrame: Boolean?,
+  @JvmField val waitingState: AgentChatDeferredStartState,
+)
 
 data class NewThreadPromptLaunchObservation(
   @JvmField val launchResult: AgentPromptLaunchResult,
@@ -483,6 +589,8 @@ data class NewThreadPromptLaunchObservation(
   @JvmField val postStartDispatchSteps: List<AgentInitialMessageDispatchStep>,
   @JvmField val initialPromptMessage: String?,
   @JvmField val initialMessageToken: String?,
+  @JvmField val initialPromptDeliveryStatus: AgentInitialPromptDeliveryStatus?,
+  @JvmField val initialPromptDeliveryChannel: AgentInitialPromptDeliveryChannel?,
   @JvmField val launchProfileId: String?,
   @JvmField val preferredDedicatedFrame: Boolean?,
 )

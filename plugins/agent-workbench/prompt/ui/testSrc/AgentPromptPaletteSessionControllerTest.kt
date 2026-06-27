@@ -5,7 +5,11 @@ import com.intellij.platform.ai.agent.core.AgentThreadActivity
 import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
 import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.agent.workbench.prompt.core.AgentPromptContainerLauncher
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextResolverService
+import com.intellij.agent.workbench.prompt.core.AgentPromptContextContributorBridge
+import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
+import com.intellij.agent.workbench.prompt.core.AgentPromptContextRendererBridge
 import com.intellij.agent.workbench.prompt.core.AgentPromptExistingThreadsSnapshot
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
@@ -13,26 +17,30 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
+import com.intellij.agent.workbench.prompt.core.AgentPromptManualContextSourceBridge
+import com.intellij.agent.workbench.prompt.core.AgentPromptPaletteExtension
+import com.intellij.agent.workbench.prompt.core.AgentPromptSuggestionAiBackend
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessagePlan
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
 import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
+import com.intellij.openapi.extensions.ExtensionPoint
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.util.ui.EmptyIcon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -42,12 +50,24 @@ import javax.swing.JComponent
 @TestApplication
 @Timeout(value = 2, unit = TimeUnit.MINUTES)
 class AgentPromptPaletteSessionControllerTest {
+  private val registeredExtensionPoints = mutableListOf<String>()
+
   @BeforeEach
-  fun clearPromptState() {
+  fun setUp() {
+    ensurePromptExtensionPoints()
     val project = ProjectManager.getInstance().defaultProject
     project.service<AgentPromptUiSessionStateService>().clearDraft()
     project.service<AgentPromptUiSessionStateService>().loadState(AgentPromptUiState())
     project.service<AgentSessionProviderAvailabilityService>().clearAvailabilityForTest()
+  }
+
+  @AfterEach
+  fun tearDown() {
+    val extensionArea = ApplicationManager.getApplication().extensionArea
+    for (extensionPointName in registeredExtensionPoints.asReversed()) {
+      extensionArea.unregisterExtensionPoint(extensionPointName)
+    }
+    registeredExtensionPoints.clear()
   }
 
   @Test
@@ -86,9 +106,10 @@ class AgentPromptPaletteSessionControllerTest {
         fixture.view.existingTaskList.selectedIndex = 0
         assertThat(fixture.existingTaskController.selectedExistingTaskId).isEqualTo("codex-thread")
 
-        fixture.providerSelector.selectProvider(AgentSessionProvider.CLAUDE)
+        fixture.providerSelector.selectProvider(AgentSessionProvider.from("claude"))
 
-        assertThat(fixture.launcher.observedProviders).containsExactly(AgentSessionProvider.CODEX, AgentSessionProvider.CLAUDE)
+        assertThat(fixture.launcher.observedProviders).containsExactly(AgentSessionProvider.from("codex"),
+                                                                       AgentSessionProvider.from("claude"))
         assertThat(existingTaskIds(fixture.view)).containsExactly("claude-thread")
         assertThat(fixture.existingTaskController.selectedExistingTaskId).isEqualTo("claude-thread")
       }
@@ -122,7 +143,7 @@ class AgentPromptPaletteSessionControllerTest {
       try {
         reopenedPopup.controller.initialize()
 
-        assertThat(reopenedPopup.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.CLAUDE)
+        assertThat(reopenedPopup.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.from("claude"))
       }
       finally {
         reopenedPopup.dispose()
@@ -153,7 +174,7 @@ class AgentPromptPaletteSessionControllerTest {
       try {
         reopenedPopup.controller.initialize()
 
-        assertThat(reopenedPopup.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.CODEX)
+        assertThat(reopenedPopup.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.from("codex"))
       }
       finally {
         reopenedPopup.dispose()
@@ -176,7 +197,41 @@ class AgentPromptPaletteSessionControllerTest {
       try {
         fixture.controller.initialize()
 
-        assertThat(fixture.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.CODEX)
+        assertThat(fixture.providerSelector.selectedProvider?.bridge?.provider).isEqualTo(AgentSessionProvider.from("codex"))
+      }
+      finally {
+        fixture.dispose()
+      }
+    }
+  }
+
+  @Test
+  fun inlineEmptyStateHidesDefaultFooterUntilStatusIsShown() {
+    runInEdtAndWait {
+      var revalidateCalls = 0
+      val fixture = createSessionControllerFixture(
+        hostMode = AgentPromptPaletteHostMode.INLINE_EMPTY_STATE,
+        revalidateHost = { revalidateCalls++ },
+      )
+      try {
+        fixture.controller.initialize()
+
+        assertThat(fixture.view.footerPanel.isVisible).isFalse()
+
+        fixture.controller.applyAddContextRequest(
+          AgentPromptAddContextRequest(
+            contextItems = listOf(AgentPromptContextItem(rendererId = "test", title = "File", body = "src/Main.kt")),
+            target = null,
+          )
+        )
+
+        assertThat(fixture.view.footerPanel.isVisible).isTrue()
+        assertThat(fixture.view.statusStrip.text).isEqualTo(AgentPromptBundle.message("popup.status.context.added"))
+        assertThat(revalidateCalls).isGreaterThan(0)
+
+        fixture.controller.initialize()
+
+        assertThat(fixture.view.footerPanel.isVisible).isFalse()
       }
       finally {
         fixture.dispose()
@@ -186,12 +241,14 @@ class AgentPromptPaletteSessionControllerTest {
 
   private fun createSessionControllerFixture(
     providerPreferences: AgentPromptLauncherBridge.ProviderPreferences = AgentPromptLauncherBridge.ProviderPreferences(),
+    hostMode: AgentPromptPaletteHostMode = AgentPromptPaletteHostMode.POPUP,
+    revalidateHost: () -> Unit = {},
   ): SessionControllerFixture {
     val project = ProjectManager.getInstance().defaultProject
     val providers = listOf(
-      testProviderDescriptor(AgentSessionProvider.CODEX),
-      testProviderDescriptor(AgentSessionProvider.CLAUDE),
-      testProviderDescriptor(AgentSessionProvider.JUNIE),
+      testProviderDescriptor(AgentSessionProvider.from("codex")),
+      testProviderDescriptor(AgentSessionProvider.from("claude")),
+      testProviderDescriptor(AgentSessionProvider.from("junie")),
     )
     providers.forEach { provider ->
       service<AgentSessionProviderSettingsService>().setProviderEnabled(provider.provider, true)
@@ -200,72 +257,32 @@ class AgentPromptPaletteSessionControllerTest {
       providers.associate { provider -> provider.provider to true }
     )
 
-    val disposable = Disposer.newDisposable()
-
     @Suppress("RAW_SCOPE_CREATION")
-    val popupScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+    val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
     val launcher = RecordingPromptLauncher(providerPreferences)
-    val promptArea = AgentPromptTextField(project).apply {
-      setDisposedWith(disposable)
-    }
-    lateinit var controllerRef: AgentPromptPaletteSessionController
-    val suggestions = AgentPromptSuggestionsComponent { candidate -> controllerRef.applySuggestedPrompt(candidate) }
-    val contextChips = AgentPromptContextChipsComponent { entry -> controllerRef.removeContextEntry(entry) }
-    val view = createAgentPromptPaletteView(
-      promptArea = promptArea,
-      suggestionsPanel = suggestions.component,
-      contextChipsPanel = contextChips.component,
-      onExistingTaskSelected = { selected -> controllerRef.onExistingTaskSelected(selected) },
-    )
     val sessionsMessageResolver = AgentPromptSessionsMessageResolver(AgentPromptPaletteSessionControllerTest::class.java.classLoader)
     val invocationData = testInvocationData(project)
-    val providerSelector = AgentPromptProviderSelector(
+    val content = createAgentPromptPaletteContent(
       invocationData = invocationData,
-      headerControls = view.headerControls,
-      providersProvider = { providers },
-      sessionsMessageResolver = sessionsMessageResolver,
-      onProviderOptionsChanged = { controllerRef.onProviderOptionsChanged() },
-      onProviderSelectionChanged = { controllerRef.onProviderSelectionChanged() },
-    )
-    val existingTaskController = AgentPromptExistingTaskController(
-      existingTaskListModel = view.existingTaskListModel,
-      existingTaskList = view.existingTaskList,
-      popupScope = popupScope,
-      sessionsMessageResolver = sessionsMessageResolver,
-      onStateChanged = { controllerRef.onExistingTaskStateChanged() },
-    )
-    val suggestionController = AgentPromptSuggestionController(
-      popupScope = popupScope,
-      onSuggestionsUpdated = suggestions::render,
-    )
-    val controller = AgentPromptPaletteSessionController(
-      project = project,
-      invocationData = invocationData,
-      promptArea = promptArea,
-      view = view,
-      contextChips = contextChips,
-      providerSelector = providerSelector,
-      existingTaskController = existingTaskController,
-      suggestionController = suggestionController,
       contextResolverService = project.service<AgentPromptContextResolverService>(),
       uiStateService = project.service<AgentPromptUiSessionStateService>(),
+      sessionsMessageResolver = sessionsMessageResolver,
+      providersProvider = { providers },
       launcherProvider = { launcher },
-      closePopup = {},
-      isPopupActive = { true },
-      movePopupToFitScreen = {},
-      popupScope = popupScope,
-      parentDisposable = disposable,
+      closeHost = {},
+      isHostActive = { true },
+      revalidateHost = revalidateHost,
+      hostMode = hostMode,
+      sessionScope = sessionScope,
     )
-    controllerRef = controller
     return SessionControllerFixture(
-      controller = controller,
-      promptArea = promptArea,
-      providerSelector = providerSelector,
-      existingTaskController = existingTaskController,
-      view = view,
+      content = content,
+      controller = content.sessionController,
+      promptArea = content.promptArea,
+      providerSelector = content.providerSelector,
+      existingTaskController = content.existingTaskController,
+      view = content.view,
       launcher = launcher,
-      popupScope = popupScope,
-      disposable = disposable,
     )
   }
 
@@ -287,7 +304,7 @@ class AgentPromptPaletteSessionControllerTest {
     return AgentPromptLaunchProfile(
       id = "user:careful-claude",
       name = "Careful Claude",
-      providerId = AgentSessionProvider.CLAUDE.value,
+      providerId = AgentSessionProvider.from("claude").value,
     )
   }
 
@@ -299,6 +316,31 @@ class AgentPromptPaletteSessionControllerTest {
       actionPlace = "MainMenu",
       invokedAtMs = 0L,
     )
+  }
+
+  private fun ensurePromptExtensionPoints() {
+    registerExtensionPointIfNeeded(PROMPT_LAUNCHER_EP, AgentPromptLauncherBridge::class.java)
+    registerExtensionPointIfNeeded(PROMPT_CONTEXT_CONTRIBUTOR_EP, AgentPromptContextContributorBridge::class.java)
+    registerExtensionPointIfNeeded(PROMPT_CONTEXT_RENDERER_EP, AgentPromptContextRendererBridge::class.java)
+    registerExtensionPointIfNeeded(PALETTE_EXTENSION_EP, AgentPromptPaletteExtension::class.java)
+    registerExtensionPointIfNeeded(MANUAL_CONTEXT_SOURCE_EP, AgentPromptManualContextSourceBridge::class.java)
+    registerExtensionPointIfNeeded(PROMPT_SUGGESTION_AI_BACKEND_EP, AgentPromptSuggestionAiBackend::class.java)
+    registerExtensionPointIfNeeded(CONTAINER_LAUNCHER_EP, AgentPromptContainerLauncher::class.java)
+  }
+
+  private fun registerExtensionPointIfNeeded(extensionPointName: String, interfaceClass: Class<*>) {
+    val extensionArea = ApplicationManager.getApplication().extensionArea
+    if (extensionArea.hasExtensionPoint(extensionPointName)) {
+      return
+    }
+
+    extensionArea.registerExtensionPoint(
+      extensionPointName,
+      interfaceClass.name,
+      ExtensionPoint.Kind.INTERFACE,
+      true,
+    )
+    registeredExtensionPoints.add(extensionPointName)
   }
 
   private fun testProviderDescriptor(provider: AgentSessionProvider): AgentSessionProviderDescriptor {
@@ -375,19 +417,26 @@ class AgentPromptPaletteSessionControllerTest {
   }
 
   private data class SessionControllerFixture(
+    @JvmField val content: AgentPromptPaletteContent,
     @JvmField val controller: AgentPromptPaletteSessionController,
     @JvmField val promptArea: AgentPromptTextField,
     @JvmField val providerSelector: AgentPromptProviderSelector,
     @JvmField val existingTaskController: AgentPromptExistingTaskController,
     @JvmField val view: AgentPromptPaletteView,
     @JvmField val launcher: RecordingPromptLauncher,
-    @JvmField val popupScope: CoroutineScope,
-    @JvmField val disposable: com.intellij.openapi.Disposable,
   ) {
     fun dispose() {
-      controller.onPopupClosed()
-      popupScope.cancel()
-      Disposer.dispose(disposable)
+      content.dispose("Agent prompt palette session controller test disposed")
     }
+  }
+
+  private companion object {
+    const val PROMPT_LAUNCHER_EP: String = "com.intellij.agent.workbench.promptLauncher"
+    const val PROMPT_CONTEXT_CONTRIBUTOR_EP: String = "com.intellij.agent.workbench.promptContextContributor"
+    const val PROMPT_CONTEXT_RENDERER_EP: String = "com.intellij.agent.workbench.promptContextRenderer"
+    const val MANUAL_CONTEXT_SOURCE_EP: String = "com.intellij.agent.workbench.promptManualContextSource"
+    const val PALETTE_EXTENSION_EP: String = "com.intellij.agent.workbench.promptPaletteExtension"
+    const val PROMPT_SUGGESTION_AI_BACKEND_EP: String = "com.intellij.agent.workbench.promptSuggestionAiBackend"
+    const val CONTAINER_LAUNCHER_EP: String = "com.intellij.agent.workbench.containerLauncher"
   }
 }

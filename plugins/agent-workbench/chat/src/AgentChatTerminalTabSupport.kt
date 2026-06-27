@@ -66,9 +66,25 @@ internal interface AgentChatTerminalTab : AgentChatBehaviorTerminalTab {
     checkpoint: AgentChatTerminalOutputCheckpoint? = null,
   ): AgentChatTerminalInputReadiness
 
+  suspend fun awaitTerminalTitleThreadId(
+    provider: AgentSessionProvider?,
+    expectedThreadId: String,
+    timeoutMs: Long,
+  ): AgentChatTerminalInputReadiness {
+    return awaitAgentChatTerminalTitleThreadId(provider, expectedThreadId, timeoutMs)
+  }
+
   override suspend fun readRecentOutputTail(): String
 
   fun sendText(text: String, shouldExecute: Boolean, useBracketedPasteMode: Boolean = true)
+
+  suspend fun sendInitialMessageText(
+    text: String,
+    shouldExecute: Boolean,
+    useBracketedPasteMode: Boolean = true,
+  ) {
+    sendText(text, shouldExecute, useBracketedPasteMode)
+  }
 
   fun sendPendingContextAndExecute(text: String): AgentChatPendingContextSubmissionResult {
     if (text.isEmpty() || sessionState.value != TerminalViewSessionState.Running) {
@@ -257,6 +273,18 @@ private class ToolWindowAgentChatTerminalTab(
   }
 
   override fun sendText(text: String, shouldExecute: Boolean, useBracketedPasteMode: Boolean) {
+    val normalizedText = text.trim()
+    if (normalizedText.isEmpty()) {
+      return
+    }
+    sendNormalizedText(normalizedText, shouldExecute, useBracketedPasteMode)
+  }
+
+  override suspend fun sendInitialMessageText(
+    text: String,
+    shouldExecute: Boolean,
+    useBracketedPasteMode: Boolean,
+  ) {
     val normalizedText = text.trim()
     if (normalizedText.isEmpty()) {
       return

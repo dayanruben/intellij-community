@@ -5,7 +5,6 @@ package com.intellij.platform.ai.agent.pi.sessions
 
 import com.intellij.platform.ai.agent.common.icons.AgentWorkbenchCommonIcons
 import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
-import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.platform.ai.agent.json.createJsonGenerator
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
@@ -15,7 +14,7 @@ import com.intellij.platform.ai.agent.sessions.core.launch.insertArgumentsBefore
 import com.intellij.platform.ai.agent.sessions.core.launch.removeOptions
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessagePlan
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderCliVisibilityPolicy
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderImplementation
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderFeatureSettingsExtensions
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
@@ -59,10 +58,7 @@ internal class PiAgentSessionProviderDescriptor(
     PiKnownModelCatalog.DEFAULT::listAvailableGenerationModels,
   private val omlxSupportEnabledResolver: () -> Boolean = PiOmlxSupportSettings::isEnabled,
   private val jbCentralSupportEnabledResolver: () -> Boolean = PiJbCentralSupportSettings::isEnabled,
-) : AgentSessionProviderDescriptor {
-  override val provider: AgentSessionProvider
-    get() = AgentSessionProvider.PI
-
+) : AgentSessionProviderImplementation {
   override val displayPriority: Int
     get() = 3
 
@@ -264,7 +260,7 @@ internal class PiAgentSessionProviderDescriptor(
     val reasoningEffort = generationSettings.reasoningEffort
                             .takeIf { effort ->
                               effort == AgentPromptReasoningEffort.AUTO ||
-                              (modelId != null && supportsPiReasoningEffort(modelId, effort))
+                              if (modelId == null) effort in PI_SUPPORTED_REASONING_EFFORTS else supportsPiReasoningEffort(modelId, effort)
                             }
                           ?: AgentPromptReasoningEffort.AUTO
     return AgentPromptGenerationSettings(
@@ -305,9 +301,14 @@ internal class PiAgentSessionProviderDescriptor(
     initialMessagePlan: AgentInitialMessagePlan,
   ): AgentSessionTerminalLaunchSpec {
     val settings = sanitizeGenerationSettings(generationSettings)
-    val sanitizedModelId = settings.modelId ?: return baseLaunchSpec
     val reasoningEffort = settings.reasoningEffort
     val reasoningArgs = buildPiReasoningArgs(reasoningEffort)
+    val sanitizedModelId = settings.modelId ?: return if (reasoningArgs.isEmpty()) {
+      baseLaunchSpec
+    }
+    else {
+      baseLaunchSpec.copy(command = insertPiGenerationArgs(baseLaunchSpec.command, reasoningArgs))
+    }
     PiOmlxModelCatalog.decodeGenerationModelId(sanitizedModelId)?.let { modelSelection ->
       return baseLaunchSpec.copy(
         command = insertPiGenerationArgs(
@@ -558,14 +559,14 @@ private fun String.isUrlLikePiProvider(): Boolean {
 object PiOmlxSupportSettings {
   fun isEnabled(): Boolean {
     return AgentSessionProviderFeatureSettingsExtensions.isProviderFeatureEnabled(
-      AgentSessionProvider.PI,
+      PI_AGENT_SESSION_PROVIDER,
       PI_OMLX_PROVIDER_FEATURE_ID,
     )
   }
 
   fun setEnabled(enabled: Boolean) {
     AgentSessionProviderFeatureSettingsExtensions.setProviderFeatureEnabled(
-      AgentSessionProvider.PI,
+      PI_AGENT_SESSION_PROVIDER,
       PI_OMLX_PROVIDER_FEATURE_ID,
       enabled,
     )
@@ -575,14 +576,14 @@ object PiOmlxSupportSettings {
 object PiJbCentralSupportSettings {
   fun isEnabled(): Boolean {
     return AgentSessionProviderFeatureSettingsExtensions.isProviderFeatureEnabled(
-      AgentSessionProvider.PI,
+      PI_AGENT_SESSION_PROVIDER,
       PI_JBCENTRAL_PROVIDER_FEATURE_ID,
     )
   }
 
   fun setEnabled(enabled: Boolean) {
     AgentSessionProviderFeatureSettingsExtensions.setProviderFeatureEnabled(
-      AgentSessionProvider.PI,
+      PI_AGENT_SESSION_PROVIDER,
       PI_JBCENTRAL_PROVIDER_FEATURE_ID,
       enabled,
     )

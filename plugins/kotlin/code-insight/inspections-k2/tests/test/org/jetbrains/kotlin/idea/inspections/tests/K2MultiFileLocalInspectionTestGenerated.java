@@ -491,6 +491,19 @@ public abstract class K2MultiFileLocalInspectionTestGenerated extends AbstractK2
             }
 
             @RunWith(JUnit3RunnerWithInners.class)
+            @TestMetadata("testData/multiFileInspectionsLocal/useNamedGetter/jvmField")
+            public static class JvmField extends AbstractK2MultiFileLocalInspectionTest {
+                private void runTest(String testDataFilePath) throws Exception {
+                    KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+                }
+
+                @TestMetadata("jvmField.test")
+                public void testJvmField() throws Exception {
+                    runTest("testData/multiFileInspectionsLocal/useNamedGetter/jvmField/jvmField.test");
+                }
+            }
+
+            @RunWith(JUnit3RunnerWithInners.class)
             @TestMetadata("testData/multiFileInspectionsLocal/useNamedGetter/multipleComponents")
             public static class MultipleComponents extends AbstractK2MultiFileLocalInspectionTest {
                 private void runTest(String testDataFilePath) throws Exception {
@@ -513,6 +526,19 @@ public abstract class K2MultiFileLocalInspectionTestGenerated extends AbstractK2
                 @TestMetadata("nonDataClass.test")
                 public void testNonDataClass() throws Exception {
                     runTest("testData/multiFileInspectionsLocal/useNamedGetter/nonDataClass/nonDataClass.test");
+                }
+            }
+
+            @RunWith(JUnit3RunnerWithInners.class)
+            @TestMetadata("testData/multiFileInspectionsLocal/useNamedGetter/pair")
+            public static class Pair extends AbstractK2MultiFileLocalInspectionTest {
+                private void runTest(String testDataFilePath) throws Exception {
+                    KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+                }
+
+                @TestMetadata("pair.test")
+                public void testPair() throws Exception {
+                    runTest("testData/multiFileInspectionsLocal/useNamedGetter/pair/pair.test");
                 }
             }
 
@@ -552,6 +578,19 @@ public abstract class K2MultiFileLocalInspectionTestGenerated extends AbstractK2
                 @TestMetadata("simpleDataClass.test")
                 public void testSimpleDataClass() throws Exception {
                     runTest("testData/multiFileInspectionsLocal/useNamedGetter/simpleDataClass/simpleDataClass.test");
+                }
+            }
+
+            @RunWith(JUnit3RunnerWithInners.class)
+            @TestMetadata("testData/multiFileInspectionsLocal/useNamedGetter/triple")
+            public static class Triple extends AbstractK2MultiFileLocalInspectionTest {
+                private void runTest(String testDataFilePath) throws Exception {
+                    KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+                }
+
+                @TestMetadata("triple.test")
+                public void testTriple() throws Exception {
+                    runTest("testData/multiFileInspectionsLocal/useNamedGetter/triple/triple.test");
                 }
             }
 

@@ -849,22 +849,6 @@ internal class GitInMemoryInteractiveRebaseProcessTest : GitInMemoryOperationTes
     )
   }
 
-  private fun capturePostRewrites(): List<PostRewriteInvocation> {
-    val captures = mutableListOf<PostRewriteInvocation>()
-    git.runHookListener = { _, hookName, _, stdinLines ->
-      if (hookName == "post-rewrite") {
-        captures += PostRewriteInvocation(stdinLines.map {
-          val parts = it.split(' ', limit = 2)
-          RewrittenCommit(oldHash = parts[0], newHash = parts[1])
-        })
-      }
-    }
-    return captures
-  }
-
-  private data class RewrittenCommit(val oldHash: String, val newHash: String)
-  private data class PostRewriteInvocation(val mappings: List<RewrittenCommit>)
-
   private fun getRebaseEntries(firstCommit: VcsFullCommitDetails): List<GitRebaseEntryGeneratedUsingLog> = runBlocking {
     val entries = project.service<GitInteractiveRebaseEntriesProvider>().tryGetEntriesForDialog(repo, firstCommit, logData)
     checkNotNull(entries)

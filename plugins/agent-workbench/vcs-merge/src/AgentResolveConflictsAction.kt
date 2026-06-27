@@ -37,6 +37,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.vcs.merge.MergeResolveActionContext
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBOptionButton
 import org.jetbrains.annotations.Nls
 import java.awt.event.ActionEvent
@@ -47,7 +48,7 @@ import javax.swing.JComponent
 
 private data class ResolveWithAgentContext(
   val project: Project,
-  val request: AgentVcsMergeLaunchRequest,
+  val selectionHintFiles: List<VirtualFile>,
   val closeDialog: (() -> Unit)?,
 )
 
@@ -128,9 +129,14 @@ internal class AgentResolveConflictsAction @JvmOverloads constructor(
   }
 
   private fun launchResolution(context: ResolveWithAgentContext, item: AgentSessionLaunchProfileMenuItem) {
+    val provider = AgentSessionProvider.fromOrNull(item.profile.providerId) ?: return
     launchAgentMergeResolution(
       project = context.project,
-      request = context.request,
+      request = AgentVcsMergeLaunchRequest(
+        selectionHintFiles = context.selectionHintFiles,
+        agentProvider = provider,
+        launchMode = item.profile.launchMode,
+      ),
       closeDialog = context.closeDialog,
       item = item,
       setActiveVcsMergeLaunchProfileId = setActiveVcsMergeLaunchProfileId,
@@ -162,11 +168,7 @@ internal class AgentResolveConflictsAction @JvmOverloads constructor(
     if (!directContext.isContextValid()) return null
     return ResolveWithAgentContext(
       project = directContext.project,
-      request = AgentVcsMergeLaunchRequest(
-        selectionHintFiles = directContext.selectionHintFiles,
-        agentProvider = AgentSessionProvider.CODEX,
-        launchMode = AgentSessionLaunchMode.STANDARD,
-      ),
+      selectionHintFiles = directContext.selectionHintFiles,
       closeDialog = directContext::closeSourceUi,
     )
   }
@@ -184,7 +186,7 @@ internal class AgentResolveConflictsAction @JvmOverloads constructor(
       menuModel = menuModel,
       userProfiles = userLaunchProfiles(),
       preferredProfileId = activeVcsMergeLaunchProfileId(),
-      fallbackProfileIds = listOf(builtInLaunchProfileId(AgentSessionProvider.CODEX, AgentSessionLaunchMode.STANDARD)),
+      fallbackProfileIds = listOf(builtInLaunchProfileId(AgentSessionProvider.from("codex"), AgentSessionLaunchMode.STANDARD)),
       quickStartItemFilter = { item -> item.menuItem.isEnabled },
     )
   }

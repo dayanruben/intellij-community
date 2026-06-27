@@ -2,7 +2,6 @@
 package com.intellij.python.uv.backend
 
 import com.intellij.openapi.diagnostic.fileLogger
-import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.getPathMatcher
 import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.pyproject.PyProjectToml
@@ -16,6 +15,7 @@ import com.intellij.python.uv.common.UV_TOOL_ID
 import com.intellij.python.uv.common.UV_UI_INFO
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.jetbrains.python.PyToolUIInfo
+import com.jetbrains.python.packaging.PyPackageName
 import com.jetbrains.python.venvReader.Directory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -32,8 +32,6 @@ internal class UvPyProjectManager : PyProjectManager {
   override val id: ToolId = UV_TOOL_ID
 
   override val ui: PyToolUIInfo = UV_UI_INFO
-
-  override suspend fun getProjectName(projectToml: TomlTable): @NlsSafe String? = null
 
   override suspend fun getSrcRoots(toml: TomlTable, projectRoot: Directory): Set<Directory> = emptySet()
 
@@ -91,10 +89,12 @@ internal class UvPyProjectManager : PyProjectManager {
       }
       val (workspaceDeps, pathDeps) = getUvDependencies(projectToml, sourcesTablesWithRoots) ?: continue
       // Workspace deps use natural package names from pyproject.toml (e.g. "lib"),
-      // but siblings use deduped module names (e.g. "lib@1"). Match by base name.
-      val siblingsByBaseName = siblings.associateBy { ProjectName(it.name.substringBefore('@')) }
-      val resolvedWorkspaceDeps = workspaceDeps.mapNotNull { siblingsByBaseName[it] }.toSet()
-      val brokenDeps = workspaceDeps.filter { it !in siblingsByBaseName }.toSet()
+      // but siblings use deduped module names (e.g. "lib@1"). Match by base name, and compare
+      // names in their normalized form so a member published under its normalized name (e.g. abc-rag)
+      // still matches a dependency spelled with '.'/'_' (e.g. abc.rag) (PY-89677).
+      val siblingsByNormalizedName = siblings.associateBy { PyPackageName.normalizeProjectName(it.name.substringBefore('@')) }
+      val resolvedWorkspaceDeps = workspaceDeps.mapNotNull { siblingsByNormalizedName[PyPackageName.normalizeProjectName(it.name)] }.toSet()
+      val brokenDeps = workspaceDeps.filter { PyPackageName.normalizeProjectName(it.name) !in siblingsByNormalizedName }.toSet()
       if (brokenDeps.isNotEmpty()) {
         logger.info("Deps are broken: ${brokenDeps.joinToString(", ")}")
       }
@@ -182,23 +182,27 @@ private fun getUvDependencies(
   if (sourcesTablesWithRoots.isEmpty()) {
     return null
   }
-  val deps = extractDependencyNamesWithoutExtras(pyProject.pyProjectToml)?.toMutableSet() ?: return null
+  val deps = extractDependencyNamesWithoutExtras(pyProject.pyProjectToml) ?: return null
+  // Dependency names indexed by their normalized form; a `tool.uv.sources` entry applies to a
+  // dependency when their normalized names match, regardless of `-`/`_`/`.` spelling (PY-90207).
+  val depByNormalizedName = deps.associateByTo(HashMap()) { PyPackageName.normalizeProjectName(it) }
   val workspaceDeps = mutableListOf<ProjectName>()
   val pathDeps = hashSetOf<Path>()
   for ((sourcesTable, ownerRoot) in sourcesTablesWithRoots) {
-    for ((depName, depTable) in sourcesTable.toMap().entries) {
-      if (depName !in deps) continue
+    for ((sourceKey, depTable) in sourcesTable.toMap().entries) {
+      val normalizedKey = PyPackageName.normalizeProjectName(sourceKey)
+      val depName = depByNormalizedName[normalizedKey] ?: continue
       val table = depTable as? TomlTable ?: continue
 
       if (table.getBoolean("workspace") == true) {
         workspaceDeps.add(ProjectName(depName))
-        deps.remove(depName)
+        depByNormalizedName.remove(normalizedKey)
       }
       else {
         val path = table.getString("path") ?: continue
         try {
           pathDeps.add(ownerRoot.resolve(path).normalize())
-          deps.remove(depName)
+          depByNormalizedName.remove(normalizedKey)
         }
         catch (e: InvalidPathException) {
           logger.info("Can't resolve $path against $ownerRoot", e)

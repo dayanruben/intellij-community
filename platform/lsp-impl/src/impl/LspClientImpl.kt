@@ -108,8 +108,7 @@ class LspClientImpl internal constructor(
     get() = if (state == LspServerState.Running) initializeResult?.capabilities else null
 
   internal val textDocumentSyncKind: TextDocumentSyncKind?
-    @Suppress("RemoveExplicitTypeArguments")
-    get() = serverCapabilities?.textDocumentSync?.map<TextDocumentSyncKind?>({ it }, { it.change })
+    get() = serverCapabilities?.textDocumentSync?.map({ it }, { it.change })
 
   internal fun isFileOpened(file: VirtualFile): Boolean = documentSyncManager.isFileOpened(file)
 
@@ -265,11 +264,11 @@ class LspClientImpl internal constructor(
         }
         logWarn("Failed to start LSP server", exToLog)
 
-        val lspServerManager = ReadAction.computeBlocking<LspClientManagerImpl?, Throwable> {
+        val manager = ReadAction.computeBlocking<LspClientManagerImpl?, Throwable> {
           if (!project.isDisposed) LspClientManagerImpl.getInstanceImpl(project) else null
         }
         val text = (if (e is LspInitializationException) "$e\nCaused by:\n" else "") + exToLog.stackTraceToString()
-        lspServerManager?.handleMaybeUnexpectedServerStop(this, text)
+        manager?.handleMaybeUnexpectedServerStop(this, text)
       }
     }
   }

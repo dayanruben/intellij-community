@@ -28,8 +28,10 @@ import com.intellij.agent.workbench.sessions.util.buildAgentSessionIdentity
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.junit5.TestApplication
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -51,7 +53,7 @@ class AgentSessionLaunchServiceTest {
         unarchiveCalls.incrementAndGet()
         assertThat(path).isEqualTo(PROJECT_PATH)
         assertThat(threadId).isEqualTo("codex-archived")
-        activeThreads.add(thread(id = threadId, updatedAt = 250, provider = AgentSessionProvider.CODEX))
+        activeThreads.add(thread(id = threadId, updatedAt = 250, provider = AgentSessionProvider.from("codex")))
         true
       },
     )
@@ -68,7 +70,7 @@ class AgentSessionLaunchServiceTest {
         ) { service, launchService ->
           launchService.openChatThread(
             path = PROJECT_PATH,
-            thread = thread(id = "codex-archived", updatedAt = 200, provider = AgentSessionProvider.CODEX).copy(archived = true),
+            thread = thread(id = "codex-archived", updatedAt = 200, provider = AgentSessionProvider.from("codex")).copy(archived = true),
             entryPoint = AgentWorkbenchEntryPoint.TREE_ROW,
           )
 
@@ -111,7 +113,7 @@ class AgentSessionLaunchServiceTest {
         ) { _, launchService ->
           launchService.openChatThread(
             path = PROJECT_PATH,
-            thread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.CODEX),
+            thread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.from("codex")),
             entryPoint = AgentWorkbenchEntryPoint.TREE_ROW,
           )
 
@@ -231,7 +233,7 @@ class AgentSessionLaunchServiceTest {
         ) { _, launchService ->
           launchService.openChatThread(
             path = PROJECT_PATH,
-            thread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.CODEX),
+            thread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.from("codex")),
             entryPoint = AgentWorkbenchEntryPoint.TREE_ROW,
           )
 
@@ -252,7 +254,7 @@ class AgentSessionLaunchServiceTest {
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD, AgentSessionLaunchMode.YOLO),
     )
     val chatOpenExecutor = RecordingChatOpenExecutor()
-    val activeThread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.CODEX)
+    val activeThread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.from("codex"))
 
     AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
       runBlocking(Dispatchers.Default) {
@@ -266,7 +268,7 @@ class AgentSessionLaunchServiceTest {
 
           val result = launchService.launchPromptRequest(
             AgentPromptLaunchRequest(
-              provider = AgentSessionProvider.CODEX,
+              provider = AgentSessionProvider.from("codex"),
               projectPath = PROJECT_PATH,
               launchMode = AgentSessionLaunchMode.YOLO,
               initialMessageRequest = AgentPromptInitialMessageRequest(prompt = "Continue this thread"),
@@ -301,13 +303,13 @@ class AgentSessionLaunchServiceTest {
       AgentPromptLaunchProfile(
         id = profileId,
         name = "Codex Yolo",
-        providerId = AgentSessionProvider.CODEX.value,
+        providerId = AgentSessionProvider.from("codex").value,
         launchMode = AgentSessionLaunchMode.YOLO,
         generationSettings = profileSettings,
       )
     )
     val chatOpenExecutor = RecordingChatOpenExecutor()
-    val activeThread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.CODEX)
+    val activeThread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.from("codex"))
 
     AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
       runBlocking(Dispatchers.Default) {
@@ -323,7 +325,7 @@ class AgentSessionLaunchServiceTest {
           val result = launchService.launchPromptRequest(
             AgentPromptLaunchRequest(
               launchProfileId = profileId,
-              provider = AgentSessionProvider.CODEX,
+              provider = AgentSessionProvider.from("codex"),
               projectPath = PROJECT_PATH,
               launchMode = AgentSessionLaunchMode.STANDARD,
               initialMessageRequest = AgentPromptInitialMessageRequest(prompt = "Continue this thread"),
@@ -360,7 +362,7 @@ class AgentSessionLaunchServiceTest {
       AgentPromptLaunchProfile(
         id = profileId,
         name = "Codex New Yolo",
-        providerId = AgentSessionProvider.CODEX.value,
+        providerId = AgentSessionProvider.from("codex").value,
         launchMode = AgentSessionLaunchMode.YOLO,
         generationSettings = profileSettings,
       )
@@ -393,6 +395,86 @@ class AgentSessionLaunchServiceTest {
   }
 
   @Test
+  fun createNewSessionOpensPreparingChatBeforeLaunchSpecIsPrepared() {
+    val launchSpecRequested = CompletableDeferred<Unit>()
+    val releaseLaunchSpec = CompletableDeferred<Unit>()
+    val descriptor = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.from("codex"),
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+      newSessionLaunchSpecProvider = { mode ->
+        launchSpecRequested.complete(Unit)
+        releaseLaunchSpec.await()
+        AgentSessionTerminalLaunchSpec(command = listOf("test", "new", mode.name))
+      },
+    )
+    val chatOpenExecutor = RecordingChatOpenExecutor()
+
+    AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
+      runBlocking(Dispatchers.Default) {
+        withTestServiceAndLaunch(
+          sessionSourcesProvider = { listOf(descriptor.sessionSource) },
+          projectEntriesProvider = { listOf(openTestProjectEntry(PROJECT_PATH, "Project A")) },
+          chatOpenExecutor = chatOpenExecutor,
+        ) { _, launchService ->
+          launchService.createNewSession(
+            path = PROJECT_PATH,
+            provider = AgentSessionProvider.from("codex"),
+            mode = AgentSessionLaunchMode.STANDARD,
+            entryPoint = AgentWorkbenchEntryPoint.TREE_ROW,
+          )
+
+          chatOpenExecutor.awaitOpenPreparingNewChatCalls(1)
+          withTimeout(5_000) { launchSpecRequested.await() }
+          assertThat(chatOpenExecutor.openNewChatCalls.get()).isZero()
+
+          releaseLaunchSpec.complete(Unit)
+          chatOpenExecutor.awaitOpenNewChatCalls(1)
+          val openRequest = checkNotNull(chatOpenExecutor.lastOpenNewChatRequest.get())
+          assertThat(openRequest.launchSpec.command).containsExactly("test", "new", AgentSessionLaunchMode.STANDARD.name)
+        }
+      }
+    }
+  }
+
+  @Test
+  fun createNewSessionReportsPreparationFailureInOpenedChat() {
+    val descriptor = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.from("codex"),
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = false,
+    )
+    val chatOpenExecutor = RecordingChatOpenExecutor()
+    val launchResult = CompletableDeferred<AgentPromptLaunchResult>()
+
+    AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
+      runBlocking(Dispatchers.Default) {
+        withTestServiceAndLaunch(
+          sessionSourcesProvider = { listOf(descriptor.sessionSource) },
+          projectEntriesProvider = { listOf(openTestProjectEntry(PROJECT_PATH, "Project A")) },
+          chatOpenExecutor = chatOpenExecutor,
+        ) { _, launchService ->
+          launchService.createNewSession(
+            path = PROJECT_PATH,
+            provider = AgentSessionProvider.from("codex"),
+            mode = AgentSessionLaunchMode.STANDARD,
+            entryPoint = AgentWorkbenchEntryPoint.TREE_ROW,
+            promptLaunchResolved = { result -> launchResult.complete(result) },
+          )
+
+          chatOpenExecutor.awaitOpenPreparingNewChatCalls(1)
+          waitForCondition { chatOpenExecutor.failPreparingNewChatCalls.get() == 1 }
+          val result = withTimeout(5_000) { launchResult.await() }
+          assertThat(result.launched).isFalse()
+          assertThat(result.error).isEqualTo(AgentPromptLaunchError.PROVIDER_UNAVAILABLE)
+          assertThat(chatOpenExecutor.openNewChatCalls.get()).isZero()
+          assertThat(chatOpenExecutor.lastFailPreparingNewChatMessage.get()).isNotBlank()
+        }
+      }
+    }
+  }
+
+  @Test
   fun promptLaunchRejectsPendingNewThreadTarget() {
     val descriptor = testDescriptor(
       supportsUnarchiveThread = true,
@@ -400,7 +482,7 @@ class AgentSessionLaunchServiceTest {
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
     )
     val chatOpenExecutor = RecordingChatOpenExecutor()
-    val pendingThread = thread(id = "new-global-prompt", updatedAt = 200, provider = AgentSessionProvider.CODEX)
+    val pendingThread = thread(id = "new-global-prompt", updatedAt = 200, provider = AgentSessionProvider.from("codex"))
 
     AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
       runBlocking(Dispatchers.Default) {
@@ -414,7 +496,7 @@ class AgentSessionLaunchServiceTest {
 
           val result = launchService.launchPromptRequest(
             AgentPromptLaunchRequest(
-              provider = AgentSessionProvider.CODEX,
+              provider = AgentSessionProvider.from("codex"),
               projectPath = PROJECT_PATH,
               launchMode = AgentSessionLaunchMode.STANDARD,
               initialMessageRequest = AgentPromptInitialMessageRequest(prompt = "Start another thread"),
@@ -439,7 +521,7 @@ class AgentSessionLaunchServiceTest {
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
       supportsPromptLaunch = false,
     )
-    val activeThread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.CODEX)
+    val activeThread = thread(id = "codex-active", updatedAt = 200, provider = AgentSessionProvider.from("codex"))
     val chatOpenExecutor = RecordingChatOpenExecutor()
 
     AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
@@ -454,7 +536,7 @@ class AgentSessionLaunchServiceTest {
 
           val existingThreadResult = launchService.launchPromptRequest(
             AgentPromptLaunchRequest(
-              provider = AgentSessionProvider.CODEX,
+              provider = AgentSessionProvider.from("codex"),
               projectPath = PROJECT_PATH,
               launchMode = AgentSessionLaunchMode.STANDARD,
               initialMessageRequest = AgentPromptInitialMessageRequest(prompt = "Continue this thread"),
@@ -463,7 +545,7 @@ class AgentSessionLaunchServiceTest {
           )
           val newThreadResult = launchService.launchPromptRequest(
             AgentPromptLaunchRequest(
-              provider = AgentSessionProvider.CODEX,
+              provider = AgentSessionProvider.from("codex"),
               projectPath = PROJECT_PATH,
               launchMode = AgentSessionLaunchMode.STANDARD,
               initialMessageRequest = AgentPromptInitialMessageRequest(prompt = "Start a new thread"),
@@ -484,7 +566,7 @@ class AgentSessionLaunchServiceTest {
   @Test
   fun createNewSessionDoesNotUpdateProviderOptionsForProviderWithoutPromptLaunchSupport() {
     val descriptor = TestAgentSessionProviderDescriptor(
-      provider = AgentSessionProvider.TERMINAL,
+      provider = AgentSessionProvider.from("terminal"),
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
       cliAvailable = true,
       supportsPromptLaunch = false,
@@ -502,7 +584,7 @@ class AgentSessionLaunchServiceTest {
         ) { _, launchService ->
           launchService.createNewSession(
             path = PROJECT_PATH,
-            provider = AgentSessionProvider.TERMINAL,
+            provider = AgentSessionProvider.from("terminal"),
             entryPoint = AgentWorkbenchEntryPoint.TREE_ROW,
           )
 
@@ -516,7 +598,7 @@ class AgentSessionLaunchServiceTest {
 
   @Test
   fun createNewSessionUsesPreallocatedLaunchSpecSessionIdAsConcreteIdentity() {
-    val provider = AgentSessionProvider.CLAUDE
+    val provider = AgentSessionProvider.from("claude")
     val preallocatedSessionId = "a174b4df-e942-49fe-bb30-8b5f8e7f4857"
     val descriptor = TestAgentSessionProviderDescriptor(
       provider = provider,
@@ -557,12 +639,12 @@ class AgentSessionLaunchServiceTest {
 
   @Test
   fun openCodexThreadRebindsMatchingPendingTabBeforeOpening() {
-    assertOpenThreadRebindsMatchingPendingTabBeforeOpening(AgentSessionProvider.CODEX)
+    assertOpenThreadRebindsMatchingPendingTabBeforeOpening(AgentSessionProvider.from("codex"))
   }
 
   @Test
   fun openClaudeThreadRebindsMatchingPendingTabBeforeOpening() {
-    assertOpenThreadRebindsMatchingPendingTabBeforeOpening(AgentSessionProvider.CLAUDE)
+    assertOpenThreadRebindsMatchingPendingTabBeforeOpening(AgentSessionProvider.from("claude"))
   }
 
   @Test
@@ -588,7 +670,7 @@ class AgentSessionLaunchServiceTest {
         ) { _, launchService ->
           launchService.openChatThread(
             path = PROJECT_PATH,
-            thread = thread(id = "codex-archived", updatedAt = 200, provider = AgentSessionProvider.CODEX).copy(archived = true),
+            thread = thread(id = "codex-archived", updatedAt = 200, provider = AgentSessionProvider.from("codex")).copy(archived = true),
             entryPoint = AgentWorkbenchEntryPoint.TREE_ROW,
           )
 
@@ -627,7 +709,7 @@ class AgentSessionLaunchServiceTest {
         ) { _, launchService ->
           launchService.openChatThread(
             path = PROJECT_PATH,
-            thread = thread(id = "codex-archived", updatedAt = 200, provider = AgentSessionProvider.CODEX).copy(archived = true),
+            thread = thread(id = "codex-archived", updatedAt = 200, provider = AgentSessionProvider.from("codex")).copy(archived = true),
             entryPoint = AgentWorkbenchEntryPoint.TREE_ROW,
           )
 
@@ -645,7 +727,7 @@ class AgentSessionLaunchServiceTest {
 
   @Test
   fun openPreviouslyArchivedThreadUnsuppressesBeforeRefreshingActiveList() {
-    val activeThread = thread(id = "codex-archived", updatedAt = 200, provider = AgentSessionProvider.CODEX)
+    val activeThread = thread(id = "codex-archived", updatedAt = 200, provider = AgentSessionProvider.from("codex"))
     val activeThreads = CopyOnWriteArrayList(listOf(activeThread))
     val archiveCalls = AtomicInteger(0)
     val unarchiveCalls = AtomicInteger(0)
@@ -683,7 +765,7 @@ class AgentSessionLaunchServiceTest {
 
           val archiveTarget = ArchiveThreadTarget.Thread(
             path = PROJECT_PATH,
-            provider = AgentSessionProvider.CODEX,
+            provider = AgentSessionProvider.from("codex"),
             threadId = activeThread.id,
           )
           archiveService.archiveThreads(listOf(archiveTarget), AgentWorkbenchEntryPoint.TREE_POPUP)
@@ -721,7 +803,7 @@ class AgentSessionLaunchServiceTest {
     val archivedThread = thread(
       id = "codex-archived",
       updatedAt = 200,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       subAgents = listOf(subAgent),
     ).copy(archived = true)
     val unarchiveCalls = AtomicInteger(0)
@@ -843,7 +925,7 @@ class AgentSessionLaunchServiceTest {
     archiveThreadHandler: suspend (String, String) -> Boolean = { _, _ -> false },
   ): TestAgentSessionProviderDescriptor {
     return TestAgentSessionProviderDescriptor(
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       supportedModes = supportedModes,
       cliAvailable = true,
       supportsPromptLaunch = supportsPromptLaunch,
@@ -857,7 +939,7 @@ class AgentSessionLaunchServiceTest {
 
   private fun sourceForActiveThreads(threads: List<AgentSessionThread>): ScriptedSessionSource {
     return ScriptedSessionSource(
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       listFromOpenProject = { path, _ -> if (path == PROJECT_PATH) threads.toList() else emptyList() },
     )
   }
@@ -878,7 +960,7 @@ class AgentSessionLaunchServiceTest {
   }
 
   private fun branchMismatchThread(): AgentSessionThread {
-    return thread(id = "codex-feature", updatedAt = 200, provider = AgentSessionProvider.CODEX).copy(originBranch = "main")
+    return thread(id = "codex-feature", updatedAt = 200, provider = AgentSessionProvider.from("codex")).copy(originBranch = "main")
   }
 
   private fun hasFeatureWorktree(state: AgentSessionsState): Boolean {

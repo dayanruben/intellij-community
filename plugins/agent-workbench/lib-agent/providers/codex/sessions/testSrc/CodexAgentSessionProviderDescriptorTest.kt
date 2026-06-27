@@ -15,8 +15,6 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
 import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
 import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchAction
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessagePlan
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageStartupPolicy
@@ -37,24 +35,26 @@ import java.nio.file.Path
 class CodexAgentSessionProviderDescriptorTest {
   private val bridge = CodexAgentSessionProviderDescriptor(
     executableResolver = { CodexCliUtils.CODEX_COMMAND },
+    threadStartupBackend = RecordingThreadStartupBackend(),
   )
 
   @Test
   fun buildResumeLaunchSpec(): Unit = runBlocking(Dispatchers.Default) {
     assertThat(bridge.buildResumeLaunchSpec("thread-1").command)
-      .containsExactlyElementsOf(CODEX_BASE_COMMAND + listOf("resume", "thread-1"))
+      .containsExactlyElementsOf(CODEX_BASE_COMMAND + listOf("resume", "--remote", REMOTE_URL, "thread-1"))
   }
 
   @Test
   fun buildYoloResumeLaunchSpec(): Unit = runBlocking(Dispatchers.Default) {
     assertThat(bridge.buildResumeLaunchSpec("thread-1", AgentSessionLaunchMode.YOLO).command)
-      .containsExactlyElementsOf(CODEX_BASE_COMMAND + listOf("--yolo", "resume", "thread-1"))
+      .containsExactlyElementsOf(CODEX_BASE_COMMAND + listOf("--yolo", "resume", "--remote", REMOTE_URL, "thread-1"))
   }
 
   @Test
   fun promptOptionsUseSharedPlanModeOption() {
     assertThat(bridge.promptOptions).containsExactly(AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION)
     assertThat(bridge.supportsGenerationModelSelection).isTrue()
+    assertThat(bridge.supportsPendingEditorTabRebind).isFalse()
   }
 
   @Test
@@ -259,7 +259,7 @@ class CodexAgentSessionProviderDescriptorTest {
         initialMessagePlan = AgentInitialMessagePlan(message = "Summarize changes"),
       )).command
     )
-      .containsExactlyElementsOf(CODEX_BASE_COMMAND + listOf("resume", "thread-1", "--", "Summarize changes"))
+      .containsExactlyElementsOf(CODEX_BASE_COMMAND + listOf("resume", "--remote", REMOTE_URL, "thread-1", "--", "Summarize changes"))
   }
 
   @Test
@@ -385,7 +385,7 @@ class CodexAgentSessionProviderDescriptorTest {
   }
 
   @Test
-  fun planModeBuildsPlanCommandAndPromptPostStartDispatchSteps() {
+  fun planModeDoesNotBuildTerminalPostStartDispatchSteps() {
     val steps = bridge.buildPostStartDispatchSteps(
       AgentInitialMessagePlan(
         message = "Refactor this",
@@ -394,21 +394,11 @@ class CodexAgentSessionProviderDescriptorTest {
       )
     )
 
-    assertThat(steps).containsExactly(
-      AgentInitialMessageDispatchStep(
-        text = "/plan",
-        timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-        completionPolicy = AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY,
-      ),
-      AgentInitialMessageDispatchStep(
-        text = "Refactor this",
-        timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-      ),
-    )
+    assertThat(steps).isEmpty()
   }
 
   @Test
-  fun emptyPlanModeBuildsPlanCommandOnlyPostStartDispatchStep() {
+  fun emptyPlanModeDoesNotBuildTerminalPostStartDispatchStep() {
     val steps = bridge.buildPostStartDispatchSteps(
       AgentInitialMessagePlan(
         message = "",
@@ -417,13 +407,7 @@ class CodexAgentSessionProviderDescriptorTest {
       )
     )
 
-    assertThat(steps).containsExactly(
-      AgentInitialMessageDispatchStep(
-        text = "/plan",
-        timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-        completionPolicy = AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY,
-      ),
-    )
+    assertThat(steps).isEmpty()
   }
 
   @Test
@@ -637,7 +621,7 @@ private val PLAN_INITIAL_MESSAGE_PLAN: AgentInitialMessagePlan = AgentInitialMes
 private fun emptySource(): AgentSessionSource {
   return object : AgentSessionSource {
     override val provider: AgentSessionProvider
-      get() = AgentSessionProvider.CODEX
+      get() = AgentSessionProvider.from("codex")
 
     override suspend fun listThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> = emptyList()
 

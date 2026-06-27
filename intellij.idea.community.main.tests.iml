@@ -232,6 +232,7 @@
     <orderEntry type="module" module-name="intellij.platform.pluginGraph.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.pluginSystem.parser.impl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.problemView.backend.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.recentFiles.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.problemView.ui.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.sqlite.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.statistics.devkit.tests" scope="TEST" />
@@ -303,5 +304,8 @@
     <orderEntry type="module" module-name="intellij.platform.lsp.impl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.mermaid.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.discoverability.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.mcpserver.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.mcpserver.terminal.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.mcpserver.terminal.frontend.tests" scope="TEST" />
   </component>
 </module>

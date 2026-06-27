@@ -1064,6 +1064,8 @@ jvm_library(
         "//platform/pluginSystem/parser/impl:pluginSystem-parser-impl-tests_test_lib",
         "//platform/problemsView/backend:problemView-backend-tests",
         "//platform/problemsView/backend:problemView-backend-tests_test_lib",
+        "//platform/recentFiles/tests",
+        "//platform/recentFiles/tests:tests_test_lib",
         "//platform/problemsView/ui:problemView-ui-tests",
         "//platform/problemsView/ui:problemView-ui-tests_test_lib",
         "//platform/sqlite:sqlite-tests",
@@ -1206,6 +1208,12 @@ jvm_library(
         "//plugins/mermaid:mermaid-tests_test_lib",
         "//platform/discoverability:discoverability-tests",
         "//platform/discoverability:discoverability-tests_test_lib",
+        "//plugins/mcp-server/tests",
+        "//plugins/mcp-server/tests:tests_test_lib",
+        "//plugins/mcp-server/mcpserver.terminal/tests",
+        "//plugins/mcp-server/mcpserver.terminal/tests:tests_test_lib",
+        "//plugins/mcp-server/mcpserver.terminal.frontend/tests",
+        "//plugins/mcp-server/mcpserver.terminal.frontend/tests:tests_test_lib",
     ],
 )
 ### auto-generated section `build intellij.idea.community.main.tests` end

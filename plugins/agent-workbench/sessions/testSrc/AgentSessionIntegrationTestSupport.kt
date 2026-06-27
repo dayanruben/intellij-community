@@ -30,6 +30,7 @@ import com.intellij.agent.workbench.sessions.model.ProjectEntry
 import com.intellij.agent.workbench.sessions.model.WorktreeEntry
 import com.intellij.agent.workbench.sessions.service.AgentSessionArchiveBackgroundTaskRunner
 import com.intellij.agent.workbench.sessions.service.AgentSessionArchiveService
+import com.intellij.agent.workbench.sessions.service.AgentSessionArchiveTransitionSuppressions
 import com.intellij.agent.workbench.sessions.service.AgentSessionChatOpenExecutor
 import com.intellij.agent.workbench.sessions.service.AgentSessionContentRepository
 import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchProfileResolverImpl
@@ -337,6 +338,7 @@ suspend fun withRegisteredTestService(
     openAgentChatSnapshotProvider = { buildOpenChatRefreshSnapshot() },
     providerDescriptorProvider = { provider -> testIntegrationProviderDescriptor(provider) },
     toolWindowVisibleFlow = toolWindowVisibleFlow,
+    loadingDelayMs = 0L,
     subscribeToProjectLifecycle = false,
   )
   val app = ApplicationManager.getApplication()
@@ -381,7 +383,7 @@ internal suspend fun withTestServiceAndLaunch(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -390,6 +392,7 @@ internal suspend fun withTestServiceAndLaunch(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   branchMismatchConfirmation: suspend (Project?, String, String) -> Boolean = { _, _, _ ->
     error("Unexpected branch mismatch confirmation")
   },
@@ -409,6 +412,7 @@ internal suspend fun withTestServiceAndLaunch(
     archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
     toolWindowVisibleFlow = toolWindowVisibleFlow,
     currentTimeMillis = currentTimeMillis,
+    loadingDelayMs = loadingDelayMs,
     branchMismatchConfirmation = branchMismatchConfirmation,
     action = action,
   )
@@ -428,7 +432,7 @@ internal suspend fun withService(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -437,6 +441,7 @@ internal suspend fun withService(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   action: suspend (AgentSessionStateSyncTestFacade) -> Unit,
 ) {
   withServiceAndLaunch(
@@ -453,6 +458,7 @@ internal suspend fun withService(
     archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
     toolWindowVisibleFlow = toolWindowVisibleFlow,
     currentTimeMillis = currentTimeMillis,
+    loadingDelayMs = loadingDelayMs,
   ) { service, _ ->
     action(service)
   }
@@ -472,7 +478,7 @@ internal suspend fun withServiceAndLaunch(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -481,6 +487,7 @@ internal suspend fun withServiceAndLaunch(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   branchMismatchConfirmation: suspend (Project?, String, String) -> Boolean = { _, _, _ ->
     error("Unexpected branch mismatch confirmation")
   },
@@ -501,6 +508,7 @@ internal suspend fun withServiceAndLaunch(
     archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
     toolWindowVisibleFlow = toolWindowVisibleFlow,
     currentTimeMillis = currentTimeMillis,
+    loadingDelayMs = loadingDelayMs,
     branchMismatchConfirmation = branchMismatchConfirmation,
   ) { service, _, launchService ->
     action(service, launchService)
@@ -523,7 +531,7 @@ internal suspend fun withServiceAndArchive(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -532,6 +540,7 @@ internal suspend fun withServiceAndArchive(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   action: suspend (AgentSessionStateSyncTestFacade, AgentSessionArchiveService) -> Unit,
 ) {
   withServiceAndArchiveAndLaunch(
@@ -550,6 +559,7 @@ internal suspend fun withServiceAndArchive(
     archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
     toolWindowVisibleFlow = toolWindowVisibleFlow,
     currentTimeMillis = currentTimeMillis,
+    loadingDelayMs = loadingDelayMs,
   ) { service, archiveService, _ ->
     action(service, archiveService)
   }
@@ -571,7 +581,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -580,6 +590,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   branchMismatchConfirmation: suspend (Project?, String, String) -> Boolean = { _, _, _ ->
     error("Unexpected branch mismatch confirmation")
   },
@@ -594,6 +605,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
     previousOpenInDedicatedFrame = AgentChatOpenModeSettings.openInDedicatedFrame()
     AgentChatOpenModeSettings.setOpenInDedicatedFrame(true)
     val stateStore = AgentSessionsStateStore()
+    val archiveTransitionSuppressions = AgentSessionArchiveTransitionSuppressions()
     val contentRepository = AgentSessionContentRepository(
       stateStore = stateStore,
       warmState = warmState,
@@ -608,8 +620,8 @@ internal suspend fun withServiceAndArchiveAndLaunch(
       openAgentChatSnapshotProvider = {
         buildOpenChatRefreshSnapshot(
           pendingTabsByProvider = mapOf(
-            AgentSessionProvider.CODEX to openPendingAgentChatTabsProvider(AgentSessionProvider.CODEX),
-            AgentSessionProvider.CLAUDE to openPendingAgentChatTabsProvider(AgentSessionProvider.CLAUDE),
+            AgentSessionProvider.from("codex") to openPendingAgentChatTabsProvider(AgentSessionProvider.from("codex")),
+            AgentSessionProvider.from("claude") to openPendingAgentChatTabsProvider(AgentSessionProvider.from("claude")),
           ),
           concreteThreadIdentitiesByPath = openConcreteChatThreadIdentitiesByPathProvider(),
         )
@@ -618,6 +630,8 @@ internal suspend fun withServiceAndArchiveAndLaunch(
       providerDescriptorProvider = { provider -> testIntegrationProviderDescriptor(provider) },
       toolWindowVisibleFlow = toolWindowVisibleFlow,
       currentTimeMillis = currentTimeMillis,
+      archiveTransitionSuppressions = archiveTransitionSuppressions,
+      loadingDelayMs = loadingDelayMs,
       subscribeToProjectLifecycle = false,
     )
     val service = AgentSessionStateSyncTestFacade(
@@ -632,6 +646,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
         syncService = syncService,
         uiPreferencesState = uiPreferencesState,
         launchProfileResolver = launchProfileResolver,
+        archiveTransitionSuppressions = archiveTransitionSuppressions,
         openPendingAgentChatTabsProvider = openPendingAgentChatTabsProvider,
         openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinderWithProvider,
         archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
@@ -646,6 +661,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
         uiPreferencesState = uiPreferencesState,
         launchProfileResolver = launchProfileResolver,
         chatOpenExecutor = chatOpenExecutor,
+        archiveTransitionSuppressions = archiveTransitionSuppressions,
         openPendingAgentChatTabsProvider = openPendingAgentChatTabsProvider,
         openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinderWithProvider,
         archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
@@ -658,6 +674,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
       contentRepository = contentRepository,
       archiveChatCleanup = archiveChatCleanup,
       backgroundTaskRunner = archiveBackgroundTaskRunner,
+      archiveTransitionSuppressions = archiveTransitionSuppressions,
     )
     action(service, archiveService, launchService)
   }
@@ -747,14 +764,14 @@ private fun defaultValue(returnType: Class<*>): Any? {
 }
 
 private suspend fun collectOpenPendingCodexTabsByPath(): Map<String, List<AgentChatPendingTabSnapshot>> {
-  return collectOpenPendingAgentChatTabsByPath(AgentSessionProvider.CODEX)
+  return collectOpenPendingAgentChatTabsByPath(AgentSessionProvider.from("codex"))
 }
 
 private suspend fun rebindOpenPendingCodexTabs(
   requestsByProjectPath: Map<String, List<AgentChatPendingTabRebindRequest>>,
 ): AgentChatPendingTabRebindReport {
   return rebindOpenPendingAgentChatTabs(
-    provider = AgentSessionProvider.CODEX,
+    provider = AgentSessionProvider.from("codex"),
     requestsByProjectPath = requestsByProjectPath,
   )
 }
@@ -772,7 +789,7 @@ suspend fun waitForCondition(timeoutMs: Long = 5_000, condition: () -> Boolean) 
 
 private val TEST_INTEGRATION_PROVIDER_DESCRIPTORS: Map<AgentSessionProvider, TestAgentSessionProviderDescriptor> = listOf(
   TestAgentSessionProviderDescriptor(
-    provider = AgentSessionProvider.CODEX,
+    provider = AgentSessionProvider.from("codex"),
     supportedModes = emptySet(),
     cliAvailable = true,
     supportsPendingEditorTabRebind = true,
@@ -781,7 +798,7 @@ private val TEST_INTEGRATION_PROVIDER_DESCRIPTORS: Map<AgentSessionProvider, Tes
     refreshPathAfterCreateNewSession = true,
   ),
   TestAgentSessionProviderDescriptor(
-    provider = AgentSessionProvider.CLAUDE,
+    provider = AgentSessionProvider.from("claude"),
     supportedModes = emptySet(),
     cliAvailable = true,
     supportsPendingEditorTabRebind = true,

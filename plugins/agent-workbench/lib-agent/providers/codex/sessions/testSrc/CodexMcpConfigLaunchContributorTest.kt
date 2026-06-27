@@ -28,7 +28,7 @@ class CodexMcpConfigLaunchContributorTest {
 
     val launchSpec = contributor.contribute(
       projectPath = PROJECT_PATH,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       sessionId = null,
       launchSpec = AgentSessionTerminalLaunchSpec(command = listOf("codex")),
     )
@@ -47,7 +47,7 @@ class CodexMcpConfigLaunchContributorTest {
 
     val launchSpec = contributor.contribute(
       projectPath = PROJECT_PATH,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       sessionId = null,
       launchSpec = AgentSessionTerminalLaunchSpec(command = listOf("codex")),
     )
@@ -63,7 +63,7 @@ class CodexMcpConfigLaunchContributorTest {
 
     val launchSpec = contributor.contribute(
       projectPath = PROJECT_PATH,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       sessionId = null,
       launchSpec = AgentSessionTerminalLaunchSpec(command = listOf("codex")),
     )
@@ -77,13 +77,13 @@ class CodexMcpConfigLaunchContributorTest {
 
     val launchSpec = contributor.contribute(
       projectPath = PROJECT_PATH,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       sessionId = "thread-1",
-      launchSpec = AgentSessionTerminalLaunchSpec(command = listOf("codex", "--yolo", "resume", "thread-1")),
+      launchSpec = AgentSessionTerminalLaunchSpec(command = listOf("codex", "--yolo", "resume", "--remote", REMOTE_URL, "thread-1")),
     )
 
     assertThat(launchSpec.command).containsExactlyElementsOf(
-      listOf("codex", "--yolo") + EXPECTED_MCP_ARGS_WITH_FILTERED_DISABLES + listOf("resume", "thread-1")
+      listOf("codex", "--yolo") + EXPECTED_MCP_ARGS_WITH_FILTERED_DISABLES + listOf("resume", "--remote", REMOTE_URL, "thread-1")
     )
   }
 
@@ -93,7 +93,7 @@ class CodexMcpConfigLaunchContributorTest {
 
     val launchSpec = contributor.contribute(
       projectPath = PROJECT_PATH,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       sessionId = null,
       launchSpec = AgentSessionTerminalLaunchSpec(command = listOf("codex", "--", "Refactor this")),
     )
@@ -110,7 +110,7 @@ class CodexMcpConfigLaunchContributorTest {
 
     val launchSpec = contributor.contribute(
       projectPath = PROJECT_PATH,
-      provider = AgentSessionProvider.CLAUDE,
+      provider = AgentSessionProvider.from("claude"),
       sessionId = null,
       launchSpec = baseLaunchSpec,
     )
@@ -125,7 +125,7 @@ class CodexMcpConfigLaunchContributorTest {
 
     val launchSpec = contributor.contribute(
       projectPath = PROJECT_PATH,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       sessionId = null,
       launchSpec = baseLaunchSpec,
     )
@@ -140,7 +140,7 @@ class CodexMcpConfigLaunchContributorTest {
 
     val launchSpec = contributor.contribute(
       projectPath = PROJECT_PATH,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       sessionId = null,
       launchSpec = baseLaunchSpec,
     )

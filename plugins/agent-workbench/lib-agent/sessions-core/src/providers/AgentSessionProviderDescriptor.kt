@@ -32,14 +32,19 @@ enum class AgentInitialMessageTimeoutPolicy {
   REQUIRE_EXPLICIT_READINESS,
 }
 
-enum class AgentInitialMessageDispatchCompletionPolicy {
-  IMMEDIATE,
-  RETRY_ON_CODEX_PLAN_BUSY,
-}
-
 enum class AgentInitialMessageDispatchAction {
   SEND_TEXT,
+  PROVIDER,
 }
+
+data class AgentInitialMessageProviderDispatchRequest(
+  @JvmField val project: Project,
+  @JvmField val projectPath: String,
+  @JvmField val threadId: String,
+  @JvmField val message: String,
+  @JvmField val mode: AgentInitialMessageMode,
+  @JvmField val generationSettings: AgentPromptGenerationSettings,
+)
 
 /**
  * Controls how synchronous provider pickers behave before CLI availability is known.
@@ -73,8 +78,8 @@ data class AgentInitialMessagePlan(
 data class AgentInitialMessageDispatchStep(
   @JvmField val text: String = "",
   @JvmField val timeoutPolicy: AgentInitialMessageTimeoutPolicy = AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK,
-  @JvmField val completionPolicy: AgentInitialMessageDispatchCompletionPolicy = AgentInitialMessageDispatchCompletionPolicy.IMMEDIATE,
   @JvmField val action: AgentInitialMessageDispatchAction = AgentInitialMessageDispatchAction.SEND_TEXT,
+  @JvmField val recordsPrompt: Boolean = true,
 ) {
   fun isDispatchable(): Boolean {
     return text.isNotBlank()
@@ -89,6 +94,7 @@ enum class AgentInitialPromptDeliveryStatus {
 enum class AgentInitialPromptDeliveryChannel {
   STARTUP_COMMAND,
   TERMINAL,
+  APP_SERVER,
 }
 
 data class AgentInitialPromptRecord(
@@ -179,9 +185,11 @@ private fun buildPromptRecord(
   token: String?,
   deliveredByStartupCommand: Boolean,
 ): AgentInitialPromptRecord? {
-  val message = steps.lastOrNull { step -> step.action == AgentInitialMessageDispatchAction.SEND_TEXT && step.text.isNotBlank() }
-                  ?.text
-                ?: return null
+  val message = steps.lastOrNull { step ->
+    step.recordsPrompt &&
+    step.action == AgentInitialMessageDispatchAction.SEND_TEXT &&
+    step.text.isNotBlank()
+  }?.text ?: return null
   return AgentInitialPromptRecord(
     message = message,
     token = token,
@@ -200,24 +208,24 @@ private fun buildPromptRecord(
   )
 }
 
-typealias AgentInitialMessageDispatchPlan = AgentInitialPromptDeliveryPlan
+data class AgentPrestartedNewSessionLaunch(
+  @JvmField val launchSpec: AgentSessionTerminalLaunchSpec,
+  @JvmField val initialMessageDispatchPlan: AgentInitialPromptDeliveryPlan? = null,
+)
 
 data class AgentPendingSessionMetadata(
   @JvmField val createdAtMs: Long,
   @JvmField val launchMode: String?,
 )
 
-interface AgentSessionProviderDescriptor {
-  val provider: AgentSessionProvider
+interface AgentSessionProviderImplementation {
   val displayNameKey: String
-  val displayNameFallback: String
-    get() = provider.value.replaceFirstChar { char ->
-      if (char.isLowerCase()) char.titlecase() else char.toString()
-    }
+  val displayNameFallback: String?
+    get() = null
   val cliDisplayNameKey: String
     get() = displayNameKey
-  val cliDisplayNameFallback: String
-    get() = displayNameFallback
+  val cliDisplayNameFallback: String?
+    get() = null
   val displayPriority: Int
     get() = Int.MAX_VALUE
   val newSessionLabelKey: String
@@ -369,6 +377,15 @@ interface AgentSessionProviderDescriptor {
 
   suspend fun buildNewSessionLaunchSpec(mode: AgentSessionLaunchMode): AgentSessionTerminalLaunchSpec
 
+  suspend fun prestartNewSessionLaunch(
+    projectPath: String,
+    launchMode: AgentSessionLaunchMode,
+    initialMessagePlan: AgentInitialMessagePlan,
+    generationSettings: AgentPromptGenerationSettings,
+    generationModelCatalog: List<AgentPromptGenerationModel>,
+    launchSpec: AgentSessionTerminalLaunchSpec,
+  ): AgentPrestartedNewSessionLaunch? = null
+
   fun sanitizeGenerationSettings(generationSettings: AgentPromptGenerationSettings): AgentPromptGenerationSettings {
     val modelId = generationSettings.modelId
       ?.trim()
@@ -418,6 +435,8 @@ interface AgentSessionProviderDescriptor {
     )
   }
 
+  suspend fun dispatchInitialMessageToProvider(request: AgentInitialMessageProviderDispatchRequest): Boolean = false
+
   suspend fun archiveThread(path: String, threadId: String): Boolean = false
 
   suspend fun unarchiveThread(path: String, threadId: String): Boolean = false
@@ -453,13 +472,31 @@ interface AgentSessionProviderDescriptor {
 
   /**
    * CLI-arg marker that distinguishes a YOLO-mode launch from a standard one for this provider.
-   * The default [resolvePendingSessionMetadata] implementation looks for this token in
+   * The default [AgentSessionProviderDescriptor.resolvePendingSessionMetadata] implementation looks for this token in
    * [AgentSessionTerminalLaunchSpec.command] to label the launch mode. `null` (the default)
    * means YOLO is not distinguishable from the launch spec — every pending session is reported
    * as `"standard"`.
    */
   val pendingSessionLaunchYoloMarker: String?
     get() = null
+
+  fun createToolWindowNorthComponent(project: Project): JComponent? = null
+
+  fun shouldStripContextForPrompt(prompt: String): Boolean = false
+
+  fun isCliMissingError(throwable: Throwable): Boolean = false
+}
+
+interface AgentSessionProviderDescriptor : AgentSessionProviderImplementation {
+  val provider: AgentSessionProvider
+
+  override val displayNameFallback: String
+    get() = provider.value.replaceFirstChar { char ->
+      if (char.isLowerCase()) char.titlecase() else char.toString()
+    }
+
+  override val cliDisplayNameFallback: String
+    get() = displayNameFallback
 
   fun resolvePendingSessionMetadata(
     identity: String,
@@ -472,10 +509,6 @@ interface AgentSessionProviderDescriptor {
     val launchMode = if (yoloMarker != null && yoloMarker in launchSpec.command) "yolo" else "standard"
     return AgentPendingSessionMetadata(createdAtMs = System.currentTimeMillis(), launchMode = launchMode)
   }
-
-  fun createToolWindowNorthComponent(project: Project): JComponent? = null
-
-  fun isCliMissingError(throwable: Throwable): Boolean = false
 }
 
 data class AgentSessionTerminalLaunchSpec(

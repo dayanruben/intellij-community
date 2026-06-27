@@ -25,7 +25,6 @@ import com.intellij.platform.lsp.api.LspClientDescriptor
 import com.intellij.platform.lsp.api.LspClientManager
 import com.intellij.platform.lsp.api.LspClientManagerListener
 import com.intellij.platform.lsp.api.LspIntegrationProvider
-import com.intellij.platform.lsp.api.LspServer
 import com.intellij.platform.lsp.api.LspServerDescriptor
 import com.intellij.platform.lsp.api.LspServerManager
 import com.intellij.platform.lsp.api.LspServerState
@@ -41,7 +40,7 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 
 private val logger = logger<LspClientManagerImpl>()
-private const val MAX_LSP_SERVERS = 10
+private const val MAX_LSP_CLIENTS = 10 //
 
 /**
  * Project service for managing LSP servers for the current project
@@ -51,7 +50,7 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
   @Suppress("DEPRECATION")
   LspServerManager, Disposable {
   init {
-    assert(!project.isDefault) { "LspServerManager doesn't make sense for the default project" }
+    assert(!project.isDefault) { "LspClientManager doesn't make sense for the default project" }
     addExtensionPointListener()
     addWorkspaceModelListener()
   }
@@ -151,7 +150,7 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
           return@readAndEdtWriteAction value(Unit)
         }
 
-        if (lspClients.size >= MAX_LSP_SERVERS) {
+        if (lspClients.size >= MAX_LSP_CLIENTS) {
           logger.error("${lspClients.size} LSP servers are already running and one more wants to start." +
                        "To save system resources, this request will be ignored: $descriptor")
           return@readAndEdtWriteAction value(Unit)
@@ -206,7 +205,7 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
    */
   private fun handleServerStop(lspClient: LspClientImpl, explicitStop: Boolean) {
     if (lspClient.state in arrayOf(LspServerState.Initializing, LspServerState.Running) && !lspClients.contains(lspClient)) {
-      logger.error("LspServerManager doesn't know the server that it is asked to stop: $lspClient")
+      logger.error("LspClientManager doesn't know the server that it is asked to stop: $lspClient")
     }
 
     if (explicitStop) {
@@ -247,10 +246,10 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
     }
   }
 
-  internal fun wrapLsp4jServer(lspServer: LspServer, lsp4jServer: Lsp4jServer): Lsp4jServer =
+  internal fun wrapLsp4jServer(lspClient: LspClientImpl, lsp4jServer: Lsp4jServer): Lsp4jServer =
     @Suppress("TestOnlyProblems")
     lsp4jServerWrappers.fold(lsp4jServer) { wrappedLsp4jServer, wrapper ->
-      wrapper.wrapLsp4jServer(lspServer, wrappedLsp4jServer)
+      wrapper.wrapLsp4jServer(lspClient, wrappedLsp4jServer)
     }
 
   override fun addListener(listener: LspClientManagerListener, parentDisposable: Disposable, sendEventsForExistingClients: Boolean) {
