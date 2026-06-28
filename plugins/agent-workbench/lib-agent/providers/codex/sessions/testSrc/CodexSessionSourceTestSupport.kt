@@ -7,7 +7,8 @@ import com.intellij.platform.ai.agent.codex.sessions.backend.CodexRefreshActivit
 import com.intellij.platform.ai.agent.codex.sessions.backend.CodexRefreshHints
 import com.intellij.platform.ai.agent.codex.sessions.backend.CodexRefreshHintsProvider
 import com.intellij.platform.ai.agent.codex.sessions.backend.CodexSessionBackend
-import com.intellij.platform.ai.agent.codex.sessions.backend.rollout.CodexRolloutRefreshHintsProvider
+import com.intellij.platform.ai.agent.codex.sessions.backend.toAgentThreadActivity
+import com.intellij.platform.ai.agent.codex.sessions.backend.rollout.CodexRolloutDiscoveryProvider
 import com.intellij.platform.ai.agent.codex.sessions.backend.rollout.CodexRolloutSessionBackend
 import com.intellij.platform.ai.agent.core.AgentThreadActivity
 import com.intellij.platform.ai.agent.core.session.AgentSessionCost
@@ -28,7 +29,10 @@ internal fun testCreateSource(
   threadIds: List<String>,
   appServerHints: Map<String, CodexRefreshHints> = emptyMap(),
   backendThreadCustomizer: (CodexBackendThread) -> CodexBackendThread = { it },
-  calculateCost: (AgentSessionUsageSnapshot) -> AgentSessionCost = { AgentSessionCost(amountUsd = null, kind = AgentSessionCostKind.UNAVAILABLE) },
+  calculateCost: (AgentSessionUsageSnapshot) -> AgentSessionCost = {
+    AgentSessionCost(amountUsd = null,
+                     kind = AgentSessionCostKind.UNAVAILABLE)
+  },
 ): CodexSessionSource {
   val projectPath = projectDir.toString()
   val rolloutBackend = CodexRolloutSessionBackend(codexHomeProvider = { codexHome })
@@ -54,11 +58,11 @@ internal fun testCreateSource(
     }
   }
   val appServerRefreshHintsProvider = testStaticHintsProvider(appServerHints)
-  val rolloutRefreshHintsProvider = CodexRolloutRefreshHintsProvider(rolloutBackend = rolloutBackend)
+  val rolloutDiscoveryProvider = CodexRolloutDiscoveryProvider(rolloutBackend = rolloutBackend)
   return CodexSessionSource(
     backend,
     appServerRefreshHintsProvider,
-    rolloutRefreshHintsProvider,
+    rolloutDiscoveryProvider,
     rolloutBackend,
     calculateCost,
   )
@@ -70,7 +74,7 @@ internal suspend fun testRefreshHints(
   threadIds: List<String>,
 ): AgentSessionRefreshHints {
   val projectPath = projectDir.toString()
-  val listedThreads = source.listThreadsFromClosedProject(projectPath)
+  val listedThreads = source.listThreads(projectPath, openProject = null)
   check(listedThreads.map { it.id } == threadIds) {
     "Expected listed thread ids $threadIds but got ${listedThreads.map { it.id }}"
   }
@@ -91,24 +95,32 @@ internal suspend fun testRefreshActivities(
     .mapValues { (_, update) -> checkNotNull(update.activityReport.rowActivity) }
 }
 
-internal suspend fun testRefreshCodexHints(
+internal suspend fun testRolloutCodexHints(
   projectDir: Path,
   codexHome: Path,
   threadIds: List<String>,
-  appServerHints: Map<String, CodexRefreshHints> = emptyMap(),
 ): CodexRefreshHints {
   val projectPath = projectDir.toString()
-  val knownThreadIdsByPath = mapOf(projectPath to threadIds.toSet())
-  val rolloutHints = CodexRolloutRefreshHintsProvider(
-    rolloutBackend = CodexRolloutSessionBackend(codexHomeProvider = { codexHome })
-  ).prefetchRefreshHints(
-    paths = listOf(projectPath),
-    refreshThreadSeedsByPath = knownThreadIdsByPath.mapValues { (_, threadIds) -> threadIds.toAgentSessionRefreshThreadSeeds() },
+  val requestedThreadIds = threadIds.toSet()
+  val rolloutBackend = CodexRolloutSessionBackend(codexHomeProvider = { codexHome })
+  val rolloutThreads = if (requestedThreadIds.isEmpty()) {
+    rolloutBackend.listThreads(path = projectPath, openProject = null)
+  }
+  else {
+    rolloutBackend.refreshThreads(path = projectPath, threadIds = requestedThreadIds, openProject = null)?.threads.orEmpty()
+  }
+  return CodexRefreshHints(
+    activityHintsByThreadId = rolloutThreads.asSequence()
+      .filter { thread -> requestedThreadIds.isEmpty() || thread.thread.id in requestedThreadIds }
+      .associate { thread ->
+        thread.thread.id to CodexRefreshActivityHint(
+          activity = thread.activity.toAgentThreadActivity(),
+          updatedAt = thread.thread.updatedAt,
+          responseRequired = thread.requiresResponse,
+          summaryActivity = thread.summaryActivity?.toAgentThreadActivity(),
+        )
+      }
   )
-  return mergeCodexRefreshHints(
-    appServerHintsByPath = appServerHints,
-    rolloutHintsByPath = rolloutHints,
-  ).getOrElse(projectPath) { CodexRefreshHints() }
 }
 
 internal fun testStaticHintsProvider(hintsByPath: Map<String, CodexRefreshHints>): CodexRefreshHintsProvider {

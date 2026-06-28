@@ -6,10 +6,16 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptSuggestionCandidate
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.ui.EditorTextField
+import com.intellij.util.ui.JBFont
+import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import java.awt.Component
 import java.util.concurrent.TimeUnit
+import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import kotlin.math.abs
@@ -35,20 +41,31 @@ class AgentPromptPaletteViewLayoutTest {
   }
 
   @Test
-  fun composerContextClusterIsShownWhenAddContextControlIsTheOnlyVisibleControl() {
+  fun popupComposerContextClusterIsHiddenWhenAddContextControlIsInBottomTray() {
     runInEdtAndWait {
       val promptArea = EditorTextField()
       val view = createPaletteView(promptArea = promptArea)
 
       layoutPopupRoot(view.rootPanel)
 
-      assertThat(view.composerContextPanel.isVisible).isTrue()
+      assertThat(view.composerContextPanel.isVisible).isFalse()
       assertThat(view.addContextButton.isVisible).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.generationSettingsPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.generationSettingsPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.generationSettingsPanel)).isTrue()
+      assertThat(locationInRoot(view.addContextButton, view.rootPanel).x)
+        .isLessThan(locationInRoot(view.launchProfileLink, view.rootPanel).x)
+      assertThat(abs(yCenterInRoot(view.addContextButton, view.rootPanel) - yCenterInRoot(view.launchProfileLink, view.rootPanel)))
+        .isLessThanOrEqualTo(1)
+      assertThat(view.addContextButton.font.size).isEqualTo(JBFont.label().size)
+      assertThat(view.launchProfileLink.font.size).isEqualTo(JBFont.label().size)
+      assertThat(view.addContextButton.foreground).isEqualTo(UIUtil.getLabelForeground())
+      assertThat(view.launchProfileLink.foreground).isEqualTo(UIUtil.getLabelForeground())
     }
   }
 
   @Test
-  fun inlineComposerContextClusterIsHiddenWhenAddContextControlIsInGenerationRow() {
+  fun inlineComposerContextClusterIsHiddenWhenAddContextControlIsInBottomTray() {
     runInEdtAndWait {
       val promptArea = EditorTextField()
       val view = createPaletteView(
@@ -60,11 +77,16 @@ class AgentPromptPaletteViewLayoutTest {
 
       assertThat(view.addContextButton.isVisible).isTrue()
       assertThat(view.composerContextPanel.isVisible).isFalse()
-      assertThat(view.addContextButton.parent).isSameAs(view.modelSelectorLink.parent)
+      assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.generationSettingsPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.generationSettingsPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.generationSettingsPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.rightHeaderPanel)).isFalse()
       assertThat(locationInRoot(view.addContextButton, view.rootPanel).x)
-        .isLessThan(locationInRoot(view.modelSelectorLink, view.rootPanel).x)
-      assertThat(abs(yCenterInRoot(view.addContextButton, view.rootPanel) - yCenterInRoot(view.modelSelectorLink, view.rootPanel)))
-        .isLessThanOrEqualTo(1)
+        .isLessThan(locationInRoot(view.launchProfileLink, view.rootPanel).x)
+      assertThat(view.addContextButton.font.size).isEqualTo(JBUI.Fonts.smallFont().size)
+      assertThat(view.launchProfileLink.font.size).isEqualTo(JBUI.Fonts.smallFont().size)
+      assertThat(view.addContextButton.foreground).isEqualTo(UIUtil.getContextHelpForeground())
+      assertThat(view.launchProfileLink.foreground).isEqualTo(UIUtil.getContextHelpForeground())
     }
   }
 
@@ -86,6 +108,8 @@ class AgentPromptPaletteViewLayoutTest {
       assertThat(view.composerContextPanel.isVisible).isTrue()
       assertThat(contextChipsPanel.isVisible).isTrue()
       assertThat(contextChipsPanel.height).isGreaterThan(0)
+      assertThat(SwingUtilities.isDescendingFrom(contextChipsPanel, view.promptEditorPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(contextChipsPanel, view.generationSettingsPanel)).isFalse()
     }
   }
 
@@ -185,9 +209,19 @@ class AgentPromptPaletteViewLayoutTest {
       val initialLocation = locationInRoot(view.addContextButton, view.rootPanel)
       val firstChipLocation = locationInRoot(contextChips.component.components.first(), view.rootPanel)
       val promptEditorLocation = locationInRoot(view.promptEditorPanel, view.rootPanel)
+      val promptAreaLocation = locationInRoot(checkNotNull(findPromptArea(view.rootPanel, promptArea)), view.rootPanel)
 
-      assertThat(initialLocation.x).isEqualTo(promptEditorLocation.x)
-      assertThat(firstChipLocation.x).isEqualTo(promptEditorLocation.x)
+      assertThat(initialLocation.x).isGreaterThanOrEqualTo(promptEditorLocation.x)
+      assertThat(initialLocation.x).isLessThan(locationInRoot(view.launchProfileLink, view.rootPanel).x)
+      assertThat(firstChipLocation.x).isGreaterThanOrEqualTo(promptEditorLocation.x)
+      assertThat(firstChipLocation.y).isLessThan(promptAreaLocation.y)
+      assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.generationSettingsPanel)).isTrue()
+      val firstAttachmentCard = contextAttachmentCards(contextChips.component).single()
+      assertThat(firstAttachmentCard.isOpaque).isFalse()
+      assertThat(firstAttachmentCard.accessibleContext.accessibleName).isEqualTo("File: src/Main.java")
+      val removeButton = contextRemoveButtons(firstAttachmentCard).single()
+      assertThat(removeButton.isFocusable).isTrue()
+      assertThat(removeButton.accessibleContext.accessibleName).isEqualTo("Remove context: File: src/Main.java")
 
       contextChips.render(
         listOf(
@@ -199,7 +233,103 @@ class AgentPromptPaletteViewLayoutTest {
       layoutPopupRoot(view.rootPanel)
 
       assertThat(locationInRoot(view.addContextButton, view.rootPanel)).isEqualTo(initialLocation)
-      assertThat(locationInRoot(contextChips.component, view.rootPanel).y).isLessThan(initialLocation.y)
+      assertThat(view.composerContextPanel.isVisible).isTrue()
+      assertThat(contextChips.component.isVisible).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(contextChips.component, view.composerContextPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(contextChips.component, view.promptEditorPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(contextChips.component, view.generationSettingsPanel)).isFalse()
+    }
+  }
+
+  @Test
+  fun inlineContextChipsAreCappedAtTwoRowsWithOverflowChip() {
+    runInEdtAndWait {
+      val promptArea = EditorTextField()
+      val contextChips = AgentPromptContextChipsComponent(maxVisibleRows = 2) {}
+      val view = createPaletteView(
+        promptArea = promptArea,
+        contextChipsPanel = contextChips.component,
+        hostMode = AgentPromptPaletteHostMode.INLINE_EMPTY_STATE,
+      )
+      val entries = createManyContextEntries()
+
+      layoutPopupRoot(view.rootPanel)
+      contextChips.render(entries)
+      layoutPopupRoot(view.rootPanel)
+      contextChips.render(entries)
+      layoutPopupRoot(view.rootPanel)
+
+      val cards = contextAttachmentCards(contextChips.component)
+      val overflowCard = contextOverflowCards(contextChips.component).single()
+      val overflowText = overflowCard.accessibleContext.accessibleName
+      assertThat(componentRowCount(cards, view.rootPanel)).isLessThanOrEqualTo(2)
+      assertThat(overflowText).matches("\\+\\d+")
+      assertThat(overflowText.removePrefix("+").toInt()).isEqualTo(entries.size - cards.size + 1)
+      assertThat(cards.size).isLessThan(entries.size)
+    }
+  }
+
+  @Test
+  fun inlineContextChipsExpandComposerWithoutHidingPromptInput() {
+    runInEdtAndWait {
+      val promptArea = EditorTextField()
+      val contextChips = AgentPromptContextChipsComponent(maxVisibleRows = 2) {}
+      val view = createPaletteView(
+        promptArea = promptArea,
+        contextChipsPanel = contextChips.component,
+        hostMode = AgentPromptPaletteHostMode.INLINE_EMPTY_STATE,
+      )
+      val entries = createManyContextEntries()
+
+      layoutPopupRoot(view.rootPanel)
+      val promptAreaInRoot = checkNotNull(findPromptArea(view.rootPanel, promptArea))
+      val compactPreferredHeight = view.rootPanel.preferredSize.height
+      val compactPromptHeight = promptAreaInRoot.height
+      assertThat(view.composerContextPanel.isVisible).isFalse()
+      assertThat(compactPromptHeight).isGreaterThan(0)
+
+      contextChips.render(entries)
+      layoutPopupRoot(view.rootPanel)
+      contextChips.render(entries)
+      layoutPopupRoot(view.rootPanel)
+
+      val cards = contextAttachmentCards(contextChips.component)
+      assertThat(view.composerContextPanel.isVisible).isTrue()
+      assertThat(view.rootPanel.preferredSize.height).isGreaterThan(compactPreferredHeight)
+      assertThat(componentRowCount(cards, view.rootPanel)).isLessThanOrEqualTo(2)
+      assertThat(promptAreaInRoot.height).isGreaterThanOrEqualTo(compactPromptHeight)
+      assertThat(bottomInRoot(view.composerContextPanel, view.rootPanel))
+        .isLessThanOrEqualTo(yInRoot(promptAreaInRoot, view.rootPanel))
+      assertThat(bottomInRoot(promptAreaInRoot, view.rootPanel))
+        .isLessThanOrEqualTo(yInRoot(view.generationSettingsPanel, view.rootPanel))
+      assertThat(bottomInRoot(view.composerContextPanel, view.rootPanel)).isLessThanOrEqualTo(view.rootPanel.height)
+
+      contextChips.render(emptyList())
+      layoutPopupRoot(view.rootPanel)
+
+      assertThat(view.composerContextPanel.isVisible).isFalse()
+      assertThat(view.rootPanel.preferredSize.height).isEqualTo(compactPreferredHeight)
+      assertThat(promptAreaInRoot.height).isGreaterThanOrEqualTo(compactPromptHeight)
+    }
+  }
+
+  @Test
+  fun popupContextChipsRenderAllEntriesWithoutOverflowChip() {
+    runInEdtAndWait {
+      val promptArea = EditorTextField()
+      val contextChips = AgentPromptContextChipsComponent {}
+      val entries = createManyContextEntries()
+      contextChips.render(entries)
+      val view = createPaletteView(
+        promptArea = promptArea,
+        contextChipsPanel = contextChips.component,
+      )
+
+      layoutPopupRoot(view.rootPanel)
+
+      val cards = contextAttachmentCards(contextChips.component)
+      assertThat(cards).hasSize(entries.size)
+      assertThat(contextOverflowCards(contextChips.component)).isEmpty()
     }
   }
 
@@ -287,12 +417,12 @@ class AgentPromptPaletteViewLayoutTest {
 
       val promptAreaLocation = locationInRoot(checkNotNull(findPromptArea(view.rootPanel, promptArea)), view.rootPanel)
       val suggestionsLocation = locationInRoot(view.suggestionsPanel, view.rootPanel)
-      val generationSettingsLocation = locationInRoot(view.generationSettingsPanel, view.rootPanel)
       val composerContextLocation = locationInRoot(view.composerContextPanel, view.rootPanel)
+      val generationSettingsLocation = locationInRoot(view.generationSettingsPanel, view.rootPanel)
 
-      assertThat(suggestionsLocation.y + view.suggestionsPanel.height).isLessThanOrEqualTo(promptAreaLocation.y)
+      assertThat(suggestionsLocation.y + view.suggestionsPanel.height).isLessThanOrEqualTo(composerContextLocation.y)
+      assertThat(composerContextLocation.y + view.composerContextPanel.height).isLessThanOrEqualTo(promptAreaLocation.y)
       assertThat(promptAreaLocation.y + promptArea.height).isLessThanOrEqualTo(generationSettingsLocation.y)
-      assertThat(generationSettingsLocation.y + view.generationSettingsPanel.height).isLessThanOrEqualTo(composerContextLocation.y)
       assertThat(view.generationSettingsPanel.parent).isNotNull()
     }
   }
@@ -305,6 +435,15 @@ class AgentPromptPaletteViewLayoutTest {
         body = body,
       )
     )
+  }
+
+  private fun createManyContextEntries(): List<ContextEntry> {
+    return (1..12).map { index ->
+      createContextEntry(
+        title = "File $index",
+        body = "community/plugins/agent-workbench/prompt/ui/src/context/VeryLongContextFileName$index.kt",
+      )
+    }
   }
 
   private fun createPaletteView(
@@ -338,11 +477,43 @@ class AgentPromptPaletteViewLayoutTest {
     }
   }
 
-  private fun locationInRoot(component: java.awt.Component, root: JPanel): java.awt.Point {
+  private fun locationInRoot(component: Component, root: JPanel): java.awt.Point {
     return SwingUtilities.convertPoint(component.parent, component.location, root)
   }
 
-  private fun yCenterInRoot(component: java.awt.Component, root: JPanel): Int {
-    return locationInRoot(component, root).y + component.height / 2
+  private fun yInRoot(component: Component, root: JPanel): Int {
+    return locationInRoot(component, root).y
   }
+
+  private fun bottomInRoot(component: Component, root: JPanel): Int {
+    return yInRoot(component, root) + component.height
+  }
+
+  private fun yCenterInRoot(component: Component, root: JPanel): Int {
+    val location = locationInRoot(component, root)
+    return location.y + component.height / 2
+  }
+
+  private fun componentRowCount(components: List<Component>, root: JPanel): Int {
+    return components.map { component -> locationInRoot(component, root).y }.distinct().size
+  }
+
+  private fun contextAttachmentCards(root: Component): List<JComponent> {
+    return collectComponentsOfType(root, JComponent::class.java).filter { component ->
+      component.getClientProperty(CONTEXT_ATTACHMENT_CARD_PROPERTY) == true
+    }
+  }
+
+  private fun contextOverflowCards(root: Component): List<JComponent> {
+    return contextAttachmentCards(root).filter { component ->
+      component.getClientProperty(CONTEXT_ATTACHMENT_OVERFLOW_PROPERTY) == true
+    }
+  }
+
+  private fun contextRemoveButtons(root: Component): List<JButton> {
+    return collectComponentsOfType(root, JButton::class.java).filter { button ->
+      button.getClientProperty(CONTEXT_ATTACHMENT_REMOVE_PROPERTY) == true
+    }
+  }
+
 }

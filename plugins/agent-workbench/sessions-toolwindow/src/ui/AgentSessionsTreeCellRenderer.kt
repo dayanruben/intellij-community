@@ -1,7 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow.ui
 
-import com.intellij.platform.ai.agent.core.AgentThreadActivity
 import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.platform.ai.agent.common.statusMessageKey
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
@@ -15,19 +14,52 @@ import com.intellij.ide.ui.ProductIcons
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.ColoredTreeCellRenderer
+import com.intellij.ui.GroupHeaderSeparator
 import com.intellij.ui.SimpleColoredComponent.FragmentTextClipper
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.util.IconUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.Color
+import java.awt.Component
 import java.awt.FontMetrics
 import java.awt.Graphics
 import java.awt.Graphics2D
 import javax.swing.Icon
 import javax.swing.JTree
+import javax.swing.tree.TreeCellRenderer
 
 private const val SESSION_TREE_MIDDLE_TEXT_CACHE_LIMIT = 1024
+
+internal class SessionTreeCellRendererWithSeparators(
+  private val delegate: SessionTreeCellRenderer,
+  private val nodeResolver: (SessionTreeId) -> SessionTreeNode?,
+) : TreeCellRenderer {
+  private val pinnedSeparator = GroupHeaderSeparator(JBUI.emptyInsets())
+
+  override fun getTreeCellRendererComponent(
+    tree: JTree,
+    value: Any?,
+    selected: Boolean,
+    expanded: Boolean,
+    leaf: Boolean,
+    row: Int,
+    hasFocus: Boolean,
+  ): Component {
+    val treeId = extractSessionTreeId(value)
+    val treeNode = treeId?.let(nodeResolver)
+    if (leaf && treeId == SessionTreeId.Pinned && treeNode is SessionTreeNode.PinnedSection) {
+      pinnedSeparator.caption = AgentSessionsBundle.message("toolwindow.section.pinned")
+      return pinnedSeparator
+    }
+    if (leaf && treeNode is SessionTreeNode.SectionSeparator) {
+      pinnedSeparator.caption = null
+      return pinnedSeparator
+    }
+
+    return delegate.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus)
+  }
+}
 
 internal class SessionTreeCellRenderer(
   private val nowProvider: () -> Long,
@@ -82,6 +114,15 @@ internal class SessionTreeCellRenderer(
     var metaRightPadding = 0
 
     when (treeNode) {
+      is SessionTreeNode.PinnedSection -> {
+        icon = null
+        append(AgentSessionsBundle.message("toolwindow.section.pinned"), SimpleTextAttributes.GRAY_ATTRIBUTES)
+      }
+
+      is SessionTreeNode.SectionSeparator -> {
+        icon = null
+      }
+
       is SessionTreeNode.Project -> {
         val projectIcon = projectCompositeIcon(treeNode.project)
         icon = projectIcon
@@ -130,7 +171,7 @@ internal class SessionTreeCellRenderer(
         val baseFontMetrics = getFontMetrics(getBaseFont())
         val sharedTimeColumnWidth = computeSharedTimeColumnWidth(baseFontMetrics)
         val threadRowPresentation = buildSessionTreeThreadRowPresentation(treeNode = treeNode, now = nowProvider())
-        icon = threadCompositeIcon(treeNode.thread.provider, treeNode.thread.activity)
+        icon = threadCompositeIcon(treeNode)
         val threadTitle: @NlsSafe String = threadRowPresentation.title
         appendWithClipping(threadTitle, SimpleTextAttributes.REGULAR_ATTRIBUTES, middleTextClipper)
         threadTrailingPaint = computeSessionTreeThreadTrailingPaint(
@@ -295,9 +336,9 @@ internal class SessionTreeCellRenderer(
     return width
   }
 
-  private fun threadCompositeIcon(provider: AgentSessionProvider, activity: AgentThreadActivity): Icon {
-    return providerIconProvider?.let { agentSessionThreadStatusIcon(it(provider), activity) }
-           ?: agentSessionThreadStatusIcon(provider, activity)
+  private fun threadCompositeIcon(treeNode: SessionTreeNode.Thread): Icon {
+    return providerIconProvider?.let { agentSessionThreadStatusIcon(it(treeNode.thread.provider), treeNode.thread.activity) }
+           ?: agentSessionThreadStatusIcon(treeNode.thread.provider, treeNode.thread.activity)
   }
 
   private fun projectCompositeIcon(project: AgentProjectSessions): Icon {

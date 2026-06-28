@@ -16,6 +16,8 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -32,8 +34,10 @@ import java.util.concurrent.TimeUnit
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.io.path.invariantSeparatorsPathString
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 @Timeout(value = 2, unit = TimeUnit.MINUTES)
@@ -77,7 +81,7 @@ class CodexSessionSourceRealAppServerIntegrationTest {
 
           val source = createRealAppServerSource(client = client, notifications = notifications)
           val originalRows = eventually(timeout = 30.seconds) {
-            source.listThreadsFromClosedProject(projectDir.toString())
+            source.listThreads(projectDir.toString(), openProject = null)
               .takeIf { rows -> rows.any { it.id == originalId } }
           } ?: error("Timed out waiting for original thread $originalId to appear in Codex app-server thread/list")
           val originalTitle = originalRows.single { it.id == originalId }.title
@@ -102,7 +106,7 @@ class CodexSessionSourceRealAppServerIntegrationTest {
           assertThat(startedEvent.scopedPaths).containsExactly(forkScopedPath)
 
           val afterForkRows = eventually(timeout = 30.seconds) {
-            val rows = source.listThreadsFromClosedProject(projectDir.toString())
+            val rows = source.listThreads(projectDir.toString(), openProject = null)
             rows.takeIf { it.any { row -> row.id == originalId } && it.any { row -> row.id == forkId } }
           } ?: error("Timed out waiting for fork $forkId and original $originalId in Codex app-server thread/list")
           assertThat(afterForkRows.map { it.id }).contains(originalId, forkId)
@@ -119,7 +123,7 @@ class CodexSessionSourceRealAppServerIntegrationTest {
           assertThat(renameEvent.threadIds).containsExactly(forkId)
 
           val renamedRows = eventually(timeout = 30.seconds) {
-            val rows = source.listThreadsFromClosedProject(projectDir.toString())
+            val rows = source.listThreads(projectDir.toString(), openProject = null)
             val original = rows.firstOrNull { it.id == originalId }
             val fork = rows.firstOrNull { it.id == forkId }
             rows.takeIf { original != null && fork?.title == "Renamed fork" }
@@ -136,6 +140,48 @@ class CodexSessionSourceRealAppServerIntegrationTest {
           notificationBridge.cancelAndJoin()
           client.shutdown()
         }
+      }
+    }
+  }
+
+  @Test
+  fun realAppServerFileWatchReportsAtomicReplace() {
+    runBlocking(Dispatchers.IO) {
+      // Real app-server fs/watch is validated against its documented file-watch contract here.
+      // It is not the owner for long-lived append-before-close semantics; the macOS immediate
+      // watcher regression test covers that fallback separately.
+      val codexBinary = requireRealCodexBinary()
+      val tempRoot = tempDir.resolve("fs-watch-atomic-replace")
+      val projectDir = testCreateProjectDir(tempRoot, "project").toRealPath()
+      val codexHome = tempRoot.resolve("codex-home")
+      Files.createDirectories(codexHome)
+      val watchedFile = projectDir.resolve("rollout-replace.jsonl")
+      Files.createFile(watchedFile)
+      val expectedPath = watchedFile.toAbsolutePath().normalize()
+
+      val client = CodexWebSocketAppServerClient(
+        coroutineScope = this,
+        executablePathProvider = { codexBinary },
+        environmentOverrides = mapOf("CODEX_HOME" to codexHome.toString()),
+        workingDirectory = projectDir,
+      )
+      val changes = Channel<Path>(Channel.UNLIMITED)
+      val watchJob = launch {
+        client.watchPathChanges(watchedFile).collect { path ->
+          changes.trySend(path)
+        }
+      }
+      try {
+        delay(500.milliseconds)
+        val replacement = Files.createTempFile(projectDir, "rollout-replace", ".tmp")
+        Files.writeString(replacement, "line1\n")
+        Files.move(replacement, watchedFile, StandardCopyOption.REPLACE_EXISTING)
+        assertThat(withTimeout(10.seconds) { changes.receive() }.toAbsolutePath().normalize()).isEqualTo(expectedPath)
+      }
+      finally {
+        watchJob.cancelAndJoin()
+        changes.close()
+        client.shutdown()
       }
     }
   }

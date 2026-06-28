@@ -6,7 +6,7 @@ package com.intellij.agent.workbench.sessions.toolwindow.ui
 // @spec community/plugins/agent-workbench/spec/core/agent-workbench-telemetry.spec.md
 
 import com.intellij.agent.workbench.chat.AgentChatTabSelectionService
-import com.intellij.agent.workbench.chat.AgentChatOpenPendingTabsStateService
+import com.intellij.agent.workbench.chat.AgentChatOpenTabsPresentationStateService
 import com.intellij.agent.workbench.chat.AgentChatPendingEditorLifecycleService
 import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.AgentSessionCostHintBanner
@@ -180,7 +180,7 @@ internal class AgentSessionsToolWindowPanel(
     archivedSessionsStateFlow = service<AgentArchivedSessionsService>().stateFlow(),
     threadViewStateFlow = service<AgentSessionThreadViewStateService>().state,
     selectedChatTabFlow = project.service<AgentChatTabSelectionService>().selectedChatTab,
-    pendingChatTabsStateFlow = service<AgentChatOpenPendingTabsStateService>().state,
+    openChatTabsPresentationStateFlow = service<AgentChatOpenTabsPresentationStateService>().state,
     ensureArchivedSessionsLoaded = { service<AgentArchivedSessionsService>().ensureLoaded() },
     tree = tree,
     getSessionTreeModel = { sessionTreeModel },
@@ -209,7 +209,7 @@ internal class AgentSessionsToolWindowPanel(
 
   init {
     project.service<AgentChatPendingEditorLifecycleService>()
-    service<AgentChatOpenPendingTabsStateService>().refreshOpenTabs()
+    service<AgentChatOpenTabsPresentationStateService>().refreshOpenTabs()
     dataContextProvider = AgentSessionsTreeDataContextProvider(
       project = project,
       tree = tree,
@@ -226,14 +226,14 @@ internal class AgentSessionsToolWindowPanel(
       selectedUnarchiveTargets = { dataContextProvider.selectedUnarchiveTargets() },
       showMoreProjects = ::showMoreProjectsForCurrentView,
       showMoreThreads = ::showMoreThreadsForCurrentView,
-      isNewThreadPopupAvailable = { !stateController.isSingleProjectPresentationEnabled() },
+      isNewThreadPopupAvailable = { !stateController.isCurrentProjectScopeActive() },
     )
 
     rowActionsOverlay = AgentSessionsTreeRowActionsOverlay(
       project = project,
       tree = tree,
       nodeResolver = ::sessionTreeNode,
-      isNewThreadActionAvailable = { !stateController.isSingleProjectPresentationEnabled() },
+      isNewThreadActionAvailable = { !stateController.isCurrentProjectScopeActive() },
     )
 
     installProviderAvailabilityRefresh()
@@ -353,10 +353,15 @@ internal class AgentSessionsToolWindowPanel(
     tree.showsRootHandles = true
     tree.emptyText.text = AgentSessionsBundle.message("toolwindow.loading")
     tree.selectionModel.selectionMode = javax.swing.tree.TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION
-    tree.cellRenderer = SessionTreeCellRenderer(
-      nowProvider = { System.currentTimeMillis() },
-      rowActionsProvider = { row, treeNode, selected -> rowActionsOverlay.rowActionPresentation(row, treeNode, selected) },
-      nodeResolver = { treeId -> sessionTreeModel.entriesById[treeId]?.node },
+    installSessionTreeStructuralSelectionFilter(tree = tree, modelProvider = { sessionTreeModel })
+    val nodeResolver = { treeId: SessionTreeId -> sessionTreeModel.entriesById[treeId]?.node }
+    tree.cellRenderer = SessionTreeCellRendererWithSeparators(
+      delegate = SessionTreeCellRenderer(
+        nowProvider = { System.currentTimeMillis() },
+        rowActionsProvider = { row, treeNode, selected -> rowActionsOverlay.rowActionPresentation(row, treeNode, selected) },
+        nodeResolver = nodeResolver,
+      ),
+      nodeResolver = nodeResolver,
     )
     configureSessionTreeRenderingProperties(tree)
     TreeUIHelper.getInstance().installTreeSpeedSearch(tree)

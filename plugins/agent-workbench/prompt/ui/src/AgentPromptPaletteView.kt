@@ -45,14 +45,18 @@ import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Component
+import java.awt.Container
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Graphics
 import java.awt.event.ContainerAdapter
 import java.awt.event.ContainerEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.accessibility.AccessibleContext
+import javax.swing.AbstractButton
 import javax.swing.DefaultListModel
 import javax.swing.Icon
 import javax.swing.JComponent
@@ -63,7 +67,7 @@ import javax.swing.ScrollPaneConstants
 import javax.swing.SwingConstants
 
 internal val AGENT_PROMPT_PALETTE_PREFERRED_SIZE: Dimension
-  get() = JBUI.size(680, 380)
+  get() = JBUI.size(680, 400)
 internal val AGENT_PROMPT_PALETTE_MINIMUM_SIZE: Dimension
   get() = JBUI.size(520, 260)
 internal val AGENT_PROMPT_INLINE_EMPTY_STATE_PREFERRED_SIZE: Dimension
@@ -79,12 +83,30 @@ private val PROMPT_PANEL_MINIMUM_SIZE = JBUI.size(0, 120)
 private val INLINE_PROMPT_PANEL_MINIMUM_SIZE = JBUI.size(0, 96)
 private val INLINE_PROMPT_EDITOR_PREFERRED_SIZE = JBUI.size(0, 74)
 
+private fun inlinePromptSize(baseSize: Dimension, additionalHeight: Int): Dimension {
+  return Dimension(baseSize.width, baseSize.height + additionalHeight)
+}
+
 @NonNls
 private const val HEADER_ACTIONS_PLACE = "AgentPromptPalette.Header"
 
 @NonNls
 private const val FOOTER_ACTIONS_PLACE = "AgentPromptPalette.Footer"
 private fun headerIconButtonSize(): Dimension = Dimension(ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE)
+
+private fun ActionLink.configureComposerTrayLink(isInlinePrompt: Boolean) {
+  autoHideOnDisable = false
+  if (isInlinePrompt) {
+    withFont(JBUI.Fonts.smallFont())
+    foreground = UIUtil.getContextHelpForeground()
+    border = JBUI.Borders.empty()
+  }
+  else {
+    withFont(JBFont.label().asPlain())
+    foreground = UIUtil.getLabelForeground()
+    border = JBUI.Borders.empty(1, 0)
+  }
+}
 
 internal data class AgentPromptPaletteView(
   @JvmField val rootPanel: JPanel,
@@ -101,6 +123,7 @@ internal data class AgentPromptPaletteView(
   @JvmField val modelSelectorLink: ActionLink,
   @JvmField val reasoningEffortLink: ActionLink,
   @JvmField val planReasoningEffortLink: ActionLink,
+  @JvmField val launchTuningSummaryLink: ActionLink,
   @JvmField val defaultProfileActionControl: AgentPromptDefaultProfileActionControl,
   @JvmField val addContextButton: ActionLink,
   @JvmField val existingTaskListModel: DefaultListModel<ThreadEntry>,
@@ -189,7 +212,6 @@ internal class AgentPromptHeaderControls(
   @JvmField val toolbarComponent: JComponent,
   @JvmField val containerModeAction: AgentPromptHeaderCheckBoxAction,
   private val promptLibraryAction: AgentPromptToolbarIconAction,
-  private val profileAction: AgentPromptToolbarProfileAction,
 ) {
   private var providerOptionsVisible = true
 
@@ -231,7 +253,6 @@ internal class AgentPromptHeaderControls(
     rootGroup.add(containerModeAction)
     providerOptionActions.forEach(rootGroup::add)
     rootGroup.add(promptLibraryAction)
-    rootGroup.add(profileAction)
     updateActions()
   }
 }
@@ -253,6 +274,13 @@ internal class AgentPromptToolbarIconToggleAction(
 
 internal class HeaderActionLink(text: @Nls String) : ActionLink(text) {
   var onVisibilityChanged: (() -> Unit)? = null
+  var onPresentationChanged: (() -> Unit)? = null
+  var trailingIcon: Icon? = null
+    set(value) {
+      field = value
+      revalidate()
+      repaint()
+    }
 
   override fun setVisible(aFlag: Boolean) {
     val visibilityChanged = isVisible != aFlag
@@ -260,6 +288,41 @@ internal class HeaderActionLink(text: @Nls String) : ActionLink(text) {
     if (visibilityChanged) {
       onVisibilityChanged?.invoke()
     }
+  }
+
+  override fun setText(text: @Nls String?) {
+    val textChanged = this.text != text
+    super.setText(text)
+    if (textChanged) {
+      onPresentationChanged?.invoke()
+    }
+  }
+
+  override fun getPreferredSize(): Dimension {
+    return super.getPreferredSize().withTrailingIconWidth()
+  }
+
+  override fun getMinimumSize(): Dimension {
+    return super.getMinimumSize().withTrailingIconWidth()
+  }
+
+  override fun paintComponent(g: Graphics) {
+    super.paintComponent(g)
+    val icon = trailingIcon ?: return
+    val x = if (componentOrientation.isLeftToRight) {
+      width - insets.right - icon.iconWidth
+    }
+    else {
+      insets.left
+    }
+    val y = (height - icon.iconHeight) / 2
+    icon.paintIcon(this, g, x, y)
+  }
+
+  private fun Dimension.withTrailingIconWidth(): Dimension {
+    val icon = trailingIcon ?: return this
+    width += icon.iconWidth + iconTextGap
+    return this
   }
 }
 
@@ -280,10 +343,11 @@ internal class AgentPromptToolbarProfileAction(
   @JvmField
   val link: HeaderActionLink = HeaderActionLink(initialText).apply {
     autoHideOnDisable = false
-    withFont(JBUI.Fonts.smallFont())
+    withFont(JBUI.Fonts.smallFont().asPlain())
     foreground = UIUtil.getContextHelpForeground()
     border = JBUI.Borders.empty()
     setIcon(initialIcon, false)
+    trailingIcon = AllIcons.General.LinkDropTriangle
     setToolTipText(HtmlChunk.text(initialDescription))
     accessibleContext.accessibleName = initialText
     accessibleContext.accessibleDescription = initialDescription
@@ -409,7 +473,7 @@ internal fun createAgentPromptPaletteView(
   onPinClicked: () -> Unit = {},
   hostMode: AgentPromptPaletteHostMode = AgentPromptPaletteHostMode.POPUP,
 ): AgentPromptPaletteView {
-  val isInlineEmptyState = hostMode == AgentPromptPaletteHostMode.INLINE_EMPTY_STATE
+  val isInlinePrompt = hostMode.isInlinePrompt
 
   val pinAction = AgentPromptToolbarIconToggleAction(
     text = AgentPromptBundle.message("popup.keep.open.toggle.tooltip"),
@@ -420,10 +484,20 @@ internal fun createAgentPromptPaletteView(
 
   val profileSelectorAction = AgentPromptToolbarProfileAction(
     initialText = AgentPromptBundle.message("popup.profile.header.standard"),
-    initialDescription = AgentPromptBundle.message("popup.profile.tooltip"),
+    initialDescription = AgentPromptBundle.message("popup.launch.settings.tooltip"),
     initialIcon = AllIcons.Toolwindows.ToolWindowMessages,
   )
-  val launchProfileLink = profileSelectorAction.link
+  val launchProfileLink = profileSelectorAction.link.apply {
+    configureComposerTrayLink(isInlinePrompt)
+  }
+
+  val launchTuningSummaryLink = HeaderActionLink(AgentPromptBundle.message("popup.generation.summary.link")).apply {
+    setDropDownLinkIcon()
+    configureComposerTrayLink(isInlinePrompt)
+    setToolTipText(HtmlChunk.text(AgentPromptBundle.message("popup.generation.summary.tooltip")))
+    accessibleContext.accessibleName = AgentPromptBundle.message("popup.generation.summary.accessible.name")
+    isVisible = false
+  }
 
   val promptLibraryAction = AgentPromptToolbarIconAction(
     text = AgentPromptBundle.message("popup.prompt.library.tooltip"),
@@ -447,7 +521,7 @@ internal fun createAgentPromptPaletteView(
     setReservePlaceAutoPopupIcon(true)
     (this as? ActionToolbarImpl)?.setSkipWindowAdjustments(true)
     component.isOpaque = false
-    component.border = if (isInlineEmptyState) JBUI.Borders.empty() else JBUI.Borders.empty(JBUI.CurrentTheme.BigPopup.headerToolbarInsets())
+    component.border = if (isInlinePrompt) JBUI.Borders.empty() else JBUI.Borders.empty(JBUI.CurrentTheme.BigPopup.headerToolbarInsets())
   }
   val headerControls = AgentPromptHeaderControls(
     rootGroup = headerActionsGroup,
@@ -455,12 +529,10 @@ internal fun createAgentPromptPaletteView(
     toolbarComponent = headerToolbar.component,
     containerModeAction = containerModeAction,
     promptLibraryAction = promptLibraryAction,
-    profileAction = profileSelectorAction,
   )
-  launchProfileLink.onVisibilityChanged = headerControls::updateActions
-  profileSelectorAction.onPresentationChanged = headerControls::updateActions
-  if (isInlineEmptyState) {
+  if (isInlinePrompt) {
     launchProfileLink.isFocusable = false
+    launchTuningSummaryLink.isFocusable = false
     promptLibraryIconLabel.isFocusable = false
     headerToolbar.component.isFocusable = false
   }
@@ -505,7 +577,7 @@ internal fun createAgentPromptPaletteView(
     }
   }
   headerPanel.apply {
-    if (isInlineEmptyState) {
+    if (isInlinePrompt) {
       isOpaque = false
       border = JBUI.Borders.empty(0, 12)
     }
@@ -524,7 +596,7 @@ internal fun createAgentPromptPaletteView(
   tabbedPane.addTab(AgentPromptBundle.message("popup.target.existing"), JPanel().apply {
     putClientProperty("targetMode", PromptTargetMode.EXISTING_TASK)
   })
-  tabbedPane.isVisible = !isInlineEmptyState
+  tabbedPane.isVisible = !isInlinePrompt
 
   val existingTaskListModel = DefaultListModel<ThreadEntry>()
   val existingTaskList = JBList(existingTaskListModel).apply {
@@ -547,43 +619,36 @@ internal fun createAgentPromptPaletteView(
   }
 
   val addContextButton = ComposerContextActionLink(AgentPromptBundle.message("popup.context.add")).apply {
-    autoHideOnDisable = false
-    isFocusable = false
     setDropDownLinkIcon()
-    withFont(JBUI.Fonts.smallFont())
-    foreground = UIUtil.getContextHelpForeground()
-    border = JBUI.Borders.empty()
+    configureComposerTrayLink(isInlinePrompt)
     DialogUtil.registerMnemonic(this)
+  }
+  if (isInlinePrompt) {
+    addContextButton.isFocusable = false
   }
 
   val modelSelectorLink = ActionLink(AgentPromptBundle.message("popup.generation.model.auto")).apply {
-    autoHideOnDisable = false
     setDropDownLinkIcon()
-    withFont(JBUI.Fonts.smallFont())
-    foreground = UIUtil.getContextHelpForeground()
-    border = JBUI.Borders.empty()
+    configureComposerTrayLink(isInlinePrompt)
     setToolTipText(HtmlChunk.text(AgentPromptBundle.message("popup.generation.model.tooltip")))
     accessibleContext.accessibleName = AgentPromptBundle.message("popup.generation.model.auto")
+    isVisible = false
   }
 
   val reasoningEffortLink = ActionLink(AgentPromptBundle.message("popup.generation.reasoning.auto")).apply {
-    autoHideOnDisable = false
     setDropDownLinkIcon()
-    withFont(JBUI.Fonts.smallFont())
-    foreground = UIUtil.getContextHelpForeground()
-    border = JBUI.Borders.empty()
+    configureComposerTrayLink(isInlinePrompt)
     setToolTipText(HtmlChunk.text(AgentPromptBundle.message("popup.generation.reasoning.tooltip")))
     accessibleContext.accessibleName = AgentPromptBundle.message("popup.generation.reasoning.accessible.name")
+    isVisible = false
   }
 
   val planReasoningEffortLink = ActionLink(AgentPromptBundle.message("popup.generation.plan.reasoning.same")).apply {
-    autoHideOnDisable = false
     setDropDownLinkIcon()
-    withFont(JBUI.Fonts.smallFont())
-    foreground = UIUtil.getContextHelpForeground()
-    border = JBUI.Borders.empty()
+    configureComposerTrayLink(isInlinePrompt)
     setToolTipText(HtmlChunk.text(AgentPromptBundle.message("popup.generation.plan.reasoning.tooltip")))
     accessibleContext.accessibleName = AgentPromptBundle.message("popup.generation.plan.reasoning.accessible.name")
+    isVisible = false
   }
   val defaultProfileActionControl = AgentPromptDefaultProfileActionControl()
 
@@ -591,60 +656,52 @@ internal fun createAgentPromptPaletteView(
     isOpaque = false
     add(contextChipsPanel, BorderLayout.CENTER)
   }
-  val composerContextActionsPanel = JPanel(BorderLayout()).apply {
-    isOpaque = false
-    border = JBUI.Borders.emptyTop(if (isInlineEmptyState) 0 else 2)
-    if (!isInlineEmptyState) {
-      add(addContextButton, BorderLayout.WEST)
-    }
-  }
   val composerContextPanel = BorderLayoutPanel().apply {
     isOpaque = false
-    border = JBUI.Borders.emptyTop(if (isInlineEmptyState) 2 else 4)
-    addToTop(contextChipsContainer)
-    addToBottom(composerContextActionsPanel)
+    border = JBUI.Borders.empty(0, if (isInlinePrompt) 0 else 2, if (isInlinePrompt) 4 else 6, if (isInlinePrompt) 0 else 2)
+    addToCenter(contextChipsContainer)
   }
 
-  val generationSettingsControlsPanel = JPanel(FlowLayout(FlowLayout.LEFT, if (isInlineEmptyState) 6 else 8, 0)).apply {
+  val generationSettingsControlsPanel = JPanel(FlowLayout(FlowLayout.LEFT, if (isInlinePrompt) 6 else 8, 0)).apply {
     isOpaque = false
-    if (isInlineEmptyState) {
-      add(addContextButton)
-    }
-    add(modelSelectorLink)
-    add(reasoningEffortLink)
-    add(planReasoningEffortLink)
+    add(addContextButton)
+  }
+  val generationSettingsActionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT, if (isInlinePrompt) 6 else 8, 0)).apply {
+    isOpaque = false
+    add(launchProfileLink)
+    add(defaultProfileActionControl.component)
   }
   val generationSettingsPanel = JPanel(BorderLayout()).apply {
     isOpaque = false
-    border = if (isInlineEmptyState) JBUI.Borders.empty(0, 6, 4, 6) else JBUI.Borders.empty(0, 6, 6, 6)
+    border = if (isInlinePrompt) JBUI.Borders.empty(0, 6, 4, 6) else JBUI.Borders.empty(2, 6, 4, 6)
     add(generationSettingsControlsPanel, BorderLayout.WEST)
-    add(defaultProfileActionControl.component, BorderLayout.EAST)
+    add(generationSettingsActionsPanel, BorderLayout.EAST)
   }
 
   val promptEditorPanel = BorderLayoutPanel().apply {
     isOpaque = false
     border = JBUI.Borders.empty(1)
-    if (isInlineEmptyState) {
+    if (isInlinePrompt) {
       preferredSize = INLINE_PROMPT_EDITOR_PREFERRED_SIZE
     }
+    addToTop(composerContextPanel)
     addToCenter(promptCardPanel)
     addToBottom(generationSettingsPanel)
   }
 
   val promptPanel = JPanel(BorderLayout()).apply {
     isOpaque = false
-    border = if (isInlineEmptyState) JBUI.Borders.empty(0, 12, 6, 12) else JBUI.Borders.empty(6, 12, 8, 12)
+    border = if (isInlinePrompt) JBUI.Borders.empty(0, 12, 6, 12) else JBUI.Borders.empty(6, 12, 8, 12)
     add(suggestionsPanel, BorderLayout.NORTH)
     add(promptEditorPanel, BorderLayout.CENTER)
-    add(composerContextPanel, BorderLayout.SOUTH)
-    minimumSize = if (isInlineEmptyState) INLINE_PROMPT_PANEL_MINIMUM_SIZE else PROMPT_PANEL_MINIMUM_SIZE
+    minimumSize = if (isInlinePrompt) INLINE_PROMPT_PANEL_MINIMUM_SIZE else PROMPT_PANEL_MINIMUM_SIZE
   }
 
   val footerPanel = JPanel(BorderLayout()).apply {
     background = JBUI.CurrentTheme.BigPopup.advertiserBackground()
     add(statusStrip.component, BorderLayout.CENTER)
     add(footerPinToolbar.component, BorderLayout.EAST)
-    isVisible = !isInlineEmptyState
+    isVisible = !isInlinePrompt
   }
 
   val bottomPanel = BorderLayoutPanel().apply {
@@ -652,31 +709,52 @@ internal fun createAgentPromptPaletteView(
     addToCenter(existingTaskScrollPane)
     addToBottom(footerPanel)
   }
-  if (isInlineEmptyState) {
+  if (isInlinePrompt) {
     existingTaskScrollPane.isVisible = false
     footerPinToolbar.component.isVisible = false
   }
-  installComposerContextVisibilitySync(
-    contextChipsPanel = contextChipsPanel,
-    contextChipsContainer = contextChipsContainer,
-    addContextControl = addContextButton,
-    composerContextPanel = composerContextPanel,
-    layoutParent = promptPanel,
-    showAddContextRowWithoutChips = !isInlineEmptyState,
-  )
-
   val rootPanel = BorderLayoutPanel().apply {
     background = JBUI.CurrentTheme.Popup.BACKGROUND
-    isOpaque = !isInlineEmptyState
-    preferredSize = if (isInlineEmptyState) AGENT_PROMPT_INLINE_EMPTY_STATE_PREFERRED_SIZE else AGENT_PROMPT_PALETTE_PREFERRED_SIZE
-    minimumSize = if (isInlineEmptyState) AGENT_PROMPT_INLINE_EMPTY_STATE_MINIMUM_SIZE else AGENT_PROMPT_PALETTE_MINIMUM_SIZE
-    if (isInlineEmptyState) {
+    isOpaque = !isInlinePrompt
+    preferredSize = if (isInlinePrompt) AGENT_PROMPT_INLINE_EMPTY_STATE_PREFERRED_SIZE else AGENT_PROMPT_PALETTE_PREFERRED_SIZE
+    minimumSize = if (isInlinePrompt) AGENT_PROMPT_INLINE_EMPTY_STATE_MINIMUM_SIZE else AGENT_PROMPT_PALETTE_MINIMUM_SIZE
+    if (isInlinePrompt) {
       maximumSize = AGENT_PROMPT_INLINE_EMPTY_STATE_MAXIMUM_SIZE
       border = JBUI.Borders.empty(8)
     }
     addToTop(headerPanel)
     addToCenter(promptPanel)
     addToBottom(bottomPanel)
+  }
+  fun syncInlineRootSize() {
+    if (!isInlinePrompt) {
+      return
+    }
+
+    val contextHeight = if (composerContextPanel.isVisible) composerContextPanel.preferredSize.height else 0
+    promptEditorPanel.preferredSize = inlinePromptSize(INLINE_PROMPT_EDITOR_PREFERRED_SIZE, contextHeight)
+    rootPanel.preferredSize = inlinePromptSize(AGENT_PROMPT_INLINE_EMPTY_STATE_PREFERRED_SIZE, contextHeight)
+    rootPanel.minimumSize = inlinePromptSize(AGENT_PROMPT_INLINE_EMPTY_STATE_MINIMUM_SIZE, contextHeight)
+    rootPanel.maximumSize = inlinePromptSize(AGENT_PROMPT_INLINE_EMPTY_STATE_MAXIMUM_SIZE, contextHeight)
+    promptEditorPanel.revalidate()
+    rootPanel.revalidate()
+    rootPanel.parent?.revalidate()
+  }
+  installComposerContextVisibilitySync(
+    contextChipsPanel = contextChipsPanel,
+    contextChipsContainer = contextChipsContainer,
+    addContextControl = addContextButton,
+    composerContextPanel = composerContextPanel,
+    layoutParent = promptEditorPanel,
+    onContextLayoutChanged = ::syncInlineRootSize,
+  )
+  if (isInlinePrompt) {
+    installInlinePromptChromeFocusForwarding(
+      rootPanel = rootPanel,
+      promptArea = promptArea,
+      suggestionsPanel = suggestionsPanel,
+      contextChipsPanel = contextChipsPanel,
+    )
   }
   headerToolbar.targetComponent = rootPanel
   footerPinToolbar.targetComponent = rootPanel
@@ -701,6 +779,7 @@ internal fun createAgentPromptPaletteView(
     modelSelectorLink = modelSelectorLink,
     reasoningEffortLink = reasoningEffortLink,
     planReasoningEffortLink = planReasoningEffortLink,
+    launchTuningSummaryLink = launchTuningSummaryLink,
     defaultProfileActionControl = defaultProfileActionControl,
     addContextButton = addContextButton,
     existingTaskListModel = existingTaskListModel,
@@ -718,25 +797,70 @@ internal fun createAgentPromptPaletteView(
   )
 }
 
+private fun installInlinePromptChromeFocusForwarding(
+  rootPanel: JComponent,
+  promptArea: EditorTextField,
+  suggestionsPanel: JComponent,
+  contextChipsPanel: JComponent,
+) {
+  val focusPromptListener = object : MouseAdapter() {
+    override fun mousePressed(e: MouseEvent) {
+      if (e.button == MouseEvent.BUTTON1) {
+        promptArea.requestFocusInWindow()
+      }
+    }
+  }
+
+  fun install(component: Component) {
+    if (component.isInlinePromptInteractionBoundary(
+        promptArea = promptArea,
+        suggestionsPanel = suggestionsPanel,
+        contextChipsPanel = contextChipsPanel,
+      )) {
+      return
+    }
+
+    if (component is JPanel) {
+      component.addMouseListener(focusPromptListener)
+    }
+    if (component is Container) {
+      component.components.forEach(::install)
+    }
+  }
+
+  install(rootPanel)
+}
+
+private fun Component.isInlinePromptInteractionBoundary(
+  promptArea: EditorTextField,
+  suggestionsPanel: JComponent,
+  contextChipsPanel: JComponent,
+): Boolean {
+  return this === promptArea ||
+         this === suggestionsPanel ||
+         this === contextChipsPanel ||
+         this is AbstractButton
+}
+
 private fun installComposerContextVisibilitySync(
   contextChipsPanel: JPanel,
   contextChipsContainer: JPanel,
   addContextControl: ComposerContextActionLink,
   composerContextPanel: JPanel,
   layoutParent: JPanel,
-  showAddContextRowWithoutChips: Boolean,
+  onContextLayoutChanged: () -> Unit = {},
 ) {
   fun syncVisibility() {
     val hasContextChips = contextChipsPanel.componentCount > 0
-    val shouldShowComposerContext = hasContextChips || (showAddContextRowWithoutChips && addContextControl.isVisible)
     val chipsVisibilityChanged = contextChipsContainer.isVisible != hasContextChips
-    val panelVisibilityChanged = composerContextPanel.isVisible != shouldShowComposerContext
-    if (!chipsVisibilityChanged && !panelVisibilityChanged) {
-      return
+    val panelVisibilityChanged = composerContextPanel.isVisible != hasContextChips
+    if (chipsVisibilityChanged) {
+      contextChipsContainer.isVisible = hasContextChips
     }
-
-    contextChipsContainer.isVisible = hasContextChips
-    composerContextPanel.isVisible = shouldShowComposerContext
+    if (panelVisibilityChanged) {
+      composerContextPanel.isVisible = hasContextChips
+    }
+    onContextLayoutChanged()
     layoutParent.revalidate()
     layoutParent.repaint()
   }

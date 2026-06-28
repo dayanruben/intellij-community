@@ -4,7 +4,7 @@ description: Requirements for opening, focusing, submitting, and routing the Age
 targets:
   - ../../prompt/ui/src/actions/AgentWorkbenchGlobalPromptAction.kt
   - ../../prompt/ui/src/emptyState/AgentWorkbenchInlinePromptEmptyStateProvider.kt
-  - ../../prompt/ui/src/actions/AgentWorkbenchGlobalPromptEmptyTextPromotedActionProvider.kt
+  - ../../prompt/ui/src/actions/AgentWorkbenchGlobalPromptEmptyTextProvider.kt
   - ../../prompt/ui/src/AgentPromptPalettePopupService.kt
   - ../../prompt/ui/src/AgentPromptPalettePopup.kt
   - ../../prompt/ui/src/AgentPromptPaletteView.kt
@@ -13,7 +13,9 @@ targets:
   - ../../prompt/ui/src/AgentPromptExistingTaskController.kt
   - ../../prompt/ui/src/AgentPromptProviderSelector.kt
   - ../../prompt/core/src/AgentPromptLauncherBridge.kt
+  - ../../sessions-actions/src/actions/NewThreadMenuActions.kt
   - ../../sessions/src/service/AgentSessionPromptLauncherBridge.kt
+  - ../../sessions/src/service/AgentSessionLaunchService.kt
   - ../../prompt/ui/testSrc/*.kt
   - ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 ---
@@ -32,11 +34,11 @@ The global prompt opens a project-scoped prompt surface for starting a new task 
 
 - When the main editor area is empty, Agent Workbench contributes a compact inline composer to the platform empty editor state. The composer owns the rich empty-state surface, uses the shared prompt content/session machinery, and suppresses the painted empty editor action hints while it is visible. Standard empty-state hints remain a fallback when no rich composer is available.
   [@test] ../../prompt/ui/testSrc/emptyState/AgentWorkbenchInlinePromptEmptyStateProviderTest.kt
-  [@test] ../../../platform/platform-impl/testSrc/com/intellij/openapi/fileEditor/impl/EditorEmptyTextPainterTest.kt
+  [@test] ../../../../platform/platform-impl/testSrc/com/intellij/openapi/fileEditor/impl/EditorEmptyTextPainterTest.kt
 
 - The inline empty-state composer is gated by the `agent.workbench.inline.empty.state.prompt` system property, enabled by default. When enabled, the inline provider creates the composer and the redundant `AgentWorkbenchPrompt.OpenGlobalPalette` promoted-text hint is suppressed. When disabled, the inline provider creates no component and the promoted-text hint is shown as the empty-editor affordance instead.
   [@test] ../../prompt/ui/testSrc/emptyState/AgentWorkbenchInlinePromptEmptyStateProviderTest.kt
-  [@test] ../../prompt/ui/testSrc/actions/AgentWorkbenchGlobalPromptEmptyTextPromotedActionProviderTest.kt
+  [@test] ../../prompt/ui/testSrc/actions/AgentWorkbenchGlobalPromptEmptyTextProviderTest.kt
 
 - Showing the empty editor state must not auto-focus the inline composer. Invoking `AgentWorkbenchPrompt.OpenGlobalPalette` opens the ordinary global prompt popup even when the inline composer is visible in the empty editor state.
   [@test] ../../prompt/ui/testSrc/AgentPromptPalettePopupServiceTest.kt
@@ -84,6 +86,15 @@ The global prompt opens a project-scoped prompt surface for starting a new task 
 - Inline empty-state mode is always a `NEW_TASK` prompt. It must not restore `EXISTING_TASK` draft mode or extension-tab auto-selection because those controls are hidden in the compact empty-state surface.
   [@test] ../../prompt/ui/testSrc/emptyState/AgentWorkbenchInlinePromptEmptyStateProviderTest.kt
 
+- Inline new-thread mode is also always a `NEW_TASK` prompt. It is hosted inside a deferred chat tab, starts from the selected launch profile, skips extension-tab auto-selection, and keeps the inline prompt visible when `AgentPromptLauncherBridge.launch(...)` returns a failure so the same pending tab can be retried.
+  [@test] ../../prompt/ui/testSrc/AgentPromptPaletteSessionControllerTest.kt
+  [@test] ../../prompt/ui/testSrc/AgentPromptPaletteSubmitControllerTest.kt
+  [@test] ../../sessions/testSrc/AgentSessionLaunchServiceTest.kt
+
+- New-task launches accepted from the global prompt use the shared generic new-thread deferred tab: provider-neutral centered copy appears immediately, and the spinner appears only after a short delay.
+  [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
+  [@test] ../../sessions/testSrc/AgentSessionLaunchServiceTest.kt
+
 - Plan mode is available only when the selected provider exposes the plan-mode option, persists in project prompt draft state, and is forced off/rejected for busy existing tasks. A typed `/plan` prefix remains prompt text and does not toggle the option.
   [@test] ../../prompt/ui/testSrc/AgentPromptPlanModeDecisionsTest.kt
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
@@ -92,7 +103,7 @@ The global prompt opens a project-scoped prompt surface for starting a new task 
   [@test] ../../lib-agent/providers/codex/sessions/testSrc/CodexPlanPromptRealAppServerIntegrationTest.kt
   [@test] ../../lib-agent/providers/codex/sessions/testSrc/CodexNewThreadPromptLaunchIntegrationTest.kt
 
-- `NEW_TASK` and `EXISTING_TASK` expose the provider selector. Changing provider in `EXISTING_TASK` reloads the selectable task list for that provider. Provider-backed model and reasoning-effort controls are exposed for `NEW_TASK` as specified by `global-prompt-generation-controls.spec.md`. Header actions stay limited to prompt-surface tools such as provider selection, Plan mode, Run in container, preview, and prompt library.
+- `NEW_TASK` and `EXISTING_TASK` expose the provider selector. Changing provider in `EXISTING_TASK` reloads the selectable task list for that provider. Provider-backed model and reasoning-effort controls are exposed for `NEW_TASK` through the unified launch-settings control specified by `global-prompt-generation-controls.spec.md`. Popup and inline composers render selected context as attachment cards above the editable prompt text, keep Add Context as the left prompt-composition action and one launch-settings affordance as the right launch-configuration action in the prompt bottom tray, and keep header actions limited to prompt-surface tools such as Plan mode, Run in container, preview, and prompt library.
   [@test] ../../prompt/ui/testSrc/AgentPromptPaletteViewStructureTest.kt
   [@test] ../../prompt/ui/testSrc/AgentPromptProviderSelectorTest.kt
   [@test] ../../prompt/ui/testSrc/AgentPromptPaletteSessionControllerTest.kt
@@ -119,12 +130,15 @@ The global prompt opens a project-scoped prompt surface for starting a new task 
 - The popup keep-open toggle is a secondary footer control, not part of the primary header action cluster.
 - Validation errors appear inline and keep the popup open.
 - Successful launches close the popup and clear the submitted draft.
+- Successful inline new-thread launches clear the submitted draft and replace the prompt surface by starting the deferred chat tab.
 
 ## Testing / Local Run
 - `./tests.cmd --module intellij.agent.workbench.prompt.ui.tests --test "com.intellij.agent.workbench.prompt.ui.AgentPrompt*Test"`
 - `./tests.cmd --module intellij.agent.workbench.prompt.ui.tests --test "com.intellij.agent.workbench.prompt.ui.emptyState.AgentWorkbenchInlinePromptEmptyStateProviderTest;com.intellij.agent.workbench.prompt.ui.AgentPromptPalettePopupServiceTest"`
+- `./tests.cmd --module intellij.agent.workbench.prompt.ui.tests --test "com.intellij.agent.workbench.prompt.ui.AgentPromptPaletteSessionControllerTest;com.intellij.agent.workbench.prompt.ui.AgentPromptPaletteSubmitControllerTest"`
 - `./tests.cmd --module intellij.platform.ide.impl.tests --test com.intellij.openapi.fileEditor.impl.EditorEmptyTextPainterTest`
 - `./tests.cmd --module intellij.agent.workbench.sessions.tests --test com.intellij.agent.workbench.sessions.AgentSessionPromptLauncherBridgeTest`
+- `./tests.cmd --module intellij.agent.workbench.sessions.tests --test com.intellij.agent.workbench.sessions.AgentSessionLaunchServiceTest`
 
 ## References
 - `add-to-agent-context.spec.md`

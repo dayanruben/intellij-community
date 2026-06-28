@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.event.KeyEvent
+import java.awt.event.MouseEvent
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.ScrollPaneConstants
@@ -124,7 +125,7 @@ class AgentPromptPaletteViewStructureTest {
       val tabbedPaneX = xInRoot(view.tabbedPane, view.rootPanel)
       val rightHeaderX = xInRoot(view.rightHeaderPanel, view.rootPanel)
       assertThat(view.headerToolbar.layoutStrategy).isSameAs(ToolbarLayoutStrategy.AUTOLAYOUT_STRATEGY)
-      assertThat(SwingUtilities.isDescendingFrom(view.profileAction.customComponent, view.rightHeaderPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.profileAction.customComponent, view.rightHeaderPanel)).isFalse()
       assertThat(SwingUtilities.isDescendingFrom(view.promptLibraryIconLabel, view.rightHeaderPanel)).isTrue()
       assertThat(SwingUtilities.isDescendingFrom(view.headerControls.toolbarComponent, view.rightHeaderPanel)).isTrue()
       assertThat(rightHeaderX).isGreaterThan(tabbedPaneX)
@@ -147,6 +148,7 @@ class AgentPromptPaletteViewStructureTest {
       layoutPopupRoot(view.rootPanel)
 
       assertThat(view.rootPanel.preferredSize.width).isEqualTo(680)
+      assertThat(view.rootPanel.preferredSize.height).isEqualTo(400)
       assertThat(view.rootPanel.minimumSize.width).isEqualTo(520)
       assertThat(view.rootPanel.minimumSize.width).isLessThan(view.rootPanel.preferredSize.width)
       assertThat(view.headerControls.toolbarComponent.minimumSize.width)
@@ -183,19 +185,61 @@ class AgentPromptPaletteViewStructureTest {
       assertThat(view.promptEditorPanel.border).isInstanceOf(JBEmptyBorder::class.java)
       assertThat(totalBorderInsets(view.promptEditorPanel)).isGreaterThan(0)
       assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.generationSettingsPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.generationSettingsPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.generationSettingsPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.rightHeaderPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.rightHeaderPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.headerControls.toolbarComponent)).isFalse()
       assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.composerContextPanel)).isFalse()
-      assertThat(view.addContextButton.parent).isSameAs(view.modelSelectorLink.parent)
-      assertThat(view.addContextButton.parent.components.toList()).containsSubsequence(
-        view.addContextButton,
-        view.modelSelectorLink,
-        view.reasoningEffortLink,
-        view.planReasoningEffortLink,
-      )
+      assertThat(SwingUtilities.isDescendingFrom(view.composerContextPanel, view.promptEditorPanel)).isTrue()
+      assertThat(xInRoot(view.addContextButton, view.rootPanel)).isLessThan(xInRoot(view.launchProfileLink, view.rootPanel))
       assertThat(SwingUtilities.isDescendingFrom(view.headerControls.toolbarComponent, view.rightHeaderPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(view.profileAction.customComponent, view.rightHeaderPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.profileAction.customComponent, view.rightHeaderPanel)).isFalse()
       assertThat(view.launchProfileLink.isFocusable).isFalse()
+      assertThat(view.launchTuningSummaryLink.isFocusable).isFalse()
+      assertThat(view.addContextButton.isFocusable).isFalse()
       assertThat(SwingUtilities.isDescendingFrom(promptAreaInRoot, view.promptEditorPanel)).isTrue()
       assertThat(promptAreaInRoot.height).isGreaterThan(0)
+    }
+  }
+
+  @Test
+  fun clickingInlinePromptChromeRequestsPromptFocus() {
+    runInEdtAndWait {
+      val promptArea = FocusTrackingEditorTextField()
+      val view = createAgentPromptPaletteView(
+        promptArea = promptArea,
+        contextChipsPanel = JPanel(),
+        onExistingTaskSelected = {},
+        hostMode = AgentPromptPaletteHostMode.INLINE_EMPTY_STATE,
+      )
+
+      layoutPopupRoot(view.rootPanel)
+      val topLeftChrome = checkNotNull(SwingUtilities.getDeepestComponentAt(view.rootPanel, 2, 2))
+
+      triggerMousePressed(topLeftChrome)
+
+      assertThat(promptArea.focusRequested).isTrue()
+    }
+  }
+
+  @Test
+  fun clickingInlinePromptControlsDoesNotRequestPromptFocusThroughChromeForwarding() {
+    runInEdtAndWait {
+      val promptArea = FocusTrackingEditorTextField()
+      val view = createAgentPromptPaletteView(
+        promptArea = promptArea,
+        contextChipsPanel = JPanel(),
+        onExistingTaskSelected = {},
+        hostMode = AgentPromptPaletteHostMode.INLINE_EMPTY_STATE,
+      )
+
+      layoutPopupRoot(view.rootPanel)
+
+      triggerMousePressed(view.addContextButton)
+      triggerMousePressed(view.launchProfileLink)
+
+      assertThat(promptArea.focusRequested).isFalse()
     }
   }
 
@@ -399,7 +443,7 @@ class AgentPromptPaletteViewStructureTest {
   }
 
   @Test
-  fun taskCostProfileControlIsSingleHeaderEntryAndGenerationControlsAreInsidePromptEditor() {
+  fun launchSettingsAndAddContextControlsAreComposerTrayEntries() {
     runInEdtAndWait {
       val promptArea = EditorTextField()
       val view = createAgentPromptPaletteView(
@@ -415,20 +459,26 @@ class AgentPromptPaletteViewStructureTest {
       assertThat(profileActionComponent).isSameAs(view.launchProfileLink)
       assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.rootPanel)).isTrue()
       assertThat(SwingUtilities.isDescendingFrom(profileActionComponent, view.rootPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(profileActionComponent, view.rightHeaderPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(profileActionComponent, view.headerControls.toolbarComponent)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.generationSettingsPanel)).isFalse()
-      assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.promptEditorPanel)).isFalse()
-      assertThat(view.profileAction.templatePresentation.description).contains("Choose a task profile")
-      assertThat(SwingUtilities.isDescendingFrom(profileActionComponent, view.generationSettingsPanel)).isFalse()
-      assertThat(SwingUtilities.isDescendingFrom(view.modelSelectorLink, view.rootPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(view.reasoningEffortLink, view.rootPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(view.planReasoningEffortLink, view.rootPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(view.modelSelectorLink, view.generationSettingsPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(view.reasoningEffortLink, view.generationSettingsPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(view.planReasoningEffortLink, view.generationSettingsPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(profileActionComponent, view.rightHeaderPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(profileActionComponent, view.headerControls.toolbarComponent)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.generationSettingsPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.promptEditorPanel)).isTrue()
+      assertThat(view.profileAction.templatePresentation.description).contains("Change launch profile, model, and reasoning")
+      assertThat(SwingUtilities.isDescendingFrom(profileActionComponent, view.generationSettingsPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.rootPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.rightHeaderPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.headerControls.toolbarComponent)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.modelSelectorLink, view.rootPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.reasoningEffortLink, view.rootPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.planReasoningEffortLink, view.rootPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.generationSettingsPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.modelSelectorLink, view.generationSettingsPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.reasoningEffortLink, view.generationSettingsPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.planReasoningEffortLink, view.generationSettingsPanel)).isFalse()
       assertThat(SwingUtilities.isDescendingFrom(view.defaultProfileActionControl.component, view.generationSettingsPanel)).isTrue()
       assertThat(SwingUtilities.isDescendingFrom(view.defaultProfileActionControl.component, view.rightHeaderPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.generationSettingsPanel)).isTrue()
+      assertThat(xInRoot(view.addContextButton, view.rootPanel)).isLessThan(xInRoot(view.launchProfileLink, view.rootPanel))
       assertThat(view.generationSettingsPanel.parent).isSameAs(view.promptEditorPanel)
       assertThat(SwingUtilities.isDescendingFrom(promptAreaInRoot, view.promptEditorPanel)).isTrue()
       assertThat(SwingUtilities.isDescendingFrom(view.generationSettingsPanel, view.promptPanel)).isTrue()
@@ -444,20 +494,19 @@ class AgentPromptPaletteViewStructureTest {
                                                                                                               view.rootPanel))
       assertThat(promptAreaInRoot.border.getBorderInsets(promptAreaInRoot).bottom).isZero()
       assertThat(view.generationSettingsPanel.isVisible).isTrue()
-      assertThat(view.launchProfileLink.text).isEqualTo("Standard")
-      assertThat(view.profileAction.textForTest).isEqualTo("Standard")
+      assertThat(view.launchProfileLink.text).isEqualTo("Default")
+      assertThat(view.profileAction.textForTest).isEqualTo("Default")
       assertThat(view.launchProfileLink.icon).isNotNull()
-      assertThat(view.modelSelectorLink.foreground).isEqualTo(view.reasoningEffortLink.foreground)
-      assertThat(view.modelSelectorLink.text).isEqualTo("Model Default")
-      assertThat(view.reasoningEffortLink.text).isEqualTo("Effort Default")
-      assertThat(view.modelSelectorLink.isEnabled).isTrue()
-      val modelSelectorCenter = SwingUtilities.convertPoint(
-        view.modelSelectorLink,
-        view.modelSelectorLink.width / 2,
-        view.modelSelectorLink.height / 2,
+      assertThat(view.launchProfileLink.font.isBold).isFalse()
+      assertThat((view.launchProfileLink as HeaderActionLink).trailingIcon).isSameAs(view.addContextButton.icon)
+      assertThat(view.launchTuningSummaryLink.isVisible).isFalse()
+      val launchTuningSummaryCenter = SwingUtilities.convertPoint(
+        view.launchProfileLink,
+        view.launchProfileLink.width / 2,
+        view.launchProfileLink.height / 2,
         view.rootPanel,
       )
-      val topComponent = SwingUtilities.getDeepestComponentAt(view.rootPanel, modelSelectorCenter.x, modelSelectorCenter.y)
+      val topComponent = SwingUtilities.getDeepestComponentAt(view.rootPanel, launchTuningSummaryCenter.x, launchTuningSummaryCenter.y)
       assertThat(isDescendantOrSame(topComponent, view.generationSettingsPanel)).isTrue()
     }
   }
@@ -484,13 +533,13 @@ class AgentPromptPaletteViewStructureTest {
         assertThat(SwingUtilities.isDescendingFrom(view.generationSettingsPanel, view.rootPanel)).isTrue()
         assertThat(SwingUtilities.isDescendingFrom(view.generationSettingsPanel, view.promptEditorPanel)).isTrue()
         assertThat(yInRoot(view.generationSettingsPanel, view.rootPanel)).isGreaterThanOrEqualTo(bottomInRoot(promptArea, view.rootPanel))
-        val modelSelectorCenter = SwingUtilities.convertPoint(
-          view.modelSelectorLink,
-          view.modelSelectorLink.width / 2,
-          view.modelSelectorLink.height / 2,
+        val launchTuningSummaryCenter = SwingUtilities.convertPoint(
+          view.launchProfileLink,
+          view.launchProfileLink.width / 2,
+          view.launchProfileLink.height / 2,
           view.rootPanel,
         )
-        val topComponent = SwingUtilities.getDeepestComponentAt(view.rootPanel, modelSelectorCenter.x, modelSelectorCenter.y)
+        val topComponent = SwingUtilities.getDeepestComponentAt(view.rootPanel, launchTuningSummaryCenter.x, launchTuningSummaryCenter.y)
         assertThat(isDescendantOrSame(topComponent, view.generationSettingsPanel)).isTrue()
       }
       finally {
@@ -502,15 +551,22 @@ class AgentPromptPaletteViewStructureTest {
   @Test
   fun addContextControlUsesTextLabelAndInlineMnemonic() {
     runInEdtAndWait {
+      var clicked = false
       val view = createAgentPromptPaletteView(
         promptArea = EditorTextField(),
         contextChipsPanel = JPanel(),
         onExistingTaskSelected = {},
       )
+      view.addContextButton.addActionListener { clicked = true }
 
       assertThat(view.addContextButton.text).isEqualTo("Add Context")
       assertThat(view.addContextButton.mnemonic).isEqualTo(KeyEvent.VK_C)
       assertThat(view.addContextButton.displayedMnemonicIndex).isEqualTo(4)
+      assertThat(view.addContextButton.isFocusable).isTrue()
+
+      view.addContextButton.doClick()
+
+      assertThat(clicked).isTrue()
     }
   }
 
@@ -529,9 +585,11 @@ class AgentPromptPaletteViewStructureTest {
       layoutPopupRoot(view.rootPanel)
 
       assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.promptPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.composerContextPanel)).isTrue()
-      assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.generationSettingsPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.composerContextPanel)).isFalse()
+      assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.generationSettingsPanel)).isTrue()
       assertThat(SwingUtilities.isDescendingFrom(contextChipsPanel, view.promptPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(contextChipsPanel, view.promptEditorPanel)).isTrue()
+      assertThat(SwingUtilities.isDescendingFrom(contextChipsPanel, view.generationSettingsPanel)).isFalse()
       assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.bottomPanel)).isFalse()
       assertThat(SwingUtilities.isDescendingFrom(contextChipsPanel, view.bottomPanel)).isFalse()
     }
@@ -587,5 +645,19 @@ class AgentPromptPaletteViewStructureTest {
     view.headerControls.updateActions()
     layoutPopupRoot(view.rootPanel)
     return collectComponentsOfType(view.rootPanel, JBCheckBox::class.java).single { checkBox -> checkBox.text == text }
+  }
+
+  private fun triggerMousePressed(component: Component) {
+    val event = MouseEvent(component, MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 1, 1, 1, false, MouseEvent.BUTTON1)
+    component.mouseListeners.forEach { listener -> listener.mousePressed(event) }
+  }
+
+  private class FocusTrackingEditorTextField : EditorTextField() {
+    var focusRequested: Boolean = false
+
+    override fun requestFocusInWindow(): Boolean {
+      focusRequested = true
+      return true
+    }
   }
 }

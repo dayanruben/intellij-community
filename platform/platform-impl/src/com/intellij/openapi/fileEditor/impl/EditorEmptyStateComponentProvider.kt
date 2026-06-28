@@ -7,12 +7,21 @@ import javax.swing.JComponent
 
 @ApiStatus.Internal
 interface EditorEmptyStateComponentProvider {
+  fun getKind(): Kind = Kind.RICH
+
+  fun isAvailable(splitters: EditorsSplitters): Boolean = true
+
   /**
    * Called asynchronously by the editor host. Implementations should choose their dispatcher explicitly.
    */
   suspend fun createComponent(splitters: EditorsSplitters): JComponent?
 
   fun disposeComponent(component: JComponent) {
+  }
+
+  enum class Kind {
+    RICH,
+    FALLBACK,
   }
 
   companion object {

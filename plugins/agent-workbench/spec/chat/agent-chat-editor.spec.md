@@ -44,6 +44,9 @@ Agent Chat tabs are protocol-backed editor tabs around terminal-backed agent ses
 - Terminal content initialization is lazy: the lightweight editor shell appears immediately, and the terminal starts only after explicit tab selection/focus.
   [@test] ../../chat/testSrc/AgentChatTabSelectionServiceTest.kt
 
+- The default deferred-start waiting shell is centered, uses provider-neutral progress copy for generic new-thread starts, and delays the spinner briefly to avoid flicker. Custom deferred-start content continues to replace the default shell until the tab is ready to start.
+  [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
+
 - The live terminal belongs to the logical open chat tab (`tabKey`), not a transient `FileEditor` instance. Reordering, splitter movement, detach/reattach, or editor recreation must not restart the live terminal.
   [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
   [@test] ../../chat/testSrc/AgentChatScopedTerminalRefreshControllerTest.kt
@@ -61,7 +64,9 @@ Agent Chat tabs are protocol-backed editor tabs around terminal-backed agent ses
 - Plain Enter with pending context sends the current terminal prompt plus one `### IDE Context` envelope, then clears pending context only after the terminal accepts the send. Context over the soft cap requires explicit send-full, auto-trim, or cancel.
   [@test] ../../chat/testSrc/AgentChatOpenTopLevelDispatchTest.kt
 
-- Concrete tab title/icon presentation resolves live data from shared thread presentation; sub-agent tabs keep their own stored title while inheriting parent activity.
+- Concrete tab title/icon presentation resolves live data from shared thread presentation. Tab icon badges are chrome signals and
+  use shared chrome activity, while tab row/session activity remains separate. Sub-agent tabs keep their own stored title while inheriting
+  parent chrome activity.
   [@test] ../../chat/testSrc/AgentChatFileEditorProviderTest.kt
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
 

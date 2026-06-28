@@ -1,6 +1,7 @@
 package com.intellij.agent.workbench.chat
 
 import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
 import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
 import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationModel
@@ -21,6 +22,7 @@ import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.fileEditor.FileEditorProvider
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.impl.EditorTabPresentationUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
@@ -433,6 +435,39 @@ class AgentChatEditorServiceTest {
   }
 
   @Test
+  fun openChatInstallsDeferredStartContentBeforeOpeningEditor(): Unit = timeoutRunBlocking {
+    val customContent = JPanel()
+    val focusComponent = JButton("Prompt")
+    openChat(
+      project = project,
+      projectPath = projectPath,
+      threadIdentity = "CODEX:new-inline-prompt",
+      shellCommand = codexCommand,
+      threadId = "",
+      threadTitle = "New Codex thread",
+      subAgentId = null,
+      persistSnapshot = false,
+      deferredStartState = AgentChatDeferredStartState(
+        phase = AgentChatDeferredStartPhase.WAITING,
+        title = "Preparing Codex",
+      ),
+      deferredStartContent = AgentChatDeferredStartContent(
+        component = customContent,
+        preferredFocusedComponent = focusComponent,
+      ),
+    )
+
+    val file = openedChatFiles().single { file -> file.threadIdentity == "CODEX:new-inline-prompt" }
+    val editor = runInUi {
+      FileEditorManager.getInstance(project).getAllEditors(file).filterIsInstance<AgentChatFileEditor>().single().also { editor ->
+        editor.selectNotify()
+      }
+    }
+    assertThat(editor.component.components).containsExactly(customContent)
+    assertThat(editor.preferredFocusedComponent).isSameAs(focusComponent)
+  }
+
+  @Test
   fun deferredWaitingTabKeepsReadyActivityUntilStartDecision(): Unit = timeoutRunBlocking {
     openChatInModal(
       threadIdentity = "CODEX:new-deferred-ready",
@@ -574,6 +609,77 @@ class AgentChatEditorServiceTest {
   }
 
   @Test
+  fun pinnedPendingTabIsCollectedWithPinnedMetadata(): Unit = timeoutRunBlocking {
+    openChatInModal(
+      threadIdentity = "CODEX:new-pinned-pending",
+      shellCommand = codexCommand,
+      threadId = "",
+      threadTitle = "Pinned pending thread",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    setEditorTabPinned(file, true)
+
+    val pendingTabs = collectOpenPendingCodexTabsByPath()[projectPath].orEmpty()
+    assertThat(pendingTabs).hasSize(1)
+    assertThat(pendingTabs.single().pendingTabKey).isEqualTo(file.tabKey)
+    assertThat(pendingTabs.single().pinnedEditorTab).isTrue()
+  }
+
+  @Test
+  fun pinnedConcreteTopLevelTabIsCollectedByProviderAndPath(): Unit = timeoutRunBlocking {
+    openChatInModal(
+      threadIdentity = "CODEX:pinned-concrete",
+      shellCommand = listOf("codex", "resume", "pinned-concrete"),
+      threadId = "pinned-concrete",
+      threadTitle = "Pinned concrete thread",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    setEditorTabPinned(file, true)
+
+    val pinnedThreadIds = collectOpenAgentChatTabsSnapshotOnUi()
+      .pinnedTopLevelConcreteThreadIdentitiesByPath(AgentSessionProvider.from("codex"))[projectPath]
+      .orEmpty()
+    assertThat(pinnedThreadIds).containsExactly("pinned-concrete")
+  }
+
+  @Test
+  fun concreteTopLevelTabCanBePinnedAndUnpinnedByThreadIdentity(): Unit = timeoutRunBlocking {
+    val provider = AgentSessionProvider.from("codex")
+    openChatInModal(
+      threadIdentity = "CODEX:toggle-pinned-concrete",
+      shellCommand = listOf("codex", "resume", "toggle-pinned-concrete"),
+      threadId = "toggle-pinned-concrete",
+      threadTitle = "Toggle pinned concrete thread",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    assertThat(isEditorTabPinned(file)).isFalse()
+
+    setAgentChatEditorTabPinned(project, file, true)
+
+    assertThat(isEditorTabPinned(file)).isTrue()
+    assertThat(collectOpenAgentChatTabsPresentationState().isPinnedTopLevelThread(provider, projectPath, "toggle-pinned-concrete"))
+      .isTrue()
+
+    val unpinnedCount = setOpenTopLevelAgentChatThreadTabsPinned(
+      provider = provider,
+      projectPath = projectPath,
+      threadId = "toggle-pinned-concrete",
+      pinned = false,
+    )
+
+    assertThat(unpinnedCount).isEqualTo(1)
+    assertThat(isEditorTabPinned(file)).isFalse()
+    assertThat(collectOpenAgentChatTabsPresentationState().isPinnedTopLevelThread(provider, projectPath, "toggle-pinned-concrete"))
+      .isFalse()
+  }
+
+  @Test
   fun testReuseEditorUpdatesTitleForThread(): Unit = timeoutRunBlocking {
     openChatInModal(
       threadIdentity = "CODEX:thread-1",
@@ -691,6 +797,65 @@ class AgentChatEditorServiceTest {
       activity = AgentThreadActivity.UNREAD,
     )
     assertThat(unchangedTabs).isEqualTo(0)
+  }
+
+  @Test
+  fun testTabIconUsesChromeActivityWithoutChangingThreadActivity(): Unit = timeoutRunBlocking {
+    openChatInModal(
+      threadIdentity = "CODEX:thread-1",
+      shellCommand = codexCommand,
+      threadId = "thread-1",
+      threadTitle = "Initial title",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    val updatedTabs = publishThreadPresentation(
+      file = file,
+      title = "Initial title",
+      activityReport = AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.READY,
+        chromeActivity = AgentThreadActivity.NEEDS_INPUT,
+      ),
+    )
+    assertThat(updatedTabs).isEqualTo(1)
+
+    assertThat(file.threadActivity).isEqualTo(AgentThreadActivity.READY)
+    assertThat(resolveAgentChatTabIconActivity(file)).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
+  }
+
+  @Test
+  fun testTabIconChromeActivityClearRepaintsWithoutChangingThreadActivity(): Unit = timeoutRunBlocking {
+    openChatInModal(
+      threadIdentity = "CODEX:thread-1",
+      shellCommand = codexCommand,
+      threadId = "thread-1",
+      threadTitle = "Initial title",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    assertThat(publishThreadPresentation(
+      file = file,
+      title = "Initial title",
+      activityReport = AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.READY,
+        chromeActivity = AgentThreadActivity.NEEDS_INPUT,
+      ),
+    )).isEqualTo(1)
+
+    val clearedTabs = publishThreadPresentation(
+      file = file,
+      title = "Initial title",
+      activityReport = AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.READY,
+        chromeActivity = null,
+      ),
+    )
+
+    assertThat(clearedTabs).isEqualTo(1)
+    assertThat(file.threadActivity).isEqualTo(AgentThreadActivity.READY)
+    assertThat(resolveAgentChatTabIconActivity(file)).isEqualTo(AgentThreadActivity.READY)
   }
 
   @Test
@@ -2240,11 +2405,27 @@ class AgentChatEditorServiceTest {
     }
   }
 
+  private suspend fun isEditorTabPinned(file: AgentChatVirtualFile): Boolean {
+    return runInUi {
+      FileEditorManager.getInstance(project).hasPinnedEditorTab(file)
+    }
+  }
+
+  private suspend fun setEditorTabPinned(file: AgentChatVirtualFile, pinned: Boolean) {
+    runInUi {
+      val editorManager = FileEditorManagerEx.getInstanceEx(project)
+      val editorWindow = editorManager.windows.firstOrNull { window -> window.isFileOpen(file) }
+      assertThat(editorWindow).isNotNull()
+      editorWindow?.setFilePinned(file, pinned)
+    }
+  }
+
   private fun rebindTarget(
     threadIdentity: String,
     threadId: String,
     threadTitle: String,
     threadActivity: AgentThreadActivity,
+    threadActivityReport: AgentThreadActivityReport = AgentThreadActivityReport(threadActivity),
     provider: AgentSessionProvider = AgentSessionProvider.from("codex"),
     projectPath: String = this.projectPath,
   ): AgentChatTabRebindTarget {
@@ -2255,6 +2436,8 @@ class AgentChatEditorServiceTest {
       threadId = threadId,
       threadTitle = threadTitle,
       threadActivity = threadActivity,
+      threadActivityReport = threadActivityReport,
+      launchSpec = AgentSessionTerminalLaunchSpec(command = listOf(provider.value, "resume", threadId)),
     )
   }
 
@@ -2374,6 +2557,22 @@ private suspend fun publishThreadPresentation(
 }
 
 private suspend fun publishThreadPresentation(
+  file: AgentChatVirtualFile,
+  path: String = file.projectPath,
+  title: String,
+  activityReport: AgentThreadActivityReport,
+): Int {
+  val provider = checkNotNull(file.provider)
+  return publishThreadPresentation(
+    path = path,
+    provider = provider,
+    threadId = file.sessionId,
+    title = title,
+    activityReport = activityReport,
+  )
+}
+
+private suspend fun publishThreadPresentation(
   path: String,
   provider: AgentSessionProvider,
   threadId: String,
@@ -2386,6 +2585,24 @@ private suspend fun publishThreadPresentation(
     threadId = threadId,
     title = title,
     activity = activity,
+  )
+  return AgentChatOpenTabPresentationInvalidator.invalidate(changeSet)
+}
+
+private suspend fun publishThreadPresentation(
+  path: String,
+  provider: AgentSessionProvider,
+  threadId: String,
+  title: String,
+  activityReport: AgentThreadActivityReport,
+): Int {
+  val changeSet = service<AgentSessionThreadPresentationModel>().updateThread(
+    path = path,
+    provider = provider,
+    threadId = threadId,
+    title = title,
+    activity = null,
+    activityReport = activityReport,
   )
   return AgentChatOpenTabPresentationInvalidator.invalidate(changeSet)
 }

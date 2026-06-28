@@ -16,42 +16,46 @@ import com.intellij.platform.ai.agent.codex.sessions.backend.appserver.CodexAppS
 import com.intellij.platform.ai.agent.codex.sessions.backend.appserver.SharedCodexAppServerService
 import com.intellij.platform.ai.agent.codex.sessions.backend.createDefaultCodexSessionBackend
 import com.intellij.platform.ai.agent.codex.sessions.backend.rollout.CodexExactRolloutThreadLoader
-import com.intellij.platform.ai.agent.codex.sessions.backend.rollout.CodexRolloutRefreshHintsProvider
+import com.intellij.platform.ai.agent.codex.sessions.backend.rollout.CodexRolloutDiscoveryProvider
 import com.intellij.platform.ai.agent.codex.sessions.backend.rollout.CodexRolloutParser
 import com.intellij.platform.ai.agent.codex.sessions.backend.rollout.CodexRolloutSessionBackend
 import com.intellij.platform.ai.agent.codex.sessions.backend.toAgentSessionRefreshHints
 import com.intellij.platform.ai.agent.codex.sessions.backend.toAgentThreadActivity
 import com.intellij.platform.ai.agent.core.AgentThreadActivity
-import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
-import com.intellij.platform.ai.agent.core.isWorking
 import com.intellij.platform.ai.agent.core.session.AgentSessionCost
 import com.intellij.platform.ai.agent.core.session.AgentSessionCostKind
 import com.intellij.platform.ai.agent.core.session.AgentSessionOutlineItem
 import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.platform.ai.agent.core.session.AgentSessionThreadOutline
 import com.intellij.platform.ai.agent.core.session.AgentSubAgent
+import com.intellij.platform.ai.agent.filewatch.agentWorkbenchImmediateFileChangeFlow
 import com.intellij.platform.ai.agent.sessions.core.cost.AgentSessionUsageCostCalculators
 import com.intellij.platform.ai.agent.sessions.core.cost.AgentSessionUsageSnapshot
 import com.intellij.platform.ai.agent.sessions.core.cost.aggregateAgentSessionUsageCost
 import com.intellij.platform.ai.agent.sessions.core.normalizeConcreteAgentSessionThreadId
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRebindCandidate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionActiveThreadUpdateSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionArchivedSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionCostSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionPrefetchSource
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshHints
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshThreadSeed
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionOutlineForkResult
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshHintsSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshSource
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceRefreshRequest
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceRefreshResult
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadPresentationUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadOutlineForkSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadOutlineSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionUpdateSource
 import com.intellij.platform.ai.agent.sessions.core.providers.BaseAgentSessionSource
-import com.intellij.platform.ai.agent.sessions.core.providers.mergeAgentSessionThreadPresentationUpdates
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.merge
 import java.nio.file.Path
 
@@ -60,12 +64,21 @@ private val LOG = logger<CodexSessionSource>()
 internal class CodexSessionSource internal constructor(
   private val backend: CodexSessionBackend,
   private val appServerRefreshHintsProvider: CodexRefreshHintsProvider,
-  private val rolloutRefreshHintsProvider: CodexRefreshHintsProvider,
+  private val rolloutDiscoveryProvider: CodexRefreshHintsProvider,
   private val rolloutBackend: CodexSessionBackend? = null,
   private val calculateCost: (AgentSessionUsageSnapshot) -> AgentSessionCost = AgentSessionUsageCostCalculators::calculateCost,
   private val threadPathIndex: CodexThreadPathIndex = InMemoryCodexThreadPathIndex(),
   private val exactRolloutThreadLoader: CodexExactRolloutThreadLoader = CodexExactRolloutThreadLoader(),
-) : BaseAgentSessionSource(provider = CODEX_AGENT_SESSION_PROVIDER, canReportExactThreadCount = false) {
+) : BaseAgentSessionSource(provider = CODEX_AGENT_SESSION_PROVIDER, canReportExactThreadCount = false),
+    AgentSessionUpdateSource,
+    AgentSessionActiveThreadUpdateSource,
+    AgentSessionArchivedSource,
+    AgentSessionPrefetchSource,
+    AgentSessionRefreshSource,
+    AgentSessionRefreshHintsSource,
+    AgentSessionCostSource,
+    AgentSessionThreadOutlineSource,
+    AgentSessionThreadOutlineForkSource {
   constructor(
     threadPathIndex: CodexThreadPathIndex = service<CodexThreadPathIndexService>(),
     backend: CodexSessionBackend = createDefaultCodexSessionBackend(threadPathIndex = threadPathIndex),
@@ -77,34 +90,55 @@ internal class CodexSessionSource internal constructor(
       readThreadActivitySnapshot = sharedAppServerService::readThreadActivitySnapshot,
       notifications = sharedAppServerService.notifications,
     ),
-    rolloutRefreshHintsProvider = CodexRolloutRefreshHintsProvider(rolloutBackend = rolloutBackend),
+    rolloutDiscoveryProvider = CodexRolloutDiscoveryProvider(
+      rolloutBackend = rolloutBackend,
+      activeFileChangeFlow = { paths ->
+        // App-server fs/watch covers the supported app-server file watch contract, including
+        // replace/rename updates. The macOS immediate watcher remains necessary for active
+        // rollout files because Codex can append project-file evidence to a long-lived fd and
+        // the UI must invalidate before that writer closes the file.
+        merge(
+          sharedAppServerService.watchPathChanges(paths),
+          agentWorkbenchImmediateFileChangeFlow(paths),
+        )
+      },
+    ),
     rolloutBackend = rolloutBackend,
     calculateCost = AgentSessionUsageCostCalculators::calculateCost,
     threadPathIndex = threadPathIndex,
   )
 
-  override val supportsUpdates: Boolean
-    get() = true
-
-  override val supportsActiveThreadUpdateEvents: Boolean
-    get() = true
-
-  override val supportsArchivedThreads: Boolean
-    get() = true
-
   override val updateEvents: Flow<AgentSessionSourceUpdateEvent>
     get() = merge(
-      backend.updates.map { AgentSessionSourceUpdateEvent(type = AgentSessionSourceUpdate.THREADS_CHANGED) },
+      backend.updates.map { AgentSessionSourceUpdateEvent.threadsChanged() },
       appServerRefreshHintsProvider.updateEvents,
-      rolloutRefreshHintsProvider.updateEvents,
+      rolloutDiscoveryProvider.updateEvents.mapNotNull(::toRolloutDiscoveryUpdateEvent),
       readStateUpdateEvents,
     )
 
   override fun activeThreadUpdateEvents(path: String, threadId: String): Flow<AgentSessionSourceUpdateEvent> {
-    return rolloutRefreshHintsProvider.activeThreadUpdateEvents(path = path, threadId = threadId)
+    return rolloutDiscoveryProvider.activeThreadUpdateEvents(path = path, threadId = threadId)
+      .mapNotNull(::toRolloutDiscoveryUpdateEvent)
   }
 
-  override suspend fun listThreads(path: String, openProject: Project?): List<AgentSessionThread> {
+  private fun toRolloutDiscoveryUpdateEvent(updateEvent: AgentSessionSourceUpdateEvent): AgentSessionSourceUpdateEvent? {
+    if (updateEvent.scopedPaths.isNullOrEmpty() && !updateEvent.mayHaveChangedProjectFiles) {
+      return null
+    }
+    return if (updateEvent.mayHaveChangedProjectFiles) {
+      AgentSessionSourceUpdateEvent.projectFilesChanged(
+        scopedPaths = updateEvent.scopedPaths,
+        changedProjectFilePaths = updateEvent.changedProjectFilePaths,
+      )
+    }
+    else {
+      AgentSessionSourceUpdateEvent.discoveryChanged(
+        scopedPaths = updateEvent.scopedPaths,
+      )
+    }
+  }
+
+  override suspend fun loadThreads(path: String, openProject: Project?): List<AgentSessionThread> {
     val threads = backend.listThreads(path = path, openProject = openProject)
     rememberThreadMetadata(threads)
     trackActiveThreadRead(threads)
@@ -205,16 +239,6 @@ internal class CodexSessionSource internal constructor(
            ?: loadIndexedRolloutThreadOutline(threadId)
   }
 
-  override fun canShowThreadOutlineForkAction(
-    path: String,
-    threadId: String,
-    itemId: String,
-    subAgentId: String?,
-    tabKey: String?,
-  ): Boolean {
-    return subAgentId == null && parseCodexUserPromptOutlineItemIndex(itemId) != null
-  }
-
   override fun canForkThreadFromOutlineItem(
     path: String,
     threadId: String,
@@ -222,13 +246,7 @@ internal class CodexSessionSource internal constructor(
     subAgentId: String?,
     tabKey: String?,
   ): Boolean {
-    return canShowThreadOutlineForkAction(
-      path = path,
-      threadId = threadId,
-      itemId = itemId,
-      subAgentId = subAgentId,
-      tabKey = tabKey,
-    )
+    return subAgentId == null && parseCodexUserPromptOutlineItemIndex(itemId) != null
   }
 
   override suspend fun forkThreadFromOutlineItem(
@@ -301,7 +319,7 @@ internal class CodexSessionSource internal constructor(
 
   override suspend fun refreshThreads(request: AgentSessionSourceRefreshRequest): AgentSessionSourceRefreshResult {
     if (!request.isThreadScoped) {
-      return super.refreshThreads(request)
+      return refreshThreadsByListing(request)
     }
 
     val partialThreadsByPath = LinkedHashMap<String, List<AgentSessionThread>>()
@@ -319,7 +337,7 @@ internal class CodexSessionSource internal constructor(
 
         rememberThreadMetadata(backendResult.threads)
         trackActiveThreadRead(backendResult.threads)
-        val threads = mapBackendThreadsWithRolloutFallback(mapOf(path to backendResult.threads))[path].orEmpty()
+        val threads = mapBackendThreads(backendResult.threads)
         if (backendResult.isComplete) {
           completeThreadsByPath[path] = threads
         }
@@ -348,140 +366,14 @@ internal class CodexSessionSource internal constructor(
     paths: List<String>,
     refreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
   ): Map<String, AgentSessionRefreshHints> {
-    val rolloutHints = rolloutRefreshHintsProvider.prefetchRefreshHints(
+    val appServerHints = appServerRefreshHintsProvider.prefetchRefreshHints(
       paths = paths,
       refreshThreadSeedsByPath = refreshThreadSeedsByPath,
     )
-    val appServerHints = prefetchAppServerHintsWithRolloutVerification(
-      paths = paths,
-      refreshThreadSeedsByPath = refreshThreadSeedsByPath,
-      rolloutHintsByPath = rolloutHints,
-    )
-    val mergedHints = mergeCodexRefreshHints(
-      appServerHintsByPath = appServerHints,
-      rolloutHintsByPath = rolloutHints,
-    )
-    absorbActiveThreadReads(mergedHints)
-    return filterCodexRefreshHints(mergedHints).mapValues { (_, hints) ->
+    absorbActiveThreadReads(appServerHints)
+    return filterCodexRefreshHints(appServerHints).mapValues { (_, hints) ->
       hints.toAgentSessionRefreshHints()
     }
-  }
-
-  private suspend fun mapBackendThreadsWithRolloutFallback(
-    backendThreadsByPath: Map<String, List<CodexBackendThread>>,
-  ): Map<String, List<AgentSessionThread>> {
-    if (backendThreadsByPath.isEmpty()) {
-      return emptyMap()
-    }
-
-    val agentThreadsByPath = LinkedHashMap<String, List<AgentSessionThread>>(backendThreadsByPath.size)
-    val refreshThreadSeedsByPath = LinkedHashMap<String, Set<AgentSessionRefreshThreadSeed>>()
-    for ((path, backendThreads) in backendThreadsByPath) {
-      val agentThreads = backendThreads.map { backendThread ->
-        toAgentSessionThread(thread = backendThread)
-      }
-      agentThreadsByPath[path] = agentThreads
-      if (agentThreads.isNotEmpty()) {
-        refreshThreadSeedsByPath[path] = agentThreads.asSequence()
-          .map { thread -> AgentSessionRefreshThreadSeed(threadId = thread.id, updatedAt = thread.updatedAt) }
-          .toCollection(LinkedHashSet())
-      }
-    }
-    if (refreshThreadSeedsByPath.isEmpty()) {
-      return agentThreadsByPath
-    }
-
-    val rolloutHintsByPath = try {
-      rolloutRefreshHintsProvider.prefetchRefreshHints(
-        paths = refreshThreadSeedsByPath.keys.toList(),
-        refreshThreadSeedsByPath = refreshThreadSeedsByPath,
-      )
-    }
-    catch (e: Throwable) {
-      if (e is CancellationException) throw e
-      LOG.warn("Failed to fetch Codex rollout activity fallback hints", e)
-      return agentThreadsByPath
-    }
-    if (rolloutHintsByPath.isEmpty()) {
-      return agentThreadsByPath
-    }
-
-    val verifiedRolloutHintsByPath = prefetchVerifiedRolloutFallbackHints(
-      rolloutHintsByPath = rolloutHintsByPath,
-      refreshThreadSeedsByPath = refreshThreadSeedsByPath,
-    )
-
-    absorbActiveThreadReads(verifiedRolloutHintsByPath)
-
-    val result = LinkedHashMap<String, List<AgentSessionThread>>(agentThreadsByPath.size)
-    for ((path, agentThreads) in agentThreadsByPath) {
-      val rolloutHints = verifiedRolloutHintsByPath[path]
-      val activityHintsByThreadId = rolloutHints?.activityHintsByThreadId.orEmpty()
-      if (activityHintsByThreadId.isEmpty()) {
-        result[path] = agentThreads
-        continue
-      }
-
-      val backendThreadsById = backendThreadsByPath[path]
-        .orEmpty()
-        .associateBy { backendThread -> backendThread.thread.id }
-      var appliedActivityUpdates = 0
-      val threads = agentThreads.map { thread ->
-        val backendThread = backendThreadsById[thread.id]
-        val activityHint = activityHintsByThreadId[thread.id] ?: return@map thread
-        if (!shouldKeepRefreshHint(threadId = thread.id, hint = activityHint)) {
-          return@map thread
-        }
-        val hintedSummaryActivity = resolveHintedSummaryActivity(thread = thread, hint = activityHint)
-        if (activityHint.verifiedFresh) {
-          if (thread.activity == activityHint.activity &&
-              thread.summaryActivity == hintedSummaryActivity &&
-              thread.updatedAt >= activityHint.updatedAt) {
-            return@map thread
-          }
-
-          appliedActivityUpdates += 1
-          LOG.debug {
-            "Applied Codex app-server activity verification " +
-            "path=$path threadId=${thread.id} appServerActivity=${thread.activity} verifiedActivity=${activityHint.activity} " +
-            "verifiedUpdatedAt=${activityHint.updatedAt} verifiedResponseRequired=${activityHint.responseRequired}"
-          }
-          return@map thread.copy(
-            activityReport = AgentThreadActivityReport(rowActivity = activityHint.activity, chromeActivity = hintedSummaryActivity),
-            updatedAt = maxOf(thread.updatedAt, activityHint.updatedAt),
-          )
-        }
-
-        val currentHint = CodexRefreshActivityHint(
-          activity = thread.activity,
-          updatedAt = backendThread?.thread?.updatedAt ?: thread.updatedAt,
-          responseRequired = backendThread?.requiresResponse == true,
-          summaryActivity = thread.summaryActivity,
-        )
-        if (!shouldApplyRolloutActivityFallback(currentHint = currentHint, rolloutHint = activityHint)) {
-          return@map thread
-        }
-
-        appliedActivityUpdates += 1
-        LOG.debug {
-          "Applied Codex rollout activity fallback " +
-          "path=$path threadId=${thread.id} appServerActivity=${thread.activity} rolloutActivity=${activityHint.activity} " +
-          "appServerUpdatedAt=${currentHint.updatedAt} rolloutUpdatedAt=${activityHint.updatedAt} " +
-          "appServerResponseRequired=${currentHint.responseRequired} rolloutResponseRequired=${activityHint.responseRequired}"
-        }
-        thread.copy(
-          activityReport = AgentThreadActivityReport(rowActivity = activityHint.activity, chromeActivity = hintedSummaryActivity),
-          updatedAt = maxOf(thread.updatedAt, activityHint.updatedAt),
-        )
-      }
-      if (appliedActivityUpdates > 0) {
-        LOG.debug {
-          "Applied Codex rollout activity updates path=$path count=$appliedActivityUpdates hints=${activityHintsByThreadId.size}"
-        }
-      }
-      result[path] = threads
-    }
-    return result
   }
 
   private fun mapBackendThreads(backendThreads: List<CodexBackendThread>): List<AgentSessionThread> {
@@ -570,106 +462,6 @@ internal class CodexSessionSource internal constructor(
     )
   }
 
-  private suspend fun prefetchAppServerHintsWithRolloutVerification(
-    paths: List<String>,
-    refreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
-    rolloutHintsByPath: Map<String, CodexRefreshHints>,
-  ): Map<String, CodexRefreshHints> {
-    val verificationSeedsByPath = buildRolloutVerificationSeedsByPath(
-      refreshThreadSeedsByPath = refreshThreadSeedsByPath,
-      rolloutHintsByPath = rolloutHintsByPath,
-    )
-    val appServerSeedsByPath = mergeForcedRefreshThreadSeeds(
-      refreshThreadSeedsByPath = refreshThreadSeedsByPath,
-      forcedRefreshThreadSeedsByPath = verificationSeedsByPath,
-    )
-    return appServerRefreshHintsProvider.prefetchRefreshHints(
-      paths = paths,
-      refreshThreadSeedsByPath = appServerSeedsByPath,
-    )
-  }
-
-  private suspend fun prefetchVerifiedRolloutFallbackHints(
-    rolloutHintsByPath: Map<String, CodexRefreshHints>,
-    refreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
-  ): Map<String, CodexRefreshHints> {
-    val verificationSeedsByPath = buildRolloutVerificationSeedsByPath(
-      refreshThreadSeedsByPath = refreshThreadSeedsByPath,
-      rolloutHintsByPath = rolloutHintsByPath,
-    )
-    if (verificationSeedsByPath.isEmpty()) {
-      return rolloutHintsByPath
-    }
-
-    val appServerHints = try {
-      appServerRefreshHintsProvider.prefetchRefreshHints(
-        paths = verificationSeedsByPath.keys.toList(),
-        refreshThreadSeedsByPath = verificationSeedsByPath,
-      )
-    }
-    catch (e: Throwable) {
-      if (e is CancellationException) throw e
-      LOG.warn("Failed to verify Codex rollout activity fallback with app server", e)
-      return rolloutHintsByPath
-    }
-    return mergeCodexRefreshHints(
-      appServerHintsByPath = appServerHints,
-      rolloutHintsByPath = rolloutHintsByPath,
-    )
-  }
-
-  private fun buildRolloutVerificationSeedsByPath(
-    refreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
-    rolloutHintsByPath: Map<String, CodexRefreshHints>,
-  ): Map<String, Set<AgentSessionRefreshThreadSeed>> {
-    if (refreshThreadSeedsByPath.isEmpty() || rolloutHintsByPath.isEmpty()) {
-      return emptyMap()
-    }
-
-    val verificationSeedsByPath = LinkedHashMap<String, Set<AgentSessionRefreshThreadSeed>>()
-    for ((path, refreshThreadSeeds) in refreshThreadSeedsByPath) {
-      val activityHintsByThreadId = rolloutHintsByPath[path]?.activityHintsByThreadId.orEmpty()
-      if (activityHintsByThreadId.isEmpty()) {
-        continue
-      }
-
-      val verificationSeeds = refreshThreadSeeds.asSequence()
-        .filter { refreshThreadSeed ->
-          activityHintsByThreadId[refreshThreadSeed.threadId]?.shouldVerifyWithAppServer() == true
-        }
-        .mapTo(LinkedHashSet()) { refreshThreadSeed -> refreshThreadSeed.copy(forceRefresh = true) }
-      if (verificationSeeds.isNotEmpty()) {
-        verificationSeedsByPath[path] = verificationSeeds
-      }
-    }
-    return verificationSeedsByPath
-  }
-
-  private fun mergeForcedRefreshThreadSeeds(
-    refreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
-    forcedRefreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
-  ): Map<String, Set<AgentSessionRefreshThreadSeed>> {
-    if (forcedRefreshThreadSeedsByPath.isEmpty()) {
-      return refreshThreadSeedsByPath
-    }
-
-    val mergedSeedsByPath = LinkedHashMap<String, Set<AgentSessionRefreshThreadSeed>>(refreshThreadSeedsByPath.size)
-    for ((path, refreshThreadSeeds) in refreshThreadSeedsByPath) {
-      val forcedRefreshThreadIds = forcedRefreshThreadSeedsByPath[path]
-        .orEmpty()
-        .mapTo(HashSet()) { refreshThreadSeed -> refreshThreadSeed.threadId }
-      if (forcedRefreshThreadIds.isEmpty()) {
-        mergedSeedsByPath[path] = refreshThreadSeeds
-        continue
-      }
-
-      mergedSeedsByPath[path] = refreshThreadSeeds.mapTo(LinkedHashSet()) { refreshThreadSeed ->
-        if (refreshThreadSeed.threadId in forcedRefreshThreadIds) refreshThreadSeed.copy(forceRefresh = true) else refreshThreadSeed
-      }
-    }
-    return mergedSeedsByPath
-  }
-
   private fun trackActiveThreadRead(threads: Iterable<CodexBackendThread>) {
     rememberActiveThreadRead(threads, { it.thread.id }, { it.thread.updatedAt })
   }
@@ -707,11 +499,10 @@ internal class CodexSessionSource internal constructor(
         }
       }
 
-      if (hints.rebindCandidates.isEmpty() && filteredActivityHintsByThreadId.isEmpty() && hints.presentationUpdatesByThreadId.isEmpty()) {
+      if (filteredActivityHintsByThreadId.isEmpty() && hints.presentationUpdatesByThreadId.isEmpty()) {
         continue
       }
       filtered[path] = CodexRefreshHints(
-        rebindCandidates = hints.rebindCandidates,
         activityHintsByThreadId = filteredActivityHintsByThreadId,
         presentationUpdatesByThreadId = hints.presentationUpdatesByThreadId,
       )
@@ -727,122 +518,6 @@ internal class CodexSessionSource internal constructor(
     val lastReadAt = readTracker[threadId] ?: return true
     return hint.updatedAt > lastReadAt
   }
-}
-
-internal fun mergeCodexRefreshHints(
-  appServerHintsByPath: Map<String, CodexRefreshHints>,
-  rolloutHintsByPath: Map<String, CodexRefreshHints>,
-): Map<String, CodexRefreshHints> {
-  if (appServerHintsByPath.isEmpty()) {
-    return rolloutHintsByPath
-  }
-  if (rolloutHintsByPath.isEmpty()) {
-    return appServerHintsByPath
-  }
-
-  val merged = LinkedHashMap<String, CodexRefreshHints>()
-  val allPaths = LinkedHashSet<String>(appServerHintsByPath.keys.size + rolloutHintsByPath.keys.size)
-  allPaths.addAll(appServerHintsByPath.keys)
-  allPaths.addAll(rolloutHintsByPath.keys)
-
-  for (path in allPaths) {
-    val appHints = appServerHintsByPath[path]
-    val rolloutHints = rolloutHintsByPath[path]
-    val mergedRebindCandidates = mergeRebindCandidates(
-      primary = appHints?.rebindCandidates.orEmpty(),
-      fallback = rolloutHints?.rebindCandidates.orEmpty(),
-    )
-    val mergedActivityHintsByThreadId = LinkedHashMap<String, CodexRefreshActivityHint>()
-    appHints?.activityHintsByThreadId?.forEach { (threadId, hint) ->
-      mergedActivityHintsByThreadId[threadId] = hint
-    }
-    rolloutHints?.activityHintsByThreadId?.forEach { (threadId, hint) ->
-      if (shouldApplyRolloutActivityFallback(
-          currentHint = mergedActivityHintsByThreadId[threadId],
-          rolloutHint = hint,
-        )) {
-        // Rollout can keep TUI-backed working activity ahead of cached app-server state.
-        mergedActivityHintsByThreadId[threadId] = hint
-      }
-    }
-    val mergedPresentationUpdatesByThreadId = mergeCodexPresentationUpdates(
-      appHints?.presentationUpdatesByThreadId.orEmpty(),
-      rolloutHints?.presentationUpdatesByThreadId.orEmpty(),
-    )
-
-    if (mergedRebindCandidates.isEmpty() && mergedActivityHintsByThreadId.isEmpty() && mergedPresentationUpdatesByThreadId.isEmpty()) {
-      continue
-    }
-    merged[path] = CodexRefreshHints(
-      rebindCandidates = mergedRebindCandidates,
-      activityHintsByThreadId = mergedActivityHintsByThreadId,
-      presentationUpdatesByThreadId = mergedPresentationUpdatesByThreadId,
-    )
-  }
-  return merged
-}
-
-private fun mergeCodexPresentationUpdates(
-  primary: Map<String, AgentSessionThreadPresentationUpdate>,
-  fallback: Map<String, AgentSessionThreadPresentationUpdate>,
-): Map<String, AgentSessionThreadPresentationUpdate> {
-  val merged = LinkedHashMap<String, AgentSessionThreadPresentationUpdate>(primary.size + fallback.size)
-  for (threadId in primary.keys + fallback.keys) {
-    val primaryUpdate = primary[threadId]
-    val fallbackUpdate = fallback[threadId]
-    merged[threadId] = when {
-      primaryUpdate == null -> checkNotNull(fallbackUpdate)
-      fallbackUpdate == null -> primaryUpdate
-      else -> mergeAgentSessionThreadPresentationUpdates(primaryUpdate, fallbackUpdate)
-    }
-  }
-  return merged
-}
-
-private fun shouldApplyRolloutActivityFallback(
-  currentHint: CodexRefreshActivityHint?,
-  rolloutHint: CodexRefreshActivityHint,
-): Boolean {
-  return when {
-    currentHint == null -> true
-    rolloutHint.responseRequired -> rolloutHint.updatedAt > currentHint.updatedAt
-    currentHint.responseRequired -> rolloutHint.updatedAt > currentHint.updatedAt
-    rolloutHint.activity.isWorking && !currentHint.activity.isWorking -> true
-    !rolloutHint.activity.isWorking && currentHint.activity.isWorking -> rolloutHint.updatedAt >= currentHint.updatedAt
-    rolloutHint.activity == AgentThreadActivity.UNREAD -> rolloutHint.updatedAt > currentHint.updatedAt
-    !rolloutHint.activity.isWorking -> false
-    rolloutHint.updatedAt <= currentHint.updatedAt -> false
-    else -> true
-  }
-}
-
-private fun CodexRefreshActivityHint.shouldVerifyWithAppServer(): Boolean {
-  return responseRequired || activity.isWorking
-}
-
-private fun resolveHintedSummaryActivity(thread: AgentSessionThread, hint: CodexRefreshActivityHint): AgentThreadActivity? {
-  return when {
-    hint.hasSummaryActivityHint -> hint.summaryActivity
-    thread.summaryActivity == null -> null
-    else -> hint.activity
-  }
-}
-
-private fun mergeRebindCandidates(
-  primary: List<AgentSessionRebindCandidate>,
-  fallback: List<AgentSessionRebindCandidate>,
-): List<AgentSessionRebindCandidate> {
-  if (primary.isEmpty()) return fallback
-  if (fallback.isEmpty()) return primary
-
-  val mergedByThreadId = LinkedHashMap<String, AgentSessionRebindCandidate>(primary.size + fallback.size)
-  primary.forEach { candidate ->
-    mergedByThreadId[candidate.threadId] = candidate
-  }
-  fallback.forEach { candidate ->
-    mergedByThreadId.putIfAbsent(candidate.threadId, candidate)
-  }
-  return mergedByThreadId.values.toList()
 }
 
 private data class RequestedCodexThreadCost(

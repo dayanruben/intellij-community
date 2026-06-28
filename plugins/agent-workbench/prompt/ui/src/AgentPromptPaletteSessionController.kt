@@ -74,6 +74,7 @@ internal class AgentPromptPaletteSessionController(
   private val revalidateHost: () -> Unit,
   private val hostMode: AgentPromptPaletteHostMode,
   private val sessionScope: CoroutineScope,
+  private val imageDropSupportScope: CoroutineScope,
 ) {
   private val contextState = AgentPromptPaletteContextState()
   private val draftState = AgentPromptPaletteDraftState()
@@ -95,7 +96,7 @@ internal class AgentPromptPaletteSessionController(
       invocationData = invocationData,
       promptArea = promptArea,
       view = view,
-      sessionScope = sessionScope,
+      imageDropSupportScope = imageDropSupportScope,
       contextResolverService = contextResolverService,
       contextChips = contextChips,
       launcherProvider = launcherProvider,
@@ -140,6 +141,7 @@ internal class AgentPromptPaletteSessionController(
       modelSelectorLink = view.modelSelectorLink,
       reasoningEffortLink = view.reasoningEffortLink,
       planReasoningEffortLink = view.planReasoningEffortLink,
+      launchTuningSummaryLink = view.launchTuningSummaryLink,
       defaultProfileActionControl = view.defaultProfileActionControl,
       modelCatalogScope = sessionScope,
       launcherProvider = launcherProvider,
@@ -157,6 +159,7 @@ internal class AgentPromptPaletteSessionController(
       promptArea = promptArea,
       providerSelector = providerSelector,
       existingTaskController = existingTaskController,
+      sessionScope = sessionScope,
       launcherProvider = launcherProvider,
       launchState = launchState,
       currentTargetMode = ::currentTargetMode,
@@ -177,13 +180,16 @@ internal class AgentPromptPaletteSessionController(
     submitControllerRef = submitController
   }
 
-  fun initialize(initialAddContextRequest: AgentPromptAddContextRequest? = null) {
+  fun initialize(
+    initialAddContextRequest: AgentPromptAddContextRequest? = null,
+    initialLaunchProfileId: String? = null,
+  ) {
     contextController.configureAddContextButton()
     refreshProviders()
     contextController.loadInitialContext(initialAddContextRequest?.contextItems)
     contextController.resolveExtensionTabs()
 
-    val forcedTargetMode = if (hostMode == AgentPromptPaletteHostMode.INLINE_EMPTY_STATE) PromptTargetMode.NEW_TASK else null
+    val forcedTargetMode = if (hostMode.isInlinePrompt) PromptTargetMode.NEW_TASK else null
     val draft = draftController.restoreDraft(
       restoreContextSnapshot = initialAddContextRequest == null,
       targetModeOverride = forcedTargetMode,
@@ -192,10 +198,10 @@ internal class AgentPromptPaletteSessionController(
     generationSettingsController.restoreLaunchProfiles(
       launcherProvider()?.loadProviderPreferences() ?: AgentPromptLauncherBridge.ProviderPreferences()
     )
-    generationSettingsController.restoreDraftLaunchProfile(draft.selectedLaunchProfileId)
+    generationSettingsController.restoreDraftLaunchProfile(initialLaunchProfileId ?: draft.selectedLaunchProfileId)
     refreshExtensionTaskDraftsFromContext()
 
-    if (hostMode != AgentPromptPaletteHostMode.INLINE_EMPTY_STATE &&
+    if (!hostMode.isInlinePrompt &&
         invocationData.attributes[com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INVOCATION_PREFER_EXTENSIONS_KEY] == true) {
       contextController.selectAutoSelectExtensionTab()
     }
@@ -333,8 +339,8 @@ internal class AgentPromptPaletteSessionController(
   fun applyAddContextRequest(request: AgentPromptAddContextRequest): AgentPromptAddContextApplyResult {
     val result = contextController.addExternalContextItems(request.contextItems)
     when (result) {
-      AgentPromptAddContextApplyResult.ADDED -> handleContextChanged(AgentPromptBundle.message("popup.status.context.added"))
-      AgentPromptAddContextApplyResult.ALREADY_ADDED -> showInfo(AgentPromptBundle.message("popup.status.context.already.added"))
+      AgentPromptAddContextApplyResult.ADDED -> handleContextChanged(AgentPromptBundle.message("popup.status.context.added.to.prompt"))
+      AgentPromptAddContextApplyResult.ALREADY_ADDED -> showContextInfo(AgentPromptBundle.message("popup.status.context.already.added.to.prompt"))
     }
     return result
   }
@@ -790,7 +796,7 @@ internal class AgentPromptPaletteSessionController(
   }
 
   private fun currentTargetMode(): PromptTargetMode {
-    if (hostMode == AgentPromptPaletteHostMode.INLINE_EMPTY_STATE) {
+    if (hostMode.isInlinePrompt) {
       return PromptTargetMode.NEW_TASK
     }
     val selectedComponent = view.tabbedPane.selectedComponent as? JPanel ?: return PromptTargetMode.NEW_TASK
@@ -798,7 +804,7 @@ internal class AgentPromptPaletteSessionController(
   }
 
   private fun setTargetMode(mode: PromptTargetMode) {
-    val targetMode = if (hostMode == AgentPromptPaletteHostMode.INLINE_EMPTY_STATE) PromptTargetMode.NEW_TASK else mode
+    val targetMode = if (hostMode.isInlinePrompt) PromptTargetMode.NEW_TASK else mode
     val index = findTabIndexForMode(targetMode) ?: return
     view.tabbedPane.selectedIndex = index
   }
@@ -814,7 +820,7 @@ internal class AgentPromptPaletteSessionController(
   }
 
   private fun clearStatus() {
-    if (hostMode == AgentPromptPaletteHostMode.INLINE_EMPTY_STATE) {
+    if (hostMode.isInlinePrompt) {
       setInlineStatusVisible(false)
       return
     }
@@ -853,7 +859,16 @@ internal class AgentPromptPaletteSessionController(
     refreshExtensionTaskDraftsFromContext()
     updateTargetModeUi()
     updateSendAvailability()
-    showInfo(message)
+    showContextInfo(message)
+  }
+
+  private fun showContextInfo(message: @Nls String) {
+    if (hostMode.isInlinePrompt) {
+      setInlineStatusVisible(false)
+    }
+    else {
+      showInfo(message)
+    }
   }
 
   private fun handleWorkingProjectPathSelected() {
@@ -895,7 +910,7 @@ internal class AgentPromptPaletteSessionController(
   }
 
   private fun setInlineStatusVisible(visible: Boolean) {
-    if (hostMode != AgentPromptPaletteHostMode.INLINE_EMPTY_STATE || view.footerPanel.isVisible == visible) {
+    if (!hostMode.isInlinePrompt || view.footerPanel.isVisible == visible) {
       return
     }
     view.footerPanel.isVisible = visible

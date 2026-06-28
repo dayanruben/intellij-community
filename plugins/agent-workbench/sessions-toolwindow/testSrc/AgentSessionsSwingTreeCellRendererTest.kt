@@ -19,6 +19,7 @@ import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeId
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeNode
 import com.intellij.agent.workbench.sessions.toolwindow.ui.SESSION_TREE_MORE_ROW_FRAGMENT_TAG
 import com.intellij.agent.workbench.sessions.toolwindow.ui.SessionTreeCellRenderer
+import com.intellij.agent.workbench.sessions.toolwindow.ui.SessionTreeCellRendererWithSeparators
 import com.intellij.agent.workbench.sessions.toolwindow.ui.SessionTreeRowActionPresentation
 import com.intellij.agent.workbench.sessions.toolwindow.ui.buildSessionTreeThreadRowPresentation
 import com.intellij.agent.workbench.sessions.toolwindow.ui.buildSessionTreeThreadTooltipHtml
@@ -44,6 +45,7 @@ import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.ui.AnimatedIcon
+import com.intellij.ui.GroupHeaderSeparator
 import com.intellij.ui.IconManager
 import com.intellij.ui.render.RenderingHelper
 import com.intellij.ui.treeStructure.Tree
@@ -619,6 +621,68 @@ class AgentSessionsSwingTreeCellRendererTest {
   }
 
   @Test
+  fun pinnedSectionRowUsesPlainLocalizedHeaderWithoutLeadingIcon() {
+    val pinnedId = SessionTreeId.Pinned
+    val renderer = SessionTreeCellRenderer(
+      nowProvider = { 0L },
+      rowActionsProvider = { _, _, _ -> null },
+      nodeResolver = { id ->
+        if (id == pinnedId) SessionTreeNode.PinnedSection else null
+      },
+    )
+    val tree = createTree(width = 420)
+
+    renderer.getTreeCellRendererComponent(tree, descriptorValue(pinnedId), false, false, true, 0, false)
+
+    assertThat(renderer.icon).isNull()
+    assertThat(renderer.getCharSequence(true).toString()).isEqualTo(AgentSessionsBundle.message("toolwindow.section.pinned"))
+  }
+
+  @Test
+  fun flatPinnedSectionRowUsesSeparatorRenderer() {
+    val pinnedId = SessionTreeId.Pinned
+    val nodeResolver = { id: SessionTreeId ->
+      if (id == pinnedId) SessionTreeNode.PinnedSection else null
+    }
+    val renderer = SessionTreeCellRendererWithSeparators(
+      delegate = SessionTreeCellRenderer(
+        nowProvider = { 0L },
+        rowActionsProvider = { _, _, _ -> null },
+        nodeResolver = nodeResolver,
+      ),
+      nodeResolver = nodeResolver,
+    )
+    val tree = createTree(width = 420)
+
+    val component = renderer.getTreeCellRendererComponent(tree, descriptorValue(pinnedId), false, false, true, 0, false)
+
+    assertThat(component).isInstanceOf(GroupHeaderSeparator::class.java)
+    assertThat((component as GroupHeaderSeparator).caption).isEqualTo(AgentSessionsBundle.message("toolwindow.section.pinned"))
+  }
+
+  @Test
+  fun flatSectionSeparatorRowUsesUncaptionedSeparatorRenderer() {
+    val separatorId = SessionTreeId.PinnedSeparator
+    val nodeResolver = { id: SessionTreeId ->
+      if (id == separatorId) SessionTreeNode.SectionSeparator else null
+    }
+    val renderer = SessionTreeCellRendererWithSeparators(
+      delegate = SessionTreeCellRenderer(
+        nowProvider = { 0L },
+        rowActionsProvider = { _, _, _ -> null },
+        nodeResolver = nodeResolver,
+      ),
+      nodeResolver = nodeResolver,
+    )
+    val tree = createTree(width = 420)
+
+    val component = renderer.getTreeCellRendererComponent(tree, descriptorValue(separatorId), false, false, true, 0, false)
+
+    assertThat(component).isInstanceOf(GroupHeaderSeparator::class.java)
+    assertThat((component as GroupHeaderSeparator).caption).isNull()
+  }
+
+  @Test
   fun threadRowsBadgeProviderIconForNonReadyActivityAndDoNotRenderGlyphPrefix() {
     val now = 14L * 24L * 60L * 60L * 1000L
     val tree = createTree(width = 420)
@@ -650,6 +714,7 @@ class AgentSessionsSwingTreeCellRendererTest {
 
     assertThat(renderedIcon).isNotSameAs(providerBaseIcon)
     val expectedIcon = agentSessionThreadStatusIcon(providerBaseIcon, AgentThreadActivity.UNREAD)
+    assertThat(renderedIcon.javaClass).isEqualTo(expectedIcon.javaClass)
     assertThat(renderedIcon.iconWidth).isEqualTo(expectedIcon.iconWidth)
     assertThat(renderedIcon.iconHeight).isEqualTo(expectedIcon.iconHeight)
     assertThat(renderedIcon).isNotSameAs(AllIcons.Toolwindows.ToolWindowMessages)
@@ -1327,6 +1392,25 @@ class AgentSessionsSwingTreeCellRendererTest {
   }
 
   @Test
+  fun threadPresentationDoesNotIncludePinnedSectionStatusOrTooltip() {
+    val thread = AgentSessionThread(
+      provider = AgentSessionProvider.from("codex"),
+      id = "abcdef123456",
+      title = "Thread title",
+      updatedAt = 0L,
+      archived = false,
+    )
+    val project = AgentProjectSessions(path = "/work/project-a", name = "Project A", isOpen = true)
+    val treeNode = SessionTreeNode.Thread(project = project, thread = thread)
+
+    val presentation = buildSessionTreeThreadRowPresentation(treeNode = treeNode, now = 0L)
+    val tooltip = buildSessionTreeThreadTooltipHtml(treeNode = treeNode, now = 0L)
+
+    assertThat(presentation.accessibleStatusText).doesNotContain(AgentSessionsBundle.message("toolwindow.section.pinned"))
+    assertThat(tooltip).doesNotContain(AgentSessionsBundle.message("toolwindow.section.pinned"))
+  }
+
+  @Test
   fun extractSessionTreeIdReadsSessionTreeIdFromDescriptorElement() {
     val treeId = SessionTreeId.Project("/work/project-a")
 
@@ -1349,7 +1433,11 @@ class AgentSessionsSwingTreeCellRendererTest {
     }
   }
 
-  private fun assertThreadStatusIcon(renderedIcon: Icon?, provider: AgentSessionProvider?, activity: AgentThreadActivity) {
+  private fun assertThreadStatusIcon(
+    renderedIcon: Icon?,
+    provider: AgentSessionProvider?,
+    activity: AgentThreadActivity,
+  ) {
     assertThat(renderedIcon).isNotNull()
     renderedIcon ?: return
 

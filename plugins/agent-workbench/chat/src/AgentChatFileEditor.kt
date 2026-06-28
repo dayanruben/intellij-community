@@ -15,6 +15,7 @@ import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchInt
 import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchOperation
 import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchPlanner
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryChannel
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionArchivedSource
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionLaunchProfileResolver
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
@@ -25,6 +26,7 @@ import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceOrNull
@@ -39,6 +41,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.wm.StatusBar
 import com.intellij.terminal.frontend.view.TerminalInputInterceptor
+import com.intellij.util.ui.AsyncProcessIcon
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +54,10 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.TestOnly
 import java.awt.BorderLayout
+import java.awt.Component
+import java.awt.Container
+import java.awt.Dimension
+import java.awt.GridBagLayout
 import java.awt.event.HierarchyEvent
 import java.awt.event.HierarchyListener
 import java.awt.event.KeyEvent
@@ -60,8 +67,14 @@ import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.JProgressBar
 import javax.swing.JTextArea
+import javax.swing.Timer
 import kotlin.coroutines.resume
+
+private const val DEFERRED_START_PROGRESS_DELAY_MS = 300
+private const val DEFERRED_START_PROGRESS_NAME = "Agent Chat Start Progress"
+private const val DEFERRED_START_PROGRESS_TIMER_PROPERTY = "AgentChatFileEditor.deferredStartProgressTimer"
 
 internal class AgentChatFileEditor(
   private val project: Project,
@@ -123,6 +136,7 @@ internal class AgentChatFileEditor(
   override fun getComponent(): JComponent = component
 
   override fun getPreferredFocusedComponent(): JComponent {
+    file.deferredStartContent()?.preferredFocusedComponent?.let { return it }
     return tab?.preferredFocusableComponent ?: component
   }
 
@@ -202,6 +216,8 @@ internal class AgentChatFileEditor(
     disposeTerminalAttachments(clearPendingContextPanel = true)
     pendingContextPanel = null
     pendingContextPanelInstalled = false
+    file.clearDeferredStartContent()
+    disposeDeferredStartProgressTimers(component)
     component.removeAll()
   }
 
@@ -256,12 +272,9 @@ internal class AgentChatFileEditor(
   }
 
   private suspend fun isRestoredArchivedThread(descriptor: AgentSessionProviderDescriptor?): Boolean {
-    val source = descriptor?.sessionSource ?: return false
-    if (!source.supportsArchivedThreads) {
-      return false
-    }
+    val source = descriptor?.sessionSource as? AgentSessionArchivedSource ?: return false
     val archivedThreads = try {
-      source.listArchivedThreadsFromOpenProject(path = file.projectPath, project = project)
+      source.listArchivedThreads(path = file.projectPath, openProject = project)
     }
     catch (e: CancellationException) {
       throw e
@@ -376,6 +389,7 @@ internal class AgentChatFileEditor(
     if (deferredStartState?.phase == AgentChatDeferredStartPhase.READY_TO_START) {
       file.updateDeferredStartState(null)
     }
+    file.clearDeferredStartContent()
     val behavior = behaviorResolver(file.provider)
     val createdTab = liveTerminalRegistry.acquireOrCreate(
       file = file,
@@ -432,6 +446,7 @@ internal class AgentChatFileEditor(
       tabSnapshotWriter = tabSnapshotWriter,
     )
     installPendingContextInterceptor(createdTab)
+    disposeDeferredStartProgressTimers(component)
     component.removeAll()
     pendingContextPanelInstalled = false
     component.add(createdTab.component, BorderLayout.CENTER)
@@ -551,8 +566,13 @@ internal class AgentChatFileEditor(
   }
 
   private fun renderDeferredStartState(state: AgentChatDeferredStartState) {
+    val deferredContent = if (state.phase == AgentChatDeferredStartPhase.WAITING) file.deferredStartContent() else null
+    if (deferredContent == null) {
+      file.clearDeferredStartContent()
+    }
+    disposeDeferredStartProgressTimers(component)
     component.removeAll()
-    component.add(createDeferredStartComponent(state), BorderLayout.CENTER)
+    component.add(deferredContent?.component ?: createDeferredStartComponent(state), BorderLayout.CENTER)
     component.revalidate()
     component.repaint()
   }
@@ -595,6 +615,7 @@ internal class AgentChatFileEditor(
     terminalRestoreContextController?.dispose()
     terminalRestoreContextController = null
     tab = null
+    disposeDeferredStartProgressTimers(component)
     component.removeAll()
     pendingContextPanelInstalled = false
     if (clearPendingContextPanel) {
@@ -689,20 +710,94 @@ internal class AgentChatFileEditor(
   }
 
   private fun createDeferredStartComponent(state: AgentChatDeferredStartState): JComponent {
+    val rootPanel = JPanel(GridBagLayout())
     val content = JPanel().apply {
       layout = BoxLayout(this, BoxLayout.Y_AXIS)
       border = BorderFactory.createEmptyBorder(16, 16, 16, 16)
+      isOpaque = false
     }
-    content.add(createMessageArea(state.title, bold = true))
+    if (state.phase == AgentChatDeferredStartPhase.WAITING) {
+      content.add(createDelayedDeferredStartProgressIcon())
+      content.add(Box.createVerticalStrut(8))
+    }
+    content.add(createMessageArea(state.title, bold = true).apply {
+      alignmentX = Component.CENTER_ALIGNMENT
+    })
     val stateMessage = state.message
     if (!stateMessage.isNullOrBlank()) {
       content.add(Box.createVerticalStrut(8))
-      content.add(createMessageArea(stateMessage, bold = false))
+      content.add(createMessageArea(stateMessage, bold = false).apply {
+        alignmentX = Component.CENTER_ALIGNMENT
+      })
     }
-    return JPanel(BorderLayout()).apply {
-      add(content, BorderLayout.NORTH)
+    rootPanel.accessibleContext.accessibleName = buildDeferredStartAccessibleName(state)
+    rootPanel.add(content)
+    return rootPanel
+  }
+
+  private fun createDelayedDeferredStartProgressIcon(): JComponent {
+    val icon = createDeferredStartProgressComponent().apply {
+      name = DEFERRED_START_PROGRESS_NAME
+      isVisible = false
+      suspendDeferredStartProgress()
+    }
+    val iconSize = icon.preferredSize
+    val iconPanel = JPanel(BorderLayout()).apply {
+      alignmentX = Component.CENTER_ALIGNMENT
+      isOpaque = false
+      preferredSize = iconSize
+      minimumSize = iconSize
+      maximumSize = Dimension(iconSize.width, iconSize.height)
+      add(icon, BorderLayout.CENTER)
+    }
+    val timer = Timer(DEFERRED_START_PROGRESS_DELAY_MS) {
+      iconPanel.putClientProperty(DEFERRED_START_PROGRESS_TIMER_PROPERTY, null)
+      if (iconPanel.parent != null) {
+        icon.isVisible = true
+        icon.resumeDeferredStartProgress()
+        iconPanel.revalidate()
+        iconPanel.repaint()
+      }
+    }.apply {
+      isRepeats = false
+      start()
+    }
+    iconPanel.putClientProperty(DEFERRED_START_PROGRESS_TIMER_PROPERTY, timer)
+    return iconPanel
+  }
+}
+
+private fun disposeDeferredStartProgressTimers(component: Component) {
+  if (component is JComponent) {
+    (component.getClientProperty(DEFERRED_START_PROGRESS_TIMER_PROPERTY) as? Timer)?.stop()
+    component.putClientProperty(DEFERRED_START_PROGRESS_TIMER_PROPERTY, null)
+  }
+  if (component is Container) {
+    component.components.forEach(::disposeDeferredStartProgressTimers)
+  }
+}
+
+private fun createDeferredStartProgressComponent(): JComponent {
+  if (ApplicationManager.getApplication() == null) {
+    return JProgressBar().apply {
+      isIndeterminate = true
+      isBorderPainted = false
     }
   }
+  return AsyncProcessIcon(DEFERRED_START_PROGRESS_NAME)
+}
+
+private fun JComponent.suspendDeferredStartProgress() {
+  (this as? AsyncProcessIcon)?.suspend()
+}
+
+private fun JComponent.resumeDeferredStartProgress() {
+  (this as? AsyncProcessIcon)?.resume()
+}
+
+private fun buildDeferredStartAccessibleName(state: AgentChatDeferredStartState): @Nls String {
+  val stateMessage = state.message?.takeIf { it.isNotBlank() } ?: return state.title
+  return "${state.title}. $stateMessage"
 }
 
 private fun createMessageArea(text: @Nls String, bold: Boolean): JComponent {

@@ -10,19 +10,12 @@ import com.intellij.platform.ai.agent.codex.common.normalizeRootPath
 import com.intellij.platform.ai.agent.codex.sessions.backend.CodexBackendThread
 import com.intellij.platform.ai.agent.codex.sessions.backend.CodexBackendThreadRefreshResult
 import com.intellij.platform.ai.agent.codex.sessions.backend.CodexSessionBackend
-import com.intellij.platform.ai.agent.codex.sessions.backend.toAgentThreadActivity
-import com.intellij.platform.ai.agent.core.AgentThreadActivity
-import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
 import com.intellij.platform.ai.agent.codex.sessions.resolveProjectDirectoryFromPath
-import com.intellij.platform.ai.agent.filewatch.agentWorkbenchImmediateFileChangeFlow
+import com.intellij.platform.ai.agent.core.session.AgentSessionThreadOutline
 import com.intellij.platform.ai.agent.json.filebacked.FileBackedSessionChangeSet
 import com.intellij.platform.ai.agent.json.filebacked.createFileBackedSessionChangeFlow
 import com.intellij.platform.ai.agent.json.filebacked.toFileBackedSessionPathKey
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadActivityUpdate
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadPresentationUpdate
-import com.intellij.platform.ai.agent.core.session.AgentSessionThreadOutline
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
@@ -49,14 +42,13 @@ internal class CodexRolloutSessionBackend(
   private val codexHomeProvider: () -> Path = { Path.of(System.getProperty("user.home"), ".codex") },
   rolloutChangeSource: (() -> Flow<FileBackedSessionChangeSet>)? = null,
   private val trailingRefreshDelayMs: Long = CODEX_ROLLOUT_TRAILING_REFRESH_DELAY_MS,
-  private val immediateFileChangeFlow: (Collection<Path>) -> Flow<Path> = { paths -> agentWorkbenchImmediateFileChangeFlow(paths) },
 ) : CodexSessionBackend {
   private val parser = CodexRolloutParser()
   private val threadIndex = CodexRolloutThreadIndex(codexHomeProvider = codexHomeProvider, parseRollout = parser::parse)
   private val projectFilesChangedAtByPathKey = HashMap<String, Long>()
   private val projectFilesChangedAtLock = Any()
-  private val activeThreadActivityByPathKey = HashMap<String, ActiveThreadActivityHint>()
-  private val activeThreadActivityLock = Any()
+  private val activeThreadTranscriptByPathKey = HashMap<String, ActiveThreadTranscriptSnapshot>()
+  private val activeThreadTranscriptLock = Any()
   private val rolloutUpdates: Flow<AgentSessionSourceUpdateEvent> = createUpdatesFlow(
     rolloutChangeSource?.invoke() ?: createWatcherUpdates()
   ).conflate()
@@ -65,15 +57,19 @@ internal class CodexRolloutSessionBackend(
 
   override val updates: Flow<Unit> = rolloutUpdates.map {}
 
-  fun activeThreadUpdateEvents(path: String, threadId: String): Flow<AgentSessionSourceUpdateEvent> {
+  fun activeThreadUpdateEvents(
+    path: String,
+    threadId: String,
+    fileChangeFlow: (Collection<Path>) -> Flow<Path>,
+  ): Flow<AgentSessionSourceUpdateEvent> {
     return flow {
       val files = withContext(Dispatchers.IO) {
         resolveActiveThreadFilePaths(path = path, threadId = threadId)
       }
       LOG.debug {
-        "Resolved Codex active rollout files for immediate watch (path=$path, threadId=$threadId, files=${files.size})"
+        "Resolved Codex active rollout files for active file watch (path=$path, threadId=$threadId, files=${files.size})"
       }
-      emitAll(immediateFileChangeFlow(files).mapNotNull { changedPath ->
+      emitAll(fileChangeFlow(files).mapNotNull { changedPath ->
         withContext(Dispatchers.IO) {
           buildActiveThreadUpdate(changedPath)
         }
@@ -137,8 +133,6 @@ internal class CodexRolloutSessionBackend(
 
     val scopedPaths = LinkedHashSet<String>()
     val threadIds = LinkedHashSet<String>()
-    val activityUpdatesByThreadId = LinkedHashMap<String, AgentSessionThreadActivityUpdate>()
-    val presentationUpdatesByThreadId = LinkedHashMap<String, AgentSessionThreadPresentationUpdate>()
     var mayHaveChangedProjectFiles = false
     var changedProjectFilePaths: LinkedHashSet<String>? = LinkedHashSet()
     var failedParses = 0
@@ -164,22 +158,6 @@ internal class CodexRolloutSessionBackend(
       threadIds.addAll(parsedThread.spawnedExecThreadIds)
       val parentThreadIds = parentThreadIdsForUpdate(parsedThread)
       threadIds.addAll(parentThreadIds)
-      if (parentThreadIds.isEmpty()) {
-        val threadId = parsedThread.thread.thread.id
-        val activityReport = AgentThreadActivityReport(
-          rowActivity = parsedThread.thread.activity.toAgentThreadActivity(),
-          chromeActivity = parsedThread.thread.summaryActivity?.toAgentThreadActivity(),
-        )
-        activityUpdatesByThreadId[threadId] = AgentSessionThreadActivityUpdate(
-          activityReport = activityReport,
-          updatedAt = parsedThread.thread.thread.updatedAt,
-        )
-        presentationUpdatesByThreadId[threadId] = AgentSessionThreadPresentationUpdate(
-          title = parsedThread.thread.thread.title.takeIf { parsedThread.hasExplicitTitle },
-          activityReport = activityReport,
-          updatedAt = parsedThread.thread.thread.updatedAt,
-        )
-      }
     }
 
     if (failedParses > 0 || scopedPaths.isEmpty()) {
@@ -196,12 +174,9 @@ internal class CodexRolloutSessionBackend(
     LOG.debug {
       "Codex rollout update scoped (changedRolloutPaths=${rolloutPaths.size}, scopedPaths=${scopedPaths.size}, threadIds=${threadIds.size})"
     }
-    return AgentSessionSourceUpdateEvent(
-      type = AgentSessionSourceUpdate.HINTS_CHANGED,
+    return AgentSessionSourceUpdateEvent.hintsChanged(
       scopedPaths = scopedPaths,
       threadIds = threadIds.takeIf { it.isNotEmpty() },
-      activityUpdatesByThreadId = activityUpdatesByThreadId,
-      presentationUpdatesByThreadId = presentationUpdatesByThreadId,
       mayHaveChangedProjectFiles = mayHaveChangedProjectFiles,
       changedProjectFilePaths = changedProjectFilePathsForUpdate(mayHaveChangedProjectFiles, changedProjectFilePaths),
     )
@@ -213,49 +188,30 @@ internal class CodexRolloutSessionBackend(
     }
     val parsedThread = parser.parse(path) ?: return null
     val consumedProjectFileChangeEvidence = consumeProjectFileChangeEvidence(parsedThread)
-    val activeThreadActivityHint = parsedThread.toActiveThreadActivityHint(parentThreadIdsForUpdate(parsedThread))
-    val hasActivityChange = activeThreadActivityHint != null && rememberActiveThreadActivityHint(
+    val activeThreadTranscriptSnapshot = parsedThread.toActiveThreadTranscriptSnapshot(parentThreadIdsForUpdate(parsedThread))
+    val hasTranscriptChange = activeThreadTranscriptSnapshot != null && rememberActiveThreadTranscriptSnapshot(
       path = parsedThread.path,
-      activityHint = activeThreadActivityHint,
+      snapshot = activeThreadTranscriptSnapshot,
     )
-    if (consumedProjectFileChangeEvidence == null && !hasActivityChange) {
+    if (consumedProjectFileChangeEvidence == null && !hasTranscriptChange) {
       return null
     }
 
-    val mayHaveChangedProjectFiles = consumedProjectFileChangeEvidence != null
-    return AgentSessionSourceUpdateEvent(
-      type = AgentSessionSourceUpdate.HINTS_CHANGED,
+    return AgentSessionSourceUpdateEvent.hintsChanged(
       scopedPaths = setOf(parsedThread.normalizedCwd),
-      activityUpdatesByThreadId = activeThreadActivityHint?.let { hint ->
-        mapOf(
-          hint.threadId to AgentSessionThreadActivityUpdate(
-            activityReport = AgentThreadActivityReport(rowActivity = hint.activity, chromeActivity = hint.summaryActivity),
-            updatedAt = hint.updatedAt,
-          )
-        )
-      }.orEmpty(),
-      presentationUpdatesByThreadId = activeThreadActivityHint?.let { hint ->
-        mapOf(
-          hint.threadId to AgentSessionThreadPresentationUpdate(
-            title = hint.title,
-            activityReport = AgentThreadActivityReport(rowActivity = hint.activity, chromeActivity = hint.summaryActivity),
-            updatedAt = hint.updatedAt,
-          )
-        )
-      }.orEmpty(),
-      mayHaveChangedProjectFiles = mayHaveChangedProjectFiles,
+      mayHaveChangedProjectFiles = consumedProjectFileChangeEvidence != null,
       changedProjectFilePaths = consumedProjectFileChangeEvidence?.changedProjectFilePaths,
     )
   }
 
-  private fun rememberActiveThreadActivityHint(path: Path, activityHint: ActiveThreadActivityHint): Boolean {
+  private fun rememberActiveThreadTranscriptSnapshot(path: Path, snapshot: ActiveThreadTranscriptSnapshot): Boolean {
     val pathKey = toFileBackedSessionPathKey(path)
-    return synchronized(activeThreadActivityLock) {
-      if (activeThreadActivityByPathKey[pathKey] == activityHint) {
+    return synchronized(activeThreadTranscriptLock) {
+      if (activeThreadTranscriptByPathKey[pathKey] == snapshot) {
         false
       }
       else {
-        activeThreadActivityByPathKey[pathKey] = activityHint
+        activeThreadTranscriptByPathKey[pathKey] = snapshot
         true
       }
     }
@@ -380,8 +336,7 @@ private fun rolloutSessionUpdate(
   mayHaveChangedProjectFiles: Boolean = false,
   changedProjectFilePaths: Set<String>? = null,
 ): AgentSessionSourceUpdateEvent {
-  return AgentSessionSourceUpdateEvent(
-    type = AgentSessionSourceUpdate.HINTS_CHANGED,
+  return AgentSessionSourceUpdateEvent.hintsChanged(
     mayHaveChangedProjectFiles = mayHaveChangedProjectFiles,
     changedProjectFilePaths = changedProjectFilePaths,
   )
@@ -410,24 +365,17 @@ private data class ConsumedProjectFileChangeEvidence(
   @JvmField val changedProjectFilePaths: Set<String>?,
 )
 
-private data class ActiveThreadActivityHint(
+private data class ActiveThreadTranscriptSnapshot(
   @JvmField val threadId: String,
-  @JvmField val title: String?,
-  @JvmField val activity: AgentThreadActivity,
-  @JvmField val summaryActivity: AgentThreadActivity?,
   @JvmField val updatedAt: Long,
 )
 
-private fun ParsedRolloutThread.toActiveThreadActivityHint(parentThreadIds: Set<String>): ActiveThreadActivityHint? {
+private fun ParsedRolloutThread.toActiveThreadTranscriptSnapshot(parentThreadIds: Set<String>): ActiveThreadTranscriptSnapshot? {
   if (parentThreadIds.isNotEmpty()) {
     return null
   }
-  val threadId = thread.thread.id
-  return ActiveThreadActivityHint(
-    threadId = threadId,
-    title = thread.thread.title.takeIf { hasExplicitTitle },
-    activity = thread.activity.toAgentThreadActivity(),
-    summaryActivity = thread.summaryActivity?.toAgentThreadActivity(),
+  return ActiveThreadTranscriptSnapshot(
+    threadId = thread.thread.id,
     updatedAt = thread.thread.updatedAt,
   )
 }

@@ -133,6 +133,7 @@ class CodexAppServerProtocolTest {
             "id": "thread-read-1",
             "updated_at": 1700000031000,
             "status": {"type": "active", "activeFlags": ["waitingOnApproval"]},
+            "source": {"subAgent": {"thread_spawn": {"parent_thread_id": "parent-read"}}},
             "turns": [
               {"status": "completed", "items": [{"type": "userMessage"}, {"type": "agentMessage"}, {"type": "enteredReviewMode"}]},
               {"id": "turn-2", "status": {"type": "in_progress"}, "items": [{"type": "plan"}]}
@@ -147,6 +148,8 @@ class CodexAppServerProtocolTest {
     assertThat(snapshot!!.threadId).isEqualTo("thread-read-1")
     assertThat(snapshot.statusKind).isEqualTo(CodexThreadStatusKind.ACTIVE)
     assertThat(snapshot.activeFlags).containsExactly(CodexThreadActiveFlag.WAITING_ON_APPROVAL)
+    assertThat(snapshot.sourceKind).isEqualTo(CodexThreadSourceKind.SUB_AGENT_THREAD_SPAWN)
+    assertThat(snapshot.parentThreadId).isEqualTo("parent-read")
     assertThat(snapshot.hasUnreadAssistantMessage).isTrue()
     assertThat(snapshot.hasPendingPlan).isTrue()
     assertThat(snapshot.isReviewing).isTrue()
@@ -215,6 +218,41 @@ class CodexAppServerProtocolTest {
     assertThat(result).isNotNull
     assertThat(result!!.turnId).isEqualTo("turn-1")
     assertThat(result.status).isEqualTo("in_progress")
+  }
+
+  @Test
+  fun parsesFilesystemWatchPayloads() {
+    val watchResponse = parseResponse(
+      """
+        {
+          "path": "/work/project/.git/HEAD"
+        }
+      """.trimIndent(),
+      defaultResult = null,
+    ) { parser -> protocol.parseFsWatchResult(parser) }
+
+    assertThat(watchResponse).isNotNull
+    assertThat(watchResponse.toString()).isEqualTo("/work/project/.git/HEAD")
+
+    val changed = protocol.parseNotification(
+      """
+        {
+          "method": "fs/changed",
+          "params": {
+            "watchId": "watch-1",
+            "changedPaths": ["/work/project/.git/HEAD", "/work/project/src/Main.kt"]
+          }
+        }
+      """.trimIndent()
+    )
+
+    assertThat(changed).isNotNull
+    assertThat(changed!!.method).isEqualTo("fs/changed")
+    assertThat(changed.watchId).isEqualTo("watch-1")
+    assertThat(changed.changedPaths.map { it.toString() }).containsExactly(
+      "/work/project/.git/HEAD",
+      "/work/project/src/Main.kt",
+    )
   }
 
   @Test

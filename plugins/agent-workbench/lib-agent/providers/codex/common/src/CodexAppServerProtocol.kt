@@ -10,6 +10,7 @@ import tools.jackson.core.JsonParser
 import tools.jackson.core.JsonToken
 import tools.jackson.core.json.JsonFactory
 import java.io.Writer
+import java.nio.file.Path
 
 private val THREAD_TITLE_WHITESPACE = Regex("\\s+")
 
@@ -39,6 +40,8 @@ internal data class ParsedCodexAppServerNotification(
   @JvmField val turnStatus: String? = null,
   @JvmField val turnErrorMessage: String? = null,
   @JvmField val agentMessageText: String? = null,
+  @JvmField val watchId: String? = null,
+  @JvmField val changedPaths: List<Path> = emptyList(),
 ) {
   fun toPublicNotification(): CodexAppServerNotification {
     return CodexAppServerNotification(
@@ -62,36 +65,21 @@ internal class CodexAppServerProtocol {
   }
 
   fun <T> parseResponse(payload: String, resultParser: (JsonParser) -> T, defaultResult: T): T {
-    jsonFactory.createJsonParser(payload).use { parser ->
-      if (parser.nextToken() != JsonToken.START_OBJECT) return defaultResult
-      var result: T = defaultResult
-      var hasResult = false
-      var errorSeen = false
-      var errorMessage: String? = null
+    return parsePayloadObject(payload = payload, defaultResult = defaultResult) { parser ->
+      val response = ParsedResponsePayload(defaultResult)
       forEachObjectField(parser) { fieldName ->
-        when (fieldName) {
-          "result" -> {
-            result = resultParser(parser)
-            hasResult = true
-          }
-          "error" -> {
-            errorSeen = true
-            errorMessage = readErrorMessage(parser)
-          }
-          else -> parser.skipChildren()
-        }
+        parseResponsePayloadField(parser = parser, fieldName = fieldName, resultParser = resultParser, response = response)
         true
       }
-      if (errorSeen) {
-        throw CodexAppServerException(errorMessage ?: "Codex app-server error")
+      if (response.errorSeen) {
+        throw CodexAppServerException(response.errorMessage ?: "Codex app-server error")
       }
-      return if (hasResult) result else defaultResult
+      if (response.hasResult) response.result else defaultResult
     }
   }
 
   fun parseMessageId(payload: String): String? {
-    jsonFactory.createJsonParser(payload).use { parser ->
-      if (parser.nextToken() != JsonToken.START_OBJECT) return null
+    return parsePayloadObject(payload = payload, defaultResult = null) { parser ->
       var id: String? = null
       forEachObjectField(parser) { fieldName ->
         if (fieldName == "id") {
@@ -101,7 +89,7 @@ internal class CodexAppServerProtocol {
         parser.skipChildren()
         true
       }
-      return id
+      id
     }
   }
 
@@ -231,10 +219,25 @@ internal class CodexAppServerProtocol {
     return parseTurnFromResultObject(parser)
   }
 
-  fun parseNotification(payload: String): ParsedCodexAppServerNotification? {
-    jsonFactory.createJsonParser(payload).use { parser ->
-      if (parser.nextToken() != JsonToken.START_OBJECT) return null
+  fun parseFsWatchResult(parser: JsonParser): Path? {
+    if (parser.currentToken != JsonToken.START_OBJECT) {
+      parser.skipChildren()
+      return null
+    }
 
+    var path: Path? = null
+    forEachObjectField(parser) { fieldName ->
+      when (fieldName) {
+        "path" -> path = readNonBlankStringOrNull(parser)?.let(Path::of)
+        else -> parser.skipChildren()
+      }
+      true
+    }
+    return path
+  }
+
+  fun parseNotification(payload: String): ParsedCodexAppServerNotification? {
+    return parsePayloadObject(payload = payload, defaultResult = null) { parser ->
       var hasResponseId = false
       var method: String? = null
       var params = ParsedNotificationParams()
@@ -259,11 +262,11 @@ internal class CodexAppServerProtocol {
       }
 
       if (hasResponseId) {
-        return null
+        return@parsePayloadObject null
       }
-      val notificationMethod = method?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+      val notificationMethod = method?.trim()?.takeIf { it.isNotEmpty() } ?: return@parsePayloadObject null
       val notificationKind = notificationKindFromMethod(notificationMethod)
-      return ParsedCodexAppServerNotification(
+      ParsedCodexAppServerNotification(
         method = notificationMethod,
         kind = notificationKind,
         threadId = params.threadId,
@@ -274,7 +277,42 @@ internal class CodexAppServerProtocol {
         turnStatus = params.turnStatus,
         turnErrorMessage = params.turnErrorMessage,
         agentMessageText = params.agentMessageText,
+        watchId = params.watchId,
+        changedPaths = params.changedPaths,
       )
+    }
+  }
+
+  private class ParsedResponsePayload<T>(
+    @JvmField var result: T,
+    @JvmField var hasResult: Boolean = false,
+    @JvmField var errorSeen: Boolean = false,
+    @JvmField var errorMessage: String? = null,
+  )
+
+  private inline fun <T> parseResponsePayloadField(
+    parser: JsonParser,
+    fieldName: String,
+    resultParser: (JsonParser) -> T,
+    response: ParsedResponsePayload<T>,
+  ) {
+    when (fieldName) {
+      "result" -> {
+        response.result = resultParser(parser)
+        response.hasResult = true
+      }
+      "error" -> {
+        response.errorSeen = true
+        response.errorMessage = readErrorMessage(parser)
+      }
+      else -> parser.skipChildren()
+    }
+  }
+
+  private inline fun <T> parsePayloadObject(payload: String, defaultResult: T, parse: (JsonParser) -> T): T {
+    jsonFactory.createJsonParser(payload).use { parser ->
+      if (parser.nextToken() != JsonToken.START_OBJECT) return defaultResult
+      return parse(parser)
     }
   }
 
@@ -289,6 +327,8 @@ private data class ParsedNotificationParams(
   @JvmField val turnStatus: String? = null,
   @JvmField val turnErrorMessage: String? = null,
   @JvmField val agentMessageText: String? = null,
+  @JvmField val watchId: String? = null,
+  @JvmField val changedPaths: List<Path> = emptyList(),
 )
 
 private data class ParsedNotificationThreadObject(
@@ -334,10 +374,14 @@ private fun parseNotificationParams(parser: JsonParser): ParsedNotificationParam
   var turnStatus: String? = null
   var turnErrorMessage: String? = null
   var agentMessageText: String? = null
+  var watchId: String? = null
+  var changedPaths: List<Path> = emptyList()
   forEachObjectField(parser) { fieldName ->
     when (fieldName) {
       "threadId", "thread_id" -> threadId = readNonBlankStringOrNull(parser)
       "turnId", "turn_id" -> turnId = readNonBlankStringOrNull(parser)
+      "watchId", "watch_id" -> watchId = readNonBlankStringOrNull(parser)
+      "changedPaths", "changed_paths" -> changedPaths = parsePathArray(parser)
       "status" -> {
         val parsedStatus = parseThreadStatus(parser)
         statusKind = parsedStatus.statusKind
@@ -379,7 +423,30 @@ private fun parseNotificationParams(parser: JsonParser): ParsedNotificationParam
     turnStatus = turnStatus,
     turnErrorMessage = turnErrorMessage,
     agentMessageText = agentMessageText,
+    watchId = watchId,
+    changedPaths = changedPaths,
   )
+}
+
+private fun parsePathArray(parser: JsonParser): List<Path> {
+  if (parser.currentToken != JsonToken.START_ARRAY) {
+    parser.skipChildren()
+    return emptyList()
+  }
+  val paths = ArrayList<Path>()
+  while (true) {
+    val token = parser.nextToken() ?: break
+    if (token == JsonToken.END_ARRAY) {
+      break
+    }
+    if (token == JsonToken.VALUE_STRING) {
+      parser.string.trimToNull()?.let { paths.add(Path.of(it)) }
+    }
+    else {
+      parser.skipChildren()
+    }
+  }
+  return paths
 }
 
 private fun parseNotificationThreadObject(parser: JsonParser): ParsedNotificationThreadObject {
@@ -801,6 +868,8 @@ private fun parseThreadActivitySnapshot(parser: JsonParser): CodexThreadActivity
   var createdAtAlt: Long? = null
   var statusKind = CodexThreadStatusKind.UNKNOWN
   var activeFlags: List<CodexThreadActiveFlag> = emptyList()
+  var sourceKind = CodexThreadSourceKind.UNKNOWN
+  var parentThreadId: String? = null
   var hasTurnActivity = false
   val activityProjection = CodexThreadActivityProjection()
 
@@ -815,6 +884,11 @@ private fun parseThreadActivitySnapshot(parser: JsonParser): CodexThreadActivity
         val parsedStatus = parseThreadStatus(parser)
         statusKind = parsedStatus.statusKind
         activeFlags = parsedStatus.activeFlags
+      }
+      "source" -> {
+        val parsedSource = parseThreadSource(parser)
+        sourceKind = parsedSource.sourceKind
+        parentThreadId = parsedSource.parentThreadId
       }
       "turns" -> {
         hasTurnActivity = true
@@ -837,6 +911,8 @@ private fun parseThreadActivitySnapshot(parser: JsonParser): CodexThreadActivity
     updatedAt = resolvedUpdatedAt,
     statusKind = statusKind,
     activeFlags = activeFlags,
+    sourceKind = sourceKind,
+    parentThreadId = parentThreadId,
     hasTurnActivity = hasTurnActivity,
   )
 }

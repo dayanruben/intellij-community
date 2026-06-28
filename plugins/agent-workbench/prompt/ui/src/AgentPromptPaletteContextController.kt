@@ -46,7 +46,7 @@ internal class AgentPromptPaletteContextController(
     private val invocationData: AgentPromptInvocationData,
     private val promptArea: EditorTextField,
     private val view: AgentPromptPaletteView,
-    private val sessionScope: CoroutineScope,
+    private val imageDropSupportScope: CoroutineScope,
     private val contextResolverService: AgentPromptContextResolverService,
     private val contextChips: AgentPromptContextChipsComponent,
     private val launcherProvider: () -> AgentPromptLauncherBridge?,
@@ -183,7 +183,7 @@ internal class AgentPromptPaletteContextController(
         installAgentPromptDialogImageDropSupport(
             rootComponent = view.rootPanel,
             dropHandler = imageDropHandler,
-            coroutineScope = sessionScope,
+            coroutineScope = imageDropSupportScope,
         )
         promptArea.addSettingsProvider { editor ->
             installAgentPromptEditorImageDropSupport(editor, imageDropHandler)
@@ -198,7 +198,7 @@ internal class AgentPromptPaletteContextController(
         state.manualContextItemsBySourceId[sourceId] = existing + items
         refreshContextEntries()
         resolveExtensionTabs()
-        onContextChanged(AgentPromptBundle.message("popup.status.context.added"))
+        onContextChanged(AgentPromptBundle.message("popup.status.context.added.to.prompt"))
     }
 
     fun resolveContextSelection(items: List<AgentPromptContextItem>, projectPath: String?): AgentPromptPaletteContextSelection? {
@@ -324,7 +324,7 @@ internal class AgentPromptPaletteContextController(
         state.manualContextItemsBySourceId[source.sourceId] = updatedItems
         refreshContextEntries()
         resolveExtensionTabs()
-        onContextChanged(AgentPromptBundle.message("popup.status.context.added"))
+        onContextChanged(AgentPromptBundle.message("popup.status.context.added.to.prompt"))
     }
 
     private fun addExtensionTab(extension: AgentPromptPaletteExtension) {

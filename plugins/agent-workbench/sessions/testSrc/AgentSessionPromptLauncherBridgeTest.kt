@@ -1,11 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.platform.ai.agent.core.AgentThreadActivity
-import com.intellij.platform.ai.agent.common.icons.AgentWorkbenchCommonIcons
-import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
-import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
-import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INVOCATION_DATA_CONTEXT_KEY
 import com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_PROJECT_PATH_CONTEXT_DATA_KEY
 import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextTargetCandidate
@@ -24,6 +19,33 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
 import com.intellij.agent.workbench.prompt.core.AgentPromptProjectPathCandidate
 import com.intellij.agent.workbench.prompt.core.AgentPromptProjectPathContext
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
+import com.intellij.agent.workbench.sessions.frame.AgentChatOpenModeSettings
+import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameProjectManager
+import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
+import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
+import com.intellij.agent.workbench.sessions.service.AgentSessionPromptLauncherBridge
+import com.intellij.agent.workbench.sessions.service.OpenThreadLaunchOrigin
+import com.intellij.agent.workbench.sessions.service.resolveAgentSessionPathState
+import com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchPromptLaunchResultKind
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchTargetKind
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchTelemetry
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchTelemetryEvent
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.contextModality
+import com.intellij.openapi.extensions.impl.ExtensionPointImpl
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.platform.ai.agent.common.icons.AgentWorkbenchCommonIcons
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
+import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchAction
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
@@ -36,8 +58,6 @@ import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPrompt
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryStatus
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptRecord
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentPrestartedNewSessionLaunch
-import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
-import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentPromptProviderOption
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
@@ -46,26 +66,6 @@ import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTermin
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentTerminalPromptDispatch
 import com.intellij.platform.ai.agent.sessions.core.providers.InMemoryAgentSessionProviderRegistry
 import com.intellij.platform.ai.agent.sessions.core.providers.isPlanModeRequested
-import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
-import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchPromptLaunchResultKind
-import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchTargetKind
-import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchTelemetry
-import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchTelemetryEvent
-import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
-import com.intellij.agent.workbench.sessions.frame.AgentChatOpenModeSettings
-import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameProjectManager
-import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
-import com.intellij.agent.workbench.sessions.service.AgentSessionPromptLauncherBridge
-import com.intellij.agent.workbench.sessions.service.OpenThreadLaunchOrigin
-import com.intellij.agent.workbench.sessions.service.resolveAgentSessionPathState
-import com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService
-import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.impl.SimpleDataContext
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.contextModality
-import com.intellij.openapi.extensions.impl.ExtensionPointImpl
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import kotlinx.coroutines.CompletableDeferred
@@ -76,10 +76,10 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
-import java.util.concurrent.TimeUnit
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.Icon
@@ -193,7 +193,7 @@ class AgentSessionPromptLauncherBridgeTest {
     val request = promptLaunchRequest(provider = AgentSessionProvider.from("claude")).copy(containerMode = true)
 
     withContainerLauncherForTest(containerLauncher, testRootDisposable) {
-      val result = bridge.launch(request)
+      val result = runBlocking { bridge.launch(request) }
 
       assertThat(result).isEqualTo(AgentPromptLaunchResult.SUCCESS)
       assertThat(standardLaunchCalls.get()).isZero()
@@ -222,7 +222,7 @@ class AgentSessionPromptLauncherBridgeTest {
 
     try {
       withContainerLauncherForTest(containerLauncher, testRootDisposable) {
-        val result = bridge.launch(request)
+        val result = runBlocking { bridge.launch(request) }
 
         assertThat(result.launched).isFalse()
         assertThat(result.error).isEqualTo(AgentPromptLaunchError.UNSUPPORTED_LAUNCH_MODE)
@@ -259,7 +259,7 @@ class AgentSessionPromptLauncherBridgeTest {
 
     try {
       withContainerLauncherForTest(containerLauncher, testRootDisposable) {
-        val result = bridge.launch(request)
+        val result = runBlocking { bridge.launch(request) }
 
         assertThat(result.launched).isFalse()
         assertThat(result.error).isEqualTo(AgentPromptLaunchError.PROVIDER_UNAVAILABLE)
@@ -292,7 +292,7 @@ class AgentSessionPromptLauncherBridgeTest {
 
     try {
       withContainerLaunchersForTest(emptyList(), testRootDisposable) {
-        val result = bridge.launch(request)
+        val result = runBlocking { bridge.launch(request) }
 
         assertThat(result.launched).isFalse()
         assertThat(result.error).isEqualTo(AgentPromptLaunchError.UNSUPPORTED_LAUNCH_MODE)
@@ -328,7 +328,7 @@ class AgentSessionPromptLauncherBridgeTest {
 
     try {
       withContainerLauncherForTest(containerLauncher, testRootDisposable) {
-        val result = bridge.launch(request)
+        val result = runBlocking { bridge.launch(request) }
 
         assertThat(result.launched).isFalse()
         assertThat(result.error).isEqualTo(AgentPromptLaunchError.INTERNAL_ERROR)
@@ -2451,9 +2451,8 @@ private class RecordingPromptLaunchProviderBridge(
     override val provider: AgentSessionProvider
       get() = this@RecordingPromptLaunchProviderBridge.provider
 
-    override suspend fun listThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> = emptyList()
+    override suspend fun listThreads(path: String, openProject: Project?): List<AgentSessionThread> = emptyList()
 
-    override suspend fun listThreadsFromClosedProject(path: String): List<AgentSessionThread> = emptyList()
   }
 
   override val cliMissingMessageKey: String

@@ -6,6 +6,7 @@ import com.intellij.platform.ai.agent.codex.common.CodexAppServerNotification
 import com.intellij.platform.ai.agent.codex.common.CodexAppServerNotificationKind
 import com.intellij.platform.ai.agent.codex.common.CodexAppServerStartedThread
 import com.intellij.platform.ai.agent.codex.common.CodexThreadActivitySnapshot
+import com.intellij.platform.ai.agent.codex.common.CodexThreadSourceKind
 import com.intellij.platform.ai.agent.codex.common.CodexThreadStatusKind
 import com.intellij.platform.ai.agent.codex.common.normalizeRootPath
 import com.intellij.platform.ai.agent.codex.sessions.backend.CodexRefreshActivityHint
@@ -16,7 +17,6 @@ import com.intellij.platform.ai.agent.codex.sessions.backend.resolveCodexSession
 import com.intellij.platform.ai.agent.codex.sessions.backend.toAgentThreadActivity
 import com.intellij.platform.ai.agent.codex.sessions.backend.toCodexSessionActivity
 import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRebindCandidate
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshThreadSeed
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
@@ -78,16 +78,9 @@ internal class CodexAppServerRefreshHintsProvider(
     }
 
     val normalizedRefreshThreadSeedsByPath = normalizeRefreshThreadSeedsByPath(refreshThreadSeedsByPath)
-    val normalizedKnownThreadIdsByPath = extractThreadIdsByPath(normalizedRefreshThreadSeedsByPath)
-    val startedThreadHintsByNormalizedPath = collectStartedThreadHints(
-      paths = normalizedPathToOriginal.keys,
-      knownThreadIdsByPath = normalizedKnownThreadIdsByPath,
-    )
-
     val candidateThreadIds = collectCandidateThreadIds(
       paths = normalizedPathToOriginal.keys,
       refreshThreadSeedsByPath = normalizedRefreshThreadSeedsByPath,
-      startedThreadHintsByPath = startedThreadHintsByNormalizedPath,
       hasCachedActivityHint = ::hasCachedSnapshotActivityHint,
     )
 
@@ -124,7 +117,6 @@ internal class CodexAppServerRefreshHintsProvider(
 
     val hintsByPath = LinkedHashMap<String, CodexRefreshHints>()
     var resolvedActivityThreadCount = 0
-    var rebindCandidateCount = 0
     for ((normalizedPath, originalPath) in normalizedPathToOriginal) {
       val refreshThreadSeedsForPath = normalizedRefreshThreadSeedsByPath[normalizedPath].orEmpty()
       val activityHintsByThreadId = LinkedHashMap<String, CodexRefreshActivityHint>()
@@ -149,23 +141,17 @@ internal class CodexAppServerRefreshHintsProvider(
         resolvedActivityThreadCount += 1
       }
 
-      val rebindCandidates = startedThreadHintsByNormalizedPath[normalizedPath]
-        .orEmpty()
-        .map { hint -> buildRebindCandidate(hint.startedThread, snapshotsByThreadId[hint.startedThread.id]) }
-      rebindCandidateCount += rebindCandidates.size
-
-      if (activityHintsByThreadId.isEmpty() && rebindCandidates.isEmpty()) {
+      if (activityHintsByThreadId.isEmpty()) {
         continue
       }
       hintsByPath[originalPath] = CodexRefreshHints(
-        rebindCandidates = rebindCandidates,
         activityHintsByThreadId = activityHintsByThreadId,
       )
     }
 
     LOG.debug {
       "Codex app-server activity prefetch finished " +
-      "(pathsWithHints=${hintsByPath.size}, resolvedActivityThreads=$resolvedActivityThreadCount, rebindCandidates=$rebindCandidateCount)"
+      "(pathsWithHints=${hintsByPath.size}, resolvedActivityThreads=$resolvedActivityThreadCount)"
     }
     return hintsByPath
   }
@@ -255,39 +241,35 @@ internal class CodexAppServerRefreshHintsProvider(
       )
     }
     return when {
-      notification.kind == CodexAppServerNotificationKind.THREAD_STARTED && startedThreadPath != null -> AgentSessionSourceUpdateEvent(
-        type = AgentSessionSourceUpdate.THREADS_CHANGED,
+      notification.kind == CodexAppServerNotificationKind.THREAD_STARTED && startedThreadPath != null -> AgentSessionSourceUpdateEvent.threadsChanged(
         scopedPaths = setOf(startedThreadPath),
+        activityUpdatesByThreadId = activityUpdatesByThreadId(),
       )
-      startedThreadPath != null -> AgentSessionSourceUpdateEvent(
-        type = AgentSessionSourceUpdate.HINTS_CHANGED,
+      startedThreadPath != null -> AgentSessionSourceUpdateEvent.hintsChanged(
         scopedPaths = setOf(startedThreadPath),
         activityUpdatesByThreadId = activityUpdatesByThreadId(),
       )
       notification.kind == CodexAppServerNotificationKind.THREAD_NAME_UPDATED && threadId != null -> {
         val startedThreadPathForId = findStartedThreadPath(threadId)
         if (startedThreadPathForId == null) {
-          AgentSessionSourceUpdateEvent(
-            type = AgentSessionSourceUpdate.HINTS_CHANGED,
+          AgentSessionSourceUpdateEvent.hintsChanged(
             threadIds = setOf(threadId),
             activityUpdatesByThreadId = activityUpdatesByThreadId(),
           )
         }
         else {
-          AgentSessionSourceUpdateEvent(
-            type = AgentSessionSourceUpdate.HINTS_CHANGED,
+          AgentSessionSourceUpdateEvent.hintsChanged(
             scopedPaths = setOf(startedThreadPathForId),
             threadIds = setOf(threadId),
             activityUpdatesByThreadId = activityUpdatesByThreadId(),
           )
         }
       }
-      threadId != null -> AgentSessionSourceUpdateEvent(
-        type = AgentSessionSourceUpdate.HINTS_CHANGED,
+      threadId != null -> AgentSessionSourceUpdateEvent.hintsChanged(
         threadIds = setOf(threadId),
         activityUpdatesByThreadId = activityUpdatesByThreadId(),
       )
-      else -> AgentSessionSourceUpdateEvent(type = AgentSessionSourceUpdate.HINTS_CHANGED)
+      else -> AgentSessionSourceUpdateEvent.hintsChanged()
     }
   }
 
@@ -306,8 +288,8 @@ internal class CodexAppServerRefreshHintsProvider(
           val emitUnscopedUpdate = pendingUnscopedUpdate
           pendingUnscopedUpdate = false
           when {
-            emitUnscopedUpdate || threadIds == null -> AgentSessionSourceUpdateEvent(type = AgentSessionSourceUpdate.HINTS_CHANGED)
-            else -> AgentSessionSourceUpdateEvent(type = AgentSessionSourceUpdate.HINTS_CHANGED, threadIds = threadIds)
+            emitUnscopedUpdate || threadIds == null -> AgentSessionSourceUpdateEvent.hintsChanged()
+            else -> AgentSessionSourceUpdateEvent.hintsChanged(threadIds = threadIds)
           }
         }
         send(updateEvent)
@@ -333,8 +315,16 @@ internal class CodexAppServerRefreshHintsProvider(
             send(updateEvent)
             if (notification.kind == CodexAppServerNotificationKind.THREAD_STARTED && updateEvent.type == AgentSessionSourceUpdate.THREADS_CHANGED) {
               // Keep the retry ordered in the collector coroutine: it gives the app-server time to publish the new thread.
-              delay(APP_SERVER_STARTED_THREAD_REFRESH_RETRY_DELAY_MS.milliseconds)
+              delay(APP_SERVER_REFRESH_RETRY_DELAY_MS.milliseconds)
               send(updateEvent)
+            }
+            if (notification.kind == CodexAppServerNotificationKind.TURN_COMPLETED && !updateEvent.threadIds.isNullOrEmpty()) {
+              val threadId = notification.threadId
+              launch {
+                delay(APP_SERVER_REFRESH_RETRY_DELAY_MS.milliseconds)
+                invalidateCachedSnapshotActivityHint(threadId)
+                send(updateEvent)
+              }
             }
           }
           in outputBurstUpdateKinds -> {
@@ -451,27 +441,6 @@ internal class CodexAppServerRefreshHintsProvider(
     }
   }
 
-  private fun collectStartedThreadHints(
-    paths: Set<String>,
-    knownThreadIdsByPath: Map<String, Set<String>>,
-  ): Map<String, List<CachedStartedThreadHint>> {
-    val nowMs = System.currentTimeMillis()
-    synchronized(startedThreadHintsLock) {
-      evictExpiredStartedThreadHintsLocked(nowMs)
-      val hintsByPath = LinkedHashMap<String, List<CachedStartedThreadHint>>()
-      for (path in paths) {
-        val hintsForPath = startedThreadHintsByPath[path] ?: continue
-        knownThreadIdsByPath[path].orEmpty().forEach(hintsForPath::remove)
-        if (hintsForPath.isEmpty()) {
-          startedThreadHintsByPath.remove(path)
-          continue
-        }
-        hintsByPath[path] = hintsForPath.values.toList()
-      }
-      return hintsByPath
-    }
-  }
-
   private fun evictExpiredStartedThreadHintsLocked(nowMs: Long) {
     val pathIterator = startedThreadHintsByPath.entries.iterator()
     while (pathIterator.hasNext()) {
@@ -513,7 +482,7 @@ private data class CachedNotificationActivityHint(
 )
 
 private const val APP_SERVER_OUTPUT_NOTIFICATION_DEBOUNCE_MS = 250L
-private const val APP_SERVER_STARTED_THREAD_REFRESH_RETRY_DELAY_MS = 1_000L
+private const val APP_SERVER_REFRESH_RETRY_DELAY_MS = 1_000L
 private const val STARTED_THREAD_HINT_TTL_MS = 120_000L
 private const val NOTIFICATION_ACTIVITY_HINT_TTL_MS = 15_000L
 private const val MAX_UNKNOWN_STARTED_THREADS_PER_PATH = 200
@@ -539,20 +508,9 @@ private fun normalizeRefreshThreadSeedsByPath(
   return normalizedRefreshThreadSeedsByPath
 }
 
-private fun extractThreadIdsByPath(
-  refreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
-): Map<String, Set<String>> {
-  val threadIdsByPath = LinkedHashMap<String, Set<String>>(refreshThreadSeedsByPath.size)
-  for ((path, refreshThreadSeeds) in refreshThreadSeedsByPath) {
-    threadIdsByPath[path] = refreshThreadSeeds.asSequence().map { it.threadId }.toCollection(LinkedHashSet())
-  }
-  return threadIdsByPath
-}
-
 private fun collectCandidateThreadIds(
   paths: Set<String>,
   refreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
-  startedThreadHintsByPath: Map<String, List<CachedStartedThreadHint>>,
   hasCachedActivityHint: (AgentSessionRefreshThreadSeed) -> Boolean,
 ): Set<String> {
   val candidateThreadIds = linkedSetOf<String>()
@@ -564,11 +522,6 @@ private fun collectCandidateThreadIds(
         !isAgentSessionPendingThreadId(refreshThreadSeed.threadId) && !hasCachedActivityHint(refreshThreadSeed)
       }
       .map { refreshThreadSeed -> refreshThreadSeed.threadId }
-      .forEach(candidateThreadIds::add)
-    startedThreadHintsByPath[path]
-      .orEmpty()
-      .asSequence()
-      .map { hint -> hint.startedThread.id }
       .forEach(candidateThreadIds::add)
   }
   return candidateThreadIds
@@ -611,43 +564,53 @@ private fun maxKnownUpdatedAt(left: Long, right: Long): Long {
   }
 }
 
-private fun buildRebindCandidate(
-  startedThread: CodexAppServerStartedThread,
-  snapshot: CodexThreadActivitySnapshot?,
-): AgentSessionRebindCandidate {
-  val activity = (snapshot?.toCodexSessionActivity() ?: startedThread.toCodexSessionActivity()).toAgentThreadActivity()
-  val updatedAt = snapshot?.updatedAt ?: startedThread.updatedAt
-  return AgentSessionRebindCandidate(
-    threadId = startedThread.id,
-    title = startedThread.title,
-    updatedAt = updatedAt,
-    activity = activity,
-  )
-}
-
 private fun CodexThreadActivitySnapshot.toRefreshActivityHint(verifiedFresh: Boolean = false): CodexRefreshActivityHint {
+  val activity = toCodexSessionActivity().toAgentThreadActivity()
+  val summaryActivity = if (isSubAgentSnapshot()) null else activity
   return CodexRefreshActivityHint(
-    activity = toCodexSessionActivity().toAgentThreadActivity(),
+    activity = activity,
     updatedAt = updatedAt,
     responseRequired = activeFlags.isResponseRequired() || hasPendingPlan,
     verifiedFresh = verifiedFresh,
-    hasSummaryActivityHint = false,
+    summaryActivity = summaryActivity,
+    hasSummaryActivityHint = true,
   )
 }
 
+private fun CodexThreadActivitySnapshot.isSubAgentSnapshot(): Boolean {
+  return when (sourceKind) {
+    CodexThreadSourceKind.SUB_AGENT,
+    CodexThreadSourceKind.SUB_AGENT_REVIEW,
+    CodexThreadSourceKind.SUB_AGENT_COMPACT,
+    CodexThreadSourceKind.SUB_AGENT_THREAD_SPAWN,
+    CodexThreadSourceKind.SUB_AGENT_OTHER,
+      -> true
+
+    CodexThreadSourceKind.CLI,
+    CodexThreadSourceKind.VSCODE,
+    CodexThreadSourceKind.EXEC,
+    CodexThreadSourceKind.APP_SERVER,
+      -> false
+
+    CodexThreadSourceKind.UNKNOWN -> !parentThreadId.isNullOrBlank()
+  }
+}
+
 private fun CodexAppServerNotification.toRefreshActivityHintOrNull(receivedAtMs: Long): CodexRefreshActivityHint? {
-  val rawStatusKind = statusKind
-  val rawActiveFlags = activeFlags
+  val rawStatusKind = statusKind ?: startedThread?.statusKind
+  val rawActiveFlags = activeFlags ?: startedThread?.activeFlags
   if (rawStatusKind == null && rawActiveFlags == null) {
     return null
   }
 
   val resolvedActiveFlags = rawActiveFlags.orEmpty()
   val resolvedStatusKind = rawStatusKind ?: CodexThreadStatusKind.UNKNOWN
+  val activity = resolveCodexSessionActivity(statusKind = resolvedStatusKind, activeFlags = resolvedActiveFlags).toAgentThreadActivity()
   return CodexRefreshActivityHint(
-    activity = resolveCodexSessionActivity(statusKind = resolvedStatusKind, activeFlags = resolvedActiveFlags).toAgentThreadActivity(),
+    activity = activity,
     updatedAt = startedThread?.updatedAt ?: receivedAtMs,
     responseRequired = resolvedActiveFlags.isResponseRequired(),
-    hasSummaryActivityHint = false,
+    summaryActivity = activity,
+    hasSummaryActivityHint = true,
   )
 }

@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow
 
+import com.intellij.agent.workbench.chat.AgentChatOpenTabsPresentationState
 import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.platform.ai.agent.core.session.AgentSubAgent
@@ -46,6 +47,31 @@ class AgentSessionsSwingTreeStatePersistenceTest {
 
     assertThat(model.autoOpenProjects.contains(SessionTreeId.Project("/work/project-open"))).isFalse()
     assertThat(model.autoOpenProjects.contains(SessionTreeId.Project("/work/project-error"))).isTrue()
+  }
+
+  @Test
+  fun currentProjectScopeHasNoAutoOpenProjectsAfterFlattening() {
+    val uiState = InMemorySessionTreeUiState()
+    uiState.setProjectCollapsed("/work/project-open", collapsed = true)
+
+    val model = buildSessionTreeModel(
+      projects = listOf(
+        AgentProjectSessions(
+          path = "/work/project-open",
+          name = "Project Open",
+          isOpen = true,
+          providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
+        )
+      ),
+      visibleClosedProjectCount = Int.MAX_VALUE,
+      visibleThreadCounts = emptyMap(),
+      treeUiState = uiState,
+      currentProjectScopeActive = true,
+    )
+
+    assertThat(model.rootIds).containsExactly(SessionTreeId.Empty("/work/project-open"))
+    assertThat(model.entriesById).doesNotContainKey(SessionTreeId.Project("/work/project-open"))
+    assertThat(model.autoOpenProjects).isEmpty()
   }
 
   @Test
@@ -109,7 +135,7 @@ class AgentSessionsSwingTreeStatePersistenceTest {
         model = nextModel,
         previousModel = previousModel,
         rootChanged = true,
-        previouslyExpandedProjects = emptySet(),
+        previouslyExpandedTreeIds = emptySet(),
         selectedTreeIds = emptyList(),
       )
     ).containsExactly(projectBId)
@@ -118,7 +144,7 @@ class AgentSessionsSwingTreeStatePersistenceTest {
         model = nextModel,
         previousModel = previousModel,
         rootChanged = true,
-        previouslyExpandedProjects = setOf(projectAId),
+        previouslyExpandedTreeIds = setOf(projectAId),
         selectedTreeIds = emptyList(),
       )
     ).containsExactly(projectAId, projectBId)
@@ -146,6 +172,93 @@ class AgentSessionsSwingTreeStatePersistenceTest {
         ),
       )
     )
+  }
+
+  @Test
+  fun pinnedThreadSelectionExpandsPinnedSectionParent() {
+    val provider = AgentSessionProvider.from("codex")
+    val projectPath = "/work/project-a"
+    val model = buildSessionTreeModel(
+      projects = listOf(
+        AgentProjectSessions(
+          path = projectPath,
+          name = "Project A",
+          isOpen = false,
+          providerLoadStates = loadedProviderStates(provider),
+          threads = listOf(
+            AgentSessionThread(
+              id = "thread-a",
+              title = "Thread A",
+              updatedAt = 100,
+              archived = false,
+              provider = provider,
+            )
+          ),
+        )
+      ),
+      visibleClosedProjectCount = Int.MAX_VALUE,
+      visibleThreadCounts = emptyMap(),
+      treeUiState = InMemorySessionTreeUiState(),
+      openTabsPresentationState = AgentChatOpenTabsPresentationState(
+        pinnedTopLevelThreadIdsByProvider = mapOf(provider to mapOf(projectPath to setOf("thread-a"))),
+      ),
+    )
+    val selectedTreeId = SessionTreeId.Thread(projectPath, provider, "thread-a")
+
+    assertThat(
+      sessionTreeExpansionTargetsAfterModelSwap(
+        model = model,
+        previousModel = SessionTreeModel.EMPTY,
+        rootChanged = true,
+        previouslyExpandedTreeIds = emptySet(),
+        selectedTreeIds = listOf(selectedTreeId),
+      )
+    ).containsExactly(SessionTreeId.Pinned)
+  }
+
+  @Test
+  fun flatPinnedSeparatorDoesNotAutoExpandInCurrentProjectScope() {
+    val provider = AgentSessionProvider.from("codex")
+    val projectPath = "/work/project-a"
+    val model = buildSessionTreeModel(
+      projects = listOf(
+        AgentProjectSessions(
+          path = projectPath,
+          name = "Project A",
+          isOpen = false,
+          providerLoadStates = loadedProviderStates(provider),
+          threads = listOf(
+            AgentSessionThread(
+              id = "thread-a",
+              title = "Thread A",
+              updatedAt = 100,
+              archived = false,
+              provider = provider,
+            )
+          ),
+        )
+      ),
+      visibleClosedProjectCount = Int.MAX_VALUE,
+      visibleThreadCounts = emptyMap(),
+      treeUiState = InMemorySessionTreeUiState(),
+      currentProjectScopeActive = true,
+      openTabsPresentationState = AgentChatOpenTabsPresentationState(
+        pinnedTopLevelThreadIdsByProvider = mapOf(provider to mapOf(projectPath to setOf("thread-a"))),
+      ),
+    )
+    val selectedTreeId = SessionTreeId.Thread(projectPath, provider, "thread-a")
+
+    assertThat(model.rootIds).containsExactly(SessionTreeId.Pinned, selectedTreeId, SessionTreeId.PinnedSeparator, SessionTreeId.Empty(projectPath))
+    assertThat(model.entriesById.getValue(SessionTreeId.Pinned).childIds).isEmpty()
+    assertThat(
+      sessionTreeExpansionTargetsAfterModelSwap(
+        model = model,
+        previousModel = SessionTreeModel.EMPTY,
+        rootChanged = true,
+        previouslyExpandedTreeIds = emptySet(),
+        selectedTreeIds = listOf(selectedTreeId),
+      )
+    ).isEmpty()
   }
 
   @Test
@@ -213,7 +326,7 @@ class AgentSessionsSwingTreeStatePersistenceTest {
         model = model,
         previousModel = SessionTreeModel.EMPTY,
         rootChanged = true,
-        previouslyExpandedProjects = emptySet(),
+        previouslyExpandedTreeIds = emptySet(),
         selectedTreeIds = listOf(selectedProjectThread, selectedWorktreeSubAgent),
       )
     ).containsExactly(

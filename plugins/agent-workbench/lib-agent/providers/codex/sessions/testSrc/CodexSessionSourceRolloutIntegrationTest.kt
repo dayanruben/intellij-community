@@ -6,7 +6,6 @@ import com.intellij.platform.ai.agent.core.AgentThreadActivity
 import com.intellij.platform.ai.agent.core.session.AgentSessionCost
 import com.intellij.platform.ai.agent.core.session.AgentSessionCostKind
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceRefreshRequest
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -26,7 +25,7 @@ class CodexSessionSourceRolloutIntegrationTest {
   lateinit var tempDir: Path
 
   @Test
-  fun rolloutTaskStartedAndAgentMessageKeepsProcessingWhenAppServerIsReady() {
+  fun rolloutTaskStartedAndAgentMessageDoesNotOverrideAppServerReadyHint() {
     runBlocking(Dispatchers.Default) {
       val projectDir = createProjectDir("project-processing")
       writeRollout(
@@ -49,7 +48,7 @@ class CodexSessionSourceRolloutIntegrationTest {
       )
 
       assertThat(testRefreshActivities(source, projectDir, listOf(THREAD_ID)))
-        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.PROCESSING))
+        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.READY))
     }
   }
 
@@ -70,7 +69,7 @@ class CodexSessionSourceRolloutIntegrationTest {
         threadIds = listOf(THREAD_ID),
       )
 
-      val listedThreads = source.listThreadsFromClosedProject(projectDir.toString())
+      val listedThreads = source.listThreads(projectDir.toString(), openProject = null)
 
       assertThat(listedThreads).hasSize(1)
       assertThat(listedThreads.single().activity).isEqualTo(AgentThreadActivity.READY)
@@ -96,7 +95,7 @@ class CodexSessionSourceRolloutIntegrationTest {
         },
       )
 
-      val listedThreads = source.listThreadsFromClosedProject(projectDir.toString())
+      val listedThreads = source.listThreads(projectDir.toString(), openProject = null)
       val loadedCosts = source.loadThreadCosts(projectDir.toString(), listedThreads)
 
       assertThat(listedThreads).hasSize(1)
@@ -118,12 +117,8 @@ class CodexSessionSourceRolloutIntegrationTest {
       writeRolloutFile(
         fileName = "rollout-top-level-turn-context.jsonl",
         lines = listOf(
-          sessionMetaLine(threadId = THREAD_ID, cwd = projectDir),
-          turnContextLine(
-            timestamp = "2026-03-08T10:05:00.000Z",
-            cwd = projectDir,
-            model = "gpt-5.4",
-          ),
+          sessionMetaLine(cwd = projectDir),
+          turnContextLine(cwd = projectDir),
           tokenUsageLineWithoutModel(
             timestamp = "2026-03-08T10:05:01.000Z",
             totalInputTokens = 100,
@@ -146,7 +141,7 @@ class CodexSessionSourceRolloutIntegrationTest {
         },
       )
 
-      val listedThreads = source.listThreadsFromClosedProject(projectDir.toString())
+      val listedThreads = source.listThreads(projectDir.toString(), openProject = null)
       val loadedCosts = source.loadThreadCosts(projectDir.toString(), listedThreads)
 
       assertThat(listedThreads).hasSize(1)
@@ -167,7 +162,7 @@ class CodexSessionSourceRolloutIntegrationTest {
       writeRolloutFile(
         fileName = "rollout-parent-thread.jsonl",
         lines = listOf(
-          sessionMetaLine(threadId = THREAD_ID, cwd = projectDir),
+          sessionMetaLine(cwd = projectDir),
           tokenUsageLine(
             timestamp = "2026-03-08T10:05:01.000Z",
             model = "gpt-5",
@@ -180,7 +175,7 @@ class CodexSessionSourceRolloutIntegrationTest {
       writeRolloutFile(
         fileName = "rollout-child-thread.jsonl",
         lines = listOf(
-          subAgentSessionMetaLine(threadId = "subagent-1", cwd = projectDir, parentThreadId = THREAD_ID),
+          subAgentSessionMetaLine(cwd = projectDir),
           tokenUsageLine(
             timestamp = "2026-03-08T10:05:02.000Z",
             model = "gpt-5-mini",
@@ -204,7 +199,7 @@ class CodexSessionSourceRolloutIntegrationTest {
         },
       )
 
-      val listedThreads = source.listThreadsFromClosedProject(projectDir.toString())
+      val listedThreads = source.listThreads(projectDir.toString(), openProject = null)
       val loadedCosts = source.loadThreadCosts(projectDir.toString(), listedThreads)
 
       assertThat(listedThreads).hasSize(1)
@@ -238,7 +233,7 @@ class CodexSessionSourceRolloutIntegrationTest {
         backendThreadCustomizer = { backendThread -> backendThread.copy(activity = CodexSessionActivity.PROCESSING) },
       )
 
-      val listedThreads = source.listThreadsFromClosedProject(projectDir.toString())
+      val listedThreads = source.listThreads(projectDir.toString(), openProject = null)
 
       assertThat(listedThreads).hasSize(1)
       assertThat(listedThreads.single().activity).isEqualTo(AgentThreadActivity.PROCESSING)
@@ -246,7 +241,7 @@ class CodexSessionSourceRolloutIntegrationTest {
   }
 
   @Test
-  fun rolloutTaskCompleteClearsStaleAppServerProcessingRefreshHintToUnread() {
+  fun rolloutTaskCompleteDoesNotOverrideAppServerProcessingRefreshHint() {
     runBlocking(Dispatchers.Default) {
       val projectDir = createProjectDir("project-refresh-complete-unread")
       writeRollout(
@@ -271,7 +266,7 @@ class CodexSessionSourceRolloutIntegrationTest {
       )
 
       assertThat(testRefreshActivities(source, projectDir, listOf(THREAD_ID)))
-        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.UNREAD))
+        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.PROCESSING))
     }
   }
 
@@ -296,7 +291,7 @@ class CodexSessionSourceRolloutIntegrationTest {
       val refreshResult = source.refreshThreads(
         AgentSessionSourceRefreshRequest(
           paths = listOf(projectPath),
-          updateEvent = AgentSessionSourceUpdateEvent(type = AgentSessionSourceUpdate.HINTS_CHANGED),
+          updateEvent = AgentSessionSourceUpdateEvent.hintsChanged(),
         )
       )
 
@@ -325,7 +320,7 @@ class CodexSessionSourceRolloutIntegrationTest {
         },
       )
 
-      val listedThreads = source.listThreadsFromClosedProject(projectDir.toString())
+      val listedThreads = source.listThreads(projectDir.toString(), openProject = null)
 
       assertThat(listedThreads).hasSize(1)
       assertThat(listedThreads.single().activity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
@@ -356,7 +351,7 @@ class CodexSessionSourceRolloutIntegrationTest {
         },
       )
 
-      val listedThreads = source.listThreadsFromClosedProject(projectDir.toString())
+      val listedThreads = source.listThreads(projectDir.toString(), openProject = null)
 
       assertThat(listedThreads).hasSize(1)
       assertThat(listedThreads.single().activity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
@@ -364,7 +359,7 @@ class CodexSessionSourceRolloutIntegrationTest {
   }
 
   @Test
-  fun rolloutEnteredReviewModeOverridesReadyAppServerHint() {
+  fun rolloutReviewModeDoesNotOverrideAppServerReadyHint() {
     runBlocking(Dispatchers.Default) {
       val projectDir = createProjectDir("project-review")
       writeRollout(
@@ -386,12 +381,12 @@ class CodexSessionSourceRolloutIntegrationTest {
       )
 
       assertThat(testRefreshActivities(source, projectDir, listOf(THREAD_ID)))
-        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.REVIEWING))
+        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.READY))
     }
   }
 
   @Test
-  fun rolloutRequestUserInputProducesNeedsInputHint() {
+  fun rolloutRequestUserInputDoesNotOverrideAppServerReadyHint() {
     runBlocking(Dispatchers.Default) {
       val projectDir = createProjectDir("project-user-input")
       writeRollout(
@@ -413,12 +408,12 @@ class CodexSessionSourceRolloutIntegrationTest {
       )
 
       assertThat(testRefreshActivities(source, projectDir, listOf(THREAD_ID)))
-        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.NEEDS_INPUT))
+        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.READY))
     }
   }
 
   @Test
-  fun rolloutProcessingRefreshOverridesStaleAppServerResponseRequiredHint() {
+  fun rolloutProcessingDoesNotOverrideAppServerResponseRequiredHint() {
     runBlocking(Dispatchers.Default) {
       val projectDir = createProjectDir("project-response-required")
       writeRollout(
@@ -444,7 +439,7 @@ class CodexSessionSourceRolloutIntegrationTest {
       )
 
       assertThat(testRefreshActivities(source, projectDir, listOf(THREAD_ID)))
-        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.PROCESSING))
+        .containsExactlyEntriesOf(mapOf(THREAD_ID to AgentThreadActivity.NEEDS_INPUT))
     }
   }
 
@@ -513,24 +508,20 @@ private fun loadRolloutFixture(projectDir: Path): List<String> {
     "Missing fixture resource: $COST_ROLLOUT_FIXTURE_PATH"
   }.readText()
   return fixtureText
-    .replace("__PROJECT_DIR__", projectDir.toString().replace("\\", "\\\\"))
+    .replace("__PROJECT_DIR__", projectDir.toJsonEscapedString())
     .lineSequence()
     .filter(String::isNotBlank)
     .toList()
 }
 
 private fun sessionMetaLine(cwd: Path): String {
-  return sessionMetaLine(threadId = THREAD_ID, cwd = cwd)
+  val timestamp = "2026-03-08T10:00:00.000Z"
+  return """{"timestamp":"$timestamp","type":"session_meta","payload":{"id":"$THREAD_ID","timestamp":"$timestamp","cwd":"${cwd.toJsonEscapedString()}"}}"""
 }
 
-private fun sessionMetaLine(threadId: String, cwd: Path): String {
+private fun subAgentSessionMetaLine(cwd: Path): String {
   val timestamp = "2026-03-08T10:00:00.000Z"
-  return """{"timestamp":"$timestamp","type":"session_meta","payload":{"id":"$threadId","timestamp":"$timestamp","cwd":"${cwd.toString().replace("\\", "\\\\")}"}}"""
-}
-
-private fun subAgentSessionMetaLine(threadId: String, cwd: Path, parentThreadId: String): String {
-  val timestamp = "2026-03-08T10:00:00.000Z"
-  return """{"timestamp":"$timestamp","type":"session_meta","payload":{"id":"$threadId","timestamp":"$timestamp","cwd":"${cwd.toString().replace("\\", "\\\\")}","source":{"subagent":{"thread_spawn":{"parent_thread_id":"$parentThreadId","depth":1}}}}}"""
+  return """{"timestamp":"$timestamp","type":"session_meta","payload":{"id":"subagent-1","timestamp":"$timestamp","cwd":"${cwd.toJsonEscapedString()}","source":{"subagent":{"thread_spawn":{"parent_thread_id":"$THREAD_ID","depth":1}}}}}"""
 }
 
 private fun eventMsg(timestamp: String, type: String, message: String? = null): String {
@@ -538,8 +529,13 @@ private fun eventMsg(timestamp: String, type: String, message: String? = null): 
   return """{"timestamp":"$timestamp","type":"event_msg","payload":{"type":"$type"$messageField}}"""
 }
 
-private fun turnContextLine(timestamp: String, cwd: Path, model: String): String {
-  return """{"timestamp":"$timestamp","type":"turn_context","payload":{"cwd":"${cwd.toString().replace("\\", "\\\\")}","model":"$model"}}"""
+private fun turnContextLine(cwd: Path): String {
+  val timestamp = "2026-03-08T10:05:00.000Z"
+  return """{"timestamp":"$timestamp","type":"turn_context","payload":{"cwd":"${cwd.toJsonEscapedString()}","model":"gpt-5.4"}}"""
+}
+
+private fun Path.toJsonEscapedString(): String {
+  return toString().replace("\\", "\\\\")
 }
 
 private fun tokenUsageLine(

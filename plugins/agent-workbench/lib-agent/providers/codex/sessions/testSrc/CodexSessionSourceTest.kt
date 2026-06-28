@@ -21,12 +21,16 @@ import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.platform.ai.agent.core.session.AgentSessionThreadOutline
 import com.intellij.platform.ai.agent.sessions.core.cost.AgentSessionUsageSnapshot
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshThreadSeed
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadActivityUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadPresentationUpdate
 import com.intellij.platform.ai.agent.sessions.core.providers.toAgentSessionRefreshThreadSeeds
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -59,7 +63,7 @@ class CodexSessionSourceTest {
         }
       },
       appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-      rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+      rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
     )
 
     runBlocking(Dispatchers.Default) {
@@ -101,7 +105,7 @@ class CodexSessionSourceTest {
         override suspend fun listThreads(path: String, openProject: Project?): List<CodexBackendThread> = emptyList()
       },
       appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-      rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+      rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
       rolloutBackend = rolloutBackend,
       threadPathIndex = InMemoryCodexThreadPathIndex(),
     )
@@ -175,14 +179,14 @@ class CodexSessionSourceTest {
         }
       },
       appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-      rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+      rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
     )
 
     runBlocking(Dispatchers.Default) {
-      assertThat(source.canShowThreadOutlineForkAction(PROJECT_PATH, "source-thread", codexUserPromptOutlineItemId(1))).isTrue()
-      assertThat(source.canShowThreadOutlineForkAction(PROJECT_PATH, "source-thread", codexUserPromptOutlineItemId(1), subAgentId = "sub"))
+      assertThat(source.canForkThreadFromOutlineItem(PROJECT_PATH, "source-thread", codexUserPromptOutlineItemId(1))).isTrue()
+      assertThat(source.canForkThreadFromOutlineItem(PROJECT_PATH, "source-thread", codexUserPromptOutlineItemId(1), subAgentId = "sub"))
         .isFalse()
-      assertThat(source.canShowThreadOutlineForkAction(PROJECT_PATH, "source-thread", "call-1")).isFalse()
+      assertThat(source.canForkThreadFromOutlineItem(PROJECT_PATH, "source-thread", "call-1")).isFalse()
 
       val result = source.forkThreadFromOutlineItem(
         project = testProject(),
@@ -244,7 +248,7 @@ class CodexSessionSourceTest {
           }
         },
         appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-        rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+        rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
         rolloutBackend = CodexRolloutSessionBackend(codexHomeProvider = { tempDir }),
         calculateCost = { usage ->
           AgentSessionCost(
@@ -259,7 +263,7 @@ class CodexSessionSourceTest {
 
     runBlocking(Dispatchers.Default) {
       val source1 = createCostSource(multiplier = 1)
-      val listed1 = source1.listThreadsFromClosedProject(projectPath)
+      val listed1 = source1.listThreads(projectPath, openProject = null)
       val cost1 = source1.loadThreadCosts(projectPath, listed1).getValue("thread-1")
       assertThat(cost1).isEqualTo(
         AgentSessionCost(
@@ -270,7 +274,7 @@ class CodexSessionSourceTest {
       )
 
       val source2 = createCostSource(multiplier = 9)
-      val listed2 = source2.listThreadsFromClosedProject(projectPath)
+      val listed2 = source2.listThreads(projectPath, openProject = null)
       val cost2 = source2.loadThreadCosts(projectPath, listed2).getValue("thread-1")
       assertThat(cost2).isEqualTo(cost1)
 
@@ -289,7 +293,7 @@ class CodexSessionSourceTest {
       )
 
       val source3 = createCostSource(multiplier = 2)
-      val listed3 = source3.listThreadsFromClosedProject(projectPath)
+      val listed3 = source3.listThreads(projectPath, openProject = null)
       val cost3 = source3.loadThreadCosts(projectPath, listed3).getValue("thread-1")
       assertThat(cost3).isEqualTo(
         AgentSessionCost(
@@ -350,7 +354,7 @@ class CodexSessionSourceTest {
           }
         },
         appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-        rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+        rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
         rolloutBackend = CodexRolloutSessionBackend(codexHomeProvider = { tempDir }),
         calculateCost = { usage ->
           AgentSessionCost(
@@ -365,7 +369,7 @@ class CodexSessionSourceTest {
 
     runBlocking(Dispatchers.Default) {
       val source1 = createArchivedCostSource(multiplier = 1)
-      val archived1 = source1.listArchivedThreadsFromClosedProject(projectPath)
+      val archived1 = source1.listArchivedThreads(projectPath, openProject = null)
       val cost1 = source1.loadThreadCosts(projectPath, archived1).getValue("archived-1")
       assertThat(cost1).isEqualTo(
         AgentSessionCost(
@@ -376,7 +380,7 @@ class CodexSessionSourceTest {
       )
 
       val source2 = createArchivedCostSource(multiplier = 9)
-      val archived2 = source2.listArchivedThreadsFromClosedProject(projectPath)
+      val archived2 = source2.listArchivedThreads(projectPath, openProject = null)
       assertThat(archived2.single().cost).isEqualTo(cost1)
 
       updatedAt = 200L
@@ -394,7 +398,7 @@ class CodexSessionSourceTest {
       )
 
       val source3 = createArchivedCostSource(multiplier = 2)
-      val archived3 = source3.listArchivedThreadsFromClosedProject(projectPath)
+      val archived3 = source3.listArchivedThreads(projectPath, openProject = null)
       val cost3 = source3.loadThreadCosts(projectPath, archived3).getValue("archived-1")
       assertThat(cost3).isEqualTo(
         AgentSessionCost(
@@ -462,7 +466,7 @@ class CodexSessionSourceTest {
         }
       },
       appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-      rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+      rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
       rolloutBackend = object : CodexSessionBackend {
         override suspend fun listThreads(path: String, openProject: Project?): List<CodexBackendThread> {
           error("Rollout fallback should not be used when exact rollout path is known")
@@ -487,7 +491,7 @@ class CodexSessionSourceTest {
     )
 
     runBlocking(Dispatchers.Default) {
-      val listedThreads = source.listThreadsFromClosedProject(projectPath)
+      val listedThreads = source.listThreads(projectPath, openProject = null)
       val loadedCosts = source.loadThreadCosts(projectPath, listedThreads)
 
       assertThat(listCalls).isEqualTo(1)
@@ -547,7 +551,7 @@ class CodexSessionSourceTest {
         }
       },
       appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-      rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+      rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
       rolloutBackend = object : CodexSessionBackend {
         override suspend fun listThreads(path: String, openProject: Project?): List<CodexBackendThread> {
           error("Rollout fallback should not be needed when exact rollout path is known")
@@ -659,7 +663,7 @@ class CodexSessionSourceTest {
         }
       },
       appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-      rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+      rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
       rolloutBackend = object : CodexSessionBackend {
         override suspend fun listThreads(path: String, openProject: Project?): List<CodexBackendThread> {
           error("Rollout fallback should not be needed when exact rollout paths are known")
@@ -785,7 +789,7 @@ class CodexSessionSourceTest {
         }
       },
       appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-      rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+      rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
       rolloutBackend = object : CodexSessionBackend {
         override suspend fun listThreads(path: String, openProject: Project?): List<CodexBackendThread> {
           error("Rollout fallback should not be needed when exact rollout paths are known")
@@ -819,7 +823,8 @@ class CodexSessionSourceTest {
             updatedAt = 100L,
             archived = false,
             provider = AgentSessionProvider.from("codex"),
-            subAgents = listOf(com.intellij.platform.ai.agent.core.session.AgentSubAgent(id = "thread-child-aggregate", name = "thread-child-aggregate")),
+            subAgents = listOf(com.intellij.platform.ai.agent.core.session.AgentSubAgent(id = "thread-child-aggregate",
+                                                                                         name = "thread-child-aggregate")),
           )
         ),
       )
@@ -896,6 +901,98 @@ class CodexSessionSourceTest {
   }
 
   @Test
+  fun rolloutDiscoveryEventsAreConvertedToDiscoveryOnlyThreadChanges() {
+    val rolloutEvent = AgentSessionSourceUpdateEvent.hintsChanged(
+      scopedPaths = setOf(PROJECT_PATH),
+      threadIds = setOf("thread-1"),
+      activityUpdatesByThreadId = mapOf(
+        "thread-1" to AgentSessionThreadActivityUpdate(
+          activityReport = AgentThreadActivityReport(
+            rowActivity = AgentThreadActivity.PROCESSING,
+            chromeActivity = AgentThreadActivity.PROCESSING,
+          ),
+          updatesChromeActivity = true,
+          updatedAt = 200L,
+        )
+      ),
+      presentationUpdatesByThreadId = mapOf(
+        "thread-1" to AgentSessionThreadPresentationUpdate(title = "Rollout title", updatedAt = 200L)
+      ),
+      mayHaveChangedProjectFiles = true,
+      changedProjectFilePaths = setOf("$PROJECT_PATH/src/Main.kt"),
+    )
+    val source = createSource(
+      rolloutDiscoveryProvider = object : CodexRefreshHintsProvider {
+        override val updateEvents = flowOf(rolloutEvent)
+
+        override suspend fun prefetchRefreshHints(
+          paths: List<String>,
+          refreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
+        ): Map<String, CodexRefreshHints> = emptyMap()
+      },
+    )
+
+    runBlocking(Dispatchers.Default) {
+      val updateEvent = source.updateEvents.first()
+
+      assertThat(updateEvent.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
+      assertThat(updateEvent.scopedPaths).isEqualTo(setOf(PROJECT_PATH))
+      assertThat(updateEvent.threadIds).isNull()
+      assertThat(updateEvent.activityUpdatesByThreadId).isEmpty()
+      assertThat(updateEvent.presentationUpdatesByThreadId).isEmpty()
+      assertThat(updateEvent.mayHaveChangedProjectFiles).isTrue()
+      assertThat(updateEvent.changedProjectFilePaths).isEqualTo(setOf("$PROJECT_PATH/src/Main.kt"))
+    }
+  }
+
+  @Test
+  fun activeThreadRolloutEventsAreConvertedToDiscoveryOnlyThreadChanges() {
+    val rolloutEvent = AgentSessionSourceUpdateEvent.hintsChanged(
+      scopedPaths = setOf(PROJECT_PATH),
+      threadIds = setOf("thread-1"),
+      activityUpdatesByThreadId = mapOf(
+        "thread-1" to AgentSessionThreadActivityUpdate(
+          activityReport = AgentThreadActivityReport(
+            rowActivity = AgentThreadActivity.PROCESSING,
+            chromeActivity = AgentThreadActivity.PROCESSING,
+          ),
+          updatesChromeActivity = true,
+          updatedAt = 200L,
+        )
+      ),
+      presentationUpdatesByThreadId = mapOf(
+        "thread-1" to AgentSessionThreadPresentationUpdate(title = "Rollout title", updatedAt = 200L)
+      ),
+      mayHaveChangedProjectFiles = true,
+      changedProjectFilePaths = setOf("$PROJECT_PATH/src/Main.kt"),
+    )
+    val source = createSource(
+      rolloutDiscoveryProvider = object : CodexRefreshHintsProvider {
+        override val updateEvents = emptyFlow<AgentSessionSourceUpdateEvent>()
+
+        override fun activeThreadUpdateEvents(path: String, threadId: String) = flowOf(rolloutEvent)
+
+        override suspend fun prefetchRefreshHints(
+          paths: List<String>,
+          refreshThreadSeedsByPath: Map<String, Set<AgentSessionRefreshThreadSeed>>,
+        ): Map<String, CodexRefreshHints> = emptyMap()
+      },
+    )
+
+    runBlocking(Dispatchers.Default) {
+      val updateEvent = source.activeThreadUpdateEvents(PROJECT_PATH, "thread-1").first()
+
+      assertThat(updateEvent.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
+      assertThat(updateEvent.scopedPaths).isEqualTo(setOf(PROJECT_PATH))
+      assertThat(updateEvent.threadIds).isNull()
+      assertThat(updateEvent.activityUpdatesByThreadId).isEmpty()
+      assertThat(updateEvent.presentationUpdatesByThreadId).isEmpty()
+      assertThat(updateEvent.mayHaveChangedProjectFiles).isTrue()
+      assertThat(updateEvent.changedProjectFilePaths).isEqualTo(setOf("$PROJECT_PATH/src/Main.kt"))
+    }
+  }
+
+  @Test
   fun activeThreadSuppressesCurrentUnreadOutputHints() {
     val source = createSource(
       appServerHints = mapOf(
@@ -946,7 +1043,7 @@ class CodexSessionSourceTest {
 
     runBlocking(Dispatchers.Default) {
       source.setActiveThreadId("thread-1")
-      source.listThreadsFromClosedProject(PROJECT_PATH)
+      source.listThreads(PROJECT_PATH, openProject = null)
 
       val hints = source.prefetchRefreshHints(
         paths = listOf(PROJECT_PATH),
@@ -979,7 +1076,7 @@ class CodexSessionSourceTest {
     )
 
     runBlocking(Dispatchers.Default) {
-      val archivedThreads = source.listArchivedThreadsFromClosedProject(PROJECT_PATH)
+      val archivedThreads = source.listArchivedThreads(PROJECT_PATH, openProject = null)
 
       assertThat(archivedThreads).hasSize(1)
       assertThat(archivedThreads.single().id).isEqualTo("archived-1")
@@ -1010,7 +1107,7 @@ class CodexSessionSourceTest {
         }
       },
       appServerRefreshHintsProvider = staticHintsProvider(emptyMap()),
-      rolloutRefreshHintsProvider = staticHintsProvider(emptyMap()),
+      rolloutDiscoveryProvider = staticHintsProvider(emptyMap()),
       rolloutBackend = object : CodexSessionBackend {
         override suspend fun listThreads(path: String, openProject: Project?): List<CodexBackendThread> {
           return listOf(
@@ -1042,7 +1139,7 @@ class CodexSessionSourceTest {
     )
 
     runBlocking(Dispatchers.Default) {
-      val archivedThreads = source.listArchivedThreadsFromClosedProject(PROJECT_PATH)
+      val archivedThreads = source.listArchivedThreads(PROJECT_PATH, openProject = null)
       val loadedCosts = source.loadThreadCosts(PROJECT_PATH, archivedThreads)
 
       assertThat(archivedThreads).hasSize(1)
@@ -1059,7 +1156,7 @@ class CodexSessionSourceTest {
   }
 
   @Test
-  fun rolloutWorkingHintOverridesCachedReadyOutputHints() {
+  fun rolloutWorkingHintDoesNotOverrideAppServerStatusHints() {
     val source = createSource(
       appServerHints = mapOf(
         PROJECT_PATH to refreshHints(
@@ -1086,12 +1183,12 @@ class CodexSessionSourceTest {
       )
 
       assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
-        .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.PROCESSING))
+        .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.READY))
     }
   }
 
   @Test
-  fun rolloutWorkingHintOverridesFreshAppServerVerificationWhenPrefetchingHints() {
+  fun rolloutWorkingHintDoesNotForceAppServerVerificationWhenPrefetchingHints() {
     val observedAppServerSeeds = mutableListOf<Set<AgentSessionRefreshThreadSeed>>()
     val source = createSource(
       appServerRefreshHintsProvider = recordingHintsProvider(
@@ -1122,14 +1219,14 @@ class CodexSessionSourceTest {
         refreshThreadSeedsByPath = mapOf(PROJECT_PATH to setOf("thread-1").toAgentSessionRefreshThreadSeeds()),
       )
 
-      assertThat(observedAppServerSeeds.single().single().forceRefresh).isTrue()
+      assertThat(observedAppServerSeeds.single().single().forceRefresh).isFalse()
       assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
-        .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.PROCESSING))
+        .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.READY))
     }
   }
 
   @Test
-  fun rolloutResponseRequiredHintUsesFreshAppServerVerificationWhenPrefetchingHints() {
+  fun rolloutResponseRequiredHintDoesNotForceAppServerVerificationWhenPrefetchingHints() {
     val observedAppServerSeeds = mutableListOf<Set<AgentSessionRefreshThreadSeed>>()
     val source = createSource(
       appServerRefreshHintsProvider = recordingHintsProvider(
@@ -1161,14 +1258,14 @@ class CodexSessionSourceTest {
         refreshThreadSeedsByPath = mapOf(PROJECT_PATH to setOf("thread-1").toAgentSessionRefreshThreadSeeds()),
       )
 
-      assertThat(observedAppServerSeeds.single().single().forceRefresh).isTrue()
+      assertThat(observedAppServerSeeds.single().single().forceRefresh).isFalse()
       assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
         .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.READY))
     }
   }
 
   @Test
-  fun rolloutWorkingHintOverridesStaleAppServerVerificationWhenPrefetchingHints() {
+  fun rolloutWorkingHintDoesNotOverrideStaleAppServerVerificationWhenPrefetchingHints() {
     val observedAppServerSeeds = mutableListOf<Set<AgentSessionRefreshThreadSeed>>()
     val source = createSource(
       appServerRefreshHintsProvider = recordingHintsProvider(
@@ -1199,14 +1296,14 @@ class CodexSessionSourceTest {
         refreshThreadSeedsByPath = mapOf(PROJECT_PATH to setOf("thread-1").toAgentSessionRefreshThreadSeeds()),
       )
 
-      assertThat(observedAppServerSeeds.single().single().forceRefresh).isTrue()
+      assertThat(observedAppServerSeeds.single().single().forceRefresh).isFalse()
       assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
-        .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.PROCESSING))
+        .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.READY))
     }
   }
 
   @Test
-  fun rolloutWorkingHintStillAppliesWhenFreshAppServerVerificationUnavailable() {
+  fun rolloutWorkingHintIsIgnoredWhenAppServerStatusHintUnavailable() {
     val observedAppServerSeeds = mutableListOf<Set<AgentSessionRefreshThreadSeed>>()
     val source = createSource(
       appServerRefreshHintsProvider = recordingHintsProvider(
@@ -1229,9 +1326,8 @@ class CodexSessionSourceTest {
         refreshThreadSeedsByPath = mapOf(PROJECT_PATH to setOf("thread-1").toAgentSessionRefreshThreadSeeds()),
       )
 
-      assertThat(observedAppServerSeeds.single().single().forceRefresh).isTrue()
-      assertThat(hints.getValue(PROJECT_PATH).activityUpdatesByThreadId.mapValues { (_, update) -> update.activityReport.rowActivity })
-        .containsExactlyEntriesOf(mapOf("thread-1" to AgentThreadActivity.PROCESSING))
+      assertThat(observedAppServerSeeds.single().single().forceRefresh).isFalse()
+      assertThat(hints).isEmpty()
     }
   }
 
@@ -1263,7 +1359,7 @@ class CodexSessionSourceTest {
           )
         ),
       ),
-      rolloutRefreshHintsProvider = recordingHintsProvider(
+      rolloutDiscoveryProvider = recordingHintsProvider(
         observedRefreshThreadSeeds = observedRolloutSeeds,
         hintsByPath = mapOf(
           PROJECT_PATH to refreshHints(
@@ -1277,7 +1373,7 @@ class CodexSessionSourceTest {
     )
 
     runBlocking(Dispatchers.Default) {
-      val threads = source.listThreadsFromClosedProject(PROJECT_PATH)
+      val threads = source.listThreads(PROJECT_PATH, openProject = null)
 
       assertThat(observedAppServerSeeds).isEmpty()
       assertThat(observedRolloutSeeds).isEmpty()
@@ -1313,7 +1409,7 @@ class CodexSessionSourceTest {
           )
         ),
       ),
-      rolloutRefreshHintsProvider = recordingHintsProvider(
+      rolloutDiscoveryProvider = recordingHintsProvider(
         observedRefreshThreadSeeds = observedRolloutSeeds,
         hintsByPath = mapOf(
           PROJECT_PATH to refreshHints(
@@ -1344,7 +1440,7 @@ private fun createSource(
   appServerHints: Map<String, CodexRefreshHints> = emptyMap(),
   rolloutHints: Map<String, CodexRefreshHints> = emptyMap(),
   appServerRefreshHintsProvider: CodexRefreshHintsProvider = staticHintsProvider(appServerHints),
-  rolloutRefreshHintsProvider: CodexRefreshHintsProvider = staticHintsProvider(rolloutHints),
+  rolloutDiscoveryProvider: CodexRefreshHintsProvider = staticHintsProvider(rolloutHints),
   threadPathIndex: CodexThreadPathIndex = InMemoryCodexThreadPathIndex(),
 ): CodexSessionSource {
   return CodexSessionSource(
@@ -1359,7 +1455,7 @@ private fun createSource(
       }
     },
     appServerRefreshHintsProvider = appServerRefreshHintsProvider,
-    rolloutRefreshHintsProvider = rolloutRefreshHintsProvider,
+    rolloutDiscoveryProvider = rolloutDiscoveryProvider,
     threadPathIndex = threadPathIndex,
   )
 }
@@ -1468,7 +1564,9 @@ private fun codexSessionMetaLine(threadId: String, cwd: Path): String {
 
 private fun codexSubAgentSessionMetaLine(threadId: String, parentThreadId: String, cwd: Path): String {
   val timestamp = "2026-05-28T10:00:00.000Z"
-  return """{"timestamp":"$timestamp","type":"session_meta","payload":{"id":"$threadId","timestamp":"$timestamp","cwd":"${cwd.toString().replace("\\", "\\\\")}","source":{"subagent":{"thread_spawn":{"parent_thread_id":"$parentThreadId"}}}}}"""
+  return """{"timestamp":"$timestamp","type":"session_meta","payload":{"id":"$threadId","timestamp":"$timestamp","cwd":"${
+    cwd.toString().replace("\\", "\\\\")
+  }","source":{"subagent":{"thread_spawn":{"parent_thread_id":"$parentThreadId"}}}}}"""
 }
 
 private fun codexTokenUsageLine(inputTokens: Long, outputTokens: Long): String {

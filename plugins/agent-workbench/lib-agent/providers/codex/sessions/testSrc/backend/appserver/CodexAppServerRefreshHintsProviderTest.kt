@@ -8,8 +8,10 @@ import com.intellij.platform.ai.agent.codex.common.CodexAppServerStartedThread
 import com.intellij.platform.ai.agent.codex.common.CodexAppServerException
 import com.intellij.platform.ai.agent.codex.common.CodexThreadActiveFlag
 import com.intellij.platform.ai.agent.codex.common.CodexThreadActivitySnapshot
+import com.intellij.platform.ai.agent.codex.common.CodexThreadSourceKind
 import com.intellij.platform.ai.agent.codex.common.CodexThreadStatusKind
 import com.intellij.platform.ai.agent.codex.sessions.backend.CodexRefreshHints
+import com.intellij.platform.ai.agent.codex.sessions.backend.toAgentSessionRefreshHints
 import com.intellij.platform.ai.agent.core.AgentThreadActivity
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshThreadSeed
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
@@ -141,6 +143,45 @@ class CodexAppServerRefreshHintsProviderTest {
     }
 
     @Test
+    fun verifiedThreadReadSnapshotsUpdateChromeActivity(): Unit = runBlocking(Dispatchers.Default) {
+        val provider = CodexAppServerRefreshHintsProvider(
+            readThreadActivitySnapshot = { threadId ->
+                when (threadId) {
+                    "thread-top" -> snapshot(
+                        threadId = threadId,
+                        statusKind = CodexThreadStatusKind.ACTIVE,
+                    )
+                    "thread-subagent" -> snapshot(
+                        threadId = threadId,
+                        statusKind = CodexThreadStatusKind.ACTIVE,
+                        sourceKind = CodexThreadSourceKind.SUB_AGENT_THREAD_SPAWN,
+                        parentThreadId = "thread-top",
+                    )
+                    else -> null
+                }
+            },
+            notifications = emptyFlow(),
+        )
+
+        val hints = provider.prefetchRefreshHints(
+            paths = listOf("/work/project"),
+            refreshThreadSeedsByPath = mapOf(
+                "/work/project" to setOf(refreshThreadSeed("thread-top"), refreshThreadSeed("thread-subagent")),
+            ),
+        ).getValue("/work/project").toAgentSessionRefreshHints()
+
+        val topUpdate = hints.activityUpdatesByThreadId.getValue("thread-top")
+        assertThat(topUpdate.updatesChromeActivity).isTrue()
+        assertThat(topUpdate.activityReport.rowActivity).isEqualTo(AgentThreadActivity.PROCESSING)
+        assertThat(topUpdate.activityReport.chromeActivity).isEqualTo(AgentThreadActivity.PROCESSING)
+
+        val subAgentUpdate = hints.activityUpdatesByThreadId.getValue("thread-subagent")
+        assertThat(subAgentUpdate.updatesChromeActivity).isTrue()
+        assertThat(subAgentUpdate.activityReport.rowActivity).isEqualTo(AgentThreadActivity.PROCESSING)
+        assertThat(subAgentUpdate.activityReport.chromeActivity).isNull()
+    }
+
+    @Test
     fun ignoresPendingThreadIdsWhenPrefetchingActivityHints(): Unit = runBlocking(Dispatchers.Default) {
         val requestedThreadIds = mutableListOf<String>()
         val provider = CodexAppServerRefreshHintsProvider(
@@ -199,7 +240,7 @@ class CodexAppServerRefreshHintsProviderTest {
     }
 
     @Test
-    fun threadNameUpdatedNotificationsTriggerRefreshWithoutCreatingRebindCandidates(): Unit = runBlocking(Dispatchers.Default) {
+    fun threadNameUpdatedNotificationsTriggerRefreshWithActivityHints(): Unit = runBlocking(Dispatchers.Default) {
         val notifications = MutableSharedFlow<CodexAppServerNotification>(replay = 1, extraBufferCapacity = 16)
         val provider = CodexAppServerRefreshHintsProvider(
             readThreadActivitySnapshot = { threadId ->
@@ -232,63 +273,8 @@ class CodexAppServerRefreshHintsProviderTest {
         )
 
         val hints = hintsByPath.getValue("/work/project")
-        assertThat(hints.rebindCandidates).isEmpty()
         assertThat(hints.activities())
             .containsExactlyEntriesOf(mapOf("thread-rename" to AgentThreadActivity.READY))
-    }
-
-    @Test
-    fun threadStartedNotificationsEmitSnapshotBackedRebindCandidatesForUnknownThreadIds(): Unit = runBlocking(Dispatchers.Default) {
-        val notifications = MutableSharedFlow<CodexAppServerNotification>(replay = 1, extraBufferCapacity = 16)
-        val provider = CodexAppServerRefreshHintsProvider(
-            readThreadActivitySnapshot = { threadId ->
-                if (threadId == "thread-started") {
-                    snapshot(
-                        threadId = threadId,
-                        statusKind = CodexThreadStatusKind.IDLE,
-                        hasUnreadAssistantMessage = true,
-                        updatedAt = 900L,
-                    )
-                } else {
-                    null
-                }
-            },
-            notifications = notifications,
-        )
-
-        notifications.emit(
-            CodexAppServerNotification(
-                method = "thread/started",
-                kind = CodexAppServerNotificationKind.THREAD_STARTED,
-                threadId = "thread-started",
-                startedThread = startedThread(
-                    threadId = "thread-started",
-                    path = "/work/project",
-                    updatedAt = 100L,
-                    statusKind = CodexThreadStatusKind.IDLE,
-                ),
-            )
-        )
-
-        val updateEvent = withTimeout(2.seconds) {
-            provider.updateEvents.first()
-        }
-        assertThat(updateEvent.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
-        assertThat(updateEvent.scopedPaths).containsExactly("/work/project")
-        assertThat(updateEvent.threadIds).isNull()
-
-        val hintsByPath = provider.prefetchRefreshHints(
-            paths = listOf("/work/project"),
-            refreshThreadSeedsByPath = emptyMap(),
-        )
-
-        val hints = hintsByPath.getValue("/work/project")
-        assertThat(hints.activityHintsByThreadId).isEmpty()
-        val candidate = hints.rebindCandidates.single()
-        assertThat(candidate.threadId).isEqualTo("thread-started")
-        assertThat(candidate.title).isEqualTo("thread-started")
-        assertThat(candidate.updatedAt).isEqualTo(900L)
-        assertThat(candidate.activity).isEqualTo(AgentThreadActivity.UNREAD)
     }
 
     @Test
@@ -326,6 +312,11 @@ class CodexAppServerRefreshHintsProviderTest {
             assertThat(firstUpdate.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
             assertThat(firstUpdate.scopedPaths).containsExactly("/work/project")
             assertThat(firstUpdate.threadIds).isNull()
+            val firstActivityUpdate = firstUpdate.activityUpdatesByThreadId.getValue("thread-started")
+            assertThat(firstActivityUpdate.activityReport.rowActivity).isEqualTo(AgentThreadActivity.READY)
+            assertThat(firstActivityUpdate.activityReport.chromeActivity).isEqualTo(AgentThreadActivity.READY)
+            assertThat(firstActivityUpdate.updatesChromeActivity).isTrue()
+            assertThat(firstActivityUpdate.updatedAt).isEqualTo(100L)
             assertThat(retryUpdate).isEqualTo(firstUpdate)
         }
         finally {
@@ -372,16 +363,10 @@ class CodexAppServerRefreshHintsProviderTest {
         assertThat(updateEvent.type).isEqualTo(AgentSessionSourceUpdate.HINTS_CHANGED)
         assertThat(updateEvent.scopedPaths).containsExactly("/work/project")
         assertThat(updateEvent.threadIds).containsExactly("thread-rename")
-
-        val hintsByPath = provider.prefetchRefreshHints(
-            paths = listOf("/work/project"),
-            refreshThreadSeedsByPath = emptyMap(),
-        )
-        assertThat(hintsByPath.getValue("/work/project").rebindCandidates.single().threadId).isEqualTo("thread-rename")
     }
 
     @Test
-    fun threadStartedNotificationCwdIsNormalizedForRebindCandidates(): Unit = runBlocking(Dispatchers.Default) {
+    fun threadStartedNotificationCwdIsNormalizedForFollowUpNotificationScope(): Unit = runBlocking(Dispatchers.Default) {
         val notifications = MutableSharedFlow<CodexAppServerNotification>(replay = 1, extraBufferCapacity = 16)
         val provider = CodexAppServerRefreshHintsProvider(
             readThreadActivitySnapshot = { null },
@@ -404,69 +389,24 @@ class CodexAppServerRefreshHintsProviderTest {
             provider.updateEvents.first()
         }
 
-        val hints = provider.prefetchRefreshHints(
-            paths = listOf("/work/project"),
-            refreshThreadSeedsByPath = emptyMap(),
-        ).getValue("/work/project")
-
-        assertThat(hints.rebindCandidates.single().threadId).isEqualTo("thread-started")
-    }
-
-    @Test
-    fun startedRebindCandidatesDisappearOnceThreadIdBecomesKnown(): Unit = runBlocking(Dispatchers.Default) {
-        val notifications = MutableSharedFlow<CodexAppServerNotification>(replay = 1, extraBufferCapacity = 16)
-        val provider = CodexAppServerRefreshHintsProvider(
-            readThreadActivitySnapshot = { threadId ->
-                if (threadId == "thread-started") {
-                    snapshot(
-                        threadId = threadId,
-                        statusKind = CodexThreadStatusKind.IDLE,
-                        updatedAt = 500L,
-                    )
-                } else {
-                    null
-                }
-            },
-            notifications = notifications,
-        )
-
         notifications.emit(
             CodexAppServerNotification(
-                method = "thread/started",
-                kind = CodexAppServerNotificationKind.THREAD_STARTED,
+                method = "thread/name/updated",
+                kind = CodexAppServerNotificationKind.THREAD_NAME_UPDATED,
                 threadId = "thread-started",
-                startedThread = startedThread(
-                    threadId = "thread-started",
-                    path = "/work/project",
-                    updatedAt = 100L,
-                ),
             )
         )
 
         val updateEvent = withTimeout(2.seconds) {
             provider.updateEvents.first()
         }
+        assertThat(updateEvent.type).isEqualTo(AgentSessionSourceUpdate.HINTS_CHANGED)
         assertThat(updateEvent.scopedPaths).containsExactly("/work/project")
-
-        val hintsBeforeKnown = provider.prefetchRefreshHints(
-            paths = listOf("/work/project"),
-            refreshThreadSeedsByPath = emptyMap(),
-        )
-        assertThat(hintsBeforeKnown.getValue("/work/project").rebindCandidates).hasSize(1)
-
-        val hintsAfterKnown = provider.prefetchRefreshHints(
-            paths = listOf("/work/project"),
-            refreshThreadSeedsByPath = mapOf("/work/project" to setOf(refreshThreadSeed("thread-started", updatedAt = 500L))),
-        )
-
-        val hints = hintsAfterKnown.getValue("/work/project")
-        assertThat(hints.rebindCandidates).isEmpty()
-        assertThat(hints.activities())
-            .containsExactlyEntriesOf(mapOf("thread-started" to AgentThreadActivity.READY))
+        assertThat(updateEvent.threadIds).containsExactly("thread-started")
     }
 
     @Test
-    fun startedRebindCandidatesFallBackToNotificationStatusWhenSnapshotUnavailable(): Unit = runBlocking(Dispatchers.Default) {
+    fun threadStartedNotificationsProvideNotificationBackedActivityHints(): Unit = runBlocking(Dispatchers.Default) {
         val notifications = MutableSharedFlow<CodexAppServerNotification>(replay = 1, extraBufferCapacity = 16)
         val provider = CodexAppServerRefreshHintsProvider(
             readThreadActivitySnapshot = { null },
@@ -490,17 +430,13 @@ class CodexAppServerRefreshHintsProviderTest {
         val updateEvent = withTimeout(2.seconds) {
             provider.updateEvents.first()
         }
+        assertThat(updateEvent.type).isEqualTo(AgentSessionSourceUpdate.THREADS_CHANGED)
         assertThat(updateEvent.scopedPaths).containsExactly("/work/project")
-
-        val hints = provider.prefetchRefreshHints(
-            paths = listOf("/work/project"),
-            refreshThreadSeedsByPath = emptyMap(),
-        ).getValue("/work/project")
-
-        val candidate = hints.rebindCandidates.single()
-        assertThat(candidate.threadId).isEqualTo("thread-reviewing")
-        assertThat(candidate.updatedAt).isEqualTo(700L)
-        assertThat(candidate.activity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
+        val activityUpdate = updateEvent.activityUpdatesByThreadId.getValue("thread-reviewing")
+        assertThat(activityUpdate.activityReport.rowActivity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
+        assertThat(activityUpdate.activityReport.chromeActivity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
+        assertThat(activityUpdate.updatesChromeActivity).isTrue()
+        assertThat(activityUpdate.updatedAt).isEqualTo(700L)
     }
 
     @Test
@@ -559,8 +495,47 @@ class CodexAppServerRefreshHintsProviderTest {
 
         val hint = hints.activityHintsByThreadId.getValue("thread-live")
         assertThat(hint.activity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
+        assertThat(hint.summaryActivity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
+        assertThat(hint.hasSummaryActivityHint).isTrue()
         assertThat(hint.responseRequired).isTrue()
         assertThat(hint.updatedAt).isGreaterThan(0L)
+
+        val update = hints.toAgentSessionRefreshHints().activityUpdatesByThreadId.getValue("thread-live")
+        assertThat(update.updatesChromeActivity).isTrue()
+        assertThat(update.activityReport.chromeActivity).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
+    }
+
+    @Test
+    fun threadStatusReadyNotificationClearsNotificationBackedChromeWhenSnapshotUnavailable(): Unit = runBlocking(Dispatchers.Default) {
+        val notifications = MutableSharedFlow<CodexAppServerNotification>(replay = 1, extraBufferCapacity = 16)
+        val provider = CodexAppServerRefreshHintsProvider(
+            readThreadActivitySnapshot = { null },
+            notifications = notifications,
+        )
+
+        notifications.emit(
+            CodexAppServerNotification(
+                method = "thread/status/changed",
+                kind = CodexAppServerNotificationKind.THREAD_STATUS_CHANGED,
+                threadId = "thread-live",
+                statusKind = CodexThreadStatusKind.IDLE,
+                activeFlags = emptyList(),
+            )
+        )
+        withTimeout(2.seconds) {
+            provider.updateEvents.first()
+        }
+
+        val hints = provider.prefetchRefreshHints(
+            paths = listOf("/work/project"),
+            refreshThreadSeedsByPath = mapOf(
+                "/work/project" to setOf(refreshThreadSeed("thread-live")),
+            ),
+        ).getValue("/work/project")
+        val update = hints.toAgentSessionRefreshHints().activityUpdatesByThreadId.getValue("thread-live")
+        assertThat(update.activityReport.rowActivity).isEqualTo(AgentThreadActivity.READY)
+        assertThat(update.activityReport.chromeActivity).isEqualTo(AgentThreadActivity.READY)
+        assertThat(update.updatesChromeActivity).isTrue()
     }
 
     @Test
@@ -679,6 +654,117 @@ class CodexAppServerRefreshHintsProviderTest {
             ),
         )
         assertThat(hintsAfterTurnCompleted).isEmpty()
+    }
+
+    @Test
+    fun turnCompletedNotificationsEmitDelayedRetryForActivityRefresh(): Unit = runBlocking(Dispatchers.Default) {
+        val notifications = MutableSharedFlow<CodexAppServerNotification>(replay = 1, extraBufferCapacity = 16)
+        val provider = CodexAppServerRefreshHintsProvider(
+            readThreadActivitySnapshot = { null },
+            notifications = notifications,
+        )
+        val updates = Channel<AgentSessionSourceUpdateEvent>(capacity = Channel.UNLIMITED)
+        val collectJob = launch {
+            provider.updateEvents.collect { update ->
+                updates.send(update)
+            }
+        }
+        try {
+            withTimeout(2.seconds) {
+                notifications.subscriptionCount.first { it > 0 }
+            }
+            notifications.emit(
+                CodexAppServerNotification(
+                    method = "turn/completed",
+                    kind = CodexAppServerNotificationKind.TURN_COMPLETED,
+                    threadId = "thread-live",
+                )
+            )
+
+            val firstUpdate = withTimeout(2.seconds) { updates.receive() }
+            val retryUpdate = withTimeout(2.seconds) { updates.receive() }
+            assertThat(firstUpdate.type).isEqualTo(AgentSessionSourceUpdate.HINTS_CHANGED)
+            assertThat(firstUpdate.threadIds).containsExactly("thread-live")
+            assertThat(firstUpdate.activityUpdatesByThreadId).isEmpty()
+            assertThat(retryUpdate).isEqualTo(firstUpdate)
+        }
+        finally {
+            collectJob.cancel()
+            updates.close()
+        }
+    }
+
+    @Test
+    fun turnCompletedRetryInvalidatesStaleSnapshotActivityHint(): Unit = runBlocking(Dispatchers.Default) {
+        val notifications = MutableSharedFlow<CodexAppServerNotification>(replay = 1, extraBufferCapacity = 16)
+        val requestedThreadIds = mutableListOf<String>()
+        var snapshotReadCount = 0
+        val provider = CodexAppServerRefreshHintsProvider(
+            readThreadActivitySnapshot = { threadId ->
+                requestedThreadIds += threadId
+                snapshotReadCount += 1
+                when (snapshotReadCount) {
+                    1 -> snapshot(
+                        threadId = threadId,
+                        statusKind = CodexThreadStatusKind.ACTIVE,
+                        hasInProgressTurn = true,
+                        hasTurnActivity = true,
+                        updatedAt = 100L,
+                    )
+                    2 -> snapshot(
+                        threadId = threadId,
+                        statusKind = CodexThreadStatusKind.ACTIVE,
+                        hasUnreadAssistantMessage = true,
+                        hasTurnActivity = true,
+                        updatedAt = 100L,
+                    )
+                    else -> null
+                }
+            },
+            notifications = notifications,
+        )
+        val updates = Channel<AgentSessionSourceUpdateEvent>(capacity = Channel.UNLIMITED)
+        val collectJob = launch {
+            provider.updateEvents.collect { update ->
+                updates.send(update)
+            }
+        }
+        try {
+            withTimeout(2.seconds) {
+                notifications.subscriptionCount.first { it > 0 }
+            }
+            notifications.emit(
+                CodexAppServerNotification(
+                    method = "turn/completed",
+                    kind = CodexAppServerNotificationKind.TURN_COMPLETED,
+                    threadId = "thread-live",
+                )
+            )
+
+            withTimeout(2.seconds) { updates.receive() }
+            val staleHints = provider.prefetchRefreshHints(
+                paths = listOf("/work/project"),
+                refreshThreadSeedsByPath = mapOf(
+                    "/work/project" to setOf(refreshThreadSeed("thread-live", updatedAt = 100L)),
+                ),
+            ).getValue("/work/project")
+            assertThat(staleHints.activities()).containsExactlyEntriesOf(mapOf("thread-live" to AgentThreadActivity.PROCESSING))
+
+            withTimeout(2.seconds) { updates.receive() }
+            val refreshedHints = provider.prefetchRefreshHints(
+                paths = listOf("/work/project"),
+                refreshThreadSeedsByPath = mapOf(
+                    "/work/project" to setOf(refreshThreadSeed("thread-live", updatedAt = 100L)),
+                ),
+            ).getValue("/work/project")
+
+            assertThat(requestedThreadIds).containsExactly("thread-live", "thread-live")
+            assertThat(refreshedHints.activities()).containsExactlyEntriesOf(mapOf("thread-live" to AgentThreadActivity.UNREAD))
+        }
+        finally {
+            collectJob.cancel()
+            updates.close()
+        }
     }
 
     @Test
@@ -919,6 +1005,8 @@ private fun snapshot(
     threadId: String,
     statusKind: CodexThreadStatusKind,
     activeFlags: List<CodexThreadActiveFlag> = emptyList(),
+    sourceKind: CodexThreadSourceKind = CodexThreadSourceKind.UNKNOWN,
+    parentThreadId: String? = null,
     hasUnreadAssistantMessage: Boolean = false,
     hasPendingPlan: Boolean = false,
     isReviewing: Boolean = false,
@@ -931,6 +1019,8 @@ private fun snapshot(
         updatedAt = updatedAt,
         statusKind = statusKind,
         activeFlags = activeFlags,
+        sourceKind = sourceKind,
+        parentThreadId = parentThreadId,
         hasUnreadAssistantMessage = hasUnreadAssistantMessage,
         hasPendingPlan = hasPendingPlan,
         isReviewing = isReviewing,

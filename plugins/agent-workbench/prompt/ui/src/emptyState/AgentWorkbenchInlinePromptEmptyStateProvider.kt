@@ -3,6 +3,8 @@ package com.intellij.agent.workbench.prompt.ui.emptyState
 
 import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextResolverService
+import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
+import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchers
 import com.intellij.agent.workbench.prompt.ui.AGENT_PROMPT_INLINE_EMPTY_STATE_MAXIMUM_SIZE
 import com.intellij.agent.workbench.prompt.ui.AGENT_PROMPT_INLINE_EMPTY_STATE_MINIMUM_SIZE
 import com.intellij.agent.workbench.prompt.ui.AGENT_PROMPT_INLINE_EMPTY_STATE_PREFERRED_SIZE
@@ -17,6 +19,8 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.fileEditor.impl.EditorEmptyStateComponentHost
 import com.intellij.openapi.fileEditor.impl.EditorEmptyStateComponentProvider
 import com.intellij.openapi.fileEditor.impl.EditorsSplitters
 import com.intellij.openapi.project.Project
@@ -28,7 +32,9 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
 import java.awt.BorderLayout
+import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
@@ -44,6 +50,8 @@ import javax.swing.KeyStroke
 import javax.swing.SwingConstants
 
 internal class AgentWorkbenchInlinePromptEmptyStateProvider : EditorEmptyStateComponentProvider {
+  override fun isAvailable(splitters: EditorsSplitters): Boolean = isInlineEmptyStatePromptEnabled()
+
   override suspend fun createComponent(splitters: EditorsSplitters): JComponent? {
     if (!isInlineEmptyStatePromptEnabled()) {
       return null
@@ -69,8 +77,10 @@ internal class AgentWorkbenchInlinePromptEmptyStateProvider : EditorEmptyStateCo
   }
 }
 
-internal class AgentWorkbenchInlinePromptEmptyStateComponent(
+@ApiStatus.Internal
+class AgentWorkbenchInlinePromptEmptyStateComponent internal constructor(
   private val project: Project,
+  private val configuration: AgentWorkbenchInlinePromptConfiguration = emptyStateInlinePromptConfiguration(project),
 ) : JPanel(BorderLayout()), Disposable {
   private val parentDisposable = Disposer.newDisposable("AgentWorkbenchInlinePromptEmptyState")
   private var content: AgentPromptPaletteContent? = null
@@ -114,6 +124,9 @@ internal class AgentWorkbenchInlinePromptEmptyStateComponent(
     inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), initializeActionName)
   }
 
+  val preferredFocusedComponent: JComponent
+    get() = content?.promptArea ?: this
+
   @RequiresEdt
   fun ensureContentInitialized(requestFocus: Boolean = false) {
     val existingContent = content
@@ -131,28 +144,25 @@ internal class AgentWorkbenchInlinePromptEmptyStateComponent(
     var promptContent: AgentPromptPaletteContent? = null
     try {
       promptContent = createAgentPromptPaletteContent(
-        invocationData = AgentPromptInvocationData(
-          project = project,
-          actionId = INLINE_PROMPT_ACTION_ID,
-          actionText = AgentPromptBundle.message("inline.empty.state.prompt.accessible.name"),
-          actionPlace = INLINE_PROMPT_PLACE,
-          invokedAtMs = System.currentTimeMillis(),
-        ),
+        invocationData = configuration.invocationData,
         contextResolverService = project.service<AgentPromptContextResolverService>(),
         uiStateService = project.service<AgentPromptUiSessionStateService>(),
         sessionsMessageResolver = AgentPromptSessionsMessageResolver(AgentPromptPalettePopup::class.java.classLoader),
-        closeHost = ::resetAfterSubmit,
+        launcherProvider = configuration.launcherProvider,
+        closeHost = ::handleSubmitSucceeded,
         isHostActive = { isShowing },
         revalidateHost = {
+          promptContent?.let(::syncInlineContentSize)
           revalidate()
           repaint()
         },
-        hostMode = AgentPromptPaletteHostMode.INLINE_EMPTY_STATE,
+        hostMode = configuration.hostMode,
       )
       configureInlineContent(promptContent)
       removeAll()
       add(promptContent.rootPanel, BorderLayout.CENTER)
-      promptContent.sessionController.initialize()
+      promptContent.sessionController.initialize(initialLaunchProfileId = configuration.initialLaunchProfileId)
+      syncInlineContentSize(promptContent)
       promptContent.sessionController.installHandlers()
       content = promptContent
       revalidate()
@@ -175,7 +185,7 @@ internal class AgentWorkbenchInlinePromptEmptyStateComponent(
       return
     }
     disposed = true
-    content?.dispose("Agent prompt empty state disposed")
+    content?.dispose(configuration.disposeReason)
     content = null
     Disposer.dispose(parentDisposable)
   }
@@ -211,15 +221,104 @@ internal class AgentWorkbenchInlinePromptEmptyStateComponent(
     promptContent.promptArea.editor?.contentComponent?.accessibleContext?.accessibleDescription = accessibleDescription
   }
 
-  private fun resetAfterSubmit() {
+  private fun syncInlineContentSize(promptContent: AgentPromptPaletteContent) {
+    preferredSize = contentHostSize(promptContent.rootPanel.preferredSize)
+    minimumSize = contentHostSize(promptContent.rootPanel.minimumSize)
+    maximumSize = contentHostSize(promptContent.rootPanel.maximumSize)
+  }
+
+  private fun contentHostSize(contentSize: Dimension): Dimension {
+    val borderInsets = insets
+    return Dimension(
+      contentSize.width + borderInsets.left + borderInsets.right,
+      contentSize.height + borderInsets.top + borderInsets.bottom,
+    )
+  }
+
+  private fun handleSubmitSucceeded() {
+    if (!configuration.resetAfterSuccessfulSubmit) {
+      return
+    }
     val promptContent = content ?: return
     promptContent.promptArea.text = ""
-    promptContent.sessionController.initialize()
+    promptContent.sessionController.initialize(initialLaunchProfileId = configuration.initialLaunchProfileId)
   }
 
   private fun requestPromptFocus(promptContent: AgentPromptPaletteContent) {
     IdeFocusManager.getInstance(project).requestFocusInProject(promptContent.promptArea, project)
   }
+}
+
+@ApiStatus.Internal
+@RequiresEdt
+fun createAgentWorkbenchInlineNewThreadPromptComponent(
+  project: Project,
+  invocationData: AgentPromptInvocationData,
+  launcherProvider: () -> AgentPromptLauncherBridge?,
+  initialLaunchProfileId: String?,
+): AgentWorkbenchInlinePromptEmptyStateComponent {
+  return AgentWorkbenchInlinePromptEmptyStateComponent(
+    project = project,
+    configuration = AgentWorkbenchInlinePromptConfiguration(
+      invocationData = invocationData,
+      launcherProvider = launcherProvider,
+      hostMode = AgentPromptPaletteHostMode.INLINE_NEW_THREAD,
+      initialLaunchProfileId = initialLaunchProfileId,
+      disposeReason = "Agent prompt inline new thread disposed",
+      resetAfterSuccessfulSubmit = false,
+    ),
+  ).also { component ->
+    component.ensureContentInitialized()
+  }
+}
+
+@ApiStatus.Internal
+@RequiresEdt
+fun createAgentWorkbenchInlinePromptEditorHost(component: JComponent): JComponent {
+  return AgentWorkbenchInlinePromptEditorHost(component)
+}
+
+private class AgentWorkbenchInlinePromptEditorHost(component: JComponent) : JPanel(BorderLayout()) {
+  init {
+    isOpaque = true
+    background = editorBackground()
+    add(EditorEmptyStateComponentHost(fillContent = false).apply {
+      setComponents(listOf(component))
+    }, BorderLayout.CENTER)
+  }
+
+  override fun updateUI() {
+    super.updateUI()
+    background = editorBackground()
+  }
+}
+
+private fun editorBackground() = EditorColorsManager.getInstance().globalScheme.defaultBackground
+
+internal data class AgentWorkbenchInlinePromptConfiguration(
+  @JvmField val invocationData: AgentPromptInvocationData,
+  @JvmField val launcherProvider: () -> AgentPromptLauncherBridge?,
+  @JvmField val hostMode: AgentPromptPaletteHostMode,
+  @JvmField val initialLaunchProfileId: String?,
+  @JvmField val disposeReason: String,
+  @JvmField val resetAfterSuccessfulSubmit: Boolean,
+)
+
+private fun emptyStateInlinePromptConfiguration(project: Project): AgentWorkbenchInlinePromptConfiguration {
+  return AgentWorkbenchInlinePromptConfiguration(
+    invocationData = AgentPromptInvocationData(
+      project = project,
+      actionId = INLINE_PROMPT_ACTION_ID,
+      actionText = AgentPromptBundle.message("inline.empty.state.prompt.accessible.name"),
+      actionPlace = INLINE_PROMPT_PLACE,
+      invokedAtMs = System.currentTimeMillis(),
+    ),
+    launcherProvider = AgentPromptLaunchers::find,
+    hostMode = AgentPromptPaletteHostMode.INLINE_EMPTY_STATE,
+    initialLaunchProfileId = null,
+    disposeReason = "Agent prompt empty state disposed",
+    resetAfterSuccessfulSubmit = true,
+  )
 }
 
 internal const val INLINE_PROMPT_COMPONENT_NAME: String = "AgentWorkbenchInlinePromptEmptyStateComponent"
@@ -229,7 +328,7 @@ private const val INLINE_PROMPT_PLACE: String = "EditorEmptyState"
 /**
  * Feature flag for the inline Agent prompt shown in the empty editor.
  * When disabled, the inline composer is not created and the
- * `AgentWorkbenchGlobalPromptEmptyTextPromotedActionProvider` painted hint is used instead.
+ * `AgentWorkbenchGlobalPromptEmptyTextProvider` fallback hint is used instead.
  */
 internal const val INLINE_EMPTY_STATE_PROMPT_PROPERTY: String = "agent.workbench.inline.empty.state.prompt"
 

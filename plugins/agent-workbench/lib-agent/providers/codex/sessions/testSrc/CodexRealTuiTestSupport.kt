@@ -51,8 +51,8 @@ internal class CodexRealTuiHarness(
     Files.writeString(codexHome.resolve("config.toml"), buildConfigToml(enableDefaultModeRequestUserInput))
   }
 
-  fun start(prompt: String): RunningCodexTuiSession {
-    return start(prompt = prompt, extraConfigArgs = emptyList())
+  fun start(prompt: String, extraConfigArgs: List<String> = emptyList()): RunningCodexTuiSession {
+    return start(commandTail = listOf(prompt), extraConfigArgs = extraConfigArgs)
   }
 
   fun startRemoteResume(remoteUrl: String, threadId: String, extraConfigArgs: List<String> = emptyList()): RunningCodexTuiSession {
@@ -63,14 +63,12 @@ internal class CodexRealTuiHarness(
     return server.requests()
   }
 
-  private fun start(prompt: String?, extraConfigArgs: List<String>): RunningCodexTuiSession {
-    return start(commandTail = prompt?.let(::listOf).orEmpty(), extraConfigArgs = extraConfigArgs)
-  }
-
   private fun start(commandTail: List<String>, extraConfigArgs: List<String>): RunningCodexTuiSession {
     val environment = HashMap(System.getenv())
     environment["CODEX_HOME"] = codexHome.toString()
-    environment.putIfAbsent("TERM", "xterm-256color")
+    environment["TERM"] = "xterm-256color"
+    environment["COLORTERM"] = "truecolor"
+    environment.remove("NO_COLOR")
     val command = buildList {
       add(codexBinary)
       add("--no-alt-screen")
@@ -179,6 +177,16 @@ internal class RunningCodexTuiSession(
     } ?: error("Timed out waiting for real Codex TUI output to contain '$text'.\n${diagnostics()}")
   }
 
+  suspend fun awaitRawOutputMatches(pattern: Regex, timeout: Duration = 20.seconds) {
+    eventually(timeout = timeout) {
+      outputText().takeIf { output -> pattern.containsMatchIn(output) }
+    } ?: error(
+      "Timed out waiting for real Codex TUI raw output to match '$pattern'.\n" +
+      "escaped output:\n${escapedOutputTail()}\n" +
+      "ANSI SGR sequences:\n${ansiSgrSummary()}"
+    )
+  }
+
   fun requests(): List<String> = responsesServer.requests()
 
   fun diagnostics(): String {
@@ -205,6 +213,29 @@ internal class RunningCodexTuiSession(
   fun outputTail(maxChars: Int = 4000): String {
     val text = outputText()
     return if (text.length <= maxChars) text else text.takeLast(maxChars)
+  }
+
+  private fun escapedOutputTail(maxChars: Int = 4000): String {
+    return buildString {
+      for (char in outputTail(maxChars)) {
+        when (char) {
+          '\u001B' -> append("\\u001B")
+          '\u0007' -> append("\\u0007")
+          '\r' -> append("\\r")
+          '\n' -> append("\\n\n")
+          else -> append(char)
+        }
+      }
+    }
+  }
+
+  private fun ansiSgrSummary(maxSequences: Int = 200): String {
+    val sequences = SGR_PATTERN.findAll(outputText())
+      .map { match -> match.value.replace("\u001B", "\\u001B") }
+      .distinct()
+      .take(maxSequences)
+      .toList()
+    return if (sequences.isEmpty()) "<none>" else sequences.joinToString(separator = "\n")
   }
 
   private fun outputText(): String {
@@ -400,6 +431,11 @@ internal class MockResponsesPlan private constructor(
                                holdOpen = false)
     }
 
+    fun completedApplyPatch(patch: String, callId: String = "call-apply-patch"): MockResponsesPlan {
+      return MockResponsesPlan(body = sse(responseCreatedEvent(), applyPatchShellCommandCallEvent(callId, patch), responseCompletedEvent()),
+                               holdOpen = false)
+    }
+
     fun inProgressAssistantMessage(message: String): MockResponsesPlan {
       return MockResponsesPlan(body = sse(responseCreatedEvent(), assistantMessageEvent(message)), holdOpen = true)
     }
@@ -588,6 +624,25 @@ private fun assistantMessageEvent(text: String): SseEvent {
   }
 }
 
+private fun applyPatchShellCommandCallEvent(callId: String, patch: String): SseEvent {
+  return jsonEvent(type = "response.output_item.done") { generator ->
+    generator.writeObjectFieldStart("item")
+    generator.writeStringField("type", "function_call")
+    generator.writeStringField("call_id", callId)
+    generator.writeStringField("name", "shell_command")
+    generator.writeStringField("arguments", applyPatchShellCommandArguments(patch))
+    generator.writeEndObject()
+  }
+}
+
+private fun applyPatchShellCommandArguments(patch: String): String {
+  return jsonString { generator ->
+    generator.writeStartObject()
+    generator.writeStringField("command", "apply_patch <<'EOF'\n$patch\nEOF\n")
+    generator.writeEndObject()
+  }
+}
+
 private fun requestUserInputEvent(callId: String, arguments: String): SseEvent {
   return jsonEvent(type = "response.output_item.done") { generator ->
     generator.writeObjectFieldStart("item")
@@ -703,6 +758,7 @@ private const val STRING_TERMINATOR: String = "\u001B\\"
 private val CODEX_THREAD_ID_IN_TERMINAL_TITLE_REGEX = Regex(
   "\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b"
 )
+private val SGR_PATTERN = Regex("\u001B\\[[0-9;]*m")
 private val ANSI_ESCAPE_PATTERN = Regex("\u001B\\[[0-?]*[ -/]*[@-~]")
 private val WHITESPACE_PATTERN = Regex("\\s+")
 

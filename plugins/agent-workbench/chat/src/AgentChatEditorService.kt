@@ -17,7 +17,6 @@ import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchInt
 import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchOperation
 import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchPlanner
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
-import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadActivityUpdate
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadPresentationUpdate
@@ -95,17 +94,23 @@ private object AgentChatScopedRefreshSignalBus {
     if (normalizedPath.isBlank()) {
       return false
     }
-    val updateType =
-      if (activityUpdatesByThreadId.isEmpty()) AgentSessionSourceUpdate.THREADS_CHANGED else AgentSessionSourceUpdate.HINTS_CHANGED
-    return signal(
-      provider = provider,
-      updateEvent = AgentSessionSourceUpdateEvent(
-        type = updateType,
+    val updateEvent = if (activityUpdatesByThreadId.isEmpty()) {
+      AgentSessionSourceUpdateEvent.threadsChanged(
         scopedPaths = setOf(normalizedPath),
-        threadIds = if (activityUpdatesByThreadId.isEmpty()) normalizedThreadId?.let { setOf(it) } else null,
+        threadIds = normalizedThreadId?.let { setOf(it) },
+        presentationUpdatesByThreadId = presentationUpdatesByThreadId,
+      )
+    }
+    else {
+      AgentSessionSourceUpdateEvent.hintsChanged(
+        scopedPaths = setOf(normalizedPath),
         activityUpdatesByThreadId = activityUpdatesByThreadId,
         presentationUpdatesByThreadId = presentationUpdatesByThreadId,
-      ),
+      )
+    }
+    return signal(
+      provider = provider,
+      updateEvent = updateEvent,
     )
   }
 
@@ -134,8 +139,12 @@ data class AgentChatTabRebindTarget(
   @JvmField val threadIdentity: String,
   @JvmField val threadId: String,
   @JvmField val threadTitle: String,
+  // threadActivity is the row-compatible activity; threadActivityReport carries editor chrome state.
   @JvmField val threadActivity: AgentThreadActivity,
+  @JvmField val threadActivityReport: AgentThreadActivityReport = AgentThreadActivityReport(threadActivity),
   @JvmField val threadUpdatedAt: Long = 0L,
+  // Callers that already know the resume command can avoid provider launch planning side effects.
+  @JvmField val launchSpec: AgentSessionTerminalLaunchSpec? = null,
 )
 
 data class AgentChatPendingTabSnapshot(
@@ -145,6 +154,7 @@ data class AgentChatPendingTabSnapshot(
   @JvmField val pendingCreatedAtMs: Long?,
   @JvmField val pendingFirstInputAtMs: Long?,
   @JvmField val pendingLaunchMode: String?,
+  @JvmField val pinnedEditorTab: Boolean = false,
 )
 
 data class AgentChatConcreteTabSnapshot(
@@ -222,27 +232,28 @@ data class AgentChatConcreteTabRebindReport(
 )
 
 suspend fun openChat(
-    project: Project,
-    projectPath: String,
-    threadIdentity: String,
-    shellCommand: List<String>,
-    shellEnvVariables: Map<String, String> = emptyMap(),
-    threadId: String,
-    threadTitle: String,
-    subAgentId: String?,
-    threadActivity: AgentThreadActivity = AgentThreadActivity.READY,
-    pendingCreatedAtMs: Long? = null,
-    pendingFirstInputAtMs: Long? = null,
-    pendingLaunchMode: String? = null,
-    launchMode: String? = null,
-    launchProfileId: String? = null,
-    newSessionProvider: AgentSessionProvider? = null,
-    newSessionLaunchMode: AgentSessionLaunchMode? = null,
-    initialMessageDispatchPlan: AgentInitialPromptDeliveryPlan = AgentInitialPromptDeliveryPlan.EMPTY,
-    generationSettings: AgentPromptGenerationSettings = AgentPromptGenerationSettings.AUTO,
-    persistSnapshot: Boolean = true,
-    deferredStartState: AgentChatDeferredStartState? = null,
-    startupLaunchSpec: AgentSessionTerminalLaunchSpec? = null,
+  project: Project,
+  projectPath: String,
+  threadIdentity: String,
+  shellCommand: List<String>,
+  shellEnvVariables: Map<String, String> = emptyMap(),
+  threadId: String,
+  threadTitle: String,
+  subAgentId: String?,
+  threadActivity: AgentThreadActivity = AgentThreadActivity.READY,
+  pendingCreatedAtMs: Long? = null,
+  pendingFirstInputAtMs: Long? = null,
+  pendingLaunchMode: String? = null,
+  launchMode: String? = null,
+  launchProfileId: String? = null,
+  newSessionProvider: AgentSessionProvider? = null,
+  newSessionLaunchMode: AgentSessionLaunchMode? = null,
+  initialMessageDispatchPlan: AgentInitialPromptDeliveryPlan = AgentInitialPromptDeliveryPlan.EMPTY,
+  generationSettings: AgentPromptGenerationSettings = AgentPromptGenerationSettings.AUTO,
+  persistSnapshot: Boolean = true,
+  deferredStartState: AgentChatDeferredStartState? = null,
+  deferredStartContent: AgentChatDeferredStartContent? = null,
+  startupLaunchSpec: AgentSessionTerminalLaunchSpec? = null,
 ): VirtualFile {
   val manager = FileEditorManagerEx.getInstanceExAsync(project)
 
@@ -317,6 +328,9 @@ suspend fun openChat(
     "subAgentId=$subAgentId, existing=${existing != null}, title=$threadTitle)"
   }
   val file = existing ?: agentChatVirtualFileSystem().getOrCreateFile(snapshot)
+  if (deferredStartContent != null) {
+    file.replaceDeferredStartContent(deferredStartContent)
+  }
   if (existing != null) {
     val oldLaunchMode = existing.launchMode
     existing.updateRestoreOnRestart(persistSnapshot)
@@ -386,7 +400,7 @@ suspend fun openChat(
   val pendingProvider = pendingProviderForThreadIdentity(threadIdentity)
   if (pendingProvider != null) {
     project.service<AgentChatPendingEditorLifecycleService>()
-    service<AgentChatOpenPendingTabsStateService>().refreshOpenTabs()
+    service<AgentChatOpenTabsPresentationStateService>().refreshOpenTabs()
     if (AgentSessionProviders.find(pendingProvider)?.emitsScopedRefreshSignals == true) {
       notifyAgentChatScopedRefresh(provider = pendingProvider, projectPath = projectPath)
     }
@@ -432,23 +446,23 @@ suspend fun refreshOpenAgentChatFile(project: Project, file: VirtualFile) {
 }
 
 suspend fun updateAgentChatDeferredStartState(
-    project: Project,
-    file: VirtualFile,
-    deferredStartState: AgentChatDeferredStartState?,
-    threadIdentity: String? = null,
-    threadId: String? = null,
-    threadTitle: String? = null,
-    threadActivity: AgentThreadActivity? = null,
-    pendingCreatedAtMs: Long? = null,
-    pendingLaunchMode: String? = null,
-    startupLaunchSpecOverride: AgentSessionTerminalLaunchSpec? = null,
-    initialMessageDispatchPlan: AgentInitialPromptDeliveryPlan? = null,
-    newSessionProvider: AgentSessionProvider? = null,
-    newSessionLaunchMode: AgentSessionLaunchMode? = null,
-    launchProfileId: String? = null,
-    generationSettings: AgentPromptGenerationSettings? = null,
-    persistSnapshot: Boolean = false,
-    forgetPersistedSnapshot: Boolean = false,
+  project: Project,
+  file: VirtualFile,
+  deferredStartState: AgentChatDeferredStartState?,
+  threadIdentity: String? = null,
+  threadId: String? = null,
+  threadTitle: String? = null,
+  threadActivity: AgentThreadActivity? = null,
+  pendingCreatedAtMs: Long? = null,
+  pendingLaunchMode: String? = null,
+  startupLaunchSpecOverride: AgentSessionTerminalLaunchSpec? = null,
+  initialMessageDispatchPlan: AgentInitialPromptDeliveryPlan? = null,
+  newSessionProvider: AgentSessionProvider? = null,
+  newSessionLaunchMode: AgentSessionLaunchMode? = null,
+  launchProfileId: String? = null,
+  generationSettings: AgentPromptGenerationSettings? = null,
+  persistSnapshot: Boolean = false,
+  forgetPersistedSnapshot: Boolean = false,
 ) {
   val chatFile = file as? AgentChatVirtualFile ?: return
   startupLaunchSpecOverride?.let { launchSpec ->
@@ -612,6 +626,7 @@ private fun AgentChatTabRebindTarget.toRebindLaunchSpecKey(): AgentChatRebindLau
 }
 
 private suspend fun resolveRebindLaunchSpec(target: AgentChatTabRebindTarget): AgentSessionTerminalLaunchSpec? {
+  target.launchSpec?.let { return it }
   return try {
     AgentSessionLaunchPlanner.plan(
       intent = AgentSessionLaunchIntent(
@@ -765,13 +780,13 @@ suspend fun rebindOpenPendingAgentChatTabs(
           provider = request.target.provider,
           threadId = request.target.threadId,
           fallbackTitle = request.target.threadTitle,
-          fallbackActivity = request.target.threadActivity,
+          fallbackActivityReport = request.target.threadActivityReport,
         )
         val changed = pendingFile.rebindPendingThread(
           threadIdentity = request.target.threadIdentity,
           threadId = request.target.threadId,
           threadTitle = targetPresentation.title,
-          threadActivity = targetPresentation.activity,
+          threadActivityReport = targetPresentation.activityReport,
         )
         if (!changed) {
           outcomes.add(
@@ -808,7 +823,7 @@ suspend fun rebindOpenPendingAgentChatTabs(
       }
     }
     if (changedFiles.isNotEmpty()) {
-      service<AgentChatOpenPendingTabsStateService>().refreshOpenTabs()
+      service<AgentChatOpenTabsPresentationStateService>().refreshOpenTabs()
     }
 
     val requestedBindings = normalizedRequestsByPath.values.sumOf { it.size }
@@ -933,13 +948,13 @@ suspend fun rebindOpenConcreteAgentChatTabs(
           provider = request.target.provider,
           threadId = request.target.threadId,
           fallbackTitle = request.target.threadTitle,
-          fallbackActivity = request.target.threadActivity,
+          fallbackActivityReport = request.target.threadActivityReport,
         )
         val changed = concreteFile.rebindConcreteThread(
           threadIdentity = request.target.threadIdentity,
           threadId = request.target.threadId,
           threadTitle = targetPresentation.title,
-          threadActivity = targetPresentation.activity,
+          threadActivityReport = targetPresentation.activityReport,
         )
         if (!changed) {
           outcomes.add(

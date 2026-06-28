@@ -18,6 +18,7 @@ import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessag
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryChannel
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryStatus
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptRecord
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionArchivedSource
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
@@ -41,6 +42,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.terminal.TerminalTitle
 import com.intellij.terminal.frontend.view.TerminalKeyEvent
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
+import com.intellij.util.ui.AsyncProcessIcon
 import com.intellij.util.ui.EmptyIcon
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -61,18 +63,23 @@ import org.jetbrains.plugins.terminal.view.TerminalOffset
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
-import java.util.concurrent.TimeUnit
+import java.awt.Component
+import java.awt.Container
 import java.awt.event.KeyEvent
 import java.lang.reflect.Constructor
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.Icon
 import javax.swing.JPanel
+import javax.swing.JTextArea
+import javax.swing.SwingUtilities
 import kotlin.coroutines.CoroutineContext
+import kotlin.math.abs
 import kotlin.math.min
 
 private val editorsToDispose = CopyOnWriteArrayList<AgentChatFileEditor>()
@@ -364,6 +371,99 @@ class AgentChatFileEditorLifecycleTest {
     assertThat(terminalTabs.createCalls).isEqualTo(1)
     assertThat(terminalTabs.lastStartupLaunchSpec).isEqualTo(startupLaunchSpec)
     assertThat(file.startupIntent()).isNull()
+  }
+
+  @Test
+  fun deferredStartStateRendersCustomContentUntilReadyToStart() {
+    val startupLaunchSpec = AgentSessionTerminalLaunchSpec(command = listOf("codex", "resume", "thread-1"))
+    val file = testFile()
+    file.setStartupLaunchSpecOverride(startupLaunchSpec)
+    file.updateDeferredStartState(
+      AgentChatDeferredStartState(
+        phase = AgentChatDeferredStartPhase.WAITING,
+        title = "Waiting",
+      )
+    )
+    val customContent = JPanel()
+    val focusComponent = JButton("Prompt")
+    var disposed = false
+    file.replaceDeferredStartContent(
+      AgentChatDeferredStartContent(
+        component = customContent,
+        preferredFocusedComponent = focusComponent,
+        disposeContent = { disposed = true },
+      )
+    )
+    val terminalTabs = FakeAgentChatTerminalTabs()
+    val editor = testEditor(file = file, terminalTabs = terminalTabs)
+
+    editor.selectNotify()
+
+    assertThat(editor.component.components).containsExactly(customContent)
+    assertThat(editor.preferredFocusedComponent).isSameAs(focusComponent)
+    assertThat(terminalTabs.createCalls).isZero()
+    assertThat(disposed).isFalse()
+
+    file.updateDeferredStartState(
+      AgentChatDeferredStartState(
+        phase = AgentChatDeferredStartPhase.READY_TO_START,
+        title = "Ready",
+      )
+    )
+    editor.refreshForFileStateChange()
+
+    assertThat(terminalTabs.createCalls).isEqualTo(1)
+    assertThat(terminalTabs.lastStartupLaunchSpec).isEqualTo(startupLaunchSpec)
+    assertThat(disposed).isTrue()
+    assertThat(editor.preferredFocusedComponent).isSameAs(terminalTabs.tab.preferredFocusableComponent)
+  }
+
+  @Test
+  fun defaultDeferredStartWaitingStateUsesCenteredDelayedProgress() {
+    val file = testFile()
+    file.updateDeferredStartState(
+      AgentChatDeferredStartState(
+        phase = AgentChatDeferredStartPhase.WAITING,
+        title = "Starting new thread…",
+      )
+    )
+    val terminalTabs = FakeAgentChatTerminalTabs()
+    val editor = testEditor(file = file, terminalTabs = terminalTabs)
+
+    editor.selectNotify()
+
+    editor.component.setSize(600, 400)
+    layoutRecursively(editor.component)
+    val progressIcon = collectAgentChatStartProgressComponents(editor.component).single()
+    val title = collectComponentsOfType(editor.component, JTextArea::class.java).single()
+    assertThat(title.text).isEqualTo("Starting new thread…")
+    assertThat(progressIcon.isVisible).isFalse()
+    assertThat(abs(yCenterInRoot(title, editor.component) - editor.component.height / 2)).isLessThan(48)
+    assertThat(abs(xCenterInRoot(title, editor.component) - editor.component.width / 2)).isLessThan(96)
+
+    waitForCondition(timeoutMs = 1_000) { progressIcon.isVisible }
+    assertThat(terminalTabs.createCalls).isZero()
+  }
+
+  @Test
+  fun defaultDeferredStartFailureStateDoesNotShowProgressIcon() {
+    val file = testFile()
+    file.updateDeferredStartState(
+      AgentChatDeferredStartState(
+        phase = AgentChatDeferredStartPhase.FAILURE_NO_START,
+        title = "Couldn't start agent",
+        message = "Try again.",
+      )
+    )
+    val terminalTabs = FakeAgentChatTerminalTabs()
+    val editor = testEditor(file = file, terminalTabs = terminalTabs)
+
+    editor.selectNotify()
+
+    assertThat(collectComponentsOfType(editor.component, AsyncProcessIcon::class.java)).isEmpty()
+    assertThat(collectComponentsOfType(editor.component, JTextArea::class.java).map { it.text })
+      .containsExactly("Couldn't start agent", "Try again.")
+    assertThat(terminalTabs.createCalls).isZero()
   }
 
   @Test
@@ -1204,13 +1304,20 @@ class AgentChatFileEditorLifecycleTest {
     val terminalProvider = RecordingTerminalSessionClosedProvider(
       provider = AgentSessionProvider.from("terminal"),
       supportsArchiveThread = true,
+      archiveOnLastEditorClose = true,
+    )
+    val codexProvider = RecordingTerminalSessionClosedProvider(
+      provider = AgentSessionProvider.from("codex"),
+      supportsArchiveThread = true,
     )
     val claudeProvider = RecordingTerminalSessionClosedProvider(provider = AgentSessionProvider.from("claude"))
-    val registry = InMemoryAgentSessionProviderRegistry(listOf(terminalProvider, claudeProvider))
+    val registry = InMemoryAgentSessionProviderRegistry(listOf(terminalProvider, codexProvider, claudeProvider))
 
     AgentSessionProviders.withRegistryForTest(registry) {
       assertThat(shouldArchiveTerminalSessionOnLastEditorClose(terminalLifecycleTestFile()))
         .isTrue()
+      assertThat(shouldArchiveTerminalSessionOnLastEditorClose(codexLifecycleTestFile()))
+        .isFalse()
       assertThat(shouldArchiveTerminalSessionOnLastEditorClose(claudeLifecycleTestFile()))
         .isFalse()
       assertThat(shouldArchiveTerminalSessionOnLastEditorClose(pendingTestFile(provider = AgentSessionProvider.from("terminal"))))
@@ -1287,7 +1394,7 @@ class AgentChatFileEditorLifecycleTest {
 
     terminalTabs.tab.setSessionState(TerminalViewSessionState.Running)
 
-    waitForCondition { terminalTabs.tab.sentTexts.size == 1 }
+    waitForCondition { terminalTabs.tab.sentTexts.size == 1 && file.initialMessageSent }
 
     assertThat(file.initialMessageSent).isTrue()
     assertThat(terminalTabs.tab.sentTexts)
@@ -1935,6 +2042,15 @@ private fun claudeLifecycleTestFile(): AgentChatVirtualFile {
   )
 }
 
+private fun codexLifecycleTestFile(): AgentChatVirtualFile {
+  return testFile(
+    threadIdentity = buildAgentThreadIdentity(AgentSessionProvider.from("codex").value, "codex-1"),
+    shellCommand = listOf("codex", "resume", "codex-1"),
+  ).also { file ->
+    file.updateThreadId("codex-1")
+  }
+}
+
 private fun terminalLifecycleTestFile(): AgentChatVirtualFile {
   return testFile(
     threadIdentity = buildAgentThreadIdentity(AgentSessionProvider.from("terminal").value, "terminal-1"),
@@ -2187,17 +2303,13 @@ private class ArchivedThreadsProviderDescriptor(
   override val displayNameKey: String = "test.provider"
   override val newSessionLabelKey: String = "test.new.session"
   override val icon: Icon = EmptyIcon.ICON_0
-  override val sessionSource: AgentSessionSource = object : AgentSessionSource {
+  override val sessionSource: AgentSessionSource = object : AgentSessionSource, AgentSessionArchivedSource {
     override val provider: AgentSessionProvider
       get() = this@ArchivedThreadsProviderDescriptor.provider
 
-    override val supportsArchivedThreads: Boolean = true
+    override suspend fun listThreads(path: String, openProject: Project?): List<AgentSessionThread> = emptyList()
 
-    override suspend fun listThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> = emptyList()
-
-    override suspend fun listThreadsFromClosedProject(path: String): List<AgentSessionThread> = emptyList()
-
-    override suspend fun listArchivedThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> = archivedThreads
+    override suspend fun listArchivedThreads(path: String, openProject: Project?): List<AgentSessionThread> = archivedThreads
   }
   override val cliMissingMessageKey: String = "test.cli.missing"
 
@@ -2215,6 +2327,7 @@ private class ArchivedThreadsProviderDescriptor(
 private class RecordingTerminalSessionClosedProvider(
   override val provider: AgentSessionProvider,
   override val supportsArchiveThread: Boolean = false,
+  override val archiveOnLastEditorClose: Boolean = false,
 ) : AgentSessionProviderDescriptor {
   val closedSessions: CopyOnWriteArrayList<ClosedTerminalSession> = CopyOnWriteArrayList()
 
@@ -2225,9 +2338,8 @@ private class RecordingTerminalSessionClosedProvider(
     override val provider: AgentSessionProvider
       get() = this@RecordingTerminalSessionClosedProvider.provider
 
-    override suspend fun listThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> = emptyList()
+    override suspend fun listThreads(path: String, openProject: Project?): List<AgentSessionThread> = emptyList()
 
-    override suspend fun listThreadsFromClosedProject(path: String): List<AgentSessionThread> = emptyList()
   }
   override val cliMissingMessageKey: String = "test.cli.missing"
 
@@ -2393,6 +2505,55 @@ private fun waitForCondition(timeoutMs: Long = 2_000, condition: () -> Boolean) 
     Thread.sleep(10)
   }
   throw AssertionError("Condition was not satisfied within ${timeoutMs}ms")
+}
+
+private fun layoutRecursively(component: Component) {
+  if (component is Container) {
+    component.doLayout()
+    component.components.forEach(::layoutRecursively)
+  }
+}
+
+private fun <T : Component> collectComponentsOfType(component: Component, type: Class<T>): List<T> {
+  val result = ArrayList<T>()
+
+  fun visit(current: Component) {
+    if (type.isInstance(current)) {
+      result.add(type.cast(current))
+    }
+    if (current is Container) {
+      current.components.forEach(::visit)
+    }
+  }
+
+  visit(component)
+  return result
+}
+
+private fun collectAgentChatStartProgressComponents(component: Component): List<Component> {
+  val result = ArrayList<Component>()
+
+  fun visit(current: Component) {
+    if (current.name == "Agent Chat Start Progress") {
+      result.add(current)
+    }
+    if (current is Container) {
+      current.components.forEach(::visit)
+    }
+  }
+
+  visit(component)
+  return result
+}
+
+private fun xCenterInRoot(component: Component, root: Component): Int {
+  val location = SwingUtilities.convertPoint(component.parent, component.location, root)
+  return location.x + component.width / 2
+}
+
+private fun yCenterInRoot(component: Component, root: Component): Int {
+  val location = SwingUtilities.convertPoint(component.parent, component.location, root)
+  return location.y + component.height / 2
 }
 
 private const val TEST_JUNIE_RETRY_BACKOFF_MS: Long = 100

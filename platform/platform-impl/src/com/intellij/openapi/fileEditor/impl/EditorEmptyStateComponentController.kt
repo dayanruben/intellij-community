@@ -16,6 +16,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 import java.awt.BorderLayout
 import java.awt.Component
@@ -54,6 +55,10 @@ internal class EditorEmptyStateComponentController(
   fun isCreationPending(): Boolean = creationJob != null
 
   fun isVisible(): Boolean = componentHost != null
+
+  fun isLegacyEmptyTextPaintingAllowed(): Boolean {
+    return componentHost == null && creationJob == null && !hasAvailableRichProvider()
+  }
 
   fun suppressRichComponents() {
     if (!richComponentsEnabled && componentHost == null && creationJob == null) {
@@ -113,7 +118,15 @@ internal class EditorEmptyStateComponentController(
   }
 
   private fun showComponents() {
-    if (!richComponentsEnabled || componentHost != null || creationJob != null) {
+    if (componentHost != null || creationJob != null) {
+      return
+    }
+    val providers = getProvidersToCreate()
+    if (providers.isEmpty()) {
+      return
+    }
+    val kind = providers.first().kind
+    if (kind == EditorEmptyStateComponentProvider.Kind.RICH && !richComponentsEnabled) {
       return
     }
 
@@ -122,14 +135,27 @@ internal class EditorEmptyStateComponentController(
       var entries: List<EditorEmptyStateComponentEntry> = emptyList()
       var mounted = false
       try {
-        delay(creationDelay)
+        if (kind == EditorEmptyStateComponentProvider.Kind.RICH) {
+          delay(creationDelay)
+        }
         creationGate?.invoke()
-        if (!isCreationValidOnEdt(generation)) {
+        if (!isCreationValidOnEdt(generation, kind)) {
           return@launch
         }
-        entries = createEntries(generation)
+        entries = createEntries(generation, providers)
+        if (entries.isEmpty() && kind == EditorEmptyStateComponentProvider.Kind.RICH) {
+          val fallbackProviders = withContext(Dispatchers.EDT) {
+            if (isCreationValid(generation, EditorEmptyStateComponentProvider.Kind.FALLBACK)) {
+              getAvailableProviders(EditorEmptyStateComponentProvider.Kind.FALLBACK)
+            }
+            else {
+              emptyList()
+            }
+          }
+          entries = createEntries(generation, fallbackProviders)
+        }
         withContext(Dispatchers.EDT) {
-          if (!isCreationValid(generation)) {
+          if (!isCreationValid(generation, entries.firstOrNull()?.kind ?: kind)) {
             return@withContext
           }
           if (entries.isEmpty()) {
@@ -148,33 +174,94 @@ internal class EditorEmptyStateComponentController(
           }
           if (generation == creationGeneration) {
             creationJob = null
+            if (!mounted && richComponentsEnabled && showEmptyState()) {
+              splitters.repaint()
+            }
           }
         }
       }
     }
   }
 
-  private suspend fun isCreationValidOnEdt(generation: Int): Boolean = withContext(Dispatchers.EDT) {
-    isCreationValid(generation)
+  private fun getProvidersToCreate(): List<EditorEmptyStateProviderEntry> {
+    val richProviders = getAvailableProviders(EditorEmptyStateComponentProvider.Kind.RICH)
+    if (richProviders.isNotEmpty()) {
+      return richProviders
+    }
+    return getAvailableProviders(EditorEmptyStateComponentProvider.Kind.FALLBACK)
   }
 
-  private fun isCreationValid(generation: Int): Boolean {
+  private fun hasAvailableRichProvider(): Boolean {
+    return getAvailableProviders(EditorEmptyStateComponentProvider.Kind.RICH, stopAfterFirst = true).isNotEmpty()
+  }
+
+  private fun getAvailableProviders(
+    kind: EditorEmptyStateComponentProvider.Kind,
+    stopAfterFirst: Boolean = false,
+  ): List<EditorEmptyStateProviderEntry> {
+    val providers = ArrayList<EditorEmptyStateProviderEntry>()
+    EditorEmptyStateComponentProvider.EP_NAME.processWithPluginDescriptor { provider, pluginDescriptor ->
+      if (stopAfterFirst && providers.isNotEmpty()) {
+        return@processWithPluginDescriptor
+      }
+      if (getProviderKind(provider, pluginDescriptor) != kind) {
+        return@processWithPluginDescriptor
+      }
+      if (isProviderAvailable(provider, pluginDescriptor)) {
+        providers.add(EditorEmptyStateProviderEntry(provider, pluginDescriptor, kind))
+      }
+    }
+    return providers
+  }
+
+  private fun getProviderKind(
+    provider: EditorEmptyStateComponentProvider,
+    pluginDescriptor: PluginDescriptor,
+  ): EditorEmptyStateComponentProvider.Kind? {
+    return try {
+      provider.getKind()
+    }
+    catch (e: Throwable) {
+      LOG.error(PluginException("Cannot get editor empty state component kind using $provider", e, pluginDescriptor.pluginId))
+      null
+    }
+  }
+
+  private fun isProviderAvailable(
+    provider: EditorEmptyStateComponentProvider,
+    pluginDescriptor: PluginDescriptor,
+  ): Boolean {
+    return try {
+      provider.isAvailable(splitters)
+    }
+    catch (e: Throwable) {
+      LOG.error(PluginException("Cannot check editor empty state component availability using $provider", e, pluginDescriptor.pluginId))
+      false
+    }
+  }
+
+  private suspend fun isCreationValidOnEdt(
+    generation: Int,
+    kind: EditorEmptyStateComponentProvider.Kind,
+  ): Boolean = withContext(Dispatchers.EDT) {
+    isCreationValid(generation, kind)
+  }
+
+  private fun isCreationValid(generation: Int, kind: EditorEmptyStateComponentProvider.Kind): Boolean {
     return generation == creationGeneration &&
-           richComponentsEnabled &&
+           (kind == EditorEmptyStateComponentProvider.Kind.FALLBACK || richComponentsEnabled) &&
            showEmptyState() &&
            componentHost == null
   }
 
-  private suspend fun createEntries(generation: Int): List<EditorEmptyStateComponentEntry> {
-    val providers = ArrayList<Pair<EditorEmptyStateComponentProvider, PluginDescriptor>>()
-    EditorEmptyStateComponentProvider.EP_NAME.processWithPluginDescriptor { provider, pluginDescriptor ->
-      providers.add(provider to pluginDescriptor)
-    }
-
+  private suspend fun createEntries(
+    generation: Int,
+    providers: List<EditorEmptyStateProviderEntry>,
+  ): List<EditorEmptyStateComponentEntry> {
     val entries = ArrayList<EditorEmptyStateComponentEntry>()
     try {
-      for ((provider, pluginDescriptor) in providers) {
-        if (!isCreationValidOnEdt(generation)) {
+      for ((provider, pluginDescriptor, kind) in providers) {
+        if (!isCreationValidOnEdt(generation, kind)) {
           break
         }
         val component = try {
@@ -194,7 +281,7 @@ internal class EditorEmptyStateComponentController(
           null
         }
         if (component != null) {
-          entries.add(EditorEmptyStateComponentEntry(provider, component))
+          entries.add(EditorEmptyStateComponentEntry(provider, component, kind))
         }
       }
       return entries
@@ -208,7 +295,7 @@ internal class EditorEmptyStateComponentController(
   }
 
   private fun mount(entries: List<EditorEmptyStateComponentEntry>) {
-    val host = EditorEmptyStateComponentHost()
+    val host = EditorEmptyStateComponentHost(fillContent = entries.all { it.kind == EditorEmptyStateComponentProvider.Kind.FALLBACK })
     componentHost = host
     componentEntries = entries
     host.setComponents(entries.map { it.component })
@@ -224,9 +311,16 @@ internal class EditorEmptyStateComponentController(
   }
 }
 
+private data class EditorEmptyStateProviderEntry(
+  val provider: EditorEmptyStateComponentProvider,
+  val pluginDescriptor: PluginDescriptor,
+  val kind: EditorEmptyStateComponentProvider.Kind,
+)
+
 private data class EditorEmptyStateComponentEntry(
   val provider: EditorEmptyStateComponentProvider,
   val component: JComponent,
+  val kind: EditorEmptyStateComponentProvider.Kind,
 )
 
 internal class EditorsSplittersLayout : LayoutManager2 {
@@ -294,7 +388,8 @@ internal class EditorsSplittersLayout : LayoutManager2 {
   }
 }
 
-private class EditorEmptyStateComponentHost : JPanel(GridBagLayout()) {
+@ApiStatus.Internal
+class EditorEmptyStateComponentHost(private val fillContent: Boolean) : JPanel() {
   private val contentPanel = JPanel().apply {
     isOpaque = false
     layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -302,17 +397,29 @@ private class EditorEmptyStateComponentHost : JPanel(GridBagLayout()) {
 
   init {
     isOpaque = false
-    add(contentPanel, GridBagConstraints().apply {
-      gridx = 0
-      gridy = 0
-      weightx = 1.0
-      weighty = 1.0
-      anchor = GridBagConstraints.CENTER
-      insets = JBUI.insets(24)
-    })
+    if (fillContent) {
+      layout = BorderLayout()
+    }
+    else {
+      layout = GridBagLayout()
+      add(contentPanel, GridBagConstraints().apply {
+        gridx = 0
+        gridy = 0
+        weightx = 1.0
+        weighty = 1.0
+        anchor = GridBagConstraints.CENTER
+        insets = JBUI.insets(24)
+      })
+    }
   }
 
   fun setComponents(components: List<JComponent>) {
+    if (fillContent) {
+      removeAll()
+      components.singleOrNull()?.let { add(it, BorderLayout.CENTER) }
+      return
+    }
+
     contentPanel.removeAll()
     for ((index, component) in components.withIndex()) {
       component.alignmentX = CENTER_ALIGNMENT
