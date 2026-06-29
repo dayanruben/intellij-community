@@ -2,6 +2,7 @@
 package com.intellij.agent.workbench.prompt.ui
 
 // @spec community/plugins/agent-workbench/spec/actions/global-prompt-entry.spec.md
+// @spec community/plugins/agent-workbench/spec/actions/global-prompt-composer.spec.md
 // @spec community/plugins/agent-workbench/spec/actions/global-prompt-suggestions.spec.md
 // @spec community/plugins/agent-workbench/spec/actions/global-prompt-task-cost-profiles.spec.md
 
@@ -11,6 +12,7 @@ import com.intellij.ide.setToolTipText
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DefaultActionGroup
@@ -82,6 +84,7 @@ private const val EXISTING_TASK_VISIBLE_ROWS = 3
 private val PROMPT_PANEL_MINIMUM_SIZE = JBUI.size(0, 120)
 private val INLINE_PROMPT_PANEL_MINIMUM_SIZE = JBUI.size(0, 96)
 private val INLINE_PROMPT_EDITOR_PREFERRED_SIZE = JBUI.size(0, 74)
+private const val COMPOSER_CONTENT_HORIZONTAL_INSET = 6
 
 private fun inlinePromptSize(baseSize: Dimension, additionalHeight: Int): Dimension {
   return Dimension(baseSize.width, baseSize.height + additionalHeight)
@@ -106,6 +109,10 @@ private fun ActionLink.configureComposerTrayLink(isInlinePrompt: Boolean) {
     foreground = UIUtil.getLabelForeground()
     border = JBUI.Borders.empty(1, 0)
   }
+}
+
+internal interface AgentPromptHeaderVisibleAction {
+  var visible: Boolean
 }
 
 internal data class AgentPromptPaletteView(
@@ -144,8 +151,8 @@ internal class AgentPromptHeaderCheckBoxAction(
   text: @Nls String,
   var selected: Boolean = false,
   private val onSelectionChanged: ((Boolean) -> Unit)? = null,
-) : CheckboxAction(text), DumbAware {
-  var visible: Boolean = true
+) : CheckboxAction(text), DumbAware, AgentPromptHeaderVisibleAction {
+  override var visible: Boolean = true
   var enabled: Boolean = true
   var tooltipText: @Nls String? = null
 
@@ -163,6 +170,33 @@ internal class AgentPromptHeaderCheckBoxAction(
     e.presentation.isVisible = visible
     e.presentation.isEnabled = enabled
     e.presentation.description = tooltipText
+  }
+
+  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+}
+
+internal class AgentPromptHeaderIconToggleAction(
+  text: @Nls String,
+  initialIcon: Icon,
+  var selected: Boolean = false,
+  private val onSelectionChanged: ((Boolean) -> Unit)? = null,
+) : DumbAwareToggleAction(text, text, initialIcon), AgentPromptHeaderVisibleAction {
+  override var visible: Boolean = true
+  var enabled: Boolean = true
+
+  override fun isSelected(e: AnActionEvent): Boolean {
+    return selected
+  }
+
+  override fun setSelected(e: AnActionEvent, state: Boolean) {
+    selected = state
+    onSelectionChanged?.invoke(state)
+  }
+
+  override fun update(e: AnActionEvent) {
+    super.update(e)
+    e.presentation.isVisible = visible
+    e.presentation.isEnabled = enabled
   }
 
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
@@ -215,18 +249,26 @@ internal class AgentPromptHeaderControls(
 ) {
   private var providerOptionsVisible = true
 
-  var providerOptionActions: List<AgentPromptHeaderCheckBoxAction> = emptyList()
+  var providerOptionActions: List<AnAction> = emptyList()
     private set
 
-  fun setProviderOptionActions(actions: List<AgentPromptHeaderCheckBoxAction>) {
+  fun setProviderOptionActions(actions: List<AnAction>) {
     providerOptionActions = actions
-    providerOptionActions.forEach { action -> action.visible = providerOptionsVisible }
+    providerOptionActions.forEach { action ->
+      if (action is AgentPromptHeaderVisibleAction) {
+        action.visible = providerOptionsVisible
+      }
+    }
     rebuildActions()
   }
 
   fun setProviderOptionsVisible(visible: Boolean) {
     providerOptionsVisible = visible
-    providerOptionActions.forEach { action -> action.visible = visible }
+    providerOptionActions.forEach { action ->
+      if (action is AgentPromptHeaderVisibleAction) {
+        action.visible = visible
+      }
+    }
     updateActions()
   }
 
@@ -658,24 +700,33 @@ internal fun createAgentPromptPaletteView(
   }
   val composerContextPanel = BorderLayoutPanel().apply {
     isOpaque = false
-    border = JBUI.Borders.empty(0, if (isInlinePrompt) 0 else 2, if (isInlinePrompt) 4 else 6, if (isInlinePrompt) 0 else 2)
+    border = JBUI.Borders.emptyBottom(if (isInlinePrompt) 4 else 6)
     addToCenter(contextChipsContainer)
   }
 
-  val generationSettingsControlsPanel = JPanel(FlowLayout(FlowLayout.LEFT, if (isInlinePrompt) 6 else 8, 0)).apply {
+  val generationSettingsControlsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
     isOpaque = false
     add(addContextButton)
   }
-  val generationSettingsActionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT, if (isInlinePrompt) 6 else 8, 0)).apply {
+  val generationSettingsActionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
     isOpaque = false
     add(launchProfileLink)
+    defaultProfileActionControl.component.border = JBUI.Borders.emptyLeft(if (isInlinePrompt) 6 else 8)
     add(defaultProfileActionControl.component)
   }
   val generationSettingsPanel = JPanel(BorderLayout()).apply {
     isOpaque = false
-    border = if (isInlinePrompt) JBUI.Borders.empty(0, 6, 4, 6) else JBUI.Borders.empty(2, 6, 4, 6)
+    border = if (isInlinePrompt) JBUI.Borders.emptyBottom(4) else JBUI.Borders.empty(2, 0, 4, 0)
     add(generationSettingsControlsPanel, BorderLayout.WEST)
     add(generationSettingsActionsPanel, BorderLayout.EAST)
+  }
+
+  val composerContentPanel = BorderLayoutPanel().apply {
+    isOpaque = false
+    border = JBUI.Borders.empty(0, COMPOSER_CONTENT_HORIZONTAL_INSET)
+    addToTop(composerContextPanel)
+    addToCenter(promptCardPanel)
+    addToBottom(generationSettingsPanel)
   }
 
   val promptEditorPanel = BorderLayoutPanel().apply {
@@ -684,9 +735,7 @@ internal fun createAgentPromptPaletteView(
     if (isInlinePrompt) {
       preferredSize = INLINE_PROMPT_EDITOR_PREFERRED_SIZE
     }
-    addToTop(composerContextPanel)
-    addToCenter(promptCardPanel)
-    addToBottom(generationSettingsPanel)
+    addToCenter(composerContentPanel)
   }
 
   val promptPanel = JPanel(BorderLayout()).apply {

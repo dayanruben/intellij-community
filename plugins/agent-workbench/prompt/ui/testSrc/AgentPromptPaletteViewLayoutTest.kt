@@ -1,18 +1,29 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
+// @spec community/plugins/agent-workbench/spec/actions/global-prompt-composer.spec.md
+
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
+import com.intellij.agent.workbench.prompt.core.AgentPromptContextItemIds
+import com.intellij.agent.workbench.prompt.core.AgentPromptContextRendererIds
+import com.intellij.agent.workbench.prompt.core.AgentPromptPayload
+import com.intellij.agent.workbench.prompt.core.AgentPromptPayloadValue
 import com.intellij.agent.workbench.prompt.core.AgentPromptSuggestionCandidate
+import com.intellij.agent.workbench.prompt.ui.context.AgentPromptScreenshotContextItem
+import com.intellij.icons.AllIcons
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.ui.EditorTextField
+import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import java.awt.Color
 import java.awt.Component
+import java.awt.image.BufferedImage
 import java.util.concurrent.TimeUnit
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -47,12 +58,17 @@ class AgentPromptPaletteViewLayoutTest {
       val view = createPaletteView(promptArea = promptArea)
 
       layoutPopupRoot(view.rootPanel)
+      val promptAreaInRoot = checkNotNull(findPromptArea(view.rootPanel, promptArea))
 
       assertThat(view.composerContextPanel.isVisible).isFalse()
       assertThat(view.addContextButton.isVisible).isTrue()
       assertThat(SwingUtilities.isDescendingFrom(view.launchProfileLink, view.generationSettingsPanel)).isTrue()
       assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.generationSettingsPanel)).isFalse()
       assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.generationSettingsPanel)).isTrue()
+      assertThat(locationInRoot(view.addContextButton, view.rootPanel).x)
+        .isEqualTo(locationInRoot(promptAreaInRoot, view.rootPanel).x)
+      assertThat(rightInRoot(view.launchProfileLink, view.rootPanel))
+        .isEqualTo(rightInRoot(promptAreaInRoot, view.rootPanel))
       assertThat(locationInRoot(view.addContextButton, view.rootPanel).x)
         .isLessThan(locationInRoot(view.launchProfileLink, view.rootPanel).x)
       assertThat(abs(yCenterInRoot(view.addContextButton, view.rootPanel) - yCenterInRoot(view.launchProfileLink, view.rootPanel)))
@@ -61,6 +77,15 @@ class AgentPromptPaletteViewLayoutTest {
       assertThat(view.launchProfileLink.font.size).isEqualTo(JBFont.label().size)
       assertThat(view.addContextButton.foreground).isEqualTo(UIUtil.getLabelForeground())
       assertThat(view.launchProfileLink.foreground).isEqualTo(UIUtil.getLabelForeground())
+
+      view.defaultProfileActionControl.setState(AgentPromptDefaultProfileActionState.MAKE_DEFAULT)
+      layoutPopupRoot(view.rootPanel)
+
+      assertThat(view.defaultProfileActionControl.component.border.getBorderInsets(view.defaultProfileActionControl.component).left).isEqualTo(8)
+      assertThat(locationInRoot(view.defaultProfileActionControl.component, view.rootPanel).x)
+        .isEqualTo(rightInRoot(view.launchProfileLink, view.rootPanel))
+      assertThat(rightInRoot(view.defaultProfileActionControl.component, view.rootPanel))
+        .isEqualTo(rightInRoot(promptAreaInRoot, view.rootPanel))
     }
   }
 
@@ -74,6 +99,7 @@ class AgentPromptPaletteViewLayoutTest {
       )
 
       layoutPopupRoot(view.rootPanel)
+      val promptAreaInRoot = checkNotNull(findPromptArea(view.rootPanel, promptArea))
 
       assertThat(view.addContextButton.isVisible).isTrue()
       assertThat(view.composerContextPanel.isVisible).isFalse()
@@ -82,11 +108,22 @@ class AgentPromptPaletteViewLayoutTest {
       assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.generationSettingsPanel)).isFalse()
       assertThat(SwingUtilities.isDescendingFrom(view.launchTuningSummaryLink, view.rightHeaderPanel)).isFalse()
       assertThat(locationInRoot(view.addContextButton, view.rootPanel).x)
+        .isEqualTo(locationInRoot(promptAreaInRoot, view.rootPanel).x)
+      assertThat(rightInRoot(view.launchProfileLink, view.rootPanel))
+        .isEqualTo(rightInRoot(promptAreaInRoot, view.rootPanel))
+      assertThat(locationInRoot(view.addContextButton, view.rootPanel).x)
         .isLessThan(locationInRoot(view.launchProfileLink, view.rootPanel).x)
       assertThat(view.addContextButton.font.size).isEqualTo(JBUI.Fonts.smallFont().size)
       assertThat(view.launchProfileLink.font.size).isEqualTo(JBUI.Fonts.smallFont().size)
       assertThat(view.addContextButton.foreground).isEqualTo(UIUtil.getContextHelpForeground())
       assertThat(view.launchProfileLink.foreground).isEqualTo(UIUtil.getContextHelpForeground())
+
+      view.defaultProfileActionControl.setState(AgentPromptDefaultProfileActionState.MAKE_DEFAULT)
+      layoutPopupRoot(view.rootPanel)
+
+      assertThat(view.defaultProfileActionControl.component.border.getBorderInsets(view.defaultProfileActionControl.component).left).isEqualTo(6)
+      assertThat(rightInRoot(view.defaultProfileActionControl.component, view.rootPanel))
+        .isEqualTo(rightInRoot(promptAreaInRoot, view.rootPanel))
     }
   }
 
@@ -209,14 +246,17 @@ class AgentPromptPaletteViewLayoutTest {
       val initialLocation = locationInRoot(view.addContextButton, view.rootPanel)
       val firstChipLocation = locationInRoot(contextChips.component.components.first(), view.rootPanel)
       val promptEditorLocation = locationInRoot(view.promptEditorPanel, view.rootPanel)
-      val promptAreaLocation = locationInRoot(checkNotNull(findPromptArea(view.rootPanel, promptArea)), view.rootPanel)
+      val promptAreaInRoot = checkNotNull(findPromptArea(view.rootPanel, promptArea))
+      val promptAreaLocation = locationInRoot(promptAreaInRoot, view.rootPanel)
 
-      assertThat(initialLocation.x).isGreaterThanOrEqualTo(promptEditorLocation.x)
+      assertThat(initialLocation.x).isEqualTo(promptAreaLocation.x)
       assertThat(initialLocation.x).isLessThan(locationInRoot(view.launchProfileLink, view.rootPanel).x)
+      assertThat(firstChipLocation.x).isEqualTo(promptAreaLocation.x)
       assertThat(firstChipLocation.x).isGreaterThanOrEqualTo(promptEditorLocation.x)
       assertThat(firstChipLocation.y).isLessThan(promptAreaLocation.y)
       assertThat(SwingUtilities.isDescendingFrom(view.addContextButton, view.generationSettingsPanel)).isTrue()
       val firstAttachmentCard = contextAttachmentCards(contextChips.component).single()
+      assertThat(locationInRoot(firstAttachmentCard, view.rootPanel).x).isEqualTo(promptAreaLocation.x)
       assertThat(firstAttachmentCard.isOpaque).isFalse()
       assertThat(firstAttachmentCard.accessibleContext.accessibleName).isEqualTo("File: src/Main.java")
       val removeButton = contextRemoveButtons(firstAttachmentCard).single()
@@ -334,6 +374,151 @@ class AgentPromptPaletteViewLayoutTest {
   }
 
   @Test
+  fun contextChipsDoNotAddOuterTopGap() {
+    runInEdtAndWait {
+      val promptArea = EditorTextField()
+      val contextChips = AgentPromptContextChipsComponent {}
+      contextChips.render(
+        listOf(
+          createContextEntry(title = "File", body = "src/Main.java"),
+          createContextEntry(title = "Symbol", body = "main"),
+        )
+      )
+      val view = createPaletteView(
+        promptArea = promptArea,
+        contextChipsPanel = contextChips.component,
+      )
+
+      layoutPopupRoot(view.rootPanel)
+
+      val cards = contextAttachmentCards(contextChips.component)
+      assertThat(cards).hasSize(2)
+      assertThat(yInRoot(cards[0], view.rootPanel)).isEqualTo(yInRoot(contextChips.component, view.rootPanel))
+      assertThat(locationInRoot(cards[1], view.rootPanel).x - rightInRoot(cards[0], view.rootPanel)).isEqualTo(JBUI.scale(4))
+    }
+  }
+
+  @Test
+  fun contextChipsUseTypeSpecificIconsAndFullAccessibleNames() {
+    runInEdtAndWait {
+      val contextChips = AgentPromptContextChipsComponent {}
+      contextChips.render(
+        listOf(
+          createContextEntry(
+            rendererId = AgentPromptContextRendererIds.FILE,
+            title = "File",
+            body = "src/Main.kt",
+          ),
+          createContextEntry(
+            rendererId = AgentPromptContextRendererIds.PATHS,
+            title = "Files",
+            body = "dir: src",
+            payload = AgentPromptPayload.obj(
+              "entries" to AgentPromptPayload.arr(
+                AgentPromptPayload.obj(
+                  "kind" to AgentPromptPayload.str("dir"),
+                  "path" to AgentPromptPayload.str("src"),
+                )
+              )
+            ),
+          ),
+          createContextEntry(
+            rendererId = AgentPromptContextRendererIds.SYMBOL,
+            title = "Symbol",
+            body = "com.example.Main.run",
+          ),
+          createContextEntry(
+            rendererId = AgentPromptContextRendererIds.VCS_COMMITS,
+            title = "Commits",
+            body = "",
+            payload = AgentPromptPayload.obj(
+              "entries" to AgentPromptPayload.arr(
+                AgentPromptPayload.obj(
+                  "hash" to AgentPromptPayload.str("abc12345abcdef"),
+                  "subject" to AgentPromptPayload.str("Fix TEST-101 regression"),
+                )
+              )
+            ),
+          ),
+          createContextEntry(
+            rendererId = AgentPromptContextRendererIds.SNIPPET,
+            title = "Local Changes",
+            body = "Default changelist\n- modified: src/Main.kt",
+            itemId = AgentPromptContextItemIds.CHANGES_SELECTION,
+            source = "changes",
+          ),
+          createContextEntry(
+            rendererId = AgentPromptContextRendererIds.TEST_FAILURES,
+            title = "Tests",
+            body = "failed: Suite#testA",
+          ),
+        )
+      )
+
+      val labels = contextAttachmentLabels(contextChips.component)
+      assertThat(labels.take(5).map { it.text }).containsExactly(
+        "src/Main.kt",
+        "src",
+        "com.example.Main.run",
+        "Fix TEST-101 regression",
+        "Changes",
+      )
+      assertThat(labels[5].text).isNotBlank()
+      assertThat(labels.map { it.icon }).containsExactly(
+        AllIcons.FileTypes.Any_type,
+        AllIcons.Nodes.Folder,
+        AllIcons.Nodes.Method,
+        AllIcons.Vcs.CommitNode,
+        AllIcons.Vcs.Changelist,
+        AllIcons.RunConfigurations.TestState.Red2,
+      )
+
+      val cards = contextAttachmentCards(contextChips.component)
+      assertThat(cards.take(5).map { it.accessibleContext.accessibleName }).containsExactly(
+        "File: src/Main.kt",
+        "Files: src",
+        "Symbol: com.example.Main.run",
+        "Commits: Fix TEST-101 regression",
+        "Local Changes",
+      )
+      assertThat(cards[5].accessibleContext.accessibleName).startsWith("Tests")
+    }
+  }
+
+  @Test
+  fun screenshotContextChipUsesThumbnailBeforeGenericSnippetIcon() {
+    runInEdtAndWait {
+      val item = AgentPromptScreenshotContextItem.buildScreenshotContextItem(
+        title = "Pasted Image",
+        screenshot = BufferedImage(4, 4, BufferedImage.TYPE_INT_ARGB).apply {
+          val graphics = createGraphics()
+          try {
+            graphics.color = Color.RED
+            graphics.fillRect(0, 0, width, height)
+          }
+          finally {
+            graphics.dispose()
+          }
+        },
+        sourceId = "test.screenshot",
+        source = "test",
+        tempFilePrefix = "agent-prompt-chip-test-",
+      )
+      try {
+        val contextChips = AgentPromptContextChipsComponent {}
+        contextChips.render(listOf(ContextEntry(item = item)))
+
+        val label = contextAttachmentLabels(contextChips.component).single()
+        assertThat(label.text).isEqualTo("Pasted Image")
+        assertThat(label.icon).isNotSameAs(AllIcons.Actions.ListFiles)
+      }
+      finally {
+        AgentPromptScreenshotContextItem.deleteScreenshotContextFileIfPresent(item)
+      }
+    }
+  }
+
+  @Test
   fun enteringPromptTextKeepsSuggestionRowVisibleWithoutChangingPromptHeight() {
     runInEdtAndWait {
       val promptArea = EditorTextField()
@@ -427,12 +612,22 @@ class AgentPromptPaletteViewLayoutTest {
     }
   }
 
-  private fun createContextEntry(title: String, body: String): ContextEntry {
+  private fun createContextEntry(
+    title: String,
+    body: String,
+    rendererId: String = "test",
+    payload: AgentPromptPayloadValue = AgentPromptPayloadValue.Obj.EMPTY,
+    itemId: String? = null,
+    source: String = "test",
+  ): ContextEntry {
     return ContextEntry(
       item = AgentPromptContextItem(
-        rendererId = "test",
+        rendererId = rendererId,
         title = title,
         body = body,
+        payload = payload,
+        itemId = itemId,
+        source = source,
       )
     )
   }
@@ -489,6 +684,10 @@ class AgentPromptPaletteViewLayoutTest {
     return yInRoot(component, root) + component.height
   }
 
+  private fun rightInRoot(component: Component, root: JPanel): Int {
+    return locationInRoot(component, root).x + component.width
+  }
+
   private fun yCenterInRoot(component: Component, root: JPanel): Int {
     val location = locationInRoot(component, root)
     return location.y + component.height / 2
@@ -513,6 +712,12 @@ class AgentPromptPaletteViewLayoutTest {
   private fun contextRemoveButtons(root: Component): List<JButton> {
     return collectComponentsOfType(root, JButton::class.java).filter { button ->
       button.getClientProperty(CONTEXT_ATTACHMENT_REMOVE_PROPERTY) == true
+    }
+  }
+
+  private fun contextAttachmentLabels(root: Component): List<JBLabel> {
+    return contextAttachmentCards(root).map { card ->
+      collectComponentsOfType(card, JBLabel::class.java).single()
     }
   }
 
