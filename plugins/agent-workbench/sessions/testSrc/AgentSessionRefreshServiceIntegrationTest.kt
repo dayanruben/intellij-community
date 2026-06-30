@@ -190,6 +190,69 @@ class AgentSessionRefreshServiceIntegrationTest {
   }
 
   @Test
+  fun workingVisibleThreadCostReloadsAfterTtlWithoutStateRefresh() = runBlocking(Dispatchers.Default) {
+    var nowMs = 1_000L
+    val costLoadCount = AtomicInteger(0)
+
+    withService(
+      sessionSourcesProvider = {
+        listOf(
+          ScriptedSessionSource(
+            provider = AgentSessionProvider.from("claude"),
+            listFromOpenProject = { _, _ ->
+              listOf(
+                thread(
+                  id = "claude-1",
+                  updatedAt = 100L,
+                  activity = AgentThreadActivity.PROCESSING,
+                  provider = AgentSessionProvider.from("claude"),
+                )
+              )
+            },
+            loadThreadCostsProvider = { _, requestedThreads ->
+              val loadNumber = costLoadCount.incrementAndGet()
+              requestedThreads.associate { thread ->
+                thread.id to AgentSessionCost(
+                  amountUsd = BigDecimal(loadNumber),
+                  kind = AgentSessionCostKind.EXACT,
+                )
+              }
+            },
+          )
+        )
+      },
+      projectEntriesProvider = {
+        listOf(openProjectEntry(PROJECT_PATH, "Project A"))
+      },
+      currentTimeMillis = { nowMs },
+      visibleCostHydrationDelayMs = 10L,
+      workingThreadCostCacheTtlMs = 100L,
+    ) { service ->
+      service.refresh()
+
+      waitForCondition {
+        service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }
+          ?.threads
+          ?.singleOrNull()
+          ?.cost
+          ?.amountUsd == BigDecimal.ONE
+      }
+      assertThat(costLoadCount.get()).isEqualTo(1)
+
+      nowMs += 101L
+
+      waitForCondition {
+        service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }
+          ?.threads
+          ?.singleOrNull()
+          ?.cost
+          ?.amountUsd == BigDecimal.valueOf(2)
+      }
+      assertThat(costLoadCount.get()).isEqualTo(2)
+    }
+  }
+
+  @Test
   fun persistedWarmSnapshotCostSurvivesRefreshAndSkipsReload() = runBlocking(Dispatchers.Default) {
     val persistedWarmState = AgentSessionWarmStateService()
     persistedWarmState.setPathSnapshot(
@@ -345,7 +408,8 @@ class AgentSessionRefreshServiceIntegrationTest {
         service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }
           ?.threads
           ?.singleOrNull()
-          ?.activity == AgentThreadActivity.PROCESSING
+          ?.activityReport
+          ?.rowActivity == AgentThreadActivity.PROCESSING
       }
 
       waitForCondition {
@@ -1360,7 +1424,8 @@ class AgentSessionRefreshServiceIntegrationTest {
         service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }
           ?.threads
           ?.firstOrNull()
-          ?.activity == AgentThreadActivity.UNREAD
+          ?.activityReport
+          ?.rowActivity == AgentThreadActivity.UNREAD
       }
 
       service.markThreadAsRead(PROJECT_PATH, AgentSessionProvider.from("claude"), "claude-1", 100)
@@ -1369,14 +1434,15 @@ class AgentSessionRefreshServiceIntegrationTest {
         service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }
           ?.threads
           ?.firstOrNull()
-          ?.activity
+          ?.activityReport
+          ?.rowActivity
       ).isEqualTo(AgentThreadActivity.READY)
-      assertThat(warmState.getPathSnapshot(PROJECT_PATH)?.threads?.firstOrNull()?.activity)
+      assertThat(warmState.getPathSnapshot(PROJECT_PATH)?.threads?.firstOrNull()?.activityReport?.rowActivity)
         .isEqualTo(AgentThreadActivity.READY)
       val presentationKey = checkNotNull(
         AgentSessionThreadPresentationKey.create(PROJECT_PATH, AgentSessionProvider.from("claude"), "claude-1")
       )
-      assertThat(service<AgentSessionThreadPresentationModel>().resolve(presentationKey)?.activity)
+      assertThat(service<AgentSessionThreadPresentationModel>().resolve(presentationKey)?.activityReport?.rowActivity)
         .isEqualTo(AgentThreadActivity.READY)
     }
   }
@@ -1397,8 +1463,10 @@ class AgentSessionRefreshServiceIntegrationTest {
                     id = "claude-1",
                     updatedAt = 100,
                     provider = AgentSessionProvider.from("claude"),
-                    activity = AgentThreadActivity.PROCESSING,
-                    summaryActivity = AgentThreadActivity.UNREAD,
+                    activityReport = AgentThreadActivityReport(
+                      rowActivity = AgentThreadActivity.PROCESSING,
+                      chromeActivity = AgentThreadActivity.UNREAD,
+                    ),
                   )
                 )
               }
@@ -1419,7 +1487,8 @@ class AgentSessionRefreshServiceIntegrationTest {
         service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }
           ?.threads
           ?.firstOrNull()
-          ?.summaryActivity == AgentThreadActivity.UNREAD
+          ?.activityReport
+          ?.chromeActivity == AgentThreadActivity.UNREAD
       }
 
       service.markThreadAsRead(PROJECT_PATH, AgentSessionProvider.from("claude"), "claude-1", 100)
@@ -1427,12 +1496,12 @@ class AgentSessionRefreshServiceIntegrationTest {
       val runtimeThread = service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }
         ?.threads
         ?.firstOrNull()
-      assertThat(runtimeThread?.activity).isEqualTo(AgentThreadActivity.PROCESSING)
-      assertThat(runtimeThread?.summaryActivity).isEqualTo(AgentThreadActivity.READY)
+      assertThat(runtimeThread?.activityReport?.rowActivity).isEqualTo(AgentThreadActivity.PROCESSING)
+      assertThat(runtimeThread?.activityReport?.chromeActivity).isEqualTo(AgentThreadActivity.READY)
 
       val warmThread = warmState.getPathSnapshot(PROJECT_PATH)?.threads?.firstOrNull()
-      assertThat(warmThread?.activity).isEqualTo(AgentThreadActivity.PROCESSING)
-      assertThat(warmThread?.summaryActivity).isEqualTo(AgentThreadActivity.READY)
+      assertThat(warmThread?.activityReport?.rowActivity).isEqualTo(AgentThreadActivity.PROCESSING)
+      assertThat(warmThread?.activityReport?.chromeActivity).isEqualTo(AgentThreadActivity.READY)
 
       val presentationKey = checkNotNull(AgentSessionThreadPresentationKey.create(PROJECT_PATH, AgentSessionProvider.from("claude"), "claude-1"))
       assertThat(service<AgentSessionThreadPresentationModel>().resolve(presentationKey)?.activityReport)

@@ -321,7 +321,7 @@ object CommunityLibraryLicenses {
       .suppliedByOrganizations("SmartBear Software"),
 
     LibraryLicense("dbus-java", libraryName = "dbus-java", url = "https://github.com/hypfvieh/dbus-java")
-      .lgpl2("https://github.com/hypfvieh/dbus-java/blob/dbus-java-3.0/LICENSE")
+      .mit("https://github.com/hypfvieh/dbus-java/blob/dbus-java-parent-4.2.1/LICENSE")
       .suppliedByPersons("David M. <hypfvieh@googlemail.com>"),
 
     LibraryLicense("debugpy", version = LibraryLicense.CUSTOM_REVISION, attachedTo="intellij.python", url = "https://github.com/microsoft/debugpy")
@@ -682,11 +682,11 @@ object CommunityLibraryLicenses {
       ),
 
     LibraryLicense(libraryName = "jediterm-core", url = "https://github.com/JetBrains/jediterm")
-      .lgpl3("https://github.com/JetBrains/jediterm/blob/master/LICENSE-LGPLv3.txt")
+      .apache("https://github.com/JetBrains/jediterm/blob/master/LICENSE-APACHE-2.0.txt")
       .suppliedByOrganizations(Suppliers.JETBRAINS),
 
     LibraryLicense(libraryName = "jediterm-ui", url = "https://github.com/JetBrains/jediterm")
-      .lgpl3("https://github.com/JetBrains/jediterm/blob/master/LICENSE-LGPLv3.txt")
+      .apache("https://github.com/JetBrains/jediterm/blob/master/LICENSE-APACHE-2.0.txt")
       .suppliedByOrganizations(Suppliers.JETBRAINS),
 
     LibraryLicense("JetBrains Annotations", libraryName = "jetbrains-annotations", url = "https://github.com/JetBrains/java-annotations")

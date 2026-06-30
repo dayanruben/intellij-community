@@ -16,6 +16,7 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchError
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
+import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.platform.ai.agent.sessions.core.providers.InMemoryAgentSessionProviderRegistry
@@ -577,15 +578,18 @@ class AgentSessionLaunchServiceTest {
   @Test
   fun deferredNewSessionPromptLaunchCanRetryAfterRejectedPreparation() {
     val launchSpecAttempts = AtomicInteger(0)
-    val descriptor = TestAgentSessionProviderDescriptor(
+    val descriptor = object : TestAgentSessionProviderDescriptor(
       provider = AgentSessionProvider.from("codex"),
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
       cliAvailable = true,
-      newSessionLaunchSpecProvider = {
+      newSessionLaunchSpecProvider = { _ ->
         val attempt = launchSpecAttempts.incrementAndGet()
         AgentSessionTerminalLaunchSpec(command = listOf("test", "retry", attempt.toString()))
       },
-    )
+    ) {
+      override val supportedReasoningEfforts: Set<AgentPromptReasoningEffort>
+        get() = setOf(AgentPromptReasoningEffort.HIGH)
+    }
     val chatOpenExecutor = RecordingChatOpenExecutor()
 
     AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
@@ -616,6 +620,10 @@ class AgentSessionLaunchServiceTest {
             provider = AgentSessionProvider.from("codex"),
             projectPath = PROJECT_PATH,
             launchMode = AgentSessionLaunchMode.STANDARD,
+            generationSettings = AgentPromptGenerationSettings(
+              modelId = "gpt-5.1-codex",
+              reasoningEffort = AgentPromptReasoningEffort.HIGH,
+            ),
             initialMessageRequest = AgentPromptInitialMessageRequest(prompt = "Start after retry"),
           )
           val failedResult = handle.launch(rejectedRequest)
@@ -633,6 +641,7 @@ class AgentSessionLaunchServiceTest {
           val openRequest = checkNotNull(chatOpenExecutor.lastOpenNewChatRequest.get())
           assertThat(openRequest.launchSpec.command).containsExactly("test", "retry", "1")
           assertThat(openRequest.initialComposedMessage).isEqualTo("Start after retry")
+          assertThat(openRequest.generationSettings).isEqualTo(request.generationSettings)
 
           val duplicateResult = handle.launch(request)
           assertThat(duplicateResult.launched).isFalse()
@@ -802,6 +811,57 @@ class AgentSessionLaunchServiceTest {
           val openRequest = checkNotNull(chatOpenExecutor.lastOpenNewChatRequest.get())
           assertThat(openRequest.identity).isEqualTo(buildAgentSessionIdentity(provider, preallocatedSessionId))
           assertThat(openRequest.launchSpec.preallocatedSessionId).isEqualTo(preallocatedSessionId)
+        }
+      }
+    }
+  }
+
+  @Test
+  fun createNewSessionBuilderAndPreparedHandlerUsePreallocatedLaunchSpecSessionId() {
+    val provider = AgentSessionProvider.from("pi")
+    val preallocatedSessionId = "f174b4df-e942-49fe-bb30-8b5f8e7f4857"
+    val builderThreadIds = CopyOnWriteArrayList<String>()
+    val preparedThreadIds = CopyOnWriteArrayList<String>()
+    val descriptor = TestAgentSessionProviderDescriptor(
+      provider = provider,
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+      newSessionLaunchSpecProvider = {
+        AgentSessionTerminalLaunchSpec(
+          command = listOf("test", "new"),
+          preallocatedSessionId = preallocatedSessionId,
+        )
+      },
+    )
+    val chatOpenExecutor = RecordingChatOpenExecutor()
+
+    AgentSessionProviders.withRegistryForTest(InMemoryAgentSessionProviderRegistry(listOf(descriptor))) {
+      runBlocking(Dispatchers.Default) {
+        withTestServiceAndLaunch(
+          sessionSourcesProvider = { listOf(ScriptedSessionSource(provider = provider)) },
+          projectEntriesProvider = { listOf(openTestProjectEntry(PROJECT_PATH, "Project A")) },
+          chatOpenExecutor = chatOpenExecutor,
+        ) { _, launchService ->
+          launchService.createNewSession(
+            path = PROJECT_PATH,
+            provider = provider,
+            entryPoint = AgentWorkbenchEntryPoint.TREE_POPUP,
+            initialMessageRequestBuilder = { context ->
+              builderThreadIds += context.threadId
+              AgentPromptInitialMessageRequest(prompt = "Start task folder ${context.threadId}")
+            },
+            preparedLaunchHandler = { context ->
+              preparedThreadIds += context.threadId
+            },
+          )
+
+          waitForCondition { chatOpenExecutor.openNewChatCalls.get() == 1 }
+
+          val openRequest = checkNotNull(chatOpenExecutor.lastOpenNewChatRequest.get())
+          assertThat(openRequest.identity).isEqualTo(buildAgentSessionIdentity(provider, preallocatedSessionId))
+          assertThat(openRequest.initialComposedMessage).isEqualTo("Start task folder $preallocatedSessionId")
+          assertThat(builderThreadIds).containsExactly(preallocatedSessionId)
+          assertThat(preparedThreadIds).containsExactly(preallocatedSessionId)
         }
       }
     }

@@ -94,8 +94,9 @@ class SharedCodexAppServerService(serviceScope: CoroutineScope) {
     cwd: String,
     yolo: Boolean,
     model: String?,
+    reasoningEffort: String?,
   ): CodexPrestartedThread {
-    val session = createThreadInternal(cwd = cwd, yolo = yolo, model = model)
+    val session = createThreadInternal(cwd = cwd, yolo = yolo, model = model, reasoningEffort = reasoningEffort)
     val threadId = session.thread.id
     try {
       prestartedThreadSettings[threadId] = CodexPrestartedThreadSettings(
@@ -167,11 +168,24 @@ class SharedCodexAppServerService(serviceScope: CoroutineScope) {
     client.unarchiveThread(threadId)
   }
 
-  private suspend fun createThreadInternal(cwd: String, yolo: Boolean, model: String? = null) = if (yolo) {
-    client.createThreadSession(cwd = cwd, model = model, approvalPolicy = "on-request", sandbox = "workspace-write")
-  }
-  else {
-    client.createThreadSession(cwd = cwd, model = model)
+  private suspend fun createThreadInternal(
+    cwd: String,
+    yolo: Boolean,
+    model: String? = null,
+    reasoningEffort: String? = null,
+  ) = resolveCodexPrestartThreadOptions(
+    cwd = cwd,
+    yolo = yolo,
+    model = model,
+    reasoningEffort = reasoningEffort,
+  ).let { options ->
+    client.createThreadSession(
+      cwd = options.cwd,
+      model = options.model,
+      reasoningEffort = options.reasoningEffort,
+      approvalPolicy = options.approvalPolicy,
+      sandbox = options.sandbox,
+    )
   }
 }
 
@@ -183,6 +197,29 @@ internal data class CodexPrestartedThread(
 private data class CodexPrestartedThreadSettings(
   @JvmField val model: String,
 )
+
+internal data class CodexPrestartThreadOptions(
+  @JvmField val cwd: String,
+  @JvmField val model: String?,
+  @JvmField val reasoningEffort: String?,
+  @JvmField val approvalPolicy: String?,
+  @JvmField val sandbox: String?,
+)
+
+internal fun resolveCodexPrestartThreadOptions(
+  cwd: String,
+  yolo: Boolean,
+  model: String?,
+  reasoningEffort: String?,
+): CodexPrestartThreadOptions {
+  return CodexPrestartThreadOptions(
+    cwd = cwd,
+    model = model,
+    reasoningEffort = reasoningEffort,
+    approvalPolicy = if (yolo) "on-request" else null,
+    sandbox = if (yolo) "workspace-write" else null,
+  )
+}
 
 private const val CODEX_PLAN_COLLABORATION_MODE: String = "plan"
 private const val CODEX_DEFAULT_PLAN_REASONING_EFFORT: String = "medium"

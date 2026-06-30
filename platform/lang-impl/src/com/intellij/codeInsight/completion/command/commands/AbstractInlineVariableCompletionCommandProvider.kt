@@ -10,11 +10,14 @@ import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
 import com.intellij.idea.ActionsBundle
 import com.intellij.lang.refactoring.InlineActionHandler
 import com.intellij.openapi.application.WriteIntentReadAction
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.TextRange
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiWhiteSpace
@@ -35,6 +38,10 @@ abstract class AbstractInlineVariableCompletionCommandProvider : CommandProvider
 
   /**
    * Returns the element to inline when the caret is at [offset], or `null` if inlining is not applicable here.
+   *
+   * Invoked under a read action; implementations must not start their own progress or thread switching. The caller
+   * provides the appropriate threading context: the availability check runs it directly on a background thread, while
+   * the execute path wraps it in a modal progress.
    */
   protected abstract fun findElementToInline(offset: Int, psiFile: PsiFile, editor: Editor?): PsiElement?
 
@@ -62,36 +69,37 @@ abstract class AbstractInlineVariableCompletionCommandProvider : CommandProvider
     val highlightInfo = getHighlightRange(context.offset, context.psiFile)?.let {
       HighlightInfoLookup(it, EditorColors.SEARCH_RESULT_ATTRIBUTES, 0)
     }
-    return listOf(InlineVariableCompletionCommand(presentableName, highlightInfo, ::findElementToInline))
+    return listOf(InlineVariableCompletionCommand(presentableName, highlightInfo))
   }
-}
 
-private class InlineVariableCompletionCommand(
-  override val presentableName: @Nls String,
-  override val highlightInfo: HighlightInfoLookup?,
-  private val elementFinder: (offset: Int, psiFile: PsiFile, editor: Editor?) -> PsiElement?,
-) : CompletionCommand(), DumbAware {
+  private inner class InlineVariableCompletionCommand(
+    override val presentableName: @Nls String,
+    override val highlightInfo: HighlightInfoLookup?,
+  ) : CompletionCommand(), DumbAware {
 
-  override val synonyms: List<String>
-    get() = listOf("inline", "insert")
+    override val synonyms: List<String>
+      get() = listOf("inline", "insert")
 
-  override val additionalInfo: String?
-    get() = KeymapUtil.getFirstKeyboardShortcutText("Inline").takeIf { it.isNotEmpty() }
+    override val additionalInfo: String?
+      get() = KeymapUtil.getFirstKeyboardShortcutText("Inline").takeIf { it.isNotEmpty() }
 
-  override fun execute(offset: Int, psiFile: PsiFile, editor: Editor?) {
-    if (editor == null) return
-    val element = elementFinder(offset, psiFile, editor) ?: return
-    for (extension in InlineActionHandler.EP_NAME.extensionList) {
-      if (extension.canInlineElement(element)) {
-        WriteIntentReadAction.run {
-          extension.inlineElement(psiFile.project, editor, element)
+    override fun execute(offset: Int, psiFile: PsiFile, editor: Editor?) {
+      if (editor == null) return
+      val element = runWithModalProgressBlocking(ModalTaskOwner.guess(), presentableName) {
+        readAction { findElementToInline(offset, psiFile, editor) }
+      } ?: return
+      for (extension in InlineActionHandler.EP_NAME.extensionList) {
+        if (extension.canInlineElement(element)) {
+          WriteIntentReadAction.run {
+            extension.inlineElement(psiFile.project, editor, element)
+          }
+          return
         }
-        return
       }
     }
-  }
 
-  override fun getPreview(): IntentionPreviewInfo {
-    return IntentionPreviewInfo.Html(ActionsBundle.message("action.Inline.description"))
+    override fun getPreview(): IntentionPreviewInfo {
+      return IntentionPreviewInfo.Html(ActionsBundle.message("action.Inline.description"))
+    }
   }
 }

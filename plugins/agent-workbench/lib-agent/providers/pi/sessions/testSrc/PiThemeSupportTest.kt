@@ -200,8 +200,37 @@ class PiThemeSupportTest {
       "from \"./jbcentral.ts\"",
       "from \"./omlx.ts\"",
       "from \"./status.ts\"",
+      "from \"./taskFolders.ts\"",
       "from \"./theme.ts\"",
       "controlBridge = startControlBridge(ctx)",
+    )
+  }
+
+  @Test
+  fun bundledExtensionRegistersTaskFolderToolForPi() {
+    val entrypoint = readBundledPiExtensionText("agent-workbench-extension.ts")
+    val taskFolders = readBundledPiExtensionText("taskFolders.ts")
+
+    assertThat(entrypoint).contains(
+      "import {startControlBridge} from \"./control.ts\";",
+      "import {registerTaskFolderTools} from \"./taskFolders.ts\";",
+      "registerTaskFolderTools(pi, () => controlBridge);",
+    )
+    assertThat(taskFolders).contains(
+      "const TASK_FOLDER_TOOL_DEFINITIONS",
+      "pi.registerTool(defineTool({",
+      "name: \"agent_workbench_get_current_task_folder\"",
+      "name: \"agent_workbench_list_task_folders\"",
+      "name: \"agent_workbench_create_task_folder\"",
+      "name: \"agent_workbench_set_task_folder_metadata\"",
+      "name: \"agent_workbench_mark_task_folder_done\"",
+      "name: \"agent_workbench_delete_task_folder\"",
+      "parameters: Type.Object({",
+      "name: Type.String({description: \"Task folder name\"})",
+      "metadata: Type.Optional(Type.Record(Type.String(), Type.String({description: TASK_FOLDER_METADATA_DESCRIPTION})))",
+      "Use metadata key 'issue' for issue tracker ids and 'review' for review ids; do not use separate issue parameters.",
+      "const result = await bridge.request(TASK_FOLDER_REQUEST_TYPE, {operation: definition.operation, arguments: args});",
+      "details: result",
     )
   }
 

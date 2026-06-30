@@ -3,7 +3,6 @@
 
 package org.jetbrains.kotlin.idea.fir.extensions
 
-import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.PathMacroManager
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
@@ -26,6 +25,7 @@ import org.jetbrains.kotlin.analysis.api.platform.projectStructure.areCompilerPl
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaScriptModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
+import org.jetbrains.kotlin.analysis.low.level.api.fir.LLFirInternals
 import org.jetbrains.kotlin.cli.common.arguments.CommonCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.create
@@ -69,7 +69,7 @@ class KtCompilerPluginsCache private constructor(
      * it's better to have a more stable anchor such as a top-level file.
      */
     private val registrarForScriptModule: SynchronizedClearableLazy<ConcurrentMap<VirtualFile, Optional<CompilerPluginRegistrar.ExtensionStorage>>>,
-    private val onlyBundledPluginsEnabled: Boolean,
+    private val onlyBundledPluginsEnabled: Boolean
 ) {
 
     fun isPluginOfTypeRegistered(
@@ -132,7 +132,7 @@ class KtCompilerPluginsCache private constructor(
         module: KaModule
     ): CompilerPluginRegistrar.ExtensionStorage? {
         val compilerArguments = when (module) {
-            is KaSourceModule -> module.openapiModule.getCompilerArguments(this)
+            is KaSourceModule -> module.openapiModule.getCompilerArguments()
             is KaScriptModule -> {
                 val scriptDefinition = module.file.findScriptDefinition() ?: return null
                 val scriptConfiguration = scriptDefinition.compilationConfiguration
@@ -223,7 +223,7 @@ class KtCompilerPluginsCache private constructor(
         fun new(project: Project, onlyBundledPluginsEnabled: Boolean): KtCompilerPluginsCache {
             val pluginsClassLoader: UrlClassLoader = UrlClassLoader.build().apply {
                 parent(KaModule::class.java.classLoader)
-                val compilerArguments = ModuleManager.getInstance(project).modules.map { it.getCompilerArguments(null) }
+                val compilerArguments = ModuleManager.getInstance(project).modules.map { it.getCompilerArguments() }
                 val pluginClasspaths = collectSubstitutedPluginClasspaths(project, onlyBundledPluginsEnabled, compilerArguments)
                 files(pluginClasspaths)
             }.get()
@@ -304,38 +304,8 @@ class KtCompilerPluginsCache private constructor(
         }
 
         @Suppress("MISSING_DEPENDENCY_SUPERCLASS_IN_TYPE_ARGUMENT")
-        private fun Module.getCompilerArguments(cache: KtCompilerPluginsCache?): CommonCompilerArguments {
-            val facetOne = KotlinFacet.get(this)
-            val facetTwo = runReadActionBlocking { KotlinFacet.get(this) }
-
-            if (facetOne != facetTwo) {
-                LOG.info(
-                    """
-                    Facets are not equal: 
-                    First (no lock): $facetOne (${System.identityHashCode(facetOne)})
-                    Second (with lock): $facetTwo (${System.identityHashCode(facetTwo)})
-                    """.trimIndent()
-                )
-            }
-
-            LOG.info("Cache instance is $cache")
-
-            LOG.info("""
-                For module ${this.name} (${System.identityHashCode(this)}), facet is $facetOne (${System.identityHashCode(facetOne)})
-            """.trimIndent())
-
-            val (arguments, source) = (facetOne?.configuration?.settings?.mergedCompilerArguments?.let { it to "facet" }
-                ?: KotlinCommonCompilerArgumentsHolder.getInstance(project).settings.let { it to "project" })
-
-            LOG.info(
-                """
-                Compiler arguments from $source: $arguments
-                pluginClasspaths:${arguments.pluginClasspaths.toList()}
-                pluginOptions:${arguments.pluginOptions.toList()}
-                """.trimIndent(),
-            )
-
-            return facetOne?.configuration?.settings?.mergedCompilerArguments
+        private fun Module.getCompilerArguments(): CommonCompilerArguments {
+            return KotlinFacet.get(this)?.configuration?.settings?.mergedCompilerArguments
                 ?: KotlinCommonCompilerArgumentsHolder.getInstance(project).settings
         }
     }

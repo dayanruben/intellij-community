@@ -11,6 +11,7 @@ import {
   resolveStartupActivity,
 } from "./status.ts";
 import {subscribeShiftEnterTerminalInput} from "./terminalInput.ts";
+import {registerTaskFolderTools} from "./taskFolders.ts";
 import {applyCurrentTheme, startStateWatcher} from "./theme.ts";
 
 const MODEL_CATALOG_ENV = "AGENT_WORKBENCH_PI_MODEL_CATALOG";
@@ -32,6 +33,8 @@ export default async function agentWorkbenchTheme(pi: ExtensionAPI) {
   let lastStatusSignature: string | undefined;
   let lastSessionInfoSignature: string | undefined;
   let lastSessionInfoLeafId: string | null | undefined;
+
+  registerTaskFolderTools(pi, () => controlBridge);
 
   const updateLastStatusSignature = (signature: string) => {
     lastStatusSignature = signature;

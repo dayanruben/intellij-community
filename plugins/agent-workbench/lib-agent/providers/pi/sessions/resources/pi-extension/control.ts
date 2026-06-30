@@ -10,18 +10,24 @@ const STATUS_TOKEN_ENV = "AGENT_WORKBENCH_PI_STATUS_TOKEN";
 const CONTROL_ENDPOINT = process.env[CONTROL_ENDPOINT_ENV];
 const STATUS_TOKEN = process.env[STATUS_TOKEN_ENV];
 
-type AgentWorkbenchControlBridge = {
+export type AgentWorkbenchControlBridge = {
   setContext: (ctx: ExtensionContext) => void;
-  getCurrentTaskFolder: () => Promise<AgentWorkbenchTaskFolder | undefined>;
-  listTaskFolderThreads: (folderId?: string) => Promise<AgentWorkbenchTaskFolderThread[]>;
-  getTaskFolderMetadata: (folderId?: string) => Promise<Record<string, string> | undefined>;
-  setTaskFolderMetadata: (key: string, value: string, folderId?: string) => Promise<boolean>;
-  deleteTaskFolderMetadata: (key: string, folderId?: string) => Promise<boolean>;
+  request: <T = unknown>(type: string, payload?: Record<string, unknown>) => Promise<T>;
   close: () => void;
 };
 
+type AgentWorkbenchControlMessageType =
+  | "hello"
+  | "sessionState"
+  | "response"
+  | "navigateTree"
+  | "forkFromEntry"
+  | (string & {});
+
+type AgentWorkbenchControlSessionMessageType = "hello" | "sessionState";
+
 type AgentWorkbenchControlCommand = {
-  type?: string;
+  type?: AgentWorkbenchControlMessageType;
   requestId?: string;
   sessionId?: string;
   cwd?: string;
@@ -30,13 +36,7 @@ type AgentWorkbenchControlCommand = {
   ok?: boolean;
   cancelled?: boolean;
   error?: string;
-  folderId?: string;
-  key?: string;
-  value?: string;
-  changed?: boolean;
-  folder?: AgentWorkbenchTaskFolder | null;
-  threads?: AgentWorkbenchTaskFolderThread[];
-  metadata?: Record<string, string>;
+  result?: unknown;
 };
 
 type AgentWorkbenchControlThread = {
@@ -44,24 +44,6 @@ type AgentWorkbenchControlThread = {
   title: string;
   updatedAt: number;
   activity: string;
-};
-
-type AgentWorkbenchTaskFolder = {
-  path: string;
-  id: string;
-  name: string;
-  status: string;
-  metadata?: Record<string, string>;
-  createdAt?: number;
-  updatedAt?: number;
-};
-
-type AgentWorkbenchTaskFolderThread = {
-  path: string;
-  provider: string;
-  threadId: string;
-  folderId: string;
-  assignedAt?: number;
 };
 
 type AgentWorkbenchControlContext = ExtensionContext & {
@@ -99,7 +81,7 @@ export function startControlBridge(ctx: ExtensionContext): AgentWorkbenchControl
     onText: (message) => void handleControlMessage(message),
   });
 
-  const sendSessionMessage = (type: "hello" | "sessionState") => {
+  const sendSessionMessage = (type: AgentWorkbenchControlSessionMessageType) => {
     const sessionId = currentCtx.sessionManager.getSessionId();
     const cwd = currentCtx.cwd;
     if (sessionId === undefined || cwd === undefined || !socket.isOpen()) {
@@ -147,7 +129,7 @@ export function startControlBridge(ctx: ExtensionContext): AgentWorkbenchControl
 
   const sendRequest = (
     type: string,
-    payload: Partial<AgentWorkbenchControlCommand> = {},
+    payload: Record<string, unknown> = {},
   ): Promise<AgentWorkbenchControlCommand> => {
     const sessionId = currentCtx.sessionManager.getSessionId();
     const cwd = currentCtx.cwd;
@@ -265,25 +247,9 @@ export function startControlBridge(ctx: ExtensionContext): AgentWorkbenchControl
       currentCtx = nextCtx;
       sendSessionMessage("sessionState");
     },
-    getCurrentTaskFolder: async () => {
-      const response = requireOk(await sendRequest("getCurrentTaskFolder"));
-      return response.folder ?? undefined;
-    },
-    listTaskFolderThreads: async (folderId) => {
-      const response = requireOk(await sendRequest("listTaskFolderThreads", {folderId}));
-      return response.threads ?? [];
-    },
-    getTaskFolderMetadata: async (folderId) => {
-      const response = requireOk(await sendRequest("getTaskFolderMetadata", {folderId}));
-      return response.metadata;
-    },
-    setTaskFolderMetadata: async (key, value, folderId) => {
-      const response = requireOk(await sendRequest("setTaskFolderMetadata", {folderId, key, value}));
-      return response.changed === true;
-    },
-    deleteTaskFolderMetadata: async (key, folderId) => {
-      const response = requireOk(await sendRequest("deleteTaskFolderMetadata", {folderId, key}));
-      return response.changed === true;
+    request: async <T = unknown>(type: string, payload: Record<string, unknown> = {}): Promise<T> => {
+      const response = requireOk(await sendRequest(type, payload));
+      return response.result as T;
     },
     close: () => {
       for (const [requestId, pending] of pendingRequests) {

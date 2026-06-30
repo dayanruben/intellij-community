@@ -7,8 +7,11 @@ targets:
   - ../../lib-agent/providers/pi/sessions-filewatch/resources/intellij.platform.ai.agent.pi.sessions.filewatch.xml
   - ../../lib-agent/providers/pi/sessions/resources/pi-extension/agent-workbench-extension.ts
   - ../../lib-agent/providers/pi/sessions/resources/pi-extension/control.ts
+  - ../../lib-agent/providers/pi/sessions/resources/pi-extension/taskFolders.ts
   - ../../lib-agent/providers/pi/sessions/src/**/*.kt
   - ../../lib-agent/providers/pi/sessions/testSrc/*.kt
+  - ../../pi/awb/resources/intellij.agent.workbench.pi.awb.xml
+  - ../../pi/awb/src/PiTaskFolderControlHandler.kt
   - ../../lib-agent/sessions-core/src/providers/AgentSessionProviderDescriptor.kt
   - ../../sessions/src/settings/*.kt
   - ../../sessions/testSrc/settings/*.kt
@@ -72,6 +75,9 @@ Agent Workbench treats Pi as a first-class terminal-backed provider. Pi sessions
 - Listed Pi threads must be filtered by the session header `cwd`, use the header `id`, use the latest `session_info.name` as the title, fall back to the first user message, and sort newest first by latest user/assistant activity timestamp, header timestamp, or file mtime.
   [@test] ../../lib-agent/providers/pi/sessions/testSrc/PiSessionSourceTest.kt
 
+- Pi must expose session costs through the shared Agent Workbench `AgentSessionCostSource` hydration flow. Cost loading must parse assistant `message.usage` snapshots from the persisted Pi JSONL, prefix model ids as `[pi] <model>`, include input/output/cache-read/cache-write token counts, and apply Pi `totalTokens` fallback the same way as ccusage by filling missing output tokens only when output is otherwise absent.
+  [@test] ../../lib-agent/providers/pi/sessions/testSrc/PiSessionSourceTest.kt
+
 - Pi thread outlines must be loaded from persisted JSONL without launching Pi or parsing interactive `/tree` output. Outline loading follows Pi tree display semantics by showing normal visible conversation/work rows as a chronological top-level timeline, keeping tool details under their owning assistant/work rows, hiding bookkeeping nodes, and mapping conversation/tool records to the shared Agent Chat Structure View outline kinds.
   [@test] ../../lib-agent/providers/pi/sessions/testSrc/PiSessionSourceTest.kt
 
@@ -87,12 +93,17 @@ Agent Workbench treats Pi as a first-class terminal-backed provider. Pi sessions
 - The bundled Pi extension must open one private IDE-local WebSocket control connection for live Structure View actions. The WebSocket handshake must be authenticated with `Authorization: Bearer <launchToken>`, the first `hello` frame must bind the connection to the same launch-scoped token/session id/cwd, and every command must target the currently bound session id. The IDE may send `navigateTree` and `forkFromEntry` commands only when the live connection advertises those capabilities. Fork commands must use Pi `fork(entryId, { position: "at", withSession })` and return the fresh replacement session state captured from `withSession`; there is no long-polling, polling, slash-command, or unauthenticated fallback.
   [@test] ../../lib-agent/providers/pi/sessions/testSrc/PiExtensionControlWebSocketHandlerTest.kt
 
-- The same authenticated control WebSocket may carry explicit task-folder capability requests from the bundled Pi extension to the IDE:
-  `getCurrentTaskFolder`, `listTaskFolderThreads`, `getTaskFolderMetadata`, `setTaskFolderMetadata`, and
-  `deleteTaskFolderMetadata`. These requests must use the bound cwd/session id to resolve current-session context, use global folder id
-  for explicit folder mutations, must not inject prompt context automatically, and must return normal `response` frames with `ok`,
-  `requestId`, and the requested folder, assignment, metadata, or mutation result fields.
+- The same authenticated control WebSocket may carry explicit Agent Workbench task-folder capability requests from the bundled Pi extension's task-folder tools
+  to the IDE using `taskFolderRequest` frames with an `operation` string and nested `arguments` object. The base Pi sessions module must own
+  only authenticated transport, shared parsing, and extension-request routing; the task-folder request handler lives in the AWB Pi module and
+  depends on the AWB task-folder service. Supported operations cover current-folder lookup, folder listing, thread assignment listing,
+  create-and-assign, current-thread assign/unassign, rename, metadata set/delete, mark done, and delete. These requests must use the bound
+  cwd/session id to resolve current-session context, use global folder id for explicit folder mutations, must not inject prompt context
+  automatically, and must return normal `response` frames with `ok`, `requestId`, and a `result` object containing the requested folder,
+  assignment, metadata, or mutation fields. Metadata is ordinary string key/value data; `issue` and `review` are conventional keys, not
+  separate protocol fields.
   [@test] ../../lib-agent/providers/pi/sessions/testSrc/PiExtensionControlWebSocketHandlerTest.kt
+  [@test] ../../lib-agent/providers/pi/sessions/testSrc/PiThemeSupportTest.kt
 
 - Rename must append a Pi-compatible `session_info` entry to the session JSONL file while preserving the thread's current archive state. Archive and unarchive must use the same mechanism by writing a title with or without the shared `[archived] ` prefix; loaded Pi titles must strip that prefix for display and use it only as Agent Workbench archive state.
   [@test] ../../lib-agent/providers/pi/sessions/testSrc/PiSessionSourceTest.kt
