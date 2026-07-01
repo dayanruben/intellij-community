@@ -231,7 +231,6 @@ fleet/build/http
 fleet/build/kernel.plugins.processor
 fleet/build/platform
 fleet/build/s3
-fleet/build/scrambling
 fleet/build/sign
 fleet/bundles
 fleet/codecache
@@ -999,11 +998,11 @@ plugins/IntelliLang
 plugins/IntelliLang/backend
 plugins/IntelliLang/tests
 plugins/agent-workbench/ai-review
-plugins/agent-workbench/chat
 plugins/agent-workbench/claude/awb
-plugins/agent-workbench/codex/chat
 plugins/agent-workbench/codex/ide
 plugins/agent-workbench/codex/prompt-suggestions
+plugins/agent-workbench/codex/thread-view
+plugins/agent-workbench/engine
 plugins/agent-workbench/lib-agent/cli
 plugins/agent-workbench/lib-agent/common
 plugins/agent-workbench/lib-agent/core
@@ -1036,6 +1035,7 @@ plugins/agent-workbench/sessions-launch-config/backend
 plugins/agent-workbench/sessions-task-folders
 plugins/agent-workbench/sessions-toolwindow
 plugins/agent-workbench/settings
+plugins/agent-workbench/thread-view
 plugins/agent-workbench/ui
 plugins/agent-workbench/vcs-merge
 plugins/ant
@@ -1233,7 +1233,6 @@ plugins/junit/testFramework
 plugins/junit5_rt
 plugins/junit5_rt_tests
 plugins/junit6_rt
-plugins/junit6_rt_tests
 plugins/junit_rt
 plugins/keymaps/eclipse-keymap
 plugins/keymaps/netbeans5.6-keymap
@@ -1463,6 +1462,7 @@ plugins/laf/macos
 plugins/laf/win10
 plugins/lombok
 plugins/lombok/generated
+plugins/lombok/plugin
 plugins/lsp.ui
 plugins/lsp.ui/idea.product.modules
 plugins/markdown/compose

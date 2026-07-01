@@ -1,14 +1,14 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.chat.AgentChatConcreteTabSnapshot
-import com.intellij.agent.workbench.chat.AgentChatOpenTabsRefreshSnapshot
-import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindOutcome
-import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindReport
-import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindRequest
-import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindStatus
-import com.intellij.agent.workbench.chat.AgentChatPendingTabSnapshot
-import com.intellij.agent.workbench.chat.AgentChatTabRebindTarget
+import com.intellij.agent.workbench.thread.view.AgentThreadViewConcreteTabSnapshot
+import com.intellij.agent.workbench.thread.view.AgentThreadViewOpenTabsRefreshSnapshot
+import com.intellij.agent.workbench.thread.view.AgentThreadViewPendingTabRebindOutcome
+import com.intellij.agent.workbench.thread.view.AgentThreadViewPendingTabRebindReport
+import com.intellij.agent.workbench.thread.view.AgentThreadViewPendingTabRebindRequest
+import com.intellij.agent.workbench.thread.view.AgentThreadViewPendingTabRebindStatus
+import com.intellij.agent.workbench.thread.view.AgentThreadViewPendingTabSnapshot
+import com.intellij.agent.workbench.thread.view.AgentThreadViewTabRebindTarget
 import com.intellij.platform.ai.agent.core.AgentThreadActivity
 import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
 import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
@@ -23,6 +23,7 @@ import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefres
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceRefreshResult
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadPresentationUpdate
 import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.agent.workbench.sessions.model.ProjectEntry
@@ -753,7 +754,8 @@ class AgentSessionRefreshCoordinatorTest {
       delay(700.milliseconds)
 
       val projects = stateStore.snapshot().projects.associateBy { it.path }
-      assertThat(projects[PROJECT_PATH]?.threads?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }?.updatedAt).isEqualTo(100L)
+      assertThat(projects[PROJECT_PATH]?.threads?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }?.updatedAt).isEqualTo(
+        100L)
       assertThat(projects[projectB]?.threads?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }?.updatedAt).isEqualTo(100L)
       assertThat(closedRefreshInvocations[PROJECT_PATH]?.get() ?: 0).isEqualTo(0)
       assertThat(closedRefreshInvocations[projectB]?.get() ?: 0).isEqualTo(0)
@@ -868,7 +870,8 @@ class AgentSessionRefreshCoordinatorTest {
       delay(700.milliseconds)
 
       val projects = stateStore.snapshot().projects.associateBy { it.path }
-      assertThat(projects[PROJECT_PATH]?.threads?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }?.updatedAt).isEqualTo(100L)
+      assertThat(projects[PROJECT_PATH]?.threads?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }?.updatedAt).isEqualTo(
+        100L)
       assertThat(projects[projectB]?.threads?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }?.updatedAt).isEqualTo(100L)
       assertThat(closedRefreshInvocations[PROJECT_PATH]?.get() ?: 0).isEqualTo(0)
       assertThat(closedRefreshInvocations[projectB]?.get() ?: 0).isEqualTo(0)
@@ -926,7 +929,8 @@ class AgentSessionRefreshCoordinatorTest {
       delay(700.milliseconds)
 
       val projects = stateStore.snapshot().projects.associateBy { it.path }
-      assertThat(projects[PROJECT_PATH]?.threads?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }?.updatedAt).isEqualTo(100L)
+      assertThat(projects[PROJECT_PATH]?.threads?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }?.updatedAt).isEqualTo(
+        100L)
       assertThat(projects[projectB]?.threads?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }?.updatedAt).isEqualTo(100L)
       assertThat(closedRefreshInvocations[PROJECT_PATH]?.get() ?: 0).isEqualTo(0)
       assertThat(closedRefreshInvocations[projectB]?.get() ?: 0).isEqualTo(0)
@@ -1130,7 +1134,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openConcreteChatThreadIdentitiesByPathProvider = {
+      openConcreteThreadViewThreadIdentitiesByPathProvider = {
         mapOf(projectB to setOf(buildAgentSessionIdentity(AgentSessionProvider.from("codex"), "codex-open")))
       },
       presentationModel = presentationModel,
@@ -1165,6 +1169,53 @@ class AgentSessionRefreshCoordinatorTest {
           ?.firstOrNull { it.provider == AgentSessionProvider.from("codex") }
           ?.updatedAt
       ).isEqualTo(100L)
+    }
+  }
+
+  @Test
+  fun scopedPresentationHintUpdatesPresentationModelWhenStateDoesNotContainThread() = runBlocking(Dispatchers.Default) {
+    val updates = MutableSharedFlow<AgentSessionSourceUpdateEvent>(replay = 1, extraBufferCapacity = 1)
+    val presentationModel = AgentSessionThreadPresentationModel()
+    val provider = AgentSessionProvider.from("codex")
+    val source = ScriptedSessionSource(
+      provider = provider,
+      supportsUpdates = true,
+      updateEvents = updates,
+    )
+
+    withLoadingCoordinator(
+      sessionSourcesProvider = { listOf(source) },
+      isRefreshGateActive = { true },
+      presentationModel = presentationModel,
+    ) { coordinator, stateStore ->
+      stateStore.replaceProjects(
+        projects = listOf(
+          AgentProjectSessions(
+            path = PROJECT_PATH,
+            name = "Project A",
+            isOpen = true,
+            providerLoadStates = loadedProviderStates(provider),
+            threads = emptyList(),
+          ),
+        ),
+        visibleThreadCounts = emptyMap(),
+      )
+
+      coordinator.observeSessionSourceUpdates()
+      updates.tryEmit(
+        AgentSessionSourceUpdateEvent.hintsChanged(
+          scopedPaths = setOf(PROJECT_PATH),
+          presentationUpdatesByThreadId = mapOf(
+            "codex-new" to AgentSessionThreadPresentationUpdate(title = "Implement telemetry"),
+          ),
+        )
+      )
+
+      val expectedKey = presentationKey(PROJECT_PATH, provider, "codex-new")
+      waitForCondition {
+        presentationModel.snapshot()[expectedKey]?.title == "Implement telemetry"
+      }
+      assertThat(stateStore.snapshot().projects.single().threads).isEmpty()
     }
   }
 
@@ -1233,9 +1284,9 @@ class AgentSessionRefreshCoordinatorTest {
   }
 
   @Test
-  fun providerRefreshCollectsOpenChatSnapshotOncePerPass() = runBlocking(Dispatchers.Default) {
+  fun providerRefreshCollectsOpenThreadViewSnapshotOncePerPass() = runBlocking(Dispatchers.Default) {
     val closedRefreshInvocations = AtomicInteger(0)
-    val openChatSnapshotInvocations = AtomicInteger(0)
+    val openThreadViewSnapshotInvocations = AtomicInteger(0)
 
     withLoadingCoordinator(
       sessionSourcesProvider = {
@@ -1255,18 +1306,18 @@ class AgentSessionRefreshCoordinatorTest {
         )
       },
       isRefreshGateActive = { true },
-      openAgentChatSnapshotProvider = {
-        openChatSnapshotInvocations.incrementAndGet()
-        buildOpenChatRefreshSnapshot(openProjectPaths = setOf(PROJECT_PATH))
+      openAgentThreadViewSnapshotProvider = {
+        openThreadViewSnapshotInvocations.incrementAndGet()
+        buildOpenThreadViewRefreshSnapshot(openProjectPaths = setOf(PROJECT_PATH))
       },
     ) { coordinator, _ ->
       coordinator.refreshProviderScope(provider = AgentSessionProvider.from("codex"), scopedPaths = setOf(PROJECT_PATH))
 
       waitForCondition {
-        closedRefreshInvocations.get() == 1 && openChatSnapshotInvocations.get() == 1
+        closedRefreshInvocations.get() == 1 && openThreadViewSnapshotInvocations.get() == 1
       }
 
-      assertThat(openChatSnapshotInvocations.get()).isEqualTo(1)
+      assertThat(openThreadViewSnapshotInvocations.get()).isEqualTo(1)
       assertThat(closedRefreshInvocations.get()).isEqualTo(1)
     }
   }
@@ -1623,7 +1674,7 @@ class AgentSessionRefreshCoordinatorTest {
   }
 
   @Test
-  fun providerUpdateSynchronizesOpenChatTabPresentationWithoutExplicitRefresh() = runBlocking(Dispatchers.Default) {
+  fun providerUpdateSynchronizesOpenThreadViewTabPresentationWithoutExplicitRefresh() = runBlocking(Dispatchers.Default) {
     val updates = MutableSharedFlow<AgentSessionSourceUpdateEvent>(replay = 1, extraBufferCapacity = 1)
     var updatedTitle = "Initial title"
     val presentationModel = AgentSessionThreadPresentationModel()
@@ -1645,7 +1696,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       presentationModel = presentationModel,
     ) { coordinator, stateStore ->
       stateStore.replaceProjects(
@@ -1706,7 +1757,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       presentationModel = presentationModel,
     ) { coordinator, stateStore ->
       stateStore.replaceProjects(
@@ -1767,7 +1818,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       presentationModel = presentationModel,
     ) { coordinator, stateStore ->
       stateStore.replaceProjects(
@@ -1949,7 +2000,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       openPendingCodexTabsProvider = {
         mapOf(
           PROJECT_PATH to listOf(
@@ -1960,7 +2011,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -2032,8 +2083,8 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openAgentChatSnapshotProvider = {
-        buildOpenChatRefreshSnapshot(
+      openAgentThreadViewSnapshotProvider = {
+        buildOpenThreadViewRefreshSnapshot(
           openProjectPaths = setOf(PROJECT_PATH),
           pendingTabsByProvider = mapOf(
             AgentSessionProvider.from("claude") to mapOf(
@@ -2047,7 +2098,7 @@ class AgentSessionRefreshCoordinatorTest {
           ),
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -2122,7 +2173,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       openPendingCodexTabsProvider = {
         mapOf(
           PROJECT_PATH to listOf(
@@ -2133,7 +2184,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -2222,7 +2273,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       openPendingCodexTabsProvider = {
         mapOf(
           PROJECT_PATH to listOf(
@@ -2233,7 +2284,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -2338,7 +2389,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(identityPath) },
+      openThreadViewPathsProvider = { setOf(identityPath) },
       openPendingCodexTabsProvider = {
         mapOf(
           identityPath to listOf(
@@ -2350,7 +2401,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -2441,7 +2492,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       openPendingCodexTabsProvider = {
         mapOf(
           PROJECT_PATH to listOf(
@@ -2452,7 +2503,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -2554,7 +2605,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
     ) { coordinator, stateStore ->
       stateStore.replaceProjects(
         projects = listOf(
@@ -2617,7 +2668,10 @@ class AgentSessionRefreshCoordinatorTest {
             isOpen = true,
             providerLoadStates = loadedProviderStates(AgentSessionProvider.from("claude")),
             threads = listOf(
-              thread(id = "claude-1", updatedAt = 100L, provider = AgentSessionProvider.from("claude"), activity = AgentThreadActivity.READY)
+              thread(id = "claude-1",
+                     updatedAt = 100L,
+                     provider = AgentSessionProvider.from("claude"),
+                     activity = AgentThreadActivity.READY)
             ),
           )
         ),
@@ -3205,7 +3259,10 @@ class AgentSessionRefreshCoordinatorTest {
             isOpen = true,
             providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
-              thread(id = "codex-1", updatedAt = 100L, provider = AgentSessionProvider.from("codex"), activity = AgentThreadActivity.PROCESSING)
+              thread(id = "codex-1",
+                     updatedAt = 100L,
+                     provider = AgentSessionProvider.from("codex"),
+                     activity = AgentThreadActivity.PROCESSING)
             ),
           )
         ),
@@ -3275,7 +3332,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
     ) { coordinator, stateStore ->
       stateStore.replaceProjects(
         projects = listOf(
@@ -3348,7 +3405,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
     ) { coordinator, stateStore ->
       stateStore.replaceProjects(
         projects = listOf(
@@ -3401,7 +3458,7 @@ class AgentSessionRefreshCoordinatorTest {
       withLoadingCoordinator(
         sessionSourcesProvider = { listOf(source) },
         isRefreshGateActive = { true },
-        openChatPathsProvider = { setOf(PROJECT_PATH) },
+        openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
         openPendingCodexTabsProvider = {
           mapOf(
             PROJECT_PATH to listOf(
@@ -3412,7 +3469,7 @@ class AgentSessionRefreshCoordinatorTest {
             )
           )
         },
-        openChatPendingTabsBinder = { requestsByPath ->
+        openThreadViewPendingTabsBinder = { requestsByPath ->
           requestsByPath.forEach { (path, requests) ->
             requests.forEach { request ->
               rebindInvocations.add(
@@ -3778,8 +3835,14 @@ class AgentSessionRefreshCoordinatorTest {
             isOpen = true,
             providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
-              thread(id = "codex-1", updatedAt = 100L, provider = AgentSessionProvider.from("codex"), activity = AgentThreadActivity.PROCESSING),
-              thread(id = "codex-2", updatedAt = 200L, provider = AgentSessionProvider.from("codex"), activity = AgentThreadActivity.PROCESSING),
+              thread(id = "codex-1",
+                     updatedAt = 100L,
+                     provider = AgentSessionProvider.from("codex"),
+                     activity = AgentThreadActivity.PROCESSING),
+              thread(id = "codex-2",
+                     updatedAt = 200L,
+                     provider = AgentSessionProvider.from("codex"),
+                     activity = AgentThreadActivity.PROCESSING),
             ),
           )
         ),
@@ -3833,8 +3896,14 @@ class AgentSessionRefreshCoordinatorTest {
             isOpen = true,
             providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
-              thread(id = "codex-1", updatedAt = 100L, provider = AgentSessionProvider.from("codex"), activity = AgentThreadActivity.PROCESSING),
-              thread(id = "codex-2", updatedAt = 200L, provider = AgentSessionProvider.from("codex"), activity = AgentThreadActivity.PROCESSING),
+              thread(id = "codex-1",
+                     updatedAt = 100L,
+                     provider = AgentSessionProvider.from("codex"),
+                     activity = AgentThreadActivity.PROCESSING),
+              thread(id = "codex-2",
+                     updatedAt = 200L,
+                     provider = AgentSessionProvider.from("codex"),
+                     activity = AgentThreadActivity.PROCESSING),
             ),
           )
         ),
@@ -3952,7 +4021,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
     ) { coordinator, stateStore ->
       stateStore.replaceProjects(
         projects = listOf(
@@ -4000,7 +4069,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         mapOf(
@@ -4012,7 +4081,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         binderInvocations.incrementAndGet()
         failingPendingCodexRebindReport(
           requestsByPath = requestsByPath,
@@ -4132,7 +4201,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         mapOf(
@@ -4145,7 +4214,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -4210,7 +4279,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         mapOf(
@@ -4224,7 +4293,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -4295,7 +4364,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         mapOf(
@@ -4308,7 +4377,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         binderInvocations.incrementAndGet()
         failingPendingCodexRebindReport(
           requestsByPath = requestsByPath,
@@ -4363,7 +4432,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         mapOf(
@@ -4375,7 +4444,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -4445,7 +4514,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         mapOf(
@@ -4457,7 +4526,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         binderInvocations.incrementAndGet()
         failingPendingCodexRebindReport(
           requestsByPath = requestsByPath,
@@ -4519,7 +4588,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH, pendingPath) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH, pendingPath) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
     ) { coordinator, stateStore ->
       stateStore.replaceProjects(
@@ -4592,7 +4661,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH, outputPath) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH, outputPath) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
     ) { coordinator, stateStore ->
       stateStore.replaceProjects(
@@ -4782,7 +4851,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(pendingPath) },
+      openThreadViewPathsProvider = { setOf(pendingPath) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         mapOf(
@@ -4796,7 +4865,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -4844,7 +4913,7 @@ class AgentSessionRefreshCoordinatorTest {
   fun scopedRefreshDoesNotBindPendingTabsForProviderWithoutPendingEditorRebindSupport() = runBlocking(Dispatchers.Default) {
     val pendingPath = "/work/project-pending"
     val scopedRefreshSignals = MutableSharedFlow<Set<String>>(replay = 1, extraBufferCapacity = 1)
-    val rebindRequests = mutableListOf<AgentChatPendingTabRebindRequest>()
+    val rebindRequests = mutableListOf<AgentThreadViewPendingTabRebindRequest>()
     val pendingCreatedAtMs = System.currentTimeMillis() - 1_000L
 
     val source = ScriptedSessionSource(
@@ -4879,7 +4948,7 @@ class AgentSessionRefreshCoordinatorTest {
       sessionSourcesProvider = { listOf(source) },
       providerDescriptors = listOf(providerDescriptor),
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(pendingPath) },
+      openThreadViewPathsProvider = { setOf(pendingPath) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         mapOf(
@@ -4893,7 +4962,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         rebindRequests += requestsByPath.values.flatten()
         successfulPendingCodexRebindReport(requestsByPath)
       },
@@ -4954,7 +5023,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(pendingPath) },
+      openThreadViewPathsProvider = { setOf(pendingPath) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingClaudeTabsProvider = {
         mapOf(
@@ -4969,7 +5038,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -5010,7 +5079,8 @@ class AgentSessionRefreshCoordinatorTest {
       assertThat(rebindInvocations).hasSize(1)
       val invocation = rebindInvocations.single()
       assertThat(invocation.pendingThreadIdentity).isEqualTo(buildAgentSessionIdentity(AgentSessionProvider.from("claude"), "new-pending"))
-      assertThat(invocation.target.threadIdentity).isEqualTo(buildAgentSessionIdentity(AgentSessionProvider.from("claude"), "claude-resolved"))
+      assertThat(invocation.target.threadIdentity).isEqualTo(buildAgentSessionIdentity(AgentSessionProvider.from("claude"),
+                                                                                       "claude-resolved"))
       val project = stateStore.snapshot().projects.first { it.path == pendingPath }
       assertThat(project.threads.map { it.id }).containsExactly("claude-resolved")
     }
@@ -5059,7 +5129,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         mapOf(
@@ -5083,10 +5153,10 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openConcreteChatThreadIdentitiesByPathProvider = {
+      openConcreteThreadViewThreadIdentitiesByPathProvider = {
         mapOf(PROJECT_PATH to setOf(oldIdentity))
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             pendingRebindInvocations.add(
@@ -5119,7 +5189,7 @@ class AgentSessionRefreshCoordinatorTest {
   @Test
   fun concreteCodexScopedRefreshClearsStaleAnchorsWithoutRebinding() = runBlocking(Dispatchers.Default) {
     val closedRefreshInvocations = AtomicInteger(0)
-    val clearedTabs = mutableListOf<AgentChatConcreteTabSnapshot>()
+    val clearedTabs = mutableListOf<AgentThreadViewConcreteTabSnapshot>()
     val scopedRefreshSignals = MutableSharedFlow<Set<String>>(replay = 1, extraBufferCapacity = 1)
     val staleRequestedAtMs = System.currentTimeMillis() - 60_000L
     val oldIdentity = buildAgentSessionIdentity(AgentSessionProvider.from("codex"), "codex-old")
@@ -5160,7 +5230,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openConcreteCodexTabsAwaitingNewThreadRebindProvider = {
         mapOf(
@@ -5173,7 +5243,7 @@ class AgentSessionRefreshCoordinatorTest {
           )
         )
       },
-      openConcreteChatThreadIdentitiesByPathProvider = {
+      openConcreteThreadViewThreadIdentitiesByPathProvider = {
         mapOf(PROJECT_PATH to setOf(oldIdentity))
       },
       clearOpenConcreteCodexTabAnchors = { tabsByPath ->
@@ -5238,7 +5308,7 @@ class AgentSessionRefreshCoordinatorTest {
     withLoadingCoordinator(
       sessionSourcesProvider = { listOf(source) },
       isRefreshGateActive = { true },
-      openChatPathsProvider = { setOf(PROJECT_PATH) },
+      openThreadViewPathsProvider = { setOf(PROJECT_PATH) },
       codexScopedRefreshSignalsProvider = { scopedRefreshSignals },
       openPendingCodexTabsProvider = {
         if (provider == AgentSessionProvider.from("codex")) mapOf(PROJECT_PATH to listOf(pendingTab)) else emptyMap()
@@ -5246,10 +5316,10 @@ class AgentSessionRefreshCoordinatorTest {
       openPendingClaudeTabsProvider = {
         if (provider == AgentSessionProvider.from("claude")) mapOf(PROJECT_PATH to listOf(pendingTab)) else emptyMap()
       },
-      openConcreteChatThreadIdentitiesByPathProvider = {
+      openConcreteThreadViewThreadIdentitiesByPathProvider = {
         mapOf(PROJECT_PATH to setOf(resolvedThreadIdentity))
       },
-      openChatPendingTabsBinder = { requestsByPath ->
+      openThreadViewPendingTabsBinder = { requestsByPath ->
         requestsByPath.forEach { (path, requests) ->
           requests.forEach { request ->
             rebindInvocations.add(
@@ -5293,7 +5363,7 @@ private data class PendingCodexRebindInvocation(
   @JvmField val path: String,
   @JvmField val pendingTabKey: String,
   @JvmField val pendingThreadIdentity: String,
-  @JvmField val target: AgentChatTabRebindTarget,
+  @JvmField val target: AgentThreadViewTabRebindTarget,
 )
 
 private fun pendingCodexTab(
@@ -5303,7 +5373,7 @@ private fun pendingCodexTab(
   pendingCreatedAtMs: Long? = null,
   pendingFirstInputAtMs: Long? = null,
   pendingLaunchMode: String? = null,
-): AgentChatPendingTabSnapshot {
+): AgentThreadViewPendingTabSnapshot {
   return pendingTab(
     provider = AgentSessionProvider.from("codex"),
     pendingThreadIdentity = pendingThreadIdentity,
@@ -5323,9 +5393,9 @@ private fun pendingTab(
   pendingCreatedAtMs: Long? = null,
   pendingFirstInputAtMs: Long? = null,
   pendingLaunchMode: String? = null,
-): AgentChatPendingTabSnapshot {
+): AgentThreadViewPendingTabSnapshot {
   require(provider in setOf(AgentSessionProvider.from("claude"), AgentSessionProvider.from("codex")))
-  return AgentChatPendingTabSnapshot(
+  return AgentThreadViewPendingTabSnapshot(
     projectPath = projectPath,
     pendingTabKey = pendingTabKey,
     pendingThreadIdentity = pendingThreadIdentity,
@@ -5340,8 +5410,8 @@ private fun concreteCodexTab(
   projectPath: String = PROJECT_PATH,
   tabKey: String = "tab-$currentThreadIdentity",
   newThreadRebindRequestedAtMs: Long,
-): AgentChatConcreteTabSnapshot {
-  return AgentChatConcreteTabSnapshot(
+): AgentThreadViewConcreteTabSnapshot {
+  return AgentThreadViewConcreteTabSnapshot(
     projectPath = projectPath,
     tabKey = tabKey,
     currentThreadIdentity = currentThreadIdentity,
@@ -5350,22 +5420,22 @@ private fun concreteCodexTab(
 }
 
 private fun successfulPendingCodexRebindReport(
-  requestsByPath: Map<String, List<AgentChatPendingTabRebindRequest>>,
-): AgentChatPendingTabRebindReport {
-  val outcomesByPath = LinkedHashMap<String, List<AgentChatPendingTabRebindOutcome>>()
+  requestsByPath: Map<String, List<AgentThreadViewPendingTabRebindRequest>>,
+): AgentThreadViewPendingTabRebindReport {
+  val outcomesByPath = LinkedHashMap<String, List<AgentThreadViewPendingTabRebindOutcome>>()
   var requestedBindings = 0
   for ((path, requests) in requestsByPath) {
     requestedBindings += requests.size
     outcomesByPath[path] = requests.map { request ->
-      AgentChatPendingTabRebindOutcome(
+      AgentThreadViewPendingTabRebindOutcome(
         projectPath = path,
         request = request,
-        status = AgentChatPendingTabRebindStatus.REBOUND,
+        status = AgentThreadViewPendingTabRebindStatus.REBOUND,
         reboundFiles = 1,
       )
     }
   }
-  return AgentChatPendingTabRebindReport(
+  return AgentThreadViewPendingTabRebindReport(
     requestedBindings = requestedBindings,
     reboundBindings = requestedBindings,
     reboundFiles = requestedBindings,
@@ -5375,22 +5445,22 @@ private fun successfulPendingCodexRebindReport(
 }
 
 private fun failingPendingCodexRebindReport(
-  requestsByPath: Map<String, List<AgentChatPendingTabRebindRequest>>,
-): AgentChatPendingTabRebindReport {
-  val outcomesByPath = LinkedHashMap<String, List<AgentChatPendingTabRebindOutcome>>()
+  requestsByPath: Map<String, List<AgentThreadViewPendingTabRebindRequest>>,
+): AgentThreadViewPendingTabRebindReport {
+  val outcomesByPath = LinkedHashMap<String, List<AgentThreadViewPendingTabRebindOutcome>>()
   var requestedBindings = 0
   for ((path, requests) in requestsByPath) {
     requestedBindings += requests.size
     outcomesByPath[path] = requests.map { request ->
-      AgentChatPendingTabRebindOutcome(
+      AgentThreadViewPendingTabRebindOutcome(
         projectPath = path,
         request = request,
-        status = AgentChatPendingTabRebindStatus.PENDING_TAB_NOT_OPEN,
+        status = AgentThreadViewPendingTabRebindStatus.PENDING_TAB_NOT_OPEN,
         reboundFiles = 0,
       )
     }
   }
-  return AgentChatPendingTabRebindReport(
+  return AgentThreadViewPendingTabRebindReport(
     requestedBindings = requestedBindings,
     reboundBindings = 0,
     reboundFiles = 0,
@@ -5413,23 +5483,23 @@ private suspend fun withLoadingCoordinator(
   projectEntriesProvider: suspend () -> List<ProjectEntry> = { emptyList() },
   isRefreshGateActive: suspend () -> Boolean,
   providerDescriptors: List<AgentSessionProviderDescriptor> = testRefreshCoordinatorProviderDescriptors(),
-  openChatPathsProvider: suspend () -> Set<String> = { emptySet() },
-  selectedChatThreadIdentityProvider: suspend () -> Pair<AgentSessionProvider, String>? = { null },
+  openThreadViewPathsProvider: suspend () -> Set<String> = { emptySet() },
+  selectedThreadViewThreadIdentityProvider: suspend () -> Pair<AgentSessionProvider, String>? = { null },
   codexScopedRefreshSignalsProvider: () -> kotlinx.coroutines.flow.Flow<Set<String>> = {
     kotlinx.coroutines.flow.emptyFlow()
   },
-  openPendingCodexTabsProvider: suspend () -> Map<String, List<AgentChatPendingTabSnapshot>> = { emptyMap() },
-  openPendingClaudeTabsProvider: suspend () -> Map<String, List<AgentChatPendingTabSnapshot>> = { emptyMap() },
-  openConcreteCodexTabsAwaitingNewThreadRebindProvider: suspend () -> Map<String, List<AgentChatConcreteTabSnapshot>> = { emptyMap() },
-  openConcreteChatThreadIdentitiesByPathProvider: suspend () -> Map<String, Set<String>> = { emptyMap() },
-  openAgentChatSnapshotProvider: (suspend () -> AgentChatOpenTabsRefreshSnapshot)? = null,
+  openPendingCodexTabsProvider: suspend () -> Map<String, List<AgentThreadViewPendingTabSnapshot>> = { emptyMap() },
+  openPendingClaudeTabsProvider: suspend () -> Map<String, List<AgentThreadViewPendingTabSnapshot>> = { emptyMap() },
+  openConcreteCodexTabsAwaitingNewThreadRebindProvider: suspend () -> Map<String, List<AgentThreadViewConcreteTabSnapshot>> = { emptyMap() },
+  openConcreteThreadViewThreadIdentitiesByPathProvider: suspend () -> Map<String, Set<String>> = { emptyMap() },
+  openAgentThreadViewSnapshotProvider: (suspend () -> AgentThreadViewOpenTabsRefreshSnapshot)? = null,
   presentationModel: AgentSessionThreadPresentationModel = AgentSessionThreadPresentationModel(),
-  openChatPendingTabsBinder: suspend (Map<String, List<AgentChatPendingTabRebindRequest>>) -> AgentChatPendingTabRebindReport = {
+  openThreadViewPendingTabsBinder: suspend (Map<String, List<AgentThreadViewPendingTabRebindRequest>>) -> AgentThreadViewPendingTabRebindReport = {
     failingPendingCodexRebindReport(
       requestsByPath = it,
     )
   },
-  clearOpenConcreteCodexTabAnchors: (Map<String, List<AgentChatConcreteTabSnapshot>>) -> Int = { tabsByPath ->
+  clearOpenConcreteCodexTabAnchors: (Map<String, List<AgentThreadViewConcreteTabSnapshot>>) -> Int = { tabsByPath ->
     tabsByPath.values.sumOf { it.size }
   },
   scheduleVfsRefresh: (Set<String>) -> Unit = { _ -> },
@@ -5458,10 +5528,10 @@ private suspend fun withLoadingCoordinator(
       isVfsRefreshOnStatusUpdatesEnabled = isVfsRefreshOnStatusUpdatesEnabled,
       providerDescriptorsByIdProvider = { providerDescriptors },
       providerDescriptorProvider = { provider -> providerDescriptors.firstOrNull { it.provider == provider } },
-      openAgentChatSnapshotProvider = openAgentChatSnapshotProvider ?: {
-        buildOpenChatRefreshSnapshot(
-          openProjectPaths = openChatPathsProvider(),
-          selectedChatThreadIdentity = selectedChatThreadIdentityProvider(),
+      openAgentThreadViewSnapshotProvider = openAgentThreadViewSnapshotProvider ?: {
+        buildOpenThreadViewRefreshSnapshot(
+          openProjectPaths = openThreadViewPathsProvider(),
+          selectedThreadViewThreadIdentity = selectedThreadViewThreadIdentityProvider(),
           pendingTabsByProvider = mapOf(
             AgentSessionProvider.from("codex") to openPendingCodexTabsProvider(),
             AgentSessionProvider.from("claude") to openPendingClaudeTabsProvider(),
@@ -5469,12 +5539,12 @@ private suspend fun withLoadingCoordinator(
           concreteTabsAwaitingNewThreadRebindByProvider = mapOf(
             AgentSessionProvider.from("codex") to openConcreteCodexTabsAwaitingNewThreadRebindProvider(),
           ),
-          concreteThreadIdentitiesByPath = openConcreteChatThreadIdentitiesByPathProvider(),
+          concreteThreadIdentitiesByPath = openConcreteThreadViewThreadIdentitiesByPathProvider(),
         )
       },
       scopedRefreshSignalsProvider = { _ -> codexScopedRefreshSignalsProvider().map { paths -> threadsChangedEvent(scopedPaths = paths) } },
       presentationModel = presentationModel,
-      openAgentChatPendingTabsBinder = { _, requestsByPath -> openChatPendingTabsBinder(requestsByPath) },
+      openAgentThreadViewPendingTabsBinder = { _, requestsByPath -> openThreadViewPendingTabsBinder(requestsByPath) },
       clearOpenConcreteNewThreadRebindAnchors = { _, tabsByPath -> clearOpenConcreteCodexTabAnchors(tabsByPath) },
       archiveTransitionSuppressions = archiveTransitionSuppressions,
       loadingDelayMs = loadingDelayMs,

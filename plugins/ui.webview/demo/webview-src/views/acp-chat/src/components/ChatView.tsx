@@ -1,6 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
-import { marked } from "marked"
+import "@jetbrains/intellij-webview-controls/define/icon"
 import type { ClipboardEvent } from "react"
 import {
   AssistantRuntimeProvider,
@@ -16,6 +16,9 @@ import { useAcpChat } from "../runtime/useAcpChat"
 import { AgentSelector } from "./AgentSelector"
 import { ApprovalPrompt } from "./ApprovalPrompt"
 import { AuthPrompt } from "./AuthPrompt"
+import { ChatList } from "./ChatList"
+import { acpIconSrc, SEND_ICON_PATH } from "./icons/AcpChatIconSet"
+import { MarkdownRenderer } from "./MarkdownRenderer"
 import { ModelPicker } from "./ModelPicker"
 import { PlanView } from "./PlanView"
 import { SlashCommandMenu } from "./SlashCommandMenu"
@@ -26,7 +29,6 @@ const SMOOTH_TEXT_OPTIONS = { drainMs: 250, maxCharIntervalMs: 5, minCommitMs: 3
 
 export function ChatView() {
   const chat = useAcpChat()
-  const attachmentsEnabled = chat.promptCapabilities.image || chat.promptCapabilities.embeddedContext
   const notifyOnUnsupportedImagePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     if (chat.promptCapabilities.image) return
     const files = Array.from(event.clipboardData.files)
@@ -37,6 +39,8 @@ export function ChatView() {
   return (
     <AssistantRuntimeProvider runtime={chat.runtime}>
       <div className="acpChatLayout">
+        <ChatList chat={chat} />
+        <main className="acpChatMain">
         {chat.status ? <header className="acpChatHeader"><span className="acpChatStatus">{chat.status}</span></header> : null}
         <PlanView plan={chat.plan} />
         <ThreadPrimitive.Root className="acpThread">
@@ -65,39 +69,36 @@ export function ChatView() {
                       {() => <AttachmentChip removable />}
                     </ComposerPrimitive.Attachments>
                   </div>
-                  <ComposerPrimitive.Input className="acpComposerInput" placeholder="Message the agent…" onPaste={notifyOnUnsupportedImagePaste} />
+                  <ComposerPrimitive.Input className="acpComposerInput" placeholder="Type your task or use / for commands…" onPaste={notifyOnUnsupportedImagePaste} />
+                  <div className="acpComposerControls">
+                    <ModelPicker
+                      modes={chat.modes}
+                      configOptions={chat.configOptions}
+                      currentModeId={chat.currentModeId}
+                      disabled={chat.starting || chat.selectedAgentId == null}
+                      onSelectMode={chat.selectMode}
+                      onSelectConfigOption={chat.selectConfigOption}
+                    />
+                  </div>
+                  <ComposerPrimitive.Send className="acpComposerSend" aria-label="Send" title="Send">
+                    <jb-icon className="acpComposerSendIcon" src={acpIconSrc(SEND_ICON_PATH)} />
+                  </ComposerPrimitive.Send>
                 </div>
                 <SlashCommandMenu commands={chat.commands} />
-                {attachmentsEnabled ? (
-                  <ComposerPrimitive.AddAttachment className="acpComposerAttach" aria-label="Attach file" title="Attach file">
-                    <AttachmentIcon />
-                  </ComposerPrimitive.AddAttachment>
-                ) : (
-                  <button className="acpComposerAttach" type="button" aria-label="Attach file" title="Attach file" onClick={chat.notifyAttachmentCapabilitiesUnavailable}>
-                    <AttachmentIcon />
-                  </button>
-                )}
-                <ComposerPrimitive.Send className="acpComposerSend">Send</ComposerPrimitive.Send>
               </ComposerPrimitive.Root>
             </ComposerPrimitive.Unstable_TriggerPopoverRoot>
-            <div className="acpComposerToolbar">
+            <div className="acpComposerFooter">
               <AgentSelector
                 agents={chat.agents}
                 selectedAgentId={chat.selectedAgentId}
                 starting={chat.starting}
                 onSelect={chat.selectAgent}
-              />
-              <ModelPicker
-                modes={chat.modes}
-                configOptions={chat.configOptions}
-                currentModeId={chat.currentModeId}
-                disabled={chat.starting || chat.selectedAgentId == null}
-                onSelectMode={chat.selectMode}
-                onSelectConfigOption={chat.selectConfigOption}
+                onOpenConfig={chat.openAcpConfig}
               />
             </div>
           </div>
         </ThreadPrimitive.Root>
+        </main>
         {chat.permission ? <ApprovalPrompt permission={chat.permission} /> : null}
         {chat.auth ? <AuthPrompt auth={chat.auth} /> : null}
       </div>
@@ -149,14 +150,6 @@ function AttachmentChip(props: { removable?: boolean }) {
   )
 }
 
-function AttachmentIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false">
-      <path d="M5 10.5L10.6 4.9C11.4 4.1 11.4 2.8 10.6 2C9.8 1.2 8.5 1.2 7.7 2L2.4 7.3C1.3 8.4 1.3 10.2 2.4 11.3C3.5 12.4 5.3 12.4 6.4 11.3L11.3 6.4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 function RemoveIcon() {
   return (
     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
@@ -167,6 +160,5 @@ function RemoveIcon() {
 
 function MarkdownText() {
   const { text, status } = useSmooth(useMessagePartText(), SMOOTH_TEXT_OPTIONS)
-  const className = status.type === "running" ? "acpMarkdown acpMarkdown--streaming" : "acpMarkdown"
-  return <div className={className} dangerouslySetInnerHTML={{ __html: marked.parse(text, { async: false }) as string }} />
+  return <MarkdownRenderer text={text} streaming={status.type === "running"} />
 }

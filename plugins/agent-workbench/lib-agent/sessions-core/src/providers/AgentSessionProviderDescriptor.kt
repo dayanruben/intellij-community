@@ -13,8 +13,11 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
 import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionSurfaceId
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionSurfaces
 import com.intellij.openapi.project.Project
 import org.jetbrains.annotations.ApiStatus
+import java.nio.file.Path
 import javax.swing.Icon
 import javax.swing.JComponent
 
@@ -53,6 +56,25 @@ data class AgentInitialMessageProviderDispatchRequest(
 enum class AgentSessionProviderCliVisibilityPolicy {
   PROMINENT,
   DISCOVER_WHEN_AVAILABLE,
+}
+
+data class AgentSessionMenuCommand(
+  @JvmField val command: String,
+  @JvmField val argumentHint: String = "",
+)
+
+data class AgentSessionPromptCommandCompletionEntry(
+  @JvmField val command: String,
+  @JvmField val kind: AgentSessionPromptCommandCompletionKind,
+  @JvmField val sourceKey: String,
+  @JvmField val sourcePath: Path? = null,
+  @JvmField val argumentHint: String = "",
+)
+
+enum class AgentSessionPromptCommandCompletionKind {
+  MENU,
+  COMMAND,
+  SKILL,
 }
 
 typealias AgentThreadRenameAction = suspend (path: String, threadId: String, normalizedName: String) -> Boolean
@@ -229,14 +251,18 @@ data class AgentPendingSessionMetadata(
 )
 
 @ApiStatus.Internal
-interface AgentSessionProviderImplementation {
+interface AgentSessionProviderDescriptor {
+  val provider: AgentSessionProvider
+
   val displayNameKey: String
-  val displayNameFallback: String?
-    get() = null
+  val displayNameFallback: String
+    get() = provider.value.replaceFirstChar { char ->
+      if (char.isLowerCase()) char.titlecase() else char.toString()
+    }
   val cliDisplayNameKey: String
     get() = displayNameKey
-  val cliDisplayNameFallback: String?
-    get() = null
+  val cliDisplayNameFallback: String
+    get() = displayNameFallback
   val displayPriority: Int
     get() = Int.MAX_VALUE
   val newSessionLabelKey: String
@@ -289,8 +315,20 @@ interface AgentSessionProviderImplementation {
   val supportsPromptLaunch: Boolean
     get() = true
 
+  /**
+   * True when the provider itself can be launched as a built-in profile without an additional target.
+   */
+  val supportsDefaultLaunchProfile: Boolean
+    get() = supportsPromptLaunch
+
   val supportedLaunchModes: Set<AgentSessionLaunchMode>
     get() = setOf(AgentSessionLaunchMode.STANDARD)
+
+  val defaultLaunchSurface: AgentSessionSurfaceId
+    get() = AgentSessionSurfaces.TERMINAL
+
+  val supportedLaunchSurfaces: Set<AgentSessionSurfaceId>
+    get() = setOf(defaultLaunchSurface)
 
   val supportsPromptTabQueueShortcut: Boolean
     get() = false
@@ -305,7 +343,7 @@ interface AgentSessionProviderImplementation {
     get() = false
 
   /**
-   * Whether [sessionSource] emits path/thread-scoped refresh events precise enough for active chat tabs and outlines.
+   * Whether [sessionSource] emits path/thread-scoped refresh events precise enough for active threadView tabs and outlines.
    */
   val emitsScopedRefreshSignals: Boolean
     get() = false
@@ -325,7 +363,7 @@ interface AgentSessionProviderImplementation {
    * The required source contract is active-thread listing through [AgentSessionSource.listThreads]. Optional behaviors such as archived
    * rows, refresh events, cost hydration, and thread outlines are exposed by the focused `AgentSession*Source` capability interfaces.
    * Providers that support thread outlines must follow the role-aware [AgentSessionThreadOutlineSource.loadThreadOutline] contract so
-   * shared chat UI can render user prompts, assistant responses, and tool activity consistently across providers.
+   * shared threadView UI can render user prompts, assistant responses, and tool activity consistently across providers.
    */
   val sessionSource: AgentSessionSource
   val cliMissingMessageKey: String
@@ -345,17 +383,17 @@ interface AgentSessionProviderImplementation {
     get() = false
 
   /**
-   * True when closing the last editor tab for a concrete chat should archive the provider thread.
+   * True when closing the last editor tab for a concrete threadView should archive the provider thread.
    * This is separate from [supportsArchiveThread], which also covers explicit user-initiated archive actions.
    */
   val archiveOnLastEditorClose: Boolean
     get() = false
 
   /**
-   * Close any open chat tab before invoking [archiveThread]. Use this for providers whose archive transport resumes
+   * Close any open threadView tab before invoking [archiveThread]. Use this for providers whose archive transport resumes
    * the session non-interactively and cannot safely run while the same session is open in a terminal.
    */
-  val closeOpenChatBeforeArchiveThread: Boolean
+  val closeOpenThreadViewBeforeArchiveThread: Boolean
     get() = false
 
   /**
@@ -466,7 +504,26 @@ interface AgentSessionProviderImplementation {
     return emptyList()
   }
 
-  fun onConversationOpened() {
+  val menuCommands: List<AgentSessionMenuCommand>
+    get() = emptyList()
+
+  fun isMenuCommandPrompt(prompt: String): Boolean {
+    val token = prompt.leadingSlashCommandToken() ?: return false
+    return menuCommands.any { command -> command.command == token }
+  }
+
+  fun collectPromptCommandCompletionEntries(projectPaths: Iterable<String?>): List<AgentSessionPromptCommandCompletionEntry> {
+    return menuCommands.map { command ->
+      AgentSessionPromptCommandCompletionEntry(
+        command = command.command,
+        kind = AgentSessionPromptCommandCompletionKind.MENU,
+        sourceKey = command.command,
+        argumentHint = command.argumentHint,
+      )
+    }
+  }
+
+  fun onThreadViewOpened() {
   }
 
   fun recordNewSession(path: String, threadId: String, title: String, createdAtMs: Long) {
@@ -495,22 +552,9 @@ interface AgentSessionProviderImplementation {
 
   fun createToolWindowNorthComponent(project: Project): JComponent? = null
 
-  fun shouldStripContextForPrompt(prompt: String): Boolean = false
+  fun shouldStripContextForPrompt(prompt: String): Boolean = isMenuCommandPrompt(prompt)
 
   fun isCliMissingError(throwable: Throwable): Boolean = false
-}
-
-@ApiStatus.Internal
-interface AgentSessionProviderDescriptor : AgentSessionProviderImplementation {
-  val provider: AgentSessionProvider
-
-  override val displayNameFallback: String
-    get() = provider.value.replaceFirstChar { char ->
-      if (char.isLowerCase()) char.titlecase() else char.toString()
-    }
-
-  override val cliDisplayNameFallback: String
-    get() = displayNameFallback
 
   fun resolvePendingSessionMetadata(
     identity: String,
@@ -525,13 +569,21 @@ interface AgentSessionProviderDescriptor : AgentSessionProviderImplementation {
   }
 }
 
+private fun String.leadingSlashCommandToken(): String? {
+  val normalized = trimStart()
+  if (!normalized.startsWith('/')) {
+    return null
+  }
+  return normalized.takeWhile { char -> !char.isWhitespace() }
+}
+
 data class AgentSessionTerminalLaunchSpec(
   @JvmField val command: List<String>,
   @JvmField val envVariables: Map<String, String> = emptyMap(),
   @JvmField val workingDirectory: String? = null,
   /**
    * Uses the IDE Terminal default shell instead of an explicit non-shell command.
-   * The embedded Agent Chat terminal passes no `shellCommand` to the Terminal tab builder in this mode.
+   * The embedded Agent Thread View terminal passes no `shellCommand` to the Terminal tab builder in this mode.
    */
   @JvmField val useTerminalDefaultShell: Boolean = false,
   /**
@@ -545,7 +597,7 @@ data class AgentSessionTerminalLaunchSpec(
   @JvmField val containerSessionId: String? = null,
   /**
    * Provider-allocated concrete session id for new-session launches.
-   * When set, Agent Chat opens the tab with the concrete identity immediately instead of a synthetic `new-*` id.
+   * When set, Agent Thread View opens the tab with the concrete identity immediately instead of a synthetic `new-*` id.
    */
   @JvmField val preallocatedSessionId: String? = null,
 )

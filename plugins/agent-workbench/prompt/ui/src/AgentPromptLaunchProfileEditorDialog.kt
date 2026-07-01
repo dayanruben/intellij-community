@@ -67,6 +67,7 @@ internal class AgentPromptLaunchProfileEditorDialog(
   activeProfileId: String?,
   defaultProfileId: String?,
   builtInProfiles: List<AgentPromptLaunchProfile>,
+  private var profileIconsById: Map<String, Icon> = emptyMap(),
   private var providerEntries: List<ProviderEntry>,
   private val modelCatalogProvider: (String) -> List<AgentPromptGenerationModel>?,
   private val modelCatalogStateProvider: (String) -> AgentPromptGenerationModelCatalogState? = { providerId ->
@@ -232,6 +233,7 @@ internal class AgentPromptLaunchProfileEditorDialog(
     activeProfileId: String?,
     defaultProfileId: String?,
     builtInProfiles: List<AgentPromptLaunchProfile>,
+    profileIconsById: Map<String, Icon>,
     providerEntries: List<ProviderEntry>,
   ) {
     if (hasEditorChanges(selectedProfile())) {
@@ -241,6 +243,7 @@ internal class AgentPromptLaunchProfileEditorDialog(
     currentBuiltInProfiles = builtInProfiles
     selectedProfileId = activeProfileId
     currentDefaultProfileId = defaultProfileId
+    this.profileIconsById = profileIconsById
     this.providerEntries = providerEntries
     reloadListAndSelectProfile(selectedProfileId ?: managedProfiles.firstOrNull()?.id)
     renderSelectedProfile()
@@ -367,6 +370,11 @@ internal class AgentPromptLaunchProfileEditorDialog(
   fun profileListRendererTextForTest(profileId: String): String {
     val component = profileListRendererComponentForTest(profileId) ?: return ""
     return (component as SimpleColoredComponent).getCharSequence(false).toString()
+  }
+
+  fun profileListRendererIconForTest(profileId: String): Icon? {
+    val component = profileListRendererComponentForTest(profileId) ?: return null
+    return (component as SimpleColoredComponent).icon
   }
 
   fun isProfileListRendererNameBoldForTest(profileId: String): Boolean {
@@ -882,6 +890,7 @@ internal class AgentPromptLaunchProfileEditorDialog(
     val name = nameField.text.trim().takeIf { it.isNotEmpty() } ?: return null
     val provider = selectedProviderOption()?.takeIf { option -> option.isAvailable } ?: return null
     val launchMode = selectedLaunchMode() ?: return null
+    val launchTargetId = selectedLaunchTargetIdForDraft(existing, provider.providerId, launchMode)
     val modelId = currentModelIdFromModelCombo()
     val reasoningEffort = selectedReasoningEffortOption()?.effort ?: AgentPromptReasoningEffort.AUTO
     val planReasoningEffort = selectedPlanReasoningEffort()
@@ -891,12 +900,23 @@ internal class AgentPromptLaunchProfileEditorDialog(
       kind = existing?.kind ?: AgentPromptLaunchProfileKind.USER,
       providerId = provider.providerId,
       launchMode = launchMode,
+      launchTargetId = launchTargetId,
+      surfaceId = existing?.surfaceId,
       generationSettings = AgentPromptGenerationSettings(
         modelId = modelId,
         reasoningEffort = reasoningEffort,
         planReasoningEffort = planReasoningEffort,
       ),
     )
+  }
+
+  private fun selectedLaunchTargetIdForDraft(
+    existing: AgentPromptLaunchProfile?,
+    providerId: String,
+    launchMode: AgentSessionLaunchMode,
+  ): String? {
+    if (existing?.providerId != providerId || existing.launchMode != launchMode) return null
+    return existing.launchTargetId
   }
 
   private fun selectedProviderReasoningEfforts(): Set<AgentPromptReasoningEffort> {
@@ -1049,6 +1069,7 @@ internal class AgentPromptLaunchProfileEditorDialog(
   }
 
   private fun profileIcon(profile: AgentPromptLaunchProfile?): Icon {
+    profile?.id?.let { profileId -> profileIconsById[profileId] }?.let { icon -> return icon }
     val provider = profile?.providerId?.let(AgentSessionProvider::fromOrNull)
     return providerEntries.firstOrNull { entry -> entry.bridge.provider == provider }?.icon ?: AllIcons.Nodes.Plugin
   }

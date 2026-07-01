@@ -3,14 +3,14 @@
 
 package com.intellij.agent.workbench.sessions.service
 
-import com.intellij.agent.workbench.chat.AgentChatConcreteTabSnapshot
-import com.intellij.agent.workbench.chat.AgentChatOpenTabsRefreshSnapshot
-import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindReport
-import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindRequest
-import com.intellij.agent.workbench.chat.agentChatScopedRefreshSignals
-import com.intellij.agent.workbench.chat.clearOpenConcreteAgentChatNewThreadRebindAnchors
-import com.intellij.agent.workbench.chat.collectOpenAgentChatRefreshSnapshot
-import com.intellij.agent.workbench.chat.rebindOpenPendingAgentChatTabs
+import com.intellij.agent.workbench.thread.view.AgentThreadViewConcreteTabSnapshot
+import com.intellij.agent.workbench.thread.view.AgentThreadViewOpenTabsRefreshSnapshot
+import com.intellij.agent.workbench.thread.view.AgentThreadViewPendingTabRebindReport
+import com.intellij.agent.workbench.thread.view.AgentThreadViewPendingTabRebindRequest
+import com.intellij.agent.workbench.thread.view.agentThreadViewScopedRefreshSignals
+import com.intellij.agent.workbench.thread.view.clearOpenConcreteAgentThreadViewNewThreadRebindAnchors
+import com.intellij.agent.workbench.thread.view.collectOpenAgentThreadViewRefreshSnapshot
+import com.intellij.agent.workbench.thread.view.rebindOpenPendingAgentThreadViewTabs
 import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
 import com.intellij.platform.ai.agent.core.parseAgentWorkbenchPathOrNull
 import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
@@ -66,21 +66,21 @@ internal class AgentSessionRefreshCoordinator(
   private val scheduleVfsRefresh: (Set<String>) -> Unit = ::scheduleAgentWorkbenchVfsRefresh,
   private val isVfsRefreshOnStatusUpdatesEnabled: (String) -> Boolean =
     AgentWorkbenchProjectRuntimeConfigs::isRefreshVfsOnStatusUpdatesEnabled,
-  private val openAgentChatSnapshotProvider: suspend () -> AgentChatOpenTabsRefreshSnapshot = ::collectOpenAgentChatRefreshSnapshot,
+  private val openAgentThreadViewSnapshotProvider: suspend () -> AgentThreadViewOpenTabsRefreshSnapshot = ::collectOpenAgentThreadViewRefreshSnapshot,
   private val providerDescriptorsByIdProvider: () -> List<AgentSessionProviderDescriptor> = AgentSessionProviders::allProvidersById,
   private val providerDescriptorProvider: (AgentSessionProvider) -> AgentSessionProviderDescriptor? = AgentSessionProviders::find,
   scopedRefreshSignalsProvider: (AgentSessionProvider) -> Flow<AgentSessionSourceUpdateEvent> = { provider ->
-    agentChatScopedRefreshSignals(provider)
+    agentThreadViewScopedRefreshSignals(provider)
   },
   private val presentationModel: AgentSessionThreadPresentationModel = service<AgentSessionThreadPresentationModel>(),
-  private val openAgentChatPendingTabsBinder: suspend (
+  private val openAgentThreadViewPendingTabsBinder: suspend (
     AgentSessionProvider,
-    Map<String, List<AgentChatPendingTabRebindRequest>>,
-  ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingAgentChatTabs,
+    Map<String, List<AgentThreadViewPendingTabRebindRequest>>,
+  ) -> AgentThreadViewPendingTabRebindReport = ::rebindOpenPendingAgentThreadViewTabs,
   private val clearOpenConcreteNewThreadRebindAnchors: (
     AgentSessionProvider,
-    Map<String, List<AgentChatConcreteTabSnapshot>>,
-    ) -> Int = ::clearOpenConcreteAgentChatNewThreadRebindAnchors,
+    Map<String, List<AgentThreadViewConcreteTabSnapshot>>,
+  ) -> Int = ::clearOpenConcreteAgentThreadViewNewThreadRebindAnchors,
   private val archiveTransitionSuppressions: AgentSessionArchiveTransitionSuppressions = AgentSessionArchiveTransitionSuppressions(),
   loadingDelayMs: Long = DEFAULT_AGENT_SESSION_LOADING_DELAY_MS,
 ) {
@@ -121,7 +121,7 @@ internal class AgentSessionRefreshCoordinator(
     resolveProviderWarningMessage = { provider, throwable ->
       resolveProviderWarningMessage(providerDescriptorProvider = providerDescriptorProvider, provider = provider, t = throwable)
     },
-    openAgentChatSnapshotProvider = openAgentChatSnapshotProvider,
+    openAgentThreadViewSnapshotProvider = openAgentThreadViewSnapshotProvider,
     presentationModel = presentationModel,
   )
   private val refreshScheduler = AgentSessionRefreshScheduler(
@@ -163,9 +163,9 @@ internal class AgentSessionRefreshCoordinator(
       providerRefreshSupportByProvider.getOrPut(provider) {
         AgentSessionThreadRebindSupport(
           provider = provider,
-          canBindPendingOpenChatTabs = descriptor.supportsPendingEditorTabRebind,
+          canBindPendingOpenThreadViewTabs = descriptor.supportsPendingEditorTabRebind,
           canRebindConcreteNewThreads = descriptor.supportsNewThreadRebind,
-          openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinder,
+          openAgentThreadViewPendingTabsBinder = openAgentThreadViewPendingTabsBinder,
           clearOpenConcreteNewThreadRebindAnchors = clearOpenConcreteNewThreadRebindAnchors,
         )
       }
@@ -196,13 +196,17 @@ internal class AgentSessionRefreshCoordinator(
       update.state
     }
 
+    presentationUpdates = appendScopedPresentationUpdatesForUnknownThreads(
+      existingUpdates = presentationUpdates,
+      normalizedScopedPaths = normalizedScopedPaths,
+      presentationUpdatesByThreadId = presentationUpdatesByThreadId,
+    )
     LOG.debug {
       "Applied ${provider.value} source presentation hints " +
       "scopedPaths=${normalizedScopedPaths.debugSizeText()} " +
       "presentationUpdates=${presentationUpdatesByThreadId.size} " +
       "updates=${presentationUpdates.size}"
     }
-
     if (presentationUpdates.isEmpty()) {
       return
     }
@@ -294,7 +298,10 @@ internal class AgentSessionRefreshCoordinator(
       var loadingProviderLoadStates = buildLoadingProviderLoadStates(sessionSources.map { source -> source.provider })
       pathLoadController.runWithDelayedLoading(
         providerLoadStates = { loadingProviderLoadStates },
-        publishLoading = { providerLoadStates -> markProviderLoadStatesLoading(bootstrap = bootstrap, providerLoadStates = providerLoadStates) },
+        publishLoading = { providerLoadStates ->
+          markProviderLoadStatesLoading(bootstrap = bootstrap,
+                                        providerLoadStates = providerLoadStates)
+        },
       ) {
         val cliAvailabilityByProvider = resolveCliAvailabilityByProvider(sessionSources)
         val availableSessionSources = sessionSources.filter { source -> cliAvailabilityByProvider[source.provider] != false }
@@ -748,6 +755,40 @@ private data class PresentationHintThreadUpdate(
   @JvmField val presentationUpdates: List<AgentSessionThreadPresentationPatchUpdate>,
 )
 
+private fun appendScopedPresentationUpdatesForUnknownThreads(
+  existingUpdates: List<AgentSessionThreadPresentationPatchUpdate>,
+  normalizedScopedPaths: Set<String>?,
+  presentationUpdatesByThreadId: Map<String, AgentSessionThreadPresentationUpdate>,
+): List<AgentSessionThreadPresentationPatchUpdate> {
+  if (normalizedScopedPaths.isNullOrEmpty() || presentationUpdatesByThreadId.isEmpty()) {
+    return existingUpdates
+  }
+
+  val existingKeys = existingUpdates.mapTo(LinkedHashSet()) { update -> update.path to update.threadId }
+  val updates =
+    ArrayList<AgentSessionThreadPresentationPatchUpdate>(existingUpdates.size + normalizedScopedPaths.size * presentationUpdatesByThreadId.size)
+  updates.addAll(existingUpdates)
+  for (path in normalizedScopedPaths) {
+    for ((threadId, presentationUpdate) in presentationUpdatesByThreadId) {
+      if (presentationUpdate.title == null) {
+        continue
+      }
+      val key = path to threadId
+      if (key in existingKeys) {
+        continue
+      }
+      updates += AgentSessionThreadPresentationPatchUpdate(
+        path = path,
+        threadId = threadId,
+        title = presentationUpdate.title,
+        activityReport = presentationUpdate.activityReport,
+        updatedAt = presentationUpdate.updatedAt,
+      )
+    }
+  }
+  return updates
+}
+
 private fun applyThreadPresentationHints(
   state: AgentSessionsState,
   provider: AgentSessionProvider,
@@ -849,7 +890,8 @@ private fun applyThreadPresentationHintsForPath(
           activityReport = resolvedUpdate.activityReport,
           updatedAt = resolvedUpdate.updatedAt,
         )
-        updatedThread = thread.copy(title = resolvedUpdate.title, activityReport = resolvedUpdate.activityReport, updatedAt = resolvedUpdate.updatedAt)
+        updatedThread =
+          thread.copy(title = resolvedUpdate.title, activityReport = resolvedUpdate.activityReport, updatedAt = resolvedUpdate.updatedAt)
       }
     }
 

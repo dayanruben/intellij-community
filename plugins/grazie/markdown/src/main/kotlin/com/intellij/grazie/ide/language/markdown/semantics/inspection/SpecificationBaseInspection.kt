@@ -12,7 +12,7 @@ import com.intellij.grazie.cloud.GrazieCloudConnector
 import com.intellij.grazie.cloud.GrazieCloudConnector.Companion.hasQuota
 import com.intellij.grazie.cloud.GrazieCloudConnector.Companion.seemsCloudConnected
 import com.intellij.grazie.ide.language.markdown.semantics.analyzer.SpecificationAnalyzer
-import com.intellij.grazie.ide.language.markdown.semantics.inspection.quickfix.ReplacementQuickFix
+import com.intellij.grazie.ide.language.markdown.semantics.inspection.quickfix.SpecificationReplacementQuickFix
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.registry.Registry
@@ -21,12 +21,13 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.SmartPointerManager
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownFile
 import org.jetbrains.annotations.ApiStatus
+import java.util.UUID
 
 @ApiStatus.Internal
 @ApiStatus.Experimental
 abstract class SpecificationBaseInspection<T> : LocalInspectionTool() {
 
-  open fun reportProblem(holder: ProblemsHolder, file: PsiFile, issue: LlmIssue<T>) {
+  private fun reportProblem(holder: ProblemsHolder, file: PsiFile, id: UUID, issue: LlmIssue<T>) {
     if (issue.startOffset() == -1 && issue.endOffset() == -1) {
       thisLogger().warn("No occurrences found by ${javaClass.name} in text")
       return
@@ -35,7 +36,11 @@ abstract class SpecificationBaseInspection<T> : LocalInspectionTool() {
     val range = TextRange(issue.startOffset(), issue.endOffset())
     val underline = SmartPointerManager.getInstance(file.project).createSmartPsiFileRangePointer(file, range)
     val replacements = issue.replacements
-    val fixes = if (replacements.isNotEmpty()) ReplacementQuickFix(underline, replacements).getAllAsFixes().toTypedArray() else emptyArray()
+    val fixes = if (replacements.isNotEmpty()) {
+      SpecificationReplacementQuickFix(id, underline, replacements).getAllAsFixes().toTypedArray()
+    } else {
+      emptyArray()
+    }
     val descriptor = ProblemDescriptorBase(
       file, file, issue.message, fixes,
       ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
@@ -59,18 +64,22 @@ abstract class SpecificationBaseInspection<T> : LocalInspectionTool() {
         // We need to filter out HTML one otherwise it's going to be analyzed twice
         if (file !is MarkdownFile) return
 
-        if (!isAgentMarkdownFile(file)) {
-          thisLogger().info("${file.name} is not agent-like")
+        if (!isSpecificationLikeFile(file)) {
+          thisLogger().info("${file.name} is not specification-like")
           return
         }
         val analyzer = getAnalyzer(file) ?: return
-        SpecificationAnalyzer.analyze(analyzer, file, client)
-          .forEach { problem -> reportProblem(holder, file, problem) }
+        val (id, issues) = SpecificationAnalyzer.analyze(analyzer, file, client)
+        issues.forEach { reportProblem(holder, file, id, it) }
       }
     }
   }
 
-  private fun isAgentMarkdownFile(file: PsiFile): Boolean = AGENT_MARKDOWN_FILE_NAME_PATTERN.matches(file.name)
+  private fun isSpecificationLikeFile(file: PsiFile): Boolean {
+    if (SPECIFICATION_LIKE_PATTERN.matches(file.name)) return true
+    val pattern = Regex(Registry.stringValue("grazie.specification.semantics.specification.pattern"))
+    return pattern.matches(file.virtualFile.path)
+  }
 
   private fun validateAndGetClient(isOnTheFly: Boolean): SuspendableAPIGatewayClient? {
     if (!isOnTheFly) return null
@@ -79,7 +88,7 @@ abstract class SpecificationBaseInspection<T> : LocalInspectionTool() {
   }
 
   companion object {
-    private val AGENT_MARKDOWN_FILE_NAME_PATTERN = Regex(
+    private val SPECIFICATION_LIKE_PATTERN = Regex(
       "(agents|agent|ai|claude|copilot-instructions|prompt|skill|system[-_]prompt|spec|architecture)\\.md",
       RegexOption.IGNORE_CASE,
     )

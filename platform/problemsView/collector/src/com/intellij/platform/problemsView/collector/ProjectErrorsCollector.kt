@@ -10,7 +10,9 @@ import com.intellij.analysis.problemsView.ProblemsProvider
 import com.intellij.analysis.problemsView.toolWindow.SetUpdateState
 import com.intellij.analysis.problemsView.toolWindow.splitApi.HighlightingBaseProblem
 import com.intellij.analysis.problemsView.toolWindow.splitApi.ProblemEvent
+import com.intellij.build.FlowWithHistory
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
@@ -18,34 +20,26 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.onStart
 import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.atomic.AtomicInteger
 
 @ApiStatus.Internal
-class ProjectErrorsCollector(val project: Project) : ProblemsCollector {
+class ProjectErrorsCollector(val project: Project, cs: CoroutineScope) : ProblemsCollector {
   private val providerClassFilter = Registry.stringValue("ide.problems.view.provider.class.filter").split(" ,/|").toSet()
   private val fileProblems = mutableMapOf<VirtualFile, MutableSet<FileProblem>>()
   private val otherProblems = mutableSetOf<Problem>()
   private val problemCount = AtomicInteger()
 
-  private val problemEvents = MutableSharedFlow<ProblemEvent>(replay = 0, extraBufferCapacity = 100)
+  private val problemEvents = ProjectErrorsEventFlow(cs)
 
   init {
     VirtualFileManager.getInstance().addAsyncFileListener({ onVfsChanges(it); null }, project)
   }
 
   fun getProblemEventsFlow(): Flow<ProblemEvent> {
-    return problemEvents.onStart {
-      val allProblems = synchronized(fileProblems) { fileProblems.values.flatten() } +
-                        synchronized(otherProblems) { otherProblems.toList() }
-
-      allProblems.forEach { problem ->
-        emit(ProblemEvent.Appeared(problem))
-      }
-    }
+    return problemEvents.getFlowWithHistory()
   }
 
   override fun getProblemCount(): Int = problemCount.get()
@@ -149,15 +143,15 @@ class ProjectErrorsCollector(val project: Project) : ProblemsCollector {
   }
 
   private fun emitProblemAppeared(problem: Problem) {
-    problemEvents.tryEmit(ProblemEvent.Appeared(problem))
+    problemEvents.problemAppeared(problem)
   }
 
   private fun emitProblemDisappeared(problem: Problem) {
-    problemEvents.tryEmit(ProblemEvent.Disappeared(problem))
+    problemEvents.problemDisappeared(problem)
   }
 
   private fun emitProblemUpdated(problem: Problem) {
-    problemEvents.tryEmit(ProblemEvent.Updated(problem))
+    problemEvents.problemUpdated(problem)
   }
 
   private fun onVfsChanges(events: List<VFileEvent>) {
@@ -172,6 +166,93 @@ class ProjectErrorsCollector(val project: Project) : ProblemsCollector {
   companion object {
     fun getInstance(project: Project): ProjectErrorsCollector {
       return ProblemsCollector.getInstance(project) as ProjectErrorsCollector
+    }
+  }
+
+  private class ProjectErrorsEventFlow(scope: CoroutineScope) : FlowWithHistory<ProblemEvent>(scope) {
+    private val fileProblems = mutableMapOf<VirtualFile, MutableSet<FileProblem>>()
+    private val otherProblems = mutableSetOf<Problem>()
+
+    override fun getHistory(): List<ProblemEvent> {
+      return fileProblems.values.flatten().map { ProblemEvent.Appeared(it) } +
+             otherProblems.map { ProblemEvent.Appeared(it) }
+    }
+
+    fun problemAppeared(problem: Problem) =
+      problemAppearedOrUpdated(
+        problem,
+        "ProblemEvent.Appeared",
+        shouldAlreadyExist = false
+      ) { ProblemEvent.Appeared(it) }
+
+    fun problemDisappeared(problem: Problem) = updateHistoryAndEmit {
+      if (removeProblem(problem)) {
+        ProblemEvent.Disappeared(problem)
+      }
+      else {
+        logDroppedEvent("ProblemEvent.Disappeared", problem, "the problem is not in history")
+        null
+      }
+    }
+
+    fun problemUpdated(problem: Problem) =
+      problemAppearedOrUpdated(
+        problem,
+        "ProblemEvent.Updated",
+        shouldAlreadyExist = true
+      ) { ProblemEvent.Updated(it) }
+
+    private fun problemAppearedOrUpdated(
+      problem: Problem,
+      eventName: String,
+      shouldAlreadyExist: Boolean,
+      eventFactory: (Problem) -> ProblemEvent,
+    ) = updateHistoryAndEmit {
+      if (containsProblem(problem) != shouldAlreadyExist) {
+        val reason = when (shouldAlreadyExist) {
+          true -> "the problem is not in history"
+          false -> "the problem is already in history"
+        }
+        logDroppedEvent(eventName, problem, reason)
+        return@updateHistoryAndEmit null
+      }
+      removeProblem(problem)
+      addProblem(problem)
+      eventFactory(problem)
+    }
+
+    private fun logDroppedEvent(eventName: String, problem: Problem, reason: String) {
+      thisLogger().debug("Dropping $eventName event because $reason: $problem")
+    }
+
+    private fun containsProblem(problem: Problem): Boolean {
+      return when (problem) {
+        is FileProblem -> fileProblems[problem.file]?.contains(problem) == true
+        else -> otherProblems.contains(problem)
+      }
+    }
+
+    private fun addProblem(problem: Problem) {
+      when (problem) {
+        is FileProblem -> fileProblems.computeIfAbsent(problem.file) { mutableSetOf() }.add(problem)
+        else -> otherProblems.add(problem)
+      }
+    }
+
+    private fun removeProblem(problem: Problem): Boolean {
+      return when (problem) {
+        is FileProblem -> {
+          var removed = false
+          fileProblems[problem.file]?.let { problems ->
+            removed = problems.remove(problem)
+            if (problems.isEmpty()) {
+              fileProblems.remove(problem.file)
+            }
+          }
+          removed
+        }
+        else -> otherProblems.remove(problem)
+      }
     }
   }
 }

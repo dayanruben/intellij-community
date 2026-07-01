@@ -11,7 +11,7 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
 import com.intellij.agent.workbench.prompt.ui.captureNewTaskPromptLaunchRequest
 import com.intellij.agent.workbench.sessions.ScriptedSessionSource
-import com.intellij.agent.workbench.sessions.assertNewThreadPromptLaunchOpensNewChat
+import com.intellij.agent.workbench.sessions.assertNewThreadPromptLaunchOpensNewThreadView
 import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchAction
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
@@ -19,7 +19,6 @@ import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessag
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryChannel
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryStatus
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.platform.ai.agent.sessions.core.providers.withProvider
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.junit5.TestApplication
 import kotlinx.coroutines.runBlocking
@@ -48,7 +47,7 @@ class CodexNewThreadPromptLaunchIntegrationTest {
     assertThat(request.initialMessageRequest.providerOptionIds).containsExactly(AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE)
     assertThat(request.targetThreadId).isNull()
 
-    val observation = assertNewThreadPromptLaunchOpensNewChat(descriptor = descriptor, request = request)
+    val observation = assertNewThreadPromptLaunchOpensNewThreadView(descriptor = descriptor, request = request)
 
     assertThat(observation.normalizedPath).isEqualTo(PROJECT_PATH)
     assertThat(observation.identity).isEqualTo("codex:$RECORDED_PLAN_THREAD_ID")
@@ -78,7 +77,7 @@ class CodexNewThreadPromptLaunchIntegrationTest {
     val startupBackend = RecordingThreadStartupBackend()
     val descriptor = descriptor(startupBackend)
 
-    val observation = assertNewThreadPromptLaunchOpensNewChat(
+    val observation = assertNewThreadPromptLaunchOpensNewThreadView(
       descriptor = descriptor,
       request = AgentPromptLaunchRequest(
         provider = AgentSessionProvider.from("codex"),
@@ -168,7 +167,7 @@ class CodexNewThreadPromptLaunchIntegrationTest {
     val startupBackend = RecordingThreadStartupBackend()
     val descriptor = descriptor(startupBackend)
 
-    val observation = assertNewThreadPromptLaunchOpensNewChat(
+    val observation = assertNewThreadPromptLaunchOpensNewThreadView(
       descriptor = descriptor,
       request = AgentPromptLaunchRequest(
         provider = AgentSessionProvider.from("codex"),
@@ -257,7 +256,7 @@ private fun descriptor(
     executableResolver = { CodexCliUtils.CODEX_COMMAND },
     cliAvailableProbe = { true },
     themeLaunchConfigResolver = { null },
-  ).withProvider(CODEX_AGENT_SESSION_PROVIDER)
+  )
 }
 
 internal class RecordingThreadStartupBackend : CodexThreadStartupBackend {

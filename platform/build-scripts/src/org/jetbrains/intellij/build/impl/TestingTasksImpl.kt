@@ -1336,13 +1336,12 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
 
     val environment: MutableMap<String, String> = HashMap(envVariables)
 
-    val entryPointClass = System.getProperty("idea.test.entry.point.class").nullize(nullizeSpaces = true)
-                          ?: "com.intellij.tests.JUnit5TeamCityRunner"
+    val mainClass = "com.intellij.tests.JUnit5TeamCityRunner"
     if (devBuildModeSettings == null) {
-      args.add(entryPointClass)
+      args.add(mainClass)
     }
     else {
-      devBuildModeSettings.apply(entryPointClass, mainModule, args, environment)
+      devBuildModeSettings.apply(mainClass, mainModule, args, environment)
     }
 
     args.add(suiteName)
@@ -1517,4 +1516,17 @@ private val COMMUNITY_AGGREGATOR_BAZEL_MIGRATED_MODULES = listOf(
   "intellij.platform.ai.agent.pi.sessions.tests",
   "intellij.agent.workbench.sessions.tests",
   "intellij.agent.workbench.vcs.merge.tests",
+  "intellij.ant.tests",
+  "intellij.commander.tests",
+  "intellij.completionMlRanking.tests",
+  "intellij.completionMlRankingModels.tests",
+  "intellij.configurationScript.tests",
+  "intellij.configurationScript.test.java",
+  "intellij.copyright.tests",
+  "intellij.devkit.apiDump.lang.tests",
+  "intellij.devkit.debugger.tests",
+  "intellij.devkit.gradle.tests",
+  "intellij.devkit.i18n.tests",
+  "intellij.devkit.testFramework",
+  "intellij.devkit.workspaceModel.tests",
 )

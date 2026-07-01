@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.chat.AgentChatEditorTabActionContext
+import com.intellij.agent.workbench.thread.view.AgentThreadViewEditorTabActionContext
 import com.intellij.agent.workbench.ui.AgentWorkbenchActionIds
 import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
 import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
@@ -42,6 +42,7 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.Separator
+import com.intellij.openapi.actionSystem.SplitButtonAction
 import com.intellij.openapi.actionSystem.Toggleable
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
@@ -227,6 +228,91 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
 
     assertThat(visibleActions).contains(action)
     assertThat(action.getMainAction(TestActionEvent.createTestEvent(action))).isSameAs(firstMainAction)
+  }
+
+  @Test
+  fun splitButtonsDoNotRememberPopupActionsAsMainAction() {
+    val project = ProjectManager.getInstance().defaultProject
+    val context = newThreadContext(path = "/tmp/toolbar-project")
+    val codexBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.from("codex"),
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+    )
+    val mainToolbarAction = AgentSessionsMainToolbarNewThreadAction(
+      resolveContext = { context },
+      allBridges = { listOf(codexBridge) },
+      createNewSession = { _, _, _, _ -> },
+      defaultLaunchProfileId = { builtInLaunchProfileId(AgentSessionProvider.from("codex"), AgentSessionLaunchMode.STANDARD) },
+    )
+    val directPathAction = AgentSessionsDirectPathNewThreadAction(
+      project = project,
+      targetPath = { "/tmp/toolbar-project" },
+      quickStartEntryPoint = AgentWorkbenchEntryPoint.TREE_ROW_OVERLAY,
+      popupEntryPoint = AgentWorkbenchEntryPoint.TREE_POPUP,
+      allBridges = { listOf(codexBridge) },
+      createNewSession = { _, _, _, _ -> },
+      defaultLaunchProfileId = { builtInLaunchProfileId(AgentSessionProvider.from("codex"), AgentSessionLaunchMode.STANDARD) },
+    )
+
+    assertThat(dynamicSplitButtonEnabled(mainToolbarAction)).isFalse()
+    assertThat(dynamicSplitButtonEnabled(directPathAction)).isFalse()
+  }
+
+  @Test
+  fun newThreadActionTextUsesAgentName() {
+    assertThat(newThreadActionText("Cursor")).isEqualTo("New Cursor thread")
+  }
+
+  @Test
+  fun mainToolbarAcpQuickStartTextUsesProviderNameWithoutDuplicateNewThreadWords() {
+    val context = newThreadContext(path = "/tmp/toolbar-project")
+    val acpBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.from("acp"),
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+      newSessionLabelKeyOverride = "toolwindow.action.new.session.acp",
+    )
+    val action = AgentSessionsMainToolbarNewThreadAction(
+      resolveContext = { context },
+      allBridges = { listOf(acpBridge) },
+      createNewSession = { _, _, _, _ -> },
+    )
+    val event = TestActionEvent.createTestEvent(action)
+
+    action.update(event)
+
+    assertThat(event.presentation.text).isEqualTo("New ACP thread")
+  }
+
+  @Test
+  fun mainToolbarAcpTargetProfileQuickStartTextUsesAgentName() {
+    val context = newThreadContext(path = "/tmp/toolbar-project")
+    val acpBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.from("acp"),
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+      newSessionLabelKeyOverride = "toolwindow.action.new.session.acp",
+    )
+    val acpProfile = AgentPromptLaunchProfile(
+      id = "builtin:acp:target:mistral-vibe:standard",
+      name = "Mistral Vibe",
+      kind = AgentPromptLaunchProfileKind.BUILT_IN,
+      providerId = acpBridge.provider.value,
+      launchTargetId = "acp.registry.mistral-vibe",
+    )
+    val action = AgentSessionsMainToolbarNewThreadAction(
+      resolveContext = { context },
+      allBridges = { listOf(acpBridge) },
+      userLaunchProfiles = { listOf(acpProfile) },
+      defaultLaunchProfileId = { acpProfile.id },
+      createNewSession = { _, _, _, _ -> },
+    )
+    val event = TestActionEvent.createTestEvent(action)
+
+    action.update(event)
+
+    assertThat(event.presentation.text).isEqualTo("New Mistral Vibe thread")
   }
 
   @Test
@@ -787,9 +873,10 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
     val selectedRow = rows.single { row -> row.text == AgentSessionsBundle.message("toolwindow.action.new.session.codex") }
     val yoloRow = rows.single { row -> row.text == AgentSessionsBundle.message("toolwindow.action.new.session.codex.yolo") }
     assertThat(selectedRow.selected).isTrue()
-    assertThat(selectedRow.primaryIcon).isNotNull()
+    assertThat(selectedRow.primaryIcon).isSameAs(codexBridge.monochromeIcon)
     assertThat(selectedRow.secondaryIcon).isNotNull()
     assertThat(yoloRow.selected).isFalse()
+    assertThat(yoloRow.primaryIcon).isInstanceOf(BadgeIcon::class.java)
     assertThat(yoloRow.secondaryIcon).isNull()
     assertThat(popupStep.getIconFor(selectedRow)).isNull()
     assertThat(popupStep.getSelectedIconFor(selectedRow)).isNull()
@@ -1031,6 +1118,63 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
   }
 
   @Test
+  fun pickerGroupSeparatesAcpProfilesFromTerminalProfiles() {
+    val context = newThreadContext(path = "/tmp/repo-direct")
+    val codexBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.from("codex"),
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD, AgentSessionLaunchMode.YOLO),
+      cliAvailable = true,
+      yoloSessionLabelKey = "toolwindow.action.new.session.codex.yolo",
+    )
+    val acpBridge = TestAgentSessionProviderDescriptor(
+      provider = AgentSessionProvider.from("acp"),
+      supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
+      cliAvailable = true,
+      supportsPromptLaunch = false,
+      newSessionLabelKeyOverride = "toolwindow.action.new.session.acp",
+    )
+    val acpProfile = AgentPromptLaunchProfile(
+      id = "builtin:acp:target:mistral-vibe:standard",
+      name = "Mistral Vibe",
+      kind = AgentPromptLaunchProfileKind.BUILT_IN,
+      providerId = acpBridge.provider.value,
+      launchTargetId = "acp.registry.mistral-vibe",
+    )
+    val action = AgentSessionsMainToolbarNewThreadAction(
+      resolveContext = { context },
+      allBridges = { listOf(codexBridge, acpBridge) },
+      userLaunchProfiles = { listOf(acpProfile) },
+      createNewSession = { _, _, _, _ -> },
+    )
+    val event = TestActionEvent.createTestEvent(action)
+
+    val children = action.actionGroup.getChildren(event)
+    val launchActionTexts = children
+      .filter { child -> child !is Separator }
+      .map { child -> child.templatePresentation.text }
+      .filter { text -> text != MANAGE_LAUNCH_PROFILES_TEXT }
+    assertThat(launchActionTexts).containsExactly(
+      AgentSessionsBundle.message("toolwindow.action.new.session.codex"),
+      "Mistral Vibe",
+      AgentSessionsBundle.message("toolwindow.action.new.session.codex.yolo"),
+    )
+    assertThat(children.filterIsInstance<Separator>()).hasSizeGreaterThanOrEqualTo(2)
+
+    val rows = action.createProfilePickerRowsForTest(event)
+    val launchRows = rows.filter { row -> row.text != MANAGE_LAUNCH_PROFILES_TEXT }
+    assertThat(launchRows.map { row -> row.text }).containsExactly(
+      AgentSessionsBundle.message("toolwindow.action.new.session.codex"),
+      "Mistral Vibe",
+      AgentSessionsBundle.message("toolwindow.action.new.session.codex.yolo"),
+    )
+    assertThat(launchRows.single { row -> row.text == "Mistral Vibe" }.separatorText)
+      .isEqualTo(AgentSessionsBundle.message("toolwindow.action.new.session.section.acp"))
+    val yoloRow = launchRows.single { row -> row.text == AgentSessionsBundle.message("toolwindow.action.new.session.codex.yolo") }
+    assertThat(yoloRow.separatorText)
+      .isEqualTo(AgentSessionsBundle.message("toolwindow.action.new.session.section.auto"))
+  }
+
+  @Test
   fun pickerGroupReturnsCandidateSubGroupsForCandidatesTarget() {
     val context = newThreadContext(
       projectPathCandidates = listOf(
@@ -1243,22 +1387,22 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
   }
 
   @Test
-  fun projectMainToolbarContextPrefersSelectedChatSourcePathOverProjectBasePath() {
+  fun projectMainToolbarContextPrefersSelectedThreadViewSourcePathOverProjectBasePath() {
     val project = sourceProjectProxy()
     val event = eventWithProject(project)
 
     val context = resolveAgentSessionsMainToolbarNewThreadContext(
       event = event,
       isDedicatedProject = { false },
-      selectedSourcePath = { "/work/chat-repo" },
+      selectedSourcePath = { "/work/threadView-repo" },
     )
 
     val target = checkNotNull(context).target as AgentSessionsNewThreadTarget.Direct
-    assertThat(target.path).isEqualTo("/work/chat-repo")
+    assertThat(target.path).isEqualTo("/work/threadView-repo")
   }
 
   @Test
-  fun projectMainToolbarContextUsesProjectBasePathWhenNoSelectedChatSourcePathExists() {
+  fun projectMainToolbarContextUsesProjectBasePathWhenNoSelectedThreadViewSourcePathExists() {
     val project = sourceProjectProxy()
     val event = eventWithProject(project)
 
@@ -1273,19 +1417,19 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
   }
 
   @Test
-  fun projectMainToolbarContextPrefersEventChatContextWhenAvailable() {
+  fun projectMainToolbarContextPrefersEventThreadViewContextWhenAvailable() {
     val project = sourceProjectProxy()
     val event = eventWithProject(project)
 
     val context = resolveAgentSessionsMainToolbarNewThreadContext(
       event = event,
       isDedicatedProject = { false },
-      resolveChatContext = { editorContext() },
-      selectedSourcePath = { "/work/selected-chat-repo" },
+      resolveThreadViewContext = { editorContext() },
+      selectedSourcePath = { "/work/selected-threadView-repo" },
     )
 
     val target = checkNotNull(context).target as AgentSessionsNewThreadTarget.Direct
-    assertThat(target.path).isEqualTo("/work/event-chat-repo")
+    assertThat(target.path).isEqualTo("/work/event-threadView-repo")
   }
 
   @Test
@@ -1321,6 +1465,12 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
     )
   }
 
+  private fun dynamicSplitButtonEnabled(action: SplitButtonAction): Boolean {
+    val method = SplitButtonAction::class.java.getDeclaredMethod("useDynamicSplitButton")
+    method.isAccessible = true
+    return method.invoke(action) as Boolean
+  }
+
   private fun registerManageLaunchProfilesAction(onPerformed: () -> Unit = {}): () -> Unit {
     val actionManager = ActionManager.getInstance()
     val actionId = AgentWorkbenchActionIds.Prompt.MANAGE_LAUNCH_PROFILES
@@ -1345,10 +1495,10 @@ class AgentSessionsMainToolbarNewThreadActionsTest {
 
 private const val MANAGE_LAUNCH_PROFILES_TEXT: String = "Manage Launch Profiles…"
 
-private fun editorContext(): AgentChatEditorTabActionContext {
-  val path = "/work/event-chat-repo"
+private fun editorContext(): AgentThreadViewEditorTabActionContext {
+  val path = "/work/event-threadView-repo"
   val normalizedPath = normalizeAgentWorkbenchPath(path)
-  return AgentChatEditorTabActionContext(
+  return AgentThreadViewEditorTabActionContext(
     project = ProjectManager.getInstance().defaultProject,
     path = normalizedPath,
     tabKey = "codex:$normalizedPath:thread-1",

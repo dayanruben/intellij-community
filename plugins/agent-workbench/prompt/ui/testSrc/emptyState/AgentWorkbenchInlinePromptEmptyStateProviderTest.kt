@@ -22,6 +22,7 @@ import com.intellij.agent.workbench.prompt.ui.PromptTargetMode
 import com.intellij.agent.workbench.prompt.ui.layoutRecursively
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.extensions.ExtensionPoint
@@ -32,13 +33,17 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.fileEditorManagerFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.ui.RoundedLineBorder
 import com.intellij.ui.components.JBTabbedPane
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -47,8 +52,8 @@ import org.junit.jupiter.api.Timeout
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
-import java.awt.event.MouseEvent
 import java.util.concurrent.TimeUnit
+import javax.swing.AbstractButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 
@@ -89,6 +94,7 @@ class AgentWorkbenchInlinePromptEmptyStateProviderTest {
     try {
       assertThat(component).isInstanceOf(AgentWorkbenchInlinePromptEmptyStateComponent::class.java)
       assertThat(collectComponents(component!!, AgentPromptTextField::class.java)).hasSize(1)
+      assertNoVisibleAskAgentText(component)
     }
     finally {
       disposeComponent(component as AgentWorkbenchInlinePromptEmptyStateComponent)
@@ -101,6 +107,7 @@ class AgentWorkbenchInlinePromptEmptyStateProviderTest {
     try {
       assertThat(component.name).isEqualTo(INLINE_PROMPT_COMPONENT_NAME)
       assertThat(collectComponents(component, AgentPromptTextField::class.java)).hasSize(1)
+      assertNoVisibleAskAgentText(component)
     }
     finally {
       disposeComponent(component)
@@ -235,6 +242,27 @@ class AgentWorkbenchInlinePromptEmptyStateProviderTest {
   }
 
   @Test
+  fun inlinePromptEmptyStateExpandsOuterSizeWhenPromptTextGrows() {
+    runInEdtAndWait {
+      val component = AgentWorkbenchInlinePromptEmptyStateComponent(ProjectManager.getInstance().defaultProject)
+      try {
+        component.ensureContentInitialized()
+        val compactPreferredHeight = component.preferredSize.height
+        val promptArea = collectComponents(component, AgentPromptTextField::class.java).single()
+
+        promptArea.text = longPromptText()
+
+        val rootPanel = component.components.single() as JComponent
+        assertThat(contentAreaSize(component.preferredSize, component)).isEqualTo(rootPanel.preferredSize)
+        assertThat(component.preferredSize.height).isGreaterThan(compactPreferredHeight)
+      }
+      finally {
+        disposeComponent(component)
+      }
+    }
+  }
+
+  @Test
   fun inlinePromptEditorHostUsesRichEmptyStateLayout() {
     runInEdtAndWait {
       val component = AgentWorkbenchInlinePromptEmptyStateComponent(ProjectManager.getInstance().defaultProject)
@@ -265,17 +293,12 @@ class AgentWorkbenchInlinePromptEmptyStateProviderTest {
   }
 
   @Test
-  fun clickingShellLabelInitializesPromptContent() {
+  fun directComponentDoesNotShowAskAgentShellBeforeInitialization() {
     runInEdtAndWait {
       val component = AgentWorkbenchInlinePromptEmptyStateComponent(ProjectManager.getInstance().defaultProject)
       try {
-        val label = collectComponents(component, JLabel::class.java).single()
-
-        label.mouseListeners.forEach { listener ->
-          listener.mouseClicked(MouseEvent(label, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 1, 1, 1, false))
-        }
-
-        assertThat(collectComponents(component, AgentPromptTextField::class.java)).hasSize(1)
+        assertThat(collectComponents(component, AgentPromptTextField::class.java)).isEmpty()
+        assertNoVisibleAskAgentText(component)
       }
       finally {
         disposeComponent(component)
@@ -288,9 +311,34 @@ class AgentWorkbenchInlinePromptEmptyStateProviderTest {
     val component = createProviderComponentWithLauncher()
     try {
       assertThat(collectComponents(component, AgentPromptTextField::class.java)).hasSize(1)
+      assertNoVisibleAskAgentText(component)
     }
     finally {
       disposeComponent(component)
+    }
+  }
+
+  @Test
+  fun providerRestoresSavedPromptTextAfterStrictUiInitialization(): Unit = timeoutRunBlocking {
+    val project = projectFixture.get()
+    project.service<AgentPromptUiSessionStateService>().saveDraft(
+      AgentPromptUiDraft(
+        promptText = "saved prompt",
+        targetMode = PromptTargetMode.NEW_TASK,
+      )
+    )
+
+    val component = createProviderComponentWithLauncher()
+    try {
+      val promptText = withContext(Dispatchers.EDT) {
+        collectComponents(component, AgentPromptTextField::class.java).single().text
+      }
+      assertThat(promptText).isEqualTo("saved prompt")
+    }
+    finally {
+      withContext(NonCancellable + Dispatchers.EDT) {
+        Disposer.dispose(component)
+      }
     }
   }
 
@@ -344,6 +392,11 @@ class AgentWorkbenchInlinePromptEmptyStateProviderTest {
     return component as AgentWorkbenchInlinePromptEmptyStateComponent
   }
 
+  private fun assertNoVisibleAskAgentText(component: Component) {
+    assertThat(collectVisibleTexts(component))
+      .doesNotContain(AgentPromptBundle.message("inline.empty.state.prompt.accessible.name"))
+  }
+
   private fun testInvocationData(project: com.intellij.openapi.project.Project): AgentPromptInvocationData {
     return AgentPromptInvocationData(
       project = project,
@@ -376,6 +429,20 @@ class AgentWorkbenchInlinePromptEmptyStateProviderTest {
     }
   }
 
+  private fun collectVisibleTexts(component: Component): List<String> {
+    return buildList {
+      if (component.isVisible) {
+        when (component) {
+          is JLabel -> component.text?.let(::add)
+          is AbstractButton -> component.text?.let(::add)
+        }
+      }
+      if (component is Container) {
+        component.components.forEach { child -> addAll(collectVisibleTexts(child)) }
+      }
+    }
+  }
+
   private fun totalBorderInsets(component: JComponent): Int {
     val insets = component.border.getBorderInsets(component)
     return insets.top + insets.left + insets.bottom + insets.right
@@ -398,6 +465,10 @@ class AgentWorkbenchInlinePromptEmptyStateProviderTest {
         source = "test",
       )
     }
+  }
+
+  private fun longPromptText(): String {
+    return (1..20).joinToString("\n") { index -> "Line $index" }
   }
 
   private fun testContextContributor(items: List<AgentPromptContextItem>): AgentPromptContextContributorBridge {

@@ -3,7 +3,7 @@
 
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
-    <module name="intellij.agent.workbench.chat"/>
+    <module name="intellij.agent.workbench.thread.view"/>
     <module name="intellij.platform.ai.agent.common"/>
     <module name="intellij.platform.ai.agent.core"/>
     <module name="intellij.agent.workbench.prompt.core"/>
@@ -30,6 +30,9 @@
   </extensions>
 
   <actions resource-bundle="messages.AgentSessionsBundle">
+    <!-- Toolbar (title actions) slot other runtimes (e.g. ACP) contribute buttons into. -->
+    <group id="AgentWorkbenchSessions.ToolWindow.TitleActions"
+           class="com.intellij.agent.workbench.sessions.actions.DumbAwareDefaultActionGroup"/>
     <group
       id="AgentWorkbenchSessions.MainToolbar.Activity"
       class="com.intellij.agent.workbench.sessions.toolwindow.actions.AgentSessionsMainToolbarActivityGroup">

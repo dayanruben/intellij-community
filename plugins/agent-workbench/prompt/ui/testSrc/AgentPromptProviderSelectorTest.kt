@@ -25,6 +25,7 @@ import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProvid
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.platform.ai.agent.sessions.core.providers.builtInLaunchProfileId
+import com.intellij.platform.ai.agent.sessions.core.providers.builtInLaunchTargetProfileId
 import com.intellij.agent.workbench.sessions.providerItemMonochromeIconWithMode
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
 import com.intellij.agent.workbench.ui.AgentWorkbenchPopupRow
@@ -503,8 +504,8 @@ class AgentPromptProviderSelectorTest {
           promptOptions = emptyList(),
           availableGenerationModels = listOf(
             AgentPromptGenerationModel(
-              id = "chatgpt-5.5",
-              displayName = "ChatGPT 5.5",
+              id = "threadViewgpt-5.5",
+              displayName = "ThreadViewGPT 5.5",
               supportedReasoningEfforts = setOf(
                 AgentPromptReasoningEffort.HIGH,
                 AgentPromptReasoningEffort.XHIGH,
@@ -535,7 +536,7 @@ class AgentPromptProviderSelectorTest {
           fixture.view.reasoningEffortLink.isEnabled &&
           controller.createModelActionGroupForTest()
             ?.getChildren(TestActionEvent.createTestEvent())
-            ?.any { action -> action.templatePresentation.text == "ChatGPT 5.5" } == true
+            ?.any { action -> action.templatePresentation.text == "ThreadViewGPT 5.5" } == true
         }
       }
       withContext(Dispatchers.EDT) {
@@ -548,9 +549,9 @@ class AgentPromptProviderSelectorTest {
 
         assertThat(controller.currentSettings()).isEqualTo(AgentPromptGenerationSettings.AUTO)
         assertThat(modelActions.mapNotNull { action -> action.templatePresentation.text })
-          .containsExactly("Default Model", "ChatGPT 5.5")
+          .containsExactly("Default Model", "ThreadViewGPT 5.5")
         assertThat(isSelectedInPopup(modelActions.single { action -> action.templatePresentation.text == "Default Model" })).isTrue()
-        assertThat(isSelectedInPopup(modelActions.single { action -> action.templatePresentation.text == "ChatGPT 5.5" })).isFalse()
+        assertThat(isSelectedInPopup(modelActions.single { action -> action.templatePresentation.text == "ThreadViewGPT 5.5" })).isFalse()
         assertThat(actions.mapNotNull { action -> action.templatePresentation.text })
           .containsExactly("Default", "High", "Extra High")
         assertThat(isSelectedInPopup(actions.single { action -> action.templatePresentation.text == "Default" })).isTrue()
@@ -608,6 +609,73 @@ class AgentPromptProviderSelectorTest {
         .containsExactly("Codex", "Careful", "Codex (Full Auto)", "Manage Launch Profiles…")
       assertThat(profileActions.last().templatePresentation.keepPopupOnPerform).isEqualTo(KeepPopupOnPerform.Never)
       assertThat(actions.filterIsInstance<Separator>()).hasSize(3)
+    }
+  }
+
+  @Test
+  fun launchSettingsPopupSeparatesAcpLaunchProfiles() {
+    runInEdtAndWait {
+      val acpProvider = AgentSessionProvider.from("acp")
+      val acpProfile = AgentPromptLaunchProfile(
+        id = builtInLaunchTargetProfileId(acpProvider, "acp.registry.stakpak", AgentSessionLaunchMode.STANDARD),
+        name = "Stakpak",
+        kind = AgentPromptLaunchProfileKind.BUILT_IN,
+        providerId = acpProvider.value,
+        launchTargetId = "acp.registry.stakpak",
+      )
+      val launcher = TestPromptLauncherBridge(
+        AgentPromptLauncherBridge.ProviderPreferences(
+          launchProfiles = listOf(acpProfile),
+        )
+      )
+      val codexProvider = testProviderBridge(
+        provider = AgentSessionProvider.from("codex"),
+        promptOptions = emptyList(),
+        supportedLaunchModesOverride = setOf(AgentSessionLaunchMode.STANDARD, AgentSessionLaunchMode.YOLO),
+      )
+      val acpBridge = testProviderBridge(
+        provider = acpProvider,
+        promptOptions = emptyList(),
+        supportsDefaultLaunchProfileOverride = false,
+      )
+      val fixture = createSelectorFixture(listOf(codexProvider, acpBridge))
+      fixture.selector.refresh()
+      val controller = AgentPromptGenerationSettingsController(
+        invocationData = testInvocationData(ProjectManager.getInstance().defaultProject),
+        providerSelector = fixture.selector,
+        generationSettingsPanel = fixture.view.generationSettingsPanel,
+        launchProfileLink = fixture.view.launchProfileLink,
+        modelSelectorLink = fixture.view.modelSelectorLink,
+        reasoningEffortLink = fixture.view.reasoningEffortLink,
+        modelCatalogScope = testScope(),
+        launcherProvider = { launcher },
+        onDefaultSaved = { _ -> },
+      )
+
+      controller.restoreLaunchProfiles(launcher.preferences)
+
+      assertThat(actionEntries(controller.createLaunchProfileActionGroupForTest().getChildren(TestActionEvent.createTestEvent())))
+        .containsExactly(
+          "action:Codex",
+          "separator:",
+          "separator:ACP Agents",
+          "action:Stakpak",
+          "separator:",
+          "separator:YOLO",
+          "action:Codex (Full Auto)",
+          "separator:",
+          "action:Manage Launch Profiles…",
+        )
+      assertThat(popupRowEntries(controller.createLaunchSettingsPopupRowsForTest())).containsExactly(
+        "separator:Profile",
+        "row:Codex",
+        "separator:ACP Agents",
+        "row:Stakpak",
+        "separator:YOLO",
+        "row:Codex (Full Auto)",
+        "separator:",
+        "row:Manage Launch Profiles…",
+      )
     }
   }
 
@@ -1219,6 +1287,45 @@ class AgentPromptProviderSelectorTest {
   }
 
   @Test
+  fun launchProfileEditorPreservesBuiltInLaunchTargetOverrides() {
+    runInEdtAndWait {
+      val acpProvider = AgentSessionProvider.from("acp")
+      val launchTargetId = "acp.registry.opencode"
+      val builtInProfile = AgentPromptLaunchProfile(
+        id = builtInLaunchTargetProfileId(acpProvider, launchTargetId, AgentSessionLaunchMode.STANDARD),
+        name = "OpenCode",
+        kind = AgentPromptLaunchProfileKind.BUILT_IN,
+        providerId = acpProvider.value,
+        launchTargetId = launchTargetId,
+      )
+      val updatedProfiles = ArrayList<AgentPromptLaunchProfile>()
+      val provider = testProviderBridge(
+        provider = acpProvider,
+        promptOptions = emptyList(),
+      )
+      val editor = createLaunchProfileEditorForTest(
+        profiles = listOf(builtInProfile),
+        activeProfileId = builtInProfile.id,
+        providerOverrides = listOf(provider),
+        onUpdateProfile = { profile -> updatedProfiles += profile },
+      )
+      try {
+        editor.selectProfileForTest(builtInProfile.id)
+        editor.setSelectedProfileNameForTest("OpenCode Custom")
+
+        assertThat(updatedProfiles.single()).isEqualTo(
+          builtInProfile.copy(
+            name = "OpenCode Custom",
+          )
+        )
+      }
+      finally {
+        editor.closeForTest()
+      }
+    }
+  }
+
+  @Test
   fun launchProfileEditorKeepsInvalidNameTransient() {
     runInEdtAndWait {
       val carefulProfile = AgentPromptLaunchProfile(
@@ -1771,6 +1878,64 @@ class AgentPromptProviderSelectorTest {
         assertThat(editor.profileListRendererTextForTest(otherProfile.id)).isEqualTo(otherProfile.name)
         assertThat(editor.isProfileListRendererNameBoldForTest(defaultProfile.id)).isTrue()
         assertThat(editor.isProfileListRendererNameBoldForTest(otherProfile.id)).isFalse()
+      }
+      finally {
+        editor.closeForTest()
+      }
+    }
+  }
+
+  @Test
+  fun launchProfileEditorListUsesProfileSpecificIconWhenAvailable() {
+    runInEdtAndWait {
+      val profileIcon = EmptyIcon.create(18)
+      val providerIcon = EmptyIcon.create(19)
+      val acpProvider = testProviderBridge(
+        provider = AgentSessionProvider.from("acp"),
+        promptOptions = emptyList(),
+        icon = providerIcon,
+      )
+      val acpProfile = AgentPromptLaunchProfile(
+        id = "builtin:acp:target:cursor:standard",
+        name = "Cursor",
+        kind = AgentPromptLaunchProfileKind.BUILT_IN,
+        providerId = acpProvider.provider.value,
+        launchTargetId = "acp.cursor",
+      )
+      val editor = createLaunchProfileEditorForTest(
+        profiles = listOf(acpProfile),
+        providerOverride = acpProvider,
+        profileIconsById = mapOf(acpProfile.id to profileIcon),
+      )
+      try {
+        assertThat(editor.profileListRendererIconForTest(acpProfile.id)).isSameAs(profileIcon)
+      }
+      finally {
+        editor.closeForTest()
+      }
+    }
+  }
+
+  @Test
+  fun launchProfileEditorListFallsBackToProviderIcon() {
+    runInEdtAndWait {
+      val providerIcon = EmptyIcon.create(18)
+      val codexProvider = testProviderBridge(
+        provider = AgentSessionProvider.from("codex"),
+        promptOptions = emptyList(),
+        icon = providerIcon,
+      )
+      val userProfile = AgentPromptLaunchProfile(
+        id = "user:codex",
+        name = "Codex",
+        providerId = codexProvider.provider.value,
+      )
+      val editor = createLaunchProfileEditorForTest(
+        profiles = listOf(userProfile),
+        providerOverride = codexProvider,
+      )
+      try {
+        assertThat(editor.profileListRendererIconForTest(userProfile.id)).isSameAs(providerIcon)
       }
       finally {
         editor.closeForTest()
@@ -2539,7 +2704,7 @@ class AgentPromptProviderSelectorTest {
         provider = AgentSessionProvider.from("junie"),
         promptOptions = emptyList(),
         availableGenerationModels = listOf(
-          AgentPromptGenerationModel(id = "chatgpt-5.5", displayName = "ChatGPT 5.5"),
+          AgentPromptGenerationModel(id = "threadViewgpt-5.5", displayName = "ThreadViewGPT 5.5"),
         ),
         onListAvailableGenerationModels = modelCatalogRequests::incrementAndGet,
       )
@@ -2573,7 +2738,7 @@ class AgentPromptProviderSelectorTest {
           fixtureAndController.second.createModelActionGroupForTest()
             ?.getChildren(TestActionEvent.createTestEvent())
             ?.mapNotNull { action -> action.templatePresentation.text }
-            ?.contains("ChatGPT 5.5") == true
+            ?.contains("ThreadViewGPT 5.5") == true
         }
       }
       withContext(Dispatchers.EDT) {
@@ -2581,7 +2746,7 @@ class AgentPromptProviderSelectorTest {
           .getChildren(TestActionEvent.createTestEvent())
         assertThat(modelCatalogRequests.get()).isEqualTo(1)
         assertThat(actions.mapNotNull { action -> action.templatePresentation.text })
-          .containsExactly("Default Model", "ChatGPT 5.5")
+          .containsExactly("Default Model", "ThreadViewGPT 5.5")
       }
     }
     finally {
@@ -2605,7 +2770,7 @@ class AgentPromptProviderSelectorTest {
           modelCatalogRequests.incrementAndGet()
           refreshStarted.complete(Unit)
           finishRefresh.await()
-          listOf(AgentPromptGenerationModel(id = "chatgpt-5.5", displayName = "ChatGPT 5.5"))
+          listOf(AgentPromptGenerationModel(id = "threadViewgpt-5.5", displayName = "ThreadViewGPT 5.5"))
         },
       )
       val controller = withContext(Dispatchers.EDT) {
@@ -2636,7 +2801,7 @@ class AgentPromptProviderSelectorTest {
       finishRefresh.complete(Unit)
       waitForCondition {
         withContext(Dispatchers.EDT) {
-          modelActionTexts(controller) == listOf("Default Model", "ChatGPT 5.5")
+          modelActionTexts(controller) == listOf("Default Model", "ThreadViewGPT 5.5")
         }
       }
       assertThat(modelCatalogRequests.get()).isEqualTo(1)
@@ -2724,7 +2889,7 @@ class AgentPromptProviderSelectorTest {
         availableGenerationModelsResolver = {
           when (modelCatalogRequests.incrementAndGet()) {
             1 -> error("failed")
-            2 -> listOf(AgentPromptGenerationModel(id = "chatgpt-5.5", displayName = "ChatGPT 5.5"))
+            2 -> listOf(AgentPromptGenerationModel(id = "threadViewgpt-5.5", displayName = "ThreadViewGPT 5.5"))
             else -> error("Unexpected model catalog refresh")
           }
         },
@@ -2759,7 +2924,7 @@ class AgentPromptProviderSelectorTest {
       }
       waitForCondition {
         withContext(Dispatchers.EDT) {
-          modelActionTexts(controller) == listOf("Default Model", "ChatGPT 5.5")
+          modelActionTexts(controller) == listOf("Default Model", "ThreadViewGPT 5.5")
         }
       }
       assertThat(modelCatalogRequests.get()).isEqualTo(2)
@@ -2782,7 +2947,7 @@ class AgentPromptProviderSelectorTest {
         supportsGenerationModelSelection = true,
         availableGenerationModelsResolver = {
           when (modelCatalogRequests.incrementAndGet()) {
-            1 -> listOf(AgentPromptGenerationModel(id = "chatgpt-5.5", displayName = "ChatGPT 5.5"))
+            1 -> listOf(AgentPromptGenerationModel(id = "threadViewgpt-5.5", displayName = "ThreadViewGPT 5.5"))
             else -> error("Unexpected fresh cached model catalog refresh")
           }
         },
@@ -2806,7 +2971,7 @@ class AgentPromptProviderSelectorTest {
       }
       waitForCondition {
         withContext(Dispatchers.EDT) {
-          modelActionTexts(firstController) == listOf("Default Model", "ChatGPT 5.5")
+          modelActionTexts(firstController) == listOf("Default Model", "ThreadViewGPT 5.5")
         }
       }
       firstModelCatalogScope.cancel()
@@ -2827,7 +2992,7 @@ class AgentPromptProviderSelectorTest {
 
       withContext(Dispatchers.EDT) {
         assertThat(modelActionTexts(secondController, loadIfNeeded = true))
-          .containsExactly("Default Model", "ChatGPT 5.5")
+          .containsExactly("Default Model", "ThreadViewGPT 5.5")
       }
       assertThat(modelCatalogRequests.get()).isEqualTo(1)
     }
@@ -2852,11 +3017,11 @@ class AgentPromptProviderSelectorTest {
         supportsGenerationModelSelection = true,
         availableGenerationModelsResolver = {
           when (modelCatalogRequests.incrementAndGet()) {
-            1 -> listOf(AgentPromptGenerationModel(id = "chatgpt-5.5", displayName = "ChatGPT 5.5"))
+            1 -> listOf(AgentPromptGenerationModel(id = "threadViewgpt-5.5", displayName = "ThreadViewGPT 5.5"))
             else -> {
               secondRefreshStarted.complete(Unit)
               finishSecondRefresh.await()
-              listOf(AgentPromptGenerationModel(id = "chatgpt-5.6", displayName = "ChatGPT 5.6"))
+              listOf(AgentPromptGenerationModel(id = "threadViewgpt-5.6", displayName = "ThreadViewGPT 5.6"))
             }
           }
         },
@@ -2880,7 +3045,7 @@ class AgentPromptProviderSelectorTest {
       }
       waitForCondition {
         withContext(Dispatchers.EDT) {
-          modelActionTexts(firstController) == listOf("Default Model", "ChatGPT 5.5")
+          modelActionTexts(firstController) == listOf("Default Model", "ThreadViewGPT 5.5")
         }
       }
       firstModelCatalogScope.cancel()
@@ -2903,19 +3068,19 @@ class AgentPromptProviderSelectorTest {
 
       withContext(Dispatchers.EDT) {
         assertThat(modelActionTexts(secondController, loadIfNeeded = true))
-          .containsExactly("Default Model", "ChatGPT 5.5")
+          .containsExactly("Default Model", "ThreadViewGPT 5.5")
       }
       waitForCondition { secondRefreshStarted.isCompleted }
       assertThat(modelCatalogRequests.get()).isEqualTo(2)
       waitForCondition {
         withContext(Dispatchers.EDT) {
-          modelActionTexts(secondController) == listOf("Default Model", "ChatGPT 5.5", "Refreshing models...")
+          modelActionTexts(secondController) == listOf("Default Model", "ThreadViewGPT 5.5", "Refreshing models...")
         }
       }
       finishSecondRefresh.complete(Unit)
       waitForCondition {
         withContext(Dispatchers.EDT) {
-          modelActionTexts(secondController) == listOf("Default Model", "ChatGPT 5.6")
+          modelActionTexts(secondController) == listOf("Default Model", "ThreadViewGPT 5.6")
         }
       }
     }
@@ -2943,7 +3108,7 @@ class AgentPromptProviderSelectorTest {
         supportsGenerationModelSelection = true,
         availableGenerationModelsResolver = {
           when (modelCatalogRequests.incrementAndGet()) {
-            1 -> listOf(AgentPromptGenerationModel(id = "chatgpt-5.5", displayName = "ChatGPT 5.5"))
+            1 -> listOf(AgentPromptGenerationModel(id = "threadViewgpt-5.5", displayName = "ThreadViewGPT 5.5"))
             else -> {
               secondRefreshStarted.complete(Unit)
               failSecondRefresh.await()
@@ -2971,7 +3136,7 @@ class AgentPromptProviderSelectorTest {
       }
       waitForCondition {
         withContext(Dispatchers.EDT) {
-          modelActionTexts(firstController) == listOf("Default Model", "ChatGPT 5.5")
+          modelActionTexts(firstController) == listOf("Default Model", "ThreadViewGPT 5.5")
         }
       }
       firstModelCatalogScope.cancel()
@@ -2994,13 +3159,13 @@ class AgentPromptProviderSelectorTest {
 
       withContext(Dispatchers.EDT) {
         assertThat(modelActionTexts(secondController, loadIfNeeded = true))
-          .containsExactly("Default Model", "ChatGPT 5.5")
+          .containsExactly("Default Model", "ThreadViewGPT 5.5")
       }
       waitForCondition { secondRefreshStarted.isCompleted }
       failSecondRefresh.complete(Unit)
       waitForCondition {
         withContext(Dispatchers.EDT) {
-          modelActionTexts(secondController) == listOf("Default Model", "ChatGPT 5.5", "Unable to refresh models", "Retry Loading Models")
+          modelActionTexts(secondController) == listOf("Default Model", "ThreadViewGPT 5.5", "Unable to refresh models", "Retry Loading Models")
         }
       }
       assertThat(modelCatalogRequests.get()).isEqualTo(2)
@@ -3119,30 +3284,49 @@ class AgentPromptProviderSelectorTest {
         generationSettingsPanel = fixture.view.generationSettingsPanel,
         modelSelectorLink = fixture.view.modelSelectorLink,
         reasoningEffortLink = fixture.view.reasoningEffortLink,
-        planReasoningEffortLink = fixture.view.planReasoningEffortLink,
         modelCatalogScope = testScope(),
         launcherProvider = { null },
         onDefaultSaved = { _ -> },
       )
 
       controller.refreshPresentation()
-      val extraHighPlanAction = checkNotNull(controller.createPlanReasoningEffortActionGroupForTest())
-        .getChildren(TestActionEvent.createTestEvent())
-        .single { action -> action.templatePresentation.text == "Extra High" }
-      extraHighPlanAction.actionPerformed(TestActionEvent.createTestEvent(extraHighPlanAction))
+      val planSubmenu = launchSettingsPlanEffortSubmenu(controller)
+      assertThat(planSubmenu.text).isEqualTo("Same as Effort")
+      assertThat(planSubmenu.separatorText).isEqualTo("Plan Effort")
+      assertThat(planSubmenu.secondaryIcon).isSameAs(AllIcons.General.ChevronRight)
+      assertThat(popupRowEntries(planSubmenu.subRows)).containsExactly(
+        "separator:Plan Effort",
+        "row:Same as Effort",
+        "row:Provider Default",
+        "row:High",
+        "row:Extra High",
+      )
+      assertThat(popupCommand(planSubmenu.subRows, "Same as Effort").selected).isTrue()
+      assertThat(popupCommand(planSubmenu.subRows, "Extra High").selected).isFalse()
 
-      assertThat(fixture.view.planReasoningEffortLink.isVisible).isFalse()
-      assertThat(fixture.view.planReasoningEffortLink.text).isEqualTo("Plan Effort Extra High")
+      val workbenchPlanSubmenu = launchSettingsWorkbenchPlanEffortSubmenu(controller)
+      assertThat(workbenchPlanSubmenu.text).isEqualTo(planSubmenu.text)
+      assertThat(workbenchPlanSubmenu.subRows.map { row -> row.text }).containsExactly(
+        "Same as Effort",
+        "Provider Default",
+        "High",
+        "Extra High",
+      )
+      assertThat(workbenchPlanSubmenu.subRowsProvider != null).isTrue()
+
+      popupCommand(planSubmenu.subRows, "Extra High").onChosen()
+
       assertThat(controller.currentLaunchSettings().planReasoningEffort).isEqualTo(AgentPromptReasoningEffort.XHIGH)
+      val selectedPlanSubmenu = launchSettingsPlanEffortSubmenu(controller)
+      assertThat(selectedPlanSubmenu.text).isEqualTo("Extra High")
+      assertThat(popupCommand(selectedPlanSubmenu.subRows, "Extra High").selected).isTrue()
+      assertThat(popupCommand(selectedPlanSubmenu.subRows, "Extra High").secondaryIcon).isNotNull()
 
       fixture.selector.setPlanModeSelected(false)
       controller.refreshPresentation()
 
-      assertThat(fixture.view.planReasoningEffortLink.isVisible).isFalse()
-      assertThat(fixture.view.planReasoningEffortLink.isEnabled).isFalse()
-      assertThat(fixture.view.planReasoningEffortLink.toolTipText)
-        .contains(AgentPromptBundle.message("popup.generation.plan.reasoning.disabled.tooltip"))
       assertThat(controller.currentLaunchSettings().planReasoningEffort).isNull()
+      assertThat(launchSettingsPlanEffortSubmenuOrNull(controller)).isNull()
     }
   }
 
@@ -3162,7 +3346,6 @@ class AgentPromptProviderSelectorTest {
         generationSettingsPanel = fixture.view.generationSettingsPanel,
         modelSelectorLink = fixture.view.modelSelectorLink,
         reasoningEffortLink = fixture.view.reasoningEffortLink,
-        planReasoningEffortLink = fixture.view.planReasoningEffortLink,
         modelCatalogScope = testScope(),
         launcherProvider = { null },
         onDefaultSaved = { _ -> },
@@ -3171,8 +3354,7 @@ class AgentPromptProviderSelectorTest {
       controller.refreshPresentation()
 
       assertThat(fixture.selector.isPlanModeSelected()).isTrue()
-      assertThat(fixture.view.planReasoningEffortLink.isVisible).isFalse()
-      assertThat(controller.createPlanReasoningEffortActionGroupForTest()).isNull()
+      assertThat(launchSettingsPlanEffortSubmenuOrNull(controller)).isNull()
     }
   }
 
@@ -3206,7 +3388,6 @@ class AgentPromptProviderSelectorTest {
         generationSettingsPanel = fixture.view.generationSettingsPanel,
         modelSelectorLink = fixture.view.modelSelectorLink,
         reasoningEffortLink = fixture.view.reasoningEffortLink,
-        planReasoningEffortLink = fixture.view.planReasoningEffortLink,
         modelCatalogScope = testScope(),
         launcherProvider = { launcher },
         onDefaultSaved = { _ -> },
@@ -3215,17 +3396,15 @@ class AgentPromptProviderSelectorTest {
       controller.restoreLaunchProfiles(launcher.preferences)
 
       assertThat(fixture.selector.isPlanModeSelected()).isFalse()
-      assertThat(fixture.view.planReasoningEffortLink.isVisible).isFalse()
-      assertThat(fixture.view.planReasoningEffortLink.isEnabled).isFalse()
-      assertThat(fixture.view.planReasoningEffortLink.text).isEqualTo("Plan Effort Extra High")
+      assertThat(controller.currentSettings().planReasoningEffort).isEqualTo(AgentPromptReasoningEffort.XHIGH)
       assertThat(controller.currentLaunchSettings().planReasoningEffort).isNull()
+      assertThat(launchSettingsPlanEffortSubmenuOrNull(controller)).isNull()
 
       fixture.selector.setPlanModeSelected(true)
       controller.refreshPresentation()
 
-      assertThat(fixture.view.planReasoningEffortLink.isVisible).isFalse()
-      assertThat(fixture.view.planReasoningEffortLink.isEnabled).isTrue()
       assertThat(controller.currentLaunchSettings().planReasoningEffort).isEqualTo(AgentPromptReasoningEffort.XHIGH)
+      assertThat(launchSettingsPlanEffortSubmenu(controller).text).isEqualTo("Extra High")
     }
   }
 
@@ -3431,6 +3610,7 @@ class AgentPromptProviderSelectorTest {
     onCreateProfile: (AgentPromptLaunchProfile) -> Unit = {},
     onUpdateProfile: (AgentPromptLaunchProfile) -> Unit = {},
     onDeleteProfile: (AgentPromptLaunchProfile) -> Boolean = { true },
+    profileIconsById: Map<String, Icon> = emptyMap(),
   ): AgentPromptLaunchProfileEditorDialog {
     val provider = providerOverride ?: testProviderBridge(
       provider = AgentSessionProvider.from("codex"),
@@ -3445,11 +3625,12 @@ class AgentPromptProviderSelectorTest {
       activeProfileId = activeProfileId,
       defaultProfileId = defaultProfileId,
       builtInProfiles = profiles.filter { profile -> profile.kind == AgentPromptLaunchProfileKind.BUILT_IN },
+      profileIconsById = profileIconsById,
       providerEntries = providers.map { item ->
         ProviderEntry(item,
                       item.provider.value.replaceFirstChar(Char::uppercase),
                       true,
-                      EmptyIcon.ICON_16)
+                      item.icon)
       },
       modelCatalogProvider = { modelCatalog },
       modelCatalogStateProvider = modelCatalogStateProvider,
@@ -3486,11 +3667,27 @@ class AgentPromptProviderSelectorTest {
   private fun launchSettingsModelSubmenu(controller: AgentPromptGenerationSettingsController): AgentPromptPopupRow.Command {
     return controller.createLaunchSettingsPopupRowsForTest()
       .filterIsInstance<AgentPromptPopupRow.Command>()
-      .single { row -> row.subRows.isNotEmpty() }
+      .single { row -> row.subRows.any { subRow -> subRow.text == "Default Model" } }
   }
 
   private fun launchSettingsWorkbenchModelSubmenu(controller: AgentPromptGenerationSettingsController): AgentWorkbenchPopupRow {
-    return controller.createLaunchSettingsWorkbenchPopupRowsForTest().single { row -> row.subRows.isNotEmpty() }
+    return controller.createLaunchSettingsWorkbenchPopupRowsForTest()
+      .single { row -> row.subRows.any { subRow -> subRow.text == "Default Model" } }
+  }
+
+  private fun launchSettingsPlanEffortSubmenu(controller: AgentPromptGenerationSettingsController): AgentPromptPopupRow.Command {
+    return checkNotNull(launchSettingsPlanEffortSubmenuOrNull(controller))
+  }
+
+  private fun launchSettingsPlanEffortSubmenuOrNull(controller: AgentPromptGenerationSettingsController): AgentPromptPopupRow.Command? {
+    return controller.createLaunchSettingsPopupRowsForTest()
+      .filterIsInstance<AgentPromptPopupRow.Command>()
+      .singleOrNull { row -> row.subRows.any { subRow -> subRow.text == "Same as Effort" } }
+  }
+
+  private fun launchSettingsWorkbenchPlanEffortSubmenu(controller: AgentPromptGenerationSettingsController): AgentWorkbenchPopupRow {
+    return controller.createLaunchSettingsWorkbenchPopupRowsForTest()
+      .single { row -> row.subRows.any { subRow -> subRow.text == "Same as Effort" } }
   }
 
   private fun popupCommand(rows: List<AgentPromptPopupRow>, text: String): AgentPromptPopupRow.Command {
@@ -3509,6 +3706,12 @@ class AgentPromptProviderSelectorTest {
   private fun modelActionEntries(actions: Array<AnAction>): List<String> {
     return actions.map { action ->
       if (action is Separator) "separator:${action.text.orEmpty()}" else "model:${action.templatePresentation.text.orEmpty()}"
+    }
+  }
+
+  private fun actionEntries(actions: Array<AnAction>): List<String> {
+    return actions.map { action ->
+      if (action is Separator) "separator:${action.text.orEmpty()}" else "action:${action.templatePresentation.text.orEmpty()}"
     }
   }
 
@@ -3559,6 +3762,7 @@ class AgentPromptProviderSelectorTest {
     supportsPlanReasoningEffortOverride: Boolean = false,
     availableGenerationModels: List<AgentPromptGenerationModel> = emptyList(),
     supportsGenerationModelSelection: Boolean = availableGenerationModels.isNotEmpty(),
+    supportsDefaultLaunchProfileOverride: Boolean = supportsPromptLaunch,
     availableGenerationModelsError: Throwable? = null,
     availableGenerationModelsResolver: suspend () -> List<AgentPromptGenerationModel> = { availableGenerationModels },
     onListAvailableGenerationModels: () -> Unit = {},
@@ -3579,6 +3783,7 @@ class AgentPromptProviderSelectorTest {
       override val supportedReasoningEfforts: Set<AgentPromptReasoningEffort> = supportedReasoningEffortsOverride
       override val supportsPlanReasoningEffort: Boolean = supportsPlanReasoningEffortOverride
       override val supportsGenerationModelSelection: Boolean = supportsGenerationModelSelection
+      override val supportsDefaultLaunchProfile: Boolean = supportsDefaultLaunchProfileOverride
       override val supportsPromptLaunch: Boolean = supportsPromptLaunch
       override val sessionSource: AgentSessionSource
         get() = error("Not required for this test")

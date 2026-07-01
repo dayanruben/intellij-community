@@ -24,7 +24,7 @@ targets:
 # Global Prompt Entry
 
 Status: Draft
-Date: 2026-05-27
+Date: 2026-06-30
 
 ## Summary
 The global prompt opens a project-scoped prompt surface for starting a new task or sending a prompt to an existing loaded task. The surface is normally a popup, but the empty editor state may host a compact inline prompt composer instead of standard empty-state hints. This spec owns popup and inline lifecycle, target mode, validation, keyboard behavior, provider selection, and launcher handoff. Context collection and Add-to-Agent-Context routing are specified separately.
@@ -56,13 +56,13 @@ The global prompt opens a project-scoped prompt surface for starting a new task 
   [@test] ../../prompt/ui/testSrc/AgentPromptPaletteViewStructureTest.kt
   [@test] ../../prompt/ui/testSrc/AgentPromptPaletteViewLayoutTest.kt
 
-- Existing-task mode observes loaded threads through `AgentPromptLauncherBridge`, scoped to the resolved working project path, and may preselect the focused open chat thread or a single loaded thread without automatically switching modes.
+- Existing-task mode observes loaded threads through `AgentPromptLauncherBridge`, scoped to the resolved working project path, and may preselect the focused open thread view thread or a single loaded thread without automatically switching modes.
   [@test] ../../prompt/ui/testSrc/AgentPromptExistingTaskControllerTest.kt
 
 - Submit validation must block empty prompts, missing provider, unavailable provider CLI, missing project path, missing launcher bridge, and existing-task submits without a selected task.
   [@test] ../../prompt/ui/testSrc/AgentPromptSubmitValidationDecisionsTest.kt
 
-- Working project path resolution must never use the dedicated-frame project path. In non-dedicated frames it resolves from the current open project's identity path, so Bazel projects contribute their `.bazelproject` identity instead of raw `project.basePath`. In a dedicated Agent frame, it resolves from selected Sessions context, selected chat tab source path, then most recent non-dedicated project; unresolved submits prompt for a source project and keep the popup open on cancel.
+- Working project path resolution must never use the dedicated-frame project path. In non-dedicated frames it resolves from the current open project's identity path, so Bazel projects contribute their `.bazelproject` identity instead of raw `project.basePath`. In a dedicated Agent frame, it resolves from selected Sessions context, selected Thread View source path, then most recent non-dedicated project; unresolved submits prompt for a source project and keep the popup open on cancel.
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 
 - Keyboard behavior is: Enter submits, Shift+Enter inserts a line break, Tab/Shift+Tab switch prompt tabs unless completion or Codex tab-queue handling consumes the key.
@@ -70,7 +70,7 @@ The global prompt opens a project-scoped prompt surface for starting a new task 
   [@test] ../../prompt/ui/testSrc/AgentPromptFooterHintDecisionsTest.kt
 
 - Claude slash completion is available only for Claude provider prompts and only for explicit slash-token completion; it merges built-in Claude menu commands with project `.claude/commands` and `.claude/skills` definitions.
-  [@test] ../../prompt/ui/testSrc/AgentPromptClaudeSlashCompletionProviderTest.kt
+  [@test] ../../prompt/ui/testSrc/AgentPromptCommandCompletionProviderTest.kt
 
 - New-task provider, mode, and generation defaults restore through launch profiles. Prompt drafts may persist provider options and container mode, but they must not persist a separate provider id default.
   [@test] ../../prompt/ui/testSrc/AgentPromptLaunchProfileStateTest.kt
@@ -87,18 +87,20 @@ The global prompt opens a project-scoped prompt surface for starting a new task 
 - Inline empty-state mode is always a `NEW_TASK` prompt. It must not restore `EXISTING_TASK` draft mode or extension-tab auto-selection because those controls are hidden in the compact empty-state surface.
   [@test] ../../prompt/ui/testSrc/emptyState/AgentWorkbenchInlinePromptEmptyStateProviderTest.kt
 
-- Inline new-thread mode is also always a `NEW_TASK` prompt. It is hosted inside a deferred chat tab, starts from the selected launch profile, skips extension-tab auto-selection, and keeps the inline prompt visible when `AgentPromptLauncherBridge.launch(...)` returns a failure so the same pending tab can be retried.
+- Inline new-thread mode is also always a `NEW_TASK` prompt. It is hosted inside a deferred Thread View, starts from the selected launch profile, skips extension-tab auto-selection, and keeps the inline prompt visible when `AgentPromptLauncherBridge.launch(...)` returns a failure so the same pending tab can be retried.
   [@test] ../../prompt/ui/testSrc/AgentPromptPaletteSessionControllerTest.kt
   [@test] ../../prompt/ui/testSrc/AgentPromptPaletteSubmitControllerTest.kt
   [@test] ../../sessions/testSrc/AgentSessionLaunchServiceTest.kt
 
 - New-task launches accepted from the global prompt use the shared generic new-thread deferred tab: provider-neutral centered copy appears immediately, and the spinner appears only after a short delay.
-  [@test] ../../chat/testSrc/AgentChatFileEditorLifecycleTest.kt
+  [@test] ../../thread-view/testSrc/AgentThreadViewFileEditorLifecycleTest.kt
   [@test] ../../sessions/testSrc/AgentSessionLaunchServiceTest.kt
 
-- Plan mode is available as a compact header icon toggle only when the selected provider exposes the plan-mode option. Its last-used state is stored per provider as provider option preferences, restored on prompt open, sent in the launch payload, and forced off or rejected for busy existing tasks. A typed `/plan` prefix remains prompt text and does not toggle the option.
+- Plan mode is available as a compact header icon toggle only when the selected provider exposes the plan-mode option. Its last-used state is stored per provider as provider option preferences, restored on prompt open, sent in the launch payload, and forced off or rejected for busy existing tasks. The prompt UI filters selectable options before submit, but launch service preserves explicit launch-request option ids so providers can resolve capability-dependent behavior. A typed `/plan` prefix remains prompt text and does not toggle the option.
   [@test] ../../prompt/ui/testSrc/AgentPromptPlanModeDecisionsTest.kt
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
+  [@test] ../../lib-agent/providers/junie/sessions/testSrc/JunieExistingThreadPromptLaunchIntegrationTest.kt
+  [@test] ../../lib-agent/providers/junie/sessions/testSrc/JunieNewThreadPromptLaunchIntegrationTest.kt
 
 - Codex `NEW_TASK` prompts start through the Codex app-server remote-resume path. Standard prompts start plain app-server turns; Plan prompts do not type `/plan`, and the resumed TUI must visibly enter Plan mode before the prompt starts. An acknowledged no-op `thread/settings/update` without `thread/settings/updated` must not be treated as prompt-send failure.
   [@test] ../../lib-agent/providers/codex/sessions/testSrc/CodexPlanPromptRealAppServerIntegrationTest.kt
@@ -128,10 +130,11 @@ The global prompt opens a project-scoped prompt surface for starting a new task 
 - The empty editor inline composer is a compact persistent empty-state affordance, not a full embedded popup.
 - Empty editor rendering must not steal focus; users focus the inline composer by clicking it or invoking the global prompt action while it is visible.
 - The inline prompt editor exposes localized accessible name and description metadata, while validation and status feedback continue to use the shared prompt status strip behavior.
+- The inline prompt starts compact, grows with longer prompt text up to a bounded height, then scrolls inside the editor.
 - The popup keep-open toggle is a secondary footer control, not part of the primary header action cluster.
 - Validation errors appear inline and keep the popup open.
 - Successful launches close the popup and clear the submitted draft.
-- Successful inline new-thread launches clear the submitted draft and replace the prompt surface by starting the deferred chat tab.
+- Successful inline new-thread launches clear the submitted draft and replace the prompt surface by starting the deferred Thread View.
 
 ## Testing / Local Run
 - `./tests.cmd --module intellij.agent.workbench.prompt.ui.tests --test "com.intellij.agent.workbench.prompt.ui.AgentPrompt*Test"`

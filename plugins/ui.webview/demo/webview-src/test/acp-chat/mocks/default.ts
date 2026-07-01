@@ -7,11 +7,23 @@ import type { AcpBridgeHostApi, AcpBridgePageApi } from "../../../views/acp-chat
 const acpBridgeHostApiId = apiId<AcpBridgeHostApi>()("acp.bridge")
 const acpBridgePageApiId = apiId<AcpBridgePageApi>()("acp.bridge")
 const sessionId = "mock-session"
+const loadedSessionId = "loaded-session-1"
+const deletedSessionId = "loaded-session-2"
+const mockCwd = "/mock/project"
 const streamingProbePrompt = "streaming probe"
-const defaultModeId = "ask"
-const modelConfigId = "gemini_model"
+const markdownFeatureProbePrompt = "markdown feature probe"
+const modeConfigId = "mode"
+const modelConfigId = "model"
+const effortConfigId = "effort"
+const braveModeConfigId = "brave_mode"
+const thinkMoreConfigId = "think_more"
+const debugModeConfigId = "debug_mode"
+const defaultSessionModeValue = "auto"
 const defaultModelValue = "gemini-2.5-flash"
-const defaultAutonomyValue = false
+const defaultEffortValue = "medium"
+const defaultBraveModeValue = false
+const defaultThinkMoreValue = "off"
+const defaultDebugModeValue = false
 
 type JsonRpcId = string | number | null
 
@@ -25,9 +37,16 @@ interface JsonRpcMessage {
 export default defineWebViewMock((context) => {
   let pageApi: MockCallable<AcpBridgePageApi> | null = null
   const pendingStdout: unknown[] = []
-  let currentModeId = defaultModeId
+  let currentSessionModeValue = defaultSessionModeValue
   let currentModelValue = defaultModelValue
-  let currentAutonomyValue = defaultAutonomyValue
+  let currentEffortValue = defaultEffortValue
+  let currentBraveModeValue = defaultBraveModeValue
+  let currentThinkMoreValue = defaultThinkMoreValue
+  let currentDebugModeValue = defaultDebugModeValue
+  let activeSessionId = sessionId
+  let listedSessions = defaultListedSessions()
+  let newSessionCounter = 0
+  let restartCounter = 0
 
   context.page.whenImplemented(acpBridgePageApiId, api => {
     pageApi = api
@@ -38,16 +57,27 @@ export default defineWebViewMock((context) => {
     async listAgents() {
       return {
         agents: [
+          { id: "junie", name: "Junie", icon: "junie" },
           { id: "mock-agent", name: "Mock Agent" },
         ],
       }
     },
     async startAgent() {
       pendingStdout.length = 0
-      currentModeId = defaultModeId
+      currentSessionModeValue = defaultSessionModeValue
       currentModelValue = defaultModelValue
-      currentAutonomyValue = defaultAutonomyValue
-      return { ok: true, cwd: "/mock/project" }
+      currentEffortValue = defaultEffortValue
+      currentBraveModeValue = defaultBraveModeValue
+      currentThinkMoreValue = defaultThinkMoreValue
+      currentDebugModeValue = defaultDebugModeValue
+      activeSessionId = restartCounter === 0 ? sessionId : `mock-session-restarted-${restartCounter}`
+      listedSessions = defaultListedSessions()
+      newSessionCounter = 0
+      restartCounter++
+      return { ok: true, cwd: mockCwd }
+    },
+    async openAcpConfig() {
+      return { ok: true }
     },
     async sendStdin(params) {
       const message = parseJsonRpcMessage(params.line)
@@ -71,44 +101,49 @@ export default defineWebViewMock((context) => {
         await sendPageStdout(response(message.id, {
           protocolVersion: message.params?.protocolVersion ?? 1,
           agentCapabilities: {
+            loadSession: true,
             promptCapabilities: { image: true, audio: false, embeddedContext: true },
+            sessionCapabilities: { list: {}, delete: {} },
           },
           authMethods: [],
         }))
         break
       case "session/new":
+        activeSessionId = newSessionCounter === 0 ? activeSessionId : `mock-session-new-${newSessionCounter}`
+        newSessionCounter++
         await sendPageStdout(response(message.id, {
-          sessionId,
-          modes: {
-            availableModes: [
-              { id: "ask", name: "Ask", description: "Answer questions without editing files." },
-              { id: "code", name: "Code", description: "Use tools and apply changes." },
-            ],
-            currentModeId,
-          },
+          sessionId: activeSessionId,
+          modes: sessionModes(),
           configOptions: sessionConfigOptions(),
         }))
         await sendPageStdout({
           jsonrpc: "2.0",
           method: "session/update",
           params: {
-            sessionId,
+            sessionId: activeSessionId,
             update: {
               sessionUpdate: "available_commands_update",
               availableCommands: sessionCommands(),
             },
           },
         })
-        break
-      case "session/set_mode":
-        if (typeof message.params?.modeId === "string") {
-          currentModeId = message.params.modeId
-        }
-        await sendPageStdout(response(message.id, {}))
+        if (activeSessionId !== sessionId) void sendLateStaleSessionUpdate(loadedSessionId)
         break
       case "session/set_config_option":
         updateConfigOption(message.params)
         await sendPageStdout(response(message.id, { configOptions: sessionConfigOptions() }))
+        break
+      case "session/list":
+        await sendPageStdout(response(message.id, { sessions: listedSessions, nextCursor: null }))
+        break
+      case "session/load":
+        await loadSession(message.id, message.params)
+        break
+      case "session/delete":
+        if (typeof message.params?.sessionId === "string") {
+          listedSessions = listedSessions.filter(session => session.sessionId !== message.params.sessionId)
+        }
+        await sendPageStdout(response(message.id, {}))
         break
       case "session/prompt":
         await sendAssistantResponse(message.id, promptText(message.params?.prompt))
@@ -128,7 +163,7 @@ export default defineWebViewMock((context) => {
         jsonrpc: "2.0",
         method: "session/update",
         params: {
-          sessionId,
+          sessionId: activeSessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
             content: { type: "text", text: "\n\nMock agent cancelled." },
@@ -138,19 +173,75 @@ export default defineWebViewMock((context) => {
     }
   }
 
-  async function sendAssistantResponse(requestId: JsonRpcId, text: string): Promise<void> {
-    if (text.includes(streamingProbePrompt)) {
-      await sendStreamingAssistantResponse(requestId, text)
-      return
-    }
+  async function loadSession(requestId: JsonRpcId, params: any): Promise<void> {
+    activeSessionId = typeof params?.sessionId === "string" ? params.sessionId : loadedSessionId
+    await sendSessionUpdate({
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "Loaded user request" },
+    })
+    await sendSessionUpdate({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Loaded assistant response" },
+    })
+    const updatedAt = "2026-06-29T09:30:00.000Z"
+    listedSessions = listedSessions.map(session => session.sessionId === activeSessionId
+      ? { ...session, title: "Loaded session renamed", updatedAt }
+      : session)
+    await sendSessionUpdate({
+      sessionUpdate: "session_info_update",
+      title: "Loaded session renamed",
+      updatedAt,
+    })
+    await sendPageStdout(response(requestId, { modes: sessionModes(), configOptions: sessionConfigOptions() }))
+  }
+
+  async function sendSessionUpdate(update: unknown): Promise<void> {
     await sendPageStdout({
       jsonrpc: "2.0",
       method: "session/update",
       params: {
-        sessionId,
+        sessionId: activeSessionId,
+        update,
+      },
+    })
+  }
+
+  async function sendLateStaleSessionUpdate(staleSessionId: string): Promise<void> {
+    await delay(50)
+    await sendPageStdout({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: staleSessionId,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "Late stale loaded session request" },
+        },
+      },
+    })
+  }
+
+  async function sendAssistantResponse(requestId: JsonRpcId, text: string): Promise<void> {
+    if (text.includes(markdownFeatureProbePrompt)) {
+      await sendAssistantText(requestId, markdownFeatureResponse())
+      return
+    }
+    if (text.includes(streamingProbePrompt)) {
+      await sendStreamingAssistantResponse(requestId, text)
+      return
+    }
+    await sendAssistantText(requestId, `Mock response from AI chat: ${text || "Hello from the browser mock."}`)
+  }
+
+  async function sendAssistantText(requestId: JsonRpcId, text: string): Promise<void> {
+    await sendPageStdout({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: activeSessionId,
         update: {
           sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: `Mock response from AI chat: ${text || "Hello from the browser mock."}` },
+          content: { type: "text", text },
         },
       },
     })
@@ -158,21 +249,53 @@ export default defineWebViewMock((context) => {
   }
 
   function updateConfigOption(params: any): void {
-    if (params?.configId === modelConfigId && typeof params.value === "string") {
+    if (params?.configId === modeConfigId && typeof params.value === "string") {
+      currentSessionModeValue = params.value
+    }
+    else if (params?.configId === modelConfigId && typeof params.value === "string") {
       currentModelValue = params.value
     }
-    else if (params?.configId === "autonomy" && params.type === "boolean" && typeof params.value === "boolean") {
-      currentAutonomyValue = params.value
+    else if (params?.configId === effortConfigId && typeof params.value === "string") {
+      currentEffortValue = params.value
+    }
+    else if (params?.configId === braveModeConfigId && params.type === "boolean" && typeof params.value === "boolean") {
+      currentBraveModeValue = params.value
+    }
+    else if (params?.configId === thinkMoreConfigId && typeof params.value === "string") {
+      currentThinkMoreValue = params.value
+    }
+    else if (params?.configId === debugModeConfigId && params.type === "boolean" && typeof params.value === "boolean") {
+      currentDebugModeValue = params.value
+    }
+  }
+
+  function sessionModes(): unknown {
+    return {
+      availableModes: [],
+      currentModeId: null,
     }
   }
 
   function sessionConfigOptions(): unknown[] {
     return [
       {
+        id: modeConfigId,
+        type: "select",
+        name: "Mode",
+        description: "Controls how Junie handles the current session.",
+        currentValue: currentSessionModeValue,
+        options: [
+          { value: "auto", name: "Auto", description: "Let Junie choose the best session mode." },
+          { value: "ask", name: "Ask", description: "Answer questions without editing files." },
+          { value: "code", name: "Code", description: "Use tools and apply changes." },
+        ],
+      },
+      {
         id: modelConfigId,
         type: "select",
-        name: "Gemini model",
+        name: "Model",
         description: "Controls the mocked model profile.",
+        category: "model",
         currentValue: currentModelValue,
         options: [
           { value: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Fast Gemini mock model." },
@@ -180,11 +303,50 @@ export default defineWebViewMock((context) => {
         ],
       },
       {
-        id: "autonomy",
+        id: effortConfigId,
+        type: "select",
+        name: "Effort",
+        description: "Select how much reasoning effort Junie spends for the selected model.",
+        category: "thought_level",
+        currentValue: currentEffortValue,
+        options: [
+          { value: "low", name: "Low effort" },
+          { value: "medium", name: "Medium effort" },
+          { value: "high", name: "High effort" },
+        ],
+      },
+      {
+        id: braveModeConfigId,
         type: "boolean",
-        name: "Autonomy",
-        description: "Allow the mock agent to act independently.",
-        currentValue: currentAutonomyValue,
+        name: "Brave Mode",
+        description: "When enabled, Junie will execute commands without asking for approval.",
+        currentValue: currentBraveModeValue,
+      },
+      {
+        id: thinkMoreConfigId,
+        type: "select",
+        name: "Think More",
+        description: "When enabled, Junie will spend more time thinking before acting.",
+        currentValue: currentThinkMoreValue,
+        options: [
+          { value: "on", name: "On" },
+          { value: "off", name: "Off" },
+        ],
+      },
+      {
+        id: debugModeConfigId,
+        type: "boolean",
+        name: "Debug Mode",
+        description: "When enabled, Junie will use debug-specific behavior.",
+        currentValue: currentDebugModeValue,
+      },
+      {
+        id: "empty_selector",
+        type: "select",
+        name: "Empty selector",
+        description: "This should not be rendered.",
+        currentValue: "",
+        options: [],
       },
     ]
   }
@@ -214,7 +376,7 @@ export default defineWebViewMock((context) => {
         jsonrpc: "2.0",
         method: "session/update",
         params: {
-          sessionId,
+          sessionId: activeSessionId,
           update: {
             sessionUpdate: "agent_thought_chunk",
             content: { type: "text", text: thoughtChunks[i] },
@@ -225,7 +387,7 @@ export default defineWebViewMock((context) => {
         jsonrpc: "2.0",
         method: "session/update",
         params: {
-          sessionId,
+          sessionId: activeSessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
             content: { type: "text", text: messageChunks[i] },
@@ -267,6 +429,14 @@ function response(id: JsonRpcId, result: unknown): unknown {
   return { jsonrpc: "2.0", id, result }
 }
 
+function defaultListedSessions() {
+  return [
+    { sessionId, cwd: mockCwd, title: "Current mock chat", updatedAt: "2026-06-29T09:00:00.000Z" },
+    { sessionId: loadedSessionId, cwd: mockCwd, title: "Loaded session one", updatedAt: "2026-06-29T08:30:00.000Z" },
+    { sessionId: deletedSessionId, cwd: mockCwd, title: "Loaded session two", updatedAt: "2026-06-28T18:00:00.000Z" },
+  ]
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -276,4 +446,48 @@ function promptText(prompt: unknown): string {
     return ""
   }
   return prompt.map(block => block?.type === "text" && typeof block.text === "string" ? block.text : "").join("")
+}
+
+function markdownFeatureResponse(): string {
+  return `# Markdown feature matrix
+
+| Feature | Status |
+| --- | --- |
+| GFM table | Works |
+| KaTeX | Works |
+
+- [x] Render task lists
+- [ ] Keep unchecked tasks visible
+
+Inline math: $a^2 + b^2 = c^2$.
+
+$$
+\\int_0^1 x^2 dx = \\frac{1}{3}
+$$
+
+\`\`\`mermaid
+flowchart TD
+  A[Markdown] --> B[Mermaid]
+\`\`\`
+
+\`\`\`ts
+const answer: number = 42
+\`\`\`
+
+<details open><summary>Raw HTML details</summary><kbd>Cmd</kbd> + <kbd>K</kbd> with <mark>mark</mark>, H<sub>2</sub>O, and E=mc<sup>2</sup>.</details>
+
+Here is [a safe link](https://example.com).
+
+Footnote reference[^1].
+
+[^1]: Footnote content from ACP chat markdown.
+
+<script>window.__ACP_MARKDOWN_SCRIPT_EXECUTED__ = true</script>
+${unsafeImageHtml()}
+`
+}
+
+function unsafeImageHtml(): string {
+  const eventAttribute = "onerror"
+  return `<img src="https://example.com/unsafe.png" alt="Unsafe image" ${eventAttribute}="window.__ACP_MARKDOWN_ONERROR_EXECUTED__ = true">`
 }

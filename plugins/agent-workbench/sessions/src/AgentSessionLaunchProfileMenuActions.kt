@@ -9,6 +9,7 @@ import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
 import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfileKind
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionLaunchProfileContributors
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionLaunchProfileSnapshot
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderMenuItem
@@ -32,10 +33,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.util.ui.LafIconLookup
 import org.jetbrains.annotations.Nls
+import javax.swing.Icon
 
 data class AgentSessionLaunchProfileMenuItem(
   @JvmField val profile: AgentPromptLaunchProfile,
   @JvmField val menuItem: AgentSessionProviderMenuItem,
+  @JvmField val icon: Icon? = null,
 )
 
 data class AgentSessionLaunchProfileSelection(
@@ -86,10 +89,11 @@ fun resolveAgentSessionLaunchProfileSelection(
   menuModel: AgentSessionProviderMenuModel,
   userProfiles: List<AgentPromptLaunchProfile>,
   preferredProfileId: String?,
+  project: Project? = null,
   fallbackProfileIds: List<String> = emptyList(),
   quickStartItemFilter: (AgentSessionLaunchProfileMenuItem) -> Boolean = { true },
 ): AgentSessionLaunchProfileSelection {
-  val profiles = resolveAgentSessionLaunchProfileItems(menuModel, userProfiles)
+  val profiles = resolveAgentSessionLaunchProfileItems(menuModel, userProfiles, project = project)
   return resolveAgentSessionLaunchProfileSelection(
     profiles = profiles,
     preferredProfileId = preferredProfileId,
@@ -129,9 +133,13 @@ private fun resolveAgentSessionLaunchProfileItem(
 fun resolveAgentSessionLaunchProfileItems(
   menuModel: AgentSessionProviderMenuModel,
   userProfiles: List<AgentPromptLaunchProfile>,
+  project: Project? = null,
 ): List<AgentSessionLaunchProfileMenuItem> {
+  val contributionIconsByProfileId = AgentSessionLaunchProfileContributors.buildBuiltInLaunchProfiles(project)
+    .mapNotNull { contribution -> contribution.icon?.let { icon -> contribution.id to icon } }
+    .toMap()
   val snapshot = AgentSessionLaunchProfileSnapshot(
-    builtInProfiles = buildBuiltInLaunchProfiles(menuModel, ::quickStartLabel),
+    builtInProfiles = buildBuiltInLaunchProfiles(menuModel, ::quickStartLabel, project = project),
     userProfiles = userProfiles,
   )
   val items = menuModel.standardItems + menuModel.yoloItems
@@ -139,7 +147,7 @@ fun resolveAgentSessionLaunchProfileItems(
     val provider = AgentSessionProvider.fromOrNull(profile.providerId) ?: return@mapNotNull null
     val menuItem = items.firstOrNull { item -> item.bridge.provider == provider && item.mode == profile.launchMode }
                    ?: return@mapNotNull null
-    AgentSessionLaunchProfileMenuItem(profile, menuItem)
+    AgentSessionLaunchProfileMenuItem(profile, menuItem, contributionIconsByProfileId[profile.id])
   }
 }
 
@@ -234,7 +242,15 @@ fun appendManageLaunchProfilesRow(rows: MutableList<AgentWorkbenchPopupRow>, eve
 }
 
 fun quickStartActionText(item: AgentSessionProviderMenuItem): @Nls String {
-  return AgentSessionsBundle.message(item.bridge.quickStartActionTextKey, quickStartLabel(item))
+  return newThreadQuickActionText(item.bridge.quickStartActionTextKey, quickStartLabel(item))
+}
+
+fun newThreadActionText(agentName: @Nls String): @Nls String {
+  return newThreadQuickActionText("action.AgentWorkbenchSessions.NewThreadQuick.text", agentName)
+}
+
+private fun newThreadQuickActionText(key: String, agentName: @Nls String): @Nls String {
+  return AgentSessionsBundle.message(key, agentName)
 }
 
 fun quickStartLabel(item: AgentSessionProviderMenuItem): @Nls String {
@@ -243,7 +259,7 @@ fun quickStartLabel(item: AgentSessionProviderMenuItem): @Nls String {
 }
 
 fun launchProfileActionText(item: AgentSessionLaunchProfileMenuItem): @Nls String {
-  if (item.profile.kind == AgentPromptLaunchProfileKind.BUILT_IN) {
+  if (item.profile.kind == AgentPromptLaunchProfileKind.BUILT_IN && !item.isAcpProfile()) {
     return quickStartActionText(item.menuItem)
   }
   return AgentSessionsBundle.message("action.AgentWorkbenchSessions.NewThreadProfileQuick.text", item.profile.name)
@@ -273,11 +289,19 @@ private fun forEachLaunchProfileSection(
   profiles: List<AgentSessionLaunchProfileMenuItem>,
   handleSection: (@Nls String?, List<AgentSessionLaunchProfileMenuItem>) -> Unit,
 ) {
-  val standardProfiles = profiles.filter { profileItem -> profileItem.profile.launchMode != AgentSessionLaunchMode.YOLO }
-  val yoloProfiles = profiles.filter { profileItem -> profileItem.profile.launchMode == AgentSessionLaunchMode.YOLO }
+  val acpProfiles = profiles.filter(AgentSessionLaunchProfileMenuItem::isAcpProfile)
+  val standardProfiles = profiles.filter { profileItem ->
+    !profileItem.isAcpProfile() && profileItem.profile.launchMode != AgentSessionLaunchMode.YOLO
+  }
+  val yoloProfiles = profiles.filter { profileItem ->
+    !profileItem.isAcpProfile() && profileItem.profile.launchMode == AgentSessionLaunchMode.YOLO
+  }
   handleSection(null, standardProfiles)
+  handleSection(AgentSessionsBundle.message("toolwindow.action.new.session.section.acp"), acpProfiles)
   handleSection(AgentSessionsBundle.message("toolwindow.action.new.session.section.auto"), yoloProfiles)
 }
+
+private fun AgentSessionLaunchProfileMenuItem.isAcpProfile(): Boolean = profile.providerId == ACP_PROVIDER_ID
 
 private fun createLaunchProfileMenuRow(
   path: String,
@@ -293,7 +317,7 @@ private fun createLaunchProfileMenuRow(
   return AgentWorkbenchPopupRow(
     text = profileItem.profile.name,
     separatorText = separatorText,
-    primaryIcon = providerItemMonochromeIconWithMode(profileItem.menuItem),
+    primaryIcon = launchProfileItemMonochromeIconWithMode(profileItem),
     secondaryIcon = when {
       !isCheckedProfile -> null
       isEnabled -> LafIconLookup.getIcon("checkmark")
@@ -320,9 +344,9 @@ private class LaunchProfileMenuAction(
   private val entryPoint: AgentWorkbenchEntryPoint,
   private val createNewSession: (String, AgentPromptLaunchProfile, Project, AgentWorkbenchEntryPoint) -> Unit,
   private val checkedLaunchProfileId: String?,
-) : DumbAwareAction(profileItem.profile.name, null, providerItemMonochromeIconWithMode(profileItem.menuItem)) {
+) : DumbAwareAction(profileItem.profile.name, null, launchProfileItemMonochromeIconWithMode(profileItem)) {
   init {
-    setProviderItemLaunchProfileActiveMarker(templatePresentation, profileItem.menuItem, isCheckedProfile())
+    setLaunchProfileItemActiveMarker(templatePresentation, profileItem, isCheckedProfile())
     templatePresentation.description = launchProfileActionDescription(
       profileItem = profileItem,
       projectLabel = projectLabelForPath(path),
@@ -335,7 +359,7 @@ private class LaunchProfileMenuAction(
 
   override fun update(e: AnActionEvent) {
     e.presentation.isEnabled = profileItem.menuItem.isEnabled
-    setProviderItemLaunchProfileActiveMarker(e.presentation, profileItem.menuItem, isCheckedProfile())
+    setLaunchProfileItemActiveMarker(e.presentation, profileItem, isCheckedProfile())
     e.presentation.description = launchProfileActionDescription(
       profileItem = profileItem,
       projectLabel = projectLabelForPath(path),
@@ -349,3 +373,5 @@ private class LaunchProfileMenuAction(
 
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 }
+
+private const val ACP_PROVIDER_ID: String = "acp"

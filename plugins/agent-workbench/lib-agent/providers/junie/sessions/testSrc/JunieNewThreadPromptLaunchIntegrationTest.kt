@@ -12,10 +12,9 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
 import com.intellij.agent.workbench.prompt.ui.captureNewTaskPromptLaunchRequest
 import com.intellij.agent.workbench.sessions.ScriptedSessionSource
-import com.intellij.agent.workbench.sessions.assertNewThreadPromptLaunchOpensNewChat
+import com.intellij.agent.workbench.sessions.assertNewThreadPromptLaunchOpensNewThreadView
 import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.platform.ai.agent.sessions.core.providers.withProvider
 import com.intellij.testFramework.junit5.TestApplication
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -42,7 +41,7 @@ class JunieNewThreadPromptLaunchIntegrationTest {
     assertThat(request.initialMessageRequest.providerOptionIds).isEmpty()
     assertThat(request.targetThreadId).isNull()
 
-    val observation = assertNewThreadPromptLaunchOpensNewChat(descriptor = descriptor, request = request)
+    val observation = assertNewThreadPromptLaunchOpensNewThreadView(descriptor = descriptor, request = request)
 
     assertThat(observation.normalizedPath).isEqualTo(PROJECT_PATH)
     assertThat(observation.identity).startsWith("junie:new-")
@@ -62,7 +61,7 @@ class JunieNewThreadPromptLaunchIntegrationTest {
   fun newThreadStandardPromptUsesStartupPromptCommand() {
     val descriptor = descriptor()
 
-    val observation = assertNewThreadPromptLaunchOpensNewChat(
+    val observation = assertNewThreadPromptLaunchOpensNewThreadView(
       descriptor = descriptor,
       request = newThreadLaunchRequest(prompt = "Implement the Junie flow"),
     )
@@ -85,7 +84,7 @@ class JunieNewThreadPromptLaunchIntegrationTest {
   fun newThreadPromptGenerationSettingsUseStartupPromptCommand() {
     val descriptor = descriptor()
 
-    val observation = assertNewThreadPromptLaunchOpensNewChat(
+    val observation = assertNewThreadPromptLaunchOpensNewThreadView(
       descriptor = descriptor,
       request = newThreadLaunchRequest(
         prompt = "Implement the Junie flow",
@@ -120,7 +119,7 @@ class JunieNewThreadPromptLaunchIntegrationTest {
   fun newThreadPlanModePromptUsesStartupPlanPromptCommand() {
     val descriptor = descriptor()
 
-    val observation = assertNewThreadPromptLaunchOpensNewChat(
+    val observation = assertNewThreadPromptLaunchOpensNewThreadView(
       descriptor = descriptor,
       request = newThreadLaunchRequest(
         prompt = "Plan the Junie flow",
@@ -147,7 +146,7 @@ class JunieNewThreadPromptLaunchIntegrationTest {
   fun oldJunieNewThreadPlanModePromptIsNotDispatched() {
     val descriptor = descriptor(cliVersion = JunieCliVersion(1962, 1))
 
-    val observation = assertNewThreadPromptLaunchOpensNewChat(
+    val observation = assertNewThreadPromptLaunchOpensNewThreadView(
       descriptor = descriptor,
       request = newThreadLaunchRequest(
         prompt = "Plan the Junie flow",
@@ -189,7 +188,7 @@ private fun descriptor(cliVersion: JunieCliVersion? = JunieCliVersion(2030, 1)):
     sessionSource = ScriptedSessionSource(provider = AgentSessionProvider.from("junie")),
     executableResolver = { JunieCliSupport.JUNIE_COMMAND },
     cliInfoResolver = { JunieCliInfo(JunieCliSupport.JUNIE_COMMAND, cliVersion) },
-  ).withProvider(JUNIE_AGENT_SESSION_PROVIDER)
+  )
 }
 
 private const val PROJECT_PATH: String = "/work/project-a"

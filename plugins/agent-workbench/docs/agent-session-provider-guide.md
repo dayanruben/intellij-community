@@ -5,8 +5,16 @@ entry point and source-level contracts that let shared services consume a provid
 
 ## Provider Entry Point
 
-A provider has one normal Agent Workbench registration: `com.intellij.agent.workbench.sessionProvider`. The registered descriptor owns the
-provider identity, display metadata, launch behavior, and one stable `sessionSource`:
+A provider has one normal Agent Workbench registration: `com.intellij.agent.workbench.sessionProvider`. The extension `id` should match the
+stable provider id and is used as the XML ordering anchor; runtime identity comes from the registered descriptor:
+
+```xml
+<agent.workbench.sessionProvider
+  id="example"
+  implementation="com.example.ExampleAgentSessionProviderDescriptor"/>
+```
+
+The registered descriptor owns the provider identity, display metadata, launch behavior, and one stable `sessionSource`:
 
 ```kotlin
 private class ExampleAgentSessionProviderDescriptor : AgentSessionProviderDescriptor {
@@ -54,19 +62,19 @@ its contract. Consumers discover support by type, so missing interfaces mean uns
 | `AgentSessionPrefetchSource`                | The provider can batch-load complete active snapshots for several paths more cheaply than listing each path.        |
 | `AgentSessionArchivedSource`                | Archived rows are available separately and can be listed accurately for a path.                                     |
 | `AgentSessionUpdateSource`                  | The provider emits background path or thread updates for loaded rows or hints.                                      |
-| `AgentSessionActiveThreadUpdateSource`      | An active chat tab can watch one concrete thread with provider-specific filtering.                                  |
+| `AgentSessionActiveThreadUpdateSource`      | An active Thread View can watch one concrete thread with provider-specific filtering.                                  |
 | `AgentSessionRefreshSource`                 | The provider can refresh more precisely than full path listing, especially for thread-scoped updates.               |
 | `AgentSessionRefreshHintsSource`            | The provider can cheaply fetch non-authoritative hints for pending-tab rebinding or presentation patches.           |
 | `AgentSessionCostSource`                    | Visible and archived rows can hydrate cost after rows are known.                                                    |
 | `AgentSessionThreadOutlineSource`           | Persisted history can be exposed as a read-only outline without restoring a terminal.                               |
 | `AgentSessionThreadOutlineNavigationSource` | A live provider view can navigate to stable outline item anchors.                                                   |
 | `AgentSessionThreadOutlineForkSource`       | The provider can create a new thread from a specific outline item without mutating the source thread.               |
-| `AgentSessionReadStateSource`               | The provider tracks read/unread state relative to open chat tabs. `BaseAgentSessionSource` already implements this. |
+| `AgentSessionReadStateSource`               | The provider tracks read/unread state relative to open Thread Views. `BaseAgentSessionSource` already implements this. |
 
 ## Why Capabilities Are Not Extension Points
 
 Core provider capabilities stay on the provider-owned source instead of becoming separate EPs. Separate capability EPs would repeat
-`providerId`, split caches and watchers across registrations, make provider lifetime unclear, and create partial-registration states that
+provider identity, split caches and watchers across registrations, make provider lifetime unclear, and create partial-registration states that
 consumers would have to reconcile.
 
 Use additional EPs only when the implementation is truly external or cross-cutting, such as UI contributors, feature settings, launch
@@ -118,7 +126,7 @@ than recomputing on every visibility refresh.
 
 ## Provider Checklist
 
-- Register one provider descriptor through `com.intellij.agent.workbench.sessionProvider`.
+- Register one provider descriptor through `com.intellij.agent.workbench.sessionProvider` and keep its extension `id` equal to the provider id.
 - Keep descriptor metadata localized through bundle keys and use stable provider ids.
 - Keep source constructors cheap and side-effect free.
 - Put source-owned capabilities on `sessionSource`; use contributor EPs only for external or cross-cutting additions.
@@ -127,4 +135,4 @@ than recomputing on every visibility refresh.
 - Emit scoped update events, not raw watcher noise.
 - Preserve stable ids and epoch-millis timestamps.
 - Make outline item ids stable before enabling navigation or fork capabilities.
-- Run provider tests, session service tests, chat outline tests when applicable, and `ApiCheckTest` after changing provider APIs.
+- Run provider tests, session service tests, thread view outline tests when applicable, and `ApiCheckTest` after changing provider APIs.

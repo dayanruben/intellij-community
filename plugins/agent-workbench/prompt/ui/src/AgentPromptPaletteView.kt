@@ -21,6 +21,7 @@ import com.intellij.openapi.actionSystem.ex.CheckboxAction
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
 import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
@@ -28,6 +29,7 @@ import com.intellij.openapi.project.DumbAwareToggleAction
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.WindowMoveListener
 import com.intellij.ui.components.ActionLink
+import com.intellij.ui.components.DropDownLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
@@ -52,7 +54,6 @@ import java.awt.Container
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
-import java.awt.Graphics
 import java.awt.event.ContainerAdapter
 import java.awt.event.ContainerEvent
 import java.awt.event.MouseAdapter
@@ -84,6 +85,7 @@ private const val EXISTING_TASK_VISIBLE_ROWS = 3
 private val PROMPT_PANEL_MINIMUM_SIZE = JBUI.size(0, 120)
 private val INLINE_PROMPT_PANEL_MINIMUM_SIZE = JBUI.size(0, 96)
 private val INLINE_PROMPT_EDITOR_PREFERRED_SIZE = JBUI.size(0, 74)
+private const val INLINE_PROMPT_TEXT_EXTRA_HEIGHT_CAP = 108
 private const val COMPOSER_CONTENT_HORIZONTAL_INSET = 6
 
 private fun inlinePromptSize(baseSize: Dimension, additionalHeight: Int): Dimension {
@@ -129,7 +131,6 @@ internal data class AgentPromptPaletteView(
   @JvmField val launchProfileLink: ActionLink,
   @JvmField val modelSelectorLink: ActionLink,
   @JvmField val reasoningEffortLink: ActionLink,
-  @JvmField val planReasoningEffortLink: ActionLink,
   @JvmField val launchTuningSummaryLink: ActionLink,
   @JvmField val defaultProfileActionControl: AgentPromptDefaultProfileActionControl,
   @JvmField val addContextButton: ActionLink,
@@ -145,6 +146,7 @@ internal data class AgentPromptPaletteView(
   @JvmField val containerModeAction: AgentPromptHeaderCheckBoxAction,
   @JvmField val footerPinToolbar: ActionToolbar,
   @JvmField val footerPinAction: AgentPromptToolbarIconToggleAction,
+  @JvmField val syncInlineSize: () -> Unit,
 )
 
 internal class AgentPromptHeaderCheckBoxAction(
@@ -248,6 +250,7 @@ internal class AgentPromptHeaderControls(
   private val promptLibraryAction: AgentPromptToolbarIconAction,
 ) {
   private var providerOptionsVisible = true
+  private var updateScheduled = false
 
   var providerOptionActions: List<AnAction> = emptyList()
     private set
@@ -286,8 +289,20 @@ internal class AgentPromptHeaderControls(
   }
 
   fun updateActions() {
-    @Suppress("DEPRECATION")
-    toolbar.updateActionsImmediately()
+    val application = ApplicationManager.getApplication()
+    if (application.lockProhibitedAdvice != null) {
+      if (!updateScheduled) {
+        updateScheduled = true
+        application.invokeLater {
+          updateScheduled = false
+          updateActions()
+        }
+      }
+      return
+    }
+
+    updateScheduled = false
+    updateToolbarActionsImmediately(toolbar)
   }
 
   private fun rebuildActions() {
@@ -317,12 +332,6 @@ internal class AgentPromptToolbarIconToggleAction(
 internal class HeaderActionLink(text: @Nls String) : ActionLink(text) {
   var onVisibilityChanged: (() -> Unit)? = null
   var onPresentationChanged: (() -> Unit)? = null
-  var trailingIcon: Icon? = null
-    set(value) {
-      field = value
-      revalidate()
-      repaint()
-    }
 
   override fun setVisible(aFlag: Boolean) {
     val visibilityChanged = isVisible != aFlag
@@ -339,32 +348,14 @@ internal class HeaderActionLink(text: @Nls String) : ActionLink(text) {
       onPresentationChanged?.invoke()
     }
   }
+}
 
-  override fun getPreferredSize(): Dimension {
-    return super.getPreferredSize().withTrailingIconWidth()
-  }
-
-  override fun getMinimumSize(): Dimension {
-    return super.getMinimumSize().withTrailingIconWidth()
-  }
-
-  override fun paintComponent(g: Graphics) {
-    super.paintComponent(g)
-    val icon = trailingIcon ?: return
-    val x = if (componentOrientation.isLeftToRight) {
-      width - insets.right - icon.iconWidth
-    }
-    else {
-      insets.left
-    }
-    val y = (height - icon.iconHeight) / 2
-    icon.paintIcon(this, g, x, y)
-  }
-
-  private fun Dimension.withTrailingIconWidth(): Dimension {
-    val icon = trailingIcon ?: return this
-    width += icon.iconWidth + iconTextGap
-    return this
+internal class HeaderDropDownLink(
+  text: @Nls String,
+  private val onPerform: (HeaderDropDownLink) -> Unit,
+) : DropDownLink<String>(text, { error("HeaderDropDownLink handles popup display in performAction") }) {
+  override fun performAction() {
+    onPerform(this)
   }
 }
 
@@ -383,23 +374,42 @@ internal class AgentPromptToolbarProfileAction(
   var onPresentationChanged: (() -> Unit)? = null
 
   @JvmField
-  val link: HeaderActionLink = HeaderActionLink(initialText).apply {
+  val link: HeaderDropDownLink = HeaderDropDownLink(initialText) { source ->
+    popupHandler.invoke(DataManager.getInstance().getDataContext(source), source)
+  }.apply {
     autoHideOnDisable = false
     withFont(JBUI.Fonts.smallFont().asPlain())
     foreground = UIUtil.getContextHelpForeground()
     border = JBUI.Borders.empty()
-    setIcon(initialIcon, false)
-    trailingIcon = AllIcons.General.LinkDropTriangle
     setToolTipText(HtmlChunk.text(initialDescription))
     accessibleContext.accessibleName = initialText
     accessibleContext.accessibleDescription = initialDescription
-    addActionListener {
-      popupHandler.invoke(DataManager.getInstance().getDataContext(this), this)
-    }
   }
 
-  val customComponent: JComponent
-    get() = link
+  @JvmField
+  val iconLabel: JLabel = JLabel(initialIcon).apply {
+    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    border = JBUI.Borders.emptyRight(4)
+    labelFor = link
+    setToolTipText(HtmlChunk.text(initialDescription))
+    accessibleContext.accessibleName = initialText
+    accessibleContext.accessibleDescription = initialDescription
+    addMouseListener(object : MouseAdapter() {
+      override fun mousePressed(e: MouseEvent) {
+        if (e.button == MouseEvent.BUTTON1 && link.isEnabled) {
+          link.doClick()
+        }
+      }
+    })
+  }
+
+  private val component = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+    isOpaque = false
+    add(iconLabel)
+    add(link)
+  }
+
+  val customComponent: JComponent = component
 
   val textForTest: @Nls String
     get() = profileText
@@ -430,19 +440,28 @@ internal class AgentPromptToolbarProfileAction(
     templatePresentation.description = description
     templatePresentation.icon = icon
     link.text = text
+    component.isVisible = visible
+    component.isEnabled = enabled
     link.isVisible = visible
     link.isEnabled = enabled
-    link.setIcon(icon, false)
+    iconLabel.icon = icon
+    iconLabel.isVisible = visible
+    iconLabel.isEnabled = enabled
     link.setToolTipText(HtmlChunk.text(description))
     link.accessibleContext.accessibleName = text
     link.accessibleContext.accessibleDescription = description
+    iconLabel.setToolTipText(HtmlChunk.text(description))
+    iconLabel.accessibleContext.accessibleName = text
+    iconLabel.accessibleContext.accessibleDescription = description
+    component.revalidate()
+    component.repaint()
     link.revalidate()
     link.repaint()
     onPresentationChanged?.invoke()
   }
 
   override fun createCustomComponent(presentation: Presentation, place: String): JComponent {
-    return link
+    return component
   }
 
   override fun update(e: AnActionEvent) {
@@ -685,13 +704,6 @@ internal fun createAgentPromptPaletteView(
     isVisible = false
   }
 
-  val planReasoningEffortLink = ActionLink(AgentPromptBundle.message("popup.generation.plan.reasoning.same")).apply {
-    setDropDownLinkIcon()
-    configureComposerTrayLink(isInlinePrompt)
-    setToolTipText(HtmlChunk.text(AgentPromptBundle.message("popup.generation.plan.reasoning.tooltip")))
-    accessibleContext.accessibleName = AgentPromptBundle.message("popup.generation.plan.reasoning.accessible.name")
-    isVisible = false
-  }
   val defaultProfileActionControl = AgentPromptDefaultProfileActionControl()
 
   val contextChipsContainer = JPanel(BorderLayout()).apply {
@@ -710,7 +722,7 @@ internal fun createAgentPromptPaletteView(
   }
   val generationSettingsActionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
     isOpaque = false
-    add(launchProfileLink)
+    add(profileSelectorAction.customComponent)
     defaultProfileActionControl.component.border = JBUI.Borders.emptyLeft(if (isInlinePrompt) 6 else 8)
     add(defaultProfileActionControl.component)
   }
@@ -781,10 +793,12 @@ internal fun createAgentPromptPaletteView(
     }
 
     val contextHeight = if (composerContextPanel.isVisible) composerContextPanel.preferredSize.height else 0
-    promptEditorPanel.preferredSize = inlinePromptSize(INLINE_PROMPT_EDITOR_PREFERRED_SIZE, contextHeight)
-    rootPanel.preferredSize = inlinePromptSize(AGENT_PROMPT_INLINE_EMPTY_STATE_PREFERRED_SIZE, contextHeight)
-    rootPanel.minimumSize = inlinePromptSize(AGENT_PROMPT_INLINE_EMPTY_STATE_MINIMUM_SIZE, contextHeight)
-    rootPanel.maximumSize = inlinePromptSize(AGENT_PROMPT_INLINE_EMPTY_STATE_MAXIMUM_SIZE, contextHeight)
+    val textExtraHeight = inlinePromptTextExtraHeight(promptArea)
+    val additionalHeight = contextHeight + textExtraHeight
+    promptEditorPanel.preferredSize = inlinePromptSize(INLINE_PROMPT_EDITOR_PREFERRED_SIZE, additionalHeight)
+    rootPanel.preferredSize = inlinePromptSize(AGENT_PROMPT_INLINE_EMPTY_STATE_PREFERRED_SIZE, additionalHeight)
+    rootPanel.minimumSize = inlinePromptSize(AGENT_PROMPT_INLINE_EMPTY_STATE_MINIMUM_SIZE, additionalHeight)
+    rootPanel.maximumSize = inlinePromptSize(AGENT_PROMPT_INLINE_EMPTY_STATE_MAXIMUM_SIZE, additionalHeight)
     promptEditorPanel.revalidate()
     rootPanel.revalidate()
     rootPanel.parent?.revalidate()
@@ -808,8 +822,7 @@ internal fun createAgentPromptPaletteView(
   headerToolbar.targetComponent = rootPanel
   footerPinToolbar.targetComponent = rootPanel
   headerControls.updateActions()
-  @Suppress("DEPRECATION")
-  footerPinToolbar.updateActionsImmediately()
+  updateToolbarActions(footerPinToolbar)
 
   WindowMoveListener(rootPanel).installTo(headerPanel)
 
@@ -827,7 +840,6 @@ internal fun createAgentPromptPaletteView(
     launchProfileLink = launchProfileLink,
     modelSelectorLink = modelSelectorLink,
     reasoningEffortLink = reasoningEffortLink,
-    planReasoningEffortLink = planReasoningEffortLink,
     launchTuningSummaryLink = launchTuningSummaryLink,
     defaultProfileActionControl = defaultProfileActionControl,
     addContextButton = addContextButton,
@@ -843,7 +855,38 @@ internal fun createAgentPromptPaletteView(
     containerModeAction = containerModeAction,
     footerPinToolbar = footerPinToolbar,
     footerPinAction = pinAction,
+    syncInlineSize = ::syncInlineRootSize,
   )
+}
+
+private fun inlinePromptTextExtraHeight(promptArea: EditorTextField): Int {
+  val document = promptArea.document
+  val editor = promptArea.editor
+  val hardLineCount = document.lineCount
+  val softWrapCount = editor?.let { activeEditor ->
+    val softWrapModel = activeEditor.softWrapModel
+    (0 until hardLineCount).sumOf { line ->
+      softWrapModel.getSoftWrapsForLine(line).count { softWrap -> softWrapModel.isVisible(softWrap) }
+    }
+  } ?: 0
+  val extraLineCount = (hardLineCount + softWrapCount - 1).coerceAtLeast(0)
+  val lineHeight = editor?.lineHeight ?: JBUI.scale(18)
+  return (extraLineCount * lineHeight).coerceIn(0, JBUI.scale(INLINE_PROMPT_TEXT_EXTRA_HEIGHT_CAP))
+}
+
+private fun updateToolbarActions(toolbar: ActionToolbar) {
+  val application = ApplicationManager.getApplication()
+  if (application.lockProhibitedAdvice != null) {
+    application.invokeLater { updateToolbarActions(toolbar) }
+    return
+  }
+
+  updateToolbarActionsImmediately(toolbar)
+}
+
+private fun updateToolbarActionsImmediately(toolbar: ActionToolbar) {
+  @Suppress("DEPRECATION")
+  toolbar.updateActionsImmediately()
 }
 
 private fun installInlinePromptChromeFocusForwarding(

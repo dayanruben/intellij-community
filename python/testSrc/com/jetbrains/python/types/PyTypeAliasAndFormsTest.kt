@@ -46,13 +46,13 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
 
     @Test
     @TestFor(issues = ["PY-7058"])
-    fun `type of an any value is Any`() = test(
-      TestOptions(enablePyAnyType = false, assertRecursionPrevention = false), // PY-90413
+    fun `type of an unknown value is Unknown`() = test(
+      TestOptions(assertRecursionPrevention = false), // PY-90413
       """
       def f(x):
-      #     └ TYPE Any
+      #     └ TYPE Unknown
           expr = type(x)
-      #   └ TYPE Any
+      #   └ TYPE Unknown
       """,
     )
 
@@ -436,13 +436,13 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
 
     @Test
     @TestFor(issues = ["PY-84430"])
-    fun `quoted Any`() = test(TestOptions(enablePyAnyType = false), """
+    fun `quoted Any`() = test("""
       from typing import Any
 
       any: "Any" = 1
 
       expr = any.imag
-      #└ TYPE Literal[0] FIXME Any
+      #└ TYPE Unknown FIXME Any
       """)
   }
 
@@ -1597,14 +1597,14 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
 
       A[int]().foo()
       A[str]().foo()
-      #^^^^^^^^^^^ WARNING Invalid self argument `A[str]` to method `A.foo` with type `(x: A[int]) -> None`
+      #^^^^^^^^^^^ WARNING Invalid self argument 'A[str]' to method 'A.foo' with type '(x: A[int]) -> None'
 
       A[int].bar()
       A[int]().bar()
       A[str].bar()
-      #^^^^^^^^^ WARNING Invalid self argument `type[A[str]]` to method `A.bar` with type `(x: type[A[int]]) -> None`
+      #^^^^^^^^^ WARNING Invalid self argument 'type[A[str]]' to method 'A.bar' with type '(x: type[A[int]]) -> None'
       A[str]().bar()
-      #^^^^^^^^^^^ WARNING Invalid self argument `type[A[str]]` to method `A.bar` with type `(x: type[A[int]]) -> None`
+      #^^^^^^^^^^^ WARNING Invalid self argument 'type[A[str]]' to method 'A.bar' with type '(x: type[A[int]]) -> None'
       """)
 
     @Test
@@ -1622,7 +1622,7 @@ class PyTypeAliasAndFormsTest : PyCodeInsightTestCase() {
       def f(x: A | B, y: A | B | C[str]):
           x.foo()
           y.foo()
-      #   ^^^^^ WARNING Invalid self argument `C[str]` to method `C.foo` with type `(self: C[int]) -> None`
+      #   ^^^^^ WARNING Invalid self argument 'C[str]' to method 'C.foo' with type '(self: C[int]) -> None'
       """)
 
     @Test

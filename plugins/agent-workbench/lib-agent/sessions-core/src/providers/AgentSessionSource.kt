@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ai.agent.sessions.core.providers
 
-// @spec community/plugins/agent-workbench/spec/chat/agent-chat-structure-view.spec.md
+// @spec community/plugins/agent-workbench/spec/thread-view/agent-thread-view-structure.spec.md
 
 import com.intellij.platform.ai.agent.core.AgentThreadActivity
 import com.intellij.platform.ai.agent.core.AgentThreadActivityBucket
@@ -17,9 +17,9 @@ import kotlinx.coroutines.flow.Flow
 import org.jetbrains.annotations.ApiStatus
 
 /**
- * Lightweight description of a provider thread that can replace a still-pending chat tab.
+ * Lightweight description of a provider thread that can replace a still-pending threadView tab.
  *
- * Providers return candidates from [AgentSessionRefreshHints] when a newly opened chat tab does not yet know its concrete provider
+ * Providers return candidates from [AgentSessionRefreshHints] when a newly opened threadView tab does not yet know its concrete provider
  * thread id. The refresh coordinator matches candidates by path, provider, recency, and presentation metadata; candidates do not create
  * or update persisted rows by themselves.
  */
@@ -55,13 +55,20 @@ data class AgentSessionActivityEvidence(
   @JvmField val canClearAttention: Boolean = true,
 ) {
   companion object {
-    @JvmField val PROVISIONAL: AgentSessionActivityEvidence = AgentSessionActivityEvidence(
+    @JvmField
+    val PROVISIONAL: AgentSessionActivityEvidence = AgentSessionActivityEvidence(
       authority = AgentSessionActivityAuthority.PROVISIONAL,
       canClearAttention = false,
     )
-    @JvmField val DERIVED: AgentSessionActivityEvidence = AgentSessionActivityEvidence(AgentSessionActivityAuthority.DERIVED)
-    @JvmField val SEMANTIC: AgentSessionActivityEvidence = AgentSessionActivityEvidence(AgentSessionActivityAuthority.SEMANTIC)
-    @JvmField val SNAPSHOT: AgentSessionActivityEvidence = AgentSessionActivityEvidence(AgentSessionActivityAuthority.SNAPSHOT)
+
+    @JvmField
+    val DERIVED: AgentSessionActivityEvidence = AgentSessionActivityEvidence(AgentSessionActivityAuthority.DERIVED)
+
+    @JvmField
+    val SEMANTIC: AgentSessionActivityEvidence = AgentSessionActivityEvidence(AgentSessionActivityAuthority.SEMANTIC)
+
+    @JvmField
+    val SNAPSHOT: AgentSessionActivityEvidence = AgentSessionActivityEvidence(AgentSessionActivityAuthority.SNAPSHOT)
   }
 }
 
@@ -160,6 +167,7 @@ fun Collection<String>.toAgentSessionRefreshThreadSeeds(): Set<AgentSessionRefre
 enum class AgentSessionSourceUpdate {
   /** Thread rows may have been added, removed, or changed; an authoritative provider refresh may be required. */
   THREADS_CHANGED,
+
   /** Only auxiliary hints or presentation may have changed; consumers should avoid a full row refresh when possible. */
   HINTS_CHANGED,
 }
@@ -546,7 +554,7 @@ interface AgentSessionUpdateSource : AgentSessionSource {
    * Stream of provider update events.
    *
    * Implementations should emit only meaningful changes after filtering raw filesystem/backend noise. Events may be scoped to paths,
-   * thread ids, or both; precise scopes reduce refresh work and make active chat tabs update faster.
+   * thread ids, or both; precise scopes reduce refresh work and make active threadView tabs update faster.
    */
   val updateEvents: Flow<AgentSessionSourceUpdateEvent>
 }
@@ -557,7 +565,7 @@ interface AgentSessionActiveThreadUpdateSource : AgentSessionSource {
   /**
    * Returns update events for an actively running [threadId] under [path].
    *
-   * This stream is used by active chat tabs and outlines. Implementations should parse raw notifications and emit only meaningful source
+   * This stream is used by active threadView tabs and outlines. Implementations should parse raw notifications and emit only meaningful source
    * updates such as activity changes or project-file evidence; unchanged persistence writes should not become refresh signals.
    */
   fun activeThreadUpdateEvents(path: String, threadId: String): Flow<AgentSessionSourceUpdateEvent>
@@ -683,7 +691,7 @@ interface AgentSessionThreadOutlineForkSource : AgentSessionThreadOutlineSource 
   ): AgentSessionOutlineForkResult?
 }
 
-/** Capability for providers that track read/unread state relative to open chat tabs. */
+/** Capability for providers that track read/unread state relative to open threadView tabs. */
 @ApiStatus.Internal
 interface AgentSessionReadStateSource : AgentSessionSource {
   /** Records that [threadId] is the active thread for this source, or clears it with `null`. */

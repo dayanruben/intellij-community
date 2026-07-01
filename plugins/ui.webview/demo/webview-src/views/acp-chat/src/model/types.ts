@@ -5,6 +5,7 @@
 export interface AgentInfo {
   id: string
   name: string
+  icon?: "junie"
 }
 
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed"
@@ -33,6 +34,27 @@ export interface PromptCapabilitiesView {
   image: boolean
   audio: boolean
   embeddedContext: boolean
+}
+
+export interface AcpSessionInfoView {
+  sessionId: string
+  cwd: string
+  additionalDirectories?: string[]
+  title?: string | null
+  updatedAt?: string | null
+}
+
+export interface AcpSessionCapabilitiesView {
+  list: boolean
+  load: boolean
+  delete: boolean
+  resume: boolean
+  close: boolean
+}
+
+export interface AcpSessionInfoUpdateView {
+  title?: string | null
+  updatedAt?: string | null
 }
 
 export interface SessionModeView {

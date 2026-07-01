@@ -70,9 +70,9 @@ internal class AgentSessionsTreePopupOpenAction : DumbAwareAction {
     isDedicatedProject = AgentWorkbenchDedicatedFrameProjectManager::isDedicatedProject
     openProject = { path, entryPoint -> service<AgentSessionLaunchService>().openOrFocusProject(path, entryPoint) }
     openThread =
-      { path, thread, project, entryPoint -> service<AgentSessionLaunchService>().openChatThread(path, thread, entryPoint, project) }
+      { path, thread, project, entryPoint -> service<AgentSessionLaunchService>().openThreadViewThread(path, thread, entryPoint, project) }
     openSubAgent = { path, thread, subAgent, project, entryPoint ->
-      service<AgentSessionLaunchService>().openChatSubAgent(path, thread, subAgent, entryPoint, project)
+      service<AgentSessionLaunchService>().openThreadViewSubAgent(path, thread, subAgent, entryPoint, project)
     }
   }
 
@@ -244,7 +244,7 @@ internal class AgentSessionsTreePopupNewThreadGroup @JvmOverloads constructor(
     val path = newThreadPathFromTarget(context.target) ?: return null
     val menuModel = buildAgentSessionLaunchProfileMenuModel(allBridges(), context.project)
     if (!menuModel.hasEntries()) return null
-    val selection = resolveAgentSessionLaunchProfileSelection(menuModel, userLaunchProfiles(), defaultLaunchProfileId())
+    val selection = resolveAgentSessionLaunchProfileSelection(menuModel, userLaunchProfiles(), defaultLaunchProfileId(), project = context.project)
     if (selection.profiles.isEmpty()) return null
     return NewThreadMenu(context, path, selection)
   }

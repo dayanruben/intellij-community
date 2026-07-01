@@ -86,20 +86,22 @@ export interface SelectProps extends Pick<ComponentPropsWithoutRef<typeof Select
   value: string
   onValueChange: (value: string) => void
   options: readonly SelectOption[]
+  children?: ReactNode
   placeholder?: string
   className?: string
+  triggerAriaLabel?: string
 }
 
-function Select({ options, placeholder, className, ...props }: SelectProps) {
+function Select({ options, children, placeholder, className, triggerAriaLabel, ...props }: SelectProps) {
   const selectedOption = options.find(option => option.value === props.value)
 
   return (
     <SelectRoot {...props}>
-      <SelectTrigger className={className}>
+      <SelectTrigger className={className} aria-label={triggerAriaLabel}>
         <span>{selectedOption?.label ?? placeholder}</span>
       </SelectTrigger>
       <SelectContent>
-        {options.map(({ label, disabled, textValue, value }) => (
+        {children ?? options.map(({ label, disabled, textValue, value }) => (
           <SelectItem
             key={value}
             value={value}

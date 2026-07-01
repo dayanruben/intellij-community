@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "bun run build.ts",
+    "preview:acp-chat": "bun test/acp-chat/preview.ts",
     "webview-preview": "bun ../../webview-src/packages/testkit/src/cli.ts",
     "test:browser": "playwright test",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -16,11 +17,19 @@
     "@jetbrains/intellij-webview-testkit": "file:../../webview-src/packages/testkit",
     "cytoscape": "^3.33.1",
     "cytoscape-fcose": "^2.2.0",
+    "katex": "^0.16.45",
     "marked": "^15.0.0",
     "mermaid": "^11.4.1",
     "radix-ui": "^1.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "rehype-katex": "^7.0.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "zod": "^4.4.0"
   },
   "devDependencies": {

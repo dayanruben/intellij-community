@@ -13,7 +13,6 @@
       <module fileurl="file://$PROJECT_DIR$/fleet/build/kernel.plugins.processor/fleet.build.kernel.plugins.processor.iml" filepath="$PROJECT_DIR$/fleet/build/kernel.plugins.processor/fleet.build.kernel.plugins.processor.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/platform/fleet.build.platform.iml" filepath="$PROJECT_DIR$/fleet/build/platform/fleet.build.platform.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/s3/fleet.build.s3.iml" filepath="$PROJECT_DIR$/fleet/build/s3/fleet.build.s3.iml" />
-      <module fileurl="file://$PROJECT_DIR$/fleet/build/scrambling/fleet.build.scrambling.iml" filepath="$PROJECT_DIR$/fleet/build/scrambling/fleet.build.scrambling.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/build/sign/fleet.build.sign.iml" filepath="$PROJECT_DIR$/fleet/build/sign/fleet.build.sign.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/bundles/fleet.bundles.iml" filepath="$PROJECT_DIR$/fleet/bundles/fleet.bundles.iml" />
       <module fileurl="file://$PROJECT_DIR$/fleet/codecache/fleet.codecache.iml" filepath="$PROJECT_DIR$/fleet/codecache/fleet.codecache.iml" />
@@ -49,16 +48,16 @@
       <module fileurl="file://$PROJECT_DIR$/fleet/util/serialization/fleet.util.serialization.iml" filepath="$PROJECT_DIR$/fleet/util/serialization/fleet.util.serialization.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/ai-review/intellij.agent.workbench.ai.review.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/ai-review/intellij.agent.workbench.ai.review.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/ai-review/intellij.agent.workbench.ai.review.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/ai-review/intellij.agent.workbench.ai.review.tests.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/chat/intellij.agent.workbench.chat.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/chat/intellij.agent.workbench.chat.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/chat/intellij.agent.workbench.chat.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/chat/intellij.agent.workbench.chat.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/claude/awb/intellij.agent.workbench.claude.awb.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/claude/awb/intellij.agent.workbench.claude.awb.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/claude/awb/intellij.agent.workbench.claude.awb.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/claude/awb/intellij.agent.workbench.claude.awb.tests.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/codex/chat/intellij.agent.workbench.codex.chat.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/codex/chat/intellij.agent.workbench.codex.chat.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/codex/chat/intellij.agent.workbench.codex.chat.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/codex/chat/intellij.agent.workbench.codex.chat.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/codex/ide/intellij.agent.workbench.codex.ide.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/codex/ide/intellij.agent.workbench.codex.ide.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/codex/ide/intellij.agent.workbench.codex.ide.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/codex/ide/intellij.agent.workbench.codex.ide.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/codex/prompt-suggestions/intellij.agent.workbench.codex.prompt.suggestions.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/codex/prompt-suggestions/intellij.agent.workbench.codex.prompt.suggestions.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/codex/prompt-suggestions/intellij.agent.workbench.codex.prompt.suggestions.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/codex/prompt-suggestions/intellij.agent.workbench.codex.prompt.suggestions.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/codex/thread-view/intellij.agent.workbench.codex.thread.view.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/codex/thread-view/intellij.agent.workbench.codex.thread.view.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/codex/thread-view/intellij.agent.workbench.codex.thread.view.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/codex/thread-view/intellij.agent.workbench.codex.thread.view.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/engine/intellij.agent.workbench.engine.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/engine/intellij.agent.workbench.engine.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/engine/intellij.agent.workbench.engine.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/engine/intellij.agent.workbench.engine.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/pi/awb/intellij.agent.workbench.pi.awb.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/pi/awb/intellij.agent.workbench.pi.awb.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/plugin/intellij.agent.workbench.plugin.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/plugin/intellij.agent.workbench.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/plugin/intellij.agent.workbench.plugin.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/plugin/intellij.agent.workbench.plugin.tests.iml" />
@@ -88,6 +87,8 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/sessions-toolwindow/intellij.agent.workbench.sessions.toolwindow.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/sessions-toolwindow/intellij.agent.workbench.sessions.toolwindow.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/settings/intellij.agent.workbench.settings.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/settings/intellij.agent.workbench.settings.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/settings/intellij.agent.workbench.settings.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/settings/intellij.agent.workbench.settings.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/thread-view/intellij.agent.workbench.thread.view.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/thread-view/intellij.agent.workbench.thread.view.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/thread-view/intellij.agent.workbench.thread.view.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/thread-view/intellij.agent.workbench.thread.view.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/ui/intellij.agent.workbench.ui.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/ui/intellij.agent.workbench.ui.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/ui/intellij.agent.workbench.ui.tests.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/ui/intellij.agent.workbench.ui.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/agent-workbench/vcs-merge/intellij.agent.workbench.vcs.merge.iml" filepath="$PROJECT_DIR$/plugins/agent-workbench/vcs-merge/intellij.agent.workbench.vcs.merge.iml" />
@@ -763,7 +764,6 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/junit5_rt/intellij.junit.v5.rt.iml" filepath="$PROJECT_DIR$/plugins/junit5_rt/intellij.junit.v5.rt.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/junit5_rt_tests/intellij.junit.v5.rt.tests.iml" filepath="$PROJECT_DIR$/plugins/junit5_rt_tests/intellij.junit.v5.rt.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/junit6_rt/intellij.junit.v6.rt.iml" filepath="$PROJECT_DIR$/plugins/junit6_rt/intellij.junit.v6.rt.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/junit6_rt_tests/intellij.junit.v6.rt.tests.iml" filepath="$PROJECT_DIR$/plugins/junit6_rt_tests/intellij.junit.v6.rt.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/tools/testUtil/jupyter.ui.test.util/intellij.jupyter.ui.test.util.iml" filepath="$PROJECT_DIR$/tools/testUtil/jupyter.ui.test.util/intellij.jupyter.ui.test.util.iml" />
       <module fileurl="file://$PROJECT_DIR$/jvm/jvm-analysis-api/intellij.jvm.analysis.iml" filepath="$PROJECT_DIR$/jvm/jvm-analysis-api/intellij.jvm.analysis.iml" />
       <module fileurl="file://$PROJECT_DIR$/jvm/jvm-analysis-impl/intellij.jvm.analysis.impl.iml" filepath="$PROJECT_DIR$/jvm/jvm-analysis-impl/intellij.jvm.analysis.impl.iml" />
@@ -1188,6 +1188,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/xz/intellij.libraries.xz.iml" filepath="$PROJECT_DIR$/libraries/xz/intellij.libraries.xz.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lombok/intellij.lombok.iml" filepath="$PROJECT_DIR$/plugins/lombok/intellij.lombok.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lombok/generated/intellij.lombok.generated.iml" filepath="$PROJECT_DIR$/plugins/lombok/generated/intellij.lombok.generated.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/lombok/plugin/intellij.lombok.plugin.iml" filepath="$PROJECT_DIR$/plugins/lombok/plugin/intellij.lombok.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lombok/intellij.lombok.tests.iml" filepath="$PROJECT_DIR$/plugins/lombok/intellij.lombok.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lsp.ui/intellij.lsp.ui.iml" filepath="$PROJECT_DIR$/plugins/lsp.ui/intellij.lsp.ui.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lsp.ui/idea.product.modules/intellij.lsp.ui.idea.product.modules.iml" filepath="$PROJECT_DIR$/plugins/lsp.ui/idea.product.modules/intellij.lsp.ui.idea.product.modules.iml" />

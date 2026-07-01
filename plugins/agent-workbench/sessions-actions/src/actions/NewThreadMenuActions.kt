@@ -4,7 +4,7 @@ package com.intellij.agent.workbench.sessions.actions
 // @spec community/plugins/agent-workbench/spec/sessions/agent-terminal-sessions.spec.md
 // @spec community/plugins/agent-workbench/spec/actions/new-thread.spec.md
 
-import com.intellij.agent.workbench.chat.AgentChatDeferredStartContent
+import com.intellij.agent.workbench.thread.view.AgentThreadViewDeferredStartContent
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextEnvelopeFormatter
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextResolverService
@@ -21,6 +21,7 @@ import com.intellij.agent.workbench.prompt.ui.emptyState.createAgentWorkbenchInl
 import com.intellij.agent.workbench.prompt.ui.emptyState.createAgentWorkbenchInlineNewThreadPromptComponent
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.projectLabelForPath
+import com.intellij.agent.workbench.sessions.newThreadActionText
 import com.intellij.platform.ai.agent.sessions.core.providers.initialMessageRequestForLaunchProfile
 import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.service.AgentDeferredNewSessionHandle
@@ -34,6 +35,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.RegistryManager
@@ -41,7 +43,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.jetbrains.annotations.Nls
 
 internal const val AGENT_WORKBENCH_NEW_THREAD_INLINE_PROMPT_REGISTRY_KEY: String = "agent.workbench.new.thread.inline.prompt"
 
@@ -69,7 +73,7 @@ internal fun createNewThreadViaService(
 ) {
   val provider = AgentSessionProvider.from(profile.providerId)
   val descriptor = AgentSessionProviders.find(provider)
-  if (!shouldOpenInlineNewThreadPrompt(descriptor)) {
+  if (!shouldOpenInlineNewThreadPrompt(descriptor = descriptor)) {
     createNewThreadDirectly(
       path = path,
       profile = profile,
@@ -88,7 +92,9 @@ internal fun createNewThreadViaService(
   )
 }
 
-private fun shouldOpenInlineNewThreadPrompt(descriptor: AgentSessionProviderDescriptor?): Boolean {
+private fun shouldOpenInlineNewThreadPrompt(
+  descriptor: AgentSessionProviderDescriptor?,
+): Boolean {
   return shouldOpenInlineNewThreadPrompt(
     registryEnabled = RegistryManager.getInstance().get(AGENT_WORKBENCH_NEW_THREAD_INLINE_PROMPT_REGISTRY_KEY).asBoolean(),
     descriptor = descriptor,
@@ -170,7 +176,7 @@ internal class AgentSessionsInlineNewThreadPromptService internal constructor(
     entryPoint: AgentWorkbenchEntryPoint,
     invocationData: AgentPromptInvocationData?,
   ) {
-    coroutineScope.launch(CoroutineName("Agent Workbench inline New Thread prompt")) {
+    coroutineScope.launch(Dispatchers.EDT + CoroutineName("Agent Workbench inline New Thread prompt")) {
       openInlinePromptSuspending(
         path = path,
         profile = profile,
@@ -198,6 +204,7 @@ internal class AgentSessionsInlineNewThreadPromptService internal constructor(
         mode = profile.launchMode,
         entryPoint = entryPoint,
         launchProfileId = profile.id,
+        launchTargetId = profile.launchTargetId,
         generationSettings = profile.generationSettings,
         waitingTitle = AgentSessionsBundle.message("toolwindow.thread.preparing.title"),
         deferredStartContentProvider = { project ->
@@ -250,15 +257,15 @@ internal class AgentSessionsInlineNewThreadPromptService internal constructor(
     entryPoint: AgentWorkbenchEntryPoint,
     handleDeferred: CompletableDeferred<AgentDeferredNewSessionHandle>,
     invocationData: AgentPromptInvocationData?,
-  ): AgentChatDeferredStartContent {
-    val launcher = InlineNewThreadPromptLauncherBridge(projectPath = path, handleProvider = { handleDeferred.await() })
-    val component = createAgentWorkbenchInlineNewThreadPromptComponent(
-      project = project,
-      invocationData = (invocationData ?: defaultNewThreadInvocationData(project, entryPoint)).copy(project = project),
-      launcherProvider = { launcher },
-      initialLaunchProfileId = profile.id,
-    )
-    return AgentChatDeferredStartContent(
+  ): AgentThreadViewDeferredStartContent {
+      val launcher = InlineNewThreadPromptLauncherBridge(projectPath = path, handleProvider = { handleDeferred.await() })
+      val component = createAgentWorkbenchInlineNewThreadPromptComponent(
+        project = project,
+        invocationData = (invocationData ?: defaultNewThreadInvocationData(project, entryPoint, profile.name)).copy(project = project),
+        launcherProvider = { launcher },
+        initialLaunchProfileId = profile.id,
+      )
+    return AgentThreadViewDeferredStartContent(
       component = createAgentWorkbenchInlinePromptEditorHost(component),
       preferredFocusedComponent = component.preferredFocusedComponent,
       disposeContent = { Disposer.dispose(component) },
@@ -266,11 +273,15 @@ internal class AgentSessionsInlineNewThreadPromptService internal constructor(
   }
 }
 
-private fun defaultNewThreadInvocationData(project: Project, entryPoint: AgentWorkbenchEntryPoint): AgentPromptInvocationData {
+private fun defaultNewThreadInvocationData(
+  project: Project,
+  entryPoint: AgentWorkbenchEntryPoint,
+  profileName: @Nls String,
+): AgentPromptInvocationData {
   return AgentPromptInvocationData(
     project = project,
     actionId = AgentWorkbenchActionIds.Sessions.MainToolbar.NEW_THREAD,
-    actionText = AgentSessionsBundle.message("action.AgentWorkbenchSessions.MainToolbar.NewThread.text"),
+    actionText = newThreadActionText(profileName),
     actionPlace = entryPoint.name,
     invokedAtMs = System.currentTimeMillis(),
   )

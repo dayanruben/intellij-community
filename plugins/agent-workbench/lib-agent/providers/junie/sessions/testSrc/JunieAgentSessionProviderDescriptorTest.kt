@@ -18,7 +18,6 @@ import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessag
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageStartupPolicy
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageTimeoutPolicy
 import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
-import com.intellij.platform.ai.agent.sessions.core.providers.withProvider
 import com.intellij.testFramework.junit5.TestApplication
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -34,8 +33,6 @@ class JunieAgentSessionProviderDescriptorTest {
   @Test
   fun `descriptor exposes Junie provider metadata`() {
     val descriptor = JunieAgentSessionProviderDescriptor(executableResolver = { "junie-test" })
-      .withProvider(JUNIE_AGENT_SESSION_PROVIDER)
-      .withProvider(JUNIE_AGENT_SESSION_PROVIDER)
 
     assertThat(JUNIE_AGENT_SESSION_PROVIDER).isEqualTo(AgentSessionProvider.from("junie"))
     assertThat(descriptor.sessionSource.provider).isEqualTo(AgentSessionProvider.from("junie"))
@@ -78,8 +75,8 @@ class JunieAgentSessionProviderDescriptorTest {
         requestedExecutable = executable
         listOf(
           AgentPromptGenerationModel(
-            id = "chatgpt-5.5",
-            displayName = "ChatGPT 5.5",
+            id = "threadViewgpt-5.5",
+            displayName = "ThreadViewGPT 5.5",
             supportedReasoningEfforts = setOf(
               AgentPromptReasoningEffort.LOW,
               AgentPromptReasoningEffort.HIGH,
@@ -94,8 +91,8 @@ class JunieAgentSessionProviderDescriptorTest {
     val models = descriptor.listAvailableGenerationModels(null)
 
     assertThat(requestedExecutable).isEqualTo("junie-test")
-    assertThat(models.map { it.id }).containsExactly("chatgpt-5.5")
-    assertThat(models.single().displayName).isEqualTo("ChatGPT 5.5")
+    assertThat(models.map { it.id }).containsExactly("threadViewgpt-5.5")
+    assertThat(models.single().displayName).isEqualTo("ThreadViewGPT 5.5")
     assertThat(models.single().isDefault).isTrue()
     assertThat(models.single().supportedReasoningEfforts).containsExactly(
       AgentPromptReasoningEffort.LOW,
@@ -120,10 +117,10 @@ class JunieAgentSessionProviderDescriptorTest {
         "result": {
           "sessionId": "session-1",
           "models": {
-            "currentModelId": "chatgpt-5.5-xhigh",
+            "currentModelId": "threadViewgpt-5.5-xhigh",
             "availableModels": [
-              {"modelId": "chatgpt-5.5", "name": "ChatGPT 5.5"},
-              {"modelId": "chatgpt-5.5-xhigh", "name": "ChatGPT 5.5 (xhigh)"}
+              {"modelId": "threadViewgpt-5.5", "name": "ThreadViewGPT 5.5"},
+              {"modelId": "threadViewgpt-5.5-xhigh", "name": "ThreadViewGPT 5.5 (xhigh)"}
             ]
           },
           "configOptions": [
@@ -145,8 +142,8 @@ class JunieAgentSessionProviderDescriptorTest {
       """.trimIndent()
     )
 
-    assertThat(models.map { it.id }).containsExactly("chatgpt-5.5", "chatgpt-5.5-xhigh")
-    assertThat(models.map { it.displayName }).containsExactly("ChatGPT 5.5", "ChatGPT 5.5 (xhigh)")
+    assertThat(models.map { it.id }).containsExactly("threadViewgpt-5.5", "threadViewgpt-5.5-xhigh")
+    assertThat(models.map { it.displayName }).containsExactly("ThreadViewGPT 5.5", "ThreadViewGPT 5.5 (xhigh)")
     assertThat(models.map { it.isDefault }).containsExactly(false, true)
     assertThat(models).allSatisfy { model ->
       assertThat(model.supportedReasoningEfforts).containsExactly(
@@ -360,11 +357,11 @@ class JunieAgentSessionProviderDescriptorTest {
 
     val updatedLaunchSpec = descriptor.applyGenerationSettings(
       baseLaunchSpec,
-      AgentPromptGenerationSettings(modelId = "chatgpt-5.5"),
+      AgentPromptGenerationSettings(modelId = "threadViewgpt-5.5"),
       STANDARD_INITIAL_MESSAGE_PLAN,
     )
 
-    assertThat(updatedLaunchSpec.command).containsExactly("junie-test", "--skip-update-check", "--model", "chatgpt-5.5")
+    assertThat(updatedLaunchSpec.command).containsExactly("junie-test", "--skip-update-check", "--model", "threadViewgpt-5.5")
   }
 
   @Test
@@ -403,7 +400,7 @@ class JunieAgentSessionProviderDescriptorTest {
     val updatedLaunchSpec = descriptor.applyGenerationSettings(
       baseLaunchSpec,
       AgentPromptGenerationSettings(
-        modelId = "chatgpt-5.5",
+        modelId = "threadViewgpt-5.5",
         reasoningEffort = AgentPromptReasoningEffort.HIGH,
       ),
       STANDARD_INITIAL_MESSAGE_PLAN,
@@ -413,7 +410,7 @@ class JunieAgentSessionProviderDescriptorTest {
       "junie-test",
       "--skip-update-check",
       "--model",
-      "chatgpt-5.5",
+      "threadViewgpt-5.5",
       "--effort",
       "high",
     )
@@ -429,7 +426,7 @@ class JunieAgentSessionProviderDescriptorTest {
     val updatedLaunchSpec = descriptor.applyGenerationSettings(
       baseLaunchSpec,
       AgentPromptGenerationSettings(
-        modelId = "chatgpt-5.5",
+        modelId = "threadViewgpt-5.5",
         reasoningEffort = AgentPromptReasoningEffort.XHIGH,
       ),
       STANDARD_INITIAL_MESSAGE_PLAN,
@@ -439,7 +436,7 @@ class JunieAgentSessionProviderDescriptorTest {
       "junie-test",
       "--skip-update-check",
       "--model",
-      "chatgpt-5.5",
+      "threadViewgpt-5.5",
       "--effort",
       "xhigh",
     )
@@ -469,7 +466,7 @@ class JunieAgentSessionProviderDescriptorTest {
     val updatedLaunchSpec = descriptor.applyGenerationSettings(
       baseLaunchSpec,
       AgentPromptGenerationSettings(
-        modelId = "chatgpt-5.5",
+        modelId = "threadViewgpt-5.5",
         reasoningEffort = AgentPromptReasoningEffort.LOW,
       ),
       STANDARD_INITIAL_MESSAGE_PLAN,
@@ -479,7 +476,7 @@ class JunieAgentSessionProviderDescriptorTest {
       "junie-test",
       "--skip-update-check",
       "--model",
-      "chatgpt-5.5",
+      "threadViewgpt-5.5",
       "--effort",
       "low",
       "--prompt",
@@ -509,7 +506,7 @@ class JunieAgentSessionProviderDescriptorTest {
     val updatedLaunchSpec = descriptor.applyGenerationSettings(
       baseLaunchSpec,
       AgentPromptGenerationSettings(
-        modelId = "chatgpt-5.5",
+        modelId = "threadViewgpt-5.5",
         reasoningEffort = AgentPromptReasoningEffort.XHIGH,
       ),
       STANDARD_INITIAL_MESSAGE_PLAN,
@@ -519,7 +516,7 @@ class JunieAgentSessionProviderDescriptorTest {
       "junie-test",
       "--skip-update-check",
       "--model",
-      "chatgpt-5.5",
+      "threadViewgpt-5.5",
       "--effort",
       "xhigh",
       "--prompt",
@@ -729,7 +726,6 @@ class JunieAgentSessionProviderDescriptorTest {
   @Test
   fun `pending metadata is resolved only for Junie pending identities`() {
     val descriptor = JunieAgentSessionProviderDescriptor(executableResolver = { "junie-test" })
-      .withProvider(JUNIE_AGENT_SESSION_PROVIDER)
     val launchSpec = AgentSessionTerminalLaunchSpec(
       command = listOf("junie-test", "--skip-update-check"),
     )

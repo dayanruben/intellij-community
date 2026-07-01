@@ -36,6 +36,7 @@ import com.jetbrains.python.psi.types.PyConcatenateType;
 import com.jetbrains.python.psi.types.PyInferredVarianceJudgment;
 import com.jetbrains.python.psi.types.PyIntersectionType;
 import com.jetbrains.python.psi.types.PyLiteralType;
+import com.jetbrains.python.psi.types.PyModuleType;
 import com.jetbrains.python.psi.types.PyNamedTupleType;
 import com.jetbrains.python.psi.types.PyNarrowedType;
 import com.jetbrains.python.psi.types.PyNeverType;
@@ -56,6 +57,7 @@ import com.jetbrains.python.psi.types.TypeEvalContext;
 import kotlin.jvm.functions.Function4;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -67,6 +69,7 @@ import static com.jetbrains.python.documentation.PyDocSignaturesHighlighterKt.hi
 import static com.jetbrains.python.documentation.PyDocSignaturesHighlighterKt.styledSpan;
 import static com.jetbrains.python.psi.types.PyInferredVarianceJudgment.isEffectivelyInvariant;
 import static com.jetbrains.python.psi.types.PyNoneTypeKt.isNoneType;
+import static com.jetbrains.python.psi.types.PyTypeUtilKt.isAnyOrUnknown;
 import static com.jetbrains.python.psi.types.PyTypeUtilKt.isUnknown;
 
 // TODO visitPyConcatenateType
@@ -168,6 +171,16 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     protected @NotNull HtmlChunk className(@Nls String name) {
       return PyDocumentationLink.toPossibleClassTooltipLink(name, getAnchor(), myTypeEvalContext);
     }
+
+    @Override
+    protected @NotNull HtmlChunk classLink(@NotNull PyClassLikeType type, @Nls String name) {
+      return PyDocumentationLink.toPossibleClassTooltipLink(type, name, getAnchor(), myTypeEvalContext);
+    }
+
+    @Override
+    protected @NotNull HtmlChunk qualifiedNameLink(@Nls String displayText, @NonNls String qualifiedName) {
+      return PyDocumentationLink.toQualifiedNameTooltipLink(qualifiedName, displayText);
+    }
   }
 
   static final class Documentation extends PyTypeRenderer {
@@ -267,6 +280,12 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     }
 
     @Override
+    public @NotNull HtmlChunk visitUnknownType() {
+      // `Unknown` is not denotable Python: render it as `Any` in generated annotations
+      return visitAnyType();
+    }
+
+    @Override
     public @NotNull HtmlChunk visitPySelfType(@NotNull PySelfType selfType) {
       HtmlChunk selfTypeRender = className(isRenderingFqn() ? "typing.Self" : "Self"); //NON-NLS
       return selfType.isDefinition() ? wrapInTypingType(selfTypeRender) : selfTypeRender;
@@ -309,6 +328,19 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
 
   protected @NotNull HtmlChunk className(@Nls String name) {
     return escaped(name);
+  }
+
+  protected @NotNull HtmlChunk classLink(@NotNull PyClassLikeType type, @Nls String name) {
+    return className(name);
+  }
+
+  /**
+   * Renders a name that is shown as [displayText] and, in HTML tooltips, linked to the symbol with the given
+   * [qualifiedName]. The default renders plain text without a link. Used for things that carry a known FQN but
+   * are not [PyClass]es: {@code typing} special forms ({@code Any}, {@code Literal}) and modules.
+   */
+  protected @NotNull HtmlChunk qualifiedNameLink(@Nls String displayText, @NonNls String qualifiedName) {
+    return HtmlChunk.raw(displayText);
   }
 
   protected @NotNull HtmlChunk styledExpression(@NotNull PyExpression expression) {
@@ -361,7 +393,7 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
       result.append(className(className));
     }
     else {
-      result.append(className(isRenderingFqn() ? genericType.getClassQName() : className));
+      result.append(classLink(genericType, isRenderingFqn() ? genericType.getClassQName() : className));
     }
     if (renderTypeArgumentList) {
       result.append(styled("[", PyHighlighter.PY_BRACKETS));
@@ -383,7 +415,7 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
 
   @Override
   public @NotNull HtmlChunk visitPyClassLikeType(@NotNull PyClassLikeType classLikeType) {
-    HtmlChunk classTypeRender = className(getTypeName(classLikeType));
+    HtmlChunk classTypeRender = classLink(classLikeType, getTypeName(classLikeType));
     return classLikeType.isDefinition() ? wrapInTypingType(classTypeRender) : classTypeRender;
   }
 
@@ -409,7 +441,6 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
 
   @Override
   public HtmlChunk visitPyUnionType(@NotNull PyUnionType unionType) {
-    // TODO Exclude "Unknown" once it's introduced, don't exclude explicit typing.Any
     if (isOptional(unionType)) {
       return renderOptional(unionType);
     }
@@ -462,7 +493,7 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
 
   private @NotNull HtmlChunk renderUnionOfLiterals(@NotNull List<PyLiteralType> literals) {
     return new HtmlBuilder()
-      .append(escaped(isRenderingFqn() ? "typing.Literal" : "Literal")) //NON-NLS
+      .append(qualifiedNameLink(isRenderingFqn() ? PyTypingTypeProvider.LITERAL : "Literal", PyTypingTypeProvider.LITERAL)) //NON-NLS
       .append(styled("[", PyHighlighter.PY_BRACKETS))
       .append(StreamEx
                 .of(literals)
@@ -561,12 +592,12 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   }
 
   @Override
-  public HtmlChunk visitAnyType() {
-    return HtmlChunk.raw(isRenderingFqn() ? PyTypingTypeProvider.ANY : PyNames.ANY_TYPE);
+  public @NotNull HtmlChunk visitAnyType() {
+    return qualifiedNameLink(isRenderingFqn() ? PyTypingTypeProvider.ANY : PyNames.ANY_TYPE, PyTypingTypeProvider.ANY);
   }
 
   @Override
-  public HtmlChunk visitUnknownType() {
+  public @NotNull HtmlChunk visitUnknownType() {
     if (PyAnyType.isEnabled()) {
       return HtmlChunk.raw(PyNames.UNKNOWN_TYPE);
     }
@@ -576,6 +607,15 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   @Override
   public HtmlChunk visitPyType(@NotNull PyType type) {
     return escaped(type.getName());
+  }
+
+  @Override
+  public @NotNull HtmlChunk visitPyModuleType(@NotNull PyModuleType moduleType) {
+    // A module's name is its own (importable) qualified name, so it doubles as a navigable link target.
+    // Don't go through getTypeName(): under FQN rendering that resolves to the module's declaration element,
+    // which is the `types.ModuleType` class rather than the module itself.
+    String name = moduleType.getName();
+    return StringUtil.isEmpty(name) ? escaped(name) : qualifiedNameLink(name, name);
   }
 
   @NotNull HtmlChunk describeTypeParameterList(
@@ -663,12 +703,12 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   }
 
   @NotNull HtmlChunk describeTypeParameter(@NotNull PyTypeParameterType typeParameter) {
-    var bound = typeParameter instanceof PyTypeVarType typeVar ? typeVar.getBound() : null;
+    var bound = typeParameter instanceof PyTypeVarType typeVar ? typeVar.getBound() : PyAnyType.getUnknown();
     var defaultTypeRef = typeParameter.getDefaultType();
     var defaultType = defaultTypeRef != null ? defaultTypeRef.get() : null;
     // PyTypeParameterTypes have the stars in the name but PyTypeParameters don't
     String name = typeParameter.getName().replaceFirst("\\*+", "");
-    HtmlChunk renderedBound = bound != null ? render(bound) : null;
+    HtmlChunk renderedBound = !isAnyOrUnknown(bound) ? render(bound) : null;
     HtmlChunk renderedType = defaultType != null ? render(defaultType) : null;
     PyAstTypeParameter.Kind parameterKind = switch (typeParameter) {
       case PyTypeVarType ignored -> PyTypeParameter.Kind.TypeVar;
@@ -763,9 +803,14 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
       if (param.getName() != null) {
         result.append(escaped(param.isPositionalContainer() ? "*" : "**"));
         result.append(styled(param.getName(), PyHighlighter.PY_PARAMETER));
-        result.append(styled(": ", PyHighlighter.PY_OPERATION_SIGN));
+        if (!isAnyOrUnknown(type)) {
+          result.append(styled(": ", PyHighlighter.PY_OPERATION_SIGN));
+          result.append(render(type));
+        }
       }
-      result.append(render(type));
+      else {
+        result.append(render(type));
+      }
     }
     else {
       PyType type = param.getType(myTypeEvalContext);
@@ -856,7 +901,7 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   @Override
   public @NotNull HtmlChunk visitPyLiteralType(@NotNull PyLiteralType literalType) {
     HtmlBuilder result = new HtmlBuilder();
-    result.append(HtmlChunk.raw(isRenderingFqn() ? "typing.Literal" : "Literal")); //NON-NLS
+    result.append(qualifiedNameLink(isRenderingFqn() ? PyTypingTypeProvider.LITERAL : "Literal", PyTypingTypeProvider.LITERAL)); //NON-NLS
     result.append("[");
     @Nullable String classQName = literalType.getClassQName();
     if (isRenderingFqn() && classQName != null && literalType.getEnumMemberName() != null) {
