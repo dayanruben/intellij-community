@@ -5,11 +5,26 @@ import { fileURLToPath } from "node:url"
 import { startWebViewMockPreview, type MockWebViewCall, type WebViewMockPreviewServer } from "@jetbrains/intellij-webview-testkit"
 
 type Locator = {
+  boundingBox(): Promise<BoundingBox | null>
   click(): Promise<void>
+  dispatchEvent(type: string, eventInit?: Record<string, unknown>): Promise<void>
   fill(value: string): Promise<void>
   hover(): Promise<void>
   inputValue(): Promise<string>
   press(key: string): Promise<void>
+}
+
+type BoundingBox = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type Mouse = {
+  down(): Promise<void>
+  move(x: number, y: number): Promise<void>
+  up(): Promise<void>
 }
 
 type Page = {
@@ -22,6 +37,7 @@ type Page = {
   setViewportSize(size: { width: number; height: number }): Promise<void>
   waitForFunction(pageFunction: () => boolean): Promise<unknown>
   waitForSelector(selector: string): Promise<unknown>
+  mouse: Mouse
 }
 
 type TestApi = {
@@ -549,10 +565,14 @@ test("renders rich assistant markdown through the chat message renderer", async 
   await page.waitForFunction(() => document.querySelector(".acpMarkdown .footnotes")?.textContent?.includes("Footnote content from ACP chat markdown.") === true)
   await page.waitForSelector(".acpMarkdown .katex")
   await page.waitForSelector(".acpMermaidBlock svg")
+  await verifyAcpMermaidViewport(page)
+  await expect(page.getByRole("button", { name: "views/acp-chat/src/components/MarkdownRenderer.tsx:47" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "community/plugins/ui.webview/demo/webview-src/views/acp-chat/src/bridge/webviewApi.ts#L1" })).toBeVisible()
 
   const markdownRenderedSafely = await page.evaluate(() => {
     const markdown = document.querySelector(".acpMsgAssistant .acpMarkdown")
     const link = markdown?.querySelector<HTMLAnchorElement>('a[href="https://example.com"]')
+    const pathLinks = Array.from(markdown?.querySelectorAll<HTMLButtonElement>(".acpMarkdownPathLink") ?? [])
     const unsafeImage = markdown?.querySelector<HTMLImageElement>('img[alt="Unsafe image"]')
     return Boolean(markdown?.querySelector("table"))
       && Boolean(markdown?.querySelector('input[type="checkbox"][checked][disabled]'))
@@ -563,6 +583,10 @@ test("renders rich assistant markdown through the chat message renderer", async 
       && Boolean(markdown?.querySelector("sup"))
       && link?.target === "_blank"
       && link?.rel === "noreferrer"
+      && pathLinks.some(button => button.textContent === "views/acp-chat/src/components/MarkdownRenderer.tsx:47")
+      && pathLinks.some(button => button.textContent === "community/plugins/ui.webview/demo/webview-src/views/acp-chat/src/bridge/webviewApi.ts#L1")
+      && !pathLinks.some(button => button.textContent === "missing/Nope.kt")
+      && !pathLinks.some(button => button.textContent === "src/Mermaid.kt")
       && unsafeImage != null
       && !unsafeImage.hasAttribute("onerror")
       && markdown?.querySelector("script") == null
@@ -570,6 +594,18 @@ test("renders rich assistant markdown through the chat message renderer", async 
       && (window as any).__ACP_MARKDOWN_ONERROR_EXECUTED__ !== true
   })
   expect(markdownRenderedSafely).toBe(true)
+
+  await page.getByRole("button", { name: "views/acp-chat/src/components/MarkdownRenderer.tsx:47" }).click()
+  const navigatePathLinkCalled = await page.evaluate(() => {
+    const calls = (window as MockWindow).__WVI_MOCK__?.calls.byMethod("acp.bridge/navigatePathLink") ?? []
+    return calls.some(call => {
+      const params = call.params as { rawPath?: unknown; clientX?: unknown; clientY?: unknown }
+      return params.rawPath === "views/acp-chat/src/components/MarkdownRenderer.tsx:47"
+        && typeof params.clientX === "number"
+        && typeof params.clientY === "number"
+    })
+  })
+  expect(navigatePathLinkCalled).toBe(true)
 })
 
 test("sends pasted image resources as ACP prompt content blocks", async ({ page }) => {
@@ -743,6 +779,80 @@ test("keeps the keyboard-highlighted slash command visible while navigating", as
   })
   expect(highlightedVisible).toBe(true)
 })
+
+async function verifyAcpMermaidViewport(page: Page): Promise<void> {
+  await expect(page.getByRole("button", { name: "Zoom in diagram" })).toBeVisible()
+  expect(await acpMermaidToolbarIconsLoaded(page)).toBe(true)
+  const resizeEnabled = await page.evaluate(() => {
+    const block = document.querySelector(".acpMermaidBlock--interactive")
+    return block != null && getComputedStyle(block).resize === "vertical"
+  })
+  expect(resizeEnabled).toBe(true)
+  expect(await acpMermaidSvgFillsViewport(page)).toBe(true)
+
+  await page.getByRole("button", { name: "Zoom in diagram" }).click()
+  await page.waitForFunction(() => {
+    const transform = document.querySelector(".acpMermaidPanZoom")?.getAttribute("transform") ?? ""
+    return transform.includes("scale(") && !transform.endsWith("scale(1)")
+  })
+
+  await page.getByRole("button", { name: "Reset diagram zoom" }).click()
+  await page.waitForFunction(() => (document.querySelector(".acpMermaidPanZoom")?.getAttribute("transform") ?? "") === "translate(0,0) scale(1)")
+
+  expect(await acpMermaidViewBoxContainsContent(page)).toBe(true)
+
+  const transformBeforeWheel = await acpMermaidTransform(page)
+  await page.locator(".acpMermaidViewport svg").dispatchEvent("wheel", { deltaY: -120, clientX: 80, clientY: 80, bubbles: true, cancelable: true })
+  expect((await acpMermaidTransform(page)) === transformBeforeWheel).toBe(true)
+
+  const svg = page.locator(".acpMermaidViewport svg")
+  const box = await svg.boundingBox()
+  if (!box) throw new Error("ACP Mermaid SVG does not have a rendered bounding box")
+  const transformBeforeDrag = await acpMermaidTransform(page)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 28)
+  await page.mouse.up()
+  await page.waitForFunction(() => {
+    const transform = document.querySelector(".acpMermaidPanZoom")?.getAttribute("transform") ?? ""
+    return transform.includes("translate(") && !transform.startsWith("translate(0,0)")
+  })
+  expect((await acpMermaidTransform(page)) !== transformBeforeDrag).toBe(true)
+}
+
+function acpMermaidTransform(page: Page): Promise<string> {
+  return page.evaluate(() => document.querySelector(".acpMermaidPanZoom")?.getAttribute("transform") ?? "")
+}
+
+function acpMermaidSvgFillsViewport(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const viewport = document.querySelector(".acpMermaidViewport")
+    const svg = document.querySelector(".acpMermaidViewport svg")
+    if (!viewport || !svg) return false
+    return Math.abs(svg.getBoundingClientRect().width - viewport.getBoundingClientRect().width) <= 1
+  })
+}
+
+function acpMermaidToolbarIconsLoaded(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const icons = Array.from(document.querySelectorAll<HTMLImageElement>(".acpMermaidToolbar img"))
+    return icons.length === 3 && icons.every(icon => icon.complete && icon.naturalWidth > 0 && icon.naturalHeight > 0)
+  })
+}
+
+function acpMermaidViewBoxContainsContent(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const svg = document.querySelector<SVGSVGElement>(".acpMermaidViewport svg")
+    const content = document.querySelector<SVGGraphicsElement>(".acpMermaidPanZoom")
+    if (!svg || !content) return false
+    const viewBox = svg.viewBox.baseVal
+    const box = content.getBBox()
+    return viewBox.x <= box.x
+      && viewBox.y <= box.y
+      && viewBox.x + viewBox.width >= box.x + box.width
+      && viewBox.y + viewBox.height >= box.y + box.height
+  })
+}
 
 async function openPreview(page: Page): Promise<void> {
   if (!preview) {
