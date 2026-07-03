@@ -33,6 +33,10 @@ fun <T : CommandChain> T.waitForSmartMode(): T = apply {
   addCommand("${CMD_PREFIX}waitForSmart")
 }
 
+fun <T : CommandChain> T.waitForFirstScanningToFinish(): T = apply {
+  addCommand("${CMD_PREFIX}waitForFirstScanningToFinish")
+}
+
 fun <T : CommandChain> T.replaceBrowser(): T = apply {
   addCommand("${CMD_PREFIX}replaceBrowser")
 }
@@ -1393,6 +1397,10 @@ fun <T : CommandChain> T.waitForReOpenedFile(relativePath: String): T = apply {
 
 fun <T : CommandChain> T.detectProjectLeaks(): T = apply {
   addCommand("${CMD_PREFIX}detectProjectLeaks")
+}
+
+fun <T : CommandChain> T.logProjectLibrariesAndSdks(): T = apply {
+  addCommand("${CMD_PREFIX}logProjectLibrariesAndSdks")
 }
 
 fun <T : CommandChain> T.hideAllToolWindows(): T = apply {

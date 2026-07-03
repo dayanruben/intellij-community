@@ -108,6 +108,26 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
         """,
       "_enum_members.py" to "def func(x: int) -> None: ...",
     )
+
+    @Test
+    @TestFor(issues = ["PY-89968"])
+    fun `dunder is not member`() = test("""
+      from enum import Enum
+      
+      class E(Enum):
+        # test detail: ints are not members, strings are
+        __x__ = 1
+        __x = 2
+        # _x_ = 3  # this one is an error at runtime
+        _x = "a"
+        __ = "b"
+        _ = "c"
+      
+      def f(e: E):
+        expr = e.value, E.__x__
+      #  └ TYPE tuple[Literal["a", "b", "c"], int]
+      """)
+
   }
 
   @Nested
@@ -667,7 +687,7 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
 
       class MyEnum(Enum):
           OK = 1
-          BAD = "string" # WARNING Expected type 'int', got 'str' instead
+          ALSO_OK = "string"
       """)
 
     @Test
@@ -707,4 +727,47 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
               return set(self) # OK
       """)
   }
+
+  @Test
+  @TestFor(issues = ["PY-58076"])
+  fun `enum members mapping`() = test(
+    """
+    from enum import Enum, IntEnum
+
+    class Color(Enum):
+        red = 1
+        green = 2
+        blue = 3
+
+    Color.__members__
+    #        └ TYPE MappingProxyType[Literal["red", "green", "blue"], Literal[Color.red, Color.green, Color.blue]]
+    
+    
+    class Empty(Enum):
+        pass
+
+    Empty.__members__
+    #       └ TYPE MappingProxyType[str, object]
+    
+    class EmptyInt(IntEnum):
+        pass
+
+    EmptyInt.__members__
+    #         └ TYPE MappingProxyType[str, int]
+    """)
+
+  @Test
+  fun `empty enum name and value`() = test(
+    """
+    from enum import Enum
+
+    class Empty(Enum):
+        pass
+
+    def f(e: Empty):
+        e.name
+    #       └ TYPE str
+        e.value
+    #       └ TYPE object
+    """)
 }

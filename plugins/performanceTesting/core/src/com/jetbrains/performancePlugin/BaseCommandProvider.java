@@ -58,6 +58,7 @@ import com.jetbrains.performancePlugin.commands.InspectionCommand;
 import com.jetbrains.performancePlugin.commands.InspectionCommandEx;
 import com.jetbrains.performancePlugin.commands.InstallCustomJBR;
 import com.jetbrains.performancePlugin.commands.JBRFullGCCommand;
+import com.jetbrains.performancePlugin.commands.LogProjectLibrariesAndSdksCommand;
 import com.jetbrains.performancePlugin.commands.MeasureVFSUpdateCommand;
 import com.jetbrains.performancePlugin.commands.MeasureVfsMassUpdateCommand;
 import com.jetbrains.performancePlugin.commands.MemoryDumpCommand;
@@ -114,6 +115,7 @@ import com.jetbrains.performancePlugin.commands.WaitForDebugSessionsEndCommand;
 import com.jetbrains.performancePlugin.commands.WaitForDumbCommand;
 import com.jetbrains.performancePlugin.commands.WaitForEDTQueueUnstuckCommand;
 import com.jetbrains.performancePlugin.commands.WaitForFinishedCodeAnalysis;
+import com.jetbrains.performancePlugin.commands.WaitForFirstScanningToFinishCommand;
 import com.jetbrains.performancePlugin.commands.WaitForInitialRefreshCommand;
 import com.jetbrains.performancePlugin.commands.WaitForProjectViewCommand;
 import com.jetbrains.performancePlugin.commands.WaitForReOpenedFileCommand;
@@ -147,6 +149,7 @@ public final class BaseCommandProvider implements CommandProvider {
       Map.entry(ExitAppWithTimeoutCommand.PREFIX, ExitAppWithTimeoutCommand::new),
       Map.entry(OpenFileWithTerminateCommand.PREFIX, OpenFileWithTerminateCommand::new),
       Map.entry(WaitForSmartCommand.PREFIX, WaitForSmartCommand::new),
+      Map.entry(WaitForFirstScanningToFinishCommand.PREFIX, WaitForFirstScanningToFinishCommand::new),
       Map.entry(WaitForInitialRefreshCommand.PREFIX, WaitForInitialRefreshCommand::new),
       Map.entry(RefreshFilesInVfsCommand.PREFIX, RefreshFilesInVfsCommand::new),
       Map.entry(SingleInspectionCommand.PREFIX, SingleInspectionCommand::new),
@@ -194,6 +197,7 @@ public final class BaseCommandProvider implements CommandProvider {
       Map.entry(HideAllToolWindowsCommand.PREFIX, HideAllToolWindowsCommand::new),
       Map.entry(CollectAllFilesCommand.PREFIX, CollectAllFilesCommand::new),
       Map.entry(ExecuteEditorActionCommand.PREFIX, ExecuteEditorActionCommand::new),
+      Map.entry(LogProjectLibrariesAndSdksCommand.PREFIX, LogProjectLibrariesAndSdksCommand::new),
       Map.entry(AssertCompletionCommand.PREFIX, AssertCompletionCommand::new),
       Map.entry(ChooseCompletionCommand.PREFIX, ChooseCompletionCommand::new),
       Map.entry(SetBreakpointCommand.PREFIX, SetBreakpointCommand::new),

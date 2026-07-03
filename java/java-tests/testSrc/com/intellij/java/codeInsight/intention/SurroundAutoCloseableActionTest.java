@@ -7,7 +7,6 @@ import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.testFramework.TestDataPath;
 import com.intellij.testFramework.fixtures.CodeInsightTestUtil;
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
-import org.intellij.lang.annotations.Language;
 
 @TestDataPath("$CONTENT_ROOT/testData/codeInsight/surroundAutoCloseable/")
 public class SurroundAutoCloseableActionTest extends LightJavaCodeInsightFixtureTestCase {
@@ -31,24 +30,7 @@ public class SurroundAutoCloseableActionTest extends LightJavaCodeInsightFixture
   }
   public void testImplicitlyTypedDeclaration() { doTest(); }
 
-  public void testNotAvailableWhenMovedVariableHasNullType() {
-    @Language("JAVA") String text = """
-      import java.io.File;
-      import java.io.FileInputStream;
-      import java.io.IOException;
-
-      class C {
-          void m(File file) throws IOException {
-              var <caret>res = new FileInputStream(file);
-              var broken = null;
-              res.read();
-              System.out.println(broken);
-          }
-      }
-      """;
-    myFixture.configureByText("C.java", text);
-    assertNull(myFixture.getAvailableIntention(JavaBundle.message("intention.surround.resource.with.ARM.block")));
-  }
+  public void testNullTypeMovedVariable() { doTest(); }
 
   private void doTest() {
     String name = getTestName(false);

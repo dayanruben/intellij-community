@@ -850,7 +850,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
       def dec[T](f: Callable[[T, bool], bool]) -> Callable[[T, bool], bool]:
           def a(b: bool) -> bool:
               return f(A(), b)
-      #          └ WARNING Expected type '(T, bool) -> bool', got '(b: bool) -> bool' instead
+      #                ^^^ WARNING FIXME Expected 'T', got 'A' instead
           return a
       #          └ WARNING Expected type '(T, bool) -> bool', got '(b: bool) -> bool' instead
 
@@ -1163,7 +1163,6 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
     fun `structural type from attribute and call`() = test("""
       def f(x):
           x.foo + x.bar()
-      #         └ WARNING Cannot find reference '+' in 'Unknown'
           expr = x
       #   └ TYPE {foo, bar}
       """)
@@ -1194,7 +1193,6 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
 
       def f(x, y):
           x.foo + g(y)
-      #         └ WARNING Cannot find reference '+' in 'Unknown'
           expr = x
       #   └ TYPE {foo}
       """)
@@ -2217,6 +2215,47 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
         class Foo:
             def __init__(self, id: int):
                 self.id = id
+        """,
+    )
+
+    @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `generic class imported under compound TYPE_CHECKING guard`() = test(
+      """
+      from multidict import MultiDictProxy
+
+      def f(b: MultiDictProxy[int]):
+          expr = b
+      #   └ TYPE MultiDictProxy[int]
+      """,
+      // Mirrors `multidict`, which exposes the pure-Python generic implementation to a type checker
+      // and the C extension at runtime via `if TYPE_CHECKING or not USE_EXTENSIONS:`. Unless the compound
+      // condition is recognized, both branches stay reachable and `MultiDictProxy` resolves to the union of
+      // the generic class and the non-generic binary-skeleton class, which breaks the `[int]` parametrization.
+      "multidict.py" to """
+        from typing import TYPE_CHECKING
+
+        from _compat import USE_EXTENSIONS
+
+        if TYPE_CHECKING or not USE_EXTENSIONS:
+            from _multidict_py import MultiDictProxy
+        else:
+            from _multidict import MultiDictProxy
+        """,
+      "_compat.py" to """
+        import os
+
+        USE_EXTENSIONS = not bool(os.environ.get("MULTIDICT_NO_EXTENSIONS"))
+        """,
+      "_multidict_py.py" to """
+        from typing import Generic, TypeVar
+
+        _V = TypeVar("_V")
+
+        class MultiDictProxy(Generic[_V]): ...
+        """,
+      "_multidict.py" to """
+        class MultiDictProxy: ...
         """,
     )
   }

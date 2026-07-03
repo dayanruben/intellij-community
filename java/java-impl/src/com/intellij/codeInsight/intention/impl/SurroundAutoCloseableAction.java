@@ -48,13 +48,13 @@ import com.intellij.refactoring.ui.TypeSelectorManagerImpl;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
 import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.TypeUtils;
 import com.siyeh.ig.psiutils.VariableNameGenerator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.function.BiPredicate;
 import java.util.stream.Stream;
 
 public final class SurroundAutoCloseableAction extends PsiUpdateModCommandAction<PsiElement> {
@@ -64,13 +64,9 @@ public final class SurroundAutoCloseableAction extends PsiUpdateModCommandAction
 
   @Override
   protected @Nullable Presentation getPresentation(@NotNull ActionContext context, @NotNull PsiElement element) {
-    if (!element.getLanguage().isKindOf(JavaLanguage.INSTANCE) ||
-        !PsiUtil.isAvailable(JavaFeature.TRY_WITH_RESOURCES, element)) {
-      return null;
-    }
-    PsiLocalVariable variable = findVariable(element);
-    boolean available = variable != null ? canMoveIntermediateDeclarations(variable)
-                                         : findExpression(element) != null;
+    boolean available = element.getLanguage().isKindOf(JavaLanguage.INSTANCE) &&
+                        PsiUtil.isAvailable(JavaFeature.TRY_WITH_RESOURCES, element) &&
+                        (findVariable(element) != null || findExpression(element) != null);
     return available ? Presentation.of(getFamilyName()) : null;
   }
 
@@ -115,57 +111,6 @@ public final class SurroundAutoCloseableAction extends PsiUpdateModCommandAction
     return null;
   }
 
-  private static @Nullable PsiElement findLastUsage(PsiLocalVariable variable, PsiElement codeBlock) {
-    LocalSearchScope scope = new LocalSearchScope(codeBlock);
-    PsiElement last = null;
-    for (PsiReference reference : ReferencesSearch.search(variable, scope).findAll()) {
-      PsiElement usage = PsiTreeUtil.findPrevParent(codeBlock, reference.getElement());
-      if (last == null || usage.getTextOffset() > last.getTextOffset()) {
-        last = usage;
-      }
-    }
-    return last;
-  }
-
-  private static boolean canMoveIntermediateDeclarations(PsiLocalVariable variable) {
-    PsiElement declaration = variable.getParent();
-    PsiElement codeBlock = declaration.getParent();
-    PsiElement last = findLastUsage(variable, codeBlock);
-    if (last == null) return true;
-
-    int endOffset = last.getTextRange().getEndOffset();
-
-    boolean[] canMove = {true};
-    processChildren(declaration.getNextSibling(), last.getNextSibling(), (child, scope) -> {
-      if (!(child instanceof PsiDeclarationStatement)) return true;
-      if (child.getTextOffset() > endOffset) return false;
-
-      for (PsiElement declared : ((PsiDeclarationStatement)child).getDeclaredElements()) {
-        if (!(declared instanceof PsiLocalVariable)) continue;
-        boolean contained = ReferencesSearch.search(declared, scope).allMatch(ref -> ref.getElement().getTextOffset() <= endOffset);
-        if (!contained && PsiTypes.nullType().equals(((PsiLocalVariable)declared).getType())) {
-          canMove[0] = false;
-          return false;
-        }
-      }
-      return true;
-    });
-
-    return canMove[0];
-  }
-
-
-  private static void processChildren(PsiElement start, PsiElement stopAt, BiPredicate<PsiElement, LocalSearchScope> processor) {
-    if (start == null) return;
-    LocalSearchScope scope = new LocalSearchScope(start.getParent());
-    PsiElement i = start;
-    while (i != null && i != stopAt) {
-      PsiElement child = i;
-      i = PsiTreeUtil.skipWhitespacesAndCommentsForward(i);
-      if (!processor.test(child, scope)) break;
-    }
-  }
-
   private static PsiExpression findExpression(PsiElement element) {
     PsiExpression expression = PsiTreeUtil.getNonStrictParentOfType(element, PsiExpression.class);
 
@@ -204,7 +149,14 @@ public final class SurroundAutoCloseableAction extends PsiUpdateModCommandAction
     PsiElement declaration = variable.getParent();
     PsiElement codeBlock = declaration.getParent();
 
-    PsiElement last = findLastUsage(variable, codeBlock);
+    LocalSearchScope scope = new LocalSearchScope(codeBlock);
+    PsiElement last = null;
+    for (PsiReference reference : ReferencesSearch.search(variable, scope).findAll()) {
+      PsiElement usage = PsiTreeUtil.findPrevParent(codeBlock, reference.getElement());
+      if ((last == null || usage.getTextOffset() > last.getTextOffset())) {
+        last = usage;
+      }
+    }
 
     CommentTracker tracker = new CommentTracker();
     String text = "try (" + variable.getTypeElement().getText() + " " + variable.getName() + " = " + tracker.text(initializer) + ") {}";
@@ -239,16 +191,20 @@ public final class SurroundAutoCloseableAction extends PsiUpdateModCommandAction
     PsiCodeBlock tryBlock = armStatement.getTryBlock();
     assert tryBlock != null : armStatement.getText();
     PsiElement parent = declaration.getParent();
+    LocalSearchScope scope = new LocalSearchScope(parent);
 
     List<PsiElement> toFormat = new SmartList<>();
     PsiElement stopAt = last.getNextSibling();
-    PsiElement[] lastRef = {last};
 
-    processChildren(declaration.getNextSibling(), stopAt, (child, scope) -> {
-      if (!(child instanceof PsiDeclarationStatement)) return true;
-      int endOffset = lastRef[0].getTextRange().getEndOffset();
+    PsiElement i = declaration.getNextSibling();
+    while (i != null && i != stopAt) {
+      PsiElement child = i;
+      i = PsiTreeUtil.skipWhitespacesAndCommentsForward(i);
+
+      if (!(child instanceof PsiDeclarationStatement)) continue;
+      int endOffset = last.getTextRange().getEndOffset();
       //declared after last usage
-      if (child.getTextOffset() > endOffset) return false;
+      if (child.getTextOffset() > endOffset) break;
 
       PsiElement anchor = child;
       PsiElement[] declaredElements = ((PsiDeclarationStatement)child).getDeclaredElements();
@@ -263,7 +219,11 @@ public final class SurroundAutoCloseableAction extends PsiUpdateModCommandAction
           PsiElementFactory factory = JavaPsiFacade.getElementFactory(declaration.getProject());
 
           String name = var.getName();
-          PsiDeclarationStatement declarationStatement = factory.createVariableDeclarationStatement(name, var.getType(), null);
+          PsiType type = var.getType();
+          if (PsiTypes.nullType().equals(type)) {
+            type = TypeUtils.getObjectType(var);
+          }
+          PsiDeclarationStatement declarationStatement = factory.createVariableDeclarationStatement(name, type, null);
           PsiUtil.setModifierProperty((PsiLocalVariable)declarationStatement.getDeclaredElements()[0], PsiModifier.FINAL, var.hasModifierProperty(PsiModifier.FINAL));
           toFormat.add(parent.addBefore(declarationStatement, declaration));
 
@@ -278,15 +238,14 @@ public final class SurroundAutoCloseableAction extends PsiUpdateModCommandAction
         }
       }
 
-      if (child == lastRef[0] && !child.isValid()) {
-        lastRef[0] = anchor;
+      if (child == last && !child.isValid()) {
+        last = anchor;
       }
-      return true;
-    });
+    }
 
     PsiElement first = declaration.getNextSibling();
-    tryBlock.addRangeBefore(first, lastRef[0], tryBlock.getRBrace());
-    parent.deleteChildRange(first, lastRef[0]);
+    tryBlock.addRangeBefore(first, last, tryBlock.getRBrace());
+    parent.deleteChildRange(first, last);
 
     return toFormat;
   }

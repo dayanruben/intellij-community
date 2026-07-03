@@ -213,13 +213,13 @@ object CommunityModuleSets {
    * XML support modules.
    */
   fun xml(): ModuleSet = moduleSet("xml", alias = "com.intellij.modules.xml") {
-    embeddedModule("intellij.xml.dom")
-    embeddedModule("intellij.xml.dom.impl")
+    module("intellij.xml.dom")
+    module("intellij.xml.dom.impl")
     module("intellij.xml.structureView")
     module("intellij.xml.structureView.impl")
     embeddedModule("intellij.xml.psi")
     embeddedModule("intellij.xml.psi.impl")
-    embeddedModule("intellij.xml.analysis")
+    module("intellij.xml.analysis")
     module("intellij.xml.emmet")
     module("intellij.xml.emmet.backend")
     module("intellij.xml.emmet.frontend")
@@ -227,8 +227,8 @@ object CommunityModuleSets {
     embeddedModule("intellij.xml.parser")
     embeddedModule("intellij.xml.syntax")
     module("intellij.relaxng")
-    embeddedModule("intellij.xml.impl")
-    embeddedModule("intellij.xml.analysis.impl")
+    module("intellij.xml.impl")
+    module("intellij.xml.analysis.impl")
     // embedded because intellij.xml.dom.impl which depends on it, is also embedded
     embeddedModule("intellij.libraries.cglib")
     embeddedModule("intellij.libraries.xerces")
@@ -240,11 +240,11 @@ object CommunityModuleSets {
    * XML support modules without Structure View UI.
    */
   fun xmlWithoutStructureView(): ModuleSet = moduleSet("xml.without.structureView", alias = "com.intellij.modules.xml") {
-    embeddedModule("intellij.xml.dom")
-    embeddedModule("intellij.xml.dom.impl")
+    module("intellij.xml.dom")
+    module("intellij.xml.dom.impl")
     embeddedModule("intellij.xml.psi")
     embeddedModule("intellij.xml.psi.impl")
-    embeddedModule("intellij.xml.analysis")
+    module("intellij.xml.analysis")
     module("intellij.xml.emmet")
     module("intellij.xml.emmet.backend")
     module("intellij.xml.emmet.frontend")
@@ -252,8 +252,8 @@ object CommunityModuleSets {
     embeddedModule("intellij.xml.parser")
     embeddedModule("intellij.xml.syntax")
     module("intellij.relaxng")
-    embeddedModule("intellij.xml.impl")
-    embeddedModule("intellij.xml.analysis.impl")
+    module("intellij.xml.impl")
+    module("intellij.xml.analysis.impl")
     // embedded because intellij.xml.dom.impl which depends on it, is also embedded
     embeddedModule("intellij.libraries.cglib")
     embeddedModule("intellij.libraries.xerces")
@@ -383,7 +383,7 @@ object CommunityModuleSets {
     module("intellij.platform.ide.impl.wsl")
     module("intellij.platform.diagnostic.telemetry.agent.extension")
     // todo: move to essential modules when not embedded
-    embeddedModule("intellij.platform.polySymbols.backend")
+    module("intellij.platform.polySymbols.backend")
     embeddedModule("intellij.regexp")
     module("intellij.platform.langInjection")
     module("intellij.platform.langInjection.backend")

@@ -107,9 +107,6 @@ class ProductPluginInitContext(
   override fun provideModuleExclusionsImposedByProductRules(pluginSet: UnambiguousPluginSet): Sequence<Pair<PluginModuleDescriptor, ProductRulesImposedExclusionReason>> =
     defaultProductRulesImposedExclusions(pluginSet, expiredPlugins, thirdPartyPluginsWithoutConsentCheckResult)
 
-  override fun provideCustomRuntimeModuleGroupAffiliation(module: PluginModuleDescriptor, pluginSet: UnambiguousPluginSet): PluginModuleDescriptor? =
-    defaultRuntimeModuleGroupAffiliation(module, pluginSet)
-
   override fun shouldIncludeContentModulesForDependsEdgeTarget(resolvedTarget: PluginMainDescriptor): Boolean =
     defaultShouldIncludeContentModulesForDependsEdgeTarget(resolvedTarget)
 
@@ -362,14 +359,6 @@ class ProductPluginInitContext(
     }
 
     @VisibleForTesting
-    fun defaultRuntimeModuleGroupAffiliation(module: PluginModuleDescriptor, pluginSet: UnambiguousPluginSet): PluginModuleDescriptor? {
-      if (module is ContentModuleDescriptor && module.moduleId.name == "intellij.platform.backend") {
-        return module.parent // FIXME this should not exist IJPL-201428
-      }
-      return null
-    }
-
-    @VisibleForTesting
     fun defaultProductRulesImposedExclusions(
       pluginSet: UnambiguousPluginSet,
       expiredPlugins: Set<PluginId>,
@@ -494,6 +483,11 @@ private val contentModulesExtractedInCorePluginWhichCanBeUsedFromExternalPlugins
   "intellij.spellchecker",
   "intellij.platform.structuralSearch",
   "intellij.xml.emmet",
+  "intellij.xml.impl",
+  "intellij.xml.analysis",
+  "intellij.xml.analysis.impl",
+  "intellij.xml.dom",
+  "intellij.xml.dom.impl",
   "intellij.platform.ssh",
   "intellij.platform.ssh.core",
   "intellij.platform.ssh.core.ui",

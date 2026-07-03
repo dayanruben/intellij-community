@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight;
 
 import com.intellij.psi.PsiType;
@@ -75,7 +75,13 @@ public final class TypeNullability {
    */
   public @NotNull TypeNullability instantiatedWith(@NotNull TypeNullability nullability) {
     if (this.nullability() == nullability.nullability()) {
-      return nullability;
+      //if we instantiate, let's try to get rid of ExtendsBound
+      if (this.source() instanceof NullabilitySource.ExtendsBound) {
+        return nullability;
+      }
+      else {
+        return this;
+      }
     }
     if (this.nullability() == Nullability.NOT_NULL) {
       return this;
@@ -188,14 +194,21 @@ public final class TypeNullability {
    */
   public @Nullable NullabilityAnnotationInfo toNullabilityAnnotationInfo() {
     NullabilitySource source = source();
+    boolean isExtended = false;
     if (source instanceof NullabilitySource.ExtendsBound) {
       source = ((NullabilitySource.ExtendsBound)source).boundSource();
+      isExtended = true;
     }
     if (source instanceof NullabilitySource.MultiSource) {
       source = ((NullabilitySource.MultiSource)source).sources().iterator().next();
     }
     if (source instanceof NullabilitySource.ExplicitAnnotation) {
-      return new NullabilityAnnotationInfo(((NullabilitySource.ExplicitAnnotation)source).annotation(), nullability(), false);
+      NullabilityAnnotationInfo info =
+        new NullabilityAnnotationInfo(((NullabilitySource.ExplicitAnnotation)source).annotation(), nullability(), false);
+      if (isExtended) {
+        info = info.setExtendedBounds();
+      }
+      return info;
     }
     if (source instanceof NullabilitySource.ContainerAnnotation) {
       return new NullabilityAnnotationInfo(((NullabilitySource.ContainerAnnotation)source).annotation(), nullability(), true);

@@ -5,29 +5,41 @@ import com.intellij.internal.statistic.eventLog.EventLogGroup
 import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector
 import com.intellij.openapi.project.Project
-import com.intellij.platform.debugger.impl.rpc.HotSwapSource
+import com.intellij.xdebugger.hotswap.HotSwapSource
 import org.jetbrains.annotations.ApiStatus
 
 @Suppress("PublicApiImplicitType")
 @ApiStatus.Internal
 object HotSwapStatistics : CounterUsagesCollector() {
-  private val group = EventLogGroup("debugger.hotswap", 2)
+  private val group = EventLogGroup("debugger.hotswap", 3)
 
-  private val hotSwapCalled = group.registerEvent("hotswap.called", EventFields.Enum<HotSwapSource>("source"))
-  private val hotSwapStatus = group.registerEvent("hotswap.finished", EventFields.Enum<HotSwapStatus>("status"))
-  private val hotSwapFailureReason = group.registerEvent("hotswap.failed", EventFields.Enum<HotSwapFailureReason>("reason"))
+  private val dcevmEnabled = EventFields.Boolean("dcevm_enabled")
+
+  private val hotSwapSource = EventFields.Enum<HotSwapSource>("source")
+  private val hotSwapStatus = EventFields.Enum<HotSwapStatus>("status")
+
+  private val hotSwapResult = group.registerEvent("hotswap.finished", hotSwapStatus, hotSwapSource)
+  private val hotSwapFailureReason = group.registerEvent("hotswap.failed", EventFields.Enum<HotSwapFailureReason>("reason"), hotSwapSource)
   private val hotSwapClassesNumber = group.registerEvent("hotswap.classes.reloaded", EventFields.Int("count"))
+  private val sessionStarted = group.registerEvent("session.started", dcevmEnabled)
+
 
   override fun getGroup(): EventLogGroup = group
 
   @JvmStatic
-  fun logHotSwapCalled(project: Project, source: HotSwapSource) = hotSwapCalled.log(project, source)
+  fun logSessionStarted(project: Project, dcevmEnabled: Boolean) {
+    sessionStarted.log(project, dcevmEnabled)
+  }
 
   @JvmStatic
-  fun logHotSwapStatus(project: Project, status: HotSwapStatus) = hotSwapStatus.log(project, status)
+  fun logHotSwapResult(project: Project, status: HotSwapStatus, source: HotSwapSource?) {
+    hotSwapResult.log(project, status, source ?: HotSwapSource.UNKNOWN)
+  }
 
   @JvmStatic
-  fun logFailureReason(project: Project, reason: HotSwapFailureReason) = hotSwapFailureReason.log(project, reason)
+  fun logFailureReason(project: Project, reason: HotSwapFailureReason, source: HotSwapSource?) {
+    hotSwapFailureReason.log(project, reason, source ?: HotSwapSource.UNKNOWN)
+  }
 
   @JvmStatic
   fun logClassesReloaded(project: Project, count: Int) = hotSwapClassesNumber.log(project, count)
@@ -37,6 +49,7 @@ object HotSwapStatistics : CounterUsagesCollector() {
     COMPILATION_FAILURE,
     HOT_SWAP_FAILURE,
     NO_CHANGES,
+    RESTART,
   }
 }
 

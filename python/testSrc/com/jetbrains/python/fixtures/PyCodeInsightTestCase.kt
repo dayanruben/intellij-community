@@ -46,6 +46,7 @@ import com.jetbrains.python.codeInsight.completion.PyTestAssertionParserUtils.sk
 import com.jetbrains.python.codeInsight.completion.PyTestAssertionType
 import com.jetbrains.python.documentation.PyTypeRenderer
 import com.jetbrains.python.documentation.PythonDocumentationProvider
+import com.jetbrains.python.fixtures.PyCodeInsightTestCase.Companion.myFixture
 import com.jetbrains.python.fixtures.PyTestAssertionInliner.findCounterparts
 import com.jetbrains.python.fixtures.PyTestAssertionParser.parseAssertions
 import com.jetbrains.python.inspections.PyAbstractClassInspection
@@ -601,7 +602,7 @@ data class PyTestAssertion(
 
   val codeColumnEndEffective: Int get() = if (codeColumnStart + 1 == codeColumnEnd) -1 else codeColumnEnd
 
-  val columnLength: Int get() = codeColumnEnd - codeColumnStart
+  val columnLength: Int get() = (codeColumnEnd - codeColumnStart).coerceAtLeast(0)
 
   val hasFixme: Boolean get() = fixmeContent != null
 
@@ -761,18 +762,24 @@ private object PyTestAssertionInliner {
     for (codeLine in allCodeLinesSorted) {
       val expectedAssertions = expectedByCodeLine[codeLine].orEmpty()
       val actualAssertions = actualByCodeLine[codeLine].orEmpty()
+      val unmatchedAssertions = expectedAssertions - counterparts.values.toSet()
 
-      val inlineAssertions = actualAssertions.filter { counterparts[it]?.isInlineAssertion() ?: false }
-      if (inlineAssertions.size == 1) {
-        val inlineActual = inlineAssertions.single()
+      val inlineActualAssertions = actualAssertions.filter { counterparts[it]?.isInlineAssertion() ?: false }
+      val inlineUnmatchedExpectedAssertions = unmatchedAssertions.filter { it.isInlineAssertion() }
+      if (inlineActualAssertions.size == 1) {
+        val inlineActual = inlineActualAssertions.single()
         val inlineExpected = counterparts[inlineActual]!!
         val commentActuals = actualAssertions - inlineActual
         val commentExpected = expectedAssertions - inlineExpected
-        replaceCommentAssertion(result, commentExpected, commentActuals, counterparts)
+        replaceCommentAssertion(result, commentExpected, commentActuals)
         replaceInlineAssertion(result, inlineExpected, inlineActual)
       }
+      else if (inlineUnmatchedExpectedAssertions.size == 1) {
+        // keep
+      }
       else {
-        replaceCommentAssertion(result, expectedAssertions, actualAssertions, counterparts)
+        val actualAndPlaceholderAssertions = actualAssertions + unmatchedAssertions.filter { it.content.isBlank() && it.hasFixme }
+        replaceCommentAssertion(result, expectedAssertions, actualAndPlaceholderAssertions)
       }
     }
 
@@ -787,21 +794,17 @@ private object PyTestAssertionInliner {
 
     removeAssertions(text, listOf(expectedAssertion))
     val endOfLineOffset = findLineEndOffset(text, actualAssertion)
-    val (inlineText) = actualAssertion.asInlineAssertion().asText()
+    val (inlineText, _) = actualAssertion.asInlineAssertion().asText()
     text.insert(endOfLineOffset, inlineText)
   }
 
   private fun replaceCommentAssertion(
     text: StringBuilder,
     expectedAssertions: List<PyTestAssertion>,
-    actualAssertions: List<PyTestAssertion>,
-    counterparts: Map<PyTestAssertion, PyTestAssertion>,
+    actualAndPlaceholderAssertions: List<PyTestAssertion>
   ) {
-    val unmatchedAssertions = expectedAssertions - counterparts.values.toSet()
-    val actualAndPlaceholderAssertions = actualAssertions + unmatchedAssertions.filter { it.content.isBlank() && it.hasFixme }
-
-    if (actualAndPlaceholderAssertions.isEmpty()) return
     removeAssertions(text, expectedAssertions)
+    if (actualAndPlaceholderAssertions.isEmpty()) return
 
     val sortedActualAssertions = actualAndPlaceholderAssertions.sortedWith(compareBy(
       { -it.codeColumnStart },
@@ -1402,8 +1405,41 @@ class PyCodeInsightTestCaseAssertionParserAndInlinerTest {
       actualText
     )
   }
-}
 
+  @Test
+  fun `empty actual result is matched`() {
+    val code = """
+      a = 1 + ""
+      #       └ WARNING message1
+      a = 1
+      #   ^ WARNING message2
+      """.trimIndent()
+    val actualOutput = """
+      a = 1 + ""
+      #       └ WARNING message1
+      a = 1
+      """.trimIndent()
+
+    val expectedAssertions = parseAssertions(code)
+    val actualAssertions = listOf(expectedAssertions.first())
+    val actualText = PyTestAssertionInliner.generateActualText(code, expectedAssertions, actualAssertions)
+
+    Assertions.assertEquals(actualOutput, actualText)
+  }
+
+  @Test
+  fun `inline assertion with FIXME is preserved when actual value matches pre-FIXME expected`() {
+    val original = """
+      i: int = 0 # WARNING FIXME Some future fix
+    """.trimIndent()
+
+    val expectedAssertions = parseAssertions(original)
+    val actualAssertions = emptyList<PyTestAssertion>()
+    val actualText = PyTestAssertionInliner.generateActualText(original, expectedAssertions, actualAssertions)
+
+    Assertions.assertEquals(original, actualText, "FIXME clause must remain at its original position in the generated text.")
+  }
+}
 
 /**
  * Verifies that within a single subclass of [PyCodeInsightTestCase], two consecutive test
@@ -1473,4 +1509,5 @@ class PyCodeInsightTestCaseFixtureReuseTest : PyCodeInsightTestCase() {
     myFixture.configureByText("reuse_second.py", "z = 3\n")
     Assertions.assertNotNull(myFixture.file, "Fixture should still be usable in a subsequent test")
   }
+
 }
