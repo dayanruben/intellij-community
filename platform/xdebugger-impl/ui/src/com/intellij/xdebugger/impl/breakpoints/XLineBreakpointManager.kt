@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl.breakpoints
 
 import com.intellij.execution.impl.ConsoleViewUtil
@@ -11,7 +11,6 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.AnActionResult
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.actionSystem.IdeActions
-import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
@@ -65,10 +64,8 @@ import com.intellij.util.containers.MultiMap
 import com.intellij.util.ui.EDT
 import com.intellij.util.ui.update.MergingUpdateQueue
 import com.intellij.util.ui.update.Update
-import com.intellij.xdebugger.SplitDebuggerMode
 import com.intellij.xdebugger.XDebuggerUtil
 import com.intellij.xdebugger.breakpoints.XBreakpoint
-import com.intellij.xdebugger.breakpoints.XLineBreakpoint
 import com.intellij.xdebugger.breakpoints.XLineBreakpointVerticalPlacement
 import com.intellij.xdebugger.impl.actions.ToggleLineBreakpointAction
 import kotlinx.coroutines.CoroutineScope
@@ -161,14 +158,6 @@ class XLineBreakpointManager(
     }
 
     StartupManager.getInstance(project).runAfterOpened { queueAllBreakpointsUpdate() }
-  }
-
-  @Deprecated("Use {@link #registerBreakpoint(XLineBreakpointProxy, boolean)} instead")
-  fun registerBreakpoint(breakpoint: XLineBreakpoint<*>, initUI: Boolean) {
-    val proxy = XDebuggerEntityConverter.asProxy(breakpoint) as? XLineBreakpointProxy
-    if (proxy != null) {
-      registerBreakpoint(proxy, initUI)
-    }
   }
 
   fun registerBreakpoint(breakpoint: XLineBreakpointProxy, initUI: Boolean) {
@@ -372,23 +361,6 @@ class XLineBreakpointManager(
     queueBreakpointUpdate(proxy, callOnUpdate)
   }
 
-  @Deprecated("Use queueBreakpointUpdateCallback(XLightLineBreakpointProxy, Runnable)")
-  fun queueBreakpointUpdateCallback(breakpoint: XLineBreakpoint<*>?, callback: Runnable) {
-    breakpointUpdateQueue.queue(object : Update(breakpoint) {
-      override fun run() {
-        callback.run()
-      }
-    })
-  }
-
-  override fun queueBreakpointUpdateCallback(breakpoint: XLightLineBreakpointProxy, callback: Runnable) {
-    breakpointUpdateQueue.queue(object : Update(breakpoint) {
-      override fun run() {
-        callback.run()
-      }
-    })
-  }
-
   // Skip waiting 300ms in myBreakpointsUpdateQueue (good for sync updates like enable/disable or create new breakpoint)
   private fun updateBreakpointNow(breakpoint: XLightLineBreakpointProxy) {
     queueBreakpointUpdate(breakpoint)
@@ -514,19 +486,12 @@ class XLineBreakpointManager(
         val event = AnActionEvent.createFromAnAction(action, mouseEvent, ActionPlaces.EDITOR_GUTTER, dataContext)
         // TODO IJPL-185322 Introduce a better way to handle actions in the frontend
         // TODO We actually want to call the action directly, but dispatch it on frontend if possible
-        if (SplitDebuggerMode.isSplitDebugger()) {
-          // Call handler directly so that it will be called on frontend
-          val handler = ToggleLineBreakpointAction.ourHandler
-          if (handler.isEnabled(project, event)) {
-            handler.perform(project, event)
-            // statistics reporting
-            ActionsCollectorImpl.onAfterActionInvoked(action, event, AnActionResult.PERFORMED)
-          }
-        }
-        else {
-          // Cannot call the handler directly in case of LUX split.
-          // Call the action so that it is delegated to the backend action.
-          ActionUtil.performAction(action, event)
+        // Call handler directly so that it will be called on frontend
+        val handler = ToggleLineBreakpointAction.ourHandler
+        if (handler.isEnabled(project, event)) {
+          handler.perform(project, event)
+          // statistics reporting
+          ActionsCollectorImpl.onAfterActionInvoked(action, event, AnActionResult.PERFORMED)
         }
       }
     }

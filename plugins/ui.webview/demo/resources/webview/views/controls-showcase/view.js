@@ -48,6 +48,7 @@ var hostStyles = i`
     font-family: var(--jb-font-family);
     font-size: var(--jb-font-size);
     line-height: var(--jb-line-height);
+    user-select: none;
   }
 
   :host([hidden]) {
@@ -84,6 +85,7 @@ var buttonStyles = i`
     display: inline-flex;
     gap: var(--jb-control-gap);
     justify-content: center;
+    line-height: var(--jb-line-height);
     min-height: var(--jb-control-height);
     min-width: var(--jb-control-height);
     outline: none;
@@ -168,17 +170,79 @@ var buttonStyles = i`
     padding-inline: var(--jb-space-sm);
   }
 
+  .button [part="label"] {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    line-height: var(--jb-line-height);
+    min-height: var(--jb-line-height);
+  }
+
+  .button .icon-slot.empty {
+    display: none;
+  }
+
+  .button-icon {
+    color: currentColor;
+    display: inline-flex;
+    flex: 0 0 auto;
+    height: 12px;
+    line-height: 1;
+    position: relative;
+    width: 12px;
+  }
+
+  .button-icon::before,
+  .button-icon::after {
+    background: currentColor;
+    border-radius: 1px;
+    content: "";
+    height: 1.5px;
+    left: 50%;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 8px;
+  }
+
+  .button-icon.plus::after {
+    transform: translate(-50%, -50%) rotate(90deg);
+  }
+
+  .button-icon.minus::after {
+    display: none;
+  }
+
   .icon-slot,
   .chevron {
     align-items: center;
     display: inline-flex;
+    flex: 0 0 auto;
+    height: 12px;
     justify-content: center;
     line-height: 1;
+    position: relative;
+    width: 12px;
   }
 
   .chevron {
     color: var(--jb-text-muted);
-    font-size: var(--jb-font-size-small);
+  }
+
+  .chevron::before {
+    border: solid currentColor;
+    border-width: 0 1.5px 1.5px 0;
+    content: "";
+    height: 5px;
+    margin-top: -3px;
+    transform: rotate(45deg);
+    width: 5px;
+  }
+
+  .chevron.right::before {
+    margin-left: -3px;
+    margin-top: 0;
+    transform: rotate(-45deg);
   }
 `;
 var inputStyles = i`
@@ -202,11 +266,12 @@ var inputStyles = i`
     border-color: var(--jb-border-color-strong);
   }
 
-  .field-control:focus-visible,
-  .textarea:focus-visible,
-  .select:focus-visible {
+  .field-control:focus,
+  .textarea:focus,
+  .select:focus {
     border-color: var(--jb-accent-color);
     box-shadow: var(--jb-focus-ring);
+    outline: none;
   }
 
   .field-control:disabled,
@@ -241,17 +306,27 @@ var inputStyles = i`
 
   .select {
     padding-right: 26px;
+    user-select: none;
+  }
+
+  .field-control,
+  .textarea {
+    user-select: text;
   }
 
   .select-wrap::after {
+    border: solid currentColor;
+    border-width: 0 1.5px 1.5px 0;
     color: var(--jb-text-muted);
-    content: "v";
-    font-size: var(--jb-font-size-small);
+    content: "";
+    height: 5px;
     pointer-events: none;
     position: absolute;
     right: 9px;
     top: 50%;
-    transform: translateY(-52%);
+    transform: translateY(-65%) rotate(45deg);
+    user-select: none;
+    width: 5px;
   }
 `;
 var popupStyles = i`
@@ -283,6 +358,7 @@ var popupStyles = i`
     min-height: var(--jb-control-height-compact);
     padding: 0 var(--jb-space-sm);
     text-align: left;
+    user-select: none;
     white-space: nowrap;
   }
 
@@ -297,6 +373,11 @@ var popupStyles = i`
   }
 `;
 var choiceStyles = i`
+  :host {
+    display: inline-flex;
+    vertical-align: middle;
+  }
+
   .choice {
     align-items: flex-start;
     color: var(--jb-text-color);
@@ -304,6 +385,7 @@ var choiceStyles = i`
     gap: var(--jb-control-gap);
     min-height: var(--jb-control-height-compact);
     position: relative;
+    user-select: none;
   }
 
   .native-check {
@@ -326,6 +408,13 @@ var choiceStyles = i`
     justify-content: center;
     margin-top: 1px;
     width: 16px;
+  }
+
+  .mark::before {
+    box-sizing: border-box;
+    content: "";
+    flex: 0 0 auto;
+    opacity: 0;
   }
 
   .checkbox .mark {
@@ -352,8 +441,7 @@ var choiceStyles = i`
     opacity: 0.72;
   }
 
-  .checkbox .native-check:checked + .mark::before {
-    content: "";
+  .checkbox .mark::before {
     border: solid currentColor;
     border-width: 0 2px 2px 0;
     height: 8px;
@@ -362,19 +450,29 @@ var choiceStyles = i`
     width: 4px;
   }
 
+  .checkbox .native-check:checked + .mark::before {
+    opacity: 1;
+  }
+
   .checkbox .native-check:indeterminate + .mark::before {
     background: currentColor;
-    content: "";
+    border: 0;
     height: 2px;
+    margin-top: 0;
+    opacity: 1;
+    transform: none;
     width: 8px;
   }
 
-  .radio .native-check:checked + .mark::before {
+  .radio .mark::before {
     background: currentColor;
     border-radius: 50%;
-    content: "";
     height: 6px;
     width: 6px;
+  }
+
+  .radio .native-check:checked + .mark::before {
+    opacity: 1;
   }
 `;
 //#endregion
@@ -431,6 +529,7 @@ var JbButton = class extends i$1 {
 			type: Boolean,
 			reflect: true
 		},
+		hasIcon: { state: true },
 		pressed: {
 			type: Boolean,
 			reflect: true
@@ -454,6 +553,7 @@ var JbButton = class extends i$1 {
 	};
 	static styles = [hostStyles, buttonStyles];
 	disabled = false;
+	hasIcon = false;
 	pressed = false;
 	selected = false;
 	size = "default";
@@ -470,7 +570,9 @@ var JbButton = class extends i$1 {
         aria-pressed=${boolAttribute(pressed)}
         data-pressed=${String(this.pressed)}
       >
-        <span part="icon" class="icon-slot"><slot name="icon"></slot></span>
+        <span part="icon" class=${this.hasIcon ? "icon-slot" : "icon-slot empty"}>
+          <slot name="icon" @slotchange=${this.updateIconState}></slot>
+        </span>
         <span part="label"><slot></slot></span>
       </button>
     `;
@@ -482,6 +584,12 @@ var JbButton = class extends i$1 {
 			this.size,
 			this.selected ? "selected" : ""
 		].filter(Boolean).join(" ");
+	}
+	updateIconState(event) {
+		const slot = event.target;
+		const hasAssignedElement = slot.assignedElements({ flatten: true }).length > 0;
+		const hasAssignedText = slot.assignedNodes({ flatten: true }).some((node) => Boolean(node.textContent?.trim()));
+		this.hasIcon = hasAssignedElement || hasAssignedText;
 	}
 };
 //#endregion
@@ -579,6 +687,23 @@ var JbCheckbox = class extends i$1 {
 		emitStandardEvent(this, "input");
 		emitStandardEvent(this, "change");
 		emitValueEvent(this, "jb-change", this.checked ? this.value : "");
+	}
+};
+//#endregion
+//#region ../../webview-src/packages/controls/src/foundation/focus.ts
+var WEBVIEW_FOCUS_LEAVE_EVENT = "wvi-focus-leave";
+var WebViewFocusLeaveController = class {
+	onFocusLeave;
+	listener = () => this.onFocusLeave();
+	constructor(host, onFocusLeave) {
+		this.onFocusLeave = onFocusLeave;
+		host.addController(this);
+	}
+	hostConnected() {
+		window.addEventListener(WEBVIEW_FOCUS_LEAVE_EVENT, this.listener);
+	}
+	hostDisconnected() {
+		window.removeEventListener(WEBVIEW_FOCUS_LEAVE_EVENT, this.listener);
 	}
 };
 //#endregion
@@ -692,6 +817,10 @@ var JbCombobox = class extends TextInputBase {
 		items: { attribute: false }
 	};
 	items = [];
+	constructor() {
+		super();
+		new WebViewFocusLeaveController(this, () => this.renderRoot.querySelector("input")?.blur());
+	}
 	render() {
 		const listId = `${this.localName}-${Math.random().toString(36).slice(2)}`;
 		return b`
@@ -751,6 +880,7 @@ var JbContextHelp = class extends i$1 {
     .popup {
       line-height: var(--jb-line-height-paragraph);
       max-width: 260px;
+      user-select: text;
       white-space: normal;
     }
   `
@@ -791,6 +921,7 @@ var JbDisclosure = class extends i$1 {
     .content {
       margin-top: var(--jb-space-sm);
       padding-left: calc(var(--jb-control-height-compact) + var(--jb-space-xs));
+      user-select: text;
     }
   `
 	];
@@ -800,7 +931,7 @@ var JbDisclosure = class extends i$1 {
 	render() {
 		return b`
       <button part="summary" class="button link" type="button" ?disabled=${this.disabled} aria-expanded=${String(this.open)} @click=${() => this.open = !this.open}>
-        <span part="chevron" class="chevron">${this.open ? "v" : ">"}</span>
+        <span part="chevron" class=${["chevron", this.open ? "" : "right"].filter(Boolean).join(" ")} aria-hidden="true"></span>
         <span part="label"><slot name="summary">${this.label}</slot></span>
       </button>
       ${this.open ? b`<div part="content" class="content"><slot></slot></div>` : A}
@@ -844,13 +975,19 @@ var JbMenuButton = class extends i$1 {
 	open = false;
 	value = "";
 	variant = "default";
+	constructor() {
+		super();
+		new WebViewFocusLeaveController(this, () => {
+			this.open = false;
+		});
+	}
 	render() {
 		const options = normalizeOptions(this.items);
 		return b`
       <span part="root" class="menu-root">
         <button part="button" class=${["button", this.variant].filter(Boolean).join(" ")} type="button" ?disabled=${this.disabled} aria-haspopup="menu" aria-expanded=${String(this.open)} @click=${this.toggleOpen} @keydown=${this.onButtonKeyDown}>
           <span part="label"><slot>${this.label || optionLabel(options, this.value)}</slot></span>
-          <span part="chevron" class="chevron">v</span>
+          <span part="chevron" class="chevron" aria-hidden="true"></span>
         </button>
         ${this.open ? b`<div part="menu" class="popup" role="menu">${options.length > 0 ? options.map((option) => this.renderMenuItem(option)) : b`<slot name="menu"></slot>`}</div>` : A}
       </span>
@@ -922,6 +1059,14 @@ var JbExpandableTextField = class extends i$1 {
     .expanded {
       grid-column: 1 / -1;
     }
+
+    .button.expand-button {
+      height: var(--jb-control-height);
+      min-height: var(--jb-control-height);
+      min-width: var(--jb-control-height);
+      padding: 0;
+      width: var(--jb-control-height);
+    }
   `
 	];
 	disabled = false;
@@ -937,7 +1082,17 @@ var JbExpandableTextField = class extends i$1 {
         ` : b`
           <input part="input" class="field-control" type="text" placeholder=${this.placeholder || A} .value=${this.value} ?disabled=${this.disabled} ?readonly=${this.readOnly} @input=${this.onInput} @change=${this.onChange}>
         `}
-        <button part="expand-button" class="button toolbar" type="button" ?disabled=${this.disabled} @click=${() => this.expanded = !this.expanded}>${this.expanded ? "-" : "+"}</button>
+        <button
+          part="expand-button"
+          class="button toolbar expand-button"
+          type="button"
+          ?disabled=${this.disabled}
+          aria-label=${this.expanded ? "Collapse" : "Expand"}
+          aria-expanded=${String(this.expanded)}
+          @click=${() => this.expanded = !this.expanded}
+        >
+          <span class=${this.expanded ? "button-icon minus" : "button-icon plus"} aria-hidden="true"></span>
+        </button>
       </span>
     `;
 	}
@@ -998,6 +1153,7 @@ var JbField = class extends i$1 {
     .body {
       display: grid;
       gap: var(--jb-space-xs);
+      user-select: text;
     }
   `];
 	error = "";
@@ -1041,11 +1197,13 @@ var JbFieldGroup = class extends i$1 {
       font-weight: var(--jb-font-weight-medium);
       margin-bottom: var(--jb-space-sm);
       padding: 0;
+      user-select: none;
     }
 
     .body {
       display: grid;
       gap: var(--jb-space-sm);
+      user-select: text;
     }
   `];
 	disabled = false;
@@ -1065,6 +1223,7 @@ var JbHelpText = class extends i$1 {
     .help {
       color: var(--jb-text-muted);
       line-height: var(--jb-line-height-paragraph);
+      user-select: text;
     }
 
     .error {
@@ -1114,6 +1273,7 @@ var JbIcon = class extends i$1 {
       height: 16px;
       justify-content: center;
       line-height: 1;
+      user-select: none;
       width: 16px;
     }
 
@@ -1164,6 +1324,7 @@ var JbLabel = class extends i$1 {
     label {
       color: var(--jb-text-color);
       display: inline-block;
+      user-select: none;
     }
 
     :host([disabled]) label {
@@ -1336,6 +1497,7 @@ var JbRadioGroup = class extends i$1 {
       color: var(--jb-text-muted);
       margin-bottom: var(--jb-space-xs);
       padding: 0;
+      user-select: none;
     }
   `];
 	disabled = false;
@@ -1464,6 +1626,10 @@ var JbSelect = class extends i$1 {
 	placeholder = "";
 	required = false;
 	value = "";
+	constructor() {
+		super();
+		new WebViewFocusLeaveController(this, () => this.renderRoot.querySelector("select")?.blur());
+	}
 	render() {
 		const options = normalizeOptions(this.items);
 		return b`
@@ -1559,6 +1725,7 @@ var JbSlider = class extends i$1 {
 	static styles = [hostStyles, i`
     .slider {
       accent-color: var(--jb-accent-color);
+      user-select: none;
       width: 100%;
     }
   `];
@@ -1618,8 +1785,12 @@ var JbSpinner = class extends i$1 {
       grid-template-columns: minmax(64px, 1fr) auto auto;
     }
 
-    .step-button {
-      padding-inline: var(--jb-space-xs);
+    .button.step-button {
+      height: var(--jb-control-height);
+      min-height: var(--jb-control-height);
+      min-width: var(--jb-control-height);
+      padding: 0;
+      width: var(--jb-control-height);
     }
   `
 	];
@@ -1632,8 +1803,12 @@ var JbSpinner = class extends i$1 {
 		return b`
       <span part="control" class="spinner">
         <input part="input" class="field-control" type="number" min=${Number.isFinite(this.min) ? this.min : A} max=${Number.isFinite(this.max) ? this.max : A} step=${this.step} .value=${this.value} ?disabled=${this.disabled} @input=${this.onInput} @change=${this.onChange}>
-        <button part="decrement-button" class="button toolbar step-button" type="button" ?disabled=${this.disabled} @click=${() => this.stepValue(-1)}>-</button>
-        <button part="increment-button" class="button toolbar step-button" type="button" ?disabled=${this.disabled} @click=${() => this.stepValue(1)}>+</button>
+        <button part="decrement-button" class="button toolbar step-button" type="button" ?disabled=${this.disabled} aria-label="Decrement" @click=${() => this.stepValue(-1)}>
+          <span class="button-icon minus" aria-hidden="true"></span>
+        </button>
+        <button part="increment-button" class="button toolbar step-button" type="button" ?disabled=${this.disabled} aria-label="Increment" @click=${() => this.stepValue(1)}>
+          <span class="button-icon plus" aria-hidden="true"></span>
+        </button>
       </span>
     `;
 	}
@@ -1688,6 +1863,10 @@ var JbTabs = class extends i$1 {
       border-bottom-right-radius: 0;
       margin-bottom: -1px;
     }
+
+    .panel {
+      user-select: text;
+    }
   `
 	];
 	disabled = false;
@@ -1703,7 +1882,7 @@ var JbTabs = class extends i$1 {
 			this.value === option.value ? "selected" : ""
 		].filter(Boolean).join(" ")} type="button" role="tab" aria-selected=${String(this.value === option.value)} ?disabled=${this.disabled || Boolean(option.disabled)} @click=${() => this.selectOption(option)}>${option.label}</button>`)}
       </div>
-      <div part="panel"><slot></slot></div>
+      <div part="panel" class="panel"><slot></slot></div>
     `;
 	}
 	selectOption(option) {
@@ -1734,6 +1913,7 @@ var JbText = class extends i$1 {
     .text {
       color: var(--jb-text-color);
       margin: 0;
+      user-select: text;
     }
 
     .small {

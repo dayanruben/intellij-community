@@ -37,6 +37,7 @@ import java.nio.file.Path
 import javax.swing.JComponent
 import kotlin.math.min
 
+// Keep this in sync with community/plugins/ui.webview/markdown-preview/src/org/intellij/plugins/markdown/webview/preview/MarkdownPreviewPathLinkResolver.kt; extraction is intentionally deferred.
 internal class AcpPathLinkResolver(
   private val project: Project,
   private val scope: CoroutineScope,
@@ -238,6 +239,6 @@ internal class AcpPathLinkResolver(
 
   private companion object {
     private val HASH_LINE_SUFFIX = Regex("^(.+)#L(\\d+)$")
-    private val COLON_LOCATION_SUFFIX = Regex("^(.+):(\\d+)(?::(\\d+))?$")
+    private val COLON_LOCATION_SUFFIX = Regex("^(.+?):(\\d+)(?::(\\d+))?$")
   }
 }

@@ -64,6 +64,7 @@ var hostStyles = i`
     font-family: var(--jb-font-family);
     font-size: var(--jb-font-size);
     line-height: var(--jb-line-height);
+    user-select: none;
   }
 
   :host([hidden]) {
@@ -100,6 +101,7 @@ i`
     display: inline-flex;
     gap: var(--jb-control-gap);
     justify-content: center;
+    line-height: var(--jb-line-height);
     min-height: var(--jb-control-height);
     min-width: var(--jb-control-height);
     outline: none;
@@ -184,17 +186,79 @@ i`
     padding-inline: var(--jb-space-sm);
   }
 
+  .button [part="label"] {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    line-height: var(--jb-line-height);
+    min-height: var(--jb-line-height);
+  }
+
+  .button .icon-slot.empty {
+    display: none;
+  }
+
+  .button-icon {
+    color: currentColor;
+    display: inline-flex;
+    flex: 0 0 auto;
+    height: 12px;
+    line-height: 1;
+    position: relative;
+    width: 12px;
+  }
+
+  .button-icon::before,
+  .button-icon::after {
+    background: currentColor;
+    border-radius: 1px;
+    content: "";
+    height: 1.5px;
+    left: 50%;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 8px;
+  }
+
+  .button-icon.plus::after {
+    transform: translate(-50%, -50%) rotate(90deg);
+  }
+
+  .button-icon.minus::after {
+    display: none;
+  }
+
   .icon-slot,
   .chevron {
     align-items: center;
     display: inline-flex;
+    flex: 0 0 auto;
+    height: 12px;
     justify-content: center;
     line-height: 1;
+    position: relative;
+    width: 12px;
   }
 
   .chevron {
     color: var(--jb-text-muted);
-    font-size: var(--jb-font-size-small);
+  }
+
+  .chevron::before {
+    border: solid currentColor;
+    border-width: 0 1.5px 1.5px 0;
+    content: "";
+    height: 5px;
+    margin-top: -3px;
+    transform: rotate(45deg);
+    width: 5px;
+  }
+
+  .chevron.right::before {
+    margin-left: -3px;
+    margin-top: 0;
+    transform: rotate(-45deg);
   }
 `;
 i`
@@ -218,11 +282,12 @@ i`
     border-color: var(--jb-border-color-strong);
   }
 
-  .field-control:focus-visible,
-  .textarea:focus-visible,
-  .select:focus-visible {
+  .field-control:focus,
+  .textarea:focus,
+  .select:focus {
     border-color: var(--jb-accent-color);
     box-shadow: var(--jb-focus-ring);
+    outline: none;
   }
 
   .field-control:disabled,
@@ -257,17 +322,27 @@ i`
 
   .select {
     padding-right: 26px;
+    user-select: none;
+  }
+
+  .field-control,
+  .textarea {
+    user-select: text;
   }
 
   .select-wrap::after {
+    border: solid currentColor;
+    border-width: 0 1.5px 1.5px 0;
     color: var(--jb-text-muted);
-    content: "v";
-    font-size: var(--jb-font-size-small);
+    content: "";
+    height: 5px;
     pointer-events: none;
     position: absolute;
     right: 9px;
     top: 50%;
-    transform: translateY(-52%);
+    transform: translateY(-65%) rotate(45deg);
+    user-select: none;
+    width: 5px;
   }
 `;
 i`
@@ -299,6 +374,7 @@ i`
     min-height: var(--jb-control-height-compact);
     padding: 0 var(--jb-space-sm);
     text-align: left;
+    user-select: none;
     white-space: nowrap;
   }
 
@@ -313,6 +389,11 @@ i`
   }
 `;
 i`
+  :host {
+    display: inline-flex;
+    vertical-align: middle;
+  }
+
   .choice {
     align-items: flex-start;
     color: var(--jb-text-color);
@@ -320,6 +401,7 @@ i`
     gap: var(--jb-control-gap);
     min-height: var(--jb-control-height-compact);
     position: relative;
+    user-select: none;
   }
 
   .native-check {
@@ -342,6 +424,13 @@ i`
     justify-content: center;
     margin-top: 1px;
     width: 16px;
+  }
+
+  .mark::before {
+    box-sizing: border-box;
+    content: "";
+    flex: 0 0 auto;
+    opacity: 0;
   }
 
   .checkbox .mark {
@@ -368,8 +457,7 @@ i`
     opacity: 0.72;
   }
 
-  .checkbox .native-check:checked + .mark::before {
-    content: "";
+  .checkbox .mark::before {
     border: solid currentColor;
     border-width: 0 2px 2px 0;
     height: 8px;
@@ -378,19 +466,29 @@ i`
     width: 4px;
   }
 
+  .checkbox .native-check:checked + .mark::before {
+    opacity: 1;
+  }
+
   .checkbox .native-check:indeterminate + .mark::before {
     background: currentColor;
-    content: "";
+    border: 0;
     height: 2px;
+    margin-top: 0;
+    opacity: 1;
+    transform: none;
     width: 8px;
   }
 
-  .radio .native-check:checked + .mark::before {
+  .radio .mark::before {
     background: currentColor;
     border-radius: 50%;
-    content: "";
     height: 6px;
     width: 6px;
+  }
+
+  .radio .native-check:checked + .mark::before {
+    opacity: 1;
   }
 `;
 //#endregion
@@ -427,6 +525,7 @@ var JbIcon = class extends i$1 {
       height: 16px;
       justify-content: center;
       line-height: 1;
+      user-select: none;
       width: 16px;
     }
 
@@ -529,6 +628,13 @@ function validateIconResourcePath(resourcePath) {
 function encodeIconResourcePath(resourcePath) {
 	return resourcePath.split("/").map((segment) => encodeURIComponent(segment)).join("/");
 }
+//#endregion
+//#region ../../webview-src/packages/api/src/focus.ts
+var WEBVIEW_FOCUS_LEAVE_EVENT = "wvi-focus-leave";
+function addWebViewFocusLeaveListener(listener) {
+	window.addEventListener(WEBVIEW_FOCUS_LEAVE_EVENT, listener);
+	return () => window.removeEventListener(WEBVIEW_FOCUS_LEAVE_EVENT, listener);
+}
 apiId()("webview.focus");
 apiId()("webview.focus");
 //#endregion
@@ -617,6 +723,14 @@ function createAgentStdioStream() {
 }
 //#endregion
 //#region views/acp-chat/src/acp/client.ts
+var AcpAuthRequiredError = class extends Error {
+	methods;
+	constructor(methods, message) {
+		super(message);
+		this.methods = methods;
+		this.name = "AcpAuthRequiredError";
+	}
+};
 /**
 * One ACP session over a spawned agent. The protocol is handled by the ACP TypeScript SDK; the transport is the
 * Kotlin-bridged process stdio. ACP wire objects are accessed defensively (`any`) so this stays resilient to minor
@@ -701,19 +815,15 @@ var AcpSession = class {
 			this.sink?.onConfigOptions(toConfigOptionViews(session.configOptions));
 			return { kind: "ready" };
 		} catch (error) {
-			if (!isAuthRequired(error)) return {
+			const authError = this.toAuthRequiredError(error);
+			if (!authError) return {
 				kind: "error",
 				message: messageOf(error)
 			};
-			const methods = this.authMethodViews(error?.data);
-			if (methods.length === 0) return {
-				kind: "error",
-				message: `${authMessage(error)} Authenticate the agent's own CLI, then reselect it.`
-			};
 			return {
 				kind: "auth-required",
-				methods,
-				message: authMessage(error)
+				methods: authError.methods,
+				message: authError.message
 			};
 		}
 	}
@@ -729,10 +839,10 @@ var AcpSession = class {
 		const connection = this.connection;
 		const sessionId = this.sessionId;
 		if (!connection || !sessionId) throw new Error("No active ACP session");
-		await connection.prompt({
+		await this.callWithAuthClassification(() => connection.prompt({
 			sessionId,
 			prompt: blocks
-		});
+		}));
 	}
 	async promptText(text) {
 		await this.prompt([{
@@ -744,10 +854,10 @@ var AcpSession = class {
 		const connection = this.connection;
 		if (!connection) throw new Error("No agent connection");
 		if (!this.capabilities.list || typeof connection.listSessions !== "function") throw new Error("The selected ACP agent does not support chat history.");
-		const response = await connection.listSessions({
+		const response = await this.callWithAuthClassification(() => connection.listSessions({
 			cwd: this.cwd,
 			cursor: cursor ?? void 0
-		});
+		}));
 		return {
 			sessions: Array.isArray(response?.sessions) ? response.sessions.map((session) => toSessionInfoView(session, this.cwd)).filter(isSessionInfoView) : [],
 			nextCursor: stringOrNull(response?.nextCursor)
@@ -763,12 +873,12 @@ var AcpSession = class {
 		this.sessionId = sessionInfo.sessionId;
 		this.cwd = cwd;
 		try {
-			const session = await connection.loadSession({
+			const session = await this.callWithAuthClassification(() => connection.loadSession({
 				sessionId: sessionInfo.sessionId,
 				cwd,
 				additionalDirectories: sessionInfo.additionalDirectories ?? [],
 				mcpServers: []
-			});
+			}));
 			this.sink?.onSessionModes(toSessionModeViews(session?.modes?.availableModes), stringOrNull(session?.modes?.currentModeId));
 			this.sink?.onConfigOptions(toConfigOptionViews(session?.configOptions));
 		} catch (error) {
@@ -781,17 +891,17 @@ var AcpSession = class {
 		const connection = this.connection;
 		if (!connection) throw new Error("No agent connection");
 		if (!this.capabilities.delete || typeof connection.deleteSession !== "function") throw new Error("The selected ACP agent does not support deleting chats.");
-		await connection.deleteSession({ sessionId });
+		await this.callWithAuthClassification(() => connection.deleteSession({ sessionId }));
 	}
 	async setMode(modeId) {
 		const connection = this.connection;
 		const sessionId = this.sessionId;
 		if (!connection || !sessionId) throw new Error("No active ACP session");
 		if (typeof connection.setSessionMode !== "function") throw new Error("The selected ACP agent does not support session modes.");
-		await connection.setSessionMode({
+		await this.callWithAuthClassification(() => connection.setSessionMode({
 			sessionId,
 			modeId
-		});
+		}));
 		this.sink?.onCurrentMode(modeId);
 	}
 	async setConfigOption(configId, type, value) {
@@ -799,16 +909,16 @@ var AcpSession = class {
 		const sessionId = this.sessionId;
 		if (!connection || !sessionId) throw new Error("No active ACP session");
 		if (typeof connection.setSessionConfigOption !== "function") throw new Error("The selected ACP agent does not support session config options.");
-		const response = type === "boolean" ? await connection.setSessionConfigOption({
+		const response = await this.callWithAuthClassification(() => type === "boolean" ? connection.setSessionConfigOption({
 			sessionId,
 			configId,
 			type,
 			value: value === true
-		}) : await connection.setSessionConfigOption({
+		}) : connection.setSessionConfigOption({
 			sessionId,
 			configId,
 			value: String(value)
-		});
+		}));
 		this.sink?.onConfigOptions(toConfigOptionViews(response?.configOptions));
 	}
 	async cancel() {
@@ -865,12 +975,17 @@ var AcpSession = class {
 			const connection = new ClientSideConnection(() => client, io.stream);
 			const init = await connection.initialize({
 				protocolVersion: 1,
+				clientInfo: {
+					name: "IntelliJ ACP Chat WebView Demo",
+					version: "1.0.0"
+				},
 				clientCapabilities: {
 					fs: {
 						readTextFile: false,
 						writeTextFile: false
 					},
-					terminal: false
+					terminal: false,
+					auth: {}
 				}
 			});
 			if (this.generation !== generation) throw new Error("ACP connection superseded");
@@ -888,7 +1003,18 @@ var AcpSession = class {
 		}
 	}
 	authMethodViews(errorData) {
-		return authMethodsOf(errorData, { authMethods: this.authMethods }).map(toAuthMethodView);
+		return authMethodsOf(errorData, { authMethods: this.authMethods }).map(toAuthMethodView).filter((method) => method.id.length > 0);
+	}
+	toAuthRequiredError(error) {
+		if (!isAuthRequired(error)) return null;
+		return new AcpAuthRequiredError(this.authMethodViews(error?.data), authMessage(error));
+	}
+	async callWithAuthClassification(call) {
+		try {
+			return await call();
+		} catch (error) {
+			throw this.toAuthRequiredError(error) ?? error;
+		}
 	}
 };
 function handleUpdate(update, sink) {
@@ -1167,9 +1293,16 @@ function authMessage(error) {
 }
 /** Prefer auth methods carried in the error payload, falling back to those advertised at initialize. */
 function authMethodsOf(errorData, init) {
-	const fromError = Array.isArray(errorData?.authMethods) ? errorData.authMethods : [];
-	if (fromError.length > 0) return fromError;
-	return Array.isArray(init?.authMethods) ? init.authMethods : [];
+	for (const container of [
+		errorData,
+		errorData?.auth,
+		errorData?._meta,
+		init
+	]) {
+		if (Array.isArray(container?.authMethods) && container.authMethods.length > 0) return container.authMethods;
+		if (Array.isArray(container?.methods) && container.methods.length > 0) return container.methods;
+	}
+	return [];
 }
 function toAuthMethodView(method) {
 	const vars = Array.isArray(method?.vars) ? method.vars.map((v) => ({
@@ -1180,13 +1313,119 @@ function toAuthMethodView(method) {
 	})).filter((v) => v.name) : [];
 	return {
 		id: String(method?.id ?? ""),
-		name: typeof method?.name === "string" && method.name ? method.name : String(method?.id ?? "auth"),
+		name: stringOrDefault(method?.name, stringOrDefault(method?.label, String(method?.id ?? "auth"))),
+		label: stringOrUndefined(method?.label),
+		type: stringOrUndefined(method?.type),
 		description: typeof method?.description === "string" ? method.description : void 0,
-		vars
+		link: stringOrUndefined(method?.link),
+		vars,
+		meta: objectOrUndefined(method?._meta)
 	};
+}
+function objectOrUndefined(value) {
+	return value != null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
 function messageOf(error) {
 	return error instanceof Error ? error.message : String(error);
+}
+//#endregion
+//#region views/acp-chat/src/icons/acpChatAgent.svg
+var acpChatAgent_default = "" + new URL("assets/acpChatAgent.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatAgent_dark.svg
+var acpChatAgent_dark_default = "" + new URL("assets/acpChatAgent_dark.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatBrain.svg
+var acpChatBrain_default = "" + new URL("assets/acpChatBrain.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatBrain_dark.svg
+var acpChatBrain_dark_default = "" + new URL("assets/acpChatBrain_dark.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatDebug.svg
+var acpChatDebug_default = "" + new URL("assets/acpChatDebug.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatDebug_dark.svg
+var acpChatDebug_dark_default = "" + new URL("assets/acpChatDebug_dark.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatEffort.svg
+var acpChatEffort_default = "" + new URL("assets/acpChatEffort.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatEffort_dark.svg
+var acpChatEffort_dark_default = "" + new URL("assets/acpChatEffort_dark.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatJunie.svg
+var acpChatJunie_default = "" + new URL("assets/acpChatJunie.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatMode.svg
+var acpChatMode_default = "" + new URL("assets/acpChatMode.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatMode_dark.svg
+var acpChatMode_dark_default = "" + new URL("assets/acpChatMode_dark.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatProcessor.svg
+var acpChatProcessor_default = "" + new URL("assets/acpChatProcessor.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatProcessor_dark.svg
+var acpChatProcessor_dark_default = "" + new URL("assets/acpChatProcessor_dark.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatSend.svg
+var acpChatSend_default = "" + new URL("assets/acpChatSend.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatSend_dark.svg
+var acpChatSend_dark_default = "" + new URL("assets/acpChatSend_dark.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatShield.svg
+var acpChatShield_default = "" + new URL("assets/acpChatShield.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatShield_dark.svg
+var acpChatShield_dark_default = "" + new URL("assets/acpChatShield_dark.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatToggle.svg
+var acpChatToggle_default = "" + new URL("assets/acpChatToggle.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/icons/acpChatToggle_dark.svg
+var acpChatToggle_dark_default = "" + new URL("assets/acpChatToggle_dark.svg", import.meta.url).href;
+//#endregion
+//#region views/acp-chat/src/components/icons/AcpChatIconSet.ts
+var ACP_CHAT_ICONS = IconSet.define("AcpChatIcons");
+var ACP_CHAT_ICON_RESOURCE_ROOT = "webview/views/acp-chat/assets";
+var AGENT_ICON_PATH = iconResourcePath(acpChatAgent_default, "acpChatAgent.svg");
+iconResourcePath(acpChatJunie_default, "acpChatJunie.svg");
+var SEND_ICON_PATH = iconResourcePath(acpChatSend_default, "acpChatSend.svg");
+var CONTROL_ICON_PATHS = {
+	mode: iconResourcePath(acpChatMode_default, "acpChatMode.svg"),
+	model: iconResourcePath(acpChatProcessor_default, "acpChatProcessor.svg"),
+	effort: iconResourcePath(acpChatEffort_default, "acpChatEffort.svg"),
+	shield: iconResourcePath(acpChatShield_default, "acpChatShield.svg"),
+	debug: iconResourcePath(acpChatDebug_default, "acpChatDebug.svg"),
+	brain: iconResourcePath(acpChatBrain_default, "acpChatBrain.svg"),
+	toggle: iconResourcePath(acpChatToggle_default, "acpChatToggle.svg")
+};
+keepBundledIconAssets([
+	iconResourcePath(acpChatAgent_dark_default, "acpChatAgent_dark.svg"),
+	iconResourcePath(acpChatBrain_dark_default, "acpChatBrain_dark.svg"),
+	iconResourcePath(acpChatDebug_dark_default, "acpChatDebug_dark.svg"),
+	iconResourcePath(acpChatEffort_dark_default, "acpChatEffort_dark.svg"),
+	iconResourcePath(acpChatMode_dark_default, "acpChatMode_dark.svg"),
+	iconResourcePath(acpChatProcessor_dark_default, "acpChatProcessor_dark.svg"),
+	iconResourcePath(acpChatSend_dark_default, "acpChatSend_dark.svg"),
+	iconResourcePath(acpChatShield_dark_default, "acpChatShield_dark.svg"),
+	iconResourcePath(acpChatToggle_dark_default, "acpChatToggle_dark.svg")
+]);
+function acpControlIconPath(kind) {
+	return CONTROL_ICON_PATHS[kind];
+}
+function acpIconSrc(path) {
+	return ACP_CHAT_ICONS.src(path);
+}
+function iconResourcePath(assetUrl, fileName) {
+	const cleanAssetUrl = assetUrl.split("?", 1)[0];
+	const assetsPathStart = cleanAssetUrl.lastIndexOf("/assets/");
+	if (assetsPathStart >= 0) return `${ACP_CHAT_ICON_RESOURCE_ROOT}/${cleanAssetUrl.substring(assetsPathStart + 8)}`;
+	return `${ACP_CHAT_ICON_RESOURCE_ROOT}/${fileName}`;
+}
+function keepBundledIconAssets(paths) {
+	if (paths.length === 0) throw new Error("ACP chat icon assets are missing");
 }
 //#endregion
 //#region views/acp-chat/src/runtime/useAcpChat.ts
@@ -1212,7 +1451,6 @@ function useAcpChat() {
 	const [currentModeId, setCurrentModeId] = (0, import_react.useState)(null);
 	const [commands, setCommands] = (0, import_react.useState)([]);
 	const [permission, setPermission] = (0, import_react.useState)(null);
-	const [auth, setAuth] = (0, import_react.useState)(null);
 	const [sessions, setSessions] = (0, import_react.useState)([]);
 	const [activeSessionId, setActiveSessionId] = (0, import_react.useState)(null);
 	const [nextCursor, setNextCursor] = (0, import_react.useState)(null);
@@ -1225,12 +1463,15 @@ function useAcpChat() {
 	const activeSessionIdRef = (0, import_react.useRef)(null);
 	const plansByIdRef = (0, import_react.useRef)(/* @__PURE__ */ new Map());
 	const assistantSeqRef = (0, import_react.useRef)(0);
+	const authRequestSeqRef = (0, import_react.useRef)(0);
 	const newThreadSwitchRef = (0, import_react.useRef)(null);
+	const activeAuthMessageIdRef = (0, import_react.useRef)(null);
+	const activeAuthRef = (0, import_react.useRef)(null);
 	const authResolveRef = (0, import_react.useRef)(null);
 	(0, import_react.useEffect)(() => {
 		let cancelled = false;
 		acpBridgeHost.listAgents().then((result) => {
-			if (!cancelled) setAgents(result.agents);
+			if (!cancelled) setAgents(result.agents.map(agentInfoFromDto));
 		}).catch((error) => {
 			if (!cancelled) setStatus(errorText(error));
 		});
@@ -1248,28 +1489,34 @@ function useAcpChat() {
 	const flushTurn = (0, import_react.useCallback)(() => {
 		const turn = turnRef.current;
 		if (!turn) return;
-		const parts = [];
-		if (turn.reasoning) parts.push({
-			type: "reasoning",
-			text: turn.reasoning
+		const parts = turn.segments.map((segment) => {
+			if (segment.type === "reasoning") return {
+				type: "reasoning",
+				text: segment.text
+			};
+			if (segment.type === "text") return {
+				type: "text",
+				text: segment.text
+			};
+			const tool = segment.tool;
+			return {
+				type: "tool-call",
+				toolCallId: tool.toolCallId,
+				toolName: tool.kind,
+				args: {},
+				argsText: tool.title,
+				result: {
+					status: tool.status,
+					title: tool.title,
+					kind: tool.kind,
+					text: tool.text,
+					diff: tool.diff
+				}
+			};
 		});
-		for (const tool of turn.tools) parts.push({
-			type: "tool-call",
-			toolCallId: tool.toolCallId,
-			toolName: tool.kind,
-			args: {},
-			argsText: tool.title,
-			result: {
-				status: tool.status,
-				title: tool.title,
-				kind: tool.kind,
-				text: tool.text,
-				diff: tool.diff
-			}
-		});
-		if (turn.text || parts.length === 0) parts.push({
+		if (parts.length === 0) parts.push({
 			type: "text",
-			text: turn.text
+			text: ""
 		});
 		setMessages((previous) => {
 			const next = previous.slice();
@@ -1301,17 +1548,15 @@ function useAcpChat() {
 		setMessages([]);
 		turnRef.current = null;
 		lastChunkRoleRef.current = null;
+		activeAuthMessageIdRef.current = null;
+		activeAuthRef.current = null;
 		clearPlans();
 		setIsRunning(false);
 	}, [clearPlans]);
 	const ensureAssistantTurn = (0, import_react.useCallback)(() => {
 		let turn = turnRef.current;
 		if (!turn) {
-			turn = {
-				reasoning: "",
-				text: "",
-				tools: []
-			};
+			turn = { segments: [] };
 			turnRef.current = turn;
 			setMessages((previous) => [...previous, {
 				id: `assistant-${++assistantSeqRef.current}`,
@@ -1322,6 +1567,54 @@ function useAcpChat() {
 		lastChunkRoleRef.current = "assistant";
 		return turn;
 	}, []);
+	const putAuthMessage = (0, import_react.useCallback)((auth, messageId, replaceMessageId) => {
+		const id = messageId ?? activeAuthMessageIdRef.current ?? `assistant-${++assistantSeqRef.current}`;
+		const previousId = replaceMessageId && replaceMessageId !== id ? replaceMessageId : null;
+		activeAuthMessageIdRef.current = id;
+		activeAuthRef.current = auth;
+		turnRef.current = null;
+		lastChunkRoleRef.current = "assistant";
+		setMessages((previous) => {
+			const content = authMessageContent(auth);
+			const next = previous.slice();
+			const index = next.findIndex((message) => message.id === id);
+			if (index >= 0) {
+				next[index] = {
+					...next[index],
+					role: "assistant",
+					content
+				};
+				return next;
+			}
+			if (previousId) {
+				const replaceIndex = next.findIndex((message) => message.id === previousId);
+				if (replaceIndex >= 0) {
+					next[replaceIndex] = {
+						id,
+						role: "assistant",
+						content
+					};
+					return next;
+				}
+			}
+			next.push({
+				id,
+				role: "assistant",
+				content
+			});
+			return next;
+		});
+		return id;
+	}, []);
+	const updateActiveAuthMessage = (0, import_react.useCallback)((patch) => {
+		const current = activeAuthRef.current;
+		const id = activeAuthMessageIdRef.current;
+		if (!current || !id) return;
+		putAuthMessage({
+			...current,
+			...patch
+		}, id);
+	}, [putAuthMessage]);
 	const appendUserChunk = (0, import_react.useCallback)((text) => {
 		if (!text) return;
 		turnRef.current = null;
@@ -1391,28 +1684,34 @@ function useAcpChat() {
 			appendUserChunk(text);
 		},
 		onMessageChunk(text) {
-			const turn = ensureAssistantTurn();
-			turn.text += text;
+			appendTurnText(ensureAssistantTurn(), "text", text);
 			flushTurn();
 		},
 		onThoughtChunk(text) {
-			const turn = ensureAssistantTurn();
-			turn.reasoning += text;
+			appendTurnText(ensureAssistantTurn(), "reasoning", text);
 			flushTurn();
 		},
 		onToolCall(view) {
 			const turn = ensureAssistantTurn();
-			const index = turn.tools.findIndex((t) => t.toolCallId === view.toolCallId);
+			const index = turn.segments.findIndex((segment) => segment.type === "tool" && segment.tool.toolCallId === view.toolCallId);
 			if (index >= 0) {
-				const existing = turn.tools[index];
-				turn.tools[index] = {
-					...existing,
-					...view,
-					title: view.title || existing.title,
-					text: view.text ?? existing.text,
-					diff: view.diff ?? existing.diff
+				const segment = turn.segments[index];
+				if (segment.type !== "tool") return;
+				const existing = segment.tool;
+				turn.segments[index] = {
+					type: "tool",
+					tool: {
+						...existing,
+						...view,
+						title: view.title || existing.title,
+						text: view.text ?? existing.text,
+						diff: view.diff ?? existing.diff
+					}
 				};
-			} else turn.tools.push(view);
+			} else turn.segments.push({
+				type: "tool",
+				tool: view
+			});
 			flushTurn();
 		},
 		onPlan(entries) {
@@ -1459,10 +1758,7 @@ function useAcpChat() {
 			});
 		},
 		onAuthUpdate(authUri) {
-			setAuth((previous) => previous ? {
-				...previous,
-				authUri
-			} : previous);
+			updateActiveAuthMessage({ authUri });
 		},
 		onAgentExit(code) {
 			setStatus(`Agent exited (code ${code ?? "unknown"})`);
@@ -1474,6 +1770,7 @@ function useAcpChat() {
 		ensureAssistantTurn,
 		flushTurn,
 		publishPlans,
+		updateActiveAuthMessage,
 		updateActiveSessionInfo
 	]);
 	const attachmentAdapter = (0, import_react.useMemo)(() => createAttachmentAdapter(promptCapabilities), [promptCapabilities]);
@@ -1585,6 +1882,62 @@ function useAcpChat() {
 			}
 		})();
 	}, []);
+	const requestAuth = (0, import_react.useCallback)((methods, message, error) => {
+		return new Promise((resolve) => {
+			let settled = false;
+			const settle = (result) => {
+				if (settled) return;
+				settled = true;
+				if (authResolveRef.current === settle) authResolveRef.current = null;
+				if (result == null) {
+					activeAuthMessageIdRef.current = null;
+					activeAuthRef.current = null;
+				}
+				resolve(result);
+			};
+			authResolveRef.current = settle;
+			const messageId = `assistant-${++assistantSeqRef.current}`;
+			const replaceMessageId = activeAuthMessageIdRef.current;
+			putAuthMessage({
+				requestId: `auth-request-${++authRequestSeqRef.current}`,
+				methods,
+				message,
+				phase: "select",
+				error,
+				onChoose: (choice) => settle(choice ? {
+					kind: "choice",
+					choice
+				} : null),
+				onRetry: methods.length === 0 ? () => settle({ kind: "retry" }) : void 0,
+				onOpenConfig: methods.length === 0 ? openAcpConfig : void 0
+			}, messageId, replaceMessageId);
+		});
+	}, [openAcpConfig, putAuthMessage]);
+	const showAuthInProgress = (0, import_react.useCallback)((methods, message, onCancel) => {
+		putAuthMessage({
+			requestId: activeAuthRef.current?.requestId ?? `auth-request-${++authRequestSeqRef.current}`,
+			methods,
+			message,
+			phase: "authenticating",
+			onChoose: () => onCancel(),
+			onOpenConfig: methods.length === 0 ? openAcpConfig : void 0
+		});
+	}, [openAcpConfig, putAuthMessage]);
+	const showAuthComplete = (0, import_react.useCallback)((message = "The agent is ready to continue.") => {
+		const current = activeAuthRef.current;
+		const id = activeAuthMessageIdRef.current;
+		if (!current || !id) return;
+		putAuthMessage({
+			...current,
+			phase: "complete",
+			message,
+			error: void 0,
+			authUri: void 0,
+			onChoose: () => {}
+		}, id);
+		activeAuthRef.current = null;
+		activeAuthMessageIdRef.current = null;
+	}, [putAuthMessage]);
 	const threadListAdapter = (0, import_react.useMemo)(() => {
 		if (!chatListSupported) return void 0;
 		return {
@@ -1619,39 +1972,82 @@ function useAcpChat() {
 			return;
 		}
 		const text = textFromAppendMessage(message);
-		const assistantId = `assistant-${++assistantSeqRef.current}`;
-		setMessages((previous) => [
-			...previous,
-			{
-				id: `user-${assistantSeqRef.current}`,
-				role: "user",
-				content: text ? textMessageContent(text) : [],
-				attachments: message.attachments,
-				metadata: message.metadata
-			},
-			{
-				id: assistantId,
-				role: "assistant",
-				content: []
-			}
-		]);
-		turnRef.current = {
-			reasoning: "",
-			text: "",
-			tools: []
-		};
-		lastChunkRoleRef.current = "assistant";
+		const userId = `user-${++assistantSeqRef.current}`;
+		setMessages((previous) => [...previous, {
+			id: userId,
+			role: "user",
+			content: text ? textMessageContent(text) : [],
+			attachments: message.attachments,
+			metadata: message.metadata
+		}]);
+		turnRef.current = null;
+		lastChunkRoleRef.current = null;
 		clearPlans();
 		setStatus("");
 		setIsRunning(true);
 		try {
-			await session.prompt(blocks);
+			let authError;
+			let promptAuthenticated = false;
+			for (;;) try {
+				await session.prompt(blocks);
+				if (promptAuthenticated) showAuthComplete("Authentication complete. Prompt retried.");
+				break;
+			} catch (error) {
+				if (!(error instanceof AcpAuthRequiredError)) throw error;
+				const authResult = await requestAuth(error.methods, error.message, authError);
+				if (authResult?.kind === "retry") continue;
+				if (!authResult) {
+					setStatus("Authentication cancelled.");
+					break;
+				}
+				let cancelledDuringAuth = false;
+				showAuthInProgress(error.methods, error.message, () => {
+					cancelledDuringAuth = true;
+					session.stop();
+				});
+				try {
+					if (authResult.choice.env) {
+						if (!selectedAgentId) throw new Error("Cannot reconnect the ACP agent for environment-based authentication.");
+						await session.reconnectWithEnv(selectedAgentId, authResult.choice.env, sink);
+					}
+					await session.authenticate(authResult.choice.methodId);
+					if (authResult.choice.env) {
+						const outcome = await session.openSession();
+						if (outcome.kind === "auth-required") throw new Error(outcome.message);
+						if (outcome.kind === "error") throw new Error(outcome.message);
+					}
+					showAuthInProgress(error.methods, "Authentication complete. Retrying the prompt.", () => {
+						cancelledDuringAuth = true;
+						session.stop();
+					});
+					promptAuthenticated = true;
+					authError = void 0;
+				} catch (authFailure) {
+					if (cancelledDuringAuth) {
+						setStatus("Authentication cancelled.");
+						break;
+					}
+					authError = errorText(authFailure);
+				}
+				if (cancelledDuringAuth) {
+					setStatus("Authentication cancelled.");
+					break;
+				}
+			}
 		} catch (error) {
 			setStatus(errorText(error));
 		} finally {
 			setIsRunning(false);
 		}
-	}, [clearPlans, promptCapabilities]);
+	}, [
+		clearPlans,
+		promptCapabilities,
+		requestAuth,
+		selectedAgentId,
+		showAuthComplete,
+		showAuthInProgress,
+		sink
+	]);
 	const onCancel = (0, import_react.useCallback)(async () => {
 		try {
 			await sessionRef.current?.cancel();
@@ -1685,7 +2081,6 @@ function useAcpChat() {
 				resetActiveThreadUi();
 				resetSessionMetadata();
 				setPermission(null);
-				setAuth(null);
 				setSessions([]);
 				activeSessionIdRef.current = null;
 				setActiveSessionId(null);
@@ -1698,32 +2093,21 @@ function useAcpChat() {
 				let authError;
 				while (outcome.kind === "auth-required") {
 					const { methods, message } = outcome;
-					const choice = await new Promise((resolve) => {
-						authResolveRef.current = resolve;
-						setAuth({
-							methods,
-							message,
-							phase: "select",
-							error: authError,
-							onChoose: resolve
-						});
-					});
-					authResolveRef.current = null;
-					if (!choice) {
+					const authResult = await requestAuth(methods, message, authError);
+					if (authResult?.kind === "retry") {
+						outcome = await session.openSession();
+						continue;
+					}
+					if (!authResult) {
 						await session.stop();
-						setAuth(null);
 						setStatus("Authentication cancelled.");
 						return;
 					}
+					const choice = authResult.choice;
 					let cancelledDuringAuth = false;
-					setAuth({
-						methods,
-						message,
-						phase: "authenticating",
-						onChoose: () => {
-							cancelledDuringAuth = true;
-							session.stop();
-						}
+					showAuthInProgress(methods, message, () => {
+						cancelledDuringAuth = true;
+						session.stop();
 					});
 					try {
 						if (choice.env) await session.reconnectWithEnv(agentId, choice.env, sink);
@@ -1732,7 +2116,6 @@ function useAcpChat() {
 						authError = void 0;
 					} catch (error) {
 						if (cancelledDuringAuth) {
-							setAuth(null);
 							setStatus("Authentication cancelled.");
 							return;
 						}
@@ -1744,16 +2127,15 @@ function useAcpChat() {
 						};
 					}
 					if (cancelledDuringAuth) {
-						setAuth(null);
 						setStatus("Authentication cancelled.");
 						return;
 					}
 				}
-				setAuth(null);
 				if (outcome.kind === "error") {
 					setStatus(outcome.message);
 					return;
 				}
+				showAuthComplete();
 				setSelectedAgentId(agentId);
 				const capabilities = session.sessionCapabilities;
 				const supportsChatList = capabilities.list && capabilities.load;
@@ -1764,7 +2146,6 @@ function useAcpChat() {
 				if (supportsChatList) await loadSessionsPage(session, null, false);
 				else setStatus("The selected ACP agent does not support chat history.");
 			} catch (error) {
-				setAuth(null);
 				setStatus(errorText(error));
 			} finally {
 				setStarting(false);
@@ -1772,8 +2153,11 @@ function useAcpChat() {
 		})();
 	}, [
 		loadSessionsPage,
+		requestAuth,
 		resetActiveThreadUi,
 		resetSessionMetadata,
+		showAuthComplete,
+		showAuthInProgress,
 		sink
 	]);
 	const selectMode = (0, import_react.useCallback)((modeId) => {
@@ -1824,7 +2208,6 @@ function useAcpChat() {
 		currentModeId,
 		commands,
 		permission,
-		auth,
 		chatListSupported,
 		chatListLoading,
 		chatListHasMore: nextCursor != null,
@@ -1843,6 +2226,33 @@ function textMessageContent(text) {
 		type: "text",
 		text
 	}];
+}
+function authMessageContent(auth) {
+	const status = auth.phase === "complete" ? "completed" : auth.phase === "authenticating" ? "in_progress" : "pending";
+	return [{
+		type: "tool-call",
+		toolCallId: auth.requestId ?? "auth",
+		toolName: "auth",
+		args: {},
+		argsText: auth.message ?? "Authentication required",
+		result: {
+			status,
+			title: "Authentication",
+			kind: "auth",
+			auth
+		}
+	}];
+}
+function appendTurnText(turn, type, text) {
+	const last = turn.segments[turn.segments.length - 1];
+	if (last?.type === type) {
+		last.text += text;
+		return;
+	}
+	turn.segments.push({
+		type,
+		text
+	});
 }
 function appendTextToMessage(message, text) {
 	const content = Array.isArray(message.content) ? [...message.content] : [];
@@ -2059,107 +2469,15 @@ function extensionOf(name) {
 	const index = name.lastIndexOf(".");
 	return index >= 0 ? name.slice(index + 1).toLocaleLowerCase() : "";
 }
+function agentInfoFromDto(agent) {
+	return {
+		id: agent.id,
+		name: agent.name,
+		iconSrc: agent.iconResourcePath ? acpIconSrc(agent.iconResourcePath) : void 0
+	};
+}
 function errorText(error) {
 	return error instanceof Error ? error.message : String(error);
-}
-//#endregion
-//#region views/acp-chat/src/icons/acpChatAgent.svg
-var acpChatAgent_default = "" + new URL("assets/acpChatAgent.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatAgent_dark.svg
-var acpChatAgent_dark_default = "" + new URL("assets/acpChatAgent_dark.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatBrain.svg
-var acpChatBrain_default = "" + new URL("assets/acpChatBrain.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatBrain_dark.svg
-var acpChatBrain_dark_default = "" + new URL("assets/acpChatBrain_dark.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatDebug.svg
-var acpChatDebug_default = "" + new URL("assets/acpChatDebug.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatDebug_dark.svg
-var acpChatDebug_dark_default = "" + new URL("assets/acpChatDebug_dark.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatEffort.svg
-var acpChatEffort_default = "" + new URL("assets/acpChatEffort.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatEffort_dark.svg
-var acpChatEffort_dark_default = "" + new URL("assets/acpChatEffort_dark.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatJunie.svg
-var acpChatJunie_default = "" + new URL("assets/acpChatJunie.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatMode.svg
-var acpChatMode_default = "" + new URL("assets/acpChatMode.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatMode_dark.svg
-var acpChatMode_dark_default = "" + new URL("assets/acpChatMode_dark.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatProcessor.svg
-var acpChatProcessor_default = "" + new URL("assets/acpChatProcessor.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatProcessor_dark.svg
-var acpChatProcessor_dark_default = "" + new URL("assets/acpChatProcessor_dark.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatSend.svg
-var acpChatSend_default = "" + new URL("assets/acpChatSend.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatSend_dark.svg
-var acpChatSend_dark_default = "" + new URL("assets/acpChatSend_dark.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatShield.svg
-var acpChatShield_default = "" + new URL("assets/acpChatShield.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatShield_dark.svg
-var acpChatShield_dark_default = "" + new URL("assets/acpChatShield_dark.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatToggle.svg
-var acpChatToggle_default = "" + new URL("assets/acpChatToggle.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/icons/acpChatToggle_dark.svg
-var acpChatToggle_dark_default = "" + new URL("assets/acpChatToggle_dark.svg", import.meta.url).href;
-//#endregion
-//#region views/acp-chat/src/components/icons/AcpChatIconSet.ts
-var ACP_CHAT_ICONS = IconSet.define("AcpChatIcons");
-var ACP_CHAT_ICON_RESOURCE_ROOT = "webview/views/acp-chat/assets";
-var AGENT_ICON_PATH = iconResourcePath(acpChatAgent_default, "acpChatAgent.svg");
-var JUNIE_ICON_PATH = iconResourcePath(acpChatJunie_default, "acpChatJunie.svg");
-var SEND_ICON_PATH = iconResourcePath(acpChatSend_default, "acpChatSend.svg");
-var CONTROL_ICON_PATHS = {
-	mode: iconResourcePath(acpChatMode_default, "acpChatMode.svg"),
-	model: iconResourcePath(acpChatProcessor_default, "acpChatProcessor.svg"),
-	effort: iconResourcePath(acpChatEffort_default, "acpChatEffort.svg"),
-	shield: iconResourcePath(acpChatShield_default, "acpChatShield.svg"),
-	debug: iconResourcePath(acpChatDebug_default, "acpChatDebug.svg"),
-	brain: iconResourcePath(acpChatBrain_default, "acpChatBrain.svg"),
-	toggle: iconResourcePath(acpChatToggle_default, "acpChatToggle.svg")
-};
-keepBundledIconAssets([
-	iconResourcePath(acpChatAgent_dark_default, "acpChatAgent_dark.svg"),
-	iconResourcePath(acpChatBrain_dark_default, "acpChatBrain_dark.svg"),
-	iconResourcePath(acpChatDebug_dark_default, "acpChatDebug_dark.svg"),
-	iconResourcePath(acpChatEffort_dark_default, "acpChatEffort_dark.svg"),
-	iconResourcePath(acpChatMode_dark_default, "acpChatMode_dark.svg"),
-	iconResourcePath(acpChatProcessor_dark_default, "acpChatProcessor_dark.svg"),
-	iconResourcePath(acpChatSend_dark_default, "acpChatSend_dark.svg"),
-	iconResourcePath(acpChatShield_dark_default, "acpChatShield_dark.svg"),
-	iconResourcePath(acpChatToggle_dark_default, "acpChatToggle_dark.svg")
-]);
-function acpControlIconPath(kind) {
-	return CONTROL_ICON_PATHS[kind];
-}
-function acpIconSrc(path) {
-	return ACP_CHAT_ICONS.src(path);
-}
-function iconResourcePath(assetUrl, fileName) {
-	const cleanAssetUrl = assetUrl.split("?", 1)[0];
-	const assetsPathStart = cleanAssetUrl.lastIndexOf("/assets/");
-	if (assetsPathStart >= 0) return `${ACP_CHAT_ICON_RESOURCE_ROOT}/${cleanAssetUrl.substring(assetsPathStart + 8)}`;
-	return `${ACP_CHAT_ICON_RESOURCE_ROOT}/${fileName}`;
-}
-function keepBundledIconAssets(paths) {
-	if (paths.length === 0) throw new Error("ACP chat icon assets are missing");
 }
 //#endregion
 //#region views/acp-chat/src/components/Select.tsx
@@ -2265,67 +2583,61 @@ function Select({ options, children, placeholder, className, triggerAriaLabel, .
 //#region views/acp-chat/src/components/AgentSelector.tsx
 var OPEN_ACP_CONFIG_VALUE = "__open_acp_config__";
 function AgentSelector(props) {
-	const placeholder = props.agents.length ? "Select an agent…" : "No agents in ~/.jetbrains/acp.json";
+	const placeholderText = props.agents.length ? "Select an agent…" : "No agents in ~/.jetbrains/acp.json";
 	const selectedAgent = props.agents.find((agent) => agent.id === props.selectedAgentId);
 	const options = props.agents.map((agent) => ({
 		value: agent.id,
 		label: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentSelectItem, { agent }),
 		textValue: agent.name
 	}));
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 		className: "acpAgentSelector",
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-				className: "acpAgentSelectorIcon",
-				title: "Agent",
-				"aria-hidden": "true",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("jb-icon", { src: acpIconSrc(AGENT_ICON_PATH) })
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Select, {
-				className: "acpAgentSelect",
-				value: props.selectedAgentId ?? "",
-				disabled: props.starting,
-				placeholder,
-				triggerAriaLabel: `Agent: ${selectedAgent?.name ?? placeholder}`,
-				options,
-				onValueChange: (value) => {
-					if (value === OPEN_ACP_CONFIG_VALUE) props.onOpenConfig();
-					else if (value) props.onSelect(value);
-				},
-				children: [
-					props.agents.map((agent, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectItem, {
-						value: agent.id,
-						textValue: agent.name,
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentSelectItem, { agent })
-					}, `${agent.id}-${index}`)),
-					props.agents.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectSeparator, {}) : null,
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectItem, {
-						value: OPEN_ACP_CONFIG_VALUE,
-						textValue: "Open acp.json",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "acpAgentSelectConfigItem",
-							children: "Open acp.json"
-						})
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Select, {
+			className: props.starting ? "acpAgentSelect acpAgentSelectStarting" : "acpAgentSelect",
+			value: props.selectedAgentId ?? "",
+			disabled: props.starting,
+			placeholder: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentSelectContent, { name: placeholderText }),
+			triggerAriaLabel: `Agent: ${selectedAgent?.name ?? placeholderText}`,
+			options,
+			onValueChange: (value) => {
+				if (value === OPEN_ACP_CONFIG_VALUE) props.onOpenConfig();
+				else if (value) props.onSelect(value);
+			},
+			children: [
+				props.agents.map((agent, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectItem, {
+					value: agent.id,
+					textValue: agent.name,
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentSelectItem, { agent })
+				}, `${agent.id}-${index}`)),
+				props.agents.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectSeparator, {}) : null,
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SelectItem, {
+					value: OPEN_ACP_CONFIG_VALUE,
+					textValue: "Open acp.json",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "acpAgentSelectConfigItem",
+						children: "Open acp.json"
 					})
-				]
-			}),
-			props.starting && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-				className: "acpAgentStarting",
-				children: "Starting…"
-			})
-		]
+				})
+			]
+		})
 	});
 }
 function AgentSelectItem(props) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentSelectContent, {
+		name: props.agent.name,
+		iconSrc: props.agent.iconSrc
+	});
+}
+function AgentSelectContent(props) {
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 		className: "acpAgentSelectItemContent",
-		children: [props.agent.icon === "junie" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 			className: "acpAgentSelectItemIcon",
 			"aria-hidden": "true",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("jb-icon", { src: acpIconSrc(JUNIE_ICON_PATH) })
-		}) : null, /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("jb-icon", { src: props.iconSrc ?? acpIconSrc(AGENT_ICON_PATH) })
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 			className: "acpAgentSelectItemName",
-			children: props.agent.name
+			children: props.name
 		})]
 	});
 }
@@ -2360,180 +2672,12 @@ function ApprovalPrompt({ permission }) {
 	});
 }
 //#endregion
-//#region views/acp-chat/src/components/AuthPrompt.tsx
-/**
-* In-chat authorization dialog. Mirrors {@link ApprovalPrompt}: the runtime resolves `auth.onChoose` with the chosen
-* method (and, for env_var methods, the entered credentials) or `null` to cancel. While the agent runs an OAuth device
-* flow the dialog switches to the `authenticating` phase and shows the verification URL pushed via `authenticate/update`.
-*/
-function AuthPrompt({ auth }) {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: "acpApprovalOverlay",
-		role: "dialog",
-		"aria-modal": "true",
-		"aria-label": "Authentication",
-		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "acpApproval acpAuth",
-			children: auth.phase === "select" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthMethodPicker, { auth }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthInProgress, { auth })
-		})
-	});
-}
-function AuthMethodPicker({ auth }) {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "acpApprovalTitle",
-			children: auth.message || "Authentication required"
-		}),
-		auth.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "acpAuthError",
-			children: auth.error
-		}) : null,
-		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "acpAuthMethods",
-			children: auth.methods.map((method) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthMethod, {
-				method,
-				onChoose: auth.onChoose
-			}, method.id))
-		}),
-		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "acpApprovalOptions",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: "acpApprovalButton acpApprovalButton--cancel",
-				onClick: () => auth.onChoose(null),
-				children: "Cancel"
-			})
-		})
-	] });
-}
-/**
-* One auth method. Variables the agent declares (ACP `env_var` methods) are pre-listed; the user can add more (some
-* agents, e.g. qwen's "Use OpenAI API key", expect `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`OPENAI_MODEL` in the env without
-* declaring them). On submit, entered variables are injected via re-spawn before `authenticate`; with none entered this
-* is a plain agent-driven sign-in / OAuth device flow.
-*/
-function AuthMethod({ method, onChoose }) {
-	const [rows, setRows] = (0, import_react.useState)(() => method.vars.map((variable) => ({
-		name: variable.name,
-		value: "",
-		secret: variable.secret,
-		fixed: true
-	})));
-	const env = collectEnv(rows);
-	const missingRequired = method.vars.some((variable) => !variable.optional && !env[variable.name]);
-	const update = (index, patch) => setRows((previous) => previous.map((row, i) => i === index ? {
-		...row,
-		...patch
-	} : row));
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
-		className: "acpAuthMethod",
-		onSubmit: (event) => {
-			event.preventDefault();
-			if (!missingRequired) onChoose({
-				methodId: method.id,
-				env: Object.keys(env).length > 0 ? env : void 0
-			});
-		},
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "acpAuthMethodName",
-				children: method.name
-			}),
-			method.description ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "acpAuthMethodDesc",
-				children: method.description
-			}) : null,
-			rows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "acpAuthVarRow",
-				children: [row.fixed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "acpAuthVarLabel acpAuthVarName",
-					children: row.name
-				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-					className: "acpAuthVarInput acpAuthVarName",
-					placeholder: "ENV_VAR",
-					autoComplete: "off",
-					spellCheck: false,
-					value: row.name,
-					onChange: (event) => update(index, { name: event.target.value })
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-					className: "acpAuthVarInput",
-					type: row.secret ? "password" : "text",
-					placeholder: "value",
-					autoComplete: "off",
-					spellCheck: false,
-					value: row.value,
-					onChange: (event) => update(index, { value: event.target.value })
-				})]
-			}, index)),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "acpAuthActions",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: "acpAuthAddVar",
-					onClick: () => setRows((previous) => [...previous, {
-						name: "",
-						value: "",
-						secret: false,
-						fixed: false
-					}]),
-					children: "+ Add variable"
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-					type: "submit",
-					className: "acpApprovalButton acpApprovalButton--allow_once",
-					disabled: missingRequired,
-					children: "Authenticate"
-				})]
-			})
-		]
-	});
-}
-function AuthInProgress({ auth }) {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "acpApprovalTitle",
-			children: "Authenticating…"
-		}),
-		auth.authUri ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "acpAuthUri",
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "Open this URL in your browser to finish signing in:" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-				href: auth.authUri,
-				target: "_blank",
-				rel: "noreferrer",
-				className: "acpAuthUriLink",
-				children: auth.authUri
-			})]
-		}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "acpAuthHint",
-			children: "Waiting for the agent…"
-		}),
-		auth.authUri ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "acpAuthHint",
-			children: "If it doesn't continue after you approve, the agent's OAuth may be unavailable — Cancel and use an API key instead."
-		}) : null,
-		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "acpApprovalOptions",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: "acpApprovalButton acpApprovalButton--cancel",
-				onClick: () => auth.onChoose(null),
-				children: "Cancel"
-			})
-		})
-	] });
-}
-function collectEnv(rows) {
-	const env = {};
-	for (const row of rows) {
-		const name = row.name.trim();
-		const value = row.value.trim();
-		if (name && value) env[name] = value;
-	}
-	return env;
-}
-//#endregion
 //#region views/acp-chat/src/components/ChatList.tsx
 function ChatList({ chat }) {
 	const [drawerOpen, setDrawerOpen] = (0, import_react.useState)(false);
+	const [sidebarOpen, setSidebarOpen] = (0, import_react.useState)(true);
+	const chatListAvailable = chat.chatListSupported;
+	const sidebarExpanded = chatListAvailable && sidebarOpen;
 	(0, import_react.useEffect)(() => {
 		if (!drawerOpen) return;
 		const onKeyDown = (event) => {
@@ -2542,22 +2686,42 @@ function ChatList({ chat }) {
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [drawerOpen]);
-	if (!chat.chatListSupported) return null;
+	(0, import_react.useEffect)(() => {
+		if (!chatListAvailable) setDrawerOpen(false);
+	}, [chatListAvailable]);
 	const closeDrawer = () => setDrawerOpen(false);
+	const openDrawer = () => {
+		if (chatListAvailable) setDrawerOpen(true);
+	};
+	const toggleSidebar = () => {
+		if (chatListAvailable) setSidebarOpen((open) => !open);
+	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("aside", {
+		chatListAvailable ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("aside", {
 			className: "acpChatListSidebar",
+			"data-open": sidebarOpen ? "true" : "false",
 			"aria-label": "Chats",
 			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatListPanel, { chat })
+		}) : null,
+		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			type: "button",
+			className: "acpChatListToggle acpChatListSidebarTrigger",
+			"aria-label": sidebarExpanded ? "Close chats" : "Open chats",
+			title: sidebarExpanded ? "Close chats" : "Open chats",
+			"aria-expanded": sidebarExpanded,
+			disabled: !chatListAvailable,
+			onClick: toggleSidebar,
+			children: sidebarExpanded ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronLeftIcon, {}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRightIcon, {})
 		}),
 		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 			type: "button",
-			className: "acpChatListDrawerTrigger",
+			className: "acpChatListToggle acpChatListDrawerTrigger",
 			"aria-label": "Open chats",
 			title: "Open chats",
 			"aria-expanded": drawerOpen,
-			onClick: () => setDrawerOpen(true),
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SidebarIcon, {})
+			disabled: !chatListAvailable,
+			onClick: openDrawer,
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRightIcon, {})
 		}),
 		/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "acpChatListOverlay",
@@ -2568,13 +2732,24 @@ function ChatList({ chat }) {
 				className: "acpChatListBackdrop",
 				"aria-label": "Close chats",
 				onClick: closeDrawer
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("aside", {
-				className: "acpChatListDrawer",
-				"aria-label": "Chats",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatListPanel, {
-					chat,
-					onNavigate: closeDrawer
-				})
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "acpChatListDrawerShell",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("aside", {
+					className: "acpChatListDrawer",
+					"aria-label": "Chats",
+					children: chatListAvailable ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatListPanel, {
+						chat,
+						onNavigate: closeDrawer
+					}) : null
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: "acpChatListToggle acpChatListDrawerCloseTrigger",
+					"aria-label": "Close chats",
+					title: "Close chats",
+					"aria-expanded": drawerOpen,
+					onClick: closeDrawer,
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronLeftIcon, {})
+				})]
 			})]
 		})
 	] });
@@ -2637,26 +2812,38 @@ function ChatListItem(props) {
 		}) : null]
 	});
 }
-function SidebarIcon() {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
-		width: "16",
+function ChevronRightIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+		width: "8",
 		height: "16",
-		viewBox: "0 0 16 16",
+		viewBox: "0 0 8 16",
 		"aria-hidden": "true",
 		focusable: "false",
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
-			d: "M3 2.5h10A1.5 1.5 0 0 1 14.5 4v8a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 12V4A1.5 1.5 0 0 1 3 2.5Zm3.5 0v11",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "M2.25 4.5 5.75 8 2.25 11.5",
 			fill: "none",
 			stroke: "currentColor",
-			strokeWidth: "1.2"
-		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
-			d: "M4.3 5.2 2.9 8l1.4 2.8",
-			fill: "none",
-			stroke: "currentColor",
-			strokeWidth: "1.2",
+			strokeWidth: "1.4",
 			strokeLinecap: "round",
 			strokeLinejoin: "round"
-		})]
+		})
+	});
+}
+function ChevronLeftIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+		width: "8",
+		height: "16",
+		viewBox: "0 0 8 16",
+		"aria-hidden": "true",
+		focusable: "false",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "M5.75 4.5 2.25 8 5.75 11.5",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.4",
+			strokeLinecap: "round",
+			strokeLinejoin: "round"
+		})
 	});
 }
 function PlusIcon() {
@@ -2966,6 +3153,236 @@ function cssVariable(name, fallback) {
 	return (getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback).replace(/^#([0-9a-fA-F]{6})[0-9a-fA-F]{2}$/, "#$1");
 }
 //#endregion
+//#region views/acp-chat/src/components/markdownHastUtils.ts
+function codeNodeFromPreNode(node) {
+	return node?.children?.find((child) => child.tagName === "code");
+}
+function hastClassNames(node) {
+	const className = node?.properties?.className;
+	if (Array.isArray(className)) return className.filter((name) => typeof name === "string");
+	if (typeof className === "string") return className.split(/\s+/);
+	return [];
+}
+function hastText(node) {
+	if (!node) return "";
+	if (typeof node.value === "string") return node.value;
+	return node.children?.map(hastText).join("") ?? "";
+}
+//#endregion
+//#region views/acp-chat/src/components/markdownPathLinks.tsx
+function collectPathLinkCandidates(markdown) {
+	const codeSegments = markdownCodeSegments(markdown);
+	const candidates = [];
+	const seen = /* @__PURE__ */ new Set();
+	for (const codeSegment of codeSegments) for (const token of pathTokens(codeSegment)) {
+		if (seen.has(token.rawPath)) continue;
+		seen.add(token.rawPath);
+		candidates.push({
+			id: `path-${candidates.length}`,
+			rawPath: token.rawPath
+		});
+	}
+	return candidates;
+}
+function renderPathLinks(node, resolvedRawPaths, keyPrefix, onNavigatePathLink) {
+	const content = pathTextContent(node);
+	const tokens = pathTokens(content.text).filter((token) => resolvedRawPaths.has(token.rawPath));
+	if (tokens.length === 0) return node;
+	const parts = [];
+	let offset = 0;
+	for (const [index, token] of tokens.entries()) {
+		if (token.start < offset) continue;
+		if (offset < token.start) parts.push(...renderPathTextRange(content.leaves, offset, token.start, `${keyPrefix}-text-${index}`));
+		parts.push(/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			type: "button",
+			className: "acpMarkdownPathLink",
+			onClick: (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				onNavigatePathLink({
+					rawPath: token.rawPath,
+					clientX: event.clientX,
+					clientY: event.clientY
+				});
+			},
+			children: renderPathTextRange(content.leaves, token.start, token.end, `${keyPrefix}-link-${index}`)
+		}, `${keyPrefix}-${token.start}-${index}`));
+		offset = token.end;
+	}
+	if (offset < content.text.length) parts.push(...renderPathTextRange(content.leaves, offset, content.text.length, `${keyPrefix}-text-end`));
+	return parts;
+}
+function markdownCodeSegments(markdown) {
+	const segments = [];
+	const markdownWithoutFencedCode = markdown.replace(FENCED_CODE_BLOCK_PATTERN, (match, _prefix, _fence, info, code) => {
+		if (String(info).trim().split(/\s+/)[0]?.toLowerCase() !== "mermaid") segments.push(String(code));
+		return " ".repeat(match.length);
+	});
+	for (const match of markdownWithoutFencedCode.matchAll(INLINE_CODE_PATTERN)) segments.push(match[1]);
+	return segments;
+}
+function pathTextContent(node) {
+	const leaves = [];
+	let text = "";
+	function collect(current, wrappers) {
+		if (typeof current === "string" || typeof current === "number") {
+			const value = String(current);
+			if (value.length === 0) return;
+			const start = text.length;
+			text += value;
+			leaves.push({
+				text: value,
+				start,
+				end: text.length,
+				wrappers
+			});
+			return;
+		}
+		if (Array.isArray(current)) {
+			current.forEach((child) => collect(child, wrappers));
+			return;
+		}
+		if ((0, import_react.isValidElement)(current)) {
+			const element = current;
+			if (element.props.children == null) return;
+			collect(element.props.children, [...wrappers, element]);
+		}
+	}
+	collect(node, []);
+	return {
+		text,
+		leaves
+	};
+}
+function renderPathTextRange(leaves, start, end, keyPrefix) {
+	const parts = [];
+	for (const leaf of leaves) {
+		const sliceStart = Math.max(start, leaf.start);
+		const sliceEnd = Math.min(end, leaf.end);
+		if (sliceStart >= sliceEnd) continue;
+		parts.push(renderPathTextLeafSlice(leaf, sliceStart, sliceEnd, `${keyPrefix}-${parts.length}`));
+	}
+	return parts;
+}
+function renderPathTextLeafSlice(leaf, start, end, key) {
+	let result = leaf.text.slice(start - leaf.start, end - leaf.start);
+	for (let index = leaf.wrappers.length - 1; index >= 0; index--) result = (0, import_react.cloneElement)(leaf.wrappers[index], void 0, result);
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: result }, key);
+}
+function pathTokens(text) {
+	const tokens = [];
+	let lineStart = 0;
+	while (lineStart <= text.length) {
+		const nextLineBreak = text.indexOf("\n", lineStart);
+		const lineEnd = nextLineBreak < 0 ? text.length : nextLineBreak;
+		tokens.push(...pathTokensInLine(text, lineStart, lineEnd));
+		if (nextLineBreak < 0) break;
+		lineStart = nextLineBreak + 1;
+	}
+	return tokens;
+}
+function pathTokensInLine(text, lineStart, lineEnd) {
+	const contentStart = firstNonWhitespaceOffset(text, lineStart, lineEnd);
+	if (contentStart === void 0) return [];
+	const contentEnd = lastNonWhitespaceOffset(text, contentStart, lineEnd);
+	const lineText = text.slice(contentStart, contentEnd);
+	const linePath = trimPathCandidate(lineText);
+	if (isStandalonePathLine(linePath)) {
+		const start = contentStart + lineText.indexOf(linePath);
+		return [{
+			rawPath: linePath,
+			start,
+			end: start + linePath.length
+		}];
+	}
+	return pathTokenChunks(text, lineStart, lineEnd);
+}
+function pathTokenChunks(text, startOffset, endOffset) {
+	const tokens = [];
+	let chunkStart;
+	for (let offset = startOffset; offset <= endOffset; offset++) {
+		if (offset < endOffset && !isPathTokenSeparator(text[offset])) {
+			chunkStart ??= offset;
+			continue;
+		}
+		if (chunkStart === void 0) continue;
+		const chunk = text.slice(chunkStart, offset);
+		const rawPath = trimPathCandidate(chunk);
+		if (rawPath && isPathLike(rawPath)) {
+			const leadingTrim = chunk.indexOf(rawPath);
+			const start = chunkStart + leadingTrim;
+			tokens.push({
+				rawPath,
+				start,
+				end: start + rawPath.length
+			});
+		}
+		chunkStart = void 0;
+	}
+	return tokens;
+}
+function firstNonWhitespaceOffset(text, startOffset, endOffset) {
+	for (let offset = startOffset; offset < endOffset; offset++) if (!isWhitespace(text[offset])) return offset;
+}
+function lastNonWhitespaceOffset(text, startOffset, endOffset) {
+	let offset = endOffset;
+	while (offset > startOffset && isWhitespace(text[offset - 1])) offset--;
+	return offset;
+}
+function trimPathCandidate(candidate) {
+	let start = 0;
+	let end = candidate.length;
+	while (start < end && PATH_TRIM_START.has(candidate[start])) start++;
+	while (end > start && PATH_TRIM_END.has(candidate[end - 1])) end--;
+	return candidate.slice(start, end);
+}
+function isPathLike(rawPath) {
+	return !URL_SCHEME_PATTERN.test(rawPath) && (rawPath.includes("/") || rawPath.includes("\\") || FILE_EXTENSION_PATTERN.test(rawPath));
+}
+function isStandalonePathLine(rawPath) {
+	return rawPath.length > 0 && !HAS_WHITESPACE_PATTERN.test(rawPath) && isPathLike(rawPath);
+}
+function isPathTokenSeparator(char) {
+	return isWhitespace(char) || PATH_TOKEN_SEPARATORS.has(char);
+}
+function isWhitespace(char) {
+	return WHITESPACE_PATTERN.test(char);
+}
+var FENCED_CODE_BLOCK_PATTERN = /(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g;
+var INLINE_CODE_PATTERN = /`([^`\n]+)`/g;
+var FILE_EXTENSION_PATTERN = /\.[A-Za-z0-9]+(?:#L\d+|:\d+(?::\d+)?)?$/;
+var WHITESPACE_PATTERN = /\s/;
+var HAS_WHITESPACE_PATTERN = /\s/;
+var PATH_TOKEN_SEPARATORS = new Set([
+	"`",
+	"<",
+	">",
+	"\"",
+	"'",
+	"(",
+	")",
+	"[",
+	"]",
+	"{",
+	"}"
+]);
+var PATH_TRIM_START = new Set([
+	"(",
+	"[",
+	"{",
+	"<"
+]);
+var PATH_TRIM_END = new Set([
+	")",
+	"]",
+	"}",
+	">",
+	".",
+	",",
+	";"
+]);
+var URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
+//#endregion
 //#region views/acp-chat/src/components/markdownSanitizeSchema.ts
 var defaultAttributes = defaultSchema.attributes || {};
 var markdownSanitizeSchema = {
@@ -3082,7 +3499,9 @@ function MarkdownRenderer({ text, streaming = false, className = "acpMarkdown" }
 					});
 				},
 				code({ className, children, ...props }) {
-					const linkedChildren = streaming ? children : renderPathLinks(children, resolvedRawPaths, "code");
+					const linkedChildren = streaming ? children : renderPathLinks(children, resolvedRawPaths, "code", (request) => {
+						acpBridgeHost.navigatePathLink(request);
+					});
 					return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", {
 						className,
 						...props,
@@ -3095,130 +3514,9 @@ function MarkdownRenderer({ text, streaming = false, className = "acpMarkdown" }
 		})
 	});
 }
-function codeNodeFromPreNode(node) {
-	return node?.children?.find((child) => child.tagName === "code");
-}
-function hastClassNames(node) {
-	const className = node?.properties?.className;
-	if (Array.isArray(className)) return className.filter((name) => typeof name === "string");
-	if (typeof className === "string") return className.split(/\s+/);
-	return [];
-}
-function hastText(node) {
-	if (!node) return "";
-	if (typeof node.value === "string") return node.value;
-	return node.children?.map(hastText).join("") ?? "";
-}
-function collectPathLinkCandidates(markdown) {
-	const codeSegments = markdownCodeSegments(markdown);
-	const candidates = [];
-	const seen = /* @__PURE__ */ new Set();
-	for (const codeSegment of codeSegments) for (const token of pathTokens(codeSegment)) {
-		if (seen.has(token.rawPath)) continue;
-		seen.add(token.rawPath);
-		candidates.push({
-			id: `path-${candidates.length}`,
-			rawPath: token.rawPath
-		});
-	}
-	return candidates;
-}
-function markdownCodeSegments(markdown) {
-	const segments = [];
-	const markdownWithoutFencedCode = markdown.replace(FENCED_CODE_BLOCK_PATTERN, (match, _prefix, _fence, info, code) => {
-		if (String(info).trim().split(/\s+/)[0]?.toLowerCase() !== "mermaid") segments.push(String(code));
-		return " ".repeat(match.length);
-	});
-	for (const match of markdownWithoutFencedCode.matchAll(INLINE_CODE_PATTERN)) segments.push(match[1]);
-	return segments;
-}
-function renderPathLinks(node, resolvedRawPaths, keyPrefix) {
-	if (typeof node === "string") return renderTextPathLinks(node, resolvedRawPaths, keyPrefix);
-	if (Array.isArray(node)) return node.map((child, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_react.Fragment, { children: renderPathLinks(child, resolvedRawPaths, `${keyPrefix}-${index}`) }, `${keyPrefix}-${index}`));
-	if ((0, import_react.isValidElement)(node)) {
-		const element = node;
-		if (element.props.children == null) return element;
-		return (0, import_react.cloneElement)(element, void 0, renderPathLinks(element.props.children, resolvedRawPaths, keyPrefix));
-	}
-	return node;
-}
-function renderTextPathLinks(text, resolvedRawPaths, keyPrefix) {
-	const tokens = pathTokens(text).filter((token) => resolvedRawPaths.has(token.rawPath));
-	if (tokens.length === 0) return text;
-	const parts = [];
-	let offset = 0;
-	for (const [index, token] of tokens.entries()) {
-		if (token.start < offset) continue;
-		if (offset < token.start) parts.push(text.slice(offset, token.start));
-		const label = text.slice(token.start, token.end);
-		parts.push(/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-			type: "button",
-			className: "acpMarkdownPathLink",
-			onClick: (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				acpBridgeHost.navigatePathLink({
-					rawPath: token.rawPath,
-					clientX: event.clientX,
-					clientY: event.clientY
-				});
-			},
-			children: label
-		}, `${keyPrefix}-${token.start}-${index}`));
-		offset = token.end;
-	}
-	if (offset < text.length) parts.push(text.slice(offset));
-	return parts;
-}
-function pathTokens(text) {
-	const tokens = [];
-	for (const match of text.matchAll(PATH_CANDIDATE_PATTERN)) {
-		const matchText = match[0];
-		const rawPath = trimPathCandidate(matchText);
-		if (!rawPath || !isPathLike(rawPath)) continue;
-		const leadingTrim = matchText.indexOf(rawPath);
-		const start = (match.index ?? 0) + leadingTrim;
-		tokens.push({
-			rawPath,
-			start,
-			end: start + rawPath.length
-		});
-	}
-	return tokens;
-}
-function trimPathCandidate(candidate) {
-	let start = 0;
-	let end = candidate.length;
-	while (start < end && PATH_TRIM_START.has(candidate[start])) start++;
-	while (end > start && PATH_TRIM_END.has(candidate[end - 1])) end--;
-	return candidate.slice(start, end);
-}
-function isPathLike(rawPath) {
-	return !URL_SCHEME_PATTERN.test(rawPath) && (rawPath.includes("/") || rawPath.includes("\\") || FILE_EXTENSION_PATTERN.test(rawPath));
-}
 function classNames(...names) {
 	return names.filter(Boolean).join(" ");
 }
-var FENCED_CODE_BLOCK_PATTERN = /(^|\n)(`{3,}|~{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g;
-var INLINE_CODE_PATTERN = /`([^`\n]+)`/g;
-var FILE_EXTENSION_PATTERN = /\.[A-Za-z0-9]+(?:#L\d+|:\d+(?::\d+)?)?$/;
-var PATH_CANDIDATE_PATTERN = /(?:(?:(?:~|\.{1,2})[\\/]|[\\/]|[A-Za-z]:[\\/]|[A-Za-z0-9_.-]+[\\/])[^\s`<>"']+|[A-Za-z0-9_.-]+\.(?:bazel|bzl|c|cmd|cpp|cs|css|go|gradle|h|hpp|html|iml|java|js|jsx|json|kt|kts|md|mjs|properties|py|rs|scss|sh|ts|tsx|txt|xml|yaml|yml))(?:#L\d+|:\d+(?::\d+)?)?/gi;
-var PATH_TRIM_START = new Set([
-	"(",
-	"[",
-	"{",
-	"<"
-]);
-var PATH_TRIM_END = new Set([
-	")",
-	"]",
-	"}",
-	">",
-	".",
-	",",
-	";"
-]);
-var URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 //#endregion
 //#region views/acp-chat/src/components/ModelSelector.tsx
 var ModelSelectorContext = (0, import_react.createContext)(null);
@@ -3230,6 +3528,13 @@ function useModelSelectorContext() {
 function Root({ value, disabled, children, onValueChange }) {
 	const [open, setOpen] = (0, import_react.useState)(false);
 	const [query, setQuery] = (0, import_react.useState)("");
+	(0, import_react.useEffect)(() => {
+		function closeOnWebViewFocusLeave() {
+			setOpen(false);
+			setQuery("");
+		}
+		return addWebViewFocusLeaveListener(closeOnWebViewFocusLeave);
+	}, []);
 	const context = (0, import_react.useMemo)(() => ({
 		value,
 		disabled: disabled === true,
@@ -3523,7 +3828,7 @@ function ConfigToggleControl(props) {
 	});
 }
 function ControlHint(props) {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 		className: props.className,
 		"data-hint": props.hint,
 		"data-config-id": props.configId,
@@ -3780,39 +4085,244 @@ function ThinkingBlock() {
 	});
 }
 //#endregion
+//#region views/acp-chat/src/components/AuthPrompt.tsx
+/**
+* In-chat authorization dialog. Mirrors {@link ApprovalPrompt}: the runtime resolves `auth.onChoose` with the chosen
+* method (and, for env_var methods, the entered credentials) or `null` to cancel. While the agent runs an OAuth device
+* flow the dialog switches to the `authenticating` phase and shows the verification URL pushed via `authenticate/update`.
+*/
+function AuthCard({ auth }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "acpApproval acpAuth acpAuthCard",
+		role: "group",
+		"aria-label": "Authentication",
+		children: auth.phase === "select" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthMethodPicker, { auth }) : auth.phase === "complete" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthComplete, { auth }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthInProgress, { auth })
+	});
+}
+function AuthMethodPicker({ auth }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "acpApprovalTitle",
+			children: auth.message || "Authentication required"
+		}),
+		auth.error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "acpAuthError",
+			children: auth.error
+		}) : null,
+		auth.methods.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "acpAuthMethods",
+			children: auth.methods.map((method) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthMethod, {
+				method,
+				onChoose: auth.onChoose
+			}, `${auth.requestId ?? "auth"}-${method.id}`))
+		}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UnsupportedAuth, {}),
+		/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "acpApprovalOptions",
+			children: [
+				auth.onRetry ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: "acpApprovalButton",
+					onClick: auth.onRetry,
+					children: "Retry"
+				}) : null,
+				auth.onOpenConfig ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: "acpApprovalButton",
+					onClick: auth.onOpenConfig,
+					children: "Open acp.json"
+				}) : null,
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: "acpApprovalButton acpApprovalButton--cancel",
+					onClick: () => auth.onChoose(null),
+					children: "Cancel"
+				})
+			]
+		})
+	] });
+}
+/**
+* One auth method. Variables the agent declares (ACP `env_var` methods) are pre-listed; the user can add more (some
+* agents, e.g. qwen's "Use OpenAI API key", expect `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`OPENAI_MODEL` in the env without
+* declaring them). On submit, entered variables are injected via re-spawn before `authenticate`; with none entered this
+* is a plain agent-driven sign-in / OAuth device flow.
+*/
+function AuthMethod({ method, onChoose }) {
+	const supportsEnv = method.vars.length > 0 || method.type === "env_var" || method.type === "environment";
+	const [rows, setRows] = (0, import_react.useState)(() => method.vars.map((variable) => ({
+		name: variable.name,
+		value: "",
+		secret: variable.secret,
+		fixed: true
+	})));
+	const env = collectEnv(rows);
+	const missingRequired = method.vars.some((variable) => !variable.optional && !env[variable.name]);
+	const update = (index, patch) => setRows((previous) => previous.map((row, i) => i === index ? {
+		...row,
+		...patch
+	} : row));
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+		className: "acpAuthMethod",
+		onSubmit: (event) => {
+			event.preventDefault();
+			if (!missingRequired) onChoose({
+				methodId: method.id,
+				env: Object.keys(env).length > 0 ? env : void 0
+			});
+		},
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "acpAuthMethodName",
+				children: method.name
+			}),
+			method.type || method.link ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "acpAuthMethodMeta",
+				children: [method.type ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: method.type }) : null, method.link ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+					href: method.link,
+					target: "_blank",
+					rel: "noreferrer",
+					children: method.link
+				}) : null]
+			}) : null,
+			method.description ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "acpAuthMethodDesc",
+				children: method.description
+			}) : null,
+			supportsEnv ? rows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "acpAuthVarRow",
+				children: [row.fixed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "acpAuthVarLabel acpAuthVarName",
+					children: row.name
+				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+					className: "acpAuthVarInput acpAuthVarName",
+					placeholder: "ENV_VAR",
+					autoComplete: "off",
+					spellCheck: false,
+					value: row.name,
+					onChange: (event) => update(index, { name: event.target.value })
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+					className: "acpAuthVarInput",
+					type: row.secret ? "password" : "text",
+					placeholder: "value",
+					autoComplete: "off",
+					spellCheck: false,
+					value: row.value,
+					onChange: (event) => update(index, { value: event.target.value })
+				})]
+			}, index)) : null,
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "acpAuthActions",
+				children: [supportsEnv ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: "acpAuthAddVar",
+					onClick: () => setRows((previous) => [...previous, {
+						name: "",
+						value: "",
+						secret: false,
+						fixed: false
+					}]),
+					children: "+ Add variable"
+				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					type: "submit",
+					className: "acpApprovalButton acpApprovalButton--allow_once",
+					disabled: missingRequired,
+					children: "Authenticate"
+				})]
+			})
+		]
+	});
+}
+function UnsupportedAuth() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "acpAuthUnsupported",
+		children: "This ACP agent did not provide a supported local authentication method. Reconfigure the agent, sign in with its CLI, or retry after updating acp.json."
+	});
+}
+function AuthInProgress({ auth }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "acpApprovalTitle",
+			children: "Authenticating…"
+		}),
+		auth.authUri ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "acpAuthUri",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "Open this URL in your browser to finish signing in:" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+				href: auth.authUri,
+				target: "_blank",
+				rel: "noreferrer",
+				className: "acpAuthUriLink",
+				children: auth.authUri
+			})]
+		}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "acpAuthHint",
+			children: "Waiting for the agent…"
+		}),
+		auth.authUri ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "acpAuthHint",
+			children: "If it doesn't continue after you approve, the agent's OAuth may be unavailable — Cancel and use an API key instead."
+		}) : null,
+		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "acpApprovalOptions",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: "acpApprovalButton acpApprovalButton--cancel",
+				onClick: () => auth.onChoose(null),
+				children: "Cancel"
+			})
+		})
+	] });
+}
+function AuthComplete({ auth }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "acpApprovalTitle",
+		children: "Authentication complete"
+	}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "acpAuthHint",
+		children: auth.message || "The agent is ready to continue."
+	})] });
+}
+function collectEnv(rows) {
+	const env = {};
+	for (const row of rows) {
+		const name = row.name.trim();
+		const value = row.value.trim();
+		if (name && value) env[name] = value;
+	}
+	return env;
+}
+//#endregion
 //#region views/acp-chat/src/components/ToolCallCard.tsx
 function ToolCallCard(props) {
 	const result = props?.result ?? {};
+	if (result.kind === "auth" && result.auth) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthCard, { auth: result.auth });
 	const title = result.title ?? props?.toolName ?? "Tool call";
 	const kind = result.kind ?? props?.toolName ?? "other";
 	const status = result.status ?? "in_progress";
 	const text = result.text;
 	const diff = result.diff;
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-		className: `acpTool acpTool--${status}`,
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "acpToolHeader",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: `acpToolKind acpToolKind--${kind}`,
-						children: kind
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "acpToolTitle",
-						children: title
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: `acpToolStatus acpToolStatus--${status}`,
-						children: status.replace("_", " ")
-					})
-				]
-			}),
-			text ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", {
+	const hasDetails = Boolean(text) || Boolean(diff);
+	const className = `acpTool acpTool--${status} acpTool--${kind}`;
+	if (!hasDetails) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: `${className} acpTool--empty`,
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolHeader, {
+			kind,
+			title,
+			status
+		})
+	});
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
+		className,
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolHeader, {
+			kind,
+			title,
+			status,
+			expandable: true
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "acpToolDetails",
+			children: [text ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", {
 				className: "acpToolText",
 				children: text
-			}) : null,
-			diff ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			}) : null, diff ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "acpToolDiff",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 					className: "acpToolDiffPath",
@@ -3821,8 +4331,214 @@ function ToolCallCard(props) {
 					className: "acpToolDiffBody",
 					children: renderDiff(diff)
 				})]
-			}) : null
-		]
+			}) : null]
+		})]
+	});
+}
+function ToolHeader(props) {
+	const statusLabel = props.status.replace("_", " ");
+	const content = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			className: `acpToolIcon acpToolIcon--${props.kind}`,
+			"aria-hidden": "true",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ToolKindIcon, { kind: props.kind })
+		}),
+		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			className: "acpToolTitle",
+			title: props.title,
+			children: props.title
+		}),
+		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			className: `acpToolStatus acpToolStatus--${props.status}`,
+			role: "img",
+			"aria-label": statusLabel,
+			title: statusLabel,
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatusIcon, { status: props.status })
+		})
+	] });
+	if (props.expandable) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("summary", {
+		className: "acpToolHeader",
+		"aria-label": `${props.title}. ${statusLabel}. Show tool call details`,
+		children: content
+	});
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "acpToolHeader",
+		children: content
+	});
+}
+function StatusIcon(props) {
+	switch (props.status) {
+		case "completed":
+		case "success": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SuccessIcon, {});
+		case "failed": return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FailedIcon, {});
+		default: return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SpinnerIcon, {});
+	}
+}
+function ToolKindIcon(props) {
+	const kind = props.kind.toLocaleLowerCase();
+	if (kind.includes("read") || kind.includes("open")) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ReadIcon, {});
+	if (kind.includes("search") || kind.includes("find") || kind.includes("grep")) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SearchIcon, {});
+	if (kind.includes("execute") || kind.includes("shell") || kind.includes("terminal") || kind.includes("bash")) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ExecuteIcon, {});
+	if (kind.includes("write") || kind.includes("edit") || kind.includes("patch") || kind.includes("diff")) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EditIcon, {});
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OtherIcon, {});
+}
+function SuccessIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+		width: "16",
+		height: "16",
+		viewBox: "0 0 16 16",
+		"aria-hidden": "true",
+		focusable: "false",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "m3.2 8.2 3.1 3.1 6.5-6.6",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.6",
+			strokeLinecap: "round",
+			strokeLinejoin: "round"
+		})
+	});
+}
+function FailedIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+		width: "16",
+		height: "16",
+		viewBox: "0 0 16 16",
+		"aria-hidden": "true",
+		focusable: "false",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "M4.4 4.4 11.6 11.6M11.6 4.4 4.4 11.6",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.6",
+			strokeLinecap: "round"
+		})
+	});
+}
+function SpinnerIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+		className: "acpToolStatusSpinner",
+		width: "16",
+		height: "16",
+		viewBox: "0 0 16 16",
+		"aria-hidden": "true",
+		focusable: "false",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+			cx: "8",
+			cy: "8",
+			r: "5",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.4",
+			strokeOpacity: "0.25"
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "M13 8a5 5 0 0 0-5-5",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.4",
+			strokeLinecap: "round"
+		})]
+	});
+}
+function ReadIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+		width: "16",
+		height: "16",
+		viewBox: "0 0 16 16",
+		"aria-hidden": "true",
+		focusable: "false",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "M4 2.7h5.4L12 5.3v8H4z",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.2",
+			strokeLinejoin: "round"
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "M9.4 2.8v2.6H12M6 8h4M6 10.5h4",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.2",
+			strokeLinecap: "round"
+		})]
+	});
+}
+function SearchIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+		width: "16",
+		height: "16",
+		viewBox: "0 0 16 16",
+		"aria-hidden": "true",
+		focusable: "false",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+			cx: "7",
+			cy: "7",
+			r: "3.7",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.3"
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "m9.8 9.8 3 3",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.3",
+			strokeLinecap: "round"
+		})]
+	});
+}
+function ExecuteIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+		width: "16",
+		height: "16",
+		viewBox: "0 0 16 16",
+		"aria-hidden": "true",
+		focusable: "false",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "M2.8 4.2h10.4v7.6H2.8z",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.2",
+			strokeLinejoin: "round"
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "m5.2 6.3 1.7 1.7-1.7 1.7M8.3 10h2.5",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.2",
+			strokeLinecap: "round",
+			strokeLinejoin: "round"
+		})]
+	});
+}
+function EditIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+		width: "16",
+		height: "16",
+		viewBox: "0 0 16 16",
+		"aria-hidden": "true",
+		focusable: "false",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "M3.5 12.5h2.3l6-6-2.3-2.3-6 6zM8.7 5l2.3 2.3",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.2",
+			strokeLinecap: "round",
+			strokeLinejoin: "round"
+		})
+	});
+}
+function OtherIcon() {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+		width: "16",
+		height: "16",
+		viewBox: "0 0 16 16",
+		"aria-hidden": "true",
+		focusable: "false",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+			d: "M3.5 4.5h9M3.5 8h9M3.5 11.5h9",
+			fill: "none",
+			stroke: "currentColor",
+			strokeWidth: "1.2",
+			strokeLinecap: "round"
+		})
 	});
 }
 function renderDiff(diff) {
@@ -3952,8 +4668,7 @@ function ChatView() {
 						})
 					]
 				}),
-				chat.permission ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ApprovalPrompt, { permission: chat.permission }) : null,
-				chat.auth ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AuthPrompt, { auth: chat.auth }) : null
+				chat.permission ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ApprovalPrompt, { permission: chat.permission }) : null
 			]
 		})
 	});

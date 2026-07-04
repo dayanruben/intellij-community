@@ -1,6 +1,6 @@
 # WebView Focus and Tab Order Interop Plan
 
-Status: **IMPLEMENTED**. Stages 1–6 and 8 landed (`api/WebViewFocusApi.kt`, `impl/SwingWebViewHostPanel.kt`, `impl/engine/WebViewFocusInterop.kt`, `webview-src/.../focusInterop.ts`); robot test coverage in `WebViewFocusInteropRobotTest.kt`. Stage 7 (diagnostics logging) is partial — `LOG.debug` taps exist in `SwingWebViewHostPanel` and `WebViewFocusInterop`, but the boundary-transition summary events listed in this plan are not all in place. The plan is kept as design rationale + verification checklist for v2 work (accessibility traversal parity, advanced opt-out markers).
+Status: **IMPLEMENTED**. Stages 1-6 and 8 landed (`api/WebViewFocusApi.kt`, `impl/SwingWebViewHostPanel.kt`, `impl/engine/WebViewFocusInterop.kt`, `webview-src/.../focusInterop.ts`); robot test coverage in `WebViewFocusInteropRobotTest.kt`. Stage 7 has focused diagnostics for the WebView focus path: host-side `[wvi-focus]` `LOG.debug` entries in `SwingWebViewHostPanel`/`WebViewFocusInterop` and page-side `[wvi-focus]` `console.debug` entries captured by `WebViewConsoleCapture`. The implemented protocol also includes page-side `leave()` notification so host-to-Swing focus transfers can close transient page UI through `wvi-focus-leave`. The plan is kept as design rationale + verification checklist for v2 work (accessibility traversal parity, advanced opt-out markers).
 
 Stage-level legend: ✅ done · ⏳ partial · ⬜ todo · 🚫 blocked · 🗑️ dropped.
 
@@ -12,7 +12,7 @@ Stage-level legend: ✅ done · ⏳ partial · ⬜ todo · 🚫 blocked · 🗑�
 | 4. One Swing tab stop for component-backed engines | ✅ | `SwingWebViewHostPanel` focus traversal policy |
 | 5. Page-side focus boundary management | ✅ | `webview-src/.../focusInterop.ts` (delivered via common runtime injection) |
 | 6. Backend changes kept minimal | ✅ | existing `requestFocus`/`clearFocus` paths in mac/win/linux/JCEF bridges |
-| 7. Diagnostics behind debug logging | ⏳ | partial `LOG.debug` taps; full boundary-transition summary events still ⬜ |
+| 7. Diagnostics behind debug logging | ✅ | host `LOG.debug` taps plus page-side focus event logging through console capture |
 | 8. Reviewable slices | ✅ | landed across `N500-262` slices including the focus robot test |
 
 ## Goal
@@ -79,7 +79,7 @@ Add an internal typed WebView protocol under namespace `webview.focus`.
 
 Kotlin side:
 
-- `WebViewFocusPageApi : WebViewCallable` with `fun enter(params: WebViewFocusEntry)`.
+- `WebViewFocusPageApi : WebViewCallable` with `fun enter(params: WebViewFocusEntry)` and `fun leave()`.
 - `WebViewFocusHostApi : WebViewImplementable` with `fun activated()` and `fun exit(params: WebViewFocusExit)`.
 - DTO direction values: `forward`, `backward`.
 
@@ -101,6 +101,7 @@ Install a platform feature in `wvi-platform-features.js`:
 - If focus is at the first element and the user presses `Shift+Tab`, prevent default and notify host `exit(backward)`.
 - If focus is at the last element and the user presses `Tab`, prevent default and notify host `exit(forward)`.
 - If there are no tabbable elements, do not create a trap. Notify host exit in the requested direction.
+- On host-reported `leave()`, blur native focus targets and dispatch `wvi-focus-leave` so page-owned popups can close when Swing takes focus.
 
 The tabbable scanner must be conservative and browser-like enough for IDE UI controls. It should include standard form controls, anchors with `href`, buttons, selects, textareas, `[tabindex]`, `[contenteditable]`, and open shadow roots where possible. It must exclude disabled, hidden, inert, non-rendered, and negative-tabindex elements from sequential traversal.
 
@@ -129,6 +130,7 @@ Mitigation: do not intercept during composition (`event.isComposing`). Add an ex
 `FocusEvent.Cause.TRAVERSAL_FORWARD` and `TRAVERSAL_BACKWARD` are useful but not universal. Mouse clicks, restore after popup, `IdeFocusManager.requestFocus`, tool-window activation, and OS focus restore can enter the host without a reliable direction.
 
 Mitigation: introduce an `auto` host-side path that only requests native browser focus and does not call `enter(first/last)`.
+Do not add timeout-based repair here: page-side `enter(forward/backward)` is only valid when Swing reports a real traversal direction or the page explicitly asks to cross a boundary.
 
 ### Native focus and Swing focus can diverge
 
@@ -176,11 +178,19 @@ Mitigation: use a JBCef-style focus traversal policy provider around component-b
 
 Mitigation: handle only explicit page-side boundary `exit` as traversal. Treat blur/focus-lost as state only, not as a request to move to the next Swing component.
 
+Page-owned transient UI needs the opposite direction as well: when Swing focus leaves the WebView host, the host sends page `leave()`. The page runtime blurs native controls, dispatches `wvi-focus-leave`, and synthesizes a window blur for libraries that already close on browser blur. Custom controls should subscribe to `wvi-focus-leave` or use the shared controls foundation controller instead of keeping invisible focus sinks inside the page.
+
 ### Windows WebView2 focus threading
 
 WebView2 focus crosses Win32 HWND focus, the WebView2 controller thread, and Swing EDT. Existing off-EDT work already calls out `AttachThreadInput` as the risky stabilization stage. The accelerator callback is synchronous, while Swing focus traversal is EDT-bound.
 
 Mitigation: keep `Tab` boundary exit in the typed JS protocol instead of the WebView2 accelerator bridge. Use `WinWebViewShortcutInterop` only for IDE shortcuts, and keep focus operations coalesced/idempotent on the WebView2 dispatcher.
+
+Mouse activation has one extra Windows-specific invariant. The container HWND can receive `WM_MOUSEACTIVATE` or a button-down notification before Swing observes a normal AWT focus event. The native bridge must notify `SwingWebViewHostPanel` before WebView2 dispatches the page pointer event, so the host panel becomes the Swing focus owner while the click is still being processed. That callback must only synchronize Swing focus to the host panel; it must not call WebView2 `MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)`. The original mouse click is already activating the native WebView2 child, and an additional programmatic native focus move in the same pointer pipeline is observable by page code as a blur/focus bounce. Pointer-opened controls that call `preventDefault()` on `pointerdown` and close on `window.blur` (for example Radix-style comboboxes) will close immediately if this invariant is violated.
+
+The same invariant applies to native focus clearing. Several WebView hosts can be installed in one Swing window, and each host observes the global `permanentFocusOwner` change. When focus moves into one host, sibling hosts see that focus owner as outside their subtree. Only a host that previously owned WebView focus should run the native clear path; an already-outside Windows host calling `clearFocusForSwingFocusTransfer()` can `SetFocus(parent)` and blur the newly activated WebView2 page while a pointer-opened popup is still settling.
+
+The page-side pointer activation path has the matching rule: always notify the host that the WebView was activated, but do not force focus onto the pointer target after the event if the event's default action was prevented. Custom controls that intentionally prevent default must keep ownership of their open/focus behavior.
 
 ### Linux backend differences
 
@@ -204,14 +214,14 @@ Kotlin files:
 
 - Add `WebViewFocusDirection` as a serializable enum or sealed string-backed DTO with values `forward` and `backward`.
 - Add `WebViewFocusEntry` and `WebViewFocusExit` serializable data classes.
-- Add `WebViewFocusPageApi : WebViewCallable` with `suspend fun enter(params: WebViewFocusEntry)`.
+- Add `WebViewFocusPageApi : WebViewCallable` with `suspend fun enter(params: WebViewFocusEntry)` and `suspend fun leave()`.
 - Add `WebViewFocusHostApi : WebViewImplementable` with `fun activated()` and `fun exit(params: WebViewFocusExit)`.
 - Put the API id in one place: `WebViewApiId.of<WebViewFocusPageApi>("webview.focus")` and `WebViewApiId.of<WebViewFocusHostApi>("webview.focus")`.
 
 TypeScript files:
 
 - Add matching types under `webview-src/packages/api/src/` and export them from the package entry point.
-- Use the same namespace literal, `webview.focus`, and the same method names: `enter`, `activated`, and `exit`.
+- Use the same namespace literal, `webview.focus`, and the same method names: `enter`, `leave`, `activated`, and `exit`.
 
 Do not add public options to `WebViewPanelOptions` in this stage. The v1 behavior is always installed for panels created by `createWebViewPanel(...)`.
 
@@ -276,6 +286,7 @@ Implementation shape:
 
 - Add a focused module, for example `focusInterop.ts`, under `webview-src/packages/impl/src/`.
 - It registers the page implementation for `WebViewFocusPageApi.enter`.
+- It registers the page implementation for `WebViewFocusPageApi.leave` and dispatches `wvi-focus-leave` from that path.
 - It creates a callable host proxy for `WebViewFocusHostApi.exit`.
 - It notifies `WebViewFocusHostApi.activated` from a capture-phase pointer event so clicks on empty page regions still transfer Swing focus to the WebView host.
 - It listens for `keydown` in capture phase so application code cannot accidentally create a boundary trap before the common runtime sees the event.
@@ -317,7 +328,7 @@ Suggested events:
 - Host ignored stale `exit`: reason.
 - Host applied Swing traversal: next/previous and resulting focus owner if available.
 
-Use existing WebView logging facilities. Do not log every `keydown`.
+Use existing WebView logging facilities. Focus trace entries use the `[wvi-focus] host|page` marker. Page-side events are formatted as one `console.debug` string so `WebViewConsoleCapture` preserves the target, active element, and default-action details in `idea.log`. Do not log every `keydown`.
 
 ### Stage 8: Land in reviewable slices
 
@@ -329,6 +340,8 @@ Recommended commit/MR slices:
 4. Component-backed one-tab-stop adjustment and Swing tests.
 5. Backend smoke fixes only if a real backend fails the common contract.
 
+Mouse/native activation must not synthesize page entry later via a timer. That path only synchronizes Swing host ownership and native browser ownership; the browser click keeps its own DOM focus/default-action semantics.
+
 Each slice should leave existing WebView panels working even if the page-side platform features script is not loaded; in that case the host can request native focus but cannot perform DOM boundary exit.
 
 ## Test Plan
@@ -339,6 +352,7 @@ Automated tests:
 - Add protocol tests with a fake WebView bridge: Swing focus entry sends page `enter`, page `exit` causes next/previous Swing traversal.
 - Add TypeScript tests for tabbable boundary detection, including empty pages, disabled controls, hidden elements, negative tabindex, positive tabindex, contenteditable, and open shadow roots.
 - Keep Windows shortcut tests separate from focus boundary tests so shortcut routing does not become the generic `Tab` path.
+- Keep a Windows WebView2 Robot regression for pointer-opened comboboxes: focus an external Swing control, click a Radix-like combobox in the embedded WebView once, assert the popup remains open after animation frames, assert Swing focus moved to `SwingWebViewHostPanel`, assert mouse activation did not synthesize page `enter(forward)`, assert an already-outside sibling WebView host did not clear native focus during activation, then click the Swing control again and assert it takes focus back from the WebView.
 
 Smoke tests/manual checks:
 

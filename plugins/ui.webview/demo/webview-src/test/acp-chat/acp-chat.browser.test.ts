@@ -1,8 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-import { startWebViewMockPreview, type MockWebViewCall, type WebViewMockPreviewServer } from "@jetbrains/intellij-webview-testkit"
+import {dirname, resolve} from "node:path"
+import {fileURLToPath} from "node:url"
+import {startWebViewMockPreview, type MockWebViewCall, type WebViewMockPreviewServer} from "@jetbrains/intellij-webview-testkit"
 
 type Locator = {
   boundingBox(): Promise<BoundingBox | null>
@@ -71,7 +71,7 @@ interface JsonRpcMessage {
 }
 
 const playwrightTestPackage: string = "@playwright/test"
-const { expect, test } = await import(playwrightTestPackage) as unknown as PlaywrightTestModule
+const {expect, test} = await import(playwrightTestPackage) as unknown as PlaywrightTestModule
 
 const testDir = dirname(fileURLToPath(import.meta.url))
 const webviewSrcDir = resolve(testDir, "../..")
@@ -90,7 +90,7 @@ test.afterAll(async () => {
   await preview?.close()
 })
 
-test("explains pasted attachment capabilities before an agent is activated", async ({ page }) => {
+test("explains pasted attachment capabilities before an agent is activated", async ({page}) => {
   if (!preview) {
     throw new Error("ACP chat mock preview server was not started")
   }
@@ -100,62 +100,225 @@ test("explains pasted attachment capabilities before an agent is activated", asy
   await expect(page.getByText("Image attachment support can be detected only after an ACP agent is activated.")).toBeVisible()
 })
 
-test("shows hardcoded Junie first and opens acp.json from the agent selector", async ({ page }) => {
+test("shows hardcoded Junie first and opens acp.json from the agent selector", async ({page}) => {
   if (!preview) {
     throw new Error("ACP chat mock preview server was not started")
   }
   await page.goto(preview.url)
 
+  const placeholderState = await page.evaluate(() => {
+    const trigger = document.querySelector<HTMLElement>(".acpAgentSelect")
+    const placeholderIcon = trigger?.querySelector<HTMLElement>(".acpAgentSelectItemIcon > *")
+    return {
+      triggerText: trigger?.textContent?.trim(),
+      placeholderIconTagName: placeholderIcon?.tagName.toLowerCase(),
+      placeholderIconSrc: placeholderIcon?.getAttribute("src"),
+    }
+  })
+  expect(placeholderState.triggerText?.includes("Select an agent…") === true
+    && placeholderState.placeholderIconTagName === "jb-icon"
+    && placeholderState.placeholderIconSrc?.includes("/__ij-icons/AcpChatIcons/") === true
+    && placeholderState.placeholderIconSrc?.endsWith("/webview/views/acp-chat/assets/acpChatAgent.svg") === true).toBe(true)
+
   await page.locator(".acpAgentSelect").click()
   const selectorState = await page.evaluate(() => {
     const options = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
     const junieOption = options.find(option => option.textContent?.trim() === "Junie")
+    const mockOption = options.find(option => option.textContent?.trim() === "Mock Agent")
     const junieIcon = junieOption?.querySelector<HTMLElement>("[src*='acpChatJunie.svg']")
+    const mockIcon = mockOption?.querySelector<HTMLElement>("[src*='acpChatAgent.svg']")
     return {
       firstOptionText: options[0]?.textContent?.trim(),
       lastOptionText: options[options.length - 1]?.textContent?.trim(),
       junieIconTagName: junieIcon?.tagName.toLowerCase(),
       junieIconSrc: junieIcon?.getAttribute("src"),
+      mockIconTagName: mockIcon?.tagName.toLowerCase(),
+      mockIconSrc: mockIcon?.getAttribute("src"),
     }
   })
   expect(selectorState.firstOptionText === "Junie"
     && selectorState.lastOptionText === "Open acp.json"
     && selectorState.junieIconTagName === "jb-icon"
     && selectorState.junieIconSrc?.includes("/__ij-icons/AcpChatIcons/") === true
-    && selectorState.junieIconSrc?.endsWith("/webview/views/acp-chat/assets/acpChatJunie.svg") === true).toBe(true)
+    && selectorState.junieIconSrc?.endsWith("/webview/views/acp-chat/assets/acpChatJunie.svg") === true
+    && selectorState.mockIconTagName === "jb-icon"
+    && selectorState.mockIconSrc?.includes("/__ij-icons/AcpChatIcons/") === true
+    && selectorState.mockIconSrc?.endsWith("/webview/views/acp-chat/assets/acpChatAgent.svg") === true).toBe(true)
 
-  await page.getByRole("option", { name: "Junie" }).click()
+  await page.getByRole("option", {name: "Junie"}).click()
   await page.waitForFunction(() => {
     return Array.from(document.querySelectorAll<HTMLElement>(".acpAgentSelect [src*='acpChatJunie.svg']"))
       .some(element => element.tagName.toLowerCase() === "jb-icon")
   })
 
   await page.locator(".acpAgentSelect").click()
-  await page.getByRole("option", { name: "Open acp.json" }).click()
+  await page.getByRole("option", {name: "Open acp.json"}).click()
   const openConfigCalls = await page.evaluate(() => {
     return (window as MockWindow).__WVI_MOCK__?.calls.byMethod("acp.bridge/openAcpConfig") ?? []
   })
   expect(openConfigCalls.length).toBeGreaterThan(0)
 })
 
-test("renders ACP chat in a real browser with a mock agent", async ({ page }) => {
+test("keeps the agent selector open after pointer click", async ({page}) => {
+  if (!preview) {
+    throw new Error("ACP chat mock preview server was not started")
+  }
+  await page.goto(preview.url)
+
+  const trigger = page.locator(".acpAgentSelect")
+  await clickCenter(page, trigger)
+  await expect(page.getByRole("option", {name: "Mock Agent"})).toBeVisible()
+  await expect(page.getByRole("option", {name: "Open acp.json"})).toBeVisible()
+
+  await waitForTwoAnimationFrames(page)
+  await expect(page.getByRole("option", {name: "Mock Agent"})).toBeVisible()
+  await expect(page.getByRole("option", {name: "Open acp.json"})).toBeVisible()
+  const selectorStillOpen = await page.evaluate(() => {
+    const trigger = document.querySelector(".acpAgentSelect")
+    return trigger?.getAttribute("data-state") === "open"
+      && trigger?.getAttribute("aria-expanded") === "true"
+  })
+  expect(selectorStillOpen).toBe(true)
+})
+
+test("keeps config option selectors out of label activation wrappers", async ({page}) => {
+  await openPreview(page)
+  await startMockAgent(page)
+
+  const configControlsUseNeutralContainers = await page.evaluate(() => {
+    return Array.from(document.querySelectorAll<HTMLElement>(".acpControlWithHint"))
+      .every(control => control.tagName.toLowerCase() !== "label"
+        && control.querySelector("button, input, select, [role='combobox']")?.closest("label") == null)
+  })
+  expect(configControlsUseNeutralContainers).toBe(true)
+
+  const trigger = page.locator('[data-config-id="mode"] .acpConfigOptionSelect')
+  await clickCenter(page, trigger)
+  await expect(page.getByRole("option", {name: "Auto"})).toBeVisible()
+  await expect(page.getByRole("option", {name: /Code/})).toBeVisible()
+
+  await waitForTwoAnimationFrames(page)
+  await expect(page.getByRole("option", {name: "Auto"})).toBeVisible()
+  await expect(page.getByRole("option", {name: /Code/})).toBeVisible()
+  const selectorStillOpen = await page.evaluate(() => {
+    const trigger = document.querySelector('[data-config-id="mode"] .acpConfigOptionSelect')
+    return trigger?.getAttribute("data-state") === "open"
+      && trigger?.getAttribute("aria-expanded") === "true"
+  })
+  expect(selectorStillOpen).toBe(true)
+})
+
+test("closes the model selector when WebView focus leaves", async ({page}) => {
+  await openPreview(page)
+  await startMockAgent(page)
+
+  await page.locator('[data-config-id="model"] .acpModelSelectorTrigger').click()
+  await expect(page.getByPlaceholder("Search models...")).toBeVisible()
+
+  await page.evaluate(() => window.dispatchEvent(new Event("wvi-focus-leave")))
+  await waitForTwoAnimationFrames(page)
+  const modelSelectorClosed = await page.evaluate(() => {
+    return document.querySelector(".acpModelSelectorContent") == null
+      && document.querySelector('[data-config-id="model"] .acpModelSelectorTrigger')?.getAttribute("data-state") !== "open"
+  })
+  expect(modelSelectorClosed).toBe(true)
+})
+
+test("keeps desktop chrome non-selectable while ACP history stays selectable", async ({page}) => {
+  await openPreview(page)
+  await startMockAgent(page)
+
+  await composerInput(page).fill("markdown feature probe")
+  await page.getByRole("button", {name: "Send"}).click()
+  await expect(page.getByText("Markdown feature matrix", {exact: true})).toBeVisible()
+  await page.waitForSelector(".acpMarkdown pre code")
+  await page.waitForSelector(".acpMarkdownPathLink")
+
+  await page.locator('[data-config-id="model"] .acpModelSelectorTrigger').click()
+  await expect(page.getByPlaceholder("Search models...")).toBeVisible()
+
+  const selectionState = await page.evaluate(() => {
+    const userSelect = (selector: string): string => {
+      const element = document.querySelector<HTMLElement>(selector)
+      if (!element) throw new Error(`Missing ${selector}`)
+      return getComputedStyle(element).userSelect
+    }
+    const focusOutline = (selector: string): string => {
+      const element = document.querySelector<HTMLElement>(selector)
+      if (!element) throw new Error(`Missing ${selector}`)
+      element.focus()
+      return getComputedStyle(element).outlineStyle
+    }
+    const parentFocusRing = (selector: string): string => {
+      const element = document.querySelector<HTMLElement>(selector)
+      if (!element) throw new Error(`Missing ${selector}`)
+      element.querySelector<HTMLElement>("button, [role='combobox']")?.focus()
+      return getComputedStyle(element).boxShadow
+    }
+    return {
+      agentTrigger: userSelect(".acpAgentSelect"),
+      configTrigger: userSelect('[data-config-id="mode"] .acpConfigOptionSelect'),
+      modelTrigger: userSelect('[data-config-id="model"] .acpModelSelectorTrigger'),
+      modelItem: userSelect(".acpModelSelectorItem"),
+      sendButton: userSelect(".acpComposerSend"),
+      composerInput: userSelect(".acpComposerInput"),
+      modelSearch: userSelect(".acpModelSelectorSearch"),
+      thread: userSelect(".acpThreadViewport"),
+      markdown: userSelect(".acpMarkdown"),
+      code: userSelect(".acpMarkdown pre code"),
+      pathLink: userSelect(".acpMarkdownPathLink"),
+      agentOutline: focusOutline(".acpAgentSelect"),
+      configOutline: focusOutline('[data-config-id="mode"] .acpConfigOptionSelect'),
+      modelOutline: focusOutline('[data-config-id="model"] .acpModelSelectorTrigger'),
+      configRing: parentFocusRing('[data-config-id="mode"].acpModelPickerControl'),
+      modelRing: parentFocusRing('[data-config-id="model"].acpModelPickerControl'),
+    }
+  })
+
+  expect([
+    selectionState.agentTrigger,
+    selectionState.configTrigger,
+    selectionState.modelTrigger,
+    selectionState.modelItem,
+    selectionState.sendButton,
+  ].every(value => value === "none")).toBe(true)
+  expect([
+    selectionState.composerInput,
+    selectionState.modelSearch,
+    selectionState.thread,
+    selectionState.markdown,
+    selectionState.code,
+    selectionState.pathLink,
+  ].every(value => value === "text")).toBe(true)
+  expect([
+    selectionState.agentOutline,
+    selectionState.configOutline,
+    selectionState.modelOutline,
+  ].every(value => value === "none")).toBe(true)
+  expect([
+    selectionState.configRing,
+    selectionState.modelRing,
+  ].every(value => value !== "none")).toBe(true)
+})
+
+test("renders ACP chat in a real browser with a mock agent", async ({page}) => {
   if (!preview) {
     throw new Error("ACP chat mock preview server was not started")
   }
   await page.goto(preview.url)
 
   await page.locator(".acpAgentSelect").click()
-  await page.getByRole("option", { name: "Mock Agent" }).click()
+  await page.getByRole("option", {name: "Mock Agent"}).click()
   await expect(page.getByText("Mock Agent")).toBeVisible()
 
   await composerInput(page).fill("Hello mock")
-  await page.getByRole("button", { name: "Send" }).click()
+  await page.getByRole("button", {name: "Send"}).click()
 
-  await expect(page.getByText("Hello mock", { exact: true })).toBeVisible()
+  await expect(page.getByText("Hello mock", {exact: true})).toBeVisible()
   await expect(page.getByText(/Mock response from AI chat: Hello mock/)).toBeVisible()
 
   await composerInput(page).fill("streaming probe")
-  await page.getByRole("button", { name: "Send" }).click()
+  await page.getByRole("button", {name: "Send"}).click()
 
   await Promise.all([
     page.waitForSelector(".acpMarkdown--streaming"),
@@ -187,78 +350,408 @@ test("renders ACP chat in a real browser with a mock agent", async ({ page }) =>
   expect(calls.some((call: MockWebViewCall) => JSON.stringify(call.params).includes("session/prompt"))).toBe(true)
 })
 
-test("shows the ACP chat list as a sidebar on wide panels", async ({ page }) => {
-  await page.setViewportSize({ width: 1000, height: 700 })
+test("shows env auth as an inline transcript card and authenticates from it", async ({page}) => {
+  await openPreview(page)
+
+  await selectAgentByName(page, "Env Auth Agent")
+  await expect(page.locator(".acpThreadViewport .acpAuth")).toBeVisible()
+  const authCardInline = await page.evaluate(() => {
+    const thread = document.querySelector(".acpThreadViewport")
+    const auth = document.querySelector(".acpAuth")
+    return thread?.contains(auth) === true && document.querySelector(".acpApprovalOverlay .acpAuth") == null
+  })
+  expect(authCardInline).toBe(true)
+
+  const startingAgentSelect = await page.evaluate(() => {
+    const select = document.querySelector<HTMLElement>(".acpAgentSelect")
+    const selectStyle = select ? getComputedStyle(select) : null
+    const sweepStyle = select ? getComputedStyle(select, "::after") : null
+    return {
+      hasStartingClass: select?.classList.contains("acpAgentSelectStarting") === true,
+      cursor: selectStyle?.cursor,
+      sweepAnimationName: sweepStyle?.animationName,
+      startingTextVisible: document.body.textContent?.includes("Starting…") === true,
+    }
+  })
+  expect(startingAgentSelect.hasStartingClass
+    && startingAgentSelect.cursor === "progress"
+    && startingAgentSelect.sweepAnimationName === "acpAgentSelectSweep"
+    && !startingAgentSelect.startingTextVisible).toBe(true)
+
+  await page.getByPlaceholder("value").fill("env-secret-token")
+  await page.getByRole("button", {name: "Authenticate"}).click()
+  await expect(page.getByText("Authentication complete", {exact: true})).toBeVisible()
+
+  const envWasPassedToHost = await page.evaluate(() => {
+    const calls = (window as MockWindow).__WVI_MOCK__?.calls.byMethod("acp.bridge/startAgent") ?? []
+    return calls.some(call => (call.params as any)?.extraEnv?.JUNIE_TOKEN === "env-secret-token")
+  })
+  expect(envWasPassedToHost).toBe(true)
+
+  const rpcMethods = (await recordedRpcMessages(page)).map(message => message.method)
+  expect(rpcMethods.includes("initialize") && rpcMethods.includes("session/new") && rpcMethods.includes("authenticate")).toBe(true)
+})
+
+test("handles oauth auth updates from the transcript card", async ({page}) => {
+  await openPreview(page)
+
+  await selectAgentByName(page, "OAuth Auth Agent")
+  await expect(page.locator(".acpThreadViewport .acpAuth")).toBeVisible()
+  await page.getByRole("button", {name: "Authenticate"}).click()
+  await expect(page.getByText(/https:\/\/example\.com\/oauth\/device/)).toBeVisible()
+  await expect(page.getByText("Authentication complete", {exact: true})).toBeVisible()
+
+  await composerInput(page).fill("oauth auth prompt")
+  await page.getByRole("button", {name: "Send"}).click()
+  await expect(page.getByText(/Mock response from AI chat: oauth auth prompt/)).toBeVisible()
+
+  const rpcMethods = (await recordedRpcMessages(page)).map(message => message.method)
+  expect(rpcMethods.includes("initialize")
+    && rpcMethods.includes("session/new")
+    && rpcMethods.includes("authenticate")
+    && rpcMethods.includes("session/prompt")).toBe(true)
+})
+
+test("retries prompt-time auth in the same visible user turn", async ({page}) => {
   await openPreview(page)
   await startMockAgent(page)
 
-  await expect(page.getByRole("button", { name: "Loaded session one" })).toBeVisible()
+  await composerInput(page).fill("prompt auth probe")
+  await page.getByRole("button", {name: "Send"}).click()
+  await expect(page.locator(".acpThreadViewport .acpAuth")).toBeVisible()
+  await page.getByPlaceholder("value").fill("prompt-secret-token")
+  await page.getByRole("button", {name: "Authenticate"}).click()
+  await expect(page.getByText(/Prompt auth retry completed: prompt auth probe/)).toBeVisible()
+
+  const visibleTurnState = await page.evaluate(() => {
+    const matchingUserMessages = Array.from(document.querySelectorAll(".acpMsgUser"))
+      .filter(element => element.textContent?.trim() === "prompt auth probe")
+    return {
+      userMessageCount: matchingUserMessages.length,
+      authInsideThread: document.querySelector(".acpThreadViewport .acpAuth") != null,
+    }
+  })
+  expect(visibleTurnState.userMessageCount === 1 && visibleTurnState.authInsideThread).toBe(true)
+
+  const rpcMessages = await recordedRpcMessages(page)
+  const promptAuthRequests = rpcMessages.filter(message => message.method === "session/prompt"
+    && Array.isArray(message.params?.prompt)
+    && message.params.prompt.some((block: any) => block?.type === "text" && block.text === "prompt auth probe"))
+  expect(promptAuthRequests.length === 2).toBe(true)
+})
+
+test("updates repeated prompt auth_required in one transcript card", async ({page}) => {
+  await openPreview(page)
+  await startMockAgent(page)
+
+  await composerInput(page).fill("repeat prompt auth probe")
+  await page.getByRole("button", {name: "Send"}).click()
+  await expect(page.locator(".acpThreadViewport .acpAuth")).toBeVisible()
+  await page.getByPlaceholder("value").fill("first-prompt-secret")
+  await page.getByRole("button", {name: "Authenticate"}).click()
+
+  await page.waitForFunction(() => {
+    const authCards = document.querySelectorAll(".acpThreadViewport .acpAuth")
+    return authCards.length === 1
+      && authCards[0]?.textContent?.includes("Authentication is required before this operation can be performed.") === true
+      && authCards[0]?.textContent?.includes("Use repeated prompt token") === true
+  })
+  const afterFirstAuth = await page.evaluate(() => {
+    return {
+      authCardCount: document.querySelectorAll(".acpThreadViewport .acpAuth").length,
+      userMessageCount: Array.from(document.querySelectorAll(".acpMsgUser"))
+        .filter(element => element.textContent?.trim() === "repeat prompt auth probe").length,
+    }
+  })
+  expect(afterFirstAuth.authCardCount === 1 && afterFirstAuth.userMessageCount === 1).toBe(true)
+
+  await page.getByPlaceholder("value").fill("second-prompt-secret")
+  await page.getByRole("button", {name: "Authenticate"}).click()
+  await expect(page.getByText(/Repeated prompt auth retry completed: repeat prompt auth probe/)).toBeVisible()
+
+  const rpcMessages = await recordedRpcMessages(page)
+  const promptRequests = rpcMessages.filter(message => message.method === "session/prompt"
+    && Array.isArray(message.params?.prompt)
+    && message.params.prompt.some((block: any) => block?.type === "text" && block.text === "repeat prompt auth probe"))
+  const authenticateRequests = rpcMessages.filter(message => message.method === "authenticate"
+    && message.params?.methodId === "repeat-prompt-env")
+  expect(promptRequests.length === 3 && authenticateRequests.length === 2).toBe(true)
+})
+
+test("shows unsupported auth inline with retry and acp.json actions", async ({page}) => {
+  await openPreview(page)
+
+  await selectAgentByName(page, "No Auth Methods Agent")
+  await expect(page.locator(".acpThreadViewport .acpAuthUnsupported")).toBeVisible()
+  const unsupportedInline = await page.evaluate(() => {
+    const thread = document.querySelector(".acpThreadViewport")
+    const auth = document.querySelector(".acpAuthUnsupported")
+    return thread?.contains(auth) === true && document.querySelector(".acpApprovalOverlay .acpAuth") == null
+  })
+  expect(unsupportedInline).toBe(true)
+
+  await page.getByRole("button", {name: "Open acp.json"}).click()
+  const openConfigCalled = await page.evaluate(() => {
+    return ((window as MockWindow).__WVI_MOCK__?.calls.byMethod("acp.bridge/openAcpConfig") ?? []).length > 0
+  })
+  expect(openConfigCalled).toBe(true)
+
+  await page.getByRole("button", {name: "Retry"}).click()
+  await expect(page.locator(".acpThreadViewport .acpAuthUnsupported")).toBeVisible()
+  const sessionNewCount = (await recordedRpcMessages(page)).filter(message => message.method === "session/new").length
+  expect(sessionNewCount > 1).toBe(true)
+})
+
+test("renders ACP tool calls as compact collapsed cards", async ({ page }) => {
+  await openPreview(page)
+  await startMockAgent(page)
+
+  await composerInput(page).fill("tool call compact probe")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByText("Run compact tool probe", { exact: true })).toBeVisible()
+
+  const collapsedTool = await page.evaluate(() => {
+    const tool = Array.from(document.querySelectorAll<HTMLDetailsElement>("details.acpTool"))
+      .find(element => element.textContent?.includes("Run compact tool probe"))
+    const header = tool?.querySelector<HTMLElement>(".acpToolHeader")
+    const icon = tool?.querySelector<SVGElement>(".acpToolIcon svg")
+    const status = tool?.querySelector<HTMLElement>(".acpToolStatus")
+    const statusIcon = status?.querySelector<SVGElement>("svg")
+    const output = tool?.querySelector<HTMLElement>(".acpToolText")
+    const iconRect = icon?.getBoundingClientRect()
+    const toolRect = tool?.getBoundingClientRect()
+    const headerRect = header?.getBoundingClientRect()
+    return {
+      found: tool != null,
+      collapsed: tool?.open === false,
+      headerHasTitle: header?.textContent?.includes("Run compact tool probe") === true,
+      headerHidesKind: header?.textContent?.toLocaleLowerCase().includes("execute") === false,
+      iconSized: iconRect != null && iconRect.width === 16 && iconRect.height === 16,
+      statusIconOnly: status != null
+        && status.getAttribute("aria-label") === "completed"
+        && status.textContent?.trim() === ""
+        && statusIcon != null
+        && statusIcon.getClientRects().length > 0,
+      outputPresent: output != null,
+      detailsCollapsed: toolRect != null && headerRect != null && toolRect.height <= headerRect.height + 4,
+    }
+  })
+  expect(collapsedTool.found
+    && collapsedTool.collapsed
+    && collapsedTool.headerHasTitle
+    && collapsedTool.headerHidesKind
+    && collapsedTool.iconSized
+    && collapsedTool.statusIconOnly
+    && collapsedTool.outputPresent
+    && collapsedTool.detailsCollapsed).toBe(true)
+
+  await page.getByText("Run compact tool probe", { exact: true }).click()
+  const expandedTool = await page.evaluate(() => {
+    const tool = Array.from(document.querySelectorAll<HTMLDetailsElement>("details.acpTool"))
+      .find(element => element.textContent?.includes("Run compact tool probe"))
+    const output = tool?.querySelector<HTMLElement>(".acpToolText")
+    return {
+      expanded: tool?.open === true,
+      detailsVisible: output != null
+        && output.getClientRects().length > 0
+        && output.textContent?.includes("long compact tool output line 24") === true,
+    }
+  })
+  expect(expandedTool.expanded && expandedTool.detailsVisible).toBe(true)
+})
+
+test("renders ACP tool call statuses as icons", async ({ page }) => {
+  await openPreview(page)
+  await startMockAgent(page)
+
+  await composerInput(page).fill("tool status icons probe")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByText("Completed status probe", { exact: true })).toBeVisible()
+  await expect(page.getByText("Running status probe", { exact: true })).toBeVisible()
+  await expect(page.getByText("Failed status probe", { exact: true })).toBeVisible()
+
+  const statusIcons = await page.evaluate(() => {
+    function statusFor(title: string): HTMLElement | null {
+      const tool = Array.from(document.querySelectorAll<HTMLElement>(".acpTool"))
+        .find(element => element.textContent?.includes(title))
+      return tool?.querySelector<HTMLElement>(".acpToolStatus") ?? null
+    }
+
+    const completed = statusFor("Completed status probe")
+    const running = statusFor("Running status probe")
+    const failed = statusFor("Failed status probe")
+    const runningIcon = running?.querySelector<SVGElement>(".acpToolStatusSpinner")
+    const runningAnimation = runningIcon ? getComputedStyle(runningIcon).animationName : null
+    return {
+      completedIcon: completed?.getAttribute("aria-label") === "completed"
+        && completed.classList.contains("acpToolStatus--completed")
+        && completed.textContent?.trim() === ""
+        && completed.querySelector("svg") != null,
+      runningIcon: running?.getAttribute("aria-label") === "in progress"
+        && running.classList.contains("acpToolStatus--in_progress")
+        && running.textContent?.trim() === ""
+        && runningAnimation === "acpToolStatusSpin",
+      failedIcon: failed?.getAttribute("aria-label") === "failed"
+        && failed.classList.contains("acpToolStatus--failed")
+        && failed.textContent?.trim() === ""
+        && failed.querySelector("svg") != null,
+    }
+  })
+  expect(statusIcons.completedIcon && statusIcons.runningIcon && statusIcons.failedIcon).toBe(true)
+})
+
+test("keeps ACP tool calls in the assistant event order", async ({ page }) => {
+  await openPreview(page)
+  await startMockAgent(page)
+
+  await composerInput(page).fill("tool call order probe")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByText("Before interleaved tool.", { exact: true })).toBeVisible()
+  await expect(page.getByText("Run ordered tool probe", { exact: true })).toBeVisible()
+  await expect(page.getByText("After interleaved tool.", { exact: true })).toBeVisible()
+
+  const renderedInEventOrder = await page.evaluate(() => {
+    const assistantMessage = Array.from(document.querySelectorAll<HTMLElement>(".acpMsgAssistant"))
+      .find(message => {
+        const text = message.textContent ?? ""
+        return text.includes("Before interleaved tool.")
+          && text.includes("Run ordered tool probe")
+          && text.includes("After interleaved tool.")
+      })
+    if (!assistantMessage) return false
+    const before = Array.from(assistantMessage.querySelectorAll<HTMLElement>(".acpMarkdown"))
+      .find(element => element.textContent?.includes("Before interleaved tool."))
+    const tool = assistantMessage.querySelector<HTMLElement>(".acpTool")
+    const after = Array.from(assistantMessage.querySelectorAll<HTMLElement>(".acpMarkdown"))
+      .find(element => element.textContent?.includes("After interleaved tool."))
+    return before != null
+      && tool != null
+      && after != null
+      && (before.compareDocumentPosition(tool) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+      && (tool.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+  })
+  expect(renderedInEventOrder).toBe(true)
+})
+
+test("shows the ACP chat list as a sidebar on wide panels", async ({page}) => {
+  await page.setViewportSize({width: 1000, height: 700})
+  await openPreview(page)
+
+  const sidebarTrigger = page.locator(".acpChatListSidebarTrigger")
+  await expect(sidebarTrigger).toBeVisible()
+  expect(await page.evaluate(() => (document.querySelector(".acpChatListSidebarTrigger") as HTMLButtonElement | null)?.disabled === true)).toBe(true)
+
+  await startMockAgent(page)
+
+  expect(await page.evaluate(() => (document.querySelector(".acpChatListSidebarTrigger") as HTMLButtonElement | null)?.disabled === false)).toBe(true)
+  await expect(page.getByRole("button", {name: "Loaded session one"})).toBeVisible()
   const layout = await page.evaluate(() => {
     const sidebar = document.querySelector(".acpChatListSidebar")
-    const trigger = document.querySelector(".acpChatListDrawerTrigger")
+    const drawerTrigger = document.querySelector(".acpChatListDrawerTrigger")
+    const sidebarTrigger = document.querySelector(".acpChatListSidebarTrigger")
     return {
       sidebarVisible: sidebar != null && getComputedStyle(sidebar).display !== "none" && sidebar.getBoundingClientRect().width >= 239,
-      triggerHidden: trigger != null && getComputedStyle(trigger).display === "none",
+      drawerTriggerHidden: drawerTrigger != null && getComputedStyle(drawerTrigger).display === "none",
+      sidebarTriggerVisible: sidebarTrigger != null && getComputedStyle(sidebarTrigger).display !== "none",
+      sidebarTriggerWidth: sidebarTrigger?.getBoundingClientRect().width ?? 0,
     }
   })
   expect(layout.sidebarVisible).toBe(true)
-  expect(layout.triggerHidden).toBe(true)
+  expect(layout.drawerTriggerHidden).toBe(true)
+  expect(layout.sidebarTriggerVisible).toBe(true)
+  expect(layout.sidebarTriggerWidth <= 12).toBe(true)
+
+  await sidebarTrigger.click()
+  expect(await page.evaluate(() => document.querySelector(".acpChatListSidebarTrigger")?.getAttribute("aria-expanded") === "false")).toBe(true)
+  const collapsed = await page.evaluate(() => {
+    const sidebar = document.querySelector(".acpChatListSidebar")
+    return sidebar != null && getComputedStyle(sidebar).display === "none"
+  })
+  expect(collapsed).toBe(true)
+
+  await sidebarTrigger.click()
+  expect(await page.evaluate(() => document.querySelector(".acpChatListSidebarTrigger")?.getAttribute("aria-expanded") === "true")).toBe(true)
 })
 
-test("opens the ACP chat list as a drawer on narrow panels", async ({ page }) => {
-  await page.setViewportSize({ width: 620, height: 700 })
+test("opens the ACP chat list as a drawer on narrow panels", async ({page}) => {
+  await page.setViewportSize({width: 620, height: 700})
   await openPreview(page)
+
+  const drawerTrigger = page.locator(".acpChatListDrawerTrigger")
+  await expect(drawerTrigger).toBeVisible()
+  expect(await page.evaluate(() => (document.querySelector(".acpChatListDrawerTrigger") as HTMLButtonElement | null)?.disabled === true)).toBe(true)
+
   await startMockAgent(page)
 
+  expect(await page.evaluate(() => (document.querySelector(".acpChatListDrawerTrigger") as HTMLButtonElement | null)?.disabled === false)).toBe(true)
   const compactLayout = await page.evaluate(() => {
     const sidebar = document.querySelector(".acpChatListSidebar")
     const trigger = document.querySelector(".acpChatListDrawerTrigger")
     return {
       sidebarHidden: sidebar != null && getComputedStyle(sidebar).display === "none",
       triggerVisible: trigger != null && getComputedStyle(trigger).display !== "none",
+      triggerWidth: trigger?.getBoundingClientRect().width ?? 0,
     }
   })
   expect(compactLayout.sidebarHidden).toBe(true)
   expect(compactLayout.triggerVisible).toBe(true)
+  expect(compactLayout.triggerWidth <= 12).toBe(true)
 
-  await page.getByRole("button", { name: "Open chats" }).click()
-  await expect(page.getByRole("button", { name: "Loaded session one" })).toBeVisible()
-  const drawerOpen = await page.evaluate(() => document.querySelector(".acpChatListOverlay")?.getAttribute("data-open") === "true")
-  expect(drawerOpen).toBe(true)
+  await drawerTrigger.click()
+  await expect(page.getByRole("button", {name: "Loaded session one"})).toBeVisible()
+  const drawerOpen = await page.evaluate(() => {
+    const drawer = document.querySelector(".acpChatListDrawer")
+    const closeTrigger = document.querySelector(".acpChatListDrawerCloseTrigger")
+    const drawerRect = drawer?.getBoundingClientRect()
+    const closeTriggerRect = closeTrigger?.getBoundingClientRect()
+    return {
+      open: document.querySelector(".acpChatListOverlay")?.getAttribute("data-open") === "true",
+      closeTriggerVisible: closeTrigger != null && getComputedStyle(closeTrigger).display !== "none",
+      closeTriggerRightOfDrawer: drawerRect != null && closeTriggerRect != null && closeTriggerRect.left >= drawerRect.right,
+      closeTriggerWidth: closeTriggerRect?.width ?? 0,
+    }
+  })
+  expect(drawerOpen.open).toBe(true)
+  expect(drawerOpen.closeTriggerVisible).toBe(true)
+  expect(drawerOpen.closeTriggerRightOfDrawer).toBe(true)
+  expect(drawerOpen.closeTriggerWidth <= 12).toBe(true)
+
+  await page.locator(".acpChatListDrawerCloseTrigger").click()
+  await page.waitForFunction(() => document.querySelector(".acpChatListOverlay")?.getAttribute("data-open") === "false")
 })
 
-test("loads ACP sessions into the assistant-ui thread list and replays selected history", async ({ page }) => {
-  await page.setViewportSize({ width: 1000, height: 700 })
+test("loads ACP sessions into the assistant-ui thread list and replays selected history", async ({page}) => {
+  await page.setViewportSize({width: 1000, height: 700})
   await openPreview(page)
   await startMockAgent(page)
 
-  await expect(page.getByRole("button", { name: "Loaded session one" })).toBeVisible()
-  await page.getByRole("button", { name: "Loaded session one" }).click()
+  await expect(page.getByRole("button", {name: "Loaded session one"})).toBeVisible()
+  await page.getByRole("button", {name: "Loaded session one"}).click()
 
-  await expect(page.getByText("Loaded user request", { exact: true })).toBeVisible()
-  await expect(page.getByText("Loaded assistant response", { exact: true })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Loaded session renamed" })).toBeVisible()
+  await expect(page.getByText("Loaded user request", {exact: true})).toBeVisible()
+  await expect(page.getByText("Loaded assistant response", {exact: true})).toBeVisible()
+  await expect(page.getByRole("button", {name: "Loaded session renamed"})).toBeVisible()
 
   const rpcMessages = await recordedRpcMessages(page)
   expect(rpcMessages.some(message => message.method === "session/list")).toBe(true)
   expect(rpcMessages.some(message => message.method === "session/load" && message.params?.sessionId === "loaded-session-1")).toBe(true)
 })
 
-test("starts a new ACP chat from the thread list", async ({ page }) => {
-  await page.setViewportSize({ width: 1000, height: 700 })
+test("starts a new ACP chat from the thread list", async ({page}) => {
+  await page.setViewportSize({width: 1000, height: 700})
   await openPreview(page)
   await startMockAgent(page)
 
-  await page.getByRole("button", { name: "Loaded session one" }).click()
-  await expect(page.getByText("Loaded user request", { exact: true })).toBeVisible()
+  await page.getByRole("button", {name: "Loaded session one"}).click()
+  await expect(page.getByText("Loaded user request", {exact: true})).toBeVisible()
 
-  await page.getByRole("button", { name: "New chat" }).click()
+  await page.getByRole("button", {name: "New chat"}).click()
   await page.waitForFunction(() => !document.body.textContent?.includes("Loaded user request"))
   await waitForLateMockUpdates(page)
   await page.waitForFunction(() => !document.body.textContent?.includes("Late stale loaded session request"))
 
   await composerInput(page).fill("new chat probe")
-  await page.getByRole("button", { name: "Send" }).click()
+  await page.getByRole("button", {name: "Send"}).click()
   await expect(page.getByText(/Mock response from AI chat: new chat probe/)).toBeVisible()
 
   const rpcMessages = await recordedRpcMessages(page)
@@ -269,24 +762,24 @@ test("starts a new ACP chat from the thread list", async ({ page }) => {
     && message.params.prompt.some((block: any) => block?.type === "text" && block.text === "new chat probe"))).toBe(true)
 })
 
-test("starts a new ACP chat from the drawer on narrow panels", async ({ page }) => {
-  await page.setViewportSize({ width: 620, height: 700 })
+test("starts a new ACP chat from the drawer on narrow panels", async ({page}) => {
+  await page.setViewportSize({width: 620, height: 700})
   await openPreview(page)
   await startMockAgent(page)
 
-  await page.getByRole("button", { name: "Open chats" }).click()
-  await page.getByRole("button", { name: "Loaded session one" }).click()
-  await expect(page.getByText("Loaded user request", { exact: true })).toBeVisible()
+  await page.getByRole("button", {name: "Open chats"}).click()
+  await page.getByRole("button", {name: "Loaded session one"}).click()
+  await expect(page.getByText("Loaded user request", {exact: true})).toBeVisible()
 
-  await page.getByRole("button", { name: "Open chats" }).click()
-  await page.getByRole("button", { name: "New chat" }).click()
+  await page.getByRole("button", {name: "Open chats"}).click()
+  await page.getByRole("button", {name: "New chat"}).click()
   await page.waitForFunction(() => document.querySelector(".acpChatListOverlay")?.getAttribute("data-open") === "false")
   await page.waitForFunction(() => !document.body.textContent?.includes("Loaded user request"))
   await waitForLateMockUpdates(page)
   await page.waitForFunction(() => !document.body.textContent?.includes("Late stale loaded session request"))
 
   await composerInput(page).fill("new drawer chat probe")
-  await page.getByRole("button", { name: "Send" }).click()
+  await page.getByRole("button", {name: "Send"}).click()
   await expect(page.getByText(/Mock response from AI chat: new drawer chat probe/)).toBeVisible()
 
   const rpcMessages = await recordedRpcMessages(page)
@@ -297,12 +790,12 @@ test("starts a new ACP chat from the drawer on narrow panels", async ({ page }) 
     && message.params.prompt.some((block: any) => block?.type === "text" && block.text === "new drawer chat probe"))).toBe(true)
 })
 
-test("deletes ACP sessions through the assistant-ui thread list", async ({ page }) => {
-  await page.setViewportSize({ width: 1000, height: 700 })
+test("deletes ACP sessions through the assistant-ui thread list", async ({page}) => {
+  await page.setViewportSize({width: 1000, height: 700})
   await openPreview(page)
   await startMockAgent(page)
 
-  await expect(page.getByRole("button", { name: "Loaded session two" })).toBeVisible()
+  await expect(page.getByRole("button", {name: "Loaded session two"})).toBeVisible()
   await page.evaluate(() => {
     const items = Array.from(document.querySelectorAll(".acpChatListItem"))
     const item = items.find(candidate => candidate.textContent?.includes("Loaded session two"))
@@ -316,14 +809,14 @@ test("deletes ACP sessions through the assistant-ui thread list", async ({ page 
   expect(rpcMessages.some(message => message.method === "session/delete" && message.params?.sessionId === "loaded-session-2")).toBe(true)
 })
 
-test("drives ACP composer config controls through the picker", async ({ page }) => {
+test("drives ACP composer config controls through the picker", async ({page}) => {
   if (!preview) {
     throw new Error("ACP chat mock preview server was not started")
   }
   await page.goto(preview.url)
 
   await page.locator(".acpAgentSelect").click()
-  await page.getByRole("option", { name: "Mock Agent" }).click()
+  await page.getByRole("option", {name: "Mock Agent"}).click()
 
   const controlsLayout = await page.evaluate(() => {
     const composer = document.querySelector(".acpComposer")
@@ -331,9 +824,9 @@ test("drives ACP composer config controls through the picker", async ({ page }) 
     const composerInput = document.querySelector(".acpComposerInput")
     const composerSend = document.querySelector(".acpComposerSend")
     const agentSelector = document.querySelector(".acpAgentSelector")
-    const agentIcon = document.querySelector(".acpAgentSelectorIcon")
-    const agentJbIcon = document.querySelector(".acpAgentSelectorIcon > *")
     const agentSelect = document.querySelector(".acpAgentSelect")
+    const agentItemIcon = document.querySelector(".acpAgentSelect .acpAgentSelectItemIcon")
+    const agentJbIcon = document.querySelector(".acpAgentSelect .acpAgentSelectItemIcon > *")
     const controlIds = ["mode", "model", "effort", "brave_mode", "think_more", "debug_mode"]
     const allControlsInsideComposer = composer != null && controlIds.every(id => {
       const control = document.querySelector(`[data-config-id="${id}"]`)
@@ -344,18 +837,22 @@ test("drives ACP composer config controls through the picker", async ({ page }) 
     const inputRect = composerInput?.getBoundingClientRect()
     const sendRect = composerSend?.getBoundingClientRect()
     const agentRect = agentSelector?.getBoundingClientRect()
+    const agentSelectRect = agentSelect?.getBoundingClientRect()
     return {
       legacyModeHidden: document.querySelector('[data-control-id="legacy-mode"]') == null
         && !document.body.textContent?.includes("No modes"),
       emptySelectHidden: document.querySelector('[data-config-id="empty_selector"]') == null,
-      agentTitleReplacedWithIcon: document.querySelector(".acpAgentSelectorLabel") == null
+      selectedAgentHasItemIcon: document.querySelector(".acpAgentSelectorIcon") == null
+        && document.querySelector(".acpAgentSelectorLabel") == null
+        && agentItemIcon != null
         && agentJbIcon != null
         && agentJbIcon.tagName.toLocaleLowerCase() === "jb-icon"
         && !Array.from(agentSelector?.children ?? []).some(child => child.classList.contains("acpAgentSelectorLabel") && child.textContent?.trim() === "Agent"),
-      agentIconWidth: agentIcon ? getComputedStyle(agentIcon).width : null,
+      agentIconWidth: agentItemIcon ? getComputedStyle(agentItemIcon).width : null,
       agentIconSvgWidth: agentJbIcon ? getComputedStyle(agentJbIcon).width : null,
       agentIconSrc: agentJbIcon?.getAttribute("src"),
       agentSelectAriaLabel: agentSelect?.getAttribute("aria-label"),
+      agentSelectAlignedWithComposer: composerRect != null && agentSelectRect != null && Math.abs(agentSelectRect.left - composerRect.left) <= 1,
       allControlsInsideComposer,
       controlsBelowInput: inputRect != null && controlsRect != null && controlsRect.top >= inputRect.bottom,
       sendPinnedBottomRight: composerRect != null && sendRect != null
@@ -368,13 +865,14 @@ test("drives ACP composer config controls through the picker", async ({ page }) 
   })
   expect(controlsLayout.legacyModeHidden).toBe(true)
   expect(controlsLayout.emptySelectHidden).toBe(true)
-  expect(controlsLayout.agentTitleReplacedWithIcon
+  expect(controlsLayout.selectedAgentHasItemIcon
     && controlsLayout.agentIconWidth === "16px"
     && controlsLayout.agentIconSvgWidth === "16px"
     && controlsLayout.agentIconSrc?.includes("/__ij-icons/AcpChatIcons/") === true
     && controlsLayout.agentIconSrc?.endsWith("/webview/views/acp-chat/assets/acpChatAgent.svg") === true
     && controlsLayout.agentSelectAriaLabel === "Agent: Mock Agent").toBe(true)
   expect(controlsLayout.allControlsInsideComposer).toBe(true)
+  expect(controlsLayout.agentSelectAlignedWithComposer).toBe(true)
   expect(controlsLayout.controlsBelowInput).toBe(true)
   expect(controlsLayout.sendPinnedBottomRight).toBe(true)
   expect(controlsLayout.agentSelectorBelowComposer).toBe(true)
@@ -450,7 +948,7 @@ test("drives ACP composer config controls through the picker", async ({ page }) 
 
   const iconResourcesLoad = await page.evaluate(async () => {
     const iconSources = [
-      document.querySelector(".acpAgentSelectorIcon > *")?.getAttribute("src"),
+      document.querySelector(".acpAgentSelect .acpAgentSelectItemIcon > *")?.getAttribute("src"),
       document.querySelector('[data-config-id="model"] .acpControlIcon > *')?.getAttribute("src"),
       document.querySelector('[data-config-id="effort"] .acpControlIcon > *')?.getAttribute("src"),
       document.querySelector('[data-config-id="think_more"] .acpControlIcon > *')?.getAttribute("src"),
@@ -470,30 +968,30 @@ test("drives ACP composer config controls through the picker", async ({ page }) 
 
   await page.locator('[data-config-id="brave_mode"] .acpControlIcon').hover()
   await page.waitForSelector(".acpControlTooltip")
-  await expect(page.getByText("Brave Mode", { exact: true })).toBeVisible()
+  await expect(page.getByText("Brave Mode", {exact: true})).toBeVisible()
 
   await page.locator('[data-config-id="mode"] .acpConfigOptionSelect').click()
-  await page.getByRole("option", { name: /Code/ }).click()
+  await page.getByRole("option", {name: /Code/}).click()
   await page.waitForFunction(() => document.querySelector('[data-config-id="mode"] .acpConfigOptionSelect')?.textContent?.includes("Code") === true)
 
   await page.locator('[data-config-id="model"] .acpModelSelectorTrigger').click()
   await expect(page.getByPlaceholder("Search models...")).toBeVisible()
   await page.getByPlaceholder("Search models...").fill("pro")
-  await page.getByRole("option", { name: /Gemini 2.5 Pro/ }).click()
-  await expect(page.getByText("Gemini 2.5 Pro", { exact: true })).toBeVisible()
+  await page.getByRole("option", {name: /Gemini 2.5 Pro/}).click()
+  await expect(page.getByText("Gemini 2.5 Pro", {exact: true})).toBeVisible()
 
   await page.locator('[data-config-id="effort"] .acpConfigOptionSelect').click()
-  await page.getByRole("option", { name: /High effort/ }).click()
+  await page.getByRole("option", {name: /High effort/}).click()
   await page.waitForFunction(() => document.querySelector('[data-config-id="effort"] .acpConfigOptionSelect')?.textContent?.includes("High effort") === true)
 
-  await page.getByRole("switch", { name: "Brave Mode" }).click()
+  await page.getByRole("switch", {name: "Brave Mode"}).click()
   await page.waitForFunction(() => document.querySelector('[data-config-id="brave_mode"] .acpConfigSwitch')?.getAttribute("data-state") === "checked")
-  await page.getByRole("switch", { name: "Think More" }).click()
+  await page.getByRole("switch", {name: "Think More"}).click()
   await page.waitForFunction(() => document.querySelector('[data-config-id="think_more"] .acpConfigSwitch')?.getAttribute("data-state") === "checked")
-  await page.getByRole("switch", { name: "Debug Mode" }).click()
+  await page.getByRole("switch", {name: "Debug Mode"}).click()
   await page.waitForFunction(() => document.querySelector('[data-config-id="debug_mode"] .acpConfigSwitch')?.getAttribute("data-state") === "checked")
 
-  await page.setViewportSize({ width: 620, height: 700 })
+  await page.setViewportSize({width: 620, height: 700})
   const controlsStayInOneRow = await page.evaluate(() => {
     const composerRect = document.querySelector(".acpComposer")?.getBoundingClientRect()
     const picker = document.querySelector(".acpModelPicker")
@@ -547,27 +1045,27 @@ test("drives ACP composer config controls through the picker", async ({ page }) 
     && message.params?.value === true)).toBe(true)
 })
 
-test("renders rich assistant markdown through the chat message renderer", async ({ page }) => {
+test("renders rich assistant markdown through the chat message renderer", async ({page}) => {
   if (!preview) {
     throw new Error("ACP chat mock preview server was not started")
   }
   await page.goto(preview.url)
 
   await page.locator(".acpAgentSelect").click()
-  await page.getByRole("option", { name: "Mock Agent" }).click()
+  await page.getByRole("option", {name: "Mock Agent"}).click()
   await composerInput(page).fill("markdown feature probe")
-  await page.getByRole("button", { name: "Send" }).click()
+  await page.getByRole("button", {name: "Send"}).click()
 
-  await expect(page.getByText("Markdown feature matrix", { exact: true })).toBeVisible()
-  await expect(page.getByText("GFM table", { exact: true })).toBeVisible()
-  await expect(page.getByText("Render task lists", { exact: true })).toBeVisible()
-  await expect(page.getByText("Raw HTML details", { exact: true })).toBeVisible()
+  await expect(page.getByText("Markdown feature matrix", {exact: true})).toBeVisible()
+  await expect(page.getByText("GFM table", {exact: true})).toBeVisible()
+  await expect(page.getByText("Render task lists", {exact: true})).toBeVisible()
+  await expect(page.getByText("Raw HTML details", {exact: true})).toBeVisible()
   await page.waitForFunction(() => document.querySelector(".acpMarkdown .footnotes")?.textContent?.includes("Footnote content from ACP chat markdown.") === true)
   await page.waitForSelector(".acpMarkdown .katex")
   await page.waitForSelector(".acpMermaidBlock svg")
   await verifyAcpMermaidViewport(page)
-  await expect(page.getByRole("button", { name: "views/acp-chat/src/components/MarkdownRenderer.tsx:47" })).toBeVisible()
-  await expect(page.getByRole("button", { name: "community/plugins/ui.webview/demo/webview-src/views/acp-chat/src/bridge/webviewApi.ts#L1" })).toBeVisible()
+  await expect(page.getByRole("button", {name: "views/acp-chat/src/components/MarkdownRenderer.tsx:47"})).toBeVisible()
+  await expect(page.getByRole("button", {name: "community/plugins/ui.webview/demo/webview-src/views/acp-chat/src/bridge/webviewApi.ts#L1"})).toBeVisible()
 
   const markdownRenderedSafely = await page.evaluate(() => {
     const markdown = document.querySelector(".acpMsgAssistant .acpMarkdown")
@@ -595,7 +1093,7 @@ test("renders rich assistant markdown through the chat message renderer", async 
   })
   expect(markdownRenderedSafely).toBe(true)
 
-  await page.getByRole("button", { name: "views/acp-chat/src/components/MarkdownRenderer.tsx:47" }).click()
+  await page.getByRole("button", {name: "views/acp-chat/src/components/MarkdownRenderer.tsx:47"}).click()
   const navigatePathLinkCalled = await page.evaluate(() => {
     const calls = (window as MockWindow).__WVI_MOCK__?.calls.byMethod("acp.bridge/navigatePathLink") ?? []
     return calls.some(call => {
@@ -608,19 +1106,19 @@ test("renders rich assistant markdown through the chat message renderer", async 
   expect(navigatePathLinkCalled).toBe(true)
 })
 
-test("sends pasted image resources as ACP prompt content blocks", async ({ page }) => {
+test("sends pasted image resources as ACP prompt content blocks", async ({page}) => {
   if (!preview) {
     throw new Error("ACP chat mock preview server was not started")
   }
   await page.goto(preview.url)
 
   await page.locator(".acpAgentSelect").click()
-  await page.getByRole("option", { name: "Mock Agent" }).click()
+  await page.getByRole("option", {name: "Mock Agent"}).click()
   await pasteImageIntoComposer(page)
-  await expect(page.getByText("pasted.png", { exact: true })).toBeVisible()
+  await expect(page.getByText("pasted.png", {exact: true})).toBeVisible()
 
   await composerInput(page).fill("attachment probe")
-  await page.getByRole("button", { name: "Send" }).click()
+  await page.getByRole("button", {name: "Send"}).click()
   await expect(page.getByText(/Mock response from AI chat: attachment probe/)).toBeVisible()
 
   const calls = await page.evaluate(() => {
@@ -645,28 +1143,28 @@ test("sends pasted image resources as ACP prompt content blocks", async ({ page 
   expect(hasImageBlock).toBe(true)
 })
 
-test("inserts ACP slash commands into the composer and sends them as prompt prefixes", async ({ page }) => {
+test("inserts ACP slash commands into the composer and sends them as prompt prefixes", async ({page}) => {
   if (!preview) {
     throw new Error("ACP chat mock preview server was not started")
   }
   await page.goto(preview.url)
 
   await page.locator(".acpAgentSelect").click()
-  await page.getByRole("option", { name: "Mock Agent" }).click()
+  await page.getByRole("option", {name: "Mock Agent"}).click()
 
   const input = composerInput(page)
   await input.fill("/")
-  await expect(page.getByRole("option", { name: /\/summarize/ })).toBeVisible()
-  await expect(page.getByRole("option", { name: /\/explain/ })).toBeVisible()
+  await expect(page.getByRole("option", {name: /\/summarize/})).toBeVisible()
+  await expect(page.getByRole("option", {name: /\/explain/})).toBeVisible()
 
   await input.fill("/sum")
-  await page.getByRole("option", { name: /\/summarize/ }).click()
+  await page.getByRole("option", {name: /\/summarize/}).click()
   await page.waitForFunction(() => (document.querySelector(".acpComposerInput") as HTMLTextAreaElement | null)?.value === "/summarize ")
   const insertedCommand = await input.inputValue()
   expect(insertedCommand === "/summarize ").toBe(true)
 
   await input.fill(`${insertedCommand}this file`)
-  await page.getByRole("button", { name: "Send" }).click()
+  await page.getByRole("button", {name: "Send"}).click()
   await expect(page.getByText(/Mock response from AI chat: \/summarize this file/)).toBeVisible()
 
   const calls = await page.evaluate(() => {
@@ -680,17 +1178,17 @@ test("inserts ACP slash commands into the composer and sends them as prompt pref
     && message.params.prompt.some((block: any) => block?.type === "text" && block.text === "/summarize this file"))).toBe(true)
 })
 
-test("quotes selected assistant text and sends quoted context before the prompt", async ({ page }) => {
+test("quotes selected assistant text and sends quoted context before the prompt", async ({page}) => {
   if (!preview) {
     throw new Error("ACP chat mock preview server was not started")
   }
   await page.goto(preview.url)
 
   await page.locator(".acpAgentSelect").click()
-  await page.getByRole("option", { name: "Mock Agent" }).click()
+  await page.getByRole("option", {name: "Mock Agent"}).click()
 
   await composerInput(page).fill("quote source")
-  await page.getByRole("button", { name: "Send" }).click()
+  await page.getByRole("button", {name: "Send"}).click()
   await expect(page.getByText(/Mock response from AI chat: quote source/)).toBeVisible()
 
   const selected = await page.evaluate(() => {
@@ -709,7 +1207,7 @@ test("quotes selected assistant text and sends quoted context before the prompt"
         const selection = window.getSelection()
         selection?.removeAllRanges()
         selection?.addRange(range)
-        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))
+        document.dispatchEvent(new MouseEvent("mouseup", {bubbles: true}))
         return true
       }
       node = walker.nextNode()
@@ -717,16 +1215,16 @@ test("quotes selected assistant text and sends quoted context before the prompt"
     return false
   })
   expect(selected).toBe(true)
-  await expect(page.getByRole("button", { name: "Quote" })).toBeVisible()
+  await expect(page.getByRole("button", {name: "Quote"})).toBeVisible()
 
-  await page.getByRole("button", { name: "Quote" }).click()
+  await page.getByRole("button", {name: "Quote"}).click()
   await page.waitForSelector(".acpComposerQuote")
   const composerQuoteVisible = await page.evaluate(() => document.querySelector(".acpComposerQuoteText")?.textContent === "Mock response from AI chat")
   expect(composerQuoteVisible).toBe(true)
 
   await composerInput(page).fill("quote follow-up")
-  await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.getByText("quote follow-up", { exact: true })).toBeVisible()
+  await page.getByRole("button", {name: "Send"}).click()
+  await expect(page.getByText("quote follow-up", {exact: true})).toBeVisible()
   await page.waitForSelector(".acpMsgUser .acpMessageQuote")
   const sentQuoteVisible = await page.evaluate(() => document.querySelector(".acpMsgUser .acpMessageQuote")?.textContent === "Mock response from AI chat")
   expect(sentQuoteVisible).toBe(true)
@@ -752,18 +1250,18 @@ test("quotes selected assistant text and sends quoted context before the prompt"
   expect(quoteBlockIndex >= 0 && promptBlockIndex > quoteBlockIndex).toBe(true)
 })
 
-test("keeps the keyboard-highlighted slash command visible while navigating", async ({ page }) => {
+test("keeps the keyboard-highlighted slash command visible while navigating", async ({page}) => {
   if (!preview) {
     throw new Error("ACP chat mock preview server was not started")
   }
   await page.goto(preview.url)
 
   await page.locator(".acpAgentSelect").click()
-  await page.getByRole("option", { name: "Mock Agent" }).click()
+  await page.getByRole("option", {name: "Mock Agent"}).click()
 
   const input = composerInput(page)
   await input.fill("/")
-  await expect(page.getByRole("option", { name: /\/summarize/ })).toBeVisible()
+  await expect(page.getByRole("option", {name: /\/summarize/})).toBeVisible()
   for (let i = 0; i < 11; i++) {
     await input.press("ArrowDown")
   }
@@ -781,28 +1279,36 @@ test("keeps the keyboard-highlighted slash command visible while navigating", as
 })
 
 async function verifyAcpMermaidViewport(page: Page): Promise<void> {
-  await expect(page.getByRole("button", { name: "Zoom in diagram" })).toBeVisible()
+  await expect(page.getByRole("button", {name: "Zoom in diagram"})).toBeVisible()
   expect(await acpMermaidToolbarIconsLoaded(page)).toBe(true)
+  expect(await acpMermaidToolbarButtonsUseDefaultCursor(page)).toBe(true)
   const resizeEnabled = await page.evaluate(() => {
     const block = document.querySelector(".acpMermaidBlock--interactive")
     return block != null && getComputedStyle(block).resize === "vertical"
   })
   expect(resizeEnabled).toBe(true)
   expect(await acpMermaidSvgFillsViewport(page)).toBe(true)
+  expect(await acpMermaidViewportUsesMoveCursor(page)).toBe(true)
 
-  await page.getByRole("button", { name: "Zoom in diagram" }).click()
+  await page.getByRole("button", {name: "Zoom in diagram"}).click()
   await page.waitForFunction(() => {
     const transform = document.querySelector(".acpMermaidPanZoom")?.getAttribute("transform") ?? ""
     return transform.includes("scale(") && !transform.endsWith("scale(1)")
   })
 
-  await page.getByRole("button", { name: "Reset diagram zoom" }).click()
+  await page.getByRole("button", {name: "Reset diagram zoom"}).click()
   await page.waitForFunction(() => (document.querySelector(".acpMermaidPanZoom")?.getAttribute("transform") ?? "") === "translate(0,0) scale(1)")
 
   expect(await acpMermaidViewBoxContainsContent(page)).toBe(true)
 
   const transformBeforeWheel = await acpMermaidTransform(page)
-  await page.locator(".acpMermaidViewport svg").dispatchEvent("wheel", { deltaY: -120, clientX: 80, clientY: 80, bubbles: true, cancelable: true })
+  await page.locator(".acpMermaidViewport svg").dispatchEvent("wheel", {
+    deltaY: -120,
+    clientX: 80,
+    clientY: 80,
+    bubbles: true,
+    cancelable: true
+  })
   expect((await acpMermaidTransform(page)) === transformBeforeWheel).toBe(true)
 
   const svg = page.locator(".acpMermaidViewport svg")
@@ -833,10 +1339,24 @@ function acpMermaidSvgFillsViewport(page: Page): Promise<boolean> {
   })
 }
 
+function acpMermaidViewportUsesMoveCursor(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const viewport = document.querySelector(".acpMermaidViewport")
+    return viewport != null && getComputedStyle(viewport).cursor === "move"
+  })
+}
+
 function acpMermaidToolbarIconsLoaded(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const icons = Array.from(document.querySelectorAll<HTMLImageElement>(".acpMermaidToolbar img"))
     return icons.length === 3 && icons.every(icon => icon.complete && icon.naturalWidth > 0 && icon.naturalHeight > 0)
+  })
+}
+
+function acpMermaidToolbarButtonsUseDefaultCursor(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(".acpMermaidToolbarButton"))
+    return buttons.length === 3 && buttons.every(button => getComputedStyle(button).cursor === "default")
   })
 }
 
@@ -861,10 +1381,28 @@ async function openPreview(page: Page): Promise<void> {
   await page.goto(preview.url)
 }
 
+async function clickCenter(page: Page, locator: Locator): Promise<void> {
+  const box = await locator.boundingBox()
+  if (!box) throw new Error("Cannot click an element without a rendered bounding box")
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.up()
+}
+
+async function waitForTwoAnimationFrames(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+}
+
 async function startMockAgent(page: Page): Promise<void> {
+  await selectAgentByName(page, "Mock Agent")
+  await expect(page.getByText("Mock Agent", {exact: true})).toBeVisible()
+}
+
+async function selectAgentByName(page: Page, name: string): Promise<void> {
   await page.locator(".acpAgentSelect").click()
-  await page.getByRole("option", { name: "Mock Agent" }).click()
-  await expect(page.getByText("Mock Agent")).toBeVisible()
+  await page.getByRole("option", {name, exact: true}).click()
 }
 
 async function recordedRpcMessages(page: Page): Promise<JsonRpcMessage[]> {
@@ -894,9 +1432,9 @@ async function pasteImageIntoComposer(page: Page): Promise<void> {
     const input = document.querySelector(".acpComposerInput")
     if (!input) throw new Error("No ACP composer input found")
     const dataTransfer = new DataTransfer()
-    dataTransfer.items.add(new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "pasted.png", { type: "image/png" }))
-    const event = new Event("paste", { bubbles: true, cancelable: true })
-    Object.defineProperty(event, "clipboardData", { value: dataTransfer })
+    dataTransfer.items.add(new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "pasted.png", {type: "image/png"}))
+    const event = new Event("paste", {bubbles: true, cancelable: true})
+    Object.defineProperty(event, "clipboardData", {value: dataTransfer})
     input.dispatchEvent(event)
   })
 }

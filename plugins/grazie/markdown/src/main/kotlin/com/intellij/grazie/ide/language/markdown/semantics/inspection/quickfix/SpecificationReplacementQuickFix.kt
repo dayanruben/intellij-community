@@ -1,5 +1,6 @@
 package com.intellij.grazie.ide.language.markdown.semantics.inspection.quickfix
 
+import ai.grazie.rules.promptAnalysis.LlmAnalyzer.Replacement
 import com.intellij.codeInsight.intention.EventTrackingIntentionAction
 import com.intellij.codeInsight.intention.FileModifier
 import com.intellij.codeInsight.intention.HighPriorityAction
@@ -19,12 +20,10 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.psi.PsiFile
 import com.intellij.psi.SmartPsiFileRange
 import org.jetbrains.annotations.Unmodifiable
-import java.util.UUID
 
 internal class SpecificationReplacementQuickFix(
-  private val id: UUID,
   private val underline: SmartPsiFileRange,
-  private val replacements: List<String>,
+  private val replacements: List<Replacement>,
 ) : DefaultIntentionActionWithChoice {
 
   companion object {
@@ -36,25 +35,25 @@ internal class SpecificationReplacementQuickFix(
   override fun getTitle(): ChoiceTitleIntentionAction = ReplacementTitle
 
   override fun getVariants(): @Unmodifiable List<ChoiceVariantIntentionAction> =
-    replacements.mapIndexed { index, replacement -> ReplacementVariant(id, index, replacements.size, underline, replacement) }
+    replacements.mapIndexed { index, replacement -> ReplacementVariant(index, replacements.size, underline, replacement) }
 
   open class ReplacementVariant(
-    private val id: UUID, override val index: Int, private val total: Int,
-    private val underline: SmartPsiFileRange, @NlsSafe private val replacement: String,
+    override val index: Int, private val total: Int,
+    private val underline: SmartPsiFileRange, @NlsSafe private val replacement: Replacement,
   ) : ChoiceVariantIntentionAction(), HighPriorityAction, DumbAware, EventTrackingIntentionAction {
 
-    override fun getName(): @IntentionName String = replacement
+    override fun getName(): @IntentionName String = replacement.description ?: replacement.value
     override fun getFamilyName(): @IntentionFamilyName String = Companion.familyName
-    override fun getFileModifierForPreview(target: PsiFile): FileModifier = ReplacementPreview(id, index, total, underline, replacement)
+    override fun getFileModifierForPreview(target: PsiFile): FileModifier = ReplacementPreview(index, total, underline, replacement)
     override fun isShowSubmenu(): Boolean = true
 
     override fun applyFix(project: Project, file: PsiFile, editor: Editor?) {
-      SpecificationFUSCollector.suggestionAccepted(id, index, total)
-      performFix(project, file, replacement)
+      SpecificationFUSCollector.suggestionAccepted(index, total)
+      performFix(project, file, replacement.value)
     }
 
     override fun suggestionShown(project: Project, editor: Editor, psiFile: PsiFile) =
-      SpecificationFUSCollector.suggestionShown(id, index, total)
+      SpecificationFUSCollector.suggestionShown(index, total)
 
     internal fun performFix(project: Project, file: PsiFile, replacement: String) {
       val document = file.viewProvider.document ?: return
@@ -67,9 +66,9 @@ internal class SpecificationReplacementQuickFix(
   private object ReplacementTitle : ChoiceTitleIntentionAction(familyName, familyName), HighPriorityAction, DumbAware
 
   private class ReplacementPreview(
-    id: UUID, index: Int, total: Int, underline: SmartPsiFileRange,
-    private val replacement: String,
-  ) : ReplacementVariant(id, index, total, underline, replacement), IntentionPreviewInfo {
-    override fun applyFix(project: Project, file: PsiFile, editor: Editor?) = performFix(project, file, replacement)
+    index: Int, total: Int, underline: SmartPsiFileRange,
+    private val replacement: Replacement,
+  ) : ReplacementVariant(index, total, underline, replacement), IntentionPreviewInfo {
+    override fun applyFix(project: Project, file: PsiFile, editor: Editor?) = performFix(project, file, replacement.value)
   }
 }

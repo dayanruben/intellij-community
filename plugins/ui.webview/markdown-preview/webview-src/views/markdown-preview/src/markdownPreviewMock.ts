@@ -5,22 +5,23 @@ import { defineWebViewMock } from "@jetbrains/intellij-webview-testkit"
 import type {
   MarkdownChangedBlockDescriptor,
   MarkdownCommandDescriptor,
+  MarkdownNavigatePathLinkRequest,
+  MarkdownPreviewSettings,
+  MarkdownResolvePathLinksRequest,
+  MarkdownResolvedPathLinksResponse,
   MarkdownResolveRunCommandsRequest,
   MarkdownResolvedRunCommandsResponse,
   MarkdownRunCommandRequest,
+  MarkdownSetFontSizeRequest,
   MarkdownSourceRange,
-} from "./MarkdownPreviewApp"
+} from "./markdownPreviewTypes"
 
 interface MarkdownContentChangedParams {
   markdown: string
   scrollLine: number
-  settings: MarkdownPreviewSettingsParams
+  settings: MarkdownPreviewSettings
   contentVersion: number
   changes: MarkdownChangedBlockDescriptor[]
-}
-
-interface MarkdownPreviewSettingsParams {
-  fontSize?: number | null
 }
 
 interface MarkdownScrollToLineParams {
@@ -42,6 +43,9 @@ interface MarkdownPreviewHostApi extends WebViewCallable {
   openLink(params: MarkdownOpenLinkParams): Promise<void>
   resolveRunCommands(params: MarkdownResolveRunCommandsRequest): Promise<MarkdownResolvedRunCommandsResponse>
   runCommand(params: MarkdownRunCommandRequest): Promise<void>
+  resolvePathLinks(params: MarkdownResolvePathLinksRequest): Promise<MarkdownResolvedPathLinksResponse>
+  navigatePathLink(params: MarkdownNavigatePathLinkRequest): Promise<void>
+  setFontSize(params: MarkdownSetFontSizeRequest): Promise<void>
 }
 
 interface MarkdownOpenLinkParams {
@@ -54,16 +58,21 @@ const changes: MarkdownChangedBlockDescriptor[] = [
   { kind: "ADDED", startLine: 9, endLine: 13 },
   { kind: "MODIFIED", startLine: 20, endLine: 23 },
 ]
+const resolvedPathLinks = new Set(["docs/guide.md:12", "src/Main.kt", "src\\WindowsPath.kt", "index.h", "index.html", "style.css", "requirements.txt", "my_django_project/", "my_django_app/"])
+const defaultFontSize = 13
+const fontSizeOptions = [8, 9, 10, 11, 12, defaultFontSize, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72]
 
 export default defineWebViewMock(({ host, page, theme }) => {
   const toolbar = installMockToolbar()
   let contentVersion = 1
+  let currentMarkdown = sampleMarkdown
+  let currentFontSize = defaultFontSize
 
   function updatePreview(): void {
     page.callable(markdownPreviewPageApiId).contentChanged({
-      markdown: sampleMarkdown,
+      markdown: currentMarkdown,
       scrollLine: 0,
-      settings: {},
+      settings: currentSettings(),
       contentVersion: contentVersion++,
       changes,
     })
@@ -75,6 +84,11 @@ export default defineWebViewMock(({ host, page, theme }) => {
   toolbar.toggleThemeButton.addEventListener("click", () => {
     const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark"
     theme.set(nextTheme)
+    updatePreview()
+  })
+
+  toolbar.shortMarkdownButton.addEventListener("click", () => {
+    currentMarkdown = shortMarkdown
     updatePreview()
   })
 
@@ -104,10 +118,37 @@ export default defineWebViewMock(({ host, page, theme }) => {
     async runCommand(params) {
       toolbar.log.textContent = `run ${params.id}`
     },
+    async resolvePathLinks(request) {
+      return {
+        resolvedIds: request.candidates
+          .filter(candidate => resolvedPathLinks.has(candidate.rawPath))
+          .map(candidate => candidate.id),
+      }
+    },
+    async navigatePathLink(params) {
+      toolbar.log.textContent = JSON.stringify({ kind: "navigatePathLink", ...params })
+    },
+    async setFontSize(params) {
+      const normalizedFontSize = closestFontSize(params.fontSize, fontSizeOptions)
+      toolbar.log.textContent = JSON.stringify({ kind: "setFontSize", fontSize: normalizedFontSize })
+      if (normalizedFontSize === currentFontSize) return
+
+      currentFontSize = normalizedFontSize
+      updatePreview()
+    },
   })
+
+  function currentSettings(): MarkdownPreviewSettings {
+    return {
+      fontSize: currentFontSize === defaultFontSize ? null : currentFontSize,
+      effectiveFontSize: currentFontSize,
+      defaultFontSize,
+      fontSizeOptions,
+    }
+  }
 })
 
-function installMockToolbar(): { toggleThemeButton: HTMLButtonElement, log: HTMLSpanElement } {
+function installMockToolbar(): { toggleThemeButton: HTMLButtonElement, shortMarkdownButton: HTMLButtonElement, log: HTMLSpanElement } {
   const content = document.getElementById("content")
   if (!content) {
     throw new Error("Missing Markdown preview content element")
@@ -122,13 +163,18 @@ function installMockToolbar(): { toggleThemeButton: HTMLButtonElement, log: HTML
   toggleThemeButton.textContent = "Toggle theme"
   toolbar.append(toggleThemeButton)
 
+  const shortMarkdownButton = document.createElement("button")
+  shortMarkdownButton.type = "button"
+  shortMarkdownButton.textContent = "Short markdown"
+  toolbar.append(shortMarkdownButton)
+
   const log = document.createElement("span")
   log.id = "mock-run-log"
   toolbar.append(log)
 
   content.before(toolbar)
   installMockToolbarStyles()
-  return { toggleThemeButton, log }
+  return { toggleThemeButton, shortMarkdownButton, log }
 }
 
 function installMockToolbarStyles(): void {
@@ -161,24 +207,80 @@ function installMockToolbarStyles(): void {
   document.head.append(style)
 }
 
-const sampleMarkdown = `# Markdown Preview Mock
+function closestFontSize(fontSize: number, options: number[]): number {
+  return options.reduce((closest, candidate) => {
+    return Math.abs(candidate - fontSize) < Math.abs(closest - fontSize) ? candidate : closest
+  }, options[0] ?? fontSize)
+}
+
+const sampleMarkdown = `---
+project: IntelliJ IDEA Platform
+languages: [Kotlin, Java]
+framework: IntelliJ Platform SDK
+build-system: Bazel
+repository: monorepo
+---
+
+# Markdown Preview Mock
 
 This page runs the real Markdown preview entry through the WebView testkit mock bridge.
 
-[External link](https://www.jetbrains.com) and an inline command: \`echo inline\`.
+[External link](https://www.jetbrains.com), an inline command: \`echo inline\`, and a path \`docs/guide.md:12\`.
+
+Inline math \\(a+b\\) and display math $$c=d$$.
+
+## Images
+
+![Zoomable preview](images/zoomable-preview.svg)
+
+Inline image: ![Inline preview](images/inline-preview.svg) stays inline.
+
+[![Linked preview](images/linked-preview.svg)](https://www.jetbrains.com)
 
 ## Runnable Code
 
 \`\`\`bash
 echo first line
+cat src/Main.kt
+cat src\\WindowsPath.kt
+cat missing/Nope.kt
 echo second line
+\`\`\`
+
+## Project Tree
+
+\`\`\`text
+.venv/
+app/
+  init.py
+  main.py
+  routes.py
+templates/
+  index.html
+static/
+style.css
+requirements.txt
+\`\`\`
+
+## Django Tree
+
+\`\`\`
+my_django_project/
+  manage.py
+  ...
+  my_django_app/
+    migrations/
+    templates/
+    models.py
+    urls.py
+    ...
 \`\`\`
 
 ## Mermaid
 
 \`\`\`mermaid
 flowchart LR
-  A[Markdown] --> B[Preview]
+  A[src/Mermaid.kt] --> B[Preview]
 \`\`\`
 
 ## Table
@@ -187,4 +289,9 @@ flowchart LR
 | --- | --- |
 | Icons | AllIcons |
 | Theme | Toggleable |
+`
+
+const shortMarkdown = `# Short Markdown
+
+This mock document has no table of contents.
 `

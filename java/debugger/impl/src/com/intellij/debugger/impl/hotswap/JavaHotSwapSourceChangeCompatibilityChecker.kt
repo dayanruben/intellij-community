@@ -8,10 +8,16 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.psi.JavaRecursiveElementWalkingVisitor
 import com.intellij.psi.LambdaUtil
 import com.intellij.psi.PsiAnonymousClass
+import com.intellij.psi.PsiArrayType
+import com.intellij.psi.PsiCapturedWildcardType
 import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiClassType
+import com.intellij.psi.PsiDisjunctionType
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiField
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiFileFactory
+import com.intellij.psi.PsiIntersectionType
 import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiLambdaExpression
 import com.intellij.psi.PsiMethod
@@ -20,6 +26,7 @@ import com.intellij.psi.PsiModifierListOwner
 import com.intellij.psi.PsiReferenceExpression
 import com.intellij.psi.PsiType
 import com.intellij.psi.PsiVariable
+import com.intellij.psi.PsiWildcardType
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtil
 import com.intellij.xdebugger.impl.hotswap.SourceFileChangeCompatibilityChecker
@@ -39,6 +46,13 @@ class JavaHotSwapSourceChangeCompatibilityChecker(project: Project) :
     val javaFile = file as? PsiJavaFile ?: unknownClassShapes("Expected PsiJavaFile, got ${file::class.java.name}")
     val typeNames = PsiTreeUtil.collectElementsOfType(javaFile, PsiClass::class.java).mapNotNullTo(hashSetOf()) { it.qualifiedName }
     return ResolutionFingerprint(javaFile.packageName, javaFile.importList?.text.orEmpty(), typeNames)
+  }
+
+  override fun createOldPsiFile(currentFile: PsiFile, oldContent: CharSequence): PsiFile? {
+    val javaFile = currentFile as? PsiJavaFile ?: return null
+    return PsiFileFactory.getInstance(javaFile.project)
+      .createFileFromText(javaFile.name, javaFile.language, oldContent, false, true, false, javaFile.virtualFile)
+      .also { it.putUserData(PsiFileFactory.ORIGINAL_FILE, javaFile) }
   }
 
   context(_: Context)
@@ -127,7 +141,7 @@ class JavaHotSwapSourceChangeCompatibilityChecker(project: Project) :
     val dependency = if (this is PsiAnonymousClass) baseClassReference else extendsList
     if (dependency == null) return emptySet()
     return cached(dependency, "extendsList") {
-      extendsListTypes.mapTo(hashSetOf()) { it.signature() }
+      extendsListTypes.mapTo(hashSetOf()) { it.signature("Java supertype '${it.canonicalText}'") }
     }
   }
 
@@ -135,19 +149,21 @@ class JavaHotSwapSourceChangeCompatibilityChecker(project: Project) :
   private fun PsiClass.interfaceSuperTypeSignatures(): Set<String> {
     val dependency = implementsList ?: return emptySet()
     return cached(dependency, "implementsList") {
-      implementsListTypes.mapTo(hashSetOf()) { it.signature() }
+      implementsListTypes.mapTo(hashSetOf()) { it.signature("Java supertype '${it.canonicalText}'") }
     }
   }
 
   context(_: Context)
   private fun PsiField.snapshot(): Pair<String, HotSwapFieldShape> = cached(this, "field") {
-    name to HotSwapFieldShape(type.signature(), modifiers(FIELD_MODIFIERS))
+    name to HotSwapFieldShape(type.signature("type for Java field '$name'"), modifiers(FIELD_MODIFIERS))
   }
 
   context(_: Context)
   private fun PsiMethod.snapshot(): Pair<HotSwapMethodId, HotSwapMethodShape> = cached(this, "method") {
-    val id = HotSwapMethodId(name, isConstructor, parameterList.parameters.map { it.type.signature() })
-    val returnType = returnType?.signature()
+    val id = HotSwapMethodId(name, isConstructor, parameterList.parameters.map {
+      it.type.signature("type for Java method parameter '${it.name}'")
+    })
+    val returnType = returnType?.signature("return type for Java method '$name'")
     id to HotSwapMethodShape(returnType, modifiers(METHOD_MODIFIERS))
   }
 
@@ -155,9 +171,13 @@ class JavaHotSwapSourceChangeCompatibilityChecker(project: Project) :
   private fun PsiLambdaExpression.snapshot(index: Int): Pair<HotSwapMethodId, HotSwapMethodShape> {
     val enclosingMember = enclosingTopLevelMember()
     val (parameters, returnType) = cached(this, "lambda", dependency = enclosingMember) {
-      val capturedParameters = capturedVariables(enclosingMember).map { it.type.signature() }
-      val declaredParameters = parameterList.parameters.map { it.type.signature() }
-      val returnType = functionalInterfaceType?.let { LambdaUtil.getFunctionalInterfaceReturnType(it)?.signature() }
+      val capturedParameters = capturedVariables(enclosingMember).map {
+        it.type.signature("type for captured Java variable '${it.name}'")
+      }
+      val declaredParameters = parameterList.parameters.map { it.type.signature("type for Java lambda parameter '${it.name}'") }
+      val returnType = functionalInterfaceType?.let {
+        LambdaUtil.getFunctionalInterfaceReturnType(it)?.signature("return type for Java lambda")
+      }
       (capturedParameters + declaredParameters) to returnType
     }
     val id = HotSwapMethodId("lambda$" + syntheticOwnerName() + "$" + index, false, parameters)
@@ -179,7 +199,8 @@ class JavaHotSwapSourceChangeCompatibilityChecker(project: Project) :
     val enclosingMember = enclosingTopLevelMember()
     return cached(this, "anonymousClass", dependency = enclosingMember) {
       capturedVariables(enclosingMember).mapIndexed { index, variable ->
-        "capture$index${variable.name}" to HotSwapFieldShape(variable.type.signature(), emptySet())
+        val type = variable.type.signature("type for captured Java variable '${variable.name}'")
+        "capture$index${variable.name}" to HotSwapFieldShape(type, emptySet())
       }.toMap()
     }
   }
@@ -206,7 +227,27 @@ class JavaHotSwapSourceChangeCompatibilityChecker(project: Project) :
       .filterNot { it is PsiField }
       .mapNotNullTo(hashSetOf()) { it.name }
 
-  private fun PsiType.signature(): String = canonicalText
+  private fun PsiType.signature(typeDescription: String): String {
+    ensureResolved(typeDescription)
+    return canonicalText
+  }
+
+  private fun PsiType.ensureResolved(typeDescription: String) {
+    when (this) {
+      is PsiClassType -> {
+        if (resolve() == null) {
+          unknownClassShapes("Cannot resolve $typeDescription: unresolved Java type '$canonicalText'")
+        }
+        parameters.forEach { it.ensureResolved(typeDescription) }
+      }
+
+      is PsiArrayType -> componentType.ensureResolved(typeDescription)
+      is PsiWildcardType -> bound?.ensureResolved(typeDescription)
+      is PsiCapturedWildcardType -> wildcard.ensureResolved(typeDescription)
+      is PsiDisjunctionType -> disjunctions.forEach { it.ensureResolved(typeDescription) }
+      is PsiIntersectionType -> conjuncts.forEach { it.ensureResolved(typeDescription) }
+    }
+  }
 
   private fun PsiModifierListOwner.modifiers(knownModifiers: Array<String>): Set<String> =
     knownModifiers.filterTo(hashSetOf()) { modifierList?.hasExplicitModifier(it) == true }

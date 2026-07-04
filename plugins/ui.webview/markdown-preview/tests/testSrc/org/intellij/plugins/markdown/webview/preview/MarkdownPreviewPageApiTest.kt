@@ -15,11 +15,15 @@ internal class MarkdownPreviewPageApiTest : TestCase() {
       MarkdownContentChangedParams(
         markdown = "# Title",
         scrollLine = 3,
-        settings = MarkdownPreviewSettingsParams(fontSize = 17),
+        settings = previewSettings(fontSize = 17),
       ),
     ).jsonObject
 
-    assertEquals("17", payload.getValue("settings").jsonObject.getValue("fontSize").jsonPrimitive.content)
+    val settings = payload.getValue("settings").jsonObject
+    assertEquals("17", settings.getValue("fontSize").jsonPrimitive.content)
+    assertEquals("17", settings.getValue("effectiveFontSize").jsonPrimitive.content)
+    assertEquals("13", settings.getValue("defaultFontSize").jsonPrimitive.content)
+    assertEquals(listOf("8", "13", "17"), settings.getValue("fontSizeOptions").jsonArray.map { it.jsonPrimitive.content })
   }
 
   fun `test default content update payload inherits WebView font size`() {
@@ -28,7 +32,7 @@ internal class MarkdownPreviewPageApiTest : TestCase() {
       MarkdownContentChangedParams(
         markdown = "# Title",
         scrollLine = 3,
-        settings = MarkdownPreviewSettingsParams(fontSize = null),
+        settings = previewSettings(fontSize = null),
       ),
     ).jsonObject
 
@@ -41,7 +45,7 @@ internal class MarkdownPreviewPageApiTest : TestCase() {
       MarkdownContentChangedParams(
         markdown = "```shell\npwd\n```",
         scrollLine = 0,
-        settings = MarkdownPreviewSettingsParams(fontSize = 14),
+        settings = previewSettings(fontSize = 14),
         contentVersion = 42,
       ),
     ).jsonObject
@@ -95,5 +99,64 @@ internal class MarkdownPreviewPageApiTest : TestCase() {
 
     val command = payload.getValue("commands").jsonArray.single().jsonObject
     assertEquals("command-id", command.getValue("id").jsonPrimitive.content)
+  }
+
+  fun `test resolve path links payload includes path candidates`() {
+    val payload = Json.encodeToJsonElement(
+      MarkdownResolvePathLinksParams.serializer(),
+      MarkdownResolvePathLinksParams(
+        contentVersion = 42,
+        candidates = listOf(
+          MarkdownPathLinkCandidate(
+            id = "path-id",
+            rawPath = "src/Main.kt:10:5",
+          ),
+        ),
+      ),
+    ).jsonObject
+
+    val candidate = payload.getValue("candidates").jsonArray.single().jsonObject
+    assertEquals("42", payload.getValue("contentVersion").jsonPrimitive.content)
+    assertEquals("path-id", candidate.getValue("id").jsonPrimitive.content)
+    assertEquals("src/Main.kt:10:5", candidate.getValue("rawPath").jsonPrimitive.content)
+  }
+
+  fun `test resolved path links payload includes resolved ids`() {
+    val payload = Json.encodeToJsonElement(
+      MarkdownResolvedPathLinksParams.serializer(),
+      MarkdownResolvedPathLinksParams(
+        resolvedIds = listOf("path-id"),
+      ),
+    ).jsonObject
+
+    assertEquals("path-id", payload.getValue("resolvedIds").jsonArray.single().jsonPrimitive.content)
+  }
+
+  fun `test navigate path link payload includes path and coordinates`() {
+    val payload = Json.encodeToJsonElement(
+      MarkdownNavigatePathLinkParams.serializer(),
+      MarkdownNavigatePathLinkParams(
+        contentVersion = 42,
+        rawPath = "src/Main.kt#L10",
+        clientX = 12,
+        clientY = 34,
+      ),
+    ).jsonObject
+
+    assertEquals("42", payload.getValue("contentVersion").jsonPrimitive.content)
+    assertEquals("src/Main.kt#L10", payload.getValue("rawPath").jsonPrimitive.content)
+    assertEquals("12", payload.getValue("clientX").jsonPrimitive.content)
+    assertEquals("34", payload.getValue("clientY").jsonPrimitive.content)
+  }
+
+  private fun previewSettings(fontSize: Int?): MarkdownPreviewSettingsParams {
+    val defaultFontSize = 13
+    val effectiveFontSize = fontSize ?: defaultFontSize
+    return MarkdownPreviewSettingsParams(
+      fontSize = fontSize,
+      effectiveFontSize = effectiveFontSize,
+      defaultFontSize = defaultFontSize,
+      fontSizeOptions = listOf(8, defaultFontSize, effectiveFontSize).distinct().sorted(),
+    )
   }
 }

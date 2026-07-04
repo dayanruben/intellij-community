@@ -11,13 +11,30 @@ import com.intellij.debugger.impl.hotswap.JvmBaseSourceFileChangeCompatibilityCh
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.xdebugger.impl.hotswap.SourceFileChangeCompatibilityChecker
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.KaNonPublicApi
+import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.analyzeCopy
+import org.jetbrains.kotlin.analysis.api.projectStructure.KaDanglingFileResolutionMode
+import org.jetbrains.kotlin.analysis.api.projectStructure.copyOrigin
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
+import org.jetbrains.kotlin.analysis.api.types.KaCapturedType
+import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.KaDefinitelyNotNullType
+import org.jetbrains.kotlin.analysis.api.types.KaDynamicType
+import org.jetbrains.kotlin.analysis.api.types.KaErrorType
+import org.jetbrains.kotlin.analysis.api.types.KaFlexibleType
+import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.analysis.api.types.KaIntersectionType
+import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
+import org.jetbrains.kotlin.analysis.utils.printer.prettyPrint
 import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtModifierKeywordToken
@@ -38,10 +55,10 @@ import org.jetbrains.kotlin.psi.KtObjectDeclaration
 import org.jetbrains.kotlin.psi.KtObjectLiteralExpression
 import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtTypeAlias
 import org.jetbrains.kotlin.psi.KtTypeReference
 import org.jetbrains.kotlin.psi.KtValVarKeywordOwner
-import org.jetbrains.kotlin.types.Variance
 
 internal class KotlinHotSwapSourceChangeCompatibilityCheckerProvider : HotSwapSourceChangeCompatibilityCheckerProvider {
     override fun provideCheckersForSession(debuggerSession: DebuggerSession): List<SourceFileChangeCompatibilityChecker> {
@@ -59,6 +76,13 @@ class KotlinHotSwapSourceChangeCompatibilityChecker(project: Project) :
         PsiTreeUtil.collectElementsOfType(ktFile, KtClassOrObject::class.java).mapNotNullTo(typeNames) { it.fqName?.asString() }
         PsiTreeUtil.collectElementsOfType(ktFile, KtTypeAlias::class.java).mapNotNullTo(typeNames) { it.fqName?.asString() }
         return ResolutionFingerprint(ktFile.packageFqName.asString(), ktFile.importList?.text.orEmpty(), typeNames)
+    }
+
+    override fun createOldPsiFile(currentFile: PsiFile, oldContent: CharSequence): PsiFile? {
+        val ktFile = currentFile as? KtFile ?: return null
+        return KtPsiFactory.contextual(ktFile, markGenerated = false)
+            .createFile(ktFile.name, oldContent.toString())
+            .also { it.putUserData(PsiFileFactory.ORIGINAL_FILE, ktFile) }
     }
 
     context(_: Context)
@@ -201,7 +225,8 @@ class KotlinHotSwapSourceChangeCompatibilityChecker(project: Project) :
         for (property in this) {
             val name = property.name ?: unknownClassShapes("Cannot determine Kotlin property name")
             result[name] = cached(property, "property") {
-                HotSwapFieldShape(property.resolvedTypeSignature("type for Kotlin property '$name'"), property.fieldModifiers())
+                val type = property.resolvedTypeSignature("type for Kotlin property '$name'")
+                HotSwapFieldShape(type, property.fieldModifiers())
             }
         }
         return result
@@ -306,13 +331,14 @@ class KotlinHotSwapSourceChangeCompatibilityChecker(project: Project) :
         else -> false
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KtLambdaExpression.signature(): Pair<List<String>, String> = analyze(this) {
+    private fun KtLambdaExpression.signature(): Pair<List<String>, String> = analyzeInContext {
         val symbol = functionLiteral.symbol
-        val parameterTypes = listOfNotNull(symbol.receiverParameter?.returnType)
-            .plus(symbol.valueParameters.map { it.returnType })
-            .map { it.render(TYPE_RENDERER, position = Variance.INVARIANT) }
-        val returnType = symbol.returnType.render(TYPE_RENDERER, position = Variance.INVARIANT)
+        val receiverType = symbol.receiverParameter?.returnType?.renderTypeSignature("type for Kotlin lambda receiver")
+        val parameterTypes = listOfNotNull(receiverType)
+            .plus(symbol.valueParameters.map {
+                it.returnType.renderTypeSignature("type for Kotlin lambda parameter '${it.name.asString()}'")
+            })
+        val returnType = symbol.returnType.renderTypeSignature("return type for Kotlin lambda")
         parameterTypes to returnType
     }
 
@@ -337,15 +363,52 @@ class KotlinHotSwapSourceChangeCompatibilityChecker(project: Project) :
 
     private fun KtValVarKeywordOwner.isMutableProperty(): Boolean = valOrVarKeyword?.node?.elementType == KtTokens.VAR_KEYWORD
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KtCallableDeclaration.resolvedTypeSignature(typeDescription: String): String = analyze(this) {
-        (symbol as? KaCallableSymbol)?.returnType?.render(TYPE_RENDERER, position = Variance.INVARIANT)
+    private fun KtCallableDeclaration.resolvedTypeSignature(typeDescription: String): String = analyzeInContext {
+        (symbol as? KaCallableSymbol)?.returnType?.renderTypeSignature(typeDescription)
+    } ?: unknownClassShapes("Cannot resolve $typeDescription")
+
+    private fun KtElement.resolvedTypeSignature(typeReference: KtTypeReference?, typeDescription: String): String = analyzeInContext {
+        typeReference?.type?.renderTypeSignature(typeDescription)
     } ?: unknownClassShapes("Cannot resolve $typeDescription")
 
     @OptIn(KaExperimentalApi::class)
-    private fun KtElement.resolvedTypeSignature(typeReference: KtTypeReference?, typeDescription: String): String = analyze(this) {
-        typeReference?.type?.render(TYPE_RENDERER, position = Variance.INVARIANT)
-    } ?: unknownClassShapes("Cannot resolve $typeDescription")
+    private inline fun <R> KtElement.analyzeInContext(crossinline action: KaSession.() -> R): R {
+        return if (containingKtFile.copyOrigin == null) {
+            analyze(this, action)
+        } else {
+            analyzeCopy(this, KaDanglingFileResolutionMode.PREFER_SELF, action)
+        }
+    }
+
+    @OptIn(KaExperimentalApi::class, KaNonPublicApi::class)
+    context(session: KaSession)
+    private fun KaType.renderTypeSignature(typeDescription: String): String {
+        val errorType = findErrorType()
+        if (errorType != null) {
+            val reason = errorType.errorMessage.ifBlank { errorType.presentableText.orEmpty() }
+            val reasonSuffix = reason.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
+            unknownClassShapes("Cannot resolve $typeDescription$reasonSuffix")
+        }
+        return prettyPrint { TYPE_RENDERER.renderType(session, this@renderTypeSignature, this) }
+    }
+
+    context(_: KaSession)
+    private fun KaType.findErrorType(): KaErrorType? = when (this) {
+        is KaErrorType -> this
+        is KaFunctionType -> {
+            receiverType?.findErrorType()
+                ?: returnType.findErrorType()
+                ?: parameterTypes.firstNotNullOfOrNull { it.findErrorType() }
+                ?: typeArguments.firstNotNullOfOrNull { it.type?.findErrorType() }
+        }
+
+        is KaClassType -> typeArguments.firstNotNullOfOrNull { it.type?.findErrorType() }
+        is KaDefinitelyNotNullType -> original.findErrorType()
+        is KaFlexibleType -> lowerBound.findErrorType() ?: upperBound.findErrorType()
+        is KaIntersectionType -> conjuncts.firstNotNullOfOrNull { it.findErrorType() }
+        is KaTypeParameterType, is KaCapturedType, is KaDynamicType -> null
+        else -> null
+    }
 }
 
 private data class SourceInnerClass(val classOrObject: KtClassOrObject, val name: String, val isAnonymous: Boolean)

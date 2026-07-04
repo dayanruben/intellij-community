@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.diagnostic.Dumpable;
@@ -66,7 +66,6 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
   private final EditorImpl myEditor;
   private final DocumentEx myDocument;
   private final @NotNull CaretModelImpl myCaretModel;
-  private final CaretId myCaretId;
   private boolean isValid = true;
   private Throwable myDisposalTrace;
 
@@ -104,8 +103,6 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
     myEditor = editor;
     myDocument = editor.getElfDocument();
     myCaretModel = caretModel;
-    myCaretId = new CaretId();
-
     myLogicalCaret = new LogicalPosition(0, 0);
     myVisibleCaret = new VisualPosition(0, 0);
     myPositionMarker = new PositionMarker(0);
@@ -113,11 +110,7 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
     myVisualLineEnd = (myDocument.getLineCount() > 1)
                       ? myDocument.getLineStartOffset(1)
                       : (myDocument.getLineCount() == 0) ? 0 : myDocument.getLineEndOffset(0);
-    myDocumentUpdateCounter = myCaretModel.myDocumentUpdateCounter;
-  }
-
-  public CaretId getCaretId() {
-    return myCaretId;
+    myDocumentUpdateCounter = myCaretModel.getDocumentUpdateCounter();
   }
 
   @Override
@@ -665,7 +658,7 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
 
   @Override
   public boolean isUpToDate() {
-    return !myCaretModel.myIsInUpdate;
+    return !myCaretModel.isDocumentInUpdate();
   }
 
   @Override
@@ -1366,7 +1359,7 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
 
   @Override
   public @NonNls String toString() {
-    return "Caret at " + (myDocumentUpdateCounter == myCaretModel.myDocumentUpdateCounter ? myVisibleCaret : getOffset()) +
+    return "Caret at " + (myDocumentUpdateCounter == myCaretModel.getDocumentUpdateCounter() ? myVisibleCaret : getOffset()) +
            (mySelectionMarker == null ? "" : ", selection marker: " + mySelectionMarker);
   }
 
@@ -1462,7 +1455,7 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
 
   void updateCachedStateIfNeeded() {
     if (!ApplicationManager.getApplication().isDispatchThread()) return;
-    int modelCounter = myCaretModel.myDocumentUpdateCounter;
+    int modelCounter = myCaretModel.getDocumentUpdateCounter();
     if (myDocumentUpdateCounter != modelCounter) {
       updateCachedState();
       myDocumentUpdateCounter = modelCounter;
@@ -1511,16 +1504,17 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
     ) {
   }
 
+  /// @noinspection SuspiciousPackagePrivateAccess
   final class PositionMarker extends RangeMarkerImpl {
     private PositionMarker(int offset) {
       super(myDocument, offset, offset, false, true);
-      myCaretModel.myPositionMarkerTree.addInterval(this, offset, offset, false, false, false, 0);
+      myCaretModel.getPositionMarkerTree().addInterval(this, offset, offset, false, false, false, 0);
     }
 
     @Override
     public void dispose() {
       if (isValid()) {
-        myCaretModel.myPositionMarkerTree.removeInterval(this);
+        myCaretModel.getPositionMarkerTree().removeInterval(this);
       }
     }
 
@@ -1596,9 +1590,10 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
     private int startVirtualOffset;
     private int endVirtualOffset;
 
+    /// @noinspection SuspiciousPackagePrivateAccess
     private SelectionMarker(int start, int end) {
       super(myDocument, start, end, false, true);
-      myCaretModel.mySelectionMarkerTree.addInterval(this, start, end, false, false, false, 0);
+      myCaretModel.getSelectionMarkerTree().addInterval(this, start, end, false, false, false, 0);
     }
 
     private void resetVirtualSelection() {
@@ -1613,7 +1608,7 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
     @Override
     public void dispose() {
       if (isValid()) {
-        myCaretModel.mySelectionMarkerTree.removeInterval(this);
+        myCaretModel.getSelectionMarkerTree().removeInterval(this);
       }
     }
 

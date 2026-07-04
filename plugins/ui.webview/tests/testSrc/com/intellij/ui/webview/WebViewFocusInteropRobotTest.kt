@@ -150,6 +150,24 @@ class WebViewFocusInteropRobotTest {
     }
   }
 
+  @Test
+  @EnabledOnOs(OS.WINDOWS)
+  fun clickingBadComboPopupThenSwingFieldClosesPopupAndMovesFocusBack(@TempDir tempDir: Path): Unit = runBlocking {
+    val facade = createPlatformEngine(scope!!)
+    try {
+      WebViewFocusRobotTestSupport.runBadComboPopupThenSwingRefocusScenario(
+        frame!!,
+        scope!!,
+        facade,
+        createNativeHostPeer(scope!!, facade),
+        tempDir,
+      )
+    }
+    finally {
+      facade.close()
+    }
+  }
+
   private fun createPlatformEngine(scope: CoroutineScope): WebViewEngineBridge {
     val osName = System.getProperty("os.name", "")
     return when {

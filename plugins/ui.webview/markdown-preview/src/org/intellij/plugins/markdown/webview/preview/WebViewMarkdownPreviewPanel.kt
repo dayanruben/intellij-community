@@ -36,6 +36,7 @@ import org.intellij.plugins.markdown.extensions.jcef.commandRunner.RunnerPlace
 import org.intellij.plugins.markdown.settings.MarkdownPreviewSettings
 import org.intellij.plugins.markdown.ui.preview.MarkdownContentPanel
 import org.intellij.plugins.markdown.ui.preview.MarkdownHtmlPanel
+import org.intellij.plugins.markdown.ui.preview.PreviewLAFThemeStyles
 import org.intellij.plugins.markdown.ui.preview.accessor.MarkdownLinkOpener
 import org.jetbrains.annotations.ApiStatus
 import java.awt.BorderLayout
@@ -54,6 +55,8 @@ class WebViewMarkdownPreviewPanel(
   private val coroutineScope = service<ScopeHolder>()
     .coroutineScope
     .childScope("Markdown WebView preview")
+
+  private val pathLinkResolver = project?.let { MarkdownPreviewPathLinkResolver(it, coroutineScope) }
 
   private val rootComponent = JPanel(BorderLayout())
 
@@ -175,6 +178,52 @@ class WebViewMarkdownPreviewPanel(
       override suspend fun runCommand(params: MarkdownRunCommandParams) {
         runMarkdownCommand(params)
       }
+
+      override suspend fun resolvePathLinks(params: MarkdownResolvePathLinksParams): MarkdownResolvedPathLinksParams {
+        return MarkdownResolvedPathLinksParams(resolveMarkdownPathLinks(params))
+      }
+
+      override suspend fun navigatePathLink(params: MarkdownNavigatePathLinkParams) {
+        navigateMarkdownPathLink(params)
+      }
+
+      override suspend fun setFontSize(params: MarkdownSetFontSizeParams) {
+        setMarkdownFontSize(params)
+      }
+    }
+  }
+
+  private suspend fun resolveMarkdownPathLinks(params: MarkdownResolvePathLinksParams): List<String> {
+    val update = lastUpdate ?: return emptyList()
+    if (params.contentVersion != update.contentVersion) return emptyList()
+    val resolver = pathLinkResolver ?: return emptyList()
+
+    val resolvedRawPaths = LinkedHashSet<String>()
+    for ((_, rawPath) in params.candidates.distinctBy { it.rawPath }) {
+      if (resolver.resolve(rawPath, update.document).isNotEmpty()) {
+        resolvedRawPaths.add(rawPath)
+      }
+    }
+    return params.candidates.mapNotNull { candidate -> candidate.id.takeIf { candidate.rawPath in resolvedRawPaths } }
+  }
+
+  private suspend fun navigateMarkdownPathLink(params: MarkdownNavigatePathLinkParams) {
+    val update = lastUpdate ?: return
+    if (params.contentVersion != update.contentVersion) return
+    val resolver = pathLinkResolver ?: return
+
+    resolver.navigate(params.rawPath, update.document, rootComponent, params.clientX, params.clientY)
+  }
+
+  private fun setMarkdownFontSize(params: MarkdownSetFontSizeParams) {
+    val previewSettings = service<MarkdownPreviewSettings>()
+    val currentFontSize = previewSettings.state.fontSize
+    val defaultFontSize = MarkdownPreviewSettings.State().fontSize
+    val normalizedFontSize = closestFontSize(params.fontSize, previewFontSizeOptions(currentFontSize, defaultFontSize))
+    if (normalizedFontSize == currentFontSize) return
+
+    previewSettings.update { settings ->
+      settings.state.fontSize = normalizedFontSize
     }
   }
 
@@ -286,7 +335,12 @@ class WebViewMarkdownPreviewPanel(
   private fun currentPreviewSettings(): MarkdownPreviewSettingsParams {
     val fontSize = service<MarkdownPreviewSettings>().state.fontSize
     val defaultFontSize = MarkdownPreviewSettings.State().fontSize
-    return MarkdownPreviewSettingsParams(fontSize = fontSize.takeIf { it != defaultFontSize })
+    return MarkdownPreviewSettingsParams(
+      fontSize = fontSize.takeIf { it != defaultFontSize },
+      effectiveFontSize = fontSize,
+      defaultFontSize = defaultFontSize,
+      fontSizeOptions = previewFontSizeOptions(fontSize, defaultFontSize),
+    )
   }
 
   override fun addScrollListener(listener: MarkdownHtmlPanel.ScrollListener) {
@@ -332,6 +386,17 @@ class WebViewMarkdownPreviewPanel(
         if (text[index] == '\n') line++
       }
       return line
+    }
+
+    private fun previewFontSizeOptions(vararg extraFontSizes: Int): List<Int> {
+      return (PreviewLAFThemeStyles.fontSizeOptions + extraFontSizes.asIterable())
+        .filter { it > 0 }
+        .distinct()
+        .sorted()
+    }
+
+    private fun closestFontSize(fontSize: Int, options: List<Int>): Int {
+      return options.minByOrNull { kotlin.math.abs(it - fontSize) } ?: fontSize.coerceAtLeast(1)
     }
   }
 }

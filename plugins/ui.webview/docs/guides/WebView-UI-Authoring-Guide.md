@@ -208,6 +208,41 @@ Kotlin hosting rules:
 - Avoid manual Swing/WebView focus hacks in ordinary content update paths. Focus behavior should be an explicit part of the UI contract or use an appropriate platform/WebView API, not ad-hoc AWT focus inspection and clearing.
 - Scope listeners, asset providers, and bridge-related subscriptions to the same feature/viewer/editor lifetime. If an older API still requires a `Disposable`, derive it from the relevant scope with `scope.asDisposable()` and let the scope own it.
 
+## Use Browser Console Logging
+
+Every WebView created through `createWebViewPanel(...)` or `WebViewRuntime.createWebView(...)` automatically forwards browser `console.*` calls to Kotlin and writes them to the IDE logger. TypeScript code should use normal `console.log(...)`, `console.debug(...)`, `console.trace(...)`, and related methods. Feature code does not install this manually and should not register a handler for the internal `$/webview/console` notification.
+
+By default logs go to `#com.intellij.ui.webview.console`. For asset-backed views created with `WebViewAssetRoot.forView(viewId)`, the runtime appends the sanitized view id, for example `#com.intellij.ui.webview.console.my-view`. Pass `consoleLogCategory` when a feature needs its own base category:
+
+```kotlin
+private val assetRoot = WebViewAssetRoot.forView("my-view")
+
+private suspend fun createPanel(scope: CoroutineScope): WebViewPanel {
+  return createWebViewPanel(
+    scope = scope,
+    options = WebViewPanelOptions(
+      assetRoot = assetRoot,
+      debugName = "My WebView panel",
+      consoleLogCategory = "#com.my.plugin.webview.console",
+    ),
+  )
+}
+```
+
+With that configuration the view writes to `#com.my.plugin.webview.console.my-view`. If the page is loaded from raw HTML, a local file, or an asset root without a view id, the runtime uses only the base category.
+
+Do not encode the console method or severity into the logger category. Severity is carried by the IDE log level, so the category should identify the owning feature or view.
+
+The log message starts with the JavaScript-side time, converted by Kotlin to a readable instant:
+
+```text
+[js=2026-07-02T18:30:15.123Z] started rendering item 42
+```
+
+Use this timestamp when ordering page events against async Kotlin handling. The IDE log record still has its normal Kotlin-side timestamp, but the browser report can arrive later than the original `console.*` call.
+
+Severity follows the browser method: `console.error(...)` and failed `console.assert(...)` become error logs, `console.warn(...)` becomes a warning, `console.debug(...)` is debug, trace-like methods are trace, and ordinary `console.log(...)` / `console.info(...)` are info. The original browser console method is still called, so DevTools output is preserved.
+
 ## Define Typed Protocols
 
 Every cross-boundary contract should have matching Kotlin and TypeScript protocol declarations with the same namespace, method names, and JSON DTO shapes.
@@ -273,6 +308,34 @@ Kotlin domain state -> serializable DTOs -> frontend store -> pure view models -
 ```
 
 Keep frontend stores and projections plain. Components should subscribe to store state, call typed protocol functions, and render UI. Do not hide RPC calls inside projection functions or view-model getters.
+
+## Close Transient UI When Focus Leaves The WebView
+
+Swing focus can move from the embedded WebView to an IDE component such as an editor, text field, or tool window while the page is still running. Do not emulate that transition by focusing an invisible page element: that creates a fake DOM focus owner and makes keyboard traversal and accessibility harder to reason about.
+
+The common WebView runtime sends `wvi-focus-leave` when host focus leaves the page for Swing. For custom popups, menus, comboboxes, search panels, and other transient UI, close or blur the control through the helper exported by `@jetbrains/intellij-webview`:
+
+```ts
+import { addWebViewFocusLeaveListener } from "@jetbrains/intellij-webview"
+
+const removeFocusLeaveListener = addWebViewFocusLeaveListener(() => {
+  closePopup()
+})
+
+// Call removeFocusLeaveListener() from the component/view disposal hook.
+```
+
+For React components, install the listener from the component effect that owns the open state:
+
+```tsx
+useEffect(() => {
+  return addWebViewFocusLeaveListener(() => setOpen(false))
+}, [])
+```
+
+The shared controls package handles this by default for its own controls: native-input controls blur their internal input/select, and menu-like controls close. When adding a new `@jetbrains/intellij-webview-controls` element that owns transient UI, use the foundation `WebViewFocusLeaveController` instead of wiring `window.addEventListener("wvi-focus-leave", ...)` by hand.
+
+Do not rely only on `window.blur` for custom browser UI. Some third-party libraries close correctly on their own, but WebView focus can cross the Swing/browser boundary in ways that do not look exactly like a normal browser tab blur to every custom widget.
 
 ## Browser-Like Behavior
 

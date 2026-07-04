@@ -3,6 +3,7 @@
 import { LitElement, html, nothing, type TemplateResult } from "lit"
 import { defineControl, type CustomElementRegistryLike } from "../../foundation/define"
 import { emitStandardEvent, emitValueEvent } from "../../foundation/events"
+import { WebViewFocusLeaveController } from "../../foundation/focus"
 import { normalizeOptions, optionLabel } from "../../foundation/options"
 import { buttonStyles, hostStyles, popupStyles } from "../../foundation/styles"
 import type { JbControlOption } from "../../foundation/types"
@@ -26,13 +27,20 @@ export class JbMenuButton extends LitElement {
   value = ""
   variant = "default"
 
+  constructor() {
+    super()
+    new WebViewFocusLeaveController(this, () => {
+      this.open = false
+    })
+  }
+
   render(): TemplateResult {
     const options = normalizeOptions(this.items)
     return html`
       <span part="root" class="menu-root">
         <button part="button" class=${["button", this.variant].filter(Boolean).join(" ")} type="button" ?disabled=${this.disabled} aria-haspopup="menu" aria-expanded=${String(this.open)} @click=${this.toggleOpen} @keydown=${this.onButtonKeyDown}>
           <span part="label"><slot>${this.label || optionLabel(options, this.value)}</slot></span>
-          <span part="chevron" class="chevron">v</span>
+          <span part="chevron" class="chevron" aria-hidden="true"></span>
         </button>
         ${this.open ? html`<div part="menu" class="popup" role="menu">${options.length > 0 ? options.map(option => this.renderMenuItem(option)) : html`<slot name="menu"></slot>`}</div>` : nothing}
       </span>

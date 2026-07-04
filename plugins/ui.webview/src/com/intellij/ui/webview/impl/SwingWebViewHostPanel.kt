@@ -3,6 +3,7 @@ package com.intellij.ui.webview.impl
 
 import com.intellij.ide.KeyboardAwareFocusOwner
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.webview.impl.engine.WebViewFocusDirection
@@ -42,7 +43,8 @@ import javax.swing.JPanel
 import javax.swing.JRootPane
 import javax.swing.RootPaneContainer
 import javax.swing.SwingUtilities
-import javax.swing.Timer
+
+private val LOG = logger<SwingWebViewHostPanel>()
 
 /**
  * Swing host panel that manages the lifecycle of a native [WebViewEngineBridge].
@@ -79,7 +81,7 @@ internal class SwingWebViewHostPanel(
   )
 
   internal companion object {
-    private const val PAGE_FOCUS_ENTRY_FALLBACK_DELAY_MS = 100
+    private const val HOST_MOUSE_NATIVE_FOCUS_SUPPRESSION_NANOS = 500_000_000L
 
     fun calculateNativeFrame(host: Component, anchor: Component): NativeFrame {
       val hostOrigin = SwingUtilities.convertPoint(host, 0, 0, anchor)
@@ -190,32 +192,41 @@ internal class SwingWebViewHostPanel(
   private var focusInsideHost = false
   private var pendingExitDirection: WebViewFocusDirection? = null
   private var pageFocusHandledForCurrentActivation = false
-  private var nativeFocusRestoreRequestedForCurrentActivation = false
-  private var pageFocusFallbackTimer: Timer? = null
+  private var hostMouseActivationNanos = 0L
   private var nativePeerAttached = false
   private var heavyweightRegistration: Disposable? = null
+  private val focusLogId = Integer.toHexString(System.identityHashCode(this))
 
   private val webViewFocusListener = object : FocusAdapter() {
     override fun focusGained(e: FocusEvent) {
       if (e.isTemporary) return
+      val cause = e.cause
       val wasFocusInside = focusInsideHost
+      logFocus(
+        "focusGained",
+        "cause=$cause, opposite=${componentDiagnostics(e.oppositeComponent)}, " +
+        "wasFocusInside=$wasFocusInside, ${focusDiagnostics()}",
+      )
       focusInsideHost = true
       pendingExitDirection = null
-      requestWebViewFocus()
+      if (shouldRequestNativeFocusOnSwingFocusGained(cause)) {
+        requestWebViewFocus()
+      }
       if (wasFocusInside) return
 
-      val direction = e.cause.toWebViewFocusDirection() ?: return
-      WebViewLogger.LOG.debug("WebView focus entered host: direction=$direction, cause=${e.cause}")
+      val direction = cause.toWebViewFocusDirection() ?: return
+      logFocus("entered", "direction=$direction, cause=$cause")
       enterWebViewFocus(direction)
     }
 
     override fun focusLost(e: FocusEvent) {
+      logFocus(
+        "focusLost",
+        "cause=${e.cause}, temporary=${e.isTemporary}, " +
+        "opposite=${componentDiagnostics(e.oppositeComponent)}, ${focusDiagnostics()}",
+      )
       if (e.isTemporary || containsFocusComponent(e.oppositeComponent)) return
-      focusInsideHost = false
-      pendingExitDirection = null
-      pageFocusHandledForCurrentActivation = false
-      nativeFocusRestoreRequestedForCurrentActivation = false
-      cancelPageFocusEntryFallback()
+      markWebViewFocusOutsideHost()
     }
   }
 
@@ -348,6 +359,13 @@ internal class SwingWebViewHostPanel(
   }
 
   override fun requestWebViewFocus() {
+    logFocus("request.webViewFocus", focusDiagnostics())
+    requestSwingFocusForNativeWebViewFocusIfNeeded()
+    requestNativeWebViewFocus()
+  }
+
+  private fun requestNativeWebViewFocus() {
+    logFocus("request.nativeFocus", focusDiagnostics())
     componentBackedEngine?.requestWebViewFocus() ?: nativePeer?.requestFocus()
   }
 
@@ -356,6 +374,7 @@ internal class SwingWebViewHostPanel(
   }
 
   internal fun clearWebViewFocusForSwingFocusTransfer() {
+    logFocus("clear.nativeFocusForSwingTransfer", focusDiagnostics())
     val componentEngine = componentBackedEngine
     if (componentEngine != null) {
       componentEngine.clearWebViewFocus()
@@ -373,23 +392,50 @@ internal class SwingWebViewHostPanel(
 
   internal fun activateWebViewFocus() {
     runOnEdt {
+      logFocus("page.activated", focusDiagnostics())
+      // This is called from the page-side pointerdown focus interop handler. The native WebView
+      // already owns the mouse event, so avoid a programmatic native focus move in the same click.
+      rememberHostMouseActivation()
       pageFocusHandledForCurrentActivation = true
-      cancelPageFocusEntryFallback()
-      activateWebViewFocusOnEdt(requestNativeFocus = true)
+      activateWebViewFocusOnEdt(requestNativeFocus = false)
     }
   }
 
   internal fun nativeWebViewFocusGained() {
     runOnEdt {
+      logFocus(
+        "native.focusGained",
+        "pageFocusHandled=$pageFocusHandledForCurrentActivation, ${focusDiagnostics()}",
+      )
       if (!isShowing) {
-        WebViewLogger.LOG.debug("Ignoring native WebView focus gain because host is not showing")
+        logFocus("native.focusGained.ignored", "reason=host-not-showing")
         return@runOnEdt
       }
+      // WebView2 has already reported native focus here. We still synchronize Swing's focus owner
+      // to the host panel, but we must not follow that with another native focus request: on Windows
+      // WebView2 observes the extra MoveFocus(PROGRAMMATIC) as a blur/focus bounce, which closes
+      // click-opened browser/Radix-style popups.
       activateWebViewFocusOnEdt(requestNativeFocus = false)
-      if (!pageFocusHandledForCurrentActivation) {
-        schedulePageFocusEntryFallback()
+    }
+  }
+
+  internal fun activateWebViewFocusFromNativeMouse() {
+    // Windows sends mouse activation to the native WebView2 child before Swing sees a normal AWT
+    // focus event. Run the Swing host activation synchronously on EDT while the native window proc
+    // is still handling that mouse activation, so Swing's focus owner is correct before WebView2
+    // dispatches the page pointer event. This must not request native focus; the click already does.
+    if (EDT.isCurrentThreadEdt()) {
+      logFocus("native.mouseActivation", "thread=edt, ${focusDiagnostics()}")
+      activateWebViewFocusFromMouseOnEdt()
+    }
+    else {
+      SwingUtilities.invokeAndWait {
+        logFocus(
+          "native.mouseActivation",
+          "thread=invokeAndWait, ${focusDiagnostics()}",
+        )
+        activateWebViewFocusFromMouseOnEdt()
       }
-      restoreNativeFocusAfterSwingActivation()
     }
   }
 
@@ -418,7 +464,7 @@ internal class SwingWebViewHostPanel(
 
   private fun activateWebViewFocusOnEdt(requestNativeFocus: Boolean) {
     if (!isShowing) {
-      WebViewLogger.LOG.debug("Ignoring WebView focus activation because host is not showing")
+      logFocus("activation.ignored", "reason=host-not-showing")
       return
     }
 
@@ -430,22 +476,22 @@ internal class SwingWebViewHostPanel(
       if (requestNativeFocus) {
         SwingUtilities.invokeLater {
           if (isShowing && focusInsideHost) {
-            requestWebViewFocus()
+            requestNativeWebViewFocus()
           }
         }
       }
     }
     else {
       if (requestNativeFocus) {
-        requestWebViewFocus()
+        requestNativeWebViewFocus()
       }
     }
-    WebViewLogger.LOG.debug("Applied WebView focus activation")
+    logFocus("activation.applied", "requestNativeFocus=$requestNativeFocus, ${focusDiagnostics()}")
   }
 
   private fun exitWebViewFocusOnEdt(direction: WebViewFocusDirection) {
     if (!isShowing) {
-      WebViewLogger.LOG.debug("Ignoring WebView focus exit because host is not showing: direction=$direction")
+      logFocus("exit.ignored", "reason=host-not-showing, direction=$direction")
       return
     }
     if (pendingExitDirection == direction) return
@@ -457,7 +503,7 @@ internal class SwingWebViewHostPanel(
       WebViewFocusDirection.FORWARD -> focusManager.focusNextComponent(this)
       WebViewFocusDirection.BACKWARD -> focusManager.focusPreviousComponent(this)
     }
-    WebViewLogger.LOG.debug("Applied WebView focus exit: direction=$direction")
+    logFocus("exit.applied", "direction=$direction, ${focusDiagnostics()}")
   }
 
   internal fun setSnapshotImage(width: Int, height: Int, pixels: IntArray) {
@@ -571,62 +617,114 @@ internal class SwingWebViewHostPanel(
     val hostWindow = SwingUtilities.getWindowAncestor(this) ?: return
     if (SwingUtilities.getWindowAncestor(focusOwner) != hostWindow) return
 
+    logFocus(
+      "swingFocus.outsideHost",
+      "newOwner=${componentDiagnostics(focusOwner)}, ${focusDiagnostics()}",
+    )
     markWebViewFocusOutsideHost()
   }
 
   private fun markWebViewFocusOutsideHost() {
+    // Every WebView host installed in the same Swing window observes the global permanent-focus-owner
+    // change. When focus moves into one WebView host, all sibling hosts see that owner as "outside".
+    // Only the host that previously owned focus should clear native browser focus; an already-outside
+    // host calling the Windows clear path would SetFocus(parent) and can blur the newly activated
+    // WebView2 page while it is opening a pointer-triggered popup.
+    if (!focusInsideHost && !pageFocusHandledForCurrentActivation && pendingExitDirection == null) {
+      logFocus("mark.outsideHost.skipped", "reason=already-outside, ${focusDiagnostics()}")
+      return
+    }
+
+    logFocus("mark.outsideHost", focusDiagnostics())
     focusInsideHost = false
     pendingExitDirection = null
     pageFocusHandledForCurrentActivation = false
-    nativeFocusRestoreRequestedForCurrentActivation = false
-    cancelPageFocusEntryFallback()
+    hostMouseActivationNanos = 0L
+    leaveWebViewFocus()
     clearWebViewFocusForSwingFocusTransfer()
   }
 
+  private fun leaveWebViewFocus() {
+    logFocus("page.leave", focusDiagnostics())
+    focusEntrySink?.leaveWebViewFocus()
+  }
+
   private fun requestSwingFocusForWebViewActivation() {
-    if (!requestFocusInWindow()) {
+    val requested = requestFocusInWindow()
+    logFocus(
+      "request.swingHostFocus",
+      "requestFocusInWindow=$requested, ${focusDiagnostics()}",
+    )
+    if (!requested) {
       IdeFocusManager.findInstanceByComponent(this).requestFocus(this, true)
     }
   }
 
+  private fun requestSwingFocusForNativeWebViewFocusIfNeeded() {
+    if (!isShowing || containsFocusComponent(KeyboardFocusManager.getCurrentKeyboardFocusManager().permanentFocusOwner)) return
+
+    // A native heavyweight WebView is not an AWT child component, so Windows can move focus into
+    // the WebView2 HWND while Swing still believes the previous editor/toolwindow component owns
+    // focus. That stale Swing focus owner breaks IDE-level focus traversal and shortcut routing.
+    // Keep the Swing host panel as the AWT focus owner before asking the native engine for focus.
+    // Mouse activation paths intentionally bypass the native request below: WebView2 is already
+    // processing that click, and an extra MoveFocus(PROGRAMMATIC) in the same pointer pipeline is
+    // observable by the page as a blur/focus bounce that closes browser/Radix-style popups.
+    requestSwingFocusForWebViewActivation()
+  }
+
   private fun activateWebViewFocusFromHostMouse() {
+    logFocus("mouseActivation", focusDiagnostics())
+    activateWebViewFocusFromMouseOnEdt()
+  }
+
+  private fun activateWebViewFocusFromMouseOnEdt() {
     if (!isShowing) return
-    activateWebViewFocusOnEdt(requestNativeFocus = true)
-    schedulePageFocusEntryFallback()
+    rememberHostMouseActivation()
+    activateWebViewFocusOnEdt(requestNativeFocus = false)
+  }
+
+  private fun rememberHostMouseActivation() {
+    hostMouseActivationNanos = System.nanoTime()
+  }
+
+  /**
+   * Returns whether a Swing focus gain should be mirrored to the native WebView with an explicit
+   * native focus request.
+   *
+   * There are two different focus-entry paths and they must not be handled the same way:
+   *
+   * 1. Keyboard/traversal entry starts in Swing. In that case the Swing host becomes focused first,
+   *    while the browser/native child window may still not own native focus. We must call
+   *    [requestWebViewFocus] so the next keyboard event is delivered to the WebView rather than to
+   *    the surrounding IDE component.
+   *
+   * 2. Mouse entry starts in the native WebView window. The mouse event is already being processed by
+   *    WebView2 and the browser will perform its normal focus/default-action handling for that click.
+   *    Calling native focus again from Swing during the same pointer pipeline is observable by the
+   *    page as a transient `window.blur`/`window.focus` bounce on Windows WebView2. Browser popups and
+   *    Radix-style custom popups often close on `window.blur`, so that extra programmatic focus move
+   *    makes a click-opened popup flash and immediately close.
+   *
+   * [FocusEvent.Cause.MOUSE_EVENT] covers the direct Swing focus event. [isHostMouseActivationInProgress]
+   * covers the asynchronous case where the page-side pointerdown focus interop callback or native
+   * focus-gained callback reaches Swing before/around the Swing focus event. The short timestamp
+   * window lets us keep the whole mouse activation as one browser-owned operation without changing
+   * keyboard/traversal behavior after the click has settled.
+   */
+  private fun shouldRequestNativeFocusOnSwingFocusGained(cause: FocusEvent.Cause): Boolean {
+    return cause != FocusEvent.Cause.MOUSE_EVENT && !isHostMouseActivationInProgress()
+  }
+
+  private fun isHostMouseActivationInProgress(): Boolean {
+    val activationNanos = hostMouseActivationNanos
+    return activationNanos != 0L && System.nanoTime() - activationNanos <= HOST_MOUSE_NATIVE_FOCUS_SUPPRESSION_NANOS
   }
 
   private fun enterWebViewFocus(direction: WebViewFocusDirection) {
     pageFocusHandledForCurrentActivation = true
-    cancelPageFocusEntryFallback()
+    logFocus("page.enter", "direction=$direction, ${focusDiagnostics()}")
     focusEntrySink?.enterWebViewFocus(direction)
-  }
-
-  private fun schedulePageFocusEntryFallback() {
-    if (pageFocusHandledForCurrentActivation || pageFocusFallbackTimer?.isRunning == true) return
-    pageFocusFallbackTimer = Timer(PAGE_FOCUS_ENTRY_FALLBACK_DELAY_MS) {
-      pageFocusFallbackTimer = null
-      if (isShowing && focusInsideHost && !pageFocusHandledForCurrentActivation) {
-        enterWebViewFocus(WebViewFocusDirection.FORWARD)
-      }
-    }.apply {
-      isRepeats = false
-      start()
-    }
-  }
-
-  private fun cancelPageFocusEntryFallback() {
-    pageFocusFallbackTimer?.stop()
-    pageFocusFallbackTimer = null
-  }
-
-  private fun restoreNativeFocusAfterSwingActivation() {
-    if (nativeFocusRestoreRequestedForCurrentActivation) return
-    nativeFocusRestoreRequestedForCurrentActivation = true
-    SwingUtilities.invokeLater {
-      if (isShowing && focusInsideHost) {
-        requestWebViewFocus()
-      }
-    }
   }
 
   private fun installComponentBackedFocusTraversal(component: Component) {
@@ -637,6 +735,29 @@ internal class SwingWebViewHostPanel(
 
   private fun containsFocusComponent(component: Component?): Boolean {
     return component === this || component != null && SwingUtilities.isDescendingFrom(component, this)
+  }
+
+  private fun logFocus(event: String, details: String = "") {
+    val detailsWithHostId = if (details.isEmpty()) "hostId=$focusLogId" else "hostId=$focusLogId, $details"
+    LOG.debug("[wvi-focus] host $event; $detailsWithHostId")
+  }
+
+  private fun focusDiagnostics(): String {
+    val focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+    return "focusInsideHost=$focusInsideHost, pageFocusHandled=$pageFocusHandledForCurrentActivation, " +
+           "mouseActivationInProgress=${isHostMouseActivationInProgress()}, " +
+           "focusOwner=${componentDiagnostics(focusManager.focusOwner)}, " +
+           "permanentFocusOwner=${componentDiagnostics(focusManager.permanentFocusOwner)}"
+  }
+
+  private fun componentDiagnostics(component: Component?): String {
+    if (component == null) return "null"
+    val relation = when {
+      component === this -> "host"
+      SwingUtilities.isDescendingFrom(component, this) -> "inside-host"
+      else -> "outside-host"
+    }
+    return "${component.javaClass.name}@${Integer.toHexString(System.identityHashCode(component))}#$relation"
   }
 
   private fun FocusEvent.Cause.toWebViewFocusDirection(): WebViewFocusDirection? {

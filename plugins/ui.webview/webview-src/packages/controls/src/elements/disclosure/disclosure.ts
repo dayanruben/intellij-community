@@ -15,6 +15,7 @@ export class JbDisclosure extends LitElement {
     .content {
       margin-top: var(--jb-space-sm);
       padding-left: calc(var(--jb-control-height-compact) + var(--jb-space-xs));
+      user-select: text;
     }
   `]
 
@@ -25,7 +26,7 @@ export class JbDisclosure extends LitElement {
   render(): TemplateResult {
     return html`
       <button part="summary" class="button link" type="button" ?disabled=${this.disabled} aria-expanded=${String(this.open)} @click=${() => this.open = !this.open}>
-        <span part="chevron" class="chevron">${this.open ? "v" : ">"}</span>
+        <span part="chevron" class=${["chevron", this.open ? "" : "right"].filter(Boolean).join(" ")} aria-hidden="true"></span>
         <span part="label"><slot name="summary">${this.label}</slot></span>
       </button>
       ${this.open ? html`<div part="content" class="content"><slot></slot></div>` : nothing}

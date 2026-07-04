@@ -12,6 +12,14 @@ const deletedSessionId = "loaded-session-2"
 const mockCwd = "/mock/project"
 const streamingProbePrompt = "streaming probe"
 const markdownFeatureProbePrompt = "markdown feature probe"
+const promptAuthProbePrompt = "prompt auth probe"
+const repeatedPromptAuthProbePrompt = "repeat prompt auth probe"
+const envAuthVar = "JUNIE_TOKEN"
+const promptAuthVar = "PROMPT_AUTH_TOKEN"
+const repeatedPromptAuthVar = "REPEAT_PROMPT_AUTH_TOKEN"
+const toolCallCompactProbePrompt = "tool call compact probe"
+const toolCallOrderProbePrompt = "tool call order probe"
+const toolStatusIconsProbePrompt = "tool status icons probe"
 const modeConfigId = "mode"
 const modelConfigId = "model"
 const effortConfigId = "effort"
@@ -44,6 +52,11 @@ export default defineWebViewMock((context) => {
   let currentThinkMoreValue = defaultThinkMoreValue
   let currentDebugModeValue = defaultDebugModeValue
   let activeSessionId = sessionId
+  let activeAgentId = "mock-agent"
+  let envSessionAuthenticated = false
+  let oauthAuthenticated = false
+  let promptAuthAuthenticated = false
+  let repeatedPromptAuthCount = 0
   let listedSessions = defaultListedSessions()
   let newSessionCounter = 0
   let restartCounter = 0
@@ -57,13 +70,17 @@ export default defineWebViewMock((context) => {
     async listAgents() {
       return {
         agents: [
-          { id: "junie", name: "Junie", icon: "junie" },
+          { id: "junie", name: "Junie", iconResourcePath: "webview/views/acp-chat/assets/acpChatJunie.svg" },
           { id: "mock-agent", name: "Mock Agent" },
+          { id: "env-auth-agent", name: "Env Auth Agent" },
+          { id: "oauth-auth-agent", name: "OAuth Auth Agent" },
+          { id: "no-auth-methods-agent", name: "No Auth Methods Agent" },
         ],
       }
     },
-    async startAgent() {
+    async startAgent(params) {
       pendingStdout.length = 0
+      activeAgentId = typeof params?.agentId === "string" ? params.agentId : "mock-agent"
       currentSessionModeValue = defaultSessionModeValue
       currentModelValue = defaultModelValue
       currentEffortValue = defaultEffortValue
@@ -71,6 +88,10 @@ export default defineWebViewMock((context) => {
       currentThinkMoreValue = defaultThinkMoreValue
       currentDebugModeValue = defaultDebugModeValue
       activeSessionId = restartCounter === 0 ? sessionId : `mock-session-restarted-${restartCounter}`
+      envSessionAuthenticated = activeAgentId === "env-auth-agent" && typeof params?.extraEnv?.[envAuthVar] === "string"
+      oauthAuthenticated = false
+      promptAuthAuthenticated = typeof params?.extraEnv?.[promptAuthVar] === "string"
+      if (typeof params?.extraEnv?.[repeatedPromptAuthVar] !== "string") repeatedPromptAuthCount = 0
       listedSessions = defaultListedSessions()
       newSessionCounter = 0
       restartCounter++
@@ -114,10 +135,25 @@ export default defineWebViewMock((context) => {
             promptCapabilities: { image: true, audio: false, embeddedContext: true },
             sessionCapabilities: { list: {}, delete: {} },
           },
-          authMethods: [],
+          authMethods: initializeAuthMethods(),
         }))
         break
+      case "authenticate":
+        await authenticate(message.id, message.params)
+        break
       case "session/new":
+        if (activeAgentId === "env-auth-agent" && !envSessionAuthenticated) {
+          await sendPageStdout(authRequiredResponse(message.id, envAuthMethods()))
+          break
+        }
+        if (activeAgentId === "oauth-auth-agent" && !oauthAuthenticated) {
+          await sendPageStdout(authRequiredResponse(message.id, oauthAuthMethods()))
+          break
+        }
+        if (activeAgentId === "no-auth-methods-agent") {
+          await sendPageStdout(authRequiredResponse(message.id, []))
+          break
+        }
         activeSessionId = newSessionCounter === 0 ? activeSessionId : `mock-session-new-${newSessionCounter}`
         newSessionCounter++
         await sendPageStdout(response(message.id, {
@@ -154,9 +190,19 @@ export default defineWebViewMock((context) => {
         }
         await sendPageStdout(response(message.id, {}))
         break
-      case "session/prompt":
-        await sendAssistantResponse(message.id, promptText(message.params?.prompt))
+      case "session/prompt": {
+        const text = promptText(message.params?.prompt)
+        if (text.includes(repeatedPromptAuthProbePrompt) && repeatedPromptAuthCount < 2) {
+          await sendPageStdout(authRequiredResponse(message.id, repeatedPromptAuthMethods()))
+          break
+        }
+        if (!text.includes(repeatedPromptAuthProbePrompt) && text.includes(promptAuthProbePrompt) && !promptAuthAuthenticated) {
+          await sendPageStdout(authRequiredResponse(message.id, promptAuthMethods()))
+          break
+        }
+        await sendAssistantResponse(message.id, text)
         break
+      }
       default:
         await sendPageStdout({
           jsonrpc: "2.0",
@@ -204,6 +250,32 @@ export default defineWebViewMock((context) => {
     await sendPageStdout(response(requestId, { modes: sessionModes(), configOptions: sessionConfigOptions() }))
   }
 
+  async function authenticate(requestId: JsonRpcId, params: any): Promise<void> {
+    const methodId = typeof params?.methodId === "string" ? params.methodId : ""
+    if (activeAgentId === "oauth-auth-agent" && methodId === "oauth-browser") {
+      await sendPageStdout({
+        jsonrpc: "2.0",
+        method: "authenticate/update",
+        params: {
+          authUri: "https://example.com/oauth/device?token=oauth-secret&user_code=ABCD-EFGH",
+          _meta: { authUri: "https://example.com/oauth/device?token=oauth-secret&user_code=ABCD-EFGH" },
+        },
+      })
+      await delay(300)
+      oauthAuthenticated = true
+    }
+    else if (methodId === "env-token") {
+      envSessionAuthenticated = true
+    }
+    else if (methodId === "prompt-env") {
+      promptAuthAuthenticated = true
+    }
+    else if (methodId === "repeat-prompt-env") {
+      repeatedPromptAuthCount++
+    }
+    await sendPageStdout(response(requestId, {}))
+  }
+
   async function sendSessionUpdate(update: unknown): Promise<void> {
     await sendPageStdout({
       jsonrpc: "2.0",
@@ -231,8 +303,28 @@ export default defineWebViewMock((context) => {
   }
 
   async function sendAssistantResponse(requestId: JsonRpcId, text: string): Promise<void> {
+    if (text.includes(repeatedPromptAuthProbePrompt)) {
+      await sendAssistantText(requestId, `Repeated prompt auth retry completed: ${text}`)
+      return
+    }
+    if (text.includes(promptAuthProbePrompt)) {
+      await sendAssistantText(requestId, `Prompt auth retry completed: ${text}`)
+      return
+    }
     if (text.includes(markdownFeatureProbePrompt)) {
       await sendAssistantText(requestId, markdownFeatureResponse())
+      return
+    }
+    if (text.includes(toolCallCompactProbePrompt)) {
+      await sendToolCallCompactResponse(requestId)
+      return
+    }
+    if (text.includes(toolCallOrderProbePrompt)) {
+      await sendToolCallOrderResponse(requestId)
+      return
+    }
+    if (text.includes(toolStatusIconsProbePrompt)) {
+      await sendToolStatusIconsResponse(requestId)
       return
     }
     if (text.includes(streamingProbePrompt)) {
@@ -255,6 +347,79 @@ export default defineWebViewMock((context) => {
       },
     })
     await sendPageStdout(response(requestId, { stopReason: "end_turn" }))
+  }
+
+  async function sendToolCallCompactResponse(requestId: JsonRpcId): Promise<void> {
+    await sendSessionUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "compact-tool-call",
+      title: "Run compact tool probe",
+      kind: "execute",
+      status: "completed",
+      content: [
+        {
+          type: "content",
+          content: {
+            type: "text",
+            text: compactToolOutput(),
+          },
+        },
+      ],
+    })
+    await sendAssistantText(requestId, "Tool call compact probe done.")
+  }
+
+  async function sendToolCallOrderResponse(requestId: JsonRpcId): Promise<void> {
+    await sendSessionUpdate({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Before interleaved tool." },
+    })
+    await sendSessionUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "ordered-tool-call",
+      title: "Run ordered tool probe",
+      kind: "execute",
+      status: "completed",
+      content: [
+        {
+          type: "content",
+          content: {
+            type: "text",
+            text: "ordered tool output",
+          },
+        },
+      ],
+    })
+    await sendSessionUpdate({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "After interleaved tool." },
+    })
+    await sendPageStdout(response(requestId, { stopReason: "end_turn" }))
+  }
+
+  async function sendToolStatusIconsResponse(requestId: JsonRpcId): Promise<void> {
+    await sendSessionUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "status-completed-tool-call",
+      title: "Completed status probe",
+      kind: "execute",
+      status: "completed",
+    })
+    await sendSessionUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "status-running-tool-call",
+      title: "Running status probe",
+      kind: "execute",
+      status: "in_progress",
+    })
+    await sendSessionUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "status-failed-tool-call",
+      title: "Failed status probe",
+      kind: "execute",
+      status: "failed",
+    })
+    await sendAssistantText(requestId, "Tool status icons probe done.")
   }
 
   function updateConfigOption(params: any): void {
@@ -377,6 +542,17 @@ export default defineWebViewMock((context) => {
     ]
   }
 
+  function initializeAuthMethods(): unknown[] {
+    switch (activeAgentId) {
+      case "env-auth-agent":
+        return envAuthMethods()
+      case "oauth-auth-agent":
+        return oauthAuthMethods()
+      default:
+        return []
+    }
+  }
+
   async function sendStreamingAssistantResponse(requestId: JsonRpcId, text: string): Promise<void> {
     const thoughtChunks = [`Reasoning about ${text}.`, " Checking stream state.", " Keeping reasoning active."]
     const messageChunks = [`Streaming markdown response for ${text}.`, " Still streaming.", " Almost done."]
@@ -438,6 +614,61 @@ function response(id: JsonRpcId, result: unknown): unknown {
   return { jsonrpc: "2.0", id, result }
 }
 
+function authRequiredResponse(id: JsonRpcId, authMethods: unknown[]): unknown {
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: -32000,
+      message: "Authentication is required before this operation can be performed.",
+      data: { authMethods },
+    },
+  }
+}
+
+function envAuthMethods(): unknown[] {
+  return [{
+    id: "env-token",
+    type: "env_var",
+    name: "Use Junie token",
+    description: "Enter a token that will be passed to the local agent process.",
+    vars: [{ name: envAuthVar, label: "Junie token", secret: true, optional: false }],
+    _meta: { source: "mock-env-auth" },
+  }]
+}
+
+function oauthAuthMethods(): unknown[] {
+  return [{
+    id: "oauth-browser",
+    type: "browser",
+    name: "Sign in with browser",
+    description: "The agent will provide a verification URL.",
+    link: "https://example.com/oauth/start",
+    vars: [],
+    _meta: { source: "mock-oauth-auth" },
+  }]
+}
+
+function promptAuthMethods(): unknown[] {
+  return [{
+    id: "prompt-env",
+    type: "env_var",
+    name: "Use prompt token",
+    vars: [{ name: promptAuthVar, label: "Prompt auth token", secret: true, optional: false }],
+    _meta: { source: "mock-prompt-auth" },
+  }]
+}
+
+function repeatedPromptAuthMethods(): unknown[] {
+  return [{
+    id: "repeat-prompt-env",
+    type: "env_var",
+    name: "Use repeated prompt token",
+    vars: [{ name: repeatedPromptAuthVar, label: "Repeated prompt auth token", secret: true, optional: false }],
+    _meta: { source: "mock-repeated-prompt-auth" },
+  }]
+}
+
 function defaultListedSessions() {
   return [
     { sessionId, cwd: mockCwd, title: "Current mock chat", updatedAt: "2026-06-29T09:00:00.000Z" },
@@ -448,6 +679,14 @@ function defaultListedSessions() {
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function compactToolOutput(): string {
+  return [
+    "tool output header",
+    ...Array.from({ length: 24 }, (_, index) => `long compact tool output line ${index + 1}`),
+    "tool output footer",
+  ].join("\n")
 }
 
 function promptText(prompt: unknown): string {
