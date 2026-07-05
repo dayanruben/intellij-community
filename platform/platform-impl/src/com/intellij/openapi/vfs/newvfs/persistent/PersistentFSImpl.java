@@ -1836,14 +1836,34 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
         childrenNamesDeleted.add(child.getNameSequence());
         childrenIdsDeleted.add(childId);
         deleted.add(new ChildInfoImpl(childId, ChildInfoImpl.UNKNOWN_ID_YET, null, null, null));
+      }
+
+      detachChildrenBeforeDeletion(parent, parentId, deleted, childrenIdsDeleted, childrenNamesDeleted);
+      for (VFileDeleteEvent event : deleteEvents) {
+        VirtualFile child = event.getFile();
+        int childId = fileId(child);
 
         vfsPeer.deleteRecordRecursively(childId);
         invalidateSubtree((VirtualFileSystemEntry)child, "Bulk file deletions", event);
       }
-      deleted.sort(ChildInfo.BY_ID);
-      vfsPeer.update(parent, parentId, oldChildren -> oldChildren.subtract(deleted), /*setAllChildrenCached: */ false);
-      parent.removeChildren(childrenIdsDeleted, childrenNamesDeleted);
     }
+  }
+
+  /**
+   * Detaches children from parent before their records are marked deleted, preserving the invariant that parent.children points only to valid file ids.
+   * The order is important because .children processing assumes all child ids point to valid records.
+   * Under strict WA/RA access this intermediate state would not be observable, but VFS still has callers outside that protocol.
+   */
+  private void detachChildrenBeforeDeletion(@NotNull VirtualDirectoryImpl parent,
+                                            int parentId,
+                                            @NotNull List<ChildInfo> deleted,
+                                            @NotNull IntSet childrenIdsDeleted,
+                                            @NotNull List<? extends CharSequence> childrenNamesDeleted) {
+    if (deleted.size() > 1) {
+      deleted.sort(ChildInfo.BY_ID);
+    }
+    vfsPeer.update(parent, parentId, oldChildren -> oldChildren.subtract(deleted), /*setAllChildrenCached: */ false);
+    parent.removeChildren(childrenIdsDeleted, childrenNamesDeleted);
   }
 
   // add children to specified directories using VirtualDirectoryImpl.createAndAddChildren() optimised for bulk additions
@@ -2716,11 +2736,11 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
       }
     }
     else {
-      //The order: first(remove the file from it's parent.children) then(mark the file as deleted) -- is important!
-      // During .children processing we rely on the fact that .children are all valid files
-      vfsPeer.update(parent, parentId, children -> children.remove(fileIdToDelete), /*setAllChildrenCached: */ false);
-
-      ((VirtualDirectoryImpl)parent).removeChild((VirtualFileSystemEntry)file);
+      detachChildrenBeforeDeletion((VirtualDirectoryImpl)parent,
+                                   parentId,
+                                   List.of(new ChildInfoImpl(fileIdToDelete, ChildInfoImpl.UNKNOWN_ID_YET, null, null, null)),
+                                   IntSets.singleton(fileIdToDelete),
+                                   List.of(file.getNameSequence()));
     }
 
     vfsPeer.deleteRecordRecursively(fileIdToDelete);

@@ -435,16 +435,17 @@ function classNames(...names) {
 //#region views/markdown-preview/src/MarkdownZoomControls.tsx
 var MARKDOWN_ZOOM_SCALE_EXTENT = [.25, 4];
 var MARKDOWN_ZOOM_BUTTON_FACTOR = 1.2;
-function MarkdownZoomToolbar({ targetLabel, className, onZoomOut, onResetZoom, onZoomIn }) {
+function MarkdownZoomToolbar({ targetLabel, className, buttonClassName, onZoomOut, onResetZoom, onZoomIn }) {
 	const normalizedTargetLabel = targetLabel.toLowerCase();
 	const accessibleTargetLabel = `${normalizedTargetLabel.charAt(0).toUpperCase()}${normalizedTargetLabel.slice(1)}`;
+	const buttonClass = classNames("markdownZoomToolbarButton", buttonClassName);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: classNames("markdownZoomToolbar", className),
 		"aria-label": `${accessibleTargetLabel} zoom controls`,
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				type: "button",
-				className: "markdownZoomToolbarButton",
+				className: buttonClass,
 				"aria-label": `Zoom out ${normalizedTargetLabel}`,
 				title: "Zoom out",
 				onClick: onZoomOut,
@@ -456,7 +457,7 @@ function MarkdownZoomToolbar({ targetLabel, className, onZoomOut, onResetZoom, o
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				type: "button",
-				className: "markdownZoomToolbarButton",
+				className: buttonClass,
 				"aria-label": `Reset ${normalizedTargetLabel} zoom`,
 				title: "Reset zoom",
 				onClick: onResetZoom,
@@ -468,7 +469,7 @@ function MarkdownZoomToolbar({ targetLabel, className, onZoomOut, onResetZoom, o
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				type: "button",
-				className: "markdownZoomToolbarButton",
+				className: buttonClass,
 				"aria-label": `Zoom in ${normalizedTargetLabel}`,
 				title: "Zoom in",
 				onClick: onZoomIn,
@@ -552,6 +553,7 @@ function MarkdownImageBlock({ src, alt, title, className, style, ...props }) {
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MarkdownZoomToolbar, {
 			targetLabel: "image",
 			className: "markdownImageToolbar",
+			buttonClassName: "markdownImageToolbarButton",
 			onZoomOut: () => zoomBy(1 / MARKDOWN_ZOOM_BUTTON_FACTOR),
 			onResetZoom: resetZoom,
 			onZoomIn: () => zoomBy(MARKDOWN_ZOOM_BUTTON_FACTOR)
@@ -659,6 +661,7 @@ function RenderedMermaidDiagram({ svg }) {
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MarkdownZoomToolbar, {
 			targetLabel: "diagram",
 			className: "mermaidToolbar",
+			buttonClassName: "mermaidToolbarButton",
 			onZoomOut: () => zoomBy(1 / MARKDOWN_ZOOM_BUTTON_FACTOR),
 			onResetZoom: resetZoom,
 			onZoomIn: () => zoomBy(MARKDOWN_ZOOM_BUTTON_FACTOR)
@@ -1242,6 +1245,7 @@ var hostStyles = i`
     font-family: var(--jb-font-family);
     font-size: var(--jb-font-size);
     line-height: var(--jb-line-height);
+    -webkit-user-select: none;
     user-select: none;
   }
 
@@ -1285,6 +1289,7 @@ i`
     outline: none;
     padding: 0 var(--jb-control-padding-x);
     position: relative;
+    -webkit-user-select: none;
     user-select: none;
     white-space: nowrap;
   }
@@ -1500,11 +1505,13 @@ i`
 
   .select {
     padding-right: 26px;
+    -webkit-user-select: none;
     user-select: none;
   }
 
   .field-control,
   .textarea {
+    -webkit-user-select: text;
     user-select: text;
   }
 
@@ -1519,6 +1526,7 @@ i`
     right: 9px;
     top: 50%;
     transform: translateY(-65%) rotate(45deg);
+    -webkit-user-select: none;
     user-select: none;
     width: 5px;
   }
@@ -1552,6 +1560,7 @@ i`
     min-height: var(--jb-control-height-compact);
     padding: 0 var(--jb-space-sm);
     text-align: left;
+    -webkit-user-select: none;
     user-select: none;
     white-space: nowrap;
   }
@@ -1579,6 +1588,7 @@ i`
     gap: var(--jb-control-gap);
     min-height: var(--jb-control-height-compact);
     position: relative;
+    -webkit-user-select: none;
     user-select: none;
   }
 
@@ -1703,6 +1713,7 @@ var JbIcon = class extends i$1 {
       height: 16px;
       justify-content: center;
       line-height: 1;
+      -webkit-user-select: none;
       user-select: none;
       width: 16px;
     }
@@ -2190,6 +2201,11 @@ function MarkdownPreviewApp({ markdown, scrollLine, contentVersion, changes, sel
 			function handleClick(event) {
 				if (!href) return;
 				event.preventDefault();
+				const localFragment = localAnchorFragment(href);
+				if (localFragment !== void 0) {
+					navigateToLocalAnchor(localFragment);
+					return;
+				}
 				onOpenLink(href);
 			}
 			return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
@@ -2365,7 +2381,7 @@ function MarkdownPreviewApp({ markdown, scrollLine, contentVersion, changes, sel
 		changes
 	]);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: "markdownPreviewContent",
+		className: "markdownPreviewContent webview-selectable-text",
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Markdown, {
 			remarkPlugins,
 			rehypePlugins,
@@ -2391,6 +2407,43 @@ function standaloneImageFromParagraphNode(node) {
 		alt: stringProperty(imageNode.properties?.alt),
 		title: stringProperty(imageNode.properties?.title)
 	};
+}
+function localAnchorFragment(href) {
+	if (href.startsWith("#")) return href.slice(1);
+	try {
+		const url = new URL(href, window.location.href);
+		if (url.origin === window.location.origin && url.pathname === window.location.pathname && url.search === window.location.search && url.hash.startsWith("#")) return url.hash.slice(1);
+	} catch {}
+}
+function navigateToLocalAnchor(fragment) {
+	if (fragment.length === 0) {
+		updateLocationHash("#");
+		window.scrollTo({
+			top: 0,
+			left: 0
+		});
+		return;
+	}
+	const target = findLocalAnchorTarget(decodeFragment(fragment));
+	updateLocationHash(`#${fragment}`);
+	target?.scrollIntoView({ block: "start" });
+}
+function findLocalAnchorTarget(id) {
+	const normalizedId = id.replace(/^-+/, "");
+	return document.getElementById(id) ?? document.getElementById(normalizedId) ?? document.getElementById(`user-content-${id}`) ?? document.getElementById(`user-content-${normalizedId}`);
+}
+function decodeFragment(fragment) {
+	try {
+		return decodeURIComponent(fragment);
+	} catch {
+		return fragment;
+	}
+}
+function updateLocationHash(href) {
+	if (!window.history) return;
+	try {
+		window.history.pushState(null, "", href);
+	} catch {}
 }
 function isWhitespaceTextNode(node) {
 	return node.tagName === void 0 && (node.value ?? "").trim().length === 0;
