@@ -97,6 +97,7 @@
     <orderEntry type="module" module-name="intellij.python.community.services.systemPython.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.python.pyproject.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.python.pytools.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.python.mcp.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.python.community.services.internal.impl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.python.test.env.common" scope="TEST" />
     <orderEntry type="module" module-name="intellij.python.test.env.conda" scope="TEST" />
@@ -288,6 +289,7 @@
     <orderEntry type="module" module-name="intellij.platform.lsp.impl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.mermaid.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.discoverability.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.dev.leakDetection.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.mcpserver.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.mcpserver.terminal.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.mcpserver.terminal.frontend.tests" scope="TEST" />

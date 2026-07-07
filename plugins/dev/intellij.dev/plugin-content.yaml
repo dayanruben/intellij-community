@@ -6,6 +6,9 @@
   - name: intellij.dev.codeInsight
   - name: intellij.java.dev
   - name: intellij.kotlin.dev
+- name: lib/modules/intellij.dev.leakDetection.jar
+  contentModules:
+  - name: intellij.dev.leakDetection
 - name: lib/modules/intellij.groovy.dev.jar
   contentModules:
   - name: intellij.groovy.dev

@@ -201,12 +201,12 @@ private suspend fun prepareRequirementsText(
 
   val installedByName = installedPackages.associateBy { it.name }
   val importedPackages = imports.flatMap { name ->
-    val normalized = PyPackageName.normalizePackageName(name)
+    val normalized = PyPackageName.from(name).name
     val alias = PyPsiPackageUtil.moduleToPackageName(name, default = "")
     listOfNotNull(installedByName[normalized], if (alias != normalized) installedByName[alias] else null)
   }.associateByTo(mutableMapOf()) { it.name }
 
-  val existingResult = PythonRequirementTxtSdkUtils.findRequirementsTxt(sdk)?.let { requirementsFile ->
+  val existingResult = PythonPackageManager.forSdk(module.project, sdk).getRootDependenciesFile()?.virtualFile?.let { requirementsFile ->
     readAction {
       psiManager.findFile(requirementsFile)?.let { psiFile ->
         PyRequirementsFileVisitor(importedPackages, settings).visitRequirementsFile(psiFile)

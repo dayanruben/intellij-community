@@ -924,7 +924,6 @@ platform/testIntegration-ui
 platform/testRunner
 platform/testRunner/plugin
 platform/threadDumpParser
-platform/tips-of-the-day
 platform/todo
 platform/todo/backend
 platform/todo/plugin
@@ -1037,6 +1036,7 @@ plugins/cucumber-jvm-formatter5
 plugins/dev
 plugins/dev/intellij.dev
 plugins/dev/intellij.dev.codeInsight
+plugins/dev/intellij.dev.leakDetection
 plugins/dev/intellij.dev.psiViewer
 plugins/dev/intellij.groovy.dev
 plugins/dev/intellij.java.dev
@@ -1052,6 +1052,7 @@ plugins/devkit/devkit-tests
 plugins/devkit/intellij.devkit.compose
 plugins/devkit/intellij.devkit.debugger
 plugins/devkit/intellij.devkit.gradle
+plugins/devkit/intellij.devkit.gradle.tooling
 plugins/devkit/intellij.devkit.i18n
 plugins/devkit/intellij.devkit.intelliLang
 plugins/devkit/intellij.devkit.mcp
@@ -1171,6 +1172,7 @@ plugins/hg4idea
 plugins/htmltools
 plugins/ide-features-trainer
 plugins/ide-features-trainer/onboarding
+plugins/ide-features-trainer/tips
 plugins/ide-startup/importSettings
 plugins/java-decompiler/engine
 plugins/java-decompiler/plugin
@@ -1554,6 +1556,7 @@ plugins/terminal/frontend
 plugins/terminal/sh
 plugins/terminal/tests
 plugins/testng
+plugins/testng/langInjection
 plugins/testng_rt
 plugins/testng_rt/tests
 plugins/textmate
@@ -1564,6 +1567,8 @@ plugins/textmate/core/tests
 plugins/textmate/joni
 plugins/textmate/plugin
 plugins/textmate/tests
+plugins/tips-of-the-day
+plugins/tips-of-the-day/plugin
 plugins/toml
 plugins/toml/backend
 plugins/toml/core
@@ -1607,6 +1612,7 @@ python/intellij.python.community.communityOnly
 python/intellij.python.ml.features
 python/interpreters
 python/junit5Tests-framework
+python/mcp
 python/openapi
 python/pipenv
 python/pluginCore

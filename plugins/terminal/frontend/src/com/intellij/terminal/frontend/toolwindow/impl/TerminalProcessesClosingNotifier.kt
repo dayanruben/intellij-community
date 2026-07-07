@@ -1,6 +1,7 @@
 package com.intellij.terminal.frontend.toolwindow.impl
 
 import com.intellij.execution.TerminateRemoteProcessDialog
+import com.intellij.execution.TerminateRemoteProcessDialog.ProcessCloseConfirmationResult
 import com.intellij.execution.process.NopProcessHandler
 import com.intellij.execution.ui.RunContentManagerImpl
 import com.intellij.ide.AppLifecycleListener
@@ -35,6 +36,10 @@ import java.time.LocalDateTime
  *
  * This class is responsible only for the notification,
  * actual processes termination is performed in [com.intellij.terminal.frontend.session.TerminalSessionsManager].
+ *
+ * Note that similar confirmation logic is performed in [org.jetbrains.plugins.terminal.TerminalTabCloseListener].
+ * But it is applied in a different context (should never intersect with the logic in this class).
+ * TerminalTabCloseListener runs when the user closes a single terminal tab, and the project is not closing at this moment.
  */
 internal object TerminalProcessesClosingNotifier : VetoableProjectManagerListener, ApplicationListener {
   private val PROCESSES_TERMINATION_CONFIRMED_TIME_KEY = Key<LocalDateTime>("TERMINAL_PROCESSES_TERMINATION_CONFIRMED_TIME")
@@ -125,7 +130,7 @@ internal object TerminalProcessesClosingNotifier : VetoableProjectManagerListene
         it.putUserData(RunContentManagerImpl.ALWAYS_USE_DEFAULT_STOPPING_BEHAVIOUR_KEY, true)
       }
     }
-    return TerminateRemoteProcessDialog.show(project, tabTitles, fakeProcesses) != null
+    return TerminateRemoteProcessDialog.show(project, tabTitles, fakeProcesses) != ProcessCloseConfirmationResult.LEAVE_RUNNING
   }
 }
 

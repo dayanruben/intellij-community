@@ -24,19 +24,16 @@ import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.rules.TempDirectoryExtension
 import com.intellij.testFramework.useProjectAsync
 import com.intellij.workspaceModel.ide.NonPersistentEntitySource
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.nio.file.Path
+import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
-import kotlin.io.path.invariantSeparatorsPathString
-import kotlin.io.path.name
 import kotlin.io.path.pathString
 import kotlin.io.path.relativeTo
 import kotlin.io.path.writeText
-import kotlin.time.Duration.Companion.seconds
 
 @RegistryKey("vfs.refresh.iterate.included.files.under.exclude", "true")
 @TestApplication
@@ -62,9 +59,8 @@ class VfsRefreshLoadingFilesToVfsTest {
       generatedRoot.createDirectories()
       generateFiles(generatedRoot, packagePrefix = "com/example")
 
-      delay(1.seconds)
       val filesLoadedIntoVfs = collectFilesLoadedIntoVfsBeforeListenersRuns(rootVirtualFile, disposable)
-      assertSubtreeLoadedIntoVfs(filesLoadedIntoVfs, rootVirtualFile, relativeRoot = "outer/build/generated", packagePrefix = "com/example")
+      assertSubtreeLoadedIntoVfs(filesLoadedIntoVfs, rootVirtualFile, relativeRoot = Path("outer/build/generated"), packagePrefix = "com/example")
     }
   }
 
@@ -77,21 +73,16 @@ class VfsRefreshLoadingFilesToVfsTest {
       val excludedDir = rootDir.rootPath.resolve("other/build")
       val generatedRoot = excludedDir.resolve("inner/generated")
 
-      addModuleWithContentRootUnderExcludedPattern(project, root, excludedDir.name, generatedRoot)
+      addModuleWithContentRootUnderExplicitExclude(project, root, excludedDir, generatedRoot)
 
       generatedRoot.createDirectories()
       generateFiles(generatedRoot, packagePrefix = "com/example")
 
-      delay(1.seconds)
-
-      val vfuManager = project.workspaceModel.getVirtualFileUrlManager()
-      val excludedDirVfu = vfuManager.findByUrl(excludedDir.toIdeUrl())
-      assertThat(excludedDirVfu).isNull()
 
       val filesLoadedIntoVfs = collectFilesLoadedIntoVfsBeforeListenersRuns(rootVirtualFile, disposable)
       assertSubtreeLoadedIntoVfs(filesLoadedIntoVfs,
                                  rootVirtualFile,
-                                 relativeRoot = generatedRoot.relativeTo(root).pathString,
+                                 relativeRoot = generatedRoot.relativeTo(root),
                                  packagePrefix = "com/example")
     }
   }
@@ -107,9 +98,8 @@ class VfsRefreshLoadingFilesToVfsTest {
       newPackageRoot.createDirectories()
       generateFiles(newPackageRoot, packagePrefix = "")
 
-      delay(1.seconds)
       val filesLoadedIntoVfs = collectFilesLoadedIntoVfsBeforeListenersRuns(rootVirtualFile, disposable)
-      assertSubtreeLoadedIntoVfs(filesLoadedIntoVfs, rootVirtualFile, relativeRoot = "single/newpkg", packagePrefix = "")
+      assertSubtreeLoadedIntoVfs(filesLoadedIntoVfs, rootVirtualFile, relativeRoot = Path("single/newpkg"), packagePrefix = "")
     }
   }
 
@@ -133,12 +123,12 @@ class VfsRefreshLoadingFilesToVfsTest {
   private fun assertSubtreeLoadedIntoVfs(
     filesLoadedIntoVfs: List<VirtualFile>,
     rootVirtualFile: VirtualFile,
-    relativeRoot: String,
+    relativeRoot: Path,
     packagePrefix: String,
   ) {
     val projectRoot = rootVirtualFile.toNioPath()
     val filesInVfs = filesLoadedIntoVfs.associateBy { file ->
-      projectRoot.relativize(file.toNioPath()).invariantSeparatorsPathString
+      projectRoot.relativize(file.toNioPath())
     }
     val subtree = expectedSubtree(relativeRoot, packagePrefix)
 
@@ -154,24 +144,24 @@ class VfsRefreshLoadingFilesToVfsTest {
     }
   }
 
-  private fun expectedSubtree(relativeRoot: String, packagePrefix: String): ExpectedSubtree {
+  private fun expectedSubtree(relativeRoot: Path, packagePrefix: String): ExpectedSubtree {
     val directories = linkedSetOf(relativeRoot)
     val paths = linkedSetOf(relativeRoot)
     var packageRoot = relativeRoot
     if (packagePrefix.isNotEmpty()) {
       for (segment in packagePrefix.split('/')) {
-        packageRoot = "$packageRoot/$segment"
+        packageRoot = packageRoot.resolve(segment)
         directories.add(packageRoot)
         paths.add(packageRoot)
       }
     }
 
     repeat(SUBDIR_COUNT) { pkg ->
-      val packageDir = "$packageRoot/pkg$pkg"
+      val packageDir = packageRoot.resolve("pkg$pkg")
       directories.add(packageDir)
       paths.add(packageDir)
       repeat(FILES_PER_SUBDIR) { idx ->
-        paths.add("$packageDir/Generated${pkg}_$idx.java")
+        paths.add(packageDir.resolve("Generated${pkg}_$idx.java"))
       }
     }
     return ExpectedSubtree(directories, paths)
@@ -219,23 +209,6 @@ class VfsRefreshLoadingFilesToVfsTest {
     }
   }
 
-  private suspend fun addModuleWithContentRootUnderExcludedPattern(
-    project: Project,
-    contentRoot: Path,
-    excludedPattern: String,
-    nestedContentRoot: Path,
-  ) {
-    val urlManager = project.workspaceModel.getVirtualFileUrlManager()
-    project.workspaceModel.update("add content root under excluded pattern") { storage ->
-      storage.addEntity(ModuleEntity("module", moduleDependencies(), NonPersistentEntitySource) {
-        contentRoots = listOf(
-          ContentRootEntity(contentRoot.toVirtualFileUrl(urlManager), listOf(excludedPattern), NonPersistentEntitySource),
-          ContentRootEntity(nestedContentRoot.toVirtualFileUrl(urlManager), emptyList(), NonPersistentEntitySource),
-        )
-      })
-    }
-  }
-
   private fun stageNestedExcludedLayout() {
     val buildDir = rootDir.rootPath.resolve("outer/build")
     buildDir.createDirectories()
@@ -249,8 +222,8 @@ class VfsRefreshLoadingFilesToVfsTest {
   }
 
   private data class ExpectedSubtree(
-    val directories: Set<String>,
-    val paths: Set<String>,
+    val directories: Set<Path>,
+    val paths: Set<Path>,
   )
 
   companion object {

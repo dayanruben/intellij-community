@@ -88,7 +88,6 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         "//python/ide/impl",
-        "@lib//:tips-pycharm-community",
         "//python/ide/impl/intellij.pycharm.community.ide.impl.promotion:pycharm-community-ide-impl-promotion",
         "//python/ide/implTraining/intellij.pycharm.community.ide.implTraining:pycharm-community-ide-implTraining",
         "//python/ide/customization.shared",
@@ -1420,6 +1419,8 @@ jvm_library(
         "//python/python-pyright:pyright_test_lib",
         "//plugins/toml/core",
         "//plugins/toml/core:core_test_lib",
+        "//python/python-poetry/backend",
+        "//python/python-poetry/backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.community.tests` end
