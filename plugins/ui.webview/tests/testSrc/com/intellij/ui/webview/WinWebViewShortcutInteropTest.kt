@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test
 import java.awt.Panel
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
+import javax.swing.KeyStroke
 
 class WinWebViewShortcutInteropTest {
   @Test
@@ -61,6 +62,9 @@ class WinWebViewShortcutInteropTest {
 
     assertFalse(WinWebViewShortcutInterop.isShortcutCandidate(KeyEvent.VK_A, 0))
     assertFalse(WinWebViewShortcutInterop.isShortcutCandidate(KeyEvent.VK_SHIFT, InputEvent.SHIFT_DOWN_MASK))
+    assertFalse(WinWebViewShortcutInterop.isShortcutCandidate(KeyEvent.VK_LEFT, InputEvent.CTRL_DOWN_MASK))
+    assertFalse(WinWebViewShortcutInterop.isShortcutCandidate(KeyEvent.VK_RIGHT, InputEvent.CTRL_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK))
+    assertFalse(WinWebViewShortcutInterop.isShortcutCandidate(KeyEvent.VK_DELETE, InputEvent.CTRL_DOWN_MASK))
   }
 
   @Test
@@ -117,6 +121,106 @@ class WinWebViewShortcutInteropTest {
     val plainA = createWindowsKeyEvent('A'.code, 0)
 
     assertEquals(WebViewShortcutRouting.BROWSER_ONLY, WebViewShortcutRouter.route(plainA))
+  }
+
+  @Test
+  fun `routes browser text navigation to browser only`() {
+    val ctrlLeft = createWindowsKeyEvent(VK_LEFT, WinWebViewShortcutInterop.MODIFIER_CONTROL)
+    val ctrlShiftRight = createWindowsKeyEvent(VK_RIGHT, WinWebViewShortcutInterop.MODIFIER_CONTROL or WinWebViewShortcutInterop.MODIFIER_SHIFT)
+
+    assertEquals(WebViewShortcutRouting.BROWSER_ONLY, WebViewShortcutRouter.route(ctrlLeft))
+    assertEquals(WebViewShortcutRouting.BROWSER_ONLY, WebViewShortcutRouter.route(ctrlShiftRight))
+  }
+
+  @Test
+  fun `routes active keymap system shortcuts to ide before native fallback`() {
+    val activeShortcuts = activeKeymapShortcuts(
+      KeyStroke.getKeyStroke(KeyEvent.VK_F1, InputEvent.ALT_DOWN_MASK),
+      KeyStroke.getKeyStroke(KeyEvent.VK_F10, InputEvent.ALT_DOWN_MASK),
+    )
+
+    assertEquals(
+      WebViewShortcutRouting.FORWARD_TO_IDE_CONSUME_BROWSER_HANDLING,
+      routeWindowsKeyEvent(
+        virtualKey = VK_F1,
+        modifierFlags = WinWebViewShortcutInterop.MODIFIER_ALT,
+        keyEventKind = WinWebViewShortcutInterop.KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+        activeKeymapShortcuts = activeShortcuts,
+      ),
+    )
+    assertEquals(
+      WebViewShortcutRouting.FORWARD_TO_IDE_CONSUME_BROWSER_HANDLING,
+      routeWindowsKeyEvent(
+        virtualKey = VK_F10,
+        modifierFlags = WinWebViewShortcutInterop.MODIFIER_ALT,
+        keyEventKind = WinWebViewShortcutInterop.KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+        activeKeymapShortcuts = activeShortcuts,
+      ),
+    )
+  }
+
+  @Test
+  fun `leaves unbound system shortcuts for native fallback`() {
+    val activeShortcuts = activeKeymapShortcuts(KeyStroke.getKeyStroke(KeyEvent.VK_F1, InputEvent.ALT_DOWN_MASK))
+
+    assertEquals(
+      WebViewShortcutRouting.BROWSER_ONLY,
+      routeWindowsKeyEvent(
+        virtualKey = VK_F4,
+        modifierFlags = WinWebViewShortcutInterop.MODIFIER_ALT,
+        keyEventKind = WinWebViewShortcutInterop.KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+        activeKeymapShortcuts = activeShortcuts,
+      ),
+    )
+  }
+
+  @Test
+  fun `system key release follows pressed ownership`() {
+    val state = WinWebViewShortcutInterop.SystemKeyRoutingState()
+    val activeShortcuts = activeKeymapShortcuts(KeyStroke.getKeyStroke(KeyEvent.VK_F1, InputEvent.ALT_DOWN_MASK))
+
+    assertEquals(
+      WebViewShortcutRouting.FORWARD_TO_IDE_CONSUME_BROWSER_HANDLING,
+      routeWindowsKeyEvent(
+        virtualKey = VK_F1,
+        modifierFlags = WinWebViewShortcutInterop.MODIFIER_ALT,
+        keyEventKind = WinWebViewShortcutInterop.KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+        activeKeymapShortcuts = activeShortcuts,
+        state = state,
+      ),
+    )
+    assertEquals(
+      WebViewShortcutRouting.FORWARD_TO_IDE_CONSUME_BROWSER_HANDLING,
+      routeWindowsKeyEvent(
+        virtualKey = VK_F1,
+        modifierFlags = WinWebViewShortcutInterop.MODIFIER_ALT,
+        keyEventKind = WinWebViewShortcutInterop.KEY_EVENT_KIND_SYSTEM_KEY_UP,
+        activeKeymapShortcuts = activeShortcuts,
+        state = state,
+      ),
+    )
+    assertEquals(
+      WebViewShortcutRouting.BROWSER_ONLY,
+      routeWindowsKeyEvent(
+        virtualKey = VK_F1,
+        modifierFlags = WinWebViewShortcutInterop.MODIFIER_ALT,
+        keyEventKind = WinWebViewShortcutInterop.KEY_EVENT_KIND_SYSTEM_KEY_UP,
+        activeKeymapShortcuts = activeShortcuts,
+        state = state,
+      ),
+    )
+  }
+
+  @Test
+  fun `ordinary key routing keeps existing shortcut behavior`() {
+    assertEquals(
+      WebViewShortcutRouting.FORWARD_TO_IDE_CONSUME_BROWSER_HANDLING,
+      routeWindowsKeyEvent(
+        virtualKey = 'S'.code,
+        modifierFlags = WinWebViewShortcutInterop.MODIFIER_CONTROL,
+        activeKeymapShortcuts = activeKeymapShortcuts(),
+      ),
+    )
   }
 
   @Test
@@ -177,12 +281,38 @@ class WinWebViewShortcutInteropTest {
     )
   }
 
+  private fun routeWindowsKeyEvent(
+    virtualKey: Int,
+    modifierFlags: Int,
+    keyEventKind: Int = WinWebViewShortcutInterop.KEY_EVENT_KIND_KEY_DOWN,
+    activeKeymapShortcuts: (KeyEvent) -> Boolean,
+    state: WinWebViewShortcutInterop.SystemKeyRoutingState = WinWebViewShortcutInterop.SystemKeyRoutingState(),
+  ): WebViewShortcutRouting {
+    val event = createWindowsKeyEvent(virtualKey, modifierFlags, keyEventKind)
+    return WinWebViewShortcutInterop.routeKeyEvent(
+      keyEventKind = keyEventKind,
+      virtualKey = virtualKey,
+      keyEvent = event,
+      hasActiveKeymapShortcut = activeKeymapShortcuts,
+      systemKeyRoutingState = state,
+    )
+  }
+
+  private fun activeKeymapShortcuts(vararg keyStrokes: KeyStroke): (KeyEvent) -> Boolean {
+    val shortcuts = keyStrokes.toSet()
+    return { event -> KeyStroke.getKeyStrokeForEvent(event) in shortcuts }
+  }
+
   private companion object {
     private const val EXTENDED_KEY_MASK: Int = 1 shl 24
     private const val VK_ESCAPE: Int = 0x1B
+    private const val VK_F1: Int = 0x70
     private const val VK_F4: Int = 0x73
+    private const val VK_F10: Int = 0x79
     private const val VK_SHIFT: Int = 0x10
     private const val VK_CONTROL: Int = 0x11
+    private const val VK_LEFT: Int = 0x25
+    private const val VK_RIGHT: Int = 0x27
     private const val VK_LSHIFT: Int = 0xA0
     private const val VK_RSHIFT: Int = 0xA1
     private const val VK_LCONTROL: Int = 0xA2
