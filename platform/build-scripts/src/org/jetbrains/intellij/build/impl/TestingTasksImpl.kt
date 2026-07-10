@@ -1632,4 +1632,11 @@ private val COMMUNITY_AGGREGATOR_BAZEL_MIGRATED_MODULES = listOf(
   "intellij.tools.ide.metrics.collector.tests",
   "intellij.tools.ide.starter.bus.tests",
   "intellij.turboComplete.tests",
+  "intellij.vcs.git.featuresTrainer.tests",
+  "intellij.vcs.github.tests",
+  "intellij.vcs.github.tracker.tests",
+  "kotlin.gradle.gradle-java.tests",
+  "intellij.xpath.tests",
+  "intellij.yaml.backend.tests",
+  "intellij.yaml.tests",
 )
