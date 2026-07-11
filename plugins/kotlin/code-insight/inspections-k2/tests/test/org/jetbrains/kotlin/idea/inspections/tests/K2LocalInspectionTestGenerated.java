@@ -10961,6 +10961,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/canBeParameter/similarPropNameUsedInPropertyInitializer.kt");
         }
 
+        @TestMetadata("suppressedConstructorParameter.kt")
+        public void testSuppressedConstructorParameter() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/canBeParameter/suppressedConstructorParameter.kt");
+        }
+
         @TestMetadata("usedActualModifier.kt")
         public void testUsedActualModifier() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/canBeParameter/usedActualModifier.kt");
@@ -21432,6 +21437,94 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("stringTemplate.kt")
             public void testStringTemplate() throws Exception {
                 runTest("testData/inspectionsLocal/replaceToStringWithStringTemplate/stringTemplate.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/inspectionsLocal/replaceWithCallWithContext")
+        public static class ReplaceWithCallWithContext extends AbstractK2LocalInspectionTest {
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("callableReference.kt")
+            public void testCallableReference() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/callableReference.kt");
+            }
+
+            @TestMetadata("callableReferenceWithContext.kt")
+            public void testCallableReferenceWithContext() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/callableReferenceWithContext.kt");
+            }
+
+            @TestMetadata("contextNotEnabled.kt")
+            public void testContextNotEnabled() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/contextNotEnabled.kt");
+            }
+
+            @TestMetadata("dispatchReceiver.kt")
+            public void testDispatchReceiver() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/dispatchReceiver.kt");
+            }
+
+            @TestMetadata("explicitThis.kt")
+            public void testExplicitThis() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/explicitThis.kt");
+            }
+
+            @TestMetadata("extensionReceiver.kt")
+            public void testExtensionReceiver() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/extensionReceiver.kt");
+            }
+
+            @TestMetadata("labeledReturn.kt")
+            public void testLabeledReturn() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/labeledReturn.kt");
+            }
+
+            @TestMetadata("lableledThis.kt")
+            public void testLableledThis() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/lableledThis.kt");
+            }
+
+            @TestMetadata("lambdaPassedToContext.kt")
+            public void testLambdaPassedToContext() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/lambdaPassedToContext.kt");
+            }
+
+            @TestMetadata("namedReceiver.kt")
+            public void testNamedReceiver() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/namedReceiver.kt");
+            }
+
+            @TestMetadata("nonTrailing.kt")
+            public void testNonTrailing() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/nonTrailing.kt");
+            }
+
+            @TestMetadata("qualifiedCall.kt")
+            public void testQualifiedCall() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/qualifiedCall.kt");
+            }
+
+            @TestMetadata("receiverNotUsed.kt")
+            public void testReceiverNotUsed() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/receiverNotUsed.kt");
+            }
+
+            @TestMetadata("replaceWithWithContext.kt")
+            public void testReplaceWithWithContext() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/replaceWithWithContext.kt");
+            }
+
+            @TestMetadata("spreadArgument.kt")
+            public void testSpreadArgument() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/spreadArgument.kt");
+            }
+
+            @TestMetadata("twoContext.kt")
+            public void testTwoContext() throws Exception {
+                runTest("testData/inspectionsLocal/replaceWithCallWithContext/twoContext.kt");
             }
         }
 

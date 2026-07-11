@@ -17,6 +17,7 @@ import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.impl.FileDocumentManagerBase;
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
@@ -42,6 +43,8 @@ import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.impl.source.PsiPlainTextFileImpl;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.tree.FileElement;
+import com.intellij.psi.impl.source.tree.mvcc.InternalPsiVersioning;
+import com.intellij.psi.impl.source.tree.mvcc.VersionedPsiReference;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.ConcurrencyUtil;
@@ -60,6 +63,7 @@ import java.lang.ref.SoftReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 public abstract class AbstractFileViewProvider extends UserDataHolderBase implements FileViewProvider {
@@ -71,7 +75,7 @@ public abstract class AbstractFileViewProvider extends UserDataHolderBase implem
   private final @NotNull VirtualFile myVirtualFile;
   private final boolean myEventSystemEnabled;
   private final boolean myPhysical;
-  private volatile Content myContent;
+  private final @NotNull VersionedPsiReference<Content> myContent = new VersionedPsiReference<>();
   private volatile Reference<Document> myDocument;
   @SuppressWarnings("FieldMayBeStatic") private final PsiLock myPsiLock = new PsiLock();
 
@@ -93,6 +97,11 @@ public abstract class AbstractFileViewProvider extends UserDataHolderBase implem
 
   protected boolean shouldCreatePsi() {
     if (isIgnored()) return false;
+
+    if (InternalPsiVersioning.isInsideVersioningButNotLocks()) {
+      // We cannot touch virtual files in versioned environment, so we allow creating PSI here anyway
+      return true;
+    }
 
     VirtualFile vFile = getVirtualFile();
     if (correspondsToRealFile() && vFile.isInLocalFileSystem()) { // check directories consistency
@@ -180,7 +189,14 @@ public abstract class AbstractFileViewProvider extends UserDataHolderBase implem
     Document document = com.intellij.reference.SoftReference.dereference(myDocument);
     if (document == null) {
       VirtualFile file = getVirtualFile();
-      document = FileDocumentManager.getInstance().getDocument(file, myManager.getProject());
+      if (InternalPsiVersioning.isInsideVersioningButNotLocks()) {
+        document = FileDocumentManager.getInstance().getCachedDocument(file);
+        if (document == null) {
+          FileDocumentManagerBase.assertDocumentInitializedIfVersionedEnvironment(file);
+        }
+      } else {
+        document = FileDocumentManager.getInstance().getDocument(file, myManager.getProject());
+      }
       myDocument = document == null ? null : new SoftReference<>(document);
     }
     return document;
@@ -253,8 +269,10 @@ public abstract class AbstractFileViewProvider extends UserDataHolderBase implem
 
   @Override
   public void contentsSynchronized() {
-    if (myContent instanceof PsiFileContent) {
-      setContent(new VirtualFileContent());
+    Content existingContent = myContent.get();
+    if (!(existingContent instanceof VirtualFileContent)) {
+      // we forcefully overwrite the content with a new virtual file content, as it now contains a different captured state
+      myContent.set(new VirtualFileContent());
     }
     checkLengthConsistency();
   }
@@ -334,7 +352,27 @@ public abstract class AbstractFileViewProvider extends UserDataHolderBase implem
 
   @Override
   public long getModificationStamp() {
-    return getContent().getModificationStamp();
+    // do not call plain `getContent` here -- it will lead to heavy loading of text because of existence of `FrozenFileContent`
+    // until one purposefully requests the actual content, we would not load the file into memory.
+    Content content = getContentImpl(false);
+    return content.getModificationStamp();
+  }
+
+  private @NotNull Content getContentImpl(boolean checkFrozen) {
+    Content storedContent = myContent.get();
+    if (storedContent == null) {
+      storedContent = new VirtualFileContent();
+      myContent.set(storedContent);
+    }
+    if (checkFrozen && cacheContentInVersionedEnvironment() && storedContent instanceof VirtualFileContent) {
+      // Once someone decided to retrieve the content, we need to return consistent data from this function.
+      // So we are fixing the content for this snapshot by freezing the text and modstamp.
+      FrozenFileContent frozenFileContent = new FrozenFileContent((VirtualFileContent)storedContent);
+      myContent.set(frozenFileContent);
+      return frozenFileContent;
+    } else {
+      return storedContent;
+    }
   }
 
   @Override
@@ -343,11 +381,24 @@ public abstract class AbstractFileViewProvider extends UserDataHolderBase implem
   }
 
   private @NotNull Content getContent() {
-    return myContent;
+    return getContentImpl(true);
+  }
+
+  /**
+   * To support versioned content of {@link FileViewProvider},
+   * we need to remember the values of content for older versions and not take them from {@link VirtualFileContent}
+   * This is why we have {@link FrozenFileContent}.
+   * However, in the case of language injections, caching works poorly -- the content needs to be retrieved from the associated {@link DocumentWindow},
+   * which might not be ready at the moment of first access to {@link VirtualFile}.
+   * This is why we disable caching for injected view providers -- they have relaxed locking invariants anyway.
+   */
+  @ApiStatus.Experimental
+  protected boolean cacheContentInVersionedEnvironment() {
+    return true;
   }
 
   private void setContent(@NotNull Content content) {
-    myContent = content;
+    myContent.set(content);
   }
 
   private void checkLengthConsistency() {
@@ -363,12 +414,14 @@ public abstract class AbstractFileViewProvider extends UserDataHolderBase implem
     List<FileASTNode> knownTreeRoots = getKnownTreeRoots();
     if (knownTreeRoots.isEmpty()) return;
 
-    int fileLength = myContent.getTextLength();
+    Content capturedContent = Objects.requireNonNull(myContent.get(), "attempt to retrieve not-installed content");
+
+    int fileLength = capturedContent.getTextLength();
     for (FileASTNode fileElement : knownTreeRoots) {
       int nodeLength = fileElement.getTextLength();
-      if (!isDocumentConsistentWithPsi(fileLength, fileElement, nodeLength)) {
+      if (!isDocumentConsistentWithPsi(capturedContent, fileLength, fileElement, nodeLength)) {
         PsiUtilCore.ensureValid(fileElement.getPsi());
-        Attachment vfContent = new Attachment(myVirtualFile.getName(), myContent.getText().toString());
+        Attachment vfContent = new Attachment(myVirtualFile.getName(), capturedContent.getText().toString());
         Attachment astContent = new Attachment(myVirtualFile.getNameWithoutExtension() + ".tree.txt", fileElement.getText());
         Attachment[] attachments = document == null ? new Attachment[]{vfContent, astContent} :
           new Attachment[]{vfContent, astContent, new Attachment(myVirtualFile.getNameWithoutExtension() + ".document.txt", document.getText())};
@@ -391,11 +444,11 @@ public abstract class AbstractFileViewProvider extends UserDataHolderBase implem
     }
   }
 
-  private boolean isDocumentConsistentWithPsi(int fileLength, @NotNull FileASTNode fileElement, int nodeLength) {
+  private static boolean isDocumentConsistentWithPsi(@NotNull Content capturedContent, int fileLength, @NotNull FileASTNode fileElement, int nodeLength) {
     if (nodeLength != fileLength) return false;
 
     if (ApplicationManager.getApplication().isUnitTestMode() && !ApplicationManagerEx.isInStressTest()) {
-      return fileElement.getPsi().textMatches(myContent.getText());
+      return fileElement.getPsi().textMatches(capturedContent.getText());
     }
 
     return true;
@@ -502,6 +555,61 @@ public abstract class AbstractFileViewProvider extends UserDataHolderBase implem
     public @NonNls String toString() {
       Document doc = getDocument();
       return "VirtualFileContent{virtualFileSize=" + getVirtualFile().getLength() + ", documentSize=" + (doc == null ? null : doc.getTextLength()) + "}";
+    }
+  }
+
+  /**
+   * A captured state of file content.
+   * The primary goal of this class is to serve consistent results of {@link Content#getText()} for repeated accesses inside one PSI version.
+   * Its behavior contrasts {@link VirtualFileContent}, which recomputes the textual data on each access.
+   * The usage of {@link VirtualFileContent} would introduce unwanted side effects into PSI versioned snapshots,
+   * which need to be consistent throughout their existence.
+   * <p>
+   * Despite that read actions also operate in some versions, we cannot apply freezing to them --
+   * modification stamp and content of virtual files can be freely changes without any locking actions,
+   * and to preserve semantical backward compatibility, we still fallback to {@link VirtualFileContent} in read actions.
+   * <p>
+   * The current implementation of this class is suboptimal, as retaining {@link CharSequence} could introduce overhead due to keeping document text in memory.
+   * A more optimal implementation would involve caching references to older version of {@link Document} instances, but we are not yet there.
+   */
+  private static class FrozenFileContent implements Content {
+    private final @NotNull CharSequence text;
+    private final long modificationStamp;
+    private final @NotNull VirtualFileContent delegate;
+
+    FrozenFileContent(@NotNull VirtualFileContent originalContent) {
+      this.delegate = originalContent;
+      this.text = originalContent.getText();
+      this.modificationStamp = originalContent.getModificationStamp();
+    }
+
+    @Override
+    public @NotNull CharSequence getText() {
+      if (!InternalPsiVersioning.isInsideVersioningButNotLocks()) {
+        return delegate.getText();
+      }
+      return text;
+    }
+
+    @Override
+    public int getTextLength() {
+      if (!InternalPsiVersioning.isInsideVersioningButNotLocks()) {
+        return delegate.getTextLength();
+      }
+      return text.length();
+    }
+
+    @Override
+    public long getModificationStamp() {
+      if (!InternalPsiVersioning.isInsideVersioningButNotLocks()) {
+        return delegate.getModificationStamp();
+      }
+      return modificationStamp;
+    }
+
+    @Override
+    public String toString() {
+      return "Delegate: " + delegate + "; Captured: [length=" + text.length() +", stamp=" + modificationStamp + "]";
     }
   }
 
