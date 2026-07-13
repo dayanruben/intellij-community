@@ -209,6 +209,7 @@ object UniversalFileChooser {
     private val topToolbar: ActionToolbar
     private val toolbarActionGroup: DefaultActionGroup
     private val popupActionGroup: DefaultActionGroup
+    private val effectiveContributors: Collection<UniversalFileChooserContributor>
 
     init {
       layout = BorderLayout()
@@ -223,7 +224,7 @@ object UniversalFileChooser {
       val screenSize = Toolkit.getDefaultToolkit().screenSize
       preferredSize = Dimension(screenSize.width / 2, screenSize.height / 2)
       tabbedPane = JBTabbedPane()
-      val effectiveContributors = if (descriptor.isEnvironmentRestricted) {
+      effectiveContributors = if (descriptor.isEnvironmentRestricted) {
         projectContributor(project)?.let { listOf(it) } ?: contributors
       }
       else {
@@ -563,7 +564,7 @@ object UniversalFileChooser {
       scope.launch {
         withContext(Dispatchers.IO) {
           val basePath = project.basePath?.let { Path.of(it) }
-                         ?: Path.of(SystemProperties.getUserHome())
+                         ?: findNonProjectBasePath()
                          ?: return@withContext
           val homePath = basePath.asEelPath().descriptor.toEelApi().userInfo.home.asNioPath()
           runOnEdt {
@@ -572,6 +573,15 @@ object UniversalFileChooser {
           }
         }
       }
+    }
+
+    private fun findNonProjectBasePath(): Path? {
+      val localHome = Path.of(SystemProperties.getUserHome())
+      if (effectiveContributors.find { c -> c.ownsPath(localHome) } != null) return localHome
+      val activeView = getActiveFileView() ?: return null
+      return activeView.roots.asSequence()
+        .mapNotNull { runCatching { Path.of(it) }.getOrNull() }
+        .firstOrNull()
     }
 
     private fun navigateToProject() {
@@ -1101,7 +1111,8 @@ object FileBrowser {
    *
    * Typical usage:
    * ```
-   * val panel = FileBrowser.builder(project, descriptor, parentDisposable)
+   * val panel = FileBrowser.builder(descriptor, parentDisposable)
+   *   .forProject(myProject)
    *   .contributors(listOf(myContributor))
    *   .onDefaultAction { openSelected() }
    *   .toolbarActions(myToolbarGroup)
@@ -1109,15 +1120,13 @@ object FileBrowser {
    *   .build()
    * ```
    *
-   * @param project           project context used by the browser.
-   *                          Use [ProjectManager.getDefaultProject] for a global context.
    * @param descriptor        file chooser descriptor
    * @param parentDisposable  disposable owning the returned panel
    */
   @ApiStatus.Experimental
   @JvmStatic
-  fun builder(project: Project, descriptor: FileChooserDescriptor, parentDisposable: Disposable): Builder =
-    Builder(project, descriptor, parentDisposable)
+  fun builder(descriptor: FileChooserDescriptor, parentDisposable: Disposable): Builder =
+    Builder(descriptor, parentDisposable)
 
   /**
    * Fluent builder for an embeddable [FileBrowserPanel].
@@ -1130,7 +1139,6 @@ object FileBrowser {
    */
   @ApiStatus.Experimental
   class Builder internal constructor(
-    private val project: Project,
     private val descriptor: FileChooserDescriptor,
     private val parentDisposable: Disposable,
   ) {
@@ -1138,6 +1146,16 @@ object FileBrowser {
     private var onDefaultAction: Runnable = Runnable {}
     private var toolbarActions: ActionGroup = DefaultActionGroup()
     private var popupActions: ActionGroup = DefaultActionGroup()
+    private var project: Project = ProjectManager.getInstance().defaultProject
+
+    /**
+     * Sets the project for the builder.
+     *
+     * @param project the project to be associated with the builder, defaults to `ProjectManager.getInstance().defaultProject`
+     */
+    fun forProject(project: Project) {
+      this.project = project
+    }
 
     /**
      * Restricts the tabs shown in the panel to the given [contributors]. By default all registered
