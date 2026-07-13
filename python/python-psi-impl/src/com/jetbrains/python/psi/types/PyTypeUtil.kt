@@ -418,21 +418,8 @@ object PyTypeUtil {
 
   @ApiStatus.Internal
   @JvmStatic
-  fun isInstanceMember(resolveResults: List<@JvmWildcard RatedResolveResult>, context: TypeEvalContext): Boolean {
-    return resolveResults.any {
-      val element = it.element
-      element is PyTargetExpression &&
-      PyTypingTypeProvider.getAnnotationValue(element, context) != null &&
-      !PyTypingTypeProvider.isClassVar(element, context) &&
-      !(PyTypingTypeProvider.isFinal(element, context) && element.hasAssignedValue())
-    }
-  }
-
-  @ApiStatus.Internal
-  @JvmStatic
   fun getContainingClass(resolveResults: List<@JvmWildcard RatedResolveResult>): PyClass? {
-    return resolveResults.asReversed()
-      .asSequence()
+    return resolveResults.asSequence()
       .map { it.element }
       .filterIsInstance<PyPossibleClassMember>()
       .firstNotNullOfOrNull { it.containingClass }
@@ -446,21 +433,11 @@ object PyTypeUtil {
     memberResolveResults: List<@JvmWildcard RatedResolveResult>,
     context: TypeEvalContext,
     errors: MutableList<ProblemMessage>? = null,
-  ): PyType? = getTypeOfBoundMember(classType, classType, memberResolveResults, context, errors)
-
-  @ApiStatus.Internal
-  @JvmStatic
-  @JvmOverloads
-  fun getTypeOfBoundMember(
-    classType: PyClassType,
-    selfType: PyInstantiableType<*>,
-    memberResolveResults: List<@JvmWildcard RatedResolveResult>,
-    context: TypeEvalContext,
-    errors: MutableList<ProblemMessage>? = null,
   ): PyType? {
-    val memberType = specializeMemberType(classType, selfType, getTypeOfMember(memberResolveResults, context), context)
+    val memberType = getTypeOfMember(memberResolveResults, context)
+    val specializedMemberType = specializeMemberType(classType, classType, memberType, context)
     val memberOwner = getContainingClass(memberResolveResults)
-    return bindFunction(selfType, memberType, memberOwner, context, errors)
+    return bindFunction(classType, specializedMemberType, memberOwner, context, errors)
   }
 
   @ApiStatus.Internal
@@ -473,16 +450,28 @@ object PyTypeUtil {
     if (resolvedElements.isEmpty()) return PyAnyType.unknown
 
     // Element with a declared type takes precedence.
-    val elements = resolvedElements
+    val elementsWithDeclaredType = resolvedElements
       .filter {
+        it is PyClass ||
         it is PyFunction ||
         it is PyTargetExpression && (it.annotationValue != null || it.typeCommentAnnotation != null)
       }
-      .ifEmpty { resolvedElements }
+    val elements = elementsWithDeclaredType.ifEmpty { resolvedElements }
 
     val last = elements.last()
     val lastType = context.getType(last)
-    if (lastType !is PyFunctionType) return lastType
+    if (lastType !is PyFunctionType) {
+      val memberType = if (last is PyTargetExpression && last.isQualified && !PyTypingTypeProvider.isFinal(last, context)) {
+        PyLiteralType.upcastLiteralToClass(lastType)
+      }
+      else {
+        lastType
+      }
+      if (elementsWithDeclaredType.isEmpty() && memberType.isNoneType) {
+        return PyUnsafeUnionType.unsafeUnion(memberType, PyAnyType.unknown)
+      }
+      return memberType
+    }
 
     val overloads = mutableListOf<PyCallableType?>()
     var impl: Ref<PyType?>? = null
