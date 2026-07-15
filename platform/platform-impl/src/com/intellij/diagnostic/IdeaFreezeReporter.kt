@@ -48,6 +48,7 @@ private val LOG = fileLogger()
 
 internal class IdeaFreezeReporter : PerformanceListener {
   private var dumpTask: IdeaFreezeSamplingTask? = null
+  private var freezeTelemetry: FreezeReporterTelemetry? = null
   private val currentDumps = Collections.synchronizedList(ArrayList<ThreadDump>())
   private var stacktraceCommonPart: List<StackTraceElement>? = null
 
@@ -111,18 +112,31 @@ internal class IdeaFreezeReporter : PerformanceListener {
   }
 
   override fun uiFreezeStarted(reportDir: Path, coroutineScope: CoroutineScope) {
-    if (DEBUG || !DebugAttachDetector.isAttached()) {
-      dumpTask?.stop()
-
-      reset()
-
-      val maxDumpDuration = FreezeReporterRegistry.maxDumpDurationMs()
-      if (maxDumpDuration <= 0) {
-        return
-      }
-
-      dumpTask = IdeaFreezeSamplingTask(reportDir, maxDumpDuration, coroutineScope)
+    val telemetry = FreezeReporterTelemetry.start()
+    telemetry.freezeDetected()
+    if (!DEBUG && DebugAttachDetector.isAttached()) {
+      telemetry.finishNotSent(FreezeNotSentReason.DEBUGGER_ATTACHED)
+      return
     }
+
+    val previousDumpTask = dumpTask
+    if (previousDumpTask != null) {
+      previousDumpTask.stop()
+      freezeTelemetry?.finishNotSent(FreezeNotSentReason.INTERRUPTED_BY_NEW_FREEZE)
+      dumpTask = null
+      freezeTelemetry = null
+    }
+
+    reset()
+
+    val maxDumpDuration = FreezeReporterRegistry.maxDumpDurationMs()
+    if (maxDumpDuration <= 0) {
+      telemetry.finishNotSent(FreezeNotSentReason.SAMPLING_DISABLED)
+      return
+    }
+
+    freezeTelemetry = telemetry
+    dumpTask = IdeaFreezeSamplingTask(reportDir, maxDumpDuration, coroutineScope)
   }
 
   override fun dumpedThreads(toFile: Path, dump: ThreadDump) {
@@ -163,44 +177,85 @@ internal class IdeaFreezeReporter : PerformanceListener {
     if (dumpTask == null) {
       return
     }
+    val telemetry = freezeTelemetry ?: return
 
     try {
-      if (FreezeReporterRegistry.isReporterEnabled()) {
-        LOG.debug("UI freeze recorded")
+      if (!FreezeReporterRegistry.isReporterEnabled()) {
+        telemetry.finishNotSent(FreezeNotSentReason.REPORTER_DISABLED, durationMs)
+        return
+      }
 
-        if (((durationMs / 1000).toInt() > FreezeReporterRegistry.durationThresholdSeconds() || ApplicationManagerEx.isInIntegrationTest()) && !stacktraceCommonPart.isNullOrEmpty()) {
-          val dumps = ArrayList(currentDumps) // defensive copy
-          if (dumpTask.isValid() && dumps.size >= 2) {
-            val attachments = ArrayList<Attachment>()
-            addDumpsAttachments(from = dumps, textMapper = { it.rawDump }, container = attachments)
-            if (reportDir != null) {
-              EP_NAME.forEachExtensionSafe { attachments.addAll(it.getAttachments(reportDir)) }
-            }
+      LOG.debug("UI freeze recorded")
 
-            val loggingEvent = createEvent(dumpTask, durationMs, attachments, reportDir, PerformanceWatcher.getInstance(), finished = true)
-            if (loggingEvent != null) {
-              service<ITNProxyCoroutineScopeHolder>().coroutineScope.launch {
-                processDumps(dumps, reportDir, loggingEvent, durationMs)
-              }
-            }
+      if ((durationMs / 1000).toInt() <= FreezeReporterRegistry.durationThresholdSeconds() && !ApplicationManagerEx.isInIntegrationTest()) {
+        telemetry.finishNotSent(FreezeNotSentReason.BELOW_DURATION_THRESHOLD, durationMs)
+        return
+      }
+
+      if (stacktraceCommonPart.isNullOrEmpty()) {
+        telemetry.finishNotSent(FreezeNotSentReason.NO_COMMON_STACK, durationMs)
+        return
+      }
+
+      val dumps = ArrayList(currentDumps) // defensive copy
+      if (!dumpTask.isValid() || dumps.size < 2) {
+        LOG.debug("UI freeze recorded, but not enough dumps collected")
+        telemetry.finishNotSent(FreezeNotSentReason.NOT_ENOUGH_DUMPS, durationMs)
+        return
+      }
+
+      val attachments = ArrayList<Attachment>()
+      addDumpsAttachments(from = dumps, textMapper = { it.rawDump }, container = attachments)
+      if (reportDir != null) {
+        EP_NAME.forEachExtensionSafe { attachments.addAll(it.getAttachments(reportDir)) }
+      }
+
+      val loggingEvent = createEvent(dumpTask, durationMs, attachments, reportDir, PerformanceWatcher.getInstance(), finished = true)
+      if (loggingEvent != null) {
+        val processingJob = service<ITNProxyCoroutineScopeHolder>().coroutineScope.launch {
+          processDumps(dumps, reportDir, loggingEvent, durationMs, telemetry)
+        }
+        processingJob.invokeOnCompletion { cause ->
+          if (cause == null) {
+            telemetry.finish()
           }
           else {
-            LOG.debug("UI freeze recorded, but not enough dumps collected")
+            telemetry.finishNotSent(FreezeNotSentReason.PROCESSING_FAILED, durationMs)
           }
         }
       }
+      else {
+        telemetry.finishNotSent(FreezeNotSentReason.EVENT_CREATION_FAILED, durationMs)
+      }
+    }
+    catch (e: Throwable) {
+      telemetry.finishNotSent(FreezeNotSentReason.PROCESSING_FAILED, durationMs)
+      throw e
     }
     finally {
       this.dumpTask = null
+      freezeTelemetry = null
       reset()
     }
   }
 
-  private suspend fun processDumps(dumps: ArrayList<ThreadDump>, reportDir: Path?, loggingEvent: LogMessage, durationMs: Long) {
-    if (dumps.isNotEmpty()) {
+  private suspend fun processDumps(
+    dumps: ArrayList<ThreadDump>,
+    reportDir: Path?,
+    loggingEvent: LogMessage,
+    durationMs: Long,
+    telemetry: FreezeReporterTelemetry,
+  ) {
+    try {
+      if (dumps.isEmpty()) {
+        telemetry.freezeNotSent(FreezeNotSentReason.NOT_ENOUGH_DUMPS, durationMs)
+        return
+      }
+
       reportToIndicator(loggingEvent) // always put freezes to MessagePool
 
-      if (ExceptionAutoReportUtil.isAutoReportEnabled() && ExceptionAutoReportUtil.isAutoReportableException(loggingEvent)) {
+      val isAutoReportEnabled = ExceptionAutoReportUtil.isAutoReportEnabled()
+      if (isAutoReportEnabled && ExceptionAutoReportUtil.isAutoReportableException(loggingEvent)) {
         LOG.debug("UI freeze will be automatically reported, do not show to user")
 
         val reason = analyzeFreeze(loggingEvent)
@@ -208,7 +263,15 @@ internal class IdeaFreezeReporter : PerformanceListener {
           LifecycleUsageTriggerCollector.pluginFreezeDetected(reason, durationMs, false)
         }
 
+        telemetry.freezeQueued(durationMs)
         return // do not show freeze notifications, reported automatically
+      }
+
+      if (isAutoReportEnabled) {
+        telemetry.freezeNotSent(FreezeNotSentReason.NOT_AUTO_REPORTABLE, durationMs)
+      }
+      else {
+        telemetry.freezeNotSent(FreezeNotSentReason.AUTO_REPORT_DISABLED, durationMs)
       }
 
       if (reportDir != null) {
@@ -216,6 +279,13 @@ internal class IdeaFreezeReporter : PerformanceListener {
           notifier.notifyFreeze(loggingEvent, dumps, reportDir, durationMs)
         }
       }
+    }
+    catch (e: Throwable) {
+      telemetry.freezeNotSent(FreezeNotSentReason.PROCESSING_FAILED, durationMs)
+      throw e
+    }
+    finally {
+      telemetry.finish()
     }
   }
 
