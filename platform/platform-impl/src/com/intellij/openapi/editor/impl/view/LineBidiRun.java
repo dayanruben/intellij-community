@@ -9,7 +9,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
+import java.util.function.Consumer;
 
 final class LineBidiRun {
   public static final LineBidiRun[] EMPTY_ARRAY = new LineBidiRun[0];
@@ -22,22 +22,29 @@ final class LineBidiRun {
   private int visualStartLogicalColumn;
 
   LineBidiRun(int length) {
-    this(0, length, (byte) 0, null);
+    this(0, length, (byte) 0);
   }
 
-  LineBidiRun(int startOffset, int endOffset, byte level, @Nullable List<LineChunk> chunks) {
+  LineBidiRun(int startOffset, int endOffset, byte level) {
+    this(startOffset, endOffset, level, 0, null);
+  }
+
+  LineBidiRun(
+    int startOffset,
+    int endOffset,
+    byte level,
+    int visualStartLogicalColumn,
+    @Nullable List<LineChunk> chunks
+  ) {
+    this.chunks = chunks;
     this.startOffset = startOffset;
     this.endOffset = endOffset;
     this.level = level;
-    this.chunks = chunks;
+    this.visualStartLogicalColumn = visualStartLogicalColumn;
   }
 
   boolean isRtl() {
     return BitUtil.isSet(level, 1);
-  }
-
-  @NotNull LineChunk getFirstChunk() {
-    return chunks == null ? new LineChunk(0, endOffset) : chunks.getFirst();
   }
 
   int getStartOffset() {
@@ -60,30 +67,49 @@ final class LineBidiRun {
     this.visualStartLogicalColumn = visualStartLogicalColumn;
   }
 
+  boolean canMergeWith(@NotNull LineBidiRun other) {
+    return level == 0 && other.level == 0;
+  }
+
+  @NotNull LineBidiRun mergeWith(@NotNull LineBidiRun other) {
+    assert endOffset == other.startOffset;
+    return new LineBidiRun(startOffset, other.endOffset, (byte) 0);
+  }
+
+  boolean isSingle() {
+    return level == 0 && getChunkCount() == 1;
+  }
+
+  @NotNull LineChunk getFirstChunk() {
+    return chunks == null ? new LineChunk(0, endOffset) : chunks.getFirst();
+  }
+
+  void forEachChunk(@NotNull Consumer<? super LineChunk> action) {
+    List<LineChunk> chunks = this.chunks;
+    if (chunks != null) {
+      for (int i = 0; i < chunks.size(); i++) {
+        action.accept(chunks.get(i));
+      }
+    }
+  }
+
+  // text == null && startOffsetInText == 0
   @NotNull List<LineChunk> getChunks(CharSequence text, int startOffsetInText) {
-    List<LineChunk> c = chunks;
-    if (c == null) {
+    List<LineChunk> chunks = this.chunks;
+    if (chunks == null) {
       int chunkCount = getChunkCount();
-      c = new ArrayList<>(chunkCount);
+      chunks = new ArrayList<>(chunkCount);
       for (int i = 0; i < chunkCount; i++) {
         int from = startOffset + i * CHUNK_CHARACTERS;
         int to = i == chunkCount - 1 ? endOffset : from + CHUNK_CHARACTERS;
         int chunkStart = alignToCodePointBoundary(text, from + startOffsetInText) - startOffsetInText;
         int chunkEnd = alignToCodePointBoundary(text, to + startOffsetInText) - startOffsetInText;
         LineChunk chunk = new LineChunk(chunkStart, chunkEnd);
-        c.add(chunk);
+        chunks.add(chunk);
       }
-      chunks = c;
+      this.chunks = chunks;
     }
-    return c;
-  }
-
-  int getChunkCount() {
-    return (endOffset - startOffset + CHUNK_CHARACTERS - 1) / CHUNK_CHARACTERS;
-  }
-
-  Stream<LineChunk> chunkStream() {
-    return chunks == null ? Stream.empty() : chunks.stream();
+    return chunks;
   }
 
   @NotNull LineBidiRun subRun(
@@ -93,14 +119,14 @@ final class LineBidiRun {
     int targetEndOffset,
     @Nullable Runnable quickEvaluationListener
   ) {
-    assert targetStartOffset < endOffset;
-    assert targetEndOffset > startOffset;
-    int start = Math.max(startOffset, targetStartOffset);
-    int end = Math.min(endOffset, targetEndOffset);
+    assert targetStartOffset < getEndOffset();
+    assert targetEndOffset > getStartOffset();
+    int start = Math.max(getStartOffset(), targetStartOffset);
+    int end = Math.min(getEndOffset(), targetEndOffset);
     List<LineChunk> subChunks = new SmartList<>();
     Document document = view.getDocument();
     List<LineChunk> chunks = getChunks(document.getImmutableCharSequence(), document.getLineStartOffset(line));
-    for (int i = (start - startOffset) / CHUNK_CHARACTERS; i < chunks.size(); i++) {
+    for (int i = (start - getStartOffset()) / CHUNK_CHARACTERS; i < chunks.size(); i++) {
       LineChunk chunk = chunks.get(i);
       if (chunk.getEndOffset() <= start) {
         continue;
@@ -108,14 +134,17 @@ final class LineBidiRun {
       if (chunk.getStartOffset() >= end) {
         break;
       }
-      LineChunk subChunk = chunk.subChunk(view, this, line, start, end, quickEvaluationListener);
+      LineChunk subChunk = chunk.subChunk(view, line, start, end, getLevel(), quickEvaluationListener);
       subChunks.add(subChunk);
     }
-    LineBidiRun subRun = new LineBidiRun(start, end, level, subChunks);
-    subRun.visualStartLogicalColumn = (subRun.isRtl() ? end == endOffset : start == startOffset)
-                                      ? visualStartLogicalColumn
-                                      : view.getLogicalPositionCache().offsetToLogicalColumn(line, subRun.isRtl() ? end : start);
-    return subRun;
+    int visualColumn = (isRtl() ? end == getEndOffset() : start == getStartOffset())
+                       ? getVisualStartLogicalColumn()
+                       : view.offsetToLogicalColumn(line, isRtl() ? end : start);
+    return new LineBidiRun(start, end, getLevel(), visualColumn, subChunks);
+  }
+
+  private int getChunkCount() {
+    return (endOffset - startOffset + CHUNK_CHARACTERS - 1) / CHUNK_CHARACTERS;
   }
 
   private static int alignToCodePointBoundary(CharSequence text, int offset) {

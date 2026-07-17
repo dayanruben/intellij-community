@@ -153,6 +153,7 @@ final class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsI
       myCurrentX += myView.getPrefixTextWidthInPixels();
     }
     else if (currentOrPrevWrap != null && mySegmentStartOffset == currentOrPrevWrap.getStart()) {
+      //noinspection lossy-conversions
       myCurrentX += alignToInt(currentOrPrevWrap.getIndentInPixels());
       myCurrentVisualColumn = currentOrPrevWrap.getIndentInColumns();
     }
@@ -210,11 +211,20 @@ final class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsI
     int startOffset = myCurrentInlayIndex > 0 ? myInlays.get(myCurrentInlayIndex - 1).getOffset() : mySegmentStartOffset;
     int endOffset = myCurrentInlayIndex < myInlays.size() ? myInlays.get(myCurrentInlayIndex).getOffset() : mySegmentEndOffset;
     int lineStartOffset = myDocument.getLineStartOffset(myCurrentEndLogicalLine);
-    myFragmentIterator = myCurrentEndLogicalLine < myDocument.getLineCount() // handle empty document case
-                         ? myView.getTextLayoutCache().getLineLayout(myCurrentEndLogicalLine)
-                           .getFragmentsInVisualOrder(myView, myCurrentEndLogicalLine, myCurrentX, myCurrentVisualColumn,
-                                                      startOffset - lineStartOffset, endOffset - lineStartOffset, myQuickEvaluationListener)
-                         : Collections.emptyIterator();
+    if (myCurrentEndLogicalLine < myDocument.getLineCount()) { // handle empty document case
+      LineLayout lineLayout = myView.getTextLayoutCache().getLineLayout(myCurrentEndLogicalLine);
+      myFragmentIterator = lineLayout.getFragmentsInVisualOrder(
+        myView,
+        myCurrentEndLogicalLine,
+        startOffset - lineStartOffset,
+        endOffset - lineStartOffset,
+        myCurrentVisualColumn,
+        myCurrentX,
+        myQuickEvaluationListener
+      );
+    } else {
+      myFragmentIterator = Collections.emptyIterator();
+    }
   }
 
   private int getCurrentFoldRegionStartOffset() {
@@ -294,6 +304,7 @@ final class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsI
       myFoldRegion = null;
       myCurrentStartLogicalLine = myCurrentEndLogicalLine;
       Inlay<?> inlay = myInlays.get(myCurrentInlayIndex);
+      //noinspection lossy-conversions
       myCurrentX += alignToInt(inlay.getWidthInPixels());
       myCurrentVisualColumn++;
       myCurrentInlayIndex++;
@@ -483,7 +494,7 @@ final class VisualLineFragmentsIterator implements Iterator<VisualLineFragmentsI
       return myFoldRegion;
     }
 
-    Inlay getCurrentInlay() {
+    Inlay<?> getCurrentInlay() {
       if (myDelegate != null || myFoldRegion != null) return null;
       return myInlays.get(myCurrentInlayIndex - 1);
     }

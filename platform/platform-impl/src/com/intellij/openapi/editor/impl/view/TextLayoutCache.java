@@ -16,11 +16,11 @@ import com.intellij.util.ui.update.UiNotifyConnector;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
 import org.jetbrains.annotations.NotNull;
 
-import java.awt.Font;
 import java.text.Bidi;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Editor text layout storage. Layout is stored on a per-logical-line basis,
@@ -34,20 +34,20 @@ final class TextLayoutCache implements PrioritizedDocumentListener, Disposable {
 
   private static final int MAX_CHUNKS_IN_ACTIVE_EDITOR = 1000;
   private static final int MAX_CHUNKS_IN_INACTIVE_EDITOR = 10;
+  private static final LineLayout BIDI_NOT_REQUIRED_MARKER = new SingleChunkLayout(null);
 
   private final EditorView myView;
   private final Document myDocument;
-  private final LineLayout myBidiNotRequiredMarker;
   private ArrayList<LineLayout> myLines = new ArrayList<>();
   private int myDocumentChangeOldEndLine;
 
   private final ObjectLinkedOpenHashSet<LineChunk> laidOutChunks = new ObjectLinkedOpenHashSet<>(MAX_CHUNKS_IN_ACTIVE_EDITOR);
+  private final Consumer<LineChunk> removeLaidOutChunk = laidOutChunks::remove;
 
   TextLayoutCache(EditorView view) {
     myView = view;
     myDocument = view.getDocument();
     myDocument.addDocumentListener(this, this);
-    myBidiNotRequiredMarker = LineLayout.create(view, "", Font.PLAIN);
     Disposer.register(
       this,
       UiNotifyConnector.installOn(
@@ -67,8 +67,8 @@ final class TextLayoutCache implements PrioritizedDocumentListener, Disposable {
       );
     }
     LineLayout result = myLines.get(line);
-    if (result == null || result == myBidiNotRequiredMarker) {
-      result = LineLayout.create(myView, line, result == myBidiNotRequiredMarker);
+    if (result == null || result == BIDI_NOT_REQUIRED_MARKER) {
+      result = LineLayout.createForDocumentLine(myView, line, result == BIDI_NOT_REQUIRED_MARKER);
       myLines.set(line, result);
     }
     return result;
@@ -76,7 +76,7 @@ final class TextLayoutCache implements PrioritizedDocumentListener, Disposable {
 
   boolean hasCachedLayoutFor(int line) {
     LineLayout layout = myLines.get(line);
-    return layout != null && layout != myBidiNotRequiredMarker;
+    return layout != null && layout != BIDI_NOT_REQUIRED_MARKER;
   }
 
   void onChunkAccess(@NotNull LineChunk chunk) {
@@ -169,7 +169,7 @@ final class TextLayoutCache implements PrioritizedDocumentListener, Disposable {
       LineLayout lineLayout = myLines.get(line);
       if (lineLayout != null) {
         removeChunksFromCache(lineLayout);
-        myLines.set(line, (textChanged && bidiRequiredForNewText) || !lineLayout.isLtr() ? null : myBidiNotRequiredMarker);
+        myLines.set(line, (textChanged && bidiRequiredForNewText) || !lineLayout.isLtr() ? null : BIDI_NOT_REQUIRED_MARKER);
       }
     }
     if (oldEndLine < newEndLine) {
@@ -186,15 +186,14 @@ final class TextLayoutCache implements PrioritizedDocumentListener, Disposable {
   }
 
   private void removeChunksFromCache(LineLayout layout) {
-    layout.getChunksInLogicalOrder().forEach(laidOutChunks::remove);
+    layout.forEachChunk(removeLaidOutChunk);
   }
 
   private void trimChunkCache() {
     int limit = getChunkCacheSizeLimit();
     while (laidOutChunks.size() > limit) {
-      LineChunk chunk = laidOutChunks.removeLast();
       debug();
-      chunk.clearFragments();
+      laidOutChunks.removeLast().clearFragments();
     }
   }
 

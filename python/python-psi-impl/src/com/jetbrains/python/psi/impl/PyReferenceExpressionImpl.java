@@ -4,9 +4,7 @@ package com.jetbrains.python.psi.impl;
 import com.intellij.codeInsight.controlflow.ConditionalInstruction;
 import com.intellij.codeInsight.controlflow.ControlFlowUtil;
 import com.intellij.codeInsight.controlflow.Instruction;
-import com.intellij.diagnostic.PluginException;
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.registry.Registry;
@@ -107,8 +105,6 @@ import static com.jetbrains.python.psi.types.PyTypeUtilKt.isUnknown;
  * Implements reference expression PSI.
  */
 public class PyReferenceExpressionImpl extends PyElementImpl implements PyReferenceExpression {
-
-  private static final Logger LOG = Logger.getInstance(PyReferenceExpressionImpl.class);
 
   // PY-89956: guards against re-entrant def-use chain warming (see warmEarlierDefinitionTypes).
   private static final ThreadLocal<Boolean> ourWarmingDefUseChain = ThreadLocal.withInitial(() -> Boolean.FALSE);
@@ -260,9 +256,11 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
 
   @Override
   public @Nullable PyType getType(@NotNull TypeEvalContext context, @NotNull TypeEvalContext.Key key) {
-    final PyType providedType = getTypeFromProviders(context);
-    if (!isUnknown(providedType)) {
-      return providedType;
+    for (PyTypeProvider provider : PyTypeProvider.EP_NAME.getExtensionList()) {
+      final PyType type = provider.getReferenceExpressionType(this, context);
+      if (type != null) {
+        return type;
+      }
     }
 
     if (isQualified() && getImportParent() == null) {
@@ -471,12 +469,12 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
                                                   @NotNull PyResolveContext resolveContext,
                                                   @Nullable List<ProblemMessage> errors) {
     if (type instanceof PyCompositeType compositeType) {
-      List<@Nullable PyType> types = ContainerUtil.map(compositeType.getMembers(),
-                                                         it -> getTypeOfMember(it, selfType, attrName, anchor, resolveContext, errors));
+      StreamEx<@Nullable PyType> types = StreamEx.of(compositeType.getMembers())
+        .map(it -> getTypeOfMember(it, selfType, attrName, anchor, resolveContext, errors));
       return switch (compositeType) {
-        case PyIntersectionType ignored -> PyIntersectionType.intersection(types);
-        case PyUnsafeUnionType ignored -> PyUnsafeUnionType.unsafeUnion(types);
-        default -> PyUnionType.union(types);
+        case PyIntersectionType ignored -> types.filter(t -> !isUnknown(t)).findFirst().orElse(PyAnyType.getUnknown());
+        case PyUnsafeUnionType ignored -> PyUnsafeUnionType.unsafeUnion(types.toList());
+        default -> PyUnionType.union(types.toList());
       };
     }
 
@@ -584,21 +582,6 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
                                            !(PyTypingTypeProvider.isFinal(target, context) && target.hasAssignedValue()));
   }
 
-  private @Nullable PyType getTypeFromProviders(@NotNull TypeEvalContext context) {
-    for (PyTypeProvider provider : PyTypeProvider.EP_NAME.getExtensionList()) {
-      try {
-        final PyType type = provider.getReferenceExpressionType(this, context);
-        if (type != null) {
-          return type;
-        }
-      }
-      catch (AbstractMethodError e) {
-        LOG.info(PluginException.createByClass("Failed to get expression type via " + provider.getClass(), e, provider.getClass()));
-      }
-    }
-    return PyAnyType.getUnknown();
-  }
-
   private static @Nullable Ref<PyType> getTypeFromTarget(@NotNull PsiElement target,
                                                          @NotNull TypeEvalContext context,
                                                          @NotNull PyQualifiedExpression anchor) {
@@ -606,15 +589,6 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
       final Ref<PyType> pyType = getReferenceTypeFromProviders(target, context, anchor);
       if (pyType != null) {
         return pyType;
-      }
-    }
-    if (target instanceof PyTargetExpression) {
-      final String name = ((PyTargetExpression)target).getName();
-      if (PyNames.NONE.equals(name)) {
-        return Ref.create(PyBuiltinCache.getInstance(target).getNoneType());
-      }
-      if (PyNames.TRUE.equals(name) || PyNames.FALSE.equals(name)) {
-        return Ref.create(PyBuiltinCache.getInstance(target).getBoolType());
       }
     }
     if (target instanceof PyFile) {

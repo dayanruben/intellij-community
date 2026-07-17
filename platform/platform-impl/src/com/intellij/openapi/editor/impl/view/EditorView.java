@@ -158,6 +158,10 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return myMapper.offsetToLogicalPosition(offset);
   }
 
+  public int offsetToLogicalColumn(int line, int intraLineOffset) {
+    return myMapper.offsetToLogicalColumn(line, intraLineOffset);
+  }
+
   public int logicalPositionToOffset(@NotNull LogicalPosition pos) {
     return myMapper.logicalPositionToOffset(pos);
   }
@@ -230,7 +234,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     myPrefixText = prefixText;
     synchronized (myLock) {
       myPrefixLayout = prefixText == null || prefixText.isEmpty() ? null :
-                       LineLayout.create(this, prefixText, attributes.getFontType());
+                       LineLayout.createForStandaloneText(this, prefixText, attributes.getFontType());
     }
     myPrefixAttributes = attributes;
     mySizeManager.invalidateRange(0, 0);
@@ -701,8 +705,11 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     LineLayout layout = foldRegion.getUserData(FOLD_REGION_TEXT_LAYOUT);
     if (layout == null) {
       TextAttributes placeholderAttributes = getFoldingModel().getPlaceholderAttributes();
-      layout = LineLayout.create(this, StringUtil.replace(foldRegion.getPlaceholderText(), "\n", " "),
-                              placeholderAttributes == null ? Font.PLAIN : placeholderAttributes.getFontType());
+      layout = LineLayout.createForStandaloneText(
+        this,
+        StringUtil.replace(foldRegion.getPlaceholderText(), "\n", " "),
+        placeholderAttributes == null ? Font.PLAIN : placeholderAttributes.getFontType()
+      );
       foldRegion.putUserData(FOLD_REGION_TEXT_LAYOUT, layout);
     }
     return layout;

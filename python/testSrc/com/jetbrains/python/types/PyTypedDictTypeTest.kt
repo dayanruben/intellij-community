@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
 /**
- * Type and type-checker tests for [TypedDict][https://docs.python.org/3/library/typing.html#typing.TypedDict]:
+ * Type and type-checker tests for [TypedDict](https://docs.python.org/3/library/typing.html#typing.TypedDict):
  * definition forms, subscription, required/optional/`ReadOnly` keys, `total=`, the alternative call
  * syntax, `NotRequired`/`Required`, `extra_items`, `Unpack[...]` kwargs, and related inspections.
  */
@@ -533,6 +533,39 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
           m: Movie = {key: "abb", "year": 1917}
       #              │^^^^^^^^^^ WARNING Extra key 'wrong_key' for TypedDict 'Movie'
       #              ^^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING TypedDict 'Movie' has missing key: 'name'
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-88391"])
+    fun `dict literal assignable to optional TypedDict`() = test("""
+      from typing import TypedDict
+
+      class Address(TypedDict):
+          street: str
+
+      a: Address | None = {"street": "Pine"}
+      b: Address | None = {"color": "red"}
+      #                   ^^^^^^^^^^^^^^^^ WARNING Expected type 'Address | None', got 'dict[Literal["color"], Literal["red"]]' instead
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-88391"])
+    fun `dict literal assignable to one of several TypedDicts`() = test("""
+      from typing import TypedDict
+
+      class A(TypedDict):
+          a: str
+
+      class B(TypedDict):
+          b: int
+
+      class C(TypedDict):
+          c: int
+
+      first: A | B | C = {"a": "x"}
+      last:  A | B | C = {"c": 1}
+      none:  A | B | C = {"z": 1}
+      #                  ^^^^^^^^ WARNING Expected type 'A | B | C', got 'dict[Literal["z"], Literal[1]]' instead
       """)
 
     @Test

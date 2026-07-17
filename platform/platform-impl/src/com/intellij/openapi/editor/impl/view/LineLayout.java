@@ -3,7 +3,6 @@ package com.intellij.openapi.editor.impl.view;
 
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.impl.FontFallbackIterator;
-import com.intellij.openapi.editor.impl.FontInfo;
 import com.intellij.util.DocumentInternalUtil;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.text.CharArrayUtil;
@@ -16,7 +15,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.stream.Stream;
+import java.util.function.Consumer;
 
 /**
  * Layout of a single line of document text. Consists of a series of BidiRuns, which, in turn, consist of TextFragments.
@@ -27,46 +26,26 @@ sealed abstract class LineLayout permits SingleChunkLayout, MultiChunkLayout, Li
 
   /**
    * Creates a layout for a fragment of text from editor.
+   * <p>
+   * Reads a logical line from the editor document, uses editor highlighting/attributes lazily, and can skip bidi analysis
    */
-  static @NotNull LineLayout create(@NotNull EditorView view, int line, boolean skipBidiLayout) {
-    List<LineBidiRun> runs = createFragments(view, line, skipBidiLayout);
+  static @NotNull LineLayout createForDocumentLine(@NotNull EditorView view, int line, boolean skipBidiLayout) {
+    List<LineBidiRun> runs = createRunsForDocumentLine(view, line, skipBidiLayout);
     return createLayout(view, runs, null, line);
   }
 
   /**
    * Creates a layout for an arbitrary piece of text (using a common font style).
+   * <p>
+   * Lays out supplied text eagerly with one font style, performs bidi independently of document highlighting, and precomputes width
    */
-  static @NotNull LineLayout create(@NotNull EditorView view, @NotNull CharSequence text, @FontStyle int fontStyle) {
-    List<LineBidiRun> runs = createFragments(view, text, fontStyle);
+  static @NotNull LineLayout createForStandaloneText(@NotNull EditorView view, @NotNull CharSequence text, @FontStyle int fontStyle) {
+    List<LineBidiRun> runs = createRunsForStandaloneText(view, text, fontStyle);
     LineLayout delegate = createLayout(view, runs, text, 0);
     return new LineLayoutWithSize(delegate);
   }
 
-  static void addFragments(EditorView view, LineBidiRun run, LineChunk chunk, char[] text, int start, int end, @Nullable TabFragment tabFragment, boolean showSpecialChars, FontFallbackIterator it) {
-    assert start < end;
-    int last = start;
-    for (int i = start; i < end; i++) {
-      char c = text[i];
-      LineFragment specialFragment = null;
-      if (c == '\t') {
-        assert run.getLevel() == 0;
-        specialFragment = tabFragment;
-      }
-      else if (showSpecialChars) {
-        // only BMP special chars are supported currently, so there's no need to check for surrogate pairs
-        specialFragment = SpecialCharacterFragment.create(view, c, text, i);
-      }
-      if (specialFragment != null) {
-        addFragmentsNoTabs(run, chunk, text, last, i, it, view);
-        chunk.addFragment(specialFragment);
-        last = i + 1;
-      }
-    }
-    addFragmentsNoTabs(run, chunk, text, last, end, it, view);
-    assert chunk.fragmentCount() > 0;
-  }
-
-  abstract Stream<LineChunk> getChunksInLogicalOrder();
+  abstract void forEachChunk(@NotNull Consumer<? super LineChunk> action);
 
   abstract boolean isLtr();
 
@@ -74,16 +53,16 @@ sealed abstract class LineLayout permits SingleChunkLayout, MultiChunkLayout, Li
 
   abstract int findNearestDirectionBoundary(int offset, boolean lookForward);
 
-  abstract LineBidiRun[] getRunsInLogicalOrder();
+  abstract LineBidiRun @NotNull [] getRunsInLogicalOrder();
 
-  abstract LineBidiRun[] getRunsInVisualOrder();
+  abstract LineBidiRun @NotNull [] getRunsInVisualOrder();
 
   float getWidth() {
     throw new RuntimeException("This LineLayout instance doesn't have precalculated width");
   }
 
   Iterable<LineVisualFragment> getFragmentsInVisualOrder(float startX) {
-    return () -> new VisualOrderIterator(null, 0, startX, 0, 0, getRunsInVisualOrder());
+    return () -> new VisualOrderIterator(null, 0, 0, 0, startX, getRunsInVisualOrder());
   }
 
   /**
@@ -93,10 +72,10 @@ sealed abstract class LineLayout permits SingleChunkLayout, MultiChunkLayout, Li
   Iterator<LineVisualFragment> getFragmentsInVisualOrder(
     @NotNull EditorView view,
     int line,
-    float startX,
-    int startVisualColumn,
     int startOffset,
     int endOffset,
+    int startVisualColumn,
+    float startX,
     @Nullable Runnable quickEvaluationListener
   ) {
     view.getEditor().assertOrDumpState(startOffset <= endOffset, "startOffset must be less or equal to endOffset");
@@ -122,38 +101,10 @@ sealed abstract class LineLayout permits SingleChunkLayout, MultiChunkLayout, Li
       runs = runList.toArray(LineBidiRun.EMPTY_ARRAY);
     }
     reorderRunsVisually(runs);
-    return new VisualOrderIterator(view, line, startX, startVisualColumn, startOffset, runs);
+    return new VisualOrderIterator(view, line, startOffset, startVisualColumn, startX, runs);
   }
 
-  private static LineLayout createLayout(@NotNull EditorView view, @NotNull List<LineBidiRun> runs, @Nullable CharSequence text, int line) {
-    if (runs.isEmpty()) {
-      return new SingleChunkLayout(null);
-    }
-    if (runs.size() == 1) {
-      LineBidiRun run = runs.getFirst();
-      if (run.getLevel() == 0 && run.getChunkCount() == 1) {
-        return new SingleChunkLayout(run.getFirstChunk());
-      }
-    }
-    LineBidiRun[] runArray = new LineBidiRun[runs.size()];
-    int prevColumn = 0;
-    for (int i = 0; i < runs.size(); i++) {
-      LineBidiRun run = runs.get(i);
-      assert i == 0 || run.getStartOffset() == runs.get(i - 1).getEndOffset();
-      int startColumn = prevColumn;
-      int endColumn = text == null
-                      ? view.getLogicalPositionCache().offsetToLogicalColumn(line, run.getEndOffset())
-                      : DocumentInternalUtil.calcLogicalColumn(text, run.getStartOffset(), prevColumn, run.getEndOffset(), view.getTabSize());
-      run.setVisualStartLogicalColumn(run.isRtl() ? endColumn : startColumn);
-      prevColumn = endColumn;
-      runArray[i] = run;
-    }
-    LineBidiRun[] runsInVisualOrder = runArray.length > 1 ? runArray.clone() : runArray;
-    reorderRunsVisually(runsInVisualOrder);
-    return new MultiChunkLayout(runArray, runsInVisualOrder);
-  }
-
-  private static List<LineBidiRun> createFragments(@NotNull EditorView view, int line, boolean skipBidiLayout) {
+  private static List<LineBidiRun> createRunsForDocumentLine(@NotNull EditorView view, int line, boolean skipBidiLayout) {
     Document document = view.getDocument();
     int lineStartOffset = document.getLineStartOffset(line);
     int lineEndOffset = document.getLineEndOffset(line);
@@ -165,10 +116,10 @@ sealed abstract class LineLayout permits SingleChunkLayout, MultiChunkLayout, Li
     }
     CharSequence text = document.getImmutableCharSequence().subSequence(lineStartOffset, lineEndOffset);
     char[] chars = CharArrayUtil.fromSequence(text);
-    return createRuns(view, chars, lineStartOffset);
+    return BidiRunUtil.createRuns(view, chars, lineStartOffset);
   }
 
-  private static List<LineBidiRun> createFragments(@NotNull EditorView view, @NotNull CharSequence text, @FontStyle int fontStyle) {
+  private static List<LineBidiRun> createRunsForStandaloneText(@NotNull EditorView view, @NotNull CharSequence text, @FontStyle int fontStyle) {
     if (text.isEmpty()) {
       return Collections.emptyList();
     }
@@ -177,39 +128,46 @@ sealed abstract class LineLayout permits SingleChunkLayout, MultiChunkLayout, Li
       .setFontStyle(fontStyle)
       .setFontRenderContext(view.getFontRenderContext());
     char[] chars = CharArrayUtil.fromSequence(text);
-    List<LineBidiRun> runs = createRuns(view, chars, -1);
+    List<LineBidiRun> runs = BidiRunUtil.createRuns(view, chars, -1);
     for (LineBidiRun run : runs) {
       for (LineChunk chunk : run.getChunks(text, 0)) {
-        chunk.initFragments();
-        addFragments(view, run, chunk, chars, chunk.getStartOffset(), chunk.getEndOffset(), null, false, ffi);
+        chunk.addFragments(chars, run.getLevel(), ffi, view);
       }
     }
     return runs;
   }
 
-  private static List<LineBidiRun> createRuns(@NotNull EditorView view, char @NotNull [] text, int startOffsetInEditor) {
-    int textLength = text.length;
-    if (view.getEditor().myDisableRtl || !Bidi.requiresBidi(text, 0, textLength)) {
-      return Collections.singletonList(new LineBidiRun(textLength));
+  private static @NotNull LineLayout createLayout(
+    @NotNull EditorView view,
+    @NotNull List<LineBidiRun> runs,
+    @Nullable CharSequence text, // if null, use line
+    int line
+  ) {
+    if (runs.isEmpty()) {
+      return new SingleChunkLayout(null);
     }
-    return LineLayoutBidiUtil.createRunsBidi(view, text, startOffsetInEditor, textLength);
-  }
-
-  private static void addFragmentsNoTabs(LineBidiRun run, LineChunk chunk, char[] text, int start, int end, FontFallbackIterator it, EditorView view) {
-    if (start < end) {
-      it.start(text, start, end);
-      while (!it.atEnd()) {
-        addTextFragmentIfNeeded(chunk, text, it.getStart(), it.getEnd(), it.getFontInfo(), run.isRtl(), view);
-        it.advance();
+    if (runs.size() == 1) {
+      LineBidiRun run = runs.getFirst();
+      if (run.isSingle()) {
+        return new SingleChunkLayout(run.getFirstChunk());
       }
     }
-  }
-
-  private static void addTextFragmentIfNeeded(LineChunk chunk, char[] chars, int from, int to, FontInfo fontInfo, boolean isRtl, EditorView view) {
-    if (to > from) {
-      assert fontInfo != null;
-      TextFragmentFactory.createTextFragments(chunk, chars, from, to, isRtl, fontInfo, view);
+    LineBidiRun[] runArray = new LineBidiRun[runs.size()];
+    int prevColumn = 0;
+    for (int i = 0; i < runs.size(); i++) {
+      LineBidiRun run = runs.get(i);
+      assert i == 0 || run.getStartOffset() == runs.get(i - 1).getEndOffset();
+      int startColumn = prevColumn;
+      int endColumn = text == null
+                      ? view.offsetToLogicalColumn(line, run.getEndOffset())
+                      : DocumentInternalUtil.calcLogicalColumn(text, run.getStartOffset(), prevColumn, run.getEndOffset(), view.getTabSize());
+      run.setVisualStartLogicalColumn(run.isRtl() ? endColumn : startColumn);
+      prevColumn = endColumn;
+      runArray[i] = run;
     }
+    LineBidiRun[] runsInVisualOrder = runArray.length > 1 ? runArray.clone() : runArray;
+    reorderRunsVisually(runsInVisualOrder);
+    return new MultiChunkLayout(runArray, runsInVisualOrder);
   }
 
   // runs are supposed to be in logical order initially
