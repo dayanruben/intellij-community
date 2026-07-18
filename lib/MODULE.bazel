@@ -29,10 +29,10 @@ http_file(
 )
 
 http_file(
-    name = "ai_grazie-grazie-rule-engine-0_3_266_http",
-    downloaded_file_path = "grazie-rule-engine-0.3.266.jar",
-    sha256 = "15143f6f3b92e4797b7961245a4969f3891c9eb273993aa05df59fde59e9db45",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.3.266/grazie-rule-engine-0.3.266.jar",
+    name = "ai_grazie-grazie-rule-engine-0_3_268_http",
+    downloaded_file_path = "grazie-rule-engine-0.3.268.jar",
+    sha256 = "719e842405ba90c5ca28a92c23e1dbe41bb689eb174d9c85a5a74a0736a965fc",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.3.268/grazie-rule-engine-0.3.268.jar",
 )
 
 http_file(
@@ -43,10 +43,10 @@ http_file(
 )
 
 http_file(
-    name = "ai_grazie-grazie-rule-engine-0_3_266-sources_http",
-    downloaded_file_path = "grazie-rule-engine-0.3.266-sources.jar",
-    sha256 = "de45bba42621b30d4082d6696a9e7243f227f841fb8913549f2da0f2c6d951e6",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.3.266/grazie-rule-engine-0.3.266-sources.jar",
+    name = "ai_grazie-grazie-rule-engine-0_3_268-sources_http",
+    downloaded_file_path = "grazie-rule-engine-0.3.268-sources.jar",
+    sha256 = "86d74ca040dafb4c752b0d7fac17889401d3cbc941ade2125117b58fb0680c90",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.3.268/grazie-rule-engine-0.3.268-sources.jar",
 )
 
 http_file(
@@ -57,17 +57,17 @@ http_file(
 )
 
 http_file(
-    name = "ai_grazie-grazie-rules-llm-0_3_261_http",
-    downloaded_file_path = "grazie-rules-llm-0.3.261.jar",
-    sha256 = "22e379609bf248bfbfa0676688503242a7fd135fc6b68f64670c23c336f0ff07",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.3.261/grazie-rules-llm-0.3.261.jar",
+    name = "ai_grazie-grazie-rules-llm-0_3_268_http",
+    downloaded_file_path = "grazie-rules-llm-0.3.268.jar",
+    sha256 = "00520f3e47be03eb45059d39fc131303b9bdc28422de2f4703c6d7af047798c0",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.3.268/grazie-rules-llm-0.3.268.jar",
 )
 
 http_file(
-    name = "ai_grazie-grazie-rules-llm-0_3_261-sources_http",
-    downloaded_file_path = "grazie-rules-llm-0.3.261-sources.jar",
-    sha256 = "4ee4c711c580b56ba81ac9b903f25e0dc1a61f0801c436ede10b0f6f1f12a8ef",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.3.261/grazie-rules-llm-0.3.261-sources.jar",
+    name = "ai_grazie-grazie-rules-llm-0_3_268-sources_http",
+    downloaded_file_path = "grazie-rules-llm-0.3.268-sources.jar",
+    sha256 = "64c27802a3f63f8ebd239658f2d7cc55a4dee3cc5dafb18989d6f1b4c06a4aa0",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.3.268/grazie-rules-llm-0.3.268-sources.jar",
 )
 
 http_file(
@@ -6700,17 +6700,17 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-dist-for-ide-2_4_0_http",
-    downloaded_file_path = "kotlin-dist-for-ide-2.4.0.jar",
-    sha256 = "d12b996e50fe7b245a0a5045bac8c0bd5cbc227a792e44b41b0ae80e042c8490",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-dist-for-ide/2.4.0/kotlin-dist-for-ide-2.4.0.jar",
+    name = "org_jetbrains_kotlin-kotlin-dist-for-ide-2_4_10_http",
+    downloaded_file_path = "kotlin-dist-for-ide-2.4.10.jar",
+    sha256 = "0e80ea565f51f00e20a3135c7e266e1383d02a08fcada4267408f22fb1d9f522",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-dist-for-ide/2.4.10/kotlin-dist-for-ide-2.4.10.jar",
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-dist-for-ide-2_4_0-sources_http",
-    downloaded_file_path = "kotlin-dist-for-ide-2.4.0-sources.jar",
+    name = "org_jetbrains_kotlin-kotlin-dist-for-ide-2_4_10-sources_http",
+    downloaded_file_path = "kotlin-dist-for-ide-2.4.10-sources.jar",
     sha256 = "c6deada2fac53b8ea6523dbda77597b128006674616f140f04df23264c6d1aa3",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-dist-for-ide/2.4.0/kotlin-dist-for-ide-2.4.0-sources.jar",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-dist-for-ide/2.4.10/kotlin-dist-for-ide-2.4.10-sources.jar",
 )
 
 http_file(
@@ -6742,17 +6742,17 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-jps-plugin-classpath-2_4_0_http",
-    downloaded_file_path = "kotlin-jps-plugin-classpath-2.4.0.jar",
-    sha256 = "80d785cfe4309db0246069b3313d11a119fe8ee38bd8b102bd8bb4978a1c61be",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-jps-plugin-classpath/2.4.0/kotlin-jps-plugin-classpath-2.4.0.jar",
+    name = "org_jetbrains_kotlin-kotlin-jps-plugin-classpath-2_4_10_http",
+    downloaded_file_path = "kotlin-jps-plugin-classpath-2.4.10.jar",
+    sha256 = "cff201bbcf43942a716658192e84e2977cb3cb7efa3b10e7bbcb284e69903615",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-jps-plugin-classpath/2.4.10/kotlin-jps-plugin-classpath-2.4.10.jar",
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-jps-plugin-classpath-2_4_0-sources_http",
-    downloaded_file_path = "kotlin-jps-plugin-classpath-2.4.0-sources.jar",
-    sha256 = "c3f2d150f3501d2f818edd85934d4acb4ae26dcbd7c7ef10ae761489959a8113",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-jps-plugin-classpath/2.4.0/kotlin-jps-plugin-classpath-2.4.0-sources.jar",
+    name = "org_jetbrains_kotlin-kotlin-jps-plugin-classpath-2_4_10-sources_http",
+    downloaded_file_path = "kotlin-jps-plugin-classpath-2.4.10-sources.jar",
+    sha256 = "b8c2065da7c0067f9392a0d6064a75ee36ba500e4382aeb2d9d81569ddec8fb0",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-jps-plugin-classpath/2.4.10/kotlin-jps-plugin-classpath-2.4.10-sources.jar",
 )
 
 http_file(
@@ -6770,17 +6770,17 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-jps-plugin-tests-for-ide-2_4_0_http",
-    downloaded_file_path = "kotlin-jps-plugin-tests-for-ide-2.4.0.jar",
+    name = "org_jetbrains_kotlin-kotlin-jps-plugin-tests-for-ide-2_4_10_http",
+    downloaded_file_path = "kotlin-jps-plugin-tests-for-ide-2.4.10.jar",
     sha256 = "fb292f37213201021a9c2ff5c4ea96a45796ce049d0974b78fdfe547810e0c68",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-jps-plugin-tests-for-ide/2.4.0/kotlin-jps-plugin-tests-for-ide-2.4.0.jar",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-jps-plugin-tests-for-ide/2.4.10/kotlin-jps-plugin-tests-for-ide-2.4.10.jar",
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-jps-plugin-tests-for-ide-2_4_0-sources_http",
-    downloaded_file_path = "kotlin-jps-plugin-tests-for-ide-2.4.0-sources.jar",
+    name = "org_jetbrains_kotlin-kotlin-jps-plugin-tests-for-ide-2_4_10-sources_http",
+    downloaded_file_path = "kotlin-jps-plugin-tests-for-ide-2.4.10-sources.jar",
     sha256 = "99e49e9216e89d6afffd0fa82bf84e4f004cf404132d117dbc25701f957042fa",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-jps-plugin-tests-for-ide/2.4.0/kotlin-jps-plugin-tests-for-ide-2.4.0-sources.jar",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-jps-plugin-tests-for-ide/2.4.10/kotlin-jps-plugin-tests-for-ide-2.4.10-sources.jar",
 )
 
 http_file(

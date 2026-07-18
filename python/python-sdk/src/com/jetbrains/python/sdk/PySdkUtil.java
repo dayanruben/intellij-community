@@ -8,27 +8,21 @@ import com.intellij.execution.process.ProcessOutput;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleManager;
-import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.EnvironmentUtil;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.ui.EDT;
 import com.jetbrains.python.psi.LanguageLevel;
-import com.jetbrains.python.run.CommandLinePatcher;
 import com.jetbrains.python.run.ActivatableScriptExtKt;
+import com.jetbrains.python.run.CommandLinePatcher;
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor;
 import com.jetbrains.python.sdk.impl.PySdkBundle;
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil;
 import com.jetbrains.python.sdk.terminal.Shell;
+import kotlin.coroutines.Continuation;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
@@ -57,7 +51,7 @@ public final class PySdkUtil {
   private static final Logger LOG = Logger.getInstance(PySdkUtil.class);
 
   // Windows EOF marker, Ctrl+Z
-  public static final int SUBSTITUTE = 26;
+  private static final int SUBSTITUTE = 26;
   public static final String PATH_ENV_VARIABLE = "PATH";
   private static final Key<Map<String, String>> ENVIRONMENT_KEY = Key.create("ENVIRONMENT_KEY");
 
@@ -217,7 +211,7 @@ public final class PySdkUtil {
       return Collections.emptyMap();
     }
 
-    var additionalData = ObjectUtils.tryCast(sdk.getSdkAdditionalData(), PythonSdkAdditionalData.class);
+    var additionalData = sdk.getSdkAdditionalData();
     if (additionalData == null) {
       return Collections.emptyMap();
     }
@@ -244,7 +238,12 @@ public final class PySdkUtil {
 
     return Collections.unmodifiableMap(ActivatableScriptExtKt.readPythonEnvironment(activateScript));
   }
-
+  /**
+   * @deprecated use {@link PythonInterpreterKt#getVersion(PythonInterpreter, Continuation)}
+   * or {@link com.intellij.python.community.execService.python.ApiKt#validatePythonAndGetInfo(Path, Continuation)}
+   * or {@link SdkExtKt#validatePythonAndGetInfo(Sdk, Continuation)}
+   */
+  @Deprecated(forRemoval = true)
   public static @NotNull LanguageLevel getLanguageLevelForSdk(@Nullable Sdk sdk) {
     if (sdk != null && PythonSdkUtil.isPythonSdk(sdk)) {
       final PythonSdkFlavor<?> flavor = PythonSdkFlavor.getFlavor(sdk);
@@ -257,43 +256,5 @@ public final class PySdkUtil {
       }
     }
     return LanguageLevel.getDefault();
-  }
-
-  /**
-   * Finds sdk for provided directory. Takes into account both project and module SDK
-   *
-   * @param allowRemote - indicates whether remote interpreter is acceptable
-   */
-  @ApiStatus.Internal
-  public static @Nullable Sdk findSdkForDirectory(@NotNull Project project, @NotNull Path workingDirectory, boolean allowRemote) {
-    VirtualFile workingDirectoryVirtualFile = LocalFileSystem.getInstance().findFileByNioFile(workingDirectory);
-    if (workingDirectoryVirtualFile != null) {
-      Sdk sdk = getLocalSdkForFile(project, workingDirectoryVirtualFile, allowRemote);
-      if (sdk != null) {
-        return sdk;
-      }
-    }
-
-    for (Module m : ModuleManager.getInstance(project).getModules()) {
-      Sdk sdk = PythonSdkUtil.findPythonSdk(m);
-      if (sdk != null && (allowRemote || !PythonSdkUtil.isRemote(sdk))) {
-        return sdk;
-      }
-    }
-
-    return null;
-  }
-
-  private static @Nullable Sdk getLocalSdkForFile(@NotNull Project project,
-                                                  @NotNull VirtualFile workingDirectoryVirtualFile,
-                                                  boolean allowRemote) {
-    Module module = ModuleUtilCore.findModuleForFile(workingDirectoryVirtualFile, project);
-    if (module != null) {
-      Sdk sdk = PythonSdkUtil.findPythonSdk(module);
-      if (sdk != null && (allowRemote || !PythonSdkUtil.isRemote(sdk))) {
-        return sdk;
-      }
-    }
-    return null;
   }
 }
