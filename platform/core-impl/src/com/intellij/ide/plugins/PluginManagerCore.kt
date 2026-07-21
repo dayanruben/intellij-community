@@ -571,9 +571,6 @@ object PluginManagerCore {
     for (pluginList in discoveredPlugins.pluginLists) {
       for (plugin in pluginList.plugins) {
         val exclusionReason = excludedFromLoading[plugin]
-        if (exclusionReason != null) {
-          plugin.isMarkedForLoading = false
-        }
         if (pluginsToLoad.resolvePluginId(plugin.pluginId) == null && exclusionReason != null && exclusionReason !is PluginVersionIsSuperseded) {
           val existing = incompletePlugins[plugin.pluginId]
           if (existing == null || VersionComparatorUtil.compare(plugin.version, existing.version) > 0) {
@@ -669,8 +666,7 @@ object PluginManagerCore {
     val broadResolveContext = lazy { AmbiguousPluginSet.build(allPlugins) }
     for (plugin in resolvedPluginSet.candidateSet.plugins) {
       for (descriptor in plugin.sequenceAllDescriptors()) {
-        descriptor.isMarkedForLoading = resolvedPluginSet.isResolved(descriptor)
-        if (!descriptor.isMarkedForLoading) {
+        if (!resolvedPluginSet.isResolved(descriptor)) {
           adaptExclusionReasonAsCycleError(resolvedPluginSet, descriptor, cycleErrors)
         }
       }
@@ -865,10 +861,9 @@ object PluginManagerCore {
     essentialPlugins: Set<PluginId>,
     pluginNonLoadReasons: Map<PluginId, PluginNonLoadReason>,
   ) {
-    val corePlugin = resolvedPluginSet.candidateSet.resolvePluginId(CORE_ID)
+    val corePlugin = resolvedPluginSet.candidateSet.resolvePluginId(CORE_ID)?.getMainDescriptor()
     if (corePlugin != null) {
-      @Suppress("DEPRECATION")
-      val disabledModulesOfCorePlugin = corePlugin.contentModules.filter { it.moduleLoadingRule.required && !it.isMarkedForLoading }
+      val disabledModulesOfCorePlugin = corePlugin.contentModules.filter { it.moduleLoadingRule.required && !resolvedPluginSet.isResolved(it) }
       if (disabledModulesOfCorePlugin.isNotEmpty()) {
         throw EssentialPluginMissingException(disabledModulesOfCorePlugin.map { it.moduleId.name })
       }

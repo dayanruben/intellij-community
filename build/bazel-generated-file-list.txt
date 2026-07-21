@@ -1088,6 +1088,7 @@ plugins/evaluation-plugin/languages
 plugins/evaluation-plugin/languages/java
 plugins/evaluation-plugin/languages/kotlin
 plugins/evaluation-plugin/languages/python
+plugins/extended-toolwindows-ui
 plugins/filePrediction
 plugins/findUsagesMl
 plugins/git-features-trainer
@@ -1162,9 +1163,11 @@ plugins/groovy/groovy-psi
 plugins/groovy/groovy-uast-tests
 plugins/groovy/intellij.groovy.copyright
 plugins/groovy/jps-plugin
+plugins/groovy/langInjection
 plugins/groovy/rt
 plugins/groovy/rt-constants
 plugins/groovy/rt/classLoader
+plugins/groovy/spock
 plugins/groovy/spock-rt
 plugins/groovy/structuralsearch-groovy
 plugins/hg4idea
