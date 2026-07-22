@@ -732,6 +732,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         public void testNoOuterClassTypeReference() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/redundantInnerClassModifier/noOuterClassTypeReference.kt");
         }
+
+        @TestMetadata("outerClassHasExtensionFunction.kt")
+        public void testOuterClassHasExtensionFunction() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/redundantInnerClassModifier/outerClassHasExtensionFunction.kt");
+        }
+
+        @TestMetadata("outerClassHasExtensionFunction2.kt")
+        public void testOuterClassHasExtensionFunction2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/redundantInnerClassModifier/outerClassHasExtensionFunction2.kt");
+        }
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
@@ -4537,6 +4547,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("listFactory.kt")
         public void testListFactory() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/misorderedAssertEqualsArguments/listFactory.kt");
+        }
+
+        @TestMetadata("listFactory2.kt")
+        public void testListFactory2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/misorderedAssertEqualsArguments/listFactory2.kt");
         }
 
         @TestMetadata("noInspection.kt")
@@ -24683,16 +24698,6 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("contextParameter.kt")
         public void testContextParameter() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/unusedReceiverParameter/contextParameter.kt");
-        }
-
-        @TestMetadata("contextReceiver.kt")
-        public void testContextReceiver() throws Exception {
-            runTest("../../../idea/tests/testData/inspectionsLocal/unusedReceiverParameter/contextReceiver.kt");
-        }
-
-        @TestMetadata("contextReceiverSubtype.kt")
-        public void testContextReceiverSubtype() throws Exception {
-            runTest("../../../idea/tests/testData/inspectionsLocal/unusedReceiverParameter/contextReceiverSubtype.kt");
         }
 
         @TestMetadata("delegateReceiverExplicitGetter.kt")

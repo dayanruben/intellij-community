@@ -45,6 +45,7 @@ interface RangeHighlighter {
   fun getEndOffset(): Int
   fun getTextAttributes(): TextAttributes?
   fun getTextAttributesKey(): TextAttributesKey?
+  fun getLayer(): Int
 }
 
 @Remote("com.intellij.openapi.editor.VisualPosition")
@@ -126,7 +127,10 @@ interface DeclarativeInlayRenderer {
 }
 
 @Remote("com.intellij.ui.SimpleColoredText")
-interface SimpleColoredText
+interface SimpleColoredText {
+  fun getTexts(): List<String>
+  fun getAttributes(): List<SimpleTextAttributes>
+}
 
 @Remote("com.intellij.xdebugger.impl.inline.InlineDebugRenderer")
 interface InlineDebugRenderer {
