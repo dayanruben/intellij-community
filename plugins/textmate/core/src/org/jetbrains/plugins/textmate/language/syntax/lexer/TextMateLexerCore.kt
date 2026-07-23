@@ -107,7 +107,6 @@ class TextMateLexerCore(
     var lastSuccessStateOccursCount = 0
     var lastMovedOffset = lineStartOffset
 
-    val matchBeginString = lineStartOffset.offset == 0 && linePosition.offset == 0
     // makes sense only for a line, cannot be used across lines;
     // when the topmost begin match consumed the trailing newline of the previous line,
     // \G matches at the beginning of this line.
@@ -121,6 +120,7 @@ class TextMateLexerCore(
         // The conditions of the discarded nested rules are not checked.
         val newStackFrames = persistentListOf<TextMateStackFrame>().builder()
         for (frame in stackFrames) {
+          val matchBeginString = lineStartOffset.offset == 0 && linePosition.offset == 0
           if (frame.state.syntaxRule.getStringAttribute(Constants.StringKey.WHILE) != null) {
             val matchWhile = mySyntaxMatcher.matchStringRegex(keyName = Constants.StringKey.WHILE,
                                                               string = string,
@@ -130,10 +130,20 @@ class TextMateLexerCore(
                                                               lexerState = frame.state,
                                                               checkCancelledCallback = checkCancelledCallback)
             if (matchWhile.matched) {
-              // todo: support whileCaptures (parse them upon `frame.scopes.pop()`, the stack with the rule's
-              //  name selector but without its content-name selector, the same way beginCaptures are parsed)
-              anchorByteOffset = matchWhile.byteRange().end
               newStackFrames.add(frame)
+              if (frame.state.syntaxRule.getCaptureRules(Constants.CaptureKey.WHILE_CAPTURES) != null ||
+                  frame.state.syntaxRule.getCaptureRules(Constants.CaptureKey.CAPTURES) != null) {
+                val framesWithWhileRule = newStackFrames.build()
+                parseCaptures(output, frame.scopes, Constants.CaptureKey.WHILE_CAPTURES, frame.state.syntaxRule, matchWhile, string, line,
+                              lineStartOffset, framesWithWhileRule, checkCancelledCallback) ||
+                  parseCaptures(output, frame.scopes, Constants.CaptureKey.CAPTURES, frame.state.syntaxRule, matchWhile, string, line,
+                                lineStartOffset, framesWithWhileRule, checkCancelledCallback)
+              }
+              anchorByteOffset = matchWhile.byteRange().end
+              if (matchWhile.byteRange().end > lineByteOffset) {
+                linePosition = matchWhile.charRange(string).end
+                lineByteOffset = matchWhile.byteRange().end
+              }
             }
             else {
               break
@@ -148,7 +158,9 @@ class TextMateLexerCore(
 
       var scopes = stackFrames.last().scopes
       val localStates = mutableSetOf<TextMateLexerState>()
+      val pushedAnchors = mutableMapOf<Int, TextMateByteOffset>()
       while (true) {
+        val matchBeginString = lineStartOffset.offset == 0 && linePosition.offset == 0
         val lastState = stackFrames.last().state
         val lastRule = lastState.syntaxRule
 
@@ -177,40 +189,38 @@ class TextMateLexerCore(
         // `applyEndPatternLast` inverts this tie-break so that the nested patterns are applied first
         // and the `end` pattern is applied only when it matches strictly before the nested match.
         val applyEndPatternLast = isApplyEndPatternLast(lastRule)
-        if (endMatch.matched && (!currentMatch.matched || endWinsOverCurrent(applyEndPatternLast, currentMatch, endMatch) || lastState == currentState)) {
-          val poppedState = stackFrames.last().state
-          if (poppedState.matchData.matched && !poppedState.matchedEOL) {
-            // if begin hasn't matched EOL, it was performed on the same line; we need to use its anchor
-            anchorByteOffset = poppedState.matchData.byteRange().end
-          }
+        if (endMatch.matched && (!currentMatch.matched || endWinsOverCurrent(applyEndPatternLast, currentState, endMatch) || lastState == currentState)) {
+          val poppedFrame = stackFrames.last()
+          val poppedState = poppedFrame.state
+          anchorByteOffset = pushedAnchors.remove(stackFrames.size - 1) ?: (-1).byteOffset()
           stackFrames = stackFrames.removingAt(stackFrames.size - 1)
 
           val endRange = endMatch.charRange(string)
-          endPosition = endRange.start
-          val startPosition = endPosition
-          scopes = closeScopeSelector(output, scopes, startPosition + lineStartOffset) // closing content scope
-          if (lastRule.getCaptureRules(Constants.CaptureKey.END_CAPTURES) == null && lastRule.getCaptureRules(Constants.CaptureKey.CAPTURES) == null ||
-              parseCaptures(output, scopes, Constants.CaptureKey.END_CAPTURES, lastRule, endMatch, string, line, lineStartOffset, stackFrames, checkCancelledCallback) ||
-              parseCaptures(output, scopes, Constants.CaptureKey.CAPTURES, lastRule, endMatch, string, line, lineStartOffset, stackFrames, checkCancelledCallback)) {
-            // move line position only if anything was captured or if there is nothing to capture at all
-            endPosition = endRange.end
-          }
+          scopes = closeScopeSelector(output, scopes, endRange.start + lineStartOffset) // closing content scope
+          // `captures` apply to the end match only when the rule has no dedicated `endCaptures`
+          parseCaptures(output, scopes, Constants.CaptureKey.END_CAPTURES, lastRule, endMatch, string, line, lineStartOffset, stackFrames, checkCancelledCallback) ||
+            parseCaptures(output, scopes, Constants.CaptureKey.CAPTURES, lastRule, endMatch, string, line, lineStartOffset, stackFrames, checkCancelledCallback)
+          endPosition = endRange.end
           scopes = closeScopeSelector(output, scopes, endPosition + lineStartOffset) // closing basic scope
 
           if (linePosition == endPosition && containsLexerState(localStates, poppedState) && poppedState.enterByteOffset == lineByteOffset) {
-            addToken(output, scopes.currentScope, lineLength + lineStartOffset)
+            // the grammar pushed and popped a rule without advancing; assume that was a mistake
+            // and continue the line in the rule's state
+            stackFrames = stackFrames.adding(poppedFrame)
+            addToken(output, poppedFrame.scopes.currentScope, lineLength + lineStartOffset)
             break
           }
           localStates.remove(poppedState)
         }
         else if (currentMatch.matched) {
-          anchorByteOffset = currentMatch.byteRange().end
-
           val currentRange = currentMatch.charRange(string)
           val startPosition = currentRange.start
           endPosition = currentRange.end
 
           if (currentRule.getStringAttribute(Constants.StringKey.BEGIN) != null) {
+            // only a begin match moves the \G anchor; a plain match rule keeps it intact
+            pushedAnchors[stackFrames.size] = anchorByteOffset
+            anchorByteOffset = currentMatch.byteRange().end
             val name = getStringAttribute(Constants.StringKey.NAME, currentRule, string, currentMatch)
             val scopesWithName = openScopeSelector(output, scopes, name, startPosition + lineStartOffset)
 
@@ -235,6 +245,13 @@ class TextMateLexerCore(
           }
 
           if (linePosition == endPosition && containsLexerState(localStates, currentState)) {
+            if (currentRule.getStringAttribute(Constants.StringKey.BEGIN) != null) {
+              // the grammar pushed the same rule again without advancing;
+              // revert the push before stopping the line, so the stack doesn't grow
+              stackFrames = stackFrames.removingAt(stackFrames.size - 1)
+              pushedAnchors.remove(stackFrames.size)
+              scopes = stackFrames.last().scopes
+            }
             addToken(output, scopes.currentScope, lineLength + lineStartOffset)
             break
           }
@@ -436,14 +453,17 @@ class TextMateLexerCore(
     /**
      * Decides whether the `end` match should be applied instead of the nested (current) match.
      * Both matches are expected to be matched. With [applyEndPatternLast] the `end` pattern wins only
-     * when it matches strictly before the nested pattern; otherwise it also wins the ties.
+     * when it matches strictly before the nested pattern; otherwise it also wins the ties,
+     * unless the nested match comes from a left-injection (`L:`) whose priority beats the `end`
+     * pattern on ties.
      */
-    private fun endWinsOverCurrent(applyEndPatternLast: Boolean, currentMatch: MatchData, endMatch: MatchData): Boolean {
-      return if (applyEndPatternLast) {
-        currentMatch.byteRange().start > endMatch.byteRange().start
-      }
-      else {
-        currentMatch.byteRange().start >= endMatch.byteRange().start
+    private fun endWinsOverCurrent(applyEndPatternLast: Boolean, currentState: TextMateLexerState, endMatch: MatchData): Boolean {
+      val currentStart = currentState.matchData.byteRange().start
+      val endStart = endMatch.byteRange().start
+      return when {
+        currentStart != endStart -> currentStart > endStart
+        currentState.priorityMatch > TextMateWeigh.Priority.NORMAL -> false
+        else -> !applyEndPatternLast
       }
     }
 

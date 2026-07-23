@@ -10,12 +10,14 @@ import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import com.intellij.psi.util.parents
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.expressionType
-import org.jetbrains.kotlin.analysis.api.components.isSubtypeOf
 import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.builtins.StandardNames
+import org.jetbrains.kotlin.idea.base.psi.appendTypeArgument
+import org.jetbrains.kotlin.idea.base.psi.appendValueArgument
 import org.jetbrains.kotlin.idea.base.psi.getOrCreateValueArgumentList
 import org.jetbrains.kotlin.idea.base.psi.relativeTo
 import org.jetbrains.kotlin.idea.base.psi.safeDeparenthesize
@@ -37,11 +39,13 @@ import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtLabeledExpression
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtOperationReferenceExpression
+import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtParenthesizedExpression
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtQualifiedExpression
+import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.KtVisitorVoid
-import org.jetbrains.kotlin.psi.psiUtil.addTypeArgument
+import org.jetbrains.kotlin.psi.expressionVisitor
 
 /**
  * Applicable to a topmost [KtBinaryExpression] possibly wrapped into `()`
@@ -52,18 +56,21 @@ class CollectionConcatenationToBuildCollectionInspection :
     override fun buildVisitor(
         holder: ProblemsHolder,
         isOnTheFly: Boolean,
-    ): KtVisitorVoid = object : KtVisitorVoid() {
-
-        override fun visitExpression(expression: KtExpression) {
-            visitTargetElement(expression, holder, isOnTheFly)
-        }
+    ): KtVisitorVoid = expressionVisitor {
+        visitTargetElement(it, holder, isOnTheFly)
     }
 
     override fun getProblemDescription(element: KtExpression, context: Context): String =
         KotlinBundle.message("collection.concatenation.can.be.converted.to.build.collection")
 
     override fun isApplicableByPsi(element: KtExpression): Boolean {
-        if (element.parent is KtParenthesizedExpression) {
+        if (element is KtParameter) return false
+        // sub expression elements are/will be visited
+        if (element is KtBinaryExpression) return false
+        // do not report on arguments
+        val parent = element.parent
+        if (element is KtNameReferenceExpression && parent is KtValueArgument) return false
+        if (parent is KtParenthesizedExpression) {
             // we only care about the topmost `KtParenthesizedExpression` expression
             return false
         }
@@ -127,6 +134,7 @@ class CollectionConcatenationToBuildCollectionInspection :
             expressionType.isClassType(StandardClassIds.Set) -> Context.CollectionType.Set
             else -> return null
         }
+        if (expressionToConvert !is KtBinaryExpression && expressionToConvert.isBuildCollectionCall(collectionType)) return null
 
         val operations = when (expressionToConvert) {
             is KtBinaryExpression -> buildList {
@@ -157,6 +165,13 @@ class CollectionConcatenationToBuildCollectionInspection :
     private fun KtExpression.toOperationForStandalone(): Context.Operation? {
         val type = expressionType ?: return null
         return toOperationForPlus(isIterableOrSequence(type))
+    }
+
+    context(_: KaSession)
+    private fun KtExpression.isBuildCollectionCall(collectionType: Context.CollectionType): Boolean {
+        val callExpression = transformingCallExpression() ?: return false
+        val resolvedTo = callExpression.calleeExpression?.mainReference?.resolveToSymbol() as? KaCallableSymbol ?: return false
+        return resolvedTo.callableId?.asSingleFqName()?.asString() == collectionType.buildCallFqName
     }
 
     context(_: KaSession)
@@ -283,7 +298,7 @@ class CollectionConcatenationToBuildCollectionInspection :
                     val nameReferenceExpression = callExpression.calleeExpression as? KtNameReferenceExpression ?: return
                     val identifier = nameReferenceExpression.getIdentifier() ?: return
                     val valueArgumentList = callExpression.getOrCreateValueArgumentList()
-                    valueArgumentList.addArgument(ktPsiFactory.createArgument(ktPsiFactory.createThisExpression()))
+                    valueArgumentList.appendValueArgument(ktPsiFactory.createArgument(ktPsiFactory.createThisExpression()))
                     identifier.replace(ktPsiFactory.createIdentifier(operation.kind.toCallShortName))
 
                     val typeArgumentsList = callExpression.typeArgumentList
@@ -302,7 +317,7 @@ class CollectionConcatenationToBuildCollectionInspection :
                                 )
                             }
                             Context.Operation.TransformingOperation.Kind.ResultCollectionTypeArgumentPosition.Last -> {
-                                callExpression.addTypeArgument(newTypeArgument)
+                                callExpression.appendTypeArgument(newTypeArgument)
                             }
                         }
                     }
@@ -416,7 +431,7 @@ class CollectionConcatenationToBuildCollectionInspection :
         val call = ktPsiFactory.createExpression("$functionName()") as KtCallExpression
         val valueArgumentList = call.valueArgumentList
             ?: error("Expected value argument list for call expression created by KtPsiFactory")
-        valueArgumentList.addArgument(ktPsiFactory.createArgument(expression.safeDeparenthesize()))
+        valueArgumentList.appendValueArgument(ktPsiFactory.createArgument(expression.safeDeparenthesize()))
         addStatement(ktPsiFactory, call)
     }
 
