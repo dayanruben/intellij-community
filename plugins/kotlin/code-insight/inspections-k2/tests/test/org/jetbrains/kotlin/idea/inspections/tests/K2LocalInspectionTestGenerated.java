@@ -961,6 +961,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/intentions/removeExplicitSuperQualifier/AmbiguousSuperProperty.kt");
         }
 
+        @TestMetadata("BacktickedLabel.kt")
+        public void testBacktickedLabel() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeExplicitSuperQualifier/BacktickedLabel.kt");
+        }
+
         @TestMetadata("DataFlowInfoUsed.kt")
         public void testDataFlowInfoUsed() throws Exception {
             runTest("../../../idea/tests/testData/intentions/removeExplicitSuperQualifier/DataFlowInfoUsed.kt");
@@ -3898,6 +3903,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("backtickedOuterMember.kt")
+            public void testBacktickedOuterMember() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/scopeFunctions/letToRun/backtickedOuterMember.kt");
+            }
+
+            @TestMetadata("backtickedThisLabel.kt")
+            public void testBacktickedThisLabel() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/scopeFunctions/letToRun/backtickedThisLabel.kt");
+            }
+
             @TestMetadata("lambdaWithParam.kt")
             public void testLambdaWithParam() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/scopeFunctions/letToRun/lambdaWithParam.kt");
@@ -3997,6 +4012,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         public static class RunToLet extends AbstractK2LocalInspectionTest {
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("backtickedMember.kt")
+            public void testBacktickedMember() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/scopeFunctions/runToLet/backtickedMember.kt");
             }
 
             @TestMetadata("capturedIt.kt")
@@ -10627,6 +10647,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("backtickedFunctionName.kt")
+        public void testBacktickedFunctionName() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unlabeledReturnInsideLambda/backtickedFunctionName.kt");
+        }
+
         @TestMetadata("labeledReturn.kt")
         public void testLabeledReturn() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/unlabeledReturnInsideLambda/labeledReturn.kt");
@@ -16024,6 +16049,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/backingPropertyWithGetter.kt");
             }
 
+            @TestMetadata("backtickedClassName.kt")
+            public void testBacktickedClassName() throws Exception {
+                runTest("testData/inspectionsLocal/convertToExplicitBackingFields/backtickedClassName.kt");
+            }
+
             @TestMetadata("commentsInsideBrackets.kt")
             public void testCommentsInsideBrackets() throws Exception {
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/commentsInsideBrackets.kt");
@@ -17553,6 +17583,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         public static class JavaIoSerializableObjectMustHaveReadResolve extends AbstractK2LocalInspectionTest {
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("backtickedObjectName_positive.kt")
+            public void testBacktickedObjectName_positive() throws Exception {
+                runTest("testData/inspectionsLocal/javaIoSerializableObjectMustHaveReadResolve/backtickedObjectName_positive.kt");
             }
 
             @TestMetadata("doesntImplementSerializable_negative.kt")
@@ -22084,6 +22119,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("assignment.kt")
             public void testAssignment() throws Exception {
                 runTest("testData/inspectionsLocal/setterBackingFieldAssignment/assignment.kt");
+            }
+
+            @TestMetadata("backtickedParamName.kt")
+            public void testBacktickedParamName() throws Exception {
+                runTest("testData/inspectionsLocal/setterBackingFieldAssignment/backtickedParamName.kt");
             }
 
             @TestMetadata("decrement.kt")
@@ -28016,6 +28056,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("backtickedLambdaLabel.kt")
+        public void testBacktickedLambdaLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceNotNullAssertionWithElvisReturn/backtickedLambdaLabel.kt");
+        }
+
         @TestMetadata("basic.kt")
         public void testBasic() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceNotNullAssertionWithElvisReturn/basic.kt");
@@ -29224,6 +29269,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("annotation.kt")
         public void testAnnotation() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/convertSealedSubClassToObject/annotation.kt");
+        }
+
+        @TestMetadata("backtickedClassName.kt")
+        public void testBacktickedClassName() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/convertSealedSubClassToObject/backtickedClassName.kt");
         }
 
         @TestMetadata("baseEquals.kt")

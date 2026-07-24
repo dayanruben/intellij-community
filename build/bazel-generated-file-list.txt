@@ -484,9 +484,12 @@ libraries/junit6-launcher
 libraries/junit6-params
 libraries/jvm-native-trusted-roots
 libraries/jzlib
+libraries/kotlin/gradle-plugin-idea
+libraries/kotlin/gradle-plugin-idea-proto
 libraries/kotlin/reflect
 libraries/kotlin/test
 libraries/kotlin/test-assertions-core-jvm
+libraries/kotlin/tooling-core
 libraries/kotlinx/collections-immutable
 libraries/kotlinx/coroutines/core
 libraries/kotlinx/coroutines/debug
@@ -1090,6 +1093,8 @@ plugins/evaluation-plugin/languages/kotlin
 plugins/evaluation-plugin/languages/python
 plugins/extended-toolwindows-ui
 plugins/filePrediction
+plugins/filePrediction/java
+plugins/filePrediction/vcs
 plugins/findUsagesMl
 plugins/git-features-trainer
 plugins/git-modal-commit
@@ -1268,6 +1273,7 @@ plugins/kotlin/code-insight/postfix-templates
 plugins/kotlin/code-insight/structural-search-k2
 plugins/kotlin/code-insight/structural-search-k2/tests
 plugins/kotlin/code-insight/utils
+plugins/kotlin/code-insight/vcs
 plugins/kotlin/compiler-plugins/allopen/maven
 plugins/kotlin/compiler-plugins/android-extensions-stubs
 plugins/kotlin/compiler-plugins/assignment/common
@@ -1286,7 +1292,6 @@ plugins/kotlin/compiler-plugins/lombok/gradle
 plugins/kotlin/compiler-plugins/lombok/maven
 plugins/kotlin/compiler-plugins/noarg/gradle
 plugins/kotlin/compiler-plugins/noarg/maven
-plugins/kotlin/compiler-plugins/parcelize/common
 plugins/kotlin/compiler-plugins/parcelize/k2
 plugins/kotlin/compiler-plugins/parcelize/tests/k2
 plugins/kotlin/compiler-plugins/power-assert/gradle
@@ -1342,7 +1347,6 @@ plugins/kotlin/intellij.kotlin.base.test
 plugins/kotlin/internal
 plugins/kotlin/j2k/k2
 plugins/kotlin/j2k/k2/tests
-plugins/kotlin/j2k/shared
 plugins/kotlin/j2k/shared/tests
 plugins/kotlin/jps/graphImplementationTests
 plugins/kotlin/jsr223
@@ -1475,6 +1479,8 @@ plugins/maven/proofreading
 plugins/maven/src/test
 plugins/maven/testFramework
 plugins/mcp-server
+plugins/mcp-server/mcpserver.frontend
+plugins/mcp-server/mcpserver.plugin
 plugins/mcp-server/mcpserver.stdio
 plugins/mcp-server/mcpserver.terminal
 plugins/mcp-server/mcpserver.terminal.frontend

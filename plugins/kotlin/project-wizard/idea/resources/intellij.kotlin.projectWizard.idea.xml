@@ -4,8 +4,13 @@
     <module name="intellij.gradle"/>
     <module name="intellij.java.ui"/>
     <module name="intellij.kotlin.base.externalSystem"/>
-    <module name="intellij.platform.vcs.impl"/>
+    <module name="intellij.kotlin.base.facet"/>
+    <module name="intellij.kotlin.base.statistics"/>
+    <module name="intellij.kotlin.codeInsight.api"/>
+    <module name="intellij.kotlin.formatter"/>
+    <module name="intellij.kotlin.projectConfiguration"/>
     <module name="intellij.kotlin.projectWizard.core"/>
+    <module name="intellij.platform.vcs.impl"/>
   </dependencies>
   <!-- endregion -->
 

@@ -495,19 +495,19 @@ object PyTypeUtil {
     return when (functionType) {
       is PyClassLikeType -> functionType
       is PyCallableType -> mapper(functionType)
-      is PyOverloadType -> functionType.map { if (it == null) null else mapper(it) }
+      is PyOverloadType -> functionType.map { mapper(it) }
       else -> functionType
     }
   }
 
   @ApiStatus.Internal
   @JvmStatic
-  fun getCallableItems(functionType: PyType?): Sequence<PyCallableType> {
+  fun getCallableItems(functionType: PyType?): List<PyCallableType> {
     return when (functionType) {
-      is PyClassLikeType -> emptySequence()
-      is PyCallableType -> sequenceOf(functionType)
-      is PyOverloadType -> functionType.items.asSequence()
-      else -> emptySequence()
+      is PyClassLikeType -> listOf()
+      is PyCallableType -> listOf(functionType)
+      is PyOverloadType -> functionType.items
+      else -> listOf()
     }
   }
 
@@ -528,11 +528,12 @@ object PyTypeUtil {
     memberResolveResults: List<@JvmWildcard RatedResolveResult>,
     context: TypeEvalContext,
     errors: MutableList<ProblemMessage>? = null,
+    selfType: PyInstantiableType<*> = classType,
   ): PyType? {
     val memberType = getTypeOfMember(memberResolveResults, context)
-    val specializedMemberType = specializeMemberType(classType, classType, memberType, context)
+    val specializedMemberType = specializeMemberType(classType, selfType, memberType, context)
     val memberOwner = getContainingClass(memberResolveResults)
-    return bindFunction(classType, specializedMemberType, memberOwner, context, errors)
+    return bindFunction(selfType, specializedMemberType, memberOwner, context, errors)
   }
 
   @ApiStatus.Internal
@@ -563,6 +564,24 @@ object PyTypeUtil {
         lastType
       }
       if (elementsWithDeclaredType.isEmpty() && memberType.isNoneType) {
+        /* we support a special case where we convert an unannotated attribute of `None` to `UnsafeUnion[None, Unknown]`
+          this is because there are frequently cases in real code where inferring `None` would lead to undesirable false positives:
+          ```py
+          class C:
+              def __init__(self):
+                  self.a = None  # user intends `int | None` / `late int`
+              def set_a(self):
+                  self.a = 1
+          def f(c: C):
+              c.a + 1  # FP here
+          ```
+
+          we use `UnsafeUnion` to avoid cases where the `None` doesn't typically surface to usages,
+          if the user is interested in typing they should always annotate an attribute that is initialised with `None`
+
+          there is also a consideration for the case where a base class sets an attribute with `None`, expecting it to be
+          overridden with a value
+        */
         return PyUnsafeUnionType.unsafeUnion(memberType, PyAnyType.unknown)
       }
       return memberType
@@ -623,7 +642,7 @@ object PyTypeUtil {
     context: TypeEvalContext,
     errors: MutableList<ProblemMessage>?
   ): PyType? {
-    val signatures = getCallableItems(memberType).toList()
+    val signatures = getCallableItems(memberType)
     if (signatures.isEmpty()) return memberType
 
     val isStaticMethod = signatures.all { it.modifier == PyAstFunction.Modifier.STATICMETHOD }
