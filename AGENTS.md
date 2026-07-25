@@ -20,6 +20,10 @@ repository: monorepo
 - When adding or editing a JPS module `.iml`, run `bun build/jps-module.mjs register <path-to-iml> --fix-iml-eof` before `./build/jpsModelToBazel.cmd`. This keeps `.idea/modules.xml` and `community/.idea/modules.xml` in canonical order.
 - User-visible strings belong in `*.properties` for localization.
 
+## Workspace Isolation
+
+Never create ad hoc Git worktrees or clones for this repository, and never install a workspace manager automatically. Before any workspace-isolation action, read and follow [Workspace Isolation](./.ai/workspace-isolation.md).
+
 ## Module-specific rules
 
 Special handling applies to the directories below. If a file you touch lives under one of these roots, you must activate that module's rules first (read the referenced doc before edits or reviews). These rules override general guidelines if they conflict.
@@ -72,11 +76,10 @@ Never use the `search-tools-instructions` skill. See ijproxy for search tools.
 
 ### File operations (read / edit / write / list)
 
-Use the harness's native file tools for reading, editing, writing, and listing repo files. Prefer native read.
+Use the file-operation mechanism supported by the active harness. ijproxy is reserved for search and semantic operations; it does not provide direct file read, edit, write, or directory-listing tools.
 
-- Read: native file read
-- Edit/Write: `apply_patch` (the harness tool, not `mcp__ijproxy__apply_patch`)
-- List dir: native directory listing
+- Read/List: use dedicated harness tools when available. If none are exposed, use `cat` or read-only `sed` for file content and `ls` for directory listings.
+- Edit/Write: use the mechanism provided by the active harness.
 
 ### Search & navigation (ijproxy preferred)
 
@@ -88,13 +91,13 @@ Use the harness's native file tools for reading, editing, writing, and listing r
 
 ### Client fallback (no MCP)
 
-- **No MCP:** use `./tools/fd.cmd` (file search) and `./tools/rg.cmd` (text/regex search). These are the only allowed shell file ops on repo paths.
+- **No MCP:** use `./tools/fd.cmd` (file search) and `./tools/rg.cmd` (text/regex search) as shell search fallbacks.
 
 ### IDE-backed semantic tools
 Available via ijproxy or JetBrains MCP. Use these for semantic operations; avoid manual search/replace when a refactor exists.
 
 - **Default to `search_symbol` (if available) for classes/methods/fields; use `search_text`/`search_regex` mainly for strings, comments, and non-symbol matches.**
-- Inspections & symbol info: `get_file_problems`, `get_symbol_info`
+- Inspections & symbol info: `lint_files`, `get_symbol_info`
 - Refactors: `rename` (ijproxy) / `rename_refactoring` (JetBrains MCP); use for renames and avoid manual search/replace.
 - Formatting: `reformat_file`
 - Concurrency checks: `find_threading_requirements_usages`, `find_lock_requirements_usages`
@@ -103,11 +106,11 @@ Available via ijproxy or JetBrains MCP. Use these for semantic operations; avoid
 
 ### Tooling rules
 - For content/symbol **search** and semantic operations, use ijproxy when available; use JetBrains MCP or the client fallback below only when ijproxy is unavailable.
-- For file **read / edit / write / directory listing**, use the harness's native file tools (listed above). ijproxy `read_file` / `apply_patch` are not required for these — prefer native read.
+- For file **read / edit / write / directory listing**, follow the active harness guidance above; do not look for ijproxy file-operation tools.
 
-- Don't shell for file **search** (`find`, `grep`) on repo paths — use ijproxy search, or the client fallback (`./tools/fd.cmd`, `./tools/rg.cmd`) when no MCP is available. Native file tools handle file content, so avoid `cat`/`sed` on repo paths too.
+- Don't shell for file **search** (`find`, `grep`) on repo paths — use ijproxy search, or the client fallback (`./tools/fd.cmd`, `./tools/rg.cmd`) when no MCP is available.
 
-- Shell OK for: git (prefer `git_status` if the tool is available), build/test.
+- Shell is allowed where explicitly documented above and for git (prefer `git_status` if the tool is available), build/test.
 
 - Outside repo: native shell permitted, except for text/file search — use `./tools/rg.cmd` and `./tools/fd.cmd` (absolute paths OK) instead of native `grep`/`find`.
 
