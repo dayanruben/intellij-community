@@ -104,6 +104,9 @@
                     dynamic="true">
       <with attribute="implementationClass" implements="javax.imageio.spi.IIOServiceProvider"/>
     </extensionPoint>
+    <extensionPoint qualifiedName="com.intellij.rdct.remoteSettingProvider"
+                    interface="com.intellij.ide.settings.RemoteSettingInfoProvider"
+                    dynamic="true"/>
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">
     <ApplicationLoadListener implementation="com.intellij.util.imageio.ImageReaderWriterSpiRegistrar"/>
@@ -156,7 +159,6 @@
       description="Additional tag for error reports"/>
 
     <statistics.counterUsagesCollector implementationClass="com.intellij.platform.ide.menu.MainMenuCollector"/>
-    <statistics.counterUsagesCollector implementationClass="com.intellij.ide.minimap.MinimapUsageCollector"/>
     <editorEmptyStateComponentProvider implementation="com.intellij.openapi.fileEditor.impl.EditorEmptyTextComponentProvider" order="last"/>
     <editorEmptyTextProvider implementation="com.intellij.openapi.fileEditor.impl.DefaultEditorEmptyTextProvider" order="last"/>
     <pluginUpdatesProvider implementation="com.intellij.ide.plugins.newui.DefaultPluginUpdatesProvider"/>

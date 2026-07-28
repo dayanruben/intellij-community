@@ -1033,6 +1033,8 @@ plugins/coverage
 plugins/coverage-common
 plugins/coverage-common/intellij.platform.coverage.agent
 plugins/coverage/coverage_rt
+plugins/coverage/junit
+plugins/coverage/testng
 plugins/cucumber-jvm-formatter
 plugins/cucumber-jvm-formatter3
 plugins/cucumber-jvm-formatter4
@@ -1494,6 +1496,8 @@ plugins/mermaid
 plugins/mermaid/json
 plugins/mermaid/markdown
 plugins/mermaid/spellchecker
+plugins/minimap/core
+plugins/minimap/plugin
 plugins/ml-local-models
 plugins/ml-local-models/java
 plugins/performanceTesting/backend
@@ -1646,6 +1650,7 @@ python/python-hatch
 python/python-lsp-core
 python/python-lsp-impl
 python/python-markdown
+python/python-minimap
 python/python-packaging
 python/python-parser
 python/python-poetry/backend

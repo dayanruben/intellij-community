@@ -19,7 +19,7 @@ import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotation
 import org.jetbrains.kotlin.analysis.api.base.KaContextReceiver
 import org.jetbrains.kotlin.analysis.api.base.KaContextReceiversOwner
-import org.jetbrains.kotlin.analysis.api.components.combinedDeclaredMemberScope
+import org.jetbrains.kotlin.analysis.api.scopes.combinedDeclaredMemberScope
 import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KaRendererAnnotationsFilter
 import org.jetbrains.kotlin.analysis.api.renderer.base.contextReceivers.KaContextReceiversRenderer
 import org.jetbrains.kotlin.analysis.api.renderer.base.contextReceivers.renderers.KaContextReceiverLabelRenderer
@@ -475,7 +475,7 @@ fun KaDeclarationRenderer.Builder.withoutLabel() {
 }
 
 //todo rewrite after KT-66192 is implemented
-@OptIn(KaExperimentalApi::class, KaImplementationDetail::class)
+@OptIn(KaExperimentalApi::class)
 object ContextParametersListRenderer: KaContextReceiverListRenderer {
     override fun renderContextReceivers(
         analysisSession: KaSession,
@@ -484,7 +484,7 @@ object ContextParametersListRenderer: KaContextReceiverListRenderer {
         typeRenderer: KaTypeRenderer,
         printer: PrettyPrinter
     ) {
-        if (owner is KaCallableSymbol && owner.contextParameters.any { it.psi is KtParameter }) {
+        if (owner is KaCallableSymbol && owner.contextParameters.isNotEmpty()) {
             printer {
                 append("context(")
                 printCollection(owner.contextParameters) { contextParameter ->
