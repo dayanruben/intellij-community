@@ -1006,7 +1006,7 @@ object PyCallExpressionHelper {
       allSubstitutions.typeVars.filterNot { (tv, ref) -> isDefault(tv, Ref.deref(ref)) },
       allSubstitutions.typeVarTuples.filterNot { (tvt, v) -> isDefault(tvt, v) },
       allSubstitutions.paramSpecs.filterNot { (ps, v) -> isDefault(ps, v) },
-      allSubstitutions.qualifierType,
+      allSubstitutions.selfType,
     )
     val result = PyTypeChecker.substitute(genericDef, nonDefaultSubstitutions, context)
     return if (result is PyClassType) result.toClass() else classType
@@ -1380,7 +1380,7 @@ object PyCallExpressionHelper {
 
   private fun matchesByArgumentTypes(function: PyCallableType, callSite: PyCallSiteOwner, context: TypeEvalContext): Boolean {
     val mapping = mapArguments(callSite, function, context)
-    return mapping.isComplete && PyTypeChecker.unifyGenericCall(null, mapping.mappedParameters, context) != null
+    return mapping.isComplete && PyTypeChecker.unifyGenericCall(mapping.mappedParameters, context) != null
   }
 
   private fun mapComponentsOfTupleParameter(argument: PyExpression?, parameter: PyTupleParameter): TupleMappingResults {

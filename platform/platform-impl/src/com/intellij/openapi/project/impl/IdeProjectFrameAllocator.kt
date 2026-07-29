@@ -202,7 +202,11 @@ internal class IdeProjectFrameAllocator(
           val project = projectInitObservable.awaitProjectInit()
           span("restoreEditors") {
             val fileEditorManager = project.serviceAsync<FileEditorManager>() as FileEditorManagerImpl
-            restoreEditors(project = project, fileEditorManager = fileEditorManager)
+            restoreEditors(
+              project = project,
+              fileEditorManager = fileEditorManager,
+              opensFileAfterProjectOpen = options.opensFileAfterProjectOpen,
+            )
           }
 
           val start = projectInitObservable.projectInitTimestamp
@@ -269,6 +273,8 @@ internal class IdeProjectFrameAllocator(
           }.invokeOnCompletion { throwable ->
             if (throwable != null) {
               onNoEditorsLeft()
+              // `postOpenEditors` never ran, or never reached its own release
+              releaseStartupEmptyStatePresentationHold(project)
             }
           }
         }
@@ -518,7 +524,11 @@ private fun applyProjectFrameUiPolicy(
   disconnectIfDone()
 }
 
-private suspend fun restoreEditors(project: Project, fileEditorManager: FileEditorManagerImpl) {
+private suspend fun restoreEditors(
+  project: Project,
+  fileEditorManager: FileEditorManagerImpl,
+  opensFileAfterProjectOpen: Boolean,
+) {
   coroutineScope {
     // only after FileEditorManager.init - DaemonCodeAnalyzer uses FileEditorManager
     // DaemonCodeAnalyzer wants DaemonCodeAnalyzerSettings
@@ -536,6 +546,22 @@ private suspend fun restoreEditors(project: Project, fileEditorManager: FileEdit
     }
 
     val (editorComponent, editorState) = fileEditorManager.init()
+    // the empty state may be built as soon as restoring is over, in parallel with the rest of the project open, but it must not be
+    // shown until project open is done opening editors of its own — the welcome tab and the README below are two of those.
+    // `ModalityState.any()`, like the release in `postOpenEditors`, so a modal dialog during startup cannot reorder the two, and
+    // `Dispatchers.EDT` because settling the empty state may mount or dispose components, which needs the write-intent lock.
+    withContext(NonCancellable + Dispatchers.EDT + ModalityState.any().asContextElement()) {
+      editorComponent.beginStartupEmptyStatePresentationHold()
+      if (opensFileAfterProjectOpen) {
+        // a file named on the command line is opened after project open has returned, so project open's own release does not cover it;
+        // `openFileFromCommandLine` releases this second hold
+        editorComponent.beginStartupEmptyStatePresentationHold()
+      }
+      if (editorState == null) {
+        // there is nothing to restore, so preparation may start at once
+        editorComponent.finishStartupEditorRestore()
+      }
+    }
     if (editorState == null) {
       WelcomeScreenTabService.getInstance(fileEditorManager.project).openTab()
       serviceAsync<StartUpPerformanceService>().editorRestoringTillHighlighted()
@@ -592,11 +618,39 @@ private suspend fun postOpenEditors(
     }
   }
   finally {
-    withContext(NonCancellable + Dispatchers.EDT) {
+    // `Dispatchers.EDT` rather than the strict UI dispatcher: releasing may mount or dispose the empty state right here, and both take
+    // the write-intent lock, which `Dispatchers.UI` forbids taking at all
+    withContext(NonCancellable + Dispatchers.EDT + ModalityState.any().asContextElement()) {
       if (!project.isDisposed) {
-        fileEditorManager.mainSplitters.enableRichEmptyStateComponents()
+        // project open is done opening editors: whatever the editor area shows now is what it keeps
+        fileEditorManager.mainSplitters.endStartupEmptyStatePresentationHold()
       }
     }
+  }
+}
+
+/**
+ * Ends the startup presentation hold when [postOpenEditors] never got to release the hold [restoreEditors] took.
+ *
+ * This is the abandoning release rather than a paired one: restoring takes its hold uninterruptibly, so it may still be taken after
+ * project open has been cancelled, and a paired release that arrives first would be spent on a hold that does not exist yet.
+ */
+private fun releaseStartupEmptyStatePresentationHold(project: Project) {
+  val fileEditorManager = project.serviceIfCreated<FileEditorManager>() as? FileEditorManagerImpl ?: return
+  // `mainSplitters` is a lateinit assigned inside `initJob`, so it exists only once that job has completed successfully — and where it
+  // never did, restoring never returned from `init()` either, so no hold was ever taken
+  fileEditorManager.initJob.invokeOnCompletion { throwable ->
+    if (throwable != null) {
+      return@invokeOnCompletion
+    }
+    ApplicationManager.getApplication().invokeLater(
+      {
+        if (!project.isDisposed) {
+          fileEditorManager.mainSplitters.abandonStartupEmptyStatePresentationHold()
+        }
+      },
+      ModalityState.any(),
+    )
   }
 }
 

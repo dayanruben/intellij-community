@@ -631,7 +631,7 @@ object PyTypeUtil {
   ): PyType? {
     return if (memberType.hasGenerics(context)) {
       val substitutions = collectTypeSubstitutions(classType, context)
-      substitutions.qualifierType = selfType
+      substitutions.selfType = selfType
       PyTypeChecker.substitute(memberType, substitutions, context)
     }
     else memberType
@@ -721,7 +721,7 @@ object PyTypeUtil {
 
   @ApiStatus.Internal
   @JvmStatic
-  fun bindFunction(callableType: PyCallableType, selfType: PyType, context: TypeEvalContext): FunctionBindingResult? {
+  fun bindFunction(callableType: PyCallableType, selfType: PyInstantiableType<*>, context: TypeEvalContext): FunctionBindingResult? {
     if (callableType.getParametersType(context) == null) {
       // `typing.Callable[..., R]` - treat as `(*args, **kwargs)`.
       return FunctionBindingResult(callableType, PyAnyType.any)
@@ -730,7 +730,7 @@ object PyTypeUtil {
     if (firstParam != null && !firstParam.isPositionOnlySeparator && !firstParam.isKeywordOnlySeparator) {
       val firstParamType = firstParam.getArgumentType(context)
       val substitutions = GenericSubstitutions()
-      substitutions.qualifierType = selfType
+      substitutions.selfType = selfType
       if (firstParamType !is PySelfType) {
         if (!match(firstParamType, selfType, context, substitutions)) {
           return null

@@ -7,6 +7,7 @@ import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts.Command
+import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresEdt
 
 /**
@@ -45,13 +46,13 @@ interface Elf {
    * taking the application write lock:
    *
    * ```
-   * Elf.getElf().withElfScope(() -> {
-   *   editor.getDocument().insertString(offset, text);
-   * });
+   * Elf.getElf().withElfScope {
+   *   editor.document.insertString(offset, text)
+   * }
    * ```
    */
   @RequiresEdt
-  fun withElfScope(@RequiresEdt action: Runnable)
+  fun <T> withElfScope(@RequiresEdt action: () -> T): T
 
   /**
    * Returns `true` when the current EDT execution is inside [withElfScope].
@@ -66,8 +67,6 @@ interface Elf {
    * of forcing document commit or PSI access from the lock-free typing path.
    */
   fun isPsiInteractionAllowed(): Boolean
-
-  fun <T> runReadAction(action: () -> T): T
 
   /**
    * Returns the UI-side elf document corresponding to [document], or [document]
@@ -110,12 +109,15 @@ interface Elf {
     command: Runnable,
   )
 
+  fun <T> runReadAction(action: () -> T): T
+
+  fun runWriteAction(action: Runnable)
+
+  fun assertWriteAllowed()
+
   companion object {
     @JvmStatic
     fun getElf(): Elf {
-      if (!ElfFeatureFlag.isEnabled()) {
-        return OffDuty
-      }
       val application = ApplicationManager.getApplication()
       return application?.serviceOrNull<Elf>() ?: OffDuty
     }
@@ -129,8 +131,9 @@ interface Elf {
  * @see ElfFeatureFlag
  */
 private object OffDuty : Elf {
-  override fun withElfScope(action: Runnable) {
-    action.run()
+
+  override fun <T> withElfScope(action: () -> T): T {
+    return action.invoke()
   }
 
   override fun isInElfScope(): Boolean {
@@ -139,10 +142,6 @@ private object OffDuty : Elf {
 
   override fun isPsiInteractionAllowed(): Boolean {
     return true
-  }
-
-  override fun <T> runReadAction(action: () -> T): T {
-    return runReadActionBlocking(action)
   }
 
   override fun getElfDocument(document: Document): Document {
@@ -167,5 +166,17 @@ private object OffDuty : Elf {
     command: Runnable,
   ) {
     command.run()
+  }
+
+  override fun <T> runReadAction(action: () -> T): T {
+    return runReadActionBlocking(action)
+  }
+
+  override fun runWriteAction(action: Runnable) {
+    ApplicationManager.getApplication().runWriteAction(action)
+  }
+
+  override fun assertWriteAllowed() {
+    ThreadingAssertions.assertWriteAccess()
   }
 }

@@ -31,10 +31,9 @@ import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.idea.editor.KotlinEditorOptions
 import org.jetbrains.kotlin.idea.statistics.ConversionType
 import org.jetbrains.kotlin.idea.statistics.J2KFusCollector
-import org.jetbrains.kotlin.j2k.k2.PostProcessor
-import org.jetbrains.kotlin.j2k.k2.copyPaste.K2PlainTextPasteImportResolver
+import org.jetbrains.kotlin.j2k.PostProcessor
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.nj2k.KotlinJ2KK2Bundle
+import org.jetbrains.kotlin.j2k.KotlinJ2kBundle
 import org.jetbrains.kotlin.psi.KtBlockExpression
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassBody
@@ -59,8 +58,6 @@ private val LOG = Logger.getInstance(ConvertTextJavaCopyPasteProcessor::class.ja
  * we prepare a dummy file with some constructed context and place the copy-pasted code in this file before conversion.
  *
  * See also [ConvertJavaCopyPasteProcessor] for the related case of code copy-pasted from a Java file into a Kotlin file.
- *
- * Tests: [org.jetbrains.kotlin.j2k.k2.K2TextJavaToKotlinCopyPasteConversionTestGenerated].
  */
 class ConvertTextJavaCopyPasteProcessor : CopyPastePostProcessor<TextBlockTransferableData>() {
     private class MyTransferableData(val text: String) : TextBlockTransferableData {
@@ -191,7 +188,7 @@ class ConvertTextJavaCopyPasteProcessor : CopyPastePostProcessor<TextBlockTransf
     }
 
     private fun tryToResolveImports(project: Project, conversionData: ConversionData, targetFile: KtFile): ElementAndTextList {
-        return runWithModalProgressBlocking(project, KotlinJ2KK2Bundle.message("copy.text.adding.imports")) {
+        return runWithModalProgressBlocking(project, KotlinJ2kBundle.message("copy.text.adding.imports")) {
             val resolver = readAction {
                 K2PlainTextPasteImportResolver(conversionData, targetFile)
             }
@@ -257,8 +254,21 @@ class ConvertTextJavaCopyPasteProcessor : CopyPastePostProcessor<TextBlockTransf
             JavaContext.TOP_LEVEL -> isParsedAsJavaFile(text)
             JavaContext.CLASS_BODY -> isParsedAsJavaFile("class Dummy { $text\n}")
             JavaContext.IN_BLOCK -> isParsedAsJavaFile("class Dummy { void foo() {$text\n}\n}")
-            JavaContext.EXPRESSION -> isParsedAsJavaFile("class Dummy { Object field = $text; }")
+            JavaContext.EXPRESSION -> isParsedAsSingleJavaExpression(text, project)
         }
+    }
+
+    /**
+     * A plain [isParsedAsFile] check is not enough: a top-level comma makes the wrapper parse as a valid
+     * multi-variable field declaration. For example, `a = 1, b = 2` (a Kotlin named-argument list) yields
+     * `Object field = a = 1, b = 2;`, declaring two fields `field` and `b` with no parse error, and J2K would
+     * be triggered on non-Java text (KTIJ-36990).
+     */
+    private fun isParsedAsSingleJavaExpression(text: String, project: Project): Boolean {
+        val psiFile = parseAsFile("class Dummy { Object field = $text; }", JavaFileType.INSTANCE, project)
+        if (psiFile.anyDescendantOfType<PsiErrorElement>()) return false
+        val singleClass = (psiFile as? PsiJavaFile)?.classes?.singleOrNull() ?: return false
+        return singleClass.fields.size == 1
     }
 
     private fun isParsedAsKotlinCode(text: String, kotlinContext: KotlinContext, project: Project): Boolean {

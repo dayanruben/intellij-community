@@ -227,6 +227,31 @@ open class EditorsSplitters internal constructor(
 
   private var emptyStatePresentationReady: Boolean = true
 
+  /**
+   * How many times presentation of the empty state has been held back while project open is still opening editors of its own
+   * (see `IdeProjectFrameAllocator`). The empty state is prepared under a hold, but not shown.
+   *
+   * A counter rather than a flag, so that a repeated or unbalanced release cannot strand presentation held.
+   */
+  private var startupPresentationHolds: Int = 0
+
+  /**
+   * Set once project open has given up on releasing its own hold (see [abandonStartupEmptyStatePresentationHold]).
+   *
+   * From then on a hold is refused rather than counted, because the code that would have released it is gone: restoring takes its hold
+   * uninterruptibly, so it can still arrive after project open has been cancelled, and a hold nobody releases leaves this area blank
+   * for as long as the project stays open.
+   */
+  private var startupPresentationAbandoned: Boolean = false
+
+  /**
+   * Whether a hold was ever taken, so that a release nobody paired can be told apart from a release that had nothing to pair with.
+   *
+   * Project open releases its hold unconditionally, but takes it only once restoring has returned a component — an open cancelled
+   * before that point releases a hold it never took, which is ordinary rather than a defect worth warning about.
+   */
+  private var startupPresentationHoldTaken: Boolean = false
+
   private val splittersLayout: EditorsSplittersLayout
     get() = layout as EditorsSplittersLayout
 
@@ -248,9 +273,6 @@ open class EditorsSplitters internal constructor(
 
   private fun shouldDelayEmptyStatePresentation(state: EditorSplitterState): Boolean = state.hasFileEntries && shouldReopenEditorsOnStartup()
 
-  @Internal
-  fun isEmptyTextPaintingAllowed(): Boolean = shouldShowRichEmptyState() && emptyStateComponentController.isLegacyEmptyTextPaintingAllowed()
-
   @TestOnly
   internal fun isEmptyStateComponentCreationPending(): Boolean = emptyStateComponentController.isCreationPending()
 
@@ -262,9 +284,104 @@ open class EditorsSplitters internal constructor(
     emptyStateComponentController.enableRichComponents()
   }
 
+  /**
+   * Holds back presentation of the empty state while project open may still open editors of its own — the welcome tab, a README, a
+   * file named on the command line, What's New, a file a project wizard generated.
+   *
+   * The empty state is still prepared under the hold, so the wait costs no latency; see [endStartupEmptyStatePresentationHold].
+   *
+   * Taking or releasing a hold can settle the empty state on the spot, which mounts or disposes a provider's component and therefore
+   * takes the write-intent lock. So this must be called from a context where that lock may be taken — the legacy `Dispatchers.EDT` or
+   * `invokeLater`, not the strict `Dispatchers.UI`, which forbids taking it rather than merely not carrying it.
+   */
+  @RequiresEdt
+  internal fun beginStartupEmptyStatePresentationHold() {
+    if (startupPresentationAbandoned) {
+      return
+    }
+    startupPresentationHolds++
+    startupPresentationHoldTaken = true
+    applyStartupPresentationHolds()
+  }
+
+  /**
+   * Reports that project open is done opening editors, so whatever this area shows now is what it keeps.
+   *
+   * That is knowledge rather than a guess, so an empty state prepared under the hold is presented without the creation delay that
+   * exists only to hide a flash before an editor appears. Rich components are therefore enabled *before* the gate opens: a creation
+   * that only becomes possible here then starts under a closed gate and mounts at once, instead of waiting out that delay.
+   *
+   * Must be called where the write-intent lock may be taken; see [beginStartupEmptyStatePresentationHold].
+   */
+  @RequiresEdt
+  internal fun endStartupEmptyStatePresentationHold() {
+    if (startupPresentationHolds > 0) {
+      startupPresentationHolds--
+    }
+    else if (startupPresentationHoldTaken && !startupPresentationAbandoned) {
+      // the counter exists so that an unbalanced release cannot strand presentation, not so that one can pass unnoticed
+      LOG.warn("Editor empty state presentation hold released more often than it was taken")
+    }
+    enableRichEmptyStateComponents()
+    applyStartupPresentationHolds()
+  }
+
+  /**
+   * Reports that project open will not release the hold it took, because it failed or was cancelled before it got that far.
+   *
+   * Unlike [endStartupEmptyStatePresentationHold] this does not pair with one hold: it ends the whole startup hold, including a hold
+   * still on its way in from a restore that outlived project open. Whatever the editor area shows at that point is what it keeps,
+   * which is the same conclusion the ordinary release draws — reached by giving up rather than by finishing.
+   *
+   * Must be called where the write-intent lock may be taken; see [beginStartupEmptyStatePresentationHold].
+   */
+  @RequiresEdt
+  internal fun abandonStartupEmptyStatePresentationHold() {
+    startupPresentationAbandoned = true
+    startupPresentationHolds = 0
+    enableRichEmptyStateComponents()
+    applyStartupPresentationHolds()
+  }
+
+  /**
+   * Reports that startup editor restoring is over, so the empty state may start being prepared.
+   *
+   * Whether it is also shown right away is decided separately, by [beginStartupEmptyStatePresentationHold] and its release.
+   */
+  @RequiresEdt
+  internal fun finishStartupEditorRestore() {
+    emptyStatePresentationReady = true
+    if (!coroutineScope.isActive) {
+      return
+    }
+    // `mainSplitters` is a lateinit assigned inside `initJob`, so it must not be touched before that job completes
+    if (manager.initJob.isCompleted && this === manager.mainSplitters && shouldReopenEditorsOnStartup()) {
+      enableRichEmptyStateComponents()
+    }
+    // restoring disposes whatever was there before it started, so an update is due whether or not this enabled anything
+    updateEmptyStateComponent()
+  }
+
+  private fun applyStartupPresentationHolds() {
+    emptyStateComponentController.setPresentationAllowed(startupPresentationHolds == 0)
+  }
+
   @TestOnly
-  internal fun setEmptyStateComponentCreationDelayForTests(delay: Duration) {
+  internal fun setEmptyStateComponentCreationDelayForTests(delay: Duration?) {
     emptyStateComponentController.setCreationDelayForTests(delay)
+  }
+
+  @TestOnly
+  internal fun setEmptyStateComponentPresentationGateTimeoutForTests(timeout: Duration?) {
+    emptyStateComponentController.setPresentationGateTimeoutForTests(timeout)
+  }
+
+  @TestOnly
+  internal fun resetStartupEmptyStatePresentationHoldForTests() {
+    startupPresentationHolds = 0
+    startupPresentationAbandoned = false
+    startupPresentationHoldTaken = false
+    applyStartupPresentationHolds()
   }
 
   @TestOnly
@@ -427,7 +544,7 @@ open class EditorsSplitters internal constructor(
   }
 
   @Internal
-  suspend fun restoreEditors(state: EditorSplitterState, requestFocus: Boolean = true) {
+  suspend fun restoreEditors(state: EditorSplitterState, requestFocus: Boolean = true, isStartupRestore: Boolean = false) {
     val delayEmptyStatePresentation = shouldDelayEmptyStatePresentation(state)
     withContext(Dispatchers.EDT) {
       if (delayEmptyStatePresentation) {
@@ -464,9 +581,14 @@ open class EditorsSplitters internal constructor(
     }
     finally {
       withContext(NonCancellable + Dispatchers.EDT) {
-        emptyStatePresentationReady = true
-        if (coroutineScope.isActive) {
-          updateEmptyStateComponent()
+        if (isStartupRestore) {
+          finishStartupEditorRestore()
+        }
+        else {
+          emptyStatePresentationReady = true
+          if (coroutineScope.isActive) {
+            updateEmptyStateComponent()
+          }
         }
       }
     }
@@ -498,10 +620,7 @@ open class EditorsSplitters internal constructor(
     }
     finally {
       withContext(NonCancellable + Dispatchers.EDT) {
-        emptyStatePresentationReady = true
-        if (coroutineScope.isActive) {
-          updateEmptyStateComponent()
-        }
+        finishStartupEditorRestore()
       }
     }
   }
@@ -573,7 +692,7 @@ open class EditorsSplitters internal constructor(
       val stateToRestore = state.getAndSet(null)
       try {
         if (stateToRestore != null) {
-          restoreEditors(state = stateToRestore, requestFocus = requestFocus)
+          restoreEditors(state = stateToRestore, requestFocus = requestFocus, isStartupRestore = true)
         }
       }
       finally {
