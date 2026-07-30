@@ -413,6 +413,7 @@ libraries/dokka
 libraries/download-pgp-verifier
 libraries/ec4j/core
 libraries/fastutil
+libraries/ffmpeg
 libraries/groovy
 libraries/groovy/ant
 libraries/groovy/json
@@ -465,6 +466,7 @@ libraries/jettison
 libraries/jgoodies/common
 libraries/jgoodies/forms
 libraries/jline
+libraries/jna
 libraries/joni
 libraries/jsch-agent-proxy
 libraries/jsonpath
@@ -1057,6 +1059,7 @@ plugins/devkit/devkit-kotlin-tests
 plugins/devkit/devkit-tests
 plugins/devkit/intellij.devkit.compose
 plugins/devkit/intellij.devkit.debugger
+plugins/devkit/intellij.devkit.experiments
 plugins/devkit/intellij.devkit.gradle
 plugins/devkit/intellij.devkit.gradle.tooling
 plugins/devkit/intellij.devkit.i18n
