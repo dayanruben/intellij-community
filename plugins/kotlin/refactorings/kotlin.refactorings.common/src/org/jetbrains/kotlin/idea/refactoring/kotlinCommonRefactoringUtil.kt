@@ -24,17 +24,17 @@ import com.intellij.util.containers.MultiMap
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.types.isFunctionType
-import org.jetbrains.kotlin.analysis.api.types.isFunctionalInterface
-import org.jetbrains.kotlin.analysis.api.types.isSuspendFunctionType
 import org.jetbrains.kotlin.analysis.api.components.resolveToCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaErrorCallInfo
-import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleFunctionCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
 import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
 import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
+import org.jetbrains.kotlin.analysis.api.types.isFunctionType
+import org.jetbrains.kotlin.analysis.api.types.isFunctionalInterface
+import org.jetbrains.kotlin.analysis.api.types.isSuspendFunctionType
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinOptimizeImportsFacility
 import org.jetbrains.kotlin.idea.base.projectStructure.RootKindFilter
 import org.jetbrains.kotlin.idea.base.projectStructure.matches
@@ -96,7 +96,7 @@ import kotlin.math.min
 /**
  * Get the element that specifies the name of [this] element.
  */
-fun PsiElement.nameDeterminant() = when {
+fun PsiElement.nameDeterminant(): PsiNamedElement = when {
     this is KtConstructor<*> -> containingClass() ?: error("Constructor had no containing class")
     this is PsiMethod && isConstructor -> containingClass ?: error("Constructor had no containing class")
     else -> this
@@ -302,23 +302,23 @@ fun KtCallExpression.canMoveLambdaOutsideParentheses(
     fun KaType.isFunctionalType(): Boolean = this is KaTypeParameterType || isSuspendFunctionType || isFunctionType || isFunctionalInterface
 
     if (call == null) {
-        val paramType = resolveCall.successfulVariableAccessCall()?.partiallyAppliedSymbol?.symbol?.returnType
+        val paramType = resolveCall.successfulVariableAccessCall()?.symbol?.returnType
         if (paramType != null && paramType.isFunctionalType()) {
             return true
         }
         val calls =
-            (resolveCall as? KaErrorCallInfo)?.candidateCalls?.filterIsInstance<KaSimpleFunctionCall>() ?:
+            (resolveCall as? KaErrorCallInfo)?.candidateCalls?.filterIsInstance<KaFunctionCall<*>>() ?:
             emptyList()
 
         return calls.isEmpty() || calls.all { functionalCall ->
-            val lastParameter = functionalCall.partiallyAppliedSymbol.signature.valueParameters.lastOrNull()
+            val lastParameter = functionalCall.signature.valueParameters.lastOrNull()
             val lastParameterType = lastParameter?.returnType
             lastParameterType != null && lastParameterType.isFunctionalType()
         }
     }
 
-    val lastParameter = call.argumentMapping[lastLambdaExpression]
-        ?: lastLambdaExpression.parentLabeledExpression()?.let(call.argumentMapping::get)
+    val lastParameter = call.valueArgumentMapping[lastLambdaExpression]
+        ?: lastLambdaExpression.parentLabeledExpression()?.let(call.valueArgumentMapping::get)
         ?: return false
 
     if (lastParameter.symbol.isVararg) {
@@ -326,7 +326,7 @@ fun KtCallExpression.canMoveLambdaOutsideParentheses(
         return false
     }
 
-    return if (lastParameter.symbol != call.partiallyAppliedSymbol.signature.valueParameters.lastOrNull()?.symbol) {
+    return if (lastParameter.symbol != call.signature.valueParameters.lastOrNull()?.symbol) {
         false
     } else {
         lastParameter.returnType.isFunctionalType()

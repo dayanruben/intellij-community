@@ -22,8 +22,8 @@ import com.jetbrains.python.PyBundle
 import com.jetbrains.python.TraceContext
 import com.jetbrains.python.packaging.management.PyPackageScope
 import com.jetbrains.python.packaging.management.PythonPackageInstallRequest
-import com.jetbrains.python.packaging.pyRequirement
-import com.jetbrains.python.packaging.pyRequirementVersionSpec
+import com.intellij.python.requirements.pyRequirement
+import com.intellij.python.requirements.pyRequirementVersionSpec
 import com.jetbrains.python.packaging.toolwindow.PyPackagingToolWindowPanel
 import com.jetbrains.python.packaging.toolwindow.PyPackagingToolWindowService
 import com.jetbrains.python.packaging.toolwindow.model.DisplayablePackage
@@ -437,8 +437,16 @@ internal class PyPackagesTree(
     val from = items.size
     val to = minOf(from + LOAD_MORE_PAGE, sorted.size)
     if (from >= to) return
+    val previousSelection = selectionRows?.firstOrNull()
     setItemsKeepingCache(sorted.subList(0, to))
     pendingMore = (sorted.size - to).coerceAtLeast(0)
+    if (previousSelection != null) {
+      val next = (previousSelection + 1).coerceAtMost(rowCount - 1)
+      if (next >= 0) {
+        setSelectionRow(next)
+        scrollRowToVisible(next)
+      }
+    }
   }
 
   private fun setItemsKeepingCache(value: List<DisplayablePackage>) {

@@ -124,6 +124,7 @@ import com.jetbrains.python.psi.types.PyTupleType
 import com.jetbrains.python.psi.types.PyType
 import com.jetbrains.python.psi.types.PyTypeChecker
 import com.jetbrains.python.psi.types.PyTypeChecker.collectGenerics
+import com.jetbrains.python.psi.types.PyTypeFormType
 import com.jetbrains.python.psi.types.PyTypeParameterMapping
 import com.jetbrains.python.psi.types.PyTypeParameterType
 import com.jetbrains.python.psi.types.PyTypeParser
@@ -265,6 +266,21 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       return if (callSite is PyCallSiteExpression) callSite.getAsClassObjectType(context) else null
     }
 
+    return null
+  }
+
+  // PEP 747: the explicit `TypeForm(...)` constructor. `_SpecialForm` has no `__call__`, so intercept the call here and
+  // return a callable whose result is the `TypeForm` value denoting the argument's type expression.
+  override fun prepareCalleeTypeForCall(type: PyType?, call: PyCallExpression, context: Context): Ref<PyCallableType?>? {
+    if (type is PyClassType && (SPECIAL_FORM == type.classQName || SPECIAL_FORM_EXT == type.classQName)) {
+      val callee = call.callee
+      if (callee != null && isTypeForm(resolveToQualifiedNames(callee, context.typeContext), callee)) {
+        val typeForm = createTypeFormType(call, call.arguments.firstOrNull(), context) ?: return null
+        // A single parameter, so that the regular argument-list checks report a wrong number of arguments.
+        val parameter = PyCallableParameterImpl.nonPsi(PyAnyType.any)
+        return Ref.create<PyCallableType?>(PyCallableTypeImpl(listOf(parameter), typeForm))
+      }
+    }
     return null
   }
 
@@ -731,6 +747,8 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     const val TYPE_GUARD_EXT: String = "typing_extensions.TypeGuard"
     const val TYPE_IS: String = "typing.TypeIs"
     const val TYPE_IS_EXT: String = "typing_extensions.TypeIs"
+    const val TYPE_FORM: String = "typing.TypeForm"
+    const val TYPE_FORM_EXT: String = "typing_extensions.TypeForm"
     const val GENERIC: String = "typing.Generic"
     const val PROTOCOL: String = "typing.Protocol"
     const val PROTOCOL_EXT: String = "typing_extensions.Protocol"
@@ -1339,6 +1357,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         if (classObjType != null) {
           return classObjType
         }
+        val typeFormType: Ref<PyType?>? = getTypeFormType(resolved, context)
+        if (typeFormType != null) {
+          return typeFormType
+        }
         val finalType: Ref<PyType?>? = unwrapTypeModifier(resolved, context, FINAL, FINAL_EXT)
         if (finalType != null) {
           return finalType
@@ -1573,6 +1595,38 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         }
       }
       return null
+    }
+
+    private fun getTypeFormType(resolved: PsiElement, context: Context): Ref<PyType?>? {
+      if (resolved is PySubscriptionExpression) {
+        if (isTypeForm(resolveToQualifiedNames(resolved.operand, context.typeContext), resolved)) {
+          return createTypeFormType(resolved, resolved.indexExpression, context)?.let { Ref(it) }
+        }
+      }
+      else if (isTypeForm(listOfNotNull(resolved.getQualifiedName()), resolved)) {
+        // Bare `TypeForm` is equivalent to `TypeForm[Any]`
+        return createTypeFormType(resolved, null, context)?.let { Ref(it) }
+      }
+      return null
+    }
+
+    /**
+     * Creates a [PyTypeFormType] whose represented type is the type denoted by [typeExpr] (a type expression, possibly a
+     * string forward reference). A missing, `Any`, or unsupported [typeExpr] yields a form representing an arbitrary type.
+     */
+    private fun createTypeFormType(anchor: PsiElement, typeExpr: PyExpression?, context: Context): PyType? {
+      val representedType =
+        if (typeExpr != null && !typeExpr.resolvesToQualifiedNames(context.typeContext, ANY))
+          Ref.deref(getType(typeExpr, context))
+        else
+          PyAnyType.any
+      return PyTypeFormType.create(anchor, representedType)
+    }
+
+    // `typing.TypeForm` (PEP 747) only exists since Python 3.15; `typing_extensions.TypeForm` is a backport.
+    private fun isTypeForm(names: Collection<String>, anchor: PsiElement): Boolean {
+      if (TYPE_FORM_EXT in names) return true
+      return TYPE_FORM in names && LanguageLevel.forElement(anchor).isAtLeast(LanguageLevel.PYTHON315)
     }
 
     private fun getSelfType(resolved: PsiElement, typeHint: PyExpression, context: Context): Ref<PyType?>? {

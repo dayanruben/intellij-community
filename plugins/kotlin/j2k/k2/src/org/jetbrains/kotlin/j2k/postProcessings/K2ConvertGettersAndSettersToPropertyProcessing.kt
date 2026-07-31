@@ -5,12 +5,11 @@ package org.jetbrains.kotlin.j2k.postProcessings
 
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiReference
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.search.searches.OverridingMethodsSearch
-import com.intellij.psi.search.searches.ReferencesSearch
+import com.intellij.psi.search.searches.ReferencesSearch.search
 import com.intellij.psi.util.parentOfType
 import com.intellij.refactoring.rename.RenamePsiElementProcessor
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
@@ -60,12 +59,10 @@ import org.jetbrains.kotlin.idea.codeinsight.utils.removeRedundantSetter
 import org.jetbrains.kotlin.idea.codeinsight.utils.setVisibility
 import org.jetbrains.kotlin.idea.refactoring.isAbstract
 import org.jetbrains.kotlin.idea.refactoring.isInterfaceClass
-import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.idea.references.readWriteAccess
 import org.jetbrains.kotlin.idea.util.CommentSaver
 import org.jetbrains.kotlin.j2k.ConverterContext
-import org.jetbrains.kotlin.j2k.JKInMemoryFilesSearcher
 import org.jetbrains.kotlin.j2k.PostProcessing
 import org.jetbrains.kotlin.j2k.PostProcessingApplier
 import org.jetbrains.kotlin.j2k.PostProcessingTarget
@@ -150,20 +147,70 @@ internal class K2ConvertGettersAndSettersToPropertyProcessing : PostProcessing {
         }
     }
 
-    override fun runProcessing(target: PostProcessingTarget, converterContext: ConverterContext) {
-        error("Not supported in K2 J2K")
-    }
-
     override fun computeAppliers(target: PostProcessingTarget, converterContext: ConverterContext): List<PostProcessingApplier> {
         val ktElements = target.elements().filterIsInstance<KtElement>().ifEmpty { return emptyList() }
         val psiFactory = KtPsiFactory(converterContext.project)
-        val searcher = JKInMemoryFilesSearcher.create(ktElements)
 
-        val collector = PropertiesDataCollector(searcher)
-        val filter = PropertiesDataFilter(ktElements, searcher, psiFactory)
         val externalProcessingUpdater = ExternalProcessingUpdater(converterContext.externalCodeProcessor)
+        val propertiesDataByClass = PropertiesDataCollector.collectPropertiesData(ktElements).ifEmpty { return emptyList() }
 
-        val classes = ktElements
+        val index = buildUsageIndex(propertiesDataByClass.flatMap { it.value }, ktElements)
+
+        val filter = PropertiesDataFilter(ktElements, index, psiFactory)
+        val classesWithAccessors = mutableMapOf<KtClassOrObject, List<PropertyWithAccessors>>()
+
+        for ((klass, propertiesData) in propertiesDataByClass) {
+            analyze(klass) {
+                val propertiesWithAccessors = filter.filter(klass, propertiesData)
+                classesWithAccessors += klass to propertiesWithAccessors
+                externalProcessingUpdater.update(klass, propertiesWithAccessors)
+            }
+        }
+
+        val converter = ClassConverter(psiFactory, index)
+        return classesWithAccessors.map { (klass, propertiesWithAccessors) ->
+            Applier(ApplicationInfo(converter, klass, propertiesWithAccessors))
+        }
+    }
+}
+
+
+private typealias UsageIndex = Map<KtElement, List<SmartPsiElementPointer<KtElement>>>
+
+private fun buildUsageIndex(
+    propertiesData: List<PropertyData>,
+    scopeElements: List<PsiElement>
+): UsageIndex {
+
+    val fullScope = LocalSearchScope(scopeElements.toTypedArray())
+    return propertiesData.flatMap { data ->
+        listOfNotNull(
+            data.realProperty?.property,
+            data.realGetter?.function,
+            data.realGetter?.target,
+            data.realSetter?.function,
+            data.realSetter?.target
+        )
+    }.distinct().associateWith { element ->
+        search(element, fullScope, true).findAll().mapNotNull { (it.element as? KtElement)?.createSmartPointer() }
+    }
+}
+
+private fun UsageIndex.usagesOf(element: KtElement): List<KtElement> = this[element]?.mapNotNull { it.element } ?: emptyList()
+
+private fun UsageIndex.usagesWithin(element: KtElement, scope: PsiElement): List<KtElement> =
+    usagesOf(element).filter { scope.isAncestor(it) }
+
+
+/**
+ * Extracts groups of (getter, setter, property) for a class
+ * that are potentially eligible to be converted to a single property
+ */
+private object PropertiesDataCollector {
+    private val propertyNameToSuperType: MutableMap<Pair<KtClassOrObject, String>, KaType> = mutableMapOf()
+
+    fun collectPropertiesData(ktElements: List<KtElement>): Map<KtClassOrObject, List<PropertyData>> {
+        val result = ktElements
             .descendantsOfType<KtClassOrObject>()
             // KtEnumEntrySymbol is not a KtClassOrObjectSymbol, so we skip enum entries here
             // TODO handle enum overrides (KTIJ-29782)
@@ -173,42 +220,10 @@ internal class K2ConvertGettersAndSettersToPropertyProcessing : PostProcessing {
                 analyze(file) {
                     classes.sortedByInheritance()
                 }
-            }
+            }.associateWith { collectPropertiesData(it) }
 
-        val classesWithPropertiesData = collector.collectPropertiesData(classes).ifEmpty { return emptyList() }
-        val classesWithAccessors = mutableMapOf<KtClassOrObject, List<PropertyWithAccessors>>()
-
-        for ((klass, propertiesData) in classesWithPropertiesData) {
-            analyze(klass) {
-                val propertiesWithAccessors = filter.filter(klass, propertiesData)
-                classesWithAccessors += klass to propertiesWithAccessors
-                externalProcessingUpdater.update(klass, propertiesWithAccessors)
-            }
-        }
-
-        val precomputedUsages = calculateUsages(searcher, classesWithAccessors.flatMap { it.value })
-        val converter = ClassConverter(searcher, psiFactory, precomputedUsages)
-        return classesWithAccessors.map { (klass, propertiesWithAccessors) ->
-            Applier(ApplicationInfo(converter, klass, propertiesWithAccessors))
-        }
-    }
-
-    private fun calculateUsages(
-        searcher: JKInMemoryFilesSearcher,
-        propertyWithAccessors: List<PropertyWithAccessors>
-    ): Map<KtElement, List<SmartPsiElementPointer<KtElement>>> {
-        val precomputedUsages = mutableMapOf<KtElement, List<SmartPsiElementPointer<KtElement>>>()
-
-        fun put(element: KtElement) {
-            precomputedUsages[element] = element.usages(searcher).mapNotNull { (it.element as? KtElement)?.createSmartPointer() }
-        }
-
-        for ((_, getter, setter) in propertyWithAccessors) {
-            (getter as? RealGetter)?.let { put(it.function) }
-            (setter as? RealSetter)?.let { put(it.function) }
-        }
-
-        return precomputedUsages
+        propertyNameToSuperType.clear() // flush KaTypes
+        return result
     }
 
     context(_: KaSession)
@@ -239,20 +254,6 @@ internal class K2ConvertGettersAndSettersToPropertyProcessing : PostProcessing {
         }
 
         return sorted
-    }
-}
-
-/**
- * Extracts groups of (getter, setter, property) for a class
- * that are potentially eligible to be converted to a single property
- */
-private class PropertiesDataCollector(private val searcher: JKInMemoryFilesSearcher) {
-    private val propertyNameToSuperType: MutableMap<Pair<KtClassOrObject, String>, KaType> = mutableMapOf()
-
-    fun collectPropertiesData(classes: List<KtClassOrObject>): List<Pair<KtClassOrObject, List<PropertyData>>> {
-        val result = classes.map { klass -> klass to collectPropertiesData(klass) }
-        propertyNameToSuperType.clear() // flush KaTypes
-        return result
     }
 
     private fun collectPropertiesData(klass: KtClassOrObject): List<PropertyData> {
@@ -302,12 +303,7 @@ private class PropertiesDataCollector(private val searcher: JKInMemoryFilesSearc
                 ?: getter?.function?.typeReference?.text
                 ?: setter?.function?.valueParameters?.firstOrNull()?.typeReference?.text
 
-        return PropertyData(
-            property,
-            getter?.withTargetSet(property),
-            setter?.withTargetSet(property),
-            renderedType
-        )
+        return PropertyData(property, getter, setter, renderedType)
     }
 
     private fun KtDeclaration.asPropertyInfo(): PropertyInfo? {
@@ -363,13 +359,6 @@ private class PropertiesDataCollector(private val searcher: JKInMemoryFilesSearc
     private fun KtExpression.statements(): List<KtExpression> =
         if (this is KtBlockExpression) statements else listOf(this)
 
-    private inline fun <reified A : RealAccessor> A.withTargetSet(property: RealProperty?): A = when {
-        property == null -> this
-        target != null -> this
-        property.property.usages(searcher, scope = function).any() -> updateTarget(property.property) as A
-        else -> this
-    }
-
     context(_: KaSession)
     private fun KtClassOrObject.isSamSymbol(functionSymbol: KaNamedFunctionSymbol): Boolean {
         if (functionSymbol.modality != KaSymbolModality.ABSTRACT) return false
@@ -400,7 +389,7 @@ private class PropertiesDataCollector(private val searcher: JKInMemoryFilesSearc
  */
 private class PropertiesDataFilter(
     private val elements: List<KtElement>,
-    private val searcher: JKInMemoryFilesSearcher,
+    private val index: UsageIndex,
     private val psiFactory: KtPsiFactory
 ) {
     context(_: KaSession)
@@ -431,7 +420,9 @@ private class PropertiesDataFilter(
         classSymbol: KaClassSymbol,
         superVariableNameToSymbol: Map<String, KaVariableSymbol>
     ): PropertyWithAccessors? {
-        val (realProperty, realGetter, realSetter, renderedType) = propertyData
+        val (realProperty, rawGetter, rawSetter, renderedType) = propertyData
+        val realGetter = rawGetter?.withTargetResolved(realProperty)
+        val realSetter = rawSetter?.withTargetResolved(realProperty)
 
         val name = realGetter?.name ?: realSetter?.name ?: return null
         if (renderedType == null) return null
@@ -463,8 +454,8 @@ private class PropertiesDataFilter(
             if (realProperty == null) return false
 
             if (realGetter != null) {
-                val getFieldOfOtherInstanceInGetter = realProperty.property.usages(searcher).any { usage ->
-                    val element = usage.safeAs<KtSimpleNameReference>()?.element ?: return@any false
+                val getFieldOfOtherInstanceInGetter = index.usagesOf(realProperty.property).any { element ->
+                    if (element !is KtNameReferenceExpression) return@any false
                     val parent = element.parent
                     parent is KtQualifiedExpression
                             && !parent.receiverExpression.isReferenceToThis()
@@ -473,8 +464,8 @@ private class PropertiesDataFilter(
                 if (getFieldOfOtherInstanceInGetter) return true
             }
             if (realSetter != null) {
-                val assignFieldOfOtherInstance = realProperty.property.usages(searcher).any { usage ->
-                    val element = usage.safeAs<KtSimpleNameReference>()?.element ?: return@any false
+                val assignFieldOfOtherInstance = index.usagesOf(realProperty.property).any { element ->
+                    if (element !is KtNameReferenceExpression) return@any false
                     if (!element.readWriteAccess(useResolveForReadWrite = true).isWrite) return@any false
                     val parent = element.parent
                     parent is KtQualifiedExpression && !parent.receiverExpression.isReferenceToThis()
@@ -614,9 +605,16 @@ private class PropertiesDataFilter(
     }
 
     private fun KtElement.hasUsagesOutsideOf(inElement: KtElement, outsideElements: List<KtElement>): Boolean =
-        ReferencesSearch.search(this, LocalSearchScope(inElement)).asIterable().any { reference ->
-            outsideElements.none { it.isAncestor(reference.element) }
+        index.usagesWithin(this, inElement).any { usage ->
+            outsideElements.none { it.isAncestor(usage) }
         }
+
+    private inline fun <reified A : RealAccessor> A.withTargetResolved(property: RealProperty?): A = when {
+        property == null -> this
+        target != null -> this
+        index.usagesWithin(property.property, function).isNotEmpty() -> updateTarget(property.property) as A
+        else -> this
+    }
 }
 
 private val junitTestAnnotations: Set<ClassId> = setOf(
@@ -676,9 +674,8 @@ private class ExternalProcessingUpdater(private val processing: NewExternalCodeP
  * Converts accessors to properties in a single class
  */
 private class ClassConverter(
-    private val searcher: JKInMemoryFilesSearcher,
     private val psiFactory: KtPsiFactory,
-    private val precomputedUsages: Map<KtElement, List<SmartPsiElementPointer<KtElement>>>
+    private val index: UsageIndex
 ) {
     fun convertClass(klass: KtClassOrObject, propertiesWithAccessors: List<PropertyWithAccessors>) {
         for (propertyWithAccessors in propertiesWithAccessors) {
@@ -713,7 +710,7 @@ private class ClassConverter(
 
         val ktProperty = getKtProperty()
         val ktGetter = addGetter(getter, ktProperty, property.isFake)
-        val ktSetter = setter?.let { addSetter(it, ktProperty, property.isFake) }
+        val ktSetter = setter?.let { addSetter(it, ktProperty, property.name, property.isFake) }
         val isOpen = realGetter?.function?.hasModifier(OPEN_KEYWORD) == true || realSetter?.function?.hasModifier(OPEN_KEYWORD) == true
 
         val getterVisibility = realGetter?.function?.visibilityModifierTypeOrDefault()
@@ -811,7 +808,7 @@ private class ClassConverter(
     }
 
     private fun KtExpression.replacePropertyToFieldKeywordReferences(property: KtProperty) {
-        val references = property.usages(searcher, scope = this).map { it.element }.ifEmpty { return }
+        val references = index.usagesWithin(property, this).ifEmpty { return }
         val fieldExpression = psiFactory.createExpression(FIELD_KEYWORD.value)
 
         for (reference in references) {
@@ -852,11 +849,10 @@ private class ClassConverter(
     }
 
     private fun KtElement.forEachUsage(action: (KtElement) -> Unit) {
-        val usages = precomputedUsages[this] ?: emptyList()
-        usages.mapNotNull { it.element }.forEach(action)
+        index.usagesOf(this).forEach(action)
     }
 
-    private fun addSetter(setter: Setter, ktProperty: KtProperty, isFakeProperty: Boolean): KtPropertyAccessor {
+    private fun addSetter(setter: Setter, ktProperty: KtProperty, propertyName: String, isFakeProperty: Boolean): KtPropertyAccessor {
         if (setter is RealSetter) {
             setter.function.valueParameters.single().rename(setter.parameterName)
         }
@@ -881,7 +877,6 @@ private class ClassConverter(
 
         if (setter is RealSetter) {
             saveSurroundingComments(setter, ktSetter)
-            val propertyName = ktProperty.name
 
             // update original function references to property references
             setter.function.forEachUsage { usage ->
@@ -941,13 +936,12 @@ private class ClassConverter(
     }
 
     private fun KtProperty.renameTo(newName: String) {
-        for (usage in usages(searcher)) {
-            val element = usage.element
+        forEachUsage { element ->
             val isBackingField = element is KtNameReferenceExpression
                     && element.text == FIELD_KEYWORD.value
                     && element.mainReference.resolve() == this
                     && isAncestor(element)
-            if (isBackingField) continue
+            if (isBackingField) return@forEachUsage
             val replacer =
                 if (element.parent is KtQualifiedExpression) psiFactory.createExpression(newName)
                 else psiFactory.createExpression("this.$newName")
@@ -1003,9 +997,6 @@ private class ClassConverter(
         commentSaver.restoreKeepingIndent(PsiChildRange.singleElement(newBody))
     }
 }
-
-private fun KtElement.usages(searcher: JKInMemoryFilesSearcher, scope: PsiElement? = null): Iterable<PsiReference> =
-    searcher.search(element = this, scope)
 
 context(_: KaSession)
 private fun KaClassSymbol.superClassAndSuperInterfaces(): List<KaClassSymbol> {
