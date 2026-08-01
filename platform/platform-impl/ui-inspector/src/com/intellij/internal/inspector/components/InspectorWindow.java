@@ -2,6 +2,7 @@
 package com.intellij.internal.inspector.components;
 
 import com.intellij.codeInsight.hint.HintManager;
+import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.actions.BaseNavigateToSourceAction;
 import com.intellij.ide.ui.laf.darcula.ui.DarculaSeparatorUI;
@@ -33,6 +34,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ui.configuration.actions.IconWithTextAction;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -62,6 +64,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
 import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.TextTransferable;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NotNull;
@@ -212,7 +215,7 @@ public final class InspectorWindow extends JDialog implements Disposable {
     actions.addSeparator();
     actions.add(new ToggleAltHoverAction());
     actions.addSeparator();
-    actions.add(new CopyTreeAction());
+    actions.add(new ExportTreeAction());
 
     ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.CONTEXT_TOOLBAR, actions, true);
     toolbar.setTargetComponent(getRootPane());
@@ -950,19 +953,22 @@ public final class InspectorWindow extends JDialog implements Disposable {
     }
   }
 
-  private final class CopyTreeAction extends MyTextAction {
-    private CopyTreeAction() {
-      super(IdeUiInspectorBundle.messagePointer("action.Anonymous.text.CopyTree"));
-      getTemplatePresentation().setDescription(IdeUiInspectorBundle.messagePointer("action.Anonymous.description.CopyTree"));
+  private final class ExportTreeAction extends DumbAwareAction {
+    private ExportTreeAction() {
+      super(
+        IdeUiInspectorBundle.messagePointer("action.Anonymous.text.ExportTree"),
+        IdeUiInspectorBundle.messagePointer("action.Anonymous.description.ExportTree"),
+        AllIcons.Actions.Copy
+      );
     }
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
-      String yaml = myHierarchyTree.exportTreeAsYaml();
-      if (yaml.isEmpty()) return;
-      CopyPasteManager.copyTextToClipboard(yaml);
-      JLabel hint = new JLabel(IdeUiInspectorBundle.message("ui.inspector.tree.copied.hint"));
-      // the hint is shown in a bare popup, so it has to pad itself away from the popup border
+      String text = myHierarchyTree.exportTreeAsJson();
+      if (text.isEmpty()) return;
+      CopyPasteManager.getInstance().setContents(new TextTransferable(text));
+      JLabel hint = new JLabel(IdeUiInspectorBundle.message("ui.inspector.tree.exported.hint"));
+      // The hint is shown in a bare popup, so it has to pad itself away from the popup border.
       hint.setBorder(JBUI.Borders.empty(4, 8));
       HintManager.getInstance().showHint(
         hint, getHintPoint(e),
@@ -973,7 +979,7 @@ public final class InspectorWindow extends JDialog implements Disposable {
     private @NotNull RelativePoint getHintPoint(@NotNull AnActionEvent e) {
       InputEvent inputEvent = e.getInputEvent();
       Component source = inputEvent == null ? null : inputEvent.getComponent();
-      if (source instanceof JComponent jSource && source.isShowing()) {
+      if (source instanceof JComponent jSource && jSource.isShowing()) {
         return RelativePoint.getSouthWestOf(jSource);
       }
       return RelativePoint.getCenterOf(getRootPane());

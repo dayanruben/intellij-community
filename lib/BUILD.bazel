@@ -6893,17 +6893,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.jediterm/jediterm-core-3.73.jar_copy",
-    src = "@org_jetbrains_jediterm-jediterm-core-3_73_http//file",
-    out = "org.jetbrains.jediterm/jediterm-core-3.73.jar",
+    name = "org.jetbrains.jediterm/jediterm-core-3.74.jar_copy",
+    src = "@org_jetbrains_jediterm-jediterm-core-3_74_http//file",
+    out = "org.jetbrains.jediterm/jediterm-core-3.74.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "jediterm-core",
-    jar = "@org_jetbrains_jediterm-jediterm-core-3_73_http//file",
-    source_jar = "@org_jetbrains_jediterm-jediterm-core-3_73-sources_http//file",
+    jar = "@org_jetbrains_jediterm-jediterm-core-3_74_http//file",
+    source_jar = "@org_jetbrains_jediterm-jediterm-core-3_74-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -11904,17 +11904,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.jediterm/jediterm-ui-3.73.jar_copy",
-    src = "@org_jetbrains_jediterm-jediterm-ui-3_73_http//file",
-    out = "org.jetbrains.jediterm/jediterm-ui-3.73.jar",
+    name = "org.jetbrains.jediterm/jediterm-ui-3.74.jar_copy",
+    src = "@org_jetbrains_jediterm-jediterm-ui-3_74_http//file",
+    out = "org.jetbrains.jediterm/jediterm-ui-3.74.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-jediterm-ui-jediterm-ui",
-    jar = "@org_jetbrains_jediterm-jediterm-ui-3_73_http//file",
-    source_jar = "@org_jetbrains_jediterm-jediterm-ui-3_73-sources_http//file",
+    jar = "@org_jetbrains_jediterm-jediterm-ui-3_74_http//file",
+    source_jar = "@org_jetbrains_jediterm-jediterm-ui-3_74-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -14450,6 +14450,21 @@ jvm_import(
     name = "libraries-xz-xz",
     jar = "@org_tukaani-xz-1_10_http//file",
     source_jar = "@org_tukaani-xz-1_10-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains/marketplace-zip-signer-0.1.43.jar_copy",
+    src = "@org_jetbrains-marketplace-zip-signer-0_1_43_http//file",
+    out = "org.jetbrains/marketplace-zip-signer-0.1.43.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-zip-signer-zip-signer",
+    jar = "@org_jetbrains-marketplace-zip-signer-0_1_43_http//file",
+    source_jar = "@org_jetbrains-marketplace-zip-signer-0_1_43-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -20869,21 +20884,6 @@ java_library(
         ":org_apache_logging_log4j-log4j-to-slf4j-2_20_0_http_import",
         ":org_apache_logging_log4j-log4j-api-2_20_0_http_import",
     ],
-)
-
-copy_file(
-    name = "org.jetbrains/marketplace-zip-signer-0.1.43.jar_copy",
-    src = "@org_jetbrains-marketplace-zip-signer-0_1_43_http//file",
-    out = "org.jetbrains/marketplace-zip-signer-0.1.43.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "zip-signer",
-    jar = "@org_jetbrains-marketplace-zip-signer-0_1_43_http//file",
-    source_jar = "@org_jetbrains-marketplace-zip-signer-0_1_43-sources_http//file",
-    visibility = ["//visibility:public"],
 )
 
 copy_file(

@@ -232,20 +232,18 @@ class TerminalViewImpl(
     val alternateBufferKeyEventsHandler = TerminalKeyEventsHandlerImpl(
       mutableKeyEventsFlow,
       alternateBufferEditor,
-      encodingManager,
       terminalInput,
-      settings,
       scrollingModel = null,
       alternateBufferModel,
       typeAhead = null,
       inputInterceptors = { inputInterceptors },
+      sessionDeferred = sessionDeferred,
+      coroutineScope = coroutineScope.childScope("TerminalAlternateBufferKeyEvents"),
     )
     val alternateBufferMouseEventsHandler = TerminalMouseEventsHandlerImpl(
       alternateBufferEditor,
       terminalInput,
-      sessionModel,
-      encodingManager,
-      settings,
+      sessionDeferred,
     )
 
     configureOutputEditor(
@@ -282,20 +280,18 @@ class TerminalViewImpl(
     outputEditorKeyEventsHandler = TerminalKeyEventsHandlerImpl(
       mutableKeyEventsFlow,
       outputEditor,
-      encodingManager,
       terminalInput,
-      settings,
       scrollingModel,
       outputModel,
       typeAhead = outputModelController,
       inputInterceptors = { inputInterceptors },
+      sessionDeferred = sessionDeferred,
+      coroutineScope = coroutineScope.childScope("TerminalOutputKeyEvents"),
     )
     val outputEditorMouseEventsHandler = TerminalMouseEventsHandlerImpl(
       outputEditor,
       terminalInput,
-      sessionModel,
-      encodingManager,
-      settings,
+      sessionDeferred,
     )
 
     configureOutputEditor(
@@ -614,7 +610,7 @@ class TerminalViewImpl(
     }
 
     setupKeyEventsHandling(editor, settings, keyEventsHandler, parentDisposable)
-    setupMouseEventsHandling(editor, sessionModel, settings, mouseEventsHandler, parentDisposable)
+    setupMouseEventsHandling(editor, mouseEventsHandler, parentDisposable)
 
     TerminalOutputEditorInputMethodSupport(
       editor,
