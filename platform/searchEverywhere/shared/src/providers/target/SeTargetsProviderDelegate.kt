@@ -22,9 +22,10 @@ import com.intellij.platform.searchEverywhere.SeLegacyItem
 import com.intellij.platform.searchEverywhere.SeParams
 import com.intellij.platform.searchEverywhere.SePreviewInfo
 import com.intellij.platform.searchEverywhere.SePreviewInfoFactory
+import com.intellij.platform.searchEverywhere.SeProviderIdUtils
 import com.intellij.platform.searchEverywhere.presentations.SeItemPresentation
 import com.intellij.platform.searchEverywhere.presentations.SeTargetItemPresentationBuilder
-import com.intellij.platform.searchEverywhere.providers.AsyncProcessor
+import com.intellij.platform.searchEverywhere.providers.AsyncProcessorWithExactMatch
 import com.intellij.platform.searchEverywhere.providers.ScopeChooserActionProviderDelegate
 import com.intellij.platform.searchEverywhere.providers.SeAsyncContributorWrapper
 import com.intellij.platform.searchEverywhere.providers.SeEverywhereFilterImpl
@@ -35,9 +36,9 @@ import com.intellij.util.text.matching.MatchingMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.TestOnly
 import java.awt.event.InputEvent
 import java.util.concurrent.ConcurrentLinkedQueue
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
 @Internal
 class SeTargetItem(
@@ -47,6 +48,7 @@ class SeTargetItem(
   override val contributor: SearchEverywhereContributor<*>,
   val extendedInfo: SeExtendedInfo,
   val isMultiSelectionSupported: Boolean,
+  val isExactMatch: Boolean,
 ) : SeLegacyItem {
   override fun weight(): Int = weight
   override suspend fun presentation(): SeItemPresentation = SeTargetItemPresentationBuilder()
@@ -55,7 +57,6 @@ class SeTargetItem(
   override val rawObject: Any get() = legacyItem
 }
 
-@OptIn(ExperimentalAtomicApi::class)
 @Internal
 class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContributorWrapper<Any>, parentDisposable: Disposable): Disposable {
   private val scopeProviderDelegate = ScopeChooserActionProviderDelegate.createOrNull(contributorWrapper)
@@ -80,13 +81,31 @@ class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContribut
       }
     }
 
-    contributorWrapper.fetchElements(inputQuery, object : AsyncProcessor<Any> {
-      override suspend fun process(item: Any, weight: Int): Boolean {
+    val hasNoExtension = !inputQuery.contains('.')
+    val isFile = contributor.searchProviderId == SeProviderIdUtils.FILES_ID
+
+    contributorWrapper.fetchElements(inputQuery, object : AsyncProcessorWithExactMatch<Any> {
+      override suspend fun process(item: Any, weight: Int, isExactMatch: Boolean): Boolean {
         val legacyItem = item as? ItemWithPresentation<*> ?: return true
         val matchers = (contributor as? PSIPresentationBgRendererWrapper)
           ?.getNonComponentItemMatchers({ _ -> defaultMatchers }, legacyItem.getItem())
 
-        return collector.put(SeTargetItem(legacyItem, matchers, weight, contributor, contributor.getExtendedInfo(legacyItem), contributorWrapper.contributor.isMultiSelectionSupported))
+        val presentableText = legacyItem.presentation.presentableText
+
+        // If the item main presentation text equals the query, we make it exact match as well
+        val isExactMatch = isExactMatch(isExactMatch,
+                                        presentableText = presentableText,
+                                        inputQuery = inputQuery,
+                                        isFile = isFile,
+                                        inputQueryHasNoExtension = hasNoExtension)
+
+        return collector.put(SeTargetItem(legacyItem,
+                                          matchers,
+                                          weight,
+                                          contributor,
+                                          contributor.getExtendedInfo(legacyItem),
+                                          isMultiSelectionSupported = contributorWrapper.contributor.isMultiSelectionSupported,
+                                          isExactMatch = isExactMatch))
       }
     }, operationDisposable)
   }
@@ -154,5 +173,19 @@ class SeTargetsProviderDelegate(private val contributorWrapper: SeAsyncContribut
 
   override fun dispose() {
     usagePreviewDisposableList.forEach { Disposer.dispose(it) }
+  }
+
+  companion object {
+    @TestOnly
+    fun isExactMatch(
+      isExactMatchFromItem: Boolean,
+      presentableText: String,
+      inputQuery: String,
+      isFile: Boolean,
+      inputQueryHasNoExtension: Boolean,
+    ): Boolean =
+      isExactMatchFromItem || // IJPL-133399, IJPL-251596
+      (presentableText == inputQuery) || // IJPL-55665
+      (isFile && inputQueryHasNoExtension && presentableText.startsWith("$inputQuery.")) // IJPL-55732, IJPL-156298
   }
 }
