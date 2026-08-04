@@ -638,16 +638,7 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
     doTest();
   }
 
-  public void testJSpecifySameInstanceGenericOptionOn() {
-    myInspection.REPORT_UNSPECIFIED_BOUND_CONFLICTS = true;
-    addJSpecifyNullMarked(myFixture);
-    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
-    addNullnessUnspecified();
-    doTest();
-  }
-
-  public void testJSpecifySameInstanceGenericOptionOff() {
-    myInspection.REPORT_UNSPECIFIED_BOUND_CONFLICTS = false;
+  public void testJSpecifySameInstanceGenericUnspecified() {
     addJSpecifyNullMarked(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
     addNullnessUnspecified();
@@ -655,7 +646,6 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
   }
 
   public void testJSpecifySameInstanceGenericShadow() {
-    myInspection.REPORT_UNSPECIFIED_BOUND_CONFLICTS = true;
     addJSpecifyNullMarked(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
     addNullnessUnspecified();
@@ -667,6 +657,40 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
     doTest();
   }
+
+  public void testJSpecifyUnspecifiedBoundTypeArgument() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    addNullnessUnspecified();
+    doTest();
+  }
+
+  public void testJSpecifyUnspecifiedParameterOverridesNullable() {
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    addNullnessUnspecified();
+    doTest();
+  }
+
+  public void testJSpecifyNullableParameterOverridesNotNull() {
+    myInspection.REPORT_NULLABLE_PARAMETER_OVERRIDES_NOTNULL = true;
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    addNullnessUnspecified();
+    doTest();
+  }
+
+  public void testJSpecifyNullableParameterOverridesNotNullOptionOff() {
+    myInspection.REPORT_NULLABLE_PARAMETER_OVERRIDES_NOTNULL = false;
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+
+  public void testJSpecifyUnspecifiedTypeArgumentInstantiatedWithNullable() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    addNullnessUnspecified();
+    doTest();
+  }
+
 
   private void addNullnessUnspecified() {
     myFixture.addClass("""

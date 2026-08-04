@@ -432,6 +432,8 @@ f:com.intellij.execution.multilaunch.design.ExecutableRow
 a:com.intellij.execution.multilaunch.design.components.IconCheckBoxList
 - com.intellij.ui.CheckBoxList
 - <init>():V
+a:com.intellij.execution.multilaunch.execution.conditions.Condition
+- getOptionLabel():java.lang.String
 f:com.intellij.execution.multilaunch.execution.executables.impl.RunConfigurationExecutableManager$RunConfigurationExecutable
 - com.intellij.execution.multilaunch.execution.executables.Executable
 - f:getSettings():com.intellij.execution.RunnerAndConfigurationSettings
@@ -476,6 +478,7 @@ f:com.intellij.execution.ui.BeforeRunFragment
 - s:createGroup():java.util.List
 f:com.intellij.execution.ui.CommonParameterFragments
 - s:createEnvParameters():com.intellij.execution.ui.SettingsEditorFragment
+- s:createEnvParameters(com.intellij.openapi.project.Project):com.intellij.execution.ui.SettingsEditorFragment
 - createRedirectFragment():com.intellij.execution.ui.SettingsEditorFragment
 - s:createRunHeader():com.intellij.execution.ui.SettingsEditorFragment
 - getFragments():java.util.List

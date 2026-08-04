@@ -14,16 +14,18 @@ object NativeBinaryDownloader {
   private const val GROUP_ID = "org.jetbrains.intellij.deps"
   private const val LAUNCHER_ID = "launcher"
   private const val RESTARTER_ID = "restarter"
+  private const val LIBWEBP_ID = "libwebp"
   private const val PACKAGING = "tar.gz"
   private const val LICENSE_FILE_NAME = "xplat-launcher-third-party-licenses.html"
 
   /**
-   * Attempts to locate a local debug build of cross-platform launcher when in the development mode
+   * Attempts to locate a local debug build of the launcher when in the development mode
    * and [org.jetbrains.intellij.build.BuildOptions.useLocalLauncher] is set to `true`.
    *
    * Otherwise, downloads and unpacks the launcher tarball.
    *
-   * Returns a tuple of paths `(executable, license, extra-file?)` for the given platform (e.g., a console executable for Windows).
+   * Returns a tuple of paths `(executable, license, extra-file?)` for the given platform.
+   * The `extra-file` is specific to the platform – e.g., a Windows console executable.
    */
   suspend fun getLauncher(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Triple<Path, Path, Path?> {
     if (context.options.isInDevelopmentMode && context.options.useLocalLauncher) {
@@ -64,6 +66,14 @@ object NativeBinaryDownloader {
   suspend fun getRestarter(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Path {
     val (archiveFile, unpackedDir) = downloadAndUnpack(context, "restarterBuild", RESTARTER_ID)
     return findFile(archiveFile, unpackedDir, binName(os, arch, "restarter"))
+  }
+
+  /**
+   * Downloads and unpacks the WebP tarball and returns a path to a library for the given platform.
+   */
+  suspend fun getLibWebp(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Path {
+    val (archiveFile, unpackedDir) = downloadAndUnpack(context, "libwebpVersion", LIBWEBP_ID)
+    return findFile(archiveFile, unpackedDir, libName(os, arch, "webp_jni"))
   }
 
   private suspend fun downloadAndUnpack(context: BuildContext, propertyName: String, artifactId: String): Pair<Path, Path> {

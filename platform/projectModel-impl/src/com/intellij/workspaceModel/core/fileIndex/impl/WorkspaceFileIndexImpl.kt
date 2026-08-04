@@ -13,6 +13,7 @@ import com.intellij.openapi.roots.ContentIteratorEx
 import com.intellij.openapi.roots.impl.DirectoryIndexImpl
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.LowMemoryWatcher
+import com.intellij.openapi.vfs.VfsUtil.findFileByUrlIfCached
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileFilter
@@ -23,7 +24,6 @@ import com.intellij.openapi.vfs.newvfs.CacheAvoidingVirtualFile
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.platform.backend.workspace.WorkspaceModel
-import com.intellij.platform.backend.workspace.virtualFile
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.storage.WorkspaceEntity
 import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlManagerEx
@@ -260,12 +260,38 @@ class WorkspaceFileIndexImpl : WorkspaceFileIndexEx, Disposable.Default {
         }
       }
     }
+
+    val fileInfo = getFileInfo(fileOrDir,
+                               honorExclusion = true,
+                               includeContentSets = true,
+                               includeContentNonIndexableSets = includeContentNonIndexableSets,
+                               includeExternalSets = false,
+                               includeExternalSourceSets = false,
+                               includeExternalNonIndexableSets = false,
+                               includeCustomKindSets = false)
+
+    if (fileInfo == NonWorkspace.IGNORED || fileInfo == NonWorkspace.INVALID) {
+      return true
+    }
+
+    if (fileInfo == NonWorkspace.EXCLUDED || fileInfo == NonWorkspace.NOT_UNDER_ROOTS) {
+      val result = processContentFilesUnderExcludedDirectory(dir = fileOrDir,
+                                                       processor = processor,
+                                                       customFilter = customFilter,
+                                                       fileSetFilter = fileSetFilter,
+                                                       rootDir = fileOrDir,
+                                                       includeContentNonIndexableSets = includeContentNonIndexableSets,
+                                                       numberOfExcludedParentDirectories = 1)
+      return result.skipToParent != fileOrDir
+    }
+
+    val isIndexable = fileInfo.findFileSet { it.kind.isIndexable } != null || isIndexable(fileOrDir)
     // wrap non-indexable files as CacheAvoiding to prevent them from loading into VFS
-    val isIndexable = isIndexable(fileOrDir)
     val cacheAvoidingIfNecessary = when {
       isIndexable -> fileOrDir
       else -> NewVirtualFile.asCacheAvoiding(fileOrDir)
     }
+
     val result = VfsUtilCore.visitChildrenRecursively(cacheAvoidingIfNecessary, visitor)
     return result.skipToParent != cacheAvoidingIfNecessary
   }
@@ -293,7 +319,7 @@ class WorkspaceFileIndexImpl : WorkspaceFileIndexEx, Disposable.Default {
        so it's enough to process VirtualFileUrls only. */
     val virtualFileUrlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager() as VirtualFileUrlManagerEx
     val processed = virtualFileUrlManager.processChildrenRecursively(dir.url) { childUrl ->
-      val childFile = childUrl.virtualFile ?: return@processChildrenRecursively TreeNodeProcessingResult.SKIP_CHILDREN
+      val childFile = findFileByUrlIfCached(childUrl.url) ?: return@processChildrenRecursively TreeNodeProcessingResult.SKIP_CHILDREN
       val isChildInContent = findFileSet(
         childFile,
         honorExclusion = true,

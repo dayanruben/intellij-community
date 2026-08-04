@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.dependencies
 
 import com.dynatrace.hash4j.hashing.Hashing
@@ -128,6 +128,7 @@ object BuildDependenciesDownloader {
   }
 
   @Synchronized
+  @JvmStatic
   fun extractFileToCacheLocation(
     communityRoot: BuildDependenciesCommunityRoot,
     archiveFile: Path,
@@ -143,6 +144,7 @@ object BuildDependenciesDownloader {
     return targetDirectory
   }
 
+  @Suppress("DeprecatedCallableAddReplaceWith")
   @Deprecated("Use BuildDependenciesDownloader.extractFile(communityRoot, archiveFile, options)", level = DeprecationLevel.ERROR)
   fun extractFileSync(archiveFile: Path, target: Path, communityRoot: BuildDependenciesCommunityRoot) {
     runBlocking {

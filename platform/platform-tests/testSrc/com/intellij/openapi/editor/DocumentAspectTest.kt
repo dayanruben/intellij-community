@@ -3,13 +3,13 @@ package com.intellij.openapi.editor
 
 import com.intellij.openapi.editor.ex.DocumentAspect
 import com.intellij.openapi.editor.ex.DocumentSnapshot
+import com.intellij.openapi.editor.ex.DocumentTextPatch
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.util.Key
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.text.ImmutableCharSequence
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -108,7 +108,6 @@ internal class DocumentAspectTest {
     assertEquals(1, rebuilt.endOffset)
     assertEquals("XY", rebuilt.newFragment.toString())
     assertEquals(before.modStamp() + 1, rebuilt.newModStamp)
-    assertFalse(rebuilt.wholeTextReplaced!!)
     assertSame(aspect, before.aspect(KEY_1)) // the old snapshot keeps the old aspect
   }
 
@@ -121,6 +120,28 @@ internal class DocumentAspectTest {
     assertEquals(1, rebuilt.startOffset)
     assertEquals(3, rebuilt.endOffset)
     assertEquals("ZZZ", rebuilt.newFragment.toString())
+  }
+
+  @Test
+  fun `aspect receives origin range of a narrowed change`() {
+    val before = snapshot("abcdef").withAspect(KEY_1, TestAspect())
+    val after = before.withText(
+      DocumentTextPatch.complex(
+        startOffset = 2,
+        endOffset = 3,
+        newFragment = "Z",
+        newModStamp = before.modStamp() + 1,
+        clearLineFlags = false,
+        clearModTree = false,
+        originStartOffset = 1,
+        originEndOffset = 4,
+      )
+    )
+    val rebuilt = after.aspect(KEY_1)!!
+    assertEquals(2, rebuilt.startOffset)
+    assertEquals(3, rebuilt.endOffset)
+    assertEquals(1, rebuilt.originStartOffset)
+    assertEquals(4, rebuilt.originEndOffset)
   }
 
   @Test
@@ -210,16 +231,17 @@ internal class DocumentAspectTest {
   }
 
   private fun replaceString(snapshot: DocumentSnapshot, startOffset: Int, endOffset: Int, fragment: String): DocumentSnapshot {
-    val newWholeText = snapshot.text().delete(startOffset, endOffset).insert(startOffset, fragment)
     return snapshot.withText(
-      newWholeText = newWholeText,
-      startOffset = startOffset,
-      endOffset = endOffset,
-      newFragment = fragment,
-      newModStamp = snapshot.modStamp() + 1,
-      wholeTextReplaced = false,
-      clearLineFlags = false,
-      clearModTree = false,
+      DocumentTextPatch.complex(
+        startOffset = startOffset,
+        endOffset = endOffset,
+        newFragment = fragment,
+        newModStamp = snapshot.modStamp() + 1,
+        clearLineFlags = false,
+        clearModTree = false,
+        originStartOffset = startOffset,
+        originEndOffset = endOffset,
+      )
     )
   }
 
@@ -231,30 +253,32 @@ internal class DocumentAspectTest {
     val endOffset: Int = -1,
     val newFragment: CharSequence? = null,
     val newModStamp: Long = -1L,
-    val wholeTextReplaced: Boolean? = null,
+    val originStartOffset: Int = -1,
+    val originEndOffset: Int = -1,
   ) : DocumentAspect {
     override fun withText(
-      oldSnapshot: DocumentSnapshot,
-      newWholeText: ImmutableCharSequence,
-      startOffset: Int,
-      endOffset: Int,
-      newFragment: CharSequence,
-      newModStamp: Long,
-      wholeTextReplaced: Boolean,
+      beforeText: DocumentSnapshot,
+      patch: DocumentTextPatch,
     ): DocumentAspect {
-      return TestAspect(rebuildCount + 1, oldSnapshot, newWholeText, startOffset, endOffset, newFragment, newModStamp, wholeTextReplaced)
+      val newWholeText = beforeText.text().replace(patch.startOffset(), patch.endOffset(), patch.newFragment())
+      return TestAspect(
+        rebuildCount + 1,
+        beforeText,
+        newWholeText,
+        patch.startOffset(),
+        patch.endOffset(),
+        patch.newFragment(),
+        patch.newModStamp(),
+        patch.originStartOffset(),
+        patch.originEndOffset(),
+      )
     }
   }
 
   private class UnaffectedAspect : DocumentAspect {
     override fun withText(
-      oldSnapshot: DocumentSnapshot,
-      newWholeText: ImmutableCharSequence,
-      startOffset: Int,
-      endOffset: Int,
-      newFragment: CharSequence,
-      newModStamp: Long,
-      wholeTextReplaced: Boolean,
+      beforeText: DocumentSnapshot,
+      patch: DocumentTextPatch,
     ): DocumentAspect {
       return this
     }
