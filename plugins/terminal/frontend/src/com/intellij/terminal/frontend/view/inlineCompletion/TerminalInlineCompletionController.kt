@@ -28,6 +28,10 @@ import org.jetbrains.plugins.terminal.view.TerminalContentChangeEvent
 import org.jetbrains.plugins.terminal.view.TerminalCursorOffsetChangeEvent
 import org.jetbrains.plugins.terminal.view.TerminalOffset
 import org.jetbrains.plugins.terminal.view.TerminalOutputModelListener
+import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalCommandBlock
+import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalOutputStatus
+import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalShellIntegration
+import org.jetbrains.plugins.terminal.view.shellIntegration.getTypedCommandText
 import org.jetbrains.plugins.terminal.view.impl.MutableTerminalOutputModel
 import kotlin.time.Duration.Companion.seconds
 
@@ -41,15 +45,17 @@ internal class TerminalInlineCompletionController(
   private val project: Project,
   private val editor: EditorEx,
   private val model: MutableTerminalOutputModel,
+  private val shellIntegration: TerminalShellIntegration,
   private val coroutineScope: CoroutineScope,
 ) {
 
   private var inputSession: TerminalTypeAheadSession? = null
   private val pendingEvents = ArrayDeque<PendingInputEvent>()
-  private var lastOutputEvent: TerminalContentUpdatedEvent = createCurrentLineContentEvent()
+  private var lastTypedCommandText: String? = null
 
   fun install() {
     InlineCompletion.install(editor, coroutineScope)
+    lastTypedCommandText = getCurrentTypedCommandText()
     model.addListener(coroutineScope.asDisposable(), object : TerminalOutputModelListener {
 
       override fun afterContentChanged(event: TerminalContentChangeEvent) {
@@ -66,6 +72,8 @@ internal class TerminalInlineCompletionController(
   }
 
   fun handleInput(event: TerminalInlineCompletionInputEvent, cursorOffset: TerminalOffset) {
+    if (!(shellIntegration.outputStatus.value == TerminalOutputStatus.TypingCommand)) return
+
     when (event) {
       is TerminalInlineCompletionInputEvent.Typing -> handleTyping(event, cursorOffset)
       TerminalInlineCompletionInputEvent.Backspace -> handleBackspace(cursorOffset)
@@ -81,8 +89,6 @@ internal class TerminalInlineCompletionController(
     val prediction = TerminalTypingPrediction(session.cursorPosition, event.char.toString(), isTentative = true)
     addPendingEvent(PendingInputEvent.Typing(event, prediction.position))
     session.applyPrediction(prediction)
-    val confirmation = confirmPredictions(lastOutputEvent)
-    if (confirmation is Confirmation.Confirmed) dispatchConfirmedEvents(confirmation)
     LOG.trace { "Inline completion input deferred: typing '${event.char}'" }
   }
 
@@ -95,9 +101,6 @@ internal class TerminalInlineCompletionController(
     val prediction = TerminalBackspacePrediction(session.cursorPosition, isTentative = true)
     addPendingEvent(PendingInputEvent.Backspace())
     session.applyPrediction(prediction)
-
-    val confirmation = confirmPredictions(lastOutputEvent)
-    if (confirmation is Confirmation.Confirmed) dispatchConfirmedEvents(confirmation)
     LOG.trace("Inline completion input deferred: backspace")
   }
 
@@ -106,8 +109,10 @@ internal class TerminalInlineCompletionController(
   }
 
   private fun handleOutputModelUpdate() {
+    if (!(shellIntegration.outputStatus.value == TerminalOutputStatus.TypingCommand)) return
+
     val outputEvent = createCurrentLineContentEvent()
-    lastOutputEvent = outputEvent
+    val typedCommandText = getCurrentTypedCommandText()
     LOG.trace {
       "Inline completion output received: position=${outputEvent.cursorLogicalLineIndex}:${outputEvent.cursorColumnIndex}, " +
       "session=${inputSession != null}"
@@ -115,6 +120,11 @@ internal class TerminalInlineCompletionController(
     if (inputSession != null) {
       dispatchConfirmedEvents(confirmPredictions(outputEvent))
     }
+    else if (typedCommandText != lastTypedCommandText) {
+      LOG.trace { "Inline completion cancelled by an unexpected output model update" }
+      cancelCompletionAndClearSession()
+    }
+    lastTypedCommandText = typedCommandText
   }
 
   private fun cancelCompletionAndClearSession() {
@@ -122,6 +132,11 @@ internal class TerminalInlineCompletionController(
     inputSession = null
     pendingEvents.clear()
     InlineCompletion.getHandlerOrNull(editor)?.cancel(FinishType.KEY_PRESSED)
+  }
+
+  private fun getCurrentTypedCommandText(): String? {
+    val activeBlock = shellIntegration.blocksModel.activeBlock as? TerminalCommandBlock ?: return null
+    return activeBlock.getTypedCommandText(model)
   }
 
   private fun confirmPredictions(event: TerminalContentUpdatedEvent): Confirmation {

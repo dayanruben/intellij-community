@@ -81,6 +81,9 @@
     <extensionPoint qualifiedName="org.jetbrains.plugins.gradle.autoReloadSettingsCollector"
                     interface="org.jetbrains.plugins.gradle.service.project.GradleAutoReloadSettingsCollector"
                     dynamic="true"/>
+    <extensionPoint qualifiedName="org.jetbrains.plugins.gradle.wrapperVersionQuickFixProvider"
+                    interface="org.jetbrains.plugins.gradle.issue.quickfix.GradleWrapperVersionQuickFixProvider"
+                    dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">

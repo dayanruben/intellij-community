@@ -1,5 +1,6 @@
 package com.intellij.terminal.frontend.view.impl
 
+import com.intellij.execution.impl.createEditorTextDecorationApplier
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.PlatformDataKeys
@@ -26,8 +27,8 @@ import com.intellij.terminal.TerminalTitle
 import com.intellij.terminal.actions.TerminalActionUtil
 import com.intellij.terminal.frontend.fus.TerminalFusCursorPainterListener
 import com.intellij.terminal.frontend.fus.TerminalFusFirstOutputListener
-import com.intellij.terminal.frontend.view.TerminalInputInterceptor
 import com.intellij.terminal.frontend.view.TerminalKeyEvent
+import com.intellij.terminal.frontend.view.TerminalKeyEventsListener
 import com.intellij.terminal.frontend.view.TerminalTextSelectionModel
 import com.intellij.terminal.frontend.view.TerminalView
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
@@ -36,6 +37,7 @@ import com.intellij.terminal.frontend.view.completion.ShellRuntimeContextProvide
 import com.intellij.terminal.frontend.view.completion.TerminalCommandCompletionTypingListener
 import com.intellij.terminal.frontend.view.hyperlinks.FrontendTerminalHyperlinkFacade
 import com.intellij.terminal.frontend.view.hyperlinks.installHyperlinksProcessing
+import com.intellij.terminal.frontend.view.hyperlinks.installOsc8HyperlinksProcessing
 import com.intellij.terminal.frontend.view.inlineCompletion.TerminalInlineCompletionController
 import com.intellij.terminal.frontend.view.inlineCompletion.TerminalInlineCompletionInputListener
 import com.intellij.terminal.frontend.view.typeahead.TerminalTypeAhead
@@ -104,9 +106,7 @@ import org.jetbrains.plugins.terminal.view.impl.TerminalOutputModelsSetImpl
 import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextBuilderImpl
 import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextOptions
 import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalBlocksModel
-import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalCommandBlock
 import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalShellIntegration
-import org.jetbrains.plugins.terminal.view.shellIntegration.getTypedCommandText
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Point
@@ -118,7 +118,6 @@ import java.awt.event.KeyEvent
 import java.nio.file.Path
 import javax.swing.JComponent
 import javax.swing.JPanel
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.min
 
 @Suppress("TestOnlyProblems")
@@ -178,7 +177,13 @@ class TerminalViewImpl(
     onBufferOverflow = BufferOverflow.DROP_OLDEST
   )
   override val keyEventsFlow: Flow<TerminalKeyEvent> = mutableKeyEventsFlow.asSharedFlow()
-  private val inputInterceptors = ContainerUtil.createLockFreeCopyOnWriteList<TerminalInputInterceptor>()
+  private val keyEventsListeners = ContainerUtil.createLockFreeCopyOnWriteList<TerminalKeyEventsListener>().apply {
+    add(object : TerminalKeyEventsListener {
+      override fun afterKeyEvent(event: TerminalKeyEvent) {
+        check(mutableKeyEventsFlow.tryEmit(event))
+      }
+    })
+  }
 
   override val workingDirectoryFlow: StateFlow<Path?>
 
@@ -230,13 +235,12 @@ class TerminalViewImpl(
     val alternateBufferModel = MutableTerminalOutputModelImpl(alternateBufferEditor.document, maxOutputLength = 0)
     val alternateBufferModelController = TerminalOutputModelControllerImpl(alternateBufferModel)
     val alternateBufferKeyEventsHandler = TerminalKeyEventsHandlerImpl(
-      mutableKeyEventsFlow,
       alternateBufferEditor,
       terminalInput,
       scrollingModel = null,
       alternateBufferModel,
       typeAhead = null,
-      inputInterceptors = { inputInterceptors },
+      keyEventsListeners = keyEventsListeners,
       sessionDeferred = sessionDeferred,
       coroutineScope = coroutineScope.childScope("TerminalAlternateBufferKeyEvents"),
     )
@@ -278,13 +282,12 @@ class TerminalViewImpl(
     outputEditor.putUserData(TerminalTypeAhead.KEY, outputModelController)
 
     outputEditorKeyEventsHandler = TerminalKeyEventsHandlerImpl(
-      mutableKeyEventsFlow,
       outputEditor,
       terminalInput,
       scrollingModel,
       outputModel,
       typeAhead = outputModelController,
-      inputInterceptors = { inputInterceptors },
+      keyEventsListeners = keyEventsListeners,
       sessionDeferred = sessionDeferred,
       coroutineScope = coroutineScope.childScope("TerminalOutputKeyEvents"),
     )
@@ -363,7 +366,11 @@ class TerminalViewImpl(
       coroutineScope.childScope("Terminal VFS refresh on command finish")
     )
 
-    // Configure hyperlinks' processing
+    // Configure hyperlinks' processing.
+    // The filter-based and OSC8 hyperlinks of an editor must share a single decoration applier,
+    // because its click/hover handling operates on editor-global markup.
+    val outputDecorationApplier = createEditorTextDecorationApplier(outputEditor, coroutineScope.asDisposable())
+    val alternateBufferDecorationApplier = createEditorTextDecorationApplier(alternateBufferEditor, coroutineScope.asDisposable())
     coroutineScope.launch {
       val eelDescriptor = sessionDeferred.await().eelDescriptor
       outputBufferHyperlinksFacade = installHyperlinksProcessing(
@@ -372,7 +379,8 @@ class TerminalViewImpl(
         editor = outputEditor,
         sessionModel = sessionModel,
         eelDescriptor = eelDescriptor,
-        coroutineScope = coroutineScope.childScope("Output Buffer Hyperlinks")
+        coroutineScope = coroutineScope.childScope("Output Buffer Hyperlinks"),
+        applier = outputDecorationApplier,
       )
       alternateBufferHyperlinksFacade = installHyperlinksProcessing(
         project = project,
@@ -380,9 +388,26 @@ class TerminalViewImpl(
         editor = alternateBufferEditor,
         sessionModel = sessionModel,
         eelDescriptor = eelDescriptor,
-        coroutineScope = coroutineScope.childScope("Alternate Buffer Hyperlinks")
+        coroutineScope = coroutineScope.childScope("Alternate Buffer Hyperlinks"),
+        applier = alternateBufferDecorationApplier,
       )
     }
+
+    // Configure OSC8 hyperlinks' processing (rendered via the same appliers as above).
+    installOsc8HyperlinksProcessing(
+      project = project,
+      outputModel = outputModel,
+      editor = outputEditor,
+      applier = outputDecorationApplier,
+      coroutineScope = coroutineScope.childScope("Output Buffer OSC8 Hyperlinks"),
+    )
+    installOsc8HyperlinksProcessing(
+      project = project,
+      outputModel = alternateBufferModel,
+      editor = alternateBufferEditor,
+      applier = alternateBufferDecorationApplier,
+      coroutineScope = coroutineScope.childScope("Alternate Buffer OSC8 Hyperlinks"),
+    )
 
     shellIntegrationFeaturesInitJob = coroutineScope.launch(
       Dispatchers.EDT +
@@ -402,7 +427,8 @@ class TerminalViewImpl(
 
       if (TerminalAiInlineCompletion.isEnabled()) {
         val inlineCompletionScope = coroutineScope.childScope("TerminalInlineCompletion")
-        val inlineCompletionController = TerminalInlineCompletionController(project, outputEditor, outputModel, inlineCompletionScope)
+        val inlineCompletionController =
+          TerminalInlineCompletionController(project, outputEditor, outputModel, shellIntegration, inlineCompletionScope)
         val inlineCompletionInputListener = TerminalInlineCompletionInputListener(inlineCompletionController)
 
         inlineCompletionController.install()
@@ -449,10 +475,10 @@ class TerminalViewImpl(
     return TerminalSendTextBuilderImpl(this::doSendText)
   }
 
-  override fun addInputInterceptor(parentDisposable: Disposable, interceptor: TerminalInputInterceptor) {
-    inputInterceptors.add(interceptor)
+  override fun addKeyEventsListener(parentDisposable: Disposable, listener: TerminalKeyEventsListener) {
+    keyEventsListeners.add(listener)
     Disposer.register(parentDisposable) {
-      inputInterceptors.remove(interceptor)
+      keyEventsListeners.remove(listener)
     }
   }
 

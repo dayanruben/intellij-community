@@ -572,6 +572,7 @@ libraries/tuweni/toml
 libraries/velocity
 libraries/winp
 libraries/xerces
+libraries/xerial-snappy-java
 libraries/xml-rpc
 libraries/xstream
 libraries/xtext-xbase
@@ -1181,6 +1182,7 @@ plugins/groovy/groovy-uast-tests
 plugins/groovy/intellij.groovy.copyright
 plugins/groovy/jps-plugin
 plugins/groovy/langInjection
+plugins/groovy/property-tests
 plugins/groovy/rt
 plugins/groovy/rt-constants
 plugins/groovy/rt/classLoader
@@ -1530,7 +1532,6 @@ plugins/properties/property-tests
 plugins/properties/tests
 plugins/rareJavaRefactorings
 plugins/remote-control
-plugins/repository-search
 plugins/repository-search/common
 plugins/repository-search/completion
 plugins/restructuredtext
@@ -1683,9 +1684,11 @@ python/python-requirements/common
 python/python-requirements/tests
 python/python-restructuredtext
 python/python-ruff
-python/python-sdk
 python/python-sdk-configurator/backend
-python/python-sdk-ui
+python/python-sdk/backend
+python/python-sdk/common
+python/python-sdk/frontend
+python/python-sdk/tests
 python/python-syntax
 python/python-syntax-core
 python/python-test-env/common

@@ -513,6 +513,8 @@ jvm_library(
         "//plugins/gradle/java/toml/tests:tests_test_lib",
         "//plugins/gradle/jps-plugin:jps-tests",
         "//plugins/gradle/jps-plugin:jps-tests_test_lib",
+        "//plugins/gradle/properties:properties-tests",
+        "//plugins/gradle/properties:properties-tests_test_lib",
         "//plugins/gradle:gradle-tests",
         "//plugins/gradle:gradle-tests_test_lib",
         "//plugins/gradle/tooling-extension-impl:toolingExtension-tests",
