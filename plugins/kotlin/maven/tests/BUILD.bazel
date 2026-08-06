@@ -13,7 +13,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//libraries/junit4",
         "//libraries/gson",
         "//plugins/kotlin/base/util",
@@ -40,7 +40,7 @@ jvm_library(
         "//plugins/kotlin/compiler-plugins/kotlinx-serialization/maven",
         "//plugins/kotlin/compiler-plugins/kotlin-dataframe/maven",
         "//plugins/maven",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
     ],
 )
 
@@ -72,7 +72,8 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "@lib//:kotlinc-kotlin-compiler-tests",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
@@ -148,7 +149,8 @@ jvm_library(
         "//java/java-runtime:rt_test_lib",
         "//plugins/kotlin/intellij.kotlin.base.test:base-test",
         "//plugins/kotlin/intellij.kotlin.base.test:base-test_test_lib",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "//plugins/kotlin/compiler-plugins/compiler-plugin-support/maven",
         "//plugins/kotlin/compiler-plugins/compiler-plugin-support/maven:maven_test_lib",
         "//platform/editor-ui-api:editor-ui",

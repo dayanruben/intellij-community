@@ -1,5 +1,3 @@
-@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
-
 package com.intellij.terminal.tests.reworked.frontend
 
 import com.intellij.openapi.application.EDT
@@ -480,6 +478,14 @@ internal class TerminalKeyEventsHandlerTest : BasePlatformTestCase() {
 
     override fun scrollToCursor(force: Boolean) {
       scrollRequests += force
+    }
+
+    override fun scrollByLines(lines: Int) {
+      throw UnsupportedOperationException("not implemented")
+    }
+
+    override fun scrollByPages(pages: Int) {
+      throw UnsupportedOperationException("not implemented")
     }
   }
 

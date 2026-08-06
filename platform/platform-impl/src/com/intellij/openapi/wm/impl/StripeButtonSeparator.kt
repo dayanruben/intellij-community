@@ -1,7 +1,7 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl
 
-import com.intellij.toolWindow.ToolWindowExtension
+import com.intellij.toolWindow.extendedToolWindowsUi.ToolWindowExtension
 import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
 import org.jetbrains.annotations.ApiStatus
@@ -28,7 +28,7 @@ class StripeButtonSeparator: JComponent() {
 
   override fun paintComponent(g: Graphics) {
     super.paintComponent(g)
-    val padding = SquareStripeButtonLook.getIconPadding(isOnTheLeftStripe())
+    val padding = SquareStripeButtonLook.getIconPadding(this)
     val fullWidth = this.width
     val fullHeight = this.height
     val visibleWidth = JBUI.scale(24)

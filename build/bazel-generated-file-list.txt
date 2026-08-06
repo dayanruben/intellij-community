@@ -464,6 +464,7 @@ libraries/jcip
 libraries/jediterm-core
 libraries/jediterm-ui
 libraries/jettison
+libraries/jgit-ssh
 libraries/jgoodies/common
 libraries/jgoodies/forms
 libraries/jline
@@ -494,6 +495,13 @@ libraries/kotlin/reflect
 libraries/kotlin/test
 libraries/kotlin/test-assertions-core-jvm
 libraries/kotlin/tooling-core
+libraries/kotlinc/analysis-api
+libraries/kotlinc/analysis-api-impl-base
+libraries/kotlinc/analysis-api-k2
+libraries/kotlinc/analysis-api-platform-interface
+libraries/kotlinc/kotlin-compiler-common
+libraries/kotlinc/low-level-api-fir
+libraries/kotlinc/symbol-light-classes
 libraries/kotlinx/collections-immutable
 libraries/kotlinx/coroutines/core
 libraries/kotlinx/coroutines/debug
@@ -545,6 +553,7 @@ libraries/opentelemetry-extension-kotlin
 libraries/opentelemetry-sdk-autoconfigure-spi
 libraries/opentelemetry-semconv
 libraries/oro-matcher
+libraries/oshi-core
 libraries/plexus-utils
 libraries/protobuf
 libraries/proxy-vole
@@ -745,9 +754,11 @@ platform/jewel/ui
 platform/jewel/ui-tests
 platform/kernel/backend
 platform/kernel/intellij.platform.kernel.impl
+platform/kernel/klogger
 platform/kernel/pasta
 platform/kernel/rpc
 platform/kernel/rpc.backend
+platform/kernel/rpc.lite
 platform/kernel/shared
 platform/lang-api
 platform/lang-core
@@ -802,6 +813,7 @@ platform/platform-impl/designer
 platform/platform-impl/eel
 platform/platform-impl/initial-config-import
 platform/platform-impl/internal
+platform/platform-impl/internal/ide.internal.backend
 platform/platform-impl/internal/jcef
 platform/platform-impl/jcef
 platform/platform-impl/plugin-signature-verifier
@@ -1463,6 +1475,7 @@ plugins/markdown/java
 plugins/markdown/jcef
 plugins/markdown/model
 plugins/markdown/plugin
+plugins/markdown/projectView
 plugins/markdown/spellchecker
 plugins/markdown/test
 plugins/markdown/textMate

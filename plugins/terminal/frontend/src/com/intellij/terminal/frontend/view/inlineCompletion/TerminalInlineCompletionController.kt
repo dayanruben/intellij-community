@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
+import com.intellij.terminal.frontend.view.TerminalKeyEvent
 import com.intellij.terminal.frontend.view.impl.syncEditorCaretWithModel
 import com.intellij.terminal.frontend.view.typeahead.TerminalBackspacePrediction
 import com.intellij.terminal.frontend.view.typeahead.TerminalLogicalPosition
@@ -16,23 +17,24 @@ import com.intellij.terminal.frontend.view.typeahead.TerminalTypeAheadSession
 import com.intellij.terminal.frontend.view.typeahead.TerminalTypingPrediction
 import com.intellij.terminal.frontend.view.typeahead.TypeAheadConfirmationResult
 import com.intellij.terminal.frontend.view.typeahead.logicalPositionToOffset
-import com.intellij.util.asDisposable
+import com.intellij.util.AwaitCancellationAndInvoke
 import com.intellij.util.awaitCancellationAndInvoke
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.session.impl.TerminalContentUpdatedEvent
-import org.jetbrains.plugins.terminal.view.TerminalContentChangeEvent
-import org.jetbrains.plugins.terminal.view.TerminalCursorOffsetChangeEvent
 import org.jetbrains.plugins.terminal.view.TerminalOffset
-import org.jetbrains.plugins.terminal.view.TerminalOutputModelListener
+import org.jetbrains.plugins.terminal.view.impl.MutableTerminalOutputModel
 import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalCommandBlock
 import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalOutputStatus
 import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalShellIntegration
 import org.jetbrains.plugins.terminal.view.shellIntegration.getTypedCommandText
-import org.jetbrains.plugins.terminal.view.impl.MutableTerminalOutputModel
+import java.awt.event.InputEvent
+import java.awt.event.KeyEvent
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -41,7 +43,8 @@ import kotlin.time.Duration.Companion.seconds
  * The controller uses [TerminalTypeAheadSession] only to confirm the order of input events.
  * All predictions are tentative, so it never changes the terminal output model itself.
  */
-internal class TerminalInlineCompletionController(
+@ApiStatus.Internal
+class TerminalInlineCompletionController(
   private val project: Project,
   private val editor: EditorEx,
   private val model: MutableTerminalOutputModel,
@@ -53,59 +56,86 @@ internal class TerminalInlineCompletionController(
   private val pendingEvents = ArrayDeque<PendingInputEvent>()
   private var lastTypedCommandText: String? = null
 
+  @ApiStatus.Internal
+  @VisibleForTesting
+  fun stateForTest(): StateForTest {
+    return StateForTest(
+      hasInputSession = inputSession != null,
+      pendingEventsCount = pendingEvents.size,
+      predictionsCount = inputSession?.predictionsCount ?: 0,
+    )
+  }
+
+  @OptIn(AwaitCancellationAndInvoke::class)
   fun install() {
     InlineCompletion.install(editor, coroutineScope)
     lastTypedCommandText = getCurrentTypedCommandText()
-    model.addListener(coroutineScope.asDisposable(), object : TerminalOutputModelListener {
-
-      override fun afterContentChanged(event: TerminalContentChangeEvent) {
-        handleOutputModelUpdate()
-      }
-
-      override fun cursorOffsetChanged(event: TerminalCursorOffsetChangeEvent) {
-        handleOutputModelUpdate()
-      }
-    })
     coroutineScope.awaitCancellationAndInvoke(Dispatchers.EDT) {
       InlineCompletion.remove(editor)
     }
   }
 
-  fun handleInput(event: TerminalInlineCompletionInputEvent, cursorOffset: TerminalOffset) {
+  fun handleKeyEvent(event: TerminalKeyEvent) {
     if (!(shellIntegration.outputStatus.value == TerminalOutputStatus.TypingCommand)) return
 
-    when (event) {
-      is TerminalInlineCompletionInputEvent.Typing -> handleTyping(event, cursorOffset)
-      TerminalInlineCompletionInputEvent.Backspace -> handleBackspace(cursorOffset)
-      TerminalInlineCompletionInputEvent.Invalidate -> {
-        LOG.trace { "Inline completion input invalidated: pending=${pendingEvents.size}" }
-        cancelCompletionAndClearSession()
+    when (event.awtEvent.id) {
+      KeyEvent.KEY_TYPED -> if (!Character.isISOControl(event.awtEvent.keyChar)) {
+        handleTyping(event.awtEvent.keyChar, event.cursorOffset)
+      }
+      KeyEvent.KEY_PRESSED -> when (event.awtEvent.keyCode) {
+        KeyEvent.VK_BACK_SPACE -> if (event.awtEvent.hasNoModifiers()) {
+          handleBackspace(event.cursorOffset)
+        }
+        KeyEvent.VK_TAB,
+        KeyEvent.VK_LEFT,
+        KeyEvent.VK_RIGHT,
+        KeyEvent.VK_UP,
+        KeyEvent.VK_DOWN,
+        KeyEvent.VK_HOME,
+        KeyEvent.VK_END -> {
+          LOG.trace { "Inline completion input invalidated: pending=${pendingEvents.size}" }
+          cancelCompletionAndClearSession()
+        }
       }
     }
   }
 
-  private fun handleTyping(event: TerminalInlineCompletionInputEvent.Typing, cursorOffset: TerminalOffset) {
-    val session = getOrCreateInputSession()
-    val prediction = TerminalTypingPrediction(session.cursorPosition, event.char.toString(), isTentative = true)
-    addPendingEvent(PendingInputEvent.Typing(event, prediction.position))
+  fun handleContentChanged() {
+    handleOutputModelUpdate()
+  }
+
+  fun handleCursorOffsetChanged() {
+    handleOutputModelUpdate()
+  }
+
+  private fun handleTyping(char: Char, cursorOffset: TerminalOffset) {
+    val session = getOrCreateInputSession(cursorOffset)
+    val prediction = TerminalTypingPrediction(session.cursorPosition, char.toString(), isTentative = true)
+    addPendingEvent(PendingInputEvent.Typing(char, prediction.position))
     session.applyPrediction(prediction)
-    LOG.trace { "Inline completion input deferred: typing '${event.char}'" }
+    LOG.trace { "Inline completion input deferred: typing '$char'" }
   }
 
   private fun handleBackspace(cursorOffset: TerminalOffset) {
-    val session = getOrCreateInputSession()
-    if (session.cursorPosition.columnIndex == 0) {
+    val cursorPosition = inputSession?.cursorPosition ?: cursorOffset.toLogicalPosition()
+    if (cursorPosition.columnIndex == 0) {
       LOG.trace("Inline completion ignored backspace at line start")
       return
     }
+    val session = getOrCreateInputSession(cursorOffset)
     val prediction = TerminalBackspacePrediction(session.cursorPosition, isTentative = true)
     addPendingEvent(PendingInputEvent.Backspace())
     session.applyPrediction(prediction)
     LOG.trace("Inline completion input deferred: backspace")
   }
 
-  private fun getOrCreateInputSession(): TerminalTypeAheadSession {
-    return inputSession ?: TerminalTypeAheadSession(project, model).also { inputSession = it }
+  private fun getOrCreateInputSession(cursorOffset: TerminalOffset): TerminalTypeAheadSession {
+    return inputSession ?: TerminalTypeAheadSession(project, model, cursorOffset.toLogicalPosition()).also { inputSession = it }
+  }
+
+  private fun TerminalOffset.toLogicalPosition(): TerminalLogicalPosition {
+    val line = model.getLineByOffset(this)
+    return TerminalLogicalPosition(line.toAbsolute(), (this - model.getStartOfLine(line)).toInt())
   }
 
   private fun handleOutputModelUpdate() {
@@ -180,7 +210,7 @@ internal class TerminalInlineCompletionController(
           val event = pendingEvents.removeFirst()
           event.timeoutJob?.cancel()
           when (event) {
-            is PendingInputEvent.Typing -> invokeTyping(event.input, event.position)
+            is PendingInputEvent.Typing -> invokeTyping(event.char, event.position)
             is PendingInputEvent.Backspace -> invokeBackspace()
           }
         }
@@ -189,11 +219,11 @@ internal class TerminalInlineCompletionController(
     }
   }
 
-  private fun invokeTyping(input: TerminalInlineCompletionInputEvent.Typing, position: TerminalLogicalPosition) {
-    LOG.trace { "Inline completion dispatched typing: char='${input.char}', position=$position" }
+  private fun invokeTyping(char: Char, position: TerminalLogicalPosition) {
+    LOG.trace { "Inline completion dispatched typing: char='$char', position=$position" }
     syncEditorCaretWithModel(editor, model)
     InlineCompletion.getHandlerOrNull(editor)?.invokeEvent(
-      InlineCompletionEvent.DocumentChange(TypingEvent.OneSymbol(input.char, (model.logicalPositionToOffset(position) - model.startOffset).toInt()), editor)
+      InlineCompletionEvent.DocumentChange(TypingEvent.OneSymbol(char, (model.logicalPositionToOffset(position) - model.startOffset).toInt()), editor)
     )
   }
 
@@ -211,7 +241,7 @@ internal class TerminalInlineCompletionController(
         cancelCompletionAndClearSession()
         LOG.trace {
           val input = when (event) {
-            is PendingInputEvent.Typing -> "typing '${event.input.char}'"
+            is PendingInputEvent.Typing -> "typing '${event.char}'"
             is PendingInputEvent.Backspace -> "backspace"
           }
           "Inline completion input timed out: $input"
@@ -222,7 +252,7 @@ internal class TerminalInlineCompletionController(
 
   private sealed interface PendingInputEvent {
     data class Typing(
-      val input: TerminalInlineCompletionInputEvent.Typing,
+      val char: Char,
       val position: TerminalLogicalPosition,
       override var timeoutJob: Job? = null,
     ) : PendingInputEvent
@@ -240,7 +270,24 @@ internal class TerminalInlineCompletionController(
     data class Confirmed(val count: Int) : Confirmation
   }
 
+  @ApiStatus.Internal
+  @VisibleForTesting
+  data class StateForTest(
+    val hasInputSession: Boolean,
+    val pendingEventsCount: Int,
+    val predictionsCount: Int,
+  )
+
   companion object {
     private val LOG = logger<TerminalInlineCompletionController>()
   }
+}
+
+private fun KeyEvent.hasNoModifiers(): Boolean {
+  val nonTypingModifiers = InputEvent.ALT_DOWN_MASK or
+                            InputEvent.ALT_GRAPH_DOWN_MASK or
+                            InputEvent.CTRL_DOWN_MASK or
+                            InputEvent.META_DOWN_MASK or
+                            InputEvent.SHIFT_DOWN_MASK
+  return modifiersEx and nonTypingModifiers == 0
 }
