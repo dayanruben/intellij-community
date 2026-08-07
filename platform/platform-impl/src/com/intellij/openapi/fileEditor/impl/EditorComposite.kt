@@ -278,6 +278,8 @@ open class EditorComposite internal constructor(
     val fileEditorWithProviders = model.fileEditorAndProviderList
     fileEditorWithProviders.assignEditorProperties()
 
+    EditorHistoryManager.preloadHistory(project)
+
     // TODO comment this and log a warning or log something
     if (fileEditorWithProviders.isEmpty()) {
       withContext(Dispatchers.EDT) {
@@ -379,7 +381,7 @@ open class EditorComposite internal constructor(
         EditorHistoryManager.getInstance(project).getState(file, provider)
       }
       else {
-        state.providers.get(provider.editorTypeId)?.let { provider.readState(it, project, file) }
+        state.providers.get(provider.editorTypeId)?.let { provider.readStateByUrl(it, project, file.url) }
       }
     }
     return states
@@ -558,7 +560,7 @@ open class EditorComposite internal constructor(
     return if (state != null) {
       state.providers.get(provider.editorTypeId)?.let {
         computeOrLogException(
-          lambda = { provider.readState(it, project, file) },
+          lambda = { provider.readStateByUrl(it, project, file.url) },
           errorMessage = { "failed to read editor state" },
         )
       }

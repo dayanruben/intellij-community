@@ -6252,62 +6252,6 @@ http_file(
 )
 
 http_file(
-    name = "io_kotest-kotest-assertions-core-jvm-5_5_4_http",
-    downloaded_file_path = "kotest-assertions-core-jvm-5.5.4.jar",
-    sha256 = "3acf3de882ec2c714dfc173cc382c38a5aee70c3f2bdda732583916845226d0c",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-core-jvm/5.5.4/kotest-assertions-core-jvm-5.5.4.jar",
-)
-
-http_file(
-    name = "io_kotest-kotest-assertions-shared-jvm-5_5_4_http",
-    downloaded_file_path = "kotest-assertions-shared-jvm-5.5.4.jar",
-    sha256 = "9977d913ef1fccf2e2663b5906d955fdf8215d0ec48265d669b01e05179e2043",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-shared-jvm/5.5.4/kotest-assertions-shared-jvm-5.5.4.jar",
-)
-
-http_file(
-    name = "io_kotest-kotest-common-jvm-5_5_4_http",
-    downloaded_file_path = "kotest-common-jvm-5.5.4.jar",
-    sha256 = "a2a4d02b86b2e849e514d18dbdf4b29e2e9d091e3c6f4d9d028db9cdc55dd28b",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-common-jvm/5.5.4/kotest-common-jvm-5.5.4.jar",
-)
-
-http_file(
-    name = "io_kotest-kotest-assertions-api-jvm-5_5_4_http",
-    downloaded_file_path = "kotest-assertions-api-jvm-5.5.4.jar",
-    sha256 = "8b1c3e582e2f6f662261f3f45a6d723f3dd8d8b2b0b86a3f7d8e6c966eca0568",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-api-jvm/5.5.4/kotest-assertions-api-jvm-5.5.4.jar",
-)
-
-http_file(
-    name = "io_kotest-kotest-assertions-core-jvm-5_5_4-sources_http",
-    downloaded_file_path = "kotest-assertions-core-jvm-5.5.4-sources.jar",
-    sha256 = "f1738d209023acccc361bca73731eb285278d084af195423b2a144192de94d8a",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-core-jvm/5.5.4/kotest-assertions-core-jvm-5.5.4-sources.jar",
-)
-
-http_file(
-    name = "io_kotest-kotest-assertions-shared-jvm-5_5_4-sources_http",
-    downloaded_file_path = "kotest-assertions-shared-jvm-5.5.4-sources.jar",
-    sha256 = "b66539f71af1486ab0d6bf3053d1d868095cd9500804ea720b2e0643c469aeb3",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-shared-jvm/5.5.4/kotest-assertions-shared-jvm-5.5.4-sources.jar",
-)
-
-http_file(
-    name = "io_kotest-kotest-common-jvm-5_5_4-sources_http",
-    downloaded_file_path = "kotest-common-jvm-5.5.4-sources.jar",
-    sha256 = "3cfaa7e92fde0e0a0eed255070c9b6bbbf22667ee09b82031f47cba1dbfe97fa",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-common-jvm/5.5.4/kotest-common-jvm-5.5.4-sources.jar",
-)
-
-http_file(
-    name = "io_kotest-kotest-assertions-api-jvm-5_5_4-sources_http",
-    downloaded_file_path = "kotest-assertions-api-jvm-5.5.4-sources.jar",
-    sha256 = "4eb1c96174c9947cd02e40696ce147244ee1dba1e04372d6215546cd552d6f88",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-api-jvm/5.5.4/kotest-assertions-api-jvm-5.5.4-sources.jar",
-)
-
-http_file(
     name = "org_jetbrains_kotlin-kotlin-test-junit-2_4_10-RC2_http",
     downloaded_file_path = "kotlin-test-junit-2.4.10-RC2.jar",
     sha256 = "788d8b638e6a6154d40d5cccf9adf15f7383c537512c11a28e8fd44b98ad4eef",
@@ -7313,6 +7257,20 @@ http_file(
     downloaded_file_path = "automaton-1.12-4-sources.jar",
     sha256 = "11337f78fdb061d7209d346b30e0da16c6b5e8806a5fc9a3481d13cf834cfd23",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/dk/brics/automaton/1.12-4/automaton-1.12-4-sources.jar",
+)
+
+http_file(
+    name = "org_awaitility-awaitility-4_3_0_http",
+    downloaded_file_path = "awaitility-4.3.0.jar",
+    sha256 = "ee58568ea5945dcf988551501655183dc184e23e45a8e013fdfd9036194e6f7b",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/awaitility/awaitility/4.3.0/awaitility-4.3.0.jar",
+)
+
+http_file(
+    name = "org_awaitility-awaitility-4_3_0-sources_http",
+    downloaded_file_path = "awaitility-4.3.0-sources.jar",
+    sha256 = "92d209bd0135b04ca6bb7689c6b921819896ec2d517a5357760f598faafee46c",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/awaitility/awaitility/4.3.0/awaitility-4.3.0-sources.jar",
 )
 
 http_file(
@@ -9850,6 +9808,62 @@ http_file(
 )
 
 http_file(
+    name = "io_kotest-kotest-assertions-core-jvm-5_5_4_http",
+    downloaded_file_path = "kotest-assertions-core-jvm-5.5.4.jar",
+    sha256 = "3acf3de882ec2c714dfc173cc382c38a5aee70c3f2bdda732583916845226d0c",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-core-jvm/5.5.4/kotest-assertions-core-jvm-5.5.4.jar",
+)
+
+http_file(
+    name = "io_kotest-kotest-assertions-shared-jvm-5_5_4_http",
+    downloaded_file_path = "kotest-assertions-shared-jvm-5.5.4.jar",
+    sha256 = "9977d913ef1fccf2e2663b5906d955fdf8215d0ec48265d669b01e05179e2043",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-shared-jvm/5.5.4/kotest-assertions-shared-jvm-5.5.4.jar",
+)
+
+http_file(
+    name = "io_kotest-kotest-common-jvm-5_5_4_http",
+    downloaded_file_path = "kotest-common-jvm-5.5.4.jar",
+    sha256 = "a2a4d02b86b2e849e514d18dbdf4b29e2e9d091e3c6f4d9d028db9cdc55dd28b",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-common-jvm/5.5.4/kotest-common-jvm-5.5.4.jar",
+)
+
+http_file(
+    name = "io_kotest-kotest-assertions-api-jvm-5_5_4_http",
+    downloaded_file_path = "kotest-assertions-api-jvm-5.5.4.jar",
+    sha256 = "8b1c3e582e2f6f662261f3f45a6d723f3dd8d8b2b0b86a3f7d8e6c966eca0568",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-api-jvm/5.5.4/kotest-assertions-api-jvm-5.5.4.jar",
+)
+
+http_file(
+    name = "io_kotest-kotest-assertions-core-jvm-5_5_4-sources_http",
+    downloaded_file_path = "kotest-assertions-core-jvm-5.5.4-sources.jar",
+    sha256 = "f1738d209023acccc361bca73731eb285278d084af195423b2a144192de94d8a",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-core-jvm/5.5.4/kotest-assertions-core-jvm-5.5.4-sources.jar",
+)
+
+http_file(
+    name = "io_kotest-kotest-assertions-shared-jvm-5_5_4-sources_http",
+    downloaded_file_path = "kotest-assertions-shared-jvm-5.5.4-sources.jar",
+    sha256 = "b66539f71af1486ab0d6bf3053d1d868095cd9500804ea720b2e0643c469aeb3",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-shared-jvm/5.5.4/kotest-assertions-shared-jvm-5.5.4-sources.jar",
+)
+
+http_file(
+    name = "io_kotest-kotest-common-jvm-5_5_4-sources_http",
+    downloaded_file_path = "kotest-common-jvm-5.5.4-sources.jar",
+    sha256 = "3cfaa7e92fde0e0a0eed255070c9b6bbbf22667ee09b82031f47cba1dbfe97fa",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-common-jvm/5.5.4/kotest-common-jvm-5.5.4-sources.jar",
+)
+
+http_file(
+    name = "io_kotest-kotest-assertions-api-jvm-5_5_4-sources_http",
+    downloaded_file_path = "kotest-assertions-api-jvm-5.5.4-sources.jar",
+    sha256 = "4eb1c96174c9947cd02e40696ce147244ee1dba1e04372d6215546cd552d6f88",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/kotest/kotest-assertions-api-jvm/5.5.4/kotest-assertions-api-jvm-5.5.4-sources.jar",
+)
+
+http_file(
     name = "org_jetbrains_kotlin-analysis-api-impl-base-for-ide-2_5_0-dev-3229_http",
     downloaded_file_path = "analysis-api-impl-base-for-ide-2.5.0-dev-3229.jar",
     sha256 = "f8bada5b34a7b979ede3205343e20e2f0caf86ea9a3a4d27eb99c0ce213f28d9",
@@ -10085,6 +10099,20 @@ http_file(
     downloaded_file_path = "ktor-client-encoding-jvm-3.4.1-sources.jar",
     sha256 = "6ea252693bdb948073e6be7d503d5a3b826917bd0f453a39a95522f2f4cb9d97",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/ktor/ktor-client-encoding-jvm/3.4.1/ktor-client-encoding-jvm-3.4.1-sources.jar",
+)
+
+http_file(
+    name = "io_ktor-ktor-serialization-gson-jvm-3_4_1_http",
+    downloaded_file_path = "ktor-serialization-gson-jvm-3.4.1.jar",
+    sha256 = "95a6cbfd2e390c0419012efa245779b2ab19fd45f52ea44824b7ef50d0575a7d",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/ktor/ktor-serialization-gson-jvm/3.4.1/ktor-serialization-gson-jvm-3.4.1.jar",
+)
+
+http_file(
+    name = "io_ktor-ktor-serialization-gson-jvm-3_4_1-sources_http",
+    downloaded_file_path = "ktor-serialization-gson-jvm-3.4.1-sources.jar",
+    sha256 = "2f36ddfed2962117e4f552727e022b9b59f06d7d90758318285e6032503eab3a",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/ktor/ktor-serialization-gson-jvm/3.4.1/ktor-serialization-gson-jvm-3.4.1-sources.jar",
 )
 
 http_file(

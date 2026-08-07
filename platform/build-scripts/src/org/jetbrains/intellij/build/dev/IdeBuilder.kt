@@ -52,9 +52,9 @@ import org.jetbrains.intellij.build.impl.copyDistFiles
 import org.jetbrains.intellij.build.impl.createCompilationContext
 import org.jetbrains.intellij.build.impl.createIdeaPropertyFile
 import org.jetbrains.intellij.build.impl.createPlatformLayout
-import org.jetbrains.intellij.build.impl.moduleRepository.generateRuntimeModuleRepositoryForDevBuild
 import org.jetbrains.intellij.build.impl.getOsDistributionBuilder
 import org.jetbrains.intellij.build.impl.layoutPlatformDistribution
+import org.jetbrains.intellij.build.impl.moduleRepository.generateRuntimeModuleRepositoryForDevBuild
 import org.jetbrains.intellij.build.impl.normalizeCompilationContextForBuild
 import org.jetbrains.intellij.build.impl.productInfo.PRODUCT_INFO_FILE_NAME
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ContentReport
@@ -83,7 +83,6 @@ import kotlin.Unit
 import kotlin.also
 import kotlin.checkNotNull
 import kotlin.io.path.createDirectories
-import kotlin.io.path.exists
 import kotlin.io.path.moveTo
 import kotlin.let
 import kotlin.text.StringBuilder
@@ -291,14 +290,17 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
         }
       }
 
-      val pluginBuildStrategy = selectDevModePluginBuildStrategy(request = request, context = context)
-      val pluginsLayoutDeferred = if (pluginBuildStrategy == DevModePluginBuildStrategy.LAYOUT_BEFORE_PLATFORM_SCRAMBLE) {
+      val pluginLayouts = devModePluginCandidates(request, context)
+      val layoutsOfPluginsToScramble = collectLayoutsOfPluginsToScramble(pluginLayouts)
+      val pluginBuildStrategy = selectDevModePluginBuildStrategy(request = request, context = context, pluginLayouts = pluginLayouts)
+      val pluginsBuildResultsDeferred = if (pluginBuildStrategy == DevModePluginBuildStrategy.LAYOUT_BEFORE_PLATFORM_SCRAMBLE) {
         // Lay out ALL plugins early (no scrambling). The platform ZKM run below scrambles
         // co-scramble plugin jars in the same call and needs every plugin's lib/modules on its
         // scramble classpath; per-plugin scramble runs after platform scramble.
         async(CoroutineName("lay out plugins")) {
           layoutAllPluginsForDevMode(
             request = request,
+            pluginLayouts = pluginLayouts,
             context = context,
             runDir = runDir,
             platformLayout = platformLayout,
@@ -315,15 +317,15 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
         if (context.productProperties.scrambleMainJar) {
           request.scrambleTool?.let { scrambleTool ->
             spanBuilder("scramble platform").use {
-              val descriptors = pluginsLayoutDeferred?.await().orEmpty()
-              val coScrambleEntries = if (descriptors.isEmpty()) emptyList() else collectCoScrambleEntries(descriptors)
+              val buildResults = pluginsBuildResultsDeferred?.await().orEmpty()
+              val coScrambleEntries = if (buildResults.isEmpty()) emptyList() else collectCoScrambleEntries(buildResults, layoutsOfPluginsToScramble = layoutsOfPluginsToScramble)
               scrambleTool.scramble(
                 platformLayout = platformLayout.await(),
                 platformContent = platformLayoutResult.distributionEntries,
                 coScrambleEntries = coScrambleEntries,
                 // Skip the per-plugin lib/ walk when nothing opts in — pure platform scramble doesn't
                 // need cross-plugin classpath.
-                classpathDirs = if (coScrambleEntries.isEmpty()) emptyList() else collectAllPluginClasspathDirs(descriptors),
+                classpathDirs = if (coScrambleEntries.isEmpty()) emptyList() else collectAllPluginClasspathDirs(buildResults),
                 context = context,
               )
             }
@@ -335,22 +337,23 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
       val pluginDistributionEntriesDeferred = async(CoroutineName("scramble plugins")) {
         if (pluginBuildStrategy == DevModePluginBuildStrategy.LAYOUT_BEFORE_PLATFORM_SCRAMBLE) {
           scrambleAlreadyLaidOutPluginsForDevMode(
-            descriptors = checkNotNull(pluginsLayoutDeferred).await(),
+            descriptors = checkNotNull(pluginsBuildResultsDeferred).await(),
             context = context,
             runDir = runDir,
             platformLayout = platformLayout,
+            layoutsOfPluginsToScramble = layoutsOfPluginsToScramble,
             platformEntriesProvider = { platformScrambleResultDeferred.await().distributionEntries },
           )
         }
         else {
           buildPluginsForDevMode(
             request = request,
+            pluginLayouts = pluginLayouts,
             context = context,
             runDir = runDir,
             platformLayout = platformLayout,
             searchableOptionSet = searchableOptionSetDeferred.await(),
-            platformEntriesProvider = { platformScrambleResultDeferred.await().distributionEntries },
-          )
+          ) { platformScrambleResultDeferred.await().distributionEntries }
         }
       }
 
@@ -361,7 +364,7 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
         val platformLayoutAwaited = platformLayout.await()
         val coreClasspathFromPlugins = generateCoreClasspathFromPlugins(
           platformLayout = platformLayoutAwaited,
-          pluginEntities = pluginDistributionEntities,
+          pluginBuildResults = pluginDistributionEntities,
           context = context
         )
         val classPath = platformClasspath + coreClasspathFromPlugins
@@ -400,6 +403,7 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
               pluginEntries = pluginEntries,
               descriptorFileProvider = cachedDescriptorContainer,
               platformLayout = platformLayout,
+              layoutsOfPluginsToScramble = layoutsOfPluginsToScramble,
               context = context,
             )
             val additionalData = additionalEntries?.let { generatePluginClassPathFromPrebuiltPluginFiles(it) }
@@ -507,7 +511,7 @@ private suspend fun computeIdeFingerprint(
   for (plugin in pluginDistributionEntries) {
     hasher.putInt(plugin.distribution.size)
 
-    debug?.append('\n')?.append(plugin.layout.mainModule)?.append('\n')
+    debug?.append('\n')?.append(plugin.mainModule)?.append('\n')
     for (entry in plugin.distribution) {
       hasher.putLong(entry.hash)
       debug?.append("  ")?.append(Long.toUnsignedString(entry.hash, Character.MAX_RADIX))?.append(" ")?.append(relativePath(entry.path))?.append('\n')

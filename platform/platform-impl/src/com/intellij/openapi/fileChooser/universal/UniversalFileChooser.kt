@@ -62,6 +62,7 @@ import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.Consumer
 import com.intellij.util.SystemProperties
 import com.intellij.util.containers.toArray
+import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -110,6 +111,13 @@ import kotlin.time.Duration.Companion.seconds
 
 private const val leftPanel: Boolean = false
 
+/**
+ * The size of the browser panel when nothing is stored in the dimension service yet.
+ * A half of the screen is used only when the screen is too small to fit these values.
+ */
+private const val defaultWidth: Int = 700
+private const val defaultHeight: Int = 500
+
 @ApiStatus.Internal
 object UniversalFileChooser {
   @JvmStatic
@@ -132,6 +140,8 @@ object UniversalFileChooser {
     parent: Component? = null,
     private val descriptor: FileChooserDescriptor,
     private val contributors: Collection<UniversalFileChooserContributor> = UniversalFileChooserContributor.EP_NAME.extensionList,
+    private val persistLocation: Boolean = true,
+    private val preselectPath: Path? = null
   ) : DialogWrapper(project, parent, true, IdeModalityType.IDE), FileChooserDialog, PathChooserDialog {
     private lateinit var mainPanel: Panel
 
@@ -140,7 +150,7 @@ object UniversalFileChooser {
       title = descriptor.title ?: UIBundle.message("file.chooser.default.title")
     }
 
-    override fun getDimensionServiceKey(): String = "UniversalFileChooserDialog"
+    override fun getDimensionServiceKey(): String? = if (persistLocation) "UniversalFileChooserDialog" else null
 
     override fun choose(project: Project?, vararg toSelect: VirtualFile?): Array<out VirtualFile?> {
       val explicit = toSelect.firstOrNull()?.let { runCatching { it.toNioPath() }.getOrNull() }
@@ -162,7 +172,7 @@ object UniversalFileChooser {
     }
 
     override fun createCenterPanel(): JComponent {
-      mainPanel = Panel(this.disposable, descriptor, project, ::doOKAction, ::setOKActionEnabled, contributors)
+      mainPanel = Panel(this.disposable, descriptor, project, ::doOKAction, ::setOKActionEnabled, contributors, preselectPath = preselectPath)
       return mainPanel
     }
 
@@ -193,7 +203,8 @@ object UniversalFileChooser {
     private val okEnabledUpdater: (Boolean) -> Unit = {},
     contributors: Collection<UniversalFileChooserContributor> = UniversalFileChooserContributor.EP_NAME.extensionList,
     private val extraToolbarActions: ActionGroup = DefaultActionGroup(),
-    private val extraPopupActions: ActionGroup = DefaultActionGroup()
+    private val extraPopupActions: ActionGroup = DefaultActionGroup(),
+    preselectPath: Path? = null
   ) : JPanel(), FileBrowserPanel {
 
     companion object {
@@ -225,7 +236,10 @@ object UniversalFileChooser {
       toolbarActionGroup = group
       popupActionGroup = DefaultActionGroup(toolbarActionGroup, Separator.getInstance(), extraPopupActions)
       val screenSize = Toolkit.getDefaultToolkit().screenSize
-      preferredSize = Dimension(screenSize.width / 2, screenSize.height / 2)
+      preferredSize = Dimension(
+        minOf(screenSize.width / 2, JBUI.scale(defaultWidth)),
+        minOf(screenSize.height / 2, JBUI.scale(defaultHeight)),
+      )
       tabbedPane = JBTabbedPane()
       val projectContrib = projectContributor(project)
       val localContrib = localContributor(contributors)
@@ -263,7 +277,7 @@ object UniversalFileChooser {
         tabbedPane
       }
 
-      preselect(null)
+      preselect(preselectPath)
       updateOkEnabled()
 
       if (leftPanel) {
@@ -716,6 +730,7 @@ object UniversalFileChooser {
         val scrollPane = ScrollPaneFactory.createScrollPane(fileTree.getTree())
 
         pathTextField.showHiddenSupplier = BooleanSupplier { fileTree.areHiddensShown() }
+        pathTextField.pathParser = contributor::parsePresentablePath
         ComponentValidator(disposable)
           .withValidator(Supplier<ValidationInfo?> {
             if (pathTextFieldInvalid)
@@ -1016,7 +1031,7 @@ object UniversalFileChooser {
         }
         scope.launch {
           withContext(Dispatchers.IO) {
-            val path = runCatching { Path.of(text) }.getOrNull()
+            val path = contributor.parsePresentablePath(text)
             val exists = path != null && runCatching { Files.exists(path) }.getOrDefault(false)
             if (path == null || !exists) {
               runOnEdt {
@@ -1061,7 +1076,7 @@ object UniversalFileChooser {
 
       private fun updatePathField(selection: List<Path?>) {
         val file = selection.firstOrNull()
-        pathTextField.text = file?.toString() ?: ""
+        pathTextField.text = file?.let { contributor.getPresentablePath(it) } ?: ""
         pathTextField.caretPosition = pathTextField.text.length
       }
 

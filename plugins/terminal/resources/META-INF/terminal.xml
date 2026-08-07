@@ -4,7 +4,6 @@
                 factoryClass="org.jetbrains.plugins.terminal.TerminalToolWindowFactory"
                 secondary="false"
                 canCloseContents="true"/>
-
     <fileEditorProvider id="classic-terminal-session-editor"
                         implementation="org.jetbrains.plugins.terminal.vfs.ClassicTerminalSessionEditorProvider"/>
 
@@ -190,6 +189,8 @@
                     interface="org.jetbrains.plugins.terminal.TerminalToolWindowInitializer" dynamic="true"/>
     <extensionPoint qualifiedName="org.jetbrains.plugins.terminal.shellsDetector" dynamic="true"
                     interface="org.jetbrains.plugins.terminal.shellDetection.TerminalShellsDetector"/>
+    <extensionPoint qualifiedName="org.jetbrains.plugins.terminal.customTerminalRunnerProvider" dynamic="true"
+                    interface="org.jetbrains.plugins.terminal.classic.CustomTerminalRunnerProvider"/>
   </extensionPoints>
 
   <applicationListeners>

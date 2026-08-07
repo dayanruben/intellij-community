@@ -270,6 +270,7 @@
     <module name="intellij.platform.project.backend"/>
     <module name="intellij.platform.progress.backend"/>
     <module name="intellij.platform.lang.impl.backend"/>
+    <module name="intellij.platform.indexing.impl.backend"/>
     <module name="intellij.platform.frontend"/>
     <module name="intellij.platform.monolith"/>
     <module name="intellij.platform.editor"/>
@@ -340,6 +341,7 @@
     <module name="intellij.platform.jewel.markdown.extensions.gfmAlerts"/>
     <module name="intellij.platform.jewel.markdown.extensions.gfmTables"/>
     <module name="intellij.platform.jewel.markdown.extensions.gfmStrikethrough"/>
+    <module name="intellij.platform.jewel.markdown.extensions.frontMatter"/>
     <module name="intellij.platform.jewel.markdown.extensions.images"/>
     <module name="intellij.platform.jewel.markdown.core"/>
     <!-- endregion -->

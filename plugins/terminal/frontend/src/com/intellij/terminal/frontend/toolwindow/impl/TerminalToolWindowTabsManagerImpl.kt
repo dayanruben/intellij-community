@@ -253,7 +253,7 @@ class TerminalToolWindowTabsManagerImpl(
         userDefinedTitle = builder.tabName
       }
       else {
-        defaultTitle = builder.tabName ?: createDefaultTabName(getToolWindow())
+        defaultTitle = builder.tabName ?: createDefaultTabName(project, getToolWindow())
       }
     }
 

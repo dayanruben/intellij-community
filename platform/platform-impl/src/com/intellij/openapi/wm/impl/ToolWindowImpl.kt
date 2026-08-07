@@ -12,6 +12,7 @@ import com.intellij.ide.actions.ContextHelpAction
 import com.intellij.ide.actions.ToggleToolbarAction
 import com.intellij.ide.actions.ToolWindowMoveAction
 import com.intellij.ide.actions.ToolwindowFusEventFields
+import com.intellij.ide.actions.speedSearch.SpeedSearchAction
 import com.intellij.ide.impl.ContentManagerWatcher
 import com.intellij.ide.ui.UISettings
 import com.intellij.idea.ActionsBundle
@@ -58,6 +59,8 @@ import com.intellij.openapi.wm.WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID
 import com.intellij.openapi.wm.WindowInfo
 import com.intellij.openapi.wm.ex.ToolWindowEx
 import com.intellij.openapi.wm.impl.content.ToolWindowContentUi
+import com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabDockContainer
+import com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabSupportUtil
 import com.intellij.toolWindow.FocusTask
 import com.intellij.toolWindow.InternalDecoratorImpl
 import com.intellij.toolWindow.ToolWindowEventSource
@@ -286,6 +289,9 @@ private val LOG = logger<ToolWindowManagerImpl>()
 
     val decorator = InternalDecoratorImpl(this, contentUi!!, decoratorChild)
     this.decorator = decorator
+    if (ToolWindowEditorTabSupportUtil.hasSupport(id)) {
+      ToolWindowEditorTabDockContainer.install(toolWindowManager.project, id, decorator)
+    }
 
     decorator.applyWindowInfo(windowInfo)
     decorator.addComponentListener(object : ComponentAdapter() {
@@ -856,6 +862,7 @@ private val LOG = logger<ToolWindowManagerImpl>()
         }
         group.addSeparator()
       }
+      group.add(ActionManager.getInstance().getAction(SpeedSearchAction.ID))
       group.addAction(ActionManager.getInstance().getAction("MoveToolWindowTabToEditorAction"))
       group.addSeparator()
       contentManager.valueIfInitialized?.let {

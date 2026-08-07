@@ -387,6 +387,7 @@ libraries/asm
 libraries/asm-tools
 libraries/assertj-core
 libraries/automaton
+libraries/awaitility
 libraries/batik
 libraries/blockmap
 libraries/bouncy-castle-pgp
@@ -520,6 +521,7 @@ libraries/ktor/client
 libraries/ktor/client-cio
 libraries/ktor/io
 libraries/ktor/network-tls
+libraries/ktor/serialization-gson
 libraries/ktor/server-cio
 libraries/ktor/utils
 libraries/lsp4j
@@ -594,9 +596,6 @@ mps/build/intellij.mps.resources
 notebooks/notebook-ui
 notebooks/visualization
 notebooks/visualization/testFramework
-platform/acp
-platform/acp/plugin
-platform/acp/tests
 platform/analysis-api
 platform/analysis-impl
 platform/backend
@@ -728,6 +727,7 @@ platform/ijent/testFramework
 platform/ijent/ui
 platform/indexing-api
 platform/indexing-impl
+platform/indexing-impl/backend
 platform/indexing-tests
 platform/inline-completion/shared
 platform/inspect
@@ -741,6 +741,7 @@ platform/jewel/int-ui/int-ui-standalone
 platform/jewel/int-ui/int-ui-standalone-tests
 platform/jewel/markdown/core
 platform/jewel/markdown/extensions/autolink
+platform/jewel/markdown/extensions/front-matter
 platform/jewel/markdown/extensions/gfm-alerts
 platform/jewel/markdown/extensions/gfm-strikethrough
 platform/jewel/markdown/extensions/gfm-tables
