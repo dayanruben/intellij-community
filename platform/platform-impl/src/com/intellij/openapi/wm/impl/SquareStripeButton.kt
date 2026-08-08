@@ -42,7 +42,6 @@ import com.intellij.ui.icons.loadIconCustomVersionOrScale
 import com.intellij.ui.icons.toStrokeIcon
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.concurrency.SynchronizedClearableLazy
-import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.ApiStatus
@@ -64,7 +63,7 @@ abstract class AbstractSquareStripeButton(
   action: AnAction, presentation: Presentation,
   minimumSize: Supplier<Dimension>? = null
 ) :
-  ActionButton(action, presentation, ActionPlaces.TOOLWINDOW_TOOLBAR_BAR, minimumSize ?: Supplier { getStripeToolbarButtonSize() }) {
+  ActionButton(action, presentation, ActionPlaces.TOOLWINDOW_TOOLBAR_BAR, minimumSize ?: Supplier { getStripeToolbarButtonSize(false) }) {
 
   protected fun doInit(popupBuilder: () -> ActionGroup) {
     setLook(SquareStripeButtonLook(this))
@@ -143,13 +142,17 @@ class SquareStripeButton(val toolWindow: ToolWindowImpl) :
   override fun checkSkipPressForEvent(e: MouseEvent): Boolean = e.button != MouseEvent.BUTTON1
 
   private fun getAlignment(anchor: ToolWindowAnchor, splitMode: Boolean): HelpTooltip.Alignment {
-    return when (anchor) {
-      ToolWindowAnchor.RIGHT -> HelpTooltip.Alignment.LEFT
-      ToolWindowAnchor.LEFT -> HelpTooltip.Alignment.RIGHT
-      ToolWindowAnchor.TOP,
-      ToolWindowAnchor.BOTTOM,
-        -> if (splitMode) HelpTooltip.Alignment.LEFT else HelpTooltip.Alignment.RIGHT
-      else -> HelpTooltip.Alignment.RIGHT
+    return when (anchor.toEnum()) {
+      ToolWindowAnchorEnum.RIGHT -> HelpTooltip.Alignment.LEFT
+      ToolWindowAnchorEnum.LEFT -> HelpTooltip.Alignment.RIGHT
+      ToolWindowAnchorEnum.TOP -> HelpTooltip.Alignment.BOTTOM // Only with the ToolWindowExtension
+      ToolWindowAnchorEnum.BOTTOM,
+        -> {
+        if (ToolWindowExtension.exists) HelpTooltip.Alignment.TOP
+        else {
+          if (splitMode) HelpTooltip.Alignment.LEFT else HelpTooltip.Alignment.RIGHT
+        }
+      }
     }
   }
 
@@ -345,9 +348,9 @@ internal fun getStripeToolbarButtonIconSize(): Int {
   return JBUIScale.scale(extension.getStripeIconUnscaledSize())
 }
 
-private fun getStripeToolbarButtonSize(): Dimension {
+internal fun getStripeToolbarButtonSize(moreButton: Boolean): Dimension {
   val extension = ToolWindowExtension.getInstance()
-  return if (extension == null) JBUI.CurrentTheme.Toolbar.stripeToolbarButtonSize() else extension.getButtonMinSize()
+  return if (extension == null) JBUI.CurrentTheme.Toolbar.stripeToolbarButtonSize() else extension.getButtonMinSize(moreButton)
 }
 
 private fun scaleIcon(icon: ScalableIcon): Icon {
@@ -451,12 +454,12 @@ fun ToolWindowAnchorEnum.isHorizontal(): Boolean {
 }
 
 @ApiStatus.Internal
-fun ToolWindowImpl.getAnchorEnum(): ToolWindowAnchorEnum {
-  return when (anchor) {
+fun ToolWindowAnchor.toEnum(): ToolWindowAnchorEnum {
+  return when (this) {
     ToolWindowAnchor.LEFT -> ToolWindowAnchorEnum.LEFT
     ToolWindowAnchor.RIGHT -> ToolWindowAnchorEnum.RIGHT
     ToolWindowAnchor.TOP -> ToolWindowAnchorEnum.TOP
     ToolWindowAnchor.BOTTOM -> ToolWindowAnchorEnum.BOTTOM
-    else -> throw IllegalStateException("Unknown anchor: $anchor")
+    else -> throw IllegalStateException("Unknown anchor: $this")
   }
 }

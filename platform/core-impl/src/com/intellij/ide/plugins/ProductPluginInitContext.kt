@@ -4,6 +4,7 @@ package com.intellij.ide.plugins
 import com.intellij.core.CoreBundle
 import com.intellij.ide.plugins.PluginDependencyAnalysis.DependencyRef
 import com.intellij.ide.plugins.PluginInitializationContext.EnvironmentConfiguredModuleData
+import com.intellij.ide.plugins.PluginInitializationContext.RemainingCandidatesView
 import com.intellij.ide.plugins.PluginManagerCore.CORE_ID
 import com.intellij.ide.plugins.PluginManagerCore.JAVA_PLUGIN_ALIAS_ID
 import com.intellij.ide.plugins.PluginManagerCore.getPluginNameAndVendor
@@ -103,6 +104,9 @@ class ProductPluginInitContext(
 
   override fun provideCompatibilityDependencies(descriptor: IdeaPluginDescriptorImpl, pluginSet: UnambiguousPluginSet): Sequence<DependencyRef> =
     defaultProductCompatibilityDependenciesProvider(descriptor, pluginSet)
+
+  override fun provideCompatibilityDependenciesForRemainingCandidates(descriptor: IdeaPluginDescriptorImpl, remainingCandidates: RemainingCandidatesView): Sequence<DependencyRef> =
+    defaultProductCompatibilityDependenciesForRemainingCandidatesProvider(descriptor, remainingCandidates)
 
   override fun provideModuleExclusionsImposedByProductRules(pluginSet: UnambiguousPluginSet): Sequence<Pair<PluginModuleDescriptor, ProductRulesImposedExclusionReason>> =
     defaultProductRulesImposedExclusions(pluginSet, expiredPlugins, thirdPartyPluginsWithoutConsentCheckResult)
@@ -252,20 +256,11 @@ class ProductPluginInitContext(
           yield(ref)
         }
       }
-      suspend fun SequenceScope<DependencyRef>.yieldPlatformAliasCompatibilityDependencies() {
-        for (contentModuleId in contentModulesExtractedInCorePluginWhichCanBeUsedFromExternalPlugins) {
-          yieldIfResolves(DependencyRef.of(contentModuleId))
-        }
-      }
       return sequence {
         if (descriptor.pluginId != CORE_ID) {
           yieldIfResolves(DependencyRef.of(CORE_ID))
         }
         if (descriptor is PluginModuleDescriptor && descriptor.pluginId != CORE_ID && isExternalNonBundledPlugin(descriptor)) {
-          for (dependencyRef in externalNonBundledPluginCompatibilityDependencies) {
-            yieldIfResolves(dependencyRef)
-          }
-
           if (doesDependOnModule(descriptor, BACKEND_MODULE_ID) ||
               doesDependOnModule(descriptor, FRONTEND_MODULE_ID)) {
             yieldIfResolves(DependencyRef.of(RPC_MODULE_ID))
@@ -341,19 +336,43 @@ class ProductPluginInitContext(
           }
         }
 
+      }
+    }
+
+    @VisibleForTesting
+    fun defaultProductCompatibilityDependenciesForRemainingCandidatesProvider(
+      descriptor: IdeaPluginDescriptorImpl,
+      remainingCandidates: RemainingCandidatesView,
+    ): Sequence<DependencyRef> {
+      return sequence {
+        suspend fun SequenceScope<DependencyRef>.yieldIfResolves(ref: DependencyRef) {
+          if (remainingCandidates.resolveReference(ref) != null) {
+            yield(ref)
+          }
+        }
+        suspend fun SequenceScope<DependencyRef>.yieldPlatformAliasCompatibilityDependencies() {
+          for (contentModuleId in contentModulesExtractedInCorePluginWhichCanBeUsedFromExternalPlugins) {
+            yieldIfResolves(DependencyRef.of(contentModuleId))
+          }
+        }
+        if (descriptor is PluginModuleDescriptor && descriptor.pluginId != CORE_ID && isExternalNonBundledPlugin(descriptor)) {
+          for (dependencyRef in externalNonBundledPluginCompatibilityDependencies) {
+            yieldIfResolves(dependencyRef)
+          }
+        }
         if (descriptor !is PluginMainDescriptor || descriptor.pluginId != CORE_ID) { // FIXME violator: DesignedCorePlugin.xml which is xi:included from IdeaPlugin.xml
           for (depends in descriptor.pluginDependencies) {
             if (depends.subDescriptor != null) { // will be processed when invoked for the sub-descriptor
               continue
             }
-            if ((depends.pluginId == PLATFORM_PLUGIN_ALIAS_ID || depends.pluginId == LANG_PLUGIN_ALIAS_ID) && pluginSet.resolvePluginId(depends.pluginId) != null) {
+            if ((depends.pluginId == PLATFORM_PLUGIN_ALIAS_ID || depends.pluginId == LANG_PLUGIN_ALIAS_ID) && remainingCandidates.resolvePluginId(depends.pluginId) != null) {
               yieldPlatformAliasCompatibilityDependencies()
             }
           }
         }
 
         if (descriptor is DependsSubDescriptor) {
-          if ((descriptor.dependsTargetId == PLATFORM_PLUGIN_ALIAS_ID || descriptor.dependsTargetId == LANG_PLUGIN_ALIAS_ID) && pluginSet.resolvePluginId(descriptor.pluginId) != null) {
+          if ((descriptor.dependsTargetId == PLATFORM_PLUGIN_ALIAS_ID || descriptor.dependsTargetId == LANG_PLUGIN_ALIAS_ID) && remainingCandidates.resolvePluginId(descriptor.pluginId) != null) {
             yieldPlatformAliasCompatibilityDependencies()
           }
         }

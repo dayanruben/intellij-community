@@ -20,6 +20,9 @@ import com.intellij.openapi.fileEditor.FileEditorManagerKeys
 import com.intellij.openapi.keymap.Keymap
 import com.intellij.openapi.keymap.KeymapManager
 import com.intellij.openapi.keymap.KeymapUtil
+import com.intellij.openapi.project.impl.finishEmptyEditorStartupBeforeProjectView
+import com.intellij.openapi.project.impl.presentProjectViewOnStartup
+import com.intellij.openapi.project.impl.shouldRestoreStartupEditorFocus
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.LightVirtualFile
@@ -39,6 +42,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.jdom.Element
@@ -881,21 +885,90 @@ internal class EditorEmptyTextPainterTest {
     val splitters = manager.mainSplitters
     registerFocusClaimingComponentProvider(disposable)
     manager.closeAllFiles()
-    val focusRequests = recordFocusRequests(splitters)
+    val focusRequests = CopyOnWriteArrayList<JComponent>()
+    var reportFocusTransferred: (() -> Unit)? = null
+    splitters.setEmptyStateComponentFocusRequesterForTests { component, transferred ->
+      focusRequests.add(component)
+      reportFocusTransferred = transferred
+    }
     splitters.setEmptyStateComponentCreationDelayForTests(NEVER_ELAPSING_CREATION_DELAY)
     splitters.beginStartupEmptyStatePresentationHold()
 
     // the request is made where project open makes it: before anything is built, and honoured only once the empty state is presented
-    splitters.requestEmptyStateFocusWhenPresented()
+    val focusSettled = splitters.requestEmptyStateFocusWhenPresentedAsync()
     splitters.finishStartupEditorRestore()
     dispatchEventsFor(100.milliseconds)
 
     assertThat(focusRequests).isEmpty()
+    assertThat(focusSettled.isCompleted).isFalse()
 
     releaseStartupHoldFromProjectOpensHop(splitters)
     waitForEmptyStateComponent(splitters, "The claimed empty state was not presented")
 
     assertThat(focusRequests).containsExactly(findFocusTargetComponent(splitters))
+    assertThat(focusSettled.isCompleted).isFalse()
+
+    checkNotNull(reportFocusTransferred).invoke()
+    assertThat(focusSettled.isCompleted).isTrue()
+  }
+
+  @Test
+  fun startupEmptyStateIsPresentedBeforeProjectViewIsOpened() {
+    runBlocking {
+      val startupEvents = mutableListOf<String>()
+
+      finishEmptyEditorStartupBeforeProjectView(
+        finishOpeningStartupEditors = { startupEvents.add("startup editors finished") },
+        presentEmptyEditor = { startupEvents.add("empty editor presented") },
+        openProjectView = { startupEvents.add("Project view opened") },
+      )
+
+      assertThat(startupEvents).containsExactly(
+        "startup editors finished",
+        "empty editor presented",
+        "Project view opened",
+      )
+    }
+  }
+
+  @Test
+  fun startupProjectViewIsShownWithoutActivationWhenTheEditorKeepsFocus() {
+    val events = mutableListOf<String>()
+
+    presentProjectViewOnStartup(
+      focusProjectView = false,
+      showProjectView = { events.add("shown") },
+      activateProjectView = { events.add("activated") },
+    )
+
+    assertThat(events).containsExactly("shown")
+  }
+
+  @Test
+  fun startupProjectViewIsActivatedWhenItTakesFocus() {
+    val events = mutableListOf<String>()
+
+    presentProjectViewOnStartup(
+      focusProjectView = true,
+      showProjectView = { events.add("shown") },
+      activateProjectView = { events.add("activated") },
+    )
+
+    assertThat(events).containsExactly("activated")
+  }
+
+  @Test
+  fun startupEditorFocusIsRestoredOnlyWhenProjectViewTookIt() {
+    val startupFocusOwner = object : JPanel() {
+      override fun isShowing(): Boolean = true
+    }
+    val projectView = JPanel()
+    val projectViewFocusOwner = JPanel().also { projectView.add(it) }
+
+    assertThat(shouldRestoreStartupEditorFocus(startupFocusOwner, projectViewFocusOwner, projectView)).isTrue()
+    assertThat(shouldRestoreStartupEditorFocus(startupFocusOwner, null, projectView)).isTrue()
+    assertThat(shouldRestoreStartupEditorFocus(startupFocusOwner, JPanel(), projectView)).isFalse()
+    assertThat(shouldRestoreStartupEditorFocus(JPanel(), projectViewFocusOwner, projectView)).isFalse()
   }
 
   @Test
@@ -1185,7 +1258,10 @@ internal class EditorEmptyTextPainterTest {
   /** Records what the empty state asks to focus, which is all a headless test can observe of a focus request. */
   private fun recordFocusRequests(splitters: EditorsSplitters): List<JComponent> {
     val requests = CopyOnWriteArrayList<JComponent>()
-    splitters.setEmptyStateComponentFocusRequesterForTests { requests.add(it) }
+    splitters.setEmptyStateComponentFocusRequesterForTests { component, transferred ->
+      requests.add(component)
+      transferred()
+    }
     return requests
   }
 

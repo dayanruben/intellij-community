@@ -61,7 +61,6 @@ import kotlin.io.path.deleteIfExists
 import kotlin.io.path.div
 import kotlin.io.path.exists
 import kotlin.io.path.extension
-import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
@@ -95,7 +94,7 @@ open class IDETestContext(
     )
   }
 
-  open fun copy(ide: InstalledIde? = null, resolvedProjectHome: Path? = null, sdk: SdkObject? = null): IDETestContext {
+  open fun copy(ide: InstalledIde? = null, resolvedProjectHome: Path? = null, sdk: SdkObject? = testCase.sdk): IDETestContext {
     require(sdk == null || testCase.projectInfo != NoProject) { "project must be specified to setup project SDK" }
     return IDETestContext(paths, ide ?: this.ide, testCase.copy(sdk = sdk), testName, resolvedProjectHome ?: this._resolvedProjectHome, profilerType,
                           publishers, isReportPublishingEnabled, preserveSystemDir)
@@ -765,9 +764,13 @@ open class IDETestContext(
     return this
   }
 
-  fun withProjectSdk(sdkObject: SdkObject) = copy(sdk = sdkObject)
+  /**
+   * Creates a copy and doesn't modify the current test context!
+   * Be sure to chain your calls.
+   */
+  fun copyWithProjectSdk(sdkObject: SdkObject): IDETestContext = copy(sdk = sdkObject)
 
-  @Deprecated("Use withProjectSdk instead")
+  @Deprecated("Use chained copyWithProjectSdk instead")
   fun setupSdk(sdkObjects: SdkObject?, cleanDirs: Boolean = true): IDETestContext = computeWithSpan("setupSdk") {
     if (sdkObjects == null) return this
     try {

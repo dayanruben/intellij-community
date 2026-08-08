@@ -1791,13 +1791,11 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
             else -> indexExpr
           }
 
+          var argType: PyType? = PyAnyType.unknown
           if (argExpr != null) {
-            val typeRef: Ref<PyType?>? = getType(argExpr, context)
-            if (typeRef != null) {
-              return Ref(PyUnionType.union(typeRef.get(), PyBuiltinCache.getInstance(element).noneType))
-            }
+            argType = getType(argExpr, context).derefOrUnknown()
           }
-          return Ref(PyAnyType.unknown)
+          return Ref(PyUnionType.union(argType, PyBuiltinCache.getInstance(element).noneType))
         }
       }
       return null
@@ -2133,18 +2131,20 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
             CALLABLE_EXT
           )
         ) {
+          var returnType: PyType? = PyAnyType.unknown
+
           val indexExpr = resolved.indexExpression
           if (indexExpr is PyTupleExpression) {
             val elements = indexExpr.elements
-            if (elements.size == 2) {
+            if (elements.size >= 2) {
               val parametersExpr = elements[0]
               val returnTypeExpr = elements[1]
-              var returnType = getType(returnTypeExpr, context).derefOrUnknown()
+              returnType = getType(returnTypeExpr, context).derefOrUnknown()
               if (returnType is PyVariadicType) {
                 returnType = PyAnyType.unknown
               }
               if (parametersExpr is PyEllipsisLiteralExpression) {
-                return PyCallableTypeImpl(null as PyCallableParameterVariadicType?, returnType)
+                return PyCallableTypeImpl.withUnknownParameters(returnType)
               }
               val parametersType = Ref.deref<PyType?>(getType(parametersExpr, context))
               if (parametersType is PyCallableParameterListType) {
@@ -2155,6 +2155,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
               }
             }
           }
+          return PyCallableTypeImpl.withUnknownParameters(returnType)
         }
       }
       else if (resolved is PyTargetExpression) {
@@ -2164,7 +2165,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
             CALLABLE_EXT,
           )
         ) {
-          return PyCallableTypeImpl(null as PyCallableParameterListType?, PyAnyType.unknown)
+          return PyCallableTypeImpl.withUnknownParameters(PyAnyType.unknown)
         }
       }
       return null
@@ -2711,29 +2712,32 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
                 if (indexExpr is PyTupleExpression) {
                   val arguments = indexExpr.elements.map { PyPsiUtils.flattenParens(it) }
 
-                  if (arguments.lastOrNull() is PyEllipsisLiteralExpression) {
-                    if (arguments.size != 2) return null
-                    if (arguments.first() is PyEllipsisLiteralExpression) return null
+                  if (arguments.size == 2 && arguments.last() is PyEllipsisLiteralExpression) {  // Homogeneous
+                    if (arguments.first() is PyEllipsisLiteralExpression) {
+                      return PyTupleType.createHomogeneous(element, PyAnyType.unknown)
+                    }
 
                     val indexType = indexTypes.first()
-                    if (indexType is PyPositionalVariadicType) return null
-
+                    if (indexType is PyPositionalVariadicType) {
+                      return PyTupleType.createHomogeneous(element, PyAnyType.unknown)
+                    }
                     return PyTupleType.createHomogeneous(element, indexType)
                   }
-                  else {
-                    for (argument in arguments) {
-                      if (argument is PyEllipsisLiteralExpression) return null
-                      if (argument is PyTupleExpression && argument.elements.isEmpty()) {
-                        if (arguments.size != 1) return null
-                      }
+
+                  val elementTypes = arguments.zip(indexTypes) { argument, indexType ->
+                    when (argument) {
+                      is PyEllipsisLiteralExpression -> PyAnyType.unknown
+                      is PyTupleExpression if argument.elements.isEmpty() -> PyAnyType.unknown
+                      else -> indexType
                     }
-                    return PyTupleType.create(element, indexTypes)
                   }
+                  return PyTupleType.create(element, elementTypes)
                 }
-                else {
-                  if (indexExpr is PyEllipsisLiteralExpression) return null
-                  return PyTupleType.create(element, indexTypes)
+
+                if (indexExpr is PyEllipsisLiteralExpression) {
+                  return PyTupleType.create(element, listOf(PyAnyType.unknown))
                 }
+                return PyTupleType.create(element, indexTypes)
               }
 
               if (isGeneric(operandType, context.typeContext)) {

@@ -38,6 +38,7 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "@lib//:jetbrains-annotations",
         "//libraries/kotlinx/coroutines/core",
+        "//platform/util/annotations",
     ],
 )
 
@@ -55,6 +56,7 @@ jvm_library(
         # do not sort,
         ":eel",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
+        "//platform/util/annotations:annotations_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.eel` end
@@ -158,6 +160,8 @@ jvm_library(
         "//platform/execution",
         "//platform/execution:execution_test_lib",
         "//platform/ide-core",
+        "//jps/model-impl",
+        "//jps/model-impl:model-impl_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
         "//libraries/junit5",

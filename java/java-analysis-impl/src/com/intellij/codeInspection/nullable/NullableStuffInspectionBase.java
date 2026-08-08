@@ -97,6 +97,7 @@ import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.impl.search.JavaNullMethodArgumentUtil;
 import com.intellij.psi.impl.search.JavaOverridingMethodsSearcher;
+import com.intellij.psi.presentation.java.ClassPresentationUtil;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.OverridingMethodsSearch;
 import com.intellij.psi.util.JavaPsiRecordUtil;
@@ -1131,8 +1132,8 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
 
       PsiTypeElement returnTypeElement = method.getReturnTypeElement();
       if (returnTypeElement != null &&
-          checkNestedGenericClasses(holder, returnTypeElement, superMethod.getReturnType(), method.getReturnType(),
-                                    ConflictNestedTypeProblem.OVERRIDING_NESTED_TYPE_PROBLEM)) {
+          checkNestedGenericClasses(holder, returnTypeElement, substitutedSuperType(method, superMethod, superMethod.getReturnType()),
+                                    method.getReturnType(), ConflictNestedTypeProblem.OVERRIDING_NESTED_TYPE_PROBLEM)) {
         break;
       }
     }
@@ -1165,7 +1166,7 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
       PsiSubstitutor classSubstitutor = TypeConversionUtil.getMaybeSuperClassSubstitutor(base, derived, PsiSubstitutor.EMPTY);
       if (classSubstitutor == null) continue;
       for (int i = 0; i < typeParameters.length; i++) {
-        if (reportNarrowedTypeParameterBound(holder, typeParameters[i], superTypeParameters[i], classSubstitutor)) return;
+        if (reportNarrowedTypeParameterBound(holder, typeParameters[i], superTypeParameters[i], classSubstitutor, base)) return;
       }
     }
   }
@@ -1173,7 +1174,8 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
   private boolean reportNarrowedTypeParameterBound(@NotNull ProblemsHolder holder,
                                                   @NotNull PsiTypeParameter typeParameter,
                                                   @NotNull PsiTypeParameter superTypeParameter,
-                                                  @NotNull PsiSubstitutor classSubstitutor) {
+                                                  @NotNull PsiSubstitutor classSubstitutor,
+                                                  @NotNull PsiClass base) {
     if (boundNullability(superTypeParameter, classSubstitutor).nullability() != Nullability.NULLABLE) return false;
     TypeNullability typeNullability = TypeNullability.ofTypeParameter(typeParameter);
     Nullability nullability = typeNullability.nullability();
@@ -1185,7 +1187,8 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
     String messageKey = nullability == Nullability.NOT_NULL
                         ? "inspection.nullable.problems.NotNull.type.parameter.bound.overrides.Nullable"
                         : "inspection.nullable.problems.unspecified.type.parameter.bound.overrides.Nullable";
-    reportProblem(holder, anchor, LocalQuickFix.EMPTY_ARRAY, messageKey, typeParameter.getName());
+    reportProblem(holder, anchor, LocalQuickFix.EMPTY_ARRAY, messageKey,
+                  typeParameter.getName(), ClassPresentationUtil.getSimpleNameForClass(base));
     return true;
   }
 
@@ -1312,26 +1315,6 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
     }
   }
 
-  /**
-   * For a generic method the super parameter type refers to the type parameters of the <em>super</em> method, which are
-   * not the ones of the override:
-   * <pre>{@code
-   * interface Box<X extends @Nullable Object> {}
-   * interface Filter<T extends @Nullable Object> { <U extends T> void take(Box<U> in); }
-   *
-   * interface Ok extends Filter<Object> {
-   *   <U> void take(Box<U> in);          // fine: Filter's U is bounded by Object here as well
-   * }
-   *
-   * interface Narrowed extends Filter<@Nullable Object> {
-   *   <U> void take(Box<U> in);          // a mismatch: U drops the nullable bound
-   * }
-   * }</pre>
-   * In both the super parameter is {@code Box<U_super>}, where {@code U_super} is bounded by {@code T} and therefore reads
-   * as nullable. Unsubstituted, both look like "nullable type argument where a not-null one is expected" -- including
-   * {@code Ok}. The {@code Narrowed} case is reported by {@link #checkTypeParameterBounds}, which points at the type
-   * parameter itself.
-   */
   private static @NotNull PsiType substitutedSuperParameterType(@NotNull PsiParameter parameter,
                                                                 @NotNull PsiParameter superParameter) {
     PsiType superType = superParameter.getType();
@@ -1339,6 +1322,33 @@ public class NullableStuffInspectionBase extends AbstractBaseJavaLocalInspection
         !(superParameter.getDeclarationScope() instanceof PsiMethod superMethod)) {
       return superType;
     }
+    PsiType substituted = substitutedSuperType(method, superMethod, superType);
+    return substituted != null ? substituted : superType;
+  }
+
+  /**
+   * A type written in the super method refers to the type parameters of the <em>super</em> declaration: those of the base
+   * class, which the derived class instantiates, and those of the super method, which are not the ones of the override:
+   * <pre>{@code
+   * interface Box<X extends @Nullable Object> {}
+   * interface Filter<T extends @Nullable Object> { <U extends T> Box<U> take(Box<U> in); }
+   *
+   * interface Ok extends Filter<Object> {
+   *   <U> Box<U> take(Box<U> in);          // fine: Filter's U is bounded by Object here as well
+   * }
+   *
+   * interface Narrowed extends Filter<@Nullable Object> {
+   *   <U> Box<U> take(Box<U> in);          // a mismatch: U drops the nullable bound
+   * }
+   * }</pre>
+   * In both the super type is {@code Box<U_super>}, where {@code U_super} is bounded by {@code T} and therefore reads
+   * as nullable. Unsubstituted, both look like a nullability mismatch in the type argument -- including {@code Ok}.
+   * The {@code Narrowed} case is reported by {@link #checkTypeParameterBounds}, which points at the type parameter itself.
+   */
+  private static @Nullable PsiType substitutedSuperType(@NotNull PsiMethod method,
+                                                        @NotNull PsiMethod superMethod,
+                                                        @Nullable PsiType superType) {
+    if (superType == null) return null;
     PsiClass derived = method.getContainingClass();
     PsiClass base = superMethod.getContainingClass();
     if (derived == null || base == null) return superType;

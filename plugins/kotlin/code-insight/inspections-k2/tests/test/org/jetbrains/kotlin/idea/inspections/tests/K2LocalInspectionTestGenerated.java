@@ -23773,6 +23773,26 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("FilterFalse.kt")
+            public void testFilterFalse() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterFalse.kt");
+            }
+
+            @TestMetadata("FilterFalseOnSequence.kt")
+            public void testFilterFalseOnSequence() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterFalseOnSequence.kt");
+            }
+
+            @TestMetadata("FilterFalseTail.kt")
+            public void testFilterFalseTail() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterFalseTail.kt");
+            }
+
+            @TestMetadata("FilterFalseTailOnSequence.kt")
+            public void testFilterFalseTailOnSequence() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterFalseTailOnSequence.kt");
+            }
+
             @TestMetadata("FilterIsExactInstance.kt")
             public void testFilterIsExactInstance() throws Exception {
                 runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterIsExactInstance.kt");
@@ -23871,6 +23891,46 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("FilterNotNullOnSet.kt")
             public void testFilterNotNullOnSet() throws Exception {
                 runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterNotNullOnSet.kt");
+            }
+
+            @TestMetadata("FilterTrue.kt")
+            public void testFilterTrue() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterTrue.kt");
+            }
+
+            @TestMetadata("FilterTrueOnSequence.kt")
+            public void testFilterTrueOnSequence() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterTrueOnSequence.kt");
+            }
+
+            @TestMetadata("FilterTrueTail.kt")
+            public void testFilterTrueTail() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterTrueTail.kt");
+            }
+
+            @TestMetadata("FilterTrueTailOnSequence.kt")
+            public void testFilterTrueTailOnSequence() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterTrueTailOnSequence.kt");
+            }
+
+            @TestMetadata("FilterTrueWithLabeledReturn.kt")
+            public void testFilterTrueWithLabeledReturn() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterTrueWithLabeledReturn.kt");
+            }
+
+            @TestMetadata("FilterTrueWithLabeledReturnOnSequence.kt")
+            public void testFilterTrueWithLabeledReturnOnSequence() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterTrueWithLabeledReturnOnSequence.kt");
+            }
+
+            @TestMetadata("FilterTrueWithNonLocalLabeledReturn.kt")
+            public void testFilterTrueWithNonLocalLabeledReturn() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterTrueWithNonLocalLabeledReturn.kt");
+            }
+
+            @TestMetadata("FilterTrueWithNonLocalLabeledReturnOnSequence.kt")
+            public void testFilterTrueWithNonLocalLabeledReturnOnSequence() throws Exception {
+                runTest("testData/inspectionsLocal/uselessCallOnCollection/FilterTrueWithNonLocalLabeledReturnOnSequence.kt");
             }
 
             @TestMetadata("MapIndexedNotNullTo.kt")

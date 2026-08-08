@@ -438,17 +438,18 @@ internal class BazelBuildFileGenerator(
   fun generateModuleTargets(list: ModuleList, isCommunity: Boolean): List<ModuleTargets> {
     validateCustomModules(list)
 
+    val skipGenerationOfPluginTargets = shouldSkipGenerationOfPluginTargets()
     val targetsPerModule = mutableListOf<ModuleTargets>()
     for (module in (if (isCommunity) list.community else list.ultimate)) {
       if (generated.putIfAbsent(module, true) == null) {
         val buildTargetsBazel = BuildFile()
-        targetsPerModule.add(buildTargetsBazel.generateBuildTargets(module, list))
+        targetsPerModule.add(buildTargetsBazel.generateBuildTargets(module, list, skipGenerationOfPluginTargets))
       }
     }
     return targetsPerModule
   }
 
-  fun generateModuleBuildFiles(list: ModuleList, isCommunity: Boolean): ModuleGenerationResult {
+  fun generateModuleBuildFiles(list: ModuleList, isCommunity: Boolean, skipGenerationOfPluginTargets: Boolean): ModuleGenerationResult {
     validateCustomModules(list)
     val targetsPerModule = mutableListOf<ModuleTargets>()
     val fileToUpdater = LinkedHashMap<Path, BazelFileUpdater>()
@@ -466,10 +467,14 @@ internal class BazelBuildFileGenerator(
         }
 
         val buildTargetsBazel = BuildFile()
-        val moduleBuildTargets = buildTargetsBazel.generateBuildTargets(module, list)
+        val moduleBuildTargets = buildTargetsBazel.generateBuildTargets(module, list, skipGenerationOfPluginTargets)
 
         val imlTargetsBazel = BuildFile()
         imlTargetsBazel.exportFile(module.imlFile.relativeTo(module.bazelBuildFileDir).invariantSeparatorsPathString)
+        for (resource in module.resources) {
+          val pluginXml = findMarkedPluginXmlFile(resource) ?: continue
+          imlTargetsBazel.exportFile(pluginXml.relativeTo(module.bazelBuildFileDir).invariantSeparatorsPathString)
+        }
 
         val testTargetsBazel = BuildFile()
         testTargetsBazel.generateTestTargets(module, list)
@@ -585,6 +590,12 @@ internal class BazelBuildFileGenerator(
     val productionJars: List<String>,
     val testTargets: List<String>,
     val testJars: List<String>,
+    val pluginDistributionTarget: PluginDistributionTarget?,
+  )
+
+  internal data class PluginDistributionTarget(
+    @JvmField val target: String,
+    @JvmField val distributionDirectory: String,
   )
 
   private fun BuildFile.generateTestTargets(moduleDescriptor: ModuleDescriptor, moduleList: ModuleList) {
@@ -607,7 +618,7 @@ internal class BazelBuildFileGenerator(
     }
   }
 
-  private fun BuildFile.generateBuildTargets(moduleDescriptor: ModuleDescriptor, moduleList: ModuleList): ModuleTargets {
+  private fun BuildFile.generateBuildTargets(moduleDescriptor: ModuleDescriptor, moduleList: ModuleList, skipGenerationOfPluginTargets: Boolean): ModuleTargets {
     val module = moduleDescriptor.module
     val customModule = customModules[moduleDescriptor.module.name]
     val jvmTarget = getLanguageLevel(module)
@@ -794,7 +805,7 @@ internal class BazelBuildFileGenerator(
       else -> "//${bazelModuleRelativePath}"
     }
 
-    val jarOutputDirectory = when {
+    val outputDirectory = when {
       customModule != null -> customModule.outputDirectory
       moduleDescriptor.isCommunity -> "out/bazel-out/jvm-fastbuild/bin/external/community+/$bazelModuleRelativePath"
       else -> "out/bazel-out/jvm-fastbuild/bin/$bazelModuleRelativePath"
@@ -808,7 +819,30 @@ internal class BazelBuildFileGenerator(
       // like @community//plugins/env-files-support:dotenv-go_resources
       jarName.label.startsWith("@community//") ->
         "out/bazel-out/jvm-fastbuild/bin/external/community+/${jarName.label.substringAfter("@community//").replace(':', '/')}.jar"
-      else -> "$jarOutputDirectory/${jarName.label}.jar"
+      else -> "$outputDirectory/${jarName.label}.jar"
+    }
+
+    val pluginDescriptorContentData = if (!skipGenerationOfPluginTargets) {
+      moduleDescriptor.resources.firstNotNullOfOrNull { descriptor -> parsePluginXmlContent(descriptor) }
+    }
+    else {
+      null
+    }
+    val pluginDistributionTarget = pluginDescriptorContentData?.let {
+      load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
+      target("ij_plugin") {
+        option("name", moduleDescriptor.targetName + "_plugin")
+        option("descriptor_module", ":${moduleDescriptor.targetName}")
+        if (pluginDescriptorContentData.contentModuleNames.isNotEmpty()) {
+          val contentModuleLabels = pluginDescriptorContentData.contentModuleNames.map { getBazelDependencyLabel(moduleList.getModuleDescriptor(it), moduleDescriptor) }
+          option("content_modules", contentModuleLabels.unsorted())
+        }
+      }
+      val label = BazelLabel(moduleDescriptor.targetName + "_plugin", moduleDescriptor)
+      PluginDistributionTarget(
+        target = addPackagePrefix(label),
+        distributionDirectory = "$outputDirectory/${generateNameForPluginDirectory(moduleDescriptor.module.name)}",
+      )
     }
 
     return ModuleTargets(
@@ -817,6 +851,7 @@ internal class BazelBuildFileGenerator(
       productionJars = productionCompileJars.map { getJarLocation(it) } + customModule?.additionalProductionJars.orEmpty(),
       testTargets = testCompileTargets.map { addPackagePrefix(it) },
       testJars = testCompileTargets.map { getJarLocation(it) },
+      pluginDistributionTarget = pluginDistributionTarget,
     )
   }
 
@@ -1510,5 +1545,8 @@ internal fun computePackageRelativeExcludes(
     }
   }.sortedBy { compileExcludeSortKey(it) }
 }
+
+/** Uses the same logic as `ij_plugin` rule */
+private fun generateNameForPluginDirectory(moduleName: String): String = moduleName.removePrefix("intellij.").replace('.', '-')
 
 private fun compileExcludeSortKey(pattern: String): String = pattern.lowercase().replace('/', '{')

@@ -1223,31 +1223,35 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
   fun `Callable parameters`() = test("""
     from typing import Callable, TypeAlias
 
+    _: Callable
     a: Callable[..., str]
     b: Callable[[int], str]
     c: Callable[[int, str], str]
 
     d: Callable[...]
-    #           ^^^ ERROR 'Callable' must be used as 'Callable[[arg, ...], result]'
+    #           ^^^ ERROR 'Callable' must have exactly two arguments
     e: Callable[int, str]
-    #           ^^^ ERROR 'Callable' first parameter must be a parameter expression
+    #           ^^^ ERROR 'Callable' first parameter must be a list literal of parameter types ('[T1, T2, ...]') or a parameter specification
     f: Callable[int, str, str]
-    #           ^^^^^^^^ ERROR 'Callable' must be used as 'Callable[[arg, ...], result]'
+    #           │         ^^^ ERROR 'Callable' must have exactly two arguments
+    #           ^^^ ERROR 'Callable' first parameter must be a list literal of parameter types ('[T1, T2, ...]') or a parameter specification
     g: Callable[(int, str), str]
-    #           ^^^^^^^^^^ ERROR 'Callable' first parameter must be a parameter expression
+    #           ^^^^^^^^^^ ERROR 'Callable' first parameter must be a list literal of parameter types ('[T1, T2, ...]') or a parameter specification
     h: Callable[int]
-    #           ^^^ ERROR 'Callable' must be used as 'Callable[[arg, ...], result]'
-    h: Callable[(int), str]
-    #           ^^^^^ ERROR 'Callable' first parameter must be a parameter expression
+    #           ^^^ ERROR 'Callable' must have exactly two arguments
+    i: Callable[int,]
+    #           ^^^^ ERROR 'Callable' must have exactly two arguments
+    j: Callable[(int), str]
+    #           ^^^^^ ERROR 'Callable' first parameter must be a list literal of parameter types ('[T1, T2, ...]') or a parameter specification
 
     A1: TypeAlias = Callable[int]
-    #                        ^^^ ERROR 'Callable' must be used as 'Callable[[arg, ...], result]'
+    #                        ^^^ ERROR 'Callable' must have exactly two arguments
     A2: TypeAlias = 'Callable[int]'
-    #                         ^^^ ERROR 'Callable' must be used as 'Callable[[arg, ...], result]'
+    #                         ^^^ ERROR 'Callable' must have exactly two arguments
     A3 = Callable[int]  # type: TypeAlias
-    #             ^^^ ERROR 'Callable' must be used as 'Callable[[arg, ...], result]'
+    #             ^^^ ERROR 'Callable' must have exactly two arguments
     A4 = 'Callable[int]'  # type: TypeAlias
-    #              ^^^ ERROR 'Callable' must be used as 'Callable[[arg, ...], result]'
+    #              ^^^ ERROR 'Callable' must have exactly two arguments
     """)
 
   @Test
@@ -4114,7 +4118,7 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
     a: Optional[((int, int))]
     #│            ^^^^^^^^ ERROR 'Optional' must have exactly one argument
-    #\ TYPE Unknown FIXME Unknown | None
+    #\ TYPE Unknown | None
 
     a: tuple[((int)), ((...))]
     #\ TYPE tuple[int, ...]
@@ -4123,10 +4127,10 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
     a: tuple[((...)), ((int))]
     #│         ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...]
+    #\ TYPE tuple[Unknown, int]
     a: Tuple[((...)), ((int))]
     #│         ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...]
+    #\ TYPE tuple[Unknown, int]
 
     a: tuple[(int,), ...]
     #│       ^^^^^^ ERROR Invalid type argument
@@ -4155,17 +4159,17 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
     a: tuple[int, ()]
     #│            ^^ ERROR Empty tuple is allowed only as a sole argument
-    #\ TYPE tuple[()] FIXME tuple[Unknown]
+    #\ TYPE tuple[int, Unknown]
     a: Tuple[int, ()]
     #│            ^^ ERROR Empty tuple is allowed only as a sole argument
-    #\ TYPE tuple[()] FIXME tuple[Unknown]
+    #\ TYPE tuple[int, Unknown]
 
     a: tuple[(), int]
     #│       ^^ ERROR Empty tuple is allowed only as a sole argument
-    #\ TYPE tuple[()] FIXME tuple[Unknown]
+    #\ TYPE tuple[Unknown, int]
     a: Tuple[(), int]
     #│       ^^ ERROR Empty tuple is allowed only as a sole argument
-    #\ TYPE tuple[()] FIXME tuple[Unknown]
+    #\ TYPE tuple[Unknown, int]
 
     a: tuple[(), ...]
     #│       ^^ ERROR Empty tuple is allowed only as a sole argument
@@ -4177,11 +4181,11 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     a: tuple[(), ()]
     #│       │   ^^ ERROR Empty tuple is allowed only as a sole argument
     #│       ^^ ERROR Empty tuple is allowed only as a sole argument
-    #\ TYPE tuple[Unknown, ...] FIXME tuple[Unknown]
+    #\ TYPE tuple[Unknown, Unknown]
     a: Tuple[(), ()]
     #│       │   ^^ ERROR Empty tuple is allowed only as a sole argument
     #│       ^^ ERROR Empty tuple is allowed only as a sole argument
-    #\ TYPE tuple[Unknown, ...] FIXME tuple[Unknown]
+    #\ TYPE tuple[Unknown, Unknown]
 
     a: list[()]
     #│      ^^ WARNING Passed type arguments do not match type parameters [_T] of class 'list'
@@ -4211,7 +4215,7 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
     a: Optional[()]
     #│          ^^ ERROR 'Optional' must have exactly one argument
-    #\ TYPE Unknown FIXME Unknown | None
+    #\ TYPE Unknown | None
 
     a: C1[()]
     #│    ^^ WARNING Passed type arguments do not match type parameters [T] of class 'C1'
@@ -4302,14 +4306,27 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
     a: Optional[int, int]
     #│          ^^^^^^^^ ERROR 'Optional' must have exactly one argument
-    #\ TYPE Unknown FIXME Unknown | None
+    #\ TYPE Unknown | None
 
     a: Optional[(int,)]
     #\ TYPE int | None
 
     a: Callable[int, int]
-    #│          ^^^ ERROR 'Callable' first parameter must be a parameter expression
-    #\ TYPE int | None FIXME (Unknown) -> int
+    #│          ^^^ ERROR 'Callable' first parameter must be a list literal of parameter types ('[T1, T2, ...]') or a parameter specification
+    #\ TYPE (...) -> int
+
+    a: Callable[(int, str), float]
+    #│          ^^^^^^^^^^ ERROR 'Callable' first parameter must be a list literal of parameter types ('[T1, T2, ...]') or a parameter specification
+    #\ TYPE (...) -> float | int
+
+    a: Callable[int, str, float, complex]
+    #│          │         ^^^^^^^^^^^^^^ ERROR 'Callable' must have exactly two arguments
+    #│          ^^^ ERROR 'Callable' first parameter must be a list literal of parameter types ('[T1, T2, ...]') or a parameter specification
+    #\ TYPE (...) -> str
+
+    a: Callable[[int], str, float]
+    #│                      ^^^^^ ERROR 'Callable' must have exactly two arguments
+    #\ TYPE (int) -> str
 
     a: Callable[[int], (([int]))]
     #│                   ^^^^^ ERROR Parameters to generic types must be types
@@ -4368,38 +4385,49 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
     a: tuple[..., int]
     #│       ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...]
+    #\ TYPE tuple[Unknown, int]
     a: Tuple[..., int]
     #│       ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...]
+    #\ TYPE tuple[Unknown, int]
 
     a: tuple[int, int, ...]
     #│                 ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...]
+    #\ TYPE tuple[int, int, Unknown]
     a: Tuple[int, int, ...]
     #│                 ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...]
+    #\ TYPE tuple[int, int, Unknown]
 
     a: tuple[int, ..., int]
     #│            ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...]
+    #\ TYPE tuple[int, Unknown, int]
     a: Tuple[int, ..., int]
     #│            ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...]
+    #\ TYPE tuple[int, Unknown, int]
 
     a: tuple[...]
     #│       ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...] FIXME tuple[Unknown]
+    #\ TYPE tuple[Unknown]
     a: Tuple[...]
     #│       ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...] FIXME tuple[Unknown]
+    #\ TYPE tuple[Unknown]
 
     a: tuple[..., ...]
     #│       ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...] FIXME tuple[Unknown]
+    #\ TYPE tuple[Unknown, ...]
     a: Tuple[..., ...]
     #│       ^^^ ERROR '...' is allowed only as the second of two arguments
-    #\ TYPE tuple[int, ...] FIXME tuple[Unknown]
+    #\ TYPE tuple[Unknown, ...]
+
+    a: tuple[..., ..., ...]
+    #│       │    │    ^^^ ERROR '...' is allowed only as the second of two arguments
+    #│       │    ^^^ ERROR '...' is allowed only as the second of two arguments
+    #│       ^^^ ERROR '...' is allowed only as the second of two arguments
+    #\ TYPE tuple[Unknown, Unknown, Unknown]
+    a: Tuple[..., ..., ...]
+    #│       │    │    ^^^ ERROR '...' is allowed only as the second of two arguments
+    #│       │    ^^^ ERROR '...' is allowed only as the second of two arguments
+    #│       ^^^ ERROR '...' is allowed only as the second of two arguments
+    #\ TYPE tuple[Unknown, Unknown, Unknown]
 
     a: list[...]
     #│      ^^^ ERROR Invalid type argument
@@ -4428,15 +4456,15 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
     a: Optional[...]
     #│          ^^^ ERROR Invalid type argument
-    #\ TYPE Unknown FIXME Unknown | None
+    #\ TYPE Unknown | None
 
     a: tuple[*tuple[str], ...]
     #│                    ^^^ ERROR '...' cannot be used with an unpacked 'TypeVarTuple' or tuple
-    #\ TYPE Unknown FIXME tuple[Unknown, ...]
+    #\ TYPE tuple[Unknown, ...]
 
     a: tuple[*tuple[str, ...], ...]
     #│                         ^^^ ERROR '...' cannot be used with an unpacked 'TypeVarTuple' or tuple
-    #\ TYPE Unknown FIXME tuple[Unknown, ...]
+    #\ TYPE tuple[Unknown, ...]
 
     a: C1[...]
     #│    ^^^ ERROR Invalid type argument

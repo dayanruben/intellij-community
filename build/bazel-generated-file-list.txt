@@ -408,6 +408,17 @@ libraries/commons/io
 libraries/commons/lang3
 libraries/commons/logging
 libraries/commons/text
+libraries/completion-ranking-cpp
+libraries/completion-ranking-go
+libraries/completion-ranking-java
+libraries/completion-ranking-js
+libraries/completion-ranking-kotlin
+libraries/completion-ranking-php
+libraries/completion-ranking-ruby
+libraries/completion-ranking-rust
+libraries/completion-ranking-sh
+libraries/completion-ranking-swift
+libraries/completion-ranking-typescript
 libraries/compose-foundation-desktop
 libraries/compose-foundation-desktop-junit
 libraries/compose-runtime-desktop
@@ -476,6 +487,7 @@ libraries/jsonpath
 libraries/jsoup
 libraries/jsp
 libraries/jspecify
+libraries/jsr305
 libraries/jsvg
 libraries/junit4
 libraries/junit5
@@ -837,6 +849,7 @@ platform/platform-util-netty
 platform/pluginManager/backend
 platform/pluginManager/frontend
 platform/pluginManager/shared
+platform/pluginManager/shared.base
 platform/pluginSystem/parser/impl
 platform/pluginSystem/testFramework
 platform/polySymbols
@@ -960,6 +973,7 @@ platform/util
 platform/util-class-loader
 platform/util-ex
 platform/util-rt
+platform/util/annotations
 platform/util/base
 platform/util/base/multiplatform
 platform/util/commons-lang-v2-shim
@@ -1039,6 +1053,7 @@ plugins/compilation-charts
 plugins/compilation-charts/jps-plugin
 plugins/completion-ml-ranking
 plugins/completion-ml-ranking-models
+plugins/completion-ml-ranking-models/libraries
 plugins/compose
 plugins/compose/intellij.compose.ide.plugin.gradleTooling
 plugins/compose/intellij.compose.ide.plugin.k2
@@ -1416,8 +1431,6 @@ plugins/kotlin/onboarding-maven
 plugins/kotlin/onboarding-promoter
 plugins/kotlin/plugin
 plugins/kotlin/plugin-updater
-plugins/kotlin/plugin/common
-plugins/kotlin/plugin/k2
 plugins/kotlin/preferences
 plugins/kotlin/project-configuration
 plugins/kotlin/project-configuration-vcs
@@ -1461,6 +1474,7 @@ plugins/laf/win10
 plugins/lombok
 plugins/lombok/generated
 plugins/lombok/plugin
+plugins/lsp.client.playground
 plugins/lsp.ui
 plugins/lsp.ui/idea.product.modules
 plugins/markdown/compose
@@ -1536,6 +1550,7 @@ plugins/performanceTesting/remote-driver
 plugins/performanceTesting/remote-driver.compose
 plugins/performanceTesting/remote-driver.jcef
 plugins/performanceTesting/scripts-ui
+plugins/performanceTesting/structureView
 plugins/performanceTesting/vcs
 plugins/properties
 plugins/properties/copyright
@@ -1594,6 +1609,7 @@ plugins/terminal
 plugins/terminal/backend
 plugins/terminal/cloud
 plugins/terminal/completion
+plugins/terminal/emulator
 plugins/terminal/frontend
 plugins/terminal/sh
 plugins/terminal/tests
