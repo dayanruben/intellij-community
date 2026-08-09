@@ -1,5 +1,6 @@
 package com.intellij.terminal.frontend.view.impl
 
+import com.intellij.execution.impl.EditorTextDecorationApplier
 import com.intellij.execution.impl.createEditorTextDecorationApplier
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataSink
@@ -72,7 +73,6 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.TerminalPanelMarker
-import org.jetbrains.plugins.terminal.TerminalToolWindowFactory
 import org.jetbrains.plugins.terminal.block.completion.ShellCommandSpecsManagerImpl
 import org.jetbrains.plugins.terminal.block.completion.spec.impl.TerminalCommandCompletionServices
 import org.jetbrains.plugins.terminal.block.output.TerminalOutputEditorInputMethodSupport
@@ -143,6 +143,9 @@ class TerminalViewImpl(
   @VisibleForTesting
   val outputEditor: EditorEx
   private val alternateBufferEditor: EditorEx
+
+  @VisibleForTesting
+  val outputEditorDecorationApplier: EditorTextDecorationApplier
 
   private val scrollingModel: TerminalOutputScrollingModel
   private var isAlternateScreenBuffer = false
@@ -250,6 +253,11 @@ class TerminalViewImpl(
       sessionDeferred,
     )
 
+    // Should be created before "configureOutputEditor" is called where mouse reporting is configured (TerminalMouseEventsHandlerImpl).
+    // To make mouse events first handled by hyperlinks logic and only then reported to the process.
+    val alternateBufferDecorationApplier = createEditorTextDecorationApplier(
+      alternateBufferEditor, coroutineScope.asDisposable(), consumeOnlyOnCtrlClick = true,
+    )
     configureOutputEditor(
       project,
       editor = alternateBufferEditor,
@@ -297,6 +305,11 @@ class TerminalViewImpl(
       sessionDeferred,
     )
 
+    // Should be created before "configureOutputEditor" is called where mouse reporting is configured (TerminalMouseEventsHandlerImpl).
+    // To make mouse events first handled by hyperlinks logic and only then reported to the process.
+    outputEditorDecorationApplier = createEditorTextDecorationApplier(
+      outputEditor, coroutineScope.asDisposable(), consumeOnlyOnCtrlClick = true,
+    )
     configureOutputEditor(
       project,
       editor = outputEditor,
@@ -369,27 +382,23 @@ class TerminalViewImpl(
     // Configure hyperlinks' processing.
     // The filter-based and OSC8 hyperlinks of an editor must share a single decoration applier,
     // because its click/hover handling operates on editor-global markup.
-    val outputDecorationApplier = createEditorTextDecorationApplier(outputEditor, coroutineScope.asDisposable())
-    val alternateBufferDecorationApplier = createEditorTextDecorationApplier(alternateBufferEditor, coroutineScope.asDisposable())
     coroutineScope.launch {
       val eelDescriptor = sessionDeferred.await().eelDescriptor
       outputBufferHyperlinksFacade = installHyperlinksProcessing(
         project = project,
         outputModel = outputModel,
-        editor = outputEditor,
+        decorationApplier = outputEditorDecorationApplier,
         sessionModel = sessionModel,
         eelDescriptor = eelDescriptor,
         coroutineScope = coroutineScope.childScope("Output Buffer Hyperlinks"),
-        applier = outputDecorationApplier,
       )
       alternateBufferHyperlinksFacade = installHyperlinksProcessing(
         project = project,
         outputModel = alternateBufferModel,
-        editor = alternateBufferEditor,
+        decorationApplier = alternateBufferDecorationApplier,
         sessionModel = sessionModel,
         eelDescriptor = eelDescriptor,
         coroutineScope = coroutineScope.childScope("Alternate Buffer Hyperlinks"),
-        applier = alternateBufferDecorationApplier,
       )
     }
 
@@ -398,7 +407,7 @@ class TerminalViewImpl(
       project = project,
       outputModel = outputModel,
       editor = outputEditor,
-      applier = outputDecorationApplier,
+      applier = outputEditorDecorationApplier,
       coroutineScope = coroutineScope.childScope("Output Buffer OSC8 Hyperlinks"),
     )
     installOsc8HyperlinksProcessing(
