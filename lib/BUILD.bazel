@@ -6713,28 +6713,6 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains/annotations-26.0.2.jar_copy",
-    src = "@org_jetbrains-annotations-26_0_2_http//file",
-    out = "org.jetbrains/annotations-26.0.2.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "jetbrains-annotations",
-    jar = "@org_jetbrains-annotations-26_0_2_http//file",
-    source_jar = "@org_jetbrains-annotations-26_0_2-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "jetbrains-annotations-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":jetbrains-annotations"],
-)
-
-copy_file(
     name = "org.jetbrains.compose.components/components-ui-tooling-preview-desktop-1.9.0.jar_copy",
     src = "@org_jetbrains_compose_components-components-ui-tooling-preview-desktop-1_9_0_http//file",
     out = "org.jetbrains.compose.components/components-ui-tooling-preview-desktop-1.9.0.jar",
@@ -11653,6 +11631,21 @@ jvm_import(
 )
 
 copy_file(
+    name = "org.jetbrains/annotations-26.0.2.jar_copy",
+    src = "@org_jetbrains-annotations-26_0_2_http//file",
+    out = "org.jetbrains/annotations-26.0.2.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-jetbrains-annotations-jetbrains-annotations",
+    jar = "@org_jetbrains-annotations-26_0_2_http//file",
+    source_jar = "@org_jetbrains-annotations-26_0_2-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
     name = "org.codehaus.jettison/jettison-1.5.4.jar_copy",
     src = "@org_codehaus_jettison-jettison-1_5_4_http//file",
     out = "org.codehaus.jettison/jettison-1.5.4.jar",
@@ -13674,6 +13667,13 @@ jvm_import(
     name = "libraries-opentelemetry-semconv-opentelemetry-semconv",
     jar = "@io_opentelemetry_semconv-opentelemetry-semconv-1_30_0_http//file",
     source_jar = "@io_opentelemetry_semconv-opentelemetry-semconv-1_30_0-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-opentest4j-opentest4j",
+    jar = "@org_opentest4j-opentest4j-1_3_0_http//file",
+    source_jar = "@org_opentest4j-opentest4j-1_3_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -18762,20 +18762,6 @@ jvm_import(
     name = "com_squareup_okio-okio-jvm-3_9_0_http_import",
     jar = "@com_squareup_okio-okio-jvm-3_9_0_http//file",
     source_jar = "@com_squareup_okio-okio-jvm-3_9_0-sources_http//file",
-)
-
-jvm_import(
-    name = "opentest4j",
-    jar = "@org_opentest4j-opentest4j-1_3_0_http//file",
-    source_jar = "@org_opentest4j-opentest4j-1_3_0-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "opentest4j-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":opentest4j"],
 )
 
 copy_file(

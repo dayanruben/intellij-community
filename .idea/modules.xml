@@ -1076,6 +1076,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/jcip/intellij.libraries.jcip.iml" filepath="$PROJECT_DIR$/libraries/jcip/intellij.libraries.jcip.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jediterm-core/intellij.libraries.jediterm.core.iml" filepath="$PROJECT_DIR$/libraries/jediterm-core/intellij.libraries.jediterm.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jediterm-ui/intellij.libraries.jediterm.ui.iml" filepath="$PROJECT_DIR$/libraries/jediterm-ui/intellij.libraries.jediterm.ui.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/jetbrains/annotations/intellij.libraries.jetbrains.annotations.iml" filepath="$PROJECT_DIR$/libraries/jetbrains/annotations/intellij.libraries.jetbrains.annotations.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jettison/intellij.libraries.jettison.iml" filepath="$PROJECT_DIR$/libraries/jettison/intellij.libraries.jettison.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jgit-ssh/intellij.libraries.jgit.ssh.iml" filepath="$PROJECT_DIR$/libraries/jgit-ssh/intellij.libraries.jgit.ssh.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jgoodies/common/intellij.libraries.jgoodies.common.iml" filepath="$PROJECT_DIR$/libraries/jgoodies/common/intellij.libraries.jgoodies.common.iml" />
@@ -1164,6 +1165,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/opentelemetry-extension-kotlin/intellij.libraries.opentelemetry.extension.kotlin.iml" filepath="$PROJECT_DIR$/libraries/opentelemetry-extension-kotlin/intellij.libraries.opentelemetry.extension.kotlin.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/opentelemetry-sdk-autoconfigure-spi/intellij.libraries.opentelemetry.sdk.autoconfigure.spi.iml" filepath="$PROJECT_DIR$/libraries/opentelemetry-sdk-autoconfigure-spi/intellij.libraries.opentelemetry.sdk.autoconfigure.spi.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/opentelemetry-semconv/intellij.libraries.opentelemetry.semconv.iml" filepath="$PROJECT_DIR$/libraries/opentelemetry-semconv/intellij.libraries.opentelemetry.semconv.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/opentest4j/intellij.libraries.opentest4j.iml" filepath="$PROJECT_DIR$/libraries/opentest4j/intellij.libraries.opentest4j.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/oro-matcher/intellij.libraries.oro.matcher.iml" filepath="$PROJECT_DIR$/libraries/oro-matcher/intellij.libraries.oro.matcher.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/oshi-core/intellij.libraries.oshi.core.iml" filepath="$PROJECT_DIR$/libraries/oshi-core/intellij.libraries.oshi.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/plexus-utils/intellij.libraries.plexus.utils.iml" filepath="$PROJECT_DIR$/libraries/plexus-utils/intellij.libraries.plexus.utils.iml" />

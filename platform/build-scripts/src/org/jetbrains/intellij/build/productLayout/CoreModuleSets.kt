@@ -36,6 +36,7 @@ object CoreModuleSets {
    */
   fun librariesPlatform(): ModuleSet = moduleSet("libraries.platform") {
     embeddedModule("intellij.libraries.java.compatibility")
+    embeddedModule("intellij.libraries.jetbrains.annotations")
 
     embeddedModule("intellij.libraries.kotlin.reflect")
     // intellij.platform.wsl.impl and intellij.platform.util.http uses it
@@ -397,6 +398,7 @@ object CoreModuleSets {
     // todo not used by platform - move to plugin
     embeddedModule("intellij.platform.ide.designer")
 
+    embeddedModule("intellij.platform.ide.bootstrap")
     embeddedModule("intellij.platform.bootstrap")
 
     // depends on intellij.platform.ide.impl
