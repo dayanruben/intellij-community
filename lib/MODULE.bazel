@@ -5286,20 +5286,6 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains-jetCheck-0_2_2_http",
-    downloaded_file_path = "jetCheck-0.2.2.jar",
-    sha256 = "c5f95c97171311066a13eb750a6bb999fa7eeb43c1394705034926336c0b7b0f",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jetCheck/0.2.2/jetCheck-0.2.2.jar",
-)
-
-http_file(
-    name = "org_jetbrains-jetCheck-0_2_2-sources_http",
-    downloaded_file_path = "jetCheck-0.2.2-sources.jar",
-    sha256 = "a469f5da34cc1b8797cb017bc7a3c8253b441d441c39224c86fcd8183bcdff1f",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jetCheck/0.2.2/jetCheck-0.2.2-sources.jar",
-)
-
-http_file(
     name = "org_jetbrains_compose_components-components-ui-tooling-preview-desktop-1_9_0_http",
     downloaded_file_path = "components-ui-tooling-preview-desktop-1.9.0.jar",
     sha256 = "ca0857dcde7cffff8eea3cce2940a285f219f673829f7f9a3381f767d224f411",
@@ -5787,34 +5773,6 @@ http_file(
     downloaded_file_path = "jps-javac-extension-11.jar",
     sha256 = "56805dd4b0fbc40988c2d15993ff8f7c7a6609a95a5871d5f67b521f2f6f100e",
     url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jps/jps-javac-extension/11/jps-javac-extension-11.jar",
-)
-
-http_file(
-    name = "tools_jackson_core-jackson-core-3_0_3_http",
-    downloaded_file_path = "jackson-core-3.0.3.jar",
-    sha256 = "4149bb2b3bbffb5339089174e26f454081e6a01a104d24b22f78a16b948799eb",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/tools/jackson/core/jackson-core/3.0.3/jackson-core-3.0.3.jar",
-)
-
-http_file(
-    name = "tools_jackson_core-jackson-core-3_0_3-sources_http",
-    downloaded_file_path = "jackson-core-3.0.3-sources.jar",
-    sha256 = "373af8c28e8ef823121840ef38c0fccbdf108572d97f285799b01a64375910d4",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/tools/jackson/core/jackson-core/3.0.3/jackson-core-3.0.3-sources.jar",
-)
-
-http_file(
-    name = "tools_jackson_core-jackson-databind-3_0_3_http",
-    downloaded_file_path = "jackson-databind-3.0.3.jar",
-    sha256 = "dfbb79130910decf063125c1e693a39c5ec8fb8b478d7f39671901d47ce7f6a2",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/tools/jackson/core/jackson-databind/3.0.3/jackson-databind-3.0.3.jar",
-)
-
-http_file(
-    name = "tools_jackson_core-jackson-databind-3_0_3-sources_http",
-    downloaded_file_path = "jackson-databind-3.0.3-sources.jar",
-    sha256 = "ee0dda0a11a5b391d676de9044b84aeca87fa6c469b99907dd1bc24a46772391",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/tools/jackson/core/jackson-databind/3.0.3/jackson-databind-3.0.3-sources.jar",
 )
 
 http_file(
@@ -9045,6 +9003,20 @@ http_file(
 )
 
 http_file(
+    name = "io_github_java-diff-utils-java-diff-utils-4_16_http",
+    downloaded_file_path = "java-diff-utils-4.16.jar",
+    sha256 = "620403030d676a4a27f780a3acec7438dee1b1651a1c804fa6bb11bb07399a6f",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/github/java-diff-utils/java-diff-utils/4.16/java-diff-utils-4.16.jar",
+)
+
+http_file(
+    name = "io_github_java-diff-utils-java-diff-utils-4_16-sources_http",
+    downloaded_file_path = "java-diff-utils-4.16-sources.jar",
+    sha256 = "1307a36819f8dac34187402947e2a9e850b9e7ce95dd5044524e4860c3378ab0",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/github/java-diff-utils/java-diff-utils/4.16/java-diff-utils-4.16-sources.jar",
+)
+
+http_file(
     name = "org_java-websocket-Java-WebSocket-1_6_0_http",
     downloaded_file_path = "Java-WebSocket-1.6.0.jar",
     sha256 = "eae29213e4f16515639c28957200f011b3967fffcada1962cf0255d24919c22f",
@@ -9140,6 +9112,20 @@ http_file(
     downloaded_file_path = "annotations-26.0.2-sources.jar",
     sha256 = "a3bea3ada0af186437f8f3a089e6b0f52ac5aa068c1cb829058fb8a5069f6b0f",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/annotations/26.0.2/annotations-26.0.2-sources.jar",
+)
+
+http_file(
+    name = "org_jetbrains-jetCheck-0_2_2_http",
+    downloaded_file_path = "jetCheck-0.2.2.jar",
+    sha256 = "c5f95c97171311066a13eb750a6bb999fa7eeb43c1394705034926336c0b7b0f",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jetCheck/0.2.2/jetCheck-0.2.2.jar",
+)
+
+http_file(
+    name = "org_jetbrains-jetCheck-0_2_2-sources_http",
+    downloaded_file_path = "jetCheck-0.2.2-sources.jar",
+    sha256 = "a469f5da34cc1b8797cb017bc7a3c8253b441d441c39224c86fcd8183bcdff1f",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/jetCheck/0.2.2/jetCheck-0.2.2-sources.jar",
 )
 
 http_file(
@@ -11359,6 +11345,34 @@ http_file(
     downloaded_file_path = "xmlrpc-2.0.1-sources.jar",
     sha256 = "34d3755800c35568aab53447c576d3ab8fb63e6e9df32d6acb1fe7187bf5383c",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/apache/ws/xmlrpc/xmlrpc/2.0.1/xmlrpc-2.0.1-sources.jar",
+)
+
+http_file(
+    name = "org_xmlunit-xmlunit-core-2_9_1_http",
+    downloaded_file_path = "xmlunit-core-2.9.1.jar",
+    sha256 = "7e70f23d4f75e05f0ee79f0f6b9e13b6cf51d34f36c5fc3a6b839429dde1efef",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/xmlunit/xmlunit-core/2.9.1/xmlunit-core-2.9.1.jar",
+)
+
+http_file(
+    name = "jakarta_activation-jakarta_activation-api-1_2_2_http",
+    downloaded_file_path = "jakarta.activation-api-1.2.2.jar",
+    sha256 = "a187a939103aef5849a7af84bd7e27be2d120c410af291437375ffe061f4f09d",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/jakarta/activation/jakarta.activation-api/1.2.2/jakarta.activation-api-1.2.2.jar",
+)
+
+http_file(
+    name = "org_xmlunit-xmlunit-core-2_9_1-sources_http",
+    downloaded_file_path = "xmlunit-core-2.9.1-sources.jar",
+    sha256 = "10d11cebdd597d66ecb0f6d2d2c71955ca30412dbd4debd4c4c669bda4b0557d",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/xmlunit/xmlunit-core/2.9.1/xmlunit-core-2.9.1-sources.jar",
+)
+
+http_file(
+    name = "jakarta_activation-jakarta_activation-api-1_2_2-sources_http",
+    downloaded_file_path = "jakarta.activation-api-1.2.2-sources.jar",
+    sha256 = "d796357781c245863f310599daf09fa95e8deacb61d150ab73b9db9cfff0dbab",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/jakarta/activation/jakarta.activation-api/1.2.2/jakarta.activation-api-1.2.2-sources.jar",
 )
 
 http_file(

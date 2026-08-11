@@ -367,6 +367,7 @@ json/backend
 json/backend/regexp
 json/backend/tests
 json/networknt.wrapper
+json/networknt.wrapper/libraries
 json/networknt.wrapper/tests
 json/structureView
 json/syntax
@@ -466,6 +467,7 @@ libraries/jackson3/jackson
 libraries/jackson3/jr-objects
 libraries/jackson3/module-kotlin
 libraries/java-compatibility
+libraries/java-diff-utils
 libraries/java-websocket
 libraries/javax/activation
 libraries/javax/annotation
@@ -476,6 +478,7 @@ libraries/jcip
 libraries/jediterm-core
 libraries/jediterm-ui
 libraries/jetbrains/annotations
+libraries/jetcheck
 libraries/jettison
 libraries/jgit-ssh
 libraries/jgoodies/common
@@ -599,6 +602,7 @@ libraries/winp
 libraries/xerces
 libraries/xerial-snappy-java
 libraries/xml-rpc
+libraries/xmlunit-core
 libraries/xstream
 libraries/xtext-xbase
 libraries/xz
@@ -1613,6 +1617,7 @@ plugins/terminal/cloud
 plugins/terminal/completion
 plugins/terminal/emulator
 plugins/terminal/frontend
+plugins/terminal/libraries
 plugins/terminal/sh
 plugins/terminal/tests
 plugins/testng

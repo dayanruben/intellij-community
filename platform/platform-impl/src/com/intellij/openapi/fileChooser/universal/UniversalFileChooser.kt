@@ -28,6 +28,7 @@ import com.intellij.openapi.observable.util.whenDisposed
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.ui.ComponentValidator
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
@@ -39,9 +40,9 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.asNioPath
-import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.toEelApi
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.coroutines.childScope
@@ -201,7 +202,7 @@ object UniversalFileChooser {
     private val project: Project,
     okAction: Runnable,
     private val okEnabledUpdater: (Boolean) -> Unit = {},
-    contributors: Collection<UniversalFileChooserContributor> = UniversalFileChooserContributor.EP_NAME.extensionList,
+    private val contributors: Collection<UniversalFileChooserContributor> = UniversalFileChooserContributor.EP_NAME.extensionList,
     private val extraToolbarActions: ActionGroup = DefaultActionGroup(),
     private val extraPopupActions: ActionGroup = DefaultActionGroup(),
     preselectPath: Path? = null
@@ -241,7 +242,7 @@ object UniversalFileChooser {
         minOf(screenSize.height / 2, JBUI.scale(defaultHeight)),
       )
       tabbedPane = JBTabbedPane()
-      val projectContrib = projectContributor(project)
+      val projectContrib = projectContributor(project, contributors)
       val localContrib = localContributor(contributors)
       val restrictedContributors: Set<UniversalFileChooserContributor>
       effectiveContributors = if (descriptor.isEnvironmentRestricted) {
@@ -452,10 +453,17 @@ object UniversalFileChooser {
       return toolbar to actionGroup
     }
 
-    private fun projectContributor(project: Project): UniversalFileChooserContributor? {
-      if (project.isDefault) return null
-      val basePath = project.basePath ?: project.projectFilePath ?: return null
-      return UniversalFileChooserContributor.findOwner(Path.of(basePath))
+    private fun projectContributor(
+      project: Project,
+      contributors: Collection<UniversalFileChooserContributor> = this.contributors,
+    ): UniversalFileChooserContributor? {
+      val projectPath = project.guessedProjectPath() ?: return null
+      return contributors.findOwner(projectPath)
+    }
+
+    private fun Project.guessedProjectPath(): Path? {
+      if (this.isDefault) return null
+      return this.guessProjectDir()?.toNioPathOrNull()
     }
 
     private fun localContributor(contributors: Collection<UniversalFileChooserContributor>): UniversalFileChooserContributor? {
@@ -465,7 +473,7 @@ object UniversalFileChooser {
 
     private fun preselectProjectTab(project: Project) {
       if (fileViews.size <= 1) return
-      val projectContributor = projectContributor(project)
+      val projectContributor = projectContributor(project, contributors)
       projectContributor?.let { contributor ->
         tabbedPane.indexOfTab(contributor.tabTitle)
           .takeIf { it >= 0 }?.let { tabbedPane.selectedIndex = it }
@@ -492,7 +500,7 @@ object UniversalFileChooser {
       }
     }
 
-    private suspend fun pathToSelect(toSelect: Path?): Path {
+    private fun pathToSelect(toSelect: Path?): Path {
       val last = NioFileChooserUtil.getLastOpenedPath(project)
       if (last != null && (toSelect == null || descriptor.getUserData(PathChooserDialog.PREFER_LAST_OVER_EXPLICIT) == true)) {
         return last
@@ -501,10 +509,9 @@ object UniversalFileChooser {
         return toSelect
       }
       if (!project.isDefault) {
-        val eelDescriptor = project.getEelDescriptor()
-        val basePath = project.basePath ?: project.projectFilePath
-        if (basePath != null) {
-          return runCatching { Path.of(basePath) }.getOrNull() ?: eelDescriptor.toEelApi().userInfo.home.asNioPath()
+        val projectPath = project.guessedProjectPath()
+        if (projectPath != null) {
+          return projectPath
         }
       }
       return Path.of(SystemProperties.getUserHome())
@@ -599,7 +606,7 @@ object UniversalFileChooser {
       activeView.topComponent.cursor = Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR)
       scope.launch {
         withContext(Dispatchers.IO) {
-          val basePath = project.basePath?.let { Path.of(it) }
+          val basePath = project.guessedProjectPath()
                          ?: findNonProjectBasePath()
                          ?: return@withContext
           val homePath = basePath.asEelPath().descriptor.toEelApi().userInfo.home.asNioPath()
@@ -621,11 +628,11 @@ object UniversalFileChooser {
     }
 
     private fun navigateToProject() {
-      val basePath = project.basePath ?: return
       scope.launch {
         withContext(Dispatchers.IO) {
+          val projectPath = project.guessedProjectPath() ?: return@withContext
           runOnEdt {
-            navigateToFile(Path.of(basePath))
+            navigateToFile(projectPath)
           }
         }
       }
@@ -810,7 +817,7 @@ object UniversalFileChooser {
         scope.launch {
           withContext(Dispatchers.IO) {
             val allRoots = if (environmentRestricted && !project.isDefault) {
-              val basePath = project.basePath?.let { Path.of(it) }
+              val basePath = project.guessProjectDir()?.toNioPathOrNull()
               if (basePath != null) contributor.getFilteredRoots(basePath) else contributor.getRoots()
             }
             else {
@@ -1221,7 +1228,7 @@ object FileBrowser {
      * in that case the builder is left unchanged so callers can decide how to react.
      */
     fun root(root: Path): Boolean {
-      val contributor = UniversalFileChooserContributor.findOwner(root) ?: return false
+      val contributor = contributors.findOwner(root) ?: return false
       this.contributors = listOf(SingleRootContributor(contributor, root))
       return true
     }

@@ -6698,21 +6698,6 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains/jetCheck-0.2.2.jar_copy",
-    src = "@org_jetbrains-jetCheck-0_2_2_http//file",
-    out = "org.jetbrains/jetCheck-0.2.2.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "jet_check",
-    jar = "@org_jetbrains-jetCheck-0_2_2_http//file",
-    source_jar = "@org_jetbrains-jetCheck-0_2_2-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
     name = "org.jetbrains.compose.components/components-ui-tooling-preview-desktop-1.9.0.jar_copy",
     src = "@org_jetbrains_compose_components-components-ui-tooling-preview-desktop-1_9_0_http//file",
     out = "org.jetbrains.compose.components/components-ui-tooling-preview-desktop-1.9.0.jar",
@@ -7293,36 +7278,6 @@ jvm_import(
 )
 
 copy_file(
-    name = "tools.jackson.core/jackson-core-3.0.3.jar_copy",
-    src = "@tools_jackson_core-jackson-core-3_0_3_http//file",
-    out = "tools.jackson.core/jackson-core-3.0.3.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "json-networknt-wrapper-jackson-core-3",
-    jar = "@tools_jackson_core-jackson-core-3_0_3_http//file",
-    source_jar = "@tools_jackson_core-jackson-core-3_0_3-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "tools.jackson.core/jackson-databind-3.0.3.jar_copy",
-    src = "@tools_jackson_core-jackson-databind-3_0_3_http//file",
-    out = "tools.jackson.core/jackson-databind-3.0.3.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "json-networknt-wrapper-jackson-databind-3",
-    jar = "@tools_jackson_core-jackson-databind-3_0_3_http//file",
-    source_jar = "@tools_jackson_core-jackson-databind-3_0_3-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
     name = "com.networknt/json-schema-validator-3.0.0-jetbrains.10.jar_copy",
     src = "@com_networknt-json-schema-validator-3_0_0-jetbrains_10_http//file",
     out = "com.networknt/json-schema-validator-3.0.0-jetbrains.10.jar",
@@ -7331,7 +7286,7 @@ copy_file(
 )
 
 jvm_import(
-    name = "json-networknt-wrapper-json-schema-validator-jetbrains",
+    name = "json-networknt-wrapper-libraries-json_schema_validator-json-schema-validator-jetbrains",
     jar = "@com_networknt-json-schema-validator-3_0_0-jetbrains_10_http//file",
     source_jar = "@com_networknt-json-schema-validator-3_0_0-jetbrains_10-sources_http//file",
     visibility = ["//visibility:public"],
@@ -11541,6 +11496,21 @@ jvm_import(
 )
 
 copy_file(
+    name = "io.github.java-diff-utils/java-diff-utils-4.16.jar_copy",
+    src = "@io_github_java-diff-utils-java-diff-utils-4_16_http//file",
+    out = "io.github.java-diff-utils/java-diff-utils-4.16.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-java-diff-utils-java-diff-utils",
+    jar = "@io_github_java-diff-utils-java-diff-utils-4_16_http//file",
+    source_jar = "@io_github_java-diff-utils-java-diff-utils-4_16-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
     name = "org.java-websocket/Java-WebSocket-1.6.0.jar_copy",
     src = "@org_java-websocket-Java-WebSocket-1_6_0_http//file",
     out = "org.java-websocket/Java-WebSocket-1.6.0.jar",
@@ -11642,6 +11612,21 @@ jvm_import(
     name = "libraries-jetbrains-annotations-jetbrains-annotations",
     jar = "@org_jetbrains-annotations-26_0_2_http//file",
     source_jar = "@org_jetbrains-annotations-26_0_2-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains/jetCheck-0.2.2.jar_copy",
+    src = "@org_jetbrains-jetCheck-0_2_2_http//file",
+    out = "org.jetbrains/jetCheck-0.2.2.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-jetcheck-jet_check",
+    jar = "@org_jetbrains-jetCheck-0_2_2_http//file",
+    source_jar = "@org_jetbrains-jetCheck-0_2_2-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -14359,6 +14344,45 @@ jvm_import(
     jar = "@org_apache_ws_xmlrpc-xmlrpc-2_0_1_http//file",
     source_jar = "@org_apache_ws_xmlrpc-xmlrpc-2_0_1-sources_http//file",
     visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.xmlunit/xmlunit-core-2.9.1.jar_copy",
+    src = "@org_xmlunit-xmlunit-core-2_9_1_http//file",
+    out = "org.xmlunit/xmlunit-core-2.9.1.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "jakarta.activation/jakarta.activation-api-1.2.2.jar_copy",
+    src = "@jakarta_activation-jakarta_activation-api-1_2_2_http//file",
+    out = "jakarta.activation/jakarta.activation-api-1.2.2.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+java_library(
+    name = "libraries-xmlunit-core-_x_m_l_unit_core",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        ":org_xmlunit-xmlunit-core-2_9_1_http_import",
+        ":jakarta_xml_bind-jakarta_xml_bind-api-2_3_3_http_import",
+        ":jakarta_activation-jakarta_activation-api-1_2_2_http_import",
+    ],
+)
+
+jvm_import(
+    name = "org_xmlunit-xmlunit-core-2_9_1_http_import",
+    jar = "@org_xmlunit-xmlunit-core-2_9_1_http//file",
+    source_jar = "@org_xmlunit-xmlunit-core-2_9_1-sources_http//file",
+)
+
+jvm_import(
+    name = "jakarta_activation-jakarta_activation-api-1_2_2_http_import",
+    jar = "@jakarta_activation-jakarta_activation-api-1_2_2_http//file",
+    source_jar = "@jakarta_activation-jakarta_activation-api-1_2_2-sources_http//file",
 )
 
 copy_file(
@@ -20435,7 +20459,7 @@ copy_file(
 )
 
 jvm_import(
-    name = "terminal-terminal-completion-db-with-extensions",
+    name = "terminal-libraries-completion_db_with_extensions-terminal-completion-db-with-extensions",
     jar = "@org_jetbrains_terminal-completion-db-with-extensions-0_7_0_http//file",
     visibility = ["//visibility:public"],
 )
