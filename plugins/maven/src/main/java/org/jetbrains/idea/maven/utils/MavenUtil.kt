@@ -1991,10 +1991,6 @@ object MavenUtil {
   }
 
   @JvmStatic
-  val mavenPluginParentFile: Path
-    get() = Paths.get(PathManager.getCommunityHomePath(), "plugins", "maven")
-
-  @JvmStatic
   @ApiStatus.Internal
   fun isMavenUnitTestModeEnabled(): Boolean {
     if (shouldRunTasksAsynchronouslyInTests()) {
@@ -2093,6 +2089,19 @@ object MavenUtil {
     }
   }
 
+  /**
+   * `true` only when the Maven plugin's classes come from JPS module outputs - unit tests, and run configurations
+   * *without* the `dev build` suffix. In that mode there is no assembled plugin layout, so the Maven server classpath
+   * has to be stitched together from module outputs and downloaded libraries.
+   *
+   * A **dev build is not included here**, by design: its plugin layout is the production layout, and its launcher pins
+   * `idea.home.path` to the assembled run directory (`DevMainImpl.buildDevMain`, `IdeFromCodeInstaller.getTestVmOptions`),
+   * so [PluginManagerCore.isRunningFromSources] already answers `false` there. Dev builds therefore take the same
+   * production code path as an installed IDE - do not add dev-build-specific branches or layout probes.
+   *
+   * @see PluginManagerCore.isRunningFromSources
+   * @see com.intellij.idea.AppMode.isRunningFromDevBuild
+   */
   @JvmStatic
   fun isRunningFromSources(): Boolean = PluginManagerCore.isRunningFromSources()
 

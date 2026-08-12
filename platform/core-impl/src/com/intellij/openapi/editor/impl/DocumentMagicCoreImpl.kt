@@ -39,15 +39,16 @@ internal class DocumentMagicCoreImpl private constructor(
   private val settingsElf: DocumentSettings,
   private val settingsReal: DocumentSettings,
 ): DocumentMagicCore {
-  private val dispatcher = DocumentMagicEventDispatcherImpl()
-  private val tree = RangeMarkerStorageImpl(dispatcher)
-  private val mutatorElf = DocumentElfMutatorImpl()
-  private val mutatorReal = DocumentRealMutatorImpl()
-  private val sync = ElfRealSyncImpl()
-  private val liveElf = LiveElf()
-  private val liveReal = LiveReal()
-  private val viewElf = DocumentElfCore()
-  private val viewReal = DocumentRealCore()
+  private val dispatcher: DocumentMagicEventDispatcher = DocumentMagicEventDispatcherImpl()
+  private val rangeMarkers: RangeMarkerStorageImpl = RangeMarkerStorageImpl(dispatcher)
+  private val guardedBlocks: GuardedBlocks = GuardedBlocksImpl(rangeMarkers)
+  private val mutatorElf: DocumentElfMutator = DocumentElfMutatorImpl()
+  private val mutatorReal: DocumentRealMutator = DocumentRealMutatorImpl()
+  private val sync: ElfRealSync = ElfRealSyncImpl()
+  private val liveElf: LiveElf = LiveElf()
+  private val liveReal: LiveReal = LiveReal()
+  private val viewElf: DocumentCore = DocumentElfCore()
+  private val viewReal: DocumentCore = DocumentRealCore()
   @Volatile private var frozenElf: FrozenDocument? = null
   @Volatile private var frozenReal: FrozenDocument? = null
 
@@ -74,7 +75,11 @@ internal class DocumentMagicCoreImpl private constructor(
   }
 
   override fun rangeMarkers(): RangeMarkerStorage {
-    return tree
+    return rangeMarkers
+  }
+
+  override fun guardedBlocks(): GuardedBlocks {
+    return guardedBlocks
   }
 
   override fun dispatcher(): DocumentEventDispatcher {
@@ -176,7 +181,11 @@ internal class DocumentMagicCoreImpl private constructor(
     }
 
     override fun rangeMarkers(): RangeMarkerStorage {
-      return this@DocumentMagicCoreImpl.tree
+      return this@DocumentMagicCoreImpl.rangeMarkers
+    }
+
+    override fun guardedBlocks(): GuardedBlocks {
+      return this@DocumentMagicCoreImpl.guardedBlocks
     }
 
     override fun dispatcher(): DocumentEventDispatcher {
@@ -206,7 +215,11 @@ internal class DocumentMagicCoreImpl private constructor(
     }
 
     override fun rangeMarkers(): RangeMarkerStorage {
-      return this@DocumentMagicCoreImpl.tree
+      return this@DocumentMagicCoreImpl.rangeMarkers
+    }
+
+    override fun guardedBlocks(): GuardedBlocks {
+      return this@DocumentMagicCoreImpl.guardedBlocks
     }
 
     override fun dispatcher(): DocumentEventDispatcher {
@@ -228,39 +241,39 @@ internal class DocumentMagicCoreImpl private constructor(
 
   private inner class LiveElf : CharSequence {
     override val length: Int
-      get() = this@DocumentMagicCoreImpl.snapshot.elf.textLength()
+      get() = this@DocumentMagicCoreImpl.snapshot.elf.text().length()
 
     override fun get(index: Int): Char {
-      return this@DocumentMagicCoreImpl.snapshot.elf.text()[index]
+      return this@DocumentMagicCoreImpl.snapshot.elf.text().chars()[index]
     }
 
     override fun subSequence(startIndex: Int, endIndex: Int): CharSequence {
-      return this@DocumentMagicCoreImpl.snapshot.elf.text().subSequence(startIndex, endIndex)
+      return this@DocumentMagicCoreImpl.snapshot.elf.text().chars().subSequence(startIndex, endIndex)
     }
 
     override fun toString(): String {
-      return this@DocumentMagicCoreImpl.snapshot.elf.string()
+      return this@DocumentMagicCoreImpl.snapshot.elf.text().string()
     }
   }
 
   private inner class LiveReal : CharSequence {
     override val length: Int
-      get() = this@DocumentMagicCoreImpl.snapshot.real.textLength()
+      get() = this@DocumentMagicCoreImpl.snapshot.real.text().length()
 
     override fun get(index: Int): Char {
-      return this@DocumentMagicCoreImpl.snapshot.real.text()[index]
+      return this@DocumentMagicCoreImpl.snapshot.real.text().chars()[index]
     }
 
     override fun subSequence(startIndex: Int, endIndex: Int): CharSequence {
-      return this@DocumentMagicCoreImpl.snapshot.real.text().subSequence(startIndex, endIndex)
+      return this@DocumentMagicCoreImpl.snapshot.real.text().chars().subSequence(startIndex, endIndex)
     }
 
     override fun toString(): String {
-      return this@DocumentMagicCoreImpl.snapshot.real.string()
+      return this@DocumentMagicCoreImpl.snapshot.real.text().string()
     }
   }
 
-  private inner class DocumentRealMutatorImpl : DocumentRealMutator(settingsReal, dispatcher, tree) {
+  private inner class DocumentRealMutatorImpl : DocumentRealMutator(settingsReal, dispatcher, guardedBlocks) {
     override fun getSnapshot(): DocumentSnapshot {
       return this@DocumentMagicCoreImpl.snapshot.real
     }
@@ -282,7 +295,7 @@ internal class DocumentMagicCoreImpl private constructor(
     }
   }
 
-  private inner class DocumentElfMutatorImpl : DocumentElfMutator(settingsElf, dispatcher, tree) {
+  private inner class DocumentElfMutatorImpl : DocumentElfMutator(settingsElf, dispatcher, guardedBlocks) {
     override fun getSnapshot(): DocumentSnapshot {
       return this@DocumentMagicCoreImpl.snapshot.elf
     }
@@ -311,7 +324,7 @@ internal class DocumentMagicCoreImpl private constructor(
     fun createCore(chars: CharSequence, acceptSlashR: Boolean, forUseInNonAWTThread: Boolean): DocumentCore {
       val settingsReal = DocumentSettingsImpl(!forUseInNonAWTThread, acceptSlashR, chars)
       val settingsElf = DocumentElfSettingsImpl(settingsReal)
-      val snapshot = SnapshotSnapshot.newClean(DocumentSnapshotImpl(chars))
+      val snapshot = SnapshotSnapshot.newClean(DocumentSnapshotImpl(DocumentTextImpl(chars)))
       return DocumentMagicCoreImpl(snapshot, settingsElf, settingsReal)
     }
 

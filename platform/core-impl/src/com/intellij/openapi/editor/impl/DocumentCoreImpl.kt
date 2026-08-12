@@ -4,9 +4,9 @@ package com.intellij.openapi.editor.impl
 import com.intellij.openapi.editor.ex.DocumentCore
 import com.intellij.openapi.editor.ex.DocumentEventDispatcher
 import com.intellij.openapi.editor.ex.DocumentMutator
-import com.intellij.openapi.editor.ex.RangeMarkerStorage
 import com.intellij.openapi.editor.ex.DocumentSettings
 import com.intellij.openapi.editor.ex.DocumentSnapshot
+import com.intellij.openapi.editor.ex.RangeMarkerStorage
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater
 import java.util.function.UnaryOperator
 import kotlin.concurrent.Volatile
@@ -18,8 +18,9 @@ internal class DocumentCoreImpl private constructor(
   @Volatile private var snapshot: DocumentSnapshot, // mutable via SNAPSHOT_UPDATER
   private val settings: DocumentSettings,
   private val dispatcher: DocumentEventDispatcherImpl,
-  private val tree: RangeMarkerStorage,
+  private val rangeMarkers: RangeMarkerStorage,
 ) : DocumentCore {
+  private val guardedBlocks: GuardedBlocks = GuardedBlocksImpl(rangeMarkers as RangeMarkerStorageImpl)
   private val live: CharSequence = LiveCharSequence()
   private val mutator: DocumentMutator = MutatorImpl()
   @Volatile private var frozen: FrozenDocument? = null
@@ -33,7 +34,11 @@ internal class DocumentCoreImpl private constructor(
   }
 
   override fun rangeMarkers(): RangeMarkerStorage {
-    return tree
+    return rangeMarkers
+  }
+
+  override fun guardedBlocks(): GuardedBlocks {
+    return guardedBlocks
   }
 
   override fun dispatcher(): DocumentEventDispatcher {
@@ -68,22 +73,22 @@ internal class DocumentCoreImpl private constructor(
 
   private inner class LiveCharSequence : CharSequence {
     override val length: Int
-      get() = this@DocumentCoreImpl.snapshot.textLength()
+      get() = this@DocumentCoreImpl.snapshot.text().length()
 
     override fun get(index: Int): Char {
-      return this@DocumentCoreImpl.snapshot.text()[index]
+      return this@DocumentCoreImpl.snapshot.text().chars()[index]
     }
 
     override fun subSequence(startIndex: Int, endIndex: Int): CharSequence {
-      return this@DocumentCoreImpl.snapshot.text().subSequence(startIndex, endIndex)
+      return this@DocumentCoreImpl.snapshot.text().chars().subSequence(startIndex, endIndex)
     }
 
     override fun toString(): String {
-      return this@DocumentCoreImpl.snapshot.string()
+      return this@DocumentCoreImpl.snapshot.text().string()
     }
   }
 
-  private inner class MutatorImpl : DocumentMutatorImpl(settings, dispatcher, tree) {
+  private inner class MutatorImpl : DocumentMutatorImpl(settings, dispatcher, guardedBlocks) {
     override fun getSnapshot(): DocumentSnapshot {
       return this@DocumentCoreImpl.snapshot
     }
@@ -99,7 +104,7 @@ internal class DocumentCoreImpl private constructor(
       val settings = DocumentSettingsImpl(!forUseInNonAWTThread, acceptSlashR, chars)
       val dispatcher = DocumentEventDispatcherImpl(settings)
       val tree = RangeMarkerStorageImpl(dispatcher)
-      val snapshot = DocumentSnapshotImpl(chars)
+      val snapshot = DocumentSnapshotImpl(DocumentTextImpl(chars))
       return DocumentCoreImpl(snapshot, settings, dispatcher, tree)
     }
 

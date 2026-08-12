@@ -22,6 +22,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.UnmodifiableView;
 
 import java.beans.PropertyChangeListener;
 import java.util.List;
@@ -74,11 +75,9 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
   }
 
   public DocumentImpl(@NotNull CharSequence chars, boolean acceptSlashR, boolean forUseInNonAWTThread) {
-    this(
-      forUseInNonAWTThread
-      ? DocumentCoreImpl.createCore(chars, acceptSlashR, forUseInNonAWTThread)
-      : DocumentMagicCoreImpl.createCore(chars, acceptSlashR, forUseInNonAWTThread)
-    );
+    this(forUseInNonAWTThread
+         ? DocumentCoreImpl.createCore(chars, acceptSlashR, forUseInNonAWTThread)
+         : DocumentMagicCoreImpl.createCore(chars, acceptSlashR, forUseInNonAWTThread));
   }
 
   private DocumentImpl(@NotNull DocumentCore impl) {
@@ -97,7 +96,7 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
 
   @Override
   public @NotNull CharSequence getImmutableCharSequence() {
-    return impl.snapshot().text();
+    return impl.snapshot().text().chars();
   }
 
   @Override
@@ -107,47 +106,47 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
 
   @Override
   public @NotNull String getText() {
-    return impl.snapshot().string();
+    return impl.snapshot().text().string();
   }
 
   @Override
   public @NotNull String getText(@NotNull TextRange range) {
-    return impl.snapshot().string(range);
+    return impl.snapshot().text().string(range);
   }
 
   @Override
   public int getTextLength() {
-    return impl.snapshot().textLength();
+    return impl.snapshot().text().length();
   }
 
   @Override
   public int getLineCount() {
-    return impl.snapshot().lineCount();
+    return impl.snapshot().text().lineCount();
   }
 
   @Override
   public int getLineNumber(int offset) {
-    return impl.snapshot().lineNumber(offset);
+    return impl.snapshot().text().lineNumber(offset);
   }
 
   @Override
   public int getLineStartOffset(int line) {
-    return impl.snapshot().lineStartOffset(line);
+    return impl.snapshot().text().lineStartOffset(line);
   }
 
   @Override
   public int getLineEndOffset(int line) {
-    return impl.snapshot().lineEndOffset(line);
+    return impl.snapshot().text().lineEndOffset(line);
   }
 
   @Override
   public int getLineSeparatorLength(int line) {
-    return impl.snapshot().lineSeparatorLength(line);
+    return impl.snapshot().text().lineSeparatorLength(line);
   }
 
   @Override
   public @NotNull LineIterator createLineIterator() {
-    return impl.snapshot().lineIterator();
+    return impl.snapshot().text().lineIterator();
   }
 
   @Override
@@ -187,12 +186,12 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
 
   @Override
   public int getModificationSequence() {
-    return impl.snapshot().modSequence();
+    return impl.snapshot().text().modSequence();
   }
 
   @Override
   public long getModificationStamp() {
-    return impl.snapshot().modStamp();
+    return impl.snapshot().text().modStamp();
   }
 
   @Override
@@ -202,7 +201,7 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
 
   @Override
   public boolean isLineModified(int line) {
-    return impl.snapshot().isLineModified(line);
+    return impl.snapshot().text().isLineModified(line);
   }
 
   @Override
@@ -221,14 +220,12 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
   }
 
   @Override
-  public void registerRangeMarker(
-    @NotNull RangeMarkerEx rangeMarker,
-    int start,
-    int end,
-    boolean greedyToLeft,
-    boolean greedyToRight,
-    int layer
-  ) {
+  public void registerRangeMarker(@NotNull RangeMarkerEx rangeMarker,
+                                  int start,
+                                  int end,
+                                  boolean greedyToLeft,
+                                  boolean greedyToRight,
+                                  int layer) {
     impl.rangeMarkers().registerRangeMarker(rangeMarker, start, end, greedyToLeft, greedyToRight, layer);
   }
 
@@ -296,27 +293,27 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
 
   @Override
   public @NotNull RangeMarker createGuardedBlock(int startOffset, int endOffset) {
-    return impl.rangeMarkers().createGuardedBlock(hostDocument(), startOffset, endOffset);
+    return impl.guardedBlocks().createGuardedBlock(hostDocument(), startOffset, endOffset);
   }
 
   @Override
   public void removeGuardedBlock(@NotNull RangeMarker block) {
-    impl.rangeMarkers().removeGuardedBlock(block);
+    impl.guardedBlocks().removeGuardedBlock(block);
   }
 
   @Override
-  public @NotNull List<RangeMarker> getGuardedBlocks() {
-    return impl.rangeMarkers().getGuardedBlocks();
+  public @NotNull @UnmodifiableView List<RangeMarker> getGuardedBlocks() {
+    return impl.guardedBlocks().getGuardedBlocks();
   }
 
   @Override
   public @Nullable RangeMarker getOffsetGuard(int offset) {
-    return impl.rangeMarkers().getOffsetGuard(offset);
+    return impl.guardedBlocks().getOffsetGuard(offset);
   }
 
   @Override
   public @Nullable RangeMarker getRangeGuard(int start, int end) {
-    return impl.rangeMarkers().getRangeGuard(start, end);
+    return impl.guardedBlocks().getRangeGuard(start, end);
   }
 
   @Override
@@ -390,7 +387,12 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
   }
 
   @ApiStatus.Internal
-  public void replaceString(int startOffset, int endOffset, int moveOffset, @NotNull CharSequence s, long newModificationStamp, boolean wholeTextReplaced) {
+  public void replaceString(int startOffset,
+                            int endOffset,
+                            int moveOffset,
+                            @NotNull CharSequence s,
+                            long newModificationStamp,
+                            boolean wholeTextReplaced) {
     impl.mutator().replaceString(hostDocument(), startOffset, endOffset, moveOffset, s, newModificationStamp, wholeTextReplaced);
   }
 
@@ -435,7 +437,7 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
 
   @ApiStatus.Internal
   public @NotNull FrozenDocument freeze() {
-    return (FrozenDocument) impl.frozen();
+    return (FrozenDocument)impl.frozen();
   }
 
   @ApiStatus.Internal
@@ -474,7 +476,8 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
   @Override
   public String toString() {
     VirtualFile virtualFile = FileDocumentManager.getInstance().getFile(hostDocument());
-    return "DocumentImpl[" + (virtualFile == null ? null : virtualFile.getName()) +
+    return "DocumentImpl[" +
+           (virtualFile == null ? null : virtualFile.getName()) +
            (isInEventsHandling() ? ",inEventHandling" : "") +
            (!isWriteThreadOnly() ? ",nonWriteThreadOnly" : "") +
            (acceptsSlashR() ? ",acceptSlashR" : "") +

@@ -30,7 +30,6 @@ import org.jetbrains.intellij.build.telemetry.use
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.util.Locale
 
 object CommunityRepositoryModules {
@@ -88,6 +87,12 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.tasks.compatibility")
       spec.withModule("intellij.tasks.java")
     },
+    // The relative paths below (`lib/maven3`, `lib/intellij.maven.server3`, ...) are a runtime contract, not an
+    // internal packaging detail: the Maven plugin reads them back at runtime through
+    // `MavenClasspathBuilder.addMavenServerLibraries` and `MavenDistributionsCache.resolveEmbeddedMavenHome`.
+    // This layout is produced identically for a release build and a dev build (resource generators run in both -
+    // only `BuildOptions.skipCustomResourceGenerators`, used by build tests, suppresses them), which is why the
+    // runtime has no dev-build-specific branch. Renaming a path here breaks the IDE, not just the distribution.
     plugin("intellij.maven.plugin") { spec ->
 
       spec.doNotCopyModuleLibrariesAutomatically(
@@ -106,7 +111,7 @@ object CommunityRepositoryModules {
         val targetLib = targetDir.resolve("lib")
 
         val mavenDist = BundledMavenDownloader.downloadMavenDistribution(context.paths.communityHomeDirRoot)
-        copyDir(mavenDist, targetLib.resolve("maven3"))
+        materializeCacheDir(sourceDir = mavenDist, targetDir = targetLib.resolve("maven3"), context = context)
       }
 
       with("intellij.maven.server3") {
@@ -117,10 +122,10 @@ object CommunityRepositoryModules {
 
         spec.withGeneratedResources { targetDir, context ->
           val targetLib = targetDir.resolve("lib")
-          val maven3Libs = BundledMavenDownloader.downloadMaven3Libs(context.paths.communityHomeDirRoot)
-          copyDir(maven3Libs, targetLib.resolve(this))
-          val mavenTelemetryDependencies = BundledMavenDownloader.downloadMavenTelemetryDependencies(context.paths.communityHomeDirRoot)
-          copyDir(mavenTelemetryDependencies, targetLib.resolve(this))
+          val maven3Libs = BundledMavenDownloader.resolveMaven3Libs(context.paths.communityHomeDirRoot)
+          copyMavenLibraries(maven3Libs, targetLib.resolve(this), context)
+          val mavenTelemetryDependencies = BundledMavenDownloader.resolveMavenTelemetryDependencies(context.paths.communityHomeDirRoot)
+          copyMavenLibraries(mavenTelemetryDependencies, targetLib.resolve(this), context)
         }
       }
 
@@ -135,10 +140,10 @@ object CommunityRepositoryModules {
 
         spec.withGeneratedResources { targetDir, context ->
           val targetLib = targetDir.resolve("lib")
-          val maven4Libs = BundledMavenDownloader.downloadMaven4Libs(context.paths.communityHomeDirRoot)
-          copyDir(maven4Libs, targetLib.resolve(this))
-          val mavenTelemetryDependencies = BundledMavenDownloader.downloadMavenTelemetryDependencies(context.paths.communityHomeDirRoot)
-          copyDir(mavenTelemetryDependencies, targetLib.resolve(this))
+          val maven4Libs = BundledMavenDownloader.resolveMaven4Libs(context.paths.communityHomeDirRoot)
+          copyMavenLibraries(maven4Libs, targetLib.resolve(this), context)
+          val mavenTelemetryDependencies = BundledMavenDownloader.resolveMavenTelemetryDependencies(context.paths.communityHomeDirRoot)
+          copyMavenLibraries(mavenTelemetryDependencies, targetLib.resolve(this), context)
         }
       }
 
@@ -337,21 +342,22 @@ object CommunityRepositoryModules {
     }
   }
 
+  /**
+   * The JCEF archive the [jcefPlugin] resource generator downloads. Public so tests that
+   * pre-provision the build-dependencies download cache can pin the same URL.
+   */
+  fun jcefDownloadUrl(os: OsFamily, arch: JvmArchitecture, build: String): String {
+    val archSuffix = when (arch) {
+      JvmArchitecture.x64 -> "x64"
+      JvmArchitecture.aarch64 -> "aarch64"
+    }
+    return "https://cache-redirector.jetbrains.com/intellij-jbr/jcef-${os.jbrArchiveSuffix}-${archSuffix}-${build}.tar.gz"
+  }
+
   fun jcefPlugin(os: OsFamily, arch: JvmArchitecture): PluginLayout {
     return plugin("intellij.jcef.plugin") { spec ->
       spec.bundlingRestrictions.supportedOs = persistentListOf(os)
       spec.bundlingRestrictions.supportedArch = persistentListOf(arch)
-
-      fun archSuffix(arch: JvmArchitecture): String = when (arch) {
-        JvmArchitecture.x64 -> "x64"
-        JvmArchitecture.aarch64 -> "aarch64"
-      }
-
-      fun jcefArchiveName(os: OsFamily, arch: JvmArchitecture, build: String): String =
-        "jcef-${os.jbrArchiveSuffix}-${archSuffix(arch)}-${build}.tar.gz"
-
-      fun downloadUrlFor(os: OsFamily, arch: JvmArchitecture, build: String): String =
-        "https://cache-redirector.jetbrains.com/intellij-jbr/${jcefArchiveName(os, arch, build)}"
 
       patchOsSpecificPluginXml(spec, os, arch)
 
@@ -366,16 +372,17 @@ object CommunityRepositoryModules {
         val properties = BuildDependenciesDownloader.getDependencyProperties(communityRoot)
         val jcefBuildNumber = properties.property("jcefBuild")
 
-        val archivePath = downloadFileToCacheLocation(downloadUrlFor(os, arch, jcefBuildNumber), communityRoot)
-        val subDir = targetDir.resolve("jcef-tmp") // to not clean up root plugin directory on BuildDependenciesDownloader.extractFile
-        Files.createDirectories(subDir)
-
-        BuildDependenciesDownloader.extractFile(archivePath, subDir, communityRoot, BuildDependenciesExtractOptions.STRIP_ROOT)
+        // extracted into the content-keyed cache rather than straight into the layout: a dev run directory is wiped
+        // on every launch (`IdeBuilder`), so an extraction that lands in it is an extraction repeated every launch
+        val extracted = resolveAndExtractToCacheLocation(
+          url = jcefDownloadUrl(os, arch, jcefBuildNumber),
+          communityRoot = communityRoot,
+          BuildDependenciesExtractOptions.STRIP_ROOT,
+        )
 
         // Unix ZIP does not have root `jcef` directory
-        val jcefOutputDir = if (Files.exists(subDir.resolve("jcef"))) subDir.resolve("jcef") else subDir
-        Files.move(jcefOutputDir, targetDir.resolve("jcef"), StandardCopyOption.REPLACE_EXISTING)
-        Files.deleteIfExists(subDir)
+        val jcefOutputDir = extracted.resolve("jcef").takeIf { Files.exists(it) } ?: extracted
+        materializeCacheDir(sourceDir = jcefOutputDir, targetDir = targetDir.resolve("jcef"), context = context)
       }
 
       spec.enableSymlinksAndExecutableResources()
@@ -789,6 +796,12 @@ object CommunityRepositoryModules {
       spec.withResource("groovy-psi/resources/conf", "lib")
       addition?.invoke(spec)
     }
+  }
+}
+
+private fun copyMavenLibraries(libraries: List<BundledMavenDownloader.MavenLibraryFile>, targetDir: Path, context: BuildContext) {
+  for ((fileName, source) in libraries) {
+    materializeCacheFile(source = source, target = targetDir.resolve(fileName), context = context)
   }
 }
 
