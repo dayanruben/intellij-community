@@ -25,22 +25,8 @@ import org.jetbrains.jps.model.module.JpsLibraryDependency
 import org.jetbrains.jps.model.module.JpsModuleDependency
 import org.jetbrains.jps.model.module.JpsModuleReference
 import java.util.SortedSet
-
-// These project libraries must be converted to content modules and removed from the allowlist.
-private val IMPLICIT_PROJECT_LIBRARY_ALLOWLIST: Set<String> = java.util.Set.of(
-  "Log4J",
-  "kotlin-stdlib",
-  "studio-platform",
-)
-
-internal fun checkImplicitProjectLibraryViolations(violations: Map<String, Set<String>>) {
-  check(violations.isEmpty()) {
-    "Project libraries used by implicit platform modules must be converted to content modules:\n" +
-    violations.entries.sortedBy { it.key }.joinToString(separator = "\n") { (libraryName, moduleNames) ->
-      "  '$libraryName' used by " + moduleNames.sorted().joinToString { "'$it'" }
-    }
-  }
-}
+import java.util.TreeMap
+import java.util.TreeSet
 
 private fun addModule(relativeJarPath: String, moduleNames: Sequence<String>, productLayout: ProductModulesLayout, layout: PlatformLayout) {
   layout.withModules(
@@ -101,8 +87,11 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
     "intellij.platform.eel.nioFs",  // NIO bridge for EEL (EelPath <-> Path conversions, EelPathBoundDescriptor)
   ), productLayout = productLayout, layout = layout)
 
-  // todo as content module
+  // todo as content module (IJPL-252372)
+  // see JarPackager.libsUsedInJps - these libraries must be a part of util-8.jar
   layout.withProjectLibraries(sequenceOf(
+    "Log4J",
+    "kotlin-stdlib",
     "slf4j-api",
     "slf4j-jdk14",
   ), UTIL_8_JAR)
@@ -255,37 +244,27 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
 
   // sqlite - used by DB and "import settings" (temporarily)
   layout.alwaysPackToPlugin(listOf("flexmark", "sqlite"))
+  val violations = TreeMap<String, MutableSet<String>>()
   for (item in projectLibrariesUsedByPlugins) {
     val libName = item.libraryName
-    if (!libAsProductModule.contains(libName) && !layout.isProjectLibraryExcluded(libName) && !layout.isLibraryAlwaysPackedIntoPlugin(libName)) {
-      layout.includedProjectLibraries.add(item)
+    if (layout.hasLibrary(libName) ||
+        libAsProductModule.contains(libName) ||
+        layout.isProjectLibraryExcluded(libName) ||
+        layout.isLibraryAlwaysPackedIntoPlugin(libName)) {
+      continue
+    }
+
+    val dependentModules = violations.computeIfAbsent(libName) { TreeSet() }
+    for (modules in item.dependentModules.values) {
+      dependentModules.addAll(modules)
     }
   }
-
-  // as a separate step, not a part of computing implicitModules, as we should collect libraries from such implicitly included modules
-  val implicitProjectLibraryViolations = HashMap<String, MutableSet<String>>()
-  layout.collectProjectLibrariesFromIncludedModules(outputProvider) { libName, module ->
-    if (libAsProductModule.contains(libName)) {
-      return@collectProjectLibrariesFromIncludedModules
+  check(violations.isEmpty()) {
+    "Project libraries used by plugins must be converted to content modules:\n" +
+    violations.entries.joinToString(separator = "\n") { (libraryName, moduleNames) ->
+      "  '$libraryName' used by " + moduleNames.joinToString { "'$it'" }
     }
-
-    if (!IMPLICIT_PROJECT_LIBRARY_ALLOWLIST.contains(libName)) {
-      implicitProjectLibraryViolations.computeIfAbsent(libName) { HashSet() }.add(module.name)
-      return@collectProjectLibrariesFromIncludedModules
-    }
-
-    layout.includedProjectLibraries
-      .addOrGet(
-        ProjectLibraryData(
-          libraryName = libName,
-          packMode = LibraryPackMode.MERGED,
-          reason = "<- ${module.name}",
-          owner = null,
-        )
-      )
-      .dependentModules.computeIfAbsent("core") { mutableListOf() }.add(module.name)
   }
-  checkImplicitProjectLibraryViolations(implicitProjectLibraryViolations)
 
   val platformMainModule = "intellij.platform.starter"
   if (context.isEmbeddedFrontendEnabled && layout.includedModules.none { it.moduleName == platformMainModule }) {

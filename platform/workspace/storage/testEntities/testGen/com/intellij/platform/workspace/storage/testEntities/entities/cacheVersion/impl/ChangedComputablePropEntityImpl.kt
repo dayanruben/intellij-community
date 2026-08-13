@@ -17,14 +17,12 @@ import com.intellij.platform.workspace.storage.instrumentation.EntityStorageInst
 import com.intellij.platform.workspace.storage.metadata.model.EntityMetadata
 import com.intellij.platform.workspace.storage.testEntities.entities.cacheVersion.ChangedComputablePropEntity
 import com.intellij.platform.workspace.storage.testEntities.entities.cacheVersion.ChangedComputablePropEntityBuilder
-import com.intellij.platform.workspace.storage.testEntities.entities.cacheVersion.ChangedComputablePropEntityId
 
 @GeneratedCodeApiVersion(3)
 @GeneratedCodeImplVersion(7)
 @OptIn(WorkspaceEntityInternalApi::class)
 internal class ChangedComputablePropEntityImpl(private val dataSource: ChangedComputablePropEntityData) : ChangedComputablePropEntity,
                                                                                                           WorkspaceEntityBase(dataSource) {
-  override val symbolicId: ChangedComputablePropEntityId = super.symbolicId
 
   override val text: String
     get() {

@@ -1,15 +1,23 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
+import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
 import org.jetbrains.intellij.build.dev.BuildRequest
 import org.jetbrains.intellij.build.dev.configureDevModeBuildOptions
+import org.jetbrains.intellij.build.dev.copyWithDevBuildOverrides
+import org.jetbrains.intellij.build.dev.createDevBuildPaths
+import org.jetbrains.intellij.build.dev.formatCoreClasspath
+import org.jetbrains.intellij.build.dev.prepareOverriddenRunDir
+import org.jetbrains.intellij.build.dev.prepareScratchDir
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.lang.reflect.Method
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.io.path.invariantSeparatorsPathString
 
 class IdeBuilderTest {
   @TempDir
@@ -80,6 +88,185 @@ class IdeBuilderTest {
     )
 
     assertThat(options.storeGitRevision).isFalse()
+  }
+
+  @Test
+  fun createProjectDevBuildOptionsUsesRequestBuildDateOverride() {
+    val buildDateInSeconds = 1_700_000_000L
+    val options = createProjectDevBuildOptions(
+      request = createBuildRequest(buildDateInSeconds = buildDateInSeconds),
+      buildDir = tempDir.resolve("dev-build"),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.buildDateInSeconds).isEqualTo(buildDateInSeconds)
+  }
+
+  @Test
+  fun createProjectDevBuildOptionsFallsBackToDevModeBuildDate() {
+    val options = createProjectDevBuildOptions(
+      request = createBuildRequest(),
+      buildDir = tempDir.resolve("dev-build"),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.buildDateInSeconds).isEqualTo(getDevModeOrTestBuildDateInSeconds())
+  }
+
+  @Test
+  fun configureDevModeBuildOptionsLinksImmutableCacheEntriesByDefault() {
+    val options = BuildOptions().apply {
+      linkImmutableCacheEntries = false
+    }
+
+    configureDevModeBuildOptions(
+      options = options,
+      request = createBuildRequest(),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.linkImmutableCacheEntries).isTrue()
+  }
+
+  @Test
+  fun configureDevModeBuildOptionsKeepsImmutableCacheEntryLinkingDisabledOnRequest() {
+    val options = BuildOptions().apply {
+      linkImmutableCacheEntries = true
+    }
+
+    configureDevModeBuildOptions(
+      options = options,
+      request = createBuildRequest(linkImmutableCacheEntries = false),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.linkImmutableCacheEntries).isFalse()
+  }
+
+  // `createDevModeProductRunner` builds its options from an enclosing real build instead of from the project model.
+  // It used to carry its own copy of the override list, and that copy silently dropped the request's build date.
+  @Test
+  fun copyWithDevBuildOverridesKeepsTheEnclosingBuildDateWhenTheRequestHasNone() {
+    val enclosingBuildDateInSeconds = 1_600_000_000L
+
+    val options = BuildOptions(buildDateInSeconds = enclosingBuildDateInSeconds).copyWithDevBuildOverrides(
+      request = createBuildRequest(),
+      buildDir = tempDir.resolve("dev-build"),
+      defaultBuildDateInSeconds = enclosingBuildDateInSeconds,
+    )
+
+    assertThat(options.buildDateInSeconds).isEqualTo(enclosingBuildDateInSeconds)
+  }
+
+  @Test
+  fun copyWithDevBuildOverridesAppliesTheRequestBuildDateOverTheEnclosingOne() {
+    val enclosingBuildDateInSeconds = 1_600_000_000L
+    val requestedBuildDateInSeconds = 1_700_000_000L
+
+    val options = BuildOptions(buildDateInSeconds = enclosingBuildDateInSeconds).copyWithDevBuildOverrides(
+      request = createBuildRequest(buildDateInSeconds = requestedBuildDateInSeconds),
+      buildDir = tempDir.resolve("dev-build"),
+      defaultBuildDateInSeconds = enclosingBuildDateInSeconds,
+    )
+
+    assertThat(options.buildDateInSeconds).isEqualTo(requestedBuildDateInSeconds)
+  }
+
+  @Test
+  fun buildProductClearsThrowawayScratchDataButKeepsTheLog() {
+    val scratchDir = tempDir.resolve("scratch")
+    val staleTempFile = Files.createDirectories(scratchDir.resolve("temp/native")).resolve("libsqliteij.jnilib")
+    val staleArtifact = Files.createDirectories(scratchDir.resolve("artifacts")).resolve("dist.zip")
+    val logFile = Files.createDirectories(scratchDir.resolve("log")).resolve("debug.log")
+    Files.writeString(staleTempFile, "extracted by the previous build")
+    Files.writeString(staleArtifact, "built by the previous build")
+    Files.writeString(logFile, "the previous build")
+
+    runBlocking { prepareScratchDir(scratchDir) }
+
+    assertThat(scratchDir.resolve("temp")).doesNotExist()
+    assertThat(scratchDir.resolve("artifacts")).doesNotExist()
+    assertThat(logFile).exists()
+  }
+
+  @Test
+  fun prepareOverriddenRunDirCreatesAnAbsentDirectory() {
+    val runDir = tempDir.resolve("dist")
+
+    val result = runBlocking { prepareOverriddenRunDir(runDir) }
+
+    assertThat(result).isEqualTo(runDir)
+    assertThat(Files.isDirectory(runDir)).isTrue()
+  }
+
+  @Test
+  fun prepareOverriddenRunDirAcceptsAnEmptyDirectory() {
+    val runDir = Files.createDirectories(tempDir.resolve("dist"))
+
+    assertThat(runBlocking { prepareOverriddenRunDir(runDir) }).isEqualTo(runDir)
+  }
+
+  @Test
+  fun prepareOverriddenRunDirRejectsStaleContent() {
+    val runDir = Files.createDirectories(tempDir.resolve("dist"))
+    Files.writeString(runDir.resolve("core-classpath.txt"), "lib/stale.jar")
+
+    assertThatThrownBy { runBlocking { prepareOverriddenRunDir(runDir) } }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("core-classpath.txt")
+  }
+
+  @Test
+  fun createProjectDevBuildOptionsPutsLogDirUnderScratchDir() {
+    val scratchDir = tempDir.resolve("scratch")
+    val options = createProjectDevBuildOptions(
+      request = createBuildRequest(scratchDir = scratchDir),
+      buildDir = tempDir.resolve("dev-build"),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.logDir).isEqualTo(scratchDir.resolve("log"))
+  }
+
+  @Test
+  fun createProjectDevBuildOptionsPutsLogDirUnderBuildDirWithoutScratchDir() {
+    val buildDir = tempDir.resolve("dev-build")
+    val options = createProjectDevBuildOptions(
+      request = createBuildRequest(),
+      buildDir = buildDir,
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.logDir).isEqualTo(buildDir.resolve("log"))
+  }
+
+  @Test
+  fun createDevBuildPathsKeepsScratchDataOutOfTheDistributionDirectory() {
+    val buildDir = tempDir.resolve("dist")
+    val scratchDir = tempDir.resolve("scratch")
+
+    val paths = createDevBuildPaths(
+      projectDir = COMMUNITY_ROOT.communityRoot,
+      buildDir = buildDir,
+      logDir = scratchDir.resolve("log"),
+      scratchDir = scratchDir,
+    )
+
+    assertThat(paths.tempDir).isEqualTo(scratchDir.resolve("temp"))
+    assertThat(paths.artifactDir).isEqualTo(scratchDir.resolve("artifacts"))
+    assertThat(paths.buildOutputDir).isEqualTo(buildDir)
+    assertThat(paths.distAllDir).isEqualTo(buildDir)
+    assertThat(Files.exists(buildDir)).isFalse()
+  }
+
+  @Test
+  fun createDevBuildPathsRootsScratchDataInBuildDirByDefault() {
+    val buildDir = tempDir.resolve("dev-build")
+
+    val paths = createDevBuildPaths(projectDir = COMMUNITY_ROOT.communityRoot, buildDir = buildDir, logDir = buildDir.resolve("log"))
+
+    assertThat(paths.tempDir).isEqualTo(buildDir.resolve("temp"))
+    assertThat(paths.artifactDir).isEqualTo(buildDir.resolve("artifacts"))
   }
 
   @Test
@@ -176,12 +363,62 @@ class IdeBuilderTest {
     assertThat(getTestClassesOutputDirectory(classesOutputDirectory)).isEqualTo(classesOutputDirectory.resolve("test"))
   }
 
-  private fun createBuildRequest(classesOutputDirectory: Path? = null): BuildRequest {
+  @Test
+  fun formatCoreClasspathWritesEntriesUnderRunDirAsRelativePaths() {
+    val runDir = tempDir.resolve("run")
+
+    assertThat(formatCoreClasspath(listOf(runDir.resolve("lib/util.jar")), runDir)).isEqualTo("lib/util.jar")
+  }
+
+  @Test
+  fun formatCoreClasspathUsesForwardSlashesRegardlessOfOs() {
+    val runDir = tempDir.resolve("run")
+    val classPathString = formatCoreClasspath(listOf(runDir.resolve("lib").resolve("modules").resolve("util.jar")), runDir)
+
+    assertThat(classPathString).isEqualTo("lib/modules/util.jar")
+    assertThat(classPathString).doesNotContain("\\")
+  }
+
+  @Test
+  fun formatCoreClasspathKeepsEntriesOutsideRunDirAbsolute() {
+    val runDir = tempDir.resolve("run")
+    val jarCacheEntry = tempDir.resolve("jar-cache").resolve("payload.jar")
+
+    assertThat(formatCoreClasspath(listOf(jarCacheEntry), runDir)).isEqualTo(jarCacheEntry.invariantSeparatorsPathString)
+  }
+
+  @Test
+  fun formatCoreClasspathJoinsEntriesByNewlineInInputOrder() {
+    val runDir = tempDir.resolve("run")
+    val outsideEntry = tempDir.resolve("jar-cache").resolve("payload.jar")
+
+    val classPathString = formatCoreClasspath(
+      listOf(runDir.resolve("lib").resolve("app.jar"), outsideEntry, runDir.resolve("lib").resolve("util.jar")),
+      runDir,
+    )
+
+    assertThat(classPathString).isEqualTo("lib/app.jar\n${outsideEntry.invariantSeparatorsPathString}\nlib/util.jar")
+  }
+
+  @Test
+  fun formatCoreClasspathOfEmptyClassPathIsEmpty() {
+    assertThat(formatCoreClasspath(emptyList(), tempDir.resolve("run"))).isEmpty()
+  }
+
+  private fun createBuildRequest(
+    classesOutputDirectory: Path? = null,
+    scratchDir: Path? = null,
+    buildDateInSeconds: Long? = null,
+    linkImmutableCacheEntries: Boolean = true,
+  ): BuildRequest {
     return BuildRequest(
       platformPrefix = "idea",
       additionalModules = emptyList(),
       projectDir = COMMUNITY_ROOT.communityRoot,
       classesOutputDirectory = classesOutputDirectory,
+      scratchDir = scratchDir,
+      buildDateInSeconds = buildDateInSeconds,
+      linkImmutableCacheEntries = linkImmutableCacheEntries,
     )
   }
 
