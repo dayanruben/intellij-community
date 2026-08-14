@@ -623,13 +623,10 @@ object PyTypeChecker {
   }
 
   private fun match(expected: PySelfType, actual: PyType?, context: MatchContext): Boolean {
-    if (actual == null) return true
+    if (actual.isAnyOrUnknown) return true
     val selfType = context.mySubstitutions.selfType
     if (selfType != null && selfType !is PySelfType) {
-      val substitution = if (expected.isDefinition)
-        convertToClass(selfType)
-      else
-        convertToInstance(selfType)
+      val substitution = if (expected.isDefinition) selfType.toClass() else selfType.toInstance()
       return match(substitution, actual, context).orElse(false)!!
     }
     if (actual !is PySelfType) return false
@@ -640,12 +637,6 @@ object PyTypeChecker {
   private fun convertToClass(type: PyType?): PyType? {
     return type.toStream()
       .map { if (it is PyInstantiableType<*>) it.toClass() else it }
-      .collect(PyTypeUtil.toUnion(type))
-  }
-
-  private fun convertToInstance(type: PyType?): PyType? {
-    return type.toStream()
-      .map { if (it is PyInstantiableType<*>) it.toInstance() else it }
       .collect(PyTypeUtil.toUnion(type))
   }
 

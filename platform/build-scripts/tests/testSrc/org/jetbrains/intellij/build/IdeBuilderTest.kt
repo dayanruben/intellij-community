@@ -1,17 +1,28 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
 import org.jetbrains.intellij.build.dev.BuildRequest
+import org.jetbrains.intellij.build.dev.DevBuildPart
+import org.jetbrains.intellij.build.dev.DevBuildComponentEntry
+import org.jetbrains.intellij.build.dev.DevBuildComponentManifest
+import org.jetbrains.intellij.build.dev.IdeFingerprintEntry
+import org.jetbrains.intellij.build.dev.computeIdeFingerprintFromComponents
 import org.jetbrains.intellij.build.dev.configureDevModeBuildOptions
+import org.jetbrains.intellij.build.dev.configureTargetPlatform
+import org.jetbrains.intellij.build.dev.computeIdeFingerprint
 import org.jetbrains.intellij.build.dev.copyWithDevBuildOverrides
 import org.jetbrains.intellij.build.dev.createDevBuildPaths
 import org.jetbrains.intellij.build.dev.formatCoreClasspath
 import org.jetbrains.intellij.build.dev.prepareOverriddenRunDir
 import org.jetbrains.intellij.build.dev.prepareScratchDir
+import org.jetbrains.intellij.build.dev.readDevBuildComponentManifest
+import org.jetbrains.intellij.build.dev.writeDevBuildComponentManifest
+import org.jetbrains.intellij.build.impl.projectStructureMapping.CustomAssetEntry
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.lang.reflect.Method
@@ -141,6 +152,33 @@ class IdeBuilderTest {
     )
 
     assertThat(options.linkImmutableCacheEntries).isFalse()
+  }
+
+  @Test
+  fun targetPlatformAppliesOsAndArchitectureTogether() {
+    val targetOs = if (OsFamily.currentOs == OsFamily.LINUX) OsFamily.MACOS else OsFamily.LINUX
+    val targetArch = if (JvmArchitecture.currentJvmArch == JvmArchitecture.aarch64) JvmArchitecture.x64 else JvmArchitecture.aarch64
+    val options = BuildOptions()
+
+    configureTargetPlatform(options, createBuildRequest(os = targetOs, arch = targetArch))
+
+    assertThat(options.targetOs).containsExactly(targetOs)
+    assertThat(options.targetArch).isEqualTo(targetArch)
+  }
+
+  @Test
+  fun targetPlatformReplacesInheritedTargetWithTheHostPlatform() {
+    val inheritedOs = if (OsFamily.currentOs == OsFamily.LINUX) OsFamily.MACOS else OsFamily.LINUX
+    val inheritedArch = if (JvmArchitecture.currentJvmArch == JvmArchitecture.aarch64) JvmArchitecture.x64 else JvmArchitecture.aarch64
+    val options = BuildOptions().apply {
+      targetOs = persistentListOf(inheritedOs)
+      targetArch = inheritedArch
+    }
+
+    configureTargetPlatform(options, createBuildRequest())
+
+    assertThat(options.targetOs).containsExactly(OsFamily.currentOs)
+    assertThat(options.targetArch).isEqualTo(JvmArchitecture.currentJvmArch)
   }
 
   // `createDevModeProductRunner` builds its options from an enclosing real build instead of from the project model.
@@ -405,11 +443,156 @@ class IdeBuilderTest {
     assertThat(formatCoreClasspath(emptyList(), tempDir.resolve("run"))).isEmpty()
   }
 
+  @Test
+  fun ideFingerprintIncludesPathTypeAndContentButNotInputOrder() {
+    val runDir = tempDir.resolve("run")
+    val projectDir = tempDir.resolve("project")
+    val first = CustomAssetEntry(path = runDir.resolve("lib/first.jar"), hash = 1)
+    val second = CustomAssetEntry(path = runDir.resolve("plugins/sample/lib/second.jar"), hash = 2)
+
+    val fingerprint = computeIdeFingerprint(sequenceOf(first, second), runDir, projectDir)
+
+    assertThat(fingerprint).startsWith("v3:")
+    assertThat(computeIdeFingerprint(sequenceOf(second, first), runDir, projectDir)).isEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(first.copy(hash = 3), second), runDir, projectDir)).isNotEqualTo(fingerprint)
+    assertThat(
+      computeIdeFingerprint(
+        sequenceOf(first.copy(path = runDir.resolve("lib/renamed.jar"), distributionPath = runDir.resolve("lib/renamed.jar")), second),
+        runDir,
+        projectDir,
+      )
+    )
+      .isNotEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(first.copy(relativeOutputFile = "lib/moved.jar"), second), runDir, projectDir))
+      .isEqualTo(fingerprint)
+  }
+
+  @Test
+  fun ideFingerprintNormalizesPathsAndIncludesEveryDuplicateContribution() {
+    val runDir = tempDir.resolve("run")
+    val projectDir = tempDir.resolve("project")
+    val first = CustomAssetEntry(path = runDir.resolve("lib/shared.jar"), hash = 1)
+    val second = CustomAssetEntry(
+      path = runDir.resolve("ignored.jar"),
+      hash = 2,
+      distributionPath = runDir.resolve("lib/../lib/shared.jar"),
+    )
+
+    val fingerprint = computeIdeFingerprint(sequenceOf(first, second), runDir, projectDir)
+
+    assertThat(computeIdeFingerprint(sequenceOf(second, first), runDir, projectDir)).isEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(first, second.copy(hash = 3)), runDir, projectDir)).isNotEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(first), runDir, projectDir)).isNotEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(second), runDir, projectDir))
+      .isEqualTo(
+        computeIdeFingerprint(
+          sequenceOf(second.copy(distributionPath = runDir.resolve("lib/shared.jar"))),
+          runDir,
+          projectDir,
+        )
+      )
+  }
+
+  @Test
+  fun ideFingerprintUsesDistributionPathForExternalCacheAsset() {
+    val runDir = tempDir.resolve("run")
+    val projectDir = tempDir.resolve("project")
+    val distributionPath = runDir.resolve("plugins/rider-plugins-renderdoc")
+    val entry = CustomAssetEntry(
+      path = tempDir.resolve("maven/renderdoc-runtime-linux-aarch64.jar"),
+      hash = 1,
+      distributionPath = distributionPath,
+    )
+
+    val fingerprint = computeIdeFingerprint(sequenceOf(entry), runDir, projectDir)
+
+    assertThat(computeIdeFingerprint(sequenceOf(entry.copy(path = tempDir.resolve("other-cache/renderdoc.jar"))), runDir, projectDir))
+      .isEqualTo(fingerprint)
+    assertThat(
+      computeIdeFingerprint(
+        sequenceOf(entry.copy(distributionPath = runDir.resolve("plugins/renamed-renderdoc"))),
+        runDir,
+        projectDir,
+      )
+    ).isNotEqualTo(fingerprint)
+  }
+
+  @Test
+  fun componentManifestUsesDistributionPathForExternalCacheAsset() {
+    val componentRoot = tempDir.resolve("component")
+    val projectDir = tempDir.resolve("project")
+    val manifestFile = tempDir.resolve("component-manifest.json")
+    val entry = CustomAssetEntry(
+      path = tempDir.resolve("maven/renderdoc-runtime-linux-aarch64.jar"),
+      hash = 1,
+      distributionPath = componentRoot.resolve("plugins/rider-plugins-renderdoc"),
+    )
+
+    writeDevBuildComponentManifest(
+      file = manifestFile,
+      kind = DevBuildPart.PLUGINS,
+      platformPrefix = "Rider",
+      os = OsFamily.LINUX,
+      arch = JvmArchitecture.aarch64,
+      additionalModules = emptyList(),
+      mainClass = "com.intellij.idea.Main",
+      coreClassPath = emptyList(),
+      entries = sequenceOf(entry),
+      componentRoot = componentRoot,
+      projectDir = projectDir,
+    )
+
+    val manifest = readDevBuildComponentManifest(manifestFile)
+    assertThat(manifest.version).isEqualTo(2)
+    assertThat(manifest.entries).containsExactly(
+      DevBuildComponentEntry(relativePath = "plugins/rider-plugins-renderdoc", type = "custom-asset", hash = 1)
+    )
+  }
+
+  @Test
+  fun ideFingerprintIncludesEntryTypeAndKeepsHashPrimitive() {
+    val fingerprint = computeIdeFingerprint(listOf(IdeFingerprintEntry("lib/asset.jar", "custom-asset", 1)))
+
+    assertThat(computeIdeFingerprint(listOf(IdeFingerprintEntry("lib/asset.jar", "module-output", 1)))).isNotEqualTo(fingerprint)
+    assertThat(IdeFingerprintEntry::class.java.getDeclaredField("hash").type).isEqualTo(java.lang.Long.TYPE)
+  }
+
+  @Test
+  fun componentFingerprintsEqualTheFingerprintOfTheirEntryUnion() {
+    val platformEntry = DevBuildComponentEntry(relativePath = "lib/platform.jar", type = "module-output", hash = 1)
+    val pluginEntry = DevBuildComponentEntry(relativePath = "plugins/sample/lib/plugin.jar", type = "module-output", hash = 2)
+    val platform = componentManifest(kind = "platform", entries = listOf(platformEntry))
+    val plugins = componentManifest(kind = "plugins", entries = listOf(pluginEntry))
+
+    val fingerprint = computeIdeFingerprintFromComponents(listOf(platform, plugins))
+
+    assertThat(fingerprint).isEqualTo(
+      computeIdeFingerprint(
+        listOf(
+          IdeFingerprintEntry(platformEntry.relativePath, platformEntry.type, platformEntry.hash),
+          IdeFingerprintEntry(pluginEntry.relativePath, pluginEntry.type, pluginEntry.hash),
+        )
+      )
+    )
+    assertThat(computeIdeFingerprintFromComponents(listOf(plugins, platform))).isEqualTo(fingerprint)
+  }
+
+  @Test
+  fun ideFingerprintRejectsAnEntryOutsideKnownRoots() {
+    val entry = CustomAssetEntry(path = tempDir.resolve("external/asset.zip"), hash = 1)
+
+    assertThatThrownBy { computeIdeFingerprint(sequenceOf(entry), tempDir.resolve("run"), tempDir.resolve("project")) }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("outside the distribution and project roots")
+  }
+
   private fun createBuildRequest(
     classesOutputDirectory: Path? = null,
     scratchDir: Path? = null,
     buildDateInSeconds: Long? = null,
     linkImmutableCacheEntries: Boolean = true,
+    os: OsFamily = OsFamily.currentOs,
+    arch: JvmArchitecture = JvmArchitecture.currentJvmArch,
   ): BuildRequest {
     return BuildRequest(
       platformPrefix = "idea",
@@ -419,6 +602,21 @@ class IdeBuilderTest {
       scratchDir = scratchDir,
       buildDateInSeconds = buildDateInSeconds,
       linkImmutableCacheEntries = linkImmutableCacheEntries,
+      os = os,
+      arch = arch,
+    )
+  }
+
+  private fun componentManifest(kind: String, entries: List<DevBuildComponentEntry>): DevBuildComponentManifest {
+    return DevBuildComponentManifest(
+      kind = kind,
+      platformPrefix = "idea",
+      os = OsFamily.currentOs.osId,
+      arch = JvmArchitecture.currentJvmArch.name,
+      additionalModules = emptyList(),
+      mainClass = "com.intellij.idea.Main",
+      coreClassPath = emptyList(),
+      entries = entries,
     )
   }
 

@@ -4,7 +4,6 @@ import com.intellij.codeInsight.highlighting.BackgroundHighlightingUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.runReadAction
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
@@ -38,7 +37,6 @@ import javax.swing.JScrollPane
 
 @ApiStatus.Internal
 object TerminalEditorFactory {
-  private val LOG = logger<TerminalEditorFactory>()
 
   fun createOutputEditor(
     project: Project,

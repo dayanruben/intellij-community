@@ -581,7 +581,7 @@ class TerminalViewImpl(
   private fun configureOutputEditor(
     project: Project,
     editor: EditorImpl,
-    model: TerminalOutputModel,
+    model: MutableTerminalOutputModel,
     settings: JBTerminalSystemSettingsProviderBase,
     sessionModel: TerminalSessionModel,
     terminalInput: TerminalInput,
@@ -595,17 +595,15 @@ class TerminalViewImpl(
 
     editor.putUserData(TerminalOutputModel.KEY, model)
 
-    // Document modifications can change the scroll position.
-    // Mark them with the corresponding flag to indicate that this change is not caused by the explicit user action.
+    // Resolve and cache the PSI file here, not inside the listener below: getPsiFile may require a read lock,
+    // which can be acquired at this point but not in afterContentChanged — that listener runs on the
+    // strict UI output dispatcher (see TerminalSessionController), where taking a lock is prohibited.
+    val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(model.document) as? TerminalOutputPsiFile
     model.addListener(parentDisposable, object : TerminalOutputModelListener {
       override fun afterContentChanged(event: TerminalContentChangeEvent) {
         // Repaint the whole screen to update all changed highlightings.
         repaintEditorScreen(editor)
-
-        // Update the PSI file content
-        val psiFile =
-          PsiDocumentManager.getInstance(project).getPsiFile((model as MutableTerminalOutputModel).document) as? TerminalOutputPsiFile
-        psiFile?.charsSequence = model.document.immutableCharSequence  // must be the snapshot
+        psiFile?.charsSequence = model.document.immutableCharSequence
       }
     })
 

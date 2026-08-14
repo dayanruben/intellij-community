@@ -1552,6 +1552,7 @@ plugins/mcp-server/mcpserver.vcs
 plugins/mcp-server/tests
 plugins/mcp-server/tests/plugin
 plugins/mermaid
+plugins/mermaid/frontend
 plugins/mermaid/json
 plugins/mermaid/markdown
 plugins/mermaid/spellchecker
@@ -1626,7 +1627,10 @@ plugins/tasks/tasks-core/jira
 plugins/tasks/tasks-core/libraries
 plugins/tasks/tasks-core/trac
 plugins/tasks/tasks-java
-plugins/tasks/tasks-tests
+plugins/tasks/tests/base
+plugins/tasks/tests/integration
+plugins/tasks/tests/live
+plugins/tasks/tests/vcs
 plugins/terminal
 plugins/terminal/backend
 plugins/terminal/cloud
@@ -1783,6 +1787,7 @@ tools/intellij.lambda.testFramework/plugin
 tools/intellij.tools.ide.metrics.benchmark
 tools/intellij.tools.ide.metrics.collector
 tools/intellij.tools.ide.metrics.collector.starter
+tools/intellij.tools.ide.metrics.statistics
 tools/intellij.tools.ide.starter
 tools/intellij.tools.ide.starter.bazel
 tools/intellij.tools.ide.starter.build.server

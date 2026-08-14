@@ -1,3 +1,4 @@
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.driver.client` start
@@ -51,3 +52,57 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.driver.client` end
+
+### auto-generated section `build intellij.driver.client.tests` start
+jvm_library(
+    name = "driver-client-tests",
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.driver.client.tests",
+    visibility = ["//visibility:public"],
+)
+
+jvm_library(
+    name = "driver-client-tests_test_lib",
+    testonly = True,
+    srcs = glob(
+        [
+            "testSrc/**/*.kt",
+            "testSrc/**/*.java",
+            "testSrc/**/*.form",
+        ],
+        allow_empty = True,
+    ),
+    associates = [
+        "//platform/remote-driver/client",
+        "//platform/remote-driver/client:client_test_lib",
+    ],
+    visibility = ["//visibility:public"],
+    runtime_deps = [":driver-client-tests"],
+    deps = [
+        # do not sort,
+        "//libraries/assertj-core",
+        "//libraries/assertj-core:assertj-core_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+    ],
+)
+### auto-generated section `build intellij.driver.client.tests` end
+
+### auto-generated section `iml intellij.driver.client.tests` start
+exports_files(
+    [
+        "intellij.driver.client.tests.iml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.driver.client.tests` end
+
+### auto-generated section `test intellij.driver.client.tests` start
+jps_test(
+    name = "driver-client-tests_test",
+    runtime_deps = [":driver-client-tests_test_lib"],
+)
+### auto-generated section `test intellij.driver.client.tests` end

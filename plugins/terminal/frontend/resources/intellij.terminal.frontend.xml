@@ -103,6 +103,8 @@
       implementation="com.intellij.terminal.frontend.view.notification.TerminalEnvironmentChangedTopicListener"/>
     <editorAutoClosingHandler implementation="com.intellij.terminal.frontend.editor.TerminalViewEditorAutoClosingHandler"/>
     <backgroundPostStartupActivity implementation="com.intellij.terminal.frontend.toolwindow.impl.TerminalProcessesClosingNotifierInstaller"/>
+
+    <feedback.idleFeedbackSurvey implementation="com.intellij.terminal.frontend.toolwindow.impl.migration.ClassicTerminalFeedbackSurvey"/>
   </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains.plugins.terminal">
@@ -209,9 +211,6 @@
       <reference ref="Terminal.Engine"/>
       <action id="Terminal.AiAgents.ToggleShowAiAgentsInToolbar" class="com.intellij.terminal.frontend.action.ToggleShowAiAgentsInToolbarAction"/>
       <action id="Terminal.Settings" class="com.intellij.terminal.frontend.action.TerminalSettingsAction" icon="AllIcons.General.Settings"/>
-      <action id="Terminal.Feedback" class="com.intellij.terminal.frontend.action.TerminalFeedbackAction">
-        <override-text place="GoToAction"/>
-      </action>
     </group>
 
     <group id="Terminal.OutputContextMenu">
@@ -279,6 +278,8 @@
     <listener class="com.intellij.terminal.frontend.toolwindow.impl.AgentWorkbenchTerminalPromotionNotifier"
               topic="com.intellij.terminal.frontend.toolwindow.TerminalTabsManagerListener"/>
     <listener class="com.intellij.terminal.frontend.toolwindow.impl.ExperimentalTerminalMigrationNotifier"
+              topic="com.intellij.terminal.frontend.toolwindow.TerminalTabsManagerListener"/>
+    <listener class="com.intellij.terminal.frontend.toolwindow.impl.ClassicTerminalMigrationNotifier"
               topic="com.intellij.terminal.frontend.toolwindow.TerminalTabsManagerListener"/>
   </projectListeners>
   <applicationListeners>

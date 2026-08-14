@@ -8,12 +8,14 @@ import com.intellij.platform.devIdeConfig.DevIdeConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import org.jetbrains.intellij.build.BuildOptions
+import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesConstants
 import org.jetbrains.intellij.build.dev.BuildRequest
+import org.jetbrains.intellij.build.dev.DevBuildPart
 import org.jetbrains.intellij.build.dev.buildProductInProcess
 import org.jetbrains.intellij.build.dev.materializeProjectModelTree
+import org.jetbrains.intellij.build.impl.BazelBuildInputs
 import java.nio.file.DirectoryNotEmptyException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -35,10 +37,8 @@ import kotlin.system.exitProcess
  *
  * It also runs where there is no checkout to read: `--project-manifest` builds the project model tree out of declared
  * files, `--preloaded-manifest` supplies the archives a build would otherwise download, and the jar cache is off unless
- * `--jar-cache-dir` names one. That is what an `intellij_dev_dist` Bazel action passes.
- *
- * A distribution meant for a test lane also passes `--pack-test-sources`, which is what lets `--additional-module` name
- * a plugin whose content comes from test compilation output.
+ * `--jar-cache-dir` names one. `--os` and `--arch` select the complete target platform. That is what an
+ * `intellij_dev_dist` Bazel action passes.
  */
 @OptIn(ExperimentalPathApi::class)
 fun main(args: Array<String>) {
@@ -64,10 +64,15 @@ fun main(args: Array<String>) {
   // so it must be set before any code touches those singletons.
   System.setProperty("intellij.build.ultimate.home.path", projectDir.invariantSeparatorsPathString)
 
-  val ideConfigFile = options.requiredPath("--ide-config")
+  val ideConfigFile = options.optionalPath("--ide-config")
   val platformPrefix = options.optional("--platform-prefix") ?: "idea"
   val additionalModules = options.list("--additional-module")
+  val testOutputModules = options.list("--test-output-module")
+  if (testOutputModules.isNotEmpty()) {
+    System.setProperty("idea.build.pack.test.source.modules", testOutputModules.joinToString(","))
+  }
   val os = options.optional("--os")?.let(::parseOs) ?: OsFamily.currentOs
+  val arch = options.optional("--arch")?.let(::parseArch) ?: JvmArchitecture.currentJvmArch
   val buildDateInSeconds = options.optional("--build-date-seconds")?.let {
     it.toLongOrNull() ?: error("--build-date-seconds must be an integer number of seconds since the epoch, but got '$it'")
   }
@@ -78,15 +83,22 @@ fun main(args: Array<String>) {
   // only add a second copy of every jar, and a directory that concurrent assemblies mutate while its cleanup prunes it.
   val jarCacheDir = options.optionalPath("--jar-cache-dir")
   val generateRuntimeModuleRepository = options.optionalBoolean("--generate-runtime-module-repository") ?: false
-  // A test-only plugin - a lambda test plugin, a fixture plugin - is packed from test compilation output, which
-  // `BazelModuleOutputProvider` serves only when this is on. It is a property rather than a `BuildRequest` field because
-  // `BuildOptions` already owns the knob and reads it when it is constructed, inside the build.
-  if (options.optionalBoolean("--pack-test-sources") == true) {
-    System.setProperty(BuildOptions.USE_TEST_COMPILATION_OUTPUT_PROPERTY, "true")
-  }
   // the output directory must be empty (see `BuildRequest.runDirOverride`). A Bazel action always gets an empty declared
   // directory, so this is for a standalone caller re-running the assembler into a path it already used.
   val cleanOutput = options.optionalBoolean("--clean-output") ?: false
+  val cleanScratchOnSuccess = options.optionalBoolean("--clean-scratch-on-success") ?: false
+  val buildPart = options.optional("--build-part")?.let { value ->
+    DevBuildPart.entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
+    ?: error("Unknown --build-part value '$value', expected platform, plugins, or all")
+  } ?: DevBuildPart.ALL
+  val componentManifest = options.optionalPath("--component-manifest")
+  options.optionalPath("--bazel-targets-json")?.let { path ->
+    System.setProperty("intellij.build.bazel.targets.json.file", path.invariantSeparatorsPathString)
+  }
+  options.optionalPath("--bazel-inputs-manifest")?.let { path ->
+    System.setProperty("intellij.build.bazel.inputs.manifest", path.invariantSeparatorsPathString)
+  }
+  val unusedInputs = options.optionalPath("--unused-inputs")
   configurePreloadedDownloads(options)
   options.checkNoUnknownOptions()
 
@@ -107,6 +119,7 @@ fun main(args: Array<String>) {
           mainClassName = actualMainClassName
         },
         os = os,
+        arch = arch,
         // the IDE is started by `PreBuiltDevMain`, which resets the classloader itself, so the boot classpath is not the final one
         isBootClassPathCorrect = false,
         generateRuntimeModuleRepository = generateRuntimeModuleRepository,
@@ -115,6 +128,8 @@ fun main(args: Array<String>) {
         buildDateInSeconds = buildDateInSeconds,
         linkImmutableCacheEntries = linkCacheEntries,
         jarCacheDir = jarCacheDir,
+        buildPart = buildPart,
+        componentManifestFile = componentManifest,
       )
     )
 
@@ -123,12 +138,19 @@ fun main(args: Array<String>) {
       // What the distribution is, not just where it is: a consumer that needs a different product or a plugin module
       // this assembly did not build in is looking at the wrong distribution, and `DevIdeConfig` is where it can find
       // that out. The relative-home rule and the file format live there too, with the readers.
-      DevIdeConfig.write(ideConfigFile, runDir, mainClassName, platformPrefix, additionalModules)
+      if (buildPart == DevBuildPart.ALL) {
+        DevIdeConfig.write(checkNotNull(ideConfigFile) { "--ide-config is required for a complete distribution" }, runDir, mainClassName, platformPrefix, additionalModules)
+      }
     }
     runDir
   }
 
-  println("Dev distribution assembled into $runDir (main class: $mainClassName, config: $ideConfigFile)")
+  println("Dev $buildPart distribution component assembled into $runDir (main class: $mainClassName${ideConfigFile?.let { ", config: $it" }.orEmpty()})")
+  if (cleanScratchOnSuccess) {
+    scratchDir.deleteRecursively()
+    Files.createDirectories(scratchDir)
+  }
+  unusedInputs?.let(BazelBuildInputs::writeUnusedInputs)
   // the build uses thread pools and Netty/Ktor selectors that may outlive the last coroutine
   exitProcess(0)
 }
@@ -170,6 +192,13 @@ private fun dropEmptyTempDir(runDir: Path) {
 private fun parseOs(value: String): OsFamily {
   return OsFamily.entries.firstOrNull { it.name.equals(value, ignoreCase = true) || it.osId.equals(value, ignoreCase = true) || it.dirName.equals(value, ignoreCase = true) }
          ?: error("Unknown --os value '$value', expected one of ${OsFamily.entries.joinToString { it.osId }}")
+}
+
+private fun parseArch(value: String): JvmArchitecture {
+  return JvmArchitecture.entries.firstOrNull {
+    it.name.equals(value, ignoreCase = true) || it.archName.equals(value, ignoreCase = true) ||
+    it.dirName.equals(value, ignoreCase = true) || it.marketplaceName.equals(value, ignoreCase = true)
+  } ?: error("Unknown --arch value '$value', expected one of ${JvmArchitecture.entries.joinToString { it.name }}")
 }
 
 private class Options(private val values: Map<String, List<String>>) {
