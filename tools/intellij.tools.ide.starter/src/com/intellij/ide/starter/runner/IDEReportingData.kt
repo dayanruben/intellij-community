@@ -1,14 +1,12 @@
 package com.intellij.ide.starter.runner
 
 import com.intellij.ide.starter.ide.IDETestContext
-import com.intellij.ide.starter.ide.isRemDevContext
-import com.intellij.ide.starter.report.DetailsOnCI
+import com.intellij.ide.starter.path.FrontendIDEDataPaths
 import com.intellij.ide.starter.report.ErrorReporter
-import com.intellij.ide.starter.utils.FileSystem.createDirectoriesIfNotExist
-import com.intellij.ide.starter.utils.formatArtifactName
+import com.intellij.ide.starter.utils.ReportingPathUtils
+import com.intellij.ide.starter.utils.ReportingPathUtils.dirName
+import com.intellij.ide.starter.utils.ReportingPathUtils.checkPathLength
 import com.intellij.ide.starter.utils.hyphenateTestName
-import com.intellij.ide.starter.utils.truncateWithStableHash
-import com.intellij.platform.testFramework.teamCity.TeamCityReporter
 import com.intellij.tools.ide.util.common.logError
 import com.intellij.tools.ide.util.common.logOutput
 import com.intellij.tools.ide.util.common.replaceSpecialCharactersWithHyphens
@@ -20,108 +18,168 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.name
 
+/** The test method an IDE launch belongs to, and which activation of that method within one IDE process it is. */
+@ApiStatus.Internal
+data class TestMethodIdentity(
+  val className: String,
+  val displayName: String,
+  /** 1-based order of this method's first activation within one IDE process; prefixes its reporting directory. */
+  val executionIndex: Int,
+) {
+  /** What the method is called, one level at a time: the class it is in and the method itself, each only when it is known. */
+  val nameSegments: List<String> = listOf(className, displayName).filter(String::isNotEmpty)
+}
+
+/**
+ * Where one IDE launch reports, and what that launch is called. A launch is a test, the test method it belongs to, a launch name and
+ * whether it is the frontend of a split-mode pair — spelled three ways, because a local directory, a CI artifact path and a line in a test
+ * report each accept different things:
+ *
+ * |          | reporting directories          | [artifactPath] in a reused IDE             | [humanReadableTestName]       |
+ * |----------|--------------------------------|--------------------------------------------|-------------------------------|
+ * | test     | absent, the root already is it | spelled out, unless the method doubles it  | raw, unless a method is known |
+ * | method   | hyphenated, bounded, indexed   | the very same segments                     | raw `class/method`            |
+ * | launch   | bounded with a hash suffix     | the very same segment                      | raw                           |
+ * | frontend | an extra `frontend` segment    | the very same segment                      | absent                        |
+ *
+ * Until the IDE is reused, [artifactPath] stays at the legacy `<test>/<launch>` path that IJPerf can reconstruct. Once another reporting
+ * data is registered for the same IDE, all its launches switch to the reused-IDE path shown above. A standalone split-mode frontend shares
+ * the legacy path with its backend, so it prefixes its artifact names with `frontend-` instead.
+ *
+ * In a reused IDE, [artifactPath] follows the reporting directories verbatim below the test: a launch reporting into
+ * `<class>/<index>_<method>/<launch>` publishes into `<test>/<class>/<index>_<method>/<launch>`. [artifactPath] is hyphenated once it has
+ * been joined rather than segment by segment, so a segment may keep a trailing hyphen; that is what the published artifacts have already,
+ * and changing it moves every existing artifact URL.
+ *
+ * No level is spelled twice: the class is left out when the test's own directory already names it, and the test is left out of
+ * [artifactPath] when the method segments already spell it. Exactly one of the two applies, so that something always names the test.
+ *
+ * A launch takes its directories as it is constructed, so a resulting path that would not fit within [ReportingPathUtils.PATH_LENGTH_LIMIT]
+ * is reported as this is constructed. The directories are created all the same — see [ReportingPathUtils.checkPathLength].
+ */
 @ApiStatus.Internal
 class IDEReportingData internal constructor(
-  private val providedTestName: String,
+  reportingRoot: Path,
+  private val testName: String,
+  private val testMethod: TestMethodIdentity? = null,
   private val launchName: String? = null,
-  testMethod: TestMethodData? = null,
-  testHome: Path,
-  isFrontend: Boolean = false,
+  private val isFrontend: Boolean = false,
+  internal val artifactLayout: ArtifactLayout = ArtifactLayout.LEGACY,
 ) {
-  internal data class TestMethodData(
-    val className: String,
-    val displayName: String,
-    val index: Int,
-  )
-
-  companion object {
-    private const val MAX_TEST_METHOD_DIR_NAME_LENGTH_IN_BYTES = 60
-    private const val MAX_LAUNCH_DIR_NAME_LENGTH_IN_BYTES = 60
-
-    internal fun artifactNameWithIdeRole(testContext: IDETestContext, artifactName: String): String = when {
-      testContext.testCase.ideInfo.isFrontend -> "$artifactName-frontend"
-      testContext.isRemDevContext() -> "$artifactName-backend"
-      else -> artifactName
-    }
-
-    /** Each path segment of [testMethodName] is bounded, and the final segment is prefixed with its first execution [index]. */
-    private fun dirNameOf(testMethodName: String, index: Int): String {
-      val indexPrefix = "${index}_"
-      val segments = testMethodName.split('/')
-      return segments.mapIndexed { segmentIndex, segment ->
-        val prefix = if (segmentIndex == segments.lastIndex) indexPrefix else ""
-        val pathSafeSegment = when (segment) {
-          "." -> "%2E"
-          ".." -> "%2E%2E"
-          else -> segment
-        }
-        prefix + pathSafeSegment.truncateWithStableHash(MAX_TEST_METHOD_DIR_NAME_LENGTH_IN_BYTES - prefix.length)
-      }.joinToString("/")
-    }
+  internal enum class ArtifactLayout {
+    LEGACY,
+    REUSED_IDE,
   }
 
-  private val testRoot: Path = if (isFrontend) testHome.parent else testHome
-  private val testMethodArtifactName: String? = testMethod?.run {
-    listOf(className, displayName).filter { it.isNotEmpty() }.joinToString("/").hyphenateTestName()
-  }
-  private val testMethodArtifactDirName: String? = testMethod?.let { dirNameOf(requireNotNull(testMethodArtifactName), it.index) }
+  // region Names
+
+  /** `null` when the launch has no name of its own: none was requested, it was empty, or it is the test method's name again. */
+  private val testMethodAwareLaunchName: String? = launchName
+    ?.takeUnless { it.isEmpty() }
+    ?.takeUnless { it == testMethod?.displayName?.hyphenateTestName() }
 
   /**
-   * We want the test reporting dir to be `/work/test/method/launch/frontend`, rather than
-   * `/work/test/frontend/method/launch`, so frontend and backend artifacts are in the same place.
+   * Whether [testName] already spells the test method out, which is what a name taken from `CurrentTestMethod` does — then [artifactPath]
+   * leaves the test out instead of doubling it. With no test method there is nothing to double.
    */
-  private val launchDir: Path = listOfNotNull(
-    testMethodArtifactDirName,
-    launchName?.truncateWithStableHash(MAX_LAUNCH_DIR_NAME_LENGTH_IN_BYTES),
-    "frontend".takeIf { isFrontend },
-  ).fold(testRoot) { path, segment -> path.resolve(segment) }
+  private val testNameSpellsTheMethodOut: Boolean =
+    testMethod != null && testName.hyphenateTestName() == testMethod.nameSegments.joinToString("/").hyphenateTestName()
 
-  val reportsDir: Path = launchDir.resolve("reports").createDirectoriesIfNotExist()
-  val snapshotsDir: Path = launchDir.resolve("snapshots").createDirectoriesIfNotExist()
-  val logsDir: Path = launchDir.resolve("log").createDirectoriesIfNotExist()
+  /**
+   * Whether the test's own reporting directory already names the class the method is in, which is what a test name derived from
+   * `CurrentTestMethod` does — even when a suffix of its own, a product code say, keeps it from spelling the whole method out. Repeating
+   * the class below that directory spends a bounded name on what the level above says already, and cutting both to the same length leaves
+   * two directories that look alike without being alike. Never together with [testNameSpellsTheMethodOut], which leaves the naming of the
+   * test to the class.
+   */
+  private val testNameSpellsTheClassOut: Boolean = !testNameSpellsTheMethodOut && testMethod?.className
+    ?.takeUnless(String::isEmpty)
+    ?.hyphenateTestName()
+    ?.let { hyphenatedClassName ->
+      val hyphenatedTestName = testName.hyphenateTestName()
+      // up to a separator only, so that a class the test name merely begins like is still spelled out
+      hyphenatedTestName.startsWith(hyphenatedClassName) &&
+      hyphenatedTestName.getOrNull(hyphenatedClassName.length)?.isLetterOrDigit() != true
+    } == true
 
-  val jbrDiagnostic: Path = logsDir.resolve("jbrDiagnostic")
-
-  /** The CI-safe path the artifacts of this launch are published under. */
-  val artifactPath: String = run {
-    val testPath = testMethodArtifactName?.let { methodArtifactName ->
-      val methodDirName = requireNotNull(testMethodArtifactDirName)
-      val hyphenatedProvidedTestName = providedTestName.hyphenateTestName()
-
-      if (hyphenatedProvidedTestName.contains(methodArtifactName)) {
-        hyphenatedProvidedTestName.replaceFirst(methodArtifactName, methodDirName)
+  /**
+   * One directory name per level the method occupies, the last of them prefixed with the execution index so that the order the methods ran
+   * in is visible in the reporting tree. Shared verbatim with [artifactPath].
+   */
+  private val testMethodDirSegments: List<String> = testMethod?.run {
+    val hyphenatedSegments = nameSegments.map { it.hyphenateTestName() }
+    // the class only when the root does not name it already, and never when it is the only segment: the last one carries the index
+    val segments = if (testNameSpellsTheClassOut && hyphenatedSegments.size > 1) hyphenatedSegments.drop(1) else hyphenatedSegments
+    segments.mapIndexed { segmentIndex, segment ->
+      val isIndexedSegment = segmentIndex == segments.lastIndex
+      // a parameterized display name may contain slashes, which have to stay inside the one directory the method gets
+      val singlePathSegment = if (isIndexedSegment) segment.replace('/', '-') else segment
+      val pathSafeSegment = when (singlePathSegment) {
+        "." -> "%2E"
+        ".." -> "%2E%2E"
+        else -> singlePathSegment
       }
-      else {
-        "$providedTestName/$methodDirName"
-      }
-    } ?: providedTestName
+      dirName(pathSafeSegment, prefix = if (isIndexedSegment) "${executionIndex}_" else "")
+    }
+  }.orEmpty()
 
-    listOfNotNull(testPath, launchName)
-      .filter { it.isNotEmpty() }
-      .joinToString("/")
-      .replaceSpecialCharactersWithHyphens()
+  /**
+   * One directory name per level this launch reports below the reporting root of its test — `<class>/<index>_<method>/<launch>/frontend`,
+   * each level only when it applies. Every segment is bounded, because the complete path has to stay within
+   * [ReportingPathUtils.PATH_LENGTH_LIMIT].
+   */
+  private val reportingDirSegments: List<String> = buildList {
+    addAll(testMethodDirSegments)
+    testMethodAwareLaunchName?.let { add(dirName(it)) }
+    if (isFrontend) add(FrontendIDEDataPaths.FRONTEND_DIR_NAME)
   }
 
+  private val reusedIdeArtifactPath = buildList {
+    if (!testNameSpellsTheMethodOut) add(ReportingPathUtils.testDirectoryName(testName))
+    addAll(reportingDirSegments)
+  }.filter(String::isNotEmpty).joinToString("/").replaceSpecialCharactersWithHyphens()
+
+  /** The path IJPerf can reconstruct for an IDE used by only one test. */
+  private val legacyArtifactPath: String = buildList {
+    add(testName)
+    launchName?.let { add(it) }
+  }.filter(String::isNotEmpty).joinToString("/").replaceSpecialCharactersWithHyphens()
+
+  val artifactPath: String
+    get() = artifactPathFor(artifactLayout)
+
+  /** What a test report calls this launch: the identity as it was given, neither hyphenated nor bounded. */
   val humanReadableTestName: String = buildList {
-    if (testMethod == null) {
-      add(providedTestName)
-    }
-    else {
-      add(testMethod.className)
-      add(testMethod.displayName)
-    }
-    launchName?.let(::add)
-  }.filter { it.isNotEmpty() }.joinToString("/")
+    if (testMethod == null) add(testName) else addAll(testMethod.nameSegments)
+    testMethodAwareLaunchName?.let(::add)
+  }.filter(String::isNotEmpty).joinToString("/")
 
-  init {
-    reportArtifactsLink("Link to Logs and artifacts", this)
-  }
+  // endregion
 
-  internal fun reportStartupArtifactsLink(startupReportingData: IDEReportingData) {
-    startupReportingData.takeUnless { it.artifactPath == artifactPath }?.let {
-      reportArtifactsLink("Link to Logs and artifacts (IDE Startup)", it)
-    }
-  }
+  // region Reporting directories
+
+  private val launchReportingDir: Path = reportingDirSegments.fold(reportingRoot) { dir, segment -> dir.resolve(segment) }
+
+  val reportsDir: Path = createReportingDirectory("reports")
+  val snapshotsDir: Path = createReportingDirectory("snapshots")
+  val logsDir: Path = createReportingDirectory("log")
+
+  /**
+   * Where the JVM of this launch writes its own crash log, should it crash. Only named here and created by whoever points the JVM at it,
+   * so that an empty directory never claims a crash log went missing; that writer is also the one that checks the directory against
+   * [ReportingPathUtils.WIDEST_CRASH_LOG_NAME], since the name is only worth reserving once something is about to write it.
+   */
+  val jvmCrashLogDir: Path = logsDir.resolve("jvm-crash")
+
+  /** Where the crash logs this launch left in the home directory are copied, if it left any. Created on demand, like [jvmCrashLogDir]. */
+  val jbrDiagnosticDir: Path = logsDir.resolve("jbrDiagnostic")
+
+  private fun createReportingDirectory(name: String): Path =
+    checkPathLength(launchReportingDir.resolve(name)).createDirectories()
+
+  // endregion
+
+  // region Artifact publication
 
   internal fun publishArtifacts(testContext: IDETestContext) {
     runCatching {
@@ -136,26 +194,35 @@ class IDEReportingData internal constructor(
   }
 
   internal fun publishArtifact(testContext: IDETestContext, source: Path, artifactName: String) {
+    val artifactLayout = artifactLayout
+    val publishedArtifactType = if (artifactLayout == ArtifactLayout.LEGACY && isFrontend)
+    // precisely this way, required by Ij Perf
+      "$artifactName-frontend"
+    else artifactName
     testContext.publishArtifact(
       source = source,
-      artifactPath = artifactPath,
-      artifactName = formatArtifactName(
-        artifactNameWithIdeRole(testContext, artifactName),
-        artifactPath,
-      ),
+      artifactPath = artifactPathFor(artifactLayout),
+      artifactName = ReportingPathUtils.formatArtifactName(publishedArtifactType),
     )
   }
 
-  private fun reportArtifactsLink(name: String, reportingData: IDEReportingData) {
-    val link = DetailsOnCI.instance.getLinkToCIArtifacts(reportingData) ?: return
-    TeamCityReporter.reportTestMetadata(
-      testName = null,
-      type = TeamCityReporter.MetadataType.LINK,
-      flowId = null,
-      name = name,
-      value = link,
-    )
+  private fun artifactPathFor(layout: ArtifactLayout): String = when (layout) {
+    ArtifactLayout.LEGACY -> legacyArtifactPath
+    ArtifactLayout.REUSED_IDE -> reusedIdeArtifactPath
   }
+
+  // endregion
+
+  // region IDE diagnostics
+
+  /**
+   * Which IDE error reports under [logsDir] this launch answers for: `null`, the initial state, means all of them, and a set means only
+   * those, empty included. `BackgroundRun.forceKill` snapshots the reports written so far through
+   * [restrictIdeErrorReportsToExistingFiles], so that what the IDE logs while being killed is not blamed on the test.
+   */
+  @Volatile
+  var allowedIdeErrorReportFiles: Set<Path>? = null
+    private set
 
   internal fun collectJBRDiagnosticFiles(javaProcessId: Long) {
     if (javaProcessId == 0L) return
@@ -164,13 +231,9 @@ class IDEReportingData internal constructor(
       userHome.resolve("java_error_in_idea_$javaProcessId.log"),
       userHome.resolve("jbr_err_pid$javaProcessId.log"),
     ).filter { it.exists() }.forEach { crashFile ->
-      crashFile.copyTo(jbrDiagnostic.createDirectories().resolve(crashFile.name), overwrite = true)
+      crashFile.copyTo(jbrDiagnosticDir.createDirectories().resolve(crashFile.name), overwrite = true)
     }
   }
-
-  @Volatile
-  var allowedIdeErrorReportFiles: Set<Path>? = null
-    private set
 
   fun restrictIdeErrorReportsToExistingFiles() {
     allowedIdeErrorReportFiles = collectIdeErrorReportFiles()
@@ -188,4 +251,8 @@ class IDEReportingData internal constructor(
     return name == ErrorReporter.MESSAGE_FILENAME &&
            (reportRootName == ErrorReporter.ERRORS_DIR_NAME || reportRootName == "script-${ErrorReporter.ERRORS_DIR_NAME}")
   }
+
+  // endregion
+
+  override fun toString(): String = "Reporting data of $humanReadableTestName at $launchReportingDir"
 }

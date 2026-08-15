@@ -1,12 +1,10 @@
 package com.intellij.ide.starter
 
-import com.intellij.ide.starter.ide.IDERemDevTestContext
 import com.intellij.ide.starter.ide.IDETestContext
 import com.intellij.ide.starter.models.IdeInfo
 import com.intellij.ide.starter.models.TestCase
 import com.intellij.ide.starter.path.IDEDataPaths
 import com.intellij.ide.starter.runner.CurrentTestMethod
-import com.intellij.ide.starter.runner.IDEReportingData
 import com.intellij.ide.starter.runner.IDERunContext
 import com.intellij.ide.starter.runner.TestMethod
 import io.kotest.matchers.shouldBe
@@ -28,21 +26,15 @@ class IDERunContextTest {
   }
 
   @Test
-  fun `artifact names identify split mode roles and leave monolith unqualified`() {
-    IDEReportingData.artifactNameWithIdeRole(testContext(isFrontend = false), "logs") shouldBe "logs"
-    IDEReportingData.artifactNameWithIdeRole(testContext(isFrontend = true), "logs") shouldBe "logs-frontend"
-    IDEReportingData.artifactNameWithIdeRole(testContext(isFrontend = false, isBackend = true), "logs") shouldBe "logs-backend"
-  }
-
-  @Test
   fun `repeating the current method is idempotent but switching back to an earlier method fails`() {
     CurrentTestMethod.set(testMethod("first test"))
-    val testContext = mock(IDETestContext::class.java)
+    val testContext = testContext()
     doReturn("reused-ide-test").`when`(testContext).testName
     doReturn(IDEDataPaths(tempDir, null)).`when`(testContext).paths
     val runContext = IDERunContext(testContext)
     val firstTestReportingData = runContext.originalIdeReportingData
     val switchedLogDirs = mutableListOf<Path>()
+    firstTestReportingData.artifactPath shouldBe "reused-ide-test"
 
     val firstTestReportingDataAgain = runContext.registerNewIdeReportingData(switchedLogDirs::add)
     CurrentTestMethod.set(testMethod("second test"))
@@ -54,6 +46,8 @@ class IDERunContextTest {
 
     error.message shouldBe "Test method 'first test' was activated again after another test method"
     (firstTestReportingDataAgain === firstTestReportingData) shouldBe true
+    firstTestReportingData.artifactPath shouldBe "reused-ide-test"
+    secondTestReportingData.artifactPath shouldBe "reused-ide-test/ide-run-context-test/2-second-test"
     runContext.registeredIdeReportingData() shouldBe listOf(firstTestReportingData, secondTestReportingData)
     runContext.ideReportingDataFromCurrentToOldest() shouldBe listOf(secondTestReportingData, firstTestReportingData)
     (runContext.lastIdeReportingData === secondTestReportingData) shouldBe true
@@ -63,7 +57,7 @@ class IDERunContextTest {
   @Test
   fun `JUnit identities distinguish colliding readable test names`() {
     CurrentTestMethod.set(testMethod("same test", id = "first-id"))
-    val testContext = mock(IDETestContext::class.java)
+    val testContext = testContext()
     doReturn("reused-ide-test").`when`(testContext).testName
     doReturn(IDEDataPaths(tempDir, null)).`when`(testContext).paths
     val runContext = IDERunContext(testContext)
@@ -83,13 +77,13 @@ class IDERunContextTest {
     id = id,
   )
 
-  private fun testContext(isFrontend: Boolean, isBackend: Boolean = false): IDETestContext {
-    val context = if (isBackend) mock(IDERemDevTestContext::class.java) else mock(IDETestContext::class.java)
+  private fun testContext(): IDETestContext {
+    val context = mock(IDETestContext::class.java)
     val testCase = mock(TestCase::class.java)
     val ideInfo = mock(IdeInfo::class.java)
     doReturn(testCase).`when`(context).testCase
     doReturn(ideInfo).`when`(testCase).ideInfo
-    doReturn(isFrontend).`when`(ideInfo).isFrontend
+    doReturn(false).`when`(ideInfo).isFrontend
     return context
   }
 }

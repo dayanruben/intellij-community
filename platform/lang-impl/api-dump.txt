@@ -451,13 +451,6 @@ f:com.intellij.codeInsight.codeVision.AppCodeVisionInitializationHost
 f:com.intellij.codeInsight.codeVision.AppCodeVisionInitializationHost$Companion
 - f:getInstance():com.intellij.codeInsight.codeVision.AppCodeVisionInitializationHost
 - f:getInstanceSuspending(kotlin.coroutines.Continuation):java.lang.Object
-f:com.intellij.codeInsight.codeVision.CodeVisionBundle
-- com.intellij.DynamicBundle
-- sf:Companion:com.intellij.codeInsight.codeVision.CodeVisionBundle$Companion
-- <init>():V
-f:com.intellij.codeInsight.codeVision.CodeVisionBundle$Companion
-- f:message(java.lang.String,java.lang.Object[]):java.lang.String
-- f:messagePointer(java.lang.String,java.lang.Object[]):java.util.function.Supplier
 Fc:com.intellij.codeInsight.codeVision.CodeVisionHost
 - sf:Companion:com.intellij.codeInsight.codeVision.CodeVisionHost$Companion
 - sf:defaultVisibleLenses:I
@@ -3799,6 +3792,7 @@ a:com.intellij.ide.util.projectWizard.AbstractNewProjectStep
 - com.intellij.openapi.project.DumbAware
 - com.intellij.openapi.wm.impl.welcomeScreen.ActionsWithPanelProvider
 - p:<init>(com.intellij.ide.util.projectWizard.AbstractNewProjectStep$Customization):V
+- ps:createOpenProjectOptions(com.intellij.openapi.project.Project,java.lang.String,java.util.function.Consumer):com.intellij.ide.impl.OpenProjectTask
 - s:created(com.intellij.openapi.project.Project):Z
 c:com.intellij.ide.util.projectWizard.AbstractNewProjectStep$AbstractCallback
 - com.intellij.util.PairConsumer

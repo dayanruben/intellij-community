@@ -13,17 +13,11 @@ import com.intellij.openapi.diagnostic.RollingFileHandler
 import com.intellij.openapi.diagnostic.logger
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.annotations.VisibleForTesting
-import java.io.IOException
-import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.util.logging.Handler
 import java.util.logging.Level
 import java.util.logging.LogRecord
 import java.util.logging.Logger.getLogger
-import kotlin.io.path.exists
-import kotlin.io.path.extension
-import kotlin.io.path.nameWithoutExtension
 
 /** Caps buffering if a log switch stalls. */
 private const val MAX_BUFFERED_RECORDS = 200_000
@@ -31,13 +25,12 @@ private const val MAX_BUFFERED_RECORDS = 200_000
 @Service(Service.Level.APP)
 class LogDirHandler : Disposable {
   companion object {
-    /** Returns the active log directory, including runtime switches that [PathManager.getLogDir] does not follow. */
+    @Volatile
+    private var runtimeLogDir: Path? = null
+
+    /** Returns the reporting log directory, including runtime switches but excluding per-process startup customization. */
     @JvmStatic
-    fun currentLogDir(): Path =
-      System.getProperty(PathManager.PROPERTY_LOG_PATH)
-        ?.takeIf { it.isNotBlank() }
-        ?.let { Path.of(it).toAbsolutePath().normalize() }
-      ?: PathManager.getLogDir()
+    fun currentLogDir(): Path = runtimeLogDir ?: PathManager.getOriginalLogDir()
   }
 
   /** Detached handlers stay open until the next switch so late publishers do not lose records. */
@@ -70,7 +63,6 @@ class LogDirHandler : Disposable {
         handlersOfThePreviousLogDir = writingElsewhere
 
         onRotate.run()
-        rollExistingLog(newLogFile)
 
         val newHandlers = createHandlers(newLogFile, detachedHandlers.hadAttachmentHandler, onRotate)
         newHandlers.forEach(rootLogger::addHandler)
@@ -82,6 +74,7 @@ class LogDirHandler : Disposable {
     }
     @Suppress("RAW_RUN_BLOCKING")
     runBlocking { sweepExistingErrors() }
+    runtimeLogDir = logDirFullPath
     System.setProperty(PROPERTY_LOG_PATH, logDirFullPath.toString())
     if (recordsDropped > 0) {
       logger<LogDirHandler>().error(
@@ -110,6 +103,7 @@ class LogDirHandler : Disposable {
       count = JulLogger.LOG_FILE_COUNT,
       append = false,
       onRotate = onRotate,
+      rollOnOpen = true,
     ).apply {
       formatter = IdeaLogRecordFormatter()
       level = Level.FINEST
@@ -120,35 +114,12 @@ class LogDirHandler : Disposable {
     }
   }
 
-  /** Preserves an existing target log before the new non-appending handler opens it. */
-  private fun rollExistingLog(logFile: Path) {
-    if (!logFile.exists()) return
-
-    val count = JulLogger.LOG_FILE_COUNT
-    try {
-      Files.deleteIfExists(logFileWithIndex(logFile, count))
-      for (index in count - 1 downTo 1) {
-        val rolled = logFileWithIndex(logFile, index)
-        if (rolled.exists()) {
-          Files.move(rolled, logFileWithIndex(logFile, index + 1), StandardCopyOption.ATOMIC_MOVE)
-        }
-      }
-      Files.move(logFile, logFileWithIndex(logFile, 1), StandardCopyOption.ATOMIC_MOVE)
-    }
-    catch (e: IOException) {
-      // Fall back to the previous overwrite behavior if rolling fails.
-      logger<LogDirHandler>().warn("Failed to roll $logFile, its content will be overwritten", e)
-    }
-  }
-
-  private fun logFileWithIndex(logFile: Path, index: Int): Path =
-    logFile.resolveSibling("${logFile.nameWithoutExtension}.$index.${logFile.extension}")
-
   override fun dispose() {
     synchronized(java.util.logging.Logger.getLogger("")) {
       handlersOfThePreviousLogDir.forEach { it.close() }
       handlersOfThePreviousLogDir = emptyList()
     }
+    runtimeLogDir = null
   }
 }
 

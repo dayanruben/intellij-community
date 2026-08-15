@@ -1652,6 +1652,7 @@ private val COMMUNITY_AGGREGATOR_BAZEL_MIGRATED_MODULES = listOf(
   "intellij.platform.vcs.impl.shared.tests",
   "intellij.platform.whatsNew.tests",
   "intellij.settingsSync.tests",
+  "intellij.tasks.tests",
   "intellij.testng.tests",
   "intellij.textmate.core.tests",
   "intellij.textmate.joni.tests",
@@ -1686,4 +1687,5 @@ private val COMMUNITY_AGGREGATOR_BAZEL_MIGRATED_MODULES = listOf(
   "intellij.dev.leakDetection.tests",
   "intellij.python.requirements.tests",
   "intellij.platform.testFramework.junit5.tests",
+  "intellij.platform.debugger.impl.tests",
 )
