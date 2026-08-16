@@ -260,6 +260,7 @@ object CoreModuleSets {
     embeddedModule("intellij.platform.runtime.product")
 
     embeddedModule("intellij.platform.diagnostic.telemetry")
+    embeddedModule("intellij.platform.diagnostic.telemetry.impl")
 
     embeddedModule("intellij.platform.util.ex")
     embeddedModule("intellij.platform.util.ui")
@@ -291,6 +292,7 @@ object CoreModuleSets {
     moduleSet(rpcMinimal())
 
     embeddedModule("intellij.platform.ide.core")
+    embeddedModule("intellij.platform.ide.core.impl")
     embeddedModule("intellij.platform.ide.core.plugins")
   }
 
