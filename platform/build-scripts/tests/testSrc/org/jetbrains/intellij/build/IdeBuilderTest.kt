@@ -7,10 +7,15 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
 import org.jetbrains.intellij.build.dev.BuildRequest
-import org.jetbrains.intellij.build.dev.DevBuildPart
 import org.jetbrains.intellij.build.dev.DevBuildComponentEntry
 import org.jetbrains.intellij.build.dev.DevBuildComponentManifest
+import org.jetbrains.intellij.build.dev.DevBuildFragment
 import org.jetbrains.intellij.build.dev.IdeFingerprintEntry
+import org.jetbrains.intellij.build.dev.PlatformFragmentSelector
+import org.jetbrains.intellij.build.dev.PluginFragmentSelector
+import org.jetbrains.intellij.build.dev.PlatformJarOwnership
+import org.jetbrains.intellij.build.dev.accepts
+import org.jetbrains.intellij.build.dev.checkNamesAreKnown
 import org.jetbrains.intellij.build.dev.computeIdeFingerprintFromComponents
 import org.jetbrains.intellij.build.dev.configureDevModeBuildOptions
 import org.jetbrains.intellij.build.dev.configureTargetPlatform
@@ -18,13 +23,12 @@ import org.jetbrains.intellij.build.dev.computeIdeFingerprint
 import org.jetbrains.intellij.build.dev.copyWithDevBuildOverrides
 import org.jetbrains.intellij.build.dev.createDevBuildPaths
 import org.jetbrains.intellij.build.dev.formatCoreClasspath
-import org.jetbrains.intellij.build.dev.includesPlatformLibraries
-import org.jetbrains.intellij.build.dev.includesPlatformResources
-import org.jetbrains.intellij.build.dev.includesPlugins
 import org.jetbrains.intellij.build.dev.prepareOverriddenRunDir
 import org.jetbrains.intellij.build.dev.prepareScratchDir
 import org.jetbrains.intellij.build.dev.readDevBuildComponentManifest
 import org.jetbrains.intellij.build.dev.writeDevBuildComponentManifest
+import org.jetbrains.intellij.build.impl.ModuleIncludeReasons
+import org.jetbrains.intellij.build.impl.ModuleItem
 import org.jetbrains.intellij.build.impl.projectStructureMapping.CustomAssetEntry
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -38,16 +42,124 @@ class IdeBuilderTest {
   lateinit var tempDir: Path
 
   @Test
-  fun devBuildPartsSelectNaturalDistributionLayers() {
-    assertThat(DevBuildPart.PLATFORM_LIB.includesPlatformLibraries).isTrue()
-    assertThat(DevBuildPart.PLATFORM_LIB.includesPlatformResources).isFalse()
-    assertThat(DevBuildPart.PLATFORM_RESOURCES.includesPlatformLibraries).isFalse()
-    assertThat(DevBuildPart.PLATFORM_RESOURCES.includesPlatformResources).isTrue()
-    assertThat(DevBuildPart.PLUGINS.includesPlugins).isTrue()
-    assertThat(DevBuildPart.PLUGINS.includesPlatformLibraries).isFalse()
-    assertThat(DevBuildPart.ALL.includesPlatformLibraries).isTrue()
-    assertThat(DevBuildPart.ALL.includesPlatformResources).isTrue()
-    assertThat(DevBuildPart.ALL.includesPlugins).isTrue()
+  fun completeFragmentOwnsEverythingAndNeedsNoManifest() {
+    val complete = DevBuildFragment.COMPLETE
+
+    assertThat(complete.isComplete).isTrue()
+    assertThat(complete.platform).isEqualTo(PlatformFragmentSelector.All)
+    assertThat(complete.platformResources).isTrue()
+    assertThat(complete.plugins).isEqualTo(PluginFragmentSelector.All)
+    assertThat(
+      DevBuildFragment(
+        name = "platform_core",
+        platform = PlatformFragmentSelector.Core,
+        platformResources = false,
+        plugins = null,
+      ).isComplete
+    ).isFalse()
+  }
+
+  @Test
+  fun platformSelectorsPartitionLibJarsByContentModuleSet() {
+    val layout = listOf(
+      platformModule(),
+      contentModule("intellij.libraries.asm", "libraries.platform"),
+      contentModule("intellij.platform.lang.impl", "core.lang"),
+      contentModule("intellij.charts", null),
+    )
+    val ownership = PlatformJarOwnership.of(layout)
+    val jars = listOf(
+      "app-backend.jar",
+      // Named by no module: a project library, or one packing kept in its own jar. The layout never mentions it.
+      "swingx.jar",
+      "intellij.libraries.asm.jar",
+      "intellij.platform.lang.impl.jar",
+      "intellij.charts.jar",
+    )
+
+    val core = PlatformFragmentSelector.Core
+    val libraries = PlatformFragmentSelector.ContentModuleSets(setOf("libraries.platform"))
+    val remaining = PlatformFragmentSelector.RemainingContentModules(setOf("libraries.platform"))
+
+    // Every jar belongs to exactly one of the three, so the fragments partition `lib` instead of overlapping or losing a jar.
+    for (jar in jars) {
+      val owners = listOf(core, libraries, remaining).filter { it.accepts(ownership, jar) }
+      assertThat(owners).describedAs(jar).hasSize(1)
+      assertThat(PlatformFragmentSelector.All.accepts(ownership, jar)).describedAs(jar).isTrue()
+    }
+
+    assertThat(core.accepts(ownership, "app-backend.jar")).isTrue()
+    // A jar the layout does not name is the core fragment's, which is what keeps it out of no fragment at all.
+    assertThat(core.accepts(ownership, "swingx.jar")).isTrue()
+    assertThat(core.accepts(ownership, "")).isTrue()
+    assertThat(libraries.accepts(ownership, "intellij.libraries.asm.jar")).isTrue()
+    // A content module in no module set is still assembled - by the fragment that takes what nobody claimed.
+    assertThat(remaining.accepts(ownership, "intellij.charts.jar")).isTrue()
+    assertThat(remaining.accepts(ownership, "intellij.platform.lang.impl.jar")).isTrue()
+  }
+
+  @Test
+  fun platformOwnershipRejectsAJarSharedByTwoModuleSets() {
+    val modules = listOf(
+      contentModule("intellij.platform.lang.impl", "core.lang").withOutputFile("shared.jar"),
+      contentModule("intellij.libraries.asm", "libraries.platform").withOutputFile("shared.jar"),
+    )
+
+    assertThatThrownBy { PlatformJarOwnership.of(modules) }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("holds content modules from two module sets")
+  }
+
+  @Test
+  fun platformSelectorRejectsAModuleSetTheProductDoesNotDeclare() {
+    val ownership = PlatformJarOwnership.of(listOf(contentModule("intellij.libraries.asm", "libraries.platform")))
+
+    assertThatThrownBy {
+      PlatformFragmentSelector.ContentModuleSets(setOf("libraries.platfrom")).checkNamesAreKnown(ownership, "platform_cm_typo")
+    }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("libraries.platfrom")
+    // A set the product does declare is fine even when this target platform gives it no jar.
+    PlatformFragmentSelector.ContentModuleSets(setOf("libraries.platform")).checkNamesAreKnown(ownership, "platform_cm_libraries_platform")
+  }
+
+  @Test
+  fun pluginSelectorRejectsAPluginTheProductDoesNotBundle() {
+    assertThatThrownBy {
+      PluginFragmentSelector.Named(setOf("intellij.air.plugn")).checkNamesAreKnown(setOf("intellij.air.plugin"), "plugins_air")
+    }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("intellij.air.plugn")
+  }
+
+  @Test
+  fun pluginSelectorsPartitionBundledPlugins() {
+    val named = PluginFragmentSelector.Named(setOf("intellij.air.plugin"))
+    val remaining = PluginFragmentSelector.Remaining(setOf("intellij.air.plugin"))
+
+    assertThat(named.accepts("intellij.air.plugin")).isTrue()
+    assertThat(named.accepts("intellij.vcs.git")).isFalse()
+    assertThat(remaining.accepts("intellij.air.plugin")).isFalse()
+    assertThat(remaining.accepts("intellij.vcs.git")).isTrue()
+    assertThat(PluginFragmentSelector.All.accepts("intellij.air.plugin")).isTrue()
+  }
+
+  /** A module the platform merges into a shared jar, which is what makes that jar the core fragment's. */
+  private fun platformModule(): ModuleItem {
+    return ModuleItem(moduleName = "intellij.platform.ide.impl", relativeOutputFile = "app-backend.jar", reason = "addModule")
+  }
+
+  private fun contentModule(moduleName: String, setName: String?): ModuleItem {
+    return ModuleItem(
+      moduleName = moduleName,
+      relativeOutputFile = "$moduleName.jar",
+      reason = ModuleIncludeReasons.PRODUCT_MODULES,
+      moduleSet = setName?.let { listOf("intellij.moduleSets.$it") },
+    )
+  }
+
+  private fun ModuleItem.withOutputFile(relativeOutputFile: String): ModuleItem {
+    return ModuleItem(moduleName = moduleName, relativeOutputFile = relativeOutputFile, reason = reason, moduleSet = moduleSet)
   }
 
   @Test
@@ -168,6 +280,76 @@ class IdeBuilderTest {
     )
 
     assertThat(options.linkImmutableCacheEntries).isFalse()
+  }
+
+  @Test
+  fun contentModuleFragmentDoesNotInlineTheProductDescriptor() {
+    val options = BuildOptions()
+
+    configureDevModeBuildOptions(
+      options = options,
+      request = createBuildRequest(
+        fragment = DevBuildFragment(
+          name = "platform_cm_libraries_platform",
+          platform = PlatformFragmentSelector.ContentModuleSets(setOf("libraries.platform")),
+          platformResources = false,
+          plugins = null,
+        ),
+      ),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.embedProductContentModuleDescriptors).isFalse()
+  }
+
+  @Test
+  fun coreFragmentInlinesTheProductDescriptorBecauseItPacksTheJarThatCarriesIt() {
+    val options = BuildOptions()
+
+    configureDevModeBuildOptions(
+      options = options,
+      request = createBuildRequest(
+        fragment = DevBuildFragment(
+          name = "platform_core",
+          platform = PlatformFragmentSelector.Core,
+          platformResources = false,
+          plugins = null,
+        ),
+      ),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.embedProductContentModuleDescriptors).isTrue()
+  }
+
+  @Test
+  fun theFragmentWritingTheClasspathPrefixInlinesTheProductDescriptorWhateverElseItOwns() {
+    val options = BuildOptions()
+
+    configureDevModeBuildOptions(
+      options = options,
+      request = createBuildRequest(
+        fragment = DevBuildFragment(
+          name = "platform_cm_rest",
+          platform = PlatformFragmentSelector.RemainingContentModules(emptySet()),
+          platformResources = false,
+          plugins = null,
+        ),
+        pluginClasspathPrefixFile = tempDir.resolve("plugin-classpath-prefix"),
+      ),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.embedProductContentModuleDescriptors).isTrue()
+  }
+
+  @Test
+  fun aCompleteDistributionInlinesTheProductDescriptor() {
+    val options = BuildOptions()
+
+    configureDevModeBuildOptions(options = options, request = createBuildRequest(), buildOptionsTemplate = BuildOptions())
+
+    assertThat(options.embedProductContentModuleDescriptors).isTrue()
   }
 
   @Test
@@ -546,20 +728,23 @@ class IdeBuilderTest {
 
     writeDevBuildComponentManifest(
       file = manifestFile,
-      kind = DevBuildPart.PLUGINS,
+      kind = "plugins_remaining",
       platformPrefix = "Rider",
       os = OsFamily.LINUX,
       arch = JvmArchitecture.aarch64,
       additionalModules = emptyList(),
       mainClass = "com.intellij.idea.Main",
       coreClassPath = emptyList(),
+      pluginCount = 1,
       entries = sequenceOf(entry),
       componentRoot = componentRoot,
       projectDir = projectDir,
     )
 
     val manifest = readDevBuildComponentManifest(manifestFile)
-    assertThat(manifest.version).isEqualTo(2)
+    assertThat(manifest.version).isEqualTo(3)
+    assertThat(manifest.kind).isEqualTo("plugins_remaining")
+    assertThat(manifest.pluginCount).isEqualTo(1)
     assertThat(manifest.entries).containsExactly(
       DevBuildComponentEntry(relativePath = "plugins/rider-plugins-renderdoc", type = "custom-asset", hash = 1)
     )
@@ -609,6 +794,8 @@ class IdeBuilderTest {
     linkImmutableCacheEntries: Boolean = true,
     os: OsFamily = OsFamily.currentOs,
     arch: JvmArchitecture = JvmArchitecture.currentJvmArch,
+    fragment: DevBuildFragment = DevBuildFragment.COMPLETE,
+    pluginClasspathPrefixFile: Path? = null,
   ): BuildRequest {
     return BuildRequest(
       platformPrefix = "idea",
@@ -620,6 +807,9 @@ class IdeBuilderTest {
       linkImmutableCacheEntries = linkImmutableCacheEntries,
       os = os,
       arch = arch,
+      fragment = fragment,
+      componentManifestFile = if (fragment.isComplete) null else tempDir.resolve("${fragment.name}.component.json"),
+      pluginClasspathPrefixFile = pluginClasspathPrefixFile,
     )
   }
 

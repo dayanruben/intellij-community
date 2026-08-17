@@ -75,6 +75,9 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.base.resources.iml",
+        "resources/colorScheme/Darcula_Kotlin.xml",
+        "resources/colorScheme/Default_Kotlin.xml",
+        "resources/intellij.kotlin.base.resources.xml",
     ],
     visibility = ["//visibility:public"],
 )

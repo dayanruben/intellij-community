@@ -203,6 +203,9 @@ jvm_library(
 exports_files(
     [
         "intellij.grazie.core.iml",
+        "main/resources/colorSchemes/GrazieDarcula.xml",
+        "main/resources/colorSchemes/GrazieDefault.xml",
+        "main/resources/intellij.grazie.core.xml",
     ],
     visibility = ["//visibility:public"],
 )

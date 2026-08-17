@@ -124,6 +124,10 @@ jvm_library(
 exports_files(
     [
         "intellij.mermaid.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/colorSchemes/MermaidDarcula.xml",
+        "resources/colorSchemes/MermaidDefault.xml",
+        "resources/liveTemplates/MermaidHidden.xml",
     ],
     visibility = ["//visibility:public"],
 )

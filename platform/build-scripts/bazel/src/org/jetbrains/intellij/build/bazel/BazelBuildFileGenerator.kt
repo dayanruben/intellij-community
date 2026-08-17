@@ -26,11 +26,14 @@ import org.jetbrains.kotlin.jps.model.JpsKotlinFacetModuleExtension
 import java.nio.file.Path
 import java.util.IdentityHashMap
 import java.util.TreeMap
+import java.util.TreeSet
 import java.util.logging.Level
 import java.util.logging.Logger
 import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.invariantSeparatorsPathString
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
 import kotlin.io.path.relativeTo
 import kotlin.io.path.walk
@@ -471,10 +474,7 @@ internal class BazelBuildFileGenerator(
 
         val imlTargetsBazel = BuildFile()
         imlTargetsBazel.exportFile(module.imlFile.relativeTo(module.bazelBuildFileDir).invariantSeparatorsPathString)
-        for (resource in module.resources) {
-          val pluginXml = findMarkedPluginXmlFile(resource) ?: continue
-          imlTargetsBazel.exportFile(pluginXml.relativeTo(module.bazelBuildFileDir).invariantSeparatorsPathString)
-        }
+        exportDescriptorFiles(module = module, buildFile = imlTargetsBazel, alreadyExported = fileUpdater.handWrittenExportedFiles())
 
         val testTargetsBazel = BuildFile()
         testTargetsBazel.generateTestTargets(module, list)
@@ -1550,3 +1550,49 @@ internal fun computePackageRelativeExcludes(
 private fun generateNameForPluginDirectory(moduleName: String): String = moduleName.removePrefix("intellij.").replace('.', '-')
 
 private fun compileExcludeSortKey(pattern: String): String = pattern.lowercase().replace('/', '{')
+
+/**
+ * Exports every XML under this module's production resource roots: content module descriptors,
+ * `META-INF/plugin.xml`, and the fragments those `xi:include`.
+ *
+ * The whole tree, not the root and its `META-INF/`. A reference beginning with `/` is taken verbatim
+ * (`org.jetbrains.intellij.build.impl.toLoadPath`), so a descriptor can name any path in the module - the platform's
+ * own `META-INF/PlatformLangPlugin.xml` includes `/idea/PlatformActions.xml` - and a predicate that assumes two
+ * directories leaves those unexported, which is an analysis error the moment the plan names one.
+ *
+ * Deliberately a superset. An `exports_files` entry costs nothing - only what `build/dev_dist_plan.bzl` and the
+ * convention probe name is materialized into the project model tree - and keeping the two rules independent is what
+ * makes them unable to disagree: this side only has to be wide enough.
+ */
+private fun exportDescriptorFiles(module: ModuleDescriptor, buildFile: BuildFile, alreadyExported: Set<String>) {
+  val exported = TreeSet<String>()
+  for (resource in module.resources) {
+    if (!resource.root.isDirectory()) {
+      continue
+    }
+
+    for (file in resource.root.walk()) {
+      if (file.extension != "xml" || !file.isRegularFile()) {
+        continue
+      }
+
+      val relative = file.relativeTo(module.bazelBuildFileDir).invariantSeparatorsPathString
+      // A resource root outside the module's own Bazel package - the `dotenv-ultimate` shape, where an ultimate
+      // module keeps its resources in the community tree. Another package owns the file and `../` is not a label,
+      // so those descriptors stay on the module-output read they use today.
+      if (relative.startsWith("../")) {
+        continue
+      }
+
+      // Exporting a file twice in one package is an analysis error, so a hand-written `exports_files` wins - it
+      // is there to give that one file a narrower visibility than `//visibility:public`.
+      if (!alreadyExported.contains(relative)) {
+        exported.add(relative)
+      }
+    }
+  }
+
+  for (path in exported) {
+    buildFile.exportFile(path)
+  }
+}
