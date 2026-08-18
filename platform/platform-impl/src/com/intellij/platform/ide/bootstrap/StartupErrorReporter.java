@@ -4,6 +4,7 @@ package com.intellij.platform.ide.bootstrap;
 import com.intellij.diagnostic.ITNProxy;
 import com.intellij.diagnostic.ImplementationConflictException;
 import com.intellij.diagnostic.LoadingState;
+import com.intellij.diagnostic.PluginConflictException;
 import com.intellij.diagnostic.PluginException;
 import com.intellij.ide.KeyboardAwareFocusOwner;
 import com.intellij.ide.logsUploader.LogUploader;
@@ -25,6 +26,7 @@ import com.intellij.openapi.diagnostic.ControlFlowException;
 import com.intellij.openapi.diagnostic.ExceptionWithAttachments;
 import com.intellij.openapi.diagnostic.IdeaLoggingEvent;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.NioFiles;
@@ -66,6 +68,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 
 import static com.intellij.ide.BootstrapBundle.message;
 import static java.util.Objects.requireNonNullElse;
@@ -366,9 +369,6 @@ public final class StartupErrorReporter {
       System.exit(AppExitCodes.INSTALLATION_CORRUPTED);
     }
 
-    var pluginException = findCause(t, PluginException.class);
-    var pluginId = pluginException == null ? null : pluginException.getPluginId();
-
     if (Logger.isInitialized() && !(t instanceof ProcessCanceledException)) {
       try {
         PluginManagerCore.getLogger().error(t);
@@ -383,12 +383,14 @@ public final class StartupErrorReporter {
     if (LoadingState.COMPONENTS_REGISTERED.isOccurred()) {
       var conflictException = findCause(t, ImplementationConflictException.class);
       if (conflictException != null) {
-        PluginConflictReporter pluginConflictReporter = ApplicationManager.getApplication().getService(PluginConflictReporter.class);
+        var pluginConflictReporter = ApplicationManager.getApplication().getService(PluginConflictReporter.class);
         pluginConflictReporter.reportConflict(conflictException.getConflictingPluginIds(), conflictException.isConflictWithPlatform());
       }
     }
 
-    if (pluginId != null && !ApplicationInfoImpl.getShadowInstance().isEssentialPlugin(pluginId)) {
+    var pluginException = findCause(t, PluginException.class);
+    var pluginId = findNonEssentialPlugin(pluginException);
+    if (pluginId != null) {
       PluginManagerCore.disablePlugin(pluginId);
 
       var message = new StringWriter();
@@ -403,6 +405,28 @@ public final class StartupErrorReporter {
       showError(message("bootstrap.error.title.start.failed"), t);
       System.exit(AppExitCodes.STARTUP_EXCEPTION);
     }
+  }
+
+  private static @Nullable PluginId findNonEssentialPlugin(@Nullable PluginException pluginException) {
+    if (pluginException == null) return null;
+
+    var affectedPlugins = new ArrayList<PluginId>();
+    if (pluginException instanceof PluginConflictException conflictException) {
+      affectedPlugins.add(conflictException.conflictingPluginId);
+    }
+    var pluginId = pluginException.getPluginId();
+    if (pluginId != null) {
+      affectedPlugins.add(pluginId);
+    }
+
+    if (!affectedPlugins.isEmpty()) {
+      var appInfo = ApplicationInfoImpl.getShadowInstance();
+      for (var id : affectedPlugins) {
+        if (!appInfo.isEssentialPlugin(id)) return id;
+      }
+    }
+
+    return null;
   }
 
   private static <T extends Throwable> @Nullable T findCause(Throwable t, Class<T> clazz) {

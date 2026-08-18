@@ -3,6 +3,7 @@ package com.intellij.performance
 
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
+import com.intellij.testFramework.PerformanceUnitTest
 import com.intellij.testFramework.junit5.StressTestApplication
 import com.intellij.tools.ide.metrics.benchmark.Benchmark
 import kotlinx.coroutines.Dispatchers
@@ -12,11 +13,13 @@ import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.Test
 
 @StressTestApplication
+@PerformanceUnitTest
 class CoroutinesIntegrationBenchmarkTest {
 
   @Test
   fun `performance of strict UI dispatcher`() {
-    Assumptions.assumeTrue { System.getProperty("kotlinx.coroutines.debug") == "off" }
+    val debugProperty = System.getProperty("kotlinx.coroutines.debug")
+    Assumptions.assumeTrue({ debugProperty == "off" }, "Existing system properties: ${System.getProperties()}")
     Benchmark.newBenchmark("Frequent dispatch on Dispatchers.UI") {
       runUiDispatcherBenchmark()
     }

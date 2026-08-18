@@ -159,12 +159,6 @@ data class BuildRequest(
   // `Long` is `java.lang.Long` in this file
   @JvmField val buildDateInSeconds: kotlin.Long? = null,
 
-  /**
-   * If `true`, the distribution may hard-link immutable jar cache entries instead of copying them.
-   * A dev run directory is disposable and can share bytes with the caches it is assembled from, but a Bazel output must own its bytes.
-   */
-  @JvmField val linkImmutableCacheEntries: Boolean = true,
-
   /** Selects the independently cacheable slice produced by a standalone Bazel assembly. */
   @JvmField val fragment: DevBuildFragment = DevBuildFragment.COMPLETE,
 
@@ -256,7 +250,7 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
 
       val moduleOutputPatcher = ModuleOutputPatcher()
 
-      val platformLayout = if (request.fragment.ownsPlatformJars || request.fragment.ownsPlugins) {
+      val platformLayout = if (request.fragment.ownsPlatformJars || request.fragment.ownsPlugins || request.fragment.platformResources) {
         async(CoroutineName("create platform layout")) {
           spanBuilder("create platform layout").use {
             createPlatformLayout(context)
@@ -424,50 +418,7 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
         request.platformClassPathConsumer?.invoke(context.ideMainClassName, classPath, runDir)
       }
 
-      launch(CoroutineName("compute IDE fingerprint")) {
-        if (request.fragment.isComplete) {
-          computeIdeFingerprint(
-            platformDistributionEntriesDeferred = platformLayoutResultDeferred,
-            pluginDistributionEntriesDeferred = pluginDistributionEntriesDeferred,
-            runDir = runDir,
-            projectDir = request.projectDir,
-          )
-        }
-        else {
-          val platformResult = platformLayoutResultDeferred.await()
-          val pluginsResult = pluginDistributionEntriesDeferred.await()
-          // Both halves, unconditionally: a fragment that owns neither platform jars nor plugins contributes an empty
-          // sequence there, so the union is what this fragment produced - whatever combination it was asked for.
-          val entries = platformResult.distributionEntries.asSequence() +
-                        pluginsResult.pluginEntries.asSequence().flatMap { it.distribution.asSequence() }
-          val coreClassPath = platformResult.coreClassPath + if (request.fragment.ownsPlugins) {
-            generateCoreClasspathFromPlugins(
-              platformLayout = checkNotNull(platformLayout).await(),
-              pluginBuildResults = pluginsResult.pluginEntries,
-              context = context,
-            )
-          }
-          else emptyList()
-          withContext(Dispatchers.IO) {
-            writeDevBuildComponentManifest(
-              file = checkNotNull(request.componentManifestFile),
-              kind = request.fragment.name,
-              platformPrefix = request.platformPrefix,
-              os = request.os,
-              arch = request.arch,
-              additionalModules = if (request.fragment.ownsPlugins) request.additionalModules else emptyList(),
-              mainClass = context.ideMainClassName,
-              coreClassPath = coreClassPath,
-              pluginCount = pluginsResult.pluginEntries.size + (pluginsResult.additionalPlugins?.size ?: 0),
-              entries = entries,
-              componentRoot = runDir,
-              projectDir = request.projectDir,
-            )
-          }
-        }
-      }
-
-      launch(CoroutineName("post-process distribution")) {
+      val postProcessJob = launch(CoroutineName("post-process distribution")) {
         // ensure platform dist files added to the list
         val platformFileEntries = platformScrambleResultDeferred.await().distributionEntries
         // ensure plugin dist files added to the list
@@ -571,10 +522,9 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
           }
         }
 
-        // Every fragment, not just the one that owns `bin`: a dist file is registered in the process that laid its
-        // producer out - `bundleIjentBinariesIntoDistribution` registers `lib/ijent/…` while the platform layout is
-        // being built - and `context.getDistFiles()` is per-process, so a fragment that does not copy what it
-        // registered drops it. Two fragments registering one path would collide in the composer, loudly.
+        // A platform layout registers IJent as DistFiles. Platform and plugin fragments need that layout for descriptor
+        // resolution, but the bytes have one owner: platform_resources, which creates the layout specifically to run
+        // platform specs and copy those files. Other DistFiles remain with the fragment that produced them.
         withContext(Dispatchers.IO) {
           copyDistFiles(
             newDir = runDir,
@@ -582,7 +532,48 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
             arch = request.arch,
             libcImpl = LibcImpl.current(request.os),
             context = context,
+            include = { shouldCopyDevBuildDistFile(fragment = request.fragment, relativePath = it.relativePath) },
           )
+        }
+      }
+
+      launch(CoroutineName("compute IDE fingerprint")) {
+        // The component manifest inventories the finished tree, including DistFiles and semantic archive links. It
+        // must therefore run after every post-processing child has completed, not merely after jars were laid out.
+        postProcessJob.join()
+        if (request.fragment.isComplete) {
+          computeIdeFingerprint(
+            platformDistributionEntriesDeferred = platformLayoutResultDeferred,
+            pluginDistributionEntriesDeferred = pluginDistributionEntriesDeferred,
+            runDir = runDir,
+            projectDir = request.projectDir,
+          )
+        }
+        else {
+          val platformResult = platformLayoutResultDeferred.await()
+          val pluginsResult = pluginDistributionEntriesDeferred.await()
+          val coreClassPath = platformResult.coreClassPath + if (request.fragment.ownsPlugins) {
+            generateCoreClasspathFromPlugins(
+              platformLayout = checkNotNull(platformLayout).await(),
+              pluginBuildResults = pluginsResult.pluginEntries,
+              context = context,
+            )
+          }
+          else emptyList()
+          withContext(Dispatchers.IO) {
+            writeDevBuildComponentManifest(
+              file = checkNotNull(request.componentManifestFile),
+              kind = request.fragment.name,
+              platformPrefix = request.platformPrefix,
+              os = request.os,
+              arch = request.arch,
+              additionalModules = if (request.fragment.ownsPlugins) request.additionalModules else emptyList(),
+              mainClass = context.ideMainClassName,
+              coreClassPath = coreClassPath,
+              pluginCount = pluginsResult.pluginEntries.size + (pluginsResult.additionalPlugins?.size ?: 0),
+              componentRoot = runDir,
+            )
+          }
         }
       }
     }
@@ -592,6 +583,11 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
     contextToClose?.messages?.close()
   }
   return runDir
+}
+
+@VisibleForTesting
+internal fun shouldCopyDevBuildDistFile(fragment: DevBuildFragment, relativePath: String): Boolean {
+  return fragment.platformResources || !relativePath.startsWith("lib/ijent/")
 }
 
 @VisibleForTesting
@@ -858,8 +854,6 @@ internal fun configureDevModeBuildOptions(options: BuildOptions, request: BuildR
   // A dev assembly can contain uncommitted changes, so HEAD does not identify its contents.
   // Avoid coupling assembly to the mutable checkout solely for production provenance metadata.
   options.storeGitRevision = false
-  // a dev run directory is disposable and never patched in place, so by default it can share bytes with the caches it is assembled from
-  options.linkImmutableCacheEntries = request.linkImmutableCacheEntries
   // Only the fragment that packs the core jars or writes the `plugin-classpath.txt` prefix has anywhere to put the
   // inlined content-module descriptors; for the rest, resolving them only makes every content module's jar an input.
   options.embedProductContentModuleDescriptors = request.fragment.ownsProductDescriptorJars || request.pluginClasspathPrefixFile != null
@@ -910,7 +904,6 @@ internal fun createDevBuildContext(
       LocalDiskJarCacheManager(
         cacheDir = it,
         classesOutputDirectory = compilationContext.classesOutputDirectory,
-        linkCacheEntries = compilationContext.options.linkImmutableCacheEntries,
         maxAccessTimeAge = compilationContext.options.jarCacheMaxAccessAge,
         cleanupInterval = 1.hours,
       )
