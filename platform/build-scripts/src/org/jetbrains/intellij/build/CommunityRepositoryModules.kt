@@ -189,12 +189,10 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.gradle.toolingExtension.impl", "gradle-tooling-extension-impl.jar")
       spec.withModule("intellij.libraries.groovy", "groovy.jar")
       spec.withModule("intellij.libraries.groovy.ant", "groovy-ant.jar")
-      spec.withProjectLibrary("Gradle", LibraryPackMode.STANDALONE_SEPARATE)
       spec.withProjectLibrary("Ant", "ant", LibraryPackMode.STANDALONE_SEPARATE)
     },
     pluginAuto(listOf("intellij.gradle.java.plugin", "intellij.gradle.java", "intellij.gradle.jps")) {
       it.excludeProjectLibrary("Ant")
-      it.excludeProjectLibrary("Gradle")
     },
     pluginAuto("intellij.junit") { spec ->
       spec.withModule("intellij.junit.rt", "junit-rt.jar")
@@ -484,8 +482,6 @@ object CommunityRepositoryModules {
         spec.bundlingRestrictions.includeInDistribution = PluginDistribution.CROSS_PLATFORM_DIST_ONLY
       }
 
-      spec.excludeProjectLibrary("Gradle")
-
       // modules:
       // adt-ui.jar
       spec.withModule("intellij.android.adt.ui.compose", "adt-ui.jar")
@@ -609,6 +605,7 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.android.screenshot-test.gradle", "android.jar")
       spec.withModule("intellij.android.sdkUpdates", "android.jar")
       spec.withModule("intellij.android.threading-checker", "android.jar")
+      spec.withModule("intellij.android.tracer", "android.jar")
       spec.withModule("intellij.android.transport", "android.jar")
       spec.withModule("intellij.android.newProjectWizard", "android.jar")
       spec.withModule("intellij.android.wear-pairing", "android.jar")

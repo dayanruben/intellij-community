@@ -25,6 +25,7 @@ import com.intellij.openapi.editor.markup.MarkupModel;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
@@ -1035,6 +1036,22 @@ public class RangeMarkerTest extends LightPlatformTestCase {
     LeakHunter.checkLeak(marker, Document.class, _ -> true);
   }
 
+  public void testRangeMarkerUserDataIsAvailableWhenProcessingOverlappingMarkers() {
+    RangeMarker marker = createMarker("0123456789", 2, 5);
+    Key<Object> key = Key.create("range.marker.test.data");
+    Object value = new Object();
+    marker.putUserData(key, value);
+
+    Ref<RangeMarker> processedMarker = new Ref<>();
+    assertTrue(((DocumentEx)document).processRangeMarkersOverlappingWith(2, 5, candidate -> {
+      processedMarker.set(candidate);
+      return true;
+    }));
+
+    assertNotNull(processedMarker.get());
+    assertSame(value, processedMarker.get().getUserData(key));
+  }
+
   public void testRangeMarkersAreGarbageCollectableAndWhenTheyHaveTheyLeaveNoTracesInDocumentEvenTheirIds() {
     DocumentEx document = (DocumentEx)EditorFactory.getInstance().createDocument("[xxxxxxxxxxxxxx]");
     Ref<RangeMarkerEx> markerRef = new Ref<>((RangeMarkerEx)document.createRangeMarker(0, document.getTextLength()));
@@ -1704,7 +1721,9 @@ public class RangeMarkerTest extends LightPlatformTestCase {
 
   public void testGetTextRangeMustBeAtomic_Stress() throws ExecutionException, InterruptedException {
     int len = 1000;
-    RangeMarkerEx marker = createMarker(" ".repeat(len), 10, 11);
+    DocumentEx document = (DocumentEx)EditorFactory.getInstance().createDocument(" ".repeat(len));
+    RangeMarker marker = document.createRangeMarker(10, 11);
+
     TestTimeOut t = TestTimeOut.setTimeout(10, TimeUnit.SECONDS);
     Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> {
       while (!t.isTimedOut()) {
@@ -1713,11 +1732,12 @@ public class RangeMarkerTest extends LightPlatformTestCase {
       }
     });
     while (!t.isTimedOut()) {
-      insertString(marker.getDocument(), 0, "x");
+      insertString(document, 0, "x");
       Thread.yield();
-      deleteString(marker.getDocument(), 0,1);
+      deleteString(document, 0, 1);
     }
     future.get();
+    Reference.reachabilityFence(document);
   }
 
   public void testRangeMarkerMustPreserveItsOffsetsSomeTimeAfterDeath() {
