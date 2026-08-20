@@ -1,4 +1,5 @@
 <idea-plugin visibility="public">
+  <resource-bundle>messages.KotlinBundle</resource-bundle>
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.java"/>
@@ -35,6 +36,7 @@
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.util.ui"/>
+    <module name="intellij.platform.workspace.jps"/>
   </dependencies>
   <!-- endregion -->
   <extensionPoints>
@@ -77,6 +79,12 @@
     <treeStructureProvider implementation="org.jetbrains.kotlin.idea.projectView.KotlinSelectInProjectViewProvider"/>
     <moduleConfigurationEditorProvider implementation="org.jetbrains.kotlin.idea.roots.ui.NonJvmKotlinModuleEditorsProvider"/>
     <projectStructure.sourceRootEditHandler implementation="org.jetbrains.kotlin.idea.roots.ui.KotlinModuleSourceRootEditHandler$Resource"/>
+    <notificationGroup
+            id="Kotlin dist downloading failed"
+            displayType="STICKY_BALLOON"
+            key="kotlin.dist.downloading.failed.group.name"
+    />
+
   </extensions>
   <projectListeners>
     <listener class="org.jetbrains.kotlin.idea.macros.KotlinBundledUsageDetector$ModelChangeListener"

@@ -7,6 +7,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.ListPopupStep
 import com.intellij.openapi.ui.popup.ListSeparator
 import com.intellij.openapi.util.NlsActions.ActionDescription
+import com.intellij.openapi.util.NlsSafe
+import org.jetbrains.annotations.Nls
 import com.intellij.openapi.application.EDT
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.python.sdk.frontend.PySdkFrontendBundle
@@ -47,6 +49,40 @@ sealed class EvoTreeElement(
 }
 
 class EvoTreeLeafElement(val action: AnAction) : EvoTreeElement(action.templatePresentation)
+
+/**
+ * Mutable holder for the edited env name, shared between the add-new submenu's name field and its version actions.
+ * [takenNames] are the names already in use in this tool node (existing envs); a value matching one — or blank — is
+ * [isValid]`= false`, which the field shows in red and the version rows refuse to create.
+ */
+class EvoEditableName(@Volatile @NlsSafe var value: String, val takenNames: Set<String> = emptySet()) {
+  /** True while the name field is in edit mode, so the popup treats Enter as "finish editing" instead of "create env". */
+  @Volatile
+  var editing: Boolean = false
+
+  /** Set by the name field: switches it back to read-only text (invoked by the popup when Enter is pressed while editing). */
+  var finishEditing: (() -> Unit)? = null
+
+  /** The current name can back a new environment: non-blank and not already taken. */
+  val isValid: Boolean get() = value.isNotBlank() && value !in takenNames
+}
+
+/**
+ * The "add new environment" node: a normal expandable node whose submenu lists the Python [versions] — so the platform
+ * handles mouse and keyboard natively. It is marked so [EvoTreePopup] can reposition its submenu to the *left* of the
+ * parent (the platform opens submenus to the right). The row shows the pre-filled env name. When [editableName] is set,
+ * the submenu also shows a name field on top (and turns off speed search) so the user can rename before creating.
+ */
+class EvoTreeAddNewNode(
+  text: @Nls String,
+  icon: Icon,
+  versions: List<EvoTreeLeafElement>,
+  val editableName: EvoEditableName? = null,
+) : EvoTreeNodeElement(text, icon) {
+  init {
+    sections.add(EvoTreeSection(elements = versions))
+  }
+}
 
 /**
  * Implemented by a leaf [AnAction] whose secondary detail (e.g. the interpreter version) is resolved lazily when

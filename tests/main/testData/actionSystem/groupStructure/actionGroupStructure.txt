@@ -1351,6 +1351,7 @@
       MergeAllWindowsAction
       <separator>
   HelpMenu
+    OpenWelcome
     GotoAction
     <separator>
     HelpTopics
@@ -2310,6 +2311,7 @@
   DiagnosticGroup
   KotlinCriDiagnostics
 [group HelpMenu]
+  OpenWelcome
   GotoAction
   <separator>
   HelpTopics
@@ -2552,9 +2554,7 @@
   CutCopyPasteGroup
   EditSource
   ChangesView.ApplyPatch.LangGroup
-  <separator>
-  ViewNavigationBar
-  ViewMembersInNavigationBar
+  OldUIViewNavigationBarGroup
   <separator>
   FindUsages
   FindInPath

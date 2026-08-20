@@ -69,6 +69,8 @@ IntellijDevFragmentInfo = provider(
         "manifest": "The fragment manifest.",
         "plugin_classpath_part": "This fragment's plugin-classpath records, or None if it built no plugin.",
         "plugin_classpath_prefix": "The plugin-classpath prefix, or None if another fragment produces it.",
+        "inputs_manifest": "The label-to-path manifest of the fragment's declared Bazel inputs.",
+        "unused_inputs": "The declared inputs the assembly never resolved - declared minus these is what it used.",
     },
 )
 
@@ -144,7 +146,7 @@ intellij_project_model_tree = rule(
 )
 
 # The selector values `DevDistMain` accepts, mirrored here so a typo in a BUILD file fails at analysis time.
-_PLATFORM_SELECTORS = ["", "all", "core", "content-modules", "remaining-content-modules"]
+_PLATFORM_SELECTORS = ["", "all", "core", "content-modules"]
 
 _PLUGIN_SELECTORS = ["", "all", "named", "remaining"]
 
@@ -204,8 +206,6 @@ def _fragment_impl(ctx):
 
     if ctx.attr.platform:
         args.add("--platform=" + ctx.attr.platform)
-        args.add_all(ctx.attr.content_module_sets, format_each = "--content-module-set=%s")
-        args.add_all(ctx.attr.claimed_content_module_sets, format_each = "--claimed-content-module-set=%s")
     if ctx.attr.platform_resources:
         args.add("--platform-resources")
 
@@ -256,6 +256,8 @@ def _fragment_impl(ctx):
             manifest = component_manifest,
             plugin_classpath_part = plugin_classpath_part,
             plugin_classpath_prefix = plugin_classpath_prefix,
+            inputs_manifest = bazel_inputs_manifest,
+            unused_inputs = unused_inputs,
         ),
     ]
 
@@ -281,9 +283,7 @@ intellij_dev_fragment = rule(
         "platform_prefix": attr.string(mandatory = True),
         "target_platform": attr.string(default = ""),
         "fragment_name": attr.string(mandatory = True, doc = "Identifies this fragment in its manifest, its mnemonic and the composer's completeness check."),
-        "platform": attr.string(default = "", values = _PLATFORM_SELECTORS, doc = "Which `lib/` jars this fragment owns; empty means none."),
-        "content_module_sets": attr.string_list(doc = "For platform = 'content-modules': the module sets whose content-module jars this fragment owns."),
-        "claimed_content_module_sets": attr.string_list(doc = "For platform = 'remaining-content-modules': the module sets the sibling fragments own."),
+        "platform": attr.string(default = "", values = _PLATFORM_SELECTORS, doc = "Which `lib/` jars this fragment owns - all, the core that holds no content module, or the content-module jars; empty means none."),
         "platform_resources": attr.bool(default = False, doc = "Whether this fragment owns `bin`, the product metadata, the launchers and the copied product files."),
         "plugins": attr.string(default = "", values = _PLUGIN_SELECTORS, doc = "Which bundled plugins this fragment owns; empty means none."),
         "plugin_main_modules": attr.string_list(doc = "For plugins = 'named': the main modules of the plugins this fragment owns."),
@@ -312,26 +312,32 @@ def _compose(ctx, fragment_targets):
     if parts and len(prefixes) != 1:
         fail("%s: exactly one fragment must set produces_plugin_classpath_prefix, got %d" % (ctx.label, len(prefixes)))
 
-    args = ctx.actions.args()
-    for fragment in fragments:
-        args.add("--component-dir=" + fragment.home.path)
-    for fragment in fragments:
-        args.add("--component-manifest=" + fragment.manifest.path)
-    if parts:
-        # Positional, one per component, empty where a component built no plugin.
-        for fragment in fragments:
-            part = fragment.plugin_classpath_part
-            args.add("--plugin-classpath-part=" + (part.path if part else ""))
-        args.add("--plugin-classpath-prefix=" + prefixes[0].path)
+    composition_spec = ctx.actions.declare_file(ctx.label.name + ".composition.json")
+    ctx.actions.write(
+        composition_spec,
+        json.encode({
+            "version": 1,
+            "expectedFragments": ctx.attr.expect_fragments,
+            "additionalModules": ctx.attr.additional_modules,
+            "components": [
+                {
+                    "root": fragment.home.path,
+                    "manifest": fragment.manifest.path,
+                    "pluginClasspathPart": fragment.plugin_classpath_part.path if fragment.plugin_classpath_part else None,
+                }
+                for fragment in fragments
+            ],
+            "pluginClasspathPrefix": prefixes[0].path if prefixes else None,
+        }),
+    )
 
-    # Declared by whoever wired this distribution, not derived from `fragments`: a fragment dropped from that list
-    # disappears from the component arguments too, so a list built from it could never notice the omission.
-    args.add_all(ctx.attr.expect_fragments, format_each = "--expect-fragment=%s")
+    args = ctx.actions.args()
+    args.add("--composition-spec=" + composition_spec.path)
     args.add("--output-dir=" + home.path)
     args.add("--ide-config=" + ide_config.path)
     args.add("--fingerprint=" + fingerprint.path)
     ctx.actions.run(
-        inputs = [file for fragment in fragments for file in [fragment.home, fragment.manifest]] + parts + prefixes,
+        inputs = [composition_spec] + [file for fragment in fragments for file in [fragment.home, fragment.manifest]] + parts + prefixes,
         outputs = [home, ide_config, fingerprint],
         executable = ctx.executable.composer,
         arguments = [args],
@@ -366,6 +372,12 @@ intellij_dev_fragments_dist = rule(
         "fragments": attr.label_list(providers = [IntellijDevFragmentInfo], mandatory = True),
         "expect_fragments": attr.string_list(
             doc = "The fragment names this distribution is supposed to be made of, stated independently of `fragments` so that a fragment missing from that list fails composition instead of thinning the IDE.",
+        ),
+        "additional_modules": attr.string_list(
+            doc = "The plugin modules this distribution declares it contains, for `DevIdeConfig`. What the " +
+                  "distribution was configured with, not what any one fragment assembled: a module the product " +
+                  "bundles is packed by a shared plugin fragment, and a consumer asking for it can only find out " +
+                  "from here.",
         ),
     },
 )

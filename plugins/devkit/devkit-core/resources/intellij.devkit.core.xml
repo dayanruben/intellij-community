@@ -49,12 +49,14 @@
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.markdown.utils"/>
     <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.refactoring"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.structureView"/>
     <module name="intellij.platform.testRunner"/>
     <module name="intellij.platform.usageView"/>
     <module name="intellij.platform.usageView.impl"/>
     <module name="intellij.platform.util.ui"/>
+    <module name="intellij.platform.workspace.jps"/>
     <module name="intellij.properties.backend"/>
     <module name="intellij.properties.backend.psi"/>
     <module name="intellij.spellchecker"/>
@@ -512,6 +514,11 @@
                      enabledByDefault="false" level="WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.ExtensionClassShouldBeFinalAndNonPublicInspection"
                      key="inspection.extension.class.should.be.final.and.non.public.display.name"/>
+    <localInspection language="JVM" shortName="LightProjectDescriptorEqualsHashCode"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.code"
+                     enabledByDefault="true" level="ERROR"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.LightProjectDescriptorEqualsHashCodeInspection"
+                     key="inspection.light.project.descriptor.equals.hashcode.display.name"/>
     <localInspection language="XML" applyToDialects="false" shortName="LightServiceMigrationXML"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"

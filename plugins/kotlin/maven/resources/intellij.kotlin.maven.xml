@@ -17,8 +17,8 @@
     <module name="intellij.kotlin.migration"/>
     <module name="intellij.kotlin.projectConfiguration"/>
     <module name="intellij.kotlin.references"/>
-    <module name="intellij.libraries.kotlinc.kotlin.compiler.common"/>
     <module name="intellij.libraries.gson"/>
+    <module name="intellij.libraries.kotlinc.kotlin.compiler.common"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
@@ -32,6 +32,7 @@
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.vcs.core"/>
+    <module name="intellij.platform.workspace.jps"/>
     <module name="intellij.xml.analysis"/>
     <module name="intellij.xml.psi"/>
   </dependencies>
@@ -137,6 +138,12 @@
             displayType="STICKY_BALLOON"
             key="notification.text.kotlin.js.compiler.maven.notification.group.name"
             bundle="messages.KotlinMavenBundle"
+    />
+
+    <notificationGroup
+            id="Kotlin Maven project import"
+            displayType="STICKY_BALLOON"
+            key="configuration.maven.group.name"
     />
 
     <registryKey

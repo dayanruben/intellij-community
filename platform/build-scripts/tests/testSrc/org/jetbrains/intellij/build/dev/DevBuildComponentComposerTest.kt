@@ -89,7 +89,7 @@ internal class DevBuildComponentComposerTest {
     )
 
     val manifest = readDevBuildComponentManifest(manifestFile)
-    assertThat(manifest.version).isEqualTo(5)
+    assertThat(manifest.version).isEqualTo(7)
     assertThat(manifest.entries).anySatisfy { entry ->
       assertThat(entry.relativePath).isEqualTo("lib/ijent/ijent-x86_64-unknown-linux-musl-release")
       assertThat(entry.type).isEqualTo("component-file")
@@ -319,7 +319,11 @@ internal class DevBuildComponentComposerTest {
       ),
     )
 
-    val result = composeDevBuildComponents(components, tempDir.resolve("target"))
+    val result = composeDevBuildComponents(
+      components = components,
+      target = tempDir.resolve("target"),
+      additionalModules = listOf("intellij.sample", "intellij.shared", "intellij.extra"),
+    )
 
     // Ordered here rather than left in component order: each component sorted only the share it packed.
     assertThat(result.coreClassPath).containsExactly(
@@ -479,6 +483,55 @@ internal class DevBuildComponentComposerTest {
     assertThat(Files.exists(target)).isFalse()
   }
 
+  @Test
+  fun `composition spec decodes its versioned contract`(@TempDir tempDir: Path) {
+    val file = tempDir.resolve("composition.json")
+    Files.writeString(
+      file,
+      """
+        {
+          "version": 1,
+          "expectedFragments": ["platform_core", "plugins_rest"],
+          "additionalModules": ["intellij.air.plugin"],
+          "components": [
+            {"root": "core", "manifest": "core.json"},
+            {"root": "plugins", "manifest": "plugins.json", "pluginClasspathPart": "plugins.part"}
+          ],
+          "pluginClasspathPrefix": "prefix.bin"
+        }
+      """.trimIndent(),
+    )
+
+    val spec = readDevBuildCompositionSpec(file)
+
+    assertThat(spec.expectedFragments).containsExactly("platform_core", "plugins_rest")
+    assertThat(spec.additionalModules).containsExactly("intellij.air.plugin")
+    assertThat(spec.components).containsExactly(
+      DevBuildCompositionComponent(root = "core", manifest = "core.json"),
+      DevBuildCompositionComponent(root = "plugins", manifest = "plugins.json", pluginClasspathPart = "plugins.part"),
+    )
+    assertThat(spec.pluginClasspathPrefix).isEqualTo("prefix.bin")
+  }
+
+  @Test
+  fun `composition spec rejects an unsupported version`(@TempDir tempDir: Path) {
+    val file = tempDir.resolve("composition.json")
+    Files.writeString(
+      file,
+      """
+        {
+          "version": 2,
+          "expectedFragments": ["platform_core"],
+          "components": [{"root": "core", "manifest": "core.json"}]
+        }
+      """.trimIndent(),
+    )
+
+    assertThatThrownBy { readDevBuildCompositionSpec(file) }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("Unsupported dev-build composition spec version 2")
+  }
+
   private fun writeManifest(file: Path, componentRoot: Path) {
     writeDevBuildComponentManifest(
       file = file,
@@ -492,6 +545,53 @@ internal class DevBuildComponentComposerTest {
       pluginCount = 1,
       componentRoot = componentRoot,
     )
+  }
+
+  /**
+   * The regression that turned every AIR UI lane red: a plugin the product bundles is packed by a fragment several
+   * distributions share, so no component manifest names it, and summing the manifests made the distribution deny
+   * having a plugin that was sitting in it.
+   */
+  @Test
+  fun `composer declares a bundled module that no component assembled`(@TempDir tempDir: Path) {
+    val components = listOf(
+      DevBuildComponent(
+        root = component(tempDir, "plugins-air", "plugins/air/lib/air.jar"),
+        manifest = manifest(kind = "plugins_air"),
+      ),
+      DevBuildComponent(
+        root = component(tempDir, "plugins-additional", "plugins/bridge/lib/bridge.jar"),
+        manifest = manifest(kind = "plugins_additional", additionalModules = listOf("intellij.bridge.plugin")),
+      ),
+    )
+
+    val result = composeDevBuildComponents(
+      components = components,
+      target = tempDir.resolve("target"),
+      additionalModules = listOf("intellij.air.plugin", "intellij.bridge.plugin"),
+    )
+
+    assertThat(result.additionalModules).containsExactly("intellij.air.plugin", "intellij.bridge.plugin")
+    // The declaration is part of the launch metadata, so a distribution that only re-declared is not reused.
+    assertThat(result.fingerprint).isNotEqualTo(computeIdeFingerprintFromComponents(components.map { it.manifest }))
+  }
+
+  @Test
+  fun `composer rejects a component that assembled an undeclared module`(@TempDir tempDir: Path) {
+    val component = DevBuildComponent(
+      root = component(tempDir, "plugins-additional", "plugins/devkit/lib/devkit.jar"),
+      manifest = manifest(kind = "plugins_additional", additionalModules = listOf("intellij.devkit")),
+    )
+
+    assertThatThrownBy {
+      composeDevBuildComponents(
+        components = listOf(component),
+        target = tempDir.resolve("target"),
+        additionalModules = listOf("intellij.air.plugin"),
+      )
+    }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("does not declare: [intellij.devkit]")
   }
 
   private fun component(tempDir: Path, name: String, relativeFile: String): Path {
