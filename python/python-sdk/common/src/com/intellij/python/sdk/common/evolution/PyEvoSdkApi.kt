@@ -35,8 +35,23 @@ import org.jetbrains.annotations.NonNls
 @ApiStatus.Internal
 @Rpc
 interface PyEvoSdkApi : RemoteApi<Unit> {
+  /**
+   * Whether the module is a Python one at all — a `PyProject`, i.e. a Python-typed module or one carrying a Python
+   * facet. The widget hides itself entirely for anything else (a plain Java module in a mixed project), which it
+   * cannot tell from [getCurrentInterpreter] alone: that returns `null` both here and for a Python module still
+   * waiting for an interpreter, and only the latter may show "No interpreter".
+   */
+  suspend fun isPythonModule(projectId: ProjectId, moduleName: String): Boolean
+
   /** The Eel interpreter currently configured for the module, as display-ready data (or `null` if none). */
   suspend fun getCurrentInterpreter(projectId: ProjectId, moduleName: String): PyInterpreterDto?
+
+  /**
+   * The tool workspace (uv/poetry) the module takes part in — as its root or as a member — or `null` when it is
+   * standalone. Every module of a workspace shares the one environment declared at its root, so the backend resolves
+   * every directory it works with against that root; this tells the widget to name the workspace in its popup title.
+   */
+  suspend fun getWorkspace(projectId: ProjectId, moduleName: String): EvoWorkspaceDto?
 
   /**
    * The expandable nodes contributed by the backend `PyEvoEnvironmentProvider` extension point
@@ -119,8 +134,16 @@ suspend fun PyEvoSdkApi(): PyEvoSdkApi = RemoteApiProviderService.resolve(remote
  * module does not need to depend on `intellij.platform.rpc`.
  */
 @ApiStatus.Internal
+suspend fun requestEvoIsPythonModule(projectId: ProjectId, moduleName: String): Boolean =
+  PyEvoSdkApi().isPythonModule(projectId, moduleName)
+
+@ApiStatus.Internal
 suspend fun requestEvoCurrentInterpreter(projectId: ProjectId, moduleName: String): PyInterpreterDto? =
   PyEvoSdkApi().getCurrentInterpreter(projectId, moduleName)
+
+@ApiStatus.Internal
+suspend fun requestEvoWorkspace(projectId: ProjectId, moduleName: String): EvoWorkspaceDto? =
+  PyEvoSdkApi().getWorkspace(projectId, moduleName)
 
 @ApiStatus.Internal
 suspend fun requestEvoNodes(projectId: ProjectId, moduleName: String): List<EvoNodeDto> =
@@ -175,11 +198,15 @@ data class PyInterpreterDto(
   /** Selection token for [PyEvoSdkApi.selectInterpreter]. */
   val ref: PyInterpreterRef,
   /**
-   * IDs of the package-manager actions applicable to this interpreter's package manager (e.g. uv → lock/sync,
-   * poetry → lock/update), resolved on the frontend via the action manager. Empty for interpreters with no
-   * tool-specific actions (plain pip) and for target interpreters.
+   * URL of the dependency file this interpreter's package manager works with (`pyproject.toml`, `environment.yml`,
+   * `requirements.txt`, …), or `null` when it has none.
+   *
+   * The popup shows the whole `PythonPackageManagerActions` group and puts this file into its data context, which is
+   * what each action gates on in `update()` and acts on in `actionPerformed`. Naming it here — instead of whatever the
+   * editor happens to show, which has nothing to do with the interpreter — is what keeps a conda `environment.yml`
+   * action from firing against a `pyproject.toml`, and lets the applicable rows work whatever file is open.
    */
-  val packageManagerActionIds: List<String> = emptyList(),
+  val dependencyFileUrl: @NonNls String? = null,
 )
 
 /** Opaque, serializable selector telling the backend which interpreter [PyEvoSdkApi.selectInterpreter] must apply. */
@@ -218,6 +245,20 @@ sealed interface PyInterpreterRef {
   @Serializable
   data class Autoconfigure(val toolId: @NonNls String) : PyInterpreterRef
 }
+
+/**
+ * The tool workspace a module takes part in — see [PyEvoSdkApi.getWorkspace]. Named in the popup title, since the
+ * environments the widget lists are the workspace's, not the module's own.
+ */
+@ApiStatus.Internal
+@Serializable
+data class EvoWorkspaceDto(
+  /**
+   * Name of the module the workspace is rooted at (whose base dir the widget works in). Equal to the queried module's
+   * own name when that module *is* the root.
+   */
+  val rootModuleName: @NlsSafe String,
+)
 
 /** A collapsed expandable node in the popup's "select environment" section, contributed by a backend provider. */
 @ApiStatus.Internal
@@ -267,6 +308,12 @@ enum class EvoLeafKind {
 @Serializable
 data class EvoSectionDto(
   val label: @Nls String? = null,
+  /**
+   * The un-elided form of [label], shown as its tooltip. Section labels are folder paths shortened to a fixed budget
+   * (`toSectionLabel`), so for a deeply nested folder the visible header is lossy and this is the only way back to the
+   * real path. Null when there is nothing more to show than the label itself.
+   */
+  val labelTooltip: @NlsSafe String? = null,
   val leaves: List<EvoLeafDto>,
   /** When true, the frontend appends its localized "Add new environment" row (opens the modal Add dialog). */
   val addNew: Boolean = false,

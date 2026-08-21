@@ -74,6 +74,7 @@
     <module name="intellij.platform.ide.core.plugins"/>
     <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.instanceContainer"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
@@ -86,6 +87,7 @@
     <module name="intellij.platform.rd.community"/>
     <module name="intellij.platform.refactoring"/>
     <module name="intellij.platform.runtime.product"/>
+    <module name="intellij.platform.serviceContainer"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.syntax.psi"/>
     <module name="intellij.platform.util.coroutines"/>
@@ -1548,6 +1550,9 @@
                             order="last"/>
     <statusBarWidgetFactory id="Memory" implementation="com.intellij.openapi.wm.impl.status.MemoryIndicatorWidgetFactory"
                             order="last"/>
+    <statusBarWidgetFactory id="EditorAnimationCacheStatistics"
+                            implementation="com.intellij.openapi.editor.impl.view.animation.EditorAnimationCacheStatisticsWidgetFactory"
+                            order="first"/>
     <statusBarWidgetFactory id="SmartModeIndicator" implementation="com.intellij.openapi.wm.impl.status.SmartModeIndicatorWidgetFactory"/>
     <statusBarWidgetFactory id="IndexesAndVfsFlushIndicator" implementation="com.intellij.openapi.wm.impl.status.IndexesAndVfsFlushIndicatorWidgetFactory"/>
     <statusBarWidgetFactory id="settingsEntryPointWidget" implementation="com.intellij.ide.actions.SettingsEntryPointAction$StatusBarManager"

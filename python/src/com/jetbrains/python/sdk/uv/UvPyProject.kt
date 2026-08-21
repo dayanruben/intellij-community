@@ -27,8 +27,8 @@ internal data class UvPyProject(val project: UvPyProjectTable?, val issues: List
     outdatedPackages: Map<String, PythonOutdatedPackage>,
   ): List<PyRequirement> =
     setOf(
-      *pyProject.project.dependencies.project.toTypedArray(),
-      *pyProject.allDepsFromGroups.toTypedArray(),
+      // Covers `project.dependencies`, the `project.optional-dependencies` extras and the PEP 735 groups.
+      *pyProject.allDeclaredDeps.toTypedArray(),
       *(project?.uvDevDependencies?.toTypedArray() ?: arrayOf()),
     ).mapNotNull { depString ->
       fromLine(depString, module.project)
@@ -47,7 +47,7 @@ internal data class UvPyProject(val project: UvPyProjectTable?, val issues: List
         return UvPyProject(null, issues)
       }
 
-      val uvDevDependencies = table.safeGetArr<String>("dev-dependencies").getOrIssue(issues, { SafeGetError })
+      val uvDevDependencies = table.safeGetArr<String>("dev-dependencies", unquotedDottedKey = false).getOrIssue(issues, { SafeGetError })
 
       return UvPyProject(
         UvPyProjectTable(

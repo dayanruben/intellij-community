@@ -110,7 +110,6 @@ private val IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST: Set<String> = java.util.S
   "assertj-swing",
   "com.jetbrains.fus.reporting.ap.validation.all",
   "cucumber-core-1",
-  "external-symbols",
   "git-learning-project",
   "github.javafaker",
   "google.protobuf.java.util",
@@ -136,11 +135,6 @@ private val IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST: Set<String> = java.util.S
   "jetbrains.mlapi.catboost.shadow.need.slf4j",
   "jetbrains.mlapi.core",
   "jetbrains.patronus.config",
-  "jetbrains.qodana.cloud.kotlin.client",
-  "jetbrains.qodana.configuration",
-  "jetbrains.qodana.publisher",
-  "jetbrains.qodana.sarif.converter",
-  "jetbrains.qodana.web.ui",
   // per-OS/arch native runtimes of the RenderDoc client, all packed into the plugin
   "jetbrains.rd.client.renderdoc.runtime.linux.aarch64",
   "jetbrains.rd.client.renderdoc.runtime.linux.x86_64",
@@ -161,22 +155,14 @@ private val IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST: Set<String> = java.util.S
   "kotlinc.kotlin-scripting-common",
   "kotlinc.kotlin-scripting-compiler-impl",
   "kotlinc.kotlin-scripting-jvm",
-  "kotlinx-bcv",
-  "ktor-server-content-negotiation",
-  "ktor-server-sse-jvm",
-  "kxml2",
   "layoutlib",
   "libthrift",
-  "memoryfilesystem",
   "okhttp",
   "openai.java",
   "org.apache.ivy",
   "org.scilab.forge:jlatexmath",
   "package-search-api-client",
-  "qodana-sarif",
   "software.amazon.awssdk.glue",
-  "space-idea-sdk",
-  "spaceport-idea-sdk",
   // see the comment for `flexmark`
   "sqlite",
   "sqlite-native",
@@ -184,7 +170,6 @@ private val IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST: Set<String> = java.util.S
   // declared by the android plugin layout, so the Rider android plugin needs its own copy
   "studio-platform",
   "workspace-model-codegen",
-  "zxing-core",
 )
 
 class JarPackager private constructor(

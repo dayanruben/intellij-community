@@ -800,7 +800,9 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.k2/intellij.kotlin.base.scripting.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.k2/intellij.kotlin.base.scripting.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.main.kts/intellij.kotlin.base.scripting.main.kts.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.main.kts/intellij.kotlin.base.scripting.main.kts.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.main.kts/intellij.kotlin.base.scripting.main.kts.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.main.kts/intellij.kotlin.base.scripting.main.kts.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.scratch/intellij.kotlin.base.scripting.scratch.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.scratch/intellij.kotlin.base.scripting.scratch.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.scratch.definition/intellij.kotlin.base.scripting.scratch.definition.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.scratch.definition/intellij.kotlin.base.scripting.scratch.definition.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.scratch/intellij.kotlin.base.scripting.scratch.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.scratch/intellij.kotlin.base.scripting.scratch.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.shared/intellij.kotlin.base.scripting.shared.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.shared/intellij.kotlin.base.scripting.shared.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.k2/intellij.kotlin.base.scripting.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/scripting/scripting.k2/intellij.kotlin.base.scripting.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/kotlin.base.serialization/intellij.kotlin.base.serialization.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/kotlin.base.serialization/intellij.kotlin.base.serialization.iml" />
@@ -904,7 +906,6 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/j2k/k2/tests/intellij.kotlin.j2k.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/j2k/k2/tests/intellij.kotlin.j2k.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jsr223/intellij.kotlin.jsr223.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jsr223/intellij.kotlin.jsr223.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/scripting-plugin/intellij.kotlin.jsr223.plugin.iml" filepath="$PROJECT_DIR$/plugins/kotlin/scripting-plugin/intellij.kotlin.jsr223.plugin.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm/k2/intellij.kotlin.jvm.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm/k2/intellij.kotlin.jvm.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/base/util/intellij.kotlin.jvm.debugger.base.util.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/base/util/intellij.kotlin.jvm.debugger.base.util.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/core/intellij.kotlin.jvm.debugger.core.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/core/intellij.kotlin.jvm.debugger.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/coroutines/intellij.kotlin.jvm.debugger.coroutines.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/coroutines/intellij.kotlin.jvm.debugger.coroutines.iml" />
@@ -919,7 +920,6 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/parcelize/testFramework/intellij.kotlin.jvm.debugger.test.parcelize.testFramework.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/parcelize/testFramework/intellij.kotlin.jvm.debugger.test.parcelize.testFramework.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/k2/testFramework/intellij.kotlin.jvm.debugger.test.testFramework.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-debugger/test/k2/testFramework/intellij.kotlin.jvm.debugger.test.testFramework.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm-decompiler/intellij.kotlin.jvm.decompiler.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm-decompiler/intellij.kotlin.jvm.decompiler.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jvm/k2/intellij.kotlin.jvm.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jvm/k2/intellij.kotlin.jvm.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/lombok/intellij.kotlin.lombok.iml" filepath="$PROJECT_DIR$/plugins/kotlin/lombok/intellij.kotlin.lombok.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/lombok/tests/intellij.kotlin.lombok.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/lombok/tests/intellij.kotlin.lombok.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/maven/intellij.kotlin.maven.iml" filepath="$PROJECT_DIR$/plugins/kotlin/maven/intellij.kotlin.maven.iml" />
@@ -1139,6 +1139,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/kotlinx-serialization-compiler-plugin/intellij.libraries.kotlinc.kotlinx.serialization.compiler.plugin.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/kotlinx-serialization-compiler-plugin/intellij.libraries.kotlinc.kotlinx.serialization.compiler.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/low-level-api-fir/intellij.libraries.kotlinc.low.level.api.fir.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/low-level-api-fir/intellij.libraries.kotlinc.low.level.api.fir.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/symbol-light-classes/intellij.libraries.kotlinc.symbol.light.classes.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/symbol-light-classes/intellij.libraries.kotlinc.symbol.light.classes.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/bcv/intellij.libraries.kotlinx.bcv.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/bcv/intellij.libraries.kotlinx.bcv.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/collections-immutable/intellij.libraries.kotlinx.collections.immutable.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/collections-immutable/intellij.libraries.kotlinx.collections.immutable.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/coroutines/core/intellij.libraries.kotlinx.coroutines.core.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/coroutines/core/intellij.libraries.kotlinx.coroutines.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinx/coroutines/debug/intellij.libraries.kotlinx.coroutines.debug.iml" filepath="$PROJECT_DIR$/libraries/kotlinx/coroutines/debug/intellij.libraries.kotlinx.coroutines.debug.iml" />
@@ -1161,13 +1162,17 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/ktor/network-tls/intellij.libraries.ktor.network.tls.iml" filepath="$PROJECT_DIR$/libraries/ktor/network-tls/intellij.libraries.ktor.network.tls.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ktor/serialization-gson/intellij.libraries.ktor.serialization.gson.iml" filepath="$PROJECT_DIR$/libraries/ktor/serialization-gson/intellij.libraries.ktor.serialization.gson.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ktor/server-cio/intellij.libraries.ktor.server.cio.iml" filepath="$PROJECT_DIR$/libraries/ktor/server-cio/intellij.libraries.ktor.server.cio.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/ktor/server-content-negotiation/intellij.libraries.ktor.server.content.negotiation.iml" filepath="$PROJECT_DIR$/libraries/ktor/server-content-negotiation/intellij.libraries.ktor.server.content.negotiation.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/ktor/server-sse/intellij.libraries.ktor.server.sse.iml" filepath="$PROJECT_DIR$/libraries/ktor/server-sse/intellij.libraries.ktor.server.sse.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ktor/utils/intellij.libraries.ktor.utils.iml" filepath="$PROJECT_DIR$/libraries/ktor/utils/intellij.libraries.ktor.utils.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/kxml2/intellij.libraries.kxml2.iml" filepath="$PROJECT_DIR$/libraries/kxml2/intellij.libraries.kxml2.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/log4j-to-slf4j/intellij.libraries.log4j.to.slf4j.iml" filepath="$PROJECT_DIR$/libraries/log4j-to-slf4j/intellij.libraries.log4j.to.slf4j.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/lucene.common/intellij.libraries.lucene.common.iml" filepath="$PROJECT_DIR$/libraries/lucene.common/intellij.libraries.lucene.common.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/lz4/intellij.libraries.lz4.iml" filepath="$PROJECT_DIR$/libraries/lz4/intellij.libraries.lz4.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/markdown/intellij.libraries.markdown.iml" filepath="$PROJECT_DIR$/libraries/markdown/intellij.libraries.markdown.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/maven-resolver-provider/intellij.libraries.maven.resolver.provider.iml" filepath="$PROJECT_DIR$/libraries/maven-resolver-provider/intellij.libraries.maven.resolver.provider.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/maven-resolver-transport/intellij.libraries.maven.resolver.transport.iml" filepath="$PROJECT_DIR$/libraries/maven-resolver-transport/intellij.libraries.maven.resolver.transport.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/memoryfilesystem/intellij.libraries.memoryfilesystem.iml" filepath="$PROJECT_DIR$/libraries/memoryfilesystem/intellij.libraries.memoryfilesystem.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/microba/intellij.libraries.microba.iml" filepath="$PROJECT_DIR$/libraries/microba/intellij.libraries.microba.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/miglayout-swing/intellij.libraries.miglayout.swing.iml" filepath="$PROJECT_DIR$/libraries/miglayout-swing/intellij.libraries.miglayout.swing.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/misc/plugin/intellij.libraries.misc.plugin.iml" filepath="$PROJECT_DIR$/libraries/misc/plugin/intellij.libraries.misc.plugin.iml" />
@@ -1201,6 +1206,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/protobuf-kotlin/intellij.libraries.protobuf.kotlin.iml" filepath="$PROJECT_DIR$/libraries/protobuf-kotlin/intellij.libraries.protobuf.kotlin.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/proxy-vole/intellij.libraries.proxy.vole.iml" filepath="$PROJECT_DIR$/libraries/proxy-vole/intellij.libraries.proxy.vole.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/pty4j/intellij.libraries.pty4j.iml" filepath="$PROJECT_DIR$/libraries/pty4j/intellij.libraries.pty4j.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/qodana/sarif/intellij.libraries.qodana.sarif.iml" filepath="$PROJECT_DIR$/libraries/qodana/sarif/intellij.libraries.qodana.sarif.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/rd/core/intellij.libraries.rd.core.iml" filepath="$PROJECT_DIR$/libraries/rd/core/intellij.libraries.rd.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/rd/framework/intellij.libraries.rd.framework.iml" filepath="$PROJECT_DIR$/libraries/rd/framework/intellij.libraries.rd.framework.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/rd/swing/intellij.libraries.rd.swing.iml" filepath="$PROJECT_DIR$/libraries/rd/swing/intellij.libraries.rd.swing.iml" />
@@ -1236,6 +1242,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/xz/intellij.libraries.xz.iml" filepath="$PROJECT_DIR$/libraries/xz/intellij.libraries.xz.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/zip-signer/intellij.libraries.zip.signer.iml" filepath="$PROJECT_DIR$/libraries/zip-signer/intellij.libraries.zip.signer.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/zstd-jni/intellij.libraries.zstd.jni.iml" filepath="$PROJECT_DIR$/libraries/zstd-jni/intellij.libraries.zstd.jni.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/zxing-core/intellij.libraries.zxing.core.iml" filepath="$PROJECT_DIR$/libraries/zxing-core/intellij.libraries.zxing.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lombok/intellij.lombok.iml" filepath="$PROJECT_DIR$/plugins/lombok/intellij.lombok.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lombok/generated/intellij.lombok.generated.iml" filepath="$PROJECT_DIR$/plugins/lombok/generated/intellij.lombok.generated.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/lombok/plugin/intellij.lombok.plugin.iml" filepath="$PROJECT_DIR$/plugins/lombok/plugin/intellij.lombok.plugin.iml" />

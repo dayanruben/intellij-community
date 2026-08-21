@@ -4,9 +4,12 @@ package com.intellij.python.sdk.backend.evolution
 
 import com.intellij.ide.ui.icons.rpcId
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.module.Module
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.community.execService.Args
 import com.intellij.python.community.execService.ExecService
 import com.intellij.python.community.execService.execGetStdout
@@ -18,10 +21,13 @@ import com.intellij.python.sdk.common.evolution.EvoSectionDto
 import com.intellij.python.sdk.common.evolution.PyEvoRegistry
 import com.intellij.python.sdk.common.evolution.PyInterpreterRef
 import com.jetbrains.python.PythonBinary
+import com.jetbrains.python.sdk.impl.shortenPath
 import com.jetbrains.python.getOrNull
 import com.jetbrains.python.project.PyProject
+import com.jetbrains.python.project.project
 import com.jetbrains.python.sdk.add.v2.FileSystem
 import com.jetbrains.python.sdk.add.v2.PathHolder
+import com.jetbrains.python.venvReader.Directory
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,6 +42,43 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.isExecutable
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.pathString
+
+/**
+ * A tool workspace (uv/poetry) a module takes part in: the [root] project everything is resolved against, the [tool]
+ * declaring it, and every [modules] belonging to it — the root and its members alike, since they all share one
+ * environment.
+ */
+@ApiStatus.Internal
+class EvoWorkspace(val root: PyProject, val tool: ToolId, val modules: List<Module>)
+
+/**
+ * The [PyProject] the widget acts on, resolved against the workspace it belongs to.
+ *
+ * A tool workspace (a uv/poetry workspace) has a single environment, declared at its root: no member owns one, and the
+ * tools are always driven from the root. So everything the widget does with a directory (scanning for envs, reading
+ * `requires-python`, creating an env, running the tool) uses [baseDir] — the *workspace root's* base dir — and an
+ * interpreter picked for any one module is applied to [sdkModules], the whole workspace. Only [module] itself, whose
+ * interpreter the status bar reflects, stays the one the user is looking at.
+ */
+@ApiStatus.Internal
+class EvoPyProject(
+  private val self: PyProject,
+  /** The workspace [self] takes part in (as its root or as a member); `null` when it is standalone. */
+  val workspace: EvoWorkspace? = null,
+) {
+  val module: Module get() = self.residesOnModule
+
+  val project: Project get() = self.project
+
+  /** The directory the widget works in: the workspace root's base dir when in a workspace, else the module's own. */
+  val baseDir: Directory get() = (workspace?.root ?: self).baseDir
+
+  /** The module's *own* base dir, whether or not it takes part in a workspace. */
+  val moduleBaseDir: Directory get() = self.baseDir
+
+  /** Every module a selected interpreter must be applied to: the whole workspace, or just this module when standalone. */
+  val sdkModules: List<Module> get() = workspace?.let { (it.modules + module).distinct() } ?: listOf(module)
+}
 
 /**
  * Backend extension point for the "Evo" interpreter widget. Each provider (contributed by a *tool* module —
@@ -65,13 +108,13 @@ interface PyEvoEnvironmentProvider {
    * Whether this provider's tool is available on the project's Eel machine. Unavailable providers are dropped
    * from the node list, so an uninstalled tool never shows up. Defaults to always-available.
    */
-  suspend fun isAvailable(pyProject: PyProject, fileSystem: FileSystem<PathHolder.Eel>): Boolean = true
+  suspend fun isAvailable(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>): Boolean = true
 
   /**
    * Lazily compute this node's sections (layout owned by the provider) when it is expanded. [discovered] is the
    * centrally-found list of virtualenvs under the project's base dirs; providers filter it to the subset they own.
    */
-  suspend fun loadSections(pyProject: PyProject, fileSystem: FileSystem<PathHolder.Eel>, discovered: List<DiscoveredVenv>): EvoLoadResultDto
+  suspend fun loadSections(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>, discovered: List<DiscoveredVenv>): EvoLoadResultDto
 
   companion object {
     @ApiStatus.Internal
@@ -202,6 +245,24 @@ private fun Map<String, String>.pyvenvVersion(): String? =
 @ApiStatus.Internal
 fun Path.toDisplayPath(): @NlsSafe String = FileUtil.getLocationRelativeToUserHome(pathString, false)
 
+/**
+ * Max length (chars) of a section-header path before its middle is elided. Same budget as an SDK's `shortName`, which is
+ * the other place a path has to label something without dictating how wide it gets.
+ */
+private const val SECTION_LABEL_MAX_CHARS = 50
+
+/**
+ * Header form of a path: home-relative like [toDisplayPath], then middle-elided past [SECTION_LABEL_MAX_CHARS] by the same
+ * shortener a long SDK name goes through (`~/.cache/intellij-python-test-env/conda/Min…/envs/child`). Only headers get this
+ * — a row's description keeps the full [toDisplayPath], since a tooltip costs no layout width.
+ */
+@ApiStatus.Internal
+fun Path.toSectionLabel(): @NlsSafe String = shortenPath(toDisplayPath(), SECTION_LABEL_MAX_CHARS, keepPrefix = true)
+
+/** Version-column placeholder for a row that has no interpreter to report a version for (env not created / unreadable). */
+@ApiStatus.Internal
+const val NO_VERSION: @NlsSafe String = "n/a"
+
 /** Builds a SELECT_ENV leaf for a discovered venv; the version comes from `pyvenv.cfg` (or "n/a"). */
 @ApiStatus.Internal
 fun DiscoveredVenv.toLeaf(icon: Icon): EvoLeafDto {
@@ -209,7 +270,7 @@ fun DiscoveredVenv.toLeaf(icon: Icon): EvoLeafDto {
   return EvoLeafDto(
     title = name,
     description = pythonBinary.toDisplayPath(),
-    secondaryText = version ?: "n/a",
+    secondaryText = version ?: NO_VERSION,
     icon = icon.rpcId(),
     kind = EvoLeafKind.SELECT_ENV,
     ref = PyInterpreterRef.DetectedPath(pythonBinary.pathString),
@@ -228,7 +289,8 @@ fun List<DiscoveredVenv>.toSectionsGroupedByParent(icon: Icon, addNew: Boolean, 
   }
   return groupBy { it.venvRoot?.parent }.map { (containingFolder, venvs) ->
     EvoSectionDto(
-      label = containingFolder?.toDisplayPath(),
+      label = containingFolder?.toSectionLabel(),
+      labelTooltip = containingFolder?.toDisplayPath(),
       leaves = venvs.map { it.toLeaf(icon) },
       addNew = addNew,
       addNewFolderPath = (containingFolder ?: baseDir).pathString,
@@ -263,7 +325,7 @@ fun evoCreateEnvLeaf(title: @Nls String, token: String, icon: Icon): EvoLeafDto 
 @ApiStatus.Internal
 fun evoEnvLeaf(title: @Nls String, pythonBinary: Path?, icon: Icon, version: @NlsSafe String? = null): EvoLeafDto {
   if (pythonBinary == null) {
-    return evoActionLeaf(title = title, description = null, secondaryText = version ?: "n/a", icon = icon)
+    return evoActionLeaf(title = title, description = null, secondaryText = version ?: NO_VERSION, icon = icon)
   }
   return EvoLeafDto(
     title = title,

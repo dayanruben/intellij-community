@@ -122,6 +122,7 @@ object CoreModuleSets {
     embeddedModule("intellij.libraries.protobuf")
     embeddedModule("intellij.libraries.protobuf.kotlin")
     embeddedModule("intellij.libraries.proxy.vole")
+    embeddedModule("intellij.libraries.qodana.sarif")
     embeddedModule("intellij.libraries.rhino")
     embeddedModule("intellij.libraries.semver")
     embeddedModule("intellij.libraries.snakeyaml")
@@ -284,6 +285,8 @@ object CoreModuleSets {
 
     embeddedModule("intellij.platform.projectModel")
     embeddedModule("intellij.platform.projectModel.impl")
+    embeddedModule("intellij.platform.instanceContainer")
+    embeddedModule("intellij.platform.serviceContainer")
     embeddedModule("intellij.platform.workspace.jps")
 
     // Analysis modules needed by core platform modules

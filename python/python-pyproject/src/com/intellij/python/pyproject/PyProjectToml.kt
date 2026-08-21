@@ -2,6 +2,8 @@
 package com.intellij.python.pyproject
 
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.diagnostic.debug
+import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
@@ -11,18 +13,20 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.util.CachedValue
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
+import com.intellij.python.pyproject.model.spi.PyProjectManager
 import com.jetbrains.python.Result
 import com.jetbrains.python.project.PyProject.Companion.asPyProject
 import com.jetbrains.python.project.resolveFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.tuweni.toml.Toml
-import org.apache.tuweni.toml.TomlInvalidTypeException
 import org.apache.tuweni.toml.TomlParseResult
 import org.apache.tuweni.toml.TomlTable
 import org.jetbrains.annotations.ApiStatus.Internal
+import java.io.IOException
 import java.nio.file.Path
-import kotlin.io.path.isRegularFile
+import kotlin.io.path.name
+import kotlin.io.path.readText
 
 /**
  * Stores the file name of `pyproject.toml`.
@@ -82,12 +86,13 @@ data class PyProjectToml internal constructor(
    * Every declared key is present, so a group may map to an empty list: either its array is empty, or it only holds
    * still-unsupported `{include-group = "..."}` tables. A group is user-visible as soon as its key exists.
    */
-  val depGroupsToDeps: Map<String, List<String>>,
+  val dependencyGroups: PyProjectDependencyTable,
 ) {
   /**
-   * Values of [depGroupsToDeps]
+   * Every dependency declared anywhere in this file: `project.dependencies`, the
+   * `project.optional-dependencies` extras, and the PEP 735 [dependencyGroups] (PY-91629).
    */
-  val allDepsFromGroups: Set<String> = depGroupsToDeps.values.flatten().toSet()
+  val allDeclaredDeps: Set<String> = dependencyGroups.allDeps + project.dependencies.requiredAndExtras
 
   /**
    * Gets a specific tool from an object implementing [PyProjectToolFactory].
@@ -101,13 +106,9 @@ data class PyProjectToml internal constructor(
    * ```
    */
   fun <T : PyProjectToolFactory<U>, U> getTool(tool: T): U {
-    return tool.createTool(
-      mapOf(
-        *tool.tables.map {
-          it to toml.getTable(it)
-        }.toTypedArray()
-      )
-    )
+    return tool.createTool(mapOf(*tool.tables.map {
+      it to toml.getTable(it)
+    }.toTypedArray()))
   }
 
   /**
@@ -122,8 +123,8 @@ data class PyProjectToml internal constructor(
    */
   @Internal
   fun getDependencyGroupNames(toolSpecificGroups: List<String> = emptyList()): List<String> {
-    val extraGroups = depGroupsToDeps.keys
-    val optionalGroups = project.dependencies.optional.keys.toList()
+    val extraGroups = dependencyGroups.groupNames
+    val optionalGroups = project.dependencies.extras.groupNames
     return buildList {
       addAll(DEFAULT_GROUP_NAMES)
       addAll(toolSpecificGroups)
@@ -145,14 +146,18 @@ data class PyProjectToml internal constructor(
       return readAction {
         val psiFile = PsiManager.getInstance(project).findFile(pyProjectFile) ?: return@readAction null
         CachedValuesManager.getManager(project).getCachedValue(psiFile, CACHE_KEY, {
-          CachedValueProvider.Result.create(parse(psiFile.text), psiFile)
+          CachedValueProvider.Result.create(parse(psiFile.text, psiFile.parent?.name ?: project.name), psiFile)
         }, false)
       }
     }
 
     /**
      * Attempts to parse [tomlFileContent] and construct an instance of [PyProjectToml].
-     * In case of serious errors (e.g. no `project.name`) returns `null`. Otherwise, returns an object with data and issues.
+     * In case of serious errors (e.g. `[project]` exists, but has  no `name`) returns `null`. O
+     * therwise, returns an object with data and issues.
+     *
+     * It also supports "virtual projects" without `[project]` section at all ([fallbackName] is used then), but only if
+     * [PyProjectManager.canBeVirtualProject]
      *
      * Example:
      *
@@ -162,118 +167,55 @@ data class PyProjectToml internal constructor(
      * val hatch = pyProject.getTool(HatchPyProject)
      * ```
      */
-    fun parse(tomlFileContent: String): PyProjectToml? {
+    fun parse(tomlFileContent: String, fallbackName: String): PyProjectToml? {
       val issues = mutableListOf<PyProjectIssue>()
       val toml = Toml.parse(tomlFileContent)
 
 
-      val projectTable = toml.safeGet<TomlTable>(PY_PROJECT_TOML_PROJECT).getOrIssue(issues) ?: return null
-
-      val name = try {
-        projectTable.getString("name")
-      }
-                 catch (_: TomlInvalidTypeException) {
-                   null
-                 } ?: return null
-
-      val dynamic = projectTable.safeGetArr<String>("dynamic").getOrIssue(issues)
-      val version = projectTable.safeGet<String>("version").getOrIssue(issues) {
-        if (dynamic?.contains("version") != true) {
-          issues += PyProjectIssue.MissingVersion
-        }
-      }
-
-      val requiresPython = projectTable.safeGet<String>("requires-python").getOrIssue(issues)
-      val authors = projectTable.parseContacts("authors", issues)
-      val maintainers = projectTable.parseContacts("maintainers", issues)
-      val description = projectTable.safeGet<String>("description").getOrIssue(issues)
-      val license = projectTable.safeGet<String>("license").getOrIssue(issues)
-      val licenseFiles = projectTable.safeGetArr<String>("license-files").getOrIssue(issues)
-      val keywords = projectTable.safeGetArr<String>("keywords").getOrIssue(issues)
-      val classifiers = projectTable.safeGetArr<String>("classifiers").getOrIssue(issues)
-
-      val readme = when (val res = projectTable.safeGet<String>("readme")) {
-        is Result.Success -> {
-          res.getOrIssue(issues)?.let { name ->
-            PyProjectFile(name)
-          }
-        }
-        is Result.Failure -> {
-          val table = projectTable
-            .safeGet<TomlTable>("readme")
-            .getOrIssue(issues)
-
-          val name = table
-            ?.safeGetRequired<String>("name")
-            ?.getOrIssue(issues)
-
-          val contentType = table
-            ?.safeGetRequired<String>("content-type")
-            ?.getOrIssue(issues)
-
-          if (name != null && contentType != null) {
-            PyProjectFile(name, contentType)
-          }
-          else {
-            null
-          }
-        }
-      }
-
-      val projectDependencies = projectTable.safeGetArr<String>(PY_PROJECT_DEPENDENCIES).getOrIssue(issues) ?: listOf()
       val depGroups = toml
-        .safeGet<TomlTable>(PY_PROJECT_TOML_DEPENDENCY_GROUPS)
+        .safeGet<TomlTable>(PY_PROJECT_TOML_DEPENDENCY_GROUPS, unquotedDottedKey = false)
         .getOrIssue(issues)
 
       val depsFromGroups = depGroups?.keySet()?.associate { depGroupName ->
         // Can't filter by string because there might be (still unsupported) { include-group = "" } tables
-        depGroupName to (depGroups.safeGetArr<Any>(depGroupName).getOrIssue(issues)?.filterIsInstance<String>() ?: emptyList())
+        depGroupName to (depGroups.safeGetArr<Any>(depGroupName, unquotedDottedKey = false)
+                           .getOrIssue(issues)?.filterIsInstance<String>() ?: emptyList())
       }
-      val optionalDependencies =
-        projectTable
-          .safeGet<TomlTable>(PY_PROJECT_OPTIONAL_DEPENDENCIES)
-          .getOrIssue(issues)
-          ?.let { table ->
-            mapOf(
-              *table.keySet().mapNotNull { key ->
-                table.safeGetArr<String>(key).getOrIssue(issues)?.let { value ->
-                  key to value
-                }
-              }.toTypedArray()
-            )
-          }
-        ?: mapOf()
 
-      val scripts = projectTable.parseMap("scripts", issues)
-      val guiScripts = projectTable.parseMap("gui-scripts", issues)
-      val urls = projectTable.parseMap("urls", issues)
+      val projectTomlTable = toml.safeGet<TomlTable>(PY_PROJECT_TOML_PROJECT, unquotedDottedKey = false).getOrIssue(issues)
+      val pyProjectTable =
+        when {
+          // toml file has `[project]` section
+          projectTomlTable != null -> PyProjectTable.make(projectTomlTable, issues)
+          // toml file has no `[project]` but might be virtual project
+          PyProjectManager.EP.extensionList.any { it.canBeVirtualProject(toml) } -> PyProjectTable.makeVirtProj(fallbackName)
+          else -> null
+        } ?: return null
 
       return PyProjectToml(
-        PyProjectTable(
-          name,
-          version,
-          requiresPython,
-          authors,
-          maintainers,
-          description,
-          readme,
-          license,
-          licenseFiles,
-          keywords,
-          classifiers,
-          dynamic,
-          PyProjectDependencies(
-            projectDependencies,
-            optionalDependencies,
-          ),
-          scripts,
-          guiScripts,
-          urls,
-        ),
+        pyProjectTable,
         issues,
         toml,
-        depGroupsToDeps = depsFromGroups ?: emptyMap(),
+        dependencyGroups = PyProjectDependencyTable(depsFromGroups ?: emptyMap()),
       )
+    }
+
+    private val logger = fileLogger()
+
+    /**
+     * Same as [parse] but returns `null` if fail can't be read
+     */
+    suspend fun parseOrNull(file: Path): PyProjectToml? {
+      val content = try {
+        withContext(Dispatchers.IO) {
+          file.readText()
+        }
+      }
+      catch (e: IOException) {
+        logger.debug(e) { "Error reading $file" }
+        return null
+      }
+      return parse(content, file.parent?.name ?: file.name) // Rarely file might have no parent
     }
 
     /**
@@ -281,45 +223,11 @@ data class PyProjectToml internal constructor(
      * Returns null if not found.
      */
     suspend fun findPyProjectTomlFile(module: Module): PyProjectTomlFile? {
-      return module.asPyProject()?.resolveFile(PY_PROJECT_TOML)
-        ?.let { LocalFileSystem.getInstance().findFileByNioFile(it) }
+      return module.asPyProject()?.resolveFile(PY_PROJECT_TOML)?.let { LocalFileSystem.getInstance().findFileByNioFile(it) }
         ?.let { PyProjectTomlFile(it) }
     }
-
-    suspend fun findInRoot(moduleBasePath: Path): Path? = withContext(Dispatchers.IO) {
-      moduleBasePath.resolve(PY_PROJECT_TOML).takeIf { it.isRegularFile() }
-    }
-
-    private fun TomlTable.parseContacts(
-      key: String,
-      issues: MutableList<PyProjectIssue>,
-    ): List<PyProjectContact>? {
-      val table = safeGetArr<TomlTable>(key).getOrIssue(issues) ?: return null
-      return table.mapIndexedNotNull { index, authorTable ->
-        val name = authorTable.safeGet<String>("name").getOrIssue(issues)
-        val email = authorTable.safeGet<String>("email").getOrIssue(issues)
-
-        if (name == null && email == null) {
-          issues += PyProjectIssue.InvalidContact("$key[$index]")
-          return@mapIndexedNotNull null
-        }
-
-        PyProjectContact(name, email)
-      }
-    }
-
-    private fun TomlTable.parseMap(key: String, issues: MutableList<PyProjectIssue>): Map<String, String>? {
-      val table = safeGet<TomlTable>(key).getOrIssue(issues) ?: return null
-      return mapOf(
-        *table.keySet().mapNotNull { key ->
-          table.safeGet<String>(key).getOrIssue(issues)?.let { value ->
-            key to value
-          }
-        }.toTypedArray()
-      )
-    }
-
-    private fun <T> Result<T, TomlTableSafeGetError>.getOrIssue(issues: MutableList<PyProjectIssue>, onNull: (() -> Unit)? = null) =
-      getOrIssue(issues, { PyProjectIssue.SafeGetError(it) }, onNull)
   }
 }
+
+internal fun <T> Result<T, TomlTableSafeGetError>.getOrIssue(issues: MutableList<PyProjectIssue>, onNull: (() -> Unit)? = null) =
+  getOrIssue(issues, { PyProjectIssue.SafeGetError(it) }, onNull)
