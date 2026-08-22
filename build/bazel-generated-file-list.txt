@@ -255,6 +255,7 @@ fleet/reporting/shared
 fleet/rhizomedb
 fleet/rhizomedb.transactor
 fleet/rhizomedb.transactor.rebase
+fleet/rhizomedb.transactor.rebase/test
 fleet/rpc
 fleet/rpc.server
 fleet/test-runtime
@@ -519,6 +520,7 @@ libraries/keychain
 libraries/kodein-di-jvm
 libraries/kotlin/gradle-plugin-idea
 libraries/kotlin/gradle-plugin-idea-proto
+libraries/kotlin/logging
 libraries/kotlin/reflect
 libraries/kotlin/test
 libraries/kotlin/test-assertions-core-jvm
@@ -573,6 +575,7 @@ libraries/memoryfilesystem
 libraries/microba
 libraries/miglayout-swing
 libraries/misc/plugin
+libraries/mlapi/core
 libraries/mockito
 libraries/mockito-kotlin
 libraries/mockk
@@ -1200,6 +1203,7 @@ plugins/gitlab/gitlab-git
 plugins/gitlab/gitlab-yaml
 plugins/gradle
 plugins/gradle-maven
+plugins/gradle/backend
 plugins/gradle/completion
 plugins/gradle/completion/kotlin
 plugins/gradle/completion/kotlin/tests

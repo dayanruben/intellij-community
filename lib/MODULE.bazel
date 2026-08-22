@@ -4663,20 +4663,6 @@ http_file(
 )
 
 http_file(
-    name = "io_github_oshai-kotlin-logging-jvm-7_0_3_http",
-    downloaded_file_path = "kotlin-logging-jvm-7.0.3.jar",
-    sha256 = "241daa21665dd0ca55576a4bc4d8e9ace8891ae3c698cc77f13bb4bdac372e94",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/github/oshai/kotlin-logging-jvm/7.0.3/kotlin-logging-jvm-7.0.3.jar",
-)
-
-http_file(
-    name = "io_github_oshai-kotlin-logging-jvm-7_0_3-sources_http",
-    downloaded_file_path = "kotlin-logging-jvm-7.0.3-sources.jar",
-    sha256 = "9e447b4e7765d7ad558422976b9b4d54b0f605185ede77214df6bb98e8bd82f8",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/github/oshai/kotlin-logging-jvm/7.0.3/kotlin-logging-jvm-7.0.3-sources.jar",
-)
-
-http_file(
     name = "io_modelcontextprotocol-kotlin-sdk-jvm-0_12_0_http",
     downloaded_file_path = "kotlin-sdk-jvm-0.12.0.jar",
     sha256 = "88c25c0136e9be9539a906c2dc25d1ba7b2bedae0c8c3f7421ca3fb8090192dc",
@@ -5304,20 +5290,6 @@ http_file(
     downloaded_file_path = "catboost-shadow-need-slf4j-1.2.5.jar",
     sha256 = "94a06c3fdd4aa638df59c8c783a379ca43a5b933187760e219e09e84f1633d76",
     url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/mlapi/catboost-shadow-need-slf4j/1.2.5/catboost-shadow-need-slf4j-1.2.5.jar",
-)
-
-http_file(
-    name = "com_jetbrains_mlapi-mlapi-core-0_2_3_http",
-    downloaded_file_path = "mlapi-core-0.2.3.jar",
-    sha256 = "13f52c729e4ba3c536880c9177d272ec1e134d07172cd923720c03e0deefc9fa",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/mlapi/mlapi-core/0.2.3/mlapi-core-0.2.3.jar",
-)
-
-http_file(
-    name = "com_jetbrains_mlapi-mlapi-core-0_2_3-sources_http",
-    downloaded_file_path = "mlapi-core-0.2.3-sources.jar",
-    sha256 = "2b6f2aaabeb968e994d476665429c0ca7ef60537537492ec39aa5d0c623eac5d",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/mlapi/mlapi-core/0.2.3/mlapi-core-0.2.3-sources.jar",
 )
 
 http_file(
@@ -10403,6 +10375,20 @@ http_file(
 )
 
 http_file(
+    name = "io_github_oshai-kotlin-logging-jvm-7_0_3_http",
+    downloaded_file_path = "kotlin-logging-jvm-7.0.3.jar",
+    sha256 = "241daa21665dd0ca55576a4bc4d8e9ace8891ae3c698cc77f13bb4bdac372e94",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/github/oshai/kotlin-logging-jvm/7.0.3/kotlin-logging-jvm-7.0.3.jar",
+)
+
+http_file(
+    name = "io_github_oshai-kotlin-logging-jvm-7_0_3-sources_http",
+    downloaded_file_path = "kotlin-logging-jvm-7.0.3-sources.jar",
+    sha256 = "9e447b4e7765d7ad558422976b9b4d54b0f605185ede77214df6bb98e8bd82f8",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/github/oshai/kotlin-logging-jvm/7.0.3/kotlin-logging-jvm-7.0.3-sources.jar",
+)
+
+http_file(
     name = "org_jetbrains_kotlin-kotlin-test-junit-2_4_10-RC2_http",
     downloaded_file_path = "kotlin-test-junit-2.4.10-RC2.jar",
     sha256 = "788d8b638e6a6154d40d5cccf9adf15f7383c537512c11a28e8fd44b98ad4eef",
@@ -11002,6 +10988,20 @@ http_file(
     downloaded_file_path = "miglayout-core-11.4.2-sources.jar",
     sha256 = "933dfa0ee061a3c6ac990613b4a82eb075c8c2d9415945fee7932be002631311",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/miglayout/miglayout-core/11.4.2/miglayout-core-11.4.2-sources.jar",
+)
+
+http_file(
+    name = "com_jetbrains_mlapi-mlapi-core-0_2_3_http",
+    downloaded_file_path = "mlapi-core-0.2.3.jar",
+    sha256 = "13f52c729e4ba3c536880c9177d272ec1e134d07172cd923720c03e0deefc9fa",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/mlapi/mlapi-core/0.2.3/mlapi-core-0.2.3.jar",
+)
+
+http_file(
+    name = "com_jetbrains_mlapi-mlapi-core-0_2_3-sources_http",
+    downloaded_file_path = "mlapi-core-0.2.3-sources.jar",
+    sha256 = "2b6f2aaabeb968e994d476665429c0ca7ef60537537492ec39aa5d0c623eac5d",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/mlapi/mlapi-core/0.2.3/mlapi-core-0.2.3-sources.jar",
 )
 
 http_file(

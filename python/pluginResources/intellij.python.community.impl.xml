@@ -1054,6 +1054,7 @@
     <evoEnvironmentProvider id="CondaEvoProvider"
                             implementation="com.jetbrains.python.conda.sdk.evolution.CondaEvoEnvironmentProvider"/>
 
+    <evoEnvironmentProvider implementation="com.jetbrains.python.venv.sdk.evolution.VenvEvoEnvironmentProvider"/>
     <evoEnvironmentProvider id="AdvancedEvoProvider"
                             order="last"
                             implementation="com.jetbrains.python.sdk.evolution.AdvancedEvoEnvironmentProvider"/>
@@ -1430,5 +1431,7 @@
       implementation="com.jetbrains.python.pipenv.PipEnvDependenciesPsiProvider"/>
     <python.inspections.dependencies.dependenciesInspectionProvider
       implementation="com.jetbrains.python.sdk.poetry.LegacyPoetryDependenciesPsiProvider"/>
+    <python.inspections.dependencies.dependenciesInspectionProvider
+      implementation="com.jetbrains.python.packaging.setupPy.SetupPyDependenciesPsiProvider"/>
   </extensions>
 </idea-plugin>

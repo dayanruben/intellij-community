@@ -145,6 +145,9 @@ open class PyTypeCheckerInspection : PyInspection() {
       session.putUserData(TIME_KEY, System.nanoTime())
     }
     val context = PyInspectionVisitor.getContext(session)
+    if (context.usesExternalTypeEngine) {
+      return PsiElementVisitor.EMPTY_VISITOR
+    }
     val visitor = Visitor(holder, context)
     return PyReachableElementVisitor(visitor, context)
   }
@@ -220,7 +223,7 @@ open class PyTypeCheckerInspection : PyInspection() {
             )
           }
         registerTypeMismatch(PyTypeCheckerSuppressionCode.BAD_ASSIGNMENT, node, expected, actual, message,
-                             effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+                             ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
       }
     }
 
@@ -267,7 +270,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         registerProblem(target,
                         PyPsiBundle.problemMessage("INSP.type.checker.unpack.expected.iterable",
                                             CodifiedParam.ofType(itemType, target, myTypeEvalContext)),
-                        effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+                        ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
         return
       }
       if (itemType is PyTupleType && !itemType.isHomogeneous) {
@@ -296,7 +299,7 @@ open class PyTypeCheckerInspection : PyInspection() {
                           PyPsiBundle.problemMessage("INSP.type.checker.expected.type.got.type.instead",
                                                      CodifiedParam.ofType(annotatedType, highlight, myTypeEvalContext, verbose = true),
                                                      CodifiedParam.ofType(actual, highlight, myTypeEvalContext)),
-                          effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+                          ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
           // report only the first mismatch per value
           return
         }
@@ -329,7 +332,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           if (!matchesExpectedType(expected, actual, returnExpr, null)) {
             PyTypeCheckerProblemReporter.report(holder, PyTypeCheckerSuppressionCode.BAD_RETURN, returnExpr ?: node,
                                                 typeMismatchMessage(expected, actual, returnExpr ?: node),
-                                                effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING),
+                                                ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                                                 PyMakeFunctionReturnTypeQuickFix(owner, myTypeEvalContext))
           }
         }
@@ -419,7 +422,7 @@ open class PyTypeCheckerInspection : PyInspection() {
                                "INSP.type.checker.yield.type.mismatch",
                                CodifiedParam.ofType(expectedYieldType, anchor, myTypeEvalContext, verbose = true),
                                CodifiedParam.ofType(thisYieldType, anchor, myTypeEvalContext)),
-                             effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING),
+                             ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                              LocalQuickFix.from(PyMakeFunctionReturnTypeQuickFix(function, myTypeEvalContext))!!)
         return true
       }
@@ -435,7 +438,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         val errors = mutableListOf<PyInspectionMessages.ProblemMessage>()
         PyReferenceExpressionImpl.getQualifiedReferenceType(node, myTypeEvalContext, errors)
         for (error in errors) {
-          registerProblem(node, error, effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+          registerProblem(node, error, ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
         }
       }
     }
@@ -487,7 +490,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           val displayType = upcastLiteralToClass(unpackedType)
           PyTypeCheckerProblemReporter.report(holder, PyTypeCheckerSuppressionCode.BAD_ASSIGNMENT, rhs,
                                               typeMismatchMessage(annotatedType, displayType, rhs),
-                                              effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+                                              ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
           // stop after the first error, because otherwise we might start reporting different type errors on the same element
           return
         }
@@ -516,7 +519,7 @@ open class PyTypeCheckerInspection : PyInspection() {
                       !match(annotatedType, actualType, myTypeEvalContext)) {
                     PyTypeCheckerProblemReporter.report(holder, PyTypeCheckerSuppressionCode.BAD_ASSIGNMENT, rhs,
                                                         typeMismatchMessage(annotatedType, actualType, rhs),
-                                                        effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+                                                        ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
                   }
                 }
               }
@@ -638,7 +641,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           typeMismatchMessage(expected, actual, assignedValue)
         }
         registerTypeMismatch(PyTypeCheckerSuppressionCode.BAD_ASSIGNMENT, assignedValue, expected, actual, message,
-                             effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+                             ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
       }
     }
 
@@ -783,7 +786,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           PyTypeCheckerSuppressionCode.BAD_TYPED_DICT,
           actualExpression,
           typeMismatchMessage(error.expectedType, error.actualType, actualExpression),
-          effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+          ProblemHighlightType.GENERIC_ERROR_OR_WARNING
         )
       }
       result.extraKeys.forEach { error ->
@@ -857,7 +860,7 @@ open class PyTypeCheckerInspection : PyInspection() {
             if (annotationValue != null) {
               PyTypeCheckerProblemReporter.report(holder, PyTypeCheckerSuppressionCode.BAD_RETURN, annotationValue,
                                                   typeMismatchMessage(expected, actual, annotationValue),
-                                                  effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING),
+                                                  ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                                                   PyMakeFunctionReturnTypeQuickFix(node, myTypeEvalContext))
             }
           }
@@ -920,7 +923,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           holder,
           PyTypeCheckerSuppressionCode.BAD_ASSIGNMENT,
           defaultValue, typeMismatchMessage(expected, actual, defaultValue),
-          effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+          ProblemHighlightType.GENERIC_ERROR_OR_WARNING
         )
       }
     }
@@ -993,7 +996,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           val constructorType = PyCallExpressionHelper.createCallableFromClass(calleeType, resolveContext, errors)
           if (constructorType.isUnknown) {
             for (error in errors) {
-              registerProblem(callSite, error, effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+              registerProblem(callSite, error, ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
             }
             return
           }
@@ -1093,7 +1096,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           PyTypeCheckerSuppressionCode.UNSUPPORTED_OPERATOR,
           operatorElement,
           unsupportedOperatorMessage(operatorText, operatorElement, lhsType, rhsType),
-          effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING),
+          ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
         )
       }
 
@@ -1116,7 +1119,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           PyTypeCheckerSuppressionCode.UNSUPPORTED_OPERATOR,
           operatorElement,
           unsupportedOperatorMessage(operatorText, operatorElement, lhsType, rhsType),
-          effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING),
+          ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
         )
       }
 
@@ -1249,7 +1252,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         PyTypeCheckerSuppressionCode.UNSUPPORTED_OPERATOR,
         operatorElement,
         unsupportedOperatorMessage,
-        effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING),
+        ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
       ) {
         PyTypeCheckerInspectionProblemRegistrar.breakdownTooltip(
           unsupportedOperatorMessage,
@@ -1454,7 +1457,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         PyTypeCheckerInspectionProblemRegistrar
           .registerProblem(
             holder, callSite, calleesResults.map { it.second }, myTypeEvalContext,
-            effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+            ProblemHighlightType.GENERIC_ERROR_OR_WARNING
           )
         return true
       }
@@ -1478,7 +1481,7 @@ open class PyTypeCheckerInspection : PyInspection() {
       PyTypeCheckerInspectionProblemRegistrar
         .registerProblem(
           holder, callSite, listOf(typeMatchResult), myTypeEvalContext,
-          effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+          ProblemHighlightType.GENERIC_ERROR_OR_WARNING
         )
       return true
     }
@@ -1500,7 +1503,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           highlightElement,
           PyPsiBundle.problemMessage("INSP.type.checker.expected.type.got.type.instead", qualifiedName,
                                      CodifiedParam.ofType(type, highlightElement, myTypeEvalContext)),
-          effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+          ProblemHighlightType.GENERIC_ERROR_OR_WARNING
         )
         return true
       }
@@ -1524,7 +1527,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         PyTypeCheckerProblemReporter.report(holder, PyTypeCheckerSuppressionCode.NOT_ITERABLE, value,
                                             PyPsiBundle.problemMessage("INSP.type.checker.unpack.expected.iterable",
                                                                        CodifiedParam.ofType(type, value, myTypeEvalContext)),
-                                            effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+                                            ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
         return true
       }
       return false
@@ -1541,7 +1544,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         PyTypeCheckerProblemReporter.report(holder, PyTypeCheckerSuppressionCode.NOT_MAPPING, value,
                                             PyPsiBundle.problemMessage("INSP.type.checker.unpack.expected.mapping",
                                                                        CodifiedParam.ofType(type, value, myTypeEvalContext)),
-                                            effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+                                            ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
       }
     }
 
@@ -1617,7 +1620,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         else "INSP.tuple.assignment.balance.need.more.values.to.unpack"
         PyTypeCheckerProblemReporter.report(holder, PyTypeCheckerSuppressionCode.BAD_UNPACKING, balanceHighlight,
                                             PyPsiBundle.problemMessage(key, expectedCount, valueCount, valueType),
-                                            effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING))
+                                            ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
         return true
       }
       return false
@@ -1664,7 +1667,7 @@ open class PyTypeCheckerInspection : PyInspection() {
             iteratedValue,
             PyPsiBundle.problemMessage("INSP.type.checker.expected.type.got.type.instead", qualifiedName,
                                        CodifiedParam.ofType(type, iteratedValue, myTypeEvalContext)),
-            effectiveHighlightType(ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+            ProblemHighlightType.GENERIC_ERROR_OR_WARNING
           )
         }
       }

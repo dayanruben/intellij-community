@@ -3,18 +3,20 @@ package com.intellij.python.sdk.frontend.evolution
 import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.icons.icon
 import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.components.service
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.ModuleListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootEvent
 import com.intellij.openapi.roots.ModuleRootListener
+import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectRootModificationTracker
 import com.intellij.openapi.ui.popup.ListPopup
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.openapi.wm.StatusBarWidget
 import com.intellij.openapi.wm.StatusBarWidgetFactory
-import com.intellij.openapi.components.service
 import com.intellij.openapi.wm.impl.status.EditorBasedStatusBarPopup
 import com.intellij.platform.project.projectId
 import com.intellij.python.sdk.common.evolution.EvoLeafDto
@@ -22,23 +24,26 @@ import com.intellij.python.sdk.common.evolution.EvoNodeDto
 import com.intellij.python.sdk.common.evolution.EvoWorkspaceDto
 import com.intellij.python.sdk.common.evolution.PyEvoRegistry
 import com.intellij.python.sdk.common.evolution.PyInterpreterDto
+import com.intellij.python.sdk.common.evolution.evoRpcOrNull
+import com.intellij.python.sdk.common.evolution.requestEvoAssociatedInterpreters
 import com.intellij.python.sdk.common.evolution.requestEvoCurrentInterpreter
 import com.intellij.python.sdk.common.evolution.requestEvoIsPythonModule
 import com.intellij.python.sdk.common.evolution.requestEvoNodes
-import com.intellij.python.sdk.common.evolution.requestEvoWorkspace
-import com.intellij.python.sdk.common.evolution.requestEvoShortcuts
-import com.intellij.python.sdk.common.evolution.requestEvoAssociatedInterpreters
 import com.intellij.python.sdk.common.evolution.requestEvoSdkConfigurationInProgress
+import com.intellij.python.sdk.common.evolution.requestEvoShortcuts
+import com.intellij.python.sdk.common.evolution.requestEvoWorkspace
 import com.intellij.python.sdk.frontend.PySdkFrontendBundle
 import com.intellij.python.sdk.frontend.evolution.components.EvoTreeStaticNodeElement
 import com.intellij.ui.AnimatedIcon
 import com.intellij.util.Function
 import com.intellij.util.IconUtil
+import com.intellij.util.PlatformUtils
 import com.intellij.util.messages.MessageBusConnection
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
+import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.Icon
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 private const val ID: String = "EvoPySdkStatusBarWidget"
 
@@ -195,9 +200,7 @@ private class EvoPySdkStatusBarWidget(project: Project, scope: CoroutineScope) :
   }
 
   override fun getWidgetState(file: VirtualFile?): WidgetState {
-    // The widget speaks for the module of the file in front of the user, so with no file — or none owning it — there is
-    // nothing to speak for.
-    val module = file?.let { findModule(it) } ?: return hidden()
+    val module = moduleFor(file) ?: return hidden()
     val moduleName = module.name
 
     val current = cachedFor(module)
@@ -271,20 +274,20 @@ private class EvoPySdkStatusBarWidget(project: Project, scope: CoroutineScope) :
       try {
         // Treat an RPC failure as "not Python": staying hidden is the safe way to be wrong, and the stamp check or the
         // next module change retries.
-        if (!runCatching { requestEvoIsPythonModule(projectId, moduleName) }.getOrDefault(false)) {
+        if (evoRpcOrNull { requestEvoIsPythonModule(projectId, moduleName) } != true) {
           publish(Cached(module, moduleName, stamp, isPyProject = false, null, null, emptyList(), emptyList(), emptyList()))
           return@launch
         }
 
-        val interpreter = runCatching { requestEvoCurrentInterpreter(projectId, moduleName) }.getOrNull()
+        val interpreter = evoRpcOrNull { requestEvoCurrentInterpreter(projectId, moduleName) }
         publish(Cached(module, moduleName, stamp, true, interpreter,
                        prev?.workspace, prev?.nodes.orEmpty(), prev?.associated.orEmpty(), prev?.shortcuts.orEmpty()))
 
-        val workspace = runCatching { requestEvoWorkspace(projectId, moduleName) }.getOrNull()
-        val nodes = runCatching { requestEvoNodes(projectId, moduleName) }.getOrNull().orEmpty()
-        val associated = runCatching { requestEvoAssociatedInterpreters(projectId, moduleName) }.getOrNull().orEmpty()
+        val workspace = evoRpcOrNull { requestEvoWorkspace(projectId, moduleName) }
+        val nodes = evoRpcOrNull { requestEvoNodes(projectId, moduleName) }.orEmpty()
+        val associated = evoRpcOrNull { requestEvoAssociatedInterpreters(projectId, moduleName) }.orEmpty()
         // The "Shortcuts" autoconfigure suggestions are only shown (and only worth computing) when there is no interpreter.
-        val shortcuts = if (interpreter == null) runCatching { requestEvoShortcuts(projectId, moduleName) }.getOrNull().orEmpty() else emptyList()
+        val shortcuts = if (interpreter == null) evoRpcOrNull { requestEvoShortcuts(projectId, moduleName) }.orEmpty() else emptyList()
         publish(Cached(module, moduleName, stamp, true, interpreter, workspace, nodes, associated, shortcuts))
       }
       finally {
@@ -309,7 +312,7 @@ private class EvoPySdkStatusBarWidget(project: Project, scope: CoroutineScope) :
     refreshingNodes = true
     scope.launch {
       try {
-        val nodes = runCatching { requestEvoNodes(project.projectId(), moduleName) }.getOrNull().orEmpty()
+        val nodes = evoRpcOrNull { requestEvoNodes(project.projectId(), moduleName) }.orEmpty()
         val base = cache[moduleName] ?: return@launch
         // Compare by node ids (stable identity) — a newly available or removed tool changes this set; icon/label
         // identity is irrelevant and IconId equality is not guaranteed across fetches.
@@ -383,6 +386,39 @@ private class EvoPySdkStatusBarWidget(project: Project, scope: CoroutineScope) :
   override fun ID(): String = ID
 
   override fun createInstance(project: Project): StatusBarWidget = EvoPySdkStatusBarWidget(project, scope)
+
+  /**
+   * The module the widget speaks for: the one owning [file], falling back in PyCharm to the project's root module.
+   *
+   * That fallback is what keeps the widget in the status bar when the focused file belongs to no module — a file dragged
+   * in from outside the project, a scratch — or when no file is focused at all. Without it the widget vanished until a
+   * module's file was focused again, and the interpreter could be neither seen nor switched (PY-90708).
+   *
+   * PyCharm only, deliberately: there the project *is* the Python project, so the root module's interpreter is the one
+   * the user means. In IDEA a Python module is one of many, and claiming one for an unrelated file would hang a Python
+   * interpreter widget over, say, a Java file.
+   */
+  private fun moduleFor(file: VirtualFile?): Module? {
+    file?.let { findModule(it) }?.let { return it }
+    if (!PlatformUtils.isPyCharm()) return null
+    return rootModule()
+  }
+
+  /**
+   * The module rooted *at* the project root — not merely the first one the model lists, which in a multi-module project
+   * would be an arbitrary answer for a file that belongs to none of them.
+   *
+   * "Root module" is defined the same way `preserveRootModule` in `python-pyproject` defines it: the module one of whose
+   * content roots is the project base path. [Project.getBasePath] is that same path — both it and
+   * `IProjectStore.projectBasePath` return `storeDescriptor.historicalProjectBasePath` — so the two agree on which
+   * module this is. `null` when the project root belongs to no module, which leaves the widget hidden as before.
+   */
+  private fun rootModule(): Module? {
+    val projectRoot = project.basePath?.let { Path.of(it) } ?: return null
+    return ModuleManager.getInstance(project).modules.firstOrNull { module ->
+      ModuleRootManager.getInstance(module).contentRoots.any { it.toNioPathOrNull() == projectRoot }
+    }
+  }
 
   private fun findModule(file: VirtualFile): Module? =
     ModuleManager.getInstance(project).modules.firstOrNull { it.moduleContentScope.contains(file) }
