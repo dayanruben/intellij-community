@@ -1,5 +1,6 @@
 package com.jetbrains.python.psi.types
 
+import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyElement
@@ -14,7 +15,7 @@ import org.jetbrains.annotations.ApiStatus
 class PyNarrowedType private constructor(
   pyClass: PyClass,
   val qname: String?,
-  val original: PyCallSiteOwner?,
+  val original: PyCallExpression?,
   val negated: Boolean,
   val typeIs: Boolean,
   val narrowedType: PyType?,
@@ -24,7 +25,7 @@ class PyNarrowedType private constructor(
     return PyNarrowedType(pyClass, qname, original, !negated, typeIs, narrowedType)
   }
 
-  fun bind(callExpression: PyCallSiteOwner, name: String): PyNarrowedType {
+  fun bind(callExpression: PyCallExpression, name: String): PyNarrowedType {
     return PyNarrowedType(pyClass, name, callExpression, negated, typeIs, narrowedType)
   }
 
@@ -73,14 +74,13 @@ class PyNarrowedType private constructor(
       return PyNarrowedType(pyClass, null, null, false, typeIs, returnType)
     }
 
-    fun bindIfNeeded(type: PyType?, callSiteExpression: PyCallSiteOwner?): PyType? {
-      if (type is PyNarrowedType && callSiteExpression != null) {
-        val arguments = callSiteExpression.getArguments(null)
-        val pyReferenceExpression = arguments.firstOrNull()
-        if (pyReferenceExpression is PyReferenceExpression) {
-          val qname = pyReferenceExpression.asQualifiedName()
+    fun bindIfNeeded(type: PyType?, callSite: PyCallSiteOwner?): PyType? {
+      if (type is PyNarrowedType && callSite is PyCallExpression) {
+        val referenceExpression = callSite.arguments.firstOrNull()
+        if (referenceExpression is PyReferenceExpression) {
+          val qname = referenceExpression.asQualifiedName()
           if (qname != null) {
-            return type.bind(callSiteExpression, qname.toString())
+            return type.bind(callSite, qname.toString())
           }
         }
       }

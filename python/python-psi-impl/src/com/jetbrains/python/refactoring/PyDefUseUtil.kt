@@ -31,6 +31,7 @@ import com.jetbrains.python.codeInsight.controlflow.PyWithContextExitInstruction
 import com.jetbrains.python.codeInsight.controlflow.ReadWriteInstruction
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil.getScopeOwner
+import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
@@ -87,7 +88,7 @@ object PyDefUseUtil {
     val varQname = QualifiedName.fromDottedString(varName)
 
     val result: MutableCollection<Instruction> = LinkedHashSet()
-    val pendingTypeGuard = HashMap<PyCallSiteOwner?, ConditionalInstruction?>()
+    val pendingTypeGuard = HashMap<PyCallExpression?, ConditionalInstruction?>()
     val foundPrefixWrite = Ref(false)
     val foundPrefixCall = Ref(false)
     iteratePrev(startNum, controlFlow) { instruction ->

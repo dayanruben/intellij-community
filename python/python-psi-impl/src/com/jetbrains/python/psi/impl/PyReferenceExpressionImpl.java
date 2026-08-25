@@ -18,6 +18,7 @@ import com.intellij.psi.StubBasedPsiElement;
 import com.intellij.psi.impl.source.resolve.FileContextUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.QualifiedName;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyNames;
@@ -737,9 +738,9 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
     if (instr instanceof ConditionalInstruction conditionalInstruction) {
       final PyType conditionType = context.getType((PyTypedElement)conditionalInstruction.getCondition());
       if (conditionType instanceof PyNarrowedType narrowedType && narrowedType.isBound()) {
-        var arguments = narrowedType.getOriginal().getArguments(null);
-        if (!arguments.isEmpty()) {
-          var firstArgument = arguments.get(0);
+        var arguments = narrowedType.getOriginal().getArguments();
+        if (!ArrayUtil.isEmpty(arguments)) {
+          var firstArgument = arguments[0];
           PyType type = narrowedType.getNarrowedType();
           if (firstArgument instanceof PyReferenceExpression && type != null) {
             @Nullable PyType initial = context.getType(firstArgument);
@@ -775,9 +776,9 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
         if (instr instanceof ConditionalInstruction conditionalInstruction) {
           if (context.getType((PyTypedElement)conditionalInstruction.getCondition()) instanceof PyNarrowedType narrowedType
               && narrowedType.isBound()) {
-            var arguments = narrowedType.getOriginal().getArguments(null);
-            if (!arguments.isEmpty()) {
-              var firstArgument = arguments.get(0);
+            var arguments = narrowedType.getOriginal().getArguments();
+            if (!ArrayUtil.isEmpty(arguments)) {
+              var firstArgument = arguments[0];
               PyType type = narrowedType.getNarrowedType();
               if (firstArgument instanceof PyReferenceExpression && type != null) {
                 @Nullable PyType initial = context.getType(firstArgument);
