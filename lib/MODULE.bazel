@@ -953,10 +953,10 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_diogen-diogen-analysis-0_5_0_http",
-    downloaded_file_path = "diogen-analysis-0.5.0.jar",
-    sha256 = "b4ceb55c2585f0627f268f611b40ef651cd8aa3af0c277a974facfd032d08b8e",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/diogen/diogen-analysis/0.5.0/diogen-analysis-0.5.0.jar",
+    name = "org_jetbrains_diogen-diogen-analysis-0_6_0_http",
+    downloaded_file_path = "diogen-analysis-0.6.0.jar",
+    sha256 = "d4f518c6c34199e4d20cf0175eae06b55de4e20c1032ffd3baf9a195ff30fe59",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/diogen/diogen-analysis/0.6.0/diogen-analysis-0.6.0.jar",
 )
 
 http_file(
@@ -967,10 +967,10 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_diogen-diogen-analysis-0_5_0-sources_http",
-    downloaded_file_path = "diogen-analysis-0.5.0-sources.jar",
-    sha256 = "c15320a594b895fab7cf507cb9b0a60843c2e54390588bb3b2e23a87abf7518a",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/diogen/diogen-analysis/0.5.0/diogen-analysis-0.5.0-sources.jar",
+    name = "org_jetbrains_diogen-diogen-analysis-0_6_0-sources_http",
+    downloaded_file_path = "diogen-analysis-0.6.0-sources.jar",
+    sha256 = "ac3655eb2abdbf4d6e7315576f5632eb2574ba9301e7add8a1d85501746d2d25",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/diogen/diogen-analysis/0.6.0/diogen-analysis-0.6.0-sources.jar",
 )
 
 http_file(
@@ -12034,6 +12034,20 @@ http_file(
 )
 
 http_file(
+    name = "org_xerial-sqlite-jdbc-3_53_2_1_http",
+    downloaded_file_path = "sqlite-jdbc-3.53.2.1.jar",
+    sha256 = "f55e405ed96d5ffe629e05b7b51b059e1c7d64527c0cc90a972fbac06730ccc1",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/xerial/sqlite-jdbc/3.53.2.1/sqlite-jdbc-3.53.2.1.jar",
+)
+
+http_file(
+    name = "org_xerial-sqlite-jdbc-3_53_2_1-sources_http",
+    downloaded_file_path = "sqlite-jdbc-3.53.2.1-sources.jar",
+    sha256 = "b391339a7928f148bc489506cef28a35a2c6400c661f8f936583732008c4d017",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/xerial/sqlite-jdbc/3.53.2.1/sqlite-jdbc-3.53.2.1-sources.jar",
+)
+
+http_file(
     name = "org_apache_sshd-sshd-osgi-2_15_0_http",
     downloaded_file_path = "sshd-osgi-2.15.0.jar",
     sha256 = "3c8a183f81e176d9c452c9bb94007574bc8188446b4fc98b527aa79074cd0dda",
@@ -16735,20 +16749,6 @@ http_file(
     downloaded_file_path = "slf4j-jdk14-2.0.13-sources.jar",
     sha256 = "8bd6a94a7f610ea9f0180f8b6832bd8b4398f123bea8ad8febe00c36c49e1d1e",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/slf4j/slf4j-jdk14/2.0.13/slf4j-jdk14-2.0.13-sources.jar",
-)
-
-http_file(
-    name = "org_xerial-sqlite-jdbc-3_53_2_1_http",
-    downloaded_file_path = "sqlite-jdbc-3.53.2.1.jar",
-    sha256 = "f55e405ed96d5ffe629e05b7b51b059e1c7d64527c0cc90a972fbac06730ccc1",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/xerial/sqlite-jdbc/3.53.2.1/sqlite-jdbc-3.53.2.1.jar",
-)
-
-http_file(
-    name = "org_xerial-sqlite-jdbc-3_53_2_1-sources_http",
-    downloaded_file_path = "sqlite-jdbc-3.53.2.1-sources.jar",
-    sha256 = "b391339a7928f148bc489506cef28a35a2c6400c661f8f936583732008c4d017",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/xerial/sqlite-jdbc/3.53.2.1/sqlite-jdbc-3.53.2.1-sources.jar",
 )
 
 http_file(

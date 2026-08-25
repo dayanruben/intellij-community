@@ -24,7 +24,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         "@lib//:jaxb-runtime",
-        "@lib//:sqlite",
+        "//libraries/sqlite",
     ],
     deps = [
         # do not sort,
@@ -107,6 +107,7 @@ jvm_library(
         "//platform/lvcs-api:lvcs_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
         "//platform/core-ui:core-ui_test_lib",
+        "//libraries/sqlite:sqlite_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/external-process-auth-helper:external-process-auth-helper_test_lib",
         "//platform/vcs-impl/shared:shared_test_lib",
@@ -129,11 +130,12 @@ exports_files(
 
 ### auto-generated section `dev content intellij.vcs.svn` start
 dev_dist_plugin_content(
+    content_modules = ["//libraries/sqlite"],
     descriptor_module = ":vcs-svn",
     libraries = [
         "@lib//:jaxb-api",
         "@lib//:jaxb-runtime",
-        "@lib//:sqlite",
+        "@lib//:libraries-sqlite-sqlite",
     ],
 )
 ### auto-generated section `dev content intellij.vcs.svn` end

@@ -8,6 +8,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.ListPopupStep
 import com.intellij.openapi.ui.popup.ListSeparator
 import com.intellij.openapi.util.NlsActions.ActionDescription
+import com.intellij.openapi.util.NlsContexts.PopupTitle
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.python.sdk.common.evolution.EvoRpcFailedException
@@ -61,6 +62,24 @@ open class EvoTreeLeafElement(
 ) : EvoTreeElement(presentation)
 
 /**
+ * A leaf that cannot be acted on, and says why: disabled, with a warning sign carrying [reason], instead of looking
+ * selectable and failing only once clicked.
+ *
+ * It reports [State.NOT_AVAILABLE] rather than [State.DONE], which is what makes it unselectable and gives it the sign —
+ * the same state a tool node in that position reports.
+ */
+class EvoTreeUnavailableLeafElement(action: AnAction, reason: @Nls String) : EvoTreeLeafElement(action) {
+  init {
+    presentation.isEnabled = false
+    presentation.putClientProperty(ActionUtil.TOOLTIP_TEXT, reason)
+  }
+
+  override fun load(project: Project, scope: CoroutineScope, listeners: List<ListPopupStep.ListPopupModelListener>) {
+    state = State.NOT_AVAILABLE
+  }
+}
+
+/**
  * A leaf whose action decides for itself whether it applies: [EvoActionPopupStep] runs the action's own `update()`
  * against the popup's data context before the list is shown, and drops the row when the action reports itself
  * invisible. Used for the package-manager rows, which are shared platform actions gated on the project's dependency
@@ -104,23 +123,77 @@ class EvoEditableName(@Volatile @NlsSafe var value: String, val takenNames: Set<
 }
 
 /**
- * The "add new environment" node: a normal expandable node whose submenu lists the Python [versions] — so the platform
- * handles mouse and keyboard natively. It is marked so [EvoTreePopup] can reposition its submenu to the *left* of the
- * parent (the platform opens submenus to the right). The row shows the pre-filled env name. When [editableName] is set,
- * the submenu also shows a name field on top (and turns off speed search) so the user can rename before creating.
- * [secondaryText] fills the row's version column (an env that doesn't exist yet has no version, so "n/a"), keeping it
- * aligned with the sibling rows that do show one.
+ * Implemented by a leaf [AnAction] that stands for more than one concrete choice: an "add new environment" Python
+ * version on a machine carrying several installs of it.
+ *
+ * The row keeps doing its own thing when clicked — it acts on the default choice — and offers the rest behind an inline
+ * "…" that [EvoTreePopup] paints on it while it is hovered, so the finer choice costs nothing to a user who does not
+ * want it. An implementation with fewer than two [alternatives] is offering no choice at all, and the "…" is not painted.
+ */
+interface EvoAlternatives {
+  val alternativesTitle: @PopupTitle String
+
+  /**
+   * The rows the menu shows. Built by whoever built the row they hang off, so they are the very same rows the expanded
+   * list would show — same titles, same lazily-resolved version column — rather than a second rendering of the same
+   * data that could drift from it.
+   */
+  val alternatives: List<EvoTreeLeafElement>
+}
+
+/**
+ * The two views of an "add new environment" version list, and which of them is showing.
+ *
+ * *Collapsed* is one row per Python version — the version is the choice, and the interpreter backing it is the IDE's
+ * pick. *Expanded* turns each version into a section header and lists that version's actual installs beneath it, so the
+ * interpreter becomes the choice. Both are built up front from the same options, because the toggle has to be instant:
+ * it is a way of looking at a list the user is already reading, not a new request.
+ *
+ * Which one is showing lives here, in the object itself, which is built once per popup tree and held by the node. So the
+ * choice survives a close-and-reopen for as long as that tree is reused, and a rebuilt tree — a expired cache, a
+ * reloaded tool — starts collapsed again. That is the intended lifetime: it is a way of looking at one list of
+ * environments, not a setting about the IDE.
+ *
+ * [canExpand] is false when no version has a second install, and then the toggle is not offered at all, since expanding
+ * would only put a header above each row already shown.
+ */
+class EvoVersionRows(
+  private val collapsed: List<EvoTreeSection>,
+  private val expanded: List<EvoTreeSection>,
+) {
+  val canExpand: Boolean get() = expanded.isNotEmpty()
+
+  var isExpanded: Boolean = false
+    private set
+
+  fun sections(): List<EvoTreeSection> = if (isExpanded && canExpand) expanded else collapsed
+
+  fun toggle() {
+    isExpanded = !isExpanded
+  }
+}
+
+/**
+ * The "add new environment" node: a normal expandable node whose submenu lists the Python versions of [versionRows] — so
+ * the platform handles mouse and keyboard natively. It is marked so [EvoTreePopup] can reposition its submenu to the
+ * *left* of the parent (the platform opens submenus to the right). The row shows the pre-filled env name. When
+ * [editableName] is set, the submenu also shows a name field on top (and turns off speed search) so the user can rename
+ * before creating. [secondaryText] fills the row's version column (an env that doesn't exist yet has no version, so
+ * "n/a"), keeping it aligned with the sibling rows that do show one.
  */
 class EvoTreeAddNewNode(
   text: @Nls String,
   icon: Icon,
-  versions: List<EvoTreeLeafElement>,
+  versionRows: EvoVersionRows,
   editableName: EvoEditableName? = null,
+  fixedName: @NlsSafe String? = null,
   secondaryText: @Nls String? = null,
 ) : EvoTreeNodeElement(text, icon) {
   init {
-    sections.add(EvoTreeSection(elements = versions))
+    sections.addAll(versionRows.sections())
+    this.versionRows = versionRows
     this.editableName = editableName
+    this.fixedName = fixedName
     secondaryText?.let { presentation.putClientProperty(ActionUtil.SECONDARY_TEXT, it) }
   }
 }
@@ -147,6 +220,19 @@ sealed class EvoTreeNodeElement(
    */
   var editableName: EvoEditableName? = null
 
+  /**
+   * The name this node's submenu shows in its header when there is nothing to edit — hatch's declared environment, named
+   * in `pyproject.toml` and not ours to rename. Null when the node has an [editableName] instead, or no header at all.
+   */
+  var fixedName: @NlsSafe String? = null
+
+  /**
+   * The collapsed/expanded views of this node's version list, or null when it has none. Set by [EvoTreeAddNewNode] and,
+   * like [editableName], inherited by a tool node that absorbed a lone "add new" child — the toggle is rendered from
+   * whichever node the popup is showing, so it has to travel with the sections.
+   */
+  var versionRows: EvoVersionRows? = null
+
   init {
     presentation.icon = icon
   }
@@ -170,11 +256,23 @@ class EvoTreeStaticNodeElement(
  * name field its submenu should show — the last one set only when the loader collapsed a lone "add new" row into these
  * sections, so that step keeps the field (and its caption) the absorbed row would have shown.
  */
-class EvoLoadedNode(val sections: List<EvoTreeSection>, val refreshable: Boolean, val editableName: EvoEditableName? = null)
+class EvoLoadedNode(
+  val sections: List<EvoTreeSection>,
+  val refreshable: Boolean,
+  val editableName: EvoEditableName? = null,
+  /** See [EvoTreeNodeElement.fixedName] — carried for the same reason [editableName] is. */
+  val fixedName: @NlsSafe String? = null,
+  val versionRows: EvoVersionRows? = null,
+)
 
 class EvoTreeLazyNodeElement(
   text: String,
   icon: Icon,
+  /**
+   * Opens the process output for this node's last run, for when the row reports a failure. Null when the node has no
+   * process behind it at all.
+   */
+  val showOutput: (() -> Unit)? = null,
   val loader: suspend (forceRefresh: Boolean) -> EvoLoadedNode,
 ) : EvoTreeNodeElement(text, icon) {
   /** Set from the last load: true once the backend measured this tool as slow, so it shows an inline reload icon. */
@@ -220,6 +318,8 @@ class EvoTreeLazyNodeElement(
           withContext(Dispatchers.EDT) {
             refreshable = loaded.refreshable
             editableName = loaded.editableName
+            fixedName = loaded.fixedName
+            versionRows = loaded.versionRows
             // Swap in the new data only once it's ready, so an open submenu never flashes empty during a reload.
             sections.clear()
             sections.addAll(loaded.sections)

@@ -15,11 +15,13 @@ import com.intellij.openapi.util.NlsContexts.PopupTitle
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.python.sdk.frontend.PySdkFrontendBundle
+import com.intellij.ide.ui.UISettings
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.GroupHeaderSeparator
 import com.intellij.ui.ScreenUtil
 import com.intellij.ui.SeparatorWithText
+import com.intellij.codeInsight.hint.HintUtil
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.fields.ExtendableTextComponent
 import com.intellij.ui.components.fields.ExtendableTextField
@@ -28,7 +30,9 @@ import com.intellij.ui.popup.list.ListPopupImpl
 import com.intellij.ui.popup.list.PopupListElementRenderer
 import com.intellij.util.IconUtil
 import com.intellij.util.ui.GridBag
+import com.intellij.util.ui.JBInsets
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.NamedColorUtil
 import org.jetbrains.annotations.Nls
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +43,7 @@ import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.Point
 import java.awt.Rectangle
@@ -55,11 +60,15 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JPanel
+import javax.swing.border.Border
+import javax.swing.border.EmptyBorder
 import javax.swing.JViewport
 import javax.swing.ListCellRenderer
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
+import kotlin.math.max
+import kotlin.math.min
 
 private val SETTINGS_GEAR: Icon = AllIcons.General.GearPlain
 
@@ -73,12 +82,22 @@ private const val GEAR_VERTICAL_OFFSET = 1
 private const val SUBMENU_LEFT_GAP = 2
 
 /**
- * Width (in columns) of the add-new name field. Together with the caption beside it, it sets that submenu's width; longer
- * names scroll inside the field rather than widening the popup. This is the one number to turn if the step should be wider
- * or narrower — but the popup shrinks by less than this does, since the caption's width is fixed and the version rows set
- * a floor of their own.
+ * Columns of text reserved for the add-new name: how much of a long name stays visible, and how much room there is to
+ * type one. The field itself is sized to its content up to this (see [EvoTreePopup.nameHeader]), so editing never has to
+ * widen the popup. Together with the caption beside it, this sets that submenu's minimum width; the version rows set a
+ * floor of their own.
  */
-private const val NAME_FIELD_COLUMNS = 14
+private const val NAME_FIELD_COLUMNS = 18
+
+/**
+ * Gap between the header's caption and the name beside it — a word space, since the two are read as one phrase
+ * ("Choose base Python for default"). The field brings no left inset of its own, so the whole gap comes from here, and
+ * anything tighter runs the caption's last word into a lowercase name.
+ */
+private const val NAME_FIELD_GAP = 5
+
+/** Slack past a name's measured width, so a character's overhang is never clipped — see [EvoTreePopup.nameHeader]. */
+private const val NAME_FIELD_SLACK = 3
 
 /**
  * Sample string whose rendered width is reserved for the version column, so a resolved version fits without resize.
@@ -86,18 +105,81 @@ private const val NAME_FIELD_COLUMNS = 14
  */
 private const val VERSION_RESERVE_SAMPLE = "0.00.00rc0"
 
+
+/** Gap between a section header's caption and the rule that runs on from it. */
+private const val SEPARATOR_RULE_GAP = 6
+
+/** Gap between the footer strip's caption and its chevron. */
+private const val FOOTER_ICON_GAP = 2
+
+/** Same footprint as the inline "…", for rows that can show it but are not hovered — see `customizeComponent`. */
+private val MORE_ICON_PLACEHOLDER: Icon = EmptyIcon.create(AllIcons.Actions.More)
+
 /**
  * A group-header separator that also paints a settings gear at its right edge — but only while it is rendering the
  * section whose caption equals [gearCaption] (the "Select Environment" header). A painted separator can't hold real
  * action components, so the gear click is hit-tested and handled in [EvoTreePopup].
  */
-private class GearGroupHeaderSeparator(labelInsets: Insets, private val gearCaption: String) : GroupHeaderSeparator(labelInsets) {
+private class GearGroupHeaderSeparator(
+  private val labelInsets: Insets,
+  private val gearCaption: String,
+) : GroupHeaderSeparator(labelInsets) {
   /** True while this reused component is currently rendering the gear-bearing section. */
   val showsGear: Boolean get() = caption == gearCaption
 
+  /**
+   * The caption's own height, without the allowance [GroupHeaderSeparator] makes for the rule it draws above the text.
+   *
+   * That rule is a full-width one on its own line, which `PopupListElementRenderer` turns on for every separator but the
+   * first — a line of height per section. This one runs the rule *beside* the caption instead (see [paintComponent]), so
+   * the allowance is dropped here rather than left as blank space above every header.
+   */
+  override fun getPreferredElementSize(): Dimension {
+    val size = if (caption == null) Dimension(0, 0) else getLabelSize(labelInsets)
+    JBInsets.addTo(size, insets)
+    return size
+  }
+
+  /**
+   * Paints the caption and, filling the rest of the line, the rule — `Python 3.14 ───────`.
+   *
+   * Done here rather than by [GroupHeaderSeparator], whose rule sits above the caption on a line of its own: the two
+   * cannot be combined by configuration, only replaced. The caption itself is laid out exactly as the superclass lays it
+   * out, so a header too long for the popup is still clipped with an ellipsis rather than painted past the edge.
+   */
   override fun paintComponent(g: Graphics) {
-    super.paintComponent(g)
-    if (showsGear) gearIcon().let { icon -> gearBounds().let { icon.paintIcon(this, g, it.x, it.y) } }
+    val caption = caption ?: return
+    val bounds = Rectangle(width, height)
+    JBInsets.removeFrom(bounds, insets)
+    bounds.x += labelInsets.left
+    bounds.width -= labelInsets.left + labelInsets.right
+    bounds.y += labelInsets.top
+    bounds.height -= labelInsets.top + labelInsets.bottom
+
+    val metrics = g.fontMetrics
+    val iconR = Rectangle()
+    val textR = Rectangle()
+    val label = SwingUtilities.layoutCompoundLabel(
+      metrics, caption, null, SwingConstants.CENTER, SwingConstants.LEFT, SwingConstants.CENTER, SwingConstants.LEFT,
+      bounds, iconR, textR, 0)
+    UISettings.setupAntialiasing(g)
+    g.color = textForeground
+    g.drawString(label, textR.x, textR.y + metrics.ascent)
+
+    // The gear takes the right end of its own header, so that one gets no rule — the two would overlap.
+    if (showsGear) {
+      gearIcon().let { icon -> gearBounds().let { icon.paintIcon(this, g, it.x, it.y) } }
+      return
+    }
+    // Only when the caption was not clipped: a rule after an ellipsis would suggest there is room left on the line.
+    if (label != caption) return
+    val from = textR.x + textR.width + JBUI.scale(SEPARATOR_RULE_GAP)
+    val to = bounds.x + bounds.width
+    if (to <= from) return
+    // On the caption's strikethrough line, which is where the platform puts a rule it draws beside text.
+    val y = textR.y + metrics.ascent + metrics.getLineMetrics(label, g).strikethroughOffset.toInt()
+    g.color = foreground
+    g.fillRect(from, y, to - from, 1)
   }
 
   /** The 16px gear scaled down to the caption font's ascent, so it reads at the same size as the header text. */
@@ -122,6 +204,7 @@ private class GearGroupHeaderSeparator(labelInsets: Insets, private val gearCapt
 
 class EvoPopupListElementRenderer(private val popup: EvoTreePopup) : PopupListElementRenderer<EvoTreeItem>(popup) {
   private val reloadLabel = JLabel()
+  private val moreLabel = JLabel()
 
   // Replace the plain group header with one that paints a settings gear on the "Select Environment" section.
   @Suppress("DEPRECATION") // overrides a platform method that returns the deprecated SeparatorWithText
@@ -146,6 +229,7 @@ class EvoPopupListElementRenderer(private val popup: EvoTreePopup) : PopupListEl
     val buttonPane = arrow.parent as? JComponent ?: return
     val element = value?.element
     val showReload = isSelected && element is EvoTreeLazyNodeElement && element.refreshable && element.state == State.DONE
+    val canShowMore = popup.hasAlternatives(value)
     buttonPane.removeAll()
     val gb = GridBag()
       .setDefaultFill(GridBagConstraints.BOTH)
@@ -157,6 +241,14 @@ class EvoPopupListElementRenderer(private val popup: EvoTreePopup) : PopupListEl
       reloadLabel.icon = AllIcons.Actions.Refresh
       buttonPane.add(reloadLabel, gb.next().weightx(0.0))
       // The platform gives the arrow a wide emptyLeft(20) inset; tighten it so the icon sits right by the arrow.
+      arrow.border = JBUI.Borders.emptyLeft(4)
+    }
+    if (canShowMore) {
+      // The width is reserved on every row that *can* show the icon, and the icon is only painted on the hovered one.
+      // Adding the label on hover instead would take that width from the row's label, clipping the version text — the
+      // same reason the version column below is reserved rather than sized when its value arrives.
+      moreLabel.icon = if (isSelected) AllIcons.Actions.More else MORE_ICON_PLACEHOLDER
+      buttonPane.add(moreLabel, gb.next().weightx(0.0))
       arrow.border = JBUI.Borders.emptyLeft(4)
     }
     // Every expandable row keeps the platform's standard ">" arrow, even though this popup's submenus always open to the
@@ -249,13 +341,112 @@ open class EvoTreePopup private constructor(
    */
   override fun createContent(): JComponent {
     val content = super.createContent()
-    val editable = evoStep?.editableName ?: return content
-    // Right-aligned name, so it sits next to the pencil at the header's right edge and away from the caption on the left.
-    val field = ExtendableTextField(editable.value)
-    field.isOpaque = false
-    field.border = JBUI.Borders.empty(1, 8)   // a touch more compact than the platform default
-    field.horizontalAlignment = SwingConstants.RIGHT
-    field.columns = NAME_FIELD_COLUMNS
+    val header = evoStep?.editableName?.let { nameHeader(it) }
+                 ?: evoStep?.fixedName?.let { staticNameHeader(it) }
+    val footer = expandCollapseFooter()
+    if (header == null && footer == null) return content
+    trimBodyInsetsCoveredBy(header, footer)
+    return JPanel(BorderLayout()).apply {
+      // This wrapper is what shows through behind the header and the footer (both non-opaque), so it has to carry the
+      // popup's own background — a default JPanel one paints those bands a different shade than the rows.
+      background = JBUI.CurrentTheme.Popup.BACKGROUND
+      header?.let { add(it, BorderLayout.NORTH) }
+      add(content, BorderLayout.CENTER)
+      footer?.let { add(it, BorderLayout.SOUTH) }
+    }
+  }
+
+  /**
+   * Drops the padding the platform put above the first row and below the last, on whichever side this popup covers with
+   * a band of its own.
+   *
+   * `PopupUtil.getListInsets` pads the list body for a popup that has *neither* a title header *nor* an ad strip: the top
+   * inset stands in for the missing header, the bottom one for the missing ad. This popup builds both itself — the
+   * name-field header and the expand/collapse footer — so where it does, that inset is no longer breathing room against
+   * the popup's edge but a gap between the band and the rows.
+   *
+   * The insets are read back off the list rather than recomputed: the platform picks them from the theme (and differs
+   * between the old and new UI), and only the sides actually covered are zeroed, leaving the rest as the theme set them.
+   */
+  private fun trimBodyInsetsCoveredBy(header: JComponent?, footer: JComponent?) {
+    val insets = (list.border as? EmptyBorder)?.borderInsets ?: return
+    list.border = JBUI.Borders.empty(
+      if (header != null) 0 else insets.top,
+      insets.left,
+      if (footer != null) 0 else insets.bottom,
+      insets.right,
+    )
+  }
+
+  /**
+   * The expand/collapse toggle under an add-new version list, as muted text: collapsed shows one row per Python version,
+   * expanded turns each version into a header and lists that version's actual installs beneath it.
+   *
+   * Null — no toggle at all — when the machine has no version with a second install, since expanding would then only
+   * put a header above each row it already shows. Called from the [WizardPopup] constructor, so it reads the step (set)
+   * and never this class's own fields (not yet initialized); the listener body runs later and may.
+   */
+  private fun expandCollapseFooter(): JComponent? {
+    val versionRows = evoStep?.versionRows?.takeIf { it.canExpand } ?: return null
+    val expanded = versionRows.isExpanded
+    // The caption names the action, not the state: it is set once, because clicking it replaces this whole popup.
+    val caption = PySdkFrontendBundle.message(
+      if (expanded) "evo.sdk.status.bar.popup.add.new.collapse"
+      else "evo.sdk.status.bar.popup.add.new.expand"
+    )
+    // The platform's own strip-under-a-popup component, background and all. The band is what makes this read as a
+    // control rather than as a caption, so the whole band is the click target — not just the text on it.
+    return HintUtil.createAdComponent(caption, footerBorder(), SwingConstants.RIGHT).apply {
+      // Which way the rows are about to move: down to reveal the interpreters, up to fold them away again.
+      icon = if (expanded) AllIcons.General.ChevronUp else AllIcons.General.ChevronDown
+      horizontalTextPosition = SwingConstants.LEADING   // chevron after the text, nearest the edge it sits against
+      iconTextGap = JBUI.scale(FOOTER_ICON_GAP)
+      cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+      addMouseListener(object : MouseAdapter() {
+        override fun mouseClicked(e: MouseEvent) = toggleExpandedAndReopen()
+      })
+    }
+  }
+
+  /** The footer strip's border: the platform's ad-strip insets, plus a separating line above it on the old UI. */
+  private fun footerBorder(): Border? =
+    if (ExperimentalUI.isNewUI()) JBUI.CurrentTheme.Advertiser.border()
+    else JBUI.Borders.compound(
+      JBUI.Borders.customLineTop(JBUI.CurrentTheme.Advertiser.borderColor()),
+      JBUI.CurrentTheme.Advertiser.border(),
+    )
+
+  /**
+   * Expands or collapses the version list and rebuilds this submenu from scratch, rather than swapping the rows
+   * underneath it.
+   *
+   * A popup is laid out and placed once, around the list it was built with. Replacing that list in place leaves it
+   * sized for the view it no longer shows, and positioned for a width it no longer has — these submenus are anchored by
+   * their RIGHT edge (see [show]), so any width change has to move them. Reopening runs the whole path again — a fresh
+   * step over the new sections, then [show] and [afterShow] doing the placement — which is the only way the contents,
+   * the size and the position all end up agreeing.
+   */
+  private fun toggleExpandedAndReopen() {
+    val step = evoStep ?: return
+    val parentPopup = parent as? EvoTreePopup ?: return
+    step.toggleExpanded()
+    // Deferred: this runs from the footer's own mouse handler, inside the popup that is about to be disposed. Asking
+    // the parent to re-choose its selected row is what reopens the submenu — that row is the one that opened this.
+    SwingUtilities.invokeLater {
+      if (parentPopup.isDisposed) return@invokeLater
+      parentPopup.disposeChildren()
+      parentPopup.handleSelect(false, null)
+    }
+  }
+
+  /**
+   * The env-name field an add-new submenu shows above its rows. See [createContent] for how it is stacked.
+   */
+  private fun nameHeader(editable: EvoEditableName): JComponent {
+    // Sized to its own text and left-aligned, so the name follows the caption directly and the pencil — an extension at
+    // the field's right edge — lands right after it: the header then reads as one phrase naming both halves of the step,
+    // rather than a label and a value at opposite ends of the line.
+    val field = nameField(editable.value)
     val defaultForeground = field.foreground
     fun refreshValidity() {
       // An unusable name → red text + a tooltip saying why, and the version rows won't create it (addVersionAction).
@@ -275,6 +466,13 @@ open class EvoTreePopup private constructor(
     field.document.addDocumentListener(object : DocumentAdapter() {
       override fun textChanged(e: DocumentEvent) {
         editable.value = field.text.trim()
+        // The field is content-sized, so the row has to be re-laid out for it to follow the text — and with it the
+        // pencil beside it. Revalidated on the *parent*: JTextField.isValidateRoot() is true outside a viewport, so
+        // revalidating the field itself only ever re-lays out its interior, leaving its bounds — and the pencil — put.
+        field.parent?.let { row ->
+          row.revalidate()
+          row.repaint()
+        }
         refreshValidity()
       }
     })
@@ -288,6 +486,12 @@ open class EvoTreePopup private constructor(
       if (on) {
         field.requestFocusInWindow()
         field.selectAll()
+      }
+      else {
+        // Scroll back to the head of the name. The field is laid out at its built width first and only then widened to
+        // its content, and the view keeps whatever offset it took to hold the caret at the end — so a name that fits
+        // perfectly can still be painted with its first characters cut off, which reads as a different name.
+        field.caretPosition = 0
       }
     }
     // Finish editing = back to plain text AND move focus off the field to the list, so no caret lingers in the label.
@@ -312,25 +516,95 @@ open class EvoTreePopup private constructor(
     field.addFocusListener(object : FocusAdapter() {
       override fun focusLost(e: FocusEvent) = setEditing(false)
     })
-    // A muted caption at the left edge, balancing the right-aligned name: one header line, the caption naming the step and
-    // the name showing what will be created. Title case on purpose — it titles this whole "create an environment" step,
-    // which after the lone-add-new collapse (see EvoPySdkSwitchPopupFactory) can be all a tool's node shows.
-    @Suppress("DialogTitleCapitalization")
-    val caption = JBLabel(PySdkFrontendBundle.message("evo.sdk.status.bar.popup.add.new.env.title")).apply {
+    // A muted caption opening the header line, which the name field completes: "Choose Base Python for .venv2".
+    //
+    // It names the rows below rather than the step ("New Environment") because the step was never the ambiguous half —
+    // a bare "Python 3.12" sitting under a name like `.venv2` was, most of all in the expanded view where the rows are
+    // interpreter paths and the version has moved into the section header.
+    return captionRow(field)
+  }
+
+  /**
+   * The header of an add-new submenu whose name is fixed — hatch's declared environment, named in `pyproject.toml` and
+   * not ours to rename. Reads the same as the editable one, minus the pencil.
+   */
+  private fun staticNameHeader(name: @NlsSafe String): JComponent = captionRow(
+    // The same component as the editable header's, only read-only. A JBLabel would be the obvious choice and the wrong
+    // one: it carries none of a text field's insets, so it sits tight against the caption and makes the header shorter —
+    // the two headers would be different shapes. Non-opaque and non-editable, this paints as plain text.
+    nameField(name).apply {
+      isEditable = false
+      isFocusable = false
+      caretPosition = 0
+    }
+  )
+
+  /**
+   * The name component of either header: content-sized, so the caption runs straight into it, and capped at
+   * [NAME_FIELD_COLUMNS] so a long name claims no more of the popup than the header reserved for it.
+   *
+   * The cap matters because this header is rebuilt whenever the popup is — the expand/collapse toggle reopens it, see
+   * [toggleExpandedAndReopen] — and an uncapped name would size the rebuilt popup to itself. Past the cap the name
+   * scrolls inside the field, as it did when the field was a fixed width.
+   */
+  private fun nameField(name: @NlsSafe String): ExtendableTextField =
+    object : ExtendableTextField(name) {
+      override fun getPreferredSize(): Dimension {
+        val preferred = super.getPreferredSize()
+        // The measured text width plus a little: at exactly its own width the field still clips a character's overhang,
+        // and the caret occupies the same area, so a name that fits reads as one that does not.
+        val wanted = preferred.width + JBUI.scale(NAME_FIELD_SLACK)
+        val cap = columnWidth * NAME_FIELD_COLUMNS + insets.left + insets.right
+        return Dimension(min(wanted, cap), preferred.height)
+      }
+
+      // Pinned to the width above, so the row's layout can neither stretch the field past its cap nor stretch it
+      // vertically to the row's height.
+      override fun getMaximumSize(): Dimension = preferredSize
+    }.apply {
+      isOpaque = false
+      border = JBUI.Borders.empty(1, 0)
+      horizontalAlignment = SwingConstants.LEADING
+      columns = 0
+    }
+
+  /**
+   * The header line both name headers share: the caption, then [name], as one phrase.
+   *
+   * Packed left rather than caption-and-value at opposite ends, and laid out by GridBagLayout for its BASELINE anchor —
+   * the caption is a plain label and an editable name a text field with insets of its own, so the two are different
+   * heights, and any layout that centres them vertically (BoxLayout, FlowLayout) sits the name off the caption's
+   * baseline. Neither does GridBag wrap, so a name outgrowing the room left on the line stays on it rather than dropping
+   * to a second row. The trailing glue takes the slack, keeping the two packed at the left.
+   */
+  private fun captionRow(name: JComponent): JComponent {
+    val caption = JBLabel(PySdkFrontendBundle.message("evo.sdk.status.bar.popup.add.new.base.caption")).apply {
       foreground = NamedColorUtil.getInactiveTextColor()
       border = JBUI.Borders.emptyLeft(8)
     }
-    val header = JPanel(BorderLayout()).apply {
+    return object : JPanel(GridBagLayout()) {
+      // An editable name is a content-sized field that grows as a longer name is typed, and the popup cannot widen once
+      // it is open — the header would just be clipped mid-edit. So the room to type is reserved here instead: the header
+      // is never narrower than the caption plus [NAME_FIELD_COLUMNS] of text, whatever the name currently is. A fixed
+      // name reserves the same, which is what keeps one tool's submenu from opening narrower than the next one's.
+      override fun getPreferredSize(): Dimension {
+        val natural = super.getPreferredSize()
+        val columnWidth = name.getFontMetrics(name.font).charWidth('m')
+        val reserved = caption.preferredSize.width + JBUI.scale(NAME_FIELD_GAP) + columnWidth * NAME_FIELD_COLUMNS
+        return Dimension(max(natural.width, reserved), natural.height)
+      }
+    }.apply {
       isOpaque = false
-      add(caption, BorderLayout.WEST)
-      add(field, BorderLayout.CENTER)
-    }
-    return JPanel(BorderLayout()).apply {
-      // This wrapper is what shows through behind the header (both the header panel and the field are non-opaque), so it
-      // has to carry the popup's own background — a default JPanel one paints that band a different shade than the rows.
-      background = JBUI.CurrentTheme.Popup.BACKGROUND
-      add(header, BorderLayout.NORTH)
-      add(content, BorderLayout.CENTER)
+      val gb = GridBag()
+        .setDefaultAnchor(GridBagConstraints.BASELINE)
+        .setDefaultFill(GridBagConstraints.NONE)
+        .setDefaultWeightY(0.0)
+      add(caption, gb.nextLine().next())
+      // GridBag.insets scales what it is given, so the raw value goes in here — unlike the reserve computed above,
+      // which is plain pixel arithmetic and scales its own.
+      add(name, gb.next().insets(0, NAME_FIELD_GAP, 0, 0))
+      // The glue has no baseline to align to, so it is anchored on its own rather than joining the row's baseline group.
+      add(Box.createHorizontalGlue(), gb.next().weightx(1.0).anchor(GridBagConstraints.CENTER))
     }
   }
 
@@ -360,6 +634,9 @@ open class EvoTreePopup private constructor(
   /** Tooltip shown while hovering the settings gear. */
   private val gearTooltip: @NlsContexts.Tooltip String = PySdkFrontendBundle.message("evo.sdk.status.bar.popup.settings.gear.tooltip")
 
+  /** Tooltip shown while hovering a row's inline "…" — what the finer choice behind it is. */
+  private val moreTooltip: @NlsContexts.Tooltip String = PySdkFrontendBundle.message("evo.sdk.status.bar.popup.base.python.tooltip")
+
   init {
     setMaxRowCount(maxRowCount)
     // Submenus (tool nodes and the uv/pip "add new environment" version list) expand on hover.
@@ -368,6 +645,12 @@ open class EvoTreePopup private constructor(
 
   override fun afterShow() {
     super.afterShow()
+    // Re-assert the hand cursor `ListPopupImpl.createList` already set, which looks redundant and is not: this popup can
+    // appear under a stationary pointer (the expand/collapse toggle replaces it in place), and AWT only re-evaluates the
+    // cursor when the pointer crosses a component boundary. The list is a single component, so moving between rows never
+    // crosses one and a cursor left over from the popup that was just disposed would stay for as long as the pointer
+    // remains inside. Component.setCursor updates the native cursor outright, which is what breaks that.
+    list.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
     // Resolve lazy detail (e.g. interpreter version) for the rows currently in the viewport, and again for any
     // rows scrolled into view later — never for the whole list up front. See [EvoLazyDetail].
     (list.parent as? JViewport)?.addChangeListener { resolveVisibleDetails() }
@@ -377,6 +660,11 @@ open class EvoTreePopup private constructor(
     // Package Managers settings. isActionClick() below stops either from also selecting/expanding a row.
     list.addMouseListener(object : MouseAdapter() {
       override fun mouseReleased(e: MouseEvent) {
+        val more = moreIconItemAt(e.point)
+        if (more != null) {
+          showAlternatives(more)
+          return
+        }
         reloadIconItemAt(e.point)?.let { item -> evoStep?.reloadItem(item) }
         if (settingsGearAt(e.point)) openPackageManagersSettings()
       }
@@ -385,19 +673,23 @@ open class EvoTreePopup private constructor(
     // Two hover targets live in the list's own tooltip: the gear's help text, and the full folder path behind an elided
     // section header. They share one listener because each would otherwise clear the other's tooltip on the next move.
     // The remembered values guard against redundant per-move updates.
+    // The cursor is deliberately not touched here. `ListPopupImpl.createList` already gives the whole list a hand
+    // cursor, which is right for every part of it — the rows, the inline icons and the gear are all click targets — and
+    // setting it per-position only ever downgraded the rows to a plain arrow.
     list.addMouseMotionListener(object : MouseMotionAdapter() {
-      private var overGear = false
       private var shownTooltip: @Nls String? = null
       override fun mouseMoved(e: MouseEvent) {
-        val hit = settingsGearAt(e.point)
-        if (hit != overGear) {
-          overGear = hit
-          list.cursor = if (hit) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
+        val overGear = settingsGearAt(e.point)
+        val overMore = !overGear && moreIconItemAt(e.point) != null
+        val tooltip = when {
+          overGear -> gearTooltip
+          overMore -> moreTooltip
+          // The header strip is painted inside the top cell of its section, so it is checked before the row under it.
+          else -> separatorTooltipAt(e.point)
         }
-        val tooltip = if (hit) gearTooltip else separatorTooltipAt(e.point)
         if (tooltip != shownTooltip) {
           shownTooltip = tooltip
-          list.setToolTipText(tooltip?.let { HtmlChunk.text(it) })
+          list.setToolTipText(tooltip?.let { HtmlChunk.raw(multiLineTooltip(it)) })
         }
       }
     })
@@ -421,22 +713,56 @@ open class EvoTreePopup private constructor(
     setLocation(target.location)
   }
 
-  // Don't let a click on the reload icon or the settings gear select/expand a row — the mouse listener handles them.
+  // Don't let a click on one of the inline icons or the settings gear select/expand a row — the mouse listener handles
+  // all three.
   override fun isActionClick(e: MouseEvent): Boolean =
-    reloadIconItemAt(e.point) == null && !settingsGearAt(e.point) && super.isActionClick(e)
+    reloadIconItemAt(e.point) == null && moreIconItemAt(e.point) == null &&
+    !settingsGearAt(e.point) && super.isActionClick(e)
+
+
+  /** True when [item]'s row should carry the inline "…" that opens its finer choices. */
+  fun hasAlternatives(item: EvoTreeItem?): Boolean = item?.alternatives != null
+
+  /**
+   * Opens [item]'s finer choices (the installs behind an add-new Python version) as a child popup — its inline "…" was
+   * clicked. Anchored on that row, which the click already selected.
+   */
+  private fun showAlternatives(item: EvoTreeItem) {
+    val step = evoStep ?: return
+    val alternatives = item.alternatives ?: return
+    if (myChild != null) return   // already open for this row
+    handleNextStep(step.alternativesStep(alternatives), item, null)
+  }
 
   /** The tool [EvoTreeItem] whose inline reload icon (only shown on the hovered row) contains [point], or null. */
-  private fun reloadIconItemAt(point: Point): EvoTreeItem? {
+  private fun reloadIconItemAt(point: Point): EvoTreeItem? =
+    inlineIconItemAt(point, AllIcons.Actions.Refresh) { evoStep?.isReloadable(it) == true }
+
+  /** The [EvoTreeItem] whose inline "…" (only shown on the hovered row) contains [point], or null. */
+  private fun moreIconItemAt(point: Point): EvoTreeItem? =
+    inlineIconItemAt(point, AllIcons.Actions.More) { hasAlternatives(it) }
+
+  /**
+   * The item at [point] whose row carries [icon] under the pointer, or null. [applies] is the row's own precondition for
+   * having the icon at all — checked before the cell is laid out, which is the expensive part.
+   *
+   * Only the hovered row answers, since both inline icons are painted only there. That also means the cell can be laid
+   * out as selected, which is how it is actually painted — an icon located in an unselected cell would land elsewhere.
+   */
+  private fun inlineIconItemAt(point: Point, icon: Icon, applies: (EvoTreeItem) -> Boolean): EvoTreeItem? {
     val row = list.locationToIndex(point)
     if (row < 0 || row != list.selectedIndex) return null
     val item = list.model.getElementAt(row) as? EvoTreeItem ?: return null
-    if (evoStep?.isReloadable(item) != true) return null
-    val bounds = reloadIconBounds(row, item) ?: return null
+    if (!applies(item)) return null
+    val bounds = inlineIconBounds(row, item, icon) ?: return null
     return if (bounds.contains(point)) item else null
   }
 
-  /** Bounds (in list coordinates) of the reload icon in [row], found by laying out the row's rendered cell. */
-  private fun reloadIconBounds(row: Int, item: EvoTreeItem): Rectangle? {
+  /**
+   * Bounds (in list coordinates) of [icon] in [row], found by laying out the row's rendered cell as selected — which is
+   * the only state these icons are painted in, and so the only layout their position can be read from.
+   */
+  private fun inlineIconBounds(row: Int, item: EvoTreeItem, icon: Icon): Rectangle? {
     val cell = list.getCellBounds(row, row) ?: return null
     @Suppress("UNCHECKED_CAST")
     val jList = list as JList<Any?>
@@ -444,7 +770,7 @@ open class EvoTreePopup private constructor(
     val comp = renderer.getListCellRendererComponent(jList, item, row, true, true) as? JComponent ?: return null
     comp.setBounds(0, 0, cell.width, cell.height)
     layoutRecursively(comp)
-    val label = findRefreshLabel(comp) ?: return null
+    val label = findLabelWithIcon(comp, icon) ?: return null
     val topLeft = SwingUtilities.convertPoint(label, 0, 0, comp)
     return Rectangle(cell.x + topLeft.x, cell.y + topLeft.y, label.width, label.height)
   }
@@ -454,9 +780,10 @@ open class EvoTreePopup private constructor(
     if (c is Container) c.components.forEach { layoutRecursively(it) }
   }
 
-  private fun findRefreshLabel(c: Component): JLabel? {
-    if (c is JLabel && c.icon === AllIcons.Actions.Refresh) return c
-    if (c is Container) c.components.forEach { child -> findRefreshLabel(child)?.let { return it } }
+  /** The rendered row's label showing exactly [icon] — identity, since these are the shared AllIcons instances. */
+  private fun findLabelWithIcon(c: Component, icon: Icon): JLabel? {
+    if (c is JLabel && c.icon === icon) return c
+    if (c is Container) c.components.forEach { child -> findLabelWithIcon(child, icon)?.let { return it } }
     return null
   }
 

@@ -29,8 +29,10 @@ private val LOG: Logger = fileLogger()
  *
  * The interpreter model is the platform's [com.jetbrains.python.sdk.PythonInterpreter] /
  * `PythonInterpreterPresentation` on the backend; on the wire it is flattened into [PyInterpreterDto]
- * (display) plus a [PyInterpreterRef] (selection token). A module is referenced by [ProjectId] plus its
- * module name (resolved on the backend).
+ * (display) plus a [PyInterpreterRef] (selection token). What every call is addressed to is a `PyProject`,
+ * referenced by [ProjectId] plus its [EvoPyProjectDto.key] — the project's base dir, resolved on the backend
+ * against a cached snapshot. A key is deliberately not a module name: a module rename would invalidate every
+ * key the frontend is holding, while a base dir survives one.
  *
  * Every process the backend launches for the widget is grouped in the process/trace view under a root
  * "Python Interpreter Widget" [com.jetbrains.python.TraceContext], with a per-tool child context nested under it.
@@ -42,22 +44,19 @@ private val LOG: Logger = fileLogger()
 @Rpc
 interface PyEvoSdkApi : RemoteApi<Unit> {
   /**
-   * Whether the module is a Python one at all — a `PyProject`, i.e. a Python-typed module or one carrying a Python
-   * facet. The widget hides itself entirely for anything else (a plain Java module in a mixed project), which it
-   * cannot tell from [getCurrentInterpreter] alone: that returns `null` both here and for a Python module still
-   * waiting for an interpreter, and only the latter may show "No interpreter".
+   * Every `PyProject` in the project, re-emitted whenever that set changes (a module added or removed, a Python
+   * facet gained or lost, a content root moved).
+   *
+   * This is the frontend's whole model of the project's Python structure: which keys exist (so it never asks about
+   * one that does not), which is the [EvoPyProjectDto.isMain] one (so a file belonging to no module still has an
+   * answer), and how they cluster into tool workspaces (so the popup can name the workspace a member belongs to).
+   * The frontend cannot compute any of it — `PyProject` is a backend notion — and it is a fact about the project
+   * rather than about any one target, so it is pushed once instead of asked per target.
    */
-  suspend fun isPythonModule(projectId: ProjectId, moduleName: String): Boolean
+  suspend fun pyProjects(projectId: ProjectId): Flow<List<EvoPyProjectDto>>
 
-  /** The Eel interpreter currently configured for the module, as display-ready data (or `null` if none). */
-  suspend fun getCurrentInterpreter(projectId: ProjectId, moduleName: String): PyInterpreterDto?
-
-  /**
-   * The tool workspace (uv/poetry) the module takes part in — as its root or as a member — or `null` when it is
-   * standalone. Every module of a workspace shares the one environment declared at its root, so the backend resolves
-   * every directory it works with against that root; this tells the widget to name the workspace in its popup title.
-   */
-  suspend fun getWorkspace(projectId: ProjectId, moduleName: String): EvoWorkspaceDto?
+  /** The Eel interpreter currently configured for the target, as display-ready data (or `null` if none). */
+  suspend fun getCurrentInterpreter(projectId: ProjectId, pyProjectKey: String): PyInterpreterDto?
 
   /**
    * The expandable nodes contributed by the backend `PyEvoEnvironmentProvider` extension point
@@ -65,7 +64,7 @@ interface PyEvoSdkApi : RemoteApi<Unit> {
    * collapsed in the popup. Each tool-availability probe runs in that tool's
    * [com.jetbrains.python.TraceContext] under a transient "Python Interpreter Widget" root created for this call.
    */
-  suspend fun listNodes(projectId: ProjectId, moduleName: String): List<EvoNodeDto>
+  suspend fun listNodes(projectId: ProjectId, pyProjectKey: String): List<EvoNodeDto>
 
   /**
    * The "Shortcuts" rows shown (in place of the current-interpreter actions) when the module has no interpreter: the
@@ -73,7 +72,7 @@ interface PyEvoSdkApi : RemoteApi<Unit> {
    * configured" inspection uses. Each row is a [PyInterpreterRef.Autoconfigure] leaf whose selection runs that
    * autoconfiguration. Empty when the module already has an interpreter or nothing can be suggested.
    */
-  suspend fun listShortcuts(projectId: ProjectId, moduleName: String): List<EvoLeafDto>
+  suspend fun listShortcuts(projectId: ProjectId, pyProjectKey: String): List<EvoLeafDto>
 
   /**
    * Lazily loads the sections of the node with [nodeId] (from a backend provider) when it is expanded. Every
@@ -83,14 +82,14 @@ interface PyEvoSdkApi : RemoteApi<Unit> {
    * A `refreshable` tool's result is cached for 10 min; [forceRefresh] (from its reload icon) bypasses and refills
    * that cache. Non-refreshable tools are never cached here (the frontend's short-lived popup-tree cache covers them).
    */
-  suspend fun loadNode(projectId: ProjectId, moduleName: String, nodeId: String, traceId: String, forceRefresh: Boolean): EvoLoadResultDto
+  suspend fun loadNode(projectId: ProjectId, pyProjectKey: String, nodeId: String, traceId: String, forceRefresh: Boolean): EvoLoadResultDto
 
   /**
    * The interpreters already configured for / assignable to the module — the same list the classic interpreter
    * widget shows. Rendered as a single "Associated environments" node; each is selectable by its SDK name, not
    * managed per-tool.
    */
-  suspend fun listAssociatedInterpreters(projectId: ProjectId, moduleName: String): List<PyInterpreterDto>
+  suspend fun listAssociatedInterpreters(projectId: ProjectId, pyProjectKey: String): List<PyInterpreterDto>
 
   /**
    * Switches the module interpreter to the environment identified by [ref]. [nodeId] is the tool node the row came
@@ -99,7 +98,7 @@ interface PyEvoSdkApi : RemoteApi<Unit> {
    * ([PyInterpreterRef.DetectedPath]) or a not-yet-created env ([PyInterpreterRef.CreateEnv]) is created via that
    * tool's own "select existing"/"create" logic (the same the v2 Add dialog runs) and then assigned.
    */
-  suspend fun selectInterpreter(projectId: ProjectId, moduleName: String, ref: PyInterpreterRef, nodeId: String): EvoSelectResultDto
+  suspend fun selectInterpreter(projectId: ProjectId, pyProjectKey: String, ref: PyInterpreterRef, nodeId: String): EvoSelectResultDto
 
   /**
    * Resolves the interpreter version (`python --version`) for the environment at [homePath], on demand — the
@@ -107,7 +106,7 @@ interface PyEvoSdkApi : RemoteApi<Unit> {
    * The probe runs in the [nodeId] tool's [com.jetbrains.python.TraceContext] (the same context the tool's env
    * listing used) under the "Python Interpreter Widget" root for [traceId], so it appears under that tool.
    */
-  suspend fun resolveInterpreterVersion(projectId: ProjectId, moduleName: String, nodeId: String, homePath: String, traceId: String): String?
+  suspend fun resolveInterpreterVersion(projectId: ProjectId, pyProjectKey: String, nodeId: String, homePath: String, traceId: String): String?
 
   /**
    * Opens the platform's "Add Python Interpreter" (v2) dialog for the module, preselecting the environment
@@ -115,14 +114,25 @@ interface PyEvoSdkApi : RemoteApi<Unit> {
    * the user lands on the matching creator. On OK the created SDK is associated with the module and the widget
    * refreshes on the resulting `rootsChanged`.
    */
-  suspend fun addInterpreter(projectId: ProjectId, moduleName: String, nodeId: String): EvoSelectResultDto
+  suspend fun addInterpreter(projectId: ProjectId, pyProjectKey: String, nodeId: String): EvoSelectResultDto
 
   /**
    * Runs the backend ACTION identified by [actionId] within node [nodeId] (e.g. an "Advanced" add-interpreter or
    * add-on-target action) — typically opening its dialog/wizard on the backend. When it creates an interpreter, the
    * SDK is associated with the module and the widget refreshes on the resulting `rootsChanged`.
    */
-  suspend fun performNodeAction(projectId: ProjectId, moduleName: String, nodeId: String, actionId: String): EvoSelectResultDto
+  suspend fun performNodeAction(projectId: ProjectId, pyProjectKey: String, nodeId: String, actionId: String): EvoSelectResultDto
+
+  /**
+   * Opens the Python Process Output tool window on the process a tool's last run produced, addressed by that run's
+   * trace — what the widget offers when a tool node reports a failure.
+   *
+   * Done from the backend because that is where the trace is: the widget's `traceId` keys the coroutine scope a tool
+   * runs in, and the [com.jetbrains.python.TraceContext] in that scope is what the tool window knows the process by.
+   * `false` when that run is gone (an expired scope) or the window could not find it, which the frontend answers by
+   * opening the window without a selection.
+   */
+  suspend fun showToolProcessOutput(projectId: ProjectId, nodeId: String, traceId: String): Boolean
 
   /**
    * A flow of the project's SDK-configuration lock state (`com.jetbrains.python.sdk.isSdkConfigurationInProgress`):
@@ -182,48 +192,48 @@ suspend fun <T> evoRpcOrNull(call: suspend () -> T): T? =
   }
 
 @ApiStatus.Internal
-suspend fun requestEvoIsPythonModule(projectId: ProjectId, moduleName: String): Boolean =
-  PyEvoSdkApi().isPythonModule(projectId, moduleName)
+suspend fun requestEvoPyProjects(projectId: ProjectId): Flow<List<EvoPyProjectDto>> =
+  PyEvoSdkApi().pyProjects(projectId)
 
 @ApiStatus.Internal
-suspend fun requestEvoCurrentInterpreter(projectId: ProjectId, moduleName: String): PyInterpreterDto? =
-  PyEvoSdkApi().getCurrentInterpreter(projectId, moduleName)
+suspend fun requestEvoCurrentInterpreter(projectId: ProjectId, pyProjectKey: String): PyInterpreterDto? =
+  PyEvoSdkApi().getCurrentInterpreter(projectId, pyProjectKey)
 
 @ApiStatus.Internal
-suspend fun requestEvoWorkspace(projectId: ProjectId, moduleName: String): EvoWorkspaceDto? =
-  PyEvoSdkApi().getWorkspace(projectId, moduleName)
+suspend fun requestEvoNodes(projectId: ProjectId, pyProjectKey: String): List<EvoNodeDto> =
+  PyEvoSdkApi().listNodes(projectId, pyProjectKey)
 
 @ApiStatus.Internal
-suspend fun requestEvoNodes(projectId: ProjectId, moduleName: String): List<EvoNodeDto> =
-  PyEvoSdkApi().listNodes(projectId, moduleName)
+suspend fun requestEvoShortcuts(projectId: ProjectId, pyProjectKey: String): List<EvoLeafDto> =
+  PyEvoSdkApi().listShortcuts(projectId, pyProjectKey)
 
 @ApiStatus.Internal
-suspend fun requestEvoShortcuts(projectId: ProjectId, moduleName: String): List<EvoLeafDto> =
-  PyEvoSdkApi().listShortcuts(projectId, moduleName)
+suspend fun requestEvoNode(projectId: ProjectId, pyProjectKey: String, nodeId: String, traceId: String, forceRefresh: Boolean = false): EvoLoadResultDto =
+  PyEvoSdkApi().loadNode(projectId, pyProjectKey, nodeId, traceId, forceRefresh)
 
 @ApiStatus.Internal
-suspend fun requestEvoNode(projectId: ProjectId, moduleName: String, nodeId: String, traceId: String, forceRefresh: Boolean = false): EvoLoadResultDto =
-  PyEvoSdkApi().loadNode(projectId, moduleName, nodeId, traceId, forceRefresh)
+suspend fun requestEvoAssociatedInterpreters(projectId: ProjectId, pyProjectKey: String): List<PyInterpreterDto> =
+  PyEvoSdkApi().listAssociatedInterpreters(projectId, pyProjectKey)
 
 @ApiStatus.Internal
-suspend fun requestEvoAssociatedInterpreters(projectId: ProjectId, moduleName: String): List<PyInterpreterDto> =
-  PyEvoSdkApi().listAssociatedInterpreters(projectId, moduleName)
+suspend fun requestEvoSelectInterpreter(projectId: ProjectId, pyProjectKey: String, ref: PyInterpreterRef, nodeId: String): EvoSelectResultDto =
+  PyEvoSdkApi().selectInterpreter(projectId, pyProjectKey, ref, nodeId)
 
 @ApiStatus.Internal
-suspend fun requestEvoSelectInterpreter(projectId: ProjectId, moduleName: String, ref: PyInterpreterRef, nodeId: String): EvoSelectResultDto =
-  PyEvoSdkApi().selectInterpreter(projectId, moduleName, ref, nodeId)
+suspend fun requestEvoResolveVersion(projectId: ProjectId, pyProjectKey: String, nodeId: String, homePath: String, traceId: String): String? =
+  PyEvoSdkApi().resolveInterpreterVersion(projectId, pyProjectKey, nodeId, homePath, traceId)
 
 @ApiStatus.Internal
-suspend fun requestEvoResolveVersion(projectId: ProjectId, moduleName: String, nodeId: String, homePath: String, traceId: String): String? =
-  PyEvoSdkApi().resolveInterpreterVersion(projectId, moduleName, nodeId, homePath, traceId)
+suspend fun requestEvoAddInterpreter(projectId: ProjectId, pyProjectKey: String, nodeId: String): EvoSelectResultDto =
+  PyEvoSdkApi().addInterpreter(projectId, pyProjectKey, nodeId)
 
 @ApiStatus.Internal
-suspend fun requestEvoAddInterpreter(projectId: ProjectId, moduleName: String, nodeId: String): EvoSelectResultDto =
-  PyEvoSdkApi().addInterpreter(projectId, moduleName, nodeId)
+suspend fun requestEvoPerformNodeAction(projectId: ProjectId, pyProjectKey: String, nodeId: String, actionId: String): EvoSelectResultDto =
+  PyEvoSdkApi().performNodeAction(projectId, pyProjectKey, nodeId, actionId)
 
 @ApiStatus.Internal
-suspend fun requestEvoPerformNodeAction(projectId: ProjectId, moduleName: String, nodeId: String, actionId: String): EvoSelectResultDto =
-  PyEvoSdkApi().performNodeAction(projectId, moduleName, nodeId, actionId)
+suspend fun requestEvoShowToolProcessOutput(projectId: ProjectId, nodeId: String, traceId: String): Boolean =
+  PyEvoSdkApi().showToolProcessOutput(projectId, nodeId, traceId)
 
 @ApiStatus.Internal
 suspend fun requestEvoSdkConfigurationInProgress(projectId: ProjectId): Flow<Boolean> =
@@ -285,7 +295,17 @@ sealed interface PyInterpreterRef {
    * default (the pre-filled name).
    */
   @Serializable
-  data class CreateEnv(val token: @NonNls String, val folder: @NonNls String? = null, val name: @NonNls String? = null) : PyInterpreterRef
+  data class CreateEnv(
+    val token: @NonNls String,
+    val folder: @NonNls String? = null,
+    val name: @NonNls String? = null,
+    /**
+     * The Python version to install before creating anything, for a row that offered an interpreter the machine does
+     * not have (see [EvoAddNewOptionDto.installable]). The backend installs it and then carries on with [token] pointing
+     * at what landed, so a tool never has to know that installation was involved.
+     */
+    val installPythonVersion: @NonNls String? = null,
+  ) : PyInterpreterRef
 
   /**
    * Configure the module's interpreter using one of the IDE's setup options (the "Shortcuts" rows — the same options
@@ -298,17 +318,36 @@ sealed interface PyInterpreterRef {
 }
 
 /**
- * The tool workspace a module takes part in — see [PyEvoSdkApi.getWorkspace]. Named in the popup title, since the
- * environments the widget lists are the workspace's, not the module's own.
+ * One `PyProject` as the frontend sees it — see [PyEvoSdkApi.pyProjects].
+ *
+ * Everything here is either identity ([key]) or display ([name]); nothing the frontend could get wrong by guessing.
  */
 @ApiStatus.Internal
 @Serializable
-data class EvoWorkspaceDto(
+data class EvoPyProjectDto(
   /**
-   * Name of the module the workspace is rooted at (whose base dir the widget works in). Equal to the queried module's
-   * own name when that module *is* the root.
+   * Wire identity: the `PyProject`'s base dir, in system-independent form, which is what every other call on
+   * [PyEvoSdkApi] is addressed by. Chosen over the module name because it survives a module rename, and because the
+   * frontend can match it against a content root's [com.intellij.openapi.vfs.VirtualFile.getPath] by plain string
+   * equality — no path parsing, no VFS lookup, on either side.
    */
-  val rootModuleName: @NlsSafe String,
+  val key: @NonNls String,
+  /** The module's name — for the popup title only. Never an address; see [key]. */
+  val name: @NlsSafe String,
+  /**
+   * Whether this `PyProject`'s base dir is the project's own base dir, i.e. whether the project *is* this Python
+   * project. That is the one the widget speaks for when the focused file belongs to no module at all — a scratch, a
+   * file dragged in from outside, or nothing focused. In PyCharm such a `PyProject` always exists (a plain Python
+   * module is kept at the project root even when no `pyproject.toml` declares one); in IDEA it exists only when the
+   * project root really is Python, which is exactly when the widget should answer for the project.
+   */
+  val isMain: Boolean,
+  /**
+   * [key] of the root of the tool workspace (uv/poetry) this takes part in, as its root or as a member; `null` when
+   * standalone. Every member of a workspace shares the one environment declared at its root, so the backend resolves
+   * every directory it works with against that root — this is what lets the popup name the workspace in its title.
+   */
+  val workspaceRootKey: @NonNls String? = null,
 )
 
 /**
@@ -356,6 +395,13 @@ data class EvoNodeDto(
 data class EvoLeafDto(
   val title: @Nls String,
   val description: @Nls String? = null,
+  /**
+   * A shortened form of [description] for the places this row is titled by its path rather than by its name — under a
+   * version header in the expanded view, where the version is already written above it. Middle-elided the same way a
+   * section header's folder path is, since a full interpreter path is wider than a popup row and widening the row would
+   * push the whole popup off the widget. `null` when the row has no path to show.
+   */
+  val descriptionElided: @NlsSafe String? = null,
   val secondaryText: @Nls String? = null,
   val icon: IconId,
   val kind: EvoLeafKind,
@@ -373,6 +419,30 @@ data class EvoLeafDto(
    * option's token is the chosen base Python — passed back as [PyInterpreterRef.CreateEnv] `token`/`folder`.
    */
   val createVersions: List<EvoAddNewOptionDto>? = null,
+  /**
+   * Why this row cannot be acted on, when it cannot — a hatch environment declared in `pyproject.toml` with no
+   * interpreter on the machine to build it from, say.
+   *
+   * The row is then shown disabled with a warning sign carrying this text, rather than looking selectable and failing
+   * only once the user clicks it.
+   */
+  val unavailable: @Nls String? = null,
+  /**
+   * The Python version this row stands for, when it stands for a version rather than for one concrete environment —
+   * poetry's per-version cache rows, each of which may already have an environment, may still need one, or may need the
+   * interpreter installed first.
+   *
+   * In the expanded view it becomes the header the row sits under, so every version reads the same way regardless of
+   * which of those three it is. `null` for a row that is already a concrete thing (an existing environment), which stays
+   * a plain row under its own section's header.
+   */
+  val versionGroup: @NlsSafe String? = null,
+  /**
+   * For a [PyInterpreterRef.CreateEnv] row whose token *is* a base interpreter (poetry's per-version cache rows): the
+   * other installs of that same version, so the row can offer the finer choice the same way an "add new" version row
+   * does. Empty everywhere else — including a hatch declared env, whose token is an env name and not an interpreter.
+   */
+  val bases: List<EvoBasePythonDto> = emptyList(),
 )
 
 @ApiStatus.Internal
@@ -444,6 +514,71 @@ data class EvoAddNewOptionDto(
   /** Short version label, e.g. `3.13`; empty for uv's "default" (uv picks the version). */
   val title: @NlsSafe String,
   /** Tool-specific creation token passed back as [PyInterpreterRef.CreateEnv.token] (uv: version, empty = default; pip: python path). */
+  val token: @NonNls String,
+  /**
+   * The individual interpreters this one version stands for, when the machine has several of it (a `pyenv` 3.12 and a
+   * python.org 3.12), newest-listed first. [token] is the first of them — the one the row creates from when the user
+   * does not choose — so this list is a refinement of that choice, never a replacement for it.
+   *
+   * Empty when there is nothing to choose: only tools that build an environment *from* an existing interpreter (pip,
+   * poetry, hatch) can offer it. uv and conda provide the interpreter themselves, so their [token] is a version rather
+   * than a path and a base interpreter is not a thing the user could pick.
+   */
+  val bases: List<EvoBasePythonDto> = emptyList(),
+  /**
+   * This version is not on the machine, but the IDE can install it — so the row offers to, the way the v2 "Add
+   * Interpreter" dialog offers its download entries. [bases] is then empty (there is no install to choose between) and
+   * [token] is the version to install rather than a path to one.
+   *
+   * Only set for tools that build an environment *from* an existing interpreter, and only where installing is possible
+   * at all: uv and conda fetch their own interpreters, and a remote machine cannot be installed onto from here.
+   */
+  val installable: Boolean = false,
+  /**
+   * This version is not on the machine either, but the *tool* fetches it as part of creating the environment — uv, which
+   * downloads whatever `--python` names when it does not find it.
+   *
+   * Reads the same as [installable] (download icon, "will be downloaded"), and deliberately does not share its flag: the
+   * IDE must not run its own Python installer first, because the tool is about to do that job itself.
+   */
+  val downloadedByTool: Boolean = false,
+)
+
+/**
+ * One concrete interpreter behind an [EvoAddNewOptionDto] — see [EvoAddNewOptionDto.bases].
+ *
+ * The path is the title because that is what actually tells two installs of the same version apart; the version is
+ * already known from the option this belongs to.
+ */
+@ApiStatus.Internal
+@Serializable
+data class EvoBasePythonDto(
+  /**
+   * The interpreter binary for display: home-shortened and, past the row budget, middle-elided the same way a section
+   * header's folder path is (`~/.cache/…/conda/Min…/envs/child/bin/python`). A full interpreter path is far wider than
+   * a popup row, and widening the row would push the whole popup off the widget.
+   */
+  val title: @NlsSafe String,
+  /** The un-elided form of [title], shown as the row's tooltip. `null` when [title] is already the whole path. */
+  val titleTooltip: @NlsSafe String? = null,
+  /**
+   * The interpreter's version, patch included (`3.15.0`) — taken from the `--version` output the backend's scan already
+   * ran, so it costs nothing here. Falls back to major.minor for an interpreter whose version was never captured.
+   */
+  val version: @NlsSafe String,
+  /**
+   * The icon of the tool this interpreter came from (uv, Homebrew, pyenv, …), which is how the v2 "Add Interpreter"
+   * dialog distinguishes them — one glance instead of a word per row. `null` when the tool is unknown, and the frontend
+   * then falls back to the plain Python logo.
+   */
+  val icon: IconId? = null,
+  /**
+   * What qualifies this interpreter beyond its version and its tool — currently only whether it is free-threaded, which
+   * is a property of the build rather than of where it came from and so has no icon of its own. `null` when there is
+   * nothing to add.
+   */
+  val qualifier: @NlsSafe String? = null,
+  /** Creation token: this interpreter's binary path, passed back as [PyInterpreterRef.CreateEnv.token]. */
   val token: @NonNls String,
 )
 
