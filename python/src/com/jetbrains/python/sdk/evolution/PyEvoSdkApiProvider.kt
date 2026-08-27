@@ -41,6 +41,7 @@ import com.intellij.python.sdk.backend.evolution.discoverVenvs
 import com.intellij.python.sdk.backend.evolution.getPythonVersion
 import com.intellij.python.sdk.backend.evolution.toDisplayPath
 import com.intellij.python.sdk.backend.evolution.toSectionLabel
+import com.intellij.python.sdk.backend.evolution.withCreators
 import com.intellij.python.sdk.common.evolution.EvoAddNewOptionDto
 import com.intellij.python.sdk.common.evolution.EvoBasePythonDto
 import com.intellij.python.sdk.common.evolution.EvoLeafDto
@@ -52,8 +53,13 @@ import com.intellij.python.sdk.common.evolution.EvoPyProjectDto
 import com.intellij.python.sdk.common.evolution.EvoSelectResultDto
 import com.intellij.python.sdk.common.evolution.PyEvoRegistry
 import com.intellij.python.sdk.common.evolution.PyEvoSdkApi
+import com.intellij.python.sdk.common.evolution.EvoNodeKind
+import com.intellij.python.sdk.common.evolution.EvoNodeStats
+import com.intellij.python.sdk.common.evolution.PyEvoWidgetCollector
 import com.intellij.python.sdk.common.evolution.PyInterpreterDto
 import com.intellij.python.sdk.common.evolution.PyInterpreterRef
+import com.intellij.python.sdk.common.evolution.evoRefKind
+import com.intellij.python.sdk.common.evolution.evoReusesExistingEnv
 import com.intellij.python.uv.common.UV_TOOL_ID
 import com.jetbrains.python.TraceContext
 import com.jetbrains.python.errorProcessing.ErrorSink
@@ -70,6 +76,7 @@ import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.PyRemoteSdkAdditionalDataMarker
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
+import com.jetbrains.python.sdk.add.collector.PythonNewInterpreterAddedCollector
 import com.jetbrains.python.sdk.add.v2.EelFileSystem
 import com.jetbrains.python.sdk.add.v2.FileSystem
 import com.jetbrains.python.sdk.add.v2.PathHolder
@@ -116,6 +123,23 @@ import org.jetbrains.annotations.Nls
 
 private val LOG = logger<PyEvoSdkApiProvider>()
 
+/**
+ * The statistics identity of [nodeId], taken from the provider that owns it.
+ *
+ * Asking the provider rather than mapping the id here means a tool never has to be named twice: the node's kind and
+ * its `fusId` are declared once, on the provider, and adding a tool changes nothing in the statistics code.
+ *
+ * An [PyInterpreterRef.Autoconfigure] row is addressed by the synthetic `shortcuts` node rather than by a provider, so
+ * it is reported as [EvoNodeKind.SHORTCUTS]. Its `PyProjectSdkConfigurationExtension` tool id is a different
+ * vocabulary from `PyExecutable.fusId` and is deliberately not reported as one.
+ */
+private fun evoNodeStats(nodeId: String, ref: PyInterpreterRef? = null): EvoNodeStats {
+  if (ref is PyInterpreterRef.Autoconfigure) return EvoNodeStats(EvoNodeKind.SHORTCUTS)
+  val provider = PyEvoEnvironmentProvider.EP_NAME.extensionList.firstOrNull { it.toolId == ToolId(nodeId) }
+                 ?: return EvoNodeStats(EvoNodeKind.OTHER)
+  return EvoNodeStats(provider.nodeKind, provider.fusId)
+}
+
 /** Descending star ratings for the "Shortcuts" autoconfigure rows: the best (first) option gets a full star, then 4→1. */
 private val AUTOCONFIG_RATING_ICONS = listOf(
   AllIcons.Ide.Rating, AllIcons.Ide.Rating4, AllIcons.Ide.Rating3, AllIcons.Ide.Rating2, AllIcons.Ide.Rating1,
@@ -135,22 +159,27 @@ internal suspend fun requiresPython(baseDir: Path): String? = withContext(Dispat
  * base-interpreter choice pip, poetry and hatch all offer, since each creates its environment *from* an existing Python
  * rather than providing one (conda does, so it does not use this).
  *
- * Filtered to what can actually work: at least 3.8, the bundled virtualenv's minimum, and within the project's
- * `requires-python`. Each option's token is the interpreter's own path, which is what the create step consumes.
+ * Filtered to what can actually work — see [versionFilter], which either keeps the general rules (at least 3.8, the
+ * bundled virtualenv's minimum, and within the project's `requires-python`) or obeys [envSpecifiers] instead. Each
+ * option's token is the interpreter's own path, which is what the create step consumes.
  *
  * A version the machine has several installs of stays *one* option — the version is what the user picks first — but the
  * installs travel with it in [EvoAddNewOptionDto.bases], so the widget can offer the finer choice. The option's own
  * token is the first of them, keeping the plain "pick a version" click exactly as it was.
  */
-internal suspend fun systemPythonOptions(baseDir: Path, fileSystem: FileSystem<PathHolder.Eel>): List<EvoAddNewOptionDto> {
+internal suspend fun systemPythonOptions(
+  baseDir: Path,
+  fileSystem: FileSystem<PathHolder.Eel>,
+  envSpecifiers: String? = null,
+): List<EvoAddNewOptionDto> {
   // A machine-less (legacy Target) filesystem has no descriptor; fall back to the local machine, as the poetry node did.
   val eelApi = fileSystem.eelDescriptor?.toEelApi() ?: localEel
-  val spec = PyVersionSpecifiers(requiresPython(baseDir) ?: "")
+  val accepts = versionFilter(baseDir, envSpecifiers)
   val installed = SystemPythonService().findSystemPythons(eelApi)
-    .filter { it.pythonInfo.languageLevel.isAtLeast(LanguageLevel.PYTHON38) && spec.isValid(it.pythonInfo.languageLevel) }
+    .filter { accepts(it.pythonInfo.languageLevel) }
     // groupBy keeps the order within each group, so the option's token names the interpreter the service listed first.
     .groupBy { it.pythonInfo.languageLevel }
-  return (installed.keys + installableLevels(fileSystem, spec, installed.keys))
+  return (installed.keys + installableLevels(fileSystem, accepts, installed.keys))
     .sortedDescending()
     .map { level ->
       val pythons = installed[level]
@@ -165,6 +194,25 @@ internal suspend fun systemPythonOptions(baseDir: Path, fileSystem: FileSystem<P
 }
 
 /**
+ * Which Python versions an option list may hold.
+ *
+ * [envSpecifiers] is a version specifier the *environment* declares, such as `==3.11` or `>=3.8` from the `python`
+ * option of a hatch environment. It replaces the two general filters rather than joining them: the environment accepts
+ * nothing outside it, so the project's `requires-python` and the 3.8 floor of the bundled virtualenv have nothing left
+ * to decide. An environment that asks for 2.7 therefore shows 2.7.
+ *
+ * Without it the list keeps the general rules: at least 3.8, and within the project's `requires-python`.
+ */
+private suspend fun versionFilter(baseDir: Path, envSpecifiers: String?): (LanguageLevel) -> Boolean {
+  if (envSpecifiers != null) {
+    val declared = PyVersionSpecifiers(envSpecifiers)
+    return { level -> declared.isValid(level) }
+  }
+  val spec = PyVersionSpecifiers(requiresPython(baseDir) ?: "")
+  return { level -> level.isAtLeast(LanguageLevel.PYTHON38) && spec.isValid(level) }
+}
+
+/**
  * Versions the IDE could install and that are not in [installedLevels] — what turns "you do not have 3.12" from a gap
  * in the list into a row offering to get it.
  *
@@ -173,15 +221,13 @@ internal suspend fun systemPythonOptions(baseDir: Path, fileSystem: FileSystem<P
  */
 private suspend fun installableLevels(
   fileSystem: FileSystem<PathHolder.Eel>,
-  spec: PyVersionSpecifiers,
+  accepts: (LanguageLevel) -> Boolean,
   installedLevels: Set<LanguageLevel>,
 ): Set<LanguageLevel> {
   val eelApi = fileSystem.eelDescriptor?.toEelApi() ?: localEel
   if (SystemPythonService().getInstaller(eelApi) == null) return emptySet()
   val available = withContext(Dispatchers.IO) { PySdkToInstallManager.getAvailableVersionsToInstall().keys }
-  return available.filterTo(mutableSetOf()) {
-    it !in installedLevels && it.isAtLeast(LanguageLevel.PYTHON38) && spec.isValid(it)
-  }
+  return available.filterTo(mutableSetOf()) { it !in installedLevels && accepts(it) }
 }
 
 /** One install as an [EvoBasePythonDto]: the path identifies it, its tool's icon and free-threadedness qualify it. */
@@ -389,13 +435,14 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
     if (cacheKey in slowTools && !forceRefresh) {
       envListCache.getIfPresent(cacheKey)?.let { return it }
     }
-    val discovered = discoverVenvs(baseDirs(pyProject), excludedRoots(pyProject))
+    // Named here, from every provider at once, so each node reads one environment's maker the same way.
+    val discovered = discoverVenvs(baseDirs(pyProject), excludedRoots(pyProject)).withCreators(providers)
     // Run (and time) the tool's env listing in the tool's own coroutine.
     val timed = measureTimedValue {
       toolScope(pyProject.project, traceId, provider.toolId.id, provider.label)
         .async {
           val fs = eelFileSystem(pyProject)
-          val context = EvoToolContext(pyProject, fs, ErrorSink()) { systemPythonOptions(pyProject.baseDir, fs) }
+          val context = EvoToolContext(pyProject, fs, ErrorSink()) { envSpecifiers -> systemPythonOptions(pyProject.baseDir, fs, envSpecifiers) }
           val loaded = provider.loadSections(pyProject, fs, discovered)
           // The node's own decorations: its add-new flow, then whatever else the tool adds (hatch's version pickers).
           provider.decorate(context, withProviderAddNewEnv(loaded, provider, context))
@@ -429,7 +476,41 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
       }
   }
 
+  /**
+   * Times [doSelectInterpreter] and reports its outcome.
+   *
+   * A wrapper rather than log calls inside, because that function returns from a dozen places (every provider failure
+   * is its own early return) and an `interpreter.applied` that only fired on some of them would silently under-report
+   * exactly the failures we want to see. Whether a base Python had to be downloaded is read off the incoming ref
+   * rather than plumbed out of the install step: [installBaseIfRequested] installs precisely when
+   * `CreateEnv.installPythonVersion` is set.
+   */
   override suspend fun selectInterpreter(
+    projectId: ProjectId,
+    pyProjectKey: String,
+    ref: PyInterpreterRef,
+    nodeId: String,
+  ): EvoSelectResultDto {
+    val startedAt = System.nanoTime()
+    val result = doSelectInterpreter(projectId, pyProjectKey, ref, nodeId)
+    // No project means resolvePyProject already failed; there is nothing to attribute the event to.
+    projectId.findProjectOrNull()?.let { project ->
+      PyEvoWidgetCollector.interpreterApplied(
+        project = project,
+        node = evoNodeStats(nodeId, ref),
+        refKind = ref.evoRefKind(),
+        outcome = when (result) {
+          is EvoSelectResultDto.Ok -> PyEvoWidgetCollector.Outcome.OK
+          is EvoSelectResultDto.Error -> PyEvoWidgetCollector.Outcome.ERROR
+        },
+        downloadedBase = (ref as? PyInterpreterRef.CreateEnv)?.installPythonVersion != null,
+        durationMs = (System.nanoTime() - startedAt) / 1_000_000,
+      )
+    }
+    return result
+  }
+
+  private suspend fun doSelectInterpreter(
     projectId: ProjectId,
     pyProjectKey: String,
     ref: PyInterpreterRef,
@@ -472,6 +553,10 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
         is PyInterpreterRef.Autoconfigure -> error("handled above")
       }
       pyProject.applySdk(sdk)
+      // Keeps `python.new.interpreter.added` continuous across the classic→evo widget migration: without this, every
+      // interpreter configured through the widget — now the default in both PyCharm and IDEA — is missing from that
+      // group, and the series reads as a decline in interpreter creation rather than a change of entry point.
+      PythonNewInterpreterAddedCollector.logPythonNewInterpreterAdded(sdk, ref.evoReusesExistingEnv())
       EvoSelectResultDto.Ok
     }
   }
@@ -586,6 +671,9 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
     // A tool root outside this module's own workspace (a differently-scoped tool) still gets the SDK, as before.
     module.getRootModuleOrNull(option.toolId)?.also { configurePythonSdk(it.project, it, sdk) }
     applySdk(sdk)
+    // Same continuity argument as in doSelectInterpreter: a "Shortcuts" row configures an interpreter too, and the
+    // `python.sdk.configuration` events these options already emit describe the env creation, not the SDK that landed.
+    PythonNewInterpreterAddedCollector.logPythonNewInterpreterAdded(sdk, isPreviouslyConfigured = false)
     return true
   }
 
@@ -649,11 +737,15 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
   override suspend fun performNodeAction(projectId: ProjectId, pyProjectKey: String, nodeId: String, actionId: String): EvoSelectResultDto {
     val pyProject = resolvePyProject(projectId, pyProjectKey)
                     ?: return EvoSelectResultDto.Error(PySdkBundle.message("evolution.error.pyproject.not.found", pyProjectKey))
-    // Only the "advanced" node (AdvancedEvoEnvironmentProvider) exposes backend actions today; its actionId is the
-    // index into collectAddInterpreterActions.
-    val index = actionId.toIntOrNull()?.takeIf { nodeId == EvoNodeIds.ADVANCED }
-                ?: return EvoSelectResultDto.Error(PySdkBundle.message("evolution.error.select.failed"))
     val project = pyProject.project
+    // Only the "advanced" node (AdvancedEvoEnvironmentProvider) exposes backend actions today; its actionId is the
+    // index into collectAddInterpreterActions. Resolved after `project` so a malformed id is reported rather than
+    // dropped — an unreported failure here would read as the action never having been clicked.
+    val index = actionId.toIntOrNull()?.takeIf { nodeId == EvoNodeIds.ADVANCED }
+                ?: run {
+                  PyEvoWidgetCollector.backendActionPerformed(project, evoNodeStats(nodeId), PyEvoWidgetCollector.Outcome.ERROR)
+                  return EvoSelectResultDto.Error(PySdkBundle.message("evolution.error.select.failed"))
+                }
     val module = pyProject.module
     val widgetScope = project.service<EvoWidgetTraceScope>().scope
     // Re-collect the same actions the node was built from and run the index-th one. Associate any SDK the action
@@ -667,8 +759,12 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
       }
     }
     val action = actions.getOrNull(index)
-                 ?: return EvoSelectResultDto.Error(PySdkBundle.message("evolution.error.select.failed"))
+                 ?: run {
+                   PyEvoWidgetCollector.backendActionPerformed(project, evoNodeStats(nodeId), PyEvoWidgetCollector.Outcome.ERROR)
+                   return EvoSelectResultDto.Error(PySdkBundle.message("evolution.error.select.failed"))
+                 }
     withContext(Dispatchers.EDT) { action.createDialog()?.show() }
+    PyEvoWidgetCollector.backendActionPerformed(project, evoNodeStats(nodeId), PyEvoWidgetCollector.Outcome.OK)
     return EvoSelectResultDto.Ok
   }
 
@@ -706,7 +802,7 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
    */
   private fun toolContextFor(toolId: ToolId, pyProject: EvoPyProject, fileSystem: EelFileSystem): Pair<PyEvoEnvironmentProvider, EvoToolContext>? {
     val provider = providers.firstOrNull { it.toolId == toolId } ?: return null
-    return provider to EvoToolContext(pyProject, fileSystem, ErrorSink()) { systemPythonOptions(pyProject.baseDir, fileSystem) }
+    return provider to EvoToolContext(pyProject, fileSystem, ErrorSink()) { envSpecifiers -> systemPythonOptions(pyProject.baseDir, fileSystem, envSpecifiers) }
   }
 
   /**

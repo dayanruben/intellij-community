@@ -140,9 +140,7 @@ class TerminalViewImpl(
 
   @VisibleForTesting
   val outputEditor: EditorImpl
-
-  @VisibleForTesting
-  val alternateBufferEditor: EditorImpl
+  private val alternateBufferEditor: EditorEx
 
   @VisibleForTesting
   val outputEditorDecorationApplier: EditorTextDecorationApplier
@@ -434,7 +432,7 @@ class TerminalViewImpl(
         coroutineScope.childScope("TerminalBlocksDecorator")
       )
 
-      val typingTracker = createTypingTracker(
+      val typingTracker = installTypingTracker(
         project = project,
         terminalView = this@TerminalViewImpl,
         model = outputModel,

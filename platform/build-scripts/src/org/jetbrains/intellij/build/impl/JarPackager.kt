@@ -40,6 +40,7 @@ import org.jetbrains.intellij.build.computeModuleSourcesByContent
 import org.jetbrains.intellij.build.dev.PrepackedPluginContentJar
 import org.jetbrains.intellij.build.dev.PrepackedPluginContentKey
 import org.jetbrains.intellij.build.findFileInModuleSources
+import org.jetbrains.intellij.build.getLibraryFileName
 import org.jetbrains.intellij.build.getLibraryRoots
 import org.jetbrains.intellij.build.impl.projectStructureMapping.CustomAssetEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
@@ -130,7 +131,6 @@ private val IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST: Set<String> = java.util.S
   "jooq.joox",
   "jps-javac-extension",
   "jruby-parser-0.5.4",
-  "json-schema-validator",
   "kaml",
   "kmp-wizard-shared",
   "kotlin-metadata",

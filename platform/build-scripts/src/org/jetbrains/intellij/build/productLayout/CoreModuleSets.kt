@@ -98,7 +98,6 @@ object CoreModuleSets {
     embeddedModule("intellij.libraries.hash4j")
     embeddedModule("intellij.libraries.hdr.histogram")
     embeddedModule("intellij.libraries.http.client")
-    embeddedModule("intellij.libraries.icu4j")
     embeddedModule("intellij.libraries.imgscalr")
     embeddedModule("intellij.libraries.ini4j")
     embeddedModule("intellij.libraries.ion")
@@ -277,6 +276,7 @@ object CoreModuleSets {
     embeddedModule("intellij.libraries.jackson3.jr.objects")
     embeddedModule("intellij.libraries.jackson3.databind")
     module("intellij.libraries.jackson3.dataformat.yaml")
+    module("intellij.libraries.jackson3.dataformat.toml")
     embeddedModule("intellij.libraries.jackson3.module.kotlin")
   }
 

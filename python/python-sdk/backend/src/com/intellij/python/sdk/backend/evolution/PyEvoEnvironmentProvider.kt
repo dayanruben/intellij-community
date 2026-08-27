@@ -24,6 +24,7 @@ import com.intellij.python.sdk.common.evolution.EvoLeafDto
 import com.intellij.python.sdk.common.evolution.EvoLeafKind
 import com.intellij.python.sdk.common.evolution.EvoLoadResultDto
 import com.intellij.python.sdk.common.evolution.EvoNodeDto
+import com.intellij.python.sdk.common.evolution.EvoNodeKind
 import com.intellij.python.sdk.common.evolution.EvoSectionDto
 import com.intellij.python.sdk.common.evolution.PyEvoRegistry
 import com.intellij.python.sdk.common.evolution.PyInterpreterRef
@@ -39,7 +40,14 @@ import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.impl.PySdkBundle
 import com.jetbrains.python.sdk.impl.shortenPath
 import com.jetbrains.python.venvReader.Directory
+import com.jetbrains.python.venvReader.PRUNED_SCAN_DIRS
 import com.jetbrains.python.venvReader.VirtualEnvReader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Nls
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -49,12 +57,6 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.isExecutable
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.pathString
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.annotations.Nls
 
 private val LOG: Logger = fileLogger()
 
@@ -114,7 +116,7 @@ class EvoToolContext(
   val pyProject: EvoPyProject,
   val fileSystem: FileSystem<PathHolder.Eel>,
   val errorSink: ErrorSink,
-  private val systemPythons: suspend () -> List<EvoAddNewOptionDto>,
+  private val systemPythons: suspend (String?) -> List<EvoAddNewOptionDto>,
 ) {
   /**
    * The system Pythons that can back a new environment here, newest first, one per minor version — filtered to what the
@@ -125,9 +127,17 @@ class EvoToolContext(
    * which Pythons a machine has is not a fact about any one tool — which is why pip, poetry and hatch can all build
    * their version pickers from the same list instead of each deciding what counts.
    *
-   * Memoized per context via [cached], since enumerating interpreters can spawn processes.
+   * Pass [envSpecifiers] when the *environment* constrains the Python it needs, such as a hatch environment with a
+   * `python` option. It is a version specifier — `==3.11`, `>=3.8`, `>=3.9,<3.13` — and the list then holds the
+   * versions it admits. It also replaces the two general filters rather than joining them, because the environment
+   * accepts nothing outside it and they have nothing left to decide: an environment that asks for 2.7 shows 2.7,
+   * whatever the project's `requires-python` says.
+   *
+   * Memoized per context via [cached], since enumerating interpreters can spawn processes. Each specifier gets its own
+   * entry, so a node with several constrained environments still probes once per distinct specifier.
    */
-  suspend fun systemPythonOptions(): List<EvoAddNewOptionDto> = cached(SYSTEM_PYTHONS_KEY) { systemPythons() }
+  suspend fun systemPythonOptions(envSpecifiers: String? = null): List<EvoAddNewOptionDto> =
+    cached("$SYSTEM_PYTHONS_KEY:${envSpecifiers.orEmpty()}") { systemPythons(envSpecifiers) }
 
   private val memo = mutableMapOf<String, Any?>()
   private val memoLock = Mutex()
@@ -177,7 +187,35 @@ interface PyEvoEnvironmentProvider {
   /** Collapsed node icon (this provider's own tool icon). */
   val icon: Icon
 
-  fun getNode(): EvoNodeDto = EvoNodeDto(id = toolId.id, label = label, icon = icon.rpcId())
+  /**
+   * How this node is reported in usage statistics.
+   *
+   * Defaults to [EvoNodeKind.OTHER] so a provider that says nothing is reported as unknown rather than being
+   * silently counted as something it is not. Tool-backed providers get [EvoNodeKind.TOOL] from
+   * [PyToolEvoEnvironmentProvider]; the two nodes with no tool behind them declare their own.
+   */
+  val nodeKind: EvoNodeKind get() = EvoNodeKind.OTHER
+
+  /**
+   * The backing tool's `PyExecutable.fusId`, for a node that has one — reported alongside [nodeKind].
+   *
+   * Null for every node that is not [EvoNodeKind.TOOL], which is what makes "no tool behind this node" and "a tool we
+   * failed to name" impossible to confuse.
+   */
+  val fusId: String? get() = null
+
+  /**
+   * The `pyvenv.cfg` key this tool writes into every environment it creates, or null when it leaves no mark there.
+   *
+   * It is what lets a row say which tool an environment came from, whichever node the row is shown on — see
+   * [withCreators]. Declare one only for a key that *this* tool alone writes. A key several tools share names none of
+   * them: `virtualenv`, which poetry, hatch and the `virtualenv` package all write, would attribute one tool's
+   * environment to another, and a wrong attribution is worse than none because it disables the row on the real owner's
+   * node.
+   */
+  val pyvenvMarker: String? get() = null
+
+  fun getNode(): EvoNodeDto = EvoNodeDto(id = toolId.id, label = label, icon = icon.rpcId(), kind = nodeKind, fusId = fusId)
 
   /**
    * Whether this provider's tool is available on the project's Eel machine. Unavailable providers are dropped
@@ -189,7 +227,11 @@ interface PyEvoEnvironmentProvider {
    * Lazily compute this node's sections (layout owned by the provider) when it is expanded. [discovered] is the
    * centrally-found list of virtualenvs under the project's base dirs; providers filter it to the subset they own.
    */
-  suspend fun loadSections(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>, discovered: List<DiscoveredVenv>): EvoLoadResultDto
+  suspend fun loadSections(
+    pyProject: EvoPyProject,
+    fileSystem: FileSystem<PathHolder.Eel>,
+    discovered: List<DiscoveredVenv>,
+  ): EvoLoadResultDto
 
   /**
    * Builds the correctly-typed SDK for an *existing* environment at [homePath] — the tool's own "select existing"
@@ -235,6 +277,13 @@ interface PyEvoEnvironmentProvider {
 }
 
 /**
+ * The tool that made an environment: enough to name it in a message, draw its row, and tell it from the node the row is
+ * shown on. Taken from a provider, so a tool is drawn and named the same way wherever it appears.
+ */
+@ApiStatus.Internal
+data class EvoVenvCreator(val toolId: ToolId, val label: @Nls String, val icon: Icon)
+
+/**
  * A virtualenv found by the central discovery, together with its parsed `pyvenv.cfg` [config] (tool markers +
  * version). No python is executed during discovery; the display [version] comes from `pyvenv.cfg`.
  */
@@ -243,20 +292,29 @@ data class DiscoveredVenv(
   val pythonBinary: Path,
   val config: Map<String, String>,
   val version: @NlsSafe String?,
+  /** The tool [config] names as this environment's maker, or null when nothing there names one — see [withCreators]. */
+  val creator: EvoVenvCreator? = null,
 ) {
   /** The environment root directory (`…/<venv>/bin/python` → `<venv>`). */
   val venvRoot: Path? get() = pythonBinary.parent?.parent
-
-  /** True when `pyvenv.cfg` carries a `uv` marker (the env was created by uv). */
-  val createdByUv: Boolean get() = "uv" in config
 }
 
-/** Well-known heavy/irrelevant directories that never hold a user-selectable venv; never descended into. */
-private val PRUNED_SCAN_DIRS = setOf(
-  ".git", ".hg", ".svn", ".idea",
-  "node_modules", "__pycache__",
-  ".mypy_cache", ".pytest_cache", ".ruff_cache",
-)
+/**
+ * Names the tool behind each environment, by reading its `pyvenv.cfg` against what every provider says it writes
+ * ([PyEvoEnvironmentProvider.pyvenvMarker]).
+ *
+ * Done once for the whole list, by the core, rather than per node: which tool made an environment is a fact about the
+ * environment, and every node showing it must read it the same way. An environment naming no known tool keeps a null
+ * creator and is shown as the node's own, which is what an ordinary `python -m venv` environment is on any of them.
+ */
+@ApiStatus.Internal
+fun List<DiscoveredVenv>.withCreators(providers: List<PyEvoEnvironmentProvider>): List<DiscoveredVenv> {
+  val byMarker = providers.mapNotNull { provider ->
+    provider.pyvenvMarker?.let { it to EvoVenvCreator(provider.toolId, provider.label, provider.icon) }
+  }
+  if (byMarker.isEmpty()) return this
+  return map { venv -> venv.copy(creator = byMarker.firstOrNull { (marker, _) -> marker in venv.config }?.second) }
+}
 
 /**
  * Discovers virtualenvs under [baseDirs], descending into nested subfolders (up to [maxDepth] levels) so envs kept in
@@ -286,7 +344,7 @@ suspend fun discoverVenvs(
     catch (_: IOException) {
       return emptyList()
     }
-    return entries.filter { it.isDirectory() && it.fileName?.toString() !in PRUNED_SCAN_DIRS }
+    return entries.filter { it.fileName?.toString() !in PRUNED_SCAN_DIRS && it.isDirectory() }
   }
 
   // The base dir itself is never treated as a venv (matching the previous behavior); scanning starts at its children.
@@ -431,17 +489,29 @@ fun Path.toSectionLabel(): @NlsSafe String = shortenPath(toDisplayPath(), SECTIO
 @ApiStatus.Internal
 const val NO_VERSION: @NlsSafe String = "n/a"
 
-/** Builds a SELECT_ENV leaf for a discovered venv; the version comes from `pyvenv.cfg` (or "n/a"). */
+/**
+ * Builds a SELECT_ENV leaf for a discovered venv on [owner]'s node; the version comes from `pyvenv.cfg` (or "n/a").
+ *
+ * A row this node can offer keeps [owner]'s icon, whoever made the environment. Only a row the node cannot offer — one
+ * `pyvenv.cfg` names another tool as the maker of — swaps in that tool's icon and is shown disabled, with the tool named
+ * in the tooltip. The icon and the disabled look then say the same thing: this environment belongs to another node.
+ *
+ * So the icon changes exactly where the row stops being selectable, and nowhere else. An environment naming no tool
+ * stays the node's own to offer, which is the usual case: only uv writes a key of its own, so an environment created by
+ * `python -m venv`, by the `virtualenv` package, or by hatch through either of them, names nobody.
+ */
 @ApiStatus.Internal
-fun DiscoveredVenv.toLeaf(icon: Icon): EvoLeafDto {
+fun DiscoveredVenv.toLeaf(owner: PyEvoEnvironmentProvider): EvoLeafDto {
   val name: @NlsSafe String = venvRoot?.fileName?.toString() ?: pythonBinary.fileName.toString()
+  val otherTool = creator?.takeIf { it.toolId != owner.toolId }
   return EvoLeafDto(
     title = name,
     description = pythonBinary.toDisplayPath(),
     secondaryText = version ?: NO_VERSION,
-    icon = icon.rpcId(),
+    icon = (otherTool?.icon ?: owner.icon).rpcId(),
     kind = EvoLeafKind.SELECT_ENV,
     ref = PyInterpreterRef.DetectedPath(pythonBinary.pathString),
+    unavailable = otherTool?.let { PySdkBundle.message("evolution.env.owned.by.other.tool", it.label) },
   )
 }
 
@@ -451,15 +521,19 @@ fun DiscoveredVenv.toLeaf(icon: Icon): EvoLeafDto {
  * its containing folder ([EvoSectionDto.addNewFolderPath]) so "add new" targets that folder, not always the base dir.
  */
 @ApiStatus.Internal
-fun List<DiscoveredVenv>.toSectionsGroupedByParent(icon: Icon, addNew: Boolean, baseDir: Path): List<EvoSectionDto> {
+fun List<DiscoveredVenv>.toSectionsGroupedByParent(owner: PyEvoEnvironmentProvider, addNew: Boolean, baseDir: Path): List<EvoSectionDto> {
   if (isEmpty()) {
-    return if (addNew) listOf(EvoSectionDto(label = null, leaves = emptyList(), addNew = true, addNewFolderPath = baseDir.pathString)) else emptyList()
+    return if (addNew) listOf(EvoSectionDto(label = null,
+                                            leaves = emptyList(),
+                                            addNew = true,
+                                            addNewFolderPath = baseDir.pathString))
+    else emptyList()
   }
   return groupBy { it.venvRoot?.parent }.map { (containingFolder, venvs) ->
     EvoSectionDto(
       label = containingFolder?.toSectionLabel(),
       labelTooltip = containingFolder?.toDisplayPath(),
-      leaves = venvs.map { it.toLeaf(icon) },
+      leaves = venvs.map { it.toLeaf(owner) },
       addNew = addNew,
       addNewFolderPath = (containingFolder ?: baseDir).pathString,
     )
@@ -472,8 +546,19 @@ fun List<DiscoveredVenv>.toSectionsGroupedByParent(icon: Icon, addNew: Boolean, 
  * `null` for a display-only row.
  */
 @ApiStatus.Internal
-fun evoActionLeaf(title: @Nls String, description: @Nls String? = title, secondaryText: @Nls String? = null, icon: Icon, actionId: String? = null): EvoLeafDto =
-  EvoLeafDto(title = title, description = description, secondaryText = secondaryText, icon = icon.rpcId(), kind = EvoLeafKind.ACTION, actionId = actionId)
+fun evoActionLeaf(
+  title: @Nls String,
+  description: @Nls String? = title,
+  secondaryText: @Nls String? = null,
+  icon: Icon,
+  actionId: String? = null,
+): EvoLeafDto =
+  EvoLeafDto(title = title,
+             description = description,
+             secondaryText = secondaryText,
+             icon = icon.rpcId(),
+             kind = EvoLeafKind.ACTION,
+             actionId = actionId)
 
 /**
  * Builds a leaf for a Python version that is not on the machine: selecting it installs that version and then creates the
@@ -498,8 +583,19 @@ fun evoInstallPythonLeaf(title: @Nls String, version: @NlsSafe String): EvoLeafD
  * [com.intellij.python.sdk.common.evolution.PyInterpreterRef.CreateEnv].
  */
 @ApiStatus.Internal
-fun evoCreateEnvLeaf(title: @Nls String, token: String, icon: Icon, bases: List<EvoBasePythonDto> = emptyList()): EvoLeafDto =
-  EvoLeafDto(title = title, icon = icon.rpcId(), kind = EvoLeafKind.SELECT_ENV, ref = PyInterpreterRef.CreateEnv(token), bases = bases)
+fun evoCreateEnvLeaf(
+  title: @Nls String,
+  token: String,
+  icon: Icon,
+  bases: List<EvoBasePythonDto> = emptyList(),
+  /**
+   * A second provider-owned token, carried as [PyInterpreterRef.CreateEnv.name]. It means whatever the provider that
+   * built this leaf reads back from it, exactly like [token]. Hatch puts the environment's declared version specifier
+   * here, so [PyEvoEnvironmentProvider.decorate] can offer the interpreters it admits and no other.
+   */
+  name: String? = null,
+): EvoLeafDto =
+  EvoLeafDto(title = title, icon = icon.rpcId(), kind = EvoLeafKind.SELECT_ENV, ref = PyInterpreterRef.CreateEnv(token, name = name), bases = bases)
 
 /**
  * Builds a leaf for a *tool-enumerated* environment (conda/hatch/poetry-per-version) identified by [pythonBinary].

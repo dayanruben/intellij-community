@@ -375,6 +375,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.resources.android/intellij.compose.ide.plugin.resources.android.iml" filepath="$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.resources.android/intellij.compose.ide.plugin.resources.android.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.resources/intellij.compose.ide.plugin.resources.tests.iml" filepath="$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.resources/intellij.compose.ide.plugin.resources.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.shared/intellij.compose.ide.plugin.shared.iml" filepath="$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.shared/intellij.compose.ide.plugin.shared.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.shared.android/intellij.compose.ide.plugin.shared.android.iml" filepath="$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.shared.android/intellij.compose.ide.plugin.shared.android.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.shared/intellij.compose.ide.plugin.shared.tests.iml" filepath="$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.shared/intellij.compose.ide.plugin.shared.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.tests.main/intellij.compose.ide.plugin.tests.main.iml" filepath="$PROJECT_DIR$/plugins/compose/intellij.compose.ide.plugin.tests.main/intellij.compose.ide.plugin.tests.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/configuration-script/intellij.configurationScript.iml" filepath="$PROJECT_DIR$/plugins/configuration-script/intellij.configurationScript.iml" />
@@ -733,7 +734,6 @@
       <module fileurl="file://$PROJECT_DIR$/json/backend/intellij.json.backend.iml" filepath="$PROJECT_DIR$/json/backend/intellij.json.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/json/backend/regexp/intellij.json.backend.regexp.iml" filepath="$PROJECT_DIR$/json/backend/regexp/intellij.json.backend.regexp.iml" />
       <module fileurl="file://$PROJECT_DIR$/json/networknt.wrapper/intellij.json.networknt.wrapper.iml" filepath="$PROJECT_DIR$/json/networknt.wrapper/intellij.json.networknt.wrapper.iml" />
-      <module fileurl="file://$PROJECT_DIR$/json/networknt.wrapper/libraries/intellij.json.networknt.wrapper.libraries.jsonSchemaValidator.iml" filepath="$PROJECT_DIR$/json/networknt.wrapper/libraries/intellij.json.networknt.wrapper.libraries.jsonSchemaValidator.iml" />
       <module fileurl="file://$PROJECT_DIR$/json/networknt.wrapper/tests/intellij.json.networknt.wrapper.tests.iml" filepath="$PROJECT_DIR$/json/networknt.wrapper/tests/intellij.json.networknt.wrapper.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/json/backend/performanceTests/intellij.json.performance.tests.iml" filepath="$PROJECT_DIR$/json/backend/performanceTests/intellij.json.performance.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/json/structureView/intellij.json.structureView.iml" filepath="$PROJECT_DIR$/json/structureView/intellij.json.structureView.iml" />
@@ -1061,7 +1061,6 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/hash4j/intellij.libraries.hash4j.iml" filepath="$PROJECT_DIR$/libraries/hash4j/intellij.libraries.hash4j.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/hdr-histogram/intellij.libraries.hdr.histogram.iml" filepath="$PROJECT_DIR$/libraries/hdr-histogram/intellij.libraries.hdr.histogram.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/http-client/intellij.libraries.http.client.iml" filepath="$PROJECT_DIR$/libraries/http-client/intellij.libraries.http.client.iml" />
-      <module fileurl="file://$PROJECT_DIR$/libraries/icu4j/intellij.libraries.icu4j.iml" filepath="$PROJECT_DIR$/libraries/icu4j/intellij.libraries.icu4j.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/imgscalr/intellij.libraries.imgscalr.iml" filepath="$PROJECT_DIR$/libraries/imgscalr/intellij.libraries.imgscalr.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ini4j/intellij.libraries.ini4j.iml" filepath="$PROJECT_DIR$/libraries/ini4j/intellij.libraries.ini4j.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ion/intellij.libraries.ion.iml" filepath="$PROJECT_DIR$/libraries/ion/intellij.libraries.ion.iml" />
@@ -1081,6 +1080,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/jackson/validator/intellij.libraries.jackson.validator.iml" filepath="$PROJECT_DIR$/libraries/jackson/validator/intellij.libraries.jackson.validator.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jackson3/jackson/intellij.libraries.jackson3.iml" filepath="$PROJECT_DIR$/libraries/jackson3/jackson/intellij.libraries.jackson3.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jackson3/databind/intellij.libraries.jackson3.databind.iml" filepath="$PROJECT_DIR$/libraries/jackson3/databind/intellij.libraries.jackson3.databind.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/jackson3/dataformat-toml/intellij.libraries.jackson3.dataformat.toml.iml" filepath="$PROJECT_DIR$/libraries/jackson3/dataformat-toml/intellij.libraries.jackson3.dataformat.toml.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jackson3/dataformat-yaml/intellij.libraries.jackson3.dataformat.yaml.iml" filepath="$PROJECT_DIR$/libraries/jackson3/dataformat-yaml/intellij.libraries.jackson3.dataformat.yaml.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jackson3/jr-objects/intellij.libraries.jackson3.jr.objects.iml" filepath="$PROJECT_DIR$/libraries/jackson3/jr-objects/intellij.libraries.jackson3.jr.objects.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jackson3/module-kotlin/intellij.libraries.jackson3.module.kotlin.iml" filepath="$PROJECT_DIR$/libraries/jackson3/module-kotlin/intellij.libraries.jackson3.module.kotlin.iml" />
@@ -1106,6 +1106,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/jna/intellij.libraries.jna.iml" filepath="$PROJECT_DIR$/libraries/jna/intellij.libraries.jna.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/joni/intellij.libraries.joni.iml" filepath="$PROJECT_DIR$/libraries/joni/intellij.libraries.joni.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jsch-agent-proxy/intellij.libraries.jsch.agent.proxy.iml" filepath="$PROJECT_DIR$/libraries/jsch-agent-proxy/intellij.libraries.jsch.agent.proxy.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/json-schema-validator/intellij.libraries.jsonSchemaValidator.iml" filepath="$PROJECT_DIR$/libraries/json-schema-validator/intellij.libraries.jsonSchemaValidator.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jsonpath/intellij.libraries.jsonpath.iml" filepath="$PROJECT_DIR$/libraries/jsonpath/intellij.libraries.jsonpath.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jsoup/intellij.libraries.jsoup.iml" filepath="$PROJECT_DIR$/libraries/jsoup/intellij.libraries.jsoup.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jsp/intellij.libraries.jsp.iml" filepath="$PROJECT_DIR$/libraries/jsp/intellij.libraries.jsp.iml" />

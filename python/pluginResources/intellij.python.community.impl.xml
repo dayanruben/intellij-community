@@ -852,9 +852,10 @@
     <notificationGroup id="Python source root detection" displayType="STICKY_BALLOON" isLogByDefault="true" bundle="messages.PyBundle"
                        key="python.source.root.detection.confirm.notification.group"/>
 
-    <toolWindow id="Python Packages" anchor="bottom" secondary="true"
+    <toolWindow id="Python Packages" anchor="right" secondary="false"
                 icon="com.jetbrains.python.icons.PythonIcons.Python.PythonPackages"
                 factoryClass="com.jetbrains.python.packaging.toolwindow.PyPackagesToolWindowFactory"/>
+    <postStartupActivity implementation="com.jetbrains.python.packaging.toolwindow.PyPackagesToolWindowMigrationActivity"/>
     <toolWindowExtractorMode id="Python Packages" mode="mirror"/>
     <toolWindowExtractor implementation="com.jetbrains.python.packaging.toolwindow.PyPackagesToolWindowExtractor"/>
     <statistics.counterUsagesCollector
@@ -973,9 +974,6 @@
                     interface="com.jetbrains.python.packaging.PyPackageManagerProvider"
                     dynamic="true"/>
 
-    <extensionPoint qualifiedName="Pythonid.condaSdkCustomizer"
-                    interface="com.jetbrains.python.sdk.conda.PyCondaSdkCustomizer"
-                    dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.interpreterTargetEnvironmentFactory"
                     interface="com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory"
                     dynamic="true"/>
@@ -1125,8 +1123,6 @@
     <pythonFlavorProvider implementation="com.jetbrains.python.sdk.flavors.MayaFlavorProvider"/>
     <pyPregeneratedSkeletonsProvider id="default" implementation="com.jetbrains.python.sdk.skeletons.DefaultPregeneratedSkeletonsProvider"/>
     <inspectionExtension implementation="com.jetbrains.python.inspections.PyThirdPartyInspectionExtension"/>
-
-    <condaSdkCustomizer implementation="com.jetbrains.python.sdk.conda.PyCondaSdkDefaultCustomizer"/>
 
     <customPackageIdentifier implementation="com.jetbrains.python.namespacePackages.PyNamespacePackageCustomIdentifier"/>
     <pyRootTypeProvider implementation="com.jetbrains.python.namespacePackages.PyNamespacePackageRootProvider"/>

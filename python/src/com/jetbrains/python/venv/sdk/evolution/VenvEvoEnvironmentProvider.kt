@@ -6,6 +6,7 @@ import com.intellij.platform.eel.provider.toEelApi
 import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.community.services.systemPython.SystemPythonService
 import com.intellij.python.community.services.systemPython.createVenvFromSystemPython
+import com.intellij.python.pytools.PyTool
 import com.intellij.python.sdk.backend.evolution.DiscoveredVenv
 import com.intellij.python.sdk.backend.evolution.EvoPyProject
 import com.intellij.python.sdk.backend.evolution.EvoToolContext
@@ -17,9 +18,10 @@ import com.intellij.python.sdk.backend.evolution.resolveNewVenvDir
 import com.intellij.python.sdk.backend.evolution.toSectionsGroupedByParent
 import com.intellij.python.sdk.common.evolution.EvoAddNewDto
 import com.intellij.python.sdk.common.evolution.EvoLoadResultDto
+import com.intellij.python.sdk.common.evolution.EvoNodeKind
 import com.intellij.python.sdk.common.evolution.EvoSectionDto
 import com.intellij.python.sdk.common.evolution.PyInterpreterRef
-import com.intellij.python.venv.icons.PythonVenvIcons
+import com.intellij.python.venv.PipPyTool
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.add.v2.FileSystem
@@ -33,7 +35,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.pathString
 
 /**
- * Contributes the generic "pip" (virtualenv) node — plain venvs without a `uv` marker. Always available, since a
+ * Contributes the generic "pip" (virtualenv) node — every virtualenv the discovery found. Always available, since a
  * virtualenv needs no tool beyond a Python, which is why this implements [PyEvoEnvironmentProvider] directly rather than
  * extending the `PyTool`-backed base class: there is no pip *tool* to detect.
  *
@@ -42,12 +44,31 @@ import kotlin.io.path.pathString
  * provider there could not reach its own creation logic without a cycle.
  */
 internal class VenvEvoEnvironmentProvider : PyEvoEnvironmentProvider {
-  override val toolId: ToolId get() = VENV_TOOL_ID
-  override val label: String get() = "pip"
-  override val icon: Icon get() = PythonVenvIcons.VirtualEnv
+  /**
+   * The tool this node speaks for. Unlike the tool-backed providers it does not extend
+   * `PyToolEvoEnvironmentProvider`, because this node is *always* available rather than available when an executable
+   * resolves — but it still takes its name and its statistics identity from the tool rather than spelling them out.
+   */
+  private val tool: PyTool get() = PipPyTool.getInstance()
 
+  override val toolId: ToolId get() = VENV_TOOL_ID
+  override val nodeKind: EvoNodeKind get() = EvoNodeKind.TOOL
+  override val label: String get() = tool.presentableName
+  override val fusId: String get() = tool.fusId
+  override val icon: Icon get() = tool.icon
+
+  /**
+   * Every discovered virtualenv, one made by another tool included.
+   *
+   * This node used to hide a uv-made environment, which left a project whose only environment came from uv with an empty
+   * pip node. It is listed instead, drawn with the icon of the tool that made it and disabled there, so the environment
+   * is visible where the user looks for it and is still adopted on the node of the tool that manages it.
+   *
+   * The node claims no mark of its own: it creates its environments with the standard library's `venv`, which writes
+   * nothing into `pyvenv.cfg` to say so. An environment naming no tool therefore reads as this node's own.
+   */
   override suspend fun loadSections(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>, discovered: List<DiscoveredVenv>): EvoLoadResultDto =
-    EvoLoadResultDto.Ok(discovered.filterNot { it.createdByUv }.toSectionsGroupedByParent(icon, addNew = true, baseDir = pyProject.baseDir))
+    EvoLoadResultDto.Ok(discovered.toSectionsGroupedByParent(this, addNew = true, baseDir = pyProject.baseDir))
 
   /**
    * A plain virtualenv has no tool-specific SDK, so its type is guessed from the path — the generic route the core used
