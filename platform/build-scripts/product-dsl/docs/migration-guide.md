@@ -168,13 +168,13 @@ embeddedModule("fleet.andel", includeDependencies = true)
 
 Before committing changes:
 
-1. **Run Generate Product Layouts**
+1. **Run the generator**
    ```bash
-   # Via JetBrains MCP
-   execute_run_configuration(name="Generate Product Layouts")
-   
-   # Or directly
+   # Preferred
    bazel run //platform/buildScripts:plugin-model-tool
+   
+   # Or via JetBrains MCP
+   execute_run_configuration(name="Generate Product Layouts")
    ```
 
 2. **Check for duplicate content modules**
@@ -269,8 +269,8 @@ override fun getProductContentDescriptor(): ProductModulesContentSpec = productM
   // Use corePlatform for analysis tools (core platform without language editing)
   moduleSet(CommunityModuleSets.corePlatform())
   
-  // Keep deprecatedInclude only for modules NOT in corePlatform
-  deprecatedInclude("intellij.codeServer.core", "META-INF/codeserver-customization.xml")
+  // Product-specific customization lives in a dedicated embedded content module
+  embeddedModule("intellij.codeServer.ide.customization")
   
   // Product-specific modules
   embeddedModule("intellij.platform.codeStyle.impl")

@@ -22,6 +22,7 @@ import com.intellij.platform.project.findProjectOrNull
 import com.intellij.platform.rpc.backend.RemoteApiProvider
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.python.community.common.tools.ToolId
+import com.intellij.python.community.execService.python.validatePythonAndGetInfo
 import com.intellij.python.community.impl.poetry.common.POETRY_TOOL_ID
 import com.intellij.python.community.impl.installer.PySdkToInstallManager
 import com.intellij.python.community.services.systemPython.SystemPython
@@ -38,7 +39,6 @@ import com.intellij.python.sdk.backend.evolution.EvoPyProject
 import com.intellij.python.sdk.backend.evolution.EvoToolContext
 import com.intellij.python.sdk.backend.evolution.PyEvoEnvironmentProvider
 import com.intellij.python.sdk.backend.evolution.discoverVenvs
-import com.intellij.python.sdk.backend.evolution.getPythonVersion
 import com.intellij.python.sdk.backend.evolution.toDisplayPath
 import com.intellij.python.sdk.backend.evolution.toSectionLabel
 import com.intellij.python.sdk.backend.evolution.withCreators
@@ -74,7 +74,6 @@ import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.project.PyProject
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.sdk.ModuleOrProject
-import com.jetbrains.python.sdk.PyRemoteSdkAdditionalDataMarker
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
 import com.jetbrains.python.sdk.add.collector.PythonNewInterpreterAddedCollector
 import com.jetbrains.python.sdk.add.v2.EelFileSystem
@@ -94,6 +93,7 @@ import com.jetbrains.python.sdk.configuration.getSdkCreator
 import com.jetbrains.python.sdk.configurePythonSdk
 import com.jetbrains.python.sdk.evolution.PyEvoSdkApiImpl.rootScope
 import com.jetbrains.python.sdk.evolution.PyEvoSdkApiImpl.slowLoadThreshold
+import com.jetbrains.python.sdk.findPythonSdk
 import com.jetbrains.python.sdk.getAssignablePythonSdks
 import com.jetbrains.python.sdk.impl.PySdkBundle
 import com.jetbrains.python.sdk.isAssociatedWithModule
@@ -120,6 +120,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.Nls
+import com.intellij.python.sdk.backend.evolution.nodeIdForSdk
 
 private val LOG = logger<PyEvoSdkApiProvider>()
 
@@ -356,9 +357,13 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
 
   override suspend fun getCurrentInterpreter(projectId: ProjectId, pyProjectKey: String): PyInterpreterDto? {
     val pyProject = resolvePyProject(projectId, pyProjectKey) ?: return null
-    val sdk = PythonSdkUtil.findPythonSdk(pyProject.module) ?: return null
-    // The current-interpreter display works with Eel-based interpreters; remote/target SDKs surface only in the associated list.
-    if (sdk.sdkAdditionalData is PyRemoteSdkAdditionalDataMarker) return null
+    // Waits for the project model, so a widget refresh during startup reads a configured SDK rather than the `null` a
+    // half-loaded SDK table answers with — one of the two ways the widget said "No interpreter" for a project that had
+    // one (PY-91871).
+    val sdk = pyProject.module.findPythonSdk() ?: return null
+    // The other way was here: a remote or target SDK (WSL, SSH, Docker) used to be left out, and is now reported like
+    // any other. Nothing below reads the interpreter's machine — the presentation is the label the classic widget
+    // shows, and the dependency file is resolved from the module.
     val presentation = sdk.pyInterpreterPresentation()
     // `PythonPackageManager.forSdk` reads `sdk.pySdkAdditionalData`, which throws on an SDK created without any —
     // "buggy code" per its own message. Test the precondition instead of catching: an IllegalStateException cannot be
@@ -370,6 +375,9 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
       icon = presentation.icon.rpcId(),
       ref = PyInterpreterRef.ExistingSdk(sdk.name),
       dependencyFileUrl = manager?.getRootDependenciesFile()?.virtualFile?.url,
+      // Which node's tool made this interpreter, so the popup can promote that one tool and fold the rest away. Null
+      // when no node claims its flavor, and the popup then lists them all.
+      activeNodeId = providers.nodeIdForSdk(sdk),
     )
   }
 
@@ -398,8 +406,10 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
   override suspend fun listShortcuts(projectId: ProjectId, pyProjectKey: String): List<EvoLeafDto> {
     val pyProject = resolvePyProject(projectId, pyProjectKey) ?: return emptyList()
     val module = pyProject.module
-    // Only at setup time (no interpreter yet): listing evaluates every configurator, so we never do it once an SDK is set.
-    if (PythonSdkUtil.findPythonSdk(module) != null) return emptyList()
+    // Only at setup time (no interpreter yet): listing evaluates every configurator, so we never do it once an SDK is
+    // set. Waiting for the project model matters here too: a `null` read during startup offered a project that already
+    // had an interpreter the whole "Shortcuts" section (PY-91871).
+    if (module.findPythonSdk() != null) return emptyList()
     // Every setup option the IDE can offer for this module (the same set the "no interpreter configured" inspection
     // ranks), sorted best-first. A single tool can have several configurators with distinct tool ids but the same
     // suggestion (e.g. uv's "uv" and "uvBase" both offer "Set up uv environment"), so collapse by the visible label and
@@ -714,7 +724,13 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
     val binary = homePath.toNioPathOrNull() ?: return null
     // Detect the version in the tool's own coroutine (the same one that listed its envs), so it appears under that tool.
     val label = providers.firstOrNull { it.toolId.id == nodeId }?.label ?: nodeId
-    return toolScope(project, traceId, nodeId, label).async { binary.getPythonVersion() }.await()
+    return toolScope(project, traceId, nodeId, label).async {
+      // Validating runs the interpreter rather than only asking it for a version. A python that answers `--version` and
+      // then fails to run is reported as broken here, instead of showing a version for something unusable.
+      val info = binary.validatePythonAndGetInfo().getOrNull() ?: return@async null
+      // The reported patch version when the probe captured one; otherwise the level it parsed, never a second probe.
+      info.version ?: info.languageLevel.toPythonVersion()
+    }.await()
   }
 
   override suspend fun addInterpreter(projectId: ProjectId, pyProjectKey: String, nodeId: String): EvoSelectResultDto {

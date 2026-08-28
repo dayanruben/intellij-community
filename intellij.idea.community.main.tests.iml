@@ -198,6 +198,7 @@
     <orderEntry type="module" module-name="intellij.java.guiForms.compiler.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.guiForms.designer.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.i18n.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.java.jshell.console.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.jshell.protocol.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.manifest.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.testFramework.tests" scope="TEST" />
@@ -223,6 +224,7 @@
     <orderEntry type="module" module-name="intellij.platform.backend.observation.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.buildScripts.productDsl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.collaborationTools.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.compose.swing.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.compose.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.coverage.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.credentialStore.impl.tests" scope="TEST" />

@@ -71,11 +71,13 @@
     <module name="intellij.performanceTesting.remoteDriver.compose"/>
     <module name="intellij.performanceTesting.vcs"/>
     <module name="intellij.performanceTesting.frontend"/>
+    <module name="intellij.performanceTesting.frontend.base"/>
     <module name="intellij.performanceTesting.problemsView"/>
     <module name="intellij.performanceTesting.structureView"/>
     <module name="intellij.performanceTesting.backend"/>
     <module name="intellij.performanceTesting.frontend.split"/>
     <module name="intellij.performanceTesting.backend.split"/>
+    <module name="intellij.performanceTesting.rdct"/>
     <module name="intellij.tools.ide.starter.bus" loading="embedded"/>
     <module name="intellij.driver.model" loading="embedded"/>
     <module name="intellij.driver.impl" loading="embedded"/>

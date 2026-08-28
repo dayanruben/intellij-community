@@ -221,6 +221,7 @@ build/tasks
 build/tests
 commandInterface
 community-resources
+community-resources/ide-customization
 fleet/andel
 fleet/bifurcan
 fleet/build/authentication
@@ -278,6 +279,7 @@ grid/types
 idea/customization/backend
 idea/customization/base
 idea/customization/min
+idea/customization/plugin
 images
 images/intellij.platform.images.copyright
 images/intellij.platform.images.xdebugger
@@ -428,6 +430,7 @@ libraries/completion-ranking-typescript
 libraries/compose-foundation-desktop
 libraries/compose-foundation-desktop-junit
 libraries/compose-runtime-desktop
+libraries/compose-swing-ui
 libraries/dokka
 libraries/download-pgp-verifier
 libraries/ec4j/core
@@ -698,6 +701,7 @@ platform/completion/frontend
 platform/compose
 platform/compose/compiler-plugin
 platform/compose/markdown
+platform/compose/swing-ui
 platform/configuration-store-impl
 platform/core-api
 platform/core-impl
@@ -1208,6 +1212,20 @@ plugins/gitlab/gitlab-yaml
 plugins/gradle
 plugins/gradle-maven
 plugins/gradle/backend
+plugins/gradle/codeInsight
+plugins/gradle/codeInsight/backend
+plugins/gradle/codeInsight/groovy
+plugins/gradle/codeInsight/groovy/backend
+plugins/gradle/codeInsight/groovy/backend/tests.integration
+plugins/gradle/codeInsight/kotlin
+plugins/gradle/codeInsight/kotlin/backend
+plugins/gradle/codeInsight/kotlin/backend/tests.integration
+plugins/gradle/codeInsight/properties
+plugins/gradle/codeInsight/properties/backend
+plugins/gradle/codeInsight/properties/backend/tests.integration
+plugins/gradle/codeInsight/toml
+plugins/gradle/codeInsight/toml/backend
+plugins/gradle/codeInsight/toml/backend/tests.integration
 plugins/gradle/completion
 plugins/gradle/completion/kotlin
 plugins/gradle/completion/kotlin/tests
@@ -1597,7 +1615,9 @@ plugins/performanceTesting/core
 plugins/performanceTesting/event-bus
 plugins/performanceTesting/freezes
 plugins/performanceTesting/frontend
+plugins/performanceTesting/frontend-base
 plugins/performanceTesting/problemsView
+plugins/performanceTesting/rdct
 plugins/performanceTesting/remote-driver
 plugins/performanceTesting/remote-driver.compose
 plugins/performanceTesting/remote-driver.jcef
@@ -1719,11 +1739,13 @@ python/build/build-debug-binaries
 python/common
 python/conda
 python/huggingFace
+python/ide-common/ide-customization
 python/ide/customization.backend
 python/ide/customization.shared
 python/ide/impl
 python/ide/impl/intellij.pycharm.community.ide.impl.promotion
 python/ide/implTraining/intellij.pycharm.community.ide.implTraining
+python/ide/newUiOnboarding
 python/impl.helperLocator
 python/installer
 python/intellij.python.community.communityOnly
@@ -1860,6 +1882,7 @@ xml/dom-tests
 xml/emmet
 xml/emmet/backend
 xml/emmet/frontend
+xml/emmet/shared
 xml/impl
 xml/langInjection
 xml/langInjection/xpath

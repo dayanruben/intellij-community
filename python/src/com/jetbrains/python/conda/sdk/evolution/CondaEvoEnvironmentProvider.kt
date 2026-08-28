@@ -14,7 +14,6 @@ import com.intellij.python.sdk.backend.evolution.EvoToolContext
 import com.intellij.python.sdk.backend.evolution.PyToolEvoEnvironmentProvider
 import com.intellij.python.sdk.backend.evolution.evoEnvLeaf
 import com.intellij.python.sdk.backend.evolution.evoWarning
-import com.intellij.python.sdk.backend.evolution.resolvePythonExecutable
 import com.intellij.python.sdk.backend.evolution.toDisplayPath
 import com.intellij.python.sdk.backend.evolution.toSectionLabel
 import com.intellij.python.sdk.backend.evolution.toolMissing
@@ -37,8 +36,11 @@ import com.jetbrains.python.sdk.flavors.conda.PyCondaCommand
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnv
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnvIdentity
 import com.jetbrains.python.sdk.impl.PySdkBundle
+import com.jetbrains.python.sdk.impl.resolvePythonBinary
 import java.nio.file.Path
 import kotlin.io.path.name
+import com.jetbrains.python.sdk.flavors.conda.CondaEnvSdkFlavor
+import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
 
 /** Fallback env-name stem when the project directory has no usable name. */
 private const val DEFAULT_ENV_NAME: String = "conda"
@@ -46,6 +48,9 @@ private const val DEFAULT_ENV_NAME: String = "conda"
 internal class CondaEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
   override val tool: PyTool get() = CondaPyTool.getInstance()
   override val toolId: ToolId get() = CONDA_TOOL_ID
+
+  /** An interpreter of this node's environments carries this flavor, which is what names this node as the active one. */
+  override val sdkFlavor: Class<out PythonSdkFlavor<*>> get() = CondaEnvSdkFlavor::class.java
 
   override suspend fun loadSections(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>, discovered: List<DiscoveredVenv>): EvoLoadResultDto {
     // Presence check only: the rows are grouped by where each env lives, not by where conda itself is installed.
@@ -145,6 +150,6 @@ internal class CondaEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
         val root = Path.of(pathStr)
         // An env created with `-p` has no name column, so the line starts with the marker/path: fall back to the dir name.
         val realName = parts.first().takeIf { it.isNotBlank() } ?: root.name
-        CondaEnv(realName, root, root.resolvePythonExecutable())
+        CondaEnv(realName, root, root.resolvePythonBinary())
       }
 }

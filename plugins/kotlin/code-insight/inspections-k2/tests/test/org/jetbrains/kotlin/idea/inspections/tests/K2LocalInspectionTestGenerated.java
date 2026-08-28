@@ -1277,6 +1277,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/intentions/destructuringInLambda/mapIndexedLast.kt");
         }
 
+        @TestMetadata("mapIndexedLastInspectionSettings.kt")
+        public void testMapIndexedLastInspectionSettings() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/destructuringInLambda/mapIndexedLastInspectionSettings.kt");
+        }
+
+        @TestMetadata("mapIndexedLastWithLanguageSettings.kt")
+        public void testMapIndexedLastWithLanguageSettings() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/destructuringInLambda/mapIndexedLastWithLanguageSettings.kt");
+        }
+
         @TestMetadata("noIt.kt")
         public void testNoIt() throws Exception {
             runTest("../../../idea/tests/testData/intentions/destructuringInLambda/noIt.kt");
@@ -6828,6 +6838,19 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("onlyThenHasComment.kt")
             public void testOnlyThenHasComment() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/redundantIf/comment/onlyThenHasComment.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../../../idea/tests/testData/inspectionsLocal/redundantIf/condition")
+        public static class Condition extends AbstractK2LocalInspectionTest {
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("objectFieldComparison.kt")
+            public void testObjectFieldComparison() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/redundantIf/condition/objectFieldComparison.kt");
             }
         }
 

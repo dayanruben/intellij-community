@@ -42,6 +42,28 @@ class EvoTreeItem(
   val isEnabled: Boolean
     get() = element.isEnabled
 
+  /**
+   * True once this row can be acted on: a loaded row, or a tool node whose submenu can already be opened.
+   *
+   * A tool node is openable before its loader answers, because it shows an [EvoTreeMessageLeafElement] until the real
+   * rows arrive. Only a node that failed, or answered with nothing, is closed to the user.
+   */
+  val isReady: Boolean
+    get() = when (element) {
+      is EvoTreeLazyNodeElement -> element.state != State.ERROR && element.state != State.NOT_AVAILABLE
+      else -> element.state == State.DONE
+    }
+
+  /**
+   * True when this row reports a load of its own.
+   *
+   * Never a tool node: a first load is reported on the "Loading…" row of the node's own submenu, and a reload in a
+   * panel of its own opened in that submenu's place. A spinner on the tools of the main list is what made opening the
+   * widget look busy (PY-91873), and a slow tool held that spinner for as long as it ran.
+   */
+  val showsLoader: Boolean
+    get() = element.state == State.LOADING && element !is EvoTreeLazyNodeElement
+
   val keepPopupOnPerform: KeepPopupOnPerform
     get() = element.presentation.getKeepPopupOnPerform()
 
@@ -62,6 +84,10 @@ class EvoTreeItem(
   /** The finer choices this row stands for, or null when it stands only for itself — see [EvoAlternatives]. */
   val alternatives: EvoAlternatives?
     get() = ((element as? EvoTreeLeafElement)?.action as? EvoAlternatives)?.takeIf { it.alternatives.size > 1 }
+
+  /** True when this row reveals more of the list rather than selecting an environment — see [EvoLinkRow]. */
+  val isLinkRow: Boolean
+    get() = (element as? EvoTreeLeafElement)?.action is EvoLinkRow
 }
 
 /**

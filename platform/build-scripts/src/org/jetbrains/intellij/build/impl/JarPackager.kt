@@ -37,6 +37,8 @@ import org.jetbrains.intellij.build.buildJar
 import org.jetbrains.intellij.build.checkForNoDiskSpace
 import org.jetbrains.intellij.build.computeHashForModuleOutput
 import org.jetbrains.intellij.build.computeModuleSourcesByContent
+import org.jetbrains.intellij.build.dev.AssembledPrepackedPluginContentJar
+import org.jetbrains.intellij.build.dev.DevDistRecipe
 import org.jetbrains.intellij.build.dev.PrepackedPluginContentJar
 import org.jetbrains.intellij.build.dev.PrepackedPluginContentKey
 import org.jetbrains.intellij.build.findFileInModuleSources
@@ -171,7 +173,7 @@ class JarPackager private constructor(
 
   private val helper = (context as BuildContextImpl).jarPackagerDependencyHelper
 
-  private val prepackedContentJars = ArrayList<PrepackedPluginContentJar>()
+  private val prepackedContentJars = ArrayList<AssembledPrepackedPluginContentJar>()
 
   companion object {
     suspend fun pack(includedModules: Collection<ModuleItem>, outputDir: Path, context: BuildContext) {
@@ -202,7 +204,7 @@ class JarPackager private constructor(
       descriptorCache: ScopedCachedDescriptorContainer? = null,
       assetFilter: DistributionAssetFilter? = null,
       prepackedPluginContent: Map<PrepackedPluginContentKey, PrepackedPluginContentJar> = emptyMap(),
-      prepackedPluginContentJars: MutableCollection<PrepackedPluginContentJar>? = null,
+      prepackedPluginContentJars: MutableCollection<AssembledPrepackedPluginContentJar>? = null,
       context: BuildContext,
     ): Collection<DistributionFileEntry> {
       val packager = JarPackager(
@@ -227,6 +229,14 @@ class JarPackager private constructor(
         copiedFiles = packager.copiedFiles,
         assetFilter = assetFilter,
       )
+      // An asset filter drops assets after the ordinals were counted against all of them, so every recorded position
+      // would drift. Only a platform payload passes a filter and only a `PluginLayout` hands a jar over, so the two
+      // never meet - and this is what keeps that true rather than leaving it to be rediscovered from a reordered
+      // `plugin-classpath.txt`. See [AssembledPrepackedPluginContentJar.assetOrdinal].
+      check(assetFilter == null || packager.prepackedContentJars.isEmpty()) {
+        "$layout hands ${packager.prepackedContentJars.size} jar(s) over under an asset filter, which drops assets the" +
+        " recorded ordinals were counted against"
+      }
       prepackedPluginContentJars?.addAll(packager.prepackedContentJars)
 
       // The whole layout is computed above, but only the owned jars are packed and reported: everything downstream -
@@ -361,13 +371,17 @@ class JarPackager private constructor(
       hasLayoutPlacedModuleLibrary = pluginLayout.includedModuleLibraries.any { it.moduleName == moduleName },
       isTestPluginModule = helper.isTestPluginModule(moduleName, module),
     )
-    prepackedContentJars.add(expected)
+    // `assets.size` is the index `getJarAsset` would have given this jar. `computeSourcesForModule` never runs for a
+    // handed-off module, and that function creates this jar's asset first. The passes that would create a *second* asset
+    // are all refused above, `hasSeparateLibraryJar` among them, so no later hand-off's ordinal shifts. See
+    // [AssembledPrepackedPluginContentJar].
+    prepackedContentJars.add(AssembledPrepackedPluginContentJar(jar = expected, assetOrdinal = assets.size))
     return true
   }
 
   private fun validatePrepackedPluginContent(layout: PluginLayout) {
     val expected = prepackedPluginContent.keys.filterTo(HashSet()) { it.pluginMainModule == layout.mainModule }
-    val actual = prepackedContentJars.mapTo(HashSet(), PrepackedPluginContentJar::key)
+    val actual = prepackedContentJars.mapTo(HashSet()) { it.jar.key }
     check(actual == expected) {
       "Prepacked plugin content of ${layout.mainModule} does not match its descriptor/layout:" +
       " missing ${(expected - actual).sortedBy(PrepackedPluginContentKey::contentModule)}," +
@@ -551,49 +565,40 @@ class JarPackager private constructor(
     val excludedModuleLibraries = if (layout is PluginLayout) layout.excludedModuleLibraries.get(moduleName) ?: emptyList() else emptyList()
     val excludedProjectLibraries = if (layout is PluginLayout) layout.excludedProjectLibraries else emptySet()
     for (element in helper.getLibraryDependencies(module, withTests = withTests)) {
-      var projectLibraryData: ProjectLibraryData? = null
       val libRef = element.libraryReference
       val isProjectLibrary = libRef.parentReference !is JpsModuleReference
+      val projectLibraryData: ProjectLibraryData?
       if (isProjectLibrary) {
         val libName = libRef.libraryName
         if (excludedProjectLibraries.contains(libName)) {
           continue
         }
 
-        if (includeProjectLib || (isAutoPlugin && IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST.contains(libName))) {
-          if (platformLayout!!.hasLibrary(libName, moduleName) || layout.hasLibrary(libName)) {
-            continue
-          }
-
-          if (helper.hasLibraryInDependencyChainOfModuleDependencies(dependentModule = module, libraryName = libName, siblings = layout.includedModules, withTests = withTests)) {
-            continue
-          }
-
-          if (layout !is PluginLayout && item.isProductModule()) {
-            projectLibraryData = ProjectLibraryData(libraryName = libName, owner = item, reason = null)
-          }
-          else {
-            projectLibraryData = ProjectLibraryData(libraryName = libName, reason = "<- $moduleName", owner = item)
-          }
-        }
-        else if (platformLayout != null && platformLayout.isLibraryAlwaysPackedIntoPlugin(libName)) {
-          platformLayout.findProjectLibrary(libName)?.let {
-            throw IllegalStateException("Library $libName must not be included into platform layout: $it")
-          }
-
-          if (layout.hasLibrary(libName)) {
-            continue
-          }
-
-          projectLibraryData = ProjectLibraryData(libraryName = libName, reason = "<- $moduleName (always packed into plugin)", owner = item)
-        }
-        else {
+        if (!includeProjectLib && !(isAutoPlugin && IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST.contains(libName))) {
           if (isAutoPlugin &&
               !isProjectLibraryProvided(libName = libName, layout = layout, module = module, withTests = withTests)) {
             implicitProjectLibraryViolations.computeIfAbsent(libName) { TreeSet() }.add(moduleName)
           }
           continue
         }
+
+        if (platformLayout!!.hasLibrary(libName, moduleName) || layout.hasLibrary(libName)) {
+          continue
+        }
+
+        if (helper.hasLibraryInDependencyChainOfModuleDependencies(dependentModule = module, libraryName = libName, siblings = layout.includedModules, withTests = withTests)) {
+          continue
+        }
+
+        projectLibraryData = if (layout !is PluginLayout && item.isProductModule()) {
+          ProjectLibraryData(libraryName = libName, owner = item, reason = null)
+        }
+        else {
+          ProjectLibraryData(libraryName = libName, reason = "<- $moduleName", owner = item)
+        }
+      }
+      else {
+        projectLibraryData = null
       }
 
       val library = requireNotNull(element.library) { "cannot find $libRef" }
@@ -1061,6 +1066,13 @@ private suspend fun buildAsset(
 ): BuildAssetResult {
   val includedModules = asset.includedModules
   if (asset.isDir) {
+    DevDistRecipe.record(
+      outputFile = asset.file,
+      isDir = true,
+      sources = includedModules.values.flatten(),
+      includedModules = includedModules.keys,
+      layout = layout,
+    )
     val sourceToMetadata = HashMap<Source, SizeAndHash>()
     for (sources in includedModules.values) {
       for (source in sources) {
@@ -1101,6 +1113,17 @@ private suspend fun buildAsset(
     }
     sources
   }
+
+  // The merged list, not the two collections it came from: this is the order the jar writer and the jar cache use, so
+  // it is the only order a recipe of this run can state. Recorded before the early return below, because an output with
+  // no sources is a fact about the run too.
+  DevDistRecipe.record(
+    outputFile = asset.file,
+    isDir = false,
+    sources = sources,
+    includedModules = includedModules.keys,
+    layout = layout,
+  )
 
   if (sources.isEmpty()) {
     return emptyBuildJarsResult()

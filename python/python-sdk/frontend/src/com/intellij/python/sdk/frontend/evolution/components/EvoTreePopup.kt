@@ -21,6 +21,7 @@ import com.intellij.python.sdk.common.evolution.EvoNodeStats
 import com.intellij.python.sdk.common.evolution.PyEvoWidgetCollector
 import com.intellij.python.sdk.frontend.PySdkFrontendBundle
 import com.intellij.ui.DocumentAdapter
+import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.GroupHeaderSeparator
 import com.intellij.ui.ScreenUtil
@@ -62,6 +63,7 @@ import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JList
+import javax.swing.Timer
 import javax.swing.JPanel
 import javax.swing.JViewport
 import javax.swing.ListCellRenderer
@@ -90,6 +92,9 @@ private const val GEAR_HOVER_ARC: Int = 4
 
 /** Downward nudge (unscaled px) from vertical center, so the gear's optical center lines up with the caption text. */
 private const val GEAR_VERTICAL_OFFSET = 1
+
+/** Clear space (unscaled px) between the header caption and the gear, so the two never touch — a word space. */
+private const val GEAR_CAPTION_GAP = 6
 
 /** Gap (unscaled px) between a submenu and the left edge of the parent popup it is placed next to. */
 private const val SUBMENU_LEFT_GAP = 2
@@ -133,6 +138,7 @@ private const val SEPARATOR_TOP_GAP = 6
 /** Gap between the footer strip's caption and its chevron. */
 private const val FOOTER_ICON_GAP = 2
 
+
 /** The platform's own gap (unscaled px) between a row's text and its `>` arrow, restated so a row without one matches. */
 private const val NEXT_STEP_INSET = 20
 
@@ -171,8 +177,8 @@ private val PLAIN_CAPTIONS: Set<String> = setOf(
  * the [gearCaptions] sections (the "Select/Change Environment" header). A painted separator can't hold real action
  * components, so the gear click is hit-tested and handled in [EvoTreePopup].
  *
- * [plainCaptions] opt back out of this class's custom look entirely, rendering as the platform's own group header — a
- * full-width rule with the caption below it — for headers that read better as an ordinary divider.
+ * [plainCaptions] — and a section headed by a rule and no caption — opt back out of this class's custom look entirely,
+ * rendering as the platform's own group header: a full-width rule with the caption below it. See [isPlain].
  */
 private class GearGroupHeaderSeparator(
   private val labelInsets: Insets,
@@ -184,8 +190,18 @@ private class GearGroupHeaderSeparator(
   /** True while this reused component is currently rendering the gear-bearing section. */
   val showsGear: Boolean get() = caption in gearCaptions
 
-  /** True while rendering a section that wants the platform's plain group header instead of this class's look. */
-  private val isPlain: Boolean get() = caption in plainCaptions
+  /**
+   * True while rendering a section that wants the platform's plain group header instead of this class's look.
+   *
+   * A section headed by a rule and no caption is one of them, and this class's look cannot draw it: the rule is placed
+   * beside the caption, and there is no caption to place it beside. The superclass paints its rule before it looks at
+   * one, and sizes itself to that rule, which is the whole of such a header.
+   *
+   * [isVisible] is what finds those sections. `SeparatorWithText.getCaption` reports a blank caption as null, so the
+   * `ListSeparator("")` above such a section is indistinguishable here from a row that has no separator at all — but the
+   * renderer shows this component only where the model does say a separator belongs.
+   */
+  private val isPlain: Boolean get() = caption?.let { it in plainCaptions } ?: isVisible
 
   /** Space held open above this header — see [SEPARATOR_TOP_GAP]. Zero at the top of a list, where [isHideLine] is set. */
   private val topGap: Int get() = if (caption == null || isHideLine) 0 else JBUI.scale(SEPARATOR_TOP_GAP)
@@ -201,10 +217,16 @@ private class GearGroupHeaderSeparator(
   override fun getPreferredElementSize(): Dimension {
     if (isPlain) return super.getPreferredElementSize()   // includes the platform's allowance for the rule above
     val size = if (caption == null) Dimension(0, 0) else getLabelSize(labelInsets)
+    // Ask for the gear's own footprint as well. Without it the popup is sized to the caption alone, and a caption that
+    // just fits leaves the gear — painted over the same line — sitting on its last word.
+    if (showsGear) size.width += gearFootprint()
     size.height += topGap
     JBInsets.addTo(size, insets)
     return size
   }
+
+  /** Width the gear needs at the right end of its header: the icon, its right inset, and the gap before it. */
+  private fun gearFootprint(): Int = gearIcon().iconWidth + JBUI.scale(GEAR_RIGHT_INSET + GEAR_CAPTION_GAP)
 
   /**
    * Paints the caption and, filling the rest of the line, the rule — `Python 3.14 ───────`.
@@ -224,6 +246,13 @@ private class GearGroupHeaderSeparator(
     bounds.width -= labelInsets.left + labelInsets.right
     bounds.y += labelInsets.top
     bounds.height -= labelInsets.top + labelInsets.bottom
+    // The gear occupies the right end of this very line, so take that end away before the caption is laid out in what
+    // is left. Otherwise the caption is laid out across the whole line and only ellipsizes at the popup's edge, which
+    // let a long caption run under the gear.
+    if (showsGear) {
+      val room = gearBounds().x - JBUI.scale(GEAR_CAPTION_GAP) - bounds.x
+      bounds.width = max(0, min(bounds.width, room))
+    }
 
     val metrics = g.fontMetrics
     val iconR = Rectangle()
@@ -334,6 +363,10 @@ class EvoPopupListElementRenderer(private val popup: EvoTreePopup) : PopupListEl
       myTextLabel.isEnabled = value.isEnabled && !popup.isEditingNameInvalid()
       reserveVersionColumn(value)
     }
+    // A row that reveals more of the list is drawn in the platform's link colour, so it reads as a control rather than
+    // as an environment. Only when unselected: the selection foreground is what stays legible on the highlight, and the
+    // superclass sets that on every row, so nothing has to be undone here.
+    if (value?.isLinkRow == true && !isSelected) myTextLabel.foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
 
     // Put a reload icon right next to the submenu arrow for the hovered refreshable tool row (click handled in EvoTreePopup).
     val arrow = myNextStepLabel ?: return
@@ -482,6 +515,50 @@ open class EvoTreePopup private constructor(
 
   private val evoStep: EvoActionPopupStep? get() = listStep as? EvoActionPopupStep
 
+  /**
+   * Repaints the list while any visible row carries a spinner, one tick per frame of it.
+   *
+   * Started in [afterShow] and stopped in [dispose], so it lives exactly as long as this popup. A tick over a list with
+   * no spinner costs one scan of the rows on screen and paints nothing.
+   */
+  private val loaderRepaintTimer: Timer = Timer(AnimatedIcon.Default.DELAY) {
+    if (showsAnyLoader()) list.repaint()
+  }
+
+  /** True when a row of this popup is drawing a spinner right now — see [EvoTreeItem.showsLoader]. */
+  private fun showsAnyLoader(): Boolean {
+    val model = list.model
+    for (row in 0 until model.size) {
+      if ((model.getElementAt(row) as? EvoTreeItem)?.showsLoader == true) return true
+    }
+    return false
+  }
+
+  /**
+   * Settles this popup once a tool node's rows replace its "Loading…" row (see [EvoTreeMessageLeafElement]).
+   *
+   * The platform only grows the popup from its current position, which for a submenu of this widget means growing over
+   * the parent it opened to the left of, and it leaves the selection alone. Neither is right for rows that arrive after
+   * the popup was shown: a message row cannot be selected, so nothing is selected while a node loads.
+   */
+  override fun onModelChanged() {
+    super.onModelChanged()
+    selectFirstSelectableRow()
+    repositionLeftOfParent()
+  }
+
+  /** Selects the first row the user can act on, when the selection is empty. */
+  private fun selectFirstSelectableRow() {
+    if (list.selectedIndex >= 0) return
+    val step = listStep
+    for (row in 0 until list.model.size) {
+      if (step.isSelectable(list.model.getElementAt(row))) {
+        list.selectedIndex = row
+        break
+      }
+    }
+  }
+
   /** True while this is an add-new submenu whose typed name is invalid (blank/taken) — the renderer greys its version rows. */
   fun isEditingNameInvalid(): Boolean = evoStep?.editableName?.isValid == false
 
@@ -597,6 +674,66 @@ open class EvoTreePopup private constructor(
       if (parentPopup.isDisposed) return@invokeLater
       parentPopup.disposeChildren()
       parentPopup.handleSelect(false, null)
+    }
+  }
+
+  /**
+   * Reloads the tool of [item] and reports it in a panel of its own, then opens the real submenu once it ends.
+   *
+   * The reload leaves the node's rows and controls alone, so nothing has to be rebuilt from a half-replaced state: while
+   * it runs, the submenu is an independent "Loading…" panel ([EvoActionPopupStep.loadingStep]), and when it ends the
+   * node's own submenu is opened over its finished state — header, expand/collapse footer and all.
+   *
+   * A reload that failed opens nothing: the node is disabled and carries the sign, and the rows it had stay readable
+   * behind it.
+   */
+  private fun reloadShowingLoadingPanel(item: EvoTreeItem) {
+    val node = item.element as? EvoTreeLazyNodeElement ?: return
+    val step = evoStep ?: return
+    // Registered before the load starts, so a reload that ends quickly cannot end before anyone is listening.
+    node.whenLoadFinished { openSubmenuOf(node) }
+    step.reloadItem(item)
+    openChildStep(step.loadingStep(), node)
+  }
+
+  /**
+   * The row selected here, when it is still the one showing [element]; null when the user moved on.
+   *
+   * Addressed by element rather than by row: [EvoActionPopupStep.getValues] builds a fresh [EvoTreeItem] for every row
+   * each time the model is rebuilt, and a load rebuilds it — so an item held across one is no longer the item in the
+   * model, while the element it wraps lives in the tree and outlasts every popup.
+   */
+  private fun selectedItemFor(element: EvoTreeElement): EvoTreeItem? {
+    val row = list.selectedIndex
+    if (row < 0) return null
+    val item = list.model.getElementAt(row) as? EvoTreeItem ?: return null
+    return item.takeIf { it.element === element }
+  }
+
+  /**
+   * Opens [element]'s own submenu, replacing whatever is open, once the event that asked for it has been dispatched.
+   *
+   * Only [element] is reopened, never simply "the selection": a slow reload gives the user time to move on, and the row
+   * they moved to is not the one whose load finished.
+   *
+   * Deferred for the same reason [toggleExpandedAndReopen] defers: this runs from the list's own mouse handler, or from a
+   * loader's callback, and disposing a child popup underneath either is not safe.
+   */
+  private fun openSubmenuOf(element: EvoTreeElement) {
+    SwingUtilities.invokeLater {
+      if (isDisposed || selectedItemFor(element) == null) return@invokeLater
+      disposeChildren()
+      handleSelect(false, null)
+    }
+  }
+
+  /** Replaces any open child popup with one showing [step], anchored on [element]'s row. */
+  private fun openChildStep(step: PopupStep<*>, element: EvoTreeElement) {
+    SwingUtilities.invokeLater {
+      if (isDisposed) return@invokeLater
+      val item = selectedItemFor(element) ?: return@invokeLater
+      disposeChildren()
+      handleNextStep(step, item, null)
     }
   }
 
@@ -811,6 +948,14 @@ open class EvoTreePopup private constructor(
     // crosses one and a cursor left over from the popup that was just disposed would stay for as long as the pointer
     // remains inside. Component.setCursor updates the native cursor outright, which is what breaks that.
     list.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    // An AnimatedIcon painted by a renderer advances only when the component it is painted on is repainted, and it asks
+    // for that repaint itself only when it can find the list behind the renderer and that list allows it. This is the
+    // property that allows it, and it is what every other list and tree with a spinner sets.
+    list.putClientProperty(AnimatedIcon.ANIMATION_IN_RENDERER_ALLOWED, true)
+    // It did not animate the loader here even so, and the icon asks for nothing when it cannot resolve that list — so
+    // the repaint is driven from here as well rather than left to a lookup this popup evidently falls outside of. A tick
+    // repaints only while a spinner is actually on screen, and the timer dies with the popup.
+    loaderRepaintTimer.start()
     // Resolve lazy detail (e.g. interpreter version) for the rows currently in the viewport, and again for any
     // rows scrolled into view later — never for the whole list up front. See [EvoLazyDetail].
     (list.parent as? JViewport)?.addChangeListener { resolveVisibleDetails() }
@@ -831,7 +976,8 @@ open class EvoTreePopup private constructor(
           CommonDataKeys.PROJECT.getData(dataContext)?.let { project ->
             PyEvoWidgetCollector.controlUsed(project, PyEvoWidgetCollector.Control.RELOAD, item.evoNodeStats() ?: EvoNodeStats(EvoNodeKind.OTHER))
           }
-          evoStep?.reloadItem(item)
+          reloadShowingLoadingPanel(item)
+          return
         }
         if (settingsGearAt(e.point)) openPackageManagersSettings()
       }
@@ -1102,6 +1248,7 @@ open class EvoTreePopup private constructor(
 
 
   override fun dispose() {
+    loaderRepaintTimer.stop()
     myDisposeCallback?.run()
     ActionMenu.showDescriptionInStatusBar(true, myComponent, null)
     super.dispose()

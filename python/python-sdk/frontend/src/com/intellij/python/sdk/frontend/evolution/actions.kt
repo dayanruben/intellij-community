@@ -5,6 +5,7 @@ import com.intellij.ide.ui.icons.IconId
 import com.intellij.ide.ui.icons.icon
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
@@ -35,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.intellij.python.sdk.frontend.evolution.components.EvoLinkRow
 
 /**
  * Remembers the tool node whose interpreter configuration is currently in progress, so the status-bar widget shows that
@@ -80,6 +82,19 @@ internal fun createEvoEnv(
 }
 
 /**
+ * Sets [text] as this row's label, with no part of it read as a mnemonic marker.
+ *
+ * `AnAction`'s text supplier reaches [Presentation.setText], which reads the text as text-with-mnemonic: the first `_`
+ * or `&` marks the shortcut letter and is dropped from what is drawn. Every label in this popup is a name off the
+ * machine — an environment folder, an interpreter path — so an environment called `2025_2_eap5_2` appeared as
+ * `20252_eap5_2` (PY-91872). Nothing here navigates by mnemonic in any case:
+ * [com.intellij.python.sdk.frontend.evolution.components.EvoActionPopupStep] turns that off.
+ *
+ * A label built from a bundle message needs no such call, because a translator writes the marker deliberately.
+ */
+internal fun Presentation.setPlainText(text: @NlsSafe String) = setText({ text }, false)
+
+/**
  * A runnable backend ACTION leaf (e.g. an "Advanced" add-interpreter / add-on-target action). Performing it runs
  * the backend action over RPC ([requestEvoPerformNodeAction]); the widget refreshes on the resulting `rootsChanged`.
  */
@@ -91,6 +106,7 @@ internal fun evoBackendActionLeaf(
   scope: CoroutineScope,
 ): AnAction = object : AnAction({ leaf.title }, { leaf.description ?: "" }, leaf.icon.icon()), DumbAware {
   init {
+    templatePresentation.setPlainText(leaf.title)
     leaf.secondaryText?.let { templatePresentation.putClientProperty(ActionUtil.SECONDARY_TEXT, it) }
   }
 
@@ -135,6 +151,7 @@ internal class SelectEnvAction(
   private var versionRequested = false
 
   init {
+    templatePresentation.setPlainText(title)
     secondaryText?.let { templatePresentation.putClientProperty(ActionUtil.SECONDARY_TEXT, it) }
   }
 
@@ -255,6 +272,21 @@ internal fun installActionRow(onChosen: () -> Unit): EvoTreeLeafElement {
 }
 
 /**
+ * The row that reveals the tools a collapsed widget list leaves out, running [onChosen] when picked.
+ *
+ * An ordinary leaf, so choosing it closes the popup and runs [onChosen] afterwards — which is what a list that has to be
+ * rebuilt from the top wants anyway. The chevron sits in the row's own icon column and points the way the list is about
+ * to grow; [EvoLinkRow] is what colours the text.
+ */
+internal fun showMoreRow(onChosen: () -> Unit): EvoTreeLeafElement {
+  val action = object : AnAction({ PySdkFrontendBundle.message("evo.sdk.status.bar.popup.show.more") }, { "" },
+                                AllIcons.General.ChevronRight), DumbAware, EvoLinkRow {
+    override fun actionPerformed(e: AnActionEvent) = onChosen()
+  }
+  return EvoTreeLeafElement(action)
+}
+
+/**
  * One base-interpreter row: badged with its tool's icon, titled by its (elided) path, with its version and whatever
  * qualifies it in the right-hand column, running [onChosen] when picked.
  *
@@ -269,6 +301,8 @@ internal fun baseInterpreterRow(base: EvoBasePythonDto, onChosen: () -> Unit): E
   val action = object : AnAction({ base.title }, { "" }, icon), DumbAware {
     override fun actionPerformed(e: AnActionEvent) = onChosen()
   }
+  // An interpreter path is the one label here most likely to hold an underscore.
+  action.templatePresentation.setPlainText(base.title)
   action.templatePresentation.putClientProperty(ActionUtil.SECONDARY_TEXT, base.detail())
   base.titleTooltip?.let { action.templatePresentation.putClientProperty(ActionUtil.TOOLTIP_TEXT, it) }
   return EvoTreeLeafElement(action)

@@ -6,7 +6,6 @@ import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.pyproject.PyProjectIssue
 import com.intellij.python.pyproject.PyProjectTable
 import com.intellij.python.pyproject.dependencies.spi.PyDependencyGroupLocator
-import com.intellij.python.pyproject.model.internal.DefaultPyProjectManager
 import com.intellij.python.pyproject.psi.spi.PyProjectTomlPathLocator
 import com.jetbrains.python.PyToolUIInfo
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
@@ -20,11 +19,16 @@ import org.apache.tuweni.toml.TomlTable
  */
 interface PyProjectManager : PyProjectCreator, PyDependencyGroupLocator, PyProjectTomlPathLocator {
   companion object {
+    /**
+     * The registered managers, in load order. `DefaultPyProjectManager` is always the last element,
+     * because `intellij.python.pyproject.xml` registers it with `order="last"`.
+     */
     internal val EP = ExtensionPointName.create<PyProjectManager>("com.intellij.python.pyproject.model.pyprojectmanager")
 
     fun forSdk(sdk: Sdk): PyProjectManager {
-      val additionalData = sdk.pySdkAdditionalData
-      return EP.extensionList.firstOrNull { it.flavorDataType.isInstance(additionalData.flavor) } ?: DefaultPyProjectManager
+      val flavor = sdk.pySdkAdditionalData.flavor
+      return EP.extensionList.firstOrNull { it.flavorDataType.isInstance(flavor) }
+             ?: error("No PyProjectManager accepts the flavor $flavor. DefaultPyProjectManager must have order=\"last\".")
     }
   }
 
@@ -56,7 +60,12 @@ interface PyProjectManager : PyProjectCreator, PyDependencyGroupLocator, PyProje
   ): ProjectStructureInfo?
 
   /**
-   * Tool that supports build systems might return additional src directories
+   * Tool that supports build systems might return additional src directories.
+   *
+   * [toml] is the `pyproject.toml` content, [projectRoot] is the directory that holds it.
+   * Report the directories the build backend declares as source roots, and use [resolveSrcRoots]
+   * to turn the toml paths into them. A non-empty answer also makes this tool a participant of the project,
+   * so answer only for a table this tool owns.
    */
   suspend fun getSrcRoots(toml: TomlTable, projectRoot: Directory): Set<Directory>
 

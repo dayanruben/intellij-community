@@ -361,8 +361,10 @@
     <!-- region nested: compose -->
     <module name="intellij.libraries.skiko"/>
     <module name="intellij.libraries.coil"/>
+    <module name="intellij.libraries.compose.swing"/>
     <module name="intellij.platform.compose"/>
     <module name="intellij.platform.compose.markdown"/>
+    <module name="intellij.platform.compose.swing"/>
     <module name="intellij.platform.jewel.foundation"/>
     <module name="intellij.libraries.compose.foundation.desktop"/>
     <module name="intellij.libraries.compose.runtime.desktop"/>
@@ -417,6 +419,7 @@
     <module name="intellij.xml.psi.impl"/>
     <module name="intellij.xml.analysis"/>
     <module name="intellij.xml.emmet"/>
+    <module name="intellij.xml.emmet.shared"/>
     <module name="intellij.xml.emmet.backend"/>
     <module name="intellij.xml.emmet.frontend"/>
     <module name="intellij.xml.ui.common"/>
