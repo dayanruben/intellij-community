@@ -24,7 +24,7 @@ import org.jetbrains.annotations.NonNls
  */
 @ApiStatus.Internal
 object PyEvoWidgetCollector : CounterUsagesCollector() {
-  private val GROUP = EventLogGroup("python.sdk.widget", 1)
+  private val GROUP = EventLogGroup("python.sdk.widget", 2)
 
   override fun getGroup(): EventLogGroup = GROUP
 
@@ -39,11 +39,11 @@ object PyEvoWidgetCollector : CounterUsagesCollector() {
     /** A "Shortcuts" autoconfigure suggestion, shown when no interpreter is set. */
     SHORTCUTS,
 
-    /** A specific base interpreter chosen behind a row's inline "…" menu. */
-    ALTERNATIVES,
-
     /** A base interpreter picked from the expanded per-version listing. */
     EXPANDED_VERSION,
+
+    /** A base Python picked in a row's rebuild panel, which destroys that environment and builds it again. */
+    RECREATE,
 
     /** A Python version row in an "Add new" submenu. */
     ADD_NEW_VERSION,
@@ -79,17 +79,11 @@ object PyEvoWidgetCollector : CounterUsagesCollector() {
    * they leave no trace at all.
    */
   enum class Control {
-    /** The version list was expanded into per-install rows. */
-    EXPAND,
-
-    /** …and collapsed back to one row per version. */
-    COLLAPSE,
-
     /** A tool node's inline reload icon (force re-scan, bypassing the backend cache). */
     RELOAD,
 
-    /** A row's inline "…" menu of alternative base interpreters was opened. */
-    ALTERNATIVES,
+    /** A row's inline icon, opening the panel of base Pythons its environment could be built on. */
+    BASE_PYTHON_PANEL,
 
     /** The gear on the "Select Environment" header, opening Settings | Python | Tools | Package Manager. */
     GEAR_SETTINGS,
@@ -99,13 +93,7 @@ object PyEvoWidgetCollector : CounterUsagesCollector() {
 
     /** The "Manage Packages" row, opening the Python Packages tool window. */
     MANAGE_PACKAGES,
-
-    /** A version row was clicked while the typed environment name was unusable, so nothing was created. */
-    NAME_REJECTED,
   }
-
-  /** Why a typed environment name could not back a new environment. Mirrors the frontend's `EvoEditableName.Problem`. */
-  enum class NameProblem { BLANK, ILLEGAL, TAKEN }
 
   private val NODE_KIND = EventFields.Enum("node_kind", EvoNodeKind::class.java)
 
@@ -122,7 +110,6 @@ object PyEvoWidgetCollector : CounterUsagesCollector() {
   private val OUTCOME = EventFields.Enum("outcome", Outcome::class.java)
   private val NODE_OUTCOME = EventFields.Enum("node_outcome", NodeOutcome::class.java)
   private val CONTROL = EventFields.Enum("control", Control::class.java)
-  private val NAME_PROBLEM = EventFields.Enum("name_problem", NameProblem::class.java)
 
   private val HAS_INTERPRETER = EventFields.Boolean("has_interpreter")
 
@@ -150,7 +137,7 @@ object PyEvoWidgetCollector : CounterUsagesCollector() {
     "interpreter.applied", NODE_KIND, TOOL_NAME, REF_KIND, OUTCOME, DOWNLOADED_BASE, EventFields.DurationMs,
   )
 
-  private val CONTROL_USED = GROUP.registerVarargEvent("control.used", CONTROL, NODE_KIND, TOOL_NAME, NAME_PROBLEM)
+  private val CONTROL_USED = GROUP.registerVarargEvent("control.used", CONTROL, NODE_KIND, TOOL_NAME)
 
   private val BACKEND_ACTION_PERFORMED = GROUP.registerVarargEvent("backend.action.performed", NODE_KIND, TOOL_NAME, OUTCOME)
 
@@ -221,19 +208,14 @@ object PyEvoWidgetCollector : CounterUsagesCollector() {
     add(EventFields.DurationMs.with(durationMs))
   }
 
-  /**
-   * One of the popup's non-action affordances was used. [nameProblem] is set only for [Control.NAME_REJECTED], which
-   * is why this is a vararg event.
-   */
+  /** One of the popup's non-action affordances was used. */
   fun controlUsed(
     project: Project?,
     control: Control,
     node: EvoNodeStats = EvoNodeStats(EvoNodeKind.OTHER),
-    nameProblem: NameProblem? = null,
   ): Unit = CONTROL_USED.log(project) {
     add(CONTROL.with(control))
     addNode(node)
-    nameProblem?.let { add(NAME_PROBLEM.with(it)) }
   }
 
   /** A backend-dispatched node action (the "Advanced" add-interpreter rows) ran. */

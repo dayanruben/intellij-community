@@ -164,11 +164,11 @@ object CommunityModuleSets {
   fun debugger(): ModuleSet = moduleSet("debugger", includeDependencies = true) {
     module("intellij.platform.debugger.impl.frontend")
     module("intellij.platform.debugger.impl.backend")
-    embeddedModule("intellij.platform.debugger.impl.shared")
-    embeddedModule("intellij.platform.debugger.impl.rpc")
-    embeddedModule("intellij.platform.debugger.impl.ui")
-    embeddedModule("intellij.platform.debugger")
-    embeddedModule("intellij.platform.debugger.impl")
+    module("intellij.platform.debugger.impl.shared")
+    module("intellij.platform.debugger.impl.rpc")
+    module("intellij.platform.debugger.impl.ui")
+    module("intellij.platform.debugger")
+    module("intellij.platform.debugger.impl")
   }
 
   // endregion
@@ -366,6 +366,7 @@ object CommunityModuleSets {
     // Those modules are loaded only: in JetBrains Client, Rider and an IDE if a Radler is installed.
     // Packaging of those modules to the all IDEs is required to load a JetBrains Client from the big IDE distribution.
     module("intellij.rd.client")
+    module("intellij.rd.client.debugger")
     module("intellij.rd.client.base")
     module("intellij.rd.client.internal")
   }

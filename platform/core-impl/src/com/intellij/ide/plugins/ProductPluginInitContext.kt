@@ -517,8 +517,13 @@ private val RPC_MODULE_ID = PluginModuleId("intellij.platform.rpc", PluginModule
 private val contentModulesExtractedInCorePluginWhichCanBeUsedFromExternalPlugins = arrayOf(
   "intellij.platform.collaborationTools.auth",
   "intellij.platform.collaborationTools.auth.base",
+  "intellij.platform.debugger",
+  "intellij.platform.debugger.impl",
+  "intellij.platform.debugger.impl.shared",
+  "intellij.platform.debugger.impl.ui",
   "intellij.platform.tasks",
   "intellij.platform.tasks.impl",
+  "intellij.platform.remoteServers.impl",
   "intellij.platform.scriptDebugger.ui",
   "intellij.platform.scriptDebugger.backend",
   "intellij.platform.scriptDebugger.protocolReaderRuntime",
