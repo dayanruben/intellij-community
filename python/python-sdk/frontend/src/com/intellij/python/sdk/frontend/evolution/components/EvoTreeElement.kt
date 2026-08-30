@@ -164,12 +164,12 @@ private fun loadingSection(): EvoTreeSection =
 class EvoTreeActionLeafElement(action: AnAction) : EvoTreeLeafElement(action, action.templatePresentation.clone())
 
 /**
- * A row that reveals more of the list rather than selecting an environment, drawn in the platform's link colour.
+ * A row that folds part of the list away or unfolds it, rather than naming an environment.
  *
- * The colour is the whole of it: such a row is an ordinary leaf, laid out like any other, and its own icon says which
- * way the list is about to grow. It keeps the hover highlight and the keyboard, which a painted strip would not.
+ * Drawn quieter and smaller than the rows it controls, so a list is read as environments with a control under them
+ * instead of as environments one of which is worded oddly.
  */
-interface EvoLinkRow
+interface EvoDisclosureRow
 
 /**
  * A node whose submenu is a list of Pythons — so the platform handles mouse and keyboard natively. It is marked so
@@ -193,31 +193,13 @@ class EvoTreeAddNewNode(
 }
 
 /**
- * Implemented by a leaf [AnAction] whose environment has a base Python the user may choose.
+ * Implemented by a leaf [AnAction] whose row offers the Pythons its environment can be built on, opened by the right
+ * button over that row.
  *
- * Two rows have one. An environment that does not exist yet is built on whichever Python the row already names, and the
- * panel offers the others. An environment that does exist is destroyed and built again on the one picked there.
- *
- * Either way the row keeps doing its own thing when clicked, and the choice sits behind an inline icon [EvoTreePopup]
- * paints while the row is hovered — so the finer decision costs nothing to whoever does not want it, and the
- * destructive one is never a stray click away from an ordinary switch.
+ * Picking one acts at once: it creates the environment the row stands for, or rebuilds the one it names.
  */
 interface EvoBasePythonPanel {
-  /**
-   * The panel the icon opens, or null when this row offers no choice and so carries no icon.
-   *
-   * Built by whoever built the row, so its rows close over the same call that row would make. Nullable because one
-   * action class serves both a row with a choice behind it and one without.
-   */
   val basePythonPanel: EvoTreeNodeElement?
-
-  /**
-   * Run when a row of [basePythonPanel] was picked and only changed what this row says.
-   *
-   * Set by the popup, which is the only thing that can close the panel and repaint the row underneath it. Left null by
-   * a panel whose rows act on the project, since such a panel closes with the whole popup anyway.
-   */
-  var onBasePythonChosen: (() -> Unit)?
 }
 
 /**
@@ -241,14 +223,6 @@ sealed class EvoTreeNodeElement(
    */
   var headerCaption: @Nls String? = null
 
-  /**
-   * True when picking a row here only changes what the row behind it says, instead of acting on the project.
-   *
-   * The base-Python panel of an environment that does not exist yet is such a node: choosing a Python sets the one its
-   * row will build on, and the row itself still has to be chosen. So the popup must stay open and drop back to the list
-   * — see `EvoActionPopupStep.onChosen`, which runs the row at once instead of queuing it for after the close.
-   */
-  var picksWithoutClosing: Boolean = false
 
   /**
    * One line under this node's submenu saying what picking a row there does, or null for a panel that says nothing.
@@ -310,6 +284,12 @@ class EvoTreeLazyNodeElement(
    * process behind it at all.
    */
   val showOutput: (() -> Unit)? = null,
+  /**
+   * Whether a node that answered with nothing carries the warning sign — see [EvoTreeItem.statusIcon].
+   *
+   * False for a node whose "nothing" is an ordinary answer rather than a problem to report.
+   */
+  val signsUnavailable: Boolean = true,
   val loader: suspend (forceRefresh: Boolean) -> EvoLoadedNode,
 ) : EvoTreeNodeElement(text, icon) {
   /** Set from the last load: true once the backend measured this tool as slow, so it shows an inline reload icon. */

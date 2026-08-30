@@ -85,59 +85,6 @@ jvm_import(
 )
 
 copy_file(
-    name = "ai.grazie/grazie-rule-engine-0.4.8.jar_copy",
-    src = "@ai_grazie-grazie-rule-engine-0_4_8_http//file",
-    out = "ai.grazie/grazie-rule-engine-0.4.8.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "net.fellbaum/jemoji-1.3.1.jar_copy",
-    src = "@net_fellbaum-jemoji-1_3_1_http//file",
-    out = "net.fellbaum/jemoji-1.3.1.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "ai-grazie-rule-engine",
-    visibility = ["//visibility:public"],
-    exports = [
-        # do not sort,
-        ":ai_grazie-grazie-rule-engine-0_4_8_http_import",
-        ":net_fellbaum-jemoji-1_3_1_http_import",
-    ],
-)
-
-jvm_import(
-    name = "ai_grazie-grazie-rule-engine-0_4_8_http_import",
-    jar = "@ai_grazie-grazie-rule-engine-0_4_8_http//file",
-    source_jar = "@ai_grazie-grazie-rule-engine-0_4_8-sources_http//file",
-)
-
-jvm_import(
-    name = "net_fellbaum-jemoji-1_3_1_http_import",
-    jar = "@net_fellbaum-jemoji-1_3_1_http//file",
-    source_jar = "@net_fellbaum-jemoji-1_3_1-sources_http//file",
-)
-
-copy_file(
-    name = "ai.grazie/grazie-rules-llm-0.4.8.jar_copy",
-    src = "@ai_grazie-grazie-rules-llm-0_4_8_http//file",
-    out = "ai.grazie/grazie-rules-llm-0.4.8.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "ai-grazie-semantic-engine",
-    jar = "@ai_grazie-grazie-rules-llm-0_4_8_http//file",
-    source_jar = "@ai_grazie-grazie-rules-llm-0_4_8-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
     name = "com.ibm.db2/jcc-11.5.7.0.jar_copy",
     src = "@com_ibm_db2-jcc-11_5_7_0_http//file",
     out = "com.ibm.db2/jcc-11.5.7.0.jar",
@@ -833,50 +780,6 @@ jvm_import(
     jar = "@org_jetbrains_intellij_deps_completion-completion-ranking-scala-0_4_1_http//file",
     source_jar = "@org_jetbrains_intellij_deps_completion-completion-ranking-scala-0_4_1-sources_http//file",
     visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "org.jetbrains.intellij.deps.cucumber/cucumber-core-1.2.6-amn-patched.jar_copy",
-    src = "@org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http//file",
-    out = "org.jetbrains.intellij.deps.cucumber/cucumber-core-1.2.6-amn-patched.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "info.cukes/gherkin-2.12.2.jar_copy",
-    src = "@info_cukes-gherkin-2_12_2_http//file",
-    out = "info.cukes/gherkin-2.12.2.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "cucumber-core-1",
-    visibility = ["//visibility:public"],
-    exports = [
-        # do not sort,
-        ":org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http_import",
-        ":info_cukes-gherkin-2_12_2_http_import",
-    ],
-)
-
-jvm_import(
-    name = "org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http_import",
-    jar = "@org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http//file",
-)
-
-jvm_import(
-    name = "info_cukes-gherkin-2_12_2_http_import",
-    jar = "@info_cukes-gherkin-2_12_2_http//file",
-    source_jar = "@info_cukes-gherkin-2_12_2-sources_http//file",
-)
-
-java_library(
-    name = "cucumber-core-1-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":cucumber-core-1"],
 )
 
 copy_file(
@@ -2626,20 +2529,6 @@ jvm_import(
     name = "fleet-tukaani-xz",
     jar = "@org_tukaani-xz-1_9_http//file",
     source_jar = "@org_tukaani-xz-1_9-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "org.jetbrains.intellij.deps.ift/git-learning-project-212.0.2.jar_copy",
-    src = "@org_jetbrains_intellij_deps_ift-git-learning-project-212_0_2_http//file",
-    out = "org.jetbrains.intellij.deps.ift/git-learning-project-212.0.2.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "git-learning-project",
-    jar = "@org_jetbrains_intellij_deps_ift-git-learning-project-212_0_2_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -6906,59 +6795,6 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.charleskorn.kaml/kaml-jvm-0.99.0.jar_copy",
-    src = "@com_charleskorn_kaml-kaml-jvm-0_99_0_http//file",
-    out = "com.charleskorn.kaml/kaml-jvm-0.99.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "it.krzeminski/snakeyaml-engine-kmp-jvm-3.2.1.jar_copy",
-    src = "@it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http//file",
-    out = "it.krzeminski/snakeyaml-engine-kmp-jvm-3.2.1.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "net.thauvin.erik.urlencoder/urlencoder-lib-jvm-1.6.0.jar_copy",
-    src = "@net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http//file",
-    out = "net.thauvin.erik.urlencoder/urlencoder-lib-jvm-1.6.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kaml",
-    visibility = ["//visibility:public"],
-    exports = [
-        # do not sort,
-        ":com_charleskorn_kaml-kaml-jvm-0_99_0_http_import",
-        ":it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http_import",
-        ":net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http_import",
-    ],
-)
-
-jvm_import(
-    name = "com_charleskorn_kaml-kaml-jvm-0_99_0_http_import",
-    jar = "@com_charleskorn_kaml-kaml-jvm-0_99_0_http//file",
-    source_jar = "@com_charleskorn_kaml-kaml-jvm-0_99_0-sources_http//file",
-)
-
-jvm_import(
-    name = "it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http_import",
-    jar = "@it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http//file",
-    source_jar = "@it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1-sources_http//file",
-)
-
-jvm_import(
-    name = "net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http_import",
-    jar = "@net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http//file",
-    source_jar = "@net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0-sources_http//file",
-)
-
-copy_file(
     name = "org.ehcache/sizeof-0.4.0.jar_copy",
     src = "@org_ehcache-sizeof-0_4_0_http//file",
     out = "org.ehcache/sizeof-0.4.0.jar",
@@ -8213,6 +8049,59 @@ jvm_import(
     name = "org_codehaus_woodstox-stax2-api-4_2_2_http_import",
     jar = "@org_codehaus_woodstox-stax2-api-4_2_2_http//file",
     source_jar = "@org_codehaus_woodstox-stax2-api-4_2_2-sources_http//file",
+)
+
+copy_file(
+    name = "ai.grazie/grazie-rule-engine-0.4.8.jar_copy",
+    src = "@ai_grazie-grazie-rule-engine-0_4_8_http//file",
+    out = "ai.grazie/grazie-rule-engine-0.4.8.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "net.fellbaum/jemoji-1.3.1.jar_copy",
+    src = "@net_fellbaum-jemoji-1_3_1_http//file",
+    out = "net.fellbaum/jemoji-1.3.1.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+java_library(
+    name = "libraries-ai-grazie-rule-engine-ai-grazie-rule-engine",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        ":ai_grazie-grazie-rule-engine-0_4_8_http_import",
+        ":net_fellbaum-jemoji-1_3_1_http_import",
+    ],
+)
+
+jvm_import(
+    name = "ai_grazie-grazie-rule-engine-0_4_8_http_import",
+    jar = "@ai_grazie-grazie-rule-engine-0_4_8_http//file",
+    source_jar = "@ai_grazie-grazie-rule-engine-0_4_8-sources_http//file",
+)
+
+jvm_import(
+    name = "net_fellbaum-jemoji-1_3_1_http_import",
+    jar = "@net_fellbaum-jemoji-1_3_1_http//file",
+    source_jar = "@net_fellbaum-jemoji-1_3_1-sources_http//file",
+)
+
+copy_file(
+    name = "ai.grazie/grazie-rules-llm-0.4.8.jar_copy",
+    src = "@ai_grazie-grazie-rules-llm-0_4_8_http//file",
+    out = "ai.grazie/grazie-rules-llm-0.4.8.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-ai-grazie-semantic-engine-ai-grazie-semantic-engine",
+    jar = "@ai_grazie-grazie-rules-llm-0_4_8_http//file",
+    source_jar = "@ai_grazie-grazie-rules-llm-0_4_8-sources_http//file",
+    visibility = ["//visibility:public"],
 )
 
 jvm_import(
@@ -10188,6 +10077,43 @@ jvm_import(
 )
 
 copy_file(
+    name = "org.jetbrains.intellij.deps.cucumber/cucumber-core-1.2.6-amn-patched.jar_copy",
+    src = "@org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http//file",
+    out = "org.jetbrains.intellij.deps.cucumber/cucumber-core-1.2.6-amn-patched.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "info.cukes/gherkin-2.12.2.jar_copy",
+    src = "@info_cukes-gherkin-2_12_2_http//file",
+    out = "info.cukes/gherkin-2.12.2.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+java_library(
+    name = "libraries-cucumber-core1-cucumber-core-1",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        ":org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http_import",
+        ":info_cukes-gherkin-2_12_2_http_import",
+    ],
+)
+
+jvm_import(
+    name = "org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http_import",
+    jar = "@org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http//file",
+)
+
+jvm_import(
+    name = "info_cukes-gherkin-2_12_2_http_import",
+    jar = "@info_cukes-gherkin-2_12_2_http//file",
+    source_jar = "@info_cukes-gherkin-2_12_2-sources_http//file",
+)
+
+copy_file(
     name = "org.jetbrains.dokka/analysis-kotlin-descriptors-2.1.0.jar_copy",
     src = "@org_jetbrains_dokka-analysis-kotlin-descriptors-2_1_0_http//file",
     out = "org.jetbrains.dokka/analysis-kotlin-descriptors-2.1.0.jar",
@@ -11346,6 +11272,20 @@ jvm_import(
     name = "com_vladsch_flexmark-flexmark-youtrack-converter-0_64_8_http_import",
     jar = "@com_vladsch_flexmark-flexmark-youtrack-converter-0_64_8_http//file",
     source_jar = "@com_vladsch_flexmark-flexmark-youtrack-converter-0_64_8-sources_http//file",
+)
+
+copy_file(
+    name = "org.jetbrains.intellij.deps.ift/git-learning-project-212.0.2.jar_copy",
+    src = "@org_jetbrains_intellij_deps_ift-git-learning-project-212_0_2_http//file",
+    out = "org.jetbrains.intellij.deps.ift/git-learning-project-212.0.2.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-git-learning-project-git-learning-project",
+    jar = "@org_jetbrains_intellij_deps_ift-git-learning-project-212_0_2_http//file",
+    visibility = ["//visibility:public"],
 )
 
 copy_file(
@@ -12865,6 +12805,59 @@ jvm_import(
 )
 
 copy_file(
+    name = "com.charleskorn.kaml/kaml-jvm-0.99.0.jar_copy",
+    src = "@com_charleskorn_kaml-kaml-jvm-0_99_0_http//file",
+    out = "com.charleskorn.kaml/kaml-jvm-0.99.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "it.krzeminski/snakeyaml-engine-kmp-jvm-3.2.1.jar_copy",
+    src = "@it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http//file",
+    out = "it.krzeminski/snakeyaml-engine-kmp-jvm-3.2.1.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "net.thauvin.erik.urlencoder/urlencoder-lib-jvm-1.6.0.jar_copy",
+    src = "@net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http//file",
+    out = "net.thauvin.erik.urlencoder/urlencoder-lib-jvm-1.6.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+java_library(
+    name = "libraries-kaml-kaml",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        ":com_charleskorn_kaml-kaml-jvm-0_99_0_http_import",
+        ":it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http_import",
+        ":net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http_import",
+    ],
+)
+
+jvm_import(
+    name = "com_charleskorn_kaml-kaml-jvm-0_99_0_http_import",
+    jar = "@com_charleskorn_kaml-kaml-jvm-0_99_0_http//file",
+    source_jar = "@com_charleskorn_kaml-kaml-jvm-0_99_0-sources_http//file",
+)
+
+jvm_import(
+    name = "it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http_import",
+    jar = "@it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http//file",
+    source_jar = "@it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1-sources_http//file",
+)
+
+jvm_import(
+    name = "net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http_import",
+    jar = "@net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http//file",
+    source_jar = "@net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0-sources_http//file",
+)
+
+copy_file(
     name = "com.jetbrains/keychain-4.4.3.jar_copy",
     src = "@com_jetbrains-keychain-4_4_3_http//file",
     out = "com.jetbrains/keychain-4.4.3.jar",
@@ -13623,6 +13616,21 @@ jvm_import(
     name = "libraries-kxml2-kxml2",
     jar = "@net_sf_kxml-kxml2-2_3_0_http//file",
     source_jar = "@net_sf_kxml-kxml2-2_3_0-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.apache.thrift/libthrift-0.19.0.jar_copy",
+    src = "@org_apache_thrift-libthrift-0_19_0_http//file",
+    out = "org.apache.thrift/libthrift-0.19.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-libthrift-libthrift",
+    jar = "@org_apache_thrift-libthrift-0_19_0_http//file",
+    source_jar = "@org_apache_thrift-libthrift-0_19_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -14741,6 +14749,89 @@ jvm_import(
 )
 
 copy_file(
+    name = "org.jetbrains.packagesearch/packagesearch-api-client-jvm-3.4.0.jar_copy",
+    src = "@org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http//file",
+    out = "org.jetbrains.packagesearch/packagesearch-api-client-jvm-3.4.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.packagesearch/packagesearch-http-models-jvm-3.4.0.jar_copy",
+    src = "@org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http//file",
+    out = "org.jetbrains.packagesearch/packagesearch-http-models-jvm-3.4.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.packagesearch/packagesearch-api-models-jvm-3.4.0.jar_copy",
+    src = "@org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http//file",
+    out = "org.jetbrains.packagesearch/packagesearch-api-models-jvm-3.4.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.packagesearch/packagesearch-version-utils-jvm-3.4.0.jar_copy",
+    src = "@org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http//file",
+    out = "org.jetbrains.packagesearch/packagesearch-version-utils-jvm-3.4.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "com.soywiz.korlibs.krypto/krypto-jvm-4.0.10.jar_copy",
+    src = "@com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http//file",
+    out = "com.soywiz.korlibs.krypto/krypto-jvm-4.0.10.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+java_library(
+    name = "libraries-package-search-api-client-package-search-api-client",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        ":org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http_import",
+        ":org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http_import",
+        ":org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http_import",
+        ":org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http_import",
+        ":com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http_import",
+    ],
+)
+
+jvm_import(
+    name = "org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http_import",
+    jar = "@org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http//file",
+    source_jar = "@org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0-sources_http//file",
+)
+
+jvm_import(
+    name = "org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http_import",
+    jar = "@org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http//file",
+    source_jar = "@org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0-sources_http//file",
+)
+
+jvm_import(
+    name = "org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http_import",
+    jar = "@org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http//file",
+    source_jar = "@org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0-sources_http//file",
+)
+
+jvm_import(
+    name = "org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http_import",
+    jar = "@org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http//file",
+    source_jar = "@org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0-sources_http//file",
+)
+
+jvm_import(
+    name = "com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http_import",
+    jar = "@com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http//file",
+    source_jar = "@com_soywiz_korlibs_krypto-krypto-jvm-4_0_10-sources_http//file",
+)
+
+copy_file(
     name = "org.codehaus.plexus/plexus-utils-3.6.1.jar_copy",
     src = "@org_codehaus_plexus-plexus-utils-3_6_1_http//file",
     out = "org.codehaus.plexus/plexus-utils-3.6.1.jar",
@@ -15090,6 +15181,20 @@ jvm_import(
     name = "libraries-snakeyaml-snakeyaml",
     jar = "@org_yaml-snakeyaml-2_4_http//file",
     source_jar = "@org_yaml-snakeyaml-2_4-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.sqlite/native-3.42.0-jb.1.jar_copy",
+    src = "@org_sqlite-native-3_42_0-jb_1_http//file",
+    out = "org.sqlite/native-3.42.0-jb.1.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-sqlite-native-sqlite-native",
+    jar = "@org_sqlite-native-3_42_0-jb_1_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -15470,6 +15575,20 @@ jvm_import(
 )
 
 copy_file(
+    name = "com.jetbrains.intellij.platform/workspace-model-codegen-0.0.9.jar_copy",
+    src = "@com_jetbrains_intellij_platform-workspace-model-codegen-0_0_9_http//file",
+    out = "com.jetbrains.intellij.platform/workspace-model-codegen-0.0.9.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-workspace-model-codegen-workspace-model-codegen",
+    jar = "@com_jetbrains_intellij_platform-workspace-model-codegen-0_0_9_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
     name = "xerces/xercesImpl-2.12.2.jar_copy",
     src = "@xerces-xercesImpl-2_12_2_http//file",
     out = "xerces/xercesImpl-2.12.2.jar",
@@ -15684,21 +15803,6 @@ jvm_import(
     name = "libraries-zxing-core-zxing-core",
     jar = "@com_google_zxing-core-3_5_1_http//file",
     source_jar = "@com_google_zxing-core-3_5_1-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "org.apache.thrift/libthrift-0.19.0.jar_copy",
-    src = "@org_apache_thrift-libthrift-0_19_0_http//file",
-    out = "org.apache.thrift/libthrift-0.19.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "libthrift",
-    jar = "@org_apache_thrift-libthrift-0_19_0_http//file",
-    source_jar = "@org_apache_thrift-libthrift-0_19_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -19919,89 +20023,6 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.packagesearch/packagesearch-api-client-jvm-3.4.0.jar_copy",
-    src = "@org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http//file",
-    out = "org.jetbrains.packagesearch/packagesearch-api-client-jvm-3.4.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "org.jetbrains.packagesearch/packagesearch-http-models-jvm-3.4.0.jar_copy",
-    src = "@org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http//file",
-    out = "org.jetbrains.packagesearch/packagesearch-http-models-jvm-3.4.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "org.jetbrains.packagesearch/packagesearch-api-models-jvm-3.4.0.jar_copy",
-    src = "@org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http//file",
-    out = "org.jetbrains.packagesearch/packagesearch-api-models-jvm-3.4.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "org.jetbrains.packagesearch/packagesearch-version-utils-jvm-3.4.0.jar_copy",
-    src = "@org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http//file",
-    out = "org.jetbrains.packagesearch/packagesearch-version-utils-jvm-3.4.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "com.soywiz.korlibs.krypto/krypto-jvm-4.0.10.jar_copy",
-    src = "@com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http//file",
-    out = "com.soywiz.korlibs.krypto/krypto-jvm-4.0.10.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "package-search-api-client",
-    visibility = ["//visibility:public"],
-    exports = [
-        # do not sort,
-        ":org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http_import",
-        ":org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http_import",
-        ":org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http_import",
-        ":org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http_import",
-        ":com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http_import",
-    ],
-)
-
-jvm_import(
-    name = "org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http_import",
-    jar = "@org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http//file",
-    source_jar = "@org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0-sources_http//file",
-)
-
-jvm_import(
-    name = "org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http_import",
-    jar = "@org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http//file",
-    source_jar = "@org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0-sources_http//file",
-)
-
-jvm_import(
-    name = "org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http_import",
-    jar = "@org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http//file",
-    source_jar = "@org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0-sources_http//file",
-)
-
-jvm_import(
-    name = "org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http_import",
-    jar = "@org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http//file",
-    source_jar = "@org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0-sources_http//file",
-)
-
-jvm_import(
-    name = "com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http_import",
-    jar = "@com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http//file",
-    source_jar = "@com_soywiz_korlibs_krypto-krypto-jvm-4_0_10-sources_http//file",
-)
-
-copy_file(
     name = "com.guardsquare/proguard-base-7.8.2.jar_copy",
     src = "@com_guardsquare-proguard-base-7_8_2_http//file",
     out = "com.guardsquare/proguard-base-7.8.2.jar",
@@ -21356,20 +21377,6 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.sqlite/native-3.42.0-jb.1.jar_copy",
-    src = "@org_sqlite-native-3_42_0-jb_1_http//file",
-    out = "org.sqlite/native-3.42.0-jb.1.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "sqlite-native",
-    jar = "@org_sqlite-native-3_42_0-jb_1_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
     name = "com.squareup.okio/okio-jvm-3.16.0.jar_copy",
     src = "@com_squareup_okio-okio-jvm-3_16_0_http//file",
     out = "com.squareup.okio/okio-jvm-3.16.0.jar",
@@ -21875,20 +21882,6 @@ java_library(
         ":com_squareup_okio-okio-jvm-3_9_0_http_import",
         ":com_apollographql_apollo-apollo-annotations-jvm-4_0_0_http_import",
     ],
-)
-
-copy_file(
-    name = "com.jetbrains.intellij.platform/workspace-model-codegen-0.0.9.jar_copy",
-    src = "@com_jetbrains_intellij_platform-workspace-model-codegen-0_0_9_http//file",
-    out = "com.jetbrains.intellij.platform/workspace-model-codegen-0.0.9.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "workspace-model-codegen",
-    jar = "@com_jetbrains_intellij_platform-workspace-model-codegen-0_0_9_http//file",
-    visibility = ["//visibility:public"],
 )
 
 copy_file(

@@ -29,48 +29,6 @@ http_file(
 )
 
 http_file(
-    name = "ai_grazie-grazie-rule-engine-0_4_8_http",
-    downloaded_file_path = "grazie-rule-engine-0.4.8.jar",
-    sha256 = "4424b866ca4f4e4185fa49f8d01c86bfeec0e4f67424cd43ae89dbe42209d5a1",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.4.8/grazie-rule-engine-0.4.8.jar",
-)
-
-http_file(
-    name = "net_fellbaum-jemoji-1_3_1_http",
-    downloaded_file_path = "jemoji-1.3.1.jar",
-    sha256 = "80a2f8918240a07d3a6fc7cdcc543d278013f6943c080835e43a22fc90462a9f",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/net/fellbaum/jemoji/1.3.1/jemoji-1.3.1.jar",
-)
-
-http_file(
-    name = "ai_grazie-grazie-rule-engine-0_4_8-sources_http",
-    downloaded_file_path = "grazie-rule-engine-0.4.8-sources.jar",
-    sha256 = "ca74e4092844e911811028d6f814708388e13d50f81515e63005aeeb4aa8f744",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.4.8/grazie-rule-engine-0.4.8-sources.jar",
-)
-
-http_file(
-    name = "net_fellbaum-jemoji-1_3_1-sources_http",
-    downloaded_file_path = "jemoji-1.3.1-sources.jar",
-    sha256 = "d8c00dd2d5edff50888cd222aa30cba9a96a4743b9d1f2ca725e9d576abad31a",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/net/fellbaum/jemoji/1.3.1/jemoji-1.3.1-sources.jar",
-)
-
-http_file(
-    name = "ai_grazie-grazie-rules-llm-0_4_8_http",
-    downloaded_file_path = "grazie-rules-llm-0.4.8.jar",
-    sha256 = "d015676f20eed34ed02d455bccd8059c78102c4e5e13ec500e9f4b067f3d3f17",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.4.8/grazie-rules-llm-0.4.8.jar",
-)
-
-http_file(
-    name = "ai_grazie-grazie-rules-llm-0_4_8-sources_http",
-    downloaded_file_path = "grazie-rules-llm-0.4.8-sources.jar",
-    sha256 = "1b15a2c1647263b14d8c081d6ad18af0e36b8ad94c3f89e5099a24af76c887d8",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.4.8/grazie-rules-llm-0.4.8-sources.jar",
-)
-
-http_file(
     name = "com_ibm_db2-jcc-11_5_7_0_http",
     downloaded_file_path = "jcc-11.5.7.0.jar",
     sha256 = "1dbc8dc93441890f242be66983f1d1363fe6a80f8d1f0b7ca0e1063f42054bb0",
@@ -509,27 +467,6 @@ http_file(
     downloaded_file_path = "completion-ranking-scala-0.4.1-sources.jar",
     sha256 = "363c273491f3014bdf16a1fa6d947c59af3f52b544af4ec46148bbf7c512b024",
     url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/completion/completion-ranking-scala/0.4.1/completion-ranking-scala-0.4.1-sources.jar",
-)
-
-http_file(
-    name = "org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http",
-    downloaded_file_path = "cucumber-core-1.2.6-amn-patched.jar",
-    sha256 = "7ea83d3d0debdf9e966172419b6aa90ac0cc76ee7e25857a1087c275854edcde",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/cucumber/cucumber-core/1.2.6-amn-patched/cucumber-core-1.2.6-amn-patched.jar",
-)
-
-http_file(
-    name = "info_cukes-gherkin-2_12_2_http",
-    downloaded_file_path = "gherkin-2.12.2.jar",
-    sha256 = "0a5ebc0506ab1e4a08af1ca150f797304ff53b953c5b1f6fcf1f81551d964aad",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/info/cukes/gherkin/2.12.2/gherkin-2.12.2.jar",
-)
-
-http_file(
-    name = "info_cukes-gherkin-2_12_2-sources_http",
-    downloaded_file_path = "gherkin-2.12.2-sources.jar",
-    sha256 = "a60731e4a2c1c87e99fc4c15cbc6b36df52887dcb33039d7a0d0922e1582ef39",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/info/cukes/gherkin/2.12.2/gherkin-2.12.2-sources.jar",
 )
 
 http_file(
@@ -2028,13 +1965,6 @@ http_file(
     downloaded_file_path = "xz-1.9-sources.jar",
     sha256 = "5befa47f06b90e752f035191dde7f2deb59f36000f1ca6cc77d2362a82b6f462",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/tukaani/xz/1.9/xz-1.9-sources.jar",
-)
-
-http_file(
-    name = "org_jetbrains_intellij_deps_ift-git-learning-project-212_0_2_http",
-    downloaded_file_path = "git-learning-project-212.0.2.jar",
-    sha256 = "648eaffe833416e2accea4bf82b980f0e91ae51ef065f5bc74fa3481c373e9fd",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/ift/git-learning-project/212.0.2/git-learning-project-212.0.2.jar",
 )
 
 http_file(
@@ -5489,48 +5419,6 @@ http_file(
 )
 
 http_file(
-    name = "com_charleskorn_kaml-kaml-jvm-0_99_0_http",
-    downloaded_file_path = "kaml-jvm-0.99.0.jar",
-    sha256 = "bbb3901429952d8b0c5a11776262509142006d3e7e19001946c0393991dd7e10",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/charleskorn/kaml/kaml-jvm/0.99.0/kaml-jvm-0.99.0.jar",
-)
-
-http_file(
-    name = "it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http",
-    downloaded_file_path = "snakeyaml-engine-kmp-jvm-3.2.1.jar",
-    sha256 = "e85b667e909e0b9eaee7ad0f0b36f47ba3a3a8824f1782718ec2f73d5f3ed741",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/it/krzeminski/snakeyaml-engine-kmp-jvm/3.2.1/snakeyaml-engine-kmp-jvm-3.2.1.jar",
-)
-
-http_file(
-    name = "net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http",
-    downloaded_file_path = "urlencoder-lib-jvm-1.6.0.jar",
-    sha256 = "8d0fd2aeb48d19dc49c563ebc00f274947e45f716c107535c12ead63decd688d",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/net/thauvin/erik/urlencoder/urlencoder-lib-jvm/1.6.0/urlencoder-lib-jvm-1.6.0.jar",
-)
-
-http_file(
-    name = "com_charleskorn_kaml-kaml-jvm-0_99_0-sources_http",
-    downloaded_file_path = "kaml-jvm-0.99.0-sources.jar",
-    sha256 = "584a2625cfa0cdf8af0847efa8f22191f939350ea1c3909695cf89088f37bbf8",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/charleskorn/kaml/kaml-jvm/0.99.0/kaml-jvm-0.99.0-sources.jar",
-)
-
-http_file(
-    name = "it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1-sources_http",
-    downloaded_file_path = "snakeyaml-engine-kmp-jvm-3.2.1-sources.jar",
-    sha256 = "7ba356923fecbce3756549d94022d6cad7bdae65f6c7ccafd6c600f144aaca12",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/it/krzeminski/snakeyaml-engine-kmp-jvm/3.2.1/snakeyaml-engine-kmp-jvm-3.2.1-sources.jar",
-)
-
-http_file(
-    name = "net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0-sources_http",
-    downloaded_file_path = "urlencoder-lib-jvm-1.6.0-sources.jar",
-    sha256 = "ec107ce47aa4db7ffb9b892cee846dc88ee1cac745b6ecabd7d89de12253edd0",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/net/thauvin/erik/urlencoder/urlencoder-lib-jvm/1.6.0/urlencoder-lib-jvm-1.6.0-sources.jar",
-)
-
-http_file(
     name = "org_ehcache-sizeof-0_4_0_http",
     downloaded_file_path = "sizeof-0.4.0.jar",
     sha256 = "0429cb1f5cda94180007874ea926a88149fca2028e92b4556d35f0cfce310c53",
@@ -6333,6 +6221,48 @@ http_file(
     downloaded_file_path = "stax2-api-4.2.2-sources.jar",
     sha256 = "d20d4c7af14adf8025f719f8e6255659495e4836256b5b1b816be30b5e76f1b7",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/codehaus/woodstox/stax2-api/4.2.2/stax2-api-4.2.2-sources.jar",
+)
+
+http_file(
+    name = "ai_grazie-grazie-rule-engine-0_4_8_http",
+    downloaded_file_path = "grazie-rule-engine-0.4.8.jar",
+    sha256 = "4424b866ca4f4e4185fa49f8d01c86bfeec0e4f67424cd43ae89dbe42209d5a1",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.4.8/grazie-rule-engine-0.4.8.jar",
+)
+
+http_file(
+    name = "net_fellbaum-jemoji-1_3_1_http",
+    downloaded_file_path = "jemoji-1.3.1.jar",
+    sha256 = "80a2f8918240a07d3a6fc7cdcc543d278013f6943c080835e43a22fc90462a9f",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/net/fellbaum/jemoji/1.3.1/jemoji-1.3.1.jar",
+)
+
+http_file(
+    name = "ai_grazie-grazie-rule-engine-0_4_8-sources_http",
+    downloaded_file_path = "grazie-rule-engine-0.4.8-sources.jar",
+    sha256 = "ca74e4092844e911811028d6f814708388e13d50f81515e63005aeeb4aa8f744",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rule-engine/0.4.8/grazie-rule-engine-0.4.8-sources.jar",
+)
+
+http_file(
+    name = "net_fellbaum-jemoji-1_3_1-sources_http",
+    downloaded_file_path = "jemoji-1.3.1-sources.jar",
+    sha256 = "d8c00dd2d5edff50888cd222aa30cba9a96a4743b9d1f2ca725e9d576abad31a",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/net/fellbaum/jemoji/1.3.1/jemoji-1.3.1-sources.jar",
+)
+
+http_file(
+    name = "ai_grazie-grazie-rules-llm-0_4_8_http",
+    downloaded_file_path = "grazie-rules-llm-0.4.8.jar",
+    sha256 = "d015676f20eed34ed02d455bccd8059c78102c4e5e13ec500e9f4b067f3d3f17",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.4.8/grazie-rules-llm-0.4.8.jar",
+)
+
+http_file(
+    name = "ai_grazie-grazie-rules-llm-0_4_8-sources_http",
+    downloaded_file_path = "grazie-rules-llm-0.4.8-sources.jar",
+    sha256 = "1b15a2c1647263b14d8c081d6ad18af0e36b8ad94c3f89e5099a24af76c887d8",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/grazi/grazie-platform-public/ai/grazie/grazie-rules-llm/0.4.8/grazie-rules-llm-0.4.8-sources.jar",
 )
 
 http_file(
@@ -7974,6 +7904,27 @@ http_file(
 )
 
 http_file(
+    name = "org_jetbrains_intellij_deps_cucumber-cucumber-core-1_2_6-amn-patched_http",
+    downloaded_file_path = "cucumber-core-1.2.6-amn-patched.jar",
+    sha256 = "7ea83d3d0debdf9e966172419b6aa90ac0cc76ee7e25857a1087c275854edcde",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/cucumber/cucumber-core/1.2.6-amn-patched/cucumber-core-1.2.6-amn-patched.jar",
+)
+
+http_file(
+    name = "info_cukes-gherkin-2_12_2_http",
+    downloaded_file_path = "gherkin-2.12.2.jar",
+    sha256 = "0a5ebc0506ab1e4a08af1ca150f797304ff53b953c5b1f6fcf1f81551d964aad",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/info/cukes/gherkin/2.12.2/gherkin-2.12.2.jar",
+)
+
+http_file(
+    name = "info_cukes-gherkin-2_12_2-sources_http",
+    downloaded_file_path = "gherkin-2.12.2-sources.jar",
+    sha256 = "a60731e4a2c1c87e99fc4c15cbc6b36df52887dcb33039d7a0d0922e1582ef39",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/info/cukes/gherkin/2.12.2/gherkin-2.12.2-sources.jar",
+)
+
+http_file(
     name = "org_jetbrains_dokka-analysis-kotlin-descriptors-2_1_0_http",
     downloaded_file_path = "analysis-kotlin-descriptors-2.1.0.jar",
     sha256 = "0c5c7a44668623a2664cad5d998b4063fd25cab3f747469b38880398828535d0",
@@ -8951,6 +8902,13 @@ http_file(
     downloaded_file_path = "flexmark-youtrack-converter-0.64.8-sources.jar",
     sha256 = "ceacb63385bfe87d2cfd6a6ce39fa52d2ebf806ba58c3f63786ee4274fbf930e",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/vladsch/flexmark/flexmark-youtrack-converter/0.64.8/flexmark-youtrack-converter-0.64.8-sources.jar",
+)
+
+http_file(
+    name = "org_jetbrains_intellij_deps_ift-git-learning-project-212_0_2_http",
+    downloaded_file_path = "git-learning-project-212.0.2.jar",
+    sha256 = "648eaffe833416e2accea4bf82b980f0e91ae51ef065f5bc74fa3481c373e9fd",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/ift/git-learning-project/212.0.2/git-learning-project-212.0.2.jar",
 )
 
 http_file(
@@ -10242,6 +10200,48 @@ http_file(
 )
 
 http_file(
+    name = "com_charleskorn_kaml-kaml-jvm-0_99_0_http",
+    downloaded_file_path = "kaml-jvm-0.99.0.jar",
+    sha256 = "bbb3901429952d8b0c5a11776262509142006d3e7e19001946c0393991dd7e10",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/charleskorn/kaml/kaml-jvm/0.99.0/kaml-jvm-0.99.0.jar",
+)
+
+http_file(
+    name = "it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1_http",
+    downloaded_file_path = "snakeyaml-engine-kmp-jvm-3.2.1.jar",
+    sha256 = "e85b667e909e0b9eaee7ad0f0b36f47ba3a3a8824f1782718ec2f73d5f3ed741",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/it/krzeminski/snakeyaml-engine-kmp-jvm/3.2.1/snakeyaml-engine-kmp-jvm-3.2.1.jar",
+)
+
+http_file(
+    name = "net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0_http",
+    downloaded_file_path = "urlencoder-lib-jvm-1.6.0.jar",
+    sha256 = "8d0fd2aeb48d19dc49c563ebc00f274947e45f716c107535c12ead63decd688d",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/net/thauvin/erik/urlencoder/urlencoder-lib-jvm/1.6.0/urlencoder-lib-jvm-1.6.0.jar",
+)
+
+http_file(
+    name = "com_charleskorn_kaml-kaml-jvm-0_99_0-sources_http",
+    downloaded_file_path = "kaml-jvm-0.99.0-sources.jar",
+    sha256 = "584a2625cfa0cdf8af0847efa8f22191f939350ea1c3909695cf89088f37bbf8",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/charleskorn/kaml/kaml-jvm/0.99.0/kaml-jvm-0.99.0-sources.jar",
+)
+
+http_file(
+    name = "it_krzeminski-snakeyaml-engine-kmp-jvm-3_2_1-sources_http",
+    downloaded_file_path = "snakeyaml-engine-kmp-jvm-3.2.1-sources.jar",
+    sha256 = "7ba356923fecbce3756549d94022d6cad7bdae65f6c7ccafd6c600f144aaca12",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/it/krzeminski/snakeyaml-engine-kmp-jvm/3.2.1/snakeyaml-engine-kmp-jvm-3.2.1-sources.jar",
+)
+
+http_file(
+    name = "net_thauvin_erik_urlencoder-urlencoder-lib-jvm-1_6_0-sources_http",
+    downloaded_file_path = "urlencoder-lib-jvm-1.6.0-sources.jar",
+    sha256 = "ec107ce47aa4db7ffb9b892cee846dc88ee1cac745b6ecabd7d89de12253edd0",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/net/thauvin/erik/urlencoder/urlencoder-lib-jvm/1.6.0/urlencoder-lib-jvm-1.6.0-sources.jar",
+)
+
+http_file(
     name = "com_jetbrains-keychain-4_4_3_http",
     downloaded_file_path = "keychain-4.4.3.jar",
     sha256 = "8e1186cccf455e34775c35cc39c690d0064922570ce799c63ac409210d17e8cc",
@@ -10869,6 +10869,20 @@ http_file(
     downloaded_file_path = "kxml2-2.3.0-sources.jar",
     sha256 = "85495366666158b58961e8911ced0f6f3bc92f1ebee865518b493fdb90760250",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/net/sf/kxml/kxml2/2.3.0/kxml2-2.3.0-sources.jar",
+)
+
+http_file(
+    name = "org_apache_thrift-libthrift-0_19_0_http",
+    downloaded_file_path = "libthrift-0.19.0.jar",
+    sha256 = "2b6e6550b40467ede7b3034a1a9eb9148fbf920cfdae5bf0b1d2bb3d4e780625",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/apache/thrift/libthrift/0.19.0/libthrift-0.19.0.jar",
+)
+
+http_file(
+    name = "org_apache_thrift-libthrift-0_19_0-sources_http",
+    downloaded_file_path = "libthrift-0.19.0-sources.jar",
+    sha256 = "93334310686b6594800b431db134b5f37c3a02ad8dda71a9ea93d999389fc721",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/apache/thrift/libthrift/0.19.0/libthrift-0.19.0-sources.jar",
 )
 
 http_file(
@@ -11768,6 +11782,76 @@ http_file(
 )
 
 http_file(
+    name = "org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http",
+    downloaded_file_path = "packagesearch-api-client-jvm-3.4.0.jar",
+    sha256 = "9d0f4c74e96787499fcc2462c32afeb7f4db97db30042e2578f205f61e5898fb",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-api-client-jvm/3.4.0/packagesearch-api-client-jvm-3.4.0.jar",
+)
+
+http_file(
+    name = "org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http",
+    downloaded_file_path = "packagesearch-http-models-jvm-3.4.0.jar",
+    sha256 = "0318b967115de0c7c8fbd93bc6e3d279c82de2954f90794146962921de45972d",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-http-models-jvm/3.4.0/packagesearch-http-models-jvm-3.4.0.jar",
+)
+
+http_file(
+    name = "org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http",
+    downloaded_file_path = "packagesearch-api-models-jvm-3.4.0.jar",
+    sha256 = "22022fe954980d8e183b252889719fc6ca71a13e91b8e869d92532da308e3da1",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-api-models-jvm/3.4.0/packagesearch-api-models-jvm-3.4.0.jar",
+)
+
+http_file(
+    name = "org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http",
+    downloaded_file_path = "packagesearch-version-utils-jvm-3.4.0.jar",
+    sha256 = "4c86546693efaeb889e02d043521cda15da5f10853b0471095b7db80dc0540e7",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-version-utils-jvm/3.4.0/packagesearch-version-utils-jvm-3.4.0.jar",
+)
+
+http_file(
+    name = "com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http",
+    downloaded_file_path = "krypto-jvm-4.0.10.jar",
+    sha256 = "0fe8dcdf54b13b5ec56fdb5f63c057364264bb2f51b7f7bc3c271d5b1ba68dcb",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/soywiz/korlibs/krypto/krypto-jvm/4.0.10/krypto-jvm-4.0.10.jar",
+)
+
+http_file(
+    name = "org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0-sources_http",
+    downloaded_file_path = "packagesearch-api-client-jvm-3.4.0-sources.jar",
+    sha256 = "fa07b8152bc23d6c0fb5bac147bf1a45aa7c7d00ed3d7c3df680671dc2bf3d69",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-api-client-jvm/3.4.0/packagesearch-api-client-jvm-3.4.0-sources.jar",
+)
+
+http_file(
+    name = "org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0-sources_http",
+    downloaded_file_path = "packagesearch-http-models-jvm-3.4.0-sources.jar",
+    sha256 = "7802c87c2360d29b791d7c048ed481504f39d2d43b7dc6dd489fc2150b7d40a0",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-http-models-jvm/3.4.0/packagesearch-http-models-jvm-3.4.0-sources.jar",
+)
+
+http_file(
+    name = "org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0-sources_http",
+    downloaded_file_path = "packagesearch-api-models-jvm-3.4.0-sources.jar",
+    sha256 = "72ff50a4cc9631242b26a7e7b240cc5761af68b348288676908557d850e9f777",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-api-models-jvm/3.4.0/packagesearch-api-models-jvm-3.4.0-sources.jar",
+)
+
+http_file(
+    name = "org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0-sources_http",
+    downloaded_file_path = "packagesearch-version-utils-jvm-3.4.0-sources.jar",
+    sha256 = "36e3f24ea7197dc4223e4bec9e42475f7445fdc80e9ae642deb9a2b00c92cd43",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-version-utils-jvm/3.4.0/packagesearch-version-utils-jvm-3.4.0-sources.jar",
+)
+
+http_file(
+    name = "com_soywiz_korlibs_krypto-krypto-jvm-4_0_10-sources_http",
+    downloaded_file_path = "krypto-jvm-4.0.10-sources.jar",
+    sha256 = "470645a178210f3a300ddeea884762b2d8abfca01efef1e8ce2c6c00f00b60c7",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/soywiz/korlibs/krypto/krypto-jvm/4.0.10/krypto-jvm-4.0.10-sources.jar",
+)
+
+http_file(
     name = "org_codehaus_plexus-plexus-utils-3_6_1_http",
     downloaded_file_path = "plexus-utils-3.6.1.jar",
     sha256 = "05a63effd67e2d6b9d610cc82e2bd7473289d34802e57a529b28110f28af5679",
@@ -12090,6 +12174,13 @@ http_file(
 )
 
 http_file(
+    name = "org_sqlite-native-3_42_0-jb_1_http",
+    downloaded_file_path = "native-3.42.0-jb.1.jar",
+    sha256 = "491c4ae84a1bad34c85624682a80def4f3a3a0fb9d517121d05c2dfeb94966f8",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/sqlite/native/3.42.0-jb.1/native-3.42.0-jb.1.jar",
+)
+
+http_file(
     name = "org_xerial-sqlite-jdbc-3_53_2_1_http",
     downloaded_file_path = "sqlite-jdbc-3.53.2.1.jar",
     sha256 = "f55e405ed96d5ffe629e05b7b51b059e1c7d64527c0cc90a972fbac06730ccc1",
@@ -12405,6 +12496,13 @@ http_file(
 )
 
 http_file(
+    name = "com_jetbrains_intellij_platform-workspace-model-codegen-0_0_9_http",
+    downloaded_file_path = "workspace-model-codegen-0.0.9.jar",
+    sha256 = "78e527dfea8d79c16ea9ca875bd943d443b63bf9d0df1f253c233dc54366df35",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/intellij/platform/workspace-model-codegen/0.0.9/workspace-model-codegen-0.0.9.jar",
+)
+
+http_file(
     name = "xerces-xercesImpl-2_12_2_http",
     downloaded_file_path = "xercesImpl-2.12.2.jar",
     sha256 = "6fc991829af1708d15aea50c66f0beadcd2cfeb6968e0b2f55c1b0909883fe16",
@@ -12577,20 +12675,6 @@ http_file(
     downloaded_file_path = "core-3.5.1-sources.jar",
     sha256 = "57cd4543bfb94f301800b8b28d37b91194fa38ee3d87c10d412d49d522a37965",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/zxing/core/3.5.1/core-3.5.1-sources.jar",
-)
-
-http_file(
-    name = "org_apache_thrift-libthrift-0_19_0_http",
-    downloaded_file_path = "libthrift-0.19.0.jar",
-    sha256 = "2b6e6550b40467ede7b3034a1a9eb9148fbf920cfdae5bf0b1d2bb3d4e780625",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/apache/thrift/libthrift/0.19.0/libthrift-0.19.0.jar",
-)
-
-http_file(
-    name = "org_apache_thrift-libthrift-0_19_0-sources_http",
-    downloaded_file_path = "libthrift-0.19.0-sources.jar",
-    sha256 = "93334310686b6594800b431db134b5f37c3a02ad8dda71a9ea93d999389fc721",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/apache/thrift/libthrift/0.19.0/libthrift-0.19.0-sources.jar",
 )
 
 http_file(
@@ -15807,76 +15891,6 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0_http",
-    downloaded_file_path = "packagesearch-api-client-jvm-3.4.0.jar",
-    sha256 = "9d0f4c74e96787499fcc2462c32afeb7f4db97db30042e2578f205f61e5898fb",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-api-client-jvm/3.4.0/packagesearch-api-client-jvm-3.4.0.jar",
-)
-
-http_file(
-    name = "org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0_http",
-    downloaded_file_path = "packagesearch-http-models-jvm-3.4.0.jar",
-    sha256 = "0318b967115de0c7c8fbd93bc6e3d279c82de2954f90794146962921de45972d",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-http-models-jvm/3.4.0/packagesearch-http-models-jvm-3.4.0.jar",
-)
-
-http_file(
-    name = "org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0_http",
-    downloaded_file_path = "packagesearch-api-models-jvm-3.4.0.jar",
-    sha256 = "22022fe954980d8e183b252889719fc6ca71a13e91b8e869d92532da308e3da1",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-api-models-jvm/3.4.0/packagesearch-api-models-jvm-3.4.0.jar",
-)
-
-http_file(
-    name = "org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0_http",
-    downloaded_file_path = "packagesearch-version-utils-jvm-3.4.0.jar",
-    sha256 = "4c86546693efaeb889e02d043521cda15da5f10853b0471095b7db80dc0540e7",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-version-utils-jvm/3.4.0/packagesearch-version-utils-jvm-3.4.0.jar",
-)
-
-http_file(
-    name = "com_soywiz_korlibs_krypto-krypto-jvm-4_0_10_http",
-    downloaded_file_path = "krypto-jvm-4.0.10.jar",
-    sha256 = "0fe8dcdf54b13b5ec56fdb5f63c057364264bb2f51b7f7bc3c271d5b1ba68dcb",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/soywiz/korlibs/krypto/krypto-jvm/4.0.10/krypto-jvm-4.0.10.jar",
-)
-
-http_file(
-    name = "org_jetbrains_packagesearch-packagesearch-api-client-jvm-3_4_0-sources_http",
-    downloaded_file_path = "packagesearch-api-client-jvm-3.4.0-sources.jar",
-    sha256 = "fa07b8152bc23d6c0fb5bac147bf1a45aa7c7d00ed3d7c3df680671dc2bf3d69",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-api-client-jvm/3.4.0/packagesearch-api-client-jvm-3.4.0-sources.jar",
-)
-
-http_file(
-    name = "org_jetbrains_packagesearch-packagesearch-http-models-jvm-3_4_0-sources_http",
-    downloaded_file_path = "packagesearch-http-models-jvm-3.4.0-sources.jar",
-    sha256 = "7802c87c2360d29b791d7c048ed481504f39d2d43b7dc6dd489fc2150b7d40a0",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-http-models-jvm/3.4.0/packagesearch-http-models-jvm-3.4.0-sources.jar",
-)
-
-http_file(
-    name = "org_jetbrains_packagesearch-packagesearch-api-models-jvm-3_4_0-sources_http",
-    downloaded_file_path = "packagesearch-api-models-jvm-3.4.0-sources.jar",
-    sha256 = "72ff50a4cc9631242b26a7e7b240cc5761af68b348288676908557d850e9f777",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-api-models-jvm/3.4.0/packagesearch-api-models-jvm-3.4.0-sources.jar",
-)
-
-http_file(
-    name = "org_jetbrains_packagesearch-packagesearch-version-utils-jvm-3_4_0-sources_http",
-    downloaded_file_path = "packagesearch-version-utils-jvm-3.4.0-sources.jar",
-    sha256 = "36e3f24ea7197dc4223e4bec9e42475f7445fdc80e9ae642deb9a2b00c92cd43",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/kpm/public/org/jetbrains/packagesearch/packagesearch-version-utils-jvm/3.4.0/packagesearch-version-utils-jvm-3.4.0-sources.jar",
-)
-
-http_file(
-    name = "com_soywiz_korlibs_krypto-krypto-jvm-4_0_10-sources_http",
-    downloaded_file_path = "krypto-jvm-4.0.10-sources.jar",
-    sha256 = "470645a178210f3a300ddeea884762b2d8abfca01efef1e8ce2c6c00f00b60c7",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/soywiz/korlibs/krypto/krypto-jvm/4.0.10/krypto-jvm-4.0.10-sources.jar",
-)
-
-http_file(
     name = "com_guardsquare-proguard-base-7_8_2_http",
     downloaded_file_path = "proguard-base-7.8.2.jar",
     sha256 = "177b00e0a07a82917d1f9ec7911bcbfc2194faa71cf940debd3bbdd3dcf8f9c0",
@@ -16808,13 +16822,6 @@ http_file(
 )
 
 http_file(
-    name = "org_sqlite-native-3_42_0-jb_1_http",
-    downloaded_file_path = "native-3.42.0-jb.1.jar",
-    sha256 = "491c4ae84a1bad34c85624682a80def4f3a3a0fb9d517121d05c2dfeb94966f8",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/sqlite/native/3.42.0-jb.1/native-3.42.0-jb.1.jar",
-)
-
-http_file(
     name = "com_squareup_okio-okio-jvm-3_16_0_http",
     downloaded_file_path = "okio-jvm-3.16.0.jar",
     sha256 = "c737c035ca675187bf11a67ddb9581954bf0d5ca9f3e048e838b3267cf32b5c3",
@@ -17134,13 +17141,6 @@ http_file(
     downloaded_file_path = "apollo-annotations-jvm-4.0.0-sources.jar",
     sha256 = "64a77ba17a56d06dd0b1247960e40841a972a31ecb9707fbf5d602ee71f8c549",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/apollographql/apollo/apollo-annotations-jvm/4.0.0/apollo-annotations-jvm-4.0.0-sources.jar",
-)
-
-http_file(
-    name = "com_jetbrains_intellij_platform-workspace-model-codegen-0_0_9_http",
-    downloaded_file_path = "workspace-model-codegen-0.0.9.jar",
-    sha256 = "78e527dfea8d79c16ea9ca875bd943d443b63bf9d0df1f253c233dc54366df35",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/intellij/platform/workspace-model-codegen/0.0.9/workspace-model-codegen-0.0.9.jar",
 )
 
 http_file(

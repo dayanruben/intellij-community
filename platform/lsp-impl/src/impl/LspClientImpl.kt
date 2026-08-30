@@ -165,6 +165,11 @@ class LspClientImpl internal constructor(
   internal fun fileEdited(file: VirtualFile, e: DocumentEvent) {
     highlightingCacheRegistry.fileEdited(file, e)
     eventBroadcaster.fileEdited(this, file)
+    if (isFileOpened(file)) {
+      // Re-apply the cached highlightings with the edit-adjusted ranges. Without this, highlightings
+      // applied before the edit keep their pre-edit offsets until the next daemon pass.
+      LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
+    }
   }
 
   internal fun refreshSemanticTokens() {
@@ -183,6 +188,18 @@ class LspClientImpl internal constructor(
     forEachOpenedFile { file ->
       highlightingCacheRegistry.inlayHintsCache.invalidate(file)
       LspInlayApplier.getInstance(project).scheduleRefresh(file)
+    }
+  }
+
+  /**
+   * Handles a server-forced `workspace/diagnostic/refresh`: re-pulls diagnostics for every opened file even without
+   * a document edit. Invalidating the cache keeps the current diagnostics on screen (no flicker);
+   * [LspHighlightingApplier.scheduleHighlightingRefresh] kicks the re-pull and applies the fresh results once they land.
+   */
+  internal fun refreshDiagnostics() {
+    forEachOpenedFile { file ->
+      highlightingCacheRegistry.pullDiagnosticsCache.serverForcedRefresh(file)
+      LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
     }
   }
 

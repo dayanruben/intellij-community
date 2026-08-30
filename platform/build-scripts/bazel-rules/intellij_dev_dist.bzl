@@ -12,6 +12,20 @@ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@community//build:project_model_manifest.bzl", "write_project_model_manifest")
 load("//build:dev_launch_dependencies.bzl", "platform_parts")
 load(":dev_dist_content.bzl", "DevDistContentInfo", "DevDistPlatformPayloadInfo")
+load(":dev_dist_plugin_descriptor.bzl", "DEV_DIST_DESCRIPTOR_KEY_PREFIX", "DevDistPluginDescriptorSetInfo")
+
+# Pinned so the fragments of one distribution agree and an assembly does not carry the wall clock into its outputs. It
+# dates archive entries and the `.SNAPSHOT` plugin version suffix, and both would otherwise differ between fragments
+# assembled minutes apart.
+#
+# Deliberately *not* the product build date. A dev distribution stamps none, so the IDE resolves its build time at
+# startup and no EAP expiration period can run out on a cached distribution. See `computeAppInfoXml`. A far-future date
+# chosen to outrun that period makes every dev IDE start expired, because a build date over a day ahead of the wall
+# clock is expired too.
+#
+# `dev_dist_plugin_descriptor` stamps the same date, and it reads the product's own value out of the generated plan.
+# `dev_dist_plugin_descriptor_helpers_test` compares the plan's value against this constant.
+DEV_DIST_PINNED_BUILD_DATE_IN_SECONDS = "1767225600"  # 2026-01-01T00:00:00Z
 
 IntellijDevBuildInputsInfo = provider(
     doc = "The exact Bazel inputs and label-to-path manifest made available to one dev-build fragment.",
@@ -21,11 +35,16 @@ IntellijDevBuildInputsInfo = provider(
         "inputs_origin": "The sidecar naming which half of the declaration each manifest key came from.",
         "prepacked_plugin_jars": "The typed prepacked plugin-jar records carried by this content.",
         "prepacked_plugin_jars_plan": "The relation-only plan passed to JarPackager; it contains no jar paths.",
+        "patched_descriptors": "The produced plugin descriptors this fragment reads instead of computing them.",
     },
 )
 
 # How strongly a declaration half demands its key, lowest first, for a key more than one half names.
-_ORIGIN_RANK = {"raw": 0, "member": 1, "library": 2}
+#
+# `descriptor` is highest, so a key some other half also names keeps that half's name. It cannot happen today - a
+# descriptor key is in a namespace of its own, see `DEV_DIST_DESCRIPTOR_KEY_PREFIX` - and the rank states what would
+# happen if it ever did.
+_ORIGIN_RANK = {"raw": 0, "member": 1, "library": 2, "descriptor": 3}
 
 def _add_input_entry(ctx, entries, origins, logical_key, files, source, origin):
     """Record one manifest entry, failing when two different file lists claim the same logical key.
@@ -81,6 +100,7 @@ def _dev_build_inputs_impl(ctx):
     entries = {}
     origins = {}
     prepacked_plugin_jars = []
+    patched_descriptors = []
 
     for target in ctx.attr.inputs:
         files = target[DefaultInfo].files.to_list()
@@ -126,6 +146,24 @@ def _dev_build_inputs_impl(ctx):
 
         prepacked_plugin_jars = content.prepacked_plugin_jars.to_list()
 
+    if ctx.attr.patched_descriptors:
+        # A produced descriptor is a *file* a fragment reads, so it travels in the manifest and not in a relation-only
+        # plan: the plan holds no path by design. The key is the plugin's main module, which is the one string that means
+        # the same thing on both sides - `KtJvmInfo.module_name` names the plugin here, and `PluginLayout.mainModule`
+        # names it in the assembly. The descriptor target's own label would not do: its name segment comes from the
+        # module *target*, which the Kotlin side cannot derive.
+        patched_descriptors = ctx.attr.patched_descriptors[DevDistPluginDescriptorSetInfo].descriptors.to_list()
+        for record in patched_descriptors:
+            _add_input_entry(
+                ctx,
+                entries,
+                origins,
+                DEV_DIST_DESCRIPTOR_KEY_PREFIX + record.plugin_main_module,
+                (record.descriptor,),
+                ctx.attr.patched_descriptors.label,
+                "descriptor",
+            )
+
     lines = []
     files = []
     for logical_key in sorted(entries.keys()):
@@ -169,6 +207,11 @@ def _dev_build_inputs_impl(ctx):
             inputs_origin = inputs_origin,
             prepacked_plugin_jars = depset(prepacked_by_key.values()),
             prepacked_plugin_jars_plan = prepacked_plan,
+            # Published as well as written into the manifest, because the manifest is a file and an analysis test cannot
+            # read one. `//build:idea_dev_plugins_descriptor_declaration_test` asserts this field against the plan, and
+            # that assertion is the only guard against a dropped declaration: both producers write the same bytes, so
+            # every byte gate in the repository stays green when a fragment silently goes back to computing the text.
+            patched_descriptors = depset(patched_descriptors),
         ),
     ]
 
@@ -200,6 +243,12 @@ intellij_dev_build_inputs = rule(
         "owned_inputs": attr.label_keyed_string_dict(
             allow_files = True,
             doc = "Raw input to the space-separated names of the payload modules that asked for it.",
+        ),
+        # One label and not a list: which plugins this fragment lays out is the plan's partition, and the set target in
+        # `//build/dev-dist-descriptors` is where that partition is applied. See `DevDistPluginDescriptorSetInfo`.
+        "patched_descriptors": attr.label(
+            providers = [DevDistPluginDescriptorSetInfo],
+            doc = "The produced descriptors of this fragment's plugins, or unset for a fragment that patches its own.",
         ),
     },
 )
@@ -597,14 +646,7 @@ intellij_dev_fragment = rule(
     implementation = _fragment_impl,
     attrs = {
         "assembler": attr.label(executable = True, cfg = "exec", mandatory = True),
-        # Pinned so the fragments of one distribution agree and an assembly does not carry the wall clock into its
-        # outputs: it dates archive entries and the `.SNAPSHOT` plugin version suffix, both of which would otherwise
-        # differ between fragments assembled minutes apart. It is deliberately *not* the product build date - a dev
-        # distribution stamps none, so that the IDE resolves its build time at startup and no EAP expiration period can
-        # run out on a cached distribution (see `computeAppInfoXml`). It used to be a far-future date chosen to outrun
-        # that period, which is what made every dev IDE start expired: a build date over a day ahead of the wall clock
-        # is expired too.
-        "build_date_seconds": attr.string(default = "1767225600"),  # 2026-01-01T00:00:00Z
+        "build_date_seconds": attr.string(default = DEV_DIST_PINNED_BUILD_DATE_IN_SECONDS),
         "platform_prefix": attr.string(mandatory = True),
         "target_platform": attr.string(default = ""),
         "fragment_name": attr.string(mandatory = True, doc = "Identifies this fragment in its manifest, its mnemonic and the composer's completeness check."),

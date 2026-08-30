@@ -1,5 +1,5 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment")
+@file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "ReplaceJavaStaticMethodWithKotlinAnalog")
 
 package org.jetbrains.intellij.build.impl
 
@@ -28,6 +28,7 @@ import org.jetbrains.intellij.build.JarPackagerDependencyHelper
 import org.jetbrains.intellij.build.LazySource
 import org.jetbrains.intellij.build.MAVEN_REPO
 import org.jetbrains.intellij.build.NativeFileHandler
+import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
 import org.jetbrains.intellij.build.SearchableOptionSetDescriptor
 import org.jetbrains.intellij.build.SignNativeFileMode
 import org.jetbrains.intellij.build.Source
@@ -108,47 +109,23 @@ private val IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST: Set<String> = java.util.S
   "Servlets",
   "agentclientprotocol.acp.jvm",
   "agentclientprotocol.acp.ktor",
-  "ai.grazie.rule.engine",
-  "ai.grazie.semantic.engine",
   "antlr4-runtime",
-  "apache.avro",
   "assertj-swing",
   "com.jetbrains.fus.reporting.ap.validation.all",
-  "cucumber-core-1",
-  "git-learning-project",
   "google.protobuf.java.util",
   // used by `intellij.rider.test.cases.rdct`, whose plugin is built by an auto layout
   "intellij-plugin-structure",
   // also used by `intellij.ml.llm.libraries.grazie`, which is a library module by intention, but not by name
   "io.modelcontextprotocol.kotlin.sdk",
-  "io.qameta.allure.java.commons",
-  "jerolba.carpet.record",
-  "jetbrains.ai.completion.trigger.model.markdown.cloud",
-  "jetbrains.ai.completion.trigger.model.polyglot.cloud",
-  "jetbrains.ai.completion.trigger.model.text.cloud",
   "jetbrains.intellij.deps.eclipse.jgit",
-  "jetbrains.intellij.deps.searchEverywhere.model.context.ranker.test",
-  "jetbrains.patronus.config",
-  "jgrapht.core",
-  "jooq.joox",
   "jps-javac-extension",
-  "jruby-parser-0.5.4",
-  "kaml",
-  "kmp-wizard-shared",
   "kotlin-metadata",
   "layoutlib",
-  "libthrift",
   "okhttp",
   "openai.java",
   "org.apache.ivy",
   "org.scilab.forge:jlatexmath",
-  "package-search-api-client",
-  "software.amazon.awssdk.glue",
-  "sqlite-native",
   "squareup.okio.jvm",
-  // declared by the android plugin layout, so the Rider android plugin needs its own copy
-  "studio-platform",
-  "workspace-model-codegen",
 )
 
 class JarPackager private constructor(
@@ -353,6 +330,9 @@ class JarPackager private constructor(
       actualRelativeOutputFile = relativeOutputFile,
       hasModuleExclusions = !pluginLayout.moduleExcludes.get(moduleName).isNullOrEmpty(),
       hasPatchedOutput = moduleOutputPatcher.getPatchedContent(moduleName).isNotEmpty(),
+      // The plugin's descriptor lands in the jar of the main module, which is the layout's main jar.
+      hasInMemoryDescriptor = relativeOutputFile == pluginLayout.getMainJarName() &&
+                              moduleOutputPatcher.getPatchedContent(pluginLayout.mainModule).containsKey(PLUGIN_XML_RELATIVE_PATH),
       hasGeneratedSearchableOptions = !searchableOptionSet?.createSourceByModule(moduleName).isNullOrEmpty(),
       // The JPS model's declared paths, not the resolved jars. `isSeparateLibraryJar` is a pure name predicate and this
       // is a guard, so a name is all it needs - and the two agree: a Maven library's Bazel jar target is named
@@ -871,6 +851,7 @@ internal fun validatePrepackedPluginContentHandoff(
   actualRelativeOutputFile: String,
   hasModuleExclusions: Boolean,
   hasPatchedOutput: Boolean,
+  hasInMemoryDescriptor: Boolean,
   hasGeneratedSearchableOptions: Boolean,
   hasSeparateLibraryJar: Boolean,
   hasLayoutPlacedModuleLibrary: Boolean,
@@ -882,6 +863,14 @@ internal fun validatePrepackedPluginContentHandoff(
   }
   check(!hasModuleExclusions) { "Prepacked plugin content $relation has module exclusions" }
   check(!hasPatchedOutput) { "Prepacked plugin content $relation has patched module output" }
+  // `patchPluginXml` computes the plugin's `META-INF/plugin.xml` during the assembly, so that text exists in no file and
+  // a packing action cannot hold it. A handed-off jar would ship without its descriptor, and no byte gate would see it:
+  // `dev-dist.cmd jars` compares the action's output against the `JarPackager` jar, and neither holds the descriptor.
+  // The failure surfaces at IDE start. `hasPatchedOutput` asks about one module. This clause asks about the jar,
+  // because a relation keyed by a jar can name a jar whose descriptor comes from another module of the same plugin.
+  check(!hasInMemoryDescriptor) {
+    "Prepacked plugin content $relation would replace '$actualRelativeOutputFile', which receives a computed $PLUGIN_XML_RELATIVE_PATH"
+  }
   check(!hasGeneratedSearchableOptions) { "Prepacked plugin content $relation has generated searchable options" }
   // `computeSourcesForModuleLibs` lifts every `isSeparateLibraryJar` file out of the module jar into its own `lib/<name>.jar`. That call
   // sits inside `computeSourcesForModule`, so for a handed-off module the sibling jar is never written at all - while the module jar it

@@ -97,6 +97,42 @@ object DevDistPatchedDescriptors {
   }
 
   /**
+   * Records one plugin's descriptor that this fragment did **not** patch: it read the text a
+   * `dev_dist_plugin_descriptor` action produced.
+   *
+   * The record states [DevDistDescriptorOrigin.PRODUCED] and **no step**, because this fragment ran no stage of the
+   * patch. Emitting the stage rows with `changed = false` instead would state that every stage ran and changed nothing,
+   * which is false and which a reader believes: `PluginDescriptor.Class()` in `build/internal/content/descriptor.go`
+   * answers class (a) when no structural and no lambda stage changed, and `./build/dev-dist.cmd descriptors` would then
+   * compare the produced file against a record of that same file and report a pass.
+   *
+   * @param source the descriptor as the plugin's main module output holds it, so a reader still has both full texts.
+   * @param patched the text of the produced file, which is the text the main jar received.
+   */
+  internal fun recordProduced(
+    mainModule: String,
+    directoryName: String,
+    mainJar: String,
+    embedsContentModules: Boolean,
+    source: String,
+    patched: String,
+  ) {
+    val records = records ?: return
+    records.add(
+      DevDistPluginDescriptor(
+        mainModule = mainModule,
+        directoryName = directoryName,
+        mainJar = mainJar,
+        embedsContentModules = embedsContentModules,
+        origin = DevDistDescriptorOrigin.PRODUCED,
+        steps = emptyList(),
+        source = source,
+        patched = patched,
+      )
+    )
+  }
+
+  /**
    * Writes what was recorded, or nothing at all when [start] was never called.
    *
    * A plugin can be built more than once in one assembly. An OS-specific layout is that case, and it records its
@@ -176,7 +212,36 @@ data class DevDistDescriptorStep(
   @JvmField val bytes: Int,
   /** Whether this step changed the text the step before it produced. Absent for [DevDistDescriptorStage.SOURCE]. */
   @JvmField val changed: Boolean? = null,
+  /**
+   * The text this step produced, or `null` when a reader recovers that text without it.
+   *
+   * No text is stored twice. A step states its text only when the step changed the text, and the text is not
+   * [DevDistPluginDescriptor.patched]. Two rules recover the rest. A step that changed nothing carries the text of
+   * the step ahead of it, and a step that changed the text and states none carries `patched`.
+   *
+   * A text equal to [DevDistPluginDescriptor.source] is stated, because no reader can tell it from `patched` by the
+   * flags alone. Such a step needs a stage to undo the stage ahead of it, and this product has none of them.
+   */
+  @JvmField val text: String? = null,
 )
+
+/** Which producer wrote the text the plugin's main jar received. */
+@Serializable
+@ApiStatus.Internal
+enum class DevDistDescriptorOrigin {
+  /** The fragment ran the patch, and the record holds one step per stage of it. */
+  @SerialName("computed")
+  COMPUTED,
+
+  /**
+   * The fragment read the file a `dev_dist_plugin_descriptor` action produced, and the record holds **no** step.
+   *
+   * A reader that sums a stage's bytes must skip such a row rather than add a zero. `PluginDescriptor.PatchedBytes()`
+   * answers 0 for an empty step list, and 0 is not the size of a descriptor.
+   */
+  @SerialName("produced")
+  PRODUCED,
+}
 
 @Serializable
 @ApiStatus.Internal
@@ -189,6 +254,12 @@ data class DevDistPluginDescriptor(
    */
   @JvmField val mainJar: String,
   @JvmField val embedsContentModules: Boolean,
+  /**
+   * Which producer wrote [patched]. Absent from the file for [DevDistDescriptorOrigin.COMPUTED], which is the default,
+   * so an older artifact reads as computed and a reader of an older schema is unaffected.
+   */
+  @JvmField val origin: DevDistDescriptorOrigin = DevDistDescriptorOrigin.COMPUTED,
+  /** One step per stage of the patch, and **empty** for [DevDistDescriptorOrigin.PRODUCED]. */
   @JvmField val steps: List<DevDistDescriptorStep>,
   /** The text of [DevDistDescriptorStage.SOURCE], so that the steps can be checked by an independent reader. */
   @JvmField val source: String,
@@ -227,21 +298,26 @@ internal class DevDistDescriptorStages {
     require(texts.firstOrNull()?.first == DevDistDescriptorStage.SOURCE) {
       "The descriptor of '$mainModule' was not recorded from its source: ${texts.map { it.first }}"
     }
+    val patched = texts.last().second
     return DevDistPluginDescriptor(
       mainModule = mainModule,
       directoryName = directoryName,
       mainJar = mainJar,
       embedsContentModules = embedsContentModules,
       steps = texts.mapIndexed { index, (stage, text) ->
+        val changed = if (index == 0) null else text != texts[index - 1].second
         DevDistDescriptorStep(
           stage = stage,
           // the descriptor goes into the jar as UTF-8, so a character count would not be the size of anything
           bytes = text.toByteArray(StandardCharsets.UTF_8).size,
-          changed = if (index == 0) null else text != texts.get(index - 1).second,
+          changed = changed,
+          // See `DevDistDescriptorStep.text`. The step ahead holds the text of a step that changed nothing, and
+          // `patched` holds the text of the last step that changed one.
+          text = if (changed == true && text != patched) text else null,
         )
       },
       source = texts.first().second,
-      patched = texts.last().second,
+      patched = patched,
     )
   }
 }

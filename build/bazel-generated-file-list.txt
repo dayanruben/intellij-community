@@ -387,6 +387,8 @@ jvm/jvm-analysis-quickFix
 jvm/jvm-analysis-refactoring
 jvm/jvm-analysis-testFramework
 libraries/aalto-xml
+libraries/ai-grazie-rule-engine
+libraries/ai-grazie-semantic-engine
 libraries/ai.grazie.spell.gec.engine.local
 libraries/allure/java-commons
 libraries/androidx-collections
@@ -431,12 +433,14 @@ libraries/compose-foundation-desktop
 libraries/compose-foundation-desktop-junit
 libraries/compose-runtime-desktop
 libraries/compose-swing-ui
+libraries/cucumber-core1
 libraries/dokka
 libraries/download-pgp-verifier
 libraries/ec4j/core
 libraries/fastutil
 libraries/ffmpeg
 libraries/flexmark
+libraries/git-learning-project
 libraries/gradle
 libraries/groovy
 libraries/groovy/ant
@@ -519,6 +523,7 @@ libraries/junit6-launcher
 libraries/junit6-params
 libraries/jvm-native-trusted-roots
 libraries/jzlib
+libraries/kaml
 libraries/keychain
 libraries/kodein-di-jvm
 libraries/kotlin/gradle-plugin-idea
@@ -569,6 +574,7 @@ libraries/ktor/server-content-negotiation
 libraries/ktor/server-sse
 libraries/ktor/utils
 libraries/kxml2
+libraries/libthrift
 libraries/log4j-to-slf4j
 libraries/lsp4j
 libraries/lsp4j/debug
@@ -610,6 +616,7 @@ libraries/opentelemetry-semconv
 libraries/opentest4j
 libraries/oro-matcher
 libraries/oshi-core
+libraries/package-search-api-client
 libraries/plexus-utils
 libraries/protobuf
 libraries/protobuf-kotlin
@@ -630,6 +637,7 @@ libraries/skiko
 libraries/snakeyaml
 libraries/snakeyaml-engine
 libraries/sqlite
+libraries/sqlite-native
 libraries/sshd-osgi
 libraries/sshj
 libraries/stream
@@ -642,6 +650,7 @@ libraries/testng
 libraries/tuweni/toml
 libraries/velocity
 libraries/winp
+libraries/workspace-model-codegen
 libraries/xerces
 libraries/xerial-snappy-java
 libraries/xml-rpc
