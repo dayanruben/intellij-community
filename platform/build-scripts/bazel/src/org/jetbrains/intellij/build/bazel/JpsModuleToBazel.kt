@@ -18,12 +18,34 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 import kotlin.io.path.invariantSeparatorsPathString
+import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.moveTo
 import kotlin.io.path.readLines
 import kotlin.io.path.readText
 import kotlin.io.path.relativeTo
 import kotlin.io.path.writeText
+import kotlin.system.exitProcess
+
+/**
+ * What `--content-report=` takes, and how to get the file it names.
+ *
+ * The two steps are separate because the only producer of a report is a distribution build, and a packaging test deletes
+ * its own build output. `KEEP_CONTENT_REPORT_PROPERTY` of `buildScriptTestUtils.kt` is what keeps the zips.
+ */
+private const val CONTENT_REPORT_USAGE: String =
+  "--write-dev-dist-residue and --verify-dev-dist-residue read the distribution builds' content reports.\n" +
+  "Name them with --content-report=<zip>, repeated once per product, or with --content-report=<directory of zips>.\n" +
+  "One product's report covers only that product's plugins, and the authority is the union over the products.\n" +
+  "\n" +
+  "Two steps produce them:\n" +
+  "  1. ./tests.cmd --module intellij.idea.ultimate.build.tests \\\n" +
+  "       --test com.intellij.idea.ultimate.build.smokeTests.AllProductsPackagingTest \\\n" +
+  "       -Dpass.intellij.build.test.keep.content.report=<directory>\n" +
+  "  2. ./build/jpsModelToBazel.cmd --verify-dev-dist-residue --content-report=<directory>\n" +
+  "\n" +
+  "Step 1 writes one '<product>-content-report.zip' per product into the directory. Without the property the suite\n" +
+  "deletes its build output, the report with it."
 
 /**
  To enable debug logging in Bazel: --sandbox_debug --verbose_failures --define=kt_trace=1
@@ -42,9 +64,17 @@ internal class JpsModuleToBazel {
       var bazelOutputBase: Path? = null
       var assertAllModuleOutputsExist = false
       var m2Repo = JpsMavenSettings.getMavenRepositoryPath()
+      var writeDevDistResidue = false
+      var verifyDevDistResidue = false
+      val contentReports = ArrayList<Path>()
 
       for (arg in args) {
         when {
+          arg == "--write-dev-dist-residue" -> writeDevDistResidue = true
+          arg == "--verify-dev-dist-residue" -> verifyDevDistResidue = true
+          arg.startsWith("--content-report=") -> {
+            contentReports.addAll(resolveContentReports(Path.of(arg.substringAfter("="))))
+          }
           arg.startsWith("--run_without_ultimate_root=") ->
             runWithoutUltimateRoot = arg.substringAfter("=")
           arg.startsWith("--workspace_directory=") ->
@@ -187,6 +217,144 @@ internal class JpsModuleToBazel {
           bazelOutputBase = if (bazelWorkspaceRoot == communityRoot) bazelOutputBase else null,
         )
       }
+
+      // Last, and after generation has written everything: a check must not change what the run generates.
+      if (writeDevDistResidue || verifyDevDistResidue) {
+        check(contentReports.isNotEmpty()) { CONTENT_REPORT_USAGE }
+        val reports = readPluginContentReportZips(contentReports)
+        println("content report: ${contentReports.size} zip(s), ${reports.size} plugins")
+        for (file in contentReports) {
+          println("  $file")
+        }
+        val result = writeDevDistResidues(
+          moduleList = moduleList,
+          context = generator,
+          reports = reports,
+          verify = verifyDevDistResidue,
+        )
+        reportPopulationCoverage(result)
+        println("dev-dist residue: written=${result.written} deleted=${result.deleted} unchanged=${result.unchanged}" +
+                if (result.skippedPartialRemovals.isEmpty()) "" else " skipped=${result.skippedPartialRemovals.size}")
+        for ((field, plugins) in result.pluginsPerField.entries.sortedByDescending { it.value }) {
+          println("  $plugins plugins, ${result.rowsPerField.get(field)} rows  $field")
+        }
+        // A verify run writes nothing, so it holds no change back and reports every one of them. Only a write reaches
+        // the direction rule, and only a write can say that it applied everything else.
+        if (verifyDevDistResidue) {
+          if (result.divergent.isNotEmpty() || result.populationDivergent) {
+            reportStaleDevDistResidues(result = result, contentReports = contentReports)
+          }
+        }
+        else if (result.skippedPartialRemovals.isNotEmpty()) {
+          reportSkippedPartialRemovals(result)
+        }
+      }
+    }
+
+    /**
+     * The report zips one `--content-report=` value names.
+     *
+     * A file is itself. A directory is every `*.zip` it holds, sorted by name, which is what the documented two-step
+     * recipe produces: one run of the packaging suite with the keep property writes one zip per product into one
+     * directory, and the second step points at that directory.
+     */
+    private fun resolveContentReports(path: Path): List<Path> {
+      if (path.isDirectory()) {
+        val zips = Files.newDirectoryStream(path, "*.zip").use { stream -> stream.sorted() }
+        check(zips.isNotEmpty()) { "Content report directory $path holds no *.zip. $CONTENT_REPORT_USAGE" }
+        return zips
+      }
+      check(path.isRegularFile()) { "Content report $path must be an existing file or a directory of zips. $CONTENT_REPORT_USAGE" }
+      return listOf(path)
+    }
+
+    /**
+     * States how much of the population the supplied reports speak for, on every run of either mode.
+     *
+     * A green run of this gate certifies the products it read, and never the whole population. The zips come from the
+     * packaging suites this host can run, and those suites build no CLion, no RustRover and no Gateway - so a full
+     * population read is unreachable here, and a reader has to be told which plugins the run said nothing about.
+     */
+    private fun reportPopulationCoverage(result: DevDistResidueWriteResult) {
+      val total = result.coveredPopulationCount + result.unreadPopulationNames.size
+      println("coverage: ${result.coveredPopulationCount} of $total plugins the population names," +
+              " ${result.unreadPopulationNames.size} covered by no supplied report")
+      if (result.unreadPopulationNames.isEmpty()) {
+        return
+      }
+      println("  not covered, so this run left every one of their residues and population lines as they are:")
+      for (name in result.unreadPopulationNames) {
+        println("    $name")
+      }
+    }
+
+    /**
+     * Names the plugins whose residue a partial read may not change, and how to change them.
+     *
+     * Only a removal is held back. `residueChangeAddsOnly` gives the reason: a row that enters rests on an entry a real
+     * build packed, and a row that leaves is a claim about every product. Measured on this tree, IDEA Ultimate's report
+     * alone asks to drop 8 plugins' rows that the union of seven products keeps, and every one of those rows is right.
+     *
+     * The gate that would catch the damage afterwards is this same gate, so nothing downstream would object. That is why
+     * the write holds the removal back rather than applying it and warning.
+     */
+    private fun reportSkippedPartialRemovals(result: DevDistResidueWriteResult) {
+      println()
+      println("${result.skippedPartialRemovals.size} plugins keep their residue, because a row would leave and these")
+      println("reports cover ${result.coveredPopulationCount} of" +
+              " ${result.coveredPopulationCount + result.unreadPopulationNames.size} plugins:")
+      for (divergence in result.skippedPartialRemovals) {
+        print(devDistResidueDivergenceReport(divergence))
+      }
+      println()
+      println("Every other change of this run is written. To let these rows leave, either add the reports of the")
+      println("products that are missing above, or delete the row from that plugin's 'dev-dist.yaml' by hand and let")
+      println("--verify-dev-dist-residue confirm it.")
+      println()
+      println(CONTENT_REPORT_USAGE)
+      exitProcess(1)
+    }
+
+    /**
+     * Fails the run naming every plugin whose checked-in residue is stale, and the one command that fixes them.
+     *
+     * The check reads the distribution builds' own content reports. So a divergence here says the derivation and the
+     * residue together no longer reproduce what those builds pack, and it never compares the derivation against itself.
+     *
+     * The run still regenerates the tree, because the synthesis needs the whole module list. `verify` withholds the
+     * residue writes alone, so this mode is a check on `dev-dist.yaml` and not a read-only run of the converter.
+     *
+     * The repair command names every zip this run read. A repair against fewer products than the check would fit the
+     * residue to those products, which is the corruption this gate exists to prevent.
+     *
+     * Exits rather than throwing, because the reader needs the rows and not a stack trace.
+     */
+    private fun reportStaleDevDistResidues(result: DevDistResidueWriteResult, contentReports: List<Path>) {
+      println()
+      if (result.divergent.isNotEmpty()) {
+        println("${result.divergent.size} plugins have a stale 'dev-dist.yaml':")
+        for (divergence in result.divergent) {
+          print(devDistResidueDivergenceReport(divergence))
+        }
+      }
+      if (result.populationDivergent) {
+        println()
+        println("'$PLUGIN_CONTENT_POPULATION_FILE_NAME' is stale. These reports cover every plugin it names, so the")
+        println("difference is a real change of the population and not a partial read.")
+      }
+      println()
+      if (result.partialReports) {
+        println("These reports cover ${result.coveredPopulationCount} of the" +
+                " ${result.coveredPopulationCount + result.unreadPopulationNames.size} plugins the population names.")
+        println("So a row that leaves above may be one a product this check did not read still needs, and the write")
+        println("holds that row back. A row that enters rests on an entry a build packed, and the write applies it.")
+        println()
+      }
+      val flags = contentReports.joinToString(separator = " ") { "--content-report=$it" }
+      println("Run './build/jpsModelToBazel.cmd --write-dev-dist-residue $flags'")
+      println("to write them, then commit the result. Name every report this check read, or the repair fits the")
+      println("residue to fewer products than the check.")
+      exitProcess(1)
     }
 
     private fun verifyHttpFileTargetsGeneration(
@@ -264,9 +432,9 @@ internal class JpsModuleToBazel {
      * What Bazel offers for one plugin, by its main module name.
      *
      * Every field is optional because the two halves are independent: `target`/`distributionDirectory` exist for a
-     * plugin whose descriptor opted into `ij_plugin`, `contentTarget` for every plugin with a checked-in
-     * `plugin-content.yaml`, and today those are almost disjoint sets. The mirror of this class the platform reads it
-     * with is `BazelTargetsInfo.PluginDistributionTargetDescription`.
+     * plugin whose descriptor opted into `ij_plugin`, `contentTarget` for a plugin of the content population whose
+     * content resolves beyond its own main module, and today those are almost disjoint sets. The mirror of this class
+     * the platform reads it with is `BazelTargetsInfo.PluginDistributionTargetDescription`.
      */
     @Serializable
     data class PluginDistributionTargetDescription(
@@ -291,6 +459,21 @@ internal class JpsModuleToBazel {
        * member silently fell back to `JarPackager`, which was 70 of the 79 relations the vetoes cost.
        */
       @JvmField val crossRepositoryPrepackedContentModules: List<String> = emptyList(),
+      /**
+       * Members of this plugin that its own `contentTarget` could not name and that no packing target serves.
+       *
+       * The other half of [crossRepositoryPrepackedContentModules] over the same drop, and the split is whether a
+       * packed jar exists. The completion set in `//build/dev-dist-content` names these in its `modules` attribute,
+       * because that package is the one that sees both repositories.
+       */
+      @JvmField val crossRepositoryRawContentModules: List<String> = emptyList(),
+      /**
+       * Library container targets this plugin packs that its own `contentTarget` could not name.
+       *
+       * A community package cannot name an ultimate library, so the converter drops these from the content target and
+       * records them here for the completion set to declare. Container labels, which carry no artifact version.
+       */
+      @JvmField val crossRepositoryLibraryContainers: List<String> = emptyList(),
     )
 
     @Serializable
@@ -299,6 +482,30 @@ internal class JpsModuleToBazel {
       val imlTargets: List<String>,
       val projectLibraries: Map<String, LibraryDescription>,
       val pluginDistributionTargets: Map<String, PluginDistributionTargetDescription>,
+      /**
+       * The rows `dev_dist_plugin_content_candidate_overrides.txt` has to state, as
+       * [communityOnlyCandidacyOverrideRows] derives them.
+       *
+       * Recorded rather than recomputed by the plan generator. The prepacked-candidate fold is repo-global and it reads
+       * the project model, the residues and every member's own descriptor, and the plan generator cannot call the
+       * derivation: the converter is the standalone Bazel module `jps_to_bazel`, built from published platform
+       * artifacts, so its Kotlin is unreachable from the monorepo's targets. A second implementation of the fold on that
+       * side is exactly the two-reader hazard this arc removes, so the one implementation states the answer here and the
+       * plan generator writes it out.
+       *
+       * Empty from a community-only run, which is what such a run can honestly say: both arms of the delta are then the
+       * same fold. The plan generator runs over the whole monorepo.
+       *
+       * The hermetic run states the same rows as the full-checkout run, because the delta reads the project model and
+       * no other input. The plan generator is what keeps that true. It writes
+       * `dev_dist_plugin_content_candidate_overrides.txt` from this field, and a validating run reads the hermetic file
+       * and reports every difference against the checked-in one. A thinner field is then a failed validation with a
+       * patch to apply, and not a quietly smaller distribution.
+       *
+       * Do not compare these rows against the checked-in file here. The plan generator needs this run to succeed
+       * before it can correct that file, so such a check would block its own repair.
+       */
+      @JvmField val devDistPluginContentCandidateOverrides: List<String> = emptyList(),
     )
 
     fun saveTargets(
@@ -454,10 +661,13 @@ internal class JpsModuleToBazel {
               val pluginTarget = moduleTarget.pluginDistributionTarget
               val contentTarget = moduleTarget.pluginContentTarget
               val crossRepositoryPrepacked = moduleTarget.crossRepositoryPrepackedModules
+              val crossRepositoryRaw = moduleTarget.crossRepositoryRawModules
+              val crossRepositoryLibraries = moduleTarget.crossRepositoryLibraryContainers
               val descriptorTargets = moduleTarget.pluginDescriptorTargets
               // Every half is independent of the others: a plugin can have no `ij_plugin` target and no content target
               // of its own and still have cross-repository members to complete, or a descriptor target alone.
-              if (pluginTarget == null && contentTarget == null && crossRepositoryPrepacked.isEmpty() && descriptorTargets.isEmpty()) {
+              if (pluginTarget == null && contentTarget == null && descriptorTargets.isEmpty() &&
+                  crossRepositoryPrepacked.isEmpty() && crossRepositoryRaw.isEmpty() && crossRepositoryLibraries.isEmpty()) {
                 return@mapNotNull null
               }
 
@@ -467,10 +677,13 @@ internal class JpsModuleToBazel {
                 contentTarget = contentTarget ?: "",
                 descriptorTargets = TreeMap(descriptorTargets),
                 crossRepositoryPrepackedContentModules = crossRepositoryPrepacked,
+                crossRepositoryRawContentModules = crossRepositoryRaw,
+                crossRepositoryLibraryContainers = crossRepositoryLibraries,
               )
             }
             .sortedBy { it.first }
-            .toMap()
+            .toMap(),
+        devDistPluginContentCandidateOverrides = communityOnlyCandidacyOverrideRows(moduleList),
       )
 
       val fileContent = jsonSerializer.encodeToString(

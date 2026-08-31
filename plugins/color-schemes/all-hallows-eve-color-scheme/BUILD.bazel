@@ -13,6 +13,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/projectModel-impl"],
 )
 
 jvm_library(
@@ -24,7 +25,11 @@ jvm_library(
     ),
     module_name = "intellij.color.scheme.all_hallows_eve",
     visibility = ["//visibility:public"],
-    runtime_deps = [":color-scheme-all_hallows_eve"],
+    runtime_deps = [
+        # do not sort,
+        ":color-scheme-all_hallows_eve",
+        "//platform/projectModel-impl:projectModel-impl_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.color.scheme.all_hallows_eve` end
 
@@ -34,7 +39,6 @@ exports_files(
         "intellij.color.scheme.all_hallows_eve.iml",
         "resources/META-INF/plugin.xml",
         "resources/colorSchemes/all_hallows_eve.xml",
-        "plugin-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

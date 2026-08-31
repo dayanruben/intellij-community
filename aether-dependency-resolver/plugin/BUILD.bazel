@@ -1,4 +1,4 @@
-load("@community//platform/build-scripts/bazel-rules:dev_dist_content.bzl", "dev_dist_plugin_content")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.java.aetherDependencyResolver.plugin` start
@@ -34,21 +34,23 @@ exports_files(
     [
         "intellij.java.aetherDependencyResolver.plugin.iml",
         "resources/META-INF/plugin.xml",
-        "plugin-content.yaml",
+        "dev-dist.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.aetherDependencyResolver.plugin` end
 
-### auto-generated section `dev content intellij.java.aetherDependencyResolver.plugin` start
-dev_dist_plugin_content(
+### auto-generated section `dev intellij.java.aetherDependencyResolver.plugin` start
+dev_dist_plugin(
     content_modules = [
         "//libraries/maven-resolver-provider",
         "//libraries/maven-resolver-transport",
         "//libraries/plexus-utils",
+        "//plugins/repository-search/common",
     ],
     descriptor_module = ":plugin",
     libraries = [
+        "@lib//:ktor-client-mock",
         "@lib//:libraries-maven-resolver-transport-org-apache-maven-resolver-maven-resolver-connector-basic",
         "@lib//:libraries-maven-resolver-transport-org-apache-maven-resolver-maven-resolver-transport-file",
         "@lib//:libraries-maven-resolver-transport-org-apache-maven-resolver-maven-resolver-transport-http",
@@ -59,8 +61,7 @@ dev_dist_plugin_content(
         "//aether-dependency-resolver:aether-dependency-resolver_content_module_jar",
         "//libraries/kotlinx/document-store-mvstore:libraries-kotlinx-document-store-mvstore_content_module_jar",
         "//libraries/package-search-api-client:package-search-api-client_content_module_jar",
-        "//plugins/repository-search/common:common_content_module_jar",
         "//plugins/repository-search/completion:completion_content_module_jar",
     ],
 )
-### auto-generated section `dev content intellij.java.aetherDependencyResolver.plugin` end
+### auto-generated section `dev intellij.java.aetherDependencyResolver.plugin` end

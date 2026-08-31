@@ -1,5 +1,4 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_content.bzl", "dev_dist_plugin_content")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 jps_test(
@@ -49,6 +48,7 @@ jvm_library(
         "//platform/core-api:core",
         "//platform/core-impl",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
+        "//java/java-backend:backend",
     ],
 )
 
@@ -90,6 +90,7 @@ jvm_library(
         "//platform/core-api:core_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
+        "//java/java-backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.commander` end
@@ -99,7 +100,6 @@ exports_files(
     [
         "intellij.commander.iml",
         "resources/META-INF/plugin.xml",
-        "plugin-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,5 +1,4 @@
-load("@community//platform/build-scripts/bazel-rules:dev_dist_content.bzl", "dev_dist_plugin_content")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin_descriptor.bzl", "dev_dist_plugin_descriptor")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.lombok.plugin` start
@@ -15,6 +14,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/platform-impl:ide-impl"],
 )
 
 jvm_library(
@@ -26,7 +26,11 @@ jvm_library(
     ),
     module_name = "intellij.lombok.plugin",
     visibility = ["//visibility:public"],
-    runtime_deps = [":plugin"],
+    runtime_deps = [
+        # do not sort,
+        ":plugin",
+        "//platform/platform-impl:ide-impl_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.lombok.plugin` end
 
@@ -35,25 +39,14 @@ exports_files(
     [
         "intellij.lombok.plugin.iml",
         "resources/META-INF/plugin.xml",
-        "plugin-content.yaml",
-        "dev-dist-descriptor.yaml",
+        "dev-dist.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.lombok.plugin` end
 
-### auto-generated section `dev content intellij.lombok.plugin` start
-dev_dist_plugin_content(
-    descriptor_module = ":plugin",
-    prepacked_content_modules = [
-        "//plugins/lombok/generated:generated_content_module_jar",
-        "//plugins/lombok:lombok_content_module_jar",
-    ],
-)
-### auto-generated section `dev content intellij.lombok.plugin` end
-
-### auto-generated section `dev descriptor intellij.lombok.plugin` start
-dev_dist_plugin_descriptor(
+### auto-generated section `dev intellij.lombok.plugin` start
+dev_dist_plugin(
     descriptor = "resources/META-INF/plugin.xml",
     descriptor_module = ":plugin",
     descriptors = {
@@ -62,5 +55,9 @@ dev_dist_plugin_descriptor(
     },
     directory_name = "lombok",
     main_module = "intellij.lombok.plugin",
+    prepacked_content_modules = [
+        "//plugins/lombok/generated:generated_content_module_jar",
+        "//plugins/lombok:lombok_content_module_jar",
+    ],
 )
-### auto-generated section `dev descriptor intellij.lombok.plugin` end
+### auto-generated section `dev intellij.lombok.plugin` end

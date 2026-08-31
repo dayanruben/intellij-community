@@ -12,8 +12,7 @@ def _jps_to_bazel_targets_json_impl(ctx):
     args.add_all(ctx.attr.starlark_library_targets, format_each = "--starlark-library=%s")
     args.add_all(ctx.attr.starlark_iml_targets, format_each = "--starlark-iml=%s")
     args.add_all(ctx.attr.starlark_plugin_distribution_targets, format_each = "--starlark-plugin-distribution=%s")
-    args.add_all(ctx.attr.starlark_plugin_content_report_files, format_each = "--starlark-plugin-content=%s")
-    args.add_all(ctx.attr.starlark_plugin_descriptor_report_files, format_each = "--starlark-plugin-descriptor=%s")
+    args.add_all(ctx.attr.starlark_dev_dist_residue_files, format_each = "--starlark-dev-dist-residue=%s")
     args.add_all(ctx.attr.starlark_content_module_recipe_files, format_each = "--starlark-content-module-recipe=%s")
     args.use_param_file("@%s", use_always = True)
 
@@ -52,10 +51,6 @@ jps_to_bazel_targets_json = rule(
             mandatory = True,
             doc = "Hermetic bazel-targets.json generator executable.",
         ),
-        "starlark_plugin_descriptor_report_files": attr.string_list(
-            default = [],
-            doc = "Starlark-probed `dev-dist-descriptor.yaml` labels for parity assertion.",
-        ),
         "starlark_production_targets": attr.string_list(
             default = [],
             doc = "Starlark-derived production targets for parity assertion.",
@@ -76,19 +71,22 @@ jps_to_bazel_targets_json = rule(
             default = [],
             doc = "Starlark-derived plugin distribution targets for parity assertion.",
         ),
-        "starlark_plugin_content_report_files": attr.string_list(
+        "starlark_dev_dist_residue_files": attr.string_list(
             default = [],
-            doc = """Starlark-derived `plugin-content.yaml` file labels for parity assertion.
+            doc = """Starlark-derived `dev-dist.yaml` file labels for parity assertion.
 
-The inputs of the `contentTarget` half of `pluginDistributionTargets`, not the targets: whether a report yields a
-content target depends on what the report says, which only the converter reads. Asserting the file set is what proves
-the converter saw every report the checkout has, which is the property a missing manifest entry would break.""",
+The inputs of both dev-distribution leaves, not the targets: whether a residue changes a leaf depends on what the
+residue says, which only the converter reads, so this asserts the file set. Asserting it is what proves the converter
+saw every residue the checkout has, which is the property a missing manifest entry would break. A residue the manifest
+is missing takes a plugin's stated members away, and the derivation then states fewer members than the distribution
+packs; it also takes the plugin's descriptor deviations away, and `descriptorTargets` then declares a patch the
+checked-in one does not.""",
         ),
         "starlark_content_module_recipe_files": attr.string_list(
             default = [],
             doc = """Starlark-derived `module-content.yaml` file labels for parity assertion.
 
-The input of `contentModuleJarTarget`, on the same terms as `starlark_plugin_content_report_files`: whether a recipe
+The input of `contentModuleJarTarget`, on the same terms as `starlark_dev_dist_residue_files`: whether a recipe
 yields a packing target depends on what the recipe says, which only the converter reads, so this asserts the file set.
 
 It is the property that broke. The recipe was not named here, so the hermetic run could not see any of them: 651

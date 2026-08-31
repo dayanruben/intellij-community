@@ -1,5 +1,4 @@
-load("@community//platform/build-scripts/bazel-rules:dev_dist_content.bzl", "dev_dist_plugin_content")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin_descriptor.bzl", "dev_dist_plugin_descriptor")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.vcs.git.commit.modal` start
@@ -62,16 +61,15 @@ exports_files(
     [
         "intellij.vcs.git.commit.modal.iml",
         "resources/META-INF/plugin.xml",
-        "plugin-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.vcs.git.commit.modal` end
 
-### auto-generated section `dev descriptor intellij.vcs.git.commit.modal` start
-dev_dist_plugin_descriptor(
+### auto-generated section `dev intellij.vcs.git.commit.modal` start
+dev_dist_plugin(
     descriptor = "resources/META-INF/plugin.xml",
     descriptor_module = ":vcs-git-commit-modal",
     main_module = "intellij.vcs.git.commit.modal",
 )
-### auto-generated section `dev descriptor intellij.vcs.git.commit.modal` end
+### auto-generated section `dev intellij.vcs.git.commit.modal` end

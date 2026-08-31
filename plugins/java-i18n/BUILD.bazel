@@ -1,6 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_content.bzl", "dev_dist_plugin_content")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin_descriptor.bzl", "dev_dist_plugin_descriptor")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 jps_test(
@@ -166,19 +165,18 @@ exports_files(
     [
         "intellij.java.i18n.iml",
         "resources/META-INF/plugin.xml",
-        "plugin-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.i18n` end
 
-### auto-generated section `dev descriptor intellij.java.i18n` start
-dev_dist_plugin_descriptor(
+### auto-generated section `dev intellij.java.i18n` start
+dev_dist_plugin(
     descriptor = "resources/META-INF/plugin.xml",
     descriptor_module = ":java-i18n",
     main_module = "intellij.java.i18n",
 )
-### auto-generated section `dev descriptor intellij.java.i18n` end
+### auto-generated section `dev intellij.java.i18n` end
 
 ### auto-generated section `build intellij.java.i18n.tests` start
 jvm_library(

@@ -161,7 +161,7 @@ internal const val CONTENT_MODULE_RECIPE_FILE_NAME: String = "module-content.yam
 /**
  * [ModuleDescriptor.contentModuleRecipeFile] as a label path in the module's own package, or `null` when it has none.
  *
- * The twin of [pluginContentReportPackagePath], and the converter half of `_find_content_module_recipe_rel_path` in
+ * The twin of [devDistResiduePackagePath], and the converter half of `_find_content_module_recipe_rel_path` in
  * `community/build/jps_model.bzl`: `JpsModuleToBazelTargetsOnly` asserts that the two sides pick out the same recipes,
  * so both have to drop a recipe outside the package the same way - the recipe sits beside the module's first content
  * root, which is not always inside it, and a file outside a package has no label.
@@ -216,8 +216,8 @@ private val LAYOUT_PACKED_MODULE_LIBRARIES = mapOf(
 internal const val LIB_MODULE_PREFIX = "intellij.libraries."
 
 /**
- * One jar of a checked-in content report - `module-content.yaml` here, `plugin-content.yaml` in [computePluginContent] -
- * narrowed to what packing and membership need.
+ * One jar of a content report - a checked-in `module-content.yaml` here, an entry of a distribution build's report zip
+ * in [computePluginContent] - narrowed to what packing and membership need.
  *
  * A narrow schema rather than `com.intellij.platform.distributionContent.FileEntry`: that class lives in
  * the platform, and this generator is a standalone Bazel module that gets the platform as published Maven artifacts,
@@ -286,8 +286,10 @@ internal data class RecipeModule(
  * `intellij.foo/bar` finds no module descriptor, so the member would be dropped with a warning and its jar would go
  * missing from the fragment manifest - the `module:` failure again, by a different route.
  *
- * A no-op on every one of the 1233 checked-in reports today; none has a `contentModules:` name with a slash in it.
- * Deliberately not applied to `modules:`, which the plan generator does not strip either.
+ * Three checked-in `module-content.yaml` files state a `contentModules:` entry, all three under
+ * `community/platform/problemsView/`, and none of them holds a slash. So this rule earns its place on the report zip,
+ * which is where a plugin's entries come from. Deliberately not applied to `modules:`, which the plan generator does not
+ * strip either.
  */
 internal val RecipeModule.moduleName: String
   get() = name.substringBeforeLast('/')
@@ -306,10 +308,10 @@ internal val recipeYaml: Yaml = Yaml(
  * The `content_module_jar` [module] owns, resolved into merge-ordered Bazel labels, or `null` when it owns none.
  *
  * Two kinds of jar, one target. A platform content module has a `module-content.yaml` beside it, which names the
- * modules its jar merges. A plugin content module has none, and its jar is the plain `lib/modules/<module>.jar` the
- * plugin reports agree on - see [prepackedPluginContentModuleLibraries]. Both resolve their libraries with
- * [mergedLibraryTargetLabels], under the [MergeRules] of the layout that owns them, and both end at the same
- * comparison against the report.
+ * modules its jar merges. A plugin content module has none, and its jar is the plain `lib/modules/<module>.jar` that
+ * every plugin holding it derives - see [prepackedPluginContentModuleLibraries]. Both resolve their libraries with
+ * [mergedLibraryTargetLabels], under the [MergeRules] of the layout that owns them, and both end at the same comparison
+ * against the library set the deciding statement records.
  *
  * Returning `null` rather than failing is deliberate: a jar this generator cannot reproduce faithfully - one several
  * modules co-own, one whose merged module the converter does not know, one holding a library it cannot label - must keep
@@ -395,7 +397,7 @@ internal fun computeContentModuleJar(module: ModuleDescriptor, moduleList: Modul
  * target. A relation naming a target nobody wrote does not build, so both answers come from one function.
  *
  * One case the pair does not cover, and it is older than this function. `generateModuleBuildFiles` drops the packing
- * target of a module whose `build` section a person took over, while the `dev content` section is written whatever
+ * target of a module whose `build` section a person took over, while the `dev` section is written whatever
  * happens - so a hand-written module that is also a plugin candidate would leave a label with no target behind it.
  * `intellij.php.dev` is the one module with a hand-written section, and it is not a candidate. A dangling label fails
  * at analysis rather than silently, so the build says so at once. Closing this needs the skipped sections read before
@@ -407,14 +409,14 @@ internal fun isPrepackedPluginContentModule(module: ModuleDescriptor, moduleList
 }
 
 /**
- * The libraries the plugin reports record for [module]'s jar, or `null` when [module] hands no jar to a plugin.
+ * The libraries the derived candidacy records for [module]'s jar, or `null` when [module] hands no jar to a plugin.
  *
  * [ModuleList.pluginContentModuleJarCandidates] proves the plugin jar is a single-module self-named jar and says which
  * libraries it merges. The checks here cover facts local to the module target: a platform recipe must not ask the same
  * output group to produce different bytes, and the descriptor used by `computeModuleSourcesByContent` must remain
  * readable after the raw module jar stops being a fragment input.
  *
- * Report facts only. Whether the merge is *derivable* from the JPS model is [computeContentModuleJar]'s answer, and
+ * The candidacy only. Whether the merge is *derivable* from the JPS model is [computeContentModuleJar]'s answer, and
  * [isPrepackedPluginContentModule] is the two together.
  */
 private fun prepackedPluginContentModuleLibraries(
@@ -449,10 +451,10 @@ private fun prepackedPluginContentModuleLibraries(
 }
 
 /**
- * Whether a platform recipe describes the same jar the plugin reports describe, [recordedNames] included.
+ * Whether a platform recipe describes the same jar the plugin candidacy describes, [recordedNames] included.
  *
- * One module, one jar, one target. When both a `module-content.yaml` and a plugin report cover this module, they have to
- * ask for the same bytes, or the one target would satisfy one of them and break the other.
+ * One module, one jar, one target. When both a `module-content.yaml` and a plugin's candidacy cover this module, they
+ * have to ask for the same bytes, or the one target would satisfy one of them and break the other.
  */
 private fun isCompatibleSingleModuleRecipe(entry: RecipeEntry, moduleName: String, recordedNames: Set<String>): Boolean {
   val single = entry.modules.singleOrNull() ?: return false
@@ -472,12 +474,13 @@ private enum class MergeRules {
    *
    * [isMergedIntoContentModuleJar] reproduces `JarPackager.computeSourcesForModuleLibs` for it, down to the two
    * hand-kept lists `LAYOUT_PACKED_PROJECT_LIBRARIES` and `LAYOUT_PACKED_MODULE_LIBRARIES`. So the model decides and
-   * the report vetoes, and a veto in either direction is a rule the mirror is missing.
+   * the module's own `module-content.yaml` vetoes, and a veto in either direction is a rule the mirror is missing.
    */
   PLATFORM,
 
   /**
-   * A plugin layout, which this generator does not evaluate - so here the report decides and the model orders.
+   * A plugin layout, which this generator does not evaluate - so here the folded candidacy decides the set and the
+   * walked module orders it.
    *
    * `excludedModuleLibraries`, `doNotCopyModuleLibrariesAutomatically` and `auto` are all `PluginLayout` state.
    * Evaluating a product layout is the work this generator exists to keep out of a fragment action, and mirroring one
@@ -485,9 +488,9 @@ private enum class MergeRules {
    * `doNotCopyModuleLibrariesAutomatically` modules of the database and Rider layouts each declare a module library
    * their jar does not hold, so a model-decides rule refused all 13.
    *
-   * The model is still needed for everything the report loses: the merge order, which is the module's `orderEntry`
-   * order, and the Bazel target of each library. The report is still checked. Every library it names must be one this
-   * module declares in production scope, and the comparison below is the same expression on both paths.
+   * The walked module is still needed for everything the candidacy loses: the merge order, which is the module's
+   * `orderEntry` order, and the Bazel target of each library. The candidacy is still checked. Every library it names
+   * must be one this module declares in production scope, and the comparison below is the same expression on both paths.
    */
   PLUGIN,
 }
@@ -550,7 +553,7 @@ private fun mergedLibraryTargetLabels(
           context = context,
         )
         // Two unnamed libraries of one module whose jars share a file name are one recorded name and two labels here,
-        // because the report has one key for both. Neither the report nor this walk can separate them.
+        // because the recorded set has one key for both. Neither that set nor this walk can separate them.
         MergeRules.PLUGIN -> reportName != null && reportName in recordedNames
       }
       if (!isMerged || !claimed.add(jpsLibrary.name to owner)) {
@@ -607,9 +610,9 @@ private fun mergedLibraryTargetLabels(
  * nothing here, although another plugin places them conventionally. Making that refusal per occurrence is a slice of its
  * own, because the fold is what keeps one packing target serving every plugin.
  *
- * Folded over the reports this run can see, which is every report the JPS model reaches - `pluginContentReport` is
- * parsed at most once per module and generation parses all of them anyway, so the fold is free. An occurrence in a
- * main plugin jar (`modules:`) is irrelevant: `content_module_jar` is an extra output and does not change that jar.
+ * Folded over the plugins of a distribution build's report zip, which the residue writer reads and no other run does.
+ * [foldDerivedPluginContentCandidacy] is what generation folds, over the project model instead. An occurrence in a main
+ * plugin jar (`modules:`) is irrelevant: `content_module_jar` is an extra output and does not change that jar.
  *
  * The library set has to travel with the answer, because one target serves every plugin that ships the module. Two
  * plugins recording different libraries for one module describe two different jars, and neither is the one a single
@@ -657,11 +660,11 @@ private fun mergedLibraryTargetLabels(
  * read in.
  *
  * [overrides] is what a community-only run cannot fold for itself; see [PLUGIN_CONTENT_CANDIDATE_OVERRIDES_FILE_NAME].
- * It is applied after the fold, so it decides both directions.
+ * It is applied after the fold, so it decides both directions. Every caller passes an empty map today, because the
+ * residue writer folds this over one build's reports and states rows from the answer alone.
  *
- * `PrepackedCandidateFold` in `devDistPlanGenerator.kt` is the same fold over `FileEntry` instead of [RecipeEntry].
- * It is the half that can see both repositories, and it is what records [overrides]. A rule changed here belongs there
- * too; until then the two runs disagree and the sync assertion says which files.
+ * A rule changed here belongs in [foldDerivedPluginContentCandidacy] too. The two folds have to reach one verdict for
+ * every module both can see, and the residue rows this one drives are what makes the derived fold agree.
  */
 internal fun foldPluginContentCandidacy(reports: List<List<RecipeEntry>>, overrides: Map<String, Set<String>?>): Map<String, Set<String>> {
   val agreed = HashMap<String, Set<String>>()
@@ -713,17 +716,18 @@ internal fun foldPluginContentCandidacy(reports: List<List<RecipeEntry>>, overri
 /**
  * The file the answers this generator cannot fold for itself are recorded in.
  *
- * [foldPluginContentCandidacy] is an AND over every checked-in `plugin-content.yaml`, and a community checkout does not
- * contain the ultimate ones. So a community-only run folds a different answer for a community module the ultimate half
- * has an opinion about, in both directions - a module whose only report is in ultimate is not a candidate at all, and a
- * module whose *ultimate* report disagrees is not vetoed. Either way that run generates `content_module_jar` and
+ * The candidacy fold is an AND over every plugin of the project, and a community checkout does not contain the ultimate
+ * ones. So a community-only run folds a different answer for a community module the ultimate half has an opinion about,
+ * in both directions - a module only an ultimate plugin offers is not a candidate at all, and a module an *ultimate*
+ * plugin vetoes is not vetoed. Either way that run generates `content_module_jar` and
  * `prepacked_content_modules` attributes differing from the checked-in ones, which is what
  * `Assert Bazel Files Are In Sync With JPS Model (Community Only)` fails on.
  *
- * Only those modules are recorded, not the whole set: `plugin-model-tool` folds both worlds and records the global
- * answer for the community modules they disagree about - roughly a dozen lines, where the whole set was 1892. The sign
- * is that answer, so `+` and `-` both occur. An override always agrees with what an ultimate run folds for itself, by
- * construction, so no run needs to know which kind of checkout it is in.
+ * Only those modules are recorded, not the whole set. The converter folds both halves and records the global answer for
+ * the community modules they disagree about, in `bazel-targets.json`; `plugin-model-tool` only writes those rows out.
+ * [communityOnlyCandidacyOverrideRows] is the one producer, and it states 8 rows today, where the whole set was 1892.
+ * The sign is that answer, so `+` and `-` both occur. An override always agrees with what an ultimate run folds for
+ * itself, by construction, so no run needs to know which kind of checkout it is in.
  *
  * That is why a `+` line also carries the merged library names, space separated after the module name. The fold agrees
  * on a library *set* and not only on a boolean, and the set of a module whose only report is in ultimate is another
@@ -740,9 +744,9 @@ internal const val PLUGIN_CONTENT_CANDIDATE_OVERRIDES_FILE_NAME: String = "dev_d
  * Reads what `plugin-model-tool` recorded, or nothing when no run has recorded it. A `null` value is "not a candidate".
  *
  * Nothing rather than a failure, because a project the tool has never run over is a real case and not a mistake: the
- * generator's own integration tests each build a throwaway community project. Those hold no `plugin-content.yaml` at
- * all, so the fold is empty there with or without this file. What an absent file costs a real checkout is only the
- * modules it would have corrected, which the sync assertion then reports.
+ * generator's own integration tests each build a throwaway community project. Such a project has one plugin and no
+ * ultimate half, so the fold reaches the same verdict with or without this file. What an absent file costs a real
+ * checkout is only the modules it would have corrected, which the sync assertion then reports.
  *
  * A line without a sign is a hard error, unlike a missing file: it would silently change how a module is packed, and a
  * jar that differs from the distribution's is not noticed until class-load time. A `-` line with a library is the same
@@ -988,7 +992,7 @@ private fun declaresLibrary(module: ModuleDescriptor, jpsLibraryName: String, co
  * module, merged or not, so an unnamed library with two jars anywhere in the project would stop the whole run. A jar
  * this generator cannot name is a jar it refuses to pack, which is the file's policy everywhere else.
  */
-private fun distributionLibraryName(library: JpsLibrary): String? {
+internal fun distributionLibraryName(library: JpsLibrary): String? {
   val name = library.name
   if (name.isNotEmpty() && !name.startsWith('#')) {
     return name

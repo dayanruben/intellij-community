@@ -1,5 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_content.bzl", "dev_dist_plugin_content")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 
@@ -35,6 +35,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    deps = ["//platform/platform-impl:ide-impl"],
 )
 
 jvm_library(
@@ -47,7 +48,11 @@ jvm_library(
     kotlinc_opts = ":custom_vcs-git",
     module_name = "intellij.vcs.git",
     visibility = ["//visibility:public"],
-    runtime_deps = [":vcs-git"],
+    runtime_deps = [
+        # do not sort,
+        ":vcs-git",
+        "//platform/platform-impl:ide-impl_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.vcs.git` end
 
@@ -56,14 +61,14 @@ exports_files(
     [
         "intellij.vcs.git.iml",
         "resources/META-INF/plugin.xml",
-        "plugin-content.yaml",
+        "dev-dist.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.vcs.git` end
 
-### auto-generated section `dev content intellij.vcs.git` start
-dev_dist_plugin_content(
+### auto-generated section `dev intellij.vcs.git` start
+dev_dist_plugin(
     content_modules = [
         "//plugins/git4idea/backend",
         "//plugins/git4idea/rt",
@@ -79,7 +84,7 @@ dev_dist_plugin_content(
         "//plugins/git4idea/terminal:terminal_content_module_jar",
     ],
 )
-### auto-generated section `dev content intellij.vcs.git` end
+### auto-generated section `dev intellij.vcs.git` end
 
 ### auto-generated section `build intellij.vcs.git.backend.tests` start
 create_kotlinc_options(
