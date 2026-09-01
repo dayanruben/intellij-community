@@ -6952,6 +6952,139 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches")
+    public static class IfExpressionWithIdenticalBranches extends AbstractK2LocalInspectionTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("bracedAndUnbraced.kt")
+        public void testBracedAndUnbraced() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/bracedAndUnbraced.kt");
+        }
+
+        @TestMetadata("commentInBlockExpression.kt")
+        public void testCommentInBlockExpression() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/commentInBlockExpression.kt");
+        }
+
+        @TestMetadata("commentInDiscardedBranch.kt")
+        public void testCommentInDiscardedBranch() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/commentInDiscardedBranch.kt");
+        }
+
+        @TestMetadata("commentInEmptyBranches.kt")
+        public void testCommentInEmptyBranches() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/commentInEmptyBranches.kt");
+        }
+
+        @TestMetadata("comments.kt")
+        public void testComments() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/comments.kt");
+        }
+
+        @TestMetadata("commonPureConditions.kt")
+        public void testCommonPureConditions() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/commonPureConditions.kt");
+        }
+
+        @TestMetadata("customGetterCondition.kt")
+        public void testCustomGetterCondition() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/customGetterCondition.kt");
+        }
+
+        @TestMetadata("declarationOnlyExpression.kt")
+        public void testDeclarationOnlyExpression() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/declarationOnlyExpression.kt");
+        }
+
+        @TestMetadata("declarationScope.kt")
+        public void testDeclarationScope() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/declarationScope.kt");
+        }
+
+        @TestMetadata("delegatedCondition.kt")
+        public void testDelegatedCondition() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/delegatedCondition.kt");
+        }
+
+        @TestMetadata("differentBranches.kt")
+        public void testDifferentBranches() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/differentBranches.kt");
+        }
+
+        @TestMetadata("differentCommentsInStatementBlock.kt")
+        public void testDifferentCommentsInStatementBlock() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/differentCommentsInStatementBlock.kt");
+        }
+
+        @TestMetadata("emptyBranches.kt")
+        public void testEmptyBranches() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/emptyBranches.kt");
+        }
+
+        @TestMetadata("emptyBranchesAsExpression.kt")
+        public void testEmptyBranchesAsExpression() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/emptyBranchesAsExpression.kt");
+        }
+
+        @TestMetadata("escapingContinue.kt")
+        public void testEscapingContinue() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/escapingContinue.kt");
+        }
+
+        @TestMetadata("escapingLoopJump.kt")
+        public void testEscapingLoopJump() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/escapingLoopJump.kt");
+        }
+
+        @TestMetadata("escapingReturnToRun.kt")
+        public void testEscapingReturnToRun() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/escapingReturnToRun.kt");
+        }
+
+        @TestMetadata("missingElse.kt")
+        public void testMissingElse() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/missingElse.kt");
+        }
+
+        @TestMetadata("sameCommentsInStatementBlock.kt")
+        public void testSameCommentsInStatementBlock() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/sameCommentsInStatementBlock.kt");
+        }
+
+        @TestMetadata("sameTextDifferentResolvedCalls.kt")
+        public void testSameTextDifferentResolvedCalls() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/sameTextDifferentResolvedCalls.kt");
+        }
+
+        @TestMetadata("shadowedRun.kt")
+        public void testShadowedRun() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/shadowedRun.kt");
+        }
+
+        @TestMetadata("sideEffectingCondition.kt")
+        public void testSideEffectingCondition() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/sideEffectingCondition.kt");
+        }
+
+        @TestMetadata("sideEffectingEmptyBranches.kt")
+        public void testSideEffectingEmptyBranches() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/sideEffectingEmptyBranches.kt");
+        }
+
+        @TestMetadata("statementBlock.kt")
+        public void testStatementBlock() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/statementBlock.kt");
+        }
+
+        @TestMetadata("throwExpression.kt")
+        public void testThrowExpression() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/ifExpressionWithIdenticalBranches/throwExpression.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/intentions/convertTryFinallyToUseCall")
     public static class ConvertTryFinallyToUseCall extends AbstractK2LocalInspectionTest {
         private void runTest(String testDataFilePath) throws Exception {
@@ -23408,6 +23541,214 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("simple.kt")
             public void testSimple() throws Exception {
                 runTest("testData/inspectionsLocal/suspiciousAsDynamic/simple.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/inspectionsLocal/suspiciousGetterForMutableObject")
+        public static class SuspiciousGetterForMutableObject extends AbstractK2LocalInspectionTest {
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("arrayListOf.kt")
+            public void testArrayListOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/arrayListOf.kt");
+            }
+
+            @TestMetadata("channel.kt")
+            public void testChannel() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/channel.kt");
+            }
+
+            @TestMetadata("completableDeferred.kt")
+            public void testCompletableDeferred() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/completableDeferred.kt");
+            }
+
+            @TestMetadata("coroutineScope.kt")
+            public void testCoroutineScope() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/coroutineScope.kt");
+            }
+
+            @TestMetadata("function.kt")
+            public void testFunction() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/function.kt");
+            }
+
+            @TestMetadata("getterCallingOtherFunction.kt")
+            public void testGetterCallingOtherFunction() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/getterCallingOtherFunction.kt");
+            }
+
+            @TestMetadata("getterReturningStoredProperty.kt")
+            public void testGetterReturningStoredProperty() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/getterReturningStoredProperty.kt");
+            }
+
+            @TestMetadata("getterWithTwoStatements.kt")
+            public void testGetterWithTwoStatements() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/getterWithTwoStatements.kt");
+            }
+
+            @TestMetadata("hashMapOf.kt")
+            public void testHashMapOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/hashMapOf.kt");
+            }
+
+            @TestMetadata("hashSetOf.kt")
+            public void testHashSetOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/hashSetOf.kt");
+            }
+
+            @TestMetadata("immutableList.kt")
+            public void testImmutableList() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/immutableList.kt");
+            }
+
+            @TestMetadata("javaCollectionConstructor.kt")
+            public void testJavaCollectionConstructor() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/javaCollectionConstructor.kt");
+            }
+
+            @TestMetadata("job.kt")
+            public void testJob() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/job.kt");
+            }
+
+            @TestMetadata("jobInBlockBody.kt")
+            public void testJobInBlockBody() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/jobInBlockBody.kt");
+            }
+
+            @TestMetadata("jobInExtensionProperty.kt")
+            public void testJobInExtensionProperty() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/jobInExtensionProperty.kt");
+            }
+
+            @TestMetadata("jobInInterface.kt")
+            public void testJobInInterface() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/jobInInterface.kt");
+            }
+
+            @TestMetadata("jobInOverride.kt")
+            public void testJobInOverride() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/jobInOverride.kt");
+            }
+
+            @TestMetadata("jobInTopLevelProperty.kt")
+            public void testJobInTopLevelProperty() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/jobInTopLevelProperty.kt");
+            }
+
+            @TestMetadata("jobInVar.kt")
+            public void testJobInVar() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/jobInVar.kt");
+            }
+
+            @TestMetadata("jobWithArgument.kt")
+            public void testJobWithArgument() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/jobWithArgument.kt");
+            }
+
+            @TestMetadata("linkedMapOf.kt")
+            public void testLinkedMapOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/linkedMapOf.kt");
+            }
+
+            @TestMetadata("linkedSetOf.kt")
+            public void testLinkedSetOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/linkedSetOf.kt");
+            }
+
+            @TestMetadata("mainScope.kt")
+            public void testMainScope() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mainScope.kt");
+            }
+
+            @TestMetadata("mutableListOf.kt")
+            public void testMutableListOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutableListOf.kt");
+            }
+
+            @TestMetadata("mutableListOfInOverride.kt")
+            public void testMutableListOfInOverride() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutableListOfInOverride.kt");
+            }
+
+            @TestMetadata("mutableListOfWithElements.kt")
+            public void testMutableListOfWithElements() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutableListOfWithElements.kt");
+            }
+
+            @TestMetadata("mutableListOfWithExplicitPropertyType.kt")
+            public void testMutableListOfWithExplicitPropertyType() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutableListOfWithExplicitPropertyType.kt");
+            }
+
+            @TestMetadata("mutableMapOf.kt")
+            public void testMutableMapOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutableMapOf.kt");
+            }
+
+            @TestMetadata("mutableMapOfWithEntries.kt")
+            public void testMutableMapOfWithEntries() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutableMapOfWithEntries.kt");
+            }
+
+            @TestMetadata("mutableSetOf.kt")
+            public void testMutableSetOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutableSetOf.kt");
+            }
+
+            @TestMetadata("mutableSharedFlow.kt")
+            public void testMutableSharedFlow() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutableSharedFlow.kt");
+            }
+
+            @TestMetadata("mutableStateFlow.kt")
+            public void testMutableStateFlow() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutableStateFlow.kt");
+            }
+
+            @TestMetadata("mutex.kt")
+            public void testMutex() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/mutex.kt");
+            }
+
+            @TestMetadata("propertyWithInitializer.kt")
+            public void testPropertyWithInitializer() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/propertyWithInitializer.kt");
+            }
+
+            @TestMetadata("semaphore.kt")
+            public void testSemaphore() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/semaphore.kt");
+            }
+
+            @TestMetadata("setter.kt")
+            public void testSetter() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/setter.kt");
+            }
+
+            @TestMetadata("sortedMapOf.kt")
+            public void testSortedMapOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/sortedMapOf.kt");
+            }
+
+            @TestMetadata("sortedSetOf.kt")
+            public void testSortedSetOf() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/sortedSetOf.kt");
+            }
+
+            @TestMetadata("supervisorJob.kt")
+            public void testSupervisorJob() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/supervisorJob.kt");
+            }
+
+            @TestMetadata("unrelatedFactory.kt")
+            public void testUnrelatedFactory() throws Exception {
+                runTest("testData/inspectionsLocal/suspiciousGetterForMutableObject/unrelatedFactory.kt");
             }
         }
 

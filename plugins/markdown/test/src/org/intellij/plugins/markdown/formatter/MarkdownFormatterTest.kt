@@ -2,6 +2,7 @@
 package org.intellij.plugins.markdown.formatter
 
 import com.intellij.application.options.CodeStyle
+import com.intellij.application.options.codeStyle.properties.LanguageCodeStylePropertyMapper
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
@@ -9,12 +10,36 @@ import com.intellij.psi.codeStyle.CodeStyleManager
 import com.intellij.psi.codeStyle.CodeStyleSettings
 import com.intellij.testFramework.LightPlatformCodeInsightTestCase
 import com.intellij.testFramework.PlatformTestUtil
+import junit.framework.TestCase
 import org.intellij.plugins.markdown.MarkdownTestingUtil
 import org.intellij.plugins.markdown.lang.MarkdownLanguage
 import org.intellij.plugins.markdown.lang.formatter.settings.MarkdownCustomCodeStyleSettings
 
 class MarkdownFormatterTest: LightPlatformCodeInsightTestCase() {
   fun `test smoke`() = doTest()
+
+  fun `test blank line settings use correct external names`() {
+    val settings = CodeStyle.createTestSettings(CodeStyleSettings.getDefaults())
+    settings.getCustomSettings(MarkdownCustomCodeStyleSettings::class.java).apply {
+      MAX_LINES_AROUND_HEADER = 2
+      MIN_LINES_AROUND_HEADER = 3
+      MAX_LINES_AROUND_BLOCK_ELEMENTS = 4
+      MIN_LINES_AROUND_BLOCK_ELEMENTS = 5
+      MAX_LINES_BETWEEN_PARAGRAPHS = 6
+      MIN_LINES_BETWEEN_PARAGRAPHS = 7
+    }
+    val mapper = LanguageCodeStylePropertyMapper(settings, MarkdownLanguage.INSTANCE, null)
+    mapOf(
+      "min_lines_around_header" to 2,
+      "max_lines_around_header" to 3,
+      "min_lines_around_block_elements" to 4,
+      "max_lines_around_block_elements" to 5,
+      "min_lines_between_paragraphs" to 6,
+      "max_lines_between_paragraphs" to 7,
+    ).forEach { (propertyName, value) ->
+      TestCase.assertEquals(value.toString(), mapper.getAccessor(propertyName)!!.getAsString())
+    }
+  }
 
   fun `test headers`() = doTest()
 
@@ -138,6 +163,18 @@ class MarkdownFormatterTest: LightPlatformCodeInsightTestCase() {
   fun `tests sublists with fixed indents enabled`() = doSublistIndentationTest(useFixedIndents = true)
 
   fun `tests sublists with fixed indents disabled`() = doSublistIndentationTest(useFixedIndents = false)
+
+  fun `test fixed two space indent keeps unordered sublist under ordered item`() {
+    runWithTemporaryStyleSettings(project) { settings ->
+      settings.getCustomSettings(MarkdownCustomCodeStyleSettings::class.java).USE_FIXED_INDENTS_FOR_SUBLISTS = true
+      settings.getCommonSettings(MarkdownLanguage.INSTANCE).indentOptions!!.INDENT_SIZE = 2
+      configureFromFileText("nestedList.md", "1. foo\n   * bar\n      * baz")
+
+      performReformatting(project, file)
+
+      checkResultByText("1. foo\n   * bar\n     * baz")
+    }
+  }
 
   override fun getTestDataPath(): String {
     return MarkdownTestingUtil.TEST_DATA_PATH + "/formatter/"

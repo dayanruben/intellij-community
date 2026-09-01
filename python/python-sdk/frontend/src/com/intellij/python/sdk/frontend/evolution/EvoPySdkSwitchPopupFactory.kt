@@ -29,6 +29,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.platform.project.projectId
 import com.intellij.psi.PsiManager
 import com.intellij.python.sdk.common.evolution.EvoAddNewOptionDto
+import com.intellij.util.PlatformUtils
 import com.intellij.python.sdk.common.evolution.EvoBasePythonDto
 import com.intellij.python.sdk.common.evolution.EvoLeafDto
 import com.intellij.python.sdk.common.evolution.EvoLeafKind
@@ -64,6 +65,7 @@ import com.intellij.python.sdk.frontend.evolution.components.EvoWarningException
 import com.intellij.python.sdk.frontend.icons.PythonSdkFrontendIcons
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 import javax.swing.Icon
 import com.intellij.python.sdk.common.evolution.requestEvoShowToolProcessOutput
@@ -136,7 +138,11 @@ private fun <T : Any> SimpleDataContext.Builder.addOrNull(key: DataKey<T>, value
 /** The project's Python interpreter settings page, matched by id the way `ShowSettingsUtil` matches one. */
 private const val PY_INTERPRETER_CONFIGURABLE_ID: String = "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
 
-internal class EvoPySdkSwitchPopupFactory(
+/** The package-manager settings page, matched the same way. */
+private const val PY_PACKAGE_MANAGERS_CONFIGURABLE_ID: String = "python.package.managers.group.settings"
+
+@ApiStatus.Internal
+class EvoPySdkSwitchPopupFactory(
   val project: Project,
   /** Wire identity of the `PyProject` every backend call below is addressed to — see [EvoPyProjectDto.key]. */
   val pyProjectKey: @NonNls String,
@@ -565,18 +571,20 @@ internal class EvoPySdkSwitchPopupFactory(
   /**
    * The "Interpreter Settings…" row for [nodeId]'s submenu, under a rule, or nothing for a node that does not carry it.
    *
-   * It belongs to "Advanced", which is where the widget keeps what it does not offer itself: the other nodes list this
+   * It belongs to "Custom", which is where the widget keeps what it does not offer itself: the other nodes list this
    * project's environments, while that one is already the way out to the fuller machinery. Behind a rule, since it
    * leaves the popup rather than adding to the list above it.
    */
   private fun settingsSection(nodeId: String): List<EvoTreeSection> =
-    if (nodeId != ADVANCED_NODE_ID) emptyList()
+    // PyCharm only: the page this opens is the Python interpreter page of a Python IDE. Every other IDE keeps the same
+    // settings under its own module structure, where this id finds nothing, so the row would lead nowhere.
+    if (nodeId != ADVANCED_NODE_ID || !PlatformUtils.isPyCharm()) emptyList()
     else listOf(EvoTreeSection(label = ListSeparator(""), elements = listOf(EvoTreeLeafElement(interpreterSettingsAction()))))
 
   /**
    * "Interpreter Settings…" — the row the classic widget ended with, opening the project's Python interpreter page.
    *
-   * Opened by the configurable's own id, as the settings gear opens the package-manager page: the frontend has no
+   * Opened by the configurable's own id, as the "Settings" row opens the package-manager page: the frontend has no
    * handle on the backend's configurable classes, and an id is what `ShowSettingsUtil` matches on anyway.
    */
   private fun interpreterSettingsAction(): AnAction =
@@ -584,6 +592,21 @@ internal class EvoPySdkSwitchPopupFactory(
                       { "" }, AllIcons.General.Settings), DumbAware {
       override fun actionPerformed(e: AnActionEvent) {
         ShowSettingsUtilImpl.showSettingsDialog(project, PY_INTERPRETER_CONFIGURABLE_ID, null)
+      }
+    }
+
+  /**
+   * "Settings" — the package-manager settings page.
+   *
+   * A row of the main list rather than a gear on the section header. The gear was a glyph painted onto the header with
+   * hit-testing and hover written by hand, and it named nothing: what it opened could only be learned by clicking it.
+   */
+  private fun packageManagerSettingsAction(): AnAction =
+    object : AnAction({ PySdkFrontendBundle.message("evo.sdk.status.bar.popup.package.manager.settings") },
+                      { "" }, AllIcons.General.Settings), DumbAware {
+      override fun actionPerformed(e: AnActionEvent) {
+        PyEvoWidgetCollector.controlUsed(project, PyEvoWidgetCollector.Control.GEAR_SETTINGS)
+        ShowSettingsUtilImpl.showSettingsDialog(project, PY_PACKAGE_MANAGERS_CONFIGURABLE_ID, null)
       }
     }
 
@@ -607,7 +630,7 @@ internal class EvoPySdkSwitchPopupFactory(
     // remembered as well, but not moved: only the collapsed list singles it out.
     val toolsInOrder = mutableListOf<EvoTreeElement>()
     var activeTool: EvoTreeElement? = null
-    // "Associated environments" lists interpreters already configured and "Advanced" opens the full add-interpreter set,
+    // "Associated environments" lists interpreters already configured and "Custom" opens the full add-interpreter set,
     // so neither switches the interpreter with a tool the project uses. They are never folded away.
     val nonToolNodes = mutableListOf<EvoTreeElement>()
     for (node in nodes) {
@@ -638,8 +661,11 @@ internal class EvoPySdkSwitchPopupFactory(
       // The slot has to be free as well, which guards a backend that named one node twice: the first wins.
       if (node.id == activeNodeId && activeTool == null) activeTool = element
     }
-    // Above "Advanced", where it has always sat.
+    // Above "Custom", where it has always sat.
     if (associated.isNotEmpty()) nonToolNodes.add(0, associatedInterpretersNode(traceId))
+    // Last, under "Custom": it leaves the popup for a settings dialog rather than offering an environment, which is
+    // what every row above it does.
+    nonToolNodes += EvoTreeLeafElement(packageManagerSettingsAction())
 
     val toolsCaption = ListSeparator(PySdkFrontendBundle.message(
       // "Change" once there is something to change: the section switches the interpreter rather than setting a first one.
@@ -671,31 +697,38 @@ internal class EvoPySdkSwitchPopupFactory(
       )
     }
 
-    // The list as it stands unfolded: every tool in its registered order, the active one among them rather than lifted
-    // out of it, and the row that folds them away again below.
-    val expandedSections = toolSections(allTools + showMoreRow(expanded = true, anyToolShown = true) { setToolsExpanded(false) })
-
-    // Collapsed: the tool in use, then the "Show more" row standing in for the tools it hides. The rule below them is
-    // the same one the expanded list has, so folding the tools away does not change the shape of the list.
-    //
-    // The row records the choice with the widget rather than swapping these sections in place. Editing the tree and
-    // reopening over it only worked while the widget still had that very tree: any rebuild — a cache that expired while
-    // the popup was open, a refresh — produced a fresh collapsed one, and the click appeared to do nothing.
     fun disclosure(anyToolShown: Boolean) = showMoreRow(expanded = false, anyToolShown = anyToolShown) { setToolsExpanded(true) }
-    val collapsedSections = when {
-      toolsExpanded || allTools.isEmpty() -> null
+
+    // What the tool list holds before the user unfolds it, and whether a row to unfold it belongs there at all.
+    //
+    // Folding pays only where one tool is the obvious one — the tool whose environment the project uses. The rest turns
+    // on telling apart the two ways there can be no such tool.
+    //
+    // The row records the choice with the widget rather than swapping the rows in place. Editing the tree and reopening
+    // over it only worked while the widget still had that very tree: any rebuild — a cache that expired while the popup
+    // was open, a refresh — produced a fresh collapsed one, and the click appeared to do nothing.
+    val toolRows = when {
+      // Nothing is configured yet, so every tool is on offer, and folding them away would hide the point of the list.
+      // This is the one moment the user picks a tool rather than changes an environment, which is why the heading above
+      // reads "Select Environment" here. No row either: nothing is folded away for it to reveal.
+      currentInterpreter == null -> allTools
+      // Nothing to fold, so nothing to fold it with.
+      allTools.size <= 1 -> allTools
+      // The user asked for the whole list, in its registered order, with the active tool among the others rather than
+      // lifted out of them. The row folds it back.
+      toolsExpanded -> allTools + showMoreRow(expanded = true, anyToolShown = true) { setToolsExpanded(false) }
       // The tool in use leads, and the rest fold behind the row under it.
-      activeTool != null -> if (allTools.size > 1) toolSections(listOf(activeTool, disclosure(anyToolShown = true))) else null
-      // No tool is in use — a remote interpreter, or one no node claims — so none of them is worth singling out and the
-      // whole list folds away. Leaving them all on screen made the widget of such a project the longest of any.
-      else -> toolSections(listOf(disclosure(anyToolShown = false)))
+      activeTool != null -> listOf(activeTool, disclosure(anyToolShown = true))
+      // An interpreter is set but no node owns it — a remote one, or one of a flavor no tool claims. None of the tools
+      // is worth singling out, so the whole list folds away; leaving them on screen made such a project's widget the
+      // longest of any.
+      else -> listOf(disclosure(anyToolShown = false))
     }
 
-    // Collapsed when there is a tool in use, others to fold away, and the user has not asked for all of them.
     return EvoTreeStaticNodeElement(
       text = "",
       icon = AllIcons.Language.Python,
-      sections = sectionsWith(collapsedSections ?: expandedSections),
+      sections = sectionsWith(toolSections(toolRows)),
     )
   }
 

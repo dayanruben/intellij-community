@@ -5,19 +5,23 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import org.jetbrains.annotations.ApiStatus
+import java.awt.Component
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 
-data class IjentCallerContext(
+class IjentCallerContext(
   val isRead: Boolean,
   val isWrite: Boolean,
   val isDispatchThread: Boolean,
+  val reconnectUi: ReconnectUiHandle,
 ) {
   companion object {
     suspend fun getSaved(): IjentCallerContext? {
-      return currentCoroutineContext()[IjentCalledContextElement.Key]?.callerContext
+      return getSavedElement()?.callerContext
+    }
+
+    suspend fun getSavedElement(): IjentCallerContextElement? {
+      return currentCoroutineContext()[IjentCallerContextElement.Key]
     }
   }
 }
@@ -29,20 +33,8 @@ fun IjentCallerContext.allowCancellableNio(): Boolean {
   }
 }
 
-fun IjentCallerContext.unavailableDialogTimeout(): Duration {
-  return if (IjentRegistry.getInstance().isEnabled("ijent.unavailable.dialog.enabled", true)) {
-    if (isDispatchThread) {
-      500.milliseconds
-    }
-    else {
-      1000.milliseconds
-    }
-  }
-  else Duration.INFINITE
-}
-
-class IjentCalledContextElement(val callerContext: IjentCallerContext) : AbstractCoroutineContextElement(Key) {
-  object Key : CoroutineContext.Key<IjentCalledContextElement>
+class IjentCallerContextElement(val callerContext: IjentCallerContext) : AbstractCoroutineContextElement(Key) {
+  object Key : CoroutineContext.Key<IjentCallerContextElement>
 }
 
 /**
@@ -59,14 +51,14 @@ class IjentCalledContextElement(val callerContext: IjentCallerContext) : Abstrac
  * (`com.intellij.platform.eel.provider.EelInitialization.runEelInitialization`) instead of relying on
  * an implicit interactive deployment.
  *
- * The check relies on [IjentCalledContextElement], which is installed by `fsBlockingWithoutParallelismCompensation`.
+ * The check relies on [IjentCallerContextElement], which is installed by `fsBlockingWithoutParallelismCompensation`.
  * A deployment launched in a detached scope does not inherit the element, so code that awaits such
  * a deployment must call this function on the awaiting side; see `ijentFailSafeFileSystemApi`
  * in `intellij.platform.ijent.community.impl`.
  */
 @ApiStatus.Internal
 suspend fun throwIfInsideIjentFsBlocking() {
-  if (currentCoroutineContext()[IjentCalledContextElement.Key] != null) {
+  if (currentCoroutineContext()[IjentCallerContextElement.Key] != null) {
     throw IllegalStateException(
       "IJent deployment is requested from inside a blocking IJent file system operation. " +
       "If the deployment needs user interaction (e.g., an SSH authentication dialog), it deadlocks: " +
@@ -83,4 +75,13 @@ fun CoroutineScope.coroutineNameAppended(name: String, separator: String = " > "
 fun CoroutineContext.coroutineNameAppended(name: String, separator: String = " > "): CoroutineContext {
   val parentName = this[CoroutineName]?.name
   return CoroutineName(if (parentName == null) name else parentName + separator + name)
+}
+
+interface ReconnectUiHandle {
+  suspend fun requestDialogImmediately(): ReconnectUiDialog?
+}
+
+interface ReconnectUiDialog {
+  val edtAndModality: CoroutineContext
+  val component: Component
 }

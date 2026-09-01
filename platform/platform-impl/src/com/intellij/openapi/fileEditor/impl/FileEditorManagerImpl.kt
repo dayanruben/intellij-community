@@ -834,6 +834,11 @@ open class FileEditorManagerImpl(
            COMPOSITE_PROVIDER_EP.extensionList.any { it.canOpenFile(file) }
   }
 
+  override suspend fun canOpenFileAsync(file: VirtualFile): Boolean {
+    return super.canOpenFileAsync(file) ||
+           COMPOSITE_PROVIDER_EP.extensionList.any { it.canOpenFile(file) }
+  }
+
   override fun hasOpenedFile(): Boolean = splitters.currentWindow?.selectedComposite != null
 
   override fun getCurrentFile(): VirtualFile? {
@@ -1132,6 +1137,10 @@ open class FileEditorManagerImpl(
       }
     }
     else if (mode == OpenMode.RIGHT_SPLIT) {
+      // the split is created before the composite is opened (see EditorWindow.split)
+      if (!canOpenFileAsync(file)) {
+        return FileEditorComposite.EMPTY
+      }
       withContext(Dispatchers.EDT) {
         openInRightSplit(file,
                          options.requestFocus,
@@ -1261,7 +1270,8 @@ open class FileEditorManagerImpl(
         return composite
       }
     }
-    return window.owner.openInRightSplit(file, forceFocus = forceFocus, internalHint = internalHint)
+    // propagate the requestFocus for a split view as well
+    return window.owner.openInRightSplit(file, requestFocus = requestFocus, forceFocus = forceFocus, internalHint = internalHint)
       ?.composites()?.firstOrNull { it.file == file }
   }
 

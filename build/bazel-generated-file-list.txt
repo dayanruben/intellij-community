@@ -395,6 +395,7 @@ libraries/androidx-collections
 libraries/asm
 libraries/asm-tools
 libraries/assertj-core
+libraries/assertj-swing
 libraries/automaton
 libraries/awaitility
 libraries/batik
@@ -440,6 +441,7 @@ libraries/ec4j/core
 libraries/fastutil
 libraries/ffmpeg
 libraries/flexmark
+libraries/fus-ap-validation
 libraries/git-learning-project
 libraries/gradle
 libraries/groovy
@@ -495,6 +497,7 @@ libraries/jediterm-ui
 libraries/jetbrains/annotations
 libraries/jetcheck
 libraries/jettison
+libraries/jgit
 libraries/jgit-ssh
 libraries/jgoodies/common
 libraries/jgoodies/forms
@@ -502,6 +505,7 @@ libraries/jing
 libraries/jline
 libraries/jna
 libraries/joni
+libraries/jps-javac-extension
 libraries/jsch-agent-proxy
 libraries/json-schema-validator
 libraries/jsonpath
@@ -538,15 +542,18 @@ libraries/kotlinc/analysis-api
 libraries/kotlinc/analysis-api-impl-base
 libraries/kotlinc/analysis-api-k2
 libraries/kotlinc/analysis-api-platform-interface
+libraries/kotlinc/assignment-compiler-plugin
 libraries/kotlinc/kotlin-compiler-common
 libraries/kotlinc/kotlin-compiler-fir
 libraries/kotlinc/kotlin-jps-common
 libraries/kotlinc/kotlin-script-runtime
 libraries/kotlinc/kotlin-scripting-common
 libraries/kotlinc/kotlin-scripting-compiler-impl
+libraries/kotlinc/kotlin-scripting-dependencies
 libraries/kotlinc/kotlin-scripting-jvm
 libraries/kotlinc/kotlinx-serialization-compiler-plugin
 libraries/kotlinc/low-level-api-fir
+libraries/kotlinc/scripting-compiler-plugin
 libraries/kotlinc/symbol-light-classes
 libraries/kotlinx/bcv
 libraries/kotlinx/collections-immutable
@@ -585,6 +592,7 @@ libraries/lz4
 libraries/markdown
 libraries/maven-resolver-provider
 libraries/maven-resolver-transport
+libraries/mcp-kotlin-sdk
 libraries/memoryfilesystem
 libraries/microba
 libraries/miglayout-swing
@@ -619,6 +627,7 @@ libraries/oshi-core
 libraries/package-search-api-client
 libraries/plexus-utils
 libraries/protobuf
+libraries/protobuf-java-util
 libraries/protobuf-kotlin
 libraries/proxy-vole
 libraries/pty4j

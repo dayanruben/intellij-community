@@ -69,7 +69,6 @@ dev_dist_plugin(
     ],
     descriptor_module = ":community-plugin",
     libraries = [
-        "@lib//:com-jetbrains-fus-reporting-ap-validation-all",
         "@lib//:libraries-jsr305-jsr305",
         "@lib//:libraries-mlapi-catboost-jetbrains-mlapi-catboost",
         "@lib//:libraries-mlapi-catboost-jetbrains-mlapi-catboost-shadow-need-slf4j",

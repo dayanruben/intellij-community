@@ -86,7 +86,7 @@ class MPSProperties : JetBrainsProductProperties() {
             "intellij.vcs.svn",
             "intellij.vcs.github",
             "intellij.vcs.git.commit.modal",
-            "intellij.ant",
+            //"intellij.ant",
             "intellij.sh.plugin",
             "intellij.markdown",
             "intellij.mermaid",
@@ -119,7 +119,7 @@ class MPSProperties : JetBrainsProductProperties() {
             layout.withModule("intellij.java.rt", "idea_rt.jar")
             layout.withProjectLibrary("Eclipse", "lib.jar", "withProjectLibrary")
             layout.withProjectLibrary("http-client", "lib.jar", "withProjectLibrary")
-            layout.withoutProjectLibrary("Ant")
+//            layout.withoutProjectLibrary("Ant")
             layout.withoutProjectLibrary("Gradle")
             layout.withProjectLibrary("maven-resolver-provider", LibraryPackMode.STANDALONE_MERGED)
         }
@@ -201,6 +201,10 @@ class MPSProperties : JetBrainsProductProperties() {
         // the sqlite JDBC driver `importSettings` needs; private, so plugins bundle their own copy of it
         privateModule("intellij.libraries.sqlite")
 
+        // `productImplementationModules` holds `intellij.platform.jps.build.javac.rt`, which depends on this wrapper.
+        // The declaration keeps the plugin model the only truth for packaging, so `validateImplicitPlatformModule` passes.
+        embeddedModule("intellij.libraries.jps.javac.extension")
+
         module("intellij.platform.customization.min")
         module("intellij.idea.customization.base")
 
@@ -240,14 +244,25 @@ class MPSProperties : JetBrainsProductProperties() {
             installerImagesPath = projectHome.resolve("build/resources")
         }
     }
-}
 
-private fun patchPluginXml(): (PluginLayout.PluginLayoutSpec) -> Unit = { spec ->
-  spec.withPluginXmlPatcher { text, _ ->
-    checkedReplace(
-      oldText = text,
-      regex = """<version>([^.]+)\.([^.]+)\.?(.*)</version>""",
-      newText = """<version>$1.100$2.$3-MPS</version>""",
-    )
-  }
+    private fun patchPluginXml(): (PluginLayout.PluginLayoutSpec) -> Unit = { spec ->
+      spec.withPluginXmlPatcher { text, _ ->
+        val newText = checkedReplace(
+          oldText = text,
+          regex = """<version>([^.]+)\.([^.]+)\.?(.*)</version>""",
+          newText = """<version>$1.100$2.$3-MPS</version>""",
+        )
+        
+        val regex = """(?m)(?s)(.*)<content namespace="jetbrains">(.+)</idea-plugin>([\n]*)"""
+        val patchedManifestContent = javaClass.classLoader.getResourceAsStream("java-impl.jar/META-INF/plugin.xml")?.use {
+          it.bufferedReader().readText()
+        } ?: throw IllegalStateException("Failed to resolve plugin xml")
+        val matchResult = Regex(regex).matchEntire(patchedManifestContent) ?: throw IllegalStateException("Failed to match regex")
+        checkedReplace(
+          oldText = newText,
+          regex = regex,
+          newText = """$1<content namespace="jetbrains">${matchResult.groups[2]?.value}</idea-plugin>$3""",
+        )
+      }
+    }
 }

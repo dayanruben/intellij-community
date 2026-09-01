@@ -186,12 +186,13 @@ exports_files(
 dev_dist_plugin(
     content_modules = [
         "//libraries/assertj-core",
+        "//libraries/assertj-swing",
         "//plugins/performanceTesting/remote-driver",
     ],
     descriptor_module = ":performanceTesting",
     libraries = [
-        "@lib//:assertj-swing",
         "@lib//:libraries-assertj-core-assert_j",
+        "@lib//:libraries-assertj-swing-assertj-swing",
     ],
     prepacked_content_modules = [
         "//plugins/performanceTesting/backend:backend_content_module_jar",

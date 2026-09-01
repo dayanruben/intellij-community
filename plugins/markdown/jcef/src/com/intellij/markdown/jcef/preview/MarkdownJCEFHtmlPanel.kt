@@ -36,6 +36,7 @@ import com.intellij.ui.jcef.JCEFHtmlPanel
 import com.intellij.util.application
 import com.intellij.util.io.DigestUtil
 import com.intellij.util.net.NetUtils
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -67,7 +68,6 @@ import org.intellij.plugins.markdown.ui.preview.ResourceProvider
 import org.intellij.plugins.markdown.util.MarkdownApplicationScope
 import org.intellij.plugins.markdown.util.MarkdownPluginScope
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.annotations.TestOnly
 import java.awt.BorderLayout
 import java.awt.Point
 import java.net.URL
@@ -102,23 +102,27 @@ class MarkdownJCEFHtmlPanel(private val project: Project?, private val virtualFi
   }
 
   private val updateHandler = MarkdownUpdateHandler.Debounced()
+  private val initialization = CompletableDeferred<Unit>()
 
-  private fun buildIndexContent(): String {
+  /** The one served resource meant to be a document: it declares its own policy in a `<meta>`. */
+  private fun buildIndexResource(): ResourceProvider.Resource {
     val scripts = (baseScripts + currentExtensions.flatMap { it.scripts }).map { PreviewStaticServer.getStaticUrl(resourceProvider, it) }
     val styles = currentExtensions.flatMap { it.styles }.map { PreviewStaticServer.getStaticUrl(resourceProvider, it) }
     // language=HTML
-    return """
+    val content = """
       <!DOCTYPE html>
       <html>
         <head>
           <title>IntelliJ Markdown Preview</title>
           <meta http-equiv="Content-Security-Policy" content="${PreviewStaticServer.createCSP(scripts, styles)}"/>
+          <meta name="referrer" content="no-referrer"/>
           <meta name="markdown-position-attribute-name" content="${HtmlGenerator.SRC_ATTRIBUTE_NAME}"/>
           ${scripts.joinToString("\n") { "<script src=\"${it}\"></script>" }}
           ${styles.joinToString("\n") { "<link rel=\"stylesheet\" href=\"${it}\"/>" }}
         </head>
       </html>
     """
+    return ResourceProvider.Resource(content.toByteArray(), "text/html", isDocument = true)
   }
 
   private suspend fun loadIndexContent() {
@@ -173,30 +177,39 @@ class MarkdownJCEFHtmlPanel(private val project: Project?, private val virtualFi
     })
 
     coroutineScope.launch {
-      val projectRoot = projectRoot.await()
-      val fileSchemeResourcesProcessor = createFileSchemeResourcesProcessor(projectRoot)
+      try {
+        val projectRoot = projectRoot.await()
+        val fileSchemeResourcesProcessor = createFileSchemeResourcesProcessor(projectRoot)
 
-      loadIndexContent()
-      updateHandler.requests.collectLatest { request ->
-        try {
-          when (request) {
-            is PreviewRequest.Update -> {
-              val (html, initialScrollOffset, document) = request
-              val baseFile = document?.parent
-              val builder = IncrementalDOMBuilder(html, baseFile, projectRoot, fileSchemeResourcesProcessor)
-              val renderClosure = builder.generateRenderClosure()
-              updateDom(renderClosure, initialScrollOffset, previousRenderClosure.isEmpty())
-            }
-            is PreviewRequest.ReloadWithOffset -> {
-              reloadIndexContent()
-              updateDom(previousRenderClosure, request.offset, firstUpdate = true)
+        loadIndexContent()
+        initialization.complete(Unit)
+        updateHandler.requests.collectLatest { request ->
+          try {
+            when (request) {
+              is PreviewRequest.Update -> {
+                val (html, initialScrollOffset, document) = request
+                val baseFile = document?.parent
+                val builder = IncrementalDOMBuilder(html, baseFile, projectRoot, fileSchemeResourcesProcessor)
+                val renderClosure = builder.generateRenderClosure()
+                updateDom(renderClosure, initialScrollOffset, previousRenderClosure.isEmpty())
+              }
+              is PreviewRequest.ReloadWithOffset -> {
+                reloadIndexContent()
+                updateDom(previousRenderClosure, request.offset, firstUpdate = true)
+              }
             }
           }
+          catch (e: Exception) {
+            rethrowControlFlowException(e)
+            thisLogger().error(e)
+          }
         }
-        catch (e: Exception) {
-          rethrowControlFlowException(e)
-          thisLogger().error(e)
-        }
+      }
+      catch (e: Throwable) {
+        initialization.completeExceptionally(e)
+        rethrowControlFlowException(e)
+        thisLogger().error("Failed to initialize the Markdown preview", e)
+        throw e
       }
     }
   }
@@ -240,11 +253,10 @@ class MarkdownJCEFHtmlPanel(private val project: Project?, private val virtualFi
   }
 
   @ApiStatus.Internal
-  @TestOnly
-  suspend fun setHtmlAndWait(html: String) {
-    loadIndexContent()
+  suspend fun setHtmlAndWait(html: String, document: VirtualFile? = null, fileSchemeResourcesProcessor: ResourceProvider? = null) {
+    initialization.await()
 
-    val builder = IncrementalDOMBuilder(html, null, null, null)
+    val builder = IncrementalDOMBuilder(html, document?.parent, projectRoot.await(), fileSchemeResourcesProcessor)
     val renderClosure = readAction { builder.generateRenderClosure() }
     updateDom(renderClosure, 0, false)
   }
@@ -396,6 +408,11 @@ class MarkdownJCEFHtmlPanel(private val project: Project?, private val virtualFi
     return fileSchemeResourcesProcessor
   }
 
+  @ApiStatus.Internal
+  suspend fun createFileSchemeResourcesProcessor(): ResourceProvider? {
+    return createFileSchemeResourcesProcessor(projectRoot.await())
+  }
+
   private inner class MyAggregatingResourceProvider : ResourceProvider {
     private val internalResources = baseScripts + baseStyles
 
@@ -405,7 +422,7 @@ class MarkdownJCEFHtmlPanel(private val project: Project?, private val virtualFi
       currentExtensions.any { it.resourceProvider.canProvide(resourceName) }
 
     override fun loadResource(resourceName: String): ResourceProvider.Resource? = when (resourceName) {
-      pageBaseName -> ResourceProvider.Resource(buildIndexContent().toByteArray(), "text/html")
+      pageBaseName -> buildIndexResource()
       in internalResources -> ResourceProvider.loadInternalResource<MarkdownJCEFHtmlPanel>(resourceName)
       else -> currentExtensions.map { it.resourceProvider }.firstOrNull { it.canProvide(resourceName) }?.loadResource(resourceName)
     }
@@ -475,6 +492,7 @@ class MarkdownJCEFHtmlPanel(private val project: Project?, private val virtualFi
       "incremental-dom.min.js",
       "incremental-dom-additions.js",
       "BrowserPipe.js",
+      "PreviewClickGuard.js",
       "ScrollSync.js"
     )
 

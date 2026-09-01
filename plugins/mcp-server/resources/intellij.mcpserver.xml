@@ -18,6 +18,7 @@
     <module name="intellij.libraries.kotlinx.serialization.json"/>
     <module name="intellij.libraries.ktor.server.content.negotiation"/>
     <module name="intellij.libraries.ktor.server.sse"/>
+    <module name="intellij.libraries.mcp.kotlin.sdk"/>
     <module name="intellij.libraries.night.config.toml"/>
     <module name="intellij.libraries.opentelemetry"/>
     <module name="intellij.libraries.schema.kenerator"/>
@@ -54,6 +55,7 @@
     <extensionPoint qualifiedName="com.intellij.mcpServer.mcpManagedSessionSupport" interface="com.intellij.mcpserver.McpManagedSessionSupport" dynamic="true" />
     <extensionPoint qualifiedName="com.intellij.mcpServer.elicitationProvider" interface="com.intellij.mcpserver.elicitation.McpElicitationProvider" dynamic="true" />
     <extensionPoint qualifiedName="com.intellij.mcpServer.projectDependenciesProvider" interface="com.intellij.mcpserver.McpProjectDependenciesProvider" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.mcpServer.statusBarWidgetProvider" interface="com.intellij.mcpserver.widget.McpServerStatusBarWidgetProvider" dynamic="true" />
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
