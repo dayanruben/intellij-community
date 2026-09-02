@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,19 +29,18 @@ type SpawnResult struct {
 	Stderr   string
 }
 
-// SpawnOptions selects the standard-stream wiring of a child process.
+// SpawnOptions holds the standard input of a child process. The wrapper always captures
+// the output of a child, so a failure reaches the JSON envelope.
 type SpawnOptions struct {
-	// Interactive gives the child the wrapper's own streams, so a prompt of the child
-	// is answerable. The captured Stdout and Stderr are then empty.
-	Interactive bool
+	// Stdin is the text the child reads on its standard input. An empty value gives the
+	// child no input at all, so a read of the child reaches the end of the input at once.
+	Stdin string
 }
 
 // Runtime holds every effect of the wrapper. A test replaces it with a fake.
 type Runtime interface {
 	Cwd() string
 	Env(name string) (string, bool)
-	// IsTTY reports whether a person can answer a prompt of a child process.
-	IsTTY() bool
 	Now() time.Time
 	UUID() string
 	ReadTextFile(path string) (string, error)
@@ -49,9 +49,13 @@ type Runtime interface {
 	Spawn(command []string, options SpawnOptions) SpawnResult
 }
 
-// osRuntime is the Runtime of the real process.
+// osRuntime is the Runtime of the real process. It resolves the Treehouse CLI binary once,
+// because one command spawns the CLI several times.
 type osRuntime struct {
-	cwd string
+	cwd     string
+	cliOnce sync.Once
+	cliPath string
+	cliErr  error
 }
 
 func newOSRuntime() *osRuntime {
@@ -65,20 +69,6 @@ func newOSRuntime() *osRuntime {
 func (r *osRuntime) Cwd() string { return r.cwd }
 
 func (r *osRuntime) Env(name string) (string, bool) { return os.LookupEnv(name) }
-
-// IsTTY requires both streams to be a character device, because the child of an
-// interactive spawn reads the prompt answer from one and writes the prompt to the other.
-func (r *osRuntime) IsTTY() bool {
-	return isCharDevice(os.Stdin) && isCharDevice(os.Stdout)
-}
-
-func isCharDevice(file *os.File) bool {
-	info, err := file.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
-}
 
 func (r *osRuntime) Now() time.Time { return time.Now() }
 
@@ -124,13 +114,13 @@ func (r *osRuntime) Spawn(command []string, options SpawnOptions) SpawnResult {
 	argv := append([]string(nil), command...)
 	isCLI := argv[0] == treehouseCommandName
 	if isCLI {
-		path, err := treehouseCLIPath()
-		if err != nil {
+		r.cliOnce.Do(func() { r.cliPath, r.cliErr = treehouseCLIPath() })
+		if r.cliErr != nil {
 			// Exit code 127 makes this an "unavailable" failure, the same code a shell
 			// reports for a command it cannot find.
-			return SpawnResult{ExitCode: 127, Stderr: err.Error()}
+			return SpawnResult{ExitCode: 127, Stderr: r.cliErr.Error()}
 		}
-		argv[0] = path
+		argv[0] = r.cliPath
 	}
 
 	child := exec.Command(argv[0], argv[1:]...)
@@ -139,16 +129,13 @@ func (r *osRuntime) Spawn(command []string, options SpawnOptions) SpawnResult {
 		// wants the check off, so it sets the variable even when the caller did not.
 		child.Env = append(os.Environ(), "TREEHOUSE_NO_UPDATE_CHECK=1")
 	}
+	if options.Stdin != "" {
+		child.Stdin = strings.NewReader(options.Stdin)
+	}
 	stdout := &strings.Builder{}
 	stderr := &strings.Builder{}
-	if options.Interactive {
-		child.Stdin = os.Stdin
-		child.Stdout = os.Stdout
-		child.Stderr = os.Stderr
-	} else {
-		child.Stdout = stdout
-		child.Stderr = stderr
-	}
+	child.Stdout = stdout
+	child.Stderr = stderr
 
 	err := child.Run()
 	result := SpawnResult{Stdout: stdout.String(), Stderr: stderr.String()}
@@ -272,8 +259,7 @@ func isExecutableFile(path string) bool {
 	return info.Mode().Perm()&0o111 != 0
 }
 
-// isoTimestamp formats a time the way JavaScript's Date.toISOString does: UTC, three
-// fraction digits, and a "Z" suffix.
+// isoTimestamp formats a time in UTC with three fraction digits and a "Z" suffix.
 func isoTimestamp(value time.Time) string {
 	return value.UTC().Format("2006-01-02T15:04:05.000Z07:00")
 }

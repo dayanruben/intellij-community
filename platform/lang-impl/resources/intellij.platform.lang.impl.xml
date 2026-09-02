@@ -13,7 +13,6 @@
     <module name="intellij.libraries.jackson3"/>
     <module name="intellij.libraries.jackson3.databind"/>
     <module name="intellij.libraries.jackson3.module.kotlin"/>
-    <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.jsoup"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
@@ -1903,8 +1902,6 @@
     <projectSettings service="com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl"/>
     <applicationSettings service="com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettingsImpl"/>
     <applicationSettings service="com.intellij.codeInsight.inline.completion.tooltip.onboarding.InlineCompletionOnboardingComponent"/>
-    <applicationService serviceInterface="com.intellij.refactoring.move.moveClassesOrPackages.MovedFileProvider"
-                        serviceImplementation="com.intellij.refactoring.move.moveClassesOrPackages.DefaultMovedFileProvider"/>
 
     <applicationActivity implementation="com.intellij.ide.RegionSettingsServiceActivity"/>
   </extensions>

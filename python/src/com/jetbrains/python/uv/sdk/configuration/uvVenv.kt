@@ -13,11 +13,11 @@ import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.errorProcessing.withProject
 import com.jetbrains.python.impl.getSdkAssociatedModule
 import com.jetbrains.python.onSuccess
-import com.jetbrains.python.sdk.PythonEnvironment
+import com.intellij.python.venv.environment.VenvEnvironment
 import com.jetbrains.python.sdk.baseDir
 import com.jetbrains.python.sdk.configuration.EnvCheckerResult
 import com.jetbrains.python.sdk.configuration.findEnvOrNull
-import com.jetbrains.python.sdk.detectPythonEnvironment
+import com.intellij.python.sdk.backend.detectPythonEnvironment
 import com.jetbrains.python.sdk.setAssociationToModule
 import com.intellij.platform.eel.provider.localEel
 import com.intellij.python.pytools.resolveExecutable
@@ -77,5 +77,5 @@ internal suspend fun createUvSdk(module: Module, toolId: ToolId, venvsInModule: 
 private fun getUvEnv(venvsInModule: List<PythonBinary>): PythonBinary? = venvsInModule.firstOrNull { it.isUvEnv() }
 
 internal fun PythonBinary.isUvEnv(): Boolean {
-  return detectPythonEnvironment().successOrNull?.let { it is PythonEnvironment.Venv && "uv" in it.config } == true
+  return detectPythonEnvironment().successOrNull?.let { it is VenvEnvironment && "uv" in it.config } == true
 }

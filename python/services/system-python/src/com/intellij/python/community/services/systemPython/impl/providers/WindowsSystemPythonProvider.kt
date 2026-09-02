@@ -12,8 +12,8 @@ import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.sdk.WinRegistryService
 import com.jetbrains.python.sdk.getAppxFiles
-import com.jetbrains.python.sdk.PythonEnvironment
-import com.jetbrains.python.sdk.detectPythonEnvironment
+import com.intellij.python.sdk.backend.SystemPythonEnvironment
+import com.intellij.python.sdk.backend.detectPythonEnvironment
 import com.jetbrains.python.venvReader.tryResolvePath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -54,12 +54,7 @@ class WindowsSystemPythonProvider(val winRegistryBase: WinRegistryService? = nul
     val pythons = withContext(Dispatchers.IO) {
       val fromPath = names.flatMap { name ->
         PathEnvironmentVariableUtil.findAll(name)
-      }.filter {
-        when (it.detectPythonEnvironment().successOrNull) {
-          is PythonEnvironment.SystemPython -> true
-          is PythonEnvironment.Venv, is PythonEnvironment.Conda, null -> false
-        }
-      }
+      }.filter { it.detectPythonEnvironment().successOrNull is SystemPythonEnvironment }
 
       (fromPath + getPythonsFromStore() + getPythonsFromRegistry()).toSet()
     }

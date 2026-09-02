@@ -61,10 +61,8 @@ func executeReturn(rt Runtime, workspaceOption string, confirmPreserved bool) (a
 	if err != nil {
 		return nil, err
 	}
-	live := findWorkspace(statuses, func(entry WorkspaceStatus) bool {
-		return absPath(rt, entry.Path()) == receipt.Path
-	})
-	if live == nil || live.LeaseID() != receipt.LeaseID || live.LeaseHolder() != receipt.LeaseHolder {
+	live, held := liveLease(rt, statuses, receipt.LeaseIdentity)
+	if !held {
 		return nil, &cliError{
 			message:  "The local Treehouse receipt does not match the live lease; refusing to return it.",
 			exitCode: 2,
@@ -72,7 +70,7 @@ func executeReturn(rt Runtime, workspaceOption string, confirmPreserved bool) (a
 		}
 	}
 	if len(live.Processes()) > 0 {
-		details := receipt.LeaseIdentity.fields()
+		details := receipt.fields()
 		details["processes"] = live.Processes()
 		return nil, &cliError{
 			message:  "The Treehouse workspace still has live processes; stop them before returning it.",
@@ -90,24 +88,19 @@ func executeReturn(rt Runtime, workspaceOption string, confirmPreserved bool) (a
 		details := receipt.fields()
 		details["changes"] = changes
 		return nil, &cliError{
-			message:  "The workspace is dirty. Preserve all intended work, then rerun with --confirm-preserved in a TTY.",
-			exitCode: 2,
-			details:  details,
-		}
-	}
-	if dirty && !rt.IsTTY() {
-		details := receipt.fields()
-		details["changes"] = changes
-		return nil, &cliError{
-			message:  "A dirty Treehouse workspace can be returned only from an interactive TTY.",
+			message:  "The workspace is dirty. Preserve all intended work, then rerun with --confirm-preserved.",
 			exitCode: 2,
 			details:  details,
 		}
 	}
 
-	// A dirty return inherits the standard streams, so the prompt of the CLI reaches the
-	// person who confirmed that the work is preserved. The wrapper never passes `--force`.
-	result := rt.Spawn(returnCommand(receipt.LeaseIdentity), SpawnOptions{Interactive: dirty})
+	// A dirty return meets the confirmation prompt of the CLI. returnPromptAnswer holds the
+	// answer and the reason. The wrapper never passes `--force`.
+	options := SpawnOptions{}
+	if dirty {
+		options.Stdin = returnPromptAnswer
+	}
+	result := rt.Spawn(returnCommand(receipt.LeaseIdentity), options)
 	if result.ExitCode != 0 {
 		return nil, nativeFailure("return", result, receipt.fields())
 	}

@@ -39,6 +39,7 @@ ij_plugin(
         "//conventional",
         "//conflicting",
     ],
+    visibility = ["//visibility:public"],
 )
 ### auto-generated section `build intellij.example.plugin` end
 
@@ -47,7 +48,6 @@ exports_files(
     [
         "intellij.example.plugin.iml",
         "resources/META-INF/plugin.xml",
-        "dev-dist.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -46,7 +46,10 @@ type rollbackMessages struct {
 // outcome against the live pool. A non-zero exit code counts as leaseHeld, because
 // nothing returned the lease.
 func rollbackAcquire(rt Runtime, identity LeaseIdentity) rollbackOutcome {
-	spawned := rt.Spawn(returnCommand(identity), SpawnOptions{})
+	// A half-prepared workspace can be dirty, so the return can meet the confirmation
+	// prompt. The rollback answers it. The caller never received this workspace, and a
+	// rollback that aborts at the prompt leaves a lease that nothing can return.
+	spawned := rt.Spawn(returnCommand(identity), SpawnOptions{Stdin: returnPromptAnswer})
 	if spawned.ExitCode != 0 {
 		return rollbackOutcome{SpawnResult: spawned, state: leaseHeld}
 	}
@@ -84,10 +87,8 @@ func prepareAcquiredWorkspace(rt Runtime, allocation LeaseIdentity, sourceCommon
 	if err != nil {
 		return err
 	}
-	live := findWorkspace(statuses, func(entry WorkspaceStatus) bool {
-		return absPath(rt, entry.Path()) == allocation.Path
-	})
-	if live == nil || live.LeaseID() != allocation.LeaseID || live.LeaseHolder() != allocation.LeaseHolder {
+	live, held := liveLease(rt, statuses, allocation)
+	if !held {
 		return &cliError{
 			message:  "The acquired workspace does not match the live Treehouse lease.",
 			exitCode: 1,
@@ -193,10 +194,8 @@ func executeAcquire(rt Runtime, holderOption string, holderPresent bool) (any, e
 	if err != nil {
 		return nil, err
 	}
-	current := findWorkspace(statuses, func(entry WorkspaceStatus) bool {
-		return absPath(rt, entry.Path()) == root && entry.LeaseID() != ""
-	})
-	if current != nil {
+	current := workspaceAt(rt, statuses, root)
+	if current != nil && current.LeaseID() != "" {
 		return nil, &cliError{
 			message:  "The current workspace already has an active Treehouse lease.",
 			exitCode: 2,
@@ -212,7 +211,11 @@ func executeAcquire(rt Runtime, holderOption string, holderPresent bool) (any, e
 	if err != nil {
 		return nil, err
 	}
-	result := rt.Spawn([]string{treehouseCommandName, "get", "--lease", "--json", "--lease-holder", holder}, SpawnOptions{})
+	// `--no-fetch` skips the fetch of origin inside the CLI. prepareAcquiredWorkspace detaches
+	// the workspace at the HEAD of the caller, which the shared Git directory already holds.
+	result := rt.Spawn([]string{
+		treehouseCommandName, "get", "--lease", "--json", "--no-fetch", "--lease-holder", holder,
+	}, SpawnOptions{})
 	if result.ExitCode != 0 {
 		return nil, nativeFailure("acquire", result, map[string]any{"lease_holder": holder})
 	}
@@ -250,7 +253,7 @@ func executeAcquire(rt Runtime, holderOption string, holderPresent bool) (any, e
 	}
 
 	receipt := &LeaseReceipt{
-		SchemaVersion: 2,
+		SchemaVersion: receiptSchemaVersion,
 		LeaseIdentity: allocation,
 		AcquiredAt:    isoTimestamp(rt.Now()),
 		SourceHead:    sourceHead,

@@ -442,6 +442,7 @@ f:com.intellij.openapi.util.StackOverflowPreventedException
 - java.lang.RuntimeException
 - <init>(java.lang.String):V
 f:com.intellij.openapi.util.SystemInfo
+- sf:isHarmonyOS:Z
 - s:getOsName():java.lang.String
 - s:getOsNameAndVersion():java.lang.String
 - s:getWinBuildNumber():java.lang.Long
@@ -682,6 +683,8 @@ f:com.intellij.openapi.util.registry.Registry
 - sf:is(java.lang.String):Z
 - sf:is(java.lang.String,Z):Z
 - f:isLoaded():Z
+- sf:longValue(java.lang.String):J
+- sf:longValue(java.lang.String,J):J
 - sf:stringValue(java.lang.String):java.lang.String
 - sf:stringValue(java.lang.String,java.lang.String):java.lang.String
 f:com.intellij.openapi.util.registry.Registry$Companion
@@ -695,6 +698,8 @@ f:com.intellij.openapi.util.registry.Registry$Companion
 - f:intValue(java.lang.String,I,I,I):I
 - f:is(java.lang.String):Z
 - f:is(java.lang.String,Z):Z
+- f:longValue(java.lang.String):J
+- f:longValue(java.lang.String,J):J
 - f:stringValue(java.lang.String):java.lang.String
 - f:stringValue(java.lang.String,java.lang.String):java.lang.String
 c:com.intellij.openapi.util.registry.RegistryValue
@@ -702,6 +707,7 @@ c:com.intellij.openapi.util.registry.RegistryValue
 - asBoolean():Z
 - f:asDouble():D
 - f:asInteger():I
+- f:asLong():J
 - f:asOptions():java.util.List
 - asString():java.lang.String
 - f:getKey():java.lang.String
@@ -2112,6 +2118,7 @@ e:com.intellij.util.system.CpuArch
 - s:values():com.intellij.util.system.CpuArch[]
 e:com.intellij.util.system.OS
 - java.lang.Enum
+- sf:HarmonyOS:com.intellij.util.system.OS
 - f:getBinaryName(java.lang.String):java.lang.String
 - f:getOsInfo():com.intellij.util.system.OS$OsInfo
 - getPlatform():com.intellij.execution.Platform
@@ -2120,6 +2127,8 @@ e:com.intellij.util.system.OS
 - f:parsedVersion():com.intellij.openapi.util.Version
 - s:values():com.intellij.util.system.OS[]
 - f:version():java.lang.String
+f:com.intellij.util.system.OS$HarmonyOSInfo
+- com.intellij.util.system.OS$UnixInfo
 f:com.intellij.util.system.OS$LinuxInfo
 - com.intellij.util.system.OS$UnixInfo
 - isUnderWsl():Z

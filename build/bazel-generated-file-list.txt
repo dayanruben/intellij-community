@@ -1200,12 +1200,6 @@ plugins/env-files-support
 plugins/env-files-support/java
 plugins/env-files-support/kotlin
 plugins/env-files-support/python
-plugins/evaluation-plugin
-plugins/evaluation-plugin/core
-plugins/evaluation-plugin/languages
-plugins/evaluation-plugin/languages/java
-plugins/evaluation-plugin/languages/kotlin
-plugins/evaluation-plugin/languages/python
 plugins/extended-toolwindows-ui
 plugins/extended-toolwindows-ui/frontend
 plugins/filePrediction
@@ -1739,13 +1733,6 @@ plugins/ui-designer
 plugins/ui-designer-core
 plugins/ui-designer/jps-plugin
 plugins/ui-designer/jps-plugin/tests
-plugins/ui.webview
-plugins/ui.webview/demo
-plugins/ui.webview/jcef
-plugins/ui.webview/jcef/tests
-plugins/ui.webview/markdown-preview
-plugins/ui.webview/markdown-preview/tests
-plugins/ui.webview/tests
 plugins/webp
 plugins/webp/tests
 plugins/xpath

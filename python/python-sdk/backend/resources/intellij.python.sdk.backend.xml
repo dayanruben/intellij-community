@@ -55,7 +55,11 @@
                     interface="com.intellij.python.sdk.backend.evolution.PyEvoEnvironmentProvider"
                     dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.interpreterPresentationProvider"
-                    interface="com.jetbrains.python.sdk.PythonInterpreterPresentationProvider"
+                    interface="com.intellij.python.sdk.backend.PythonInterpreterPresentationProvider"
+                    dynamic="true"/>
+    <!-- The `id` names the kind of environment. It is the only place a kind is named. -->
+    <extensionPoint qualifiedName="Pythonid.pythonEnvironmentProvider"
+                    interface="com.intellij.python.sdk.backend.PythonEnvironmentProvider"
                     dynamic="true"/>
   </extensionPoints>
 
@@ -63,15 +67,16 @@
     <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.MacPythonSdkFlavor"/>
     <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.UnixPythonSdkFlavor"/>
     <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.WinPythonSdkFlavor"/>
+    <!-- Claims any layout, so it must stay last. -->
+    <pythonEnvironmentProvider id="system" order="last"
+                               implementation="com.intellij.python.sdk.backend.impl.SystemPythonEnvironmentProvider"/>
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij">
-    <applicationService serviceImplementation="com.jetbrains.python.packaging.PyCondaPackageService"/>
     <applicationService serviceInterface="com.jetbrains.python.sdk.WinRegistryService"
                         serviceImplementation="com.jetbrains.python.sdk.WinRegistryServiceImpl"/>
     <applicationService serviceImplementation="com.jetbrains.python.sdk.PySdkSettings"/>
     <applicationSettings service="com.jetbrains.python.sdk.PySdkSettings"/>
-    <applicationSettings service="com.jetbrains.python.packaging.PyCondaPackageService"/>
     <registryKey key="python.activate.env.reader.timeout.ms"
                  defaultValue="60000"
                  restartRequired="false"

@@ -1,10 +1,12 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//plugins/kotlin:kotlin_test_dependencies.bzl", "all_test_dep_targets")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 jps_test(
     name = "gradle-tests_test",
     timeout = "moderate",
+    data = all_test_dep_targets,
     tags = ["community-aggregator"],
     runtime_deps = [":gradle-tests_test_lib"],
 )
@@ -29,6 +31,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
+        "@lib//:kotlin-stdlib",
         "//java/idea-ui:ui",
         "//platform/core-api:core",
         "//platform/core-impl",
@@ -43,9 +46,11 @@ jvm_library(
         "//platform/analysis-api:analysis",
         "//platform/execution",
         "//platform/lang-api:lang",
+        "//platform/util",
         "//plugins/gradle",
         "//plugins/gradle:gradle-common",
         "//plugins/gradle/java",
+        "//plugins/gradle/tooling-extension-api:toolingExtension",
         "//plugins/devkit/intellij.devkit.gradle.tooling:gradle-tooling",
         "//platform/smRunner",
         "//plugins/devkit/devkit-core:core",
@@ -59,6 +64,7 @@ jvm_library(
         "//platform/backend/workspace",
         "//platform/projectModel-impl",
         "//jps/model-api:model",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
     ],
 )
 
@@ -90,9 +96,11 @@ jvm_library(
         "//platform/analysis-api:analysis_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/lang-api:lang_test_lib",
+        "//platform/util:util_test_lib",
         "//plugins/gradle:gradle_test_lib",
         "//plugins/gradle:gradle-common_test_lib",
         "//plugins/gradle/java:java_test_lib",
+        "//plugins/gradle/tooling-extension-api:toolingExtension_test_lib",
         "//plugins/devkit/intellij.devkit.gradle.tooling:gradle-tooling_test_lib",
         "//platform/smRunner:smRunner_test_lib",
         "//plugins/devkit/devkit-core:core_test_lib",
@@ -110,6 +118,7 @@ jvm_library(
         "//platform/backend/workspace:workspace_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//jps/model-api:model_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
     ],
 )
 ### auto-generated section `build intellij.devkit.gradle` end
@@ -133,6 +142,7 @@ jvm_library(
     ),
     module_name = "intellij.devkit.gradle.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//plugins/kotlin:kotlin-plugin-community-main"],
 )
 
 jvm_library(
@@ -157,6 +167,7 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
+        "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
     ],
     deps = [
@@ -217,6 +228,8 @@ jvm_library(
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//jps/model-api:model",
         "//jps/model-api:model_test_lib",
+        "//plugins/devkit/intellij.devkit.gradle.tooling:gradle-tooling",
+        "//plugins/devkit/intellij.devkit.gradle.tooling:gradle-tooling_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
         "//aether-dependency-resolver/plugin",

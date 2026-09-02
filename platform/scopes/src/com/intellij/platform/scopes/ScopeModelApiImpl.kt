@@ -8,13 +8,13 @@ import com.intellij.ide.util.scopeChooser.AbstractScopeModel
 import com.intellij.ide.util.scopeChooser.EditScopesDialog
 import com.intellij.ide.util.scopeChooser.ScopeDescriptor
 import com.intellij.ide.util.scopeChooser.ScopeModelListener
-import com.intellij.ide.util.scopeChooser.ScopeModelService
 import com.intellij.ide.util.scopeChooser.ScopeOption
 import com.intellij.ide.util.scopeChooser.ScopeService
 import com.intellij.ide.util.scopeChooser.ScopesFilterConditionType
 import com.intellij.ide.util.scopeChooser.ScopesSnapshot
 import com.intellij.ide.util.scopeChooser.ScopesStateService
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.packageDependencies.DependencyValidationManager
@@ -88,8 +88,7 @@ class ScopeModelApiImpl : ScopeModelApi {
     val project = projectId.findProjectOrNull() ?: return CompletableDeferred(value = null)
     val deferred = CompletableDeferred<String?>()
     deferred.cancelOnDispose(project)
-    val coroutineScope = ScopeModelService.getInstance(project).getCoroutineScope()
-    coroutineScope.launch(Dispatchers.EDT) {
+    project.service<ScopesCoroutineScopeHolder>().coroutineScope.launch(Dispatchers.EDT) {
       WindowFocusFrontendService.getInstance().performActionWithFocus(true) {
         val dialog = EditScopesDialog.showDialog(project, selectedScopeId
           ?.let { ScopesStateService.getInstance(project).getScopeNameById(it) })
@@ -139,11 +138,10 @@ class ScopeModelApiImpl : ScopeModelApi {
 
   override suspend fun performScopeSelection(scopeId: String, projectId: ProjectId): Deferred<Unit> {
     val project = projectId.findProjectOrNull() ?: return CompletableDeferred(value = Unit)
-    val scopesStateService = ScopesStateService.getInstance(project)
     val deferred = CompletableDeferred<Unit>()
     deferred.cancelOnDispose(project)
-    ScopeModelService.getInstance(project).getCoroutineScope().launch {
-      scopesStateService.getScopeById(scopeId)
+    project.service<ScopesCoroutineScopeHolder>().coroutineScope.launch {
+      ScopesStateService.getInstance(project).getScopeById(scopeId)
       deferred.complete(Unit)
     }
     return deferred

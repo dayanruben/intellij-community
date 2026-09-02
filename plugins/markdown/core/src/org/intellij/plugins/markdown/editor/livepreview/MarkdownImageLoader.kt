@@ -1,6 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.intellij.plugins.markdown.editor.livepreview
 
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.project.BaseProjectDirectories
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
@@ -16,34 +18,37 @@ import javax.imageio.ImageIO
 
 @ApiStatus.Internal
 object MarkdownImageLoader {
+  private val LOG = Logger.getInstance(MarkdownImageLoader::class.java)
+
   @RequiresBackgroundThread
   suspend fun load(project: Project, file: VirtualFile, destination: String): VirtualFile? {
     ThreadingAssertions.assertBackgroundThread()
     return try {
-      val baseFile = file.parent ?: return null
       val projectRoot = BaseProjectDirectories.getInstance(project).getBaseDirectoryFor(file)
                         ?: project.guessProjectDir()
                         ?: return null
-      val resolution = MarkdownImagePathResolver.resolve(baseFile, projectRoot, destination)
+      val resolution = MarkdownImagePathResolver.resolve(file, projectRoot, destination)
       if (resolution !is MarkdownImagePathResolver.Resolution.Found) return null
       val imageFile = resolution.file
       if (!imageFile.isValid || imageFile.isDirectory) return null
       if (!isWithinLimits(imageFile)) return null
       imageFile
     }
-    catch (_: Exception) {
+    catch (e: Throwable) {
+      rethrowControlFlowException(e)
+      LOG.warn("Failed to resolve Markdown image $destination", e)
       null
     }
   }
 
   private fun isWithinLimits(file: VirtualFile): Boolean {
-    val maxBytes = Registry.intValue("markdown.live.preview.image.max.bytes").toLong()
+    val maxBytes = Registry.longValue("markdown.live.preview.image.max.bytes")
     if (maxBytes < 0 || file.length > maxBytes) return false
 
     val content = file.contentsToByteArray()
     if (content.size.toLong() > maxBytes) return false
 
-    val maxPixels = Registry.intValue("markdown.live.preview.image.max.pixels").toLong()
+    val maxPixels = Registry.longValue("markdown.live.preview.image.max.pixels")
     val pixels = if (file.extension.equals("svg", ignoreCase = true)) {
       readSvgPixelCount(content)
     } else {
@@ -61,7 +66,9 @@ object MarkdownImageLoader {
       else if (width <= 0 || height <= 0) null
       else width * height
     }
-    catch (_: Exception) {
+    catch (e: Throwable) {
+      rethrowControlFlowException(e)
+      LOG.warn("Failed to read Markdown SVG image", e)
       null
     }
   }
@@ -79,7 +86,9 @@ object MarkdownImageLoader {
         if (width <= 0 || height <= 0) return@use null
         width.toDouble() * height.toDouble()
       }
-      catch (_: Exception) {
+      catch (e: Throwable) {
+        rethrowControlFlowException(e)
+        LOG.warn("Failed to read Markdown raster image", e)
         null
       }
       finally {

@@ -16,7 +16,6 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
-    <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
@@ -27,8 +26,7 @@
   <!-- endregion -->
   <extensions defaultExtensionNs="com.intellij">
     <editorFactoryListener implementation="com.intellij.markdown.frontend.editor.tables.ui.alignment.MarkdownTableAlignmentController$Listener"/>
-    <applicationService serviceInterface="org.intellij.plugins.markdown.editor.livepreview.MarkdownLivePreviewReconcilerBridge"
-                        serviceImplementation="com.intellij.markdown.frontend.editor.livepreview.MarkdownLivePreviewReconcilerBridgeImpl"/>
+    <editorFactoryListener implementation="com.intellij.markdown.frontend.editor.livepreview.MarkdownLivePreviewEditorListener"/>
     <fileEditorProvider id="markdown-preview-editor" implementation="com.intellij.markdown.frontend.preview.MarkdownSplitEditorProvider"/>
     <applicationService serviceInterface="org.intellij.plugins.markdown.ui.preview.accessor.MarkdownLinkOpener"
                         serviceImplementation="com.intellij.markdown.frontend.preview.accessor.impl.MarkdownLinkOpenerImpl"/>
@@ -36,7 +34,6 @@
                  defaultValue="false"
                  description="Should fallback to Markdown link opening implementation before the split."/>
 
-    <lang.lineWrapStrategy language="Markdown" implementationClass="com.intellij.markdown.frontend.editor.MarkdownLineWrapPositionStrategy"/>
     <codeFoldingOptionsProvider instance="com.intellij.markdown.frontend.settings.provider.MarkdownCodeFoldingOptionsProvider" id="Markdown" order="after Android,after C++,after General,after Go,after Handlebars,after JAVA,after JavaScript,after JPAQL,after JSON,after Kubernetes,after LinkerScript,after ObjectiveC"/>
     <editorActionHandler action="EditorBackSpace"
                          implementationClass="com.intellij.markdown.frontend.editor.livepreview.MarkdownBackspaceHandler"

@@ -7,119 +7,105 @@ allowed-tools: Bash(../../../community/tools/treehouse.cmd read:*), Bash(../../.
 
 # Treehouse workspace lifecycle
 
-Use this skill when an isolated workspace is required. The CLI wraps only Treehouse's safe leased
-lifecycle, prepares the acquired workspace at the caller's exact `HEAD`, records the lease identity
-inside it, and always guards return with that identity. It never initializes or configures Treehouse
-and does not expose `enter`, `init`, `update`, `prune`, `destroy`, or `--force`.
+Use this skill when a task needs an isolated workspace. Read
+[Workspace Isolation](../../../.ai/workspace-isolation.md) for the policy around it. The CLI wraps
+only the leased lifecycle of Treehouse: `read status`, `write acquire`, and `write return`. It
+never installs Treehouse, and it does not expose `enter`, `init`, `update`, `prune`, `destroy`, or
+`--force`.
 
-Run `treehouse.cmd`. Bazel builds the CLI from a pinned source, so the first call in a session can
-take longer. From the repository root:
+## Run the CLI
 
-- Ultimate checkout: `./community/tools/treehouse.cmd …`
-- Community checkout: `./tools/treehouse.cmd …`
-
-From this skill directory, use `../../../community/tools/treehouse.cmd …` in an Ultimate checkout or
-`../../../tools/treehouse.cmd …` in a Community checkout. Output is JSON. Keep read and write
-invocations separate so approvals remain narrow and reusable.
-
-For Codex, run from this skill directory and request these narrow reusable prefixes when sandbox
-access requires approval:
-
-- Read-only: `../../../community/tools/treehouse.cmd read`
-- Lease mutations: `../../../community/tools/treehouse.cmd write`
-
-The write approval permits the wrapper to access Treehouse's pool outside the repository. It does
-not authorize acquiring or returning a workspace unless the task calls for that lifecycle action.
+Bazel builds the CLI from a pinned source, so the first call in a session takes longer. The output
+is JSON. Run from the repository root, `./community/tools/treehouse.cmd` in an Ultimate checkout
+and `./tools/treehouse.cmd` in a Community checkout. Every example below uses the Ultimate
+spelling. Keep a read call and a write call separate, so an approval stays narrow and reusable.
+For Codex, read the last section first.
 
 ## Inspect the pool
 
 ```bash
-../../../community/tools/treehouse.cmd read status
+./community/tools/treehouse.cmd read status
 ```
 
-The result includes Treehouse's process list for every workspace. Before returning a workspace,
-stop every process still using it; the wrapper refuses to return a workspace while Treehouse
-reports any process.
-
-`status` is inspection only. An available reusable worktree may have an old detached `HEAD`; that
-is expected. Never enter, edit, reset, rebase, or otherwise synchronize a path taken from status.
-Only `write acquire` reserves and prepares a workspace for use.
+The result lists every workspace with its lease and its process list. `status` is inspection only,
+and an available workspace can show an old detached `HEAD`. Never enter, edit, reset, rebase, or
+synchronize a path taken from `status`. Only `write acquire` reserves and prepares a workspace.
 
 ## Acquire a workspace
 
-For Codex, first verify that the built-in `request_permissions` tool is available. If it is not,
-do not acquire a lease; report that Treehouse cannot be used in the current session. Do not ask the
-user to change permission settings, restart with `--add-dir`, or grant access to the Treehouse pool.
-
 ```bash
-../../../community/tools/treehouse.cmd write acquire --holder <session-id>
+./community/tools/treehouse.cmd write acquire --holder <session-id>
 ```
 
-Use the current development or agent session ID as `--holder` when one is available. If it is
-omitted, the CLI uses `TREEHOUSE_LEASE_HOLDER`, then generates a unique `agent-<UUID>` label. The
-result contains the workspace path, lease ID, holder, and receipt path. Keep running from the
-original checkout until the permission step below succeeds.
+Pass the current development or agent session ID as `--holder` when one is available. Without the
+option, the CLI uses `TREEHOUSE_LEASE_HOLDER`, then it generates an `agent-<UUID>` label. The
+result holds the workspace path, the lease ID, the holder, and the receipt path.
 
-For Codex, changing a tool's working directory does not add the leased workspace to the session's
-writable roots. Immediately after acquisition, and before any task edit or write command inside it,
-use the built-in `request_permissions` tool to request filesystem write access to exactly the
-returned workspace `path` with session scope. After the grant, use that path as the working
-directory for all subsequent tools. Do not request its parent Treehouse pool, the source checkout,
-the shared Git directory, or full access, and do not replace the single workspace grant with
-repeated per-command escalations.
+The acquire takes a clean lease with `--no-fetch` and detaches it at the exact `HEAD` of the
+caller. It transfers no index, working-tree, or untracked change, and it performs no fetch,
+rebase, stash, cherry-pick, or file copy. It refuses only when the current checkout itself holds a
+lease, so one checkout can hold several leases.
 
-If the grant is denied, do not enter, edit, or run commands in the leased workspace. Immediately
-run `write return --workspace <leased-path>` from the original checkout to return the untouched
-lease. If return fails, retain and report the path, lease ID, and holder as required below; do not
-ask the user to reconfigure permissions.
-
-The wrapper refuses an acquire only when the current checkout itself holds a lease, so one checkout
-can hold several leases from repeated acquires.
-
-Acquisition captures the caller checkout's `HEAD`, obtains a clean lease, and detaches the leased
-workspace at that exact commit. The caller's index, working-tree changes, and untracked files are
-intentionally ignored and are not transferred. The wrapper performs no fetch, rebase, stash,
-cherry-pick, or file copying. If preparation or verification fails, it returns the new lease when
-safe; otherwise it retains the lease and receipt and reports their exact identity.
-
-The version-2 receipt is `out/treehouse/lease.json` inside the acquired workspace and records the
-captured `source_head`. `out/` is ignored in both repository layouts. Do not edit, move, or copy the
-receipt between workspaces. Version-1 receipts from existing leases remain returnable.
+The receipt is `out/treehouse/lease.json` inside the acquired workspace. It has schema version 2
+and records the captured `source_head`. Both repository layouts ignore `out/`. Do not edit, move,
+or copy the receipt.
 
 ## Return a workspace
 
-Before return, verify that all intended changes are committed or preserved elsewhere and no
-intended uncommitted or untracked work remains. Stop every process reported for the workspace by
-`read status`. Then run from the original checkout or another directory outside the leased
-workspace, passing the acquired path explicitly:
+First verify that every intended change is committed or preserved elsewhere, and that no intended
+uncommitted or untracked work remains. Next, stop every process that `read status` reports for
+the workspace, because the wrapper refuses a return while Treehouse reports one. Then run from the
+original checkout, or from another directory outside the leased workspace. A run from outside
+keeps the wrapper and its parent shell out of that process list.
 
 ```bash
-../../../community/tools/treehouse.cmd write return --workspace <leased-path>
+./community/tools/treehouse.cmd write return --workspace <leased-path>
 ```
 
-The CLI loads the local receipt, verifies its path, lease ID, and holder against live Treehouse
-status, requires an empty process list, checks Git status, and calls `treehouse return` with both
-identity guards. Running outside the leased workspace prevents the wrapper and its parent shell
-from appearing as workspace processes. The receipt is removed only after Treehouse reports success.
+The wrapper checks the receipt against the live Treehouse status, passes both identity guards, and
+removes the receipt only after Treehouse reports success. It verifies the result against the live
+lease state, not against the exit code.
 
-If Git is dirty after the preservation checks, use an interactive TTY and explicitly attest that
-the work is preserved:
+A dirty workspace needs an attestation that the work is preserved:
 
 ```bash
-../../../community/tools/treehouse.cmd write return --workspace <leased-path> --confirm-preserved
+./community/tools/treehouse.cmd write return --workspace <leased-path> --confirm-preserved
 ```
 
-Treehouse will ask `Clean and return? [Y/n]`; answer `Y` only after those checks pass. The wrapper
-refuses a dirty return without the flag or without a TTY, and never substitutes `--force`. A dirty
-return is verified against the live lease state, not against the exit code.
+The flag answers the `Clean and return? [Y/n]` prompt of Treehouse, so no TTY is necessary. Pass
+it only after the checks above pass, because the return cleans the workspace. The wrapper refuses
+a dirty return without the flag, and it never substitutes `--force`.
 
-If return fails, retain the lease and report the path, lease ID, and holder printed in the error.
-Do not fall back to a raw Git worktree, another clone, or another workspace manager.
+## When a command fails
 
-## If Treehouse is unavailable
+The CLI writes a JSON failure document to stderr with the message, the exit code, and the details.
+Exit code 2 marks a usage or a precondition failure. Exit code 127 means that the pinned CLI
+binary did not resolve. That is a Bazel build failure or a runfiles failure. It is not a missing
+host install.
 
-Exit code 127 with the message `Treehouse is unavailable` means the CLI could not start. Bazel
-builds the CLI from a pinned source, so this is a build failure and not a missing host install. Do
-not install Treehouse. Do not fall back to a Git worktree, a clone, or another workspace manager on
-your own initiative. Continue in the current checkout when that is safe, or ask the user for an
-isolated workspace. Use a Git worktree only when the user explicitly asked for one for this task.
+Never install Treehouse. Never fall back to a Git worktree, a clone, or another workspace manager
+on your own initiative. Continue in the current checkout when that is safe, or ask the user for an
+isolated workspace. Use a Git worktree only when the user asked for one for this task.
+
+When a lease survives the failure, retain it and report the path, the lease ID, and the holder
+from the error.
+
+## Codex sandbox
+
+1. Before an acquire, check that the built-in `request_permissions` tool is available. If it is
+   not, do not acquire a lease, and report that Treehouse cannot be used in this session. Do not
+   ask the user to change permission settings, to restart with `--add-dir`, or to grant access to
+   the Treehouse pool.
+2. Run from this skill directory, and request two approval prefixes. They are
+   `../../../community/tools/treehouse.cmd read` and `../../../community/tools/treehouse.cmd write`.
+   In a Community checkout, drop `community/` from both. The write approval only lets the wrapper
+   reach the Treehouse pool. It does not authorize an acquire or a return.
+3. A change of the working directory of a tool does not add the leased workspace to the writable
+   roots of the session. Keep running from the original checkout, and use `request_permissions`
+   for session-scoped write access to exactly the returned `path`. Do this before any edit inside
+   the workspace. Do not request the Treehouse pool, the source checkout, the shared Git
+   directory, or full access. Do not replace the single grant with per-command escalations. After
+   the grant, use the workspace path as the working directory for every later tool.
+4. If the grant is denied, do not enter, edit, or run a command in the leased workspace. Return
+   the untouched lease at once from the original checkout. Do not ask the user to reconfigure
+   permissions.

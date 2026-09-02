@@ -36,11 +36,14 @@ class PythonProcessOutputToolWindowUi(data: ComponentData) : ToolWindowUiCompone
         byAttribute("name", PROCESS_TREE_NAME)
       )
     }
-      .waitOneContainsText(
-        text = commandSubstring,
+      // The tree can hold more than one matching row, because each interpreter probe adds one.
+      // Any matching row answers the check, so take the first one. waitOneContainsText fails on
+      // two rows exactly as it fails on none.
+      .waitAnyTexts(
         message = "Finding at least one logged process with command containing '$commandSubstring'",
-        timeout = timeout
-      )
+        timeout = timeout,
+      ) { it.text.contains(commandSubstring, ignoreCase = true) }
+      .first()
 
   // --- process output (right pane) ---
   val processInfoSection: UiComponent = x { byAttribute("name", INFO_SECTION_NAME) }
