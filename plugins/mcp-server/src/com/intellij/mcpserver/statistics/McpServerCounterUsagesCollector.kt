@@ -6,7 +6,10 @@ import com.intellij.internal.statistic.eventLog.events.VarargEventId
 import com.intellij.internal.statistic.eventLog.validator.rules.impl.CustomValidationRule
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector
 import com.intellij.internal.statistic.utils.getPluginInfo
+import com.intellij.mcpserver.McpToolCallResult
+import com.intellij.mcpserver.McpToolCallResultContent
 import com.intellij.mcpserver.McpToolDescriptor
+import com.intellij.mcpserver.McpToolInvocationMode
 import com.intellij.mcpserver.McpToolsProvider
 import com.intellij.mcpserver.McpToolset
 import com.intellij.mcpserver.toolwindow.TransportType
@@ -42,6 +45,50 @@ internal enum class McpToolCallOutcome {
   CANCELLED,
 }
 
+/**
+ * Whether the IDE launched the agent behind a call.
+ *
+ * Derived from `McpSessionOptions.localAgentId`, which the IDE sets when it opens a session for an agent it started.
+ * Its absence means a client the IDE did not launch — an agent in a terminal, or another editor pointed at this MCP
+ * server — which is why the constant does not claim "terminal".
+ */
+enum class McpCallerLaunchOrigin {
+  IDE_LAUNCHED,
+  EXTERNAL_CLIENT,
+  UNKNOWN,
+}
+
+/**
+ * How the reported call arrived. Separate from [McpToolInvocationMode], which selects which tool list a session
+ * exposes: a router entry is not a tool list.
+ */
+enum class McpToolCallInvocationMode {
+  /** Called directly, with the router off for this session. */
+  DIRECT,
+
+  /** Called directly although the router is on: the client bypassed it. */
+  DIRECT_WITH_ROUTER_ENABLED,
+
+  /** Dispatched by the router. */
+  VIA_ROUTER,
+
+  /**
+   * The `execute_tool` call that carried a dispatch. Exclude it from per-tool counts and latencies: the tool the agent
+   * asked for is the [VIA_ROUTER] row, whose duration is nested inside this one.
+   */
+  ROUTER_ENTRY,
+}
+
+/** Why a command passed to `execute_tool` produced no tool call. */
+enum class McpDispatchRejectReason {
+  /** The command dispatched to a tool; whether that tool then succeeded is `success`. */
+  NONE,
+  EMPTY_COMMAND,
+  UNKNOWN_TOOL,
+  MISSING_REQUIRED_PARAMETERS,
+  ARGUMENTS_NOT_PARSEABLE,
+}
+
 internal enum class LintFilesResultKind {
   CLEAN,
   PROBLEMS_FOUND,
@@ -59,16 +106,77 @@ internal fun lintFilesResultKind(
   else -> LintFilesResultKind.CLEAN
 }
 
+/**
+ * The size both call paths report as `result_bytes`: the characters of the returned text content, summed without
+ * building one string, so a large result is not copied for the sake of measuring it. Structured content is not
+ * counted — it is a separate channel, and including it would make the number mean two different things depending on
+ * which tool answered.
+ */
+internal fun McpToolCallResult.reportableResultSize(): Int =
+  content.sumOf { part -> (part as? McpToolCallResultContent.Text)?.text?.length ?: 0 }
+
 object McpServerCounterUsagesCollector : CounterUsagesCollector() {
-  private val GROUP = EventLogGroup("mcpserver.events", 7)
+  private val GROUP = EventLogGroup("mcpserver.events", 10)
 
   private val TOOL_NAME = EventFields.StringValidatedByCustomRule<McpToolNameValidator>("tool_name")
+  private val TOOLSET = EventFields.StringValidatedByCustomRule<McpToolsetNameValidator>(
+    "toolset",
+    "The toolset the called tool belongs to. Usage has to be answerable per toolset, not only per tool: there are " +
+    "dozens of toolsets and which of them are worth shipping is the question this data exists to answer",
+  )
   private val OUTCOME = EventFields.Enum("outcome", McpToolCallOutcome::class.java)
+
+  private val KNOWN_CLIENT_NAMES: List<String> = listOf(
+    "codex",
+    "codex-cli",
+    "codex-acp",
+    "codex-mcp-client",
+    "claude-code",
+    "Copilot MCP Gateway",
+    "claude-agent",
+    "cursor",
+    "cursor-cli",
+    "cursor-acp",
+    "copilot",
+    "copilot-cli",
+    "ijproxy",
+    "ij-proxy",
+    "unknown",
+  )
+
+  private val CLIENT_NAME = EventFields.String("client_name", KNOWN_CLIENT_NAMES)
+  private val CLIENT_VERSION = EventFields.StringValidatedByRegexpReference("client_version", "version")
+  private val TRANSPORT_TYPE = EventFields.Enum<TransportType>("transport_type")
+  private val HAS_LOCAL_AGENT = EventFields.Boolean("has_local_agent")
+  private val TOOLS_COUNT = EventFields.RoundedInt("tools_count")
+
+  private val LAUNCH_ORIGIN = EventFields.Enum(
+    "launch_origin",
+    McpCallerLaunchOrigin::class.java,
+    "Whether the IDE launched the agent that made this call. An external client is observed only through its MCP " +
+    "calls, so without this field a partial session is averaged in as a complete one",
+  )
+  private val INVOCATION_MODE = EventFields.Enum(
+    "invocation_mode",
+    McpToolCallInvocationMode::class.java,
+    "How the call arrived: directly, dispatched by the universal router, or as the router entry that carried a " +
+    "dispatch. A routed call produces both a ROUTER_ENTRY row and a VIA_ROUTER row, so a per-tool count excludes " +
+    "ROUTER_ENTRY",
+  )
+  private val ARGUMENT_BYTES = EventFields.RoundedInt("argument_bytes", "Rounded size of the serialized arguments")
+  private val RESULT_BYTES = EventFields.RoundedInt("result_bytes", "Rounded size of the serialized result")
 
   private val MCP_TOOL_CALL_EVENT: VarargEventId = GROUP.registerVarargEvent(
     "mcp.tool.call",
     TOOL_NAME,
+    TOOLSET,
     OUTCOME,
+    LAUNCH_ORIGIN,
+    INVOCATION_MODE,
+    CLIENT_NAME,
+    TRANSPORT_TYPE,
+    ARGUMENT_BYTES,
+    RESULT_BYTES,
     EventFields.DurationMs,
   )
 
@@ -77,12 +185,20 @@ object McpServerCounterUsagesCollector : CounterUsagesCollector() {
   private val DISPATCHED_TOOL_FOUND = EventFields.Boolean("dispatched_tool_found")
   private val SUCCESS = EventFields.Boolean("success")
 
+  private val DISPATCH_REJECT_REASON = EventFields.Enum(
+    "dispatch_reject_reason",
+    McpDispatchRejectReason::class.java,
+    "Why a dispatched command produced no tool call. Before this field the reason was only inferable from a " +
+    "validation sentinel in dispatched_tool_name, which is not a value the IDE controls",
+  )
+
   private val EXECUTE_TOOL_DISPATCH_EVENT: VarargEventId = GROUP.registerVarargEvent(
     "mcp.execute_tool.dispatch",
     DISPATCHED_TOOL_NAME,
     ARG_COUNT,
     DISPATCHED_TOOL_FOUND,
     SUCCESS,
+    DISPATCH_REJECT_REASON,
     EventFields.DurationMs,
   )
 
@@ -113,29 +229,6 @@ object McpServerCounterUsagesCollector : CounterUsagesCollector() {
     EventFields.DurationMs,
   )
 
-  private val KNOWN_CLIENT_NAMES: List<String> = listOf(
-    "codex",
-    "codex-cli",
-    "codex-acp",
-    "codex-mcp-client",
-    "claude-code",
-    "Copilot MCP Gateway",
-    "claude-agent",
-    "cursor",
-    "cursor-cli",
-    "cursor-acp",
-    "copilot",
-    "copilot-cli",
-    "ijproxy",
-    "ij-proxy",
-    "unknown",
-  )
-
-  private val CLIENT_NAME = EventFields.String("client_name", KNOWN_CLIENT_NAMES)
-  private val CLIENT_VERSION = EventFields.StringValidatedByRegexpReference("client_version", "version")
-  private val TRANSPORT_TYPE = EventFields.Enum<TransportType>("transport_type")
-  private val HAS_LOCAL_AGENT = EventFields.Boolean("has_local_agent")
-  private val TOOLS_COUNT = EventFields.RoundedInt("tools_count")
 
   private val SESSION_STARTED_EVENT: VarargEventId = GROUP.registerVarargEvent(
     "mcp.session.started",
@@ -155,21 +248,53 @@ object McpServerCounterUsagesCollector : CounterUsagesCollector() {
 
   override fun getGroup(): EventLogGroup = GROUP
 
-  internal fun logMcpToolCall(descriptor: McpToolDescriptor, outcome: McpToolCallOutcome, durationMs: Long) {
+  internal fun logMcpToolCall(
+    descriptor: McpToolDescriptor,
+    outcome: McpToolCallOutcome,
+    durationMs: Long,
+    invocationMode: McpToolCallInvocationMode,
+    launchOrigin: McpCallerLaunchOrigin,
+    clientName: String?,
+    transportType: TransportType?,
+    argumentBytes: Int?,
+    resultBytes: Int?,
+  ) {
     MCP_TOOL_CALL_EVENT.log(
-      TOOL_NAME.with(descriptor.name),
-      OUTCOME.with(outcome),
-      EventFields.DurationMs.with(durationMs),
+      buildList {
+        add(TOOL_NAME.with(descriptor.name))
+        add(TOOLSET.with(descriptor.category.fullyQualifiedName))
+        add(OUTCOME.with(outcome))
+        add(LAUNCH_ORIGIN.with(launchOrigin))
+        add(INVOCATION_MODE.with(invocationMode))
+        add(EventFields.DurationMs.with(durationMs))
+        // Left out rather than guessed: a dispatched call has no session of its own to read the caller from.
+        clientName?.let { add(CLIENT_NAME.with(it)) }
+        transportType?.let { add(TRANSPORT_TYPE.with(it)) }
+        argumentBytes?.let { add(ARGUMENT_BYTES.with(it)) }
+        resultBytes?.let { add(RESULT_BYTES.with(it)) }
+      }
     )
   }
 
-  fun logExecuteToolDispatch(dispatchedToolName: String, argCount: Int, found: Boolean, success: Boolean, durationMs: Long) {
+  fun logExecuteToolDispatch(
+    dispatchedToolName: String?,
+    argCount: Int,
+    found: Boolean,
+    success: Boolean,
+    rejectReason: McpDispatchRejectReason,
+    durationMs: Long,
+  ) {
     EXECUTE_TOOL_DISPATCH_EVENT.log(
-      DISPATCHED_TOOL_NAME.with(dispatchedToolName),
-      ARG_COUNT.with(argCount),
-      DISPATCHED_TOOL_FOUND.with(found),
-      SUCCESS.with(success),
-      EventFields.DurationMs.with(durationMs),
+      buildList {
+        // The name is reported only once it resolved to a tool that exists. What the agent typed is its own text,
+        // and putting it here is what made the validator write a sentinel into this field.
+        dispatchedToolName?.let { add(DISPATCHED_TOOL_NAME.with(it)) }
+        add(ARG_COUNT.with(argCount))
+        add(DISPATCHED_TOOL_FOUND.with(found))
+        add(SUCCESS.with(success))
+        add(DISPATCH_REJECT_REASON.with(rejectReason))
+        add(EventFields.DurationMs.with(durationMs))
+      }
     )
   }
 
@@ -238,6 +363,24 @@ object McpServerCounterUsagesCollector : CounterUsagesCollector() {
     override fun getRuleId(): String = "tool_name_validator_id"
   }
 
+  /**
+   * Accepts a toolset name the same way [McpToolNameValidator] accepts a tool name: from the tools actually
+   * registered, rather than from a list someone has to maintain. A toolset added by a plugin that is not safe to
+   * report is reported as third party, and a name no registered tool belongs to is rejected.
+   */
+  internal class McpToolsetNameValidator : CustomValidationRule() {
+    override fun doValidate(data: String, context: IEventContext): ValidationResultType {
+      for ((ext, toolsets) in service<ScopeHolder>().toolsetMap.value) {
+        if (toolsets.contains(data)) {
+          return if (getPluginInfo(ext.javaClass).isSafeToReport()) ValidationResultType.ACCEPTED else ValidationResultType.THIRD_PARTY
+        }
+      }
+      return ValidationResultType.REJECTED
+    }
+
+    override fun getRuleId(): String = "toolset_name_validator_id"
+  }
+
   @Service(Service.Level.APP)
   private class ScopeHolder(coroutineScope: CoroutineScope) {
     @JvmField
@@ -245,9 +388,21 @@ object McpServerCounterUsagesCollector : CounterUsagesCollector() {
       McpToolsProvider.EP.extensionList.associateWith { ext -> ext.getTools().asSequence().map { it.descriptor.name } }
     }
 
+    @JvmField
+    val toolsetMap = resettableLazy {
+      McpToolsProvider.EP.extensionList.associateWith { ext ->
+        ext.getTools().mapTo(HashSet()) { it.descriptor.category.fullyQualifiedName }
+      }
+    }
+
     init {
-      McpToolsProvider.EP.addChangeListener(coroutineScope) { valueMap.reset() }
-      McpToolset.EP.addChangeListener(coroutineScope) { valueMap.reset() }
+      McpToolsProvider.EP.addChangeListener(coroutineScope) { reset() }
+      McpToolset.EP.addChangeListener(coroutineScope) { reset() }
+    }
+
+    private fun reset() {
+      valueMap.reset()
+      toolsetMap.reset()
     }
   }
 }

@@ -1,5 +1,6 @@
 package com.intellij.mcpserver.statistics
 
+import com.intellij.internal.statistic.eventLog.events.PrimitiveEventField
 import com.intellij.internal.statistic.eventLog.events.RoundedIntEventField
 import com.intellij.internal.statistic.eventLog.events.StringEventField
 import org.assertj.core.api.Assertions.assertThat
@@ -13,7 +14,7 @@ class McpServerCounterUsagesCollectorTest {
     val fields = event.getFields()
 
     assertThat(group.id).isEqualTo("mcpserver.events")
-    assertThat(group.version).isEqualTo(7)
+    assertThat(group.version).isEqualTo(10)
     assertThat(fields.map { it.name }).containsExactly(
       "min_severity",
       "result",
@@ -34,6 +35,45 @@ class McpServerCounterUsagesCollectorTest {
 
     val countFields = fields.filter { it.name.endsWith("_count") }
     assertThat(countFields).allMatch { it is RoundedIntEventField }
+  }
+
+  /**
+   * A tool call is only comparable across populations if the row says who called it and how it arrived: without
+   * `invocation_mode` a routed call is indistinguishable from a direct one, and without `launch_origin` an agent the
+   * IDE launched is counted together with an external client whose session the IDE only partly observes.
+   */
+  @Test
+  fun tool_call_event_reports_the_caller_and_how_the_call_arrived() {
+    val event = McpServerCounterUsagesCollector.group.events.single { it.eventId == "mcp.tool.call" }
+
+    assertThat(event.getFields().map { it.name }).contains(
+      "tool_name",
+      "toolset",
+      "outcome",
+      "duration_ms",
+      "invocation_mode",
+      "launch_origin",
+      "client_name",
+      "transport_type",
+      "argument_bytes",
+      "result_bytes",
+    )
+  }
+
+  /**
+   * A routed call produces two rows, because the router is a registered tool itself: the `execute_tool` call and the
+   * call it dispatched to. The router's row has to say so, or a per-tool count double-counts every routed call and
+   * inherits its nested duration.
+   */
+  @Test
+  fun tool_call_event_separates_the_router_entry_from_the_tool_it_dispatched_to() {
+    val event = McpServerCounterUsagesCollector.group.events.single { it.eventId == "mcp.tool.call" }
+    val invocationMode = event.getFields().single { it.name == "invocation_mode" } as PrimitiveEventField<*>
+
+    assertThat(invocationMode.validationRule.single())
+      .contains("ROUTER_ENTRY")
+      .contains("VIA_ROUTER")
+      .contains("DIRECT_WITH_ROUTER_ENABLED")
   }
 
   @Test

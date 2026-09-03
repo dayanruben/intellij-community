@@ -611,18 +611,20 @@
 
     <action id="Git.WorkingTrees.Remove" class="git4idea.workingTrees.ui.actions.RemoveWorkingTreeAction"
             icon="AllIcons.General.Delete" use-shortcut-of="$Delete"/>
-    <action id="Git.WorkingTrees.Open" class="git4idea.workingTrees.ui.actions.OpenWorkingTreeAction">
+    <action id="Git.WorkingTrees.Open" class="git4idea.workingTrees.ui.actions.OpenWorkingTreeAction"
+            icon="AllIcons.Actions.MenuOpen">
       <mouse-shortcut keymap="$default" keystroke="button1 doubleClick"/>
     </action>
     <action id="Git.WorkingTrees.Refresh" class="git4idea.workingTrees.ui.actions.RefreshWorkingTreesAction"
             icon="AllIcons.General.Refresh" use-shortcut-of="Synchronize"/>
     <action id="Git.WorkingTrees.Prune" class="git4idea.workingTrees.ui.actions.PruneWorkingTreesAction"
             icon="AllIcons.Actions.ClearCash"/>
+    <action id="Git.WorkingTrees.ToggleLock" class="git4idea.workingTrees.ui.actions.GitToggleLockWorkingTreeAction"/>
 
     <group id="Git.WorkingTrees.ToolwindowGroup.Toolbar">
       <reference ref="Git.CreateNewWorkingTree"/>
-      <reference ref="Git.WorkingTrees.Remove"/>
       <reference ref="Git.WorkingTrees.Refresh"/>
+      <reference ref="Git.WorkingTrees.Remove"/>
       <reference ref="Git.WorkingTrees.Prune"/>
       <separator/>
       <reference ref="ContextHelp"/>
@@ -630,12 +632,9 @@
 
     <group id="Git.WorkingTrees.ToolwindowGroup.Popup" popup="true">
       <reference ref="Git.WorkingTrees.Open"/>
+      <reference ref="Git.WorkingTrees.ToggleLock"/>
       <separator/>
       <reference ref="Git.WorkingTrees.Remove"/>
-    </group>
-
-    <group id="Git.WorkingTrees.ToolwindowGroup.Popup.Repository" popup="true">
-      <reference ref="Git.CreateNewWorkingTree"/>
     </group>
   </actions>
 

@@ -16,7 +16,9 @@ jps_test(
 create_kotlinc_options(
     name = "custom_frontend",
     opt_in = ["kotlin.time.ExperimentalTime"],
+    warn = "error",
     x_context_parameters = True,
+    x_warning_level = ["DEPRECATION:warning"],
 )
 
 jvm_library(
@@ -53,6 +55,7 @@ jvm_library(
         "//libraries/kotlin/reflect",
         "//python/common",
         "//platform/util/coroutines",
+        "//platform/core-impl",
     ],
 )
 
@@ -115,6 +118,7 @@ jvm_library(
         "//python/python-test-env/junit5:junit5_test_lib",
         "//python/common:common_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
+        "//platform/core-impl:core-impl_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.processOutput.frontend` end
@@ -132,8 +136,13 @@ exports_files(
 ### auto-generated section `build intellij.python.processOutput.frontend.tests` start
 create_kotlinc_options(
     name = "custom_python-processOutput-frontend-tests",
-    opt_in = ["kotlin.time.ExperimentalTime"],
+    opt_in = [
+        "kotlin.time.ExperimentalTime",
+        "com.intellij.util.system.LowLevelLocalMachineAccess",
+    ],
+    warn = "error",
     x_context_parameters = True,
+    x_warning_level = ["DEPRECATION:warning"],
 )
 
 jvm_library(

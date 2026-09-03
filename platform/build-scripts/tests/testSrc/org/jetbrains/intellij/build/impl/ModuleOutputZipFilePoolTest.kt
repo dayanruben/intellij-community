@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeout
@@ -18,6 +19,7 @@ import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.BiConsumer
 import java.util.function.Predicate
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -46,7 +48,52 @@ internal class ModuleOutputZipFilePoolTest {
       .hasMessageContaining("Timed out after 100ms")
       .hasMessageContaining(entryPath)
       .hasMessageContaining(file.toString())
-      .hasMessageContaining("possible deadlock")
+      // The coroutine dump goes to stderr. A message that carries it is truncated by the build server,
+      // and the truncation deletes the stack trace.
+      .hasMessageNotContaining("StandaloneCoroutine")
+      .hasMessageNotContaining("DeferredCoroutine")
+  }
+
+  @Test
+  fun `cached lookup loads on the IO dispatcher`() {
+    val file = Path.of("module-output.zip")
+    val entryPath = "META-INF/plugin.xml"
+    val expectedData = "<idea-plugin/>".encodeToByteArray()
+
+    runBlocking(Dispatchers.Default) {
+      val loaderInterceptor = CompletableDeferred<ContinuationInterceptor?>()
+      val pool = ModuleOutputZipFilePool(
+        scope = this,
+        zipFileLoader = {
+          loaderInterceptor.complete(currentCoroutineContext()[ContinuationInterceptor])
+          zipFile(mapOf(entryPath to expectedData))
+        },
+      )
+
+      assertThat(pool.getData(file, entryPath)).isEqualTo(expectedData)
+      assertThat(loaderInterceptor.await()).isSameAs(Dispatchers.IO)
+    }
+  }
+
+  @Test
+  fun `uncached lookup loads on the IO dispatcher`() {
+    val file = Path.of("module-output.zip")
+    val entryPath = "META-INF/plugin.xml"
+    val expectedData = "<idea-plugin/>".encodeToByteArray()
+
+    runBlocking(Dispatchers.Default) {
+      val loaderInterceptor = CompletableDeferred<ContinuationInterceptor?>()
+      val pool = ModuleOutputZipFilePool(
+        scope = null,
+        zipFileLoader = {
+          loaderInterceptor.complete(currentCoroutineContext()[ContinuationInterceptor])
+          zipFile(mapOf(entryPath to expectedData))
+        },
+      )
+
+      assertThat(pool.getData(file, entryPath)).isEqualTo(expectedData)
+      assertThat(loaderInterceptor.await()).isSameAs(Dispatchers.IO)
+    }
   }
 
   @Test
@@ -70,7 +117,7 @@ internal class ModuleOutputZipFilePoolTest {
   }
 
   @Test
-  fun `timeout evicts canceled cached zip entry and retries`() {
+  fun `timeout of one reader does not cancel the shared load`() {
     val file = Path.of("module-output.zip")
     val entryPath = "META-INF/plugin.xml"
     val expectedData = "<idea-plugin/>".encodeToByteArray()
@@ -119,7 +166,7 @@ internal class ModuleOutputZipFilePoolTest {
           pool.getData(file, entryPath)
         }
       ).isEqualTo(expectedData)
-      assertThat(loadCount.get()).isEqualTo(2)
+      assertThat(loadCount.get()).isEqualTo(1)
     }
   }
 
