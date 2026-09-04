@@ -25,6 +25,7 @@ import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTab
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabBuilder
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabsManager
 import com.intellij.terminal.frontend.toolwindow.getTerminalTab
+import com.intellij.terminal.frontend.toolwindow.impl.dnd.TerminalToolWindowDropHandler
 import com.intellij.terminal.frontend.view.TerminalView
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
 import com.intellij.terminal.frontend.view.impl.TerminalViewBuilderOptions
@@ -89,8 +90,12 @@ class TerminalToolWindowTabsManagerImpl(
   }
 
   override fun closeTab(tab: TerminalToolWindowTab) {
-    val manager = tab.content.manager ?: return
-    manager.removeContent(/* content = */ tab.content, /* dispose = */ true, /* requestFocus = */ true, /* forcedFocus = */ true)
+    val manager = tab.content.manager
+    if (manager != null) {
+      manager.removeContent(/* content = */ tab.content, /* dispose = */ true, /* requestFocus = */ true, /* forcedFocus = */ true)
+    } else {
+      tab.content.release()
+    }
   }
 
   override fun detachTab(tab: TerminalToolWindowTab) {
@@ -303,7 +308,7 @@ class TerminalToolWindowTabsManagerImpl(
         // Drag-and-drop and docking rely on the tool window decorator (real UI), which is absent in a headless environment.
         // Skip them there so the tool window can still be initialized in tests.
         if (!ApplicationManager.getApplication().isHeadlessEnvironment) {
-          TerminalDnDHandler.installHandler(toolWindow, manager.coroutineScope.childScope("Terminal DnD handler"))
+          TerminalToolWindowDropHandler.install(toolWindow, manager.coroutineScope.childScope("Terminal DnD handler"))
           TerminalDockContainer.install(toolWindow.project, toolWindow.decorator)
         }
       }

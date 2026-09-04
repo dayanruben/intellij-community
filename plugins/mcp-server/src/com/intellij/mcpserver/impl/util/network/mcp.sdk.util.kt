@@ -1,9 +1,9 @@
 package com.intellij.mcpserver.impl.util.network
 
-import com.intellij.mcpserver.toolwindow.McpDiagnosticService
-import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diagnostic.fileLogger
+import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
+import com.intellij.openapi.util.registry.Registry
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -39,42 +39,49 @@ import io.modelcontextprotocol.kotlin.sdk.shared.TransportSendOptions
 import io.modelcontextprotocol.kotlin.sdk.types.JSONRPCMessage
 import io.modelcontextprotocol.kotlin.sdk.types.JSONRPCRequest
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import kotlin.coroutines.CoroutineContext
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
-private val logger = logger<RoutingContext>()
+private val logger = fileLogger()
 
 /**
  * MCP Streamable HTTP session header.
  */
 internal const val MCP_SESSION_ID_HEADER: String = "mcp-session-id"
 
-private val SSE_HEARTBEAT_PERIOD = 5.seconds
+internal const val SSE_HEARTBEAT_PERIOD_REGISTRY_KEY: String = "mcp.server.sse.heartbeat.period.ms"
 
 private val SSE_HEARTBEAT_EVENT = ServerSentEvent(comments = "heartbeat")
-private val PENDING_TRANSPORT_TIMEOUT = 15.seconds
 
+private val sseHeartbeatPeriod: Duration
+  get() = Registry.intValue(SSE_HEARTBEAT_PERIOD_REGISTRY_KEY, 5_000).coerceAtLeast(1).milliseconds
+
+/**
+ * Serves the MCP endpoints of an IDE. The legacy SSE stream is on `/sse`, with its POST endpoint on `/message`.
+ * Streamable HTTP is on `/stream`, for GET, POST and DELETE.
+ *
+ * [createSession] connects the MCP SDK [ServerSession] of a new session to the [Transport] it is given, and returns it.
+ * Closing that transport is what ends the session: the `onClose` callbacks unregister it here, and cancel the scope
+ * that serves it. This [Application] is the scope the sessions run in, so cancelling it closes every live session.
+ */
 @KtorDsl
 fun Application.mcpPatched(
   prePhase: suspend PipelineContext<*, PipelineCall>.() -> Unit,
-  block: suspend (ApplicationCall, Transport) -> Pair<ServerSession, CoroutineScope>,
+  createSession: suspend (ApplicationCall, Transport) -> ServerSession,
 ) {
   val sseTransports = ConcurrentMap<String, SseServerTransport>()
-  val streamableTransports = ConcurrentMap<String, StreamableHttpServerTransport>()
-  // transports created during POST initialize but not yet connected to a GET SSE stream.
-  val pendingTransports = ConcurrentMap<String, StreamableHttpServerTransport>()
-  val streamableSessionScopes = ConcurrentMap<String, CoroutineScope>()
+  val streamableSessions = ConcurrentMap<String, StreamableHttpSession>()
 
   install(SSE)
   install(ContentNegotiation) { json(McpJson) }
@@ -84,7 +91,7 @@ fun Application.mcpPatched(
       prePhase()
       if (context.request.httpMethod == HttpMethod.Get) {
         val sessionId = context.request.header(MCP_SESSION_ID_HEADER)
-        if (sessionId != null && (streamableTransports[sessionId] != null || pendingTransports[sessionId] != null)) {
+        if (sessionId != null && streamableSessions[sessionId] != null) {
           context.response.header(MCP_SESSION_ID_HEADER, sessionId)
         }
       }
@@ -92,10 +99,10 @@ fun Application.mcpPatched(
 
     sse("/sse") {
       heartbeat {
-        period = SSE_HEARTBEAT_PERIOD
+        period = sseHeartbeatPeriod
       }
 
-      mcpSseEndpoint("/message", sseTransports, block)
+      mcpSseEndpoint("/message", sseTransports, createSession)
     }
 
     post("/message") {
@@ -104,76 +111,53 @@ fun Application.mcpPatched(
 
     route("/stream") {
       sse {
-        val sessionId = call.request.headers[MCP_SESSION_ID_HEADER]
-        try {
-          if (sessionId.isNullOrEmpty()) {
-            call.respond(HttpStatusCode.BadRequest, "Missing $MCP_SESSION_ID_HEADER header")
-            return@sse
-          }
-
-          val transport = pendingTransports.remove(sessionId)?.also { streamableTransports[sessionId] = it }
-                          ?: streamableTransports[sessionId]
-          if (transport == null) {
-            call.respond(HttpStatusCode.NotFound, "Streamable HTTP session not found")
-            return@sse
-          }
-
-          launchSseHeartbeat()
-          transport.handleRequest(this, call)
-        }
-        finally {
-          if (sessionId != null) {
-            //todo temp fix for flaky tests
-            streamableTransports.remove(sessionId)
-            streamableSessionScopes.remove(sessionId)?.cancel()
-            service<McpDiagnosticService>().sessionEnded(sessionId = sessionId)
-          }
-        }
+        // ktor commits the response before this handler runs, so the only way to refuse a stream is to end it.
+        val session = call.sessionForStream(streamableSessions) ?: return@sse
+        session.runRequest { serveNotificationStream(session.transport) }
       }
 
       post {
-        val transport = obtainOrCreateStreamableTransport(call,
-                                                          streamableTransports,
-                                                          pendingTransports,
-                                                          this@mcpPatched,
-                                                          block,
-                                                          streamableSessionScopes) ?: return@post
-        transport.handleRequest(null, call)
+        val session = obtainOrCreateStreamableSession(call, streamableSessions, this@mcpPatched, createSession) ?: return@post
+        session.serveRequest(call)
       }
 
       delete {
-        val transport = existingStreamableTransport(call, streamableTransports) ?: return@delete
-        transport.handleRequest(null, call)
+        val session = call.sessionForRequest(streamableSessions) ?: return@delete
+        session.serveRequest(call)
       }
     }
   }
 }
 
+/** The stream is the session here: an SSE client has no way to reach a session whose stream has ended. */
 private suspend fun ServerSSESession.mcpSseEndpoint(
   postEndpoint: String,
   transports: ConcurrentMap<String, SseServerTransport>,
-  block: suspend (ApplicationCall, Transport) -> Pair<ServerSession, CoroutineScope>,
+  createSession: suspend (ApplicationCall, Transport) -> ServerSession,
 ) {
   val transport = mcpSseTransport(postEndpoint, transports)
-
-  val (serverSession, _) = block(call, ClientDisconnectTolerantTransport(transport))
-
-  serverSession.onClose {
-    logger.trace { "Server connection closed for sessionId: ${transport.sessionId}" }
-    transports.remove(transport.sessionId)
+  try {
+    createSession(call, ClientDisconnectTolerantTransport(transport))
+    logger.trace { "Server connected to transport for sessionId: ${transport.sessionId}" }
+    awaitCancellation()
   }
-
-  logger.trace { "Server connected to transport for sessionId: ${transport.sessionId}" }
-  awaitCancellation()
+  finally {
+    transport.closeUninterruptibly()
+  }
 }
 
-internal fun ServerSSESession.mcpSseTransport(
+private fun ServerSSESession.mcpSseTransport(
   postEndpoint: String,
   transports: ConcurrentMap<String, SseServerTransport>,
 ): SseServerTransport {
   val transport = SseServerTransport(postEndpoint, this)
   transport.onError {
-    logger.error("Error in SSE connection", it)
+    if (it is IOException) logger.debug("The SSE connection was lost", it)
+    else logger.error("Error in SSE connection", it)
+  }
+  transport.onClose {
+    transports.remove(transport.sessionId)
+    logger.trace { "SSE session unregistered: ${transport.sessionId}" }
   }
   transports[transport.sessionId] = transport
 
@@ -182,7 +166,7 @@ internal fun ServerSSESession.mcpSseTransport(
   return transport
 }
 
-internal suspend fun RoutingContext.mcpPostEndpoint(
+private suspend fun RoutingContext.mcpPostEndpoint(
   transports: ConcurrentMap<String, SseServerTransport>,
 ) {
   val sessionId: String = call.request.queryParameters["sessionId"]
@@ -204,91 +188,78 @@ internal suspend fun RoutingContext.mcpPostEndpoint(
   logger.trace { "Message handled for sessionId: $sessionId" }
 }
 
-/**
- * Returns the transport already associated with the `mcp-session-id` header, or responds with an error
- * and returns `null`. Used for GET and DELETE.
- */
-private suspend fun existingStreamableTransport(
-  call: ApplicationCall,
-  transports: ConcurrentMap<String, StreamableHttpServerTransport>,
-): StreamableHttpServerTransport? {
-  val sessionId = call.request.headers[MCP_SESSION_ID_HEADER]
+private suspend fun ApplicationCall.sessionForRequest(
+  sessions: ConcurrentMap<String, StreamableHttpSession>,
+): StreamableHttpSession? {
+  val sessionId = request.headers[MCP_SESSION_ID_HEADER]
   if (sessionId.isNullOrEmpty()) {
-    call.respond(HttpStatusCode.BadRequest, "Missing $MCP_SESSION_ID_HEADER header")
+    respond(HttpStatusCode.BadRequest, "Missing $MCP_SESSION_ID_HEADER header")
     return null
   }
-  val transport = transports[sessionId]
-  if (transport == null) {
-    call.respond(HttpStatusCode.NotFound, "Streamable HTTP session not found")
+  val session = sessions[sessionId]
+  if (session == null) {
+    respondSessionNotFound()
     return null
   }
-  return transport
+  return session
 }
 
-/**
- * For POST: returns an existing transport from [activeTransports] if the client supplied a known
- * session id, otherwise creates a new transport, wires lifecycle callbacks, and hands it to [block].
- * Newly initialized transports are placed into [pendingTransports]. They are promoted to
- * [activeTransports] when the client opens the GET SSE stream. If the client does not open the
- * SSE stream within [PENDING_TRANSPORT_TIMEOUT], the transport is evicted and closed.
- */
-private suspend fun obtainOrCreateStreamableTransport(
-  call: ApplicationCall,
-  activeTransports: ConcurrentMap<String, StreamableHttpServerTransport>,
-  pendingTransports: ConcurrentMap<String, StreamableHttpServerTransport>,
-  scope: CoroutineScope,
-  block: suspend (ApplicationCall, Transport) -> Pair<ServerSession, CoroutineScope>,
-  streamableSessionScopes: ConcurrentMap<String, CoroutineScope>,
-): StreamableHttpServerTransport? {
-  val incomingSessionId = call.request.headers[MCP_SESSION_ID_HEADER]
-  if (incomingSessionId != null) {
-    val existing = activeTransports[incomingSessionId] ?: pendingTransports[incomingSessionId]
-    if (existing != null) return existing
-    call.respond(HttpStatusCode.NotFound, "Streamable HTTP session not found")
+private fun ApplicationCall.sessionForStream(
+  sessions: ConcurrentMap<String, StreamableHttpSession>,
+): StreamableHttpSession? {
+  val sessionId = request.headers[MCP_SESSION_ID_HEADER]
+  if (sessionId.isNullOrEmpty()) {
+    logger.trace { "A notification stream arrived without the $MCP_SESSION_ID_HEADER header" }
     return null
   }
+  val session = sessions[sessionId]
+  if (session == null) logger.trace { "A notification stream named an unknown Streamable HTTP session: $sessionId" }
+  return session
+}
+
+private suspend fun StreamableHttpSession.serveRequest(call: ApplicationCall) {
+  if (!runRequest { transport.handleRequest(null, call) }) call.respondSessionNotFound()
+}
+
+private suspend fun ApplicationCall.respondSessionNotFound() {
+  respond(HttpStatusCode.NotFound, "Streamable HTTP session not found")
+}
+
+private suspend fun obtainOrCreateStreamableSession(
+  call: ApplicationCall,
+  sessions: ConcurrentMap<String, StreamableHttpSession>,
+  serverScope: CoroutineScope,
+  createSession: suspend (ApplicationCall, Transport) -> ServerSession,
+): StreamableHttpSession? {
+  if (call.request.headers[MCP_SESSION_ID_HEADER] != null) return call.sessionForRequest(sessions)
 
   val transport = StreamableHttpServerTransport(
     StreamableHttpServerTransport.Configuration(enableJsonResponse = true)
   )
+  val session = StreamableHttpSession(transport)
 
-  transport.setOnSessionInitialized { initializedId ->
-    pendingTransports[initializedId] = transport
-    logger.trace { "New StreamableHttp session initialized with sessionId: $initializedId" }
-
-    // drop if client never opens a GET SSE stream.
-    scope.launch(CoroutineName("pending-transport-timeout-$initializedId")) {
-      delay(PENDING_TRANSPORT_TIMEOUT)
-      if (pendingTransports.remove(initializedId) != null) {
-        streamableSessionScopes.remove(initializedId)
-        logger.warn("Pending StreamableHttp transport timed out without SSE stream: $initializedId")
-        try { transport.close() } catch (_: Exception) {}
-      }
-    }
+  val serverSession = try {
+    createSession(call, ClientDisconnectTolerantTransport(transport))
   }
-  transport.setOnSessionClosed { closedId ->
-    pendingTransports.remove(closedId)
-    activeTransports.remove(closedId)
-    streamableSessionScopes.remove(closedId)
-    logger.trace { "StreamableHttp session closed: $closedId" }
+  catch (e: Throwable) {
+    transport.closeUninterruptibly()
+    throw e
   }
 
-  val (serverSession, scope) = block(call, ClientDisconnectTolerantTransport(transport))
-  streamableSessionScopes[serverSession.sessionId] = scope
-  transport.setSessionIdGenerator {
-    serverSession.sessionId
+  val sessionId = serverSession.sessionId
+  transport.setSessionIdGenerator { sessionId }
+  // Registered before the entry exists, so no close can leave the entry behind.
+  transport.onClose {
+    sessions.remove(sessionId)
+    logger.trace { "Streamable HTTP session unregistered: $sessionId" }
   }
-  serverSession.onClose {
-    val id = transport.sessionId
-    if (id != null) {
-      pendingTransports.remove(id)
-      activeTransports.remove(id)
-      streamableSessionScopes.remove(id)
-      logger.trace { "Server connection closed for StreamableHttp sessionId: $id" }
-    }
+  sessions[sessionId] = session
+  serverScope.launch(CoroutineName("mcp-streamable-session-close/$sessionId")) {
+    session.closeWhenAbandoned(sessionId)
   }
+  logger.trace { "New Streamable HTTP session created with sessionId: $sessionId" }
 
-  return transport
+  return session
 }
 
 /**
@@ -312,33 +283,56 @@ class ClientDisconnectTolerantTransport(private val delegate: Transport) : Trans
     try {
       delegate.send(message, options)
     }
-    catch (e: CancellationException) {
-      throw e
-    }
     catch (e: Exception) {
+      rethrowControlFlowException(e)
       if (message is JSONRPCRequest || (e !is IOException && e !is IllegalStateException)) throw e
       logger.debug("Client disconnected before an outgoing ${message::class.simpleName} could be delivered", e)
     }
   }
 }
 
-private fun ServerSSESession.launchSseHeartbeat() {
-  launch(CoroutineName("sse-heartbeat")) {
-    while (isActive) {
-      send(SSE_HEARTBEAT_EVENT)
-      delay(SSE_HEARTBEAT_PERIOD)
+/** A close must survive the cancellation that asked for it, so it runs outside the cancelled scope. */
+internal suspend fun Transport.closeUninterruptibly() {
+  withContext(NonCancellable) { close() }
+}
+
+/** Heartbeats keep an intermediary from dropping the stream. */
+private suspend fun ServerSSESession.serveNotificationStream(transport: StreamableHttpServerTransport) {
+  coroutineScope {
+    val stream = launch(CoroutineName("mcp-sse-notification-stream")) {
+      transport.handleRequest(this@serveNotificationStream, call)
     }
+    val heartbeat = launch(CoroutineName("mcp-sse-heartbeat")) {
+      while (trySendHeartbeat()) {
+        delay(sseHeartbeatPeriod)
+      }
+    }
+    stream.invokeOnCompletion { heartbeat.cancel() }
+    heartbeat.invokeOnCompletion { stream.cancel() }
   }
 }
 
-//–– your custom context element
+/**
+ * A failed write is how a connection lost without a clean shutdown is noticed. It ends the stream, and so it also
+ * bounds the hold the stream keeps on its session.
+ */
+private suspend fun ServerSSESession.trySendHeartbeat(): Boolean =
+  try {
+    send(SSE_HEARTBEAT_EVENT)
+    true
+  }
+  catch (e: Exception) {
+    rethrowControlFlowException(e)
+    logger.trace { "Notification stream is gone: ${e.message}" }
+    false
+  }
+
 class HttpRequestElement(val request: ApplicationRequest) : CoroutineContext.Element {
   companion object Key : CoroutineContext.Key<HttpRequestElement>
 
   override val key: CoroutineContext.Key<*> = Key
 }
 
-//–– install interceptor at the Call phase
 fun Application.installHttpRequestPropagation() {
   intercept(ApplicationCallPipeline.Call) {
     withContext(HttpRequestElement(this.context.request)) {

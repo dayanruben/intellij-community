@@ -68,6 +68,7 @@ import com.intellij.util.io.createDirectories
 import com.intellij.util.io.sanitizeFileName
 import com.intellij.xdebugger.XDebugSession
 import com.intellij.xdebugger.XDebuggerManager
+import com.intellij.xdebugger.impl.XDebugSessionImpl
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -90,18 +91,18 @@ import kotlin.time.Duration.Companion.milliseconds
 
 private val logger = fileLogger()
 
+@ApiStatus.Internal
+class CommandExecutionRejectedException : McpExpectedError("User rejected command execution")
+
 suspend fun checkUserConfirmationIfNeeded(@NlsContexts.Label notificationText: String, command: String?, project: Project) {
-
-  fun rejected(): McpExpectedError = McpExpectedError("User rejected command execution")
-
   val commandExecutionMode = currentCoroutineContext().mcpCallInfo.mcpSessionOptions.commandExecutionMode
   when (commandExecutionMode) {
     McpServerService.AskCommandExecutionMode.ASK -> {
-      if (!askConfirmation(project, notificationText, command)) throw rejected()
+      if (!askConfirmation(project, notificationText, command)) throw CommandExecutionRejectedException()
     }
     McpServerService.AskCommandExecutionMode.RESPECT_GLOBAL_SETTINGS -> {
       if (!McpServerSettings.getInstance().enableBraveMode && !askConfirmation(project, notificationText, command)) {
-        throw rejected()
+        throw CommandExecutionRejectedException()
       }
     }
     else -> {
@@ -222,6 +223,13 @@ data class RunConfigurationExecutionOutput(
   val output: String,
   val outputPath: Path?,
 )
+
+@ApiStatus.Internal
+class RunConfigurationExecutionException(message: String, cause: Throwable) : McpExpectedError(message) {
+  init {
+    initCause(cause)
+  }
+}
 
 private data class StartedRunConfigurationExecution(
   val descriptor: RunContentDescriptor,
@@ -392,34 +400,45 @@ private suspend fun prepareAndExecuteRunConfiguration(
   configurationCustomizer: ((RunConfiguration) -> Unit)? = null,
   execute: suspend (Project, ResolvedRunConfiguration) -> RunConfigurationExecutionOutput,
 ): RunConfigurationExecutionOutput {
-  val executionTarget = resolveRunConfigurationExecutionTarget(configurationName = configurationName, filePath = filePath, line = line)
-  currentCoroutineContext().reportToolActivity(McpServerBundle.message(activityMessageKey, executionTarget.presentableName))
-  val project = currentCoroutineContext().project
-  var resolvedConfiguration = resolveRunConfigurationForExecution(
-    project = project,
-    executionTarget = executionTarget,
-    programArguments = programArguments,
-    workingDirectory = workingDirectory,
-    envs = envs,
-  )
-  if (configurationCustomizer != null) {
-    val effectiveConfiguration = resolvedConfiguration.runConfiguration.clone()
-    configurationCustomizer(effectiveConfiguration)
-    resolvedConfiguration = resolvedConfiguration.copy(
-      runConfiguration = effectiveConfiguration,
-      useOriginalSettings = false,
+  try {
+    val executionTarget = resolveRunConfigurationExecutionTarget(configurationName = configurationName, filePath = filePath, line = line)
+    currentCoroutineContext().reportToolActivity(McpServerBundle.message(activityMessageKey, executionTarget.presentableName))
+    val project = currentCoroutineContext().project
+    var resolvedConfiguration = resolveRunConfigurationForExecution(
+      project = project,
+      executionTarget = executionTarget,
+      programArguments = programArguments,
+      workingDirectory = workingDirectory,
+      envs = envs,
     )
+    if (configurationCustomizer != null) {
+      val effectiveConfiguration = resolvedConfiguration.runConfiguration.clone()
+      configurationCustomizer(effectiveConfiguration)
+      resolvedConfiguration = resolvedConfiguration.copy(
+        runConfiguration = effectiveConfiguration,
+        useOriginalSettings = false,
+      )
+    }
+    val effectiveName = resolvedConfiguration.settings.name
+    val runConfigurationParameters = (resolvedConfiguration.runConfiguration as? CommonProgramRunConfigurationParameters)?.programParameters
+    val notificationText = if (runConfigurationParameters != null) {
+      McpServerBundle.message("label.do.you.want.to.execute.run.configuration.with.command", effectiveName)
+    }
+    else {
+      McpServerBundle.message("label.do.you.want.to.execute.run.configuration", effectiveName)
+    }
+    checkUserConfirmationIfNeeded(notificationText, command = runConfigurationParameters, project)
+    return execute(project, resolvedConfiguration)
   }
-  val effectiveName = resolvedConfiguration.settings.name
-  val runConfigurationParameters = (resolvedConfiguration.runConfiguration as? CommonProgramRunConfigurationParameters)?.programParameters
-  val notificationText = if (runConfigurationParameters != null) {
-    McpServerBundle.message("label.do.you.want.to.execute.run.configuration.with.command", effectiveName)
+  catch (e: RunConfigurationExecutionException) {
+    throw e
   }
-  else {
-    McpServerBundle.message("label.do.you.want.to.execute.run.configuration", effectiveName)
+  catch (e: CommandExecutionRejectedException) {
+    throw e
   }
-  checkUserConfirmationIfNeeded(notificationText, command = runConfigurationParameters, project)
-  return execute(project, resolvedConfiguration)
+  catch (e: McpExpectedError) {
+    throw RunConfigurationExecutionException(e.mcpErrorText, e)
+  }
 }
 
 internal suspend fun executeResolvedRunConfiguration(
@@ -454,12 +473,17 @@ private suspend fun executeResolvedRunConfiguration(
   executor: Executor,
   processCallbackDelegate: ProgramRunner.Callback? = null,
 ): RunConfigurationExecutionOutput {
-  val startedExecution = startResolvedRunConfiguration(
-    project = project,
-    resolvedConfiguration = resolvedConfiguration,
-    executor = executor,
-    processCallbackDelegate = processCallbackDelegate,
-  )
+  val startedExecution = try {
+    startResolvedRunConfiguration(
+      project = project,
+      resolvedConfiguration = resolvedConfiguration,
+      executor = executor,
+      processCallbackDelegate = processCallbackDelegate,
+    )
+  }
+  catch (e: McpExpectedError) {
+    throw RunConfigurationExecutionException(e.mcpErrorText, e)
+  }
   val exitCode = if (waitForExit) awaitExitCode(startedExecution.exitCodeDeferred, timeout) else null
   if (exitCode != null) {
     logger.trace { "Execution finished with exit code $exitCode. Closing collector..." }
@@ -553,6 +577,22 @@ private fun createProcessCallback(
       return
     }
 
+    val sessionId = try {
+      buildSessionId(
+        project = project,
+        executorId = executorId,
+        sessionName = sessionName,
+        descriptor = descriptor,
+      )
+    }
+    catch (e: Exception) {
+      rethrowControlFlowException(e)
+      startedDeferred.completeExceptionally(e)
+      processHandler.destroyProcess()
+      processCallbackDelegate?.processNotStarted(e)
+      return
+    }
+
     val outputCollector = try {
       val outputPath = createRunConfigurationOutputFile(sessionName)
       // remove on IDE close
@@ -592,12 +632,6 @@ private fun createProcessCallback(
           IllegalStateException("Process explicitly reported as not started."))
       }
     })
-    val sessionId = buildSessionId(
-      project = project,
-      executorId = executorId,
-      sessionName = sessionName,
-      descriptor = descriptor,
-    )
     // The delegate lets tool-specific code inspect the fresh RunContentDescriptor before processHandler.startNotify().
     // This keeps debugger-mcp session tweaks out of the generic execution helper and avoids debugger internals here.
     processCallbackDelegate?.processStarted(descriptor)
@@ -655,10 +689,10 @@ fun buildSessionId(
   descriptor: RunContentDescriptor,
 ): String {
   if (executorId == DefaultDebugExecutor.EXECUTOR_ID) {
-    val debugSession = XDebuggerManager.getInstance(project).getDebugSession(descriptor.executionConsole)
-    if (debugSession != null) {
-      return buildDebugSessionId(project, debugSession)
+    val debugSession = descriptor.executionConsole?.let {
+      XDebuggerManager.getInstance(project).getDebugSession(it)
     }
+    return buildDebugSessionId(debugSession)
   }
   val executionManager = ExecutionManager.getInstance(project)
   val activeSessionNames = executionManager.getRunningDescriptors(Conditions.alwaysTrue())
@@ -672,19 +706,11 @@ fun buildSessionId(
   return buildSessionId(sessionName, descriptor.executionId, activeSessionNames)
 }
 
-private fun buildDebugSessionId(project: Project, session: XDebugSession): String {
-  val activeSessionNames = XDebuggerManager.getInstance(project).debugSessions
-    .asSequence()
-    .map { it.sessionName }
-    .toMutableList()
-  if (!activeSessionNames.contains(session.sessionName)) {
-    activeSessionNames.add(session.sessionName)
-  }
-  return buildSessionId(
-    sessionName = session.sessionName,
-    executionId = session.executionEnvironment?.executionId,
-    activeSessionNames = activeSessionNames,
-  )
+@ApiStatus.Internal
+fun buildDebugSessionId(session: XDebugSession?): String {
+  val sessionImpl = session as? XDebugSessionImpl
+                    ?: mcpFail("The debug process started, but no XDebugSessionImpl is registered for its execution console.")
+  return sessionImpl.id.uid.toString()
 }
 
 private fun extractExecutionSessionName(descriptor: RunContentDescriptor): String? {

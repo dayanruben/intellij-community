@@ -17,7 +17,9 @@ import org.jetbrains.annotations.TestOnly
 import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
 import java.util.Collections
+import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.atomic.AtomicReference
+import java.util.function.LongConsumer
 
 /**
  * Mutable snapshot-marker engine backed by immutable persistent [PMarkerRoot] values.
@@ -34,12 +36,15 @@ import java.util.concurrent.atomic.AtomicReference
 object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
   private val markerQueue = ReferenceQueue<SnapshotRangeMarkerImpl>()
   private val nextMarkerId: StripedIDGenerator = StripedIDGenerator().also { it.next() /* id must not be 0 */ }
-  /// collection of [SnapshotMarkerRootStore] that need to be updated on [DocumentSnapshot] change
-  private val rootStores: MutableSet<SnapshotMarkerRootStore> = Collections.newSetFromMap(CollectionFactory.createConcurrentWeakIdentityMap<SnapshotMarkerRootStore, Boolean>())
+  /** Weakly tracks snapshots whose parent edit invalidated at least one marker. */
+  private val snapshotsWithInvalidatedMarkers: MutableSet<DocumentSnapshot> =
+    Collections.newSetFromMap(CollectionFactory.createConcurrentWeakIdentityMap<DocumentSnapshot, Boolean>())
+  /** collection of [SnapshotMarkerRootStore] that need to be updated on [DocumentSnapshot] change */
+  private val rootStores: ConcurrentMap<SnapshotMarkerRootStore, Boolean> = CollectionFactory.createConcurrentWeakIdentityMap<SnapshotMarkerRootStore, Boolean>()
 
   @ApiStatus.Internal
   fun registerRootStore(store: SnapshotMarkerRootStore) {
-    rootStores.add(store)
+    rootStores.put(store, true)
   }
 
   @ApiStatus.Internal
@@ -54,14 +59,14 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
    * Canonical weak handle reference retained by persistent marker states until the handle can be queue-purged.
    * Document and file-root ownership is weak so the cleanup metadata does not extend either lifetime.
    */
-  private class MarkerReference(
+  private class QueuedMarkerReference(
     marker: SnapshotRangeMarkerImpl,
     document: DocumentImpl,
     queue: ReferenceQueue<SnapshotRangeMarkerImpl>,
-  ) : WeakReference<SnapshotRangeMarkerImpl>(marker, queue) {
+  ) : WeakSnapshotMarkerReference(marker, queue) {
     val markerId: Long = marker.markerId
-    val documentReference = WeakReference(document)
-    val fileRootReference = marker.fileRoot?.let(::WeakReference)
+    val documentReference: WeakReference<DocumentImpl> = WeakReference(document)
+    val fileRootReference: WeakReference<FileMarkerRoot>? = marker.fileRoot?.let(::WeakReference)
   }
 
   /**
@@ -73,23 +78,45 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
    * - a marker inserted after this operation is not inherited by the child;
    * - the root belonging to [beforeSnapshot] is not changed.
    *
-   * [afterSnapshot] must not become visible before this method completes. Otherwise marker creation may race with
+   * [afterSnapshot] must not become visible before this method completes. Otherwise, marker creation may race with
    * publishing the derived root.
    */
   override fun applyPatch(beforeSnapshot: DocumentSnapshot, afterSnapshot: DocumentSnapshot, patch: DocumentTextPatch) {
     validatePatch(beforeSnapshot, afterSnapshot, patch)
-    publishRoot(beforeSnapshot, afterSnapshot) {
-      it.applyPatch(patch, beforeSnapshot.text(), afterSnapshot.text())
+    var hasInvalidatedMarkers = false
+    val invalidatedMarkerConsumer = LongConsumer { hasInvalidatedMarkers = true }
+    val beforeRoot = markerRoot(beforeSnapshot).get()
+    val afterRoot = beforeRoot.applyPatch(patch, beforeSnapshot.text(), afterSnapshot.text(), invalidatedMarkerConsumer)
+    processQueue()
+    require(afterSnapshot !== beforeSnapshot) {
+      "Before and after snapshots must be different instances"
     }
-    rootStores.forEach { it.applyPatch(beforeSnapshot, afterSnapshot, patch) }
+    val updated = markerRoot(afterSnapshot).compareAndSet(beforeRoot, afterRoot)
+    require(updated) {
+      "After snapshot marker root is already initialized"
+    }
+    if (hasInvalidatedMarkers) {
+      snapshotsWithInvalidatedMarkers.add(afterSnapshot)
+    }
+    else {
+      snapshotsWithInvalidatedMarkers.remove(afterSnapshot) // to call snapshotsWithInvalidatedMarkers.processQueue()
+    }
+    if (!rootStores.isEmpty()) {
+      rootStores.keys.forEach { it.applyPatch(beforeSnapshot, afterSnapshot, patch) }
+    }
   }
+
+  /** Returns true if the snapshot derivation invalidated at least one marker. */
+  @ApiStatus.Internal
+  fun hasInvalidatedMarkers(snapshot: DocumentSnapshot): Boolean = snapshotsWithInvalidatedMarkers.contains(snapshot)
 
   override fun inherit(beforeSnapshot: DocumentSnapshot, afterSnapshot: DocumentSnapshot) {
     require(beforeSnapshot.text() === afterSnapshot.text()) {
       "Snapshots must share the same text instance"
     }
-    publishRoot(beforeSnapshot, afterSnapshot) { it }
-    rootStores.forEach { it.inherit(beforeSnapshot, afterSnapshot) }
+    if (!rootStores.isEmpty()) {
+      rootStores.keys.forEach { it.inherit(beforeSnapshot, afterSnapshot) }
+    }
   }
 
   /**
@@ -109,30 +136,13 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
 
     val primaryRoot = markerRoot(markerSnapshot).get() as PMarkerRootImpl
     val metadataRoot = markerRoot(metadataSnapshot).get() as PMarkerRootImpl
-    val hasExternalPrimaryRoot = rootStores.any { it.containsSnapshot(markerSnapshot) }
+    val hasExternalPrimaryRoot = rootStores.keys.any { it.containsSnapshot(markerSnapshot) }
     if (primaryRoot === PMarkerRootImpl.empty() && !hasExternalPrimaryRoot) return metadataSnapshot
 
     val mergedRoot = primaryRoot.mergeValidMarkersFrom(metadataRoot)
     val mergedSnapshot = (metadataSnapshot as DocumentSnapshotImpl).copyWithMarkerRoot(mergedRoot)
-    rootStores.forEach { it.merge(markerSnapshot, metadataSnapshot, mergedSnapshot) }
+    rootStores.keys.forEach { it.merge(markerSnapshot, metadataSnapshot, mergedSnapshot) }
     return mergedSnapshot
-  }
-
-  private inline fun publishRoot(
-    beforeSnapshot: DocumentSnapshot,
-    afterSnapshot: DocumentSnapshot,
-    transform: (PMarkerRoot) -> PMarkerRoot,
-  ) {
-    processQueue()
-    require(afterSnapshot !== beforeSnapshot) {
-      "Before and after snapshots must be different instances"
-    }
-    val beforeRoot = markerRoot(beforeSnapshot).get()
-    val afterRoot = transform(beforeRoot)
-    val updated = markerRoot(afterSnapshot).compareAndSet(PMarkerRootImpl.empty(), afterRoot)
-    require(updated) {
-      "After snapshot marker root is already initialized"
-    }
   }
 
   /**
@@ -146,8 +156,23 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
     snapshot: DocumentSnapshot,
     startOffset: Int,
     endOffset: Int,
-    spec: MarkerSpec
+    spec: MarkerSpec,
+    retainStrong: Boolean,
   ): PMarker {
+    return createRangeMarker(document, snapshot, startOffset, endOffset, spec, retainStrong) { fileRoot, markerId ->
+      SnapshotRangeMarkerImpl(document, fileRoot, markerId, spec, TextRange(startOffset, endOffset))
+    }
+  }
+
+  internal fun <T : SnapshotRangeMarkerImpl> createRangeMarker(
+    document: Document,
+    snapshot: DocumentSnapshot,
+    startOffset: Int,
+    endOffset: Int,
+    spec: MarkerSpec,
+    retainStrong: Boolean = false,
+    markerFactory: (FileMarkerRoot?, Long) -> T,
+  ): T {
     processQueue()
     val rootReference = markerRoot(snapshot)
     require(startOffset >= 0) { "startOffset must be non-negative" }
@@ -158,8 +183,13 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
     val fileRoot = FileMarkerRoot.getOrCreate(documentImpl)
 
     val markerId = nextMarkerId()
-    val marker = SnapshotRangeMarkerImpl(document, fileRoot, markerId, spec, TextRange(startOffset, endOffset))
-    val markerReference = MarkerReference(marker, documentImpl, markerQueue)
+    val marker = markerFactory(fileRoot, markerId)
+    val markerReference = if (retainStrong) {
+      StrongSnapshotMarkerReference(marker)
+    }
+    else {
+      QueuedMarkerReference(marker, documentImpl, markerQueue)
+    }
 
     while (true) {
       val oldRoot = rootReference.get()
@@ -173,7 +203,7 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
   override fun processQueue(): Boolean {
     var ret = false
     while (true) {
-      val reference = markerQueue.poll() as MarkerReference? ?: break
+      val reference = markerQueue.poll() as QueuedMarkerReference? ?: break
       val fileRoot = reference.fileRootReference?.get()
       val document = reference.documentReference.get()
       if (document != null) {
@@ -183,7 +213,14 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
         ret = purgeRangeMarker(fileRoot.rootReference(), reference.markerId)
       }
     }
+    ret = ret || (rootStores as ReferenceQueueable).processQueue()
     return ret
+  }
+
+  /** Creates a marker reference with the requested ownership for a root store. */
+  @ApiStatus.Internal
+  fun createMarkerReference(marker: SnapshotRangeMarkerImpl, retainStrong: Boolean): SnapshotMarkerReference {
+    return if (retainStrong) StrongSnapshotMarkerReference(marker) else WeakSnapshotMarkerReference(marker)
   }
 
   /**
@@ -203,10 +240,8 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
     val rootReference = snapshot?.let(::markerRoot) ?: storedMarker.currentRootReference()
     while (true) {
       val oldRoot = rootReference.get()
-      val markerReference = oldRoot.markerReference(markerId)
       val newRoot = oldRoot.remove(markerId)
       if (rootReference.compareAndSet(oldRoot, newRoot)) {
-        markerReference?.clear()
         return oldRoot !== newRoot
       }
     }

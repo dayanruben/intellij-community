@@ -2,7 +2,6 @@ package com.intellij.ide.starter.utils
 
 import com.intellij.ide.starter.process.exec.ExecOutputRedirect
 import com.intellij.ide.starter.process.exec.ProcessExecutor
-import com.intellij.ide.starter.runner.SetupException
 import com.intellij.ide.starter.utils.Git.setConfigProperty
 import com.intellij.openapi.application.PathManager
 import com.intellij.tools.ide.util.common.logError
@@ -80,6 +79,15 @@ object Git {
     }.getOrElse { master }
   }
 
+  /** Marks a failure of [action] as a failure of the remote. */
+  private fun <T> onRemote(command: String, action: () -> T): T =
+    try {
+      action()
+    }
+    catch (e: Exception) {
+      throw GitRemoteException(command, cause = e)
+    }
+
   fun getRepoRoot(): Path {
     val stdout = ExecOutputRedirect.ToString()
 
@@ -113,6 +121,10 @@ object Git {
     if (shallow) arguments.addAll(listOf("--depth", "1"))
     if (withSubmodules) arguments.add("--recurse-submodules")
 
+    // The retry drops each throwable, so keep the output for the message.
+    val stdoutRedirect = ExecOutputRedirect.ToStdOutAndTail("[$cmdName]")
+    val stderrRedirect = ExecOutputRedirect.ToStdOutAndTail("[$cmdName]")
+
     withRetryBlocking("Git clone $repoUrl failed", rollback = {
       logOutput("Deleting $destinationDir ...")
 
@@ -123,11 +135,15 @@ object Git {
         workDir = destinationDir.parent.toAbsolutePath(),
         timeout = timeout,
         args = arguments,
-        stdoutRedirect = ExecOutputRedirect.ToStdOut("[$cmdName]"),
-        stderrRedirect = ExecOutputRedirect.ToStdOut("[$cmdName]"),
+        stdoutRedirect = stdoutRedirect,
+        stderrRedirect = stderrRedirect,
         onlyEnrichExistedEnvVariables = true
       ).start()
-    } ?: throw SetupException("Git clone $repoUrl failed")
+    } ?: throw GitRemoteException(cmdName, buildString {
+      appendLine("The last output of `$cmdName`:")
+      appendLine(stderrRedirect.read())
+      appendLine(stdoutRedirect.read())
+    })
   }
 
   fun status(projectDir: Path): Int {
@@ -295,29 +311,33 @@ object Git {
     val arguments = mutableListOf("git", "fetch")
     if (remote.isNotEmpty()) arguments.add(remote)
 
-    ProcessExecutor(
-      presentableName = cmdName,
-      workDir = repositoryDirectory.toAbsolutePath(),
-      timeout = 10.minutes,
-      args = arguments,
-      stdoutRedirect = ExecOutputRedirect.ToStdOut("[$cmdName]"),
-      stderrRedirect = ExecOutputRedirect.ToStdOut("[$cmdName]"),
-      onlyEnrichExistedEnvVariables = true
-    ).start()
+    onRemote(cmdName) {
+      ProcessExecutor(
+        presentableName = cmdName,
+        workDir = repositoryDirectory.toAbsolutePath(),
+        timeout = 10.minutes,
+        args = arguments,
+        stdoutRedirect = ExecOutputRedirect.ToStdOutAndTail("[$cmdName]"),
+        stderrRedirect = ExecOutputRedirect.ToStdOutAndTail("[$cmdName]"),
+        onlyEnrichExistedEnvVariables = true
+      ).start()
+    }
   }
 
   fun pull(repositoryDirectory: Path) {
     val cmdName = "git-pull"
 
-    ProcessExecutor(
-      presentableName = cmdName,
-      workDir = repositoryDirectory.toAbsolutePath(),
-      timeout = 10.minutes,
-      args = listOf("git", "pull"),
-      stdoutRedirect = ExecOutputRedirect.ToStdOut("[$cmdName]"),
-      stderrRedirect = ExecOutputRedirect.ToStdOut("[$cmdName]"),
-      onlyEnrichExistedEnvVariables = true
-    ).start()
+    onRemote(cmdName) {
+      ProcessExecutor(
+        presentableName = cmdName,
+        workDir = repositoryDirectory.toAbsolutePath(),
+        timeout = 10.minutes,
+        args = listOf("git", "pull"),
+        stdoutRedirect = ExecOutputRedirect.ToStdOutAndTail("[$cmdName]"),
+        stderrRedirect = ExecOutputRedirect.ToStdOutAndTail("[$cmdName]"),
+        onlyEnrichExistedEnvVariables = true
+      ).start()
+    }
   }
 
   fun rebase(repositoryDirectory: Path, newBase: String = "master") {
@@ -360,15 +380,17 @@ object Git {
     if (setUpstream) arguments.add("-u")
     arguments.addAll(listOf(remote, branch))
 
-    ProcessExecutor(
-      presentableName = cmdName,
-      workDir = repositoryDirectory.toAbsolutePath(),
-      timeout = 10.minutes,
-      args = arguments,
-      stdoutRedirect = ExecOutputRedirect.ToStdOut("[$cmdName]"),
-      stderrRedirect = ExecOutputRedirect.ToStdOut("[$cmdName]"),
-      onlyEnrichExistedEnvVariables = true
-    ).start()
+    onRemote(cmdName) {
+      ProcessExecutor(
+        presentableName = cmdName,
+        workDir = repositoryDirectory.toAbsolutePath(),
+        timeout = 10.minutes,
+        args = arguments,
+        stdoutRedirect = ExecOutputRedirect.ToStdOutAndTail("[$cmdName]"),
+        stderrRedirect = ExecOutputRedirect.ToStdOutAndTail("[$cmdName]"),
+        onlyEnrichExistedEnvVariables = true
+      ).start()
+    }
   }
 
   fun deleteBranch(workDir: Path, targetBranch: String) {

@@ -4,8 +4,10 @@ package com.intellij.openapi.wm.impl.tabInEditor
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerKeys
 import com.intellij.openapi.fileEditor.impl.EditorHistoryManager
+import com.intellij.openapi.observable.util.whenDisposed
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.getPreferredFocusedComponent
 import com.intellij.openapi.util.NlsContexts
@@ -21,6 +23,13 @@ import java.util.concurrent.ConcurrentHashMap
 
 private val LOG = logger<ToolWindowEditorTabManager>()
 
+/**
+ * Manages tool window content shown as editor tabs in a project.
+ *
+ * @see [ToolWindowEditorTabFile]
+ * @see [ToolWindowEditorTabSession]
+ * @see [ToolWindowEditorTabPresentation]
+ */
 @ApiStatus.Internal
 @Service(Service.Level.PROJECT)
 class ToolWindowEditorTabManager(
@@ -186,6 +195,10 @@ class ToolWindowEditorTabManager(
     )
 
     sessionByFile[file] = session
+
+    content.whenDisposed {
+      FileEditorManager.getInstance(project).closeFile(file)
+    }
 
     return true
   }
