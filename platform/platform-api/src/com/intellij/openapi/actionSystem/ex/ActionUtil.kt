@@ -46,6 +46,7 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.ui.ClientProperty
 import com.intellij.util.ObjectUtils
 import com.intellij.util.SlowOperationCanceledException
@@ -249,16 +250,22 @@ object ActionUtil {
   @JvmStatic
   fun getUnavailableMessage(action: String, plural: Boolean): @NlsContexts.PopupContent String {
     if (plural) {
-      return IdeBundle.message("popup.content.actions.not.available.while.updating.indices", action)
+      return IdeBundle.dumbModeMessage("popup.content.actions.not.available.while.updating.indices",
+                                       "popup.content.actions.not.available.in.light.mode", action)
     }
-    return IdeBundle.message("popup.content.action.not.available.while.updating.indices", action)
+    return IdeBundle.dumbModeMessage("popup.content.action.not.available.while.updating.indices",
+                                     "popup.content.action.not.available.in.light.mode", action)
   }
 
   @ApiStatus.Internal
   @JvmStatic
   fun getActionUnavailableMessage(@ActionText action: String?): @NlsContexts.PopupContent String {
-    if (action == null) return IdeBundle.message("popup.content.this.action.not.available.while.updating.indices")
-    return IdeBundle.message("popup.content.action.not.available.while.updating.indices", action)
+    if (action == null) {
+      return IdeBundle.dumbModeMessage("popup.content.this.action.not.available.while.updating.indices",
+                                       "popup.content.this.action.not.available.in.light.mode")
+    }
+    return IdeBundle.dumbModeMessage("popup.content.action.not.available.while.updating.indices",
+                                     "popup.content.action.not.available.in.light.mode", action)
   }
 
   @JvmStatic
@@ -266,8 +273,9 @@ object ActionUtil {
     return when {
       actionNames.isEmpty() -> getActionUnavailableMessage(null)
       actionNames.size == 1 -> getActionUnavailableMessage(actionNames[0])
-      else -> IdeBundle.message("popup.content.none.of.following.actions.are.available.while.updating.indices",
-                                actionNames.joinToString(", "))
+      else -> IdeBundle.dumbModeMessage("popup.content.none.of.following.actions.are.available.while.updating.indices",
+                                        "popup.content.none.of.following.actions.are.available.in.light.mode",
+                                        actionNames.joinToString(", "))
     }
   }
 
@@ -300,6 +308,12 @@ object ActionUtil {
       presentation.putClientProperty(WOULD_BE_VISIBLE_IF_NOT_DUMB_MODE, false)
       return AnActionResult.ignored("action is not compatible with LightEdit")
     }
+    if (IdeProductMode.isLight && !action.isDumbAware) {
+      presentation.isEnabledAndVisible = false
+      presentation.putClientProperty(WOULD_BE_ENABLED_IF_NOT_DUMB_MODE, false)
+      presentation.putClientProperty(WOULD_BE_VISIBLE_IF_NOT_DUMB_MODE, false)
+      return AnActionResult.ignored("action is not compatible with LightMode")
+    }
     val wasEnabledBefore = presentation.getClientProperty(WAS_ENABLED_BEFORE_DUMB)
     val dumbMode = isDumbMode(e.project)
     if (wasEnabledBefore != null && !dumbMode) {
@@ -331,7 +345,9 @@ object ActionUtil {
       presentation.putClientProperty(WOULD_BE_VISIBLE_IF_NOT_DUMB_MODE, !allowed && presentation.isVisible)
       presentation.isEnabled = presentation.isEnabled && (allowed || !e.isFromContextMenu)
       if (!allowed) {
-        presentation.putClientProperty(TOOLTIP_TEXT, IdeBundle.message("ide.action.waits.for.analysis.message", presentation.text))
+        presentation.putClientProperty(TOOLTIP_TEXT, IdeBundle.dumbModeMessage("ide.action.waits.for.analysis.message",
+                                                                               "ide.action.is.not.available.in.light.mode",
+                                                                               presentation.text))
       }
     }
     catch (@Suppress("IncorrectCancellationExceptionHandling") ex: SlowOperationCanceledException) {
@@ -767,4 +783,3 @@ object ActionUtil {
     ActionContextElement.reset(component, getActionThreadContext())
   }
 }
-

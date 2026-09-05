@@ -22,8 +22,6 @@ package org.jetbrains.intellij.build.classPath
 
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.platform.pluginSystem.parser.impl.LoadPathUtil
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jdom.CDATA
 import org.jdom.Element
 import org.jdom.Namespace
@@ -196,7 +194,7 @@ fun deprecatedResolveDescriptorForEmbeddedProduct(
   }
 }
 
-private suspend fun loadXmlFromEmbeddedProductSpec(
+private fun loadXmlFromEmbeddedProductSpec(
   embeddedProductSpec: ProductModulesContentSpec,
   context: BuildContext,
 ): Element {
@@ -235,23 +233,21 @@ internal suspend fun resolveAndCacheDescriptorForEmbeddedProduct(
     context = descriptorResolveContext(context),
   )
 
-  withContext(Dispatchers.IO) {
-    resolveIncludes(element = xml, elementResolver = xIncludeResolver)
+  resolveIncludes(element = xml, elementResolver = xIncludeResolver)
 
-    for (contentElement in xml.getChildren("content")) {
-      for (moduleElement in contentElement.getChildren("module")) {
-        val moduleName = moduleElement.getAttributeValue("name") ?: continue
-        embedContentModule(
-          moduleElement = moduleElement,
-          pluginDescriptorContainer = pluginDescriptorContainer,
-          xIncludeResolver = xIncludeResolver,
-          moduleName = moduleName,
-          dependencyHelper = (context as BuildContextImpl).jarPackagerDependencyHelper,
-          pluginLayout = pluginLayout,
-          frontendModuleFilter = context.getFrontendModuleFilter(),
-          outputProvider = context.outputProvider,
-        )
-      }
+  for (contentElement in xml.getChildren("content")) {
+    for (moduleElement in contentElement.getChildren("module")) {
+      val moduleName = moduleElement.getAttributeValue("name") ?: continue
+      embedContentModule(
+        moduleElement = moduleElement,
+        pluginDescriptorContainer = pluginDescriptorContainer,
+        xIncludeResolver = xIncludeResolver,
+        moduleName = moduleName,
+        dependencyHelper = (context as BuildContextImpl).jarPackagerDependencyHelper,
+        pluginLayout = pluginLayout,
+        frontendModuleFilter = context.getFrontendModuleFilter(),
+        outputProvider = context.outputProvider,
+      )
     }
   }
   val patchedContent = JDOMUtil.write(xml).encodeToByteArray()
@@ -267,7 +263,7 @@ internal fun getEmbeddedProductTempPluginDir(buildContext: BuildContext, coreDes
   return buildContext.paths.tempDir.resolve("embedded-product-$coreDescriptorModule-plugin-dir")
 }
 
-internal suspend fun embedContentModule(
+internal fun embedContentModule(
   moduleElement: Element,
   pluginDescriptorContainer: ScopedCachedDescriptorContainer,
   xIncludeResolver: XIncludeElementResolverImpl,
@@ -301,7 +297,7 @@ internal suspend fun embedContentModule(
   )
 }
 
-private suspend fun resolveContentModuleDescriptor(
+private fun resolveContentModuleDescriptor(
   moduleName: String,
   descriptorCache: ScopedCachedDescriptorContainer,
   xIncludeResolver: XIncludeElementResolverImpl,
@@ -330,7 +326,7 @@ private suspend fun resolveContentModuleDescriptor(
   return element
 }
 
-internal suspend fun resolveAndEmbedContentModuleDescriptor(
+internal fun resolveAndEmbedContentModuleDescriptor(
   moduleElement: Element,
   descriptorCache: ScopedCachedDescriptorContainer,
   xIncludeResolver: XIncludeElementResolverImpl,
@@ -403,7 +399,7 @@ internal class XIncludeElementResolverImpl(
     )) + searchPath, context)
   }
 
-  suspend fun resolveElement(relativePath: String, isOptional: Boolean, isDynamic: Boolean): Element? {
+  fun resolveElement(relativePath: String, isOptional: Boolean, isDynamic: Boolean): Element? {
     if (isOptional || isDynamic) {
       // It isn't safe to resolve includes at build time if they're optional.
       // This could lead to issues when running another product using this distribution.
@@ -525,13 +521,13 @@ private fun isIncludeElementFor(element: Element): Boolean {
   return element.name == "include" && element.namespace == JDOMUtil.XINCLUDE_NAMESPACE
 }
 
-internal suspend fun resolveIncludes(element: Element, elementResolver: XIncludeElementResolverImpl) {
+internal fun resolveIncludes(element: Element, elementResolver: XIncludeElementResolverImpl) {
   check(!isIncludeElementFor(element))
   doResolveNonXIncludeElementFromCache(original = element, elementResolver = elementResolver)
 }
 
 @Suppress("DuplicatedCode")
-private suspend fun resolveXIncludeElement(
+private fun resolveXIncludeElement(
   element: Element,
   elementResolver: XIncludeElementResolverImpl,
 ): MutableList<Element>? {
@@ -586,7 +582,7 @@ private suspend fun resolveXIncludeElement(
   return remoteParsed
 }
 
-private suspend fun doResolveNonXIncludeElementFromCache(original: Element, elementResolver: XIncludeElementResolverImpl) {
+private fun doResolveNonXIncludeElementFromCache(original: Element, elementResolver: XIncludeElementResolverImpl) {
   val contentList = original.content
   for (i in contentList.size - 1 downTo 0) {
     val content = contentList[i]

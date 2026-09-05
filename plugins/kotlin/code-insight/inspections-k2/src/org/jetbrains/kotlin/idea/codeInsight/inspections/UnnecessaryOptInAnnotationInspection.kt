@@ -9,7 +9,6 @@ import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.util.parentOfType
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
 import org.jetbrains.kotlin.analysis.api.components.isClassType
@@ -38,6 +37,7 @@ import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
 import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.analysis.api.types.varargArrayType
+import org.jetbrains.kotlin.config.AnalysisFlags
 import org.jetbrains.kotlin.config.ApiVersion
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.psi.KotlinPsiHeuristics
@@ -90,7 +90,6 @@ internal class UnnecessaryOptInAnnotationInspection :
 
     override fun getApplicableRanges(element: KtAnnotationEntry): List<TextRange> = ApplicabilityRange.self(element)
 
-    @OptIn(KaExperimentalApi::class)
     context(session: KaSession)
     override fun prepareContext(element: KtAnnotationEntry): Context? {
         val annotationType = element.typeReference?.type ?: return null
@@ -112,7 +111,8 @@ internal class UnnecessaryOptInAnnotationInspection :
         val markerCollector = MarkerCollector(moduleApiVersion)
         owner.accept(OptInMarkerVisitor(), markerCollector)
 
-        val unusedMarkers = resolvedMarkers.filter { markerCollector.isUnused(it.classId) }
+        val moduleOptIns = element.languageVersionSettings.getFlag(AnalysisFlags.optIn)
+        val unusedMarkers = resolvedMarkers.filter { it.classId.asFqNameString() in moduleOptIns || markerCollector.isUnused(it.classId) }
         if (unusedMarkers.isEmpty()) return null
 
         return Context(unusedMarkers, allRedundant = annotationEntryArguments.size == unusedMarkers.size)
@@ -190,7 +190,6 @@ private class MarkerCollector(private val moduleApiVersion: ApiVersion) {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun collectMarkers(declaration: KtDeclaration) {
         if (declaration !is KtFunction && declaration !is KtProperty && declaration !is KtParameter) return
@@ -215,7 +214,6 @@ private class MarkerCollector(private val moduleApiVersion: ApiVersion) {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun collectMarkers(expression: KtReferenceExpression) {
         val symbols = expression.resolveSuccessfulSymbols()
@@ -265,7 +263,6 @@ private class MarkerCollector(private val moduleApiVersion: ApiVersion) {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun collectMarkers(delegate: KtPropertyDelegate) {
         delegate.resolveSuccessfulSymbols().forEach { (it as? KaAnnotatedSymbol)?.collectMarkers() }

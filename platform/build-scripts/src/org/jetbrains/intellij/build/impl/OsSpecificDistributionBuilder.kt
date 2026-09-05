@@ -5,8 +5,6 @@ import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.util.io.PosixFilePermissionsUtil
 import com.intellij.util.text.nullize
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.archivers.zip.ZipFile
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
@@ -23,6 +21,7 @@ import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.io.copyFileToDir
 import org.jetbrains.intellij.build.io.runProcess
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
+import org.jetbrains.intellij.build.telemetry.blockingUse
 import org.jetbrains.intellij.build.telemetry.use
 import java.io.BufferedInputStream
 import java.nio.file.FileSystems
@@ -91,9 +90,9 @@ interface OsSpecificDistributionBuilder {
 
   suspend fun writeProductInfoFile(targetDir: Path, arch: JvmArchitecture): Path
 
-  suspend fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture, libc: LibcImpl): Sequence<String> = emptySequence()
+  fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture, libc: LibcImpl): Sequence<String> = emptySequence()
 
-  suspend fun generateExecutableFilesMatchers(includeRuntime: Boolean, arch: JvmArchitecture, libc: LibcImpl = targetLibcImpl): Map<PathMatcher, String> {
+  fun generateExecutableFilesMatchers(includeRuntime: Boolean, arch: JvmArchitecture, libc: LibcImpl = targetLibcImpl): Map<PathMatcher, String> {
     val fileSystem = FileSystems.getDefault()
     return generateExecutableFilesPatterns(includeRuntime, arch, libc)
       .distinct()
@@ -103,38 +102,32 @@ interface OsSpecificDistributionBuilder {
       }
   }
 
+  /** Checks the executable permissions in [distribution]: a directory, a `.tar.gz`, a `.zip`, or a `.snap`. */
   suspend fun checkExecutablePermissions(distribution: Path, root: String, includeRuntime: Boolean = true, arch: JvmArchitecture, libc: LibcImpl, context: BuildContext) {
-    spanBuilder("Permissions check for ${distribution.name}").use {
+    if (!distribution.isDirectory() && "$distribution".endsWith(".snap")) {
+      spanBuilder("Permissions check for ${distribution.name}").use {
+        val patterns = generateExecutableFilesMatchers(includeRuntime, arch, libc)
+        if (patterns.isEmpty()) return@use
+        reportExecutablePermissions(distribution, patterns, checkSnap(distribution, root, patterns.keys, context), context)
+      }
+    }
+    else {
+      checkFileExecutablePermissions(distribution, root, includeRuntime, arch, libc, context)
+    }
+  }
+
+  /** The plain twin of [checkExecutablePermissions] for a directory, a `.tar.gz`, or a `.zip`. A `.snap` file goes to the suspend member. */
+  fun checkFileExecutablePermissions(distribution: Path, root: String, includeRuntime: Boolean = true, arch: JvmArchitecture, libc: LibcImpl, context: BuildContext) {
+    spanBuilder("Permissions check for ${distribution.name}").blockingUse {
       val patterns = generateExecutableFilesMatchers(includeRuntime, arch, libc)
       val matchedFiles = when {
-        patterns.isEmpty() -> return@use
-        SystemInfoRt.isWindows && distribution.isDirectory() -> return@use
+        patterns.isEmpty() -> return@blockingUse
+        SystemInfoRt.isWindows && distribution.isDirectory() -> return@blockingUse
         distribution.isDirectory() -> checkDirectory(distribution.resolve(root), patterns.keys)
         "$distribution".endsWith(".tar.gz") -> checkTar(distribution, root, patterns.keys)
-        "$distribution".endsWith(".snap") -> checkSnap(distribution, root, patterns.keys, context)
         else -> checkZip(distribution, root, patterns.keys)
       }
-      val notValid = matchedFiles.filterNot { it.isValid }
-      check(notValid.isEmpty()) {
-        "Missing executable permissions in $distribution for:\n" +
-        notValid.joinToString(separator = "\n")
-      }
-      val unmatchedPatterns = patterns.keys - matchedFiles.asSequence()
-        .flatMap { it.patterns }
-        .toSet()
-      if (unmatchedPatterns.isNotEmpty()) {
-        context.messages.warning(matchedFiles.joinToString(prefix = "Matched files ${distribution.name}:\n", separator = "\n"))
-        unmatchedPatterns.joinToString(prefix = "Unmatched executable permissions patterns in ${distribution.name}: ") {
-          patterns.getValue(it)
-        }.let { message ->
-          if (TeamCityHelper.isUnderTeamCity) {
-            context.messages.reportBuildProblem(message)
-          }
-          else {
-            context.messages.warning(message)
-          }
-        }
-      }
+      reportExecutablePermissions(distribution, patterns, matchedFiles, context)
     }
   }
 
@@ -150,19 +143,11 @@ interface OsSpecificDistributionBuilder {
   suspend fun createChecksumAndGpgSignFiles(context: BuildContext, buildArtifact: suspend () -> Path): Path {
     val artifactFile = buildArtifact.invoke()
 
-    coroutineScope {
-      val checksums = Checksums.compute(artifactFile, Checksums.Algorithm.SHA256, Checksums.Algorithm.SHA512)
-
-      launch {
-        checksums.verifyOrWriteChecksumFile(Checksums.Algorithm.SHA256).also {
-          context.notifyArtifactBuilt(it)
-          sign(context, it)
-        }
-        checksums.verifyOrWriteChecksumFile(Checksums.Algorithm.SHA512).also {
-          context.notifyArtifactBuilt(it)
-          sign(context, it)
-        }
-      }
+    val checksums = Checksums.compute(artifactFile, Checksums.Algorithm.SHA256, Checksums.Algorithm.SHA512)
+    for (algorithm in listOf(Checksums.Algorithm.SHA256, Checksums.Algorithm.SHA512)) {
+      val checksumFile = checksums.verifyOrWriteChecksumFile(algorithm)
+      context.notifyArtifactBuilt(checksumFile)
+      sign(context, checksumFile)
     }
 
     return artifactFile
@@ -173,6 +158,30 @@ interface OsSpecificDistributionBuilder {
       context.proprietaryBuildTools.signTool.signFilesWithGpg(
         listOf(hashFile), context,
       )
+    }
+  }
+}
+
+private fun reportExecutablePermissions(distribution: Path, patterns: Map<PathMatcher, String>, matchedFiles: List<MatchedFile>, context: BuildContext) {
+  val notValid = matchedFiles.filterNot { it.isValid }
+  check(notValid.isEmpty()) {
+    "Missing executable permissions in $distribution for:\n" +
+    notValid.joinToString(separator = "\n")
+  }
+  val unmatchedPatterns = patterns.keys - matchedFiles.asSequence()
+    .flatMap { it.patterns }
+    .toSet()
+  if (unmatchedPatterns.isNotEmpty()) {
+    context.messages.warning(matchedFiles.joinToString(prefix = "Matched files ${distribution.name}:\n", separator = "\n"))
+    unmatchedPatterns.joinToString(prefix = "Unmatched executable permissions patterns in ${distribution.name}: ") {
+      patterns.getValue(it)
+    }.let { message ->
+      if (TeamCityHelper.isUnderTeamCity) {
+        context.messages.reportBuildProblem(message)
+      }
+      else {
+        context.messages.warning(message)
+      }
     }
   }
 }

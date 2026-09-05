@@ -12,15 +12,9 @@ import com.intellij.util.system.CpuArch
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
+import io.opentelemetry.context.Context
+import io.opentelemetry.extension.kotlin.asContextElement
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
-import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.zip.Zip64Mode
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.jetbrains.annotations.ApiStatus
@@ -41,9 +35,11 @@ import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.PluginBundlingRestrictions
 import org.jetbrains.intellij.build.PluginDistribution
+import org.jetbrains.intellij.build.TaskScopePolicy
 import org.jetbrains.intellij.build.VmProperties
 import org.jetbrains.intellij.build.WindowsLibcImpl
 import org.jetbrains.intellij.build.add64IfNeeded
+import org.jetbrains.intellij.build.blockingExecuteStep
 import org.jetbrains.intellij.build.buildSearchableOptions
 import org.jetbrains.intellij.build.classPath.PluginBuildDescriptor
 import org.jetbrains.intellij.build.executeStep
@@ -69,9 +65,12 @@ import org.jetbrains.intellij.build.io.writeNewFile
 import org.jetbrains.intellij.build.io.zipWithCompression
 import org.jetbrains.intellij.build.isLanguageServer
 import org.jetbrains.intellij.build.productRunner.IntellijProductRunner
+import org.jetbrains.intellij.build.runBlockingOnVirtualThreads
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.block
+import org.jetbrains.intellij.build.telemetry.blockingUse
 import org.jetbrains.intellij.build.telemetry.use
+import org.jetbrains.intellij.build.taskScope
 import org.jetbrains.intellij.build.zipSourcesOfModules
 import java.nio.file.FileSystems
 import java.nio.file.FileVisitResult
@@ -116,7 +115,7 @@ suspend fun buildNonBundledPlugins(mainPluginModules: List<String>, context: Bui
   buildNonBundledPlugins(
     pluginsToPublish = pluginsToPublish,
     compressPluginArchive = context.options.compressZipFiles,
-    buildPlatformLibJob = null /* buildPlatformLibJob */,
+    platformEntriesProvider = null,
     state = distState,
     searchableOptionSet = searchableOptionSet,
     isUpdateFromSources = false,
@@ -223,19 +222,17 @@ fun createIdeaPropertyFile(context: BuildContext): CharSequence {
 private suspend fun layoutShared(context: BuildContext) {
   spanBuilder("copy files shared among all distributions").use {
     val licenseOutDir = context.paths.distAllDir.resolve("license")
-    withContext(Dispatchers.IO) {
-      copyDir(context.paths.communityHomeDir.resolve("license"), licenseOutDir)
-      for (additionalDirWithLicenses in context.productProperties.additionalDirectoriesWithLicenses) {
-        copyDir(additionalDirWithLicenses, licenseOutDir)
-      }
-      context.applicationInfo.svgRelativePath?.let { svgRelativePath ->
-        val from = findBrandingResource(svgRelativePath, context)
-        val to = context.paths.distAllDir.resolve("bin/${context.productProperties.baseFileName}.svg")
-        Files.createDirectories(to.parent)
-        Files.copy(from, to, StandardCopyOption.REPLACE_EXISTING)
-      }
-      context.productProperties.copyAdditionalFiles(context.paths.distAllDir, context)
+    copyDir(context.paths.communityHomeDir.resolve("license"), licenseOutDir)
+    for (additionalDirWithLicenses in context.productProperties.additionalDirectoriesWithLicenses) {
+      copyDir(additionalDirWithLicenses, licenseOutDir)
     }
+    context.applicationInfo.svgRelativePath?.let { svgRelativePath ->
+      val from = findBrandingResource(svgRelativePath, context)
+      val to = context.paths.distAllDir.resolve("bin/${context.productProperties.baseFileName}.svg")
+      Files.createDirectories(to.parent)
+      Files.copy(from, to, StandardCopyOption.REPLACE_EXISTING)
+    }
+    context.productProperties.copyAdditionalFiles(context.paths.distAllDir, context)
   }
   checkClassFiles(root = context.paths.distAllDir, isDistAll = true, context)
 }
@@ -261,8 +258,8 @@ private fun findBrandingResource(relativePath: String, context: BuildContext): P
   )
 }
 
-suspend fun updateExecutablePermissions(destinationDir: Path, executableFilesMatchers: Collection<PathMatcher>) {
-  spanBuilder("update executable permissions").setAttribute("dir", "$destinationDir").use(Dispatchers.IO) {
+fun updateExecutablePermissions(destinationDir: Path, executableFilesMatchers: Collection<PathMatcher>) {
+  spanBuilder("update executable permissions").setAttribute("dir", "$destinationDir").blockingUse {
     val executable = EnumSet.of(
       PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE,
       PosixFilePermission.GROUP_READ, PosixFilePermission.GROUP_EXECUTE,
@@ -304,15 +301,16 @@ private suspend fun buildOsSpecificDistributions(context: BuildContext): List<Di
     setLastModifiedTime(context.paths.distAllDir, context)
 
     if (context.isMacCodeSignEnabled) {
-      withContext(Dispatchers.IO) {
+      // the OS-specific builds below pack `distAll`, so the signing must end before they start
+      taskScope {
         for (file in Files.newDirectoryStream(context.paths.distAllDir).use { stream ->
           stream.filter { !it.endsWith("help") && !it.endsWith("license") && !it.endsWith("lib") }
         }) {
-          launch(CoroutineName("recursively signing macOS binaries in ${file.relativeTo(context.paths.distAllDir)}")) {
+          fork("recursively signing macOS binaries in ${file.relativeTo(context.paths.distAllDir)}") {
             // todo exclude plugins - layoutAdditionalResources should perform codesign -
             //  that's why we process files and zip in plugins (but not JARs)
             // and also kotlin compiler includes JNA
-            recursivelySignMacBinaries(coroutineScope = this, file, context)
+            recursivelySignMacBinaries(file, context)
           }
         }
       }
@@ -331,7 +329,7 @@ private suspend fun buildOsSpecificDistributions(context: BuildContext): List<Di
       updateExecutablePermissions(context.paths.distAllDir, matchers)
     }
 
-    supervisorScope {
+    taskScope(TaskScopePolicy.RUN_ALL) {
       SUPPORTED_DISTRIBUTIONS.mapNotNull { (os, arch, libcImpl) ->
         if (!context.shouldBuildDistributionForOS(os, arch)) {
           return@mapNotNull null
@@ -345,7 +343,7 @@ private suspend fun buildOsSpecificDistributions(context: BuildContext): List<Di
           return@mapNotNull null
         }
 
-        async(CoroutineName("$stepId build step")) {
+        fork("$stepId build step") {
           spanBuilder(stepId).use {
             val osAndArchSpecificDistDirectory = getOsAndArchSpecificDistDirectory(osFamily = os, arch = arch, libc = libcImpl, context = context)
             builder.buildArtifacts(osAndArchSpecificDistDirectory, arch)
@@ -354,26 +352,8 @@ private suspend fun buildOsSpecificDistributions(context: BuildContext): List<Di
           }
         }
       }
-    }.collectCompletedOrError()
+    }.map { it.await() }
   } ?: emptyList()
-}
-
-// call only after supervisorScope
-private fun <T> List<Deferred<T>>.collectCompletedOrError(): List<T> {
-  var error: Throwable? = null
-  for (deferred in this) {
-    val e = deferred.getCompletionExceptionOrNull() ?: continue
-    if (error == null) {
-      error = e
-    }
-    else {
-      error.addSuppressed(e)
-    }
-  }
-
-  error?.let { throw it }
-
-  return map { it.getCompleted() }
 }
 
 private fun copyDependenciesFile(context: BuildContext): Path {
@@ -391,7 +371,7 @@ private fun checkProjectLibraries(names: Collection<String>, fieldName: String, 
   }
 }
 
-private suspend fun buildSourcesArchive(contentReport: ContentReport, context: BuildContext) {
+private fun buildSourcesArchive(contentReport: ContentReport, context: BuildContext) {
   val productProperties = context.productProperties
   val archiveName = "${productProperties.getBaseArtifactName(context.applicationInfo, context.buildNumber)}-sources.zip"
   val openSourceModules = getIncludedModules(contentReport.bundled()).filter { moduleName ->
@@ -423,19 +403,23 @@ internal suspend fun createDistributionState(context: BuildContext): Distributio
 /**
  * Starts the product in headless mode and reads the list of the built-in modules that it reports.
  *
- * The run needs a packed development distribution, so the call is expensive.
- * See [BuildOptions.PROVIDED_MODULES_LIST_STEP].
+ * The run needs a packed development distribution, so the call is expensive. The function blocks the calling
+ * virtual thread until the IDE has exited. See [BuildOptions.PROVIDED_MODULES_LIST_STEP].
  */
-internal suspend fun buildProvidedModuleList(context: BuildContext): BuiltinModulesFileData {
-  return spanBuilder("build provided module list").use {
+internal fun buildProvidedModuleList(context: BuildContext): BuiltinModulesFileData {
+  return spanBuilder("build provided module list").blockingUse {
     val providedModuleFile = context.paths.artifactDir.resolve("${context.applicationInfo.productCode}-builtinModules.json")
     Files.deleteIfExists(providedModuleFile)
     // start the product in headless mode using com.intellij.ide.plugins.BundledPluginsLister
-    spanBuilder("run BundledPluginsLister").use {
-      context.createProductRunner().runProduct(
-        args = listOf("listBundledPlugins", providedModuleFile.toString()),
-        additionalVmProperties = additionalProperties(),
-      )
+    spanBuilder("run BundledPluginsLister").blockingUse {
+      // the product runner and the IDE start still suspend, so this is their entry back into coroutines
+      runBlockingOnVirtualThreads(Context.current().asContextElement()) {
+        context.createProductRunner().runProduct(
+          args = listOf("listBundledPlugins", providedModuleFile.toString()),
+          additionalVmProperties = additionalProperties(),
+          timeout = DEFAULT_TIMEOUT,
+        )
+      }
     }
 
     context.productProperties.customizeBuiltinModules(context = context, builtinModulesFile = providedModuleFile)
@@ -463,10 +447,10 @@ internal fun additionalProperties(): VmProperties = VmProperties(mapOf("user.hom
 suspend fun buildDistributions(context: BuildContext): Unit = block("build distributions") {
   context.reportDistributionBuildNumber()
 
-  coroutineScope {
-    launch { checkProductProperties(context) }
+  taskScope {
+    fork("check product properties") { checkProductProperties(context) }
 
-    launch { copyDependenciesFile(context) }
+    fork("copy dependencies file") { copyDependenciesFile(context) }
   }
 
   logFreeDiskSpace("before compilation", context)
@@ -475,9 +459,9 @@ suspend fun buildDistributions(context: BuildContext): Unit = block("build distr
 
   val distributionState = context.distributionState()
 
-  coroutineScope {
+  taskScope {
     // the headless IDE start is expensive, so it runs beside the JAR packing
-    launch(CoroutineName("provided module list")) { context.builtinModules() }
+    fork("provided module list") { context.builtinModules() }
 
     createMavenArtifactJob(distributionState.platformLayout, context)
 
@@ -491,14 +475,14 @@ suspend fun buildDistributions(context: BuildContext): Unit = block("build distr
       buildNonBundledPlugins(
         pluginsToPublish = pluginsToPublish,
         compressPluginArchive = context.options.compressZipFiles,
-        buildPlatformLibJob = null,
+        platformEntriesProvider = null,
         state = distributionState,
         searchableOptionSet = buildSearchableOptions(context),
         isUpdateFromSources = false,
         descriptorCacheContainer = distributionState.platformLayout.descriptorCacheContainer,
         context = context,
       )
-      return@coroutineScope
+      return@taskScope
     }
 
     val contentReport = spanBuilder("build platform and plugin JARs").use {
@@ -515,7 +499,7 @@ suspend fun buildDistributions(context: BuildContext): Unit = block("build distr
 
     lookForJunkFiles(context = context, paths = listOf(context.paths.distAllDir) + distDirs.map { it.outDir })
 
-    launch(Dispatchers.IO + CoroutineName("generate software bill of materials")) {
+    fork("generate software bill of materials") {
       context.executeStep(spanBuilder("generate software bill of materials"), SoftwareBillOfMaterials.STEP_ID) {
         SoftwareBillOfMaterialsImpl(context = context, distributions = distDirs, distributionFiles = contentReport.bundled().toList()).generate()
       }
@@ -537,7 +521,7 @@ suspend fun buildDistributions(context: BuildContext): Unit = block("build distr
 }
 
 @Suppress("DEPRECATION")
-private suspend fun checkProductProperties(context: BuildContext) {
+private fun checkProductProperties(context: BuildContext) {
   checkProductLayout(context)
 
   val properties = context.productProperties
@@ -599,7 +583,7 @@ private suspend fun checkProductProperties(context: BuildContext) {
       listOfNotNull(macCustomizer.icnsPathForAlternativeIconForEAP),
       "productProperties.macCustomizer.icnsPathForAlternativeIconForEAP"
     )
-    context.executeStep(spanBuilder("check .dmg images"), BuildOptions.MAC_DMG_STEP) {
+    context.blockingExecuteStep(spanBuilder("check .dmg images"), BuildOptions.MAC_DMG_STEP) {
       checkPaths(listOfNotNull(macCustomizer.dmgImagePath), "productProperties.macCustomizer.dmgImagePath")
       checkPaths(listOfNotNull(macCustomizer.dmgImagePathForEAP), "productProperties.macCustomizer.dmgImagePathForEAP")
     }
@@ -962,7 +946,7 @@ internal fun getLinuxFrameClass(context: BuildContext): String {
   return if (name.startsWith("jetbrains-")) name else "jetbrains-$name"
 }
 
-private suspend fun crossPlatformZip(
+private fun crossPlatformZip(
   distResults: List<DistributionForOsTaskResult>,
   targetFile: Path,
   productJson: String,
@@ -1151,9 +1135,9 @@ private suspend fun lookForJunkFiles(context: BuildContext, paths: List<Path>) {
   val junk = CollectionFactory.createCaseInsensitiveStringSet(setOf("__MACOSX", ".DS_Store"))
   val result = Collections.synchronizedSet(mutableSetOf<Path>())
 
-  withContext(Dispatchers.IO + CoroutineName("Looking for junk files")) {
+  taskScope {
     for (file in paths) {
-      launch {
+      fork("look for junk files in $file") {
         Files.walk(file).use { stream ->
           stream.forEach { path ->
             if (path.fileName.toString() in junk) {
@@ -1181,7 +1165,7 @@ internal suspend fun buildAdditionalAuthoringArtifacts(productRunner: IntellijPr
     )
     val temporaryBuildDirectory = context.paths.tempDir
     for (command in commands) {
-      launch(CoroutineName("build ${command.first}")) {
+      fork("build ${command.first}") {
         val targetPath = temporaryBuildDirectory.resolve(command.first).resolve(command.second)
         productRunner.runProduct(
           args = listOf(command.first, targetPath.toString()),
@@ -1200,8 +1184,8 @@ internal suspend fun buildAdditionalAuthoringArtifacts(productRunner: IntellijPr
   }
 }
 
-internal suspend fun setLastModifiedTime(directory: Path, context: BuildContext) {
-  spanBuilder("update last modified time").setAttribute("dir", directory.toString()).use(Dispatchers.IO) {
+internal fun setLastModifiedTime(directory: Path, context: BuildContext) {
+  spanBuilder("update last modified time").setAttribute("dir", directory.toString()).blockingUse {
     val fileTime = FileTime.from(context.options.buildDateInSeconds, TimeUnit.SECONDS)
     Files.walkFileTree(directory, object : SimpleFileVisitor<Path>() {
       override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {

@@ -3,9 +3,8 @@
 package org.jetbrains.intellij.build.devServer
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.runBlocking
+import org.jetbrains.intellij.build.runBlockingOnVirtualThreads
 import org.jetbrains.intellij.build.telemetry.TraceManager
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
@@ -59,9 +58,9 @@ internal const val TRACE_FILE_OPTION: String = "--trace-file"
  * printed, and no exporter coroutine is started - which is what the three producers that never had a tracer did.
  *
  * What that branch preserves is *same outputs, same stdout, same exit code* - not "byte for byte what the main did
- * before". Wrapping the whole body widened `DevDistMain`'s `runBlocking(Dispatchers.Default)` from
+ * before". Wrapping the whole body widened `DevDistMain`'s `runBlockingOnVirtualThreads` from
  * `buildProductInProcess` to everything around it, so `materializeProjectModelTree`, the `println` and
- * `writeUnusedInputs` now run on a `Dispatchers.Default` worker rather than on the main thread. Nothing there is
+ * `writeUnusedInputs` now run on a virtual thread rather than on the main thread. Nothing there is
  * thread-affine, which is why it is fine; the stronger claim is not true and should not be repeated.
  *
  * The invariant is *unchanged when not measuring*, per producer, not *silent when not measuring*. Do not collapse the
@@ -101,7 +100,7 @@ internal fun runDevDistJob(
     return
   }
 
-  runBlocking(Dispatchers.Default) {
+  runBlockingOnVirtualThreads {
     if (consoleSpansWhenNotMeasuring) {
       block()
     }

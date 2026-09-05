@@ -10,6 +10,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.OrderEnumerator
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem
+import com.intellij.openapi.vfs.toNioPathOrNull
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Files
 import java.nio.file.Path
@@ -48,7 +50,7 @@ internal fun collectOutputRoots(
   return modules.flatMap { module ->
     CoverageOutputRoots.getRoots(coverageDataManager, module, includeTests)
       .asSequence()
-      .map(VirtualFile::toNioPath)
+      .mapNotNull(CoverageOutputRoots::toLocalPathOrNull)
       .filter(::isValidOutputRoot)
       .distinct()
       .map { root -> ModuleRequest(module, root, packageEntries) }
@@ -69,6 +71,18 @@ object CoverageOutputRoots {
       enumerator.classes().roots
     }
     return roots ?: VirtualFile.EMPTY_ARRAY
+  }
+
+  @JvmStatic
+  fun toLocalPathOrNull(root: VirtualFile): Path? {
+    val fileSystem = root.fileSystem
+    val localRoot = if (fileSystem is ArchiveFileSystem) {
+      fileSystem.getLocalByEntry(root)
+    }
+    else {
+      root
+    }
+    return localRoot?.toNioPathOrNull()
   }
 }
 

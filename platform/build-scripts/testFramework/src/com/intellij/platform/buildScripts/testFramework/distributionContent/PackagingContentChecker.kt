@@ -28,7 +28,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
@@ -58,6 +57,7 @@ import org.jetbrains.intellij.build.telemetry.JaegerJsonSpanExporterManager
 import org.jetbrains.intellij.build.telemetry.TraceManager
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
+import org.jetbrains.intellij.build.virtualThreadPerResumeDispatcher
 import org.jetbrains.jps.model.JpsProject
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.TestFactory
@@ -68,7 +68,6 @@ import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -651,12 +650,9 @@ internal fun createPackagingSuiteScope(
 /**
  * Creates the dispatcher of a fixture scope. Every resume runs on a new virtual thread, so no task waits in a worker queue.
  *
- * The caller closes it when the fixture closes. A `withContext(Dispatchers.IO)` block inside the build still runs on the
- * kotlinx scheduler, and the resume after it comes back here.
+ * The caller closes it when the fixture closes.
  */
-internal fun createPackagingSuiteDispatcher(): ExecutorCoroutineDispatcher {
-  return Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("packaging-suite-", 0).factory()).asCoroutineDispatcher()
-}
+internal fun createPackagingSuiteDispatcher(): ExecutorCoroutineDispatcher = virtualThreadPerResumeDispatcher("packaging-suite-")
 
 /**
  * Runs [block] on the test thread and waits for it.

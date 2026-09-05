@@ -141,7 +141,7 @@ object TraceManager {
     batchSpanProcessor?.forceShutdown()
   }
 
-  suspend fun scheduleExportPendingSpans() {
+  fun scheduleExportPendingSpans() {
     if (isEnabled) {
       batchSpanProcessor?.scheduleFlush()
     }
@@ -198,6 +198,11 @@ object JaegerJsonSpanExporterManager {
         add(OtlpSpanExporter(otlpEndPoint))
       }
     }
+  }
+
+  /** Closes the current trace file. The span processor stays alive, and a later span goes to no file. */
+  suspend fun closeOutput() {
+    jaegerJsonSpanExporter.getAndSet(null)?.shutdown()
   }
 
   suspend fun setOutput(file: Path, addShutDownHook: Boolean = true) {

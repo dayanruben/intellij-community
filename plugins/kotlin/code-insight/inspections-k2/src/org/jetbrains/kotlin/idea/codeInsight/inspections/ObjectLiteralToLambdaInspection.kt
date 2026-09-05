@@ -9,9 +9,6 @@ import com.intellij.psi.PsiComment
 import com.intellij.psi.createSmartPointer
 import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.KaIdeApi
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
 import org.jetbrains.kotlin.analysis.api.components.returnType
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
@@ -19,7 +16,6 @@ import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteActio
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
-import org.jetbrains.kotlin.analysis.api.resolution.resolveSymbol
 import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.resolution.simple
@@ -79,7 +75,6 @@ import org.jetbrains.kotlin.types.Variance
 
 @Suppress("DEPRECATION")
 internal class ObjectLiteralToLambdaInspection : IntentionBasedInspection<KtObjectLiteralExpression>(ObjectLiteralToLambdaIntention::class) {
-    @OptIn(KaExperimentalApi::class)
     override fun problemHighlightType(element: KtObjectLiteralExpression): ProblemHighlightType {
         val data = extractData(element) ?: return super.problemHighlightType(element)
         val bodyBlock = data.singleFunction.bodyBlockExpression
@@ -109,7 +104,7 @@ class ObjectLiteralToLambdaIntention : SelfTargetingRangeIntention<KtObjectLiter
     KotlinBundle.messagePointer("convert.to.lambda"),
     KotlinBundle.messagePointer("convert.object.literal.to.lambda")
 ) {
-    @OptIn(KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class, KaExperimentalApi::class)
+    @OptIn(KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class)
     override fun applicabilityRange(element: KtObjectLiteralExpression): TextRange? {
         val data = extractData(element) ?: return null
 
@@ -173,7 +168,7 @@ class ObjectLiteralToLambdaIntention : SelfTargetingRangeIntention<KtObjectLiter
         return objectKeyword.textRange.union(data.baseTypeRef.textRange)
     }
 
-    @OptIn(KaIdeApi::class, KaAllowAnalysisFromWriteAction::class, KaAllowAnalysisOnEdt::class)
+    @OptIn(KaAllowAnalysisFromWriteAction::class, KaAllowAnalysisOnEdt::class)
     override fun applyTo(element: KtObjectLiteralExpression, editor: Editor?) {
         val data = extractData(element) ?: return
         val singleFunction = data.singleFunction
@@ -284,7 +279,7 @@ private data class Data(
     val singleFunction: KtNamedFunction
 )
 
-@OptIn(KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class, KaExperimentalApi::class)
+@OptIn(KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class)
 private fun extractData(element: KtObjectLiteralExpression): Data? {
     val objectDeclaration = element.objectDeclaration
 
@@ -312,7 +307,6 @@ private fun extractData(element: KtObjectLiteralExpression): Data? {
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 private class ContextParametersSaver(function: KtNamedFunction) {
     companion object {
         private val CONTEXT_PARAMETER_KEY = Key<String>("CONTEXT_PARAMETER_KEY")

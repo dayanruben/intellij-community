@@ -6,7 +6,6 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanBuilder
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.intellij.build.classPath.PluginBuildResult
@@ -14,6 +13,7 @@ import org.jetbrains.intellij.build.impl.DistributionBuilderState
 import org.jetbrains.intellij.build.impl.plugins.PluginAutoPublishList
 import org.jetbrains.intellij.build.io.DEFAULT_TIMEOUT
 import org.jetbrains.intellij.build.productRunner.IntellijProductRunner
+import org.jetbrains.intellij.build.telemetry.blockingUse
 import org.jetbrains.intellij.build.telemetry.use
 import org.jetbrains.jps.model.module.JpsModule
 import java.nio.file.Files
@@ -107,8 +107,9 @@ interface BuildContext : CompilationContext {
    *
    * The first caller pays the start of the headless IDE, because the start needs a packed development distribution.
    * The build of the distributions asks for the list early, so the start runs beside the packaging.
+   * The start runs on a virtual thread of its own, and every caller blocks its own virtual thread until the list is ready.
    */
-  suspend fun builtinModules(): BuiltinModulesFileData?
+  fun builtinModules(): BuiltinModulesFileData?
 
   val appInfoXml: String
 
@@ -154,7 +155,7 @@ interface BuildContext : CompilationContext {
     proprietaryBuildTools.signTool.signFiles(files = files, context = this, options = options)
   }
 
-  suspend fun getFrontendModuleFilter(): FrontendModuleFilter
+  fun getFrontendModuleFilter(): FrontendModuleFilter
 
   /**
    * Creates a copy of this context with [org.jetbrains.intellij.build.ProductProperties] changed to a frontend variant (JetBrains Client) properties.
@@ -212,13 +213,52 @@ internal val BuildContext.isLanguageServer: Boolean
 internal fun BuildContext.add64IfNeeded(s: String): String =
   if (isLanguageServer) s else "${s}64"
 
+/**
+ * Runs a build step under a span, unless the step is skipped or fails. The step is a group of forks: a `fork` inside it
+ * starts a task on a virtual thread, and the step ends when every fork has ended.
+ */
 suspend inline fun <T> CompilationContext.executeStep(
   spanBuilder: SpanBuilder,
   stepId: String,
   coroutineContext: CoroutineContext = EmptyCoroutineContext,
-  crossinline step: suspend CoroutineScope.(Span) -> T,
+  crossinline step: suspend TaskScope.(Span) -> T,
 ): T? {
   return spanBuilder.use(coroutineContext) { span ->
+    try {
+      options.buildStepListener.onStart(stepId, messages)
+      if (isStepSkipped(stepId)) {
+        span.addEvent("skip '$stepId' step")
+        options.buildStepListener.onSkipping(stepId, messages)
+        null
+      }
+      else {
+        taskScope { step(span) }
+      }
+    }
+    catch (e: CancellationException) {
+      throw e
+    }
+    catch (e: Throwable) {
+      span.recordException(e)
+      options.buildStepListener.onFailure(stepId, e, messages)
+      null
+    }
+    finally {
+      options.buildStepListener.onCompletion(stepId, messages)
+    }
+  }
+}
+
+/**
+ * The non-suspend twin of [executeStep] for a step that only blocks. The step runs on the calling thread, which is
+ * a virtual thread in a build.
+ */
+inline fun <T> CompilationContext.blockingExecuteStep(
+  spanBuilder: SpanBuilder,
+  stepId: String,
+  crossinline step: (Span) -> T,
+): T? {
+  return spanBuilder.blockingUse { span ->
     try {
       options.buildStepListener.onStart(stepId, messages)
       if (isStepSkipped(stepId)) {

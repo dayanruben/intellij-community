@@ -51,11 +51,21 @@ sealed interface ScreenChange {
  * mark.reset()
  * ```
  *
+ * A resize moves the boundary with no output at all: growing the screen pulls rows back out of scrollback,
+ * which [finalizedLineCount] reports as a *negative* count, and a width shrink reports how far the visible
+ * screen expanded. Neither is distinguishable from new output here, so a caller that needs the difference
+ * compares the emulator size itself.
+ *
  * The count stays exact even after the scrollback byte cap begins evicting the oldest lines — where a
  * raw [TerminalEmulator.scrollbackRows] delta plateaus and under-counts — because the mark tracks the
- * content itself, not an index. It fails only ([finalizedLineCount] returns `-1`) if the marked
+ * content itself, not an index. It fails only ([finalizedLineCount] returns `null`) if the marked
  * boundary is itself evicted, i.e. more than the whole retained scrollback scrolled past between two
  * [reset]s; the caller must then fall back to a full re-sync of the visible screen.
+ *
+ * The mark tracks the one screen that was active when it was created or last [reset], so do not call
+ * [finalizedLineCount] or [reset] while the alternate screen is active: the count then mixes two screens and
+ * means nothing, and [reset] would re-anchor into a screen that is discarded on exit. Nothing is lost by
+ * skipping it — the alternate screen has no history to append, and the primary takes no writes meanwhile.
  *
  * Obtain one from [TerminalEmulator.markHistoryBoundary]; [close] it when done (it holds a native
  * resource). Meant to be long-lived — typically one per renderer.
@@ -64,14 +74,17 @@ sealed interface ScreenChange {
 interface HistoryMark : AutoCloseable {
   /**
    * The number of lines finalized into scrollback (scrolled above the active screen) since this mark
-   * was created or last [reset], or `-1` if the marked boundary has itself been evicted from the
-   * bounded scrollback (the caller must then re-sync fully). Read-only: does not move the mark.
+   * was created or last [reset]; negative if a resize instead pulled that many lines back out of
+   * scrollback onto the screen; or `null` if the marked boundary has itself been evicted from the
+   * bounded scrollback (the caller must then re-sync fully). Read-only: does not move the mark, and
+   * meaningless while the alternate screen is active.
    */
-  fun finalizedLineCount(): Int
+  fun finalizedLineCount(): Int?
 
   /**
    * Re-anchors the mark to the current history / active-screen boundary, so the next
-   * [finalizedLineCount] counts from here. Call after consuming the finalized lines.
+   * [finalizedLineCount] counts from here. Call after consuming the finalized lines, and never while the
+   * alternate screen is active.
    */
   fun reset()
 

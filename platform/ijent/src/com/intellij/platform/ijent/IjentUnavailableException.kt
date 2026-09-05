@@ -3,11 +3,11 @@ package com.intellij.platform.ijent
 
 import com.intellij.openapi.diagnostic.Attachment
 import com.intellij.openapi.diagnostic.ExceptionWithAttachments
+import com.intellij.platform.eel.EelUnavailableException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
-import java.io.IOException
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -16,7 +16,7 @@ import kotlin.time.Duration.Companion.seconds
  * This error declares that communication with a specific IJent is impossible anymore.
  * To keep working with a remote machine, a new IJent should be launched.
  */
-sealed class IjentUnavailableException : IOException, ExceptionWithAttachments {
+sealed class IjentUnavailableException : EelUnavailableException, ExceptionWithAttachments {
   private val attachments: Array<out Attachment>
 
   constructor(message: String, cause: Throwable?, vararg attachments: Attachment) : super(message, cause) {
@@ -82,10 +82,37 @@ sealed class IjentUnavailableException : IOException, ExceptionWithAttachments {
     suspend fun resolveDeadSessionReason(
       initialError: Throwable,
       timeout: Duration = DEAD_SESSION_RESOLVE_TIMEOUT,
+    ): Throwable = resolveDeadSessionReason(
+      initialError,
+      currentCoroutineContext()[IjentScope.IjentContext.Key],
+      timeout,
+    )
+
+    /**
+     * Resolves a dead-session failure against the authoritative context of [ijentScope].
+     *
+     * Unlike the ambient overload, this is suitable for API calls made from a caller scope that is independent from
+     * the IJent session being used.
+     */
+    @Internal
+    suspend fun resolveDeadSessionReason(
+      initialError: Throwable,
+      ijentScope: IjentScope,
+      timeout: Duration = DEAD_SESSION_RESOLVE_TIMEOUT,
+    ): Throwable = resolveDeadSessionReason(
+      initialError,
+      ijentScope.s.coroutineContext[IjentScope.IjentContext.Key],
+      timeout,
+    )
+
+    private suspend fun resolveDeadSessionReason(
+      initialError: Throwable,
+      ijentContext: IjentScope.IjentContext?,
+      timeout: Duration,
     ): Throwable {
       val unwrapped = unwrapFromCancellationExceptions(initialError)
       if (unwrapped is IjentUnavailableException) return unwrapped
-      val ijentContext = currentCoroutineContext()[IjentScope.IjentContext.Key] ?: return unwrapped
+      ijentContext ?: return unwrapped
       val resolved = withContext(NonCancellable) { ijentContext.resolveExitReason(timeout) }
       return resolved ?: unwrapped
     }

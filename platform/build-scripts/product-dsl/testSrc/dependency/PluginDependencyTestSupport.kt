@@ -12,11 +12,9 @@ import com.intellij.platform.pluginGraph.contentName
 import com.intellij.platform.pluginGraph.isSlashNotation
 import com.intellij.platform.pluginSystem.parser.impl.parseContentAndXIncludes
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.findFileInModuleSources
 import org.jetbrains.intellij.build.productLayout.config.SuppressionConfig
@@ -421,7 +419,7 @@ private fun writeContentModulePlan(plan: ContentModuleDependencyPlan, strategy: 
  * @param strategy File update strategy (write vs diff)
  * @return Result with written dependencies or null if no test descriptor exists
  */
-private suspend fun generateTestDescriptorDependencies(
+private fun generateTestDescriptorDependencies(
   contentModuleName: ContentModuleName,
   outputProvider: ModuleOutputProvider,
   graphModuleDeps: Set<ContentModuleName>,
@@ -441,7 +439,7 @@ private suspend fun generateTestDescriptorDependencies(
     onlyProductionSources = false,
   ) ?: return null
 
-  val content = withContext(Dispatchers.IO) { Files.readString(descriptorPath) }
+  val content = Files.readString(descriptorPath)
   if (content.contains("@skip-dependency-generation")) {
     return null
   }
@@ -479,7 +477,7 @@ private suspend fun generateTestDescriptorDependencies(
 }
 
 @Suppress("UNUSED_PARAMETER")
-private suspend fun buildValidationCache(
+private fun buildValidationCache(
   outputProvider: ModuleOutputProvider,
   pluginContentInfos: Map<String, PluginContentInfo>,
   scope: CoroutineScope,

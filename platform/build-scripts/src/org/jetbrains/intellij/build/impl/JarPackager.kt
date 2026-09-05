@@ -12,9 +12,6 @@ import io.opentelemetry.api.common.AttributeKey
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet
 import it.unimi.dsi.fastutil.objects.Reference2ObjectLinkedOpenHashMap
 import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
@@ -61,6 +58,7 @@ import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.productLayout.LIB_MODULE_PREFIX
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
+import org.jetbrains.intellij.build.taskScope
 import org.jetbrains.jps.model.library.JpsLibrary
 import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsModule
@@ -226,16 +224,14 @@ class JarPackager private constructor(
         context = context,
       )
 
-      return coroutineScope {
+      return taskScope {
         if (buildAssetResult.sourceToNativeFiles.isNotEmpty()) {
-          launch(CoroutineName("pack native presigned files")) {
-            packNativePresignedFiles(
-              nativeFiles = buildAssetResult.sourceToNativeFiles,
-              dryRun = dryRun,
-              context = context,
-              toRelativePath = { libName, fileName -> "lib/${context.productProperties.presignedNativeLibs.getOrDefault(libName, libName)}/$fileName" },
-            )
-          }
+          packNativePresignedFiles(
+            nativeFiles = buildAssetResult.sourceToNativeFiles,
+            dryRun = dryRun,
+            context = context,
+            toRelativePath = { libName, fileName -> "lib/${context.productProperties.presignedNativeLibs.getOrDefault(libName, libName)}/$fileName" },
+          )
         }
 
         val list = mutableListOf<DistributionFileEntry>()
@@ -511,7 +507,7 @@ class JarPackager private constructor(
     }
   }
 
-  private suspend fun handleCustomAssets(layout: PluginLayout, jarAsset: Lazy<AssetDescriptor>) {
+  private fun handleCustomAssets(layout: PluginLayout, jarAsset: Lazy<AssetDescriptor>) {
     for (customAsset in layout.customAssets) {
       if (customAsset.platformSpecific != null) {
         continue
@@ -533,7 +529,7 @@ class JarPackager private constructor(
     }
   }
 
-  private suspend fun addSearchableOptionSources(
+  private fun addSearchableOptionSources(
     layout: BaseLayout?,
     moduleName: String,
     module: JpsModule,
@@ -1043,7 +1039,7 @@ private suspend fun buildJars(
     return emptyBuildJarsResult()
   }
 
-  val list = assets.mapConcurrent(workerDispatcher = Dispatchers.IO) { asset ->
+  val list = assets.mapConcurrent { asset ->
     withContext(CoroutineName("build jar for ${asset.relativePath}")) {
       buildAsset(
         asset = asset,

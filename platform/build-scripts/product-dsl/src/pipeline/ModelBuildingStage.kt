@@ -16,11 +16,9 @@ import com.intellij.platform.pluginGraph.isTestDescriptor
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
 import com.intellij.platform.pluginSystem.parser.impl.parseContentAndXIncludes
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
 import org.jetbrains.intellij.build.findFileInModuleSources
@@ -82,9 +80,9 @@ private val OS_MODULE_ALIASES = listOf(
  * Stage 2: Model Building
  *
  * Creates all caches and computes shared values needed by generators:
- * - Descriptor cache for async module descriptor analysis
+ * - Descriptor cache for module descriptor analysis
  * - Plugin content cache (pre-warmed with bundled plugins)
- * - Shared Deferred values for parallel access
+ * - Shared values that the generators read
  *
  * **Input:** [DiscoveryResult] + [ModuleSetGenerationConfig]
  * **Output:** [GenerationModel]
@@ -386,7 +384,7 @@ internal object ModelBuildingStage {
    * This allows extraction/validation to use canonical generated descriptors for discovered
    * product plugins even when on-disk product plugin.xml files are stale.
    */
-  internal suspend fun buildProductPluginXmlOverrides(
+  internal fun buildProductPluginXmlOverrides(
     products: List<DiscoveredProduct>,
     moduleSetsByLabel: Map<String, List<ModuleSet>> = emptyMap(),
     moduleSetSources: Map<String, Pair<Any, Path>> = emptyMap(),
@@ -496,7 +494,7 @@ internal object ModelBuildingStage {
       checkedProductCount++
       val xIncludePrefix = xIncludePrefixFilter(pluginModule.value)
       val descriptorCheckStartNano = System.nanoTime()
-      val pluginXmlData = withContext(Dispatchers.IO) { Files.readAllBytes(pluginXmlPath) }
+      val pluginXmlData = Files.readAllBytes(pluginXmlPath)
       val problems = findDescriptorProblems(
         pluginXmlData = pluginXmlData,
         module = module,
@@ -632,7 +630,7 @@ internal object ModelBuildingStage {
    * An unresolved include wins over a missing content module. A file that does not resolve hides what it declares,
    * so the include is the fault to report and the walk stops there.
    */
-  private suspend fun findDescriptorProblems(
+  private fun findDescriptorProblems(
     pluginXmlData: ByteArray,
     module: JpsModule,
     outputProvider: ModuleOutputProvider,
@@ -876,7 +874,7 @@ internal object ModelBuildingStage {
     }
   }
 
-  private suspend fun expandDslTestPlugins(
+  private fun expandDslTestPlugins(
     discovery: DiscoveryResult,
     config: ModuleSetGenerationConfig,
     builder: PluginGraphBuilder,
@@ -1267,7 +1265,7 @@ internal object ModelBuildingStage {
     return spec.copy(spec = updatedSpec)
   }
 
-  private suspend fun collectAliasesFromDeprecatedIncludes(
+  private fun collectAliasesFromDeprecatedIncludes(
     spec: ProductModulesContentSpec,
     outputProvider: ModuleOutputProvider,
     includeAliasCache: AsyncCache<String, Set<PluginId>>,
@@ -1296,7 +1294,7 @@ internal object ModelBuildingStage {
     return result
   }
 
-  private suspend fun collectAliasesFromModuleDescriptors(
+  private fun collectAliasesFromModuleDescriptors(
     moduleNames: Set<ContentModuleName>,
     descriptorCache: ModuleDescriptorCache,
     aliasCache: AsyncCache<ContentModuleName, Set<PluginId>>,
@@ -1318,7 +1316,7 @@ internal object ModelBuildingStage {
     return aliases
   }
 
-  private suspend fun collectAliasesFromDeprecatedInclude(
+  private fun collectAliasesFromDeprecatedInclude(
     include: DeprecatedXmlInclude,
     outputProvider: ModuleOutputProvider,
     prefix: String?,
@@ -1355,7 +1353,7 @@ internal object ModelBuildingStage {
     )
   }
 
-  private suspend fun collectPluginAliasesFromXml(
+  private fun collectPluginAliasesFromXml(
     initialPath: String,
     initialData: ByteArray,
     outputProvider: ModuleOutputProvider,

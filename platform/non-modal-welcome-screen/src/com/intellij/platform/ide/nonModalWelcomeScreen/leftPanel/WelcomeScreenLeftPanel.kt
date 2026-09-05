@@ -162,4 +162,5 @@ class WelcomeScreenLeftPanel(private val project: Project, private val scope: Co
   }
 }
 
-internal val WELCOME_SCREEN_IS_SHOWN: DataKey<Boolean> = DataKey.create("NonModalWelcomeScreenProjectPane.isShown")
+@ApiStatus.Internal
+val WELCOME_SCREEN_IS_SHOWN: DataKey<Boolean> = DataKey.create("NonModalWelcomeScreenProjectPane.isShown")

@@ -3173,6 +3173,8 @@ a:com.intellij.ide.projectView.impl.AbstractProjectTreeStructure
 - com.intellij.ide.projectView.impl.ProjectAbstractTreeStructureBase
 - com.intellij.ide.projectView.ViewSettings
 - <init>(com.intellij.openapi.project.Project):V
+- <init>(com.intellij.openapi.project.Project,com.intellij.ide.projectView.ViewSettings):V
+- getViewSettings():com.intellij.ide.projectView.ViewSettings
 a:com.intellij.ide.projectView.impl.AbstractProjectViewPane
 - com.intellij.openapi.Disposable
 - com.intellij.openapi.actionSystem.UiCompatibleDataProvider
@@ -3209,7 +3211,6 @@ a:com.intellij.ide.projectView.impl.AbstractProjectViewPane
 - f:getSelectedDescriptor():com.intellij.ide.util.treeView.NodeDescriptor
 - getSelectedDirectories():com.intellij.psi.PsiDirectory[]
 - p:getSelectedDirectories(java.lang.Object[]):com.intellij.psi.PsiDirectory[]
-- p:getSelectedDirectoriesInAmbiguousCase(java.lang.Object):com.intellij.psi.PsiDirectory[]
 - f:getSelectedElement():java.lang.Object
 - f:getSelectedElements():java.lang.Object[]
 - f:getSelectedPSIElements():com.intellij.psi.PsiElement[]
@@ -3283,6 +3284,8 @@ a:com.intellij.ide.projectView.impl.ProjectTreeStructure
 - com.intellij.ide.projectView.impl.AbstractProjectTreeStructure
 - com.intellij.ide.projectView.ProjectViewSettings
 - isHideEmptyMiddlePackages():Z
+f:com.intellij.ide.projectView.impl.ProjectViewDragImageUtil
+- s:createDraggedImage(javax.swing.JTree):com.intellij.openapi.util.Pair
 f:com.intellij.ide.projectView.impl.ProjectViewFileNestingService
 - com.intellij.openapi.components.PersistentStateComponent
 - com.intellij.openapi.util.ModificationTracker

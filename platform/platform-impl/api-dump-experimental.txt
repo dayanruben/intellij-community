@@ -202,10 +202,6 @@ com.intellij.openapi.editor.ex.EditorMarkupModel
 com.intellij.openapi.editor.ex.FoldingListener
 - *:beforeFoldRegionDisposed(com.intellij.openapi.editor.FoldRegion):V
 - *:onCustomFoldRegionPropertiesChange(com.intellij.openapi.editor.CustomFoldRegion,I):V
-*:com.intellij.openapi.editor.ex.FoldingListener$ChangeFlags
-- sf:GUTTER_ICON_PROVIDER_CHANGED:I
-- sf:HEIGHT_CHANGED:I
-- sf:WIDTH_CHANGED:I
 com.intellij.openapi.editor.impl.EditorGutterListener
 - java.util.EventListener
 - *:hoverEnded(com.intellij.openapi.editor.impl.event.EditorGutterHoverEvent):V
@@ -529,6 +525,8 @@ f:com.intellij.ui.dsl.builder.components.ValidationTooltipKt
 c:com.intellij.ui.popup.list.PopupListElementRenderer
 - com.intellij.ui.popup.list.GroupedItemsListRenderer
 - *p:isShowingTooltipForExtraButton():Z
+*f:com.intellij.ui.tree.TreeStructureDomainModelAdapterKt
+- *sf:buildTreeNodeDescriptorPresentation(com.intellij.ide.util.treeView.PresentableNodeDescriptor,com.intellij.ui.treeStructure.TreeNodePresentationBuilder):com.intellij.ui.treeStructure.TreeNodePresentation
 *f:com.intellij.util.ui.RestartDialogImpl
 - *sf:Companion:com.intellij.util.ui.RestartDialogImpl$Companion
 - <init>():V

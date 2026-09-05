@@ -14,12 +14,11 @@ import com.jetbrains.JBR
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
-import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.intellij.build.BUILD_CONCURRENCY
 import org.jetbrains.intellij.build.BuildMessages
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.BuildPaths
@@ -41,6 +40,7 @@ import org.jetbrains.intellij.build.telemetry.ConsoleSpanExporter
 import org.jetbrains.intellij.build.telemetry.JaegerJsonSpanExporterManager
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
+import org.jetbrains.intellij.build.taskScope
 import org.jetbrains.jps.model.JpsDummyElement
 import org.jetbrains.jps.model.JpsElementFactory
 import org.jetbrains.jps.model.JpsGlobal
@@ -424,7 +424,7 @@ private suspend fun loadProject(projectHome: Path, kotlinBinaries: KotlinBinarie
     pathVariablesConfiguration.addPathVariable("KOTLIN_BUNDLED", kotlinCompilerHome.toString())
   }
 
-  spanBuilder("load project").use(Dispatchers.IO) { span ->
+  spanBuilder("load project").use { span ->
     span.addEvent(
       "Resolved local maven repository path",
       Attributes.of(AttributeKey.stringKey("m2 repository path"), mavenRepositoryPath),
@@ -432,7 +432,23 @@ private suspend fun loadProject(projectHome: Path, kotlinBinaries: KotlinBinarie
 
     pathVariablesConfiguration.addPathVariable("MAVEN_REPOSITORY", mavenRepositoryPath)
     val pathVariables = JpsModelSerializationDataService.computeAllPathVariables(model.global)
-    loadProject(model.project, pathVariables, JpsPathMapper.IDENTITY, projectHome, null, { it: Runnable -> launch(CoroutineName("loading project")) { it.run() } }, false)
+    // the loader submits two runnables per module, so the workers bound the parallelism and not the fork count
+    val tasks = Channel<Runnable>(Channel.UNLIMITED)
+    taskScope {
+      repeat(BUILD_CONCURRENCY) { worker ->
+        fork("loading project worker $worker") {
+          for (task in tasks) {
+            task.run()
+          }
+        }
+      }
+      try {
+        loadProject(model.project, pathVariables, JpsPathMapper.IDENTITY, projectHome, null, { task: Runnable -> tasks.trySend(task).getOrThrow() }, false)
+      }
+      finally {
+        tasks.close()
+      }
+    }
     span.setAllAttributes(
       Attributes.of(
         AttributeKey.stringKey("project"), projectHome.toString(),

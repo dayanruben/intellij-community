@@ -942,6 +942,10 @@ platform/project/backend
 platform/project/shared
 platform/projectModel-api
 platform/projectModel-impl
+platform/projectView/backend
+platform/projectView/frontend
+platform/projectView/shared
+platform/projectView/tests
 platform/rd-platform-community
 platform/recentFiles/backend
 platform/recentFiles/frontend
@@ -1567,6 +1571,7 @@ plugins/markdown/core
 plugins/markdown/core/backend
 plugins/markdown/core/frontend
 plugins/markdown/fenceInjection
+plugins/markdown/figmaAdvertiser
 plugins/markdown/frontmatter
 plugins/markdown/frontmatter/toml
 plugins/markdown/frontmatter/yaml

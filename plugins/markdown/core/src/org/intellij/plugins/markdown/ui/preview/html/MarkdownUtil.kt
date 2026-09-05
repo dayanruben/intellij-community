@@ -1,9 +1,7 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.markdown.ui.preview.html
 
-import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.text.StringUtil.BombedCharSequence
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.Urls
 import com.intellij.util.io.DigestUtil
@@ -14,6 +12,7 @@ import org.intellij.markdown.html.HtmlGenerator
 import org.intellij.markdown.parser.LinkMap
 import org.intellij.plugins.markdown.extensions.CodeFenceGeneratingProvider
 import org.intellij.plugins.markdown.extensions.MarkdownCodeFenceCacheableProvider
+import org.intellij.plugins.markdown.lang.parser.CancellableText
 import org.intellij.plugins.markdown.lang.parser.MarkdownParserManager
 import org.intellij.plugins.markdown.ui.preview.html.links.IntelliJImageGeneratingProvider
 import org.jetbrains.annotations.ApiStatus
@@ -36,11 +35,7 @@ object MarkdownUtil {
     }
 
     val parsedTree = MarkdownParserManager.createMarkdownParser(MarkdownParserManager.FLAVOUR)
-      .buildMarkdownTreeFromString(object : BombedCharSequence(text) {
-        override fun checkCanceled() {
-          ProgressManager.checkCanceled()
-        }
-      })
+      .buildMarkdownTreeFromString(CancellableText.of(text))
     val cacheCollector = MarkdownCodeFencePluginCacheCollector(file)
 
     val linkMap = LinkMap.buildLinkMap(parsedTree, text)
@@ -57,6 +52,7 @@ object MarkdownUtil {
     map[MarkdownElementTypes.SHORT_REFERENCE_LINK] = FootnoteReferenceProvider(footnoteMap, map[MarkdownElementTypes.SHORT_REFERENCE_LINK]!!)
     map[MarkdownElementTypes.PARAGRAPH] = FootnoteNodeSuppressor(footnoteMap, map[MarkdownElementTypes.PARAGRAPH]!!)
     map[MarkdownElementTypes.CODE_BLOCK] = FootnoteNodeSuppressor(footnoteMap, map[MarkdownElementTypes.CODE_BLOCK]!!)
+    map[MarkdownElementTypes.CODE_FENCE] = FootnoteNodeSuppressor(footnoteMap, map[MarkdownElementTypes.CODE_FENCE]!!)
 
     val mainHtml = HtmlGenerator(text, parsedTree, map, true).generateHtml()
 
