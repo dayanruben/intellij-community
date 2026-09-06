@@ -55,6 +55,8 @@
 
     <actionConfigurationCustomizer implementation="com.intellij.platform.ide.nonModalWelcomeScreen.actions.WelcomeScreenAwareActionsCustomizer" />
 
+    <!-- The welcome tab is a persisted editor tab: the platform restores it by URL through this file system. -->
+    <virtualFileSystem key="welcome-screen" implementationClass="com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeScreenRightTabFileSystem"/>
     <fileEditorProvider id="settingsWindow" implementation="com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeScreenRightTabVirtualFileEditorProvider"/>
     <projectViewPane implementation="com.intellij.platform.ide.nonModalWelcomeScreen.leftPanel.WelcomeScreenLeftPanel"/>
     <projectViewPaneExtractor implementation="com.intellij.platform.ide.nonModalWelcomeScreen.leftPanel.WelcomeScreenLeftPanelModelExtractor"/>

@@ -28,6 +28,7 @@ import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
+import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
@@ -36,6 +37,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager.ConflictResolution
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.util.asDisposable
+import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -69,7 +71,6 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.milliseconds
-
 
 private val logger = logger<McpServerService>()
 internal val IJ_MCP_AUTH_TOKEN: String = ::IJ_MCP_AUTH_TOKEN.name
@@ -147,7 +148,11 @@ open class McpServerService(val cs: CoroutineScope) {
   }
 
   companion object {
-    fun getInstance(): McpServerService = service()
+    fun getInstance(): McpServerService {
+      return service()
+    }
+
+    fun getInstanceIfCreated(): McpServerService? = serviceOrNull()
 
     suspend fun getInstanceAsync(): McpServerService = serviceAsync()
 
@@ -321,7 +326,10 @@ open class McpServerService(val cs: CoroutineScope) {
   }
 
   //todo: I think that should be a subscription to McpServerSettings
+  @RequiresBackgroundThread(generateAssertion = false)
   fun settingsChanged(enabled: Boolean) {
+    ThreadingAssertions.softAssertBackgroundThread()
+
     server.update { currentServer ->
       val effectivelyEnabled = enabled || isMcpServerForceEnabled()
       if (!effectivelyEnabled) {
@@ -339,8 +347,8 @@ open class McpServerService(val cs: CoroutineScope) {
 
   internal class MyProjectListener : ProjectActivity {
     override suspend fun execute(project: Project) {
-      // TODO: consider start on app startup
-      serviceAsync<McpServerService>().showForceEnabledNotificationIfNeeded(project)
+      val service = withContext(Dispatchers.IO) { serviceAsync<McpServerService>() } // start server if enabled
+      service.showForceEnabledNotificationIfNeeded(project)
     }
   }
 
@@ -569,7 +577,7 @@ open class McpServerService(val cs: CoroutineScope) {
 
   /**
    * Checks if there are any active MCP tools available after applying the filter.
-   * 
+   *
    * @param filter The filter to apply to the tools
    * @return true if at least one MCP tool is available after filtering, false otherwise
    */
@@ -641,4 +649,9 @@ open class McpServerService(val cs: CoroutineScope) {
     return filteredTools.toList()
   }
 
+  fun scheduleResetToSettings() {
+    cs.launch {
+      settingsChanged(McpServerSettings.getInstance().enableMcpServer)
+    }
+  }
 }

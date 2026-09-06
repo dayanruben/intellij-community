@@ -13,7 +13,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import org.jetbrains.annotations.ApiStatus.Internal
-import org.jetbrains.annotations.TestOnly
 
 /**
  * Allows querying project init state
@@ -102,10 +101,9 @@ private fun <T> Project.getOrCreateDeferred(key: Key<CompletableDeferred<T>>): C
 }
 
 /**
- * Work includes the empty editor state presentation and the [Project] view focus restore.
+ * Completes after startup restores the editors, presents the empty editor state, and restores the Project view focus.
  *
  * @return `null` when the [Project] was opened without a frame
  */
-@TestOnly
 @Internal
 fun Project.getPostOpenEditorsDeferred(): Deferred<Unit>? = getUserData(POST_OPEN_EDITORS_DEFERRED_KEY)

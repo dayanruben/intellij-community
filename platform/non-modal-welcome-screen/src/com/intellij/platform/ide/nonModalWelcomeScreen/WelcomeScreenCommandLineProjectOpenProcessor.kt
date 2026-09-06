@@ -19,7 +19,7 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider
 import com.intellij.openapi.wm.ex.getWelcomeScreenProjectProvider
 import com.intellij.platform.CommandLineProjectOpenProcessor
-import com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeScreenPreventWelcomeTabFocusService
+import com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeScreenTabFocusState
 import com.intellij.projectImport.ProjectOpenProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -103,7 +103,8 @@ internal class WelcomeScreenCommandLineProjectOpenProcessor(
     provider: WelcomeScreenProjectProvider,
   ): Project {
     val project = getOrCreateWelcomeScreenProject(provider)
-    project.serviceAsync<WelcomeScreenPreventWelcomeTabFocusService>().preventFocusOnWelcomeTab()
+    // the file from the command line stays in front: the startup open must not select the welcome tab over it
+    WelcomeScreenTabFocusState.getInstanceAsync(project).preventSelectionOnStartupOpen()
     return openFileInProject(file, options, project, selectInProjectView = true)
   }
 

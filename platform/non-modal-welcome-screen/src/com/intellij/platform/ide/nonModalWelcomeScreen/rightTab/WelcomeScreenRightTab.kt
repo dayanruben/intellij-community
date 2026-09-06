@@ -2,16 +2,13 @@ package com.intellij.platform.ide.nonModalWelcomeScreen.rightTab
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.intellij.platform.ide.nonModalWelcomeScreen.NON_MODAL_WELCOME_SCREEN_SETTING_ID
-import com.intellij.platform.ide.nonModalWelcomeScreen.WelcomeScreenTabUsageCollector
-import com.intellij.platform.project.ProjectId
-import com.intellij.platform.project.projectId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
@@ -21,16 +18,7 @@ import javax.swing.JComponent
 abstract class WelcomeScreenRightTab(
   val project: Project,
   val contentProvider: WelcomeRightTabContentProvider,
-  suppressInitialContentFocus: Boolean = false,
 ) : Disposable {
-  /**
-   * While `true`, activating the tab does not pull input focus into its content, so that the left project view's
-   * recent-projects search field keeps focus during the passive startup open (accessibility: up/down navigation,
-   * IJPL-248588). Cleared via [enableContentFocus] once the initial startup focus has settled on the project view,
-   * so later user-driven activations (Esc from the project view, clicking the tab) focus the content.
-   */
-  protected var contentFocusSuppressed: Boolean = suppressInitialContentFocus
-
   abstract val component: JComponent
 
   abstract fun getPreferredFocusedComponent(): JComponent
@@ -45,63 +33,34 @@ abstract class WelcomeScreenRightTab(
    */
   abstract fun switchToDefaultContent()
 
-  /**
-   * Re-enables moving focus into the tab content when the tab is activated. Called once the initial startup focus
-   * has settled on the left project view (IJPL-248588); afterwards, activating the tab (Esc from the project view,
-   * clicking the tab) focuses its content as usual.
-   */
-  fun enableContentFocus() {
-    contentFocusSuppressed = false
-  }
-
   companion object {
-    private val projectToTabMap = mutableMapOf<ProjectId, WelcomeScreenRightTab>()
-
     /**
-     * Gets the current WelcomeScreenRightTab instance for the given project if it exists.
-     */
-    fun getInstance(project: Project): WelcomeScreenRightTab? = projectToTabMap[project.projectId()]
-
-    /**
-     * Opens the welcome right tab.
+     * Opens the welcome tab, or brings the open one forward.
      *
-     * @param focusContent whether focus should be moved into the tab content once it is activated. Pass `false`
-     * (default) for the passive startup open, so the left project view's recent-projects search field keeps input
-     * focus (accessibility, IJPL-248588); pass `true` for an explicit user-initiated open (e.g. the "Open Welcome
-     * Screen" action).
+     * The tab UI is built by the editor of [WelcomeScreenRightTabVirtualFile], so this is the same path the
+     * platform takes when it restores the tab from the editor state.
+     *
+     * @param focusContent whether the input focus moves into the tab content. Pass `false` (default) for the
+     * passive startup open, so the left project view's recent-projects search field keeps the focus (accessibility,
+     * IJPL-248588); pass `true` for a user-initiated open (the "Open Welcome Screen" action).
      */
     @ApiStatus.Internal
     suspend fun show(project: Project, focusContent: Boolean = false) {
       if (!isRightTabEnabled) return
-      val contentProvider = WelcomeRightTabContentProvider.getSingleExtension() ?: return
+      val file = WelcomeScreenRightTabVirtualFile.getInstance() ?: return
+      val focusState = WelcomeScreenTabFocusState.getInstanceAsync(project)
+      if (focusContent) {
+        focusState.enableContentFocus()
+      }
+      val fileEditorManager = project.serviceAsync<FileEditorManager>() as FileEditorManagerEx
       withContext(Dispatchers.EDT) {
-        val tab = WelcomeScreenRightTabImpl(project, contentProvider, suppressInitialContentFocus = !focusContent)
-        addToMap(project, tab)
-
-        val settingsFile = WelcomeScreenRightTabVirtualFile(tab, project)
-        val fileEditorManager = FileEditorManager.getInstance(project) as FileEditorManagerEx
-        val options = FileEditorOpenOptions(reuseOpen = true, isSingletonEditorInWindow = true,
-                                            forceFocus = focusContent, requestFocus = focusContent,
-                                            selectAsCurrent = contentProvider.shouldBeFocused(project))
-        fileEditorManager.openFile(settingsFile, options)
-        WelcomeScreenTabUsageCollector.logWelcomeScreenTabOpened()
-      }
-    }
-
-    private fun addToMap(project: Project, tab: WelcomeScreenRightTab) {
-      val projectId = project.projectId()
-      Disposer.register(project) {
-        projectToTabMap.remove(projectId)
-      }
-      // The editor of the tab disposes the tab when it closes. The map must not answer that dead tab, whose
-      // feature sections are gone, so the tab drops itself here.
-      Disposer.register(tab) {
-        projectToTabMap.remove(projectId, tab)
-      }
-      // A repeated show() replaces the tab of the project. The replaced tab holds the sections of the features.
-      val replacedTab = projectToTabMap.put(projectId, tab)
-      if (replacedTab != null) {
-        Disposer.dispose(replacedTab)
+        val options = FileEditorOpenOptions(
+          reuseOpen = true,
+          forceFocus = focusContent,
+          requestFocus = focusContent,
+          selectAsCurrent = focusContent || focusState.selectsTabOnStartupOpen,
+        )
+        fileEditorManager.openFile(file, options)
       }
     }
 

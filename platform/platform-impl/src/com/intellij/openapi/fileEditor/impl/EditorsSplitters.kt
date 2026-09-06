@@ -63,7 +63,6 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy
 import com.intellij.openapi.wm.ex.IdeFrameEx
-import com.intellij.openapi.wm.ex.WelcomeScreenTabService
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.FloatingDecorator
 import com.intellij.openapi.wm.impl.FocusManagerImpl
@@ -1507,7 +1506,6 @@ private class UiBuilder(private val splitters: EditorsSplitters, private val isL
         window.updateTabsVisibility()
         addChild(window.component)
         splitters.addWindow(window)
-        WelcomeScreenTabService.getInstance(fileEditorManager.project).openTab()
         windowAddedDeferred.complete(Unit)
       }
       finally {

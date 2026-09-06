@@ -80,8 +80,7 @@ import kotlin.math.max
 internal class WelcomeScreenRightTabImpl(
   project: Project,
   contentProvider: WelcomeRightTabContentProvider,
-  suppressInitialContentFocus: Boolean = false,
-) : WelcomeScreenRightTab(project, contentProvider, suppressInitialContentFocus) {
+) : WelcomeScreenRightTab(project, contentProvider) {
 
   override val component: JComponent = object : JPanel() {
     private val gradientPainterLight = IdeBackgroundUtil.createImagePainter(
@@ -240,7 +239,7 @@ internal class WelcomeScreenRightTabImpl(
   }
 
   override fun getPreferredFocusedComponent(): JComponent {
-    if (contentFocusSuppressed) {
+    if (!WelcomeScreenTabFocusState.getInstance(project).contentFocusEnabled) {
       // The tab component itself takes no focus. This keeps the startup focus on the left project view (IJPL-248588).
       return component
     }

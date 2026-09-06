@@ -630,6 +630,12 @@ private suspend fun restoreEditors(
 
       focusSelectedEditor(editorComponent)
     }
+
+    // a state whose tabs were all closed, or whose files are gone, restores nothing: the editor area is as empty as with no
+    // state at all, and the welcome project shows its welcome tab in that case
+    if (!fileEditorManager.hasOpenFiles()) {
+      WelcomeScreenTabService.getInstance(fileEditorManager.project).openTab()
+    }
   }
 }
 

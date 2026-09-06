@@ -38,9 +38,17 @@ fun getWelcomeScreenProjectProvider(): WelcomeScreenProjectProvider? {
 
 @Internal
 interface WelcomeScreenProjectSupport {
-  suspend fun createOrOpenWelcomeScreenProject(extension: WelcomeScreenProjectProvider, projectToClose: Project? = null): Project
+  /**
+   * @param forceOpenInNewFrame open the project in a frame of its own, without the "this window or a new one"
+   * question the platform asks while another project is open. An automatic open at IDE start passes `true`.
+   */
+  suspend fun createOrOpenWelcomeScreenProject(
+    extension: WelcomeScreenProjectProvider,
+    projectToClose: Project? = null,
+    forceOpenInNewFrame: Boolean = false,
+  ): Project
 
-  suspend fun openProject(path: Path, name: String): Project
+  suspend fun openProject(path: Path, name: String, forceOpenInNewFrame: Boolean = false): Project
 }
 
 /**
@@ -102,8 +110,12 @@ abstract class WelcomeScreenProjectProvider {
       return getWelcomeScreenProjectProvider()?.getToolWindowIdsToExclusiveShowing() ?: emptySet()
     }
 
-    suspend fun createOrOpenWelcomeScreenProject(extension: WelcomeScreenProjectProvider, projectToClose: Project? = null): Project {
-      return serviceAsync<WelcomeScreenProjectSupport>().createOrOpenWelcomeScreenProject(extension, projectToClose)
+    suspend fun createOrOpenWelcomeScreenProject(
+      extension: WelcomeScreenProjectProvider,
+      projectToClose: Project? = null,
+      forceOpenInNewFrame: Boolean = false,
+    ): Project {
+      return serviceAsync<WelcomeScreenProjectSupport>().createOrOpenWelcomeScreenProject(extension, projectToClose, forceOpenInNewFrame)
     }
   }
 
@@ -174,13 +186,26 @@ abstract class WelcomeScreenProjectProvider {
     return serviceAsync<WelcomeScreenProjectSupport>().openProject(path, getWelcomeScreenProjectName())
   }
 
+  /**
+   * Opens the welcome project in a frame of its own, with no "this window or a new one" question.
+   *
+   * The default opens through [WelcomeScreenProjectSupport.openProject]. A product with an open of its own
+   * overrides this too when it can honour the flag; otherwise its own open runs and may ask.
+   */
+  protected open suspend fun doCreateOrOpenWelcomeScreenProjectInNewFrame(path: Path): Project {
+    return serviceAsync<WelcomeScreenProjectSupport>().openProject(path, getWelcomeScreenProjectName(), forceOpenInNewFrame = true)
+  }
+
   @Internal
   suspend fun doCreateOrOpenWelcomeScreenProjectForInternalUsage(path: Path): Project {
     return doCreateOrOpenWelcomeScreenProject(path, projectToClose = null)
   }
 
   @Internal
-  suspend fun doCreateOrOpenWelcomeScreenProjectForInternalUsage(path: Path, projectToClose: Project?): Project {
+  suspend fun doCreateOrOpenWelcomeScreenProjectForInternalUsage(path: Path, projectToClose: Project?, forceOpenInNewFrame: Boolean = false): Project {
+    if (forceOpenInNewFrame) {
+      return doCreateOrOpenWelcomeScreenProjectInNewFrame(path)
+    }
     return doCreateOrOpenWelcomeScreenProject(path, projectToClose)
   }
 
