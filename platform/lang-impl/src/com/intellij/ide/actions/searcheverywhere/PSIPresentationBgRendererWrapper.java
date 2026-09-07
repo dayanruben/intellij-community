@@ -15,6 +15,7 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.platform.backend.navigation.NavigationTarget;
 import com.intellij.platform.backend.presentation.TargetPresentation;
 import com.intellij.psi.PsiElement;
 import com.intellij.ui.ColoredListCellRenderer;
@@ -197,6 +198,10 @@ public final class PSIPresentationBgRendererWrapper implements WeightedSearchEve
   }
 
   private static TargetPresentation calcPresentation(Object item, Function<? super PsiElement, ? extends TargetPresentation> psiPresentationCalculator) {
+    if (item instanceof NavigationTarget target) {
+      return target.computePresentation();
+    }
+
     if (item instanceof PsiElement psi) {
       return psiPresentationCalculator.apply(psi);
     }

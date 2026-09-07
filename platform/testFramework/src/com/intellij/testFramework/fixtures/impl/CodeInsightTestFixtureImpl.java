@@ -253,7 +253,6 @@ import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -2419,9 +2418,9 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   private SearchEverywhereContributor<Object> createMockClassSearchEverywhereContributor(boolean everywhere) {
     DataContext dataContext = SimpleDataContext.getProjectContext(getProject());
     AnActionEvent event = AnActionEvent.createFromDataContext(ActionPlaces.UNKNOWN, null, dataContext);
-    ClassSearchEverywhereContributor contributor = new ClassSearchEverywhereContributor(event) {{
+    ClassSearchEverywhereContributor contributor = ReadAction.computeBlocking(() -> new ClassSearchEverywhereContributor(event) {{
       myScopeDescriptor = new ScopeDescriptor(FindSymbolParameters.searchScopeFor(myProject, everywhere));
-    }};
+    }});
     Disposer.register(getProjectDisposable(), contributor);
     return contributor;
   }
@@ -2429,9 +2428,9 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   private SearchEverywhereContributor<Object> createMockSymbolSearchEverywhereContributor(boolean everywhere) {
     DataContext dataContext = SimpleDataContext.getProjectContext(getProject());
     AnActionEvent event = AnActionEvent.createFromDataContext(ActionPlaces.UNKNOWN, null, dataContext);
-    SymbolSearchEverywhereContributor contributor = new SymbolSearchEverywhereContributor(event) {{
+    SymbolSearchEverywhereContributor contributor = ReadAction.computeBlocking(() -> new SymbolSearchEverywhereContributor(event) {{
       myScopeDescriptor = new ScopeDescriptor(FindSymbolParameters.searchScopeFor(myProject, everywhere));
-    }};
+    }});
     Disposer.register(getProjectDisposable(), contributor);
     return contributor;
   }

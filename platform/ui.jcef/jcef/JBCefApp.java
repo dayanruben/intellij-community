@@ -294,6 +294,8 @@ public final class JBCefApp {
 
     void onInternalJcefTestFailed() {
       myInternalJcefTestFailed = true;
+      if (myCefApp != null)
+        myCefApp.dispose();
     }
 
     private void doCefStartup() {
@@ -332,6 +334,7 @@ public final class JBCefApp {
 
       myIsRemoteEnabled = false;
       CefApp.setIsRemoteEnabled(false);
+      CefApp.setDefaultInstance(null); // Necessary to prevent exception ""Settings can only be passed to CEF before createClient is called the first time."
       doCefStartup();
       return initCefApp(withVerboseLogging, false, null);
     }
