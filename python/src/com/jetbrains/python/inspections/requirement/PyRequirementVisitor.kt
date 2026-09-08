@@ -25,6 +25,7 @@ import com.jetbrains.python.psi.PyQualifiedExpression
 import com.jetbrains.python.psi.impl.PyPsiUtils
 import com.jetbrains.python.psi.types.TypeEvalContext
 import com.jetbrains.python.sdk.isReadOnly
+import com.jetbrains.python.sdk.isSdkConfigurationInProgress
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import com.jetbrains.python.sdk.pythonSdk
 import org.jetbrains.annotations.ApiStatus
@@ -57,6 +58,11 @@ internal class PyRequirementVisitor(
       return
     }
 
+    // An interpreter is still being configured, so what it holds is not decided yet.
+    if (module.project.isSdkConfigurationInProgress.value) {
+      return
+    }
+
     val sdk = module.pythonSdk ?: return
     val manager = PythonPackageManager.forSdk(module.project, sdk)
     val declared = manager.listDeclaredPackagesAsync() ?: return
@@ -84,7 +90,7 @@ internal class PyRequirementVisitor(
 
   @RequiresBackgroundThread
   private fun checkPackagesHaveBeenInstalled(file: PsiElement, module: Module) {
-    if (PyPackageManagerModuleHelpers.isRunningPackagingTasks(module))
+    if (module.project.isSdkConfigurationInProgress.value)
       return
     val sdk = PythonSdkUtil.findPythonSdk(module) ?: return
     val manager = PythonPackageManager.forSdk(module.project, sdk)

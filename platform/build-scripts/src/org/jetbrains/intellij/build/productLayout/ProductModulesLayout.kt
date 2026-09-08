@@ -104,10 +104,10 @@ class ProductModulesLayout {
   /**
    * Additional customizations of platform JARs. **This is a temporary property added to keep layout of some products.**
    */
-  internal var platformLayoutSpec = persistentListOf<suspend (PlatformLayout, BuildContext) -> Unit>()
+  internal var platformLayoutSpec = persistentListOf<(PlatformLayout) -> Unit>()
     private set
 
-  fun addPlatformSpec(customizer: suspend (PlatformLayout, BuildContext) -> Unit) {
+  fun addPlatformSpec(customizer: (PlatformLayout) -> Unit) {
     platformLayoutSpec += customizer
   }
 
@@ -137,7 +137,10 @@ class ProductModulesLayout {
   var buildAllCompatiblePlugins: Boolean = true
 
   /**
-   * List of plugin names which should not be built even if they are compatible and [buildAllCompatiblePlugins] is true
+   * The main modules of the plugins that the build must not build, even when the plugin is compatible
+   * and [buildAllCompatiblePlugins] is `true`.
+   *
+   * Add to this list, and do not replace it, because the default value holds [DEV_ONLY_PLUGINS].
    */
   var compatiblePluginsToIgnore: PersistentList<String> = persistentListOf()
 

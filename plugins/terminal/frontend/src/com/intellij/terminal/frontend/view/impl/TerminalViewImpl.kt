@@ -2,6 +2,7 @@ package com.intellij.terminal.frontend.view.impl
 
 import com.intellij.execution.impl.EditorTextDecorationApplier
 import com.intellij.execution.impl.createEditorTextDecorationApplier
+import com.intellij.ide.ActivityTracker
 import com.intellij.ide.dnd.DnDSupport
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataSink
@@ -27,6 +28,7 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.TerminalTitle
 import com.intellij.terminal.actions.TerminalActionUtil
+import com.intellij.terminal.frontend.fus.TerminalCommandCompletionStatistics
 import com.intellij.terminal.frontend.fus.TerminalFusCursorPainterListener
 import com.intellij.terminal.frontend.fus.TerminalFusFirstOutputListener
 import com.intellij.terminal.frontend.view.TerminalKeyEvent
@@ -359,7 +361,6 @@ class TerminalViewImpl(
       coroutineScope.childScope("TerminalShellIntegrationEventsHandler"),
     )
     controller.addEventsHandler(shellIntegrationEventsHandler)
-
     controller.addTerminationCallback(coroutineScope.asDisposable()) {
       mutableSessionState.value = TerminalViewSessionState.Terminated
       // Hide the cursor on process termination
@@ -428,8 +429,18 @@ class TerminalViewImpl(
       CoroutineName("Shell integration features init")
     ) {
       val shellIntegration = shellIntegrationDeferred.await()
+      val commandCompletionStatistics = TerminalCommandCompletionStatistics.install(
+        project = project,
+        shellIntegration = shellIntegration,
+        outputModel = outputModel,
+        isCursorVisible = { sessionModel.terminalState.value.isCursorVisible },
+        registerKeyEventsListener = this@TerminalViewImpl::addKeyEventsListener,
+        coroutineScope = coroutineScope.childScope("TerminalCommandCompletionStatistics"),
+      )
 
       outputEditor.putUserData(TerminalBlocksModel.KEY, shellIntegration.blocksModel)
+      outputEditor.putUserData(TerminalCommandCompletionStatistics.KEY, commandCompletionStatistics)
+
       TerminalBlocksDecorator(
         outputEditor,
         outputModel,
@@ -467,6 +478,7 @@ class TerminalViewImpl(
     sessionDeferred.complete(session)
     controller.handleEvents(session)
     mutableSessionState.value = TerminalViewSessionState.Running
+    ActivityTracker.getInstance().inc()  // Make actions notice that session is initialized
   }
 
   override suspend fun hasChildProcesses(): Boolean {

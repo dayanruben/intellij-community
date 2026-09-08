@@ -13,7 +13,8 @@ import com.intellij.python.hatch.cli.HatchEnv
 import com.intellij.python.hatch.getHatchService
 import com.intellij.python.hatch.impl.HATCH_TOOL_ID
 import com.intellij.python.hatch.resolveHatchWorkingDirectory
-import com.intellij.python.pytools.PyTool
+import com.intellij.python.hatch.icons.PythonHatchIcons
+import com.intellij.python.pytools.backend.PyTool
 import com.intellij.python.sdk.backend.evolution.DiscoveredVenv
 import com.intellij.python.sdk.backend.evolution.EvoPyProject
 import com.intellij.python.sdk.backend.evolution.EvoRecreateSpec
@@ -44,7 +45,9 @@ import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
 private const val ENVS_TTL_MS: Long = 30_000
 
 internal class HatchEvoEnvironmentProvider : PyToolEvoEnvironmentProvider() {
-  override val tool: PyTool get() = HatchPyTool.getInstance()
+  override val tool: PyTool<*> get() = HatchPyTool.getInstance()
+  override val label: String get() = PySdkBundle.message("evolution.node.label.hatch")
+  override val icon get() = PythonHatchIcons.Logo
   override val toolId: ToolId get() = HATCH_TOOL_ID
 
   /** An interpreter of this node's environments carries this flavor, which is what names this node as the active one. */

@@ -17,6 +17,10 @@ jps_test(
 )
 ### skip generation section `test intellij.java.ui.tests`
 
+### auto-generated section `dev intellij.java.ui` start
+content_module_jar(module = ":ui")
+### auto-generated section `dev intellij.java.ui` end
+
 ### auto-generated section `build intellij.java.ui` start
 jvm_library(
     name = "ui",
@@ -100,8 +104,6 @@ jvm_library(
         "//platform/lang-api:lang",
     ],
 )
-
-content_module_jar(module = ":ui")
 
 jvm_library(
     name = "ui_test_lib",
@@ -205,7 +207,7 @@ jvm_library(
         "//platform/structure-view-impl/plugin",
         "//platform/todo/plugin",
         "//platform/ide-core-impl",
-        "@lib//:kotlin-test",
+        "//libraries/kotlin/test:libraries-kotlinTest",
         "//platform/forms_rt:java-guiForms-rt",
     ],
 )
@@ -293,7 +295,8 @@ jvm_library(
         "//platform/backend/workspace:workspace_test_lib",
         "//platform/testFramework/junit5",
         "//platform/testFramework/junit5:junit5_test_lib",
-        "@lib//:kotlin-test",
+        "//libraries/kotlin/test:libraries-kotlinTest",
+        "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
         "//platform/util",
         "//platform/util:util_test_lib",
         "//platform/util:util-ui",

@@ -14,8 +14,8 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.python.community.execService.ExecOptions
 import com.intellij.python.pyproject.PY_PROJECT_TOML
 import com.intellij.python.pyproject.PyProjectToml
-import com.intellij.python.pytools.PyTool
-import com.intellij.python.pytools.runtime.PyToolRuntime
+import com.intellij.python.pytools.backend.PyTool
+import com.intellij.python.pytools.backend.runtime.PyToolRuntime
 import com.intellij.python.uv.backend.UvPyTool
 import com.intellij.python.uv.backend.runtime.uvCli
 import com.intellij.ui.dsl.builder.AlignX
@@ -78,7 +78,8 @@ internal class EnvironmentCreatorUv<P : PathHolder>(
   errorSink: ErrorSink,
 ) : CustomNewEnvironmentCreator<P>(model, errorSink) {
   override val interpreterType: InterpreterType = InterpreterType.UV
-  override val pyTool: PyTool = UvPyTool.getInstance()
+  override val pyTool: PyTool<*> = UvPyTool.getInstance()
+  override val pyToolPresentableName: String = "uv"
   override val toolValidator: ToolValidator<P> = model.uvViewModel.toolValidator
   override val globalSitePackage: Boolean get() = model.uvViewModel.inheritSitePackages.get()
   private val executableFlow = MutableStateFlow(model.uvViewModel.uvExecutable.get())

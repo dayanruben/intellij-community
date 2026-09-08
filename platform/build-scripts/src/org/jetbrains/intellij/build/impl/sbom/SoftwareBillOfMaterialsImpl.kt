@@ -4,6 +4,8 @@
 package org.jetbrains.intellij.build.impl.sbom
 
 import com.intellij.openapi.util.SystemInfoRt
+import com.intellij.platform.buildScripts.concurrency.Joiner
+import com.intellij.platform.buildScripts.concurrency.taskScope
 import com.intellij.platform.buildScripts.licenses.LibraryLicense
 import com.intellij.platform.buildScripts.licenses.LibraryUpstream
 import com.intellij.platform.buildScripts.licenses.SoftwareBillOfMaterials
@@ -16,8 +18,6 @@ import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.withContext
 import org.apache.maven.model.Model
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.jetbrains.annotations.ApiStatus
@@ -25,7 +25,6 @@ import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.LibcImpl
 import org.jetbrains.intellij.build.OsFamily
-import org.jetbrains.intellij.build.TaskScopePolicy
 import org.jetbrains.intellij.build.downloadAsText
 import org.jetbrains.intellij.build.getLibraryFileName
 import org.jetbrains.intellij.build.impl.BundledRuntime
@@ -40,12 +39,12 @@ import org.jetbrains.intellij.build.impl.projectStructureMapping.LibraryFileEntr
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ModuleLibraryFileEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ProjectLibraryEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.getIncludedModules
-import org.jetbrains.intellij.build.impl.suspendingLazy
+import org.jetbrains.intellij.build.impl.sharedLazy
 import org.jetbrains.intellij.build.io.ZipEntryProcessorResult
 import org.jetbrains.intellij.build.io.readZipFile
+import org.jetbrains.intellij.build.io.runProcess
 import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.retryWithExponentialBackOff
-import org.jetbrains.intellij.build.taskScope
 import org.jetbrains.jps.model.jarRepository.JpsRemoteRepositoryService
 import org.jetbrains.jps.model.java.JpsJavaClasspathKind
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
@@ -201,7 +200,7 @@ class SoftwareBillOfMaterialsImpl(
     }
   }
 
-  override suspend fun generate() {
+  override fun generate() {
     val skipReason = when {
       !context.shouldBuildDistributions() -> "No distribution was built"
       documentNamespace == null -> "Document namespace isn't specified"
@@ -233,7 +232,7 @@ class SoftwareBillOfMaterialsImpl(
     checkNtiaConformance(documents, context)
   }
 
-  private suspend fun generateFromDistributions(): List<Path> {
+  private fun generateFromDistributions(): List<Path> {
     return distributions.associateWith { distribution ->
       getFiles(distribution).mapConcurrent { file ->
         Checksums.compute(file)
@@ -268,7 +267,7 @@ class SoftwareBillOfMaterialsImpl(
    * Used until external document reference for Runtime is supplied,
    * then should be replaced with [addRuntimeDocumentRef]
    */
-  private suspend fun SpdxDocument.runtimePackage(os: OsFamily, arch: JvmArchitecture, libc: LibcImpl): SpdxPackage {
+  private fun SpdxDocument.runtimePackage(os: OsFamily, arch: JvmArchitecture, libc: LibcImpl): SpdxPackage {
     val checksums = Checksums.compute(context.bundledRuntime.resolveArchive(os = os, arch = arch, libc = libc).file)
     val version = context.bundledRuntime.build
     val runtimeArchivePackage = spdxPackageForFile(
@@ -363,7 +362,7 @@ class SoftwareBillOfMaterialsImpl(
    * [org.jetbrains.intellij.build.BuildOptions.OS_SPECIFIC_DISTRIBUTIONS_STEP] step is skipped,
    * but documents with every distribution content specified will be built anyway.
    */
-  private suspend fun generateFromContentReport(): List<Path> {
+  private fun generateFromContentReport(): List<Path> {
     return SUPPORTED_DISTRIBUTIONS
       .filter { (os, arch) -> context.shouldBuildDistributionForOS(os, arch) }
       .map { (os, arch, libc) ->
@@ -387,7 +386,7 @@ class SoftwareBillOfMaterialsImpl(
       }
   }
 
-  private suspend fun generate(
+  private fun generate(
     document: SpdxDocument,
     rootPackage: SpdxPackage,
     runtimePackage: SpdxPackage?,
@@ -444,7 +443,7 @@ class SoftwareBillOfMaterialsImpl(
     return document.outputFile
   }
 
-  private val distributionFilesChecksums = suspendingLazy("distribution files checksums") {
+  private val distributionFilesChecksums = sharedLazy(context.lifetime, "distribution files checksums") {
     distributionFiles.asSequence()
       .filterIsInstance<LibraryFileEntry>()
       .map { it.path }.distinct()
@@ -456,8 +455,8 @@ class SoftwareBillOfMaterialsImpl(
       }
   }
 
-  private suspend fun generatePackagesForDistributionFiles(document: SpdxDocument, distributionDir: Path): Map<Path, SpdxPackage?> {
-    return distributionFilesChecksums.await().associate {
+  private fun generatePackagesForDistributionFiles(document: SpdxDocument, distributionDir: Path): Map<Path, SpdxPackage?> {
+    return distributionFilesChecksums.get().associate {
       val filePath = when {
         it.path.startsWith(distributionDir) -> distributionDir.relativize(it.path)
         it.path.startsWith(context.paths.distAllDir) -> context.paths.distAllDir.relativize(it.path)
@@ -478,7 +477,7 @@ class SoftwareBillOfMaterialsImpl(
     addRelationship(relationship)
   }
 
-  private suspend fun getMavenLibraries(): List<MavenLibrary> {
+  private fun getMavenLibraries(): List<MavenLibrary> {
     val usedModulesNames = getIncludedModules(distributionFiles.asSequence()).toHashSet()
     val usedModules = context.project.modules.filterTo(LinkedHashSet()) {
       usedModulesNames.contains(it.name)
@@ -499,24 +498,22 @@ class SoftwareBillOfMaterialsImpl(
       it.mavenDescriptor?.mavenId ?: it.name
     }.toList().mapConcurrent { library ->
       val libraryName = getLibraryFileName(library)
-      withContext(CoroutineName("maven library $libraryName")) {
-        val libraryEntry = librariesBundledInDistributions.get(libraryName)
-        val libraryFile = libraryEntry?.libraryFile ?: return@withContext null
-        val libraryLicense = context.productProperties.allLibraryLicenses.firstOrNull {
-          it.getLibraryNames().contains(libraryName)
-        } ?: return@withContext null
-        val mavenDescriptor = library.mavenDescriptor
-        if (mavenDescriptor != null) {
-          mavenLibrary(mavenDescriptor = mavenDescriptor, libraryFile = libraryFile, libraryEntry = libraryEntry, libraryLicense = libraryLicense)
-        }
-        else {
-          MavenLibrary(
-            path = libraryFile,
-            library = libraryLicense,
-            entry = libraryEntry,
-            sha256Checksum = sha256Hex(libraryFile),
-          ).takeIf { it.coordinates != null }
-        }
+      val libraryEntry = librariesBundledInDistributions.get(libraryName)
+      val libraryFile = libraryEntry?.libraryFile ?: return@mapConcurrent null
+      val libraryLicense = context.productProperties.allLibraryLicenses.firstOrNull {
+        it.getLibraryNames().contains(libraryName)
+      } ?: return@mapConcurrent null
+      val mavenDescriptor = library.mavenDescriptor
+      if (mavenDescriptor != null) {
+        mavenLibrary(mavenDescriptor = mavenDescriptor, libraryFile = libraryFile, libraryEntry = libraryEntry, libraryLicense = libraryLicense)
+      }
+      else {
+        MavenLibrary(
+          path = libraryFile,
+          library = libraryLicense,
+          entry = libraryEntry,
+          sha256Checksum = sha256Hex(libraryFile),
+        ).takeIf { it.coordinates != null }
       }
     }.mapNotNull { it }
   }
@@ -709,7 +706,7 @@ class SoftwareBillOfMaterialsImpl(
       }
     }
 
-    suspend fun checkCopyrightText() {
+    fun checkCopyrightText() {
       if (copyrightText != null) return
       var licenseUrl = library.licenseUrl ?: return
       if (licenseUrl.startsWith("https://github.com/") && !licenseUrl.contains("/raw/")) {
@@ -984,19 +981,22 @@ class SoftwareBillOfMaterialsImpl(
   /**
    * See https://pypi.org/project/ntia-conformance-checker/
    */
-  private suspend fun checkNtiaConformance(documents: List<Path>, context: BuildContext) {
+  private fun checkNtiaConformance(documents: List<Path>, context: BuildContext) {
     if (!STRICT_MODE || !Docker.isAvailable || SystemInfoRt.isWindows) {
       return
     }
 
     val ntiaChecker = "ntia-checker"
     retryWithExponentialBackOff {
-      context.runProcess(
+      // the free runner, because the retry takes a plain action and the `BuildContext` member still suspends
+      runProcess(
         args = listOf("docker", "build", ".", "--tag", ntiaChecker),
         workingDir = context.paths.communityHomeDir.resolve("platform/build-scripts/resources/sbom/$ntiaChecker"),
+        stdOutConsumer = context.messages::info,
+        stdErrConsumer = context.messages::warning,
       )
     }
-    taskScope(TaskScopePolicy.RUN_ALL) {
+    taskScope(joiner = Joiner.awaitAllOrThrow()) {
       for (document in documents) {
         fork("NTIA conformance check for ${document.name}") {
           try {
@@ -1023,10 +1023,11 @@ class SoftwareBillOfMaterialsImpl(
           }
         }
       }
+      join()
     }
   }
 
-  private suspend fun checkCopyrightTextForLibraries(mavenLibraries: List<MavenLibrary>) {
+  private fun checkCopyrightTextForLibraries(mavenLibraries: List<MavenLibrary>) {
     val sortedLibraries = mavenLibraries.sortedBy {
       it.library.name ?: it.library.libraryName
     }

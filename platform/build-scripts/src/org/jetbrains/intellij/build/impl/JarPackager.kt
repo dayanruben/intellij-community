@@ -6,13 +6,12 @@ package org.jetbrains.intellij.build.impl
 import com.dynatrace.hash4j.hashing.HashFunnel
 import com.dynatrace.hash4j.hashing.HashStream64
 import com.dynatrace.hash4j.hashing.Hashing
+import com.intellij.platform.buildScripts.concurrency.taskScope
 import com.jetbrains.util.filetype.FileType
 import com.jetbrains.util.filetype.FileTypeDetector.DetectFileType
 import io.opentelemetry.api.common.AttributeKey
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet
 import it.unimi.dsi.fastutil.objects.Reference2ObjectLinkedOpenHashMap
-import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.intellij.build.BuildContext
@@ -55,10 +54,8 @@ import org.jetbrains.intellij.build.jarCache.JarCacheManager
 import org.jetbrains.intellij.build.jarCache.NonCachingJarCacheManager
 import org.jetbrains.intellij.build.jarCache.SourceBuilder
 import org.jetbrains.intellij.build.mapConcurrent
-import org.jetbrains.intellij.build.productLayout.LIB_MODULE_PREFIX
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
-import org.jetbrains.intellij.build.taskScope
 import org.jetbrains.jps.model.library.JpsLibrary
 import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsModule
@@ -72,7 +69,6 @@ import java.nio.file.Path
 import java.nio.file.PathMatcher
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.TreeMap
-import java.util.TreeSet
 import kotlin.io.path.invariantSeparatorsPathString
 
 private fun isJarPreSigned(file: Path, context: BuildContext): Boolean {
@@ -92,31 +88,6 @@ fun interface DistributionAssetFilter {
   fun accept(relativeOutputFile: String): Boolean
 }
 
-/**
- * Project libraries that plugin modules still get implicitly, only because such a dependency was packaged this way before
- * the implicit collection was restricted to library modules (see [computeSourcesForModuleLibs]).
- *
- * Each entry must be converted to a library module (`intellij.libraries.*`) and removed from this list - IJPL-252908.
- * Do not add new entries: a project library must be provided by the platform, by a library module,
- * or declared explicitly in the plugin layout.
- */
-private val IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST: Set<String> = java.util.Set.of(
-  // declared by the platform layout of the ultimate-family products only, so a plugin of another product needs its own copy
-  "LicenseDecoder",
-  "LicenseServerAPI",
-  "agentclientprotocol.acp.jvm",
-  "agentclientprotocol.acp.ktor",
-  // used by `intellij.rider.test.cases.rdct`, whose plugin is built by an auto layout
-  "intellij-plugin-structure",
-  "kotlin-metadata",
-  "layoutlib",
-  "okhttp",
-  "openai.java",
-  "org.apache.ivy",
-  "org.scilab.forge:jlatexmath",
-  "squareup.okio.jvm",
-)
-
 class JarPackager private constructor(
   private val outDir: Path,
   private val context: BuildContext,
@@ -129,9 +100,6 @@ class JarPackager private constructor(
 
   private val copiedFiles = LibraryFileCopyTracker()
 
-  /** project library name to the names of the plugin modules that depend on it, but do not get it packaged - see [checkImplicitProjectLibraries] */
-  private val implicitProjectLibraryViolations = TreeMap<String, MutableSet<String>>()
-
   private val helper = (context as BuildContextImpl).jarPackagerDependencyHelper
 
   private val prepackedContentJars = ArrayList<AssembledPrepackedPluginContentJar>()
@@ -140,7 +108,7 @@ class JarPackager private constructor(
   private val claimedPrepackedMembers = LinkedHashMap<PrepackedPluginContentKey, MutableList<String>>()
 
   companion object {
-    suspend fun pack(includedModules: Collection<ModuleItem>, outputDir: Path, context: BuildContext) {
+    fun pack(includedModules: Collection<ModuleItem>, outputDir: Path, context: BuildContext) {
       val packager = JarPackager(outDir = outputDir, context = context, platformLayout = null, isRootDir = false, moduleOutputPatcher = ModuleOutputPatcher())
       packager.computeModuleSources(includedModules = includedModules, layout = null, searchableOptionSet = null, cachedDescriptorWriterProvider = null)
       buildJars(
@@ -155,7 +123,7 @@ class JarPackager private constructor(
       )
     }
 
-    suspend fun pack(
+    fun pack(
       includedModules: Collection<ModuleItem>,
       outputDir: Path,
       isRootDir: Boolean,
@@ -239,12 +207,12 @@ class JarPackager private constructor(
         for (item in assets) {
           computeDistributionFileEntries(asset = item, hasher = hasher, list = list, dryRun = dryRun, buildAssetResult = buildAssetResult)
         }
-        list
+        join { list }
       }
     }
   }
 
-  private suspend fun computeModuleSources(
+  private fun computeModuleSources(
     includedModules: Collection<ModuleItem>,
     layout: BaseLayout?,
     searchableOptionSet: SearchableOptionSetDescriptor?,
@@ -319,8 +287,6 @@ class JarPackager private constructor(
     if (layout is PluginLayout) {
       validatePrepackedPluginContent(layout)
     }
-
-    checkImplicitProjectLibraries(layout)
   }
 
   /**
@@ -391,38 +357,7 @@ class JarPackager private constructor(
     )
   }
 
-  /**
-   * A project library referenced by a plugin module, but neither provided by the platform nor by a library module,
-   * would be silently missing from the distribution - fail the build instead, listing everything to be converted.
-   */
-  private fun checkImplicitProjectLibraries(layout: BaseLayout?) {
-    check(implicitProjectLibraryViolations.isEmpty()) {
-      "Project libraries used by modules of $layout must be converted to content modules:\n" +
-      implicitProjectLibraryViolations.entries.joinToString(separator = "\n") { (libraryName, moduleNames) ->
-        "  '$libraryName' used by " + moduleNames.joinToString { "'$it'" }
-      }
-    }
-  }
-
-  /**
-   * `true` if [libName] reaches [module] without being packaged for it: the platform provides it (as a library or as a library module),
-   * the plugin declares it explicitly, another module of the same group brings it (the same check the collection above does),
-   * or a library module for it exists, so `LibraryModuleValidator` is the one to make this module depend on that module.
-   */
-  private fun isProjectLibraryProvided(libName: String, layout: BaseLayout, module: JpsModule, withTests: Boolean): Boolean {
-    return platformLayout == null ||
-           platformLayout.hasLibrary(libName, module.name) ||
-           layout.hasLibrary(libName) ||
-           context.outputProvider.getProjectLibraryToModuleMap().containsKey(libName) ||
-           helper.hasLibraryInDependencyChainOfModuleDependencies(
-             dependentModule = module,
-             libraryName = libName,
-             siblings = layout.includedModules,
-             withTests = withTests,
-           )
-  }
-
-  internal suspend fun computeSourcesForModule(item: ModuleItem, layout: BaseLayout?, searchableOptionSet: SearchableOptionSetDescriptor?) {
+  internal fun computeSourcesForModule(item: ModuleItem, layout: BaseLayout?, searchableOptionSet: SearchableOptionSetDescriptor?) {
     val moduleName = item.moduleName
     val patchedSources = moduleOutputPatcher.getPatchedSources(moduleName)
 
@@ -566,45 +501,23 @@ class JarPackager private constructor(
     withTests: Boolean,
   ) {
     val moduleName = module.name
-    // `auto` used to mean "collect every project library of every module of this plugin" - now only a library module does it,
-    // everything else must be provided by the platform, by a library module, or declared explicitly in the plugin layout
-    val isAutoPlugin = layout is PluginLayout && layout.auto
-    val includeProjectLib = if (layout is PluginLayout) isAutoPlugin && moduleName.startsWith(LIB_MODULE_PREFIX) else item.isProductModule()
-
     val excludedModuleLibraries = if (layout is PluginLayout) layout.excludedModuleLibraries.get(moduleName) ?: emptyList() else emptyList()
-    val excludedProjectLibraries = if (layout is PluginLayout) layout.excludedProjectLibraries else emptySet()
     for (element in helper.getLibraryDependencies(module, withTests = withTests)) {
       val libRef = element.libraryReference
       val isProjectLibrary = libRef.parentReference !is JpsModuleReference
       val projectLibraryData: ProjectLibraryData?
       if (isProjectLibrary) {
         val libName = libRef.libraryName
-        if (excludedProjectLibraries.contains(libName)) {
+        // only a platform product module packs its own project library, and only when the layout does not declare it
+        // and no module of the same group already brings it; a plugin module never packs one
+        if (layout is PluginLayout ||
+            !item.isProductModule() ||
+            layout.hasLibrary(libName) ||
+            helper.hasLibraryInDependencyChainOfModuleDependencies(dependentModule = module, libraryName = libName, siblings = layout.includedModules, withTests = withTests)) {
           continue
         }
 
-        if (!includeProjectLib && !(isAutoPlugin && IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST.contains(libName))) {
-          if (isAutoPlugin &&
-              !isProjectLibraryProvided(libName = libName, layout = layout, module = module, withTests = withTests)) {
-            implicitProjectLibraryViolations.computeIfAbsent(libName) { TreeSet() }.add(moduleName)
-          }
-          continue
-        }
-
-        if (platformLayout!!.hasLibrary(libName, moduleName) || layout.hasLibrary(libName)) {
-          continue
-        }
-
-        if (helper.hasLibraryInDependencyChainOfModuleDependencies(dependentModule = module, libraryName = libName, siblings = layout.includedModules, withTests = withTests)) {
-          continue
-        }
-
-        projectLibraryData = if (layout !is PluginLayout && item.isProductModule()) {
-          ProjectLibraryData(libraryName = libName, owner = item, reason = null)
-        }
-        else {
-          ProjectLibraryData(libraryName = libName, reason = "<- $moduleName", owner = item)
-        }
+        projectLibraryData = ProjectLibraryData(libraryName = libName, reason = null, owner = item)
       }
       else {
         projectLibraryData = null
@@ -1023,7 +936,7 @@ internal fun createModuleSourcesNamesFilter(excludes: List<PathMatcher>): (Strin
   }
 }
 
-private suspend fun buildJars(
+private fun buildJars(
   assets: Collection<AssetDescriptor>,
   cache: JarCacheManager,
   isCodesignEnabled: Boolean,
@@ -1040,17 +953,15 @@ private suspend fun buildJars(
   }
 
   val list = assets.mapConcurrent { asset ->
-    withContext(CoroutineName("build jar for ${asset.relativePath}")) {
-      buildAsset(
-        asset = asset,
-        isCodesignEnabled = isCodesignEnabled,
-        context = context,
-        cache = cache,
-        useCacheAsTargetFile = useCacheAsTargetFile,
-        layout = layout,
-        helper = helper,
-      )
-    }
+    buildAsset(
+      asset = asset,
+      isCodesignEnabled = isCodesignEnabled,
+      context = context,
+      cache = cache,
+      useCacheAsTargetFile = useCacheAsTargetFile,
+      layout = layout,
+      helper = helper,
+    )
   }
 
   val sourceToNativeFiles = TreeMap<ZipSource, List<String>>(compareBy { it.file.fileName.toString() })
@@ -1117,7 +1028,7 @@ private fun buildDuplicateSourceErrorMessage(
   }
 }
 
-private suspend fun buildAsset(
+private fun buildAsset(
   asset: AssetDescriptor,
   isCodesignEnabled: Boolean,
   context: BuildContext,
@@ -1226,7 +1137,7 @@ private suspend fun buildAsset(
             }
           }
 
-          override suspend fun produce(targetFile: Path) {
+          override fun produce(targetFile: Path) {
             val addDirEntries = includedModules.any { helper.isTestPluginModule(moduleName = it.key.moduleName, module = null) }
             buildJar(targetFile = targetFile, sources = sources, nativeFileHandler = nativeFileHandler, addDirEntries = addDirEntries)
           }
@@ -1282,7 +1193,7 @@ private class NativeFileHandlerImpl(private val context: BuildContext) : NativeF
     return !isNative(name) || NativeFilesMatcher.isCompatibleWithTargetPlatform(name, context.options.targetOs, context.options.targetArch)
   }
 
-  override suspend fun sign(name: String, dataSupplier: () -> ByteBuffer): Path? {
+  override fun sign(name: String, dataSupplier: () -> ByteBuffer): Path? {
     if (!context.isMacCodeSignEnabled || context.proprietaryBuildTools.signTool.signNativeFileMode != SignNativeFileMode.ENABLED) {
       return null
     }
@@ -1320,7 +1231,7 @@ private class NativeFileHandlerImpl(private val context: BuildContext) : NativeF
   }
 }
 
-suspend fun buildJar(targetFile: Path, moduleNames: List<String>, context: CompilationContext, dryRun: Boolean = false, forTests: Boolean = false) {
+fun buildJar(targetFile: Path, moduleNames: List<String>, context: CompilationContext, dryRun: Boolean = false, forTests: Boolean = false) {
   if (dryRun) {
     return
   }

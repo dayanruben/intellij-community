@@ -25,19 +25,19 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module-library" exported="">
       <library name="kotlinc.kotlin-scripting-compiler-impl" type="repository">
-        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:kotlin-scripting-compiler-impl:2.5.0-dev-6438">
+        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:kotlin-scripting-compiler-impl:2.5.0-dev-6810">
           <verification>
-            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-scripting-compiler-impl/2.5.0-dev-6438/kotlin-scripting-compiler-impl-2.5.0-dev-6438.jar">
-              <sha256sum>547a5a51bc9df12c272ec5720035406e2993ea5807c430983cd8fc45b88d36a6</sha256sum>
+            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-scripting-compiler-impl/2.5.0-dev-6810/kotlin-scripting-compiler-impl-2.5.0-dev-6810.jar">
+              <sha256sum>e1729c202922e4f2da8c02cefb0bdd37f09bf06b1735130e21a4da8cf27d073b</sha256sum>
             </artifact>
           </verification>
         </properties>
         <CLASSES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-scripting-compiler-impl/2.5.0-dev-6438/kotlin-scripting-compiler-impl-2.5.0-dev-6438.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-scripting-compiler-impl/2.5.0-dev-6810/kotlin-scripting-compiler-impl-2.5.0-dev-6810.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-scripting-compiler-impl/2.5.0-dev-6438/kotlin-scripting-compiler-impl-2.5.0-dev-6438-sources.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-scripting-compiler-impl/2.5.0-dev-6810/kotlin-scripting-compiler-impl-2.5.0-dev-6810-sources.jar!/" />
         </SOURCES>
       </library>
     </orderEntry>

@@ -4,9 +4,8 @@ package com.jetbrains.python.sdk.add.v2.conda
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.community.execService.BinaryToExec
-import com.intellij.python.pytools.Version
-import com.intellij.python.pytools.VersionFormatException
-import com.intellij.python.pytools.getToolVersion
+import com.intellij.python.pytools.backend.Version
+import com.intellij.python.pytools.backend.getToolVersion
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.errorProcessing.PyResult
@@ -91,12 +90,4 @@ internal suspend fun PythonAddInterpreterModel<*>.selectCondaEnvironment(moduleO
   return PyResult.success(sdk)
 }
 
-suspend fun BinaryToExec.getCondaVersion(): PyResult<Version> {
-  val version = getToolVersion("conda").getOr { return it }
-  return try {
-    PyResult.success(version)
-  }
-  catch (ex: VersionFormatException) {
-    PyResult.localizedError(ex.localizedMessage)
-  }
-}
+suspend fun BinaryToExec.getCondaVersion(): PyResult<Version> = getToolVersion("conda")

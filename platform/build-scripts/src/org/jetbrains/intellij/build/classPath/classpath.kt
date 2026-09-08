@@ -1,5 +1,5 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("ReplaceGetOrSet", "ReplaceJavaStaticMethodWithKotlinAnalog")
+@file:Suppress("ReplaceGetOrSet", "ReplaceJavaStaticMethodWithKotlinAnalog", "DestructuringDeclaration")
 
 package org.jetbrains.intellij.build.classPath
 
@@ -10,7 +10,10 @@ import org.jdom.Element
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.intellij.build.BuildContext
+import org.jetbrains.intellij.build.ContentModuleFilter
+import org.jetbrains.intellij.build.DescriptorSearchPass
 import org.jetbrains.intellij.build.JvmArchitecture
+import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.PLATFORM_LOADER_JAR
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
@@ -18,6 +21,7 @@ import org.jetbrains.intellij.build.UTIL_8_JAR
 import org.jetbrains.intellij.build.UTIL_JAR
 import org.jetbrains.intellij.build.dev.AssembledPrepackedPluginContentJar
 import org.jetbrains.intellij.build.getUnprocessedPluginXmlContent
+import org.jetbrains.intellij.build.readDescriptor
 import org.jetbrains.intellij.build.impl.DescriptorCacheContainer
 import org.jetbrains.intellij.build.impl.LIB_DIRECTORY
 import org.jetbrains.intellij.build.impl.ModuleIncludeReasons
@@ -177,7 +181,7 @@ fun orderCoreClasspathEntries(entries: Collection<String>): List<String> {
  * This generation is based on the plugins' distribution,
  * so we would like to include all distribution entities of **embedded** modules (and their libraries) from plugins marked with `use-idea-classloader`.
  */
-internal suspend fun generateCoreClasspathFromPlugins(
+internal fun generateCoreClasspathFromPlugins(
   platformLayout: PlatformLayout,
   pluginBuildResults: List<PluginBuildResult>,
   context: BuildContext,
@@ -207,13 +211,32 @@ internal suspend fun generateCoreClasspathFromPlugins(
  * Provides a set of content modules ("embedded" ones) and the module of the plugin itself, if it uses `use-idea-classloader`.
  * These modules should be included in the core classpath, also their libraries should be treated as platform libraries.
  */
-internal suspend fun getEmbeddedContentModulesOfPluginsWithUseIdeaClassloader(
+internal fun getEmbeddedContentModulesOfPluginsWithUseIdeaClassloader(
   pluginMainModule: String,
   cacheContainer: ScopedCachedDescriptorContainer?,
   context: BuildContext,
 ): Set<String> {
-  val pluginModule = context.outputProvider.findRequiredModule(pluginMainModule)
-  val pluginXmlBytes = cacheContainer?.getCachedFileData(PLUGIN_XML_RELATIVE_PATH) ?: getUnprocessedPluginXmlContent(pluginModule, context.outputProvider)
+  return getEmbeddedContentModulesOfPluginsWithUseIdeaClassloader(
+    pluginMainModule, cacheContainer, context.outputProvider, context.getContentModuleFilter(), sourceOnly = false,
+  )
+}
+
+internal fun getEmbeddedContentModulesOfPluginsWithUseIdeaClassloader(
+  pluginMainModule: String,
+  cacheContainer: ScopedCachedDescriptorContainer?,
+  outputProvider: ModuleOutputProvider,
+  contentModuleFilter: ContentModuleFilter,
+  sourceOnly: Boolean,
+): Set<String> {
+  val pluginModule = outputProvider.findRequiredModule(pluginMainModule)
+  val pluginXmlBytes = cacheContainer?.getCachedFileData(PLUGIN_XML_RELATIVE_PATH) ?: if (sourceOnly) {
+    requireNotNull(readDescriptor(pluginModule, PLUGIN_XML_RELATIVE_PATH, outputProvider, DescriptorSearchPass.PRODUCTION_SOURCES)) {
+      "Cannot find the source plugin descriptor in $pluginMainModule"
+    }
+  }
+  else {
+    getUnprocessedPluginXmlContent(pluginModule, outputProvider)
+  }
   val pluginXmlContent = pluginXmlBytes.decodeToString()
   val rootElement = JDOMUtil.load(pluginXmlContent)
   if (rootElement.getAttribute("use-idea-classloader")?.value?.toBoolean() != true) {
@@ -222,7 +245,7 @@ internal suspend fun getEmbeddedContentModulesOfPluginsWithUseIdeaClassloader(
 
   val embeddedModules = LinkedHashSet<String>()
   embeddedModules.add(pluginMainModule)
-  filterAndProcessContentModules(rootElement, pluginMainModule, context) { _, moduleName, loadingRule ->
+  filterAndProcessContentModules(rootElement, pluginMainModule, contentModuleFilter) { _, moduleName, loadingRule ->
     if (loadingRule == "embedded") {
       embeddedModules.add(moduleName)
     }
@@ -384,7 +407,7 @@ internal fun mergePrepackedIntoAssetOrder(
 }
 
 @Suppress("BlockingMethodInNonBlockingContext")
-internal suspend fun generatePluginClassPath(
+internal fun generatePluginClassPath(
   pluginEntries: List<PluginBuildResult>,
   descriptorFileProvider: DescriptorCacheContainer,
   platformLayout: PlatformLayout,

@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.python.pyright` start
+content_module_jar(module = ":pyright")
+### auto-generated section `dev intellij.python.pyright` end
+
 ### auto-generated section `build intellij.python.pyright` start
 jvm_library(
     name = "pyright",
@@ -45,13 +49,10 @@ jvm_library(
         "//libraries/lsp4j",
         "//platform/projectModel-api:projectModel",
         "//python/python-lsp-core:lsp-core",
-        "//python/python-pytools-ui:pytools-ui",
         "//platform/analysis-api:analysis",
-        "//python/python-pytools:pytools",
+        "//python/python-pytools/backend",
     ],
 )
-
-content_module_jar(module = ":pyright")
 
 jvm_library(
     name = "pyright_test_lib",
@@ -91,9 +92,8 @@ jvm_library(
         "//libraries/lsp4j:lsp4j_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//python/python-lsp-core:lsp-core_test_lib",
-        "//python/python-pytools-ui:pytools-ui_test_lib",
         "//platform/analysis-api:analysis_test_lib",
-        "//python/python-pytools:pytools_test_lib",
+        "//python/python-pytools/backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.pyright` end

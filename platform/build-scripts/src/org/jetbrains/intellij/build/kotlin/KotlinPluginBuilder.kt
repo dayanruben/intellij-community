@@ -18,7 +18,7 @@ import org.jetbrains.intellij.build.impl.consumeDataByPrefix
 import org.jetbrains.intellij.build.impl.createBuildContext
 import java.nio.file.Path
 
-abstract class KotlinPluginBuilder(val kind : KotlinPluginKind = System.getProperty("kotlin.plugin.kind")?.let(KotlinPluginKind::valueOf) ?: KotlinPluginKind.IJ) {
+abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProperty("kotlin.plugin.kind")?.let(KotlinPluginKind::valueOf) ?: KotlinPluginKind.IJ) {
   enum class KotlinPluginKind { IJ, AS, MI, Fleet }
 
   companion object {
@@ -54,7 +54,6 @@ abstract class KotlinPluginBuilder(val kind : KotlinPluginKind = System.getPrope
 
     private val LIBRARIES_UNPACKED = java.util.List.of(
       "kotlinc.kotlin-gradle-statistics",
-      "kotlin-metadata",
       "kotlinc.kotlin-build-tools-api",
       "kotlinc.kotlin-build-tools-impl",
       "kotlinc.kotlin-build-tools-cri-impl",
@@ -96,17 +95,22 @@ abstract class KotlinPluginBuilder(val kind : KotlinPluginKind = System.getPrope
       spec.withCustomVersion(KotlinPluginVersion(kind))
 
       if (kind == KotlinPluginKind.AS) {
-        spec.withRawPluginXmlPatcher(DescriptorMarkerPatcher(listOf(DescriptorMarker(
-          literal = "<!-- IJ/AS-DEPENDENCY-PLACEHOLDER -->",
-          replacement = """<plugin id="com.intellij.modules.androidstudio"/>""",
-        ))))
+        spec.withRawPluginXmlPatcher(
+          DescriptorMarkerPatcher(
+            listOf(
+              DescriptorMarker(
+                literal = "<!-- IJ/AS-DEPENDENCY-PLACEHOLDER -->",
+                replacement = """<plugin id="com.intellij.modules.androidstudio"/>""",
+              )
+            )
+          )
+        )
       }
 
       addition?.invoke(spec)
     }
   }
 
-  /** paired with [excludeKotlinLibraries] */
   fun basePluginsAndLibraries(spec: PluginLayout.PluginLayoutSpec) {
     spec.withModules(KOTLINC_LIBRARY_MODULES)
     spec.withModule(
@@ -125,27 +129,17 @@ abstract class KotlinPluginBuilder(val kind : KotlinPluginKind = System.getPrope
     }
   }
 
-  /** paired with [basePluginsAndLibraries] */
-  fun excludeKotlinLibraries(spec: PluginLayout.PluginLayoutSpec) {
-    for (libraryName in LIBRARIES_UNPACKED) {
-      spec.excludeProjectLibrary(libraryName)
+  fun build(home: Path, properties: ProductProperties) {
+    org.jetbrains.intellij.build.BuildLifetime().use { lifetime ->
+      val context = createBuildContext(
+        setupTracer = true,
+        projectHome = home,
+        productProperties = properties,
+        options = BuildOptions(enableEmbeddedFrontend = false),
+        lifetime = lifetime,
+      )
+      createBuildTasks(context).buildNonBundledPlugins(listOf(MAIN_KOTLIN_PLUGIN_MODULE))
     }
-    for (library in COMPILER_PLUGINS) {
-      spec.excludeProjectLibrary(library)
-    }
-    for (library in LIBRARIES) {
-      spec.excludeProjectLibrary(library)
-    }
-  }
-
-  suspend fun build(home: Path, properties: ProductProperties) {
-    val context = createBuildContext(
-      setupTracer = true,
-      projectHome = home,
-      productProperties = properties,
-      options = BuildOptions(enableEmbeddedFrontend = false)
-    )
-    createBuildTasks(context).buildNonBundledPlugins(listOf(MAIN_KOTLIN_PLUGIN_MODULE))
   }
 
   /**

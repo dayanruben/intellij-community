@@ -172,6 +172,7 @@ object CommunityRepositoryModules {
       }
 
       spec.withModule("intellij.idea.community.build.dependencies")
+      spec.withModule("intellij.platform.buildScripts.concurrency")
       spec.withModule("intellij.maven.artifactResolver.m31", "artifact-resolver-m31.jar")
       spec.withModule("intellij.maven.artifactResolver.common", "artifact-resolver-m31.jar")
       spec.withModule("intellij.maven.server", relativeJarPath = "maven-server.jar")
@@ -190,9 +191,7 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.libraries.groovy.ant", "groovy-ant.jar")
       spec.withProjectLibrary("Ant", "ant", LibraryPackMode.STANDALONE_SEPARATE)
     },
-    pluginAuto(listOf("intellij.gradle.java.plugin", "intellij.gradle.java", "intellij.gradle.jps")) {
-      it.excludeProjectLibrary("Ant")
-    },
+    pluginAuto(listOf("intellij.gradle.java.plugin", "intellij.gradle.java", "intellij.gradle.jps")),
     pluginAuto("intellij.junit") { spec ->
       spec.withModule("intellij.junit.rt", "junit-rt.jar")
       spec.withModule("intellij.junit.v5.rt", "junit5-rt.jar")
@@ -201,7 +200,6 @@ object CommunityRepositoryModules {
     plugin("intellij.testng") { spec ->
       spec.mainJarName = "testng-plugin.jar"
       spec.withModule("intellij.testng.rt", "testng-rt.jar")
-      spec.withProjectLibrary("TestNG")
     },
     pluginAuto(listOf("intellij.devkit")) { spec ->
       spec.withModule("intellij.devkit.jps")
@@ -307,7 +305,7 @@ object CommunityRepositoryModules {
       spec.withModule("intellij.android.visual-lint")
 
       // libs:
-      spec.withProjectLibrary("layoutlib")
+      // layoutlib comes from the intellij.libraries.layoutlib content module, declared in this plugin's descriptor
 
       // :libs
 
@@ -695,7 +693,7 @@ object CommunityRepositoryModules {
       //spec.withProjectLibrary("gradle-shared-proto")
       spec.withProjectLibrary("javax-inject")
       //spec.withProjectLibrary("jetty")
-      spec.withProjectLibrary("kotlinx-coroutines-guava")
+      spec.withModuleLibrary("kotlinx-coroutines-guava", "intellij.libraries.kotlinx.coroutines.guava", "")
       //spec.withProjectLibrary("libadb-server-proto")
       //spec.withProjectLibrary("oauth2")
       //spec.withModuleLibrary("libandroid-core-proto", "intellij.android.projectSystem.gradle", "")
@@ -797,7 +795,7 @@ private fun copyMavenLibraries(libraries: List<BundledMavenDownloader.MavenLibra
   }
 }
 
-private suspend fun copyAnt(mainModule: String, pluginDir: Path, context: BuildContext): List<DistributionFileEntry> {
+private fun copyAnt(mainModule: String, pluginDir: Path, context: BuildContext): List<DistributionFileEntry> {
   val antDir = pluginDir.resolve("dist")
   return spanBuilder("copy Ant lib").setAttribute("antDir", antDir.toString()).use {
     val sources = ArrayList<ZipSource>()

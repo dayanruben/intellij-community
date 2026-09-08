@@ -2,6 +2,8 @@
 package org.jetbrains.intellij.build.fus
 
 import com.google.gson.JsonParser
+import com.intellij.platform.buildScripts.concurrency.Subtask
+import com.intellij.platform.buildScripts.concurrency.TaskScope
 import com.jetbrains.fus.reporting.FusJsonSerializer
 import com.jetbrains.fus.reporting.configuration.ConfigurationClient
 import com.jetbrains.fus.reporting.configuration.ConfigurationClientFactory
@@ -12,8 +14,6 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
-import org.jetbrains.intellij.build.Subtask
-import org.jetbrains.intellij.build.TaskScope
 import org.jetbrains.intellij.build.downloadAsBytes
 import org.jetbrains.intellij.build.impl.ModuleOutputPatcher
 import org.jetbrains.intellij.build.impl.createSkippableJob
@@ -109,7 +109,7 @@ private fun appendProductCode(uri: String, context: BuildContext): String {
   return if (uri.endsWith('/')) "$uri$name" else "$uri/$name"
 }
 
-private suspend fun download(url: String): ByteArray {
+private fun download(url: String): ByteArray {
   Span.current().addEvent("download", Attributes.of(AttributeKey.stringKey("url"), url))
   return downloadAsBytes(url)
 }
@@ -123,20 +123,21 @@ private fun String.parseDate(): Long? {
   for (format in DATE_FORMATS) {
     try {
       return ZonedDateTime.parse(this, format).toInstant().toEpochMilli()
-    } catch (_: DateTimeParseException) {
+    }
+    catch (_: DateTimeParseException) {
     }
   }
   return null
 }
 
-private suspend fun lastModified(url: String): ByteArray {
+private fun lastModified(url: String): ByteArray {
   Span.current().addEvent("last-modified", Attributes.of(AttributeKey.stringKey("url"), url))
   val dateTimeString = lastModifiedFromHeadRequest(url)
   val epochTime = dateTimeString?.parseDate() ?: 0L
   return epochTime.toString().toByteArray()
 }
 
-private suspend fun serviceUri(featureUsageStatisticsProperties: FeatureUsageStatisticsProperties, context: BuildContext): ConfigurationClient {
+private fun serviceUri(featureUsageStatisticsProperties: FeatureUsageStatisticsProperties, context: BuildContext): ConfigurationClient {
   val providerUri = appendProductCode(featureUsageStatisticsProperties.metadataProviderUri, context)
   Span.current().addEvent("parsing", Attributes.of(AttributeKey.stringKey("url"), providerUri))
   val appInfo = context.applicationInfo
@@ -149,16 +150,16 @@ private suspend fun serviceUri(featureUsageStatisticsProperties: FeatureUsageSta
   return configurationClient
 }
 
-private suspend fun metadataServiceUri(featureUsageStatisticsProperties: FeatureUsageStatisticsProperties, context: BuildContext): String {
+private fun metadataServiceUri(featureUsageStatisticsProperties: FeatureUsageStatisticsProperties, context: BuildContext): String {
   val appInfo = context.applicationInfo
-  val metadataVersion = (appInfo.majorVersion.substring(2,4) + appInfo.minorVersionMainPart).toInt()
+  val metadataVersion = (appInfo.majorVersion.substring(2, 4) + appInfo.minorVersionMainPart).toInt()
   return serviceUri(featureUsageStatisticsProperties, context).provideMetadataProductUrl(metadataVersion)!!
 }
 
-private suspend fun dictionaryServiceUri(featureUsageStatisticsProperties: FeatureUsageStatisticsProperties, context: BuildContext, fileName: String): String
-  = "${serviceUri(featureUsageStatisticsProperties, context).provideDictionaryEndpoint()!!}${featureUsageStatisticsProperties.recorderId}/$fileName"
+private fun dictionaryServiceUri(featureUsageStatisticsProperties: FeatureUsageStatisticsProperties, context: BuildContext, fileName: String): String =
+  "${serviceUri(featureUsageStatisticsProperties, context).provideDictionaryEndpoint()!!}${featureUsageStatisticsProperties.recorderId}/$fileName"
 
-class FusJacksonSerializer: FusJsonSerializer {
+class FusJacksonSerializer : FusJsonSerializer {
   private val SERIALIZATION_MAPPER: JsonMapper by lazy {
     JsonMapper
       .builder()
@@ -181,18 +182,21 @@ class FusJacksonSerializer: FusJsonSerializer {
     val serializer = if (prettyPrint) {
       SERIALIZATION_MAPPER
         .writerWithDefaultPrettyPrinter()
-    } else {
+    }
+    else {
       SERIALIZATION_MAPPER.writer()
     }
     serializer.writeValueAsString(data)
-  } catch (e: Exception) {
+  }
+  catch (e: Exception) {
     throw SerializationException(e)
   }
 
   override fun <T : Any> fromJson(json: String, clazz: KClass<T>): T = try {
     DESERIALIZATION_MAPPER
       .readValue(json, clazz.java)
-  } catch (e: Exception) {
+  }
+  catch (e: Exception) {
     throw SerializationException(e)
   }
 }

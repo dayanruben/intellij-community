@@ -2,6 +2,10 @@ load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.kotlin.projectWizard.core` start
+content_module_jar(module = ":core")
+### auto-generated section `dev intellij.kotlin.projectWizard.core` end
+
 ### auto-generated section `build intellij.kotlin.projectWizard.core` start
 jvm_library(
     name = "core",
@@ -51,8 +55,6 @@ jvm_library(
         "@lib//:kotlinc-kotlin-jps-plugin-classpath",
     ],
 )
-
-content_module_jar(module = ":core")
 
 jvm_library(
     name = "core_test_lib",
@@ -162,7 +164,8 @@ jvm_library(
         "//libraries/junit4:junit4_test_lib",
         "//libraries/kotlin/test-junit:libraries-kotlin-test-junit",
         "//libraries/kotlin/test-junit:libraries-kotlin-test-junit_test_lib",
-        "@lib//:kotlin-test",
+        "//libraries/kotlin/test:libraries-kotlinTest",
+        "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
         "//platform/lang-core",
         "//platform/lang-core:lang-core_test_lib",
         "//platform/core-api:core",

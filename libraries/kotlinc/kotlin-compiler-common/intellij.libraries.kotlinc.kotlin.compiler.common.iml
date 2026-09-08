@@ -25,19 +25,19 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module-library" exported="">
       <library name="kotlinc.kotlin-compiler-common" type="repository">
-        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:kotlin-compiler-common-for-ide:2.5.0-dev-6438">
+        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:kotlin-compiler-common-for-ide:2.5.0-dev-6810">
           <verification>
-            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-common-for-ide/2.5.0-dev-6438/kotlin-compiler-common-for-ide-2.5.0-dev-6438.jar">
-              <sha256sum>2c8998b06ba72d2c66a1bb87c75c057f8930ea4f9cbb39e6c786570e5cf7c160</sha256sum>
+            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-common-for-ide/2.5.0-dev-6810/kotlin-compiler-common-for-ide-2.5.0-dev-6810.jar">
+              <sha256sum>ba84e9257e1d2f5cfc2fccc2dcd7daf7ff003bb8c2c4fa54098f63d7f8ee9ec0</sha256sum>
             </artifact>
           </verification>
         </properties>
         <CLASSES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-common-for-ide/2.5.0-dev-6438/kotlin-compiler-common-for-ide-2.5.0-dev-6438.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-common-for-ide/2.5.0-dev-6810/kotlin-compiler-common-for-ide-2.5.0-dev-6810.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-common-for-ide/2.5.0-dev-6438/kotlin-compiler-common-for-ide-2.5.0-dev-6438-sources.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/kotlin-compiler-common-for-ide/2.5.0-dev-6810/kotlin-compiler-common-for-ide-2.5.0-dev-6810-sources.jar!/" />
         </SOURCES>
       </library>
     </orderEntry>

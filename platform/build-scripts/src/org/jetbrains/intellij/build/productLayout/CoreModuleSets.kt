@@ -53,6 +53,9 @@ object CoreModuleSets {
     embeddedModule("intellij.libraries.jetbrains.annotations")
 
     embeddedModule("intellij.libraries.kotlin.reflect")
+    // core, because no plugin can own the copy: the Java, Kotlin and API Watcher plugins all need it, and four
+    // products bundle the Kotlin plugin without the Java plugin. Not embedded: only plugin content reads it.
+    module("intellij.libraries.kotlin.metadata")
     // intellij.platform.wsl.impl and intellij.platform.util.http uses it
     embeddedModule("intellij.libraries.kotlinx.io")
 
@@ -203,9 +206,8 @@ object CoreModuleSets {
    * `intellij.libraries.opentelemetry.exporter.sender.jdk` are here because the OTLP exporter needs them at
    * runtime, not because any platform module compiles against them.
    *
-   * `intellij.platform.diagnostic.telemetry.exporters` is not listed: it is merged into
-   * `intellij.platform.diagnostic.telemetry.impl.jar` by the module's `module-content.yaml`, so it follows
-   * `intellij.platform.diagnostic.telemetry.impl` automatically.
+   * `intellij.platform.diagnostic.telemetry.exporters` is not listed: the platform layout merges it into
+   * `intellij.platform.diagnostic.telemetry.impl.jar`, so it follows `intellij.platform.diagnostic.telemetry.impl` automatically.
    *
    * @see telemetry for the API and the OpenTelemetry API/SDK wrappers
    */
@@ -331,6 +333,7 @@ object CoreModuleSets {
    * Included transitively by `librariesPlatform()`.
    */
   fun librariesKtor(): ModuleSet = moduleSet("libraries.ktor") {
+    embeddedModule("intellij.libraries.kotlinx.serialization.json.io")
     embeddedModule("intellij.libraries.ktor.io")
     embeddedModule("intellij.libraries.ktor.utils")
     embeddedModule("intellij.libraries.ktor.network.tls")

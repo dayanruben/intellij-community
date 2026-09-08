@@ -28,8 +28,9 @@
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.python.community.execService"/>
     <module name="intellij.python.lsp.core"/>
-    <module name="intellij.python.pytools"/>
-    <module name="intellij.python.pytools.ui"/>
+    <module name="intellij.python.lsp.core.common"/>
+    <module name="intellij.python.pytools.backend"/>
+    <module name="intellij.python.pytools.common"/>
     <module name="intellij.toml.core"/>
     <module name="intellij.xml.parser"/>
   </dependencies>

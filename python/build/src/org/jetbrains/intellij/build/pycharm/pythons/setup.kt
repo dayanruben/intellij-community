@@ -60,7 +60,7 @@ fun runCommand(vararg args: String, env: Map<String, String> = emptyMap()) {
 
 private val isWindows = localEel.platform.osFamily.isWindows
 
-suspend fun setupPyEnv() {
+fun setupPyEnv() {
   if (pyEnvHome.exists()) return
   println("*** Setup pyenv ***")
   val pyEnv: Path
@@ -80,7 +80,7 @@ suspend fun setupPyEnv() {
 }
 
 @OptIn(ExperimentalPathApi::class)
-suspend fun Python.installUsingPyEnv(): Path {
+fun Python.installUsingPyEnv(): Path {
   setupPyEnv()
   val output = pythonsHome / directoryName
   if (output.exists()) return output
@@ -113,7 +113,7 @@ fun Python.installPackages() {
   }
 }
 
-suspend fun Python.build() {
+fun Python.build() {
   val output = installUsingPyEnv()
   installPackages()
   runCommand("tar", "cfz", (buildRoot.communityRoot / "out" / "pythons" / "$directoryName.tar.gz").toString(), output.toString())

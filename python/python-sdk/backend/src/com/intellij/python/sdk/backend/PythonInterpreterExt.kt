@@ -3,20 +3,20 @@ package com.intellij.python.sdk.backend
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
+import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.provider.getEelDescriptor
-import com.intellij.python.pytools.PyTool
+import com.intellij.python.pytools.backend.PyTool
 import com.intellij.python.sdk.backend.impl.VERSION_NUMBER_RE
 import com.intellij.python.sdk.backend.impl.associationProblem
 import com.intellij.python.sdk.backend.impl.buildItem
 import com.intellij.python.sdk.backend.impl.recordedPythonInfo
 import com.intellij.python.sdk.common.PyInterpreterItem
 import com.intellij.python.sdk.common.PyInterpreterRef
-import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.jetbrains.python.PyNames
@@ -40,7 +40,7 @@ private fun EelOsFamily.executableName(binaryName: String): String = when (this)
  * The receiver is the interpreter because that is what determines where to look: the answer is a property of this
  * environment, not of the tool. Only local interpreters are supported for now.
  */
-fun PythonInterpreter.findToolExecutable(tool: PyTool, executableName: String = tool.packageName.name): Path? =
+fun PythonInterpreter.findToolExecutable(tool: PyTool<*>, executableName: String = tool.packageName.name): Path? =
   pythonBinaryPath?.let { binary ->
     val osFamily = binary.getEelDescriptor().osFamily
     binary.resolveSibling(osFamily.executableName(executableName)).takeIf { it.isExecutable() }
