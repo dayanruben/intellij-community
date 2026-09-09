@@ -8672,6 +8672,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/destructingShortForm/fullFormLambdaNameMismatch.kt");
         }
 
+        @TestMetadata("fullFormValueClasses.kt")
+        public void testFullFormValueClasses() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/fullFormValueClasses.kt");
+        }
+
         @TestMetadata("fullFormWithAllUnusedVariable.kt")
         public void testFullFormWithAllUnusedVariable() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/destructingShortForm/fullFormWithAllUnusedVariable.kt");
@@ -10938,6 +10943,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/modifiers/openObject.kt");
             }
 
+            @TestMetadata("openValueClass.kt")
+            public void testOpenValueClass() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/modifiers/openValueClass.kt");
+            }
+
             @TestMetadata("openVarWithPrivateSetter1.kt")
             public void testOpenVarWithPrivateSetter1() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/modifiers/openVarWithPrivateSetter1.kt");
@@ -11006,6 +11016,16 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("packageMemberCannotBeProtected.kt")
             public void testPackageMemberCannotBeProtected() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/modifiers/packageMemberCannotBeProtected.kt");
+            }
+
+            @TestMetadata("privateConstInInterfaceRemoveConst.kt")
+            public void testPrivateConstInInterfaceRemoveConst() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/modifiers/privateConstInInterfaceRemoveConst.kt");
+            }
+
+            @TestMetadata("privateConstInInterfaceRemovePrivate.kt")
+            public void testPrivateConstInInterfaceRemovePrivate() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/modifiers/privateConstInInterfaceRemovePrivate.kt");
             }
 
             @TestMetadata("redundantOpenInInterface.kt")
@@ -18179,6 +18199,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("parameterWithComment.kt")
             public void testParameterWithComment() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/variables/removeValVarFromParameter/parameterWithComment.kt");
+            }
+
+            @TestMetadata("sealedValueClassConstructorParameter.kt")
+            public void testSealedValueClassConstructorParameter() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/variables/removeValVarFromParameter/sealedValueClassConstructorParameter.kt");
             }
 
             @TestMetadata("secondaryConstructorParameter.kt")

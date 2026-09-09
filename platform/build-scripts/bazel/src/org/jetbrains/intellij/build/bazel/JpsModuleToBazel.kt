@@ -110,9 +110,11 @@ internal class JpsModuleToBazel {
         kotlincDefaults = kotlincDefaults,
       )
       val moduleList = generator.computeModuleList(m2RepoPath, skipGenerationOfPluginTargets)
+      val bazelFilesLoader = BazelFilesLoader()
+      val manuallyWrittenAttributes = ManuallyWrittenAttributes(bazelFilesLoader)
       // first, generate community to collect libs that used by community (to separate community and ultimate libs)
-      val communityResult = generator.generateModuleBuildFiles(moduleList, isCommunity = true)
-      val ultimateResult = generator.generateModuleBuildFiles(moduleList, isCommunity = false)
+      val communityResult = generator.generateModuleBuildFiles(moduleList, bazelFilesLoader, manuallyWrittenAttributes, isCommunity = true)
+      val ultimateResult = generator.generateModuleBuildFiles(moduleList, bazelFilesLoader, manuallyWrittenAttributes, isCommunity = false)
       generator.save(communityResult.moduleBuildFiles)
       generator.save(ultimateResult.moduleBuildFiles)
 

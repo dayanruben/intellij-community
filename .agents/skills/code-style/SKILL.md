@@ -9,7 +9,7 @@ Follow the IntelliJ Coding Guidelines with these IntelliJ-specific rules.
 
 ## Language
 
-- Prefer Kotlin for new files unless the user explicitly requests Java.
+- Use Kotlin for new files unless the user explicitly requests Java.
 - Keep existing Java files in Java unless the task requires a language conversion.
 - Before writing or reviewing Java, read [Modern Java](references/modern-java.md).
 - Use idiomatic Kotlin: extension functions, data classes, null safety
@@ -27,3 +27,21 @@ Follow the IntelliJ Coding Guidelines with these IntelliJ-specific rules.
   - Line length: 140 characters max
   - Braces: `else`, `catch`, and `finally` on new lines
 - Only in `/rustrover` directory you must always use standard Kotlin formatting rules with 4 spaces indentation.
+
+## Error handling
+
+- In a `catch` block for `Throwable` or `Exception`, call `com.intellij.diagnostic.rethrowControlFlowException(e)` first.
+  It rethrows a control flow exception, such as `CancellationException`. A control flow exception must never reach the log.
+- Do not catch or rethrow `CancellationException` explicitly, and do not test the exception type by hand.
+- In Java, static-import `com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException`.
+- Do not use the deprecated `com.intellij.openapi.diagnostic.rethrowControlFlowException`.
+
+```kotlin
+try {
+  doWork()
+}
+catch (e: Throwable) {
+  rethrowControlFlowException(e)
+  LOG.error(e)
+}
+```

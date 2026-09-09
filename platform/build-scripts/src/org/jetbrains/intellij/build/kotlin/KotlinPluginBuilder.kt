@@ -39,7 +39,9 @@ abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProper
       "intellij.libraries.kotlinc.analysis.api.impl.base",
       "intellij.libraries.kotlinc.analysis.api.k2",
       "intellij.libraries.kotlinc.analysis.api.platform.interface",
+      "intellij.libraries.kotlinc.kotlin.compiler.fe10",
       "intellij.libraries.kotlinc.kotlin.compiler.fir",
+      "intellij.libraries.kotlinc.kotlin.compiler.ir",
       "intellij.libraries.kotlinc.kotlin.jps.common",
       "intellij.libraries.kotlinc.kotlin.script.runtime",
       "intellij.libraries.kotlinc.kotlin.scripting.common",
@@ -48,6 +50,14 @@ abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProper
       "intellij.libraries.kotlinc.kotlin.scripting.jvm",
       "intellij.libraries.kotlinc.low.level.api.fir",
       "intellij.libraries.kotlinc.symbol.light.classes",
+      "intellij.libraries.kotlinc.allopen.compiler.plugin",
+      "intellij.libraries.kotlinc.noarg.compiler.plugin",
+      "intellij.libraries.kotlinc.sam.with.receiver.compiler.plugin",
+      "intellij.libraries.kotlinc.lombok.compiler.plugin",
+      "intellij.libraries.kotlinc.compose.compiler.plugin",
+      "intellij.libraries.kotlinc.js.plain.objects.compiler.plugin",
+      "intellij.libraries.kotlinc.kotlin.dataframe.compiler.plugin",
+      "intellij.libraries.kotlinc.parcelize.compiler.plugin",
       "intellij.libraries.kotlinc.scripting.compiler.plugin",
       "intellij.libraries.kotlinc.assignment.compiler.plugin",
     )
@@ -60,22 +70,10 @@ abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProper
     )
 
     private val LIBRARIES = java.util.List.of(
-      "kotlinc.kotlin-compiler-fe10",
-      "kotlinc.kotlin-compiler-ir",
       "vavr",
       "javax-inject",
     )
 
-    private val COMPILER_PLUGINS = java.util.List.of(
-      "kotlinc.allopen-compiler-plugin",
-      "kotlinc.noarg-compiler-plugin",
-      "kotlinc.sam-with-receiver-compiler-plugin",
-      "kotlinc.parcelize-compiler-plugin",
-      "kotlinc.lombok-compiler-plugin",
-      "kotlinc.compose-compiler-plugin",
-      "kotlinc.js-plain-objects-compiler-plugin",
-      "kotlinc.kotlin-dataframe-compiler-plugin",
-    )
   }
 
   open fun kotlinPlugin(addition: ((PluginLayout.PluginLayoutSpec) -> Unit)? = null): PluginLayout {
@@ -120,9 +118,6 @@ abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProper
     for (libraryName in LIBRARIES_UNPACKED) {
       spec.withProjectLibraryUnpackedIntoJar(libraryName, spec.mainJarName)
     }
-    for (library in COMPILER_PLUGINS) {
-      spec.withProjectLibrary(library)
-    }
     withKotlincKotlinCompilerCommonLibrary(spec, spec.mainModule)
     for (library in LIBRARIES) {
       spec.withProjectLibrary(library)
@@ -161,7 +156,7 @@ abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProper
       spec.withModule("intellij.kotlin.jsr223")
 
       withKotlincKotlinCompilerCommonLibrary(spec, mainModuleName)
-      spec.withProjectLibrary("kotlinc.kotlin-compiler-fe10")
+      spec.withModule("intellij.libraries.kotlinc.kotlin.compiler.fe10")
       withKotlincInPluginDirectory(spec = spec)
 
       addition?.invoke(spec)

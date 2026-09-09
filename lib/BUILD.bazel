@@ -6460,50 +6460,6 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.kotlin/allopen-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-allopen-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/allopen-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-allopen-compiler-plugin",
-    jar = "@org_jetbrains_kotlin-allopen-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-allopen-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-allopen-compiler-plugin-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-allopen-compiler-plugin"],
-)
-
-copy_file(
-    name = "org.jetbrains.kotlin/compose-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-compose-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/compose-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-compose-compiler-plugin",
-    jar = "@org_jetbrains_kotlin-compose-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-compose-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-compose-compiler-plugin-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-compose-compiler-plugin"],
-)
-
-copy_file(
     name = "org.jetbrains.kotlin/incremental-compilation-impl-tests-for-ide-2.5.0-dev-6810.jar_copy",
     src = "@org_jetbrains_kotlin-incremental-compilation-impl-tests-for-ide-2_5_0-dev-6810_http//file",
     out = "org.jetbrains.kotlin/incremental-compilation-impl-tests-for-ide-2.5.0-dev-6810.jar",
@@ -6523,28 +6479,6 @@ java_library(
     neverlink = True,
     visibility = ["//visibility:public"],
     exports = [":kotlinc-incremental-compilation-impl-tests"],
-)
-
-copy_file(
-    name = "org.jetbrains.kotlin/js-plain-objects-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-js-plain-objects-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/js-plain-objects-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-js-plain-objects-compiler-plugin",
-    jar = "@org_jetbrains_kotlin-js-plain-objects-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-js-plain-objects-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-js-plain-objects-compiler-plugin-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-js-plain-objects-compiler-plugin"],
 )
 
 copy_file(
@@ -6658,50 +6592,6 @@ java_library(
 )
 
 copy_file(
-    name = "org.jetbrains.kotlin/kotlin-compiler-fe10-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-kotlin-compiler-fe10-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/kotlin-compiler-fe10-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-kotlin-compiler-fe10",
-    jar = "@org_jetbrains_kotlin-kotlin-compiler-fe10-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-kotlin-compiler-fe10-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-kotlin-compiler-fe10-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-kotlin-compiler-fe10"],
-)
-
-copy_file(
-    name = "org.jetbrains.kotlin/kotlin-compiler-ir-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-kotlin-compiler-ir-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/kotlin-compiler-ir-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-kotlin-compiler-ir",
-    jar = "@org_jetbrains_kotlin-kotlin-compiler-ir-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-kotlin-compiler-ir-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-kotlin-compiler-ir-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-kotlin-compiler-ir"],
-)
-
-copy_file(
     name = "org.jetbrains.kotlin/kotlin-compiler-tests-for-ide-2.5.0-dev-6810.jar_copy",
     src = "@org_jetbrains_kotlin-kotlin-compiler-tests-for-ide-2_5_0-dev-6810_http//file",
     out = "org.jetbrains.kotlin/kotlin-compiler-tests-for-ide-2.5.0-dev-6810.jar",
@@ -6721,28 +6611,6 @@ java_library(
     neverlink = True,
     visibility = ["//visibility:public"],
     exports = [":kotlinc-kotlin-compiler-tests"],
-)
-
-copy_file(
-    name = "org.jetbrains.kotlin/kotlin-dataframe-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-kotlin-dataframe-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/kotlin-dataframe-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-kotlin-dataframe-compiler-plugin",
-    jar = "@org_jetbrains_kotlin-kotlin-dataframe-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-kotlin-dataframe-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-kotlin-dataframe-compiler-plugin-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-kotlin-dataframe-compiler-plugin"],
 )
 
 copy_file(
@@ -6897,94 +6765,6 @@ java_library(
     neverlink = True,
     visibility = ["//visibility:public"],
     exports = [":kotlinc-kotlin-swift-export"],
-)
-
-copy_file(
-    name = "org.jetbrains.kotlin/lombok-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-lombok-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/lombok-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-lombok-compiler-plugin",
-    jar = "@org_jetbrains_kotlin-lombok-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-lombok-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-lombok-compiler-plugin-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-lombok-compiler-plugin"],
-)
-
-copy_file(
-    name = "org.jetbrains.kotlin/noarg-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-noarg-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/noarg-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-noarg-compiler-plugin",
-    jar = "@org_jetbrains_kotlin-noarg-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-noarg-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-noarg-compiler-plugin-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-noarg-compiler-plugin"],
-)
-
-copy_file(
-    name = "org.jetbrains.kotlin/parcelize-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-parcelize-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/parcelize-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-parcelize-compiler-plugin",
-    jar = "@org_jetbrains_kotlin-parcelize-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-parcelize-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-parcelize-compiler-plugin-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-parcelize-compiler-plugin"],
-)
-
-copy_file(
-    name = "org.jetbrains.kotlin/sam-with-receiver-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
-    src = "@org_jetbrains_kotlin-sam-with-receiver-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    out = "org.jetbrains.kotlin/sam-with-receiver-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "kotlinc-sam-with-receiver-compiler-plugin",
-    jar = "@org_jetbrains_kotlin-sam-with-receiver-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
-    source_jar = "@org_jetbrains_kotlin-sam-with-receiver-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "kotlinc-sam-with-receiver-compiler-plugin-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":kotlinc-sam-with-receiver-compiler-plugin"],
 )
 
 copy_file(
@@ -9176,9 +8956,9 @@ jvm_import(
 )
 
 copy_file(
-    name = "dev.matkov.compose.swing/swing-ui-0.1.0-alpha04.jar_copy",
-    src = "@dev_matkov_compose_swing-swing-ui-0_1_0-alpha04_http//file",
-    out = "dev.matkov.compose.swing/swing-ui-0.1.0-alpha04.jar",
+    name = "org.jetbrains.compose.swing/swing-ui-0.1.0-alpha05.jar_copy",
+    src = "@org_jetbrains_compose_swing-swing-ui-0_1_0-alpha05_http//file",
+    out = "org.jetbrains.compose.swing/swing-ui-0.1.0-alpha05.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
@@ -9191,20 +8971,29 @@ copy_file(
     visibility = ["//visibility:public"],
 )
 
+copy_file(
+    name = "androidx.tracing/tracing-desktop-2.0.0.jar_copy",
+    src = "@androidx_tracing-tracing-desktop-2_0_0_http//file",
+    out = "androidx.tracing/tracing-desktop-2.0.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
 java_library(
-    name = "libraries-compose-swing-dev-matkov-compose-swing-swing-ui",
+    name = "libraries-compose-swing-org-jetbrains-compose-swing-swing-ui",
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        ":dev_matkov_compose_swing-swing-ui-0_1_0-alpha04_http_import",
+        ":org_jetbrains_compose_swing-swing-ui-0_1_0-alpha05_http_import",
         ":org_jetbrains_kotlinx-kotlinx-coroutines-swing-1_9_0_http_import",
+        ":androidx_tracing-tracing-desktop-2_0_0_http_import",
     ],
 )
 
 jvm_import(
-    name = "dev_matkov_compose_swing-swing-ui-0_1_0-alpha04_http_import",
-    jar = "@dev_matkov_compose_swing-swing-ui-0_1_0-alpha04_http//file",
-    source_jar = "@dev_matkov_compose_swing-swing-ui-0_1_0-alpha04-sources_http//file",
+    name = "org_jetbrains_compose_swing-swing-ui-0_1_0-alpha05_http_import",
+    jar = "@org_jetbrains_compose_swing-swing-ui-0_1_0-alpha05_http//file",
+    source_jar = "@org_jetbrains_compose_swing-swing-ui-0_1_0-alpha05-sources_http//file",
 )
 
 jvm_import(
@@ -9213,10 +9002,16 @@ jvm_import(
     source_jar = "@org_jetbrains_kotlinx-kotlinx-coroutines-swing-1_9_0-sources_http//file",
 )
 
+jvm_import(
+    name = "androidx_tracing-tracing-desktop-2_0_0_http_import",
+    jar = "@androidx_tracing-tracing-desktop-2_0_0_http//file",
+    source_jar = "@androidx_tracing-tracing-desktop-2_0_0-sources_http//file",
+)
+
 copy_file(
-    name = "dev.matkov.compose.swing/swing-ui-test-0.1.0-alpha04.jar_copy",
-    src = "@dev_matkov_compose_swing-swing-ui-test-0_1_0-alpha04_http//file",
-    out = "dev.matkov.compose.swing/swing-ui-test-0.1.0-alpha04.jar",
+    name = "org.jetbrains.compose.swing/swing-ui-test-0.1.0-alpha05.jar_copy",
+    src = "@org_jetbrains_compose_swing-swing-ui-test-0_1_0-alpha05_http//file",
+    out = "org.jetbrains.compose.swing/swing-ui-test-0.1.0-alpha05.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
@@ -9238,11 +9033,11 @@ copy_file(
 )
 
 java_library(
-    name = "libraries-compose-swing-dev-matkov-compose-swing-swing-ui-test",
+    name = "libraries-compose-swing-org-jetbrains-compose-swing-swing-ui-test",
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        ":dev_matkov_compose_swing-swing-ui-test-0_1_0-alpha04_http_import",
+        ":org_jetbrains_compose_swing-swing-ui-test-0_1_0-alpha05_http_import",
         ":org_jetbrains_kotlin-kotlin-test-2_3_20_http_import",
         ":org_jetbrains_kotlinx-kotlinx-coroutines-test-jvm-1_9_0_http_import",
         ":org_jetbrains_kotlinx-kotlinx-coroutines-swing-1_9_0_http_import",
@@ -9250,9 +9045,9 @@ java_library(
 )
 
 jvm_import(
-    name = "dev_matkov_compose_swing-swing-ui-test-0_1_0-alpha04_http_import",
-    jar = "@dev_matkov_compose_swing-swing-ui-test-0_1_0-alpha04_http//file",
-    source_jar = "@dev_matkov_compose_swing-swing-ui-test-0_1_0-alpha04-sources_http//file",
+    name = "org_jetbrains_compose_swing-swing-ui-test-0_1_0-alpha05_http_import",
+    jar = "@org_jetbrains_compose_swing-swing-ui-test-0_1_0-alpha05_http//file",
+    source_jar = "@org_jetbrains_compose_swing-swing-ui-test-0_1_0-alpha05-sources_http//file",
 )
 
 jvm_import(
@@ -11432,32 +11227,32 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.jediterm/jediterm-core-3.74.jar_copy",
-    src = "@org_jetbrains_jediterm-jediterm-core-3_74_http//file",
-    out = "org.jetbrains.jediterm/jediterm-core-3.74.jar",
+    name = "org.jetbrains.jediterm/jediterm-core-3.76.jar_copy",
+    src = "@org_jetbrains_jediterm-jediterm-core-3_76_http//file",
+    out = "org.jetbrains.jediterm/jediterm-core-3.76.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-jediterm-core-jediterm-core",
-    jar = "@org_jetbrains_jediterm-jediterm-core-3_74_http//file",
-    source_jar = "@org_jetbrains_jediterm-jediterm-core-3_74-sources_http//file",
+    jar = "@org_jetbrains_jediterm-jediterm-core-3_76_http//file",
+    source_jar = "@org_jetbrains_jediterm-jediterm-core-3_76-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "org.jetbrains.jediterm/jediterm-ui-3.74.jar_copy",
-    src = "@org_jetbrains_jediterm-jediterm-ui-3_74_http//file",
-    out = "org.jetbrains.jediterm/jediterm-ui-3.74.jar",
+    name = "org.jetbrains.jediterm/jediterm-ui-3.76.jar_copy",
+    src = "@org_jetbrains_jediterm-jediterm-ui-3_76_http//file",
+    out = "org.jetbrains.jediterm/jediterm-ui-3.76.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-jediterm-ui-jediterm-ui",
-    jar = "@org_jetbrains_jediterm-jediterm-ui-3_74_http//file",
-    source_jar = "@org_jetbrains_jediterm-jediterm-ui-3_74-sources_http//file",
+    jar = "@org_jetbrains_jediterm-jediterm-ui-3_76_http//file",
+    source_jar = "@org_jetbrains_jediterm-jediterm-ui-3_76-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -12647,6 +12442,21 @@ jvm_import(
 )
 
 copy_file(
+    name = "org.jetbrains.kotlin/allopen-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-allopen-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/allopen-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-allopen-compiler-plugin-kotlinc-allopen-compiler-plugin",
+    jar = "@org_jetbrains_kotlin-allopen-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-allopen-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
     name = "org.jetbrains.kotlin/analysis-api-impl-base-for-ide-2.5.0-dev-6810.jar_copy",
     src = "@org_jetbrains_kotlin-analysis-api-impl-base-for-ide-2_5_0-dev-6810_http//file",
     out = "org.jetbrains.kotlin/analysis-api-impl-base-for-ide-2.5.0-dev-6810.jar",
@@ -12722,6 +12532,36 @@ jvm_import(
 )
 
 copy_file(
+    name = "org.jetbrains.kotlin/compose-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-compose-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/compose-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-compose-compiler-plugin-kotlinc-compose-compiler-plugin",
+    jar = "@org_jetbrains_kotlin-compose-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-compose-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.kotlin/js-plain-objects-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-js-plain-objects-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/js-plain-objects-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-js-plain-objects-compiler-plugin-kotlinc-js-plain-objects-compiler-plugin",
+    jar = "@org_jetbrains_kotlin-js-plain-objects-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-js-plain-objects-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
     name = "org.jetbrains.kotlin/kotlin-compiler-common-for-ide-2.5.0-dev-6810.jar_copy",
     src = "@org_jetbrains_kotlin-kotlin-compiler-common-for-ide-2_5_0-dev-6810_http//file",
     out = "org.jetbrains.kotlin/kotlin-compiler-common-for-ide-2.5.0-dev-6810.jar",
@@ -12737,6 +12577,21 @@ jvm_import(
 )
 
 copy_file(
+    name = "org.jetbrains.kotlin/kotlin-compiler-fe10-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-kotlin-compiler-fe10-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/kotlin-compiler-fe10-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-kotlin-compiler-fe10-kotlinc-kotlin-compiler-fe10",
+    jar = "@org_jetbrains_kotlin-kotlin-compiler-fe10-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-kotlin-compiler-fe10-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
     name = "org.jetbrains.kotlin/kotlin-compiler-fir-for-ide-2.5.0-dev-6810.jar_copy",
     src = "@org_jetbrains_kotlin-kotlin-compiler-fir-for-ide-2_5_0-dev-6810_http//file",
     out = "org.jetbrains.kotlin/kotlin-compiler-fir-for-ide-2.5.0-dev-6810.jar",
@@ -12748,6 +12603,36 @@ jvm_import(
     name = "libraries-kotlinc-kotlin-compiler-fir-kotlinc-kotlin-compiler-fir",
     jar = "@org_jetbrains_kotlin-kotlin-compiler-fir-for-ide-2_5_0-dev-6810_http//file",
     source_jar = "@org_jetbrains_kotlin-kotlin-compiler-fir-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.kotlin/kotlin-compiler-ir-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-kotlin-compiler-ir-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/kotlin-compiler-ir-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-kotlin-compiler-ir-kotlinc-kotlin-compiler-ir",
+    jar = "@org_jetbrains_kotlin-kotlin-compiler-ir-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-kotlin-compiler-ir-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.kotlin/kotlin-dataframe-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-kotlin-dataframe-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/kotlin-dataframe-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-kotlin-dataframe-compiler-plugin-kotlinc-kotlin-dataframe-compiler-plugin",
+    jar = "@org_jetbrains_kotlin-kotlin-dataframe-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-kotlin-dataframe-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -12857,6 +12742,21 @@ jvm_import(
 )
 
 copy_file(
+    name = "org.jetbrains.kotlin/lombok-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-lombok-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/lombok-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-lombok-compiler-plugin-kotlinc-lombok-compiler-plugin",
+    jar = "@org_jetbrains_kotlin-lombok-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-lombok-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
     name = "org.jetbrains.kotlin/low-level-api-fir-for-ide-2.5.0-dev-6810.jar_copy",
     src = "@org_jetbrains_kotlin-low-level-api-fir-for-ide-2_5_0-dev-6810_http//file",
     out = "org.jetbrains.kotlin/low-level-api-fir-for-ide-2.5.0-dev-6810.jar",
@@ -12868,6 +12768,51 @@ jvm_import(
     name = "libraries-kotlinc-low-level-api-fir-kotlinc-low-level-api-fir",
     jar = "@org_jetbrains_kotlin-low-level-api-fir-for-ide-2_5_0-dev-6810_http//file",
     source_jar = "@org_jetbrains_kotlin-low-level-api-fir-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.kotlin/noarg-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-noarg-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/noarg-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-noarg-compiler-plugin-kotlinc-noarg-compiler-plugin",
+    jar = "@org_jetbrains_kotlin-noarg-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-noarg-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.kotlin/parcelize-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-parcelize-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/parcelize-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-parcelize-compiler-plugin-kotlinc-parcelize-compiler-plugin",
+    jar = "@org_jetbrains_kotlin-parcelize-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-parcelize-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.kotlin/sam-with-receiver-compiler-plugin-for-ide-2.5.0-dev-6810.jar_copy",
+    src = "@org_jetbrains_kotlin-sam-with-receiver-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    out = "org.jetbrains.kotlin/sam-with-receiver-compiler-plugin-for-ide-2.5.0-dev-6810.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-sam-with-receiver-compiler-plugin-kotlinc-sam-with-receiver-compiler-plugin",
+    jar = "@org_jetbrains_kotlin-sam-with-receiver-compiler-plugin-for-ide-2_5_0-dev-6810_http//file",
+    source_jar = "@org_jetbrains_kotlin-sam-with-receiver-compiler-plugin-for-ide-2_5_0-dev-6810-sources_http//file",
     visibility = ["//visibility:public"],
 )
 

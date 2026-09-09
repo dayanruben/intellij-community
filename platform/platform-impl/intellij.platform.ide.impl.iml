@@ -113,7 +113,6 @@
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.serialization.core" />
     <orderEntry type="module" module-name="intellij.libraries.assertj.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.jdom" />
-    <orderEntry type="module" module-name="intellij.libraries.jvm.native.trusted.roots" />
     <orderEntry type="module" module-name="intellij.libraries.opentelemetry" />
     <orderEntry type="module" module-name="intellij.libraries.opentelemetry.semconv" />
     <orderEntry type="module" module-name="intellij.platform.diagnostic.telemetry" />
@@ -130,7 +129,6 @@
     <orderEntry type="module" module-name="intellij.platform.diagnostic" />
     <orderEntry type="module" module-name="intellij.platform.ijent" />
     <orderEntry type="module" module-name="intellij.platform.backend.observation" />
-    <orderEntry type="module" module-name="intellij.libraries.pty4j" />
     <orderEntry type="module" module-name="intellij.platform.settings" />
     <orderEntry type="module" module-name="intellij.platform.util.coroutines" />
     <orderEntry type="module" module-name="intellij.libraries.jetbrains.annotations" />

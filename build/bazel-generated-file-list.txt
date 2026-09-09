@@ -538,13 +538,19 @@ libraries/kotlin/test
 libraries/kotlin/test-assertions-core-jvm
 libraries/kotlin/test-junit
 libraries/kotlin/tooling-core
+libraries/kotlinc/allopen-compiler-plugin
 libraries/kotlinc/analysis-api
 libraries/kotlinc/analysis-api-impl-base
 libraries/kotlinc/analysis-api-k2
 libraries/kotlinc/analysis-api-platform-interface
 libraries/kotlinc/assignment-compiler-plugin
+libraries/kotlinc/compose-compiler-plugin
+libraries/kotlinc/js-plain-objects-compiler-plugin
 libraries/kotlinc/kotlin-compiler-common
+libraries/kotlinc/kotlin-compiler-fe10
 libraries/kotlinc/kotlin-compiler-fir
+libraries/kotlinc/kotlin-compiler-ir
+libraries/kotlinc/kotlin-dataframe-compiler-plugin
 libraries/kotlinc/kotlin-jps-common
 libraries/kotlinc/kotlin-script-runtime
 libraries/kotlinc/kotlin-scripting-common
@@ -552,7 +558,11 @@ libraries/kotlinc/kotlin-scripting-compiler-impl
 libraries/kotlinc/kotlin-scripting-dependencies
 libraries/kotlinc/kotlin-scripting-jvm
 libraries/kotlinc/kotlinx-serialization-compiler-plugin
+libraries/kotlinc/lombok-compiler-plugin
 libraries/kotlinc/low-level-api-fir
+libraries/kotlinc/noarg-compiler-plugin
+libraries/kotlinc/parcelize-compiler-plugin
+libraries/kotlinc/sam-with-receiver-compiler-plugin
 libraries/kotlinc/scripting-compiler-plugin
 libraries/kotlinc/symbol-light-classes
 libraries/kotlinx/bcv
@@ -598,7 +608,6 @@ libraries/mcp-kotlin-sdk
 libraries/memoryfilesystem
 libraries/microba
 libraries/miglayout-swing
-libraries/misc/plugin
 libraries/mlapi/catboost
 libraries/mlapi/core
 libraries/mockito
@@ -907,6 +916,7 @@ platform/platform-impl/internal
 platform/platform-impl/internal/ide.internal.backend
 platform/platform-impl/internal/jcef
 platform/platform-impl/jcef
+platform/platform-impl/os-certificates
 platform/platform-impl/plugin-signature-verifier
 platform/platform-impl/recentProjects
 platform/platform-impl/remote
@@ -923,6 +933,7 @@ platform/platform-tests/durability
 platform/platform-tests/eel-helper
 platform/platform-util-io
 platform/platform-util-io-impl
+platform/platform-util-io-native
 platform/platform-util-netty
 platform/pluginManager/backend
 platform/pluginManager/frontend
@@ -931,6 +942,7 @@ platform/pluginManager/shared.base
 platform/pluginSystem/parser/impl
 platform/pluginSystem/testFramework
 platform/polySymbols
+platform/polySymbols-web
 platform/polySymbols/backend
 platform/pratt
 platform/problemsView/backend
@@ -1485,6 +1497,7 @@ plugins/kotlin/intellij.kotlin.base.test
 plugins/kotlin/internal
 plugins/kotlin/j2k/k2
 plugins/kotlin/j2k/k2/tests
+plugins/kotlin/j2k/mcp
 plugins/kotlin/j2k/shared/tests
 plugins/kotlin/jps/graphImplementationTests
 plugins/kotlin/jsr223
@@ -1642,6 +1655,7 @@ plugins/ml-local-models/java
 plugins/performanceTesting/backend
 plugins/performanceTesting/commands-model
 plugins/performanceTesting/core
+plugins/performanceTesting/debugger
 plugins/performanceTesting/event-bus
 plugins/performanceTesting/freezes
 plugins/performanceTesting/frontend
@@ -1765,6 +1779,7 @@ python/conda/frontend
 python/huggingFace
 python/ide-common/ide-customization
 python/ide/customization.backend
+python/ide/customization.frontend
 python/ide/customization.shared
 python/ide/impl
 python/ide/impl/intellij.pycharm.community.ide.impl.promotion
@@ -1781,6 +1796,7 @@ python/openapi
 python/pipenv
 python/pipenv/frontend
 python/pluginCore
+python/pluginCore/frontend
 python/pluginCore/impl
 python/pluginJava
 python/pluginMinor

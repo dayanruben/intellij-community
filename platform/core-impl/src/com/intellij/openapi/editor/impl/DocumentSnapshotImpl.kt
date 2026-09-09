@@ -7,7 +7,6 @@ import com.intellij.openapi.editor.ex.DocumentSnapshot
 import com.intellij.openapi.editor.ex.DocumentSputnik
 import com.intellij.openapi.editor.ex.DocumentSputniks
 import com.intellij.openapi.editor.ex.DocumentText
-import com.intellij.openapi.editor.ex.DocumentTextPatch
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot
 import com.intellij.openapi.editor.impl.marker.PMarkerRootImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
@@ -59,27 +58,23 @@ internal class DocumentSnapshotImpl private constructor(
     if (newText === text && newModState === modState && !canAffectSputniks) {
       return this
     }
+    val beforeMarkerRoot = markerRoot.get()
     val newSnapshot = if (newText === text && newModState === modState) {
       this
     }
     else {
-      DocumentSnapshotImpl(newText, newModState, sputniks, markerRoot.get())
+      DocumentSnapshotImpl(newText, newModState, sputniks, beforeMarkerRoot)
     }
     val after = if (canAffectSputniks && (sputniks !== DocumentSputniksImpl.EMPTY || op is DocumentOp.SetSputnik)) {
       sputniks.applyOp(this, newSnapshot, op) { newSputniks ->
-        DocumentSnapshotImpl(newText, newModState, newSputniks, markerRoot.get())
+        DocumentSnapshotImpl(newText, newModState, newSputniks, beforeMarkerRoot)
       }
     }
     else {
       newSnapshot
     }
     if (after !== this) {
-      if (op is DocumentTextPatch) {
-        SnapshotMarkerEngineImpl.applyPatch(this, after, op)
-      }
-      else {
-        SnapshotMarkerEngineImpl.inherit(this, after)
-      }
+      SnapshotMarkerEngineImpl.applyOp(this, after, op)
     }
     return after
   }

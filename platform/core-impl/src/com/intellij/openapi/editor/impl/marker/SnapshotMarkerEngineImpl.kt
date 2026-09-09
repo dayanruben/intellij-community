@@ -2,6 +2,7 @@
 package com.intellij.openapi.editor.impl.marker
 
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.ex.DocumentOp
 import com.intellij.openapi.editor.ex.DocumentSnapshot
 import com.intellij.openapi.editor.ex.DocumentTextPatch
 import com.intellij.openapi.editor.ex.RangeMarkerEx
@@ -71,23 +72,32 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
     val fileRootReference: WeakReference<FileMarkerRoot>? = marker.fileRoot?.let(::WeakReference)
   }
 
+  internal fun applyOp(beforeSnapshot: DocumentSnapshot, afterSnapshot: DocumentSnapshot, op: DocumentOp) {
+    if (op is DocumentTextPatch) {
+      applyPatch(beforeSnapshot, afterSnapshot, op)
+    }
+    else {
+      inherit(beforeSnapshot, afterSnapshot)
+    }
+  }
+
   /**
    * Derives and publishes the marker root for [afterSnapshot].
    *
-   * The current root of [beforeSnapshot] is captured with one atomic read. Consequently:
+   * The caller supplies the root that it captured before constructing [afterSnapshot]. Consequently:
    *
-   * - a marker inserted before this operation is inherited by the child;
-   * - a marker inserted after this operation is not inherited by the child;
+   * - a marker inserted before the capture is inherited by the child;
+   * - a marker inserted after the capture is not inherited by the child;
    * - the root belonging to [beforeSnapshot] is not changed.
    *
    * [afterSnapshot] must not become visible before this method completes. Otherwise, marker creation may race with
    * publishing the derived root.
    */
-  override fun applyPatch(beforeSnapshot: DocumentSnapshot, afterSnapshot: DocumentSnapshot, patch: DocumentTextPatch) {
+  private fun applyPatch(beforeSnapshot: DocumentSnapshot, afterSnapshot: DocumentSnapshot, patch: DocumentTextPatch) {
     validatePatch(beforeSnapshot, afterSnapshot, patch)
     var hasInvalidatedMarkers = false
     val invalidatedMarkerConsumer = LongConsumer { hasInvalidatedMarkers = true }
-    val beforeRoot = markerRoot(beforeSnapshot).get()
+    val beforeRoot = markerRoot(afterSnapshot).get()
     val afterRoot = beforeRoot.applyPatch(patch, beforeSnapshot.text(), afterSnapshot.text(), invalidatedMarkerConsumer)
     processQueue()
     require(afterSnapshot !== beforeSnapshot) {
@@ -112,7 +122,7 @@ object SnapshotMarkerEngineImpl : SnapshotMarkerEngine, ReferenceQueueable {
   @ApiStatus.Internal
   fun hasInvalidatedMarkers(snapshot: DocumentSnapshot): Boolean = snapshotsWithInvalidatedMarkers.contains(snapshot)
 
-  override fun inherit(beforeSnapshot: DocumentSnapshot, afterSnapshot: DocumentSnapshot) {
+  private fun inherit(beforeSnapshot: DocumentSnapshot, afterSnapshot: DocumentSnapshot) {
     require(beforeSnapshot.text() === afterSnapshot.text()) {
       "Snapshots must share the same text instance"
     }

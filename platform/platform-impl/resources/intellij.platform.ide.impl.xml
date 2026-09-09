@@ -29,7 +29,6 @@
     <module name="intellij.libraries.jgoodies.forms"/>
     <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.jsoup"/>
-    <module name="intellij.libraries.jvm.native.trusted.roots"/>
     <module name="intellij.libraries.kotlin.reflect"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
@@ -44,7 +43,6 @@
     <module name="intellij.libraries.opentelemetry.semconv"/>
     <module name="intellij.libraries.oro.matcher"/>
     <module name="intellij.libraries.protobuf"/>
-    <module name="intellij.libraries.pty4j"/>
     <module name="intellij.libraries.rd.core"/>
     <module name="intellij.libraries.stream"/>
     <module name="intellij.libraries.swingx"/>
@@ -562,8 +560,6 @@
                        descriptionKey="configurable.group.other.settings.description"/>
     <applicationService serviceInterface="com.intellij.ide.actions.ReportFeedbackService" open="true"
                         serviceImplementation="com.intellij.ide.actions.DefaultReportFeedbackService"/>
-    <applicationService serviceInterface="com.intellij.util.net.ssl.OsCertificatesService"
-                        serviceImplementation="com.intellij.util.net.ssl.OsCertificatesServiceImpl"/>
     <applicationService serviceInterface="com.intellij.ide.plugins.PluginConflictReporter"
                         serviceImplementation="com.intellij.diagnostic.GuiPluginConflictReporter"/>
     <applicationService serviceInterface="com.intellij.openapi.vfs.newvfs.ManagingFS"
@@ -815,10 +811,6 @@
                         serviceInterface="com.intellij.openapi.application.WriteDelayDiagnostics$WriteDelayDiagnosticsHandler"/>
     <applicationService serviceInterface="com.intellij.execution.process.ProcessHandlerFactory"
                         serviceImplementation="com.intellij.execution.process.ProcessHandlerFactoryImpl"/>
-    <applicationService serviceInterface="com.intellij.execution.process.LocalProcessService"
-                        serviceImplementation="com.intellij.execution.process.LocalProcessServiceImpl"/>
-    <applicationService serviceInterface="com.intellij.util.io.IoService"
-                        serviceImplementation="com.intellij.util.io.IoServiceImpl"/>
     <applicationService serviceInterface="com.intellij.diagnostic.EventWatcher"
                         serviceImplementation="com.intellij.diagnostic.EventWatcherService" headlessImplementation=""
                         open="true"/>

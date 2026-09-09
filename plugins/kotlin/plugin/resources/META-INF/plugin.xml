@@ -22,12 +22,6 @@
     <plugin id="com.intellij.modules.java-capable"/>
   </dependencies>
 
-  <extensionPoints>
-    <extensionPoint name="supportsKotlinPluginMode" dynamic="true"
-                    beanClass="org.jetbrains.kotlin.idea.base.plugin.SupportsKotlinPluginMode">
-    </extensionPoint>
-  </extensionPoints>
-
   <content namespace="jetbrains">
     <module name="intellij.kotlin.base.projectModel" loading="required"/>
     <module name="intellij.kotlin.base.analysis.platform"/>
@@ -138,6 +132,7 @@
     <module name="kotlin.base.injection"/>
 
     <module name="intellij.kotlin.j2k"/>
+    <module name="intellij.kotlin.j2k.mcp"/>
     <module name="intellij.kotlin.internal"/>
 
     <module name="intellij.kotlin.performanceExtendedPlugin"/>
@@ -202,11 +197,21 @@
     <module name="intellij.libraries.kotlinc.kotlinx.serialization.compiler.plugin" loading="embedded"/>
     <module name="intellij.libraries.kotlinc.scripting.compiler.plugin" loading="embedded"/>
     <module name="intellij.libraries.kotlinc.assignment.compiler.plugin" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.allopen.compiler.plugin" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.noarg.compiler.plugin" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.sam.with.receiver.compiler.plugin" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.lombok.compiler.plugin" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.compose.compiler.plugin" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.js.plain.objects.compiler.plugin" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.kotlin.dataframe.compiler.plugin" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.parcelize.compiler.plugin" loading="embedded"/>
     <module name="intellij.libraries.kotlinc.low.level.api.fir" loading="embedded"/>
     <module name="intellij.libraries.kotlinc.symbol.light.classes" loading="embedded"/>
     <module name="intellij.libraries.kotlinc.kotlin.compiler.fir" loading="embedded"/>
     <module name="intellij.libraries.kotlinc.kotlin.scripting.dependencies" loading="embedded"/>
     <module name="intellij.libraries.kotlinc.kotlin.jps.common" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.kotlin.compiler.fe10" loading="embedded"/>
+    <module name="intellij.libraries.kotlinc.kotlin.compiler.ir" loading="embedded"/>
 
     <!-- ultimate part -->
     <module name="intellij.kotlin.ultimate.common.native" loading="optional"/>

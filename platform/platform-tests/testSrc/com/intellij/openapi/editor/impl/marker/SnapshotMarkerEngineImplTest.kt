@@ -2,7 +2,9 @@
 package com.intellij.openapi.editor.impl.marker
 
 import com.intellij.openapi.editor.ex.DocumentNewOps
+import com.intellij.openapi.editor.ex.DocumentOp
 import com.intellij.openapi.editor.ex.DocumentSnapshot
+import com.intellij.openapi.editor.ex.DocumentSputnik
 import com.intellij.openapi.editor.ex.DocumentTextPatch
 import com.intellij.openapi.editor.ex.RangeMarkerEx
 import com.intellij.openapi.editor.impl.DocumentImpl
@@ -17,9 +19,12 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import java.lang.ref.WeakReference
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.function.LongConsumer
 import kotlin.concurrent.thread
 
@@ -147,6 +152,55 @@ class SnapshotMarkerEngineImplTest {
     assertRange(marker, initialSnapshot, startOffset = 2, endOffset = 4)
     assertAbsent(marker, existingChild, startOffset = 2, endOffset = 4)
     assertRange(marker, futureChild, startOffset = 4, endOffset = 6)
+  }
+
+  @Test
+  @Timeout(30)
+  fun `marker created after child root capture is propagated only to future children`() {
+    val fixture = Fixture("abcdef")
+    val rootCaptured = CountDownLatch(1)
+    val markerCreated = CountDownLatch(1)
+    val sputnik = object : DocumentSputnik {
+      override fun applyOp(before: DocumentSnapshot, after: DocumentSnapshot, op: DocumentOp): DocumentSputnik {
+        check(op is DocumentTextPatch)
+        rootCaptured.countDown()
+        check(markerCreated.await(10, TimeUnit.SECONDS)) { "Marker creation did not finish" }
+        return this
+      }
+    }
+    val sputnikKey = Key.create<DocumentSputnik>("test.marker.root.capture")
+    val parent = fixture.initialSnapshot.applyOp(DocumentNewOps.getInstance().createSetSputnikOp(sputnikKey, sputnik))
+    val childFuture = CompletableFuture<DocumentSnapshot>()
+    val childThread = thread(start = true, isDaemon = true, name = "snapshot-child-creator") {
+      try {
+        childFuture.complete(fixture.edit(parent, startOffset = 0, endOffset = 0, newFragment = "X"))
+      }
+      catch (t: Throwable) {
+        childFuture.completeExceptionally(t)
+      }
+    }
+
+    try {
+      assertTrue(rootCaptured.await(10, TimeUnit.SECONDS))
+      val marker = SnapshotMarkerEngineImpl.createRangeMarker(
+        document = fixture.document,
+        snapshot = parent,
+        startOffset = 2,
+        endOffset = 4,
+        spec = nonGreedySpec(),
+      )
+      markerCreated.countDown()
+      val child = childFuture.get(10, TimeUnit.SECONDS)
+      val futureChild = fixture.edit(parent, startOffset = 0, endOffset = 0, newFragment = "YY")
+
+      assertRange(marker, parent, startOffset = 2, endOffset = 4)
+      assertAbsent(marker, child, startOffset = 2, endOffset = 4)
+      assertRange(marker, futureChild, startOffset = 4, endOffset = 6)
+    }
+    finally {
+      markerCreated.countDown()
+      childThread.join(10_000)
+    }
   }
 
   @Test
@@ -794,6 +848,32 @@ class SnapshotMarkerEngineImplTest {
   }
 
   @Test
+  fun `root reports only affected valid markers`() {
+    val invalidatedMarkerIds = ArrayList<Long>()
+    val affectedMarkerIds = ArrayList<Long>()
+    val invalidatingPolicy = MarkerPolicy { entry, _, _, _ ->
+      MarkerTransformResult.Invalid("Invalidated by test marker policy", entry)
+    }
+    val root = PMarkerRootImpl.empty()
+      .insert(1, 0, 1, nonGreedySpec(), flavorFlags = 0)
+      .insert(2, 1, 6, nonGreedySpec(), flavorFlags = 0)
+      .insert(3, 3, 5, nonGreedySpec(), flavorFlags = 0)
+      .insert(4, 7, 9, nonGreedySpec(), flavorFlags = 0)
+      .insert(5, 3, 4, nonGreedySpec().copy(policy = invalidatingPolicy), flavorFlags = 0)
+
+    applyPatch(
+      root,
+      "abcdefghij",
+      textPatch(startOffset = 3, endOffset = 4, newFragment = ""),
+      LongConsumer(invalidatedMarkerIds::add),
+      LongConsumer(affectedMarkerIds::add),
+    )
+
+    assertEquals(listOf(5L), invalidatedMarkerIds)
+    assertEquals(listOf(2L, 3L), affectedMarkerIds.sorted())
+  }
+
+  @Test
   fun `root flavor filtering survives edits removals and flavor updates`() {
     val firstFlavor: Byte = 1
     val secondFlavor: Byte = 2
@@ -1111,10 +1191,11 @@ class SnapshotMarkerEngineImplTest {
     before: String,
     patch: DocumentTextPatch,
     invalidatedMarkerConsumer: LongConsumer = PMarkerRoot.EMPTY_LONG_CONSUMER,
+    affectedMarkerConsumer: LongConsumer = PMarkerRoot.EMPTY_LONG_CONSUMER,
   ): PMarkerRoot {
     val beforeText = DocumentImpl(before, true).core.snapshot().text()
     val afterText = beforeText.applyOp(patch)
-    return root.applyPatch(patch, beforeText, afterText, invalidatedMarkerConsumer)
+    return root.applyPatch(patch, beforeText, afterText, invalidatedMarkerConsumer, affectedMarkerConsumer)
   }
 
   private class Fixture(initialText: String) {
