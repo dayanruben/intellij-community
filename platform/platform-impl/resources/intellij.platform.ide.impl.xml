@@ -27,7 +27,6 @@
     <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.jgoodies.common"/>
     <module name="intellij.libraries.jgoodies.forms"/>
-    <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.jsoup"/>
     <module name="intellij.libraries.kotlin.reflect"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
@@ -436,6 +435,11 @@
       description="Show an available IDE update as a main toolbar button instead of an item in the Settings menu"
     />
     <registryKey
+      key="ide.settings.header.centered"
+      defaultValue="true"
+      description="Center the Settings title and header actions vertically"
+    />
+    <registryKey
       key="ide.hide.default.project.directory.for.isolated.workspace"
       defaultValue="true"
       description="Hide the 'Default project directory' setting for projects in an isolated environment (Docker containers/devcontainers, SSH, remote dev)"
@@ -484,6 +488,11 @@
     <statistics.counterUsagesCollector implementationClass="com.intellij.platform.ide.menu.MainMenuCollector"/>
     <editorEmptyStateComponentProvider implementation="com.intellij.openapi.fileEditor.impl.EditorEmptyTextComponentProvider" order="last"/>
     <editorEmptyTextProvider implementation="com.intellij.openapi.fileEditor.impl.DefaultEditorEmptyTextProvider" order="last"/>
+    <registryKey key="plugin.manager.unified.page" defaultValue="false"
+                 description="Enable the unified Plugins settings page"/>
+    <registryKey key="plugin.manager.unified.page.density.options"
+                 defaultValue="[Baseline*|32 px icons|2 preview rows]"
+                 description="Select a temporary density variant for the unified Plugins settings page"/>
     <pluginUpdatesProvider implementation="com.intellij.ide.plugins.newui.DefaultPluginUpdatesProvider"/>
     <projectSettings service="com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.UnknownFeaturesCollector"/>
     <projectSettings service="com.intellij.ui.RecentsManager"/>

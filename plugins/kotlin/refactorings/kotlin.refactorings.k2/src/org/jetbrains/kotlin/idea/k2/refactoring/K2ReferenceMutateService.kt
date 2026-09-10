@@ -24,6 +24,7 @@ import org.jetbrains.kotlin.idea.base.analysis.withRootPrefixIfNeeded
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.psi.imports.addImport
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
+import org.jetbrains.kotlin.idea.base.psi.removeQualifier
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.util.quoteIfNeeded
 import org.jetbrains.kotlin.idea.kdoc.KDocElementFactory
@@ -47,10 +48,13 @@ import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCallableReferenceExpression
 import org.jetbrains.kotlin.psi.KtClass
+import org.jetbrains.kotlin.psi.KtClassBody
+import org.jetbrains.kotlin.psi.KtCompanionBlock
 import org.jetbrains.kotlin.psi.KtConstructor
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtEnumEntry
+import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtImportDirective
 import org.jetbrains.kotlin.psi.KtNamedFunction
@@ -159,7 +163,7 @@ internal class K2ReferenceMutateService : KtReferenceMutateServiceBase() {
         val qualifier = qualifier
 
         if (qualifier != null && qualifier.qualifier == null && qualifier.text == ROOT_PREFIX_FOR_IDE_RESOLUTION_MODE) {
-            deleteQualifier()
+            removeQualifier()
         } else {
             qualifier?.removeRootPrefix()
         }
@@ -241,7 +245,7 @@ internal class K2ReferenceMutateService : KtReferenceMutateServiceBase() {
         } else {
             val parentFqn = fqName.parent()
             if (parentFqn.isRoot) {
-                deleteQualifier()
+                removeQualifier()
             } else {
                 qualifier?.replaceWith(parentFqn, targetElement) // do recursive short name replacement to preserve type arguments
             }
@@ -357,10 +361,12 @@ internal class K2ReferenceMutateService : KtReferenceMutateServiceBase() {
     /**
      * Checks whether [this] target is a member scope declaration that requires an instance to be called.
      */
+    @OptIn(KtExperimentalApi::class) // KtCompanionBlock
     private fun PsiElement?.isMemberScopeElement(): Boolean = when (this) {
         is KtNamedFunction, is KtProperty -> {
             val container = this.containingClassOrObject
-            container is KtClass && container !is KtEnumEntry
+            val isInCompanionBlock = parent is KtClassBody && parent.parent is KtCompanionBlock
+            container is KtClass && container !is KtEnumEntry && !isInCompanionBlock
         }
 
         is PsiMethod -> !this.isConstructor

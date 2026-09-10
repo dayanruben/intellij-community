@@ -3,12 +3,9 @@ package com.intellij.openapi.editor.impl;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.RangeMarker;
-import com.intellij.openapi.editor.event.DocumentEvent;
-import com.intellij.openapi.editor.ex.DocumentEventDispatcher;
 import com.intellij.openapi.editor.ex.DocumentEx;
-import com.intellij.openapi.editor.ex.PrioritizedDocumentListener;
 import com.intellij.openapi.editor.ex.RangeMarkerEx;
-import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl;
+import com.intellij.openapi.editor.ex.RangeMarkers;
 import com.intellij.openapi.util.Ref;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -22,46 +19,24 @@ import java.util.List;
 final class GuardedBlocksImpl implements GuardedBlocks {
   private static final Logger LOG = Logger.getInstance(GuardedBlocksImpl.class);
 
-  @NotNull private final RangeMarkersImpl myRangeMarkers;
-  private final CachedBlocks myCachedGuardedBlocks;
+  @NotNull private final RangeMarkers myRangeMarkers;
+  private List<RangeMarker> myCachedGuardedBlocks;
 
-  GuardedBlocksImpl(@NotNull RangeMarkersImpl rangeMarkers, @NotNull DocumentEventDispatcher dispatcher) {
+  GuardedBlocksImpl(@NotNull RangeMarkers rangeMarkers) {
     myRangeMarkers = rangeMarkers;
-    myCachedGuardedBlocks = new CachedBlocks(dispatcher);
-  }
-
-  // store cached guarded blocks in a separate class to avoid strong-referencing the whole GuardedBlocksImpl(and thus retaining the document) via PrioritizedDocumentListener
-  private static class CachedBlocks implements PrioritizedDocumentListener {
-    private List<RangeMarker> myBlocks;
-
-    CachedBlocks(@NotNull DocumentEventDispatcher dispatcher) {
-      dispatcher.addDocumentListener(this);
-    }
-    @Override
-    public int getPriority() {
-      return EditorDocumentPriorities.RANGE_MARKER;
-    }
-
-    @Override
-    public void documentChanged(@NotNull DocumentEvent event) {
-      DocumentImpl document = (DocumentImpl)event.getDocument();
-      if (SnapshotMarkerEngineImpl.INSTANCE.hasInvalidatedMarkers(document.getCore().snapshot())) {
-        myBlocks = null;
-      }
-    }
   }
 
   @Override
   public @NotNull RangeMarkerEx createGuardedBlock(@NotNull DocumentEx hostDocument, int startOffset, int endOffset) {
     LOG.assertTrue(startOffset <= endOffset, "Should be startOffset <= endOffset");
     RangeMarkerEx block;
-    if (RangeMarkersImpl.Holder.USE_PMARKER_IMPLEMENTATION) {
+    if (RangeMarkers.Holder.USE_PMARKER_IMPLEMENTATION) {
       block = SnapshotGuardedBlock.create((DocumentImpl)hostDocument, startOffset, endOffset);
     }
     else {
       block = new GuardedBlock(hostDocument, startOffset, endOffset);
     }
-    myCachedGuardedBlocks.myBlocks = null;
+    myCachedGuardedBlocks = null;
     return block;
   }
 
@@ -71,17 +46,17 @@ final class GuardedBlocksImpl implements GuardedBlocks {
       throw new IllegalArgumentException("range marker is not a guarded block: "+block);
     }
     block.dispose();
-    myCachedGuardedBlocks.myBlocks = null;
+    myCachedGuardedBlocks = null;
   }
 
   @Override
   public @NotNull @UnmodifiableView List<RangeMarker> getGuardedBlocks() {
-    List<RangeMarker> cachedBlocks = myCachedGuardedBlocks.myBlocks;
-    if (cachedBlocks != null) {
+    List<RangeMarker> cachedBlocks = myCachedGuardedBlocks;
+    if (cachedBlocks != null && cachedBlocks.stream().allMatch(block -> block.isValid())) {
       return cachedBlocks;
     }
     List<RangeMarker> blocks = collectAllGuardedBlocks();
-    myCachedGuardedBlocks.myBlocks = blocks;
+    myCachedGuardedBlocks = blocks;
     return blocks;
   }
 

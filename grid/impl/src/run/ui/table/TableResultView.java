@@ -91,7 +91,9 @@ import com.intellij.openapi.ui.popup.LightweightWindowEvent;
 import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
@@ -112,6 +114,7 @@ import com.intellij.ui.TableUtil;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.Magnificator;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.Function;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.ui.JBUI;
@@ -191,10 +194,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-import java.util.function.IntBinaryOperator;
 import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 
@@ -254,7 +257,6 @@ public final class TableResultView extends JBTableWithResizableCells
   private boolean myAllowMultilineColumnLabel = false;
   private final AtomicInteger editingBlocked = new AtomicInteger(0); // TODO: currently only locks column reordering
   private HoveredRowBgHighlightMode myHoveredRowMode = HoveredRowBgHighlightMode.AUTO;
-  @SuppressWarnings({"FieldCanBeLocal", "unused"}) // held for its lifetime; it installs the floating toolbar/actions
   private final TableFloatingToolbar myFloatingToolbar;
 
   private StatisticsTableHeader myStatisticsHeader;
@@ -285,7 +287,6 @@ public final class TableResultView extends JBTableWithResizableCells
     myFrozenColumnsController = frozenColumnsController == null
                                 ? new FrozenColumnsController(this, resultPanel, columnHeaderPopupActions, rowHeaderPopupActions)
                                 : frozenColumnsController;
-    ((MyTableColumnModel)getColumnModel()).setMoveTargetAdjuster(this::adjustColumnMoveTarget);
     myResultPanel = resultPanel;
     myCellImageCache = new TableCellImageCache(this, this);
     myColumnHeaderPopupActions = columnHeaderPopupActions;
@@ -354,10 +355,9 @@ public final class TableResultView extends JBTableWithResizableCells
     }
 
     installNestedTableClickHandler();
-  }
-
-  private int adjustColumnMoveTarget(int fromIndex, int targetIndex) {
-    return myFrozenColumnsController.adjustColumnMoveTarget(this, fromIndex, targetIndex);
+    if (!myIsFrozenStrip) {
+      ((MyTableColumnModel)getColumnModel()).setMoveTargetAdjuster(myFrozenColumnsController::adjustColumnMoveTarget, this);
+    }
   }
 
   private void installNestedTableClickHandler() {
@@ -386,10 +386,6 @@ public final class TableResultView extends JBTableWithResizableCells
     return myIsFrozenStrip;
   }
 
-  public boolean hasFrozenColumns() {
-    return !myIsFrozenStrip && myFrozenColumnsController.hasFrozenColumns();
-  }
-
   public boolean isCellComponent(@Nullable Component component) {
     return myIsFrozenStrip ? component == this : myFrozenColumnsController.isCellComponent(component);
   }
@@ -403,6 +399,30 @@ public final class TableResultView extends JBTableWithResizableCells
     return myIsFrozenStrip || myFrozenColumnsController == null ? null : myFrozenColumnsController.getFrozenView();
   }
 
+  /**
+   * Shares the main table's floating toolbar with the strip so pinned cells offer the same actions.
+   */
+  void shareFloatingToolbarWith(@NotNull TableResultView frozenStrip) {
+    if (myFloatingToolbar != null) myFloatingToolbar.attach(frozenStrip);
+  }
+
+  /** Stops offering the toolbar in a strip that is being discarded, so a stale one is neither shown nor held on to. */
+  void stopSharingFloatingToolbarWith(@NotNull TableResultView frozenStrip) {
+    if (myFloatingToolbar != null) myFloatingToolbar.detach(frozenStrip);
+  }
+
+  @TestOnly
+  public @Nullable TableFloatingToolbar getFloatingToolbar() {
+    return myFloatingToolbar;
+  }
+
+  /** The table that owns the active cell editor: a pinned cell edits in the frozen strip rather than in this table. */
+  public @Nullable TableResultView getEditingView() {
+    if (isEditing()) return this;
+    TableResultView frozenView = getPairedFrozenView();
+    return frozenView != null && frozenView.isEditing() ? frozenView : null;
+  }
+
   private @Nullable TableResultView getPrimaryView() {
     return myIsFrozenStrip && myFrozenColumnsController != null ? myFrozenColumnsController.getPrimaryView() : null;
   }
@@ -412,14 +432,12 @@ public final class TableResultView extends JBTableWithResizableCells
     return primaryView == null ? this : primaryView;
   }
 
+  /** Unscaled width of the divider the pinned strip paints on its trailing edge. */
+  static final int PIN_DIVIDER_WIDTH = 1;
+
   /** Whether a pinned cell is being edited in the frozen region, so the grid reports editing regardless of view. */
   public boolean isEditingInFrozenView() {
     return !myIsFrozenStrip && myFrozenColumnsController.isEditingInFrozenView();
-  }
-
-  /** X (in the scroll pane's coordinates) of the frozen columns' trailing edge, where the divider is drawn, or -1. */
-  public int getFrozenColumnsRightEdge() {
-    return myIsFrozenStrip ? -1 : myFrozenColumnsController.getFrozenColumnsRightEdge();
   }
 
   @Override
@@ -445,6 +463,21 @@ public final class TableResultView extends JBTableWithResizableCells
     super.setShowVerticalLines(showVerticalLines);
     TableResultView frozenView = getPairedFrozenView();
     if (frozenView != null) frozenView.setShowVerticalLines(showVerticalLines);
+  }
+
+  /** The trailing blank rows grow the preferred height, so a strip without them ends above the main view. */
+  @Override
+  public void setAdditionalRowsCount(int additionalRowsCount) {
+    super.setAdditionalRowsCount(additionalRowsCount);
+    TableResultView frozenView = getPairedFrozenView();
+    if (frozenView != null) frozenView.setAdditionalRowsCount(additionalRowsCount);
+  }
+
+  @Override
+  public void setVisibleRowCount(int visibleRowCount) {
+    super.setVisibleRowCount(visibleRowCount);
+    TableResultView frozenView = getPairedFrozenView();
+    if (frozenView != null) frozenView.setVisibleRowCount(visibleRowCount);
   }
 
   @Override
@@ -482,12 +515,12 @@ public final class TableResultView extends JBTableWithResizableCells
   }
 
   /**
-   * Shows the first {@code count} (leading, pinned) columns in a frozen left region that stays fixed while the rest
-   * scroll horizontally. {@code count <= 0} removes the region. The pinned columns stay in the main model but are
-   * rendered at width 0 there (their real width lives in the frozen view) so no other index/selection code changes.
+   * Shows {@code pinnedModelIndices} in a frozen leading region that stays fixed while the rest scroll horizontally;
+   * an empty set removes the region. The pinned columns keep their place in this view and are rendered at width 0
+   * here, their real width living in the frozen view, so pinning never changes the column order.
    */
-  public void setFrozenColumnCount(int count) {
-    if (!myIsFrozenStrip) myFrozenColumnsController.setFrozenColumnCount(count);
+  public void setFrozenColumns(@NotNull Collection<Integer> pinnedModelIndices) {
+    if (!myIsFrozenStrip) myFrozenColumnsController.setFrozenColumns(pinnedModelIndices);
   }
 
   void syncAppearanceToFrozenView(@NotNull TableResultView frozenView) {
@@ -503,12 +536,16 @@ public final class TableResultView extends JBTableWithResizableCells
     frozenView.myFontSizeScale = myFontSizeScale;
     frozenView.updateFonts();
     frozenView.setRowHeight(getRowHeight());
+    frozenView.setAdditionalRowsCount(getAdditionalRowsCount());
+    frozenView.setVisibleRowCount(getVisibleRowCount());
   }
 
   /** A plain gesture in the frozen view collapses to one cell across both regions by reducing the main column
    * selection to the clicked pinned column; Ctrl/Shift gestures stay additive. */
   @Override
   public void changeSelection(int rowIndex, int columnIndex, boolean toggle, boolean extend) {
+    if (!myFrozenColumnsController.stopEditingBeforeSelectionChange(this, rowIndex, columnIndex)) return;
+    if (extend && myFrozenColumnsController.handleCellRangeSelection(this, rowIndex, columnIndex, toggle)) return;
     super.changeSelection(rowIndex, columnIndex, toggle, extend);
     myFrozenColumnsController.afterChangeSelection(this, columnIndex, toggle, extend);
   }
@@ -548,6 +585,27 @@ public final class TableResultView extends JBTableWithResizableCells
   protected @NotNull ExpandableItemsHandler<TableCell> createExpandableItemsHandler() {
     return new TableExpandableItemsHandler(this) {
       @Override
+      public @Nullable Pair<Component, Rectangle> getCellRendererAndBounds(TableCell key) {
+        // A pinned column stays here as a zero-width placeholder, which always counts as truncated. Expanding it
+        // would draw the pinned value, selected, on top of the columns next to the strip.
+        if (isColumnFrozenHidden(key.column)) return null;
+        return super.getCellRendererAndBounds(key);
+      }
+
+      @Override
+      public Rectangle getVisibleRect(TableCell key) {
+        Rectangle visible = super.getVisibleRect(key);
+        if (myIsFrozenStrip) {
+          // Include grid spacing so the hint cannot cover the pointer and trigger a show/hide loop.
+          Rectangle cell = TableResultView.this.getCellRect(key.row, key.column, true);
+          Rectangle table = TableResultView.this.getVisibleRect();
+          int right = Math.min(cell.x + cell.width, table.x + table.width);
+          visible.width = Math.max(0, right - visible.x);
+        }
+        return visible;
+      }
+
+      @Override
       protected void handleSelectionChange(TableCell selected, boolean processIfUnfocused) {
         if (selected == null) {
           super.handleSelectionChange(null, processIfUnfocused);
@@ -558,7 +616,7 @@ public final class TableResultView extends JBTableWithResizableCells
         ViewIndex<GridColumn> column = ViewIndex.forColumn(myResultPanel, isTransposed() ? selected.row : selected.column);
 
         Object val = myResultPanel.getDataModel(DATA_WITH_MUTATIONS)
-          .getValueAt(row.toModel(myResultPanel), column.toModel(myResultPanel));
+          .getValueAt(row.toModel(myResultPanel), toModelColumn(column.asInteger()));
         if (val instanceof NestedTable) {
           super.handleSelectionChange(null, processIfUnfocused);
           return;
@@ -598,7 +656,7 @@ public final class TableResultView extends JBTableWithResizableCells
     myWasAutomaticallyTransposed = false;
     if (isTransposed() == transposed) return;
     if (transposed) {
-      setFrozenColumnCount(0);
+      setFrozenColumns(List.of());
       rememberUntransposedColumnWidths();
     }
     GridUtil.saveAndRestoreSelection(myResultPanel, () -> {
@@ -838,6 +896,12 @@ public final class TableResultView extends JBTableWithResizableCells
     return myClickedHeaderColumnIdx;
   }
 
+  /** Only the column popup sets this, and a test cannot show one. */
+  @TestOnly
+  public void setContextColumn(@NotNull ModelIndex<GridColumn> columnIdx) {
+    myClickedHeaderColumnIdx = columnIdx;
+  }
+
   @Override
   public void updateSortKeysFromColumnAttributes() {
     RowSorter<? extends TableModel> rowSorter = getRowSorter();
@@ -940,6 +1004,35 @@ public final class TableResultView extends JBTableWithResizableCells
     paintCellsEffects(g);
   }
 
+  @Override
+  public void paint(@NotNull Graphics g) {
+    super.paint(g);
+    if (myIsFrozenStrip) paintPinDivider(g, this, getLastRowBottom());
+  }
+
+  private int getLastRowBottom() {
+    if (getRowCount() == 0) return 0;
+    Rectangle lastRow = getCellRect(getRowCount() - 1, 0, true);
+    return lastRow.y + lastRow.height;
+  }
+
+  /**
+   * The pinned strip owns the pixel column the divider occupies, so any partial repaint that starts inside the strip
+   * paints the divider again. An overlay in an ancestor is skipped by such repaints and gets erased or ghosted. The
+   * line follows the visible rect, so the hosting viewport must not blit, or a scroll copies it along.
+   */
+  private static void paintPinDivider(@NotNull Graphics g, @NotNull JComponent c, int height) {
+    int width = JBUIScale.scale(PIN_DIVIDER_WIDTH);
+    Rectangle visibleRect = c.getVisibleRect();
+    int leadingEdge = Math.max(0, visibleRect.x);
+    int trailingEdge = Math.min(c.getWidth(), visibleRect.x + visibleRect.width);
+    int x = c.getComponentOrientation().isLeftToRight()
+            ? Math.max(leadingEdge, trailingEdge - width)
+            : leadingEdge;
+    g.setColor(JBUI.CurrentTheme.EditorTabs.underlineColor());
+    g.fillRect(x, 0, width, Math.min(height, c.getHeight()));
+  }
+
   private void adjustCacheSize() {
     if (!myCellImageCache.isCacheEnabled()) return;
     TableColumnModel columnModel = getColumnModel();
@@ -998,7 +1091,7 @@ public final class TableResultView extends JBTableWithResizableCells
   private void paintCellEffects(Graphics g, int row, int column) {
     CellAttributes attributes = myResultPanel.getMarkupModel().getCellAttributes(
       ViewIndex.forRow(myResultPanel, isTransposed() ? column : row).toModel(myResultPanel),
-      ViewIndex.forColumn(myResultPanel, isTransposed() ? row : column).toModel(myResultPanel),
+      toModelColumn(isTransposed() ? row : column),
       getColorsScheme());
     if (attributes != null) {
       CellRenderingUtils.paintCellEffect(g, getCellRect(row, column, true), attributes);
@@ -1072,6 +1165,12 @@ public final class TableResultView extends JBTableWithResizableCells
     }
     revalidate();
     repaint();
+    // Rendering changes must invalidate the strip's separate cell-image cache too.
+    TableResultView frozenView = getPairedFrozenView();
+    if (frozenView != null) {
+      frozenView.dropCaches();
+      frozenView.repaint();
+    }
   }
 
   private void setupFocusListener() {
@@ -1132,37 +1231,7 @@ public final class TableResultView extends JBTableWithResizableCells
         startEditing.actionPerformed(e);
       }
     });
-    // Cross the pin divider: TAB and Right arrow move last pinned column -> first main column; Shift-TAB and Left
-    // arrow go back. The *ExtendSelection variants grow the selection across the divider instead of collapsing it.
-    wrapColumnCrossing(actionMap, "selectNextColumnCell", true, false);
-    wrapColumnCrossing(actionMap, "selectPreviousColumnCell", false, false);
-    wrapColumnCrossing(actionMap, "selectNextColumn", true, false);
-    wrapColumnCrossing(actionMap, "selectPreviousColumn", false, false);
-    wrapColumnCrossing(actionMap, "selectNextColumnExtendSelection", true, true);
-    wrapColumnCrossing(actionMap, "selectPreviousColumnExtendSelection", false, true);
-  }
-
-  private void wrapColumnCrossing(@NotNull ActionMap actionMap, @NotNull String name, boolean forward, boolean extend) {
-    Action original = actionMap.get(name);
-    if (original == null) return;
-    actionMap.put(name, new AbstractAction() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        boolean crossed = forward ? crossForwardAtPinBoundary(extend) : crossBackwardAtPinBoundary(extend);
-        if (!crossed) original.actionPerformed(e);
-      }
-    });
-  }
-
-  // Moving right off the last pinned column goes to the first visible main-view column on the same row. Only the frozen
-  // strip crosses forward; the main view keeps its default wrap so its last column still advances to the next row.
-  private boolean crossForwardAtPinBoundary(boolean extend) {
-    return myFrozenColumnsController.crossForwardAtPinBoundary(this, extend);
-  }
-
-  // Moving left off the first visible main-view column returns to the last pinned column on the same row.
-  private boolean crossBackwardAtPinBoundary(boolean extend) {
-    return myFrozenColumnsController.crossBackwardAtPinBoundary(this, extend);
+    myFrozenColumnsController.installColumnNavigationActions(this, actionMap);
   }
 
   @Override
@@ -1172,7 +1241,11 @@ public final class TableResultView extends JBTableWithResizableCells
     TableColumn resizingColumn = tableHeader != null ? tableHeader.getResizingColumn() : null;
     if (resizingColumn != null && autoResizeMode == AUTO_RESIZE_OFF) {
       if (resizingColumn instanceof TableResultViewColumn column) {
-        column.setColumnWidthByUser(resizingColumn.getWidth());
+        int width = myFrozenColumnsController == null
+                    ? resizingColumn.getWidth()
+                    : myFrozenColumnsController.constrainFrozenColumnResize(this, column, resizingColumn.getWidth());
+        if (resizingColumn.getWidth() != width) resizingColumn.setWidth(width);
+        column.setColumnWidthByUser(width);
       }
       else {
         resizingColumn.setPreferredWidth(resizingColumn.getWidth());
@@ -1303,16 +1376,20 @@ public final class TableResultView extends JBTableWithResizableCells
   @Override
   public void dispose() {
     removeEditor();
-    if (!myIsFrozenStrip) myFrozenColumnsController.dispose();
+    if (!myIsFrozenStrip) Disposer.dispose(myFrozenColumnsController);
   }
 
   @Override
   public void changeSelectedColumnsWidth(int delta) {
-    for (int column : getSelectedColumns()) {
+    int[] selectedColumns = getSelectedColumns();
+    int constrainedDelta = myFrozenColumnsController == null
+                           ? delta
+                           : myFrozenColumnsController.constrainSelectedColumnWidthDelta(this, selectedColumns, delta);
+    for (int column : selectedColumns) {
       if (column < 0) continue;
       ResultViewColumn tableColumn = renderedColumnAt(column);
       if (tableColumn == null) continue;
-      tableColumn.setColumnWidthByUser(Math.max(0, tableColumn.getColumnWidth() + delta));
+      tableColumn.setColumnWidthByUser(Math.max(0, tableColumn.getColumnWidth() + constrainedDelta));
     }
   }
 
@@ -1320,14 +1397,39 @@ public final class TableResultView extends JBTableWithResizableCells
   public void fitColumnsToViewport() {
     int totalColumns = renderedColumnCount();
     if (totalColumns == 0) return;
-    // Split the whole grid width across every visible column, including the pinned ones in the frozen strip.
-    int mainWidth = getParent() instanceof JViewport viewport ? viewport.getExtentSize().width : getWidth();
-    TableResultView frozenView = getPairedFrozenView();
-    int frozenWidth = frozenView == null ? 0 : Math.max(0, frozenView.getWidth());
-    int availableWidth = mainWidth + frozenWidth;
+    int availableWidth = getAvailableColumnsWidth();
     if (availableWidth <= 0) return;
     int columnWidth = Math.max(JBUI.scale(40), availableWidth / totalColumns);
     forEachRenderedColumn(column -> column.setColumnWidthByUser(columnWidth));
+  }
+
+  /**
+   * The width the columns share: the scrollable viewport plus the pinned strip, which is the row header and so sits
+   * outside that viewport. Zero or less while the grid is not laid out.
+   */
+  public int getAvailableColumnsWidth() {
+    int mainWidth = getParent() instanceof JViewport viewport ? viewport.getExtentSize().width : getWidth();
+    return myIsFrozenStrip ? mainWidth : myFrozenColumnsController.getAvailableColumnsWidth();
+  }
+
+  /**
+   * Whether pinning exactly {@code pinnedModelIndices} would leave the unpinned table usable. Widths are the ones the
+   * strip would render, so the scroll position does not matter and a column hidden from the view counts for nothing,
+   * just as the pin operation skips it.
+   */
+  public boolean canFitPinnedColumns(@NotNull Set<Integer> pinnedModelIndices) {
+    int availableWidth = getAvailableColumnsWidth();
+    if (availableWidth <= 0) return true;
+    TableColumnModel columnModel = getColumnModel();
+    int pinnedWidth = 0;
+    int unpinnedWidth = 0;
+    for (int viewColumn = 0; viewColumn < columnModel.getColumnCount(); viewColumn++) {
+      if (!(renderedColumnAt(viewColumn) instanceof TableResultViewColumn column)) continue;
+      int width = column.getFrozenStripWidth();
+      if (pinnedModelIndices.contains(columnModel.getColumn(viewColumn).getModelIndex())) pinnedWidth += width;
+      else unpinnedWidth += width;
+    }
+    return PinnedColumnsFit.fits(pinnedWidth, unpinnedWidth, availableWidth);
   }
 
   /** Runs the operation over the pinned strip columns plus the visible main columns, so column actions span both. */
@@ -1358,8 +1460,8 @@ public final class TableResultView extends JBTableWithResizableCells
   private @Nullable ResultViewColumn renderedColumnAt(int viewColumn) {
     TableResultView frozenView = getPairedFrozenView();
     if (frozenView != null && isColumnFrozenHidden(viewColumn)) {
-      TableColumnModel frozenModel = frozenView.getColumnModel();
-      return viewColumn < frozenModel.getColumnCount() ? (ResultViewColumn)frozenModel.getColumn(viewColumn) : null;
+      int frozenColumn = toViewColumnIn(viewColumn, frozenView);
+      return frozenColumn < 0 ? null : (ResultViewColumn)frozenView.getColumnModel().getColumn(frozenColumn);
     }
     TableColumnModel columnModel = getColumnModel();
     return viewColumn < columnModel.getColumnCount() ? (ResultViewColumn)columnModel.getColumn(viewColumn) : null;
@@ -1433,11 +1535,26 @@ public final class TableResultView extends JBTableWithResizableCells
     }
   }
 
-  static class MyTableColumnModel extends DefaultTableColumnModel {
-    private @Nullable IntBinaryOperator myMoveTargetAdjuster;
+  /** Constrains where a column move may land; see {@link FrozenColumnsController#adjustColumnMoveTarget}. */
+  interface MoveTargetAdjuster {
+    int adjust(@NotNull TableResultView view, int targetIndex);
+  }
 
-    private void setMoveTargetAdjuster(@NotNull IntBinaryOperator adjuster) {
+  static class MyTableColumnModel extends DefaultTableColumnModel {
+    private @Nullable MoveTargetAdjuster myMoveTargetAdjuster;
+    private @Nullable TableResultView myView;
+
+    private void setMoveTargetAdjuster(@NotNull MoveTargetAdjuster adjuster, @NotNull TableResultView view) {
       myMoveTargetAdjuster = adjuster;
+      myView = view;
+    }
+
+    @Override
+    public void moveColumn(int columnIndex, int newIndex) {
+      int adjusted = myMoveTargetAdjuster == null || myView == null
+                     ? newIndex
+                     : myMoveTargetAdjuster.adjust(myView, newIndex);
+      super.moveColumn(columnIndex, adjusted);
     }
 
     @Override
@@ -1451,12 +1568,6 @@ public final class TableResultView extends JBTableWithResizableCells
     @Override
     public TableResultViewColumn getColumn(int columnIndex) {
       return (TableResultViewColumn)super.getColumn(columnIndex);
-    }
-
-    @Override
-    public void moveColumn(int columnIndex, int newIndex) {
-      int adjustedIndex = myMoveTargetAdjuster == null ? newIndex : myMoveTargetAdjuster.applyAsInt(columnIndex, newIndex);
-      super.moveColumn(columnIndex, adjustedIndex);
     }
 
     /**
@@ -1662,6 +1773,7 @@ public final class TableResultView extends JBTableWithResizableCells
       clip.width = Math.max(0, Math.min(clip.width, getTable().getWidth() - clip.x));
       g.setClip(clip);
       super.paint(g);
+      if (myIsFrozenStrip) paintPinDivider(g, this, getHeight());
     }
   }
 
@@ -1723,7 +1835,29 @@ public final class TableResultView extends JBTableWithResizableCells
   public @Nullable Color getCellBackground(@NotNull ViewIndex<GridRow> row, @NotNull ViewIndex<GridColumn> column, boolean selected) {
     return selected ?
            getSelectionBackground() :
-           myResultPanel.getColorModel().getCellBackground(row.toModel(myResultPanel), column.toModel(myResultPanel));
+           myResultPanel.getColorModel().getCellBackground(row.toModel(myResultPanel), toModelColumn(column.asInteger()));
+  }
+
+  /** The strip shows a subset of the columns, so its indices are not the grid's and must go through the model. */
+  private @NotNull ModelIndex<GridColumn> toModelColumn(int viewColumn) {
+    return ModelIndex.forColumn(myResultPanel, myRawIndexConverter.column2Model().applyAsInt(viewColumn));
+  }
+
+  /** The view index of a model column here, or -1 when this view does not show it. */
+  int viewColumnOf(int modelColumn) {
+    return myRawIndexConverter.column2View().applyAsInt(modelColumn);
+  }
+
+  /** The column at {@code viewColumn} here, as a view index in {@code target}. */
+  private int toViewColumnIn(int viewColumn, @NotNull TableResultView target) {
+    int modelColumn = myRawIndexConverter.column2Model().applyAsInt(viewColumn);
+    return modelColumn < 0 ? -1 : target.viewColumnOf(modelColumn);
+  }
+
+  /** This view's column index in the grid's own space, which is the main table's. */
+  private int toGridViewColumn(int viewColumn) {
+    TableResultView owner = getUnifiedSelectionView();
+    return owner == this ? viewColumn : toViewColumnIn(viewColumn, owner);
   }
 
   @Override
@@ -1762,6 +1896,8 @@ public final class TableResultView extends JBTableWithResizableCells
 
   @Override
   public boolean editCellAt(int row, int column, EventObject e) {
+    // JTable finishes only its own editor; commit the paired table's editor before opening another.
+    if (!stopPairedViewEditing()) return false;
     ClientProperty.put(this, GridTableCellEditor.EDITING_STARTER_CLIENT_PROPERTY_KEY, e);
     if (shouldDisplayValueEditor(row, column)) {
       showValueEditor(e);
@@ -1773,6 +1909,13 @@ public final class TableResultView extends JBTableWithResizableCells
     finally {
       ClientProperty.put(this, GridTableCellEditor.EDITING_STARTER_CLIENT_PROPERTY_KEY, null);
     }
+  }
+
+  /** @return false when the other table keeps its editor, which leaves this cell out of edit mode as well. */
+  private boolean stopPairedViewEditing() {
+    TableResultView paired = myIsFrozenStrip ? getPrimaryView() : getPairedFrozenView();
+    TableCellEditor editor = paired == null ? null : paired.getCellEditor();
+    return editor == null || editor.stopCellEditing();
   }
 
   private boolean shouldDisplayValueEditor(int row, int column) {
@@ -1981,6 +2124,18 @@ public final class TableResultView extends JBTableWithResizableCells
            doGetGridColor(getColorsScheme());
   }
 
+  /**
+   * Reveals a pinned placeholder's row without scrolling horizontally to the zero-width column.
+   */
+  @Override
+  public void scrollRectToVisible(@NotNull Rectangle rect) {
+    if (rect.width <= 0 && getPairedFrozenView() != null) {
+      Rectangle visible = getVisibleRect();
+      rect = new Rectangle(visible.x, rect.y, visible.width, rect.height);
+    }
+    super.scrollRectToVisible(rect);
+  }
+
   @Override
   public void tableChanged(TableModelEvent e) {
     if (myResultPanel == null) {
@@ -2176,25 +2331,22 @@ public final class TableResultView extends JBTableWithResizableCells
   }
 
   private OptionalInt getIndexOfClickedHeaderLine(@NotNull ModelIndex<GridColumn> columnIdx, @NotNull MouseEvent e) {
-    if (!(myResultPanel.getResultView() instanceof TableResultView table)) {
-      return OptionalInt.empty();
-    }
-
-    int viewIdx = columnIdx.toView(myResultPanel).asInteger();
-    Component headerRenderer = getHeaderRenderer(table, viewIdx);
+    int viewIdx = myRawIndexConverter.column2View().applyAsInt(columnIdx.value);
+    if (viewIdx < 0 || viewIdx >= getColumnModel().getColumnCount()) return OptionalInt.empty();
+    Component headerRenderer = getHeaderRenderer(this, viewIdx);
 
     if (!(headerRenderer instanceof MyHeaderCellComponent customHeaderComponent)) {
       return OptionalInt.empty();
     }
 
-    int clickedColumnX = calculateClickedColumnX(table, viewIdx);
-    int columnWidth = table.getColumnModel().getColumn(viewIdx).getWidth();
+    int clickedColumnX = calculateClickedColumnX(this, viewIdx);
+    int columnWidth = getColumnModel().getColumn(viewIdx).getWidth();
 
     return findIndexOfClickedHeaderLineWithNonEmptyLabel(e, customHeaderComponent, clickedColumnX, columnWidth);
   }
 
-  private Component getHeaderRenderer(@NotNull TableResultView table, int viewIdx) {
-    TableColumn column = getColumnModel().getColumn(viewIdx);
+  private static Component getHeaderRenderer(@NotNull TableResultView table, int viewIdx) {
+    TableColumn column = table.getColumnModel().getColumn(viewIdx);
     return table
       .getTableHeader()
       .getDefaultRenderer()
@@ -2284,22 +2436,30 @@ public final class TableResultView extends JBTableWithResizableCells
   // Whether the view column is selected in the view owning the real selection model (the primary view for a frozen strip).
   private boolean isSelectedColumnInOwner(int viewColumn) {
     if (viewColumn < 0) return false;
-    TableResultView primaryView = getPrimaryView();
-    TableResultView owner = primaryView != null ? primaryView : this;
-    return owner.getColumnModel().getSelectionModel().isSelectedIndex(viewColumn);
+    TableResultView owner = getUnifiedSelectionView();
+    int ownerColumn = owner == this ? viewColumn : toViewColumnIn(viewColumn, owner);
+    return ownerColumn >= 0 && owner.getColumnModel().getSelectionModel().isSelectedIndex(ownerColumn);
   }
 
   private void selectViewColumnInterval(int viewColumn, @NotNull MouseEvent e) {
-    if (myIsFrozenStrip) {
-      // The frozen view has only a no-op selection model; route whole-column selection through the primary view,
-      // where pinned columns share the same leading view index (identity mirror), so it highlights in both regions.
-      TableResultView primaryView = getPrimaryView();
-      if (primaryView != null) primaryView.selectViewColumnInterval(viewColumn, e);
-      return;
-    }
     boolean interval = GridUtil.isIntervalModifierSet(e);
     boolean exclusive = GridUtil.isExclusiveModifierSet(e);
-    TableSelectionModel selectionModel = ObjectUtils.tryCast(SelectionModelUtil.get(myResultPanel, this), TableSelectionModel.class);
+    TableResultView primaryView = getUnifiedSelectionView();
+    TableSelectionModel selectionModel =
+      ObjectUtils.tryCast(SelectionModelUtil.get(myResultPanel, primaryView), TableSelectionModel.class);
+    if (interval && selectionModel != null &&
+        myFrozenColumnsController.selectDisplayedColumnRange(this, viewColumn, exclusive)) {
+      if (exclusive) selectionModel.addRowSelectionInterval(primaryView.getRowCount() - 1, 0);
+      else selectionModel.setRowSelectionInterval(primaryView.getRowCount() - 1, 0);
+      return;
+    }
+    if (myIsFrozenStrip) {
+      // Map strip columns to the primary table, which owns the unified column selection.
+      if (primaryView == this) return;
+      int primaryColumn = toViewColumnIn(viewColumn, primaryView);
+      if (primaryColumn >= 0) primaryView.selectViewColumnInterval(primaryColumn, e);
+      return;
+    }
     if (selectionModel == null) return;
     if (interval) {
       int lead = getColumnModel().getSelectionModel().getLeadSelectionIndex();
@@ -2398,11 +2558,9 @@ public final class TableResultView extends JBTableWithResizableCells
 
   @Override
   public boolean stopEditing() {
-    // A pinned cell edits in the frozen view, but stopEditing() routes here; commit through the view holding the editor.
+    // A pinned cell edits in the frozen view while stopEditing() routes here, so that editor is committed as well.
     TableResultView frozenView = getPairedFrozenView();
-    if (getCellEditor() == null && frozenView != null && frozenView.isEditing()) {
-      return frozenView.stopEditing();
-    }
+    if (frozenView != null && frozenView.isEditing() && !frozenView.stopEditing()) return false;
     TableCellEditor editor = getCellEditor();
     if (editor == null) return true;
 
@@ -2430,10 +2588,8 @@ public final class TableResultView extends JBTableWithResizableCells
     if (editor != null) {
       editor.cancelCellEditing();
     }
-    else {
-      TableResultView frozenView = getPairedFrozenView();
-      if (frozenView != null && frozenView.isEditing()) frozenView.cancelEditing();
-    }
+    TableResultView frozenView = getPairedFrozenView();
+    if (frozenView != null && frozenView.isEditing()) frozenView.cancelEditing();
   }
 
   @Override
@@ -2446,11 +2602,12 @@ public final class TableResultView extends JBTableWithResizableCells
     int leadRow = getSelectionModel().getLeadSelectionIndex();
     int leadColumn = getColumnModel().getSelectionModel().getLeadSelectionIndex();
     if (leadRow == -1 || leadColumn == -1) return;
-    // A pinned column is hidden here, so edit it in the frozen view. Use the exact lead cell (indices match in both
-    // views), not the frozen view's own lead, which can differ with several pinned columns selected.
+    // A pinned column is hidden here, so edit it in the strip, at the lead cell rather than the strip's own lead,
+    // which can differ with several pinned columns selected.
     TableResultView frozenView = getPairedFrozenView();
     if (frozenView != null && isColumnFrozenHidden(leadColumn)) {
-      TableUtil.editCellAt(frozenView, leadRow, leadColumn);
+      int frozenColumn = toViewColumnIn(leadColumn, frozenView);
+      if (frozenColumn >= 0) TableUtil.editCellAt(frozenView, leadRow, frozenColumn);
       return;
     }
     TableUtil.editCellAt(this, leadRow, leadColumn);
@@ -2466,8 +2623,9 @@ public final class TableResultView extends JBTableWithResizableCells
     TableResultView frozenView = getPairedFrozenView();
     if (frozenView != null && isColumnFrozenHidden(leadColumn)) {
       int leadRow = getSelectionModel().getLeadSelectionIndex();
-      if (leadRow < 0) return;
-      frozenView.withCurrentValue(value, shouldMoveFocus, () -> TableUtil.editCellAt(frozenView, leadRow, leadColumn));
+      int frozenColumn = toViewColumnIn(leadColumn, frozenView);
+      if (leadRow < 0 || frozenColumn < 0) return;
+      frozenView.withCurrentValue(value, shouldMoveFocus, () -> TableUtil.editCellAt(frozenView, leadRow, frozenColumn));
       return;
     }
     withCurrentValue(value, shouldMoveFocus, this::editSelectedCell);
@@ -2560,7 +2718,7 @@ public final class TableResultView extends JBTableWithResizableCells
   @Override
   public TableCellEditor getCellEditor(int row, int column) {
     ModelIndex<GridRow> rowIdx = ViewIndex.forRow(myResultPanel, isTransposed() ? column : row).toModel(myResultPanel);
-    ModelIndex<GridColumn> columnIdx = ViewIndex.forColumn(myResultPanel, isTransposed() ? row : column).toModel(myResultPanel);
+    ModelIndex<GridColumn> columnIdx = toModelColumn(isTransposed() ? row : column);
     GridCellRequest<GridRow, GridColumn> request = GridCellRequestKt.request(myResultPanel, rowIdx, columnIdx);
     Object currentValue = ClientProperty.get(this, GridTableCellEditor.CURRENT_VALUE_CLIENT_PROPERTY_KEY);
     if (currentValue != null) {
@@ -2592,8 +2750,11 @@ public final class TableResultView extends JBTableWithResizableCells
                           @Nullable Object metadata) {
     boolean allowed = isMultiEditingAllowed();
     TableResultView selectionView = getUnifiedSelectionView();
+    // The selection is read from the view the grid selects in, so a single cell of the strip has to be named there too.
+    int gridColumn = allowed ? viewColumnIdx : toGridViewColumn(viewColumnIdx);
+    if (gridColumn < 0) return;
     int[] rows = allowed ? selectionView.getSelectedRows() : new int[]{viewRowIdx};
-    int[] columns = allowed ? selectionView.getSelectedColumns() : new int[]{viewColumnIdx};
+    int[] columns = allowed ? selectionView.getSelectedColumns() : new int[]{gridColumn};
     ViewIndexSet<GridRow> rowsSet = ViewIndexSet.forRows(myResultPanel, isTransposed() ? columns : rows);
     ViewIndexSet<GridColumn> columnsSet = ViewIndexSet.forColumns(myResultPanel, isTransposed() ? rows : columns);
     GridTableCellEditor editor = ObjectUtils.tryCast(getCellEditor(), GridTableCellEditor.class);
@@ -2736,7 +2897,7 @@ public final class TableResultView extends JBTableWithResizableCells
 
     public @NotNull TableCellRenderer getRenderer(int row, int column) {
       ModelIndex<GridRow> rowIdx = ViewIndex.forRow(myGrid, myResultView.isTransposed() ? column : row).toModel(myGrid);
-      ModelIndex<GridColumn> columnIdx = ViewIndex.forColumn(myGrid, myResultView.isTransposed() ? row : column).toModel(myGrid);
+      ModelIndex<GridColumn> columnIdx = myResultView.toModelColumn(myResultView.isTransposed() ? row : column);
       GridCellRequest<GridRow, GridColumn> request = GridCellRequestKt.request(myGrid, rowIdx, columnIdx);
       GridCellRenderer gridCellRenderer = GridCellRenderer.getRenderer(request);
 
@@ -2762,7 +2923,9 @@ public final class TableResultView extends JBTableWithResizableCells
     public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
       DataGrid grid = delegate.myGrid;
       ViewIndex<GridRow> rowIdx = ViewIndex.forRow(grid, myResultView.isTransposed() ? column : row);
-      ViewIndex<GridColumn> columnIdx = ViewIndex.forColumn(grid, myResultView.isTransposed() ? row : column);
+      // The renderer works in the grid's column space, which is the main table's, not the frozen strip's.
+      ViewIndex<GridColumn> columnIdx =
+        ViewIndex.forColumn(grid, myResultView.toGridViewColumn(myResultView.isTransposed() ? row : column));
       return delegate.getComponent(rowIdx, columnIdx, value);
     }
   }

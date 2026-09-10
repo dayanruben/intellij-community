@@ -2726,10 +2726,13 @@ final class EditorGutterComponentImpl extends EditorGutterComponentEx
 
   @Override
   public @Nullable Point getCenterPoint(@NotNull GutterIconRenderer renderer) {
+    // The x is computed in the painting (logical) space. A mirrored gutter flips that axis, so
+    // convert it to a physical component x. Callers use this point as a component coordinate.
+    // convertX is the identity for a normal gutter.
     if (!areIconsShown()) {
       for (Int2ObjectMap.Entry<List<GutterMark>> entry : processGutterRenderers()) {
         if (ContainerUtil.find(entry.getValue(), renderer) != null) {
-          return new Point(getIconAreaOffset(), getLineCenterY(entry.getIntKey()));
+          return new Point(convertX(getIconAreaOffset()), getLineCenterY(entry.getIntKey()));
         }
       }
     }
@@ -2739,7 +2742,7 @@ final class EditorGutterComponentImpl extends EditorGutterComponentEx
         processIconsRow(entry.getIntKey(), entry.getValue(), (x, y, r) -> {
           if (result.isNull() && r.equals(renderer)) {
             Icon icon = scaleIcon(r.getIcon());
-            result.set(new Point(x + icon.getIconWidth() / 2, y + icon.getIconHeight() / 2));
+            result.set(new Point(convertX(x + icon.getIconWidth() / 2), y + icon.getIconHeight() / 2));
           }
         });
         if (!result.isNull()) {
@@ -3001,11 +3004,14 @@ final class EditorGutterComponentImpl extends EditorGutterComponentEx
         Icon icon = scaleIcon(renderer.getIcon());
         int iconWidth = icon.getIconWidth();
         int centerX = x + iconWidth / 2;
-        xPos.put(x, centerX);
+        // Store the icon center in physical coordinates.
+        // A mirrored gutter flips the x axis, so a logical x is a wrong screen anchor.
+        int centerXOnComponent = convertX(centerX);
+        xPos.put(x, centerXOnComponent);
         int iconHeight = icon.getIconHeight();
         if (x <= cX && cX <= x + iconWidth &&
             y <= p.y && p.y <= y + iconHeight) {
-          result[0] = new PointInfo((GutterIconRenderer)renderer, new Point(centerX, y + iconHeight / 2));
+          result[0] = new PointInfo((GutterIconRenderer)renderer, new Point(centerXOnComponent, y + iconHeight / 2));
         }
       });
       if (result[0] != null) {
@@ -3071,7 +3077,7 @@ final class EditorGutterComponentImpl extends EditorGutterComponentEx
     int iconWidth = icon.getIconWidth();
     int rightX = getIconAreaOffset() + getIconsAreaWidth();
     if (x < rightX - iconWidth || x > rightX) return null;
-    PointInfo pointInfo = new PointInfo(renderer, new Point(rightX - iconWidth / 2,
+    PointInfo pointInfo = new PointInfo(renderer, new Point(convertX(rightX - iconWidth / 2),
                                                             inlayY + getTextAlignmentShiftForInlayIcon(icon, inlay) + iconHeight / 2));
     pointInfo.renderersInLine = 1;
     return pointInfo;

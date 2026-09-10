@@ -1338,6 +1338,7 @@ f:com.intellij.ide.plugins.marketplace.MarketplaceRequestsKt
 c:com.intellij.ide.plugins.newui.ColorButton
 - javax.swing.JButton
 - <init>():V
+- pf:clearCustomColors():V
 - pf:setBgColor(java.awt.Color):V
 - pf:setBorderColor(java.awt.Color):V
 - pf:setFocusedBgColor(java.awt.Color):V
@@ -3491,6 +3492,7 @@ a:com.intellij.openapi.options.CompositeConfigurable
 - <init>():V
 - apply():V
 - getConfigurables():java.util.List
+- bf:getConfigurablesKotlin():java.util.List
 - isModified():Z
 - reset():V
 a:com.intellij.openapi.options.ConfigurableBuilder
