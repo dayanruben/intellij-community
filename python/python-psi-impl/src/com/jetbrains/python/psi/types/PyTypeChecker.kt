@@ -636,9 +636,23 @@ object PyTypeChecker {
       val substitution = if (expected.isDefinition) selfType.toClass() else selfType.toInstance()
       return match(substitution, actual, context).orElse(false)!!
     }
-    if (actual !is PySelfType) return false
+    if (actual !is PySelfType) {
+      // A final class has no subclass, so `Self` in it denotes the class itself. A class with own type parameters
+      // is excluded: `Self` then denotes the class with those parameters, which the bare scope type cannot express.
+      return PyTypingTypeProvider.isFinalClass(expected.pyClass, context.context) &&
+             !hasOwnTypeParameters(expected.pyClass, context.context) &&
+             match(expected.scopeClassType, actual, context).orElse(false)!!
+    }
     return expected.isDefinition == actual.isDefinition &&
            match(expected.scopeClassType, actual.scopeClassType, context).orElse(false)!!
+  }
+
+  /**
+   * Returns true if and only if [cls] declares its own type parameters. A class that only specializes
+   * a generic ancestor, for example `class C(list[int])`, declares none.
+   */
+  private fun hasOwnTypeParameters(cls: PyClass, context: TypeEvalContext): Boolean {
+    return PyTypeProvider.EP_NAME.extensionList.any { it.getGenericType(cls, context) != null }
   }
 
   private fun convertToClass(type: PyType?): PyType? {
@@ -1150,21 +1164,43 @@ object PyTypeChecker {
 
   /**
    * Binds TypeVars from the self parameter annotation of protocol member to [classType].
+   * For an instance, it also replaces `Self` in the member with [classType].
    */
   private fun substituteSelfInProtocolMember(classType: PyClassType, elementType: PyType?, context: TypeEvalContext): PyType? {
     if (elementType !is PyCallableType) return elementType
     val parameters = elementType.getParameters(context)
     if (parameters.isNullOrEmpty() || !parameters.first().isSelf) return elementType
     val selfParamType = parameters.first().getType(context) ?: return elementType
+    if (selfParamType is PySelfType) {
+      // A class object keeps its `Self`. Resolving it breaks the match of a class object against a `__call__` protocol.
+      if (classType.isDefinition) return elementType
+      // Without another `Self`, the member needs no substitution and keeps its function type
+      if (!hasSelfOutsideSelfParameter(elementType, parameters, context)) return elementType
+    }
     val selfSubstitutions = GenericSubstitutions()
+    if (!classType.isDefinition) {
+      selfSubstitutions.selfType = classType
+    }
 
-    /**
-     * Note: intentionally does not propagate [literalInference] into the self-binding sub-context;
-     * binding `self` is a separate concern from the conversion of [convertToType], so this match keeps the widening default.
-     */
-    val selfMatchContext = MatchContext(context, selfSubstitutions, false)
-    if (!match(selfParamType, classType, selfMatchContext).orElse(true)) return elementType
+    // An unannotated `self` has the `Self` type. It binds no type variable, so the self match is skipped.
+    if (selfParamType !is PySelfType) {
+      /**
+       * Note: intentionally does not propagate [literalInference] into the self-binding sub-context;
+       * binding `self` is a separate concern from the conversion of [convertToType], so this match keeps the widening default.
+       */
+      val selfMatchContext = MatchContext(context, selfSubstitutions, false)
+      if (!match(selfParamType, classType, selfMatchContext).orElse(true)) return elementType
+    }
     return substitute(elementType, selfSubstitutions, context) as? PyCallableType ?: elementType
+  }
+
+  private fun hasSelfOutsideSelfParameter(
+    callable: PyCallableType,
+    parameters: List<PyCallableParameter>,
+    context: TypeEvalContext,
+  ): Boolean {
+    return callable.getReturnType(context).collectGenerics(context).self != null ||
+           parameters.asSequence().drop(1).any { it.getType(context).collectGenerics(context).self != null }
   }
 
   // https://typing.python.org/en/latest/spec/tuples.html#type-compatibility-rules

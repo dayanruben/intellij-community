@@ -35,6 +35,7 @@
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.helpersLocator"/>
     <module name="intellij.python.psi"/>
+    <module name="intellij.python.pyproject"/>
     <module name="intellij.python.requirements.backend"/>
     <module name="intellij.python.sdk.backend"/>
     <module name="intellij.toml.core"/>
@@ -200,6 +201,8 @@
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyUnresolvedModuleAttributeCompletionContributor"/>
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyFStringLikeCompletionContributor"/>
+    <completion.contributor language="Python"
+                            implementationClass="com.jetbrains.python.codeInsight.completion.PyFStringFormatSpecCompletionContributor"/>
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyMultipleArgumentsCompletionContributor"/>
     <completion.contributor language="Python"
