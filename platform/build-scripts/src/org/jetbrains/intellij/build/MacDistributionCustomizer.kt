@@ -106,6 +106,16 @@ class MacCustomizerBuilder @PublishedApi internal constructor(private val projec
   var minOSXVersion: String = "10.13"
 
   /**
+   * The UDIF format of the .dmg artifact. See [MacDistributionCustomizer.dmgImageFormat].
+   */
+  var dmgImageFormat: String = "ULFO"
+
+  /**
+   * Paths in the bundled runtime to exclude. See [MacDistributionCustomizer.excludedRuntimePaths].
+   */
+  var excludedRuntimePaths: List<String> = emptyList()
+
+  /**
    * String with declarations of additional file types that should be automatically opened by the application.
    */
   var additionalDocTypes: String = ""
@@ -239,6 +249,8 @@ class MacCustomizerBuilder @PublishedApi internal constructor(private val projec
       @Suppress("DEPRECATION")
       builder.dmgImagePathForEAP?.let { dmgImagePathForEAP = projectHome.resolve(it) }
       minOSXVersion = builder.minOSXVersion
+      dmgImageFormat = builder.dmgImageFormat
+      excludedRuntimePaths = builder.excludedRuntimePaths
       additionalDocTypes = builder.additionalDocTypes
       fileAssociations = builder.fileAssociations
       urlSchemes = builder.urlSchemes
@@ -337,6 +349,19 @@ open class MacDistributionCustomizer {
    * The minimum version of macOS where the product is allowed to be installed.
    */
   var minOSXVersion: String = "10.13"
+
+  /**
+   * The UDIF format of the .dmg artifact, as `hdiutil convert -format` accepts it.
+   * The default ULFO (lzfse) mounts fast. ULMO (lzma) is about 20% smaller, and it mounts on macOS 10.15 or later only.
+   * External tools that parse the .dmg, such as Toolbox Lite-Gen and the patch builder, read only the ULFO format.
+   */
+  var dmgImageFormat: String = "ULFO"
+
+  /**
+   * Paths in the bundled runtime, relative to the runtime home, to exclude from the distribution.
+   * The exclusion applies to the with-runtime zip and to the sit and dmg artifacts built from it.
+   */
+  var excludedRuntimePaths: List<String> = emptyList()
 
   /**
    * String with declarations of additional file types that should be automatically opened by the application.

@@ -335,6 +335,7 @@ java/java-runtime
 java/java-structure-view
 java/java-syntax
 java/java-tests
+java/jdkAnnotations
 java/jsp-base-openapi
 java/jsp-openapi
 java/jsp-spi
@@ -1010,6 +1011,8 @@ platform/starter
 platform/statistics
 platform/statistics/config
 platform/statistics/devkit
+platform/statistics/devkit/backend
+platform/statistics/devkit/frontend
 platform/statistics/envTests
 platform/statistics/testFramework
 platform/statistics/uploader
@@ -1705,6 +1708,7 @@ plugins/sh/markdown
 plugins/sh/plugin
 plugins/sh/python
 plugins/sh/terminal
+plugins/sh/terminal/frontend
 plugins/space/jps-plugin
 plugins/stats-collector
 plugins/stream-debugger

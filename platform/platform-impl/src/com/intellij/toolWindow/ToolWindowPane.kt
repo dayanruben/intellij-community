@@ -30,6 +30,7 @@ import com.intellij.openapi.wm.impl.ToolWindowManagerImpl
 import com.intellij.openapi.wm.impl.ToolWindowManagerImpl.Companion.getAdjustedRatio
 import com.intellij.openapi.wm.impl.ToolWindowManagerImpl.Companion.getRegisteredMutableInfoOrLogError
 import com.intellij.openapi.wm.impl.WindowInfoImpl
+import com.intellij.toolWindow.innerDrag.ToolWindowInnerDragHelper
 import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.JBColor
 import com.intellij.ui.OnePixelSplitter
@@ -412,12 +413,12 @@ class ToolWindowPane private constructor(
     }
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun setDocumentComponent(component: JComponent?) {
     (if (isWideScreen) verticalSplitter else horizontalSplitter).innerComponent = component
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun getDocumentComponent(): JComponent? {
     return (if (isWideScreen) verticalSplitter else horizontalSplitter).innerComponent
   }

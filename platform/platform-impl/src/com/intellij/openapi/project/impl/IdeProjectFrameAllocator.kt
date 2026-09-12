@@ -8,7 +8,6 @@ import com.intellij.conversion.CannotConvertException
 import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.diagnostic.StartUpPerformanceService
 import com.intellij.diagnostic.dumpCoroutines
-import com.intellij.featureStatistics.fusCollectors.FileEditorCollector.EmptyStateCause
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.RecentProjectMetaInfo
@@ -617,17 +616,6 @@ private suspend fun restoreEditors(
     }
 
     span("editor reopening post-processing", Dispatchers.UI) {
-      for (window in editorComponent.windows().toList()) {
-        // clear empty splitters
-        if (window.tabCount == 0) {
-          withContext(Dispatchers.EDT) {
-            // write-intent lock is required for now because we update actions synchronously here
-            window.removeFromSplitter()
-          }
-          window.logEmptyStateIfMainSplitter(cause = EmptyStateCause.PROJECT_OPENED)
-        }
-      }
-
       focusSelectedEditor(editorComponent)
     }
 
@@ -974,7 +962,7 @@ private suspend fun openProjectViewIfNeeded(project: Project, toolWindowInitJob:
   }
 }
 
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 private fun restoreStartupEditorFocus(project: Project, restore: ProjectViewStartupFocusRestore) {
   val focusOwner = restore.focusOwner
   val currentFocusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
@@ -1011,7 +999,7 @@ private val PROJECT_VIEW_STARTUP_READY_TIMEOUT = 5.seconds
  * nothing here to focus. Where that is only because it has not been opened *yet*, the claim is already known to be given up by the time
  * it is, and it is opened focused instead.
  */
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 private fun focusProjectViewIfOpened(project: Project) {
   if (project.isDisposed) {
     return

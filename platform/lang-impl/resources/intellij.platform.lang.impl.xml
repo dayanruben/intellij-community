@@ -864,8 +864,15 @@
     <projectFileScanner implementation="com.intellij.ide.analysisignore.AnalysisIgnoreIndexableFileScanner"/>
     <vfs.asyncListenerBackgroundable implementation="com.intellij.ide.analysisignore.AnalysisIgnoreVfsListener"/>
     <editorFactoryDocumentListener implementation="com.intellij.ide.analysisignore.AnalysisIgnoreDocumentListener"/>
-    <fileIconProvider implementation="com.intellij.ide.analysisignore.AnalysisIgnoreFileIconProvider"/>
+    <fileType name="AnalysisIgnore" language="AnalysisIgnore" fileNames=".analysisignore" fieldName="INSTANCE"
+              implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreFileType"/>
+    <lang.parserDefinition language="AnalysisIgnore"
+                           implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreParserDefinition"/>
+    <lang.syntaxHighlighterFactory language="AnalysisIgnore"
+                                   implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreSyntaxHighlighterFactory"/>
+    <lang.commenter language="AnalysisIgnore" implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreCommenter"/>
     <editorNotificationProvider implementation="com.intellij.ide.analysisignore.AnalysisIgnoreEditorNotificationProvider"/>
+    <statistics.projectUsagesCollector implementation="com.intellij.ide.analysisignore.AnalysisIgnoreUsagesCollector"/>
 
     <projectService serviceImplementation="com.intellij.openapi.file.exclude.ProjectPlainTextFileTypeManager" preload="true"/>
     <fileTypeOverrider implementation="com.intellij.openapi.file.exclude.UserFileTypeOverrider"/>
