@@ -14,7 +14,6 @@ import io.opentelemetry.api.trace.Tracer
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.intellij.build.BuildContext
-import org.jetbrains.intellij.build.BuildHttpSession
 import org.jetbrains.intellij.build.BuildLifetime
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.BuildPaths
@@ -79,7 +78,6 @@ import kotlin.Int
 import kotlin.RuntimeException
 import kotlin.String
 import kotlin.Suppress
-import kotlin.Unit
 import kotlin.also
 import kotlin.checkNotNull
 import kotlin.io.path.createDirectories
@@ -118,6 +116,13 @@ sealed interface DevBuildOutput {
   }
 }
 
+/** What [buildProduct] assembled: the run directory, the IDE main class, and the classpath the launcher starts it with. */
+class DevBuildResult(
+  @JvmField val runDir: Path,
+  @JvmField val mainClass: String,
+  @JvmField val coreClassPath: Set<Path>,
+)
+
 data class BuildRequest(
   @JvmField val platformPrefix: String,
   @JvmField val additionalModules: List<String>,
@@ -133,8 +138,6 @@ data class BuildRequest(
    */
   @JvmField val jarCacheDir: Path? = devRootDir.resolve("jar-cache"),
   @JvmField val classesOutputDirectory: Path? = null,
-  @JvmField val httpSession: BuildHttpSession? = null,
-  @JvmField val platformClassPathConsumer: ((mainClass: String, classPath: Set<Path>, runDir: Path) -> Unit)? = null,
   /**
    * If `true`, the dev build will include a [runtime module repository](psi_element://com.intellij.platform.runtime.repository).
    * It is currently used only to run an instance of JetBrains Client from IDE's installation,
@@ -197,7 +200,6 @@ data class BuildRequest(
       if (classesOutputDirectory != null) {
         append("classesOutputDirectory=$classesOutputDirectory, ")
       }
-      append("borrowedHttpSession=${httpSession != null}, ")
       append("generateRuntimeModuleRepository=$generateRuntimeModuleRepository")
     }
   }
@@ -215,7 +217,7 @@ internal fun buildProductFromProject(
   request: BuildRequest,
   productConfiguration: ProductConfiguration,
   buildOptionsTemplate: BuildOptions,
-): Path {
+): DevBuildResult {
   return buildProduct(request = request) { buildDir, lifetime ->
     createBuildContextFromProject(
       productConfiguration = productConfiguration,
@@ -231,7 +233,7 @@ internal fun buildProductFromProject(
  * Assembles the distribution and blocks until it is complete. The steps are a group of forks, and the lifetime that
  * [createBuildContext] gets owns the caches of the context for the time of the assembly.
  */
-internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: Path, lifetime: BuildLifetime) -> BuildContext): Path {
+internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: Path, lifetime: BuildLifetime) -> BuildContext): DevBuildResult {
   check(request.fragment.isComplete || request.scrambleTool == null) {
     "Split dev distribution assembly does not support scrambling"
   }
@@ -239,10 +241,10 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
   request.scratchDir?.let { prepareScratchDir(it) }
 
   val runDir = buildDir
-  val lifetime = BuildLifetime(request.httpSession)
+  val lifetime = BuildLifetime()
   var contextToClose: BuildContext? = null
   try {
-    taskScope {
+    return taskScope {
       val context = createBuildContext(buildDir, lifetime)
       contextToClose = context
       // Prunes stale entries before the layout starts to use the cache.
@@ -409,15 +411,12 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
         platformClasspath + coreClasspathFromPlugins
       }
 
-      // Write and publish the one classpath computation shared with the component manifest below.
-      fork("publish core classpath") {
-        val classPath = coreClassPathDeferred.await()
-        if (request.writeCoreClasspath && request.fragment.isComplete) {
-          val classPathString = formatCoreClasspath(classPath = classPath, runDir = runDir)
+      // The one classpath computation, shared with the component manifest below and with the result.
+      if (request.writeCoreClasspath && request.fragment.isComplete) {
+        fork("write core classpath") {
+          val classPathString = formatCoreClasspath(classPath = coreClassPathDeferred.await(), runDir = runDir)
           Files.writeString(runDir.resolve("core-classpath.txt"), classPathString)
         }
-
-        request.platformClassPathConsumer?.invoke(context.ideMainClassName, classPath, runDir)
       }
 
       val postProcessJob = fork("post-process distribution") {
@@ -548,7 +547,6 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
             platformDistributionEntriesDeferred = platformLayoutResultDeferred,
             pluginDistributionEntriesDeferred = pluginDistributionEntriesDeferred,
             runDir = runDir,
-            projectDir = request.projectDir,
           )
         }
         else {
@@ -568,6 +566,7 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
         }
       }
       join()
+      DevBuildResult(runDir = runDir, mainClass = context.ideMainClassName, coreClassPath = coreClassPathDeferred.await())
     }
   }
   finally {
@@ -576,7 +575,6 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
     // close debug logging to prevent locking of the output directory on Windows
     contextToClose?.messages?.close()
   }
-  return runDir
 }
 
 /**
@@ -722,11 +720,11 @@ private fun layOutNativeBinFiles(
   return copied
 }
 
-// paths are written relative to the IDE home dir to keep the built IDE relocatable;
-// an entry outside of the home dir stays absolute, because a `..`-prefixed path would break relocation
+/** Paths are written relative to the IDE home dir, so that the built IDE stays relocatable. */
 internal fun formatCoreClasspath(classPath: Collection<Path>, runDir: Path): String {
   return classPath.joinToString(separator = "\n") {
-    if (it.startsWith(runDir)) it.relativeTo(runDir).invariantSeparatorsPathString else it.invariantSeparatorsPathString
+    check(it.startsWith(runDir)) { "Core classpath entry $it is outside of the run directory $runDir" }
+    it.relativeTo(runDir).invariantSeparatorsPathString
   }
 }
 
@@ -734,11 +732,10 @@ private fun computeIdeFingerprint(
   platformDistributionEntriesDeferred: Awaitable<PlatformLayoutResult>,
   pluginDistributionEntriesDeferred: Awaitable<PluginsLayoutResult>,
   runDir: Path,
-  projectDir: Path,
 ) {
   val entries = platformDistributionEntriesDeferred.await().distributionEntries.asSequence() +
                 pluginDistributionEntriesDeferred.await().pluginEntries.asSequence().flatMap { it.distribution.asSequence() }
-  writeIdeFingerprint(entries = entries, runDir = runDir, projectDir = projectDir)
+  writeIdeFingerprint(entries = entries, runDir = runDir)
 }
 
 private fun getSearchableOptionSet(context: CompilationContext): SearchableOptionSetDescriptor? {
@@ -834,8 +831,7 @@ internal fun BuildOptions.copyWithDevBuildOverrides(
     useReleaseCycleRelatedBundlingRestrictions = false,
     printFreeSpace = false,
     validateImplicitPlatformModule = false,
-    skipDependencySetup = true,
-    skipCheckOutputOfPluginModules = true,
+    checkOutputOfPluginModules = true,
     validateModuleStructure = false,
     cleanOutDir = false,
     outRootDir = buildDir,
@@ -845,7 +841,6 @@ internal fun BuildOptions.copyWithDevBuildOverrides(
 }
 
 internal fun configureDevModeBuildOptions(options: BuildOptions, request: BuildRequest, buildOptionsTemplate: BuildOptions) {
-  options.setTargetOsAndArchToCurrent()
   options.buildStepsToSkip += listOf(
     BuildOptions.PREBUILD_SHARED_INDEXES,
     BuildOptions.FUS_METADATA_BUNDLE_STEP,
