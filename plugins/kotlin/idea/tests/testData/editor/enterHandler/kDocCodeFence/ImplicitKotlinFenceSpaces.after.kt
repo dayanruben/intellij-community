@@ -3,7 +3,7 @@
 /**
  * ```
  *
- *<caret>
+ * <caret>
  * ```
  */
 fun implicitKotlinFenceSpaces() {}
